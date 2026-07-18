@@ -1,0 +1,227 @@
+[
+  {
+    "id": "operation-search-formdata-v2",
+    "operationId": "searchFormDatasV2",
+    "summary": "搜索表单实例数据V2",
+    "description": "查询宜搭表单实例数据，支持条件筛选、分页、排序（V2版本）",
+    "url": "v2.0/yida/forms/instances/search",
+    "method": "post",
+    "inputs": [
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "defaultValue": "application/json",
+            "desc": "Content-Type",
+            "name": "Content-Type",
+            "required": false
+          }
+        ],
+        "desc": "请求头",
+        "name": "Headers",
+        "paramType": "Object",
+        "required": false
+      },
+      {
+        "defaultValue": "{\n  \"appType\" : \"APP_PBKT0MFBEBTDO8T7SLVP\",\n  \"systemToken\" : \"hexxx\",\n  \"userId\" : \"173112212211\",\n  \"formUuid\" : \"FORM-EF6Y4G8WO2FN0SUB43TDQ3CGC3FMFQ1G9400RCJ3\",\n  \"searchFieldJson\" : \"{\\\"textField_jcr0069m\\\":\\\"danhang\\\"}\",\n  \"currentPage\" : 1,\n  \"pageSize\" : 10,\n  \"createFromGMT\" : \"2018-01-01\",\n  \"createToGMT\" : \"2018-02-01\",\n  \"updateFromGMT\" : \"2018-01-01\",\n  \"updateToGMT\" : \"2018-02-01\",\n  \"dynamicOrder\" : \"{\\\"numberField_1ac\\\":\\\"+\\\"}\"\n}",
+        "desc": "请求体",
+        "name": "Body",
+        "paramType": "Object",
+        "required": false,
+        "childList": [
+          {
+            "_key": "searchFormDatasV2%appType",
+            "name": "appType",
+            "paramType": "String",
+            "desc": "宜搭应用 appType",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false,
+            "required": true
+          },
+          {
+            "_key": "searchFormDatasV2%systemToken",
+            "name": "systemToken",
+            "paramType": "String",
+            "desc": "应用秘钥",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false,
+            "required": true
+          },
+          {
+            "_key": "searchFormDatasV2%userId",
+            "name": "userId",
+            "paramType": "String",
+            "desc": "用户ID",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false,
+            "required": true
+          },
+          {
+            "_key": "searchFormDatasV2%formUuid",
+            "name": "formUuid",
+            "paramType": "String",
+            "desc": "表单ID",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false,
+            "required": true
+          },
+          {
+            "_key": "searchFormDatasV2%searchFieldJson",
+            "name": "searchFieldJson",
+            "paramType": "String",
+            "desc": "查询条件(JSON字符串)",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%currentPage",
+            "name": "currentPage",
+            "paramType": "Number",
+            "desc": "当前页码",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%pageSize",
+            "name": "pageSize",
+            "paramType": "Number",
+            "desc": "每页条数",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%createFromGMT",
+            "name": "createFromGMT",
+            "paramType": "String",
+            "desc": "创建时间开始",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%createToGMT",
+            "name": "createToGMT",
+            "paramType": "String",
+            "desc": "创建时间结束",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%updateFromGMT",
+            "name": "updateFromGMT",
+            "paramType": "String",
+            "desc": "修改时间开始",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%updateToGMT",
+            "name": "updateToGMT",
+            "paramType": "String",
+            "desc": "修改时间结束",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%dynamicOrder",
+            "name": "dynamicOrder",
+            "paramType": "String",
+            "desc": "排序规则(JSON)",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          }
+        ]
+      }
+    ],
+    "parameters": {
+      "header": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "default": "{\n  \"appType\" : \"APP_PBKT0MFBEBTDO8T7SLVP\",\n  \"systemToken\" : \"hexxx\",\n  \"userId\" : \"173112212211\",\n  \"formUuid\" : \"FORM-EF6Y4G8WO2FN0SUB43TDQ3CGC3FMFQ1G9400RCJ3\",\n  \"searchFieldJson\" : \"{\\\"textField_jcr0069m\\\":\\\"danhang\\\"}\",\n  \"currentPage\" : 1,\n  \"pageSize\" : 10,\n  \"createFromGMT\" : \"2018-01-01\",\n  \"createToGMT\" : \"2018-02-01\",\n  \"updateFromGMT\" : \"2018-01-01\",\n  \"updateToGMT\" : \"2018-02-01\",\n  \"dynamicOrder\" : \"{\\\"numberField_1ac\\\":\\\"+\\\"}\"\n}"
+      }
+    },
+    "responses": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "description": "data"
+        },
+        "totalCount": {
+          "type": "string",
+          "description": "totalCount"
+        },
+        "currentPage": {
+          "type": "string",
+          "description": "currentPage"
+        }
+      }
+    },
+    "outputs": [
+      {
+        "defaultValue": "{\"data\": [], \"totalCount\": 0, \"currentPage\": 1}",
+        "desc": "响应体结构",
+        "name": "Response",
+        "paramType": "Object",
+        "required": false,
+        "childList": [
+          {
+            "_key": "searchFormDatasV2%data",
+            "name": "data",
+            "paramType": "Array",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%totalCount",
+            "name": "totalCount",
+            "paramType": "Number",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatasV2%currentPage",
+            "name": "currentPage",
+            "paramType": "Number",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          }
+        ]
+      }
+    ],
+    "origin": true
+  }
+]

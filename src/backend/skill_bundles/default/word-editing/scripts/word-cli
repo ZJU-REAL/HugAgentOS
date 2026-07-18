@@ -1,0 +1,76 @@
+#!/bin/sh
+# word-cli — global shim that routes to the word-editing skill's Python CLI
+# (``scripts/cli.py``). Installed at /usr/local/bin/word-cli inside the
+# sandbox and mcp container images so the agent can call ``word-cli edit …``
+# without bookkeeping a long path.
+#
+# Resolution order (first existing wins):
+#   1. /workspace/skills/word-editing/scripts/cli.py
+#      — where ``register_bash`` materializes loaded skill files inside the
+#        sandbox at runtime.
+#   2. ${SKILL_DIR}/scripts/cli.py
+#      — escape hatch for callers that pin an explicit skill dir.
+#   3. /app/src/backend/agent_skills/skills/word-editing/scripts/cli.py
+#      — the canonical in-repo path; works in the mcp / backend containers.
+#   4. <this file>/../cli.py
+#      — last-resort sibling lookup, e.g. when this shim is symlinked into
+#        the user's PATH from a checkout.
+set -e
+
+resolve_self() {
+    target="$0"
+    while [ -L "$target" ]; do
+        link=$(readlink "$target") || break
+        case "$link" in
+            /*) target="$link" ;;
+            *)  target="$(dirname "$target")/$link" ;;
+        esac
+    done
+    dirname "$target"
+}
+
+candidates="
+/workspace/skills/word-editing/scripts/cli.py
+${SKILL_DIR:-}/scripts/cli.py
+/app/src/backend/agent_skills/skills/word-editing/scripts/cli.py
+$(resolve_self 2>/dev/null)/cli.py
+"
+
+# Pick the right python3. In the opensandbox runtime the
+# /opt/python/versions/cpython-*-linux-*-gnu/bin/python3 install is the one
+# that has office_lib / docx / pptx / etc. installed (see Dockerfile.opensandbox).
+# The system /usr/bin/python3 has none of these. The session ENTRYPOINT
+# normally fixes PATH, but harden the shim so it works no matter how we're
+# invoked (direct docker run, ad-hoc exec, etc).
+pick_python() {
+    if [ -n "${PY_BIN:-}" ] && [ -x "$PY_BIN" ]; then
+        echo "$PY_BIN"
+        return
+    fi
+    for py in /opt/python/versions/cpython-*-linux-*-gnu/bin/python3; do
+        if [ -x "$py" ]; then
+            echo "$py"
+            return
+        fi
+    done
+    echo "python3"
+}
+PY="$(pick_python)"
+
+for candidate in $candidates; do
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+        exec "$PY" "$candidate" "$@"
+    fi
+done
+
+cat >&2 <<'EOF'
+word-cli: cannot locate the word-editing skill's scripts/cli.py.
+Searched (first match wins):
+  - /workspace/skills/word-editing/scripts/cli.py
+  - $SKILL_DIR/scripts/cli.py
+  - /app/src/backend/agent_skills/skills/word-editing/scripts/cli.py
+  - <shim's directory>/cli.py
+If you're outside the sandbox / containers, point SKILL_DIR at the skill root
+or invoke the underlying script directly: python <skill_dir>/scripts/cli.py
+EOF
+exit 127

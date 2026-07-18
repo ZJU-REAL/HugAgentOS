@@ -1,0 +1,23 @@
+{
+  "slug": "feishu-kb-search",
+  "entry_name": "feishu-kb-search",
+  "display_name": "飞书知识库检索",
+  "summary": "检索飞书（Lark）知识库 / 企业内部 Wiki 回答问题，实时查、永远最新；通常是本智能体唯一的知识库。用户抛出一个待回答的问题、默认你了解其公司/部门/项目/服务器的具体情况，而答案只可能写在内部文档时就用本技能——制度规范、内部流程、服务器怎么连、项目进展、团队周报/手册/台账，或直接说\"查知识库\"\"内部资料\"，哪怕没提飞书也触发。读知识库目录做索引导航，命中内容按类型（文档/电子表格/多维表格/画板）读取作答并附来源链接。给了文档 URL/token 要打开或改的走 lark-doc；不用于通用百科联网搜索。",
+  "category": "效率工具",
+  "tags": [
+    "飞书",
+    "知识库",
+    "Wiki",
+    "实时检索"
+  ],
+  "version": "1.0.0",
+  "author": "官方内置",
+  "icon_url": "",
+  "source": "builtin",
+  "source_url": "",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

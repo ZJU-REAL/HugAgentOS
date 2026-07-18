@@ -1,0 +1,22 @@
+{
+  "slug": "doc-format-gw",
+  "entry_name": "doc-format-gw",
+  "display_name": "机关公文排版",
+  "summary": "公文排版工具 - 根据公文格式规范自动排版Word文档。适用于发送Word文件前进行格式调整。",
+  "category": "写作助手",
+  "tags": [
+    "公文排版",
+    "Word",
+    "格式规范"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/doc-format-gw",
+  "downloads": 3006,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

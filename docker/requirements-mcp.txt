@@ -1,0 +1,16 @@
+# Extra dependencies for the dedicated `mcp` container.
+#
+# Installed ON TOP of `requirements.txt` (in `docker/Dockerfile.mcp`). The base
+# `requirements.txt` already carries openpyxl + python-pptx (backend's
+# file_parser needs them in-process); this file adds only what the MCP
+# servers import beyond that:
+#   - matplotlib / Pillow → generate_chart_tool_mcp
+#   - python-docx         → report_export_mcp (markdown→docx path)
+#
+# Office document *editing* moved to the word / excel / pdf / ppt skills —
+# they run in the opensandbox container and vendor their own engines, so
+# pypdf / pdfplumber / reportlab / LibreOffice / .NET / Node are NOT here.
+
+matplotlib>=3.8.0
+Pillow>=10.0.0
+python-docx>=1.1.0

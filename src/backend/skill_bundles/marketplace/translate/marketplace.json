@@ -1,0 +1,22 @@
+{
+  "slug": "translate",
+  "entry_name": "translate",
+  "display_name": "专业翻译",
+  "summary": "准确翻译并保留原文格式：占位符与代码不误译、术语全篇一致、按目标语言处理复数/敬语/单位换算，适合外事外贸材料",
+  "category": "文档处理",
+  "tags": [
+    "翻译",
+    "本地化",
+    "格式保留"
+  ],
+  "version": "1.0.0",
+  "author": "ivangdavila",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/translate",
+  "downloads": 12378,
+  "stars": 11,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

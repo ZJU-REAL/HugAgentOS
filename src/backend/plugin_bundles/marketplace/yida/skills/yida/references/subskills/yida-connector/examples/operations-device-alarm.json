@@ -1,0 +1,81 @@
+[
+  {
+    "id": "operation-device-alarm",
+    "operationId": "sendDeviceAlarm",
+    "summary": "发送设备告警",
+    "description": "向设备告警系统发送告警信息",
+    "url": "m1/3182201-1770084-default/yidames/device-alarm",
+    "method": "post",
+    "inputs": [
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "defaultValue": "application/json",
+            "desc": "Content-Type",
+            "name": "Content-Type",
+            "required": false
+          }
+        ],
+        "desc": "请求头",
+        "name": "Headers",
+        "paramType": "Object",
+        "required": false
+      },
+      {
+        "defaultValue": "[{\"name\": \"告警名称示例\"}]",
+        "desc": "请求体",
+        "name": "Body",
+        "paramType": "Object",
+        "required": false,
+        "childList": [
+          {
+            "_key": "sendDeviceAlarm%name",
+            "name": "name",
+            "paramType": "String",
+            "desc": "告警名称",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          }
+        ]
+      }
+    ],
+    "parameters": {
+      "header": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "body": {
+        "default": "[{\"name\": \"告警名称示例\"}]"
+      }
+    },
+    "responses": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "响应码"
+        },
+        "message": {
+          "type": "string",
+          "description": "响应消息"
+        }
+      }
+    },
+    "outputs": [
+      {
+        "defaultValue": "{}",
+        "desc": "响应体结构",
+        "name": "Response",
+        "paramType": "Object",
+        "required": false,
+        "childList": []
+      }
+    ],
+    "origin": true
+  }
+]

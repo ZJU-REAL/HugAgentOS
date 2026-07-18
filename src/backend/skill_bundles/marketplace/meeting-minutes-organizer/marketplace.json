@@ -1,0 +1,22 @@
+{
+  "slug": "meeting-minutes-organizer",
+  "entry_name": "meeting-minutes-organizer",
+  "display_name": "会议纪要整理",
+  "summary": "将零散会议记录、语音转写或聊天记录智能整理为结构化会议纪要：议题、决议、待办、责任人和截止日期一目了然",
+  "category": "办公效率",
+  "tags": [
+    "会议纪要",
+    "待办提取",
+    "决议跟踪"
+  ],
+  "version": "1.0.0",
+  "author": "yongjie666888",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/meeting-minutes-organizer",
+  "downloads": 3839,
+  "stars": 2,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

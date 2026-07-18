@@ -1,0 +1,35 @@
+{
+  "name": "automation",
+  "version": "1.0.0",
+  "display_name": "定时任务管理",
+  "description": "在对话里用自然语言管理定时任务：创建、查看、修改、暂停、恢复、删除；结果可投递到站内或飞书等渠道会话（多目标）。装上后智能体即可调度周期任务。",
+  "category": "效率工具",
+  "author": "HugAgentOS",
+  "components": {
+    "skills": ["scheduled-tasks"],
+    "mcp": ["automation_task"],
+    "prompts": []
+  },
+  "default_enabled": {
+    "skills": ["scheduled-tasks"],
+    "mcp": ["automation_task"]
+  },
+  "mcpServers": {
+    "automation_task": {
+      "transport": "streamable_http",
+      "url": "http://mcp:9108/mcp/",
+      "display_name": "定时任务",
+      "description": "创建/查看/修改/暂停/恢复/删除定时任务，结果投递到站内或飞书等渠道会话。",
+      "tools": [
+        {"name": "create_scheduled_task", "description": "创建一个定时/周期任务。到点后系统自动执行你给定的 prompt 指令，并把结果投递出去。\n\n参数：\n· cron_expression：标准 5 段 cron「分 时 日 月 周」，按 Asia/Shanghai 时区。例：每天 9:00 = \"0 9 * * *\"；每周一 9:00 = \"0 9 * * 1\"；每小时整点 = \"0 * * * *\"；每 5 分钟 = \"*/5 * * * *\"。\n· prompt：到点要执行的完整自包含指令（执行时没有当前对话上下文，需写清做什么、产出什么）。\n· name：任务名称（可选）。\n· deliver_to：结果发到哪，一般留空。留空 = 自动（在飞书等渠道会话里创建就推回该会话；在网页里创建就到点生成一条站内侧栏会话，与在「自动化」页面手动建任务一致）。也可填 \"inapp\" 只发站内；或填某个会话的 conversation_id 发到指定的另一个渠道会话。"},
+        {"name": "list_channel_conversations", "description": "列出你的渠道机器人（飞书等）产生过的会话（群聊 / 私聊），返回每个会话的标题与 conversation_id。当你想把定时任务结果发到「别的」会话（而非当前会话）时，先用本工具拿到目标会话的 conversation_id，再作为 create_scheduled_task 的 deliver_to 传入。"},
+        {"name": "list_scheduled_tasks", "description": "列出你当前的定时任务，包含任务 ID、名称、cron 表达式、下次执行时间、状态（生效中 / 已暂停 / 已完成）以及投递目标。可按状态筛选（active / paused / all）。"},
+        {"name": "get_scheduled_task", "description": "查看某个定时任务的完整详情，以及它最近几次的执行记录（成功或失败、执行时间、结果摘要）。可用任务 ID 或任务名称定位；名称匹配到多个时会让你确认。"},
+        {"name": "update_scheduled_task", "description": "修改一个已有的定时任务：可改执行时间（cron）、执行内容（prompt）或任务名称，只改你指定的字段，其余不变。可用任务 ID 或名称定位。"},
+        {"name": "pause_scheduled_task", "description": "暂停一个定时任务。暂停后到点不再触发，但任务本身保留，之后可用 resume_scheduled_task 恢复。可用任务 ID 或名称定位。"},
+        {"name": "resume_scheduled_task", "description": "恢复一个之前被暂停的定时任务，使其重新按 cron 到点触发。可用任务 ID 或名称定位。"},
+        {"name": "delete_scheduled_task", "description": "彻底删除 / 取消一个定时任务，删除后不可恢复。可用任务 ID 或名称定位；若名称匹配到多个任务，会先要求你确认是哪一个，不会盲删。"}
+      ]
+    }
+  }
+}

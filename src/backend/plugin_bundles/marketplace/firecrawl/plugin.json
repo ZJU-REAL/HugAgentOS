@@ -1,0 +1,54 @@
+{
+  "name": "firecrawl",
+  "version": "1.0.0",
+  "display_name": "Firecrawl·网页抓取检索",
+  "description": "Firecrawl 官方技能套件：把任意网页抓成 LLM 友好的 markdown，支持网页搜索、单页抓取、站点地图、整站爬取、AI 结构化抽取、浏览器交互、本地文件解析、整站下载、变化监控。沙箱内预装 firecrawl CLI，凭据由管理员在本插件详情里统一配置（云版 API Key 或自托管地址，两种皆可），用户无需自行配置。",
+  "category": "信息处理",
+  "admin_config": {
+    "mode": "any",
+    "group": "firecrawl",
+    "hint": "云版填 API Key，或自托管填实例地址（二选一即可，也可都填）。配置后全体用户即可直接使用。",
+    "fields": [
+      {
+        "key": "firecrawl.api_key",
+        "label": "Firecrawl API Key",
+        "secret": true,
+        "description": "firecrawl 云版 API Key（fc- 开头），在 firecrawl.dev 注册获取。用自托管实例时可留空。"
+      },
+      {
+        "key": "firecrawl.api_url",
+        "label": "Firecrawl 自托管地址",
+        "secret": false,
+        "description": "自托管 firecrawl 实例地址（如 http://firecrawl:3002）。填了即走自建实例、CLI 跳过云端鉴权；用云版时留空。"
+      }
+    ]
+  },
+  "components": {
+    "skills": [
+      "search",
+      "scrape",
+      "map",
+      "crawl",
+      "agent",
+      "interact",
+      "monitor",
+      "parse",
+      "download",
+      "cli"
+    ]
+  },
+  "default_enabled": {
+    "skills": [
+      "search",
+      "scrape",
+      "map",
+      "crawl",
+      "agent",
+      "interact",
+      "monitor",
+      "parse",
+      "download",
+      "cli"
+    ]
+  }
+}

@@ -1,0 +1,83 @@
+# 数据脱敏工具配置文件
+# 支持自定义：单位后缀、白名单列、黑名单列、脱敏排除规则
+
+# ── 自定义单位后缀 ──
+# 将自动追加到内置单位列表（万元、亿美元...）之后
+custom_units:
+  # - "人次"
+  # - "笔订单"
+  # - "亿元RMB"
+
+# ── 自动列检测规则 ──
+column_rules:
+  # 白名单：不管是否数值，强制脱敏这些列（正则匹配列名）
+  force_mask_patterns:
+    # - "金额"
+    # - ".*收入"
+    # - "工资$"
+
+  # 黑名单：数值列也跳过脱敏（正则匹配列名）
+  skip_patterns:
+    - "^id$"
+    - "^ID$"
+    - "^序号$"
+    - "^编号$"
+    - "^年份$"
+    - "^年度$"
+    - "^月$"
+    - "^季度$"
+    - "^排名$"
+    - "^排序$"
+    - "^百分比$"
+    - "^占比$"
+
+# ── 脱敏排除规则 ──
+skip_rules:
+  # 是否跳过电话号码格式 (11位手机号)
+  skip_phone: false
+
+  # 排除特定格式的正则列表
+  skip_patterns:
+    # - "^\\d{18}$"   # 18位身份证号
+    # - "^\\d{6}$"    # 邮编
+
+# ── 默认参数 ──
+defaults:
+  strategy: hash        # 默认脱敏策略: hash | placeholder | blur | range
+  seed: 42              # 默认随机种子
+  auto_detect_numeric: true  # DataFrame 脱敏时是否自动检测数值列
+
+# ── PDF 输出设置 ──
+pdf:
+  # 默认输出格式: pdf (生成新PDF) 或 txt (纯文本)
+  output_format: pdf
+  # PDF 中文字体路径（留空则自动查找系统字体）
+  cjk_font_path: ""
+  # 字体大小
+  font_size: 10
+
+# ── 图片 OCR 设置 ──
+ocr:
+  # 默认识别语言 (Tesseract 语言代码)
+  # chi_sim+eng = 简体中文 + 英文（推荐）
+  # eng         = 纯英文
+  # chi_sim     = 纯简体中文
+  # jpn+eng     = 日文 + 英文
+  default_lang: chi_sim+eng
+  # Windows 上 Tesseract 安装路径的候选列表（留空则用默认）  
+  tesseract_cmd_candidates:
+    - "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+    - "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe"
+
+# ── 未知格式处理 ──
+fallback:
+  # 遇到未识别格式时，是否自动尝试文本读取并脱敏
+  auto_attempt_text: true
+  # 文本读取尝试的编码顺序
+  encodings:
+    - utf-8
+    - gbk
+    - gb2312
+    - latin-1
+  # 回退输出格式（始终为 txt）
+  output_format: txt

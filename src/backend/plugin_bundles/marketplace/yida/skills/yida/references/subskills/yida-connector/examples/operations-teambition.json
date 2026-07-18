@@ -1,0 +1,65 @@
+[
+  {
+    "id": "operation-teambition-test",
+    "operationId": "testTeambitionConnection",
+    "summary": "测试 Teambition 连接",
+    "description": "测试 Teambition API 连接是否正常",
+    "url": "api/v1/projects",
+    "method": "get",
+    "inputs": [
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "defaultValue": "application/json",
+            "desc": "Content-Type",
+            "name": "Content-Type",
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "AccessToken",
+            "name": "xAcsDingtalkAccessToken",
+            "required": true
+          }
+        ],
+        "desc": "请求头",
+        "name": "Headers",
+        "paramType": "Object",
+        "required": false
+      }
+    ],
+    "parameters": {
+      "header": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ]
+    },
+    "responses": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "响应码"
+        },
+        "data": {
+          "type": "array",
+          "description": "项目列表"
+        }
+      }
+    },
+    "outputs": [
+      {
+        "defaultValue": "{}",
+        "desc": "响应体结构",
+        "name": "Response",
+        "paramType": "Object",
+        "required": false,
+        "childList": []
+      }
+    ],
+    "origin": true
+  }
+]

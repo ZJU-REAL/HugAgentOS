@@ -1,0 +1,34 @@
+{
+  "name": "skill-manager",
+  "version": "1.0.0",
+  "display_name": "技能管理",
+  "description": "在对话里用自然语言管理技能：搜索并安装技能市场里的技能、用打包的 skill-creator 技能从零创建你自己的私有技能、编辑修改已有私有技能的内容、把私有技能申请上架到技能市场、查看/删除你的技能，也支持给一个 web 链接从中下载并安装技能或插件。装上后智能体即可原生地创建、编辑、管理、删除、申请上架技能。",
+  "category": "效率工具",
+  "author": "HugAgentOS",
+  "components": {
+    "skills": ["skill-creator"],
+    "mcp": ["skill_manager"],
+    "prompts": []
+  },
+  "default_enabled": {
+    "skills": ["skill-creator"],
+    "mcp": ["skill_manager"]
+  },
+  "mcpServers": {
+    "skill_manager": {
+      "transport": "streamable_http",
+      "url": "http://mcp:9112/mcp/",
+      "display_name": "技能管理",
+      "description": "搜索/安装技能市场、把沙箱里创作好的技能落库成私有技能、申请上架市场、查看/删除我的技能。身份走 X-Current-User-Id 头，所有写操作按用户归属。",
+      "tools": [
+        {"name": "search_marketplace", "description": "搜索技能市场，返回匹配的可安装技能列表（slug/名称/简介/分类/是否已安装）。用户想'看看有没有现成的 X 技能 / 技能市场里有什么 / 找一个能做 Y 的技能'时调用。query=关键词（留空列全部），category=按分类过滤。找到目标后用 install_from_marketplace(slug) 安装。"},
+        {"name": "install_from_marketplace", "description": "从技能市场安装一个技能到'我的私有技能库'，装完即可在对话中使用。用户说'装上那个技能 / 安装 X 技能 / 把它加到我的能力里'时调用。slug 取自 search_marketplace。若技能需要凭据（返回缺凭据报错），先向用户要，再把 required_secrets 对应的 key/value 放进 secrets 后重试。需要管理员开启'自助添加技能'权限。"},
+        {"name": "register_skill", "description": "把在沙箱里创作好的技能'存进我的技能库'（创建私有技能）。配合 skill-creator 技能：先在沙箱 /workspace 产出技能目录→tar 打包→调 sandbox_get_artifact 取得 artifact_id→把 artifact_id 传给本工具落库。也用于'从 web 链接安装'（沙箱内 curl 下载并打包后走本工具；含 plugin.json 的包会自动按插件导入）。自助入口始终落成当前用户私有技能；需要'自助添加技能'权限。"},
+        {"name": "list_my_skills", "description": "列出'我的私有技能'（skill_id/名称/版本/启用状态）。用户问'我有哪些自己的技能 / 我创建过什么技能 / 管理我的技能'时调用。拿到 skill_id 后可 submit_to_marketplace 申请上架或 delete_skill 删除。"},
+        {"name": "submit_to_marketplace", "description": "把我的私有技能申请上架到技能市场（进管理员审核队列，通过后其他人可安装）。用户说'把我的技能分享出去 / 申请上架 / 发布到市场'时调用。skill_id 取自 list_my_skills。category 必须从这 8 个固定值里挑一个：写作助手/文档处理/数据分析/政策产业/营销创意/法务合规/办公效率/研发效率。summary=一句话简介，note=给审核管理员的说明。这是申请、非直接上架。需要'自助添加技能'权限。"},
+        {"name": "delete_skill", "description": "删除'我的一个私有技能'（不可恢复）。skill_ref 传 skill_id 或技能名称。用户说'删掉我的 X 技能 / 移除那个技能'时调用。匹配到多个时必须先向用户确认，禁止猜删。只能删自己的私有技能。"},
+        {"name": "edit_skill", "description": "修改'我的一个已有私有技能'的内容（无需删了重建）。skill_ref 传 skill_id 或技能名称。用户说'改一下我那个 X 技能 / 把技能描述/正文/名字改成…… / 给技能加个文件 / 更新技能里的脚本'时调用。只更新传入的字段，未传的保持原样：display_name/description/instructions(技能正文)/tags/version，以及 files_upsert(新增或覆盖附属文件 {文件名:文本})/files_delete(删附属文件)。技能 id 不可改；匹配到多个时必须先让用户指明，禁止猜改。只能改自己的私有技能。需要'自助添加技能'权限。"}
+      ]
+    }
+  }
+}

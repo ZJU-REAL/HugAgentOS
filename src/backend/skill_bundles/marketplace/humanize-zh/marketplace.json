@@ -1,0 +1,22 @@
+{
+  "slug": "humanize-zh",
+  "entry_name": "humanize-zh",
+  "display_name": "中文去 AI 味",
+  "summary": "将AI生成的机械化文本转换为自然、有人情味的人类写作风格",
+  "category": "写作助手",
+  "tags": [
+    "去AI味",
+    "自然表达",
+    "人味改写"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/humanize-zh",
+  "downloads": 10687,
+  "stars": 0,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

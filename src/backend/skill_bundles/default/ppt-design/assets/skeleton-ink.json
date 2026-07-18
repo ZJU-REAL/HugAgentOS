@@ -1,0 +1,460 @@
+{
+ "title": "产业链协同发展行动方案",
+ "theme": "ink_chinese",
+ "slides": [
+  {
+   "type": "cover",
+   "title": "产业链协同发展行动方案",
+   "subtitle": "面向 2026 的路径设计与重点任务",
+   "kicker": "Strategy Briefing",
+   "body": "战略研究部 · 2026.06"
+  },
+  {
+   "type": "toc",
+   "title": "目录",
+   "items": [
+    "背景与形势",
+    "总体思路",
+    "重点任务",
+    "保障措施"
+   ]
+  },
+  {
+   "type": "section",
+   "title": "背景与形势",
+   "number": "01",
+   "kicker": "Context"
+  },
+  {
+   "vertical": [
+    "本秀于林",
+    "风必摧之"
+   ],
+   "seal": "印",
+   "type": "content"
+  },
+  {
+   "statement": "以强链为主线,三年再造一个千亿级集群。",
+   "attribution": "行动方案总纲",
+   "type": "content"
+  },
+  {
+   "title": "统计口径",
+   "kicker": "SPEC",
+   "defs": [
+    {
+     "term": "统计口径",
+     "value": "规上工业企业"
+    },
+    {
+     "term": "覆盖范围",
+     "value": "全市10区县"
+    },
+    {
+     "term": "数据来源",
+     "value": "行业主管部门+统计局"
+    },
+    {
+     "term": "更新频率",
+     "value": "季度"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "实施时间表",
+   "kicker": "ROADMAP",
+   "steps": [
+    {
+     "title": "Q1 启动",
+     "desc": "方案落地"
+    },
+    {
+     "title": "Q2 攻坚",
+     "desc": "项目开工"
+    },
+    {
+     "title": "Q3 深化",
+     "desc": "试点推广"
+    },
+    {
+     "title": "Q4 评估",
+     "desc": "成效迭代"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "quote": "把不确定的未来,拆成今天能落地的一步。",
+   "author": "战略研究部",
+   "type": "content"
+  },
+  {
+   "title": "三步走",
+   "kicker": "STEPS",
+   "numbered": [
+    {
+     "title": "诊断",
+     "desc": "摸清家底"
+    },
+    {
+     "title": "设计",
+     "desc": "路径规划"
+    },
+    {
+     "title": "攻坚",
+     "desc": "项目落地"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "经营概览",
+   "kicker": "OVERVIEW",
+   "kpis": [
+    {
+     "value": "37.5%",
+     "label": "渗透率",
+     "desc": "+6.2pct"
+    },
+    {
+     "value": "1,240亿",
+     "label": "总产值",
+     "desc": "+18%"
+    },
+    {
+     "value": "92",
+     "label": "重点企业",
+     "desc": "新增14"
+    },
+    {
+     "value": "4.8",
+     "label": "满意度",
+     "desc": "5分制"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "核心指标",
+   "kicker": "BY THE NUMBERS",
+   "numbers": [
+    {
+     "value": "37.5%",
+     "label": "渗透率"
+    },
+    {
+     "value": "1,240亿",
+     "label": "总产值"
+    },
+    {
+     "value": "92",
+     "label": "重点企业"
+    },
+    {
+     "value": "4.8",
+     "label": "满意度"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "结构占比",
+   "kicker": "MIX",
+   "donut": [
+    {
+     "label": "核心部件",
+     "value": 42
+    },
+    {
+     "label": "系统集成",
+     "value": 28
+    },
+    {
+     "label": "应用服务",
+     "value": 18
+    },
+    {
+     "label": "基础材料",
+     "value": 12
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "增长趋势",
+   "kicker": "TREND",
+   "trend": [
+    {
+     "label": "2021",
+     "value": 30
+    },
+    {
+     "label": "2022",
+     "value": 45
+    },
+    {
+     "label": "2023",
+     "value": 52
+    },
+    {
+     "label": "2024",
+     "value": 71
+    },
+    {
+     "label": "2025",
+     "value": 88
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "type": "section",
+   "title": "重点任务与保障",
+   "number": "02",
+   "kicker": "Actions"
+  },
+  {
+   "title": "四大方向",
+   "kicker": "PILLARS",
+   "tiles": [
+    {
+     "title": "强链",
+     "desc": "补短板",
+     "icon": "link"
+    },
+    {
+     "title": "扩量",
+     "desc": "壮规模",
+     "icon": "trending-up"
+    },
+    {
+     "title": "提质",
+     "desc": "高端化",
+     "icon": "award"
+    },
+    {
+     "title": "聚才",
+     "desc": "人才生态",
+     "icon": "users"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "实施路径",
+   "kicker": "FLOW",
+   "flow": [
+    {
+     "title": "诊断"
+    },
+    {
+     "title": "设计"
+    },
+    {
+     "title": "试点"
+    },
+    {
+     "title": "推广"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "方案对照",
+   "kicker": "COMPARE",
+   "columns": [
+    "维度",
+    "方案A",
+    "方案B"
+   ],
+   "rows": [
+    [
+     "投入",
+     "低",
+     "高"
+    ],
+    [
+     "周期",
+     "短",
+     "长"
+    ],
+    [
+     "可持续",
+     "中",
+     "高"
+    ]
+   ],
+   "type": "content"
+  },
+  {
+   "title": "细分增速",
+   "kicker": "GROWTH",
+   "bars": [
+    {
+     "label": "核心部件",
+     "value": 71
+    },
+    {
+     "label": "系统集成",
+     "value": 62
+    },
+    {
+     "label": "应用服务",
+     "value": 55
+    },
+    {
+     "label": "基础材料",
+     "value": 45
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "重点事项状态",
+   "kicker": "TRACKER",
+   "statusList": [
+    {
+     "label": "强链工程",
+     "value": "85%",
+     "status": "green"
+    },
+    {
+     "label": "扩量计划",
+     "value": "60%",
+     "status": "yellow"
+    },
+    {
+     "label": "提质升级",
+     "value": "30%",
+     "status": "red"
+    },
+    {
+     "label": "人才引育",
+     "value": "72%",
+     "status": "green"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "callout": {
+    "text": "关键一招:链主带配套,平台聚生态",
+    "sub": "——产业链协同发展行动方案"
+   },
+   "type": "content"
+  },
+  {
+   "title": "关键里程碑",
+   "kicker": "MILESTONES",
+   "milestones": [
+    {
+     "title": "2024",
+     "desc": "试点落地"
+    },
+    {
+     "title": "2025",
+     "desc": "扩面推广"
+    },
+    {
+     "title": "2026",
+     "desc": "全域覆盖"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "六项举措",
+   "kicker": "MEASURES",
+   "items": [
+    {
+     "title": "强链",
+     "desc": "补短板"
+    },
+    {
+     "title": "扩量",
+     "desc": "上规模"
+    },
+    {
+     "title": "提质",
+     "desc": "高端化"
+    },
+    {
+     "title": "聚才",
+     "desc": "引人才"
+    },
+    {
+     "title": "搭台",
+     "desc": "建平台"
+    },
+    {
+     "title": "活金",
+     "desc": "设基金"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "转化漏斗",
+   "kicker": "FUNNEL",
+   "funnel": [
+    {
+     "label": "曝光",
+     "value": 100
+    },
+    {
+     "label": "点击",
+     "value": 60
+    },
+    {
+     "label": "留资",
+     "value": 32
+    },
+    {
+     "label": "成交",
+     "value": 12
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "title": "同比变化",
+   "kicker": "VS LAST YEAR",
+   "deltas": [
+    {
+     "value": "15%",
+     "label": "复购率",
+     "change": "3.2pct",
+     "dir": "up"
+    },
+    {
+     "value": "78%",
+     "label": "满意度",
+     "change": "1.1pct",
+     "dir": "up"
+    },
+    {
+     "value": "52%",
+     "label": "流失率",
+     "change": "4pct",
+     "dir": "down"
+    }
+   ],
+   "type": "content"
+  },
+  {
+   "type": "summary",
+   "title": "核心结论",
+   "points": [
+    "以强链为主线",
+    "以项目为抓手",
+    "以人才为根基"
+   ]
+  },
+  {
+   "type": "closing",
+   "title": "谢谢",
+   "subtitle": "欢迎交流指正"
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "dingtalk",
+  "version": "1.0.37",
+  "display_name": "钉钉工作台",
+  "description": "以你的钉钉身份操作钉钉全产品：通讯录/搜人、日历日程、待办、审批、考勤、日志、群聊与机器人发消息、钉钉文档与云盘、AI 表格、AI 听记、邮箱、在线电子表格、知识库等。基于钉钉官方开源 dws CLI。安装后请在本插件详情页连接钉钉账号（OAuth 设备流），未连接时技能不可用。",
+  "category": "办公协同",
+  "connection": "dingtalk",
+  "components": {
+    "skills": ["dingtalk"]
+  },
+  "default_enabled": {
+    "skills": ["dingtalk"]
+  }
+}

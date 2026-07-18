@@ -1,0 +1,22 @@
+{
+  "slug": "campaign-planning",
+  "entry_name": "campaign-planning",
+  "display_name": "活动策划 SOP",
+  "summary": "\"提供活动策划的可落地指南与SOP。在开展活动策划相关工作时调用。\"",
+  "category": "营销创意",
+  "tags": [
+    "活动策划",
+    "SOP",
+    "落地执行"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/campaign-planning",
+  "downloads": 1542,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

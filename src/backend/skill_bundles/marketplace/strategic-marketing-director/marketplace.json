@@ -1,0 +1,22 @@
+{
+  "slug": "strategic-marketing-director",
+  "entry_name": "strategic-marketing-director",
+  "display_name": "strategic-marketing-director",
+  "summary": "8年品牌营销总监决策大脑——整合20+经典分析模型，提供「诊断→策略→执行→复盘」全链路工作流。\n\n**触发场景**：\n- 市场分析、竞争分析、环境分析 → 调用战略分析模型（五力/SWOT/PESTEL/BCG/安索夫/3C/蓝海）\n- 问题拆解、决策分析、方案设计 → 调用思维方法模型（MECE/金字塔/SCQA/六帽/5W2H/决策树/脑暴/因果图）\n- 品牌定位、品牌战略、价值主张 → 调用品牌定位模型（定位三角/Kapferer/Aaker/价值主张/PMM/护城河/原型）\n- 营销策略、传播策略、市场进入 → 调用营销传播模型（4P/STP/AIDA/PAS/GTM/ICP/SOSTAC/IMC）\n- 用户增长、增长黑客、裂变策略 → 调用用户增长模型（AARRR/AIPL/AISAS/AIPS/北极星/飞轮/Hook/裂变/漏斗）\n- 用户洞察、行为设计、体验优化 → 调用消费者心理模型（BJ Fogg/COM-B/EAST/Nudge/KANO/CJM）\n- 数据分析、效果评估、指标体系 → 调用数据分析模型（RFM/HEART/NPS/LTV-CAC/A/B测试/GA4）\n- 运营执行、项目管理、团队协作 → 调用运营执行模型（PDCA/OKR/RACI/敏捷营销/SOP）\n- 销售流程、定价策略、客户管理 → 调用销售变现模型（销售漏斗/MEDDIC/定价/客户",
+  "category": "营销创意",
+  "tags": [
+    "市场营销",
+    "竞品分析",
+    "策略模型"
+  ],
+  "version": "1.0.0",
+  "author": "x.xuan",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/0c9b068f-f22e-44e2-96fe-d2b6f5b43b07.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/strategic-marketing-director",
+  "downloads": 148,
+  "stars": 12,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

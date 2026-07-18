@@ -1,0 +1,23 @@
+{
+  "slug": "interactive-document-writing",
+  "entry_name": "interactive-document-writing",
+  "display_name": "交互式长文档共创",
+  "summary": "通过全交互问答逐章完成白皮书、方案书、手册、分析报告的创建与审计，支持进度保存与断点续写，写完即审、审完再进",
+  "category": "文档处理",
+  "tags": [
+    "长文档",
+    "白皮书",
+    "方案书",
+    "断点续写"
+  ],
+  "version": "1.0.0",
+  "author": "jiargcn",
+  "icon_url": "",
+  "source": "clawhub",
+  "source_url": "https://clawhub.ai/skills/interactive-document-writing",
+  "downloads": 514,
+  "stars": 1,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

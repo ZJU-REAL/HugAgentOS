@@ -1,0 +1,22 @@
+{
+  "slug": "copywriter-cn",
+  "entry_name": "copywriter-cn",
+  "display_name": "营销文案助手",
+  "summary": "\"营销文案助手。标题公式(100个)、正文写作、AIDA框架、痛点挖掘、客户证言、落地页文案。Copywriting with 100 headline formulas, body copy, AIDA framework, pain points, testimonials, landing pages. Use when you need copywriter cn capabilities. Triggers on: copywriter cn.\"",
+  "category": "营销创意",
+  "tags": [
+    "营销文案",
+    "标题公式",
+    "AIDA"
+  ],
+  "version": "\"2.0.0\"",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/copywriter-cn",
+  "downloads": 2220,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

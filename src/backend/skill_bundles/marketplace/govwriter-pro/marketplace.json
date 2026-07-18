@@ -1,0 +1,22 @@
+{
+  "slug": "govwriter-pro",
+  "entry_name": "govwriter-pro",
+  "display_name": "体制内写作·灵析",
+  "summary": "政府公文创作与重构专家，支持修改模式（原文素材重构）和创作模式（主题+提纲+过往材料 → 初稿），输出符合党政机关公文格式（GB/T 9704-2012）的 Word 文档",
+  "category": "写作助手",
+  "tags": [
+    "体制内写作",
+    "素材重构",
+    "主题创作"
+  ],
+  "version": "1.0.4",
+  "author": "Mr. Man",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/a4e49550-e527-4406-b761-c4f2e607b757.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/govwriter-pro",
+  "downloads": 2574,
+  "stars": 8,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

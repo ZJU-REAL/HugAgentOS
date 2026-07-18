@@ -1,0 +1,22 @@
+{
+  "slug": "funnel-analyzer",
+  "entry_name": "funnel-analyzer",
+  "display_name": "转化漏斗分析",
+  "summary": "\"漏斗分析工具。创建转化漏斗、诊断流失环节、行业对标、优化建议、分析报告、漏斗对比。Funnel analyzer with conversion funnels, diagnostics, benchmarks, optimization, reports.\"",
+  "category": "数据分析",
+  "tags": [
+    "漏斗分析",
+    "转化诊断",
+    "行业对标"
+  ],
+  "version": "\"2.0.0\"",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/funnel-analyzer",
+  "downloads": 1359,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

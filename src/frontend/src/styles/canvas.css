@@ -1,0 +1,616 @@
+/* ══════════════════════════════════════════════════════
+   Canvas Preview Panel — 右侧文件预览面板
+   ══════════════════════════════════════════════════════ */
+
+/* ── Panel container ── */
+.jx-canvas {
+  width: 700px;
+  min-width: 480px;
+  max-width: 80vw;
+  flex-shrink: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid rgba(15, 23, 42, .07);
+  box-shadow: -4px 0 24px rgba(18, 109, 255, .05);
+  overflow: hidden;
+  /* 入场/出场由 App.tsx 的 motion SlidePanel 接管（CSS 入场动画已删，避免双播）。
+     这里只保留展开/收起的宽度过渡。 */
+  transition: width var(--motion-duration-slow) var(--motion-ease-brand-out);
+  position: relative;
+}
+/* 拖拽 resize 期间逐帧跟手，禁过渡 */
+.jx-canvas--dragging {
+  transition: none;
+}
+/* xlsx（Univer）：宽度过渡会让 Univer 画布连续 resize，代价过高 — 禁用 */
+.jx-canvas--xlsx {
+  transition: none;
+}
+
+/* docx: A4 page width + comfortable margin */
+.jx-canvas--docx {
+  width: 900px;
+}
+
+.jx-canvas--expanded {
+  width: 80vw;
+  min-width: 680px;
+}
+
+/* ── 内容加载完成淡入（docx / text 等渲染器就绪时） ── */
+.jx-canvas-fadeIn {
+  --fadeInUp-distance: 6px;
+  animation: jx-kf-fadeInUp .25s var(--motion-ease-brand-out) both;
+}
+
+/* Univer 加载蒙层：0.2s 淡出后留挂（opacity:0 + pointer-events:none，禁止对 Univer canvas 本身做 transform） */
+.jx-canvas-univerOverlay {
+  transition: opacity .2s var(--motion-ease-standard);
+}
+.jx-canvas-univerOverlay--done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── 拖拽宽度时铺在 body 上的透明遮罩：修 iframe（PDF/HTML 预览）吞 mousemove ── */
+.jx-canvas-dragMask {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  cursor: col-resize;
+  background: transparent;
+}
+
+/* ── Drag handle (left edge) ── */
+.jx-canvas-dragHandle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background .15s;
+}
+.jx-canvas-dragHandle:hover,
+.jx-canvas-dragHandle:active {
+  background: var(--color-primary-disabled);
+}
+
+/* ── Header ── */
+.jx-canvas-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(15, 23, 42, .06);
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(10px);
+}
+
+.jx-canvas-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.jx-canvas-fileIcon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.jx-canvas-fileMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.jx-canvas-fileName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.jx-canvas-fileSize {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-number);
+  line-height: 1.2;
+}
+
+/* ── Header actions ── */
+.jx-canvas-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.jx-canvas-actionBtn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--color-text-tertiary);
+  transition: background .15s, color .15s;
+}
+.jx-canvas-actionBtn:hover {
+  background: var(--color-bg-gray);
+  color: var(--color-text-secondary);
+}
+
+.jx-canvas-closeBtn:hover {
+  background: var(--color-error-light);
+  color: var(--color-error);
+}
+
+/* ── Body ── */
+.jx-canvas-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+
+
+/* ── Loading state ── */
+.jx-canvas-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+
+.jx-canvas-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: jx-canvas-spin .7s linear infinite;
+}
+@keyframes jx-canvas-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Error state ── */
+.jx-canvas-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px;
+  color: var(--color-error);
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* ── Unknown file ── */
+.jx-canvas-unknown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+.jx-canvas-unknown p { margin: 0; font-size: 14px; }
+.jx-canvas-unknown-hint { font-size: 12px; color: var(--color-text-placeholder); }
+
+/* ══ DOCX Renderer ══ */
+.jx-canvas-docx {
+  padding: 0;
+  background: #fff;
+  min-height: 100%;
+}
+.jx-canvas-docx .docx-wrapper,
+.jx-canvas-docx .jx-canvas-docx-wrapper,
+.jx-canvas-docx .jx-canvas-docx-wrapper-wrapper {
+  padding: 0 !important;
+  margin: 0 !important;
+  background: #fff !important;
+}
+/* section: library uses our className as the section class, so match both */
+.jx-canvas-docx section.docx,
+.jx-canvas-docx section.jx-canvas-docx-wrapper {
+  margin: 0 !important;
+  min-height: auto !important;
+  max-width: none;
+  width: 100%;
+  padding: 28px 36px 44px !important;
+  background: #fff !important;
+  border: none !important;
+  border-radius: 0;
+  box-shadow: none !important;
+  margin-bottom: 0 !important;
+  color: rgba(15, 23, 42, .88);
+  font-family: var(--font-family) !important;
+  line-height: 1.84;
+  overflow: hidden;
+}
+
+.jx-canvas-docx section.docx > *,
+.jx-canvas-docx section.jx-canvas-docx-wrapper > * {
+  font-family: inherit !important;
+}
+
+.jx-canvas-docx section.docx p,
+.jx-canvas-docx section.docx li,
+.jx-canvas-docx section.docx td,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p,
+.jx-canvas-docx section.jx-canvas-docx-wrapper li,
+.jx-canvas-docx section.jx-canvas-docx-wrapper td {
+  color: rgba(30, 41, 59, .86);
+  font-size: 15.5px !important;
+  font-weight: 400 !important;
+  line-height: 1.84 !important;
+  letter-spacing: .004em;
+}
+
+.jx-canvas-docx section.docx p,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p {
+  margin: 0 0 12px !important;
+}
+
+.jx-canvas-docx section.docx h1,
+.jx-canvas-docx section.docx h2,
+.jx-canvas-docx section.docx h3,
+.jx-canvas-docx section.docx h4,
+.jx-canvas-docx section.docx h5,
+.jx-canvas-docx section.docx h6,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h1,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h2,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h3,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h4,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h5,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h6,
+.jx-canvas-docx section.docx p[style*="font-size: 24"],
+.jx-canvas-docx section.docx p[style*="font-size:24"],
+.jx-canvas-docx section.docx p[style*="font-size: 22"],
+.jx-canvas-docx section.docx p[style*="font-size:22"] {
+  color: rgba(15, 23, 42, .96) !important;
+  font-weight: 600 !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0 !important;
+}
+
+.jx-canvas-docx section.docx h1,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h1,
+.jx-canvas-docx section.docx p.jx-docx-title,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-title,
+.jx-canvas-docx section.docx p[style*="font-size: 24"],
+.jx-canvas-docx section.docx p[style*="font-size:24"] {
+  margin: 0 0 18px !important;
+  font-size: 28px !important;
+  font-weight: 600 !important;
+  line-height: 1.42 !important;
+}
+
+.jx-canvas-docx section.docx h2,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h2,
+.jx-canvas-docx section.docx p[style*="font-size: 22"],
+.jx-canvas-docx section.docx p[style*="font-size:22"] {
+  margin: 28px 0 10px !important;
+  font-size: 20px !important;
+}
+
+.jx-canvas-docx section.docx h3,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h3,
+.jx-canvas-docx section.docx p.jx-docx-subtitle,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-subtitle {
+  margin: 26px 0 10px !important;
+  font-size: 18px !important;
+  color: rgba(15, 23, 42, .92) !important;
+  font-weight: 600 !important;
+  line-height: 1.5 !important;
+}
+
+.jx-canvas-docx section.docx h4,
+.jx-canvas-docx section.docx h5,
+.jx-canvas-docx section.docx h6,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h4,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h5,
+.jx-canvas-docx section.jx-canvas-docx-wrapper h6 {
+  margin: 20px 0 8px !important;
+  font-size: 16px !important;
+}
+
+.jx-canvas-docx section.docx ul,
+.jx-canvas-docx section.docx ol,
+.jx-canvas-docx section.jx-canvas-docx-wrapper ul,
+.jx-canvas-docx section.jx-canvas-docx-wrapper ol {
+  margin: 8px 0 14px !important;
+  padding-left: 1.6em !important;
+}
+
+.jx-canvas-docx section.docx li + li,
+.jx-canvas-docx section.jx-canvas-docx-wrapper li + li {
+  margin-top: 4px !important;
+}
+
+.jx-canvas-docx section.docx strong,
+.jx-canvas-docx section.docx b,
+.jx-canvas-docx section.jx-canvas-docx-wrapper strong,
+.jx-canvas-docx section.jx-canvas-docx-wrapper b {
+  font-weight: 600 !important;
+  color: rgba(15, 23, 42, .94) !important;
+}
+
+.jx-canvas-docx section.docx p.jx-docx-meta,
+.jx-canvas-docx section.docx p.jx-docx-meta span,
+.jx-canvas-docx section.docx p.jx-docx-meta strong,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta span,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta strong {
+  font-size: 15px !important;
+  line-height: 1.72 !important;
+  color: rgba(51, 65, 85, .82) !important;
+}
+
+.jx-canvas-docx section.docx p.jx-docx-meta,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta {
+  margin: 0 0 6px !important;
+}
+
+.jx-canvas-docx section.docx a,
+.jx-canvas-docx section.jx-canvas-docx-wrapper a {
+  color: rgba(30, 64, 175, .88) !important;
+  text-decoration: none !important;
+  border-bottom: 1px solid rgba(30, 64, 175, .18);
+  overflow-wrap: anywhere;
+}
+
+.jx-canvas-docx section.docx table,
+.jx-canvas-docx section.jx-canvas-docx-wrapper table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  margin: 14px 0 18px !important;
+  font-size: 14.5px !important;
+}
+
+.jx-canvas-docx section.docx th,
+.jx-canvas-docx section.docx td,
+.jx-canvas-docx section.jx-canvas-docx-wrapper th,
+.jx-canvas-docx section.jx-canvas-docx-wrapper td {
+  border: 1px solid rgba(226, 232, 240, .95) !important;
+  padding: 10px 12px !important;
+  text-align: left;
+  vertical-align: top;
+}
+
+.jx-canvas-docx section.docx th,
+.jx-canvas-docx section.jx-canvas-docx-wrapper th {
+  background: rgba(248, 250, 252, .9) !important;
+  color: rgba(15, 23, 42, .9) !important;
+  font-weight: 600 !important;
+}
+
+.jx-canvas-docx section.docx blockquote,
+.jx-canvas-docx section.jx-canvas-docx-wrapper blockquote {
+  margin: 16px 0 !important;
+  padding: 8px 0 8px 14px !important;
+  border-left: 2px solid rgba(148, 163, 184, .45) !important;
+  color: rgba(71, 85, 105, .92) !important;
+}
+
+.jx-canvas-docx section.docx p:last-child,
+.jx-canvas-docx section.docx ul:last-child,
+.jx-canvas-docx section.docx ol:last-child,
+.jx-canvas-docx section.docx table:last-child,
+.jx-canvas-docx section.docx blockquote:last-child,
+.jx-canvas-docx section.jx-canvas-docx-wrapper p:last-child,
+.jx-canvas-docx section.jx-canvas-docx-wrapper ul:last-child,
+.jx-canvas-docx section.jx-canvas-docx-wrapper ol:last-child,
+.jx-canvas-docx section.jx-canvas-docx-wrapper table:last-child,
+.jx-canvas-docx section.jx-canvas-docx-wrapper blockquote:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* ══ XLSX Renderer ══ */
+.jx-canvas-xlsx {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.jx-canvas-xlsx-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 12px;
+  background: #fff;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.jx-canvas-xlsx-tabs::-webkit-scrollbar { height: 0; }
+
+.jx-canvas-xlsx-tab {
+  border: none;
+  background: none;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.jx-canvas-xlsx-tab:hover { color: var(--color-text-secondary); }
+.jx-canvas-xlsx-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+
+.jx-canvas-xlsx-body {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+.jx-canvas-xlsx-body::-webkit-scrollbar { width: 5px; height: 5px; }
+.jx-canvas-xlsx-body::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, .12); border-radius: 4px; }
+
+.jx-canvas-xlsx-body table {
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-family-number);
+  background: #fff;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  width: max-content;
+  min-width: 100%;
+}
+.jx-canvas-xlsx-body th,
+.jx-canvas-xlsx-body td {
+  border: 1px solid var(--color-border);
+  padding: 5px 10px;
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jx-canvas-xlsx-body th {
+  background: var(--color-bg-gray);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.jx-canvas-xlsx-body tr:hover td {
+  background: var(--color-primary-light);
+}
+
+/* ══ PDF Renderer ══ */
+.jx-canvas-pdf { height: 100%; }
+.jx-canvas-pdf-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* ══ Image Renderer ══ */
+.jx-canvas-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+}
+.jx-canvas-image-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .08);
+}
+
+/* ══ Text / Code Renderer ══ */
+.jx-canvas-text {
+  padding: 16px;
+  min-height: 100%;
+  background: #fff;
+}
+.jx-canvas-text-pre {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 4;
+}
+
+/* ══ HTML Renderer ══ */
+.jx-canvas-html { height: 100%; }
+.jx-canvas-html-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* ══ Artifact card preview button (in MessageBubble) ══ */
+.jx-dlCard-previewBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(203,213,225,.9);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  white-space: nowrap;
+}
+.jx-dlCard-previewBtn:hover {
+  background: #f8fafc;
+  border-color: rgba(148,163,184,.95);
+  color: #0f172a;
+}
+
+/* ══ Univer Spreadsheet Container ══ */
+.jx-canvas-univer {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* When showing xlsx, body must not clip Univer's internal canvases */
+.jx-canvas--xlsx .jx-canvas-body {
+  overflow: hidden;
+}
+
+/* Edited badge next to file name */
+.jx-canvas-editedBadge {
+  font-size: 11px;
+  color: var(--color-warning, #faad14);
+  margin-left: 6px;
+  font-weight: 400;
+}
+
+/* Save-as button */
+.jx-canvas-saveBtn {
+  color: var(--color-primary);
+}
+.jx-canvas-saveBtn:disabled {
+  color: var(--color-text-placeholder);
+  cursor: not-allowed;
+}

@@ -1,0 +1,18 @@
+{
+  "name": "email",
+  "version": "1.0.0",
+  "display_name": "电子邮箱",
+  "description": "以本人邮箱身份收发与管理邮件：发送邮件（含附件）、阅读/搜索/整理收件箱、回复转发、管理文件夹与标记，基于 himalaya，通过 IMAP/SMTP 授权码连接 Gmail/Outlook/Exchange/网易企业邮/腾讯企业邮/自建邮箱等。安装后在本插件详情页填写邮箱地址与授权码完成绑定，无需 OAuth。",
+  "category": "办公协同",
+  "connection": "email",
+  "components": {
+    "skills": [
+      "email"
+    ]
+  },
+  "default_enabled": {
+    "skills": [
+      "email"
+    ]
+  }
+}

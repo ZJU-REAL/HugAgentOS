@@ -1,0 +1,541 @@
+/* Projects (Claude-style 工作空间) */
+
+.jx-projects {
+  height: 100%;
+  overflow: auto;
+  /* 预留两侧滚动条槽位：内容增减导致滚动条出现/消失时，
+   * margin:auto 居中的 shell 不再左右平移（列表↔详情切换时的水平抖动） */
+  scrollbar-gutter: stable both-edges;
+  background: #fff;
+  padding: 32px 40px 80px;
+}
+
+.jx-projects-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.jx-projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jx-projects-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.jx-projects-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jx-projects-sortLabel {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-projects-searchInput {
+  max-width: 640px;
+}
+
+.jx-projects-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jx-projects-sectionTitle {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.jx-projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.jx-projects-loading {
+  display: flex;
+  justify-content: center;
+  padding: 80px 0;
+}
+
+/* Card */
+.jx-projectCard {
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 140px;
+}
+
+.jx-projectCard:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
+}
+
+.jx-projectCard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.jx-projectCard-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-projectCard-star {
+  color: var(--color-text-tertiary);
+  font-size: 16px;
+}
+
+.jx-projectCard-teamTag {
+  align-self: flex-start;
+  margin: 0 !important;
+}
+
+.jx-projectCard-desc {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.jx-projectCard-footer {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+/* Detail */
+.jx-projectDetail {
+  height: 100%;
+  overflow: auto;
+  /* 同 .jx-projects：滚动条槽位常驻，详情页加载完成出现滚动条时内容不平移 */
+  scrollbar-gutter: stable both-edges;
+  background: #fff;
+}
+
+.jx-projectDetail--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jx-projectDetail-shell {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px 40px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 32px;
+}
+
+@media (max-width: 1100px) {
+  .jx-projectDetail-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.jx-projectDetail-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.jx-projectDetail-backRow {
+  margin-left: -8px;
+}
+
+.jx-projectDetail-titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.jx-projectDetail-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.jx-projectDetail-titleActions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.jx-projectDetail-desc {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+/* 项目页输入框：直接复用 chat 面板 InputArea；这里给外层 margin + 增大编辑区高度 */
+.jx-projectDetail-inputWrap {
+  margin-top: 8px;
+}
+
+.jx-projectDetail-inputWrap .jx-inputArea {
+  width: 100%;
+}
+
+/* 项目页里输入框应该更舒展些：默认编辑区 80–200px 太矮，放到 160–360px */
+.jx-projectDetail-inputWrap .jx-composerEditor {
+  min-height: 160px;
+  max-height: 360px;
+}
+
+.jx-projectDetail-chatList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.jx-projectDetail-chatListTitle {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.jx-projectDetail-chatItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-fill-hover);
+  transition: background 0.12s;
+}
+
+.jx-projectDetail-chatItem:hover {
+  background: var(--color-fill-hover);
+}
+
+.jx-projectDetail-chatItemBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-projectDetail-chatItemTitle {
+  font-size: 14px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projectDetail-chatItemMeta {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+/* Right rail */
+.jx-projectDetail-aside {
+  display: flex;
+  flex-direction: column;
+}
+
+.jx-projectRail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.jx-projectRail-card {
+  position: relative; /* FilesCard 拖拽上传高亮层的定位锚点 */
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* FilesCard 拖拽高亮层：复用 .jx-mySpace-dropOverlay，圆角对齐卡片 */
+.jx-projectRail-dropOverlay {
+  border-radius: var(--radius-md);
+}
+
+.jx-projectRail-dropOverlay .jx-mySpace-dropOverlay-card {
+  padding: 12px 20px;
+  font-size: 13px;
+}
+
+.jx-projectRail-cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.jx-projectRail-cardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-projectRail-cardAux {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-projectRail-cardText {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.jx-projectRail-cardEmpty {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+}
+
+.jx-projectRail-cardHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jx-projectRail-memoryToggles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.jx-projectRail-memoryPopover .ant-popover-inner-content {
+  padding: 4px 0;
+}
+
+.jx-projectRail-memoryToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jx-projectRail-memoryToggleLabel {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.jx-projectRail-cardSub {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-projectRail-fileList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.jx-projectRail-fileItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--color-fill-hover);
+  border-radius: 4px;
+}
+
+.jx-projectRail-fileItem--clickable {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.jx-projectRail-fileItem--clickable:hover {
+  background: var(--color-fill-hover);
+}
+
+.jx-projectRail-fileItem:last-child {
+  border-bottom: 0;
+}
+
+.jx-projectRail-fileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-projectRail-fileName {
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projectRail-refTag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  border-radius: 3px;
+}
+
+.jx-projectRail-fileMeta {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projectRail-fileItem--indent {
+  padding-left: 18px;
+}
+
+/* Group (folder) header */
+.jx-projectRail-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.jx-projectRail-groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+}
+
+.jx-projectRail-groupHeader:hover {
+  background: var(--color-fill-hover);
+}
+
+/* 折叠箭头：单图标 rotate 过渡（替代两个图标硬切） */
+.jx-projectRail-groupCaret {
+  transition: transform 0.2s var(--motion-ease-standard);
+}
+
+.jx-projectRail-groupCaret--open {
+  transform: rotate(90deg);
+}
+
+/* 分组体常驻渲染 + grid-template-rows 0fr↔1fr 高度动画（类比 jx-expandWrap） */
+.jx-projectRail-groupBody {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.22s var(--motion-ease-brand-out),
+    opacity 0.18s var(--motion-ease-standard);
+}
+
+.jx-projectRail-groupBody--open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.jx-projectRail-groupBodyInner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.jx-projectRail-groupName {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projectRail-groupCount {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  padding: 0 6px;
+  background: var(--color-bg-gray);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* Preview modal wrap — give FilePreviewPane real height */
+.jx-projectRail-previewWrap {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-bg-gray);
+}
+
+.jx-projectRail-previewWrap > .jx-spaceImportPreview {
+  border: none;
+}
+
+/* Reference modal rows */
+.jx-projects-refRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.jx-projects-refRow:hover {
+  background: var(--color-fill-hover);
+}
+
+.jx-projects-refName {
+  font-size: 14px;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-projects-refMeta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}

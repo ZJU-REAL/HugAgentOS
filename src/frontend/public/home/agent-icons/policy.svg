@@ -1,0 +1,9 @@
+<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 政策：文档+印章 -->
+<rect x="5" y="4" width="14" height="18" rx="2" fill="#88B6FF"/>
+<rect x="8" y="8" width="8" height="1.5" rx="0.75" fill="#fff"/>
+<rect x="8" y="12" width="6" height="1.5" rx="0.75" fill="#fff"/>
+<rect x="8" y="16" width="7" height="1.5" rx="0.75" fill="#fff"/>
+<circle cx="20" cy="19" r="5" fill="#126DFF"/>
+<path d="M18 19L19.5 20.5L22.5 17.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

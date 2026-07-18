@@ -1,0 +1,22 @@
+{
+  "slug": "sop-extractor-plus",
+  "entry_name": "sop-extractor-plus",
+  "display_name": "SOP标准化流程提取器",
+  "summary": "SOP标准化流程提取器 — 将用户口述/转录的操作流程自动整理为标准SOP文档（含步骤、注意事项、所需工具、检查点），支持多维度质量评分、缺口分析、冗余检测、改进建议和多格式输出（Markdown/HTML/流程图/检查清单/培训卡片）。适用场景：经验沉淀、新人培训、流程标准化、外包交接、AI Agent 工作流定义。",
+  "category": "办公效率",
+  "tags": [
+    "SOP",
+    "标准流程",
+    "文档整理"
+  ],
+  "version": "1.0.0",
+  "author": "沈阳东四联周博远",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/cab3c5ed-3acd-4936-a59b-5f0c5f5dab1b.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/sop-extractor-plus",
+  "downloads": 278,
+  "stars": 29,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

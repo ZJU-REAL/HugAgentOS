@@ -1,0 +1,673 @@
+/* ══════════════════════════════════════════
+   Sidebar — 280px wide
+   ══════════════════════════════════════════ */
+.jx-sider{
+  width:280px !important;
+  min-width:280px !important;
+  max-width:280px !important;
+  border-right:1px solid rgba(15,23,42,.06);
+  display:flex !important;
+  flex-direction:column !important;
+  height:100% !important;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  background:rgba(245,246,247,.72) !important;
+  backdrop-filter:blur(14px) saturate(1.3);
+  -webkit-backdrop-filter:blur(14px) saturate(1.3);
+  will-change: width;
+}
+/* 回退：不支持 backdrop-filter 时用实色 */
+@supports not (backdrop-filter:blur(1px)){
+  .jx-sider{ background:#F5F6F7 !important; }
+}
+.jx-sider.ant-layout-sider-collapsed{
+  width:56px !important;
+  min-width:56px !important;
+  max-width:56px !important;
+  background:rgba(245,246,247,.85) !important;
+}
+@supports not (backdrop-filter:blur(1px)){
+  .jx-sider.ant-layout-sider-collapsed{ background:#F5F6F7 !important; }
+}
+
+/* ══════════════════════════════════════════
+   Sidebar — mini rail (collapsed, 56px)
+   ══════════════════════════════════════════ */
+.jx-miniRail{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  width:56px;
+  height:100%;
+  padding:10px 0 12px;
+  gap:4px;
+  background:
+    linear-gradient(180deg,
+      rgba(203, 223, 255, 0.38) 0px,
+      rgba(223, 235, 255, 0.30) 80px,
+      transparent 200px
+    );
+}
+.jx-miniRailTop,
+.jx-miniRailGroup,
+.jx-miniRailFooter{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  width:100%;
+}
+.jx-miniRailSpacer{ flex:1 1 auto; min-height:8px; }
+.jx-miniRailDivider{
+  width:24px;
+  height:1px;
+  background:rgba(15,23,42,.08);
+  margin:6px 0;
+  flex-shrink:0;
+}
+.jx-miniRailLogo{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:0;
+  cursor:pointer;
+  width:40px; height:40px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:10px;
+  transition:background .15s, transform .12s;
+}
+.jx-miniRailLogo:hover{ background:rgba(18,109,255,.08); }
+.jx-miniRailLogo:active{ transform:scale(.94); transition-duration:.06s; }
+.jx-miniRailLogoImg{ width:32px; height:32px; object-fit:contain; }
+
+.jx-miniRailBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:0;
+  cursor:pointer;
+  width:36px; height:36px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:10px;
+  transition:background .15s, transform .12s;
+  position:relative;
+  color:#262626;
+}
+.jx-miniRailBtn:hover{ background:#E3E6EA; }
+.jx-miniRailBtn:active{ transform:scale(.92); transition-duration:.06s; }
+.jx-miniRailBtn.active{ background:#EBEDEE; }
+.jx-miniRailBtn.active::before{
+  content:"";
+  position:absolute;
+  left:-1px;
+  top:8px; bottom:8px;
+  width:3px;
+  border-radius:0 3px 3px 0;
+  background:#126DFF;
+}
+.jx-miniRailIcon{ width:20px; height:20px; opacity:.72; transition:opacity .15s; display:block; }
+.jx-miniRailBtn:hover .jx-miniRailIcon,
+.jx-miniRailBtn.active .jx-miniRailIcon{ opacity:1; }
+.jx-miniRailBtn--primary{
+  background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.06), 0 3px 8px rgba(0,0,0,.05);
+}
+.jx-miniRailBtn--primary:hover{
+  background:rgba(18,109,255,.06);
+  box-shadow:0 2px 6px rgba(18,109,255,.10), 0 6px 14px rgba(18,109,255,.08);
+}
+.jx-miniRailIcon--primary{
+  opacity:1;
+  filter:brightness(0) saturate(100%) invert(32%) sepia(98%) saturate(1800%) hue-rotate(212deg) brightness(100%) contrast(101%);
+}
+.jx-miniRailAvatarBtn{ overflow:hidden; }
+.jx-miniRailAvatar{
+  width:28px; height:28px;
+  border-radius:50%;
+  object-fit:cover;
+  background:#fff;
+  display:block;
+}
+.jx-miniRailNav{ margin-top:2px; }
+
+/* mini search popover 已删（搜索改成 SearchModal，⌘K / 搜索按钮 统一触发） */
+
+/* ── 展开↔收起内容交接：两棵树（完整侧栏 / mini rail）互换挂载时各播一次入场。
+   侧栏有 backdrop-filter:blur —— 子树动画只允许 opacity/transform。 ── */
+@keyframes jx-kf-siderContentIn{
+  from{ opacity:0; transform:translateX(-6px); }
+  to  { opacity:1; transform:none; }
+}
+.jx-siderInner,
+.jx-miniRail{
+  animation:jx-kf-siderContentIn var(--motion-duration-slow) var(--motion-ease-standard) both;
+}
+
+.jx-siderInner{
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  width:280px;
+  flex-shrink:0;
+  /* Gradient covers top 245px; base is transparent to let backdrop-filter show through */
+  background:
+    linear-gradient(180deg,
+      rgba(203, 223, 255, 0.38) 0px,
+      rgba(223, 235, 255, 0.35) 39px,
+      rgba(242, 245, 247, 0.28) 245px,
+      transparent 245px
+    );
+}
+
+/* ── Brand / Logo row ── */
+.jx-brandRow{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  padding:20px 16px 0;
+  flex-shrink:0;
+}
+.jx-brandHomeBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:0;
+  margin:0;
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  min-width:0;
+  flex:1;
+  cursor:pointer;
+  text-align:left;
+}
+.jx-brandHomeBtn:focus,
+.jx-brandHomeBtn:focus-visible{
+  outline:none;
+}
+.jx-logo{ width:40px; height:40px; flex-shrink:0; }
+.jx-logoImg{ width:100%; height:100%; object-fit:contain; display:block; }
+.jx-brand-text{ flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; min-height:40px; }
+.jx-brand-title{ font-weight:800; font-size:20px; line-height:1.2; color:#1e293b; }
+.jx-brand-sub{ font-size:12px; color:rgba(15,23,42,.45); margin-top:1px; }
+
+/* Search button */
+.jx-searchBtn{
+  appearance:none; border:none; background:transparent;
+  padding:0; cursor:pointer; flex-shrink:0;
+  width:28px; height:28px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:6px; transition:background .15s;
+}
+.jx-searchBtn:hover{ background:#E3E6EA; }
+.jx-searchBtn:active{ transform:scale(.92); transition-duration:.06s; }
+
+/* Collapse button — aligned with logo top, 10px from right */
+.jx-collapseBtn{
+  appearance:none; border:none; background:transparent;
+  padding:0; cursor:pointer; flex-shrink:0;
+  width:28px; height:28px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:6px; transition:background .15s, transform .12s;
+}
+.jx-collapseBtn:hover{ background:#E3E6EA; }
+.jx-collapseBtn:active{ transform:scale(.92); transition-duration:.06s; }
+
+/* ── New Chat button: 248×38, pill, text #126DFF ── */
+.jx-newChatBtn{
+  appearance:none;
+  width:248px;
+  height:38px;
+  border:none;
+  border-radius:100px;
+  background:#fff;
+  color:#126DFF;
+  font-size:14px;
+  font-weight:600;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  cursor:pointer;
+  margin:12px 16px 0;
+  flex-shrink:0;
+  transition:background .15s, box-shadow .2s, transform .15s;
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.06),
+    0 4px 12px rgba(0,0,0,.05);
+}
+.jx-newChatBtn:hover{
+  background:rgba(18,109,255,.06);
+  transform:translateY(-1px);
+  box-shadow:
+    0 2px 4px rgba(18,109,255,.08),
+    0 8px 20px rgba(18,109,255,.08);
+}
+.jx-newChatBtn:active{
+  transform:translateY(0) scale(.97);
+  transition-duration:.08s;
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.06),
+    0 2px 6px rgba(0,0,0,.04);
+}
+.jx-newChatIcon{
+  width:20px; height:20px;
+  filter:brightness(0) saturate(100%) invert(32%) sepia(98%) saturate(1800%) hue-rotate(212deg) brightness(100%) contrast(101%);
+}
+
+/* ── Nav menu: items, 36px each, 2px gap ── */
+.jx-navMenu{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  margin-top:8px;
+  padding:0 16px;
+  flex-shrink:0;
+}
+.jx-navItem{
+  appearance:none;
+  border:none;
+  background:transparent;
+  width:248px;
+  height:36px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  /* 左 4 + navMenu 外层 16 = 图标 x=20，与 group/chat 项内容左缘一致 */
+  padding:0 12px 0 4px;
+  border-radius:12px;
+  cursor:pointer;
+  font-size:14px;
+  font-weight:400;
+  color:#262626;
+  text-align:left;
+  transition:background .15s, transform .12s;
+}
+.jx-navItem:hover{ background:#EBEDEE; }
+.jx-navItem:active{ transform:scale(.98); transition-duration:.06s; }
+.jx-navItem.active{
+  background:#EBEDEE;
+  color:#262626;
+  font-weight:400;
+}
+.jx-navItemIcon{ width:20px; height:20px; flex-shrink:0; opacity:.7; }
+.jx-navItem:hover .jx-navItemIcon{ opacity:1; }
+.jx-navItem.active .jx-navItemIcon{ opacity:1; }
+
+/* ── History section ──
+   历史区标题 + 时间/类型筛选下拉、内嵌搜索行均已下沉到 SearchModal，
+   这里只保留滚动容器自身。 */
+
+/* ── History list ── */
+.jx-historyListWrap{
+  flex:1; min-height:0; overflow-y:auto;
+  display:flex; flex-direction:column; gap:4px;
+  /* 与主导航之间用纯空白分隔，不再画线 */
+  padding:8px 10px;
+  margin-top:4px;
+}
+.jx-historyListWrap::-webkit-scrollbar{ width:3px; }
+.jx-historyListWrap::-webkit-scrollbar-thumb{ background:transparent; border-radius:999px; }
+.jx-historyListWrap.show-scrollbar::-webkit-scrollbar-thumb{ background:rgba(31,35,40,.12); }
+
+@keyframes jxSkeletonShimmer{
+  0%{ background-position:200% 0; }
+  100%{ background-position:-200% 0; }
+}
+
+.jx-skeletonBlock{
+  border-radius:999px;
+  background:linear-gradient(90deg, rgba(230,230,230,.86) 0%, rgba(238,238,238,.96) 50%, rgba(230,230,230,.86) 100%);
+  background-size:240% 100%;
+  animation:jxSkeletonShimmer 2.2s ease-in-out infinite;
+}
+
+/* 首挂载淡入：骨架（chatsLoading）→ 真实列表交接时不再硬切（两态都是 .jx-historyGroup，
+   挂载即播一次；折叠开合不重挂、不会重播）。 */
+.jx-historyGroup{
+  display:flex; flex-direction:column; gap:2px;
+  animation:jx-kf-fadeIn var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+
+/* 可折叠 group 标题行：整行可点击；chevron 默认隐藏，hover/折叠时显形。
+   padding-left 4 + listWrap pad 10 → 标题文字 x=14。
+   说明：CSS 上 group 标题与 chat title 即使同 x，因为字号差（12px vs 13px）
+   和字重对 CJK 字符的视觉占位不同，会让小字号看着偏右——故在 CSS 上故意
+   再左推几像素做视觉补偿。 */
+.jx-historyGroupHeader{
+  appearance:none;
+  border:none;
+  background:transparent;
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 8px 4px 4px;
+  margin:6px 0 0;
+  border-radius:8px;
+  cursor:pointer;
+  color:rgba(15,23,42,.45);
+  text-align:left;
+  transition:color .12s;
+}
+.jx-historyGroupHeader:hover{ color:rgba(15,23,42,.72); }
+.jx-historyGroupHeader:focus-visible{ outline:2px solid rgba(18,109,255,.32); outline-offset:0; }
+.jx-historyGroupTitle{
+  font-size:12px;
+  font-weight:500;
+  color:inherit;
+  user-select:none;
+  letter-spacing:.02em;
+  flex-shrink:0;
+}
+.jx-historyGroupChevron{
+  font-size:9px;
+  color:currentColor;
+  opacity:0;             /* 默认隐藏：用户不悬停在文字上就看不见 */
+  flex-shrink:0;
+  transition:opacity var(--motion-duration-instant) var(--motion-ease-standard),
+             transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+/* hover 在 header 任意位置都让 chevron 浮出；折叠态下也显形，提示"点开"。 */
+.jx-historyGroupHeader:hover .jx-historyGroupChevron,
+.jx-historyGroup--collapsed .jx-historyGroupChevron{
+  opacity:.65;
+}
+.jx-historyGroup--collapsed .jx-historyGroupChevron{
+  transform:rotate(-90deg);
+}
+/* position:relative 是 AnimatePresence popLayout 退场项绝对定位的锚点 */
+.jx-historyGroupList{ display:flex; flex-direction:column; gap:1px; position:relative; }
+/* 折叠动画：复用全局 .jx-expandWrap（grid-template-rows 0fr→1fr）——
+   旧 max-height 方案"列表长度差异巨大、动画到具体高度算不准"的顾虑已被
+   该范式解决（fr 不需要知道具体像素高）。
+   内层 min-height:0 + overflow:hidden 是 grid 行收缩生效的前提；
+   折叠完成后用 visibility 兜底摘除 tab 焦点（延迟到塌缩动画结束才隐藏）。 */
+.jx-historyGroupExpand{ --expand-dur:var(--motion-duration-normal); }
+.jx-historyGroupExpand > .jx-historyGroupList{
+  min-height:0;
+  overflow:hidden;
+  visibility:visible;
+  transition:visibility 0s;
+}
+.jx-historyGroup--collapsed .jx-historyGroupExpand > .jx-historyGroupList{
+  visibility:hidden;
+  transition-delay:var(--expand-dur, .25s);
+}
+.jx-historySkeletonList{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+/* ── 项目分组：项目行（folder + 名称）+ 嵌套其下的会话列表 ── */
+.jx-projectGroup{ display:flex; flex-direction:column; }
+.jx-projectRow{
+  display:flex; align-items:center; gap:7px;
+  height:34px; min-height:34px;
+  /* 与 .jx-historyItem 同一水平基线（左 6 + margin 4 + listWrap pad 10 = x=20） */
+  padding:0 8px 0 6px;
+  margin:0 6px 0 4px;
+  border-radius:10px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  transition:background .15s;
+  position:relative;
+}
+.jx-projectRow:hover{ background:#EBEDEE; }
+.jx-projectRow:focus-visible{ outline:2px solid rgba(18,109,255,.32); outline-offset:0; }
+.jx-projectRow.active{ background:#fff; }
+.jx-projectRow.active .jx-projectRowIcon{ color:rgba(15,23,42,.8); }
+.jx-projectRow.active .jx-projectRowName{ color:#0F172A; }
+.jx-projectRowIcon{
+  font-size:14px;
+  color:rgba(15,23,42,.55);
+  flex-shrink:0;
+  transition:color .15s;
+}
+.jx-projectRowName{
+  flex:1; min-width:0;
+  font-size:13px; font-weight:500; color:#262626;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  transition:color .15s;
+}
+/* 项目行右侧折叠 chevron：默认隐藏，hover / 已折叠时显形 */
+.jx-projectRowChevron{
+  appearance:none; border:none; background:transparent;
+  width:20px; height:20px; flex-shrink:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:6px;
+  cursor:pointer;
+  color:rgba(15,23,42,.45);
+  font-size:10px;
+  opacity:0;
+  transition:opacity var(--motion-duration-instant) var(--motion-ease-standard),
+             transform var(--motion-duration-fast) var(--motion-ease-standard),
+             background .12s;
+}
+.jx-projectRow:hover .jx-projectRowChevron,
+.jx-projectRowChevron.collapsed{ opacity:.85; }
+.jx-projectRowChevron:hover{ background:rgba(15,23,42,.08); color:rgba(15,23,42,.72); }
+.jx-projectRowChevron.collapsed{ transform:rotate(-90deg); }
+/* 嵌套会话列表：整体右缩进，形成"项目文件夹 → 会话"的层级观感 */
+.jx-projectChatList{ padding-left:16px; }
+.jx-projectChatList .jx-historyTitle{ max-width:210px; }
+
+.jx-historyItem{
+  display:flex; align-items:center; gap:6px;
+  height:36px; min-height:36px;
+  /* 左 6 + margin-left 4 + listWrap pad 10 = 内容 x=20，三端对齐 */
+  padding:0 8px 0 6px;
+  margin:0 6px 0 4px;
+  border-radius:10px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  transition:background .15s;
+  position:relative;
+}
+.jx-historyItemSkeleton{
+  cursor:default;
+  height:42px;
+  min-height:42px;
+}
+.jx-historyItemSkeleton:hover{
+  background:transparent;
+}
+.jx-historyItem:hover{ background:#EBEDEE; }
+.jx-historyItem.active{ background:#fff; border-color:transparent; }
+.jx-historyMain{ flex:1; min-width:0; display:flex; align-items:center; }
+.jx-historySkLine{
+  width:100%;
+  max-width:226px;
+  height:28px;
+  border-radius:3px;
+}
+.jx-historySkeletonItem{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  padding:12px 14px;
+  margin:0 6px;
+  border-radius:18px;
+  background:rgba(244,244,244,.92);
+  border:1px solid rgba(240,240,240,.95);
+}
+.jx-historySkTitle{
+  width:72%;
+  height:12px;
+}
+.jx-historySkSnippet{
+  width:92%;
+  height:10px;
+  border-radius:8px;
+}
+.jx-historyPinIcon{
+  width:16px;
+  height:16px;
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-right:4px;
+  color:rgba(15,23,42,.45);
+  font-size:11px;
+  opacity:.9;
+  transition:color .15s ease;
+}
+.jx-historyItem:hover .jx-historyPinIcon{ color:rgba(15,23,42,.72); }
+.jx-historyTitle{
+  font-size:13px; font-weight:500; color:#262626;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  flex:1;
+  min-width:0;
+  max-width:226px; display:block;
+}
+.jx-historyItem.active .jx-historyTitle{ font-weight:400; }
+
+/* ── History type icons (agent / code / plan) ── */
+.jx-historyTypeIcon{
+  flex-shrink:0;
+  font-size:13px;
+  margin-right:5px;
+  color:rgba(15,23,42,.38);
+  transition:color .15s;
+}
+.jx-historyItem:hover .jx-historyTypeIcon{ color:rgba(15,23,42,.55); }
+
+/* ── Running indicator (pulse dot) ── */
+.jx-historyRunningDot{
+  flex-shrink:0;
+  width:7px; height:7px;
+  margin-left:6px;
+  border-radius:50%;
+  background:#2563eb;
+  animation: jx-pulse 1.4s ease-in-out infinite;
+}
+@keyframes jx-pulse{
+  0%,100%{ opacity:.35; transform:scale(.85); }
+  50%{ opacity:1; transform:scale(1.1); }
+}
+
+/* ── §13 待确认指示（稳定蓝点，区别于运行中的脉冲点）── */
+.jx-historyConfirmDot{
+  flex-shrink:0;
+  width:7px; height:7px;
+  margin-left:6px;
+  border-radius:50%;
+  background:var(--color-primary);
+  box-shadow:0 0 0 3px var(--color-primary-light);
+  /* 一次性挂载弹入（复用 motion.css 的 jx-kf-statusIn 原语），落定后保持静止 */
+  animation:jx-kf-statusIn var(--motion-duration-normal) var(--motion-ease-brand-out) both;
+}
+
+.jx-historyActions{
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  opacity:0; pointer-events:none; transition:opacity .15s;
+}
+.jx-historyItem:hover .jx-historyActions,
+.jx-historyItem.active .jx-historyActions{ opacity:1; pointer-events:auto; }
+.jx-historyItem.editing .jx-historyActions{ display:none; }
+.jx-historyItem:hover .jx-historyMain,
+.jx-historyItem.active .jx-historyMain{ padding-right:28px; }
+/* hover 时给操作按钮腾位的 padding 不再瞬跳 */
+.jx-historyMain{ transition:padding-right var(--motion-duration-fast) var(--motion-ease-standard); }
+.jx-historyMoreBtn{
+  appearance:none; border:none; outline:none; background:transparent;
+  width:24px; height:24px; border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; font-size:13px; color:rgba(15,23,42,.48); padding:0;
+}
+.jx-historyMoreBtn:hover{ background:#F0F2F5; color:#333; }
+/* 重命名编辑框：挂载时轻微水平展开入场 */
+@keyframes jx-kf-renameIn{
+  from{ opacity:0; transform:scaleX(.98); }
+  to  { opacity:1; transform:none; }
+}
+.jx-historyEditInput{
+  flex:1; min-width:0;
+  transform-origin:left center;
+  animation:jx-kf-renameIn var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+.jx-historyEditInput .ant-input{ border-radius:8px; }
+.jx-historyEmpty{ padding:20px 8px; font-size:12px; color:rgba(15,23,42,.40); text-align:center; }
+
+/* 关键词高亮：被 utils/highlight.ts 用于侧栏 + 搜索弹窗的高亮 span */
+.jx-searchHighlight{ color:var(--color-primary); font-weight:600; }
+
+/* ── Footer: user info + help button ── */
+.jx-sideFooter{
+  flex-shrink:0;
+  padding:8px 16px 14px;
+  border-top:1px solid rgba(15,23,42,.06);
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.jx-userInfoBtn{
+  appearance:none; border:none; outline:none;
+  flex:1; min-width:0;
+  display:flex; align-items:center; gap:6px;
+  padding:6px 4px; border-radius:8px; background:transparent;
+  cursor:pointer; font-size:13px; font-weight:500; color:#262626;
+  text-align:left; transition:background .15s;
+}
+.jx-userInfoBtn:hover{ background:rgba(0,0,0,.04); }
+.jx-userAvatar{ width:24px; height:24px; border-radius:50%; flex-shrink:0; object-fit:cover; background:#fff; }
+.jx-userName{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.jx-helpBtn{
+  appearance:none; border:none; outline:none; background:transparent;
+  flex-shrink:0; width:32px; height:32px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:8px; cursor:pointer; transition:background .15s;
+}
+.jx-helpBtn:hover{ background:rgba(0,0,0,.04); }
+.jx-helpBtn:hover img{ opacity:0.7 !important; }
+
+/* ── Dropdown menus ── */
+.jx-chatItemMenu.ant-dropdown .ant-dropdown-menu{
+  border-radius:10px; padding:4px;
+  box-shadow:0 8px 24px rgba(15,23,42,.12); border:1px solid rgba(15,23,42,.08); min-width:140px;
+}
+.jx-chatItemMenu.ant-dropdown .ant-dropdown-menu-item{ border-radius:6px; padding:7px 10px; font-size:13px; }
+.jx-chatItemMenu.ant-dropdown .ant-dropdown-menu-item-divider{ margin:4px 0; background:rgba(15,23,42,.08); }
+
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu{
+  border-radius:12px; padding:4px;
+  box-shadow:0 8px 32px rgba(15,23,42,.14); border:1px solid rgba(15,23,42,.08); min-width:160px;
+}
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item{
+  border-radius:8px; padding:8px 12px; font-size:13px; color:rgba(15,23,42,.82);
+}
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item:hover{ background:rgba(18,109,255,.06); color:#126DFF; }
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item-divider{ margin:4px 0; background:rgba(15,23,42,.08); }
+
+/* 退出登录：悬停时才显示红色背景 */
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item-danger {
+  color: #FC5D5D !important;
+}
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item-danger:hover {
+  background: rgba(252,93,93,.08) !important;
+  color: #E84040 !important;
+}
+
+/* ── Legacy selectors ── */
+.jx-sideSection{padding:0 8px;}
+.jx-sectionHead{padding:2px 4px 6px;display:flex;align-items:center;justify-content:space-between;gap:4px;}
+.jx-sectionTitle{font-size:12px;font-weight:700;color:rgba(15,23,42,.52);}
+.jx-sectionTag{margin:0;border-radius:999px;font-weight:900;font-size:11px;color:var(--color-primary);border-color:rgba(18,109,255,.20);background:rgba(18,109,255,.10);}
+.jx-sideTools{padding:0 2px 8px;display:flex;flex-direction:column;gap:10px;}
+.jx-capabilitySection{flex:0 0 auto;}
+.jx-capabilityList{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.jx-toolCard{width:100%;appearance:none;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;background:#fff;border:1px solid rgba(15,23,42,.10);border-radius:12px;cursor:pointer;transition:box-shadow .2s,border-color .2s,background .2s;}
+.jx-toolCard:hover{box-shadow:0 8px 18px rgba(15,23,42,.08);border-color:rgba(18,109,255,.25)}
+.jx-toolCard.active{border-color:rgba(18,109,255,.34);background:rgba(18,109,255,.08)}
+.jx-toolLeft{min-width:0;display:flex;flex-direction:column;gap:2px;}
+.jx-toolLine{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.jx-toolName{font-weight:900;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;}
+.jx-toolIcon{color:rgba(15,23,42,.52);font-size:13px;display:inline-flex;align-items:center;}
+.jx-toolStatus{font-size:11px;color:rgba(15,23,42,.78);font-weight:900;border-radius:999px;padding:1px 6px;border:1px solid rgba(15,23,42,.18);background:rgba(255,255,255,.76);margin-left:auto;text-align:center;min-width:42px;}
+.jx-toolTag{flex:0 0 auto;font-size:12px;font-weight:900;padding:6px 8px;border-radius:10px;color:rgba(18,109,255,.9);background:rgba(18,109,255,.10);border:1px solid rgba(18,109,255,.22);}
+.jx-sideActionBar{display:none;}
+.jx-newChatWrap{display:none;}
+.jx-settingsHelpBtn{display:none;}

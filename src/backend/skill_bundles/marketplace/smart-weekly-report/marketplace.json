@@ -1,0 +1,22 @@
+{
+  "slug": "smart-weekly-report",
+  "entry_name": "smart-weekly-report",
+  "display_name": "周报生成器",
+  "summary": "根据职业角色和本周工作内容自动提炼关键信息，生成结构化、有洞察力的周报，内置工程师/高管/团队/销售/HR/运营/财务等 9 套模板",
+  "category": "办公效率",
+  "tags": [
+    "周报",
+    "工作汇报",
+    "模板"
+  ],
+  "version": "1.1.3",
+  "author": "wscats",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/smart-weekly-report",
+  "downloads": 23088,
+  "stars": 25,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

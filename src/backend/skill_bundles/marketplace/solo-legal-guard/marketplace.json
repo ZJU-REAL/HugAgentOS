@@ -1,0 +1,22 @@
+{
+  "slug": "solo-legal-guard",
+  "entry_name": "solo-legal-guard",
+  "display_name": "一人公司法务助手 V2.0",
+  "summary": "一人公司签约与合规风控工作台。用于合同审查、合同模板生成、签约前风险分诊、催款/验收/知识产权/外包用工/数据合规/人格混同/注册资本实缴等一人公司法务场景；当用户提到审合同、起草协议、NDA、服务协议、外包开发、商单合同、授权许可、合作协议、催款、验收、知识产权归属、源代码交付、合规检查、公司法风险、税务/用工/数据/ICP备案等问题时使用。",
+  "category": "法务合规",
+  "tags": [
+    "合同审查",
+    "法务风控",
+    "合规"
+  ],
+  "version": "1.0.0",
+  "author": "user_9ff555dd",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/a78375f1-773e-4817-b4f3-0557b6afd777.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/solo-legal-guard",
+  "downloads": 151,
+  "stars": 10,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

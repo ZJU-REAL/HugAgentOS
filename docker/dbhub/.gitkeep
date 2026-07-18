@@ -1,0 +1,3 @@
+# DBHub 多源连接配置目录。
+# 真实 dbhub.toml 由 Config 后台「数据库工具」面板自动渲染到此处（受 .gitignore 忽略）；
+# CE / 手工部署可参照 ../dbhub.toml.example 在此手写 dbhub.toml。

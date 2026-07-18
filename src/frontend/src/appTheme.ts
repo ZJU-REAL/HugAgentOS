@@ -1,0 +1,25 @@
+/** Ant Design theme tokens aligned with UI design spec — a single shared point for main.tsx (including the CE overlay version). */
+export const appTheme = {
+  token: {
+    colorPrimary: '#126DFF',
+    colorSuccess: '#02B589',
+    colorWarning: '#F8AB42',
+    colorError: '#FC5D5D',
+    colorInfo: '#126DFF',
+    colorText: '#262626',
+    colorTextSecondary: '#4D4D4D',
+    colorTextTertiary: '#808080',
+    colorTextQuaternary: '#B3B3B3',
+    colorBorder: '#E3E6EA',
+    colorBorderSecondary: '#D8DBE2',
+    colorBgContainer: '#FFFFFF',
+    colorBgLayout: '#F5F6F7',
+    borderRadius: 8,
+    borderRadiusLG: 12,
+    borderRadiusSM: 4,
+    fontFamily: '"PingFang SC", "Microsoft YaHei", "微软雅黑", sans-serif',
+    fontSize: 14,
+    fontSizeSM: 12,
+    fontSizeLG: 16,
+  },
+};

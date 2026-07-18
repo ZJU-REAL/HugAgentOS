@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{REPORT_TITLE}}</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+/* ===== CSS Variables - Replaced per Style ===== */
+:root {
+  --bg-primary: {{BG_PRIMARY}};
+  --bg-secondary: {{BG_SECONDARY}};
+  --bg-card: {{BG_CARD}};
+  --text-primary: {{TEXT_PRIMARY}};
+  --text-secondary: {{TEXT_SECONDARY}};
+  --text-muted: {{TEXT_MUTED}};
+  --accent: {{ACCENT}};
+  --accent-light: {{ACCENT_LIGHT}};
+  --border: {{BORDER}};
+  --font-heading: {{FONT_HEADING}};
+  --font-body: {{FONT_BODY}};
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-hover: 0 4px 12px rgba(0,0,0,0.12);
+  --radius: 8px;
+  --max-width: 1200px;
+}
+
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== Header ===== */
+.report-header {
+  background: var(--bg-secondary);
+  border-bottom: 3px solid var(--accent);
+  padding: 48px 0 40px;
+  text-align: center;
+}
+.report-header h1 {
+  font-family: var(--font-heading);
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  max-width: var(--max-width);
+  margin: 0 auto 8px;
+  padding: 0 24px;
+}
+.report-header .subtitle {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+.report-header .meta {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.report-header .meta span { display: flex; align-items: center; gap: 4px; }
+
+/* ===== Layout ===== */
+.container { max-width: var(--max-width); margin: 0 auto; padding: 32px 24px; }
+
+/* ===== Summary Cards ===== */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.2s;
+}
+.summary-card:hover { box-shadow: var(--shadow-hover); }
+.summary-card .card-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.summary-card .card-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+.summary-card .card-sub {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.summary-card .card-sub.positive { color: #27AE60; }
+.summary-card .card-sub.negative { color: #E74C3C; }
+
+/* ===== Sections ===== */
+.section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+}
+.section h2 {
+  font-family: var(--font-heading);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--accent-light);
+}
+.section h3 {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 24px 0 12px;
+}
+.section p.desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+.section .insight {
+  background: var(--bg-secondary);
+  border-left: 4px solid var(--accent);
+  padding: 14px 18px;
+  border-radius: 4px;
+  margin: 16px 0;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+}
+
+/* ===== Chart Containers ===== */
+.chart-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.chart-row .chart-col {
+  flex: 1;
+  min-width: 320px;
+}
+.chart-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.chart-box-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.chart-container {
+  width: 100%;
+  height: 400px;
+}
+
+/* ===== Stats Table ===== */
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.stats-table th {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.stats-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.stats-table tr:hover td { background: var(--bg-secondary); }
+.stats-table td.num {
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+/* ===== Footer ===== */
+.report-footer {
+  text-align: center;
+  padding: 32px 24px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  margin-top: 32px;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .report-header h1 { font-size: 1.5rem; }
+  .container { padding: 16px; }
+  .section { padding: 18px 16px; }
+  .chart-container { height: 300px; }
+}
+@media print {
+  .report-header { padding: 24px 0 16px; }
+  .container { max-width: 100%; }
+  .chart-container { break-inside: avoid; }
+  .report-footer { position: fixed; bottom: 0; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="report-header">
+  <h1>{{REPORT_TITLE}}</h1>
+  <div class="subtitle">{{REPORT_SUBTITLE}}</div>
+  <div class="meta">
+    <span>📅 {{REPORT_DATE}}</span>
+    <span>📊 {{ROW_COUNT}} rows × {{COL_COUNT}} cols</span>
+    <span>🎨 {{STYLE_LABEL}}</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Summary Cards -->
+  <div class="summary-cards" id="summary-cards">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- Chart Sections -->
+  <div id="chart-sections">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- AI Insights -->
+  <div class="section" id="insights-section">
+    <h2>📈 Key Insights</h2>
+    <div id="insights-content">
+      {{INSIGHTS}}
+    </div>
+  </div>
+
+</div>
+
+<footer class="report-footer">
+  Generated by Data Analysis Report Engine · {{REPORT_DATE}} · {{STYLE_LABEL}}
+</footer>
+
+<script>
+// ===== Chart Data =====
+const CHART_DATA = {{CHART_DATA_JSON}};
+
+// ===== Summary Cards =====
+const SUMMARY_STATS = {{SUMMARY_STATS_JSON}};
+
+(function renderSummaryCards() {
+  const container = document.getElementById('summary-cards');
+  if (!SUMMARY_STATS || Object.keys(SUMMARY_STATS).length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  const entries = Object.entries(SUMMARY_STATS);
+  const displayCols = entries.slice(0, 5);
+  container.innerHTML = displayCols.map(([key, val]) => `
+    <div class="summary-card">
+      <div class="card-label">${key}</div>
+      <div class="card-value">${formatNum(val.mean)}</div>
+      <div class="card-sub">Range: ${formatNum(val.min)} – ${formatNum(val.max)}</div>
+    </div>
+  `).join('');
+})();
+
+function formatNum(n) {
+  if (n === null || n === undefined) return '-';
+  if (Math.abs(n) >= 1e7) return (n / 1e7).toFixed(2) + 'Cr';
+  if (Math.abs(n) >= 1e4) return (n / 1e4).toFixed(1) + '万';
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ===== Render Charts =====
+(function renderCharts() {
+  const sectionContainer = document.getElementById('chart-sections');
+  if (!CHART_DATA || Object.keys(CHART_DATA).length === 0) {
+    sectionContainer.innerHTML = '<div class="section"><p>No charts generated for this data.</p></div>';
+    return;
+  }
+
+  const entries = Object.entries(CHART_DATA);
+  let html = '';
+  let chartInitCode = '';
+
+  // Separate table-type charts
+  const tableCharts = entries.filter(([,v]) => v.type === 'table');
+  const vizCharts = entries.filter(([,v]) => v.type !== 'table');
+
+  // Render stats table
+  if (tableCharts.length > 0) {
+    const stats = tableCharts[0][1].stats;
+    if (stats && Object.keys(stats).length > 0) {
+      const cols = ['mean', 'median', 'std', 'min', 'max', 'sum'];
+      const headers = ['Metric', 'Mean', 'Median', 'Std', 'Min', 'Max', 'Sum', 'CV%'];
+      const rows = Object.entries(stats).map(([name, s]) => {
+        const cells = [name, s.mean, s.median, s.std, s.min, s.max, s.sum, s.cv].map(v =>
+          typeof v === 'number' ? formatNum(v) : (v || '-')
+        );
+        return '<tr>' + cells.map(c => `<td class="num">${c}</td>`).join('') + '</tr>';
+      }).join('');
+      html += `
+        <div class="section">
+          <h2>📋 ${tableCharts[0][1].title || 'Key Metrics Summary'}</h2>
+          <div style="overflow-x:auto;">
+            <table class="stats-table">
+              <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+  }
+
+  // Render visualization charts
+  if (vizCharts.length > 0) {
+    // Group charts in rows of 2 for side-by-side layout
+    for (let i = 0; i < vizCharts.length; i += 2) {
+      const chunk = vizCharts.slice(i, i + 2);
+      const cols = chunk.map(([id, chart]) => {
+        const cid = 'chart_' + id;
+        chartInitCode += `
+          (function() {
+            var dom = document.getElementById('${cid}');
+            if (dom && dom.clientWidth > 0) {
+              var chart = echarts.init(dom);
+              chart.setOption(${JSON.stringify(chart.option)});
+              chart.resize();
+            }
+          })();`;
+        return `<div class="chart-col"><div class="chart-box">
+          <div class="chart-box-title">${chart.title}</div>
+          <div class="chart-container" id="${cid}"></div>
+        </div></div>`;
+      }).join('');
+      html += `<div class="section"><div class="chart-row">${cols}</div></div>`;
+    }
+  }
+
+  sectionContainer.innerHTML = html;
+
+  // Initialize ECharts (use requestAnimationFrame to ensure DOM is rendered)
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      eval(chartInitCode);
+    });
+  });
+})();
+
+// Responsive resize
+const charts = [];
+window.addEventListener('resize', () => {
+  charts.forEach(c => c.resize());
+});
+</script>
+</body>
+</html>

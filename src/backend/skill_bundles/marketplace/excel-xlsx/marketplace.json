@@ -1,0 +1,22 @@
+{
+  "slug": "excel-xlsx",
+  "entry_name": "excel-xlsx",
+  "display_name": "Excel 工作簿专家",
+  "summary": "创建、检查和编辑 Excel 工作簿的避坑规范：公式、日期、类型、格式、重算与模板保留全覆盖，确保交付的表格可靠可用",
+  "category": "数据分析",
+  "tags": [
+    "Excel",
+    "公式",
+    "表格处理"
+  ],
+  "version": "1.0.2",
+  "author": "ivangdavila",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/excel-xlsx",
+  "downloads": 136820,
+  "stars": 354,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

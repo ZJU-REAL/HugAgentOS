@@ -1,0 +1,22 @@
+{
+  "slug": "tech-translator",
+  "entry_name": "tech-translator",
+  "display_name": "技术文档翻译",
+  "summary": "面向 15+ 文件格式（MD/JSON/YAML/HTML/XML/LaTeX 等）的中英技术文档翻译：按格式保留结构、目录级术语一致、占位符保护与质量自检",
+  "category": "文档处理",
+  "tags": [
+    "技术翻译",
+    "文档翻译",
+    "术语一致"
+  ],
+  "version": "1.0.1",
+  "author": "openlark",
+  "icon_url": "",
+  "source": "clawhub",
+  "source_url": "https://clawhub.ai/skills/tech-translator",
+  "downloads": 252,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

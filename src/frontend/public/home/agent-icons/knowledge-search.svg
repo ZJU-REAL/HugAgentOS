@@ -1,0 +1,11 @@
+<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 知识检索：书本+放大镜 -->
+<path d="M4 6C4 5.44772 4.44772 5 5 5H12C12.5523 5 13 5.44772 13 6V21C13 21.5523 12.5523 22 12 22H5C4.44772 22 4 21.5523 4 21V6Z" fill="#88B6FF"/>
+<path d="M13 6C13 5.44772 13.4477 5 14 5H21C21.5523 5 22 5.44772 22 6V21C22 21.5523 21.5523 22 21 22H14C13.4477 22 13 21.5523 13 21V6Z" fill="#126DFF"/>
+<rect x="6" y="9" width="5" height="1.2" rx="0.6" fill="#fff"/>
+<rect x="6" y="12" width="4" height="1.2" rx="0.6" fill="#fff"/>
+<rect x="15" y="9" width="5" height="1.2" rx="0.6" fill="#88B6FF"/>
+<rect x="15" y="12" width="4" height="1.2" rx="0.6" fill="#88B6FF"/>
+<circle cx="20" cy="20" r="4" stroke="#126DFF" stroke-width="1.5" fill="#fff"/>
+<path d="M23 23L25.5 25.5" stroke="#126DFF" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

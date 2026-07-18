@@ -1,0 +1,149 @@
+/* ══════════════════════════════════════════
+   全局动画原语（motion primitives）
+   命名规范：keyframes 用 jx-kf-<name>，工具类用 jx-anim-<name>。
+   仅允许 opacity / transform。新增 keyframes 前先看这里有没有同语义原语。
+   TS 侧镜像常量见 utils/motionTokens.ts / motionVariants.ts。
+
+   防「历史回放重播」的三种标准姿势（不要发明第四种）：
+   ① motion 组件：<AnimatePresence initial={false}> / initial={false}；
+   ② 消息类按挂载时间戳门控（FRESH_ENTER_WINDOW_MS，见 motionTokens.ts）；
+   ③ CSS 入场动画靠稳定 key 不重挂即不重播。
+
+   入场类统一用 fill-mode: backwards（不用 both/forwards——forwards 会把
+   终帧 transform 钉在元素上，压住后续 :hover 的 transform）。
+   ══════════════════════════════════════════ */
+
+/* 1. fade-in-up：消息 / 卡片 / 确认条入场。
+   位移量可用 --fadeInUp-distance 覆盖（默认 10px）。 */
+@keyframes jx-kf-fadeInUp {
+  from { opacity: 0; transform: translateY(var(--fadeInUp-distance, 10px)); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.jx-anim-fadeInUp {
+  animation: jx-kf-fadeInUp var(--motion-duration-slow) var(--motion-ease-brand-out) backwards;
+}
+
+/* 2. fade-in：纯透明度入场（不适合位移的大面积区域 / iframe 容器） */
+@keyframes jx-kf-fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.jx-anim-fadeIn {
+  animation: jx-kf-fadeIn var(--motion-duration-normal) var(--motion-ease-standard) backwards;
+}
+
+/* 3. scale-in：弹层 / 菜单入场（与 SkillSlashPopup motion 参数同口径） */
+@keyframes jx-kf-scaleIn {
+  from { opacity: 0; transform: translateY(6px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.jx-anim-scaleIn {
+  animation: jx-kf-scaleIn var(--motion-duration-fast) var(--motion-ease-brand-out) backwards;
+  transform-origin: top center;
+}
+
+/* 4. CSS stagger：静态列表入场编排（动态增删走 motion variants）。
+   用法：父容器加 .jx-anim-stagger，子项 style={staggerStyle(i)}（motionTokens helper）。
+   步长可用容器级 --stagger-step 覆盖（默认 --motion-stagger-step）。 */
+.jx-anim-stagger > * {
+  animation: jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+  animation-delay: calc(var(--stagger-i, 0) * var(--stagger-step, var(--motion-stagger-step)));
+}
+
+/* 5. pulse：状态呼吸（运行中 / 进行中指示，纯 opacity） */
+@keyframes jx-kf-pulse {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: .85; }
+}
+.jx-anim-pulse { animation: jx-kf-pulse 1.6s var(--motion-ease-standard) infinite; }
+
+/* 6. shimmer：骨架屏流光 */
+@keyframes jx-kf-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.jx-anim-shimmer {
+  background: linear-gradient(90deg,
+    var(--color-bg-gray) 0%, var(--color-fill-hover) 50%, var(--color-bg-gray) 100%);
+  background-size: 240% 100%;
+  animation: jx-kf-shimmer 2.2s ease-in-out infinite;
+  border-radius: var(--radius-xs);
+}
+
+/* 7. flash：跳转定位 / 保存成功的一次性高亮。
+   颜色 --flash-color（默认主色淡底）、时长 --flash-dur 可覆盖。
+   表格行场景用 .jx-anim-flash-row 挂 rowClassName（antd td 自带底色，须写在 > td 上）。 */
+@keyframes jx-kf-flash {
+  0%   { background-color: var(--flash-color, var(--color-primary-bg)); }
+  100% { background-color: transparent; }
+}
+.jx-anim-flash { animation: jx-kf-flash var(--flash-dur, 1.2s) var(--motion-ease-standard) 1; }
+.jx-anim-flash-row > td { animation: jx-kf-flash var(--flash-dur, 1.2s) var(--motion-ease-standard) 1; }
+
+/* 8. status-in：状态图标 / 徽标切换落定（key 变化重挂触发） */
+@keyframes jx-kf-statusIn {
+  from { opacity: 0; transform: scale(.7); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.jx-anim-statusIn {
+  animation: jx-kf-statusIn var(--motion-duration-fast) var(--motion-ease-brand-out) backwards;
+}
+
+/* 9. ripple：运行中 / 告警的扩散涟漪（compositor-only，替代 box-shadow 扩散动画）。
+   挂宿主元素；颜色 --ripple-color、扩散倍数 --ripple-scale、周期 --ripple-dur 可覆盖。 */
+@keyframes jx-kf-ripple {
+  from { transform: scale(1); opacity: .45; }
+  to   { transform: scale(var(--ripple-scale, 1.9)); opacity: 0; }
+}
+.jx-anim-ripple { position: relative; }
+.jx-anim-ripple::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--ripple-color, var(--color-primary));
+  animation: jx-kf-ripple var(--ripple-dur, 1.6s) ease-out infinite;
+  pointer-events: none;
+}
+
+/* 10. shake：校验失败的横向抖动（一次性，挂类触发） */
+@keyframes jx-kf-shakeX {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}
+.jx-anim-shake { animation: jx-kf-shakeX .3s var(--motion-ease-standard) 1; }
+
+/* 11. card-lift：卡片 hover 抬升三件套（transition + hover + 按压回落）。
+   与卡片自身的边框/阴影样式叠加使用。 */
+.jx-card-lift {
+  transition: border-color var(--motion-duration-fast) var(--motion-ease-standard),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+              transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-card-lift:hover { transform: translateY(-2px); }
+.jx-card-lift:active { transform: translateY(0); transition-duration: var(--motion-duration-instant); }
+
+/* ══════════ 无障碍：reduced motion 全局降级 ══════════
+ * 策略：动画压到 1ms（保留 fill-mode 终态），过渡直接归零。
+ * 不能把全局 transition-duration 设成正数：CSS 初始 transition-property 是 all，
+ * 这会让 Ant Design 弹层定位用的 left/top 也产生过渡；rc-trigger 在同一帧同步测量时
+ * 会读到 -1000vw 的动画起点，导致下拉框永久停在屏幕外。
+ * 白名单豁免纯 opacity 的"系统在工作"指示器（降速保留，去掉会损害可用性）。
+ * 区域内需保留的工作指示器可自挂 .jx-anim-keep 进入白名单。
+ * 旧的零散 @media (prefers-reduced-motion) 块已由本规则统一替代。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .jx-streamingDot,
+  .jx-skeletonBlock,
+  .jx-anim-shimmer,
+  .jx-anim-keep {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

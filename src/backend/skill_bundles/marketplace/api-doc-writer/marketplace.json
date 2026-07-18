@@ -1,0 +1,22 @@
+{
+  "slug": "api-doc-writer",
+  "entry_name": "api-doc-writer",
+  "display_name": "API 接口文档助手",
+  "summary": "API接口文档助手。用于编写REST API文档、定义接口规范、生成接口说明。当需要编写API文档、接口规范时触发。",
+  "category": "研发效率",
+  "tags": [
+    "API文档",
+    "接口规范",
+    "REST"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/api-doc-writer",
+  "downloads": 2319,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

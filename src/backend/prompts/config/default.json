@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "system_prompt": {
+    "provider": "filesystem",
+    "prompt_dir": "./prompts/prompt_text/default",
+    "parts": [
+      "system/00_role",
+      "system/10_constraints",
+      "system/20_tools",
+      "system/30_workflow",
+      "system/40_format"
+    ],
+    "inline_template": ""
+  },
+  "mcp_servers": {
+    "enabled": [
+      "query_database",
+      "retrieve_dataset_content",
+      "internet_search",
+      "ai_chain_information_mcp",
+      "generate_chart_tool",
+      "report_export_mcp"
+    ]
+  },
+  "tools": {
+    "allowed": [],
+    "routing": {
+      "strict_allowlist": true
+    }
+  },
+  "model": {
+    "default_model_name": "deepseek",
+    "temperature": 0.6,
+    "max_tokens": 8192,
+    "timeout": 120,
+    "env": {
+      "base_url": "MODEL_URL",
+      "api_key": "API_KEY",
+      "base_model_name": "BASE_MODEL_NAME",
+      "summarize_model_name": "SUMMARIZE_MODEL_NAME"
+    }
+  }
+}

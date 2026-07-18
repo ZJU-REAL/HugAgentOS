@@ -1,0 +1,4 @@
+# 可选依赖：L2 向量 / L3 图谱记忆（compose 的 mem0 profile）
+# 安装：pip install -r requirements-mem0.txt
+mem0ai>=0.1.50
+neo4j>=5.15.0

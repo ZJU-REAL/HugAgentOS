@@ -1,0 +1,40 @@
+# DBHub 多库配置示例（现成开源 bytebase/dbhub）
+#
+# 推荐用法：在 Config 后台「数据库工具」面板增删改数据源，后端会自动把本格式渲染到
+# docker/dbhub/dbhub.toml 并重启 DBHub 边车——无需手动编辑本文件。
+#
+# 手工用法（CE / 无后台）：
+#   1. 复制本文件为 docker/dbhub/dbhub.toml，按需填写各 [[sources]]。
+#   2. 用 `docker compose --profile dbhub up -d dbhub` 启动边车。
+#
+# 安全建议：给每个数据库账号只读权限，并对每个 source 设 readonly=true。
+# DSN 含密码，docker/dbhub/dbhub.toml 切勿提交进仓库（已在 .gitignore 忽略）。
+
+# ── MySQL 示例 ───────────────────────────────────────────────────────────────
+[[sources]]
+id = "mysql_main"
+description = "业务主库（MySQL）"
+dsn = "mysql://readonly_user:password@mysql-host:3306/business_db"
+readonly = true
+
+# ── PostgreSQL 示例 ──────────────────────────────────────────────────────────
+[[sources]]
+id = "pg_dw"
+description = "数据仓库（PostgreSQL）"
+dsn = "postgres://readonly_user:password@pg-host:5432/dw?sslmode=disable"
+search_path = "public,analytics"
+readonly = true
+
+# ── SQL Server 示例 ──────────────────────────────────────────────────────────
+# [[sources]]
+# id = "mssql_erp"
+# description = "ERP 库（SQL Server）"
+# dsn = "sqlserver://user:password@mssql-host:1433/erp"
+# readonly = true
+
+# ── SQLite 示例 ──────────────────────────────────────────────────────────────
+# [[sources]]
+# id = "local_sqlite"
+# description = "本地 SQLite"
+# dsn = "sqlite:///app/data/local.db"
+# readonly = true

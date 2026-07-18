@@ -1,0 +1,86 @@
+# Dockerfile.mcp — dedicated container running every MCP server in-process.
+# Launcher: ``mcp_servers._launcher`` spawns one streamable-http process per
+# MCP server; backend connects via HttpStatefulClient.
+#
+# Office document *editing* (docx / xlsx / pptx / pdf) no longer lives here —
+# it moved to the word / excel / pdf / ppt skills that run in the opensandbox
+# container (each skill vendors its own engine). This image therefore only
+# carries what the remaining MCP servers actually import:
+#   - matplotlib / Pillow  → generate_chart_tool_mcp
+#   - openpyxl             → report_export_mcp (export_table_to_excel)
+#   - python-docx + pandoc → report_export_mcp (markdown→docx path)
+# No LibreOffice / .NET / Node / Chromium — those were only used by the
+# office tooling that has since moved to the sandbox.
+
+# ── Stage 1: builder ──────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+RUN sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources
+WORKDIR /build
+
+ENV PIP_DEFAULT_TIMEOUT=180 \
+    PIP_RETRIES=8 \
+    PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple \
+    PIP_TRUSTED_HOST=repo.huaweicloud.com
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install backend deps + the few office/chart deps the MCP servers still use.
+COPY requirements.txt docker/requirements-mcp.txt ./
+RUN pip install --no-cache-dir --user \
+    -r requirements.txt \
+    -r requirements-mcp.txt
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────
+FROM python:3.11-slim AS production
+RUN sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources
+
+RUN useradd -m -u 1000 -s /bin/bash appuser
+WORKDIR /app
+
+# Runtime deps:
+#   - curl — HEALTHCHECK probe
+#   - pandoc — mcp_servers.report_export_mcp.impl._pandoc_convert (markdown→docx)
+#   - fonts-wqy-zenhei + fontconfig — CJK glyphs for matplotlib chart rendering
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    tzdata \
+    fontconfig \
+    fonts-wqy-zenhei \
+    pandoc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /root/.local /home/appuser/.local
+
+# Install bundled fangzheng fonts (CJK/公文 fonts shipped in the repo)
+COPY resources/fonts /tmp/fonts
+RUN mkdir -p /usr/share/fonts/truetype/fangzheng && \
+    find /tmp/fonts -type f \( -name "*.ttf" -o -name "*.TTF" \) -exec cp {} /usr/share/fonts/truetype/fangzheng/ \; && \
+    rm -rf /tmp/fonts && \
+    fc-cache -f
+
+# Mount points / writable dirs. /app/storage is shared with backend so
+# artifacts saved by save_artifact_bytes are visible across both containers.
+RUN mkdir -p /app/src/backend /app/storage /app/logs && \
+    chown -R appuser:appuser /app/src/backend /app/storage /app/logs && \
+    rm -rf /home/appuser/.cache/matplotlib
+
+ENV PATH=/home/appuser/.local/bin:$PATH
+ENV PYTHONPATH=/app/src/backend
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Healthcheck: probe the lowest-port MCP (KB retrieval, always running).
+# If the launcher exits non-zero on persistent crashes, the container itself
+# restarts — so this is a lightweight liveness probe.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS http://localhost:9100/mcp/ || exit 1
+
+USER appuser
+
+# Expose the full MCP port range (9100 = KB, 9101–9111 = others).
+EXPOSE 9100 9101 9102 9103 9104 9105 9106 9107 9108 9109 9110 9111
+
+CMD ["python", "-m", "mcp_servers._launcher"]

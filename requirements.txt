@@ -1,0 +1,101 @@
+# Core Web Framework
+fastapi>=0.110.0
+uvicorn>=0.27.0
+pydantic>=2.6.0
+
+# Async & Utilities
+anyio>=4.2.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+httpx>=0.27.0
+
+# JSON Schema Validation
+jsonschema>=4.20.0
+
+# AgentScope (replaces LangChain ecosystem)
+# 已迁移到 2.0：Agent/Toolkit/Middleware/MCP 全面重写，固定 ==2.0.0（GitHub main 已与 2.0.0 分叉，不兼容）
+agentscope==2.0.0
+
+# 多厂商模型渠道所需 SDK（均为惰性 import，未装只影响对应渠道，不影响其余功能）：
+#   - anthropic / dashscope / openai 已随 agentscope==2.0.0 内置，无需在此重复声明
+#   - 以下为 agentscope 未捆绑、需显式安装的渠道 SDK：
+# litellm —— 非 OpenAI 协议且 AgentScope 无原生类的厂商（如 AWS Bedrock）
+litellm>=1.50.0
+# google-genai —— Gemini 原生渠道（agentscope GeminiChatModel: from google import genai）
+google-genai>=0.3.0
+# ollama —— 本地 Ollama 原生渠道（agentscope OllamaChatModel: import ollama）
+ollama>=0.3.0
+
+# MCP Integration
+mcp>=1.0.0
+
+# Additional Tools
+tavily-python>=0.5.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+# Heavy office/chart deps (python-docx, pypdf, pdfplumber, matplotlib,
+# Pillow) live in `requirements-mcp.txt` and only get installed inside the
+# dedicated `mcp` container.
+# openpyxl + python-pptx stay in backend so file_parser can parse xlsx /
+# pptx in-process for the read_artifact tool and the file_context preview
+# hook — both must keep working even if individual office MCP servers are
+# disabled by the user.
+openpyxl>=3.1.0
+python-pptx>=0.6.23
+# 微信渠道扫码绑定：iLink 只回扫码链接，需在后端渲染成二维码 PNG（Pillow 由 python-pptx 带入）。
+qrcode[pil]>=7.4.2
+
+# Redis
+redis[asyncio]>=5.0.0
+# In-process Redis substitute for the no-Docker local/quick-install profile
+# (REDIS_URL=memory://). Single-process only; the compose deployment still uses
+# a real redis. fakeredis 2.21+ honours blocking XREAD / GETDEL / INCRBYFLOAT.
+fakeredis>=2.21.0
+
+# Database
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.25
+alembic>=1.13.0
+
+# Object Storage
+botocore>=1.34.0
+
+# File Utilities
+werkzeug>=3.0.0
+python-multipart>=0.0.9
+
+# Logging & Rate Limiting
+structlog>=23.2.0
+slowapi>=0.1.9
+
+# Security
+safety>=3.0.0
+bandit>=1.7.5
+argon2-cffi>=23.1.0
+
+# Scheduling
+croniter>=2.0.0
+
+# mem0 Memory System
+pymilvus>=2.5.0
+
+# Sandbox Provider — alibaba/OpenSandbox (optional;
+# only required when SANDBOX_PROVIDER=opensandbox)
+
+# Sandbox Provider — Tencent CubeSandbox / E2B-compatible (optional;
+# only required when SANDBOX_PROVIDER=cube)
+e2b-code-interpreter>=2.4.1,<3
+
+# License 离线验签（Ed25519）
+cryptography>=42.0.0
+
+# 钉钉账号扫码绑定：把设备流验证 URL 渲染成二维码（纯 Python，零额外依赖）
+segno>=1.6.0
+
+# 飞书入站渠道机器人长连接（WebSocket 事件订阅）。webhook/push 走 httpx REST，
+# 仅长连接模式需要本 SDK；缺失时长连接不可用但不影响 webhook 模式与进程启动。
+lark-oapi>=1.4.0
+
+# 钉钉入站渠道机器人 Stream 模式（WebSocket 长连接）。回复/凭据校验走 httpx REST，
+# 仅 Stream 长连接需要本 SDK；缺失时该渠道不可用但不影响其他渠道与进程启动。
+dingtalk-stream>=0.21.0

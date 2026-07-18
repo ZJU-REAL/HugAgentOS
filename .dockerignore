@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Version control
+.git/
+.gitignore
+
+# Environment
+.env
+.env.dev
+.env.staging
+.env.prod
+
+# Logs
+logs/
+*.log
+
+# Storage
+storage/
+# Note: artifacts/ directory contains Python code and must be included
+# The data files in result/artifacts/ are already excluded via result/
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation
+document/
+*.md
+!README.md
+
+# Frontend (excluded from backend image)
+src/frontend/
+
+# Database
+*.db
+*.sqlite
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Others
+.DS_Store
+*.tmp
+*.cache
+result/
+.hugagent/

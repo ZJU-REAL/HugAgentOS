@@ -1,0 +1,22 @@
+{
+  "slug": "pdf-batch-processing-tool",
+  "entry_name": "pdf-batch-processing-tool",
+  "display_name": "PDF 批量处理",
+  "summary": "本地批量处理 PDF：合并、拆分、旋转、文本提取，附 4 个开箱即用脚本，数据不出本机，适合材料归档与批量整理",
+  "category": "文档处理",
+  "tags": [
+    "PDF",
+    "合并拆分",
+    "批量处理"
+  ],
+  "version": "1.0.0",
+  "author": "potatosolo",
+  "icon_url": "",
+  "source": "clawhub",
+  "source_url": "https://clawhub.ai/skills/pdf-batch-processing-tool",
+  "downloads": 293,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

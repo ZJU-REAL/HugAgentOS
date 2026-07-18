@@ -1,0 +1,23 @@
+{
+  "slug": "pmaster",
+  "entry_name": "pmaster",
+  "display_name": "产品经理全栈（PM Master）",
+  "summary": "整合需求分析、PRD 撰写、产品策略、用户研究、优先级排序、OKR 与敏捷执行的 40+ 方法论框架，政企信息化项目需求管理同样适用",
+  "category": "办公效率",
+  "tags": [
+    "需求分析",
+    "PRD",
+    "OKR",
+    "敏捷"
+  ],
+  "version": "1.0.0",
+  "author": "user_dec48685",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/pmaster",
+  "downloads": 3897,
+  "stars": 34,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

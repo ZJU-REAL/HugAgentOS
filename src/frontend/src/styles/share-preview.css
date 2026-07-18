@@ -1,0 +1,43 @@
+/* 分享预览页（访客门面）入场编排 —— 复用 motion.css 的 jx-kf-fadeInUp 原语，
+   位移量用 --fadeInUp-distance 调（卡片 14px、头部/消息 10px） */
+
+/* 卡片整体上浮入场 */
+.jx-shareCard {
+  --fadeInUp-distance: 14px;
+  animation: jx-kf-fadeInUp .35s cubic-bezier(.22, .8, .36, 1) both;
+}
+
+/* 头部三档入场：eyebrow → 标题 → meta（0/40/80ms） */
+.jx-shareEyebrow,
+.jx-shareTitle,
+.jx-shareMeta {
+  --fadeInUp-distance: 10px;
+  animation: jx-kf-fadeInUp .3s ease-out both;
+}
+.jx-shareTitle { animation-delay: 40ms; }
+.jx-shareMeta { animation-delay: 80ms; }
+
+/* 消息瀑布：JSX 写入 --stagger-i（staggerStyle 封顶 8），60ms 步长 */
+.jx-shareMessage {
+  --fadeInUp-distance: 10px;
+  animation: jx-kf-fadeInUp .3s ease-out both;
+  animation-delay: calc(var(--stagger-i, 0) * 60ms);
+}
+
+/* 骨架屏即时呈现，不参与入场编排（避免 骨架→内容 两次重播上浮） */
+.jx-shareCardSkeleton,
+.jx-shareCardSkeleton .jx-shareMeta,
+.jx-shareMessageSkeleton {
+  animation: none;
+}
+
+/* 打印：fill-mode both + delay 的元素在打印帧可能停在 opacity:0 → 印出空白，必须全部禁用 */
+@media print {
+  .jx-shareCard,
+  .jx-shareMessage,
+  .jx-shareEyebrow,
+  .jx-shareTitle,
+  .jx-shareMeta {
+    animation: none !important;
+  }
+}

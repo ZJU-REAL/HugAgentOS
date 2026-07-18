@@ -1,0 +1,14 @@
+{
+  "name": "yida",
+  "version": "2026.7.12",
+  "display_name": "宜搭低代码平台",
+  "description": "以对话方式搭建和管理钉钉宜搭低代码应用：创建应用/表单/流程/自定义页面、发布页面、增删改查表单数据、配置公式与业务规则、生成报表/图表/数据大屏、管理应用与表单权限等。基于宜搭官方开源 OpenYida CLI（沙箱内预装）。安装后在本插件详情页扫码连接宜搭账号（也可在对话内首次使用时扫码），登录态跨会话保持。",
+  "category": "办公协同",
+  "connection": "yida",
+  "components": {
+    "skills": ["yida"]
+  },
+  "default_enabled": {
+    "skills": ["yida"]
+  }
+}

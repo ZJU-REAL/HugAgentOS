@@ -1,0 +1,11 @@
+<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 企业画像：大楼+用户 -->
+<rect x="4" y="6" width="12" height="18" rx="1.5" fill="#126DFF"/>
+<rect x="7" y="9" width="2.5" height="2.5" rx="0.5" fill="#88B6FF"/>
+<rect x="11" y="9" width="2.5" height="2.5" rx="0.5" fill="#88B6FF"/>
+<rect x="7" y="14" width="2.5" height="2.5" rx="0.5" fill="#88B6FF"/>
+<rect x="11" y="14" width="2.5" height="2.5" rx="0.5" fill="#88B6FF"/>
+<rect x="8.5" y="19" width="3" height="5" rx="0.5" fill="#88B6FF"/>
+<circle cx="21" cy="12" r="3" fill="#88B6FF"/>
+<path d="M16 22C16 19.2386 18.2386 17 21 17C23.7614 17 26 19.2386 26 22V24H16V22Z" fill="#126DFF"/>
+</svg>

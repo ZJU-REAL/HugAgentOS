@@ -1,0 +1,13 @@
+# System packages required by ppt-design.
+# Picked up by agent_skills.deps_detector (apt-requirements.txt | Aptfile | apt.txt).
+# The OpenSandbox custom image currently bakes libreoffice + java + fonts in;
+# poppler-utils was missing (caused `ppt-cli thumbnails` to fail with
+# "pdftoppm not found in PATH; install poppler-utils in the mcp container").
+# Listing everything the skill needs at runtime, so any future image rebuild
+# / alternative runner has the full contract.
+
+libreoffice-impress         # _shims.to_pdf — pptx → pdf via headless soffice
+poppler-utils               # thumbnails.py — pdftoppm for pdf → per-page jpg
+openjdk-21-jre-headless     # required by LibreOffice Impress to import pptx
+fonts-wqy-zenhei            # CJK fallback used when "Microsoft YaHei" is absent (see build meta.font_warnings)
+fonts-noto-color-emoji      # emoji glyphs in covers / decorations

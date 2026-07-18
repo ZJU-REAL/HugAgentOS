@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "HugAgentOS",
+  "version": "0.1.0",
+  "identifier": "com.hugagent.desktop",
+  "build": {
+    "frontendDist": "../../src/frontend/dist",
+    "beforeBuildCommand": "npm --prefix ../src/frontend run build",
+    "beforeDevCommand": "",
+    "devUrl": "http://127.0.0.1:1420"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../src/frontend/dist": "web"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["hugagent"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4MjI4Q0QxNzlCODE3NjYKUldSbUY3aDUwWXdpS0w2bW1tYzU4Tk4xUDJpRnRLdUhZVjc4ZXIyYzhoWUtHUjMzUkhnRS9RRkoK",
+      "endpoints": [
+        "http://localhost:3000/api/v1/desktop/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

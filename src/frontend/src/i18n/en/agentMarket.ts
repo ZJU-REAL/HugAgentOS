@@ -1,0 +1,82 @@
+/** 英文字典（子智能体市场域）：key 为中文原文，value 为英文译文。 */
+export const AGENT_MARKET_DICT: Record<string, string> = {
+  // 市场弹窗
+  '子智能体市场': 'Agent Marketplace',
+  '智能体市场': 'Agent Marketplace',
+  '浏览子智能体市场': 'Browse agent marketplace',
+  '加载子智能体市场失败': 'Failed to load agent marketplace',
+  '搜索子智能体名称、描述、标签': 'Search agents by name, description, tags',
+  '没有匹配的子智能体': 'No matching agents',
+  '共 {n} 个子智能体': '{n} agent(s)',
+  '携带能力': 'Bundled capabilities',
+  '纯提示词，无额外能力绑定': 'Prompt only, no extra capabilities',
+  '推荐问题': 'Suggested questions',
+  '角色设定（系统提示词）': 'Role (system prompt)',
+  '技能 {n}': '{n} skill(s)',
+  '工具 {n}': '{n} tool(s)',
+  '插件 {n}': '{n} plugin(s)',
+  '「{name}」已安装（{detail}）': '"{name}" installed ({detail})',
+  '{n} 项能力需在“能力中心”补配凭据': '{n} capabilities need credentials in the Capability Center',
+  '{n} 项能力无法解析已跳过': '{n} capabilities could not be resolved and were skipped',
+  '「{name}」已从市场删除': '"{name}" removed from marketplace',
+  '确定从市场删除「{name}」？': 'Remove "{name}" from the marketplace?',
+  '仅移出市场，不影响已安装的子智能体。': 'Only removes it from the marketplace; installed agents are unaffected.',
+  '在本人「子智能体」中生成一个私有副本': 'creates a private copy in your Agents',
+  '在全局生成一个所有人可用的子智能体': 'creates a global agent available to everyone',
+
+  // 用户侧（AgentPanel）
+  '添加子智能体': 'Add agent',
+  '从智能体市场获取': 'Get from marketplace',
+  '从市场获取': 'Get from marketplace',
+  '我的上架': 'My submissions',
+  '我的上架申请': 'My marketplace submissions',
+  '暂无上架申请': 'No submissions yet',
+  '加载上架申请失败': 'Failed to load submissions',
+  '申请上架': 'Submit to marketplace',
+  '申请上架到子智能体市场': 'Submit to the agent marketplace',
+  '申请上架「{name}」': 'Submit "{name}" to marketplace',
+  '提交后由管理员审核，通过后将以社区共享形式上架，其他用户可安装。提交的是当前内容快照。':
+    'After submission an admin reviews it; once approved it is listed as community-shared and installable by others. A snapshot of the current content is submitted.',
+  '请选择分类': 'Please select a category',
+  '市场摘要': 'Marketplace summary',
+  '一句话介绍这个子智能体的用途': 'One line describing what this agent does',
+  '给管理员的备注': 'Note to admin',
+  '已提交上架申请，等待管理员审核': 'Submitted; awaiting admin review',
+  '审核中': 'Under review',
+  '已撤回': 'Withdrawn',
+  '驳回理由：{r}': 'Rejection reason: {r}',
+
+  // 子智能体能力绑定
+  '从技能市场安装并绑定': 'Install & bind from Skill Marketplace',
+  '从插件市场安装并绑定': 'Install & bind from Plugin Marketplace',
+  '安装并绑定': 'Install & bind',
+  '安装中': 'Installing',
+  '安装后将自动绑定到当前子智能体': 'The installed capability will be bound to this sub-agent automatically.',
+  '可绑定当前未启用的 MCP；它只会对该子智能体生效，不会同时启用到主智能体':
+    'MCPs currently disabled for the user can be bound here. They apply only to this sub-agent and remain disabled for the main agent.',
+
+  // 管理端（AdminAgentManager：新建即上架 + 子智能体市场 + 上架审核）
+  '子智能体市场分类': 'Agent marketplace category',
+  '请选择子智能体市场分类': 'Please select an agent marketplace category',
+  '新建子智能体将上架到子智能体市场（不直接全局生效），需再从「子智能体市场」安装。':
+    'A new agent is listed on the agent marketplace (not made global directly); install it from the "Agent Marketplace" to make it available.',
+  '子智能体已上架子智能体市场': 'Agent listed on the agent marketplace',
+  '子智能体市场上架审核': 'Agent marketplace review',
+  '用户申请把自己的私有子智能体上架到子智能体市场。通过后对全员可见可装；对已上架项执行「下架」即从市场移除（已安装的克隆不受影响）。':
+    'Users request to list their private agents on the marketplace. Once approved they become visible and installable to everyone; delisting an approved item removes it from the marketplace (installed clones are unaffected).',
+  '审核「{name}」': 'Review "{name}"',
+  '申请详情': 'Submission details',
+  '查看 / 审核': 'View / review',
+  '{n} 个待审核': '{n} pending',
+  '申请人：{n}': 'Submitter: {n}',
+  '申请备注：{n}': 'Note: {n}',
+  '上架分类（通过时可调整）': 'Category (adjustable on approval)',
+  '审核备注 / 驳回理由（驳回必填）': 'Review note / rejection reason (required to reject)',
+  '请填写驳回理由': 'Please provide a rejection reason',
+  '通过上架': 'Approve & list',
+  '已通过，子智能体已上架': 'Approved; agent is now listed',
+  '下架原因（可选）': 'Delist reason (optional)',
+  '确认下架？': 'Confirm delist?',
+  '下架后用户端市场不再展示，已安装的克隆不受影响。':
+    'After delisting it no longer appears in the user marketplace; installed clones are unaffected.',
+};

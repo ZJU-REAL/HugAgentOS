@@ -1,0 +1,22 @@
+{
+  "slug": "csv-pipeline",
+  "entry_name": "csv-pipeline",
+  "display_name": "CSV 数据流水线",
+  "summary": "用标准命令行工具与 Python 标准库处理 CSV/TSV/JSON 表格数据：过滤、连接、分组聚合、去重、校验、格式转换与汇总报表，零额外依赖",
+  "category": "数据分析",
+  "tags": [
+    "CSV",
+    "ETL",
+    "数据清洗"
+  ],
+  "version": "1.0.0",
+  "author": "gitgoodordietrying",
+  "icon_url": "",
+  "source": "clawhub",
+  "source_url": "https://clawhub.ai/skills/csv-pipeline",
+  "downloads": 6319,
+  "stars": 2,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

@@ -1,0 +1,9 @@
+# Python deps required by ppt-design's CLI engine.
+# Picked up by agent_skills.deps_detector (and the admin_skills upload flow).
+# The OpenSandbox custom image (PY_BIN venv) currently ships these versions —
+# bumping here also bumps the contract for any rebuild.
+
+python-pptx>=1.0.2          # builder.py / editor.py / decorations.py / qa.py / reader.py / slide_types.py / _colors.py
+pypdf>=6.0.0                # _shims.py (PDF page-count after to_pdf)
+lxml>=6.0.0                 # decorations.py (raw OOXML edits)
+Pillow>=11.0.0              # transitively used by python-pptx for image insertion (insert-image subcommand)

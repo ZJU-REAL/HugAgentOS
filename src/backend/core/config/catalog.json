@@ -1,0 +1,206 @@
+{
+  "skills": [
+    {
+      "id": "capability-guide-brief",
+      "kind": "tool_bundle",
+      "name": "能力清单速答技能",
+      "description": "当用户询问系统自身能力时使用，如”你能做什么””你有哪些功能””怎么使用你””支持哪些类型的任务”。给出能力清单、提问模板与使用指引。",
+      "desc": "当用户询问系统自身能力时使用，如”你能做什么””你有哪些功能””怎么使用你””支持哪些类型的任务”。给出能力清单、提问模板与使用指引。",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "capability",
+          "faq",
+          "onboarding",
+          "guide"
+        ]
+      }
+    },
+    {
+      "id": "excel-editing",
+      "kind": "tool_bundle",
+      "name": "Excel 表格作业手册",
+      "description": "**生成、编辑、修改、套公式、加图表或导出 .xlsx Excel 工作簿 / 财务模型 / 报表 / 数据表 / 预算 / 名册 / 排期** 时使用。既覆盖从零建表（表头样式·列宽·合并单元格），也覆盖：按公式建模（同比·毛利率·三年滚动预测等活公式，而非写死数值）、批量改单元格、加 sheet、插入原生图表、给已有工作簿加列或加汇总行。把 Excel/工作簿转成 PDF 也走本技能（.xlsx 为主产物）。仅当用户要 .xlsx 产物、或改/转既有 Excel 时触发；查数据库、读表格做总结、写 SQL、把数据画成图片、出纯文字数据分析报告、翻译表格内容 时不要触发。",
+      "desc": "**生成、编辑、修改、套公式、加图表或导出 .xlsx Excel 工作簿 / 财务模型 / 报表 / 数据表 / 预算 / 名册 / 排期** 时使用。既覆盖从零建表（表头样式·列宽·合并单元格），也覆盖：按公式建模（同比·毛利率·三年滚动预测等活公式，而非写死数值）、批量改单元格、加 sheet、插入原生图表、给已有工作簿加列或加汇总行。把 Excel/工作簿转成 PDF 也走本技能（.xlsx 为主产物）。仅当用户要 .xlsx 产物、或改/转既有 Excel 时触发；查数据库、读表格做总结、写 SQL、把数据画成图片、出纯文字数据分析报告、翻译表格内容 时不要触发。",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "xlsx",
+          "excel",
+          "office",
+          "spreadsheet",
+          "cli"
+        ]
+      }
+    },
+    {
+      "id": "pdf-editing",
+      "kind": "tool_bundle",
+      "name": "PDF 文档作业手册",
+      "description": "**生成、合并、拆分、抽取页、填表单、读取或重排 .pdf PDF 文档 / 报告 / 表单 / 印刷品 / 标书 / 白皮书** 时使用。既覆盖从零生成印刷级 PDF（含封面·图表）、把 markdown/docx/txt 重排成正式 PDF，也覆盖对已有 PDF 的操作：多份按序合并 / 按页范围或章节拆分 / 抽取指定页 / 填 AcroForm 表单字段 / 提取全文文本或目录。仅当用户要 .pdf 产物、或改/读既有 PDF（含读取大段 PDF 文本）时触发；查阅网页正文、总结文章观点、解释 PDF 概念、修打印机、推荐阅读器、压缩图片 时不要触发。",
+      "desc": "**生成、合并、拆分、抽取页、填表单、读取或重排 .pdf PDF 文档 / 报告 / 表单 / 印刷品 / 标书 / 白皮书** 时使用。既覆盖从零生成印刷级 PDF（含封面·图表）、把 markdown/docx/txt 重排成正式 PDF，也覆盖对已有 PDF 的操作：多份按序合并 / 按页范围或章节拆分 / 抽取指定页 / 填 AcroForm 表单字段 / 提取全文文本或目录。仅当用户要 .pdf 产物、或改/读既有 PDF（含读取大段 PDF 文本）时触发；查阅网页正文、总结文章观点、解释 PDF 概念、修打印机、推荐阅读器、压缩图片 时不要触发。",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "pdf",
+          "document",
+          "office",
+          "print",
+          "cli"
+        ]
+      }
+    },
+    {
+      "id": "ppt-design",
+      "kind": "tool_bundle",
+      "name": "PPT 演示文稿设计",
+      "description": "**设计、生成或编辑 PPT / 演示文稿 / 幻灯片 / deck / slides / .pptx** 时使用。既覆盖从零做一套（工作汇报·产品发布会·路演融资·数据/经营分析·行业研究·项目立项·政府汇报·培训课件·复盘总结），把提纲/大纲/文档内容扩写成整套演示文稿或课件；也覆盖对已有 .pptx 的编辑：改某页标题 / 加页删页 / 追加谢谢页 / 插图 / 换主题配色 / 成片质检 / 导出 PDF。只要用户提到 PPT / 幻灯片 / 演示文稿 / deck / slides / 路演 / 汇报材料 / 课件，即便没说用什么工具也走本技能产出 .pptx，别堆纯文字 bullets。仅当目标是 .pptx 时触发；把 ppt 内容总结成文字、推荐模板网站、问 PowerPoint 操作技巧、改一段文案、解释某汇报概念 时不要触发。",
+      "desc": "**设计、生成或编辑 PPT / 演示文稿 / 幻灯片 / deck / slides / .pptx** 时使用。既覆盖从零做一套（工作汇报·产品发布会·路演融资·数据/经营分析·行业研究·项目立项·政府汇报·培训课件·复盘总结），把提纲/大纲/文档内容扩写成整套演示文稿或课件；也覆盖对已有 .pptx 的编辑：改某页标题 / 加页删页 / 追加谢谢页 / 插图 / 换主题配色 / 成片质检 / 导出 PDF。只要用户提到 PPT / 幻灯片 / 演示文稿 / deck / slides / 路演 / 汇报材料 / 课件，即便没说用什么工具也走本技能产出 .pptx，别堆纯文字 bullets。仅当目标是 .pptx 时触发；把 ppt 内容总结成文字、推荐模板网站、问 PowerPoint 操作技巧、改一段文案、解释某汇报概念 时不要触发。",
+      "enabled": true,
+      "version": "2.0",
+      "config": {
+        "tags": [
+          "pptx",
+          "presentation",
+          "slides",
+          "deck",
+          "office",
+          "design"
+        ]
+      }
+    },
+    {
+      "id": "word-editing",
+      "kind": "tool_bundle",
+      "name": "Word 文档编辑作业手册",
+      "description": "**生成、编辑、修改、排版、套模板或导出 .docx Word 文档 / 公文 / 通知 / 批复 / 合同 / 方案 / 报告** 时使用。既覆盖从零起草，也覆盖对已有 .docx 的任何改动：替换文本 / 改甲乙方·落款·单位名 / 填 {{占位符}} / 套用模板的字体与样式 / 在文末或指定段插入·加粗·改格式 / 整章重写 / 加表格或图片。把 Word 转成 PDF 也走本技能（.docx 为主产物）。仅当用户要 .docx 文件产物、或改/转既有 Word 文件时触发；单纯阅读·总结·分析文档、口头改写一段话（不落文件）、问公文格式规范、修复打不开的文件、推荐模板网站 时不要触发。",
+      "desc": "**生成、编辑、修改、排版、套模板或导出 .docx Word 文档 / 公文 / 通知 / 批复 / 合同 / 方案 / 报告** 时使用。既覆盖从零起草，也覆盖对已有 .docx 的任何改动：替换文本 / 改甲乙方·落款·单位名 / 填 {{占位符}} / 套用模板的字体与样式 / 在文末或指定段插入·加粗·改格式 / 整章重写 / 加表格或图片。把 Word 转成 PDF 也走本技能（.docx 为主产物）。仅当用户要 .docx 文件产物、或改/转既有 Word 文件时触发；单纯阅读·总结·分析文档、口头改写一段话（不落文件）、问公文格式规范、修复打不开的文件、推荐模板网站 时不要触发。",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "docx",
+          "word",
+          "office",
+          "document",
+          "cli"
+        ]
+      }
+    }
+  ],
+  "agents": [],
+  "mcp": [
+    {
+      "id": "retrieve_dataset_content",
+      "kind": "mcp_server",
+      "name": "知识库检索",
+      "description": "从公有/私有知识库中语义检索政策文件、产业报告及用户上传文档，支持混合检索与重排序。",
+      "desc": "从公有/私有知识库中语义检索政策文件、产业报告及用户上传文档，支持混合检索与重排序。",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "retrieve_dataset_content"
+      }
+    },
+    {
+      "id": "internet_search",
+      "kind": "mcp_server",
+      "name": "互联网搜索",
+      "description": "通过互联网实时搜索公开网页、新闻及财经资讯，作为数据库与知识库之外的信息兜底。",
+      "desc": "通过互联网实时搜索公开网页、新闻及财经资讯，作为数据库与知识库之外的信息兜底。",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "internet_search"
+      }
+    },
+    {
+      "id": "generate_chart_tool",
+      "kind": "mcp_server",
+      "name": "数据可视化",
+      "description": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
+      "desc": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "generate_chart_tool"
+      }
+    },
+    {
+      "id": "report_export_mcp",
+      "kind": "mcp_server",
+      "name": "报告导出",
+      "description": "将 Markdown 格式的分析报告导出为 Word 文档，或将表格数据导出为 Excel 文件供下载。",
+      "desc": "将 Markdown 格式的分析报告导出为 Word 文档，或将表格数据导出为 Excel 文件供下载。",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "report_export_mcp"
+      }
+    },
+    {
+      "id": "web_fetch",
+      "kind": "mcp_server",
+      "name": "网站信息抓取",
+      "description": "抓取指定网页 URL 的内容，提取正文文本或 Markdown，支持搜索引擎结果页解析。",
+      "desc": "抓取指定网页 URL 的内容，提取正文文本或 Markdown，支持搜索引擎结果页解析。",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "web_fetch"
+      }
+    },
+    {
+      "id": "batch_runner",
+      "kind": "mcp_server",
+      "name": "批量执行",
+      "description": "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，用户审阅模板后再逐条执行。",
+      "desc": "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，用户审阅模板后再逐条执行。",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "batch_runner"
+      }
+    },
+    {
+      "id": "automation_task",
+      "kind": "mcp_server",
+      "name": "automation_task",
+      "description": "MCP 服务：automation_task",
+      "desc": "MCP 服务：automation_task",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "automation_task"
+      }
+    },
+    {
+      "id": "skill_manager",
+      "kind": "mcp_server",
+      "name": "skill_manager",
+      "description": "MCP 服务：skill_manager",
+      "desc": "MCP 服务：skill_manager",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "skill_manager"
+      }
+    },
+    {
+      "id": "site_publish",
+      "kind": "mcp_server",
+      "name": "site_publish",
+      "description": "MCP 服务：对话建站发布",
+      "desc": "MCP 服务：对话建站发布",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "site_publish"
+      }
+    }
+  ],
+  "kb": []
+}

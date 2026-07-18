@@ -1,0 +1,22 @@
+{
+  "slug": "contract-guardian",
+  "entry_name": "contract-guardian",
+  "display_name": "合同卫士·风险审查",
+  "summary": "合同卫士 — AI合同审查助手，识别风险条款、提取关键信息、追踪到期日",
+  "category": "法务合规",
+  "tags": [
+    "合同审查",
+    "风险条款",
+    "到期追踪"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/contract-guardian",
+  "downloads": 1898,
+  "stars": 0,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

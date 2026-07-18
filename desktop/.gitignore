@@ -1,0 +1,9 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+# 运行时生成的本地配置/凭据（绝不入库）
+src-tauri/server.json
+*.log
+# 更新签名密钥（正式私钥在 ~/.tauri/hugagent-updater.key，本就在仓库外；此规则防手滑拷进来）
+*.key
+*.key.pub

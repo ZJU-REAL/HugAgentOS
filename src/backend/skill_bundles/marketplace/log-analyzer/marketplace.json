@@ -1,0 +1,22 @@
+{
+  "slug": "log-analyzer",
+  "entry_name": "log-analyzer",
+  "display_name": "日志分析排障",
+  "summary": "Parse, search, and analyze application logs across formats. Use when debugging from log files, setting up structured logging, analyzing error patterns, correlating events across services, parsing stack traces, or monitoring log output in real time.",
+  "category": "研发效率",
+  "tags": [
+    "日志分析",
+    "错误模式",
+    "排障"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/log-analyzer",
+  "downloads": 6718,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

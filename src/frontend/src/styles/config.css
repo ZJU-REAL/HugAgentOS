@@ -1,0 +1,61 @@
+/* ── Config platform styles ── */
+
+/* Session list item hover */
+.ant-list-item {
+  transition: background var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.ant-list-item:hover {
+  background: #fafafa;
+}
+
+/* Message card left border highlight */
+.config-message-item {
+  margin-bottom: 12px;
+}
+
+/* ── ChatHistoryPanel：会话列表选中态 + 消息瀑布 ── */
+.jx-cfgSessionItem {
+  transition: background var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-cfgSessionItem.active,
+.jx-cfgSessionItem.active:hover {
+  background: #E6F4FF;
+}
+
+/* 消息卡入场瀑布（每次选中会话重挂一次；--stagger-i 由 staggerStyle(i, 6) 写入，封顶 6 档防长列表拖尾） */
+.jx-cfgMsgCard {
+  animation: jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) both;
+  animation-delay: calc(var(--stagger-i, 0) * 45ms);
+}
+
+/* 行级高亮 / 完成 flash / 异常告警均改用 motion.css 原语：
+   .jx-anim-flash-row（Table rowClassName）、.jx-anim-flash（+ --flash-color 调色）、
+   .jx-anim-ripple（+ --ripple-color 红色告警，compositor-only 替代 box-shadow 扩散） */
+
+/* 可拖拽调宽列把手（见 components/common/ResizableColumns.tsx）。
+   贴在表头单元格右边缘、骑在列分隔线上；hover 时高亮一条竖线提示可拖。 */
+.jx-col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -5px;            /* 骑在右边框上，左右各留一点命中区 */
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  user-select: none;
+  touch-action: none;
+}
+.jx-col-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  right: 5px;
+  width: 2px;
+  height: 50%;
+  background: transparent;
+  transition: background 0.15s;
+}
+.jx-col-resize-handle:hover::after,
+.jx-col-resize-handle:active::after {
+  background: var(--jx-primary, #1677ff);
+}

@@ -1,0 +1,22 @@
+{
+  "slug": "debug-pro",
+  "entry_name": "debug-pro",
+  "display_name": "Debug Pro 调试专家",
+  "summary": "",
+  "category": "研发效率",
+  "tags": [
+    "调试",
+    "7步排查",
+    "根因分析"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/debug-pro",
+  "downloads": 20730,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

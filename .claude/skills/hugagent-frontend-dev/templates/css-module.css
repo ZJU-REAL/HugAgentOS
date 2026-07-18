@@ -1,0 +1,96 @@
+/**
+ * CSS module template.
+ *
+ * Replace ${componentName} with actual name.
+ * Add to styles/ or alongside the component.
+ * Import in styles/index.ts or component file.
+ *
+ * Rules:
+ *   - All classes prefixed with .jx-
+ *   - Colors use CSS variables (--color-*), see references/ui-design-spec.md
+ *   - BEM-like: .jx-name (block), .jx-name-child (element), .jx-name--mod (modifier)
+ *   - Spacing: 4px grid (--space-xs/sm/md/lg/xl)
+ *   - Border-radius: --radius-xs(4) / --radius-sm(8) / --radius-md(12) / --radius-lg(20)
+ *   - Font size: 12/14(default)/16/18/22/44px
+ */
+
+/* --- Container --- */
+.jx-${componentName} {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);     /* 16px */
+  padding: var(--space-lg); /* 20px */
+}
+
+/* --- Header --- */
+.jx-${componentName}-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jx-${componentName}-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* --- List --- */
+.jx-${componentName}-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm); /* 8px */
+}
+
+/* --- Item --- */
+.jx-${componentName}-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);       /* 16px */
+  padding: var(--space-md);   /* 16px */
+  border-radius: var(--radius-md); /* 12px - card level */
+  border: 1px solid var(--color-border);
+  background: #fff;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  cursor: pointer;
+}
+
+.jx-${componentName}-item:hover {
+  border-color: var(--color-primary-hover);
+  box-shadow: 0 4px 12px rgba(18, 109, 255, 0.08);
+}
+
+/* --- Item active modifier --- */
+.jx-${componentName}-item--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+/* --- Item disabled modifier --- */
+.jx-${componentName}-item--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Empty state --- */
+.jx-${componentName}-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+}
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  .jx-${componentName} {
+    padding: var(--space-md); /* 16px */
+  }
+
+  .jx-${componentName}-item {
+    padding: 10px var(--space-md);
+  }
+}

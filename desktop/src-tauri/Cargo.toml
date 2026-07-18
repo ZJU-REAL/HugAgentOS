@@ -1,0 +1,59 @@
+[package]
+name = "hugagent-desktop"
+version = "0.1.0"
+description = "HugAgentOS桌面客户端"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "hugagent_agent_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+# A1 原生通知：后台任务/自动化跑完主动提醒。
+tauri-plugin-notification = "2"
+# A2 全局快捷键：唤起悬浮「快速问答」窗。
+tauri-plugin-global-shortcut = "2"
+# A3 一键自动更新：拉后端 manifest → 验签 → 安装 → 重启。
+tauri-plugin-updater = "2"
+# ⚠️ 关键修复：tauri-plugin-updater 以 `default-features = false` 引入 `zip`，**没打开任何
+# deflate 后端**。而 Windows 的 `.nsis.zip` 里那个 setup.exe 用的是 method 8（deflate）压缩，
+# 于是安装时 zip crate 直接抛 `unsupported Zip archive: Compression method not supported`，
+# 整个自动更新失败。这里显式再引一次同一版本的 zip 并打开 flate2 deflate 后端——Cargo 会把
+# feature 并集应用到 plugin 共用的那一份 zip 上，解压 deflate 的 .nsis.zip 就能通过。
+# flate2 已在依赖树里（plugin 自己也引了），deflate-flate2 是最轻的选择、不额外拉 zopfli。
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+# zip 的 deflate-flate2 会启用 flate2 这个可选依赖，但依赖树里 flate2 是被 updater 插件以
+# default-features=false 引入的、没选任何 zlib 后端，直接编译会报「No compression backend
+# selected」。补上 flate2 的纯 Rust 后端（rust_backend=miniz_oxide，不依赖系统 zlib，Windows
+# 交叉最省事），feature 并集后 flate2 才有可用后端，zip 的 deflate 解压链才完整。
+flate2 = { version = "1", features = ["rust_backend"] }
+
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
+axum = "0.7"
+# default-features=false + rustls 避免对系统 OpenSSL 的依赖，便于跨平台/Windows 构建；
+# stream 用于把上游响应（含 SSE）逐帧转发，不缓冲。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+tower-http = { version = "0.6", features = ["fs"] }
+futures-util = "0.3"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+# 更新进度窗：把内联 HTML 塞进 data: URL 前做 percent 编码（含中文/空格/引号）。
+percent-encoding = "2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

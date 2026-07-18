@@ -1,0 +1,449 @@
+/* ══════════════════════════════════════════
+   Team Folders — 团队文件夹
+   - 子 Tab (与顶层 .jx-mySpace-tab 一致的下划线风格)
+   - Team Workspace 左右分栏
+   - Scope Tree / Breadcrumb / Move Tree
+   ══════════════════════════════════════════ */
+
+
+/* ─── 文件资产 → 个人/团队 子 Tab ───────────────────────────
+   视觉语言完全对齐 .jx-mySpace-tab，仅字号更小 */
+
+.jx-mySpace-subTabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.jx-mySpace-subTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.jx-mySpace-subTab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 8px 0 12px;
+  margin-right: 24px;
+  font-family: var(--font-family);
+  font-size: 16px;
+  font-weight: 400;
+  color: #7b8697;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.jx-mySpace-subTab:last-child {
+  margin-right: 0;
+}
+
+/* 下划线由 motion layoutId 共享滑动接管（.jx-mySpace-tabInk--sub），不再用 ::after */
+.jx-mySpace-subTab:hover {
+  color: #394556;
+}
+
+.jx-mySpace-subTab.active {
+  color: #1c2430;
+  font-weight: 500;
+}
+
+
+/* ─── 文档/图片 筛选 Tab（更小号，同下划线风格） ───────────── */
+
+.jx-mySpace-filterTabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jx-mySpace-filterTab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 6px 0 10px;
+  margin-right: 20px;
+  font-family: var(--font-family);
+  font-size: 14px;
+  font-weight: 400;
+  color: #7b8697;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.jx-mySpace-filterTab:last-child {
+  margin-right: 0;
+}
+
+/* 下划线由 motion layoutId 共享滑动接管（.jx-mySpace-tabInk--filter），不再用 ::after */
+.jx-mySpace-filterTab:hover {
+  color: #394556;
+}
+
+.jx-mySpace-filterTab.active {
+  color: #1c2430;
+  font-weight: 500;
+}
+
+
+/* ─── 团队 workspace：左右分栏（无背景） ──────────────────── */
+
+.jx-team-workspace {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+  height: 100%;
+  min-height: 420px;
+  padding-top: 12px;
+}
+
+.jx-team-workspace-sidebar {
+  flex: 0 0 240px;
+  min-width: 220px;
+  max-width: 280px;
+  padding: 8px 12px 8px 0;
+  border-right: 1px solid rgba(15, 23, 42, 0.06);
+  overflow: auto;
+}
+
+.jx-team-workspace-main {
+  position: relative; /* popLayout 退场副本的定位锚点 */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.jx-team-workspace-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px 14px;
+  margin-bottom: 12px;
+  border-bottom: 1px dashed rgba(15, 23, 42, 0.08);
+}
+
+.jx-team-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jx-team-workspace-readOnly {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.14);
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  border: 1px solid rgba(251, 191, 36, 0.22);
+}
+
+/* 引导式空态 */
+.jx-team-workspace-hint {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  gap: 12px;
+  color: #64748b;
+}
+
+.jx-team-workspace-hint-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.04);
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.jx-team-workspace-hint-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.jx-team-workspace-hint-desc {
+  font-size: 13px;
+  line-height: 1.7;
+  max-width: 320px;
+  color: #7b8697;
+}
+
+
+/* ─── 左侧 TeamScopeTree（无背景） ───────────────────────── */
+
+.jx-team-scopeTree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 10px;
+}
+
+.jx-team-scopeTree-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 4px 2px;
+}
+
+.jx-team-scopeTree-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.6px;
+}
+
+.jx-team-scopeTree-hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.jx-team-scopeTree-body.ant-tree {
+  background: transparent;
+  flex: 1;
+  overflow: auto;
+  font-size: 13.5px;
+}
+
+.jx-team-scopeTree-body .ant-tree-treenode {
+  padding: 2px 0;
+  align-items: center;
+}
+
+.jx-team-scopeTree-body .ant-tree-node-content-wrapper {
+  border-radius: 6px;
+  padding: 4px 8px !important;
+  transition: background 0.16s ease, color 0.16s ease;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+}
+
+.jx-team-scopeTree-body .ant-tree-node-content-wrapper:hover {
+  background: rgba(15, 23, 42, 0.04);
+  color: #1e293b;
+}
+
+.jx-team-scopeTree-body .ant-tree-node-selected {
+  background: rgba(18, 109, 255, 0.10) !important;
+  color: #1c2430;
+  font-weight: 500;
+}
+
+/* 隐藏所有节点的折叠/展开小图标 —— 点击节点行即可切换展开状态 */
+.jx-team-scopeTree-body .ant-tree-switcher {
+  display: none !important;
+}
+
+/* 团队根节点：不显示节点图标 */
+.jx-team-scopeTree-body .jx-team-tree-teamRoot > .ant-tree-iconEle {
+  display: none !important;
+}
+
+.jx-team-scopeTree-body .ant-tree-node-content-wrapper {
+  cursor: pointer;
+}
+
+.jx-team-tree-title {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* 树节点行：名称 + 悬浮 "..." 操作 */
+.jx-team-tree-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.jx-team-tree-row .jx-team-tree-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.jx-team-tree-more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.jx-team-tree-more:hover,
+.jx-team-tree-more:focus-visible {
+  background: rgba(15, 23, 42, 0.08);
+  color: #1e293b;
+  outline: none;
+}
+
+/* hover 在 tree-node-content-wrapper 上时显示 more 按钮 */
+.jx-team-scopeTree-body .ant-tree-node-content-wrapper:hover .jx-team-tree-more,
+.jx-team-scopeTree-body .ant-tree-node-content-wrapper:focus-within .jx-team-tree-more,
+.jx-team-scopeTree-body .ant-tree-node-selected .jx-team-tree-more {
+  opacity: 1;
+}
+
+/* Dropdown 打开时保持按钮可见 */
+.jx-team-tree-more.ant-dropdown-open,
+.jx-team-tree-more[aria-expanded='true'] {
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.08);
+  color: #1e293b;
+}
+
+
+/* ─── 面包屑 ──────────────────────────────────────────────── */
+
+.jx-team-breadcrumb .ant-breadcrumb {
+  font-size: 14px;
+}
+
+.jx-team-breadcrumb .ant-breadcrumb a {
+  color: var(--color-text-secondary);
+  transition: color 0.15s ease;
+}
+
+.jx-team-breadcrumb .ant-breadcrumb a:hover {
+  color: var(--color-primary);
+}
+
+.jx-team-breadcrumb .ant-breadcrumb-separator {
+  color: rgba(15, 23, 42, 0.25);
+}
+
+
+/* ─── 新建/重命名 Modal 输入框 ────────────────────────────── */
+
+.jx-team-folder-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  margin-top: 10px;
+  background: #fff;
+}
+
+.jx-team-folder-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(18, 109, 255, 0.15);
+}
+
+
+/* ─── 移动到团队 Modal 内的树 ────────────────────────────── */
+
+.jx-team-moveTree {
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 8px;
+  padding: 10px 6px;
+  background: #fafbfc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.jx-team-moveTree .ant-tree-node-content-wrapper {
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.jx-team-moveTree .ant-tree-node-content-wrapper:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.jx-team-moveTree .ant-tree-node-selected {
+  background: rgba(18, 109, 255, 0.12) !important;
+  font-weight: 500;
+}
+
+
+/* ─── 响应式：窄屏折叠 ────────────────────────────────────────
+   用容器查询而非视口查询——canvas 打开时面板宽度缩小，
+   视口不会变化，只有容器本身宽度变化。 */
+
+@container myspace (max-width: 860px) {
+  .jx-team-workspace {
+    flex-direction: column;
+  }
+
+  .jx-team-workspace-sidebar {
+    flex: none;
+    min-width: 0;
+    max-width: none;
+    max-height: 240px;
+    padding: 12px 0;
+    border-right: none;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  }
+
+  .jx-team-workspace-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* 视口级回退：老浏览器没有容器查询时至少还按视口收起 */
+@media (max-width: 860px) {
+  .jx-team-workspace {
+    flex-direction: column;
+  }
+
+  .jx-team-workspace-sidebar {
+    flex: none;
+    min-width: 0;
+    max-width: none;
+    max-height: 240px;
+    padding: 12px 0;
+    border-right: none;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  }
+
+  .jx-team-workspace-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

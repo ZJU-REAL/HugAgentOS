@@ -1,0 +1,186 @@
+/* ══════════════════════════════════════════
+   Design System CSS Variables
+   Based on UI design spec (img/设计规范/)
+   ══════════════════════════════════════════ */
+:root{
+  /* ── 主色 (Primary Blue) ── */
+  --color-primary:#126DFF;
+  --color-primary-hover:#3C87FF;
+  --color-primary-active:#0862F3;
+  --color-primary-disabled:#A0C5FF;
+  --color-primary-bg:#DBE9FF;
+  --color-primary-light:#EBF2FF;
+
+  /* ── 边框与填充 (Neutral Gray) ── */
+  --color-fill-heavy:#8C94A2;
+  --color-fill-deep:#B3BAC8;
+  --color-fill:#D8DBE2;
+  --color-border:#E3E6EA;
+  --color-fill-hover:#EBEDEE;
+  --color-bg-gray:#F5F6F7;
+
+  /* ── 文字 ── */
+  --color-text:#262626;
+  --color-text-secondary:#4D4D4D;
+  --color-text-tertiary:#808080;
+  --color-text-placeholder:#B3B3B3;
+  --color-text-white:#FFFFFF;
+
+  /* ── 成功 (Success Green) ── */
+  --color-success:#02B589;
+  --color-success-hover:#11D4A4;
+  --color-success-active:#04A87F;
+  --color-success-disabled:#80DAC4;
+  --color-success-bg:#CFF8EE;
+  --color-success-light:#E6FFF9;
+
+  /* ── 警告 (Warning Orange) ── */
+  --color-warning:#F8AB42;
+  --color-warning-hover:#FFC16C;
+  --color-warning-active:#F69D24;
+  --color-warning-disabled:#FBD5A0;
+  --color-warning-bg:#FFECD1;
+  --color-warning-light:#FFF5E8;
+
+  /* ── 错误/危险 (Error Red) ── */
+  --color-error:#FC5D5D;
+  --color-error-hover:#FF7676;
+  --color-error-active:#F95555;
+  --color-error-disabled:#FCAAAA;
+  --color-error-bg:#FFDFDF;
+  --color-error-light:#FFF0F0;
+
+  /* ── Icon 色 ── */
+  --color-icon-blue:#126DFF;
+  --color-icon-red:#F25149;
+  --color-icon-purple:#7655FA;
+  --color-icon-green:#02B589;
+  --color-icon-orange:#F8AB42;
+
+  /* ── 圆角 (4 级) ── */
+  --radius-xs:4px;
+  --radius-sm:8px;
+  --radius-md:12px;
+  --radius-lg:20px;
+
+  /* ── 间距 (4px 基准) ── */
+  --space-xs:4px;
+  --space-sm:8px;
+  --space-md:16px;
+  --space-lg:20px;
+  --space-xl:40px;
+
+  /* ── 字体 ── */
+  --font-family:"PingFang SC","Microsoft YaHei","微软雅黑",sans-serif;
+  --font-family-number:"DingTalk Sans","PingFang SC","Microsoft YaHei",sans-serif;
+
+  /* ── 字号 ── */
+  --font-size-xs:12px;
+  --font-size-sm:14px;
+  --font-size-md:16px;
+  --font-size-lg:18px;
+  --font-size-xl:22px;
+  --font-size-xxl:44px;
+
+  /* ── 投影 (双层: ambient + key-light) ── */
+  --shadow-card:
+    0 1px 2px rgba(15,23,42,.06),
+    0 4px 12px rgba(15,23,42,.04);
+  --shadow-card-hover:
+    0 2px 4px rgba(15,23,42,.08),
+    0 12px 32px rgba(15,23,42,.10);
+  --shadow-dropdown:
+    0 2px 6px rgba(15,23,42,.08),
+    0 12px 32px rgba(15,23,42,.14);
+
+  /* ── Motion: Duration 梯度（4 级）──
+   * instant: hover/active 着色、icon 微反馈
+   * fast   : 绝大多数 UI transition（边框、底色、轻位移）
+   * normal : 入场/出场、弹层、消息上浮
+   * slow   : 面板级转场、grid 展开
+   * TS 侧镜像常量：utils/motionTokens.ts，两边同步修改 */
+  --motion-duration-instant:100ms;
+  --motion-duration-fast:160ms;
+  --motion-duration-normal:240ms;
+  --motion-duration-slow:320ms;
+
+  /* ── Motion: Easing 三族 ── */
+  --motion-ease-brand-out:cubic-bezier(.16,1,.3,1);
+  --motion-ease-standard:cubic-bezier(.4,0,.2,1);
+  --motion-ease-exit:cubic-bezier(.4,0,1,1);
+
+  /* ── Motion: 状态着色过渡快捷变量（badge/tag 等 transition: var(...) 直接整段引用） ── */
+  --motion-transition-hover:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
+
+  /* ── Motion: stagger 编排基数 ── */
+  --motion-stagger-step:60ms;
+
+  /* ── Legacy aliases (backward compat, will phase out) ── */
+  --bg:#FFFFFF;
+  --text:#262626;
+  --muted:rgba(38,38,38,.66);
+  --border:rgba(227,230,234,1);
+  --primary:#126DFF;
+  --primary2:#3C87FF;
+  --accent:#0862F3;
+  --shadow1:0 10px 30px rgba(18,109,255,0.10);
+}
+
+html,body,#root{height:100%}
+/* 全高 SPA 外壳：所有滚动都发生在内部容器（jx-content 等），文档本身不滚动。
+ * 不锁 document 的话，附加到 <body> 的浮层（如下拉子菜单）超出视口时会让文档
+ * 临时出现滚动条，4px 滚动条出现/消失触发 rc-align 反复重定位 → 整页抖动。 */
+html,body{overflow:hidden}
+body{
+  margin:0;
+  display:block !important;
+  place-items:initial !important;
+  background:#FFFFFF;
+  color:var(--color-text);
+  font-family:var(--font-family);
+}
+
+/* ── 全局滚动条基础样式 ── */
+*{
+  scrollbar-width:thin;
+  scrollbar-color:rgba(100,116,139,.14) transparent;
+}
+*::-webkit-scrollbar{width:4px;height:4px;}
+*::-webkit-scrollbar-track{background:transparent;}
+*::-webkit-scrollbar-thumb{
+  background:rgba(100,116,139,.10);
+  border-radius:999px;
+  transition:background .3s;
+}
+*:hover::-webkit-scrollbar-thumb{
+  background:rgba(100,116,139,.18);
+}
+*::-webkit-scrollbar-thumb:hover{
+  background:rgba(100,116,139,.30);
+}
+/* 代码区域保留稍宽的滚动条 */
+pre::-webkit-scrollbar,
+code::-webkit-scrollbar,
+.jx-toolCode::-webkit-scrollbar,
+.jx-ce-codeWrap::-webkit-scrollbar{
+  width:6px;height:6px;
+}
+
+/* ── Shared grid-expand utility ── */
+.jx-expandWrap{
+  display:grid;
+  grid-template-rows:0fr;
+  transition:grid-template-rows var(--expand-dur,.25s) var(--motion-ease-brand-out),
+             opacity calc(var(--expand-dur,.25s) - .05s) var(--motion-ease-standard);
+  opacity:0;
+}
+.jx-expandWrap--open{
+  grid-template-rows:1fr;
+  opacity:1;
+}
+
+/* AntD tweaks */
+.ant-layout{background:transparent}

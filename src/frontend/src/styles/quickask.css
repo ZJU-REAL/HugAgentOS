@@ -1,0 +1,24 @@
+/* 桌面客户端悬浮「快速问答」窗样式（根节点 .quickask，由 main.tsx 在 ?quickask=1 时打上）。
+ *
+ * 复用主 App 的全部对话逻辑（chatStream.ts / ChatArea），仅做视觉收敛：隐藏左侧历史栏与顶部
+ * 标题栏，让对话输入区在小窗里铺满——一个「拿来即问」的轻量入口，而非另起一套聊天实现。 */
+
+.quickask .jx-sider {
+  display: none !important;
+}
+
+.quickask .jx-topbar,
+.quickask .jx-chatTopbar {
+  display: none !important;
+}
+
+.quickask,
+.quickask body,
+.quickask #root {
+  height: 100%;
+}
+
+/* 小窗内收紧留白，让对话区更满。 */
+.quickask .jx-content {
+  padding: 0 !important;
+}

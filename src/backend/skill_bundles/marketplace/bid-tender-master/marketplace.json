@@ -1,0 +1,22 @@
+{
+  "slug": "bid-tender-master",
+  "entry_name": "bid-tender-master",
+  "display_name": "标书大师｜全行业AI标书生成助手",
+  "summary": "输入项目名称和预算，AI自动生成完整投标文件。覆盖货物采购、服务项目、工程施工三大行业，自动分片生成，格式不乱、报价一致、自带废标风险自查。告别熬夜写标书。",
+  "category": "文档处理",
+  "tags": [
+    "标书",
+    "招投标",
+    "公文写作"
+  ],
+  "version": "2.0.0",
+  "author": "user_14f6c691",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/c5e5faab-b8e1-489d-a489-8b56ffc52c07.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/bid-tender-master",
+  "downloads": 274,
+  "stars": 7,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

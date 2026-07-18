@@ -1,0 +1,192 @@
+[
+  {
+    "id": "operation-1",
+    "operationId": "getTemporaryUrl",
+    "summary": "获取附件临时免登地址",
+    "description": "获取宜搭附件的临时免登下载地址，用于在表单中下载附件",
+    "url": "v1.0/yida/apps/temporaryUrls/{appType}",
+    "method": "get",
+    "inputs": [
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "desc": "宜搭应用 appType",
+            "name": "appType",
+            "required": true
+          }
+        ],
+        "desc": "路径变量",
+        "name": "Path",
+        "paramType": "Object",
+        "required": true
+      },
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "desc": "应用秘钥，在应用数据中获取",
+            "name": "systemToken",
+            "queryDefaultValue": {
+              "paramType": "fixedValue",
+              "defaultValue": ""
+            },
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "用户的 userid",
+            "name": "userId",
+            "queryDefaultValue": {
+              "paramType": "fixedValue",
+              "defaultValue": ""
+            },
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "语言",
+            "name": "language",
+            "queryDefaultValue": {
+              "paramType": "fixedValue",
+              "defaultValue": ""
+            },
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "宜搭附件地址",
+            "name": "fileUrl",
+            "queryDefaultValue": {
+              "paramType": "fixedValue",
+              "defaultValue": ""
+            },
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "临时地址失效时间，单位毫秒。例如：60000表示有效期一分钟",
+            "name": "timeout",
+            "queryDefaultValue": {
+              "paramType": "fixedValue",
+              "defaultValue": ""
+            },
+            "required": false
+          }
+        ],
+        "desc": "请求参数",
+        "name": "Query",
+        "paramType": "Object",
+        "required": false
+      }
+    ],
+    "parameters": {
+      "path": [
+        {
+          "name": "appType",
+          "type": "string",
+          "required": true,
+          "description": "宜搭应用 appType"
+        }
+      ],
+      "query": [
+        {
+          "name": "systemToken",
+          "type": "string",
+          "required": false,
+          "description": "应用秘钥，在应用数据中获取",
+          "queryDefaultValue": {
+            "paramType": "fixedValue",
+            "defaultValue": ""
+          }
+        },
+        {
+          "name": "userId",
+          "description": "用户的 userid",
+          "queryDefaultValue": {
+            "paramType": "fixedValue",
+            "defaultValue": ""
+          }
+        },
+        {
+          "name": "language",
+          "description": "语言",
+          "queryDefaultValue": {
+            "paramType": "fixedValue",
+            "defaultValue": ""
+          }
+        },
+        {
+          "name": "fileUrl",
+          "description": "宜搭附件地址",
+          "queryDefaultValue": {
+            "paramType": "fixedValue",
+            "defaultValue": ""
+          }
+        },
+        {
+          "name": "timeout",
+          "description": "临时地址失效时间，单位毫秒。例如：60000表示有效期一分钟",
+          "queryDefaultValue": {
+            "paramType": "fixedValue",
+            "defaultValue": ""
+          }
+        }
+      ]
+    },
+    "responses": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string",
+          "description": "临时免登地址"
+        }
+      }
+    },
+    "outputs": [
+      {
+        "defaultValue": "{\"result\": \"https://www.aliwork.com\"}",
+        "desc": "响应体结构",
+        "name": "Response",
+        "paramType": "Object",
+        "required": false,
+        "childList": [
+          {
+            "_key": "getTemporaryUrl%result",
+            "name": "result",
+            "paramType": "String",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          }
+        ]
+      }
+    ],
+    "origin": true
+  },
+  {
+    "id": "operation-2",
+    "operationId": "testConnection",
+    "summary": "测试连接",
+    "description": "测试连接器配置是否正确",
+    "url": "v1.0/yida/apps/temporaryUrls/test",
+    "method": "get",
+    "inputs": [],
+    "parameters": {},
+    "responses": {
+      "type": "object",
+      "properties": {}
+    },
+    "outputs": [
+      {
+        "defaultValue": "",
+        "desc": "响应体结构",
+        "name": "Response",
+        "paramType": "Object",
+        "required": false
+      }
+    ],
+    "origin": true
+  }
+]

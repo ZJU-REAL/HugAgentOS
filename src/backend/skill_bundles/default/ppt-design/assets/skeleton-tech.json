@@ -1,0 +1,82 @@
+{
+  "title": "XX 技术/产品介绍",
+  "author": "XX 团队",
+  "subject": "技术风格",
+  "theme": "navy_gold",
+  "pack": "dark_gold",
+  "slides": [
+    {"type": "cover", "kicker": "TECH · PRODUCT · OVERVIEW", "title": "XX 技术介绍",
+     "subtitle": "XX · Technical Overview",
+     "tagline": "—— 一句话讲清我们解决什么、怎么解决",
+     "body": "XX 团队 · 2026.XX",
+     "footer": "深蓝金 · 技术风格模板 · dark_gold"},
+
+    {"type": "content", "kicker": "OVERVIEW · 总览", "title": "关键数字一览",
+     "kpis": [
+       {"value": "XX", "label": "核心指标一", "desc": "一句注解", "icon": "chart"},
+       {"value": "XX%", "label": "核心指标二", "desc": "一句注解", "icon": "growth"},
+       {"value": "XX", "label": "核心指标三", "desc": "一句注解", "icon": "cpu"},
+       {"value": "XX", "label": "核心指标四", "desc": "一句注解", "icon": "shield"}
+     ]},
+
+    {"type": "section", "section_style": "numbered", "number": "01", "title": "问题与方案", "subtitle": "PROBLEM & SOLUTION"},
+    {"type": "content", "kicker": "FEATURE · 核心方案", "title": "XX 核心方案",
+     "feature": {"title": "方案介绍 · What we built",
+       "desc": "一段话说清产品/技术做了什么、关键设计是什么。",
+       "bullets": ["关键设计一", "关键设计二", "关键设计三", "关键设计四"]},
+     "metrics": [
+       {"value": "XX", "label": "指标 A"}, {"value": "XX", "label": "指标 B"},
+       {"value": "XX", "label": "指标 C"}, {"value": "XX", "label": "指标 D"}
+     ],
+     "points": [
+       {"icon": "shield", "title": "价值一", "desc": "一句说明"},
+       {"icon": "cpu", "title": "价值二", "desc": "一句说明"},
+       {"icon": "bolt", "title": "价值三", "desc": "一句说明"}
+     ]},
+    {"type": "content", "kicker": "CAPABILITY · 核心能力", "title": "四大核心能力",
+     "tiles": [
+       {"icon": "robot", "title": "能力一", "sub": "Module A", "desc": "一句说明该能力"},
+       {"icon": "data", "title": "能力二", "sub": "Module B", "desc": "一句说明该能力"},
+       {"icon": "cloud", "title": "能力三", "sub": "Module C", "desc": "一句说明该能力"},
+       {"icon": "lock", "title": "能力四", "sub": "Module D", "desc": "一句说明该能力"}
+     ]},
+    {"type": "content", "kicker": "ARCHITECTURE · 架构", "title": "改造前后对比",
+     "panels": [
+       {"label": "改造前 · Before", "tone": "neg", "bullets": ["痛点一", "痛点二", "痛点三"]},
+       {"label": "改造后 · After", "tone": "pos", "bullets": ["改进一", "改进二", "改进三"]}
+     ]},
+    {"type": "content", "kicker": "FLOW · 流程", "title": "核心流程 / 生命周期",
+     "journey": [
+       {"icon": "search", "title": "接入", "desc": "一句说明"},
+       {"icon": "settings", "title": "处理", "desc": "一句说明"},
+       {"icon": "database", "title": "存储", "desc": "一句说明"},
+       {"icon": "rocket", "title": "输出", "desc": "一句说明"}
+     ]},
+
+    {"type": "section", "section_style": "numbered", "number": "02", "title": "成效与规划", "subtitle": "IMPACT & ROADMAP"},
+    {"type": "content", "kicker": "STACK · 技术栈", "title": "技术栈 / 模块清单",
+     "cards": [
+       {"icon": "cpu", "title": "模块一", "desc": "技术选型 / 一句说明"},
+       {"icon": "cloud", "title": "模块二", "desc": "技术选型 / 一句说明"},
+       {"icon": "database", "title": "模块三", "desc": "技术选型 / 一句说明"},
+       {"icon": "shield", "title": "模块四", "desc": "技术选型 / 一句说明"}
+     ]},
+    {"type": "content", "kicker": "IMPACT · 关键成果", "title": "三大关键成果",
+     "milestones": [
+       {"value": "XX", "title": "成果一", "desc": "一句量化说明"},
+       {"value": "XX%", "title": "成果二", "desc": "一句量化说明"},
+       {"value": "XX", "title": "成果三", "desc": "一句量化说明"}
+     ]},
+    {"type": "content", "kicker": "ROADMAP · 规划", "title": "下一步规划",
+     "columns": ["主题", "内容", "时间"],
+     "rows": [
+       ["方向一", "要做的事", "2026.XX"],
+       ["方向二", "要做的事", "2026.XX"],
+       ["方向三", "要做的事", "2026.XX"]
+     ]},
+
+    {"type": "summary", "summary_style": "dark", "title": "总结 · 下一步",
+     "bullets": ["结论一：我们解决了 XX", "结论二：关键优势是 XX", "下一步：聚焦 XX"],
+     "body": "—— 感谢倾听 · Thank You"}
+  ]
+}

@@ -1,0 +1,599 @@
+/* ══════════════════════════════════════════
+   RunTimelinePanel — 自动化任务运行舱
+   Figma 参考设计：干净扁平，灰底卡片 + 主色强调 + 时间线
+   ══════════════════════════════════════════ */
+
+.jx-runTimeline {
+  width: 384px;
+  min-width: 340px;
+  flex-shrink: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  color: var(--color-text);
+  background: #ffffff;
+  border-left: 1px solid var(--color-border);
+  /* 入场/退场由 App.tsx 的 AnimatePresence + motion.div 接管，CSS 不再做 slideIn（避免双播） */
+  font-family: var(--font-family);
+}
+
+/* ── 顶部 bar ───────────────────────────────────────────────────────────── */
+
+.jx-runTimeline-topBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 20px;
+  height: 56px;
+  border-bottom: 1px solid var(--color-border);
+  background: #ffffff;
+}
+
+.jx-runTimeline-crumb {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.jx-runTimeline-crumb:hover {
+  color: var(--color-primary);
+}
+
+.jx-runTimeline-crumbIcon {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  transition: color 0.15s ease;
+}
+
+.jx-runTimeline-crumb:hover .jx-runTimeline-crumbIcon {
+  color: var(--color-primary);
+}
+
+.jx-runTimeline-closeBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  font-size: 16px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.jx-runTimeline-closeBtn:hover {
+  background: var(--color-bg-gray);
+  color: var(--color-text);
+}
+
+/* ── 可滚动主体 ─────────────────────────────────────────────────────────── */
+
+.jx-runTimeline-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.jx-runTimeline-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.jx-runTimeline-body::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.16);
+  border-radius: 999px;
+}
+
+/* ── 任务标题 ───────────────────────────────────────────────────────────── */
+
+.jx-runTimeline-titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jx-runTimeline-title {
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 700;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.jx-runTimeline-subtitle {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 顶部 3 列统计 ──────────────────────────────────────────────────────── */
+
+.jx-runTimeline-statRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.jx-runTimeline-statCard {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-gray);
+}
+
+.jx-runTimeline-statLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-runTimeline-statValue {
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 数字与字母等宽对齐，但保持 PingFang SC 字形与中文标签一致 */
+  font-feature-settings: "tnum";
+}
+
+.jx-runTimeline-statValue.is-primary {
+  color: var(--color-primary);
+}
+
+/* ── 最近一次状态 ───────────────────────────────────────────────────────── */
+
+.jx-runTimeline-latestRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+  flex-wrap: wrap;
+}
+
+.jx-runTimeline-latestIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  color: var(--color-success);
+}
+
+.jx-runTimeline-latestRow.is-failed .jx-runTimeline-latestIcon {
+  color: var(--color-error);
+}
+
+.jx-runTimeline-latestRow.is-running .jx-runTimeline-latestIcon {
+  color: var(--color-primary);
+}
+
+.jx-runTimeline-latestRow.is-idle .jx-runTimeline-latestIcon {
+  color: var(--color-text-placeholder);
+}
+
+.jx-runTimeline-latestLabel {
+  color: var(--color-text-tertiary);
+}
+
+.jx-runTimeline-latestTime {
+  color: var(--color-text-tertiary);
+  font-feature-settings: "tnum";
+}
+
+/* ── Section 通用结构 ───────────────────────────────────────────────────── */
+
+.jx-runTimeline-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jx-runTimeline-sectionHeading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.jx-runTimeline-sectionBar {
+  display: inline-block;
+  width: 2px;
+  height: 12px;
+  background: var(--color-primary);
+  border-radius: 1px;
+}
+
+.jx-runTimeline-sectionMeta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+  margin-top: -4px;
+}
+
+/* ── 小 4 列统计（全部/成功/失败/执行中） ───────────────────────────────── */
+
+.jx-runTimeline-miniStatRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.jx-runTimeline-miniStat {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-gray);
+}
+
+.jx-runTimeline-miniStatLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
+.jx-runTimeline-miniStatValue {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.25;
+  font-feature-settings: "tnum";
+}
+
+/* ── 空状态 ─────────────────────────────────────────────────────────────── */
+
+.jx-runTimeline-empty {
+  padding: 32px 20px;
+  text-align: center;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-tertiary);
+  background: #ffffff;
+}
+
+.jx-runTimeline-emptyTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.jx-runTimeline-emptyHint {
+  margin-top: 6px;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--color-text-tertiary);
+}
+
+/* ── 时间线 ─────────────────────────────────────────────────────────────── */
+
+.jx-runTimeline-timeline {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding-left: 0;
+}
+
+.jx-runTimeline-dateGroup {
+  position: relative;
+  padding-left: 20px;
+  padding-bottom: 20px;
+}
+
+.jx-runTimeline-dateGroup:last-child {
+  padding-bottom: 0;
+}
+
+/* 蓝色圆点 — 日期组头部左侧 */
+.jx-runTimeline-dateGroup::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  z-index: 1;
+}
+
+/* 竖直连接线 — 圆点下方延伸，跨越卡片到下一个组 */
+.jx-runTimeline-dateGroup::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 18px;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-border);
+}
+
+.jx-runTimeline-dateGroup:last-child::after {
+  display: none;
+}
+
+.jx-runTimeline-dateHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.jx-runTimeline-dateLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+  font-feature-settings: "tnum";
+}
+
+.jx-runTimeline-dateCount {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  line-height: 1.2;
+  font-feature-settings: "tnum";
+}
+
+.jx-runTimeline-dateBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── 单次执行卡片 ───────────────────────────────────────────────────────── */
+
+.jx-runTimeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  /* 列表项入场 stagger：--stagger-i 由组件按扁平序号注入（封顶 8）；
+     keyed by run_id，轮询整组替换不重挂、不重播；新 run 顶插自然走入场 */
+  animation: jx-kf-fadeInUp 0.3s var(--motion-ease-brand-out) both;
+  animation-delay: calc(var(--stagger-i, 0) * 35ms);
+}
+
+/* 刚完成（running→success/failed 翻转帧）的一次性边框闪光。
+   必须连同入场动画一起声明：单独覆盖 animation 会丢掉 fadeInUp 的 both 终态，
+   且移除该类时 animation-name 列表回缩不会重启 fadeInUp。 */
+.jx-runTimeline-item.is-justFinished {
+  animation:
+    jx-kf-fadeInUp 0.3s var(--motion-ease-brand-out) both,
+    jx-runTimeline-finishFlash 0.2s var(--motion-ease-standard) 1;
+  animation-delay: calc(var(--stagger-i, 0) * 35ms), 0ms;
+}
+
+.jx-runTimeline-item.is-justFinished.is-failed {
+  animation-name: jx-kf-fadeInUp, jx-runTimeline-finishFlashFail;
+}
+
+@keyframes jx-runTimeline-finishFlash {
+  0%   { border-color: var(--color-success); box-shadow: 0 0 0 3px rgba(2, 181, 137, 0.18); }
+  100% { border-color: var(--color-border); box-shadow: 0 0 0 0 rgba(2, 181, 137, 0); }
+}
+
+@keyframes jx-runTimeline-finishFlashFail {
+  0%   { border-color: var(--color-error); box-shadow: 0 0 0 3px rgba(252, 93, 93, 0.16); }
+  100% { border-color: var(--color-border); box-shadow: 0 0 0 0 rgba(252, 93, 93, 0); }
+}
+
+.jx-runTimeline-item:hover:not(.is-disabled) {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 12px rgba(18, 109, 255, 0.08);
+  /* 与 transition 中已声明的 transform 配套（原为死代码 B4） */
+  transform: translateY(-1px);
+}
+
+.jx-runTimeline-item.is-active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+.jx-runTimeline-item.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.jx-runTimeline-itemTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jx-runTimeline-itemIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jx-runTimeline-runNo {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.jx-runTimeline-statusTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: color .25s var(--motion-ease-standard), border-color .25s var(--motion-ease-standard);
+}
+
+.jx-runTimeline-statusTag.is-success {
+  border-color: var(--color-success-disabled);
+  color: var(--color-success);
+}
+
+.jx-runTimeline-statusTag.is-failed {
+  border-color: var(--color-error-disabled);
+  color: var(--color-error);
+}
+
+/* 运行中扩散涟漪：组件层挂 .jx-anim-ripple（motion.css 原语，compositor-only），
+   小倍数扩散 ≈ 原 6px box-shadow 呼吸幅度 */
+.jx-runTimeline-statusTag.is-running {
+  border-color: var(--color-primary-disabled);
+  color: var(--color-primary);
+  --ripple-color: var(--color-primary);
+  --ripple-scale: 1.25;
+}
+
+.jx-runTimeline-itemTime {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.2;
+  text-align: right;
+  font-feature-settings: "tnum";
+}
+
+.jx-runTimeline-itemSummary {
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  color: var(--color-text-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.jx-runTimeline-itemBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jx-runTimeline-itemDuration {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-placeholder);
+  line-height: 1.2;
+  font-feature-settings: "tnum";
+}
+
+.jx-runTimeline-itemEnter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.jx-runTimeline-itemEnter .anticon {
+  font-size: 14px;
+}
+
+.jx-runTimeline-item:hover:not(.is-disabled) .jx-runTimeline-itemEnter {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.jx-runTimeline-itemEnter.is-disabled {
+  color: var(--color-text-placeholder);
+}
+
+/* ── 响应式 ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1440px) {
+  .jx-runTimeline {
+    width: 340px;
+    min-width: 320px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .jx-runTimeline {
+    width: 308px;
+    min-width: 288px;
+  }
+
+  .jx-runTimeline-body {
+    padding: 14px 16px 20px;
+  }
+
+  .jx-runTimeline-topBar {
+    padding: 0 16px;
+  }
+
+  .jx-runTimeline-statValue {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 980px) {
+  .jx-runTimeline {
+    display: none;
+  }
+}
+

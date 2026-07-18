@@ -1,0 +1,27 @@
+{
+  "name": "sites",
+  "version": "1.1.0",
+  "display_name": "站点·对话建站",
+  "description": "用对话把想法做成真实网站并一键发布上线：简单内容直接生成静态站，复杂/精美需求用预装的 React 工程模板（antd + echarts + tailwind）在沙箱内构建，建站前还会生成 3 个设计方案预览图供你挑选。调 publish_site 发布成平台托管站点，拿到形如 /site/<slug>/ 的链接即可访问。支持自定义访问地址、公开/私密/团队可见、版本回滚、访问统计，以及站点内置轻后端（KV 存储 + 表单收集）。装上后在对话里描述需求即可建站，也可在「实验室 → 站点」里管理。",
+  "category": "信息处理",
+  "author": "HugAgentOS",
+  "components": {
+    "skills": ["site-builder"],
+    "mcp": ["site_publish"]
+  },
+  "default_enabled": {
+    "skills": ["site-builder"],
+    "mcp": ["site_publish"]
+  },
+  "mcpServers": {
+    "site_publish": {
+      "transport": "streamable_http",
+      "url": "http://mcp:9113/mcp/",
+      "display_name": "对话建站发布",
+      "description": "把沙箱里的静态网站目录发布为平台托管站点，返回可访问 URL。身份/会话走 X-Current-User-Id / X-Conversation-Id 头；发布动作转发到后端内部接口完成（后端有沙箱访问权）。",
+      "tools": [
+        {"name": "publish_site", "description": "把沙箱里的一个网站目录（/workspace 下，必须含 index.html）发布为平台托管站点，返回形如 /site/<slug>/ 的可访问 URL。用户要'做个网站/页面/门户/展示站/看板/H5 并能访问'时：静态站先用 write/bash 生成后直接发布；React 构建型站点（site-builder 技能路径 B）构建出产物后发布，src_dir 指产物目录、source_dir 指源码工程目录（两参必传，源码镜像进项目、产物进托管）。更新已有站点：带 site_id 重新发布，URL 不变、版本 +1。可选 slug（自定义地址）/visibility（public/private/team）/description/team_id。站点支持内置轻后端 API：相对路径 fetch __api/kv/<key>（KV 存储）与 POST __api/forms/<key>（表单收集）。限制 ≤300 文件、≤30MB。"}
+      ]
+    }
+  }
+}

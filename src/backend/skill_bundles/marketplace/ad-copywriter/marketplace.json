@@ -1,0 +1,22 @@
+{
+  "slug": "ad-copywriter",
+  "entry_name": "ad-copywriter",
+  "display_name": "广告文案生成器",
+  "summary": "\"广告文案生成器。信息流广告、朋友圈广告、搜索广告、品牌文案、A/B测试、ROI计算、平台适配。. Use when you need ad copywriter capabilities. Triggers on: ad copywriter.\"",
+  "category": "营销创意",
+  "tags": [
+    "广告文案",
+    "信息流",
+    "创意"
+  ],
+  "version": "\"2.0.0\"",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/ad-copywriter",
+  "downloads": 2220,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

@@ -1,0 +1,22 @@
+{
+  "slug": "data-analysis-report-generator",
+  "entry_name": "data-analysis-report-generator",
+  "display_name": "数据分析报告（可视化 HTML）",
+  "summary": "自动识别 Excel/CSV 数据结构并多维分析，生成带 ECharts 交互图表的专业 HTML 报告，内置 FT/麦肯锡/经济学人等 11 种刊物风格",
+  "category": "数据分析",
+  "tags": [
+    "数据报告",
+    "ECharts",
+    "HTML报告"
+  ],
+  "version": "1.0.0",
+  "author": "openlark",
+  "icon_url": "",
+  "source": "clawhub",
+  "source_url": "https://clawhub.ai/skills/data-analysis-report-generator",
+  "downloads": 294,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

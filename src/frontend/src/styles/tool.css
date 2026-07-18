@@ -1,0 +1,2905 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Unified LobeHub-style Tool Call Row (.jx-tcr-*)
+   Compact single-line: ✓ prefix + bold value + (count) + ▼/▶
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.jx-tcr {
+  margin: 0;
+  display: block;
+  width: 100%;
+}
+.jx-tcr--error .jx-tcr-prefix,
+.jx-tcr--error .jx-tcr-value {
+  color: var(--color-error);
+}
+
+/* ── Header row (full-width, click anywhere to toggle) ── */
+.jx-tcr-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  user-select: none;
+  transition: background 0.15s;
+}
+.jx-tcr-header[role="button"] {
+  cursor: pointer;
+}
+.jx-tcr-header[role="button"]:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+.jx-tcr-header[role="button"]:focus-visible {
+  outline: 2px solid rgba(18, 109, 255, 0.30);
+  outline-offset: 1px;
+}
+
+/* ── Status icons (AntD) ── */
+.jx-tcr-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.jx-tcr-icon {
+  font-size: 14px;
+  stroke-width: 3;
+}
+/* Monochrome: status is conveyed by icon shape, not colour. */
+.jx-tcr-icon--success {
+  color: rgba(15, 23, 42, 0.42);
+}
+.jx-tcr-icon--running {
+  color: rgba(15, 23, 42, 0.55);
+}
+.jx-tcr-icon--error {
+  color: rgba(15, 23, 42, 0.68);
+}
+/* Per-step category glyph (replaces the generic success tick) — quiet,
+   thin-stroked, no fill; the kind of step is the signal, not "✓". */
+.jx-tcr-icon--step {
+  color: rgba(15, 23, 42, 0.4);
+  font-size: 13px;
+  stroke-width: 0;
+  transition: color 0.15s ease;
+}
+.jx-tcr-header[role="button"]:hover .jx-tcr-icon--step {
+  color: rgba(15, 23, 42, 0.6);
+}
+/* Fallback marker for tools with no category icon — a small hollow ring */
+.jx-tcr-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.4px rgba(15, 23, 42, 0.3);
+}
+
+/* ── Label: prefix + chip value + count  (NOT flex:1 — arrow sits next to text) ── */
+.jx-tcr-label {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 40px);
+}
+.jx-tcr-prefix {
+  color: rgba(0, 0, 0, 0.65);
+  flex-shrink: 0;
+}
+/* "正在准备调用工具…" 等待文字流光 — 单色灰阶，参数缓冲空窗期的活性信号 */
+.jx-tcr-prefix--shimmer {
+  background: linear-gradient(90deg,
+    rgba(15, 23, 42, 0.40) 0%,
+    rgba(15, 23, 42, 0.88) 50%,
+    rgba(15, 23, 42, 0.40) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: jx-kf-shimmer 1.6s linear infinite;
+}
+/* Value rendered as a subtle chip (light gray background pill) */
+.jx-tcr-value {
+  display: inline-block;
+  padding: 0 6px;
+  background: rgba(0, 0, 0, 0.045);
+  border-radius: 4px;
+  color: rgba(0, 0, 0, 0.82);
+  font-weight: 400;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jx-tcr-count {
+  color: rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+}
+
+/* ── CSS triangle arrow — sits directly after label; clicks on empty
+   right-side space still hit the header because it has width: 100% ── */
+.jx-tcr-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 5px;
+  border-color: transparent transparent transparent rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease, border-color 0.15s;
+  margin-left: 2px;
+}
+.jx-tcr-arrow--open {
+  transform: rotate(90deg);
+}
+.jx-tcr-header[role="button"]:hover .jx-tcr-arrow {
+  border-left-color: rgba(0, 0, 0, 0.55);
+}
+
+/* ── Expanded body (uses .jx-expandWrap from variables.css) ── */
+.jx-tcr-body {
+  overflow:hidden;
+  margin: 2px 0 8px 22px;
+  padding: 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ── 子智能体内部流式过程（挂在 call_subagent 卡下的嵌套子步骤）── */
+.jx-tcr-subagent {
+  margin: 2px 0 6px 22px;
+  padding-left: 10px;
+  border-left: 2px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+/* 子步骤里的工具卡整体稍微收敛，与父卡区分 */
+.jx-tcr-subagent .jx-tcr-header {
+  padding: 3px 6px;
+}
+.jx-tcr-subagent .jx-tcr-prefix,
+.jx-tcr-subagent .jx-tcr-value {
+  font-size: 12.5px;
+}
+/* thinking / content 文本子步骤：低对比、可滚动、不喧宾夺主 */
+.jx-tcr-subtext {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 1px 6px;
+}
+.jx-tcr-subtext--thinking {
+  font-style: italic;
+  opacity: 0.85;
+}
+.jx-tcr-subtext--content {
+  color: var(--color-text-secondary);
+  /* 正文放宽，避免子智能体回答被过早截断成小滚动窗 */
+  max-height: 480px;
+}
+
+/* ── Code/command view inside the running tool card ── */
+.jx-tcr-liveCode {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.jx-tcr-liveCode .jx-ce-codeWrap {
+  max-height: 260px;
+}
+
+/* ── Elapsed timer (running tool card + pending indicator) ── */
+.jx-tcr-timer,
+.jx-elapsedTimer,
+.jx-inlineSummaryTimer {
+  padding-left: var(--space-sm);
+  font-family: var(--font-family-number);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+/* Tool-call-row header: push the timer to the right edge, before the arrow. */
+.jx-tcr-timer {
+  margin-left: auto;
+}
+.jx-tcr-arrow {
+  flex-shrink: 0;
+}
+.jx-tcr-timer + .jx-tcr-arrow {
+  margin-left: var(--space-sm);
+}
+
+/* ── Tool call list container ── */
+.jx-toolCallsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Minimal collapsible run shell (.jx-trs-*)
+   One quiet line per contiguous tool batch; expands to the chip timeline.
+   Monochrome by intent — status reads from icon shape, never colour.
+   ══════════════════════════════════════════════════════════════════════════ */
+.jx-trs {
+  margin: 6px 0;
+  --fadeInUp-distance: 6px;
+  animation: jx-kf-fadeInUp .22s ease-out both;
+}
+/* 流式追加的步骤行入场（-4px = 从上方滑入；仅 streaming 壳；历史回放由 .jx-trs--static 关闭） */
+.jx-trs-body > * {
+  --fadeInUp-distance: -4px;
+  animation: jx-kf-fadeInUp .18s ease-out both;
+}
+/* 标题（执行中 ↔ 已完成）keyed 重挂时淡入 */
+.jx-trs-title {
+  animation: jx-kf-fadeIn .15s ease-out both;
+}
+/* 计时器完成定格：与品牌 loader 同款 settle */
+.jx-trs-dur--settled {
+  display: inline-block;
+  animation: jxBrandSettle .24s ease-out both;
+}
+/* 历史回放 / 非流式渲染豁免：壳、步骤行、标题一律静态 */
+.jx-trs--static,
+.jx-trs--static .jx-trs-body > *,
+.jx-trs--static .jx-trs-title {
+  animation: none;
+}
+
+/* ── Header: a single calm line, full-width clickable ── */
+.jx-trs-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  font: inherit;
+  text-align: left;
+  color: rgba(15, 23, 42, 0.72);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.jx-trs-head:hover {
+  background: rgba(15, 23, 42, 0.035);
+}
+.jx-trs-head:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.18);
+  outline-offset: 1px;
+}
+
+/* ── Status mark: brand logo (animated draw → settled) for run/done,
+   a refined glyph for errors. A soft halo + a one-shot ring on completion
+   give the batch a richer, branded focal point instead of a bare tick. ── */
+.jx-trs-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+/* Soft radial halo behind the brand mark for depth */
+.jx-trs-mark--running::before,
+.jx-trs-mark--success::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(18, 109, 255, 0.14) 0%,
+    rgba(18, 109, 255, 0) 70%
+  );
+}
+.jx-trs-mark--success::before {
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(15, 23, 42, 0.10) 0%,
+    rgba(15, 23, 42, 0) 70%
+  );
+}
+/* One-shot expanding ring the moment the batch settles */
+.jx-trs-mark--success::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(15, 23, 42, 0.28);
+  animation: jx-trs-ring 0.55s ease-out forwards;
+}
+@keyframes jx-trs-ring {
+  0%   { transform: scale(0.55); opacity: 0.9; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+/* Gentle breathing on the live brand GIF for extra life */
+.jx-trs-mark--running .jx-brandLoader {
+  animation: jx-trs-breathe 1.8s ease-in-out infinite;
+}
+@keyframes jx-trs-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+.jx-trs-mark--error {
+  color: rgba(15, 23, 42, 0.72);
+  box-shadow: inset 0 0 0 1.5px rgba(15, 23, 42, 0.22);
+}
+
+.jx-trs-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(15, 23, 42, 0.78);
+}
+.jx-trs-sep {
+  color: rgba(15, 23, 42, 0.25);
+  font-size: 12px;
+}
+.jx-trs-dur {
+  font-family: var(--font-family-number);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(15, 23, 42, 0.5);
+}
+.jx-trs-steps {
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.38);
+}
+/* Thin chevron, pushed to the right edge */
+.jx-trs-chev {
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-right: 1.5px solid rgba(15, 23, 42, 0.4);
+  border-bottom: 1.5px solid rgba(15, 23, 42, 0.4);
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+}
+.jx-trs-chev--open {
+  transform: rotate(45deg);
+}
+.jx-trs-head:hover .jx-trs-chev {
+  border-color: rgba(15, 23, 42, 0.62);
+}
+
+/* ── Expanded body: grid-rows collapse animation + thin guide line ── */
+.jx-trs-bodyWrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.24s ease;
+}
+.jx-trs-bodyWrap--open {
+  grid-template-rows: 1fr;
+}
+.jx-trs-bodyWrap > .jx-trs-body {
+  overflow: hidden;
+}
+.jx-trs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 3px 0 2px 17px;
+  padding-left: 13px;
+  border-left: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+/* Rows nested in the shell stay quiet; the shell owns the structure */
+.jx-trs-body .jx-tcr-header {
+  padding: 3px 6px;
+}
+.jx-trs-body .jx-tcr-label {
+  font-size: 13px;
+}
+.jx-trs-body .jx-tcr-value {
+  background: rgba(15, 23, 42, 0.04);
+  color: rgba(15, 23, 42, 0.7);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LobeHub-style Inline Search Result Display (.jx-tr-searchInline-*)
+   Query bar + horizontal scrollable card strip
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.jx-tr-searchInline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Query bar */
+.jx-tr-searchQueryBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.jx-tr-searchQueryIcon {
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.40);
+  flex-shrink: 0;
+}
+.jx-tr-searchQueryText {
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.72);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jx-tr-searchQueryCount {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(15, 23, 42, 0.38);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Horizontal card strip */
+.jx-tr-searchCardsWrap {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.20) transparent;
+}
+.jx-tr-searchCardsWrap::-webkit-scrollbar {
+  height: 4px;
+}
+.jx-tr-searchCardsWrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.jx-tr-searchCardsWrap::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.20);
+  border-radius: 3px;
+}
+
+/* 卡片条 stagger 入场：行内 --stagger-i（TSX 侧封顶 6）× 30ms。
+   位移须显式钉回 10px——祖先 .jx-trs / .jx-trs-body>* 设过 --fadeInUp-distance 会继承进来 */
+.jx-tr-searchCardsWrap > .jx-tr-searchCard {
+  --fadeInUp-distance: 10px;
+  animation: jx-kf-fadeInUp var(--motion-duration-fast) var(--motion-ease-brand-out) both;
+  animation-delay: calc(var(--stagger-i, 0) * 30ms);
+}
+
+/* Individual search card */
+.jx-tr-searchCard {
+  flex-shrink: 0;
+  width: 160px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+}
+.jx-tr-searchCard:hover {
+  border-color: rgba(18, 109, 255, 0.25);
+  box-shadow: 0 4px 12px rgba(18, 109, 255, 0.10);
+  transform: translateY(-1px);
+  text-decoration: none;
+  color: inherit;
+}
+.jx-tr-searchCard:visited {
+  color: inherit;
+  text-decoration: none;
+}
+
+.jx-tr-searchCardTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(15, 23, 42, 0.88);
+  line-height: 1.45;
+  flex: 1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.jx-tr-searchCardFooter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: auto;
+}
+.jx-tr-searchCardFavicon {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.jx-tr-searchCardDomain {
+  font-size: 10.5px;
+  color: rgba(15, 23, 42, 0.38);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ── 右侧工具结果面板（Canvas）── 与 Content 并列，独立滚动 */
+.jx-toolResultPanel{
+  width:360px;
+  min-width:300px;
+  flex-shrink:0;
+  border-left:1px solid rgba(15,23,42,.08);
+  background:#fff;
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  overflow:hidden;
+  box-shadow:-2px 0 12px rgba(18,109,255,.06);
+}
+.jx-trp-header{
+  padding:11px 14px 10px;
+  border-bottom:1px solid rgba(15,23,42,.07);
+  background:#fff;
+  flex-shrink:0;
+}
+.jx-trp-headerRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.jx-trp-headerLeft{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-width:0;
+  flex:1;
+}
+.jx-trp-icon{width:18px;height:18px;flex-shrink:0;object-fit:contain;}
+.jx-trp-title{
+  font-size:14px;
+  font-weight:700;
+  color:rgba(15,23,42,.88);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  min-width:0;
+}
+.jx-trp-summary{
+  font-size:11px;
+  color:rgba(15,23,42,.42);
+  margin-top:3px;
+  padding-left:22px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jx-trp-close{
+  width:28px;
+  height:28px;
+  border:none;
+  background:none;
+  border-radius:6px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:rgba(15,23,42,.44);
+  transition:background .15s,color .15s;
+  flex-shrink:0;
+  font-size:13px;
+}
+.jx-trp-close:hover{
+  background:rgba(15,23,42,.07);
+  color:rgba(15,23,42,.8);
+}
+.jx-trp-body{
+  flex:1;
+  overflow-y:auto;
+  padding:14px 16px;
+}
+/* 内容切换（key 重挂）淡入 */
+.jx-trp-body--switch{
+  animation:jx-kf-fadeIn .18s var(--motion-ease-standard) both;
+}
+
+/* panel-tool 卡片样式（紧凑 pill，无展开体） */
+.jx-toolCallItem--panel{
+  cursor:pointer;
+}
+.jx-toolCallItem--panel .jx-toolCallHeader{
+  background:rgba(248,250,252,.6);
+}
+.jx-toolCallItem--panel.active .jx-toolCallHeader{
+  background:rgba(18,109,255,.07);
+  border-color:rgba(18,109,255,.22);
+}
+.jx-toolCallItem--panel.active{
+  border-color:rgba(18,109,255,.22);
+}
+.jx-panelOpenIcon{
+  color:rgba(15,23,42,.36);
+  font-size:12px !important;
+  transition:color .15s;
+}
+.jx-panelOpenIcon.active{
+  color:var(--color-primary);
+}
+.jx-toolCallItem--panel:hover .jx-panelOpenIcon{
+  color:var(--color-primary);
+}
+
+
+/* Tool Calls Section */
+.jx-toolCallsSection{
+  background:linear-gradient(180deg, rgba(239,246,255,.92) 0%, rgba(255,255,255,.96) 100%);
+  border:1px solid rgba(18,109,255,.18);
+  border-radius:14px;
+  padding:10px;
+  box-shadow:0 10px 24px rgba(18,109,255,.08);
+}
+.jx-sectionHeader{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-weight:900;
+  font-size:13px;
+  color:rgba(67, 56, 202, 0.90);
+  margin-bottom:8px;
+  user-select:none;
+}
+.jx-sectionIcon{
+  font-size:14px;
+}
+.jx-sectionTitle{
+  font-weight:900;
+}
+.jx-toolCallsList{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.jx-toolCallItem{
+  background:#fff;
+  border:1px solid rgba(18,109,255,.14);
+  border-radius:12px;
+  box-shadow:0 6px 18px rgba(17,24,39,.04);
+  overflow:clip;
+}
+.jx-toolCallHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  cursor:pointer;
+  transition:background 0.2s ease, border-color 0.2s ease;
+  user-select:none;
+}
+.jx-toolCallHeader:hover{
+  background:rgba(18,109,255,.08);
+}
+.jx-toolCallHeader:focus-visible{
+  outline:2px solid rgba(18,109,255,.35);
+  outline-offset:-2px;
+}
+.jx-toolCallTitle{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-weight:700;
+  font-size:13px;
+  color:rgba(31, 35, 40, 0.88);
+}
+.jx-toolCallStatusIcon{
+  font-size:14px;
+}
+.jx-toolCallStatusIcon.running{
+  color:var(--color-primary);
+}
+.jx-toolCallStatusIcon.success{
+  color:var(--color-success);
+}
+.jx-toolCallStatusIcon.error{
+  color:var(--color-error);
+}
+.jx-toolCallName{
+  font-weight:700;
+  max-width:320px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jx-toolCallStatusTag{
+  margin-left:4px;
+  padding:1px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:800;
+  line-height:1.7;
+  border:1px solid transparent;
+}
+.jx-toolCallStatusTag.running{
+  color:var(--color-primary);
+  background:rgba(18,109,255,.16);
+  border-color:rgba(18,109,255,.32);
+}
+.jx-toolCallStatusTag.success{
+  color:#166534;
+  background:rgba(34,197,94,.16);
+  border-color:rgba(34,197,94,.32);
+}
+.jx-toolCallStatusTag.error{
+  color:#991b1b;
+  background:rgba(239,68,68,.14);
+  border-color:rgba(239,68,68,.26);
+}
+.jx-expandIcon{
+  font-size:10px;
+  color:rgba(31, 35, 40, 0.55);
+}
+
+/* ── 文件下载卡片 ─────────────────────────────── */
+.jx-artifactCards{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:10px;
+}
+.jx-dlCard{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:12px 14px;
+  background:#fff;
+  border:1px solid rgba(203,213,225,.72);
+  border-radius:16px;
+  box-shadow:0 6px 18px rgba(15,23,42,.05);
+  max-width:460px;
+  transition:border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.jx-dlCard:hover{
+  box-shadow:0 10px 24px rgba(15,23,42,.08);
+  border-color:rgba(148,163,184,.9);
+  transform:translateY(-1px);
+}
+.jx-dlCard-left{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+  flex:1;
+}
+.jx-dlCard-fileBadge{
+  width:42px;
+  height:42px;
+  border-radius:14px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  background:linear-gradient(180deg, #fbfdff 0%, #f2f6fc 100%);
+  border:1px solid rgba(203,213,225,.72);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
+}
+.jx-dlCard-fileIcon{
+  object-fit:contain;
+}
+.jx-dlCard-meta{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+.jx-dlCard-name{
+  font-weight:600;
+  font-size:14px;
+  color:rgba(17,24,39,.88);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:260px;
+  line-height:1.4;
+}
+.jx-dlCard-size{
+  font-size:12px;
+  color:#7b8698;
+}
+.jx-dlCard-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-shrink:0;
+}
+.jx-dlCard-btn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  height:36px;
+  padding:0 14px;
+  border-radius:10px;
+  border:1px solid rgba(191,219,254,.95);
+  background:#edf4ff;
+  color:#2563eb;
+  font-size:14px;
+  font-weight:500;
+  text-decoration:none;
+  transition:background .15s ease, border-color .15s ease, color .15s ease;
+}
+.jx-dlCard-btn:hover{
+  background:#e0edff;
+  border-color:#93c5fd;
+  color:#1d4ed8;
+}
+
+/* ── 图片卡片（ChatGPT 风格：裸图 + hover 内嵌操作） ─────────── */
+.jx-imgCard{
+  position:relative;
+  display:inline-block;
+  max-width:520px;
+  width:100%;
+  border-radius:12px;
+  overflow:hidden;
+  line-height:0;
+  cursor:zoom-in;
+}
+.jx-imgCard:focus-visible{
+  outline:2px solid rgba(15,23,42,.30);
+  outline-offset:2px;
+}
+.jx-imgCard-img{
+  display:block;
+  width:100%;
+  max-height:480px;
+  object-fit:contain;
+  border-radius:12px;
+  transition:filter .2s ease;
+}
+/* hover 时图片轻微加深，配合遮罩 */
+.jx-imgCard:hover .jx-imgCard-img{
+  filter:brightness(.92);
+}
+/* 半透明遮罩层（不阻断图片点击事件） */
+.jx-imgCard-overlay{
+  position:absolute;
+  inset:0;
+  border-radius:12px;
+  pointer-events:none;
+}
+/* 操作按钮组 */
+.jx-imgCard-overlayBtns{
+  position:absolute;
+  top:10px;
+  right:10px;
+  display:flex;
+  gap:6px;
+  opacity:0;
+  transition:opacity .18s ease;
+}
+.jx-imgCard:hover .jx-imgCard-overlayBtns{
+  opacity:1;
+}
+/* 单个图标按钮 */
+.jx-imgCard-overlayBtn{
+  width:34px;
+  height:34px;
+  border-radius:8px;
+  background:rgba(0,0,0,.52);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.18);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  font-size:15px;
+  transition:background .15s ease, transform .1s ease;
+  text-decoration:none;
+}
+.jx-imgCard-overlayBtn:hover{
+  background:rgba(0,0,0,.75);
+  transform:scale(1.08);
+  color:#fff;
+}
+
+/* ── 图片全屏预览 ── */
+.jx-imagePreviewRoot .ant-modal-mask{
+  background:rgba(0,0,0,.62) !important;
+}
+.jx-imagePreviewModal .ant-modal{
+  width:fit-content !important;
+  max-width:92vw;
+}
+.jx-imagePreviewModal .ant-modal-content{
+  border-radius:0;
+  padding:0;
+  background:transparent !important;
+  box-shadow:none !important;
+  border:none !important;
+}
+.jx-imagePreviewModal .ant-modal-body{
+  padding:0 !important;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:transparent;
+}
+/* 缩放预览舞台：图片区 + 悬浮工具栏 */
+.jx-imagePreviewStage{
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.jx-imagePreviewCanvas{
+  width:min(90vw, 1120px);
+  height:82vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;        /* 放大后超出部分裁掉，靠拖拽平移查看 */
+  touch-action:none;      /* 让指针事件接管，避免浏览器手势抢占 */
+}
+.jx-imagePreviewImg{
+  display:block;
+  max-width:100%;
+  max-height:100%;
+  object-fit:contain;
+  border-radius:0;
+  box-shadow:none;
+  border:none;
+  transform-origin:center center;
+  transition:transform .12s ease-out;
+  user-select:none;
+  -webkit-user-drag:none;
+}
+/* 拖拽平移中逐帧跟手，禁过渡 */
+.jx-imagePreviewImg.dragging{
+  transition:none;
+}
+/* SVG（矢量图）常缺省 width/height，作为 <img> 会退化成 300×150 的微缩尺寸；
+   且多数 SVG 背景透明、文字为深色，铺在暗色遮罩上几乎不可见。
+   这里强制其填满预览区（矢量放大无损），并垫一层白色卡纸保证可读。 */
+.jx-imagePreviewImg--svg{
+  width:min(82vh, 90vw);
+  height:auto;
+  max-height:none;
+  background:#fff;
+  border-radius:8px;
+  padding:16px;
+  box-sizing:border-box;
+}
+/* 悬浮工具栏 — 入场略晚于图片（delay .1s），上浮淡入 */
+.jx-imagePreviewToolbar{
+  position:absolute;
+  bottom:18px;
+  left:50%;
+  transform:translateX(-50%);
+  animation:jx-imgPreviewToolbarIn .25s ease-out .1s both;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:6px 10px;
+  border-radius:12px;
+  background:rgba(0,0,0,.58);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.16);
+}
+.jx-imagePreviewTool{
+  width:34px;
+  height:34px;
+  border-radius:8px;
+  background:transparent;
+  border:none;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  font-size:16px;
+  transition:background .15s ease, transform .1s ease;
+}
+.jx-imagePreviewTool:hover{
+  background:rgba(255,255,255,.18);
+  transform:scale(1.06);
+}
+@keyframes jx-imgPreviewToolbarIn{
+  from{opacity:0;transform:translate(-50%, 8px);}
+  to  {opacity:1;transform:translate(-50%, 0);}
+}
+.jx-imagePreviewZoomLabel{
+  min-width:46px;
+  text-align:center;
+  color:#fff;
+  font-size:12px;
+  font-variant-numeric:tabular-nums;
+  user-select:none;
+}
+@media (max-width: 640px){
+  .jx-imagePreviewCanvas{
+    width:92vw;
+    height:78vh;
+  }
+  .jx-imagePreviewImg--svg{
+    width:min(78vh, 92vw);
+  }
+}
+
+.jx-toolCallBody{
+  padding:10px 12px 12px 12px;
+  border-top:1px solid rgba(18,109,255,.14);
+  -webkit-user-select:text;
+  user-select:text;
+}
+.jx-toolSection{
+  margin-top:10px;
+}
+.jx-toolSectionLabel{
+  font-weight:700;
+  font-size:12px;
+  color:rgba(18, 109, 255, 0.92);
+  margin-bottom:6px;
+}
+.jx-toolCode{
+  background:rgba(248, 250, 252, 1);
+  border:1px solid rgba(17, 24, 39, 0.10);
+  border-radius:8px;
+  padding:10px;
+  font-size:12px;
+  line-height:1.5;
+  overflow-x:auto;
+  overflow-y:auto;
+  max-height:400px;
+  margin:0;
+  font-family:'Consolas', 'Monaco', 'Courier New', monospace;
+  color:rgba(31, 35, 40, 0.92);
+}
+.jx-toolCode::-webkit-scrollbar{width:8px; height:8px}
+.jx-toolCode::-webkit-scrollbar-track{background:rgba(248, 250, 252, 1); border-radius:4px}
+.jx-toolCode::-webkit-scrollbar-thumb{background:rgba(100, 116, 139, 0.35); border-radius:4px}
+.jx-toolCode::-webkit-scrollbar-thumb:hover{background:rgba(100, 116, 139, 0.50)}
+
+
+/* ── 工具结果结构化渲染（Tool Result Renderers）────────────────── */
+
+/* 摘要行 — 显示在 header 折叠状态下 */
+.jx-toolCallSummary{
+  font-size:11px;
+  color:rgba(15,23,42,.42);
+  margin-left:6px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  max-width:200px;
+  flex-shrink:1;
+  font-weight:400;
+}
+
+/* 通用空态 */
+.jx-tr-empty{
+  font-size:12px;
+  color:rgba(15,23,42,.40);
+  padding:12px 4px;
+  text-align:center;
+}
+
+/* ── 数据库查询 ─────────────────────── */
+.jx-tr-dbHeader{
+  font-size:12px;
+  padding:4px 8px;
+  border-radius:4px;
+  margin-bottom:8px;
+  background:rgba(248,250,252,1);
+  color:rgba(15,23,42,.72);
+}
+.jx-tr-dbHeader.success{color:rgba(15,23,42,.55);background:rgba(15,23,42,.035);border:1px solid rgba(15,23,42,.07);}
+.jx-tr-dbHeader.error{color:rgba(15,23,42,.72);background:rgba(15,23,42,.05);border:1px solid rgba(15,23,42,.12);}
+.jx-tr-dbText{font-size:12px;line-height:1.65;white-space:pre-wrap;color:rgba(15,23,42,.78);}
+.jx-tr-dbText.error{color:#991b1b;}
+
+.jx-tr-tableWrap{overflow-x:auto;border-radius:6px;border:1px solid rgba(18,109,255,.14);}
+.jx-tr-table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.4;}
+.jx-tr-table th{
+  background:rgba(18,109,255,.07);
+  color:var(--color-primary);
+  font-weight:700;
+  padding:6px 10px;
+  text-align:left;
+  border-bottom:1px solid rgba(18,109,255,.16);
+  white-space:nowrap;
+  font-size:11.5px;
+}
+.jx-tr-table td{
+  padding:5px 10px;
+  border-bottom:1px solid rgba(18,109,255,.08);
+  color:rgba(15,23,42,.82);
+  max-width:180px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-tr-table tr:last-child td{border-bottom:none;}
+.jx-tr-table tr:nth-child(even) td{background:rgba(248,250,252,.6);}
+.jx-tr-moreHint{font-size:11px;color:rgba(15,23,42,.38);padding:6px 10px;text-align:center;border-top:1px solid rgba(18,109,255,.08);}
+
+/* ── 知识库检索 ─────────────────────── */
+.jx-tr-kbList{display:flex;flex-direction:column;}
+.jx-tr-kbItem{
+  padding:8px 4px;
+  border-bottom:1px solid rgba(18,109,255,.09);
+  border-radius:4px;
+}
+.jx-tr-kbItem:last-child{border-bottom:none;}
+.jx-tr-kbItem--clickable{
+  cursor:pointer;
+  transition:background .15s;
+}
+.jx-tr-kbItem--clickable:hover{background:rgba(18,109,255,.04);}
+.jx-tr-kbDocName{
+  font-size:12.5px;
+  font-weight:700;
+  color:rgba(15,23,42,.88);
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-bottom:4px;
+}
+.jx-tr-kbIdx{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:18px;
+  border-radius:50%;
+  background:var(--color-primary);
+  color:#fff;
+  font-size:10px;
+  font-weight:700;
+  flex-shrink:0;
+}
+.jx-tr-kbContent{
+  font-size:12px;
+  color:rgba(15,23,42,.60);
+  line-height:1.55;
+  flex:1;
+  min-width:0;
+}
+.jx-tr-kbPreview{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;}
+.jx-tr-kbMore{
+  font-size:11px;
+  color:var(--color-primary);
+  white-space:nowrap;
+  flex-shrink:0;
+  opacity:.75;
+}
+
+.jx-tr-kbScore{
+  font-size:10px;
+  color:rgba(18,109,255,.55);
+  margin-top:2px;
+}
+
+/* ── 互联网搜索 ─────────────────────── */
+.jx-tr-searchList{display:flex;flex-direction:column;}
+.jx-tr-searchItem{
+  padding:8px 4px;
+  border-bottom:none;
+  border-radius:4px;
+}
+.jx-tr-searchItem:last-child{border-bottom:none;}
+.jx-tr-searchItem--link{
+  display:block;
+  text-decoration:none;
+  color:inherit;
+  transition:background .15s;
+}
+.jx-tr-searchItem--link:visited,
+.jx-tr-searchItem--link:hover,
+.jx-tr-searchItem--link:active{
+  text-decoration:none !important;
+  color:inherit;
+}
+.jx-tr-searchItem--link:hover{background:rgba(18,109,255,.04);}
+.jx-tr-searchHeader{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+.jx-tr-searchTitle{
+  font-size:12.5px;
+  font-weight:700;
+  color:rgba(15,23,42,.88);
+  text-decoration:none;
+  line-height:1.4;
+  flex:1;
+  min-width:0;
+}
+.jx-tr-searchSnippet{font-size:12px;color:rgba(15,23,42,.54);line-height:1.5;margin-bottom:5px;}
+.jx-tr-searchFooter{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;}
+.jx-tr-searchDomain{
+  font-size:10px;
+  padding:1px 7px;
+  border-radius:999px;
+  background:rgba(18,109,255,.10);
+  color:var(--color-primary);
+  border:1px solid rgba(18,109,255,.22);
+  white-space:nowrap;
+}
+
+/* ── 产业资讯 ───────────────────────── */
+.jx-tr-newsList{display:flex;flex-direction:column;}
+.jx-tr-newsItem{padding:8px 4px;border-bottom:1px solid rgba(18,109,255,.09);border-radius:4px;}
+.jx-tr-newsItem:last-child{border-bottom:none;}
+.jx-tr-newsItem--clickable{
+  cursor:pointer;
+  transition:background .15s;
+}
+.jx-tr-newsItem--clickable:hover{background:rgba(18,109,255,.04);}
+.jx-tr-newsTitle{font-size:12.5px;font-weight:700;color:rgba(15,23,42,.88);line-height:1.4;margin-bottom:3px;}
+.jx-tr-newsSummary{font-size:12px;color:rgba(15,23,42,.54);line-height:1.5;margin-bottom:5px;}
+.jx-tr-newsTags{display:flex;flex-wrap:wrap;gap:4px;}
+.jx-tr-newsTag{
+  font-size:10px;
+  padding:1px 7px;
+  border-radius:999px;
+  background:rgba(18,109,255,.10);
+  color:var(--color-primary);
+  border:1px solid rgba(18,109,255,.22);
+  display:-webkit-inline-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  line-clamp:2;
+  max-width:100%;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  overflow:hidden;
+}
+
+/* ── AI 热点时间线 ──────────────────── */
+.jx-tr-aiNewsList{display:flex;flex-direction:column;gap:6px;}
+.jx-tr-aiNewsItem{display:flex;gap:10px;align-items:flex-start;padding:4px;border-radius:4px;}
+.jx-tr-aiNewsItem--clickable{
+  cursor:pointer;
+  transition:background .15s;
+}
+.jx-tr-aiNewsItem--clickable:hover{background:rgba(18,109,255,.04);}
+.jx-tr-aiNewsDate{
+  font-size:11px;
+  font-weight:700;
+  color:rgba(18,109,255,.65);
+  min-width:38px;
+  flex-shrink:0;
+  padding-top:1px;
+  font-variant-numeric:tabular-nums;
+}
+.jx-tr-aiNewsContent{flex:1;min-width:0;}
+.jx-tr-aiNewsTitle{font-size:12.5px;font-weight:600;color:rgba(15,23,42,.88);line-height:1.4;margin-bottom:2px;}
+.jx-tr-aiNewsSummary{font-size:12px;color:rgba(15,23,42,.52);line-height:1.5;}
+
+/* ── 产业链分析 ─────────────────────── */
+.jx-tr-chainText{font-size:12px;line-height:1.65;white-space:pre-wrap;color:rgba(15,23,42,.78);}
+.jx-tr-chainSections{display:flex;flex-direction:column;gap:8px;}
+.jx-tr-chainSection{padding:4px 8px 4px 10px;border-left:2px solid rgba(18,109,255,.22);border-radius:0 4px 4px 0;}
+.jx-tr-chainSection--clickable{
+  cursor:pointer;
+  transition:background .15s,border-left-color .15s;
+}
+.jx-tr-chainSection--clickable:hover{
+  background:rgba(18,109,255,.04);
+  border-left-color:rgba(18,109,255,.6);
+}
+.jx-tr-chainSectionKey{
+  font-size:10.5px;
+  font-weight:700;
+  color:var(--color-primary);
+  letter-spacing:0.04em;
+  margin-bottom:3px;
+  text-transform:uppercase;
+}
+.jx-tr-chainSectionVal{font-size:12px;color:rgba(15,23,42,.74);line-height:1.55;white-space:pre-wrap;}
+
+/* ── 详情弹窗内容 ────────────────────── */
+.jx-tr-detailBody{
+  font-size:13px;
+  line-height:1.75;
+  color:rgba(15,23,42,.82);
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:60vh;
+  overflow-y:auto;
+  padding:2px 0;
+}
+
+/* ── 产业链结构化渲染 ─────────────────── */
+.jx-tr-chainDetailWrap{max-height:62vh;overflow-y:auto;padding:2px 0;}
+
+/* key-value 网格 */
+.jx-tr-chainKV{display:flex;flex-direction:column;gap:5px;}
+.jx-tr-chainKVRow{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;line-height:1.55;}
+.jx-tr-chainKVKey{
+  color:rgba(15,23,42,.45);
+  flex-shrink:0;
+  min-width:110px;
+  white-space:nowrap;
+}
+.jx-tr-chainKVVal{color:rgba(15,23,42,.82);flex:1;min-width:0;}
+.jx-tr-chainNum{font-weight:600;color:var(--color-primary);font-variant-numeric:tabular-nums;}
+.jx-tr-chainNull{color:rgba(15,23,42,.28);}
+
+/* mini-table（数组对象） */
+.jx-tr-chainMiniTable{display:flex;flex-direction:column;gap:4px;}
+.jx-tr-chainMiniRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px 14px;
+  padding:4px 8px;
+  background:rgba(248,250,252,.9);
+  border-radius:5px;
+  border:1px solid rgba(15,23,42,.06);
+}
+.jx-tr-chainMiniCell{display:flex;flex-direction:column;gap:1px;min-width:60px;}
+.jx-tr-chainMiniKey{font-size:10px;color:rgba(15,23,42,.40);font-weight:600;}
+.jx-tr-chainMiniVal{font-size:12.5px;color:rgba(15,23,42,.82);font-weight:500;}
+
+/* 树状图谱 */
+.jx-tr-chainTree{font-size:12px;line-height:1.8;color:rgba(15,23,42,.78);}
+.jx-tr-chainTreeNode{display:flex;flex-direction:column;}
+.jx-tr-chainTreeDot{color:rgba(18,109,255,.5);margin-right:5px;flex-shrink:0;}
+
+/* ── 技能激活 ───────────────────────── */
+.jx-tr-skillBadge{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+  color:#166534;
+  padding:8px 10px;
+  background:rgba(34,197,94,.07);
+  border:1px solid rgba(34,197,94,.20);
+  border-radius:6px;
+}
+
+/* 加载技能：能力中心同款的紧凑详情卡 */
+.jx-tr-skillCard{padding:10px 12px;display:flex;flex-direction:column;gap:8px;}
+.jx-tr-skillHead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.jx-tr-skillName{font-size:14px;font-weight:600;color:var(--color-text-primary);}
+.jx-tr-skillVersion{font-size:12px;color:var(--color-text-tertiary);font-weight:400;}
+.jx-tr-skillDesc{margin:0;font-size:12px;color:var(--color-text-secondary);line-height:1.55;}
+.jx-tr-skillTags{display:flex;flex-wrap:wrap;gap:4px;}
+.jx-tr-skillTag{font-size:11px;line-height:18px;padding:0 6px;margin:0;}
+.jx-tr-skillBody{
+  font-size:13px;
+  line-height:1.65;
+  color:var(--color-text-primary);
+  max-height:320px;
+  overflow:auto;
+  padding:8px 10px;
+  background:rgba(15,23,42,.025);
+  border:1px solid rgba(15,23,42,.06);
+  border-radius:6px;
+}
+.jx-tr-skillBody p:first-child{margin-top:0;}
+.jx-tr-skillBody p:last-child{margin-bottom:0;}
+.jx-tr-skillEmpty{font-size:12px;color:var(--color-text-tertiary);font-style:italic;}
+
+/* 加载文件：路径/预览块（与 skillCard 共用容器） */
+.jx-tr-filePath{
+  font-size:11px;
+  color:var(--color-text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break:break-all;
+  background:rgba(15,23,42,.03);
+  border-radius:4px;
+  padding:2px 6px;
+}
+.jx-tr-filePreview{
+  margin:0;
+  padding:8px 10px;
+  background:rgba(15,23,42,.025);
+  border:1px solid rgba(15,23,42,.06);
+  border-radius:6px;
+  font-size:12px;
+  line-height:1.55;
+  color:var(--color-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space:pre-wrap;
+  word-break:break-all;
+  max-height:200px;
+  overflow:auto;
+}
+
+/* ── 子智能体调用详情 ─────────────────── */
+.jx-tr-subagentDetail{display:flex;flex-direction:column;gap:6px;}
+.jx-tr-subagentRow{display:flex;gap:8px;align-items:flex-start;font-size:12px;}
+.jx-tr-subagentRowLabel{
+  flex-shrink:0;
+  color:var(--color-text-tertiary);
+  background:var(--color-bg-gray);
+  padding:1px 6px;
+  border-radius:3px;
+  white-space:nowrap;
+}
+.jx-tr-subagentRowValue{color:var(--color-primary);font-weight:500;}
+.jx-tr-subagentRowText{color:var(--color-text-secondary);line-height:1.5;word-break:break-all;}
+
+/* ── 能力列表 ───────────────────────── */
+.jx-tr-capList{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
+.jx-tr-capItem{
+  font-size:12px;
+  color:rgba(15,23,42,.76);
+  padding:4px 8px;
+  background:rgba(248,250,252,.95);
+  border:1px solid rgba(18,109,255,.12);
+  border-radius:4px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* ── 通用 JSON 展示（兜底） ─────────── */
+.jx-tr-jsonBlock{
+  background:rgba(248,250,252,1);
+  border:1px solid rgba(17,24,39,.09);
+  border-radius:6px;
+  padding:10px;
+  font-size:11.5px;
+  line-height:1.5;
+  overflow-x:auto;
+  overflow-y:auto;
+  max-height:280px;
+  margin:0;
+  font-family:'Consolas','Monaco','Courier New',monospace;
+  color:rgba(31,35,40,.88);
+  white-space:pre;
+}
+.jx-tr-jsonBlock::-webkit-scrollbar{width:6px;height:6px;}
+.jx-tr-jsonBlock::-webkit-scrollbar-track{background:rgba(248,250,252,1);}
+.jx-tr-jsonBlock::-webkit-scrollbar-thumb{background:rgba(100,116,139,.30);border-radius:3px;}
+
+
+/* Thinking Section — 旧版兼容样式（历史消息） */
+.jx-thinkingSection{
+  background:transparent;
+  border:none;
+  border-left:2px solid rgba(148,163,184,.34);
+  border-radius:0;
+  padding:4px 0 4px 10px;
+}
+.jx-thinkingSection .jx-sectionHeader{
+  color:rgba(71,85,105,.88);
+}
+.jx-thinkingList{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.jx-thinkingItem{
+  background:transparent;
+  border:none;
+  border-radius:0;
+  overflow:visible;
+}
+.jx-thinkingHeader{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:6px;
+  padding:2px 0;
+  cursor:pointer;
+  transition:color .18s ease;
+  user-select:none;
+}
+.jx-thinkingHeader:hover{
+  color:rgba(15,23,42,.92);
+}
+.jx-thinkingTitle{
+  font-weight:600;
+  font-size:13px;
+  color:rgba(71,85,105,.90);
+}
+.jx-thinkingBody{
+  padding:4px 0 0;
+  border-top:none;
+  font-size:13px;
+  line-height:1.7;
+  color:rgba(71,85,105,.90);
+  white-space:pre-wrap;
+  margin-top:0;
+  font-style:normal;
+}
+
+/* ── 新版思考块（DeepSeek 风格，内联展示） ── */
+.jx-thinkingBlock{
+  border-left:2px solid rgba(148,163,184,.34);
+  background:transparent;
+  border-radius:0;
+  overflow:visible;
+  margin:4px 0 8px;
+  padding-left:10px;
+}
+.jx-thinkingBlockHeader{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:6px;
+  padding:1px 0 2px;
+  cursor:pointer;
+  user-select:none;
+  transition:color .18s ease;
+}
+.jx-thinkingBlockHeader:hover{
+  color:rgba(15,23,42,.90);
+}
+.jx-thinkingBlockHeader:focus-visible{
+  outline:2px solid rgba(15,23,42,.20);
+  outline-offset:2px;
+  border-radius:6px;
+}
+.jx-thinkingHeaderLeft{
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+.jx-thinkingIcon{
+  font-size:13px;
+  color:rgba(100,116,139,.88);
+}
+.jx-thinkingLabel{
+  font-size:13px;
+  font-weight:500;
+  color:rgba(71,85,105,.90);
+}
+.jx-thinkingBlockHeader .jx-expandIcon{
+  color:rgba(100,116,139,.72);
+  font-size:10px;
+}
+/* ── Thinking body expand (uses .jx-expandWrap from variables.css) ── */
+.jx-thinkingContent{
+  overflow:hidden;
+  padding:5px 0 0;
+  font-size:13px;
+  line-height:1.72;
+  color:rgba(71,85,105,.92);
+  font-style:normal;
+  white-space:pre-wrap;
+  word-break:break-word;
+  border-top:none;
+  max-height:280px;
+}
+.jx-expandWrap--open>.jx-thinkingContent{
+  overflow-y:auto;
+}
+.jx-thinkingContent::-webkit-scrollbar{width:5px}
+.jx-thinkingContent::-webkit-scrollbar-thumb{background:rgba(148,163,184,.60);border-radius:3px}
+
+/* 思考中旋转动画 */
+.jx-thinkingSpinner{
+  width:12px;
+  height:12px;
+  border:2px solid rgba(148,163,184,.50);
+  border-top-color:rgba(71,85,105,.86);
+  border-radius:50%;
+  animation:jxThinkSpin .8s linear infinite;
+  flex-shrink:0;
+}
+@keyframes jxThinkSpin{
+  to{transform:rotate(360deg);}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   企业画像工具卡片样式（蓝紫色调 #4338ca）
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 企业搜索结果列表 ─────────────────── */
+.jx-tr-companySearchList{display:flex;flex-direction:column;gap:8px;}
+.jx-tr-companySearchCard{
+  padding:10px 12px;
+  background:#fff;
+  border:1px solid rgba(67,56,202,.12);
+  border-radius:10px;
+  cursor:pointer;
+  transition:box-shadow .18s,border-color .18s,transform .18s;
+}
+.jx-tr-companySearchCard:hover{
+  box-shadow:0 4px 16px rgba(67,56,202,.12);
+  border-color:rgba(67,56,202,.28);
+  transform:translateY(-1px);
+}
+.jx-tr-companyName{
+  font-size:13px;
+  font-weight:700;
+  color:rgba(15,23,42,.90);
+  margin-bottom:5px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.jx-tr-companyIdx{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:18px;
+  border-radius:50%;
+  background:#4338ca;
+  color:#fff;
+  font-size:10px;
+  font-weight:700;
+  flex-shrink:0;
+}
+.jx-tr-companyMeta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px 12px;
+  font-size:11.5px;
+  color:rgba(15,23,42,.58);
+  margin-bottom:6px;
+}
+.jx-tr-companyMeta span{white-space:nowrap;}
+.jx-tr-companyStatusTag{
+  display:inline-block;
+  font-size:10px;
+  font-weight:700;
+  padding:1px 7px;
+  border-radius:999px;
+  line-height:1.7;
+}
+.jx-tr-companyStatusTag--active{
+  color:#166534;
+  background:rgba(34,197,94,.14);
+  border:1px solid rgba(34,197,94,.28);
+}
+.jx-tr-companyStatusTag--inactive{
+  color:#991b1b;
+  background:rgba(239,68,68,.10);
+  border:1px solid rgba(239,68,68,.22);
+}
+.jx-tr-companyStatusTag--other{
+  color:#92400e;
+  background:rgba(245,158,11,.12);
+  border:1px solid rgba(245,158,11,.24);
+}
+.jx-tr-companyPills{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.jx-tr-companyPill{
+  font-size:10px;
+  padding:1px 7px;
+  border-radius:999px;
+  background:rgba(67,56,202,.08);
+  color:#4338ca;
+  border:1px solid rgba(67,56,202,.18);
+  white-space:nowrap;
+  max-width:140px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jx-tr-companyPill--qual{
+  background:rgba(18,109,255,.08);
+  color:var(--color-primary);
+  border-color:rgba(18,109,255,.18);
+}
+
+/* ── 通用企业 section 板块 ──────────────── */
+.jx-tr-companySections{display:flex;flex-direction:column;gap:8px;}
+.jx-tr-companySection{
+  padding:6px 10px 6px 12px;
+  border-left:3px solid rgba(67,56,202,.22);
+  border-radius:0 6px 6px 0;
+  transition:background .15s,border-left-color .15s;
+}
+.jx-tr-companySection--clickable{
+  cursor:pointer;
+}
+.jx-tr-companySection--clickable:hover{
+  background:rgba(67,56,202,.04);
+  border-left-color:rgba(67,56,202,.55);
+}
+.jx-tr-companySectionKey{
+  font-size:10.5px;
+  font-weight:700;
+  color:#4338ca;
+  letter-spacing:0.04em;
+  margin-bottom:3px;
+}
+.jx-tr-companySectionVal{
+  font-size:12px;
+  color:rgba(15,23,42,.72);
+  line-height:1.55;
+  white-space:pre-wrap;
+}
+.jx-tr-companySectionBadge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:16px;
+  padding:0 5px;
+  border-radius:999px;
+  background:rgba(67,56,202,.12);
+  color:#4338ca;
+  font-size:10px;
+  font-weight:700;
+  margin-left:6px;
+  vertical-align:middle;
+}
+
+/* ── 企业基本信息卡片 ─────────────────── */
+.jx-tr-companyInfoTitle{
+  font-size:15px;
+  font-weight:800;
+  color:rgba(15,23,42,.92);
+  margin-bottom:10px;
+  padding-bottom:8px;
+  border-bottom:1px solid rgba(67,56,202,.10);
+}
+.jx-tr-companyInfoKV{display:flex;flex-direction:column;gap:5px;}
+.jx-tr-companyInfoRow{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  font-size:12.5px;
+  line-height:1.55;
+}
+.jx-tr-companyInfoKey{
+  color:rgba(15,23,42,.45);
+  flex-shrink:0;
+  min-width:90px;
+  white-space:nowrap;
+}
+.jx-tr-companyInfoVal{
+  color:rgba(15,23,42,.82);
+  flex:1;
+  min-width:0;
+}
+.jx-tr-companyNum{
+  font-weight:600;
+  color:#4338ca;
+  font-variant-numeric:tabular-nums;
+}
+
+/* ── 风险预警卡片 ─────────────────────── */
+.jx-tr-companyRiskSection{
+  padding:6px 10px 6px 12px;
+  border-left:3px solid rgba(239,68,68,.35);
+  border-radius:0 6px 6px 0;
+  transition:background .15s;
+}
+.jx-tr-companyRiskSection--warn{
+  border-left-color:rgba(245,158,11,.50);
+}
+.jx-tr-companyRiskSection--clickable{
+  cursor:pointer;
+}
+.jx-tr-companyRiskSection--clickable:hover{
+  background:rgba(239,68,68,.04);
+}
+.jx-tr-companyRiskSection--warn.jx-tr-companyRiskSection--clickable:hover{
+  background:rgba(245,158,11,.04);
+}
+.jx-tr-companyRiskKey{
+  font-size:10.5px;
+  font-weight:700;
+  color:#FC5D5D;
+  letter-spacing:0.04em;
+  margin-bottom:3px;
+}
+.jx-tr-companyRiskSection--warn .jx-tr-companyRiskKey{
+  color:#d97706;
+}
+.jx-tr-companyRiskVal{
+  font-size:12px;
+  color:rgba(15,23,42,.72);
+  line-height:1.55;
+  white-space:pre-wrap;
+}
+.jx-tr-companyRiskBadge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:16px;
+  padding:0 5px;
+  border-radius:999px;
+  background:rgba(239,68,68,.12);
+  color:#FC5D5D;
+  font-size:10px;
+  font-weight:700;
+  margin-left:6px;
+  vertical-align:middle;
+}
+.jx-tr-companyRiskSection--warn .jx-tr-companyRiskBadge{
+  background:rgba(245,158,11,.14);
+  color:#d97706;
+}
+
+/* ── 资金穿透时间线 ───────────────────── */
+.jx-tr-companyFundingSummary{
+  display:flex;
+  gap:16px;
+  padding:8px 10px;
+  background:rgba(67,56,202,.04);
+  border:1px solid rgba(67,56,202,.12);
+  border-radius:8px;
+  margin-bottom:10px;
+}
+.jx-tr-companyFundingStat{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:2px;
+}
+.jx-tr-companyFundingNum{
+  font-size:16px;
+  font-weight:800;
+  color:#4338ca;
+  font-variant-numeric:tabular-nums;
+}
+.jx-tr-companyFundingLabel{
+  font-size:10px;
+  color:rgba(15,23,42,.45);
+}
+.jx-tr-companyTimeline{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  position:relative;
+  padding-left:16px;
+}
+.jx-tr-companyTimeline::before{
+  content:'';
+  position:absolute;
+  left:5px;
+  top:8px;
+  bottom:8px;
+  width:2px;
+  background:rgba(67,56,202,.15);
+  border-radius:1px;
+}
+.jx-tr-companyTimelineItem{
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+  padding:5px 0;
+  position:relative;
+}
+.jx-tr-companyTimelineItem::before{
+  content:'';
+  position:absolute;
+  left:-13px;
+  top:10px;
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#4338ca;
+  border:2px solid #fff;
+  box-shadow:0 0 0 1px rgba(67,56,202,.25);
+}
+.jx-tr-companyTimelineDate{
+  font-size:11px;
+  font-weight:700;
+  color:rgba(67,56,202,.65);
+  min-width:60px;
+  flex-shrink:0;
+  font-variant-numeric:tabular-nums;
+}
+.jx-tr-companyTimelineContent{
+  font-size:12px;
+  color:rgba(15,23,42,.74);
+  line-height:1.5;
+  flex:1;
+  min-width:0;
+}
+
+/* ── 技术洞察：专利列表 ───────────────── */
+.jx-tr-companyTechList{display:flex;flex-direction:column;gap:4px;}
+.jx-tr-companyTechItem{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:5px 8px;
+  background:rgba(248,250,252,.9);
+  border-radius:5px;
+  border:1px solid rgba(15,23,42,.06);
+}
+.jx-tr-companyTechRank{
+  font-size:11px;
+  font-weight:800;
+  color:#4338ca;
+  min-width:22px;
+  text-align:center;
+}
+.jx-tr-companyTechName{
+  font-size:12px;
+  color:rgba(15,23,42,.82);
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-tr-companyTechCite{
+  font-size:10px;
+  font-weight:700;
+  color:rgba(67,56,202,.7);
+  white-space:nowrap;
+  flex-shrink:0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Inline Summary + Canvas Detail (tool progress & thinking)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Brand loader: unified active (animated GIF) + done (slate static) ─────
+   Replaces the previous jx-pulseDot + jx-breatheOrbs indicators.
+   Shape continuity: the GIF ends on the same mark we show in done state —
+   so active→done reads as "drawing → settled", not a hard cut. ── */
+.jx-brandLoader{
+  display:inline-block;
+  flex-shrink:0;
+  background-image:url('/loader.gif');
+  background-size:contain;
+  background-repeat:no-repeat;
+  background-position:center;
+}
+.jx-brandLoader--done{
+  background-image:url('/loader-done.png');
+  animation:jxBrandSettle .24s ease-out;
+}
+@keyframes jxBrandSettle{
+  from{opacity:0;transform:scale(.85);}
+  to  {opacity:1;transform:scale(1);}
+}
+
+/* ── Inline summary row ────────────────── */
+.jx-inlineSummary{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:2px 0;
+  cursor:pointer;
+  user-select:none;
+  max-width:100%;
+  margin:2px 0;
+  background:none;
+  border:none;
+}
+.jx-inlineSummary:hover .jx-inlineSummaryText{
+  color:rgba(51,65,85,.72);
+}
+.jx-inlineSummaryText{
+  font-size:12.5px;
+  color:rgba(148,163,184,.85);
+  font-weight:400;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  min-width:0;
+  transition:color .15s;
+}
+.jx-inlineSummaryArrow{
+  font-size:9px;
+  color:rgba(148,163,184,.60);
+  flex-shrink:0;
+  transition:color .15s;
+}
+.jx-inlineSummary:hover .jx-inlineSummaryArrow{
+  color:rgba(100,116,139,.75);
+}
+
+/* ── Tool timeline (Canvas panel body) ─── */
+.jx-toolTimeline{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  position:relative;
+  padding-left:18px;
+}
+.jx-toolTimeline::before{
+  content:'';
+  position:absolute;
+  left:5px;top:8px;bottom:8px;
+  width:2px;
+  background:rgba(148,163,184,.22);
+  border-radius:1px;
+}
+.jx-toolTimelineStep{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:8px 0;
+  position:relative;
+  cursor:pointer;
+  border-radius:6px;
+  transition:background .12s;
+}
+.jx-toolTimelineStep:hover{
+  background:rgba(241,245,249,.7);
+}
+.jx-toolTimelineStep.active{
+  background:rgba(59,130,246,.06);
+}
+.jx-toolTimelineDot{
+  position:absolute;
+  left:-15px;top:12px;
+  width:8px;height:8px;
+  border-radius:50%;
+  border:2px solid #fff;
+  box-shadow:0 0 0 1px rgba(148,163,184,.30);
+}
+.jx-toolTimelineDot--running{
+  background:#3b82f6;
+  box-shadow:0 0 0 1px rgba(59,130,246,.35);
+}
+.jx-toolTimelineDot--success{
+  background:#22c55e;
+  box-shadow:0 0 0 1px rgba(34,197,94,.35);
+}
+.jx-toolTimelineDot--error{
+  background:#ef4444;
+  box-shadow:0 0 0 1px rgba(239,68,68,.35);
+}
+.jx-toolTimelineInfo{
+  flex:1;min-width:0;
+}
+.jx-toolTimelineName{
+  font-size:12.5px;
+  font-weight:600;
+  color:rgba(15,23,42,.88);
+  margin-bottom:2px;
+}
+.jx-toolTimelineSummary{
+  font-size:11px;
+  color:rgba(100,116,139,.75);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jx-toolTimelineChevron{
+  font-size:10px;
+  color:rgba(100,116,139,.45);
+  flex-shrink:0;
+  margin-top:3px;
+  transition:transform .2s ease;
+}
+/* 展开输出体（配合 .jx-expandWrap 常驻渲染，与 ToolCallRow 同构） */
+.jx-toolTimelineBody{
+  overflow:hidden;
+  padding-left:4px;
+  padding-bottom:8px;
+}
+
+/* ── Thinking detail (Canvas panel body) ── */
+.jx-thinkingDetailBody{
+  font-size:13px;
+  line-height:1.72;
+  color:rgba(71,85,105,.92);
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.jx-thinkingDetailBody--streaming{
+  max-height:none;
+}
+
+/* ── Fallback text (short plain-text tool output) ── */
+.jx-tr-fallbackText{
+  font-size:13px;
+  line-height:1.6;
+  color:rgba(71,85,105,.85);
+  white-space:pre-wrap;
+  word-break:break-word;
+  padding:6px 0;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   Code Execution Self-Contained Card (.jx-ce-*)
+   Light theme — matches HugAgentOS blue-accent design system
+   Renders as its own collapsible card (bypasses ToolProgressInline)
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Card Container ── */
+.jx-ce-card{
+  background:#fff;
+  border:1px solid rgba(18,109,255,.14);
+  border-radius:12px;
+  box-shadow:0 2px 8px rgba(17,24,39,.03);
+  overflow:hidden;
+  margin:4px 0;
+}
+.jx-ce-card--error{
+  border-color:rgba(252,93,93,.20);
+}
+
+/* Card header — collapsible */
+.jx-ce-cardHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:9px 12px;
+  cursor:pointer;
+  transition:background .15s;
+  user-select:none;
+}
+.jx-ce-cardHeader:hover{
+  background:rgba(18,109,255,.04);
+}
+.jx-ce-cardHeaderLeft{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  flex:1;
+}
+.jx-ce-cardStatusIcon{
+  font-size:14px;
+  flex-shrink:0;
+}
+.jx-ce-cardStatusIcon--running{
+  color:var(--color-primary);
+}
+.jx-ce-cardStatusIcon--success{
+  color:var(--color-success);
+}
+.jx-ce-cardStatusIcon--error{
+  color:var(--color-error);
+}
+.jx-ce-cardTitle{
+  font-size:13px;
+  font-weight:700;
+  color:var(--color-text);
+  white-space:nowrap;
+}
+.jx-ce-cardSummary{
+  font-size:11px;
+  color:var(--color-text-tertiary);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  min-width:0;
+}
+.jx-ce-cardHeaderRight{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  flex-shrink:0;
+}
+.jx-ce-cardActionBtn{
+  width:26px;height:26px;
+  border:none;
+  background:transparent;
+  border-radius:var(--radius-xs);
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--color-text-placeholder);
+  font-size:12px;
+  transition:background .12s,color .12s;
+  opacity:0;
+}
+.jx-ce-cardHeader:hover .jx-ce-cardActionBtn{
+  opacity:1;
+}
+.jx-ce-cardActionBtn:hover{
+  background:rgba(18,109,255,.08);
+  color:var(--color-primary);
+}
+.jx-ce-cardArrow{
+  font-size:11px;
+  color:var(--color-text-placeholder);
+  transition:transform .2s;
+}
+
+/* Card body */
+.jx-ce-cardBody{
+  border-top:1px solid rgba(18,109,255,.08);
+  padding:10px 12px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+/* ── CSS Variables (scoped to card or inherited) ── */
+.jx-ce-card,
+.jx-cap{
+  --ce-mono:'Menlo','Consolas','Monaco','Liberation Mono','Courier New',monospace;
+  --ce-code-bg:#f6f8fa;
+  --ce-code-border:rgba(18,109,255,.10);
+  --ce-line-num:#b0b8c4;
+  --ce-line-border:rgba(18,109,255,.06);
+}
+
+/* ── Code Section ── */
+.jx-ce-codeSection{
+  border-radius:var(--radius-sm);
+  overflow:hidden;
+  background:var(--ce-code-bg);
+  border:1px solid var(--ce-code-border);
+}
+
+/* Code header bar */
+.jx-ce-codeBar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:5px 10px;
+  background:rgba(18,109,255,.03);
+  border-bottom:1px solid var(--ce-line-border);
+  min-height:30px;
+}
+.jx-ce-codeBarLeft{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+.jx-ce-langDot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--color-fill-deep);
+  flex-shrink:0;
+}
+.jx-ce-langDot[data-lang="python"]{background:#3572A5;}
+.jx-ce-langDot[data-lang="javascript"]{background:#f1e05a;}
+.jx-ce-langDot[data-lang="bash"],.jx-ce-langDot[data-lang="sh"]{background:#4EAA25;}
+.jx-ce-langLabel{
+  font-size:11px;
+  font-weight:600;
+  color:var(--color-text-tertiary);
+  letter-spacing:.2px;
+}
+.jx-ce-lineCount{
+  font-size:10px;
+  color:var(--color-text-placeholder);
+}
+
+/* Code bar actions */
+.jx-ce-codeBarActions{
+  display:flex;
+  gap:2px;
+  opacity:0;
+  transition:opacity .15s;
+}
+.jx-ce-codeSection:hover .jx-ce-codeBarActions{
+  opacity:1;
+}
+.jx-ce-barBtn{
+  width:24px;height:24px;
+  border:none;
+  background:transparent;
+  border-radius:var(--radius-xs);
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--color-text-placeholder);
+  font-size:12px;
+  transition:background .12s,color .12s;
+}
+.jx-ce-barBtn:hover{
+  background:rgba(18,109,255,.08);
+  color:var(--color-primary);
+}
+.jx-ce-barBtn--copied{
+  color:var(--color-success) !important;
+}
+.jx-ce-barBtn--sm{
+  width:22px;height:22px;font-size:11px;
+}
+
+/* Code body */
+.jx-ce-codeWrap{
+  display:flex;
+  max-height:320px;
+  overflow:auto;
+}
+/* width set by global variables.css (6px for code areas); only override color */
+.jx-ce-codeWrap::-webkit-scrollbar-thumb{background:rgba(18,109,255,.12);}
+.jx-ce-codeWrap::-webkit-scrollbar-thumb:hover{background:rgba(18,109,255,.22);}
+
+/* Line numbers */
+.jx-ce-lineNums{
+  display:flex;
+  flex-direction:column;
+  padding:10px 0;
+  min-width:34px;
+  text-align:right;
+  user-select:none;
+  flex-shrink:0;
+  border-right:1px solid var(--ce-line-border);
+}
+.jx-ce-lineNums span{
+  font-family:var(--ce-mono);
+  font-size:11px;
+  line-height:1.65;
+  color:var(--ce-line-num);
+  padding:0 8px 0 0;
+}
+
+/* Code content */
+.jx-ce-code{
+  margin:0;
+  padding:10px 14px;
+  flex:1;
+  min-width:0;
+  font-family:var(--ce-mono);
+  font-size:12px;
+  line-height:1.65;
+  color:var(--color-text);
+  white-space:pre;
+  overflow-x:auto;
+  background:transparent;
+  border:none;
+}
+.jx-ce-code code{
+  font-family:inherit;
+  font-size:inherit;
+  line-height:inherit;
+  background:transparent !important;
+}
+.jx-ce-code .hljs{
+  background:transparent !important;
+  color:var(--color-text);
+}
+
+/* ── Execution Running State ── */
+.jx-ce-running{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 0 2px;
+}
+.jx-ce-runningPulse{
+  width:7px;height:7px;
+  border-radius:50%;
+  background:var(--color-primary);
+  animation:jx-ce-pulse 1.4s ease-in-out infinite;
+}
+@keyframes jx-ce-pulse{
+  0%,100%{opacity:.35;transform:scale(.8);}
+  50%{opacity:1;transform:scale(1.15);}
+}
+.jx-ce-runningText{
+  font-size:12px;
+  font-weight:600;
+  color:var(--color-text-secondary);
+  display:flex;align-items:center;gap:4px;
+}
+.jx-ce-runningIcon{
+  font-size:10px;
+  color:var(--color-primary);
+  animation:jx-ce-blink 1s step-end infinite;
+}
+@keyframes jx-ce-blink{
+  0%,100%{opacity:1;}50%{opacity:0;}
+}
+.jx-ce-elapsed{
+  font-family:var(--ce-mono);
+  font-size:11px;
+  color:var(--color-text-tertiary);
+  font-variant-numeric:tabular-nums;
+}
+
+/* ── Output Section ── */
+.jx-ce-outputSection{
+  margin-top:8px;
+  border-radius:var(--radius-sm);
+  overflow:hidden;
+  border:1px solid var(--color-border);
+  background:#fff;
+}
+.jx-ce-outputBar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:5px 10px;
+  background:var(--color-bg-gray);
+  border-bottom:1px solid var(--color-border);
+}
+.jx-ce-outputLabel{
+  font-size:11px;
+  font-weight:700;
+  color:var(--color-text-tertiary);
+  letter-spacing:.3px;
+}
+.jx-ce-stdout{
+  margin:0;
+  padding:10px 12px;
+  font-family:var(--ce-mono);
+  font-size:12px;
+  line-height:1.6;
+  color:var(--color-text-secondary);
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:280px;
+  overflow:auto;
+  background:transparent;
+  border:none;
+}
+.jx-ce-stdout::-webkit-scrollbar{width:5px;}
+.jx-ce-stdout::-webkit-scrollbar-track{background:transparent;}
+.jx-ce-stdout::-webkit-scrollbar-thumb{background:rgba(0,0,0,.06);border-radius:3px;}
+
+.jx-ce-stderr{
+  margin:0;
+  padding:10px 12px;
+  font-family:var(--ce-mono);
+  font-size:12px;
+  line-height:1.6;
+  color:var(--color-error);
+  background:var(--color-error-light);
+  border-top:1px solid var(--color-error-bg);
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:200px;
+  overflow:auto;
+}
+
+.jx-ce-empty{
+  font-size:12px;
+  color:var(--color-text-placeholder);
+  padding:10px 0 2px;
+  text-align:center;
+}
+
+/* ── Image Gallery ── */
+.jx-ce-imageGrid{
+  margin-top:10px;
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));
+  gap:8px;
+}
+.jx-ce-imageCard{
+  border-radius:var(--radius-sm);
+  overflow:hidden;
+  border:1px solid var(--color-border);
+  background:#fff;
+  transition:box-shadow .15s,border-color .15s;
+}
+.jx-ce-imageCard:hover{
+  box-shadow:var(--shadow-card-hover);
+  border-color:rgba(18,109,255,.18);
+}
+.jx-ce-imageThumb{
+  display:block;
+  width:100%;
+  max-height:200px;
+  object-fit:cover;
+  cursor:pointer;
+}
+.jx-ce-imageMeta{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:6px 8px;
+  gap:6px;
+}
+.jx-ce-imageMetaName{
+  font-size:11px;
+  color:var(--color-text-tertiary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-width:0;flex:1;
+}
+.jx-ce-imageMetaDl{
+  width:22px;height:22px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:var(--radius-xs);
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  text-decoration:none;
+  transition:background .1s,color .1s;
+  flex-shrink:0;
+}
+.jx-ce-imageMetaDl:hover{
+  background:var(--color-fill-hover);
+  color:var(--color-primary);
+}
+
+/* ── File List ── */
+.jx-ce-fileList{
+  margin-top:8px;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.jx-ce-fileRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:var(--radius-sm);
+  text-decoration:none;
+  color:var(--color-text-secondary);
+  transition:background .12s;
+}
+.jx-ce-fileRow:hover{
+  background:var(--color-bg-gray);
+}
+.jx-ce-fileIcon{
+  flex-shrink:0;
+  width:20px;height:20px;
+  object-fit:contain;
+}
+.jx-ce-fileName{
+  flex:1;min-width:0;
+  font-size:12px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.jx-ce-fileSize{
+  font-size:11px;
+  color:var(--color-text-placeholder);
+  flex-shrink:0;
+  font-variant-numeric:tabular-nums;
+}
+.jx-ce-fileDlIcon{
+  font-size:12px;
+  color:var(--color-text-placeholder);
+  flex-shrink:0;
+  opacity:0;
+  transition:opacity .12s;
+}
+.jx-ce-fileRow:hover .jx-ce-fileDlIcon{
+  opacity:1;
+}
+.jx-ce-filePreviewBtn{
+  width:24px;height:24px;
+  border:none;
+  background:transparent;
+  border-radius:var(--radius-xs);
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--color-text-placeholder);
+  font-size:12px;
+  text-decoration:none;
+  flex-shrink:0;
+  opacity:0;
+  transition:opacity .12s,background .12s,color .12s;
+}
+.jx-ce-fileRow:hover .jx-ce-filePreviewBtn{
+  opacity:1;
+}
+.jx-ce-filePreviewBtn:hover{
+  background:rgba(18,109,255,.08);
+  color:var(--color-primary);
+}
+
+/* ── Status Footer ── */
+.jx-ce-footer{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-top:8px;
+  padding-top:6px;
+}
+.jx-ce-statusDot{
+  width:6px;height:6px;
+  border-radius:50%;
+  flex-shrink:0;
+}
+.jx-ce-statusDot.success{background:var(--color-success);}
+.jx-ce-statusDot.error{background:var(--color-error);}
+.jx-ce-statusText{
+  font-size:11px;
+  font-weight:500;
+  color:var(--color-text-tertiary);
+}
+.jx-ce-time{
+  font-family:var(--ce-mono);
+  font-size:11px;
+  color:var(--color-text-placeholder);
+  margin-left:auto;
+  font-variant-numeric:tabular-nums;
+}
+
+/* ── MySpace tool card list styles ──────────────────────────────────────── */
+.jx-ms-list{
+  padding:4px 12px 8px;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.jx-ms-listMeta{
+  font-size:11px;
+  color:var(--color-text-placeholder);
+  padding:2px 0 4px;
+}
+.jx-ms-listItem{
+  display:flex;
+  align-items:baseline;
+  gap:7px;
+  padding:5px 6px;
+  border-radius:6px;
+  transition:background .12s;
+}
+.jx-ms-listItem:hover{
+  background:rgba(18,109,255,.04);
+}
+.jx-ms-fileIcon{
+  font-size:13px;
+  flex-shrink:0;
+  display:flex;
+  align-items:center;
+}
+.jx-ms-fileName{
+  font-size:12.5px;
+  color:var(--color-text-secondary);
+  font-weight:500;
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-ms-fileMeta{
+  font-size:11px;
+  color:var(--color-text-placeholder);
+  flex-shrink:0;
+  white-space:nowrap;
+}
+.jx-ms-preview{
+  flex:1;
+  max-width:180px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-ms-imgPreview{
+  padding:8px 12px 10px;
+  text-align:center;
+}
+/* message thread */
+.jx-ms-msgItem{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  padding:4px 6px;
+  border-radius:6px;
+}
+.jx-ms-msgItem--user{ background:rgba(18,109,255,.04); }
+.jx-ms-msgRole{
+  font-size:11px;
+  font-weight:600;
+  color:var(--color-primary);
+  flex-shrink:0;
+  min-width:24px;
+}
+.jx-ms-msgItem--assistant .jx-ms-msgRole{
+  color:var(--color-success);
+}
+.jx-ms-msgContent{
+  font-size:12px;
+  color:var(--color-text-secondary);
+  line-height:1.5;
+  flex:1;
+  min-width:0;
+}
+
+/* §13 我的空间写操作确认浮条 —— 悬浮在输入框上方（借鉴 Claude 桌面版） */
+.jx-confirmBar{
+  display:flex;
+  align-items:flex-start;
+  gap:var(--space-md);
+  margin:0 0 var(--space-sm);
+  width:100%;
+  padding:14px var(--space-md);
+  border:1px solid var(--color-primary-bg);
+  border-left:3px solid var(--color-primary);
+  border-radius:var(--radius-md);
+  background:var(--color-primary-light);
+  box-shadow:0 6px 20px rgba(18,109,255,.10);
+  animation:jx-confirmBar-in .22s ease-out;
+}
+@keyframes jx-confirmBar-in{
+  from{ opacity:0; transform:translateY(8px); }
+  to{ opacity:1; transform:translateY(0); }
+}
+.jx-confirmBar-icon{
+  flex:none;
+  display:flex; align-items:center; justify-content:center;
+  width:32px; height:32px;
+  border-radius:50%;
+  background:var(--color-primary-bg);
+  color:var(--color-primary);
+  font-size:18px;
+}
+.jx-confirmBar-body{ flex:1; min-width:0; }
+.jx-confirmBar-title{
+  font-size:14px; font-weight:600; color:var(--color-text);
+  line-height:1.5;
+}
+.jx-confirmBar-count{
+  font-weight:500; color:var(--color-text-secondary); font-size:12px;
+}
+.jx-confirmBar-detail{
+  display:flex; align-items:center; gap:var(--space-sm);
+  margin-top:6px;
+}
+.jx-confirmBar-op{
+  flex:none;
+  font-size:12px; font-weight:600;
+  color:var(--color-primary);
+  background:var(--color-primary-bg);
+  border-radius:var(--radius-xs);
+  padding:2px 8px;
+}
+.jx-confirmBar-path{
+  font-family:var(--font-family-number);
+  font-size:12px; color:var(--color-text-secondary);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.jx-confirmBar-hint{
+  font-size:12px; color:var(--color-text-tertiary);
+  line-height:1.6; margin-top:6px;
+}
+.jx-confirmBar-actions{
+  flex:none;
+  display:flex; align-items:center; gap:var(--space-sm);
+  align-self:center;
+}
+.jx-confirmBar-btn{
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:13px; font-weight:500;
+  padding:7px 16px;
+  border-radius:var(--radius-sm);
+  border:1px solid transparent;
+  cursor:pointer;
+  transition:background .15s, border-color .15s, color .15s, opacity .15s;
+}
+.jx-confirmBar-btn:disabled{ opacity:.55; cursor:not-allowed; }
+.jx-confirmBar-btnIcon{ font-size:11px; }
+.jx-confirmBar-btn--primary{
+  color:#fff; background:var(--color-primary); border-color:var(--color-primary);
+}
+.jx-confirmBar-btn--primary:not(:disabled):hover{ background:var(--color-primary-hover); border-color:var(--color-primary-hover); }
+.jx-confirmBar-btn--primary:not(:disabled):active{ background:var(--color-primary-active); }
+.jx-confirmBar-btn--soft{
+  color:var(--color-primary); background:#fff; border-color:var(--color-primary-bg);
+}
+.jx-confirmBar-btn--soft:not(:disabled):hover{ background:var(--color-primary-light); border-color:var(--color-primary); }
+.jx-confirmBar-btn--ghost{
+  color:var(--color-text-tertiary); background:transparent; border-color:var(--color-border);
+}
+.jx-confirmBar-btn--ghost:not(:disabled):hover{ color:var(--color-error); border-color:var(--color-error); }
+@media (max-width:640px){
+  .jx-confirmBar{ flex-wrap:wrap; }
+  .jx-confirmBar-actions{ width:100%; justify-content:flex-end; flex-wrap:wrap; }
+}
+
+/* 建站设计三选一选择卡 —— 悬浮在输入框上方（与 .jx-confirmBar 同位同语） */
+.jx-designPicker{
+  margin:0 0 var(--space-sm);
+  width:100%;
+  padding:14px var(--space-md);
+  border:1px solid var(--color-primary-bg);
+  border-left:3px solid var(--color-primary);
+  border-radius:var(--radius-md);
+  background:var(--color-primary-light);
+  box-shadow:0 6px 20px rgba(18,109,255,.10);
+  animation:jx-confirmBar-in .22s ease-out;
+}
+.jx-designPicker-header{
+  display:flex; align-items:center; gap:var(--space-sm);
+  margin-bottom:10px;
+}
+.jx-designPicker-icon{
+  flex:none;
+  display:flex; align-items:center; justify-content:center;
+  width:28px; height:28px;
+  border-radius:50%;
+  background:var(--color-primary-bg);
+  color:var(--color-primary);
+  font-size:15px;
+}
+.jx-designPicker-question{
+  font-size:14px; font-weight:600; color:var(--color-text); line-height:1.5;
+}
+.jx-designPicker-grid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:var(--space-md);
+}
+.jx-designPicker-grid[data-count="2"]{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.jx-designPicker-grid[data-count="4"]{ grid-template-columns:repeat(4, minmax(0, 1fr)); }
+.jx-designPicker-option{
+  display:flex; flex-direction:column; gap:6px;
+  min-width:0;
+  transition:opacity .15s;
+}
+.jx-designPicker-option--muted{ opacity:.5; }
+.jx-designPicker-thumbWrap{
+  position:relative;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  overflow:hidden;
+  background:#fff;
+  transition:border-color .15s, box-shadow .15s;
+}
+.jx-designPicker-option--selected .jx-designPicker-thumbWrap{
+  border-color:var(--color-primary);
+  box-shadow:0 0 0 2px var(--color-primary-bg);
+}
+.jx-designPicker-thumbWrap .ant-image{ display:block; width:100%; }
+.jx-designPicker-thumbWrap img{
+  display:block; width:100%; height:120px; object-fit:cover; object-position:top;
+}
+.jx-designPicker-check{
+  position:absolute; top:6px; right:6px;
+  color:var(--color-primary); font-size:18px;
+  background:#fff; border-radius:50%; line-height:1;
+}
+.jx-designPicker-pickBtn{
+  font-size:13px; font-weight:500;
+  padding:6px 10px;
+  border-radius:var(--radius-sm);
+  border:1px solid var(--color-primary-bg);
+  color:var(--color-primary); background:#fff;
+  cursor:pointer;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  transition:background .15s, border-color .15s;
+}
+.jx-designPicker-pickBtn:not(:disabled):hover{
+  background:var(--color-primary-light); border-color:var(--color-primary);
+}
+.jx-designPicker-pickBtn:disabled{ opacity:.55; cursor:not-allowed; }
+.jx-designPicker-brief{
+  font-size:12px; color:var(--color-text-tertiary); line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.jx-designPicker-footer{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:var(--space-sm); margin-top:10px;
+}
+.jx-designPicker-hint{ font-size:12px; color:var(--color-text-tertiary); }
+.jx-designPicker-skipBtn{
+  flex:none;
+  font-size:12px; color:var(--color-text-tertiary);
+  background:transparent; border:1px solid var(--color-border);
+  border-radius:var(--radius-sm); padding:5px 12px; cursor:pointer;
+  transition:color .15s, border-color .15s;
+}
+.jx-designPicker-skipBtn:not(:disabled):hover{
+  color:var(--color-primary); border-color:var(--color-primary);
+}
+.jx-designPicker-skipBtn:disabled{ opacity:.55; cursor:not-allowed; }
+@media (max-width:640px){
+  .jx-designPicker-grid,
+  .jx-designPicker-grid[data-count="2"],
+  .jx-designPicker-grid[data-count="4"]{ grid-template-columns:1fr; }
+  .jx-designPicker-thumbWrap img{ height:160px; }
+}
+
+/* ══ 批量执行（BatchConfirmModal / BatchProgressPanel）══ */
+/* 占位符 Tag 点击按压反馈 */
+.jx-batch-phTag{
+  transition:transform var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.jx-batch-phTag:active{
+  transform:scale(.94);
+}

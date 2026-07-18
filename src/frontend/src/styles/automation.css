@@ -1,0 +1,687 @@
+/* Automation Panel Styles */
+
+.jx-automation-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+
+.jx-automation-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 80px 0;
+}
+
+.jx-automation-section {
+  margin-bottom: 24px;
+}
+
+.jx-automation-sectionTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #666);
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+
+/* ── Automation Card ─────────────────────────────────────── */
+
+.jx-automation-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--color-bg-card, #fff);
+  border: 1px solid var(--color-border-light, #f0f0f0);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.jx-automation-card:hover {
+  border-color: var(--color-primary-light, #d6e4ff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.jx-automation-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-automation-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.jx-automation-card-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #1a1a1a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+.jx-automation-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #999);
+  flex-wrap: wrap;
+}
+
+.jx-automation-card-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--color-border-light, #e5e5e5);
+  flex-shrink: 0;
+}
+
+.jx-automation-card-type {
+  background: var(--color-fill-light, #f5f5f5);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.jx-automation-card-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.jx-automation-card:hover .jx-automation-card-actions {
+  opacity: 1;
+}
+
+/* ── Cron preview ────────────────────────────────────────── */
+
+.jx-automation-cronPreview {
+  font-size: 12px;
+  color: var(--color-text-secondary, #666);
+  background: var(--color-fill-light, #f5f5f5);
+  padding: 6px 12px;
+  border-radius: 6px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Automation Detail Page (整页详情，对齐 .jx-agentDetail-*)
+   ══════════════════════════════════════════════════════════════════ */
+
+.jx-automation-detail-top {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 24px 24px;
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+}
+
+.jx-automation-detail-backBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-right: 16px;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: #B3B3B3;
+  font-size: 14px;
+  transition: color .12s;
+}
+.jx-automation-detail-backBtn:hover { color: #1a1a1a; }
+
+.jx-automation-detail-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 840px;
+}
+
+/* ── Edit sticky bar ────────────────────────────────────────── */
+.jx-automation-detail-editBar {
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: rgba(235, 242, 255, 0.96);
+  border: 1px solid #D7E3F4;
+  backdrop-filter: blur(8px);
+}
+.jx-automation-detail-editBar-text {
+  font-size: 13px;
+  color: #3F536E;
+  font-weight: 500;
+}
+.jx-automation-detail-editBar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Name row ────────────────────────────────────────── */
+.jx-automation-detail-nameRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jx-automation-detail-iconWrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid #E3E6EA;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #FFFFFF;
+}
+.jx-automation-detail-iconWrap img {
+  width: 28px;
+  height: 28px;
+}
+
+.jx-automation-detail-name {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1a1a1a;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-automation-detail-badge {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  color: #808080;
+  background: #F5F6F7;
+  line-height: 1.5;
+  transition: color .25s var(--motion-ease-standard), background-color .25s var(--motion-ease-standard);
+}
+.jx-automation-detail-badge.is-active {
+  color: #02B589;
+  background: #E0F7EF;
+}
+.jx-automation-detail-badge.is-paused {
+  color: #F8AB42;
+  background: #FFF3E0;
+}
+.jx-automation-detail-badge.is-disabled,
+.jx-automation-detail-badge.is-completed,
+.jx-automation-detail-badge.is-expired {
+  color: #808080;
+  background: #F5F6F7;
+}
+
+.jx-automation-detail-runSwitch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.jx-automation-detail-runSwitch-label {
+  font-size: 13px;
+  color: #4D4D4D;
+}
+
+/* ── Meta row ────────────────────────────────────────── */
+.jx-automation-detail-metaRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  margin-bottom: 18px;
+  font-size: 12px;
+  color: #808080;
+  flex-wrap: wrap;
+}
+.jx-automation-detail-metaRow-sep {
+  color: #D8DBE2;
+}
+
+/* ── Error alert ────────────────────────────────────────── */
+.jx-automation-detail-errorAlert {
+  margin-bottom: 18px;
+}
+
+/* ── Divider ────────────────────────────────────────── */
+.jx-automation-detail-divider {
+  border: none;
+  border-top: 1px solid #E3E6EA;
+  margin: 0 0 20px;
+}
+
+/* ── Sections ────────────────────────────────────────── */
+.jx-automation-detail-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.jx-automation-detail-section {
+  border: 1px solid #E5EAF0;
+  border-radius: 12px;
+  background: #FFFFFF;
+  padding: 18px 20px 20px;
+}
+
+.jx-automation-detail-sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.jx-automation-detail-sectionTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.jx-automation-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.jx-automation-detail-field {
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #FAFBFC;
+  border: 1px solid #ECEFF3;
+}
+
+.jx-automation-detail-field.is-multiline {
+  grid-column: 1 / -1;
+}
+
+.jx-automation-detail-fieldLabel {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  color: #7B8794;
+}
+
+.jx-automation-detail-fieldValue {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #374151;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.jx-automation-detail-fieldValue.is-muted {
+  color: #9CA3AF;
+}
+
+/* ── Run list ────────────────────────────────────────── */
+.jx-automation-detail-runList {
+  display: flex;
+  flex-direction: column;
+}
+
+.jx-automation-detail-runRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid #F1F3F6;
+  font-size: 13px;
+  color: #374151;
+}
+.jx-automation-detail-runRow:last-child { border-bottom: none; }
+.jx-automation-detail-runRow:hover { background: #F7F9FC; }
+
+.jx-automation-detail-runRow-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+/* 运行中扩散涟漪：组件层挂 .jx-anim-ripple（motion.css 原语，compositor-only），
+   这里只调色与扩散倍数（8px 圆点 ×2.5 ≈ 原 6px box-shadow 扩散幅度） */
+.jx-automation-detail-runRow-dot.is-running {
+  background: #126DFF;
+  --ripple-color: var(--color-primary);
+  --ripple-scale: 2.5;
+}
+.jx-automation-detail-runRow-dot.is-success { background: #02B589; }
+.jx-automation-detail-runRow-dot.is-failed  { background: #FC5D5D; }
+
+.jx-automation-detail-runRow-time {
+  flex-shrink: 0;
+  color: #4D4D4D;
+  width: 150px;
+}
+
+.jx-automation-detail-runRow-duration {
+  flex-shrink: 0;
+  color: #808080;
+  width: 60px;
+}
+
+.jx-automation-detail-runRow-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #4D4D4D;
+}
+
+.jx-automation-detail-runRow-error {
+  flex-basis: 100%;
+  color: #FC5D5D;
+  font-size: 12px;
+  padding-left: 20px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.jx-automation-detail-runEmpty {
+  font-size: 13px;
+  color: #9CA3AF;
+  padding: 20px 4px;
+  text-align: center;
+}
+
+/* ── Actions ────────────────────────────────────────── */
+.jx-automation-detail-actionsWrap {
+  position: sticky;
+  bottom: 18px;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  margin-top: 8px;
+  z-index: 8;
+}
+
+.jx-automation-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px;
+  border: 1px solid rgba(229, 234, 240, 0.96);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  pointer-events: auto;
+  /* 悬浮操作条入场复用计划卡揭晓动画（编辑态退出重挂时再播一次） */
+  --fadeInUp-distance: 6px;
+  animation: jx-kf-fadeInUp 280ms var(--motion-ease-brand-out) backwards;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Schedule Selector (共享于创建 Modal 和详情编辑态)
+   ══════════════════════════════════════════════════════════════════ */
+
+.jx-schedule-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jx-schedule-selector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #FAFBFC;
+  border: 1px solid #ECEFF3;
+  border-radius: 10px;
+}
+
+.jx-schedule-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jx-schedule-selector-label {
+  font-size: 13px;
+  color: #4D4D4D;
+  min-width: 64px;
+  flex-shrink: 0;
+}
+
+.jx-schedule-selector-preview {
+  font-size: 12px;
+  color: #3F536E;
+  background: #F3F7FC;
+  border: 1px solid #D7E3F4;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+/* ── Plan option in select dropdown ─────────────────────── */
+
+.jx-automation-planOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.jx-automation-planOption-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text, #262626);
+}
+
+.jx-automation-planOption-steps {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #808080);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Plan preview frame (refined specimen container) ─────── */
+
+.jx-automation-planFrame {
+  position: relative;
+  margin: 6px 0 24px;
+  padding: 6px;
+  background: linear-gradient(
+    180deg,
+    rgba(18, 109, 255, 0.045) 0%,
+    rgba(18, 109, 255, 0.00) 72%
+  );
+  border: 1px solid var(--color-border, #E3E6EA);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+  --fadeInUp-distance: 6px;
+  animation: jx-kf-fadeInUp 280ms var(--motion-ease-brand-out) backwards;
+}
+
+.jx-automation-planFrame--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 16px;
+  font-size: 13px;
+  color: var(--color-text-tertiary, #808080);
+}
+
+.jx-automation-planFrame-label {
+  position: absolute;
+  top: -9px;
+  left: 18px;
+  padding: 2px 10px;
+  background: #fff;
+  color: var(--color-primary, #126DFF);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid var(--color-primary-light, #EBF2FF);
+  border-radius: 999px;
+  line-height: 1.6;
+}
+
+.jx-automation-planFrame-scroll {
+  max-height: 460px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 10px;
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    #000 12px,
+    #000 calc(100% - 12px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    #000 12px,
+    #000 calc(100% - 12px),
+    transparent 100%
+  );
+}
+
+.jx-automation-planFrame-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.jx-automation-planFrame-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-fill, #D8DBE2);
+  border-radius: 2px;
+}
+.jx-automation-planFrame-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-placeholder, #B3B3B3);
+}
+
+.jx-automation-planFrame-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-primary, #126DFF);
+  background: var(--color-primary-light, #EBF2FF);
+  padding: 6px 12px;
+  border-radius: 999px;
+  line-height: 1.6;
+}
+
+/* Embed variant: PlanCard sits inside the refined frame,
+   so strip its own outer decoration to avoid double borders. */
+.jx-plan-card.jx-plan-card--embed {
+  margin: 0;
+  padding: 16px 18px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 10px;
+}
+
+/* 步骤行入场 stagger 由 plan.css 的 .jx-plan-steps.jx-anim-stagger 统一承担
+   （embed / 非 embed 共用，keyframes 为 motion.css 的 jx-kf-fadeInUp 原语）。 */
+
+
+/* ── Automation Skeleton ─────────────────────────────────── */
+.jx-automation-card--skeleton {
+  pointer-events: none;
+  border-color: var(--color-border-light, #f0f0f0) !important;
+  box-shadow: none !important;
+}
+.jx-automation-skSectionTitle {
+  width: 72px;
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.jx-automation-skName {
+  width: 180px;
+  height: 14px;
+  border-radius: 6px;
+}
+.jx-automation-skBadge {
+  width: 48px;
+  height: 18px;
+  border-radius: 6px;
+}
+.jx-automation-skMeta {
+  width: 64px;
+  height: 10px;
+  border-radius: 6px;
+}
+.jx-automation-skMeta--wide {
+  width: 120px;
+}
+.jx-automation-skAction {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+.jx-automation-skDetailIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+}
+.jx-automation-skDetailName {
+  flex: 1;
+  max-width: 320px;
+  height: 18px;
+  border-radius: 6px;
+}
+.jx-automation-skDetailBadge {
+  width: 56px;
+  height: 22px;
+  border-radius: 6px;
+}
+.jx-automation-skDetailMeta {
+  width: 84px;
+  height: 12px;
+  border-radius: 6px;
+}
+.jx-automation-skDetailMeta--wide {
+  width: 140px;
+}
+.jx-automation-skFieldLabel {
+  width: 64px;
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.jx-automation-skFieldValue {
+  width: 80%;
+  height: 14px;
+  border-radius: 6px;
+}

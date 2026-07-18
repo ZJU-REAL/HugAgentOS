@@ -1,0 +1,22 @@
+{
+  "slug": "data-mask",
+  "entry_name": "data-mask",
+  "display_name": "数据脱敏",
+  "summary": "敏感数据脱敏工具。当用户需要对文本中的数字进行脱敏处理时使用此技能——包括将文件或对话中的真实数字替换为模糊值、 区间、占位符或哈希映射值。支持 4 种脱敏策略（hash/blur/placeholder/range），覆盖 12+ 种文件格式。  触发场景：用户说\"帮我把这段文字的数字脱敏\"、\"把报告里的敏感数据模糊化\"、 \"脱敏后发给大模型\"、\"把这个文件里的数字都替换掉\"、\"对这篇文档做数据脱敏\"、 \"这份数据要发给外部但不想暴露真实数字\"、\"表格数据脱敏\"、\"Word文档脱敏\"、\"PPT脱敏\"、 \"图片里的数字帮我模糊化\"、\"PDF脱敏\"、\"批量脱敏多个文件\"。  子模块路由： - 提到「Excel」「CSV」「表格」「列」→ 触发 dataframe_mask.py（列级精准脱敏） - 提到「Word」「docx」「PPT」「pptx」「PDF」「图片」「HTML」「Markdown」→ 触发 file_mask.py（文档级脱敏） - 提到「文字」「文本」「段落」「粘贴」→ 触发 mask.py（纯文本脱敏） - 提到「还原」「恢复」「unmask」→ 触发映射表还原模式 - 提到「批量」「目录下所有」→ 触发批量处理模式 未指定策略时默认使用哈希映射(hash)，脱敏完成后提示其他可用策略及效果对比。  采用混合策略处理不同文件格式： 内置解析 + 同格式输出：Wor",
+  "category": "法务合规",
+  "tags": [
+    "数据脱敏",
+    "隐私保护",
+    "合规"
+  ],
+  "version": "1.0.0",
+  "author": "wali",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/e089b3bb-5a99-41bc-8881-40980028b748.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/data-mask",
+  "downloads": 98,
+  "stars": 11,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

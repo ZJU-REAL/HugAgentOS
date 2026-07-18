@@ -1,0 +1,36 @@
+{
+  "title": "XX 主题汇报",
+  "author": "XX",
+  "subject": "通用汇报",
+  "slides": [
+    {"type": "cover", "kicker": "REPORT", "title": "XX 主题汇报",
+     "subtitle": "副标题 / 一句话定位",
+     "tagline": "—— 一句话定调",
+     "body": "XX 单位 · 2026.XX"},
+    {"type": "toc", "items": ["一、背景与现状", "二、核心内容", "三、关键数据", "四、下一步"]},
+
+    {"type": "section", "title": "一、背景与现状", "subtitle": "为什么做这件事"},
+    {"type": "content", "kicker": "现状", "title": "三个关键判断",
+     "items": [
+       {"icon": "target", "title": "判断一", "desc": "一句话说明"},
+       {"icon": "growth", "title": "判断二", "desc": "一句话说明"},
+       {"icon": "shield", "title": "判断三", "desc": "一句话说明"}
+     ]},
+
+    {"type": "section", "title": "二、核心内容", "subtitle": "做了什么 / 怎么做"},
+    {"type": "content", "kicker": "核心数据", "title": "关键指标一览",
+     "kpis": [
+       {"value": "XX", "label": "指标一", "desc": "同比说明"},
+       {"value": "XX%", "label": "指标二"},
+       {"value": "XX", "label": "指标三"},
+       {"value": "XX", "label": "指标四"}
+     ]},
+    {"type": "content", "kicker": "重点", "title": "重点结论",
+     "bullets": ["叙述要点一", "叙述要点二"],
+     "highlights": ["核心数据一", "核心数据二", "核心数据三"]},
+
+    {"type": "summary", "title": "总结",
+     "bullets": ["结论一", "结论二", "结论三"],
+     "body": "—— 完。"}
+  ]
+}

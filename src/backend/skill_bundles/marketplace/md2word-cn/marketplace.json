@@ -1,0 +1,22 @@
+{
+  "slug": "md2word-cn",
+  "entry_name": "md2word-cn",
+  "display_name": "Markdown 转 Word（中文）",
+  "summary": "将 Markdown 一键转换为仿宋字体的 Word 文档，专为中文办公文档设计，适用于周报、日报、报告等材料的快速排版",
+  "category": "文档处理",
+  "tags": [
+    "Markdown",
+    "Word",
+    "仿宋"
+  ],
+  "version": "1.0.0",
+  "author": "rongyu",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/md2word-cn",
+  "downloads": 3523,
+  "stars": 7,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

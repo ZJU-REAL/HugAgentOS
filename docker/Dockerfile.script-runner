@@ -1,0 +1,130 @@
+# Script Runner Sidecar 镜像
+# 独立沙盒服务，容器内 setrlimit + 子进程执行 skill / MCP 脚本。
+# 通过 SANDBOX_PROVIDER=script_runner 选用（默认）。
+#
+# 构建：
+#   docker build -t hugagent-script-runner:latest \
+#     -f Dockerfile.script-runner .
+# 由 docker-compose 在 SANDBOX_PROVIDER=script_runner（COMPOSE_PROFILES=script_runner）
+# 时自动构建启动。
+
+# ─── Stage 1：预编译 docx .NET CLI ─────────────────────────────────
+# 单独阶段避免运行容器需要 .NET SDK。源是 word-editing 技能自带的 dotnet/ 树。
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS docx-builder
+COPY src/backend/skill_bundles/default/word-editing/dotnet/ /src/
+RUN dotnet publish /src/MiniMaxAIDocx.Cli \
+    -c Release -o /out --nologo -v quiet \
+    && rm -rf /root/.nuget /root/.dotnet
+
+# ─── Stage 2：Script Runner Sidecar ─────────────────────────────────
+FROM python:3.11-slim AS script-runner
+RUN sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources
+RUN useradd -m -u 1001 -s /bin/bash runner
+
+ENV PIP_DEFAULT_TIMEOUT=180 \
+    PIP_RETRIES=8 \
+    PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple \
+    PIP_TRUSTED_HOST=repo.huaweicloud.com \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    NODE_PATH=/usr/lib/node_modules
+
+# System deps: fonts, curl, Node.js 20, .NET 8.0 runtime, doc tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-wqy-zenhei fontconfig curl gnupg ca-certificates \
+    pandoc zip unzip libreoffice-writer \
+    && fc-cache -f \
+    # 1. Node.js 20
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    # 2. 微软源 + .NET 8
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/microsoft-prod.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends dotnet-runtime-8.0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js global packages (sandbox-side pptxgenjs + playwright/chromium for
+# code that renders slides/HTML in the sandbox; PDF cover rendering is driven
+# by the pdf-editing skill's engine node_scripts)
+# Install Chromium into a fixed image path so the read-only runtime container
+# can launch it without trying to download browsers on demand.
+RUN mkdir -p /ms-playwright \
+    && npm install -g pptxgenjs playwright \
+    && PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx playwright install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright
+
+# firecrawl CLI（网页抓取/检索）——firecrawl 插件的官方技能靠它运行（Bash(firecrawl *)）。
+# 凭据不烤进镜像，由后端按需注入 FIRECRAWL_API_KEY / FIRECRAWL_API_URL 环境变量。
+RUN npm install -g firecrawl-cli
+
+# lark-cli（飞书/Lark 官方 CLI）——feishu-cli 插件的 lark-* 技能靠它运行（Bash(lark-cli *)）。
+# 同时预装 whiteboard-cli：lark-whiteboard 技能运行时用 `npx @larksuite/whiteboard-cli@^0.2.11`，
+# 预烤进镜像后离线/不可变沙箱可直接命中全局缓存、无需联网重拉。
+# 应用配置（app_id/app_secret）与用户登录凭据都不烤进镜像——前者由后端 config init 写入每用户
+# lark HOME，后者由 auth login 设备流落盘后 bind-mount 进沙盒，均跨会话持久化。
+RUN npm install -g @larksuite/cli @larksuite/whiteboard-cli@^0.2.11
+
+# openyida（宜搭低代码平台官方 CLI）——yida 插件技能靠它运行（Bash(openyida *)）。
+# 登录态不烤进镜像：cookie 落工作目录 .cache/ 下，由 compose 把
+# ${HOST_STORAGE_PATH}/yida_cache/__shared__/workspace 挂到 /home/ubuntu/yida-workspace。
+# ⚠️ script-runner 是全部署共享容器，宜搭登录态为**整个部署共享**（单用户/开发环境适用；
+# 多用户生产请用 opensandbox/cube，两者按会话 user_id 隔离）。版本与 yida 技能包对齐。
+RUN npm install -g openyida@2026.7.12-1
+
+# himalaya（电子邮箱 CLI）——email 插件的 email 技能靠它运行（Bash(himalaya *)）。
+# 静态二进制，无运行时依赖。凭据是用户自填的 config.toml，不烤进镜像。
+ARG HIMALAYA_VERSION=1.2.0
+RUN curl -fsSL "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
+        -o /tmp/himalaya.tgz \
+    && tar -xzf /tmp/himalaya.tgz -C /usr/local/bin himalaya \
+    && chmod +x /usr/local/bin/himalaya \
+    && rm -f /tmp/himalaya.tgz \
+    && himalaya --version
+
+# Python deps
+COPY docker/requirements-script-runner.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-script-runner.txt \
+    && rm /tmp/requirements-script-runner.txt
+
+# Skill 依赖（由 backend admin UI 触发 rebuild 前聚合写入 requirements-skills.txt）。
+# 文件可能为空（默认占位），pip 接受空 requirements，不会失败。
+COPY docker/requirements-skills.txt /opt/skill-deps/requirements-skills.txt
+RUN pip install --no-cache-dir -r /opt/skill-deps/requirements-skills.txt || \
+    (echo "[script-runner] skill-deps install failed; continuing with empty set"; true)
+
+# Pre-built docx CLI (from docx-builder stage). The word/excel/pdf skills
+# each vendor their own ``engine/`` package alongside their scripts — there
+# is no shared office library to install; the engines travel with the skill
+# files materialized into /workspace at runtime.
+COPY --from=docx-builder /out/ /opt/minimax-docx/
+
+# Bundled Chinese fonts (方正仿宋 / 小标宋 / 楷体 / 黑体). 主 Dockerfile 同款逻辑：
+# 党政机关 docx 模板硬引方正字体，缺失会让 LibreOffice fallback 到 WenQuanYi，
+# 导致 docx→pdf 时字符渲染异常、排版错位（用户感知的"PDF 乱码"）。
+# 放在末尾，避免重建时让上面的 Node/pip/dotnet 重层缓存失效。
+COPY resources/fonts /tmp/fonts
+RUN mkdir -p /usr/share/fonts/truetype/fangzheng && \
+    find /tmp/fonts -type f \( -name "*.ttf" -o -name "*.TTF" \) -exec cp {} /usr/share/fonts/truetype/fangzheng/ \; && \
+    rm -rf /tmp/fonts && \
+    fc-cache -f
+
+COPY src/backend/services/script_runner_service/ /app/
+WORKDIR /app
+
+# Install the ppt-cli shim so the agent can call ``ppt-cli build …`` from
+# bash without bookkeeping the full skill-script path. The shim itself
+# resolves the python entry at runtime via /workspace/skills/ppt-design/
+# (where register_bash materializes the skill).
+COPY src/backend/skill_bundles/default/ppt-design/scripts/ppt-cli /usr/local/bin/ppt-cli
+RUN chmod +x /usr/local/bin/ppt-cli
+
+# Same idea for word-cli (word-editing skill).
+COPY src/backend/skill_bundles/default/word-editing/scripts/word-cli /usr/local/bin/word-cli
+RUN chmod +x /usr/local/bin/word-cli
+
+RUN mkdir -p /workspace /tmp/scripts && chown -R runner:runner /workspace /tmp/scripts
+
+USER runner
+EXPOSE 8900
+
+CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8900"]

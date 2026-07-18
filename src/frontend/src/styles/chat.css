@@ -1,0 +1,3468 @@
+.jx-topbar{
+  position:sticky;top:0;z-index:5;
+  background:rgba(255,255,255,.55);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 1px 2px rgba(17,24,39,.04),
+    0 6px 20px rgba(17,24,39,.05);
+}
+.jx-topbar .ant-btn-text{
+  border-radius:10px;
+  transition: all 0.2s ease;
+}
+.jx-topbar .ant-btn-text:hover{
+  background:rgba(18,109,255,.10);
+  color:var(--color-primary);
+}
+.jx-topbar .ant-btn-text:focus,
+.jx-topbar .ant-btn-text:focus-visible,
+.jx-topbar .ant-btn-text:active{
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* ── Chat-only minimal topbar ── */
+.jx-chatTopbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 16px;
+  flex-shrink:0;
+  border-bottom:1px solid rgba(15,23,42,.06);
+  background:rgba(255,255,255,.85);
+  backdrop-filter:blur(8px);
+}
+.jx-chatTopbarTitle{
+  flex:1;
+  min-width:0;
+  font-size:14px;
+  font-weight:700;
+  color:#1e293b;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+/* 会话头部「项目名 / 标题」面包屑 —— 项目名段（弱化为灰阶，hover 加深，去掉蓝色强调） */
+.jx-chatTopbarProject{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  max-width:40%;
+  flex-shrink:0;
+  font-size:14px;
+  font-weight:600;
+  color:rgba(15,23,42,.5);
+  cursor:pointer;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  transition:color .15s ease;
+}
+.jx-chatTopbarProject:hover{ color:#0F172A; }
+.jx-chatTopbarProjectSep{
+  color:#94a3b8;
+  font-weight:600;
+}
+
+/* jx-mainRow: flex 行容器，Header 下方，撑满剩余高度 */
+.jx-mainRow{
+  display:flex;
+  flex-direction:row;
+  flex:1;
+  min-height:0;
+  overflow:hidden;
+}
+
+.jx-content{
+  flex:1;
+  min-width:0;
+  height:100%;
+  display:flex;
+  justify-content:center;
+  overflow-y:auto;
+  overflow-x:hidden;
+  /* 滚动条槽位常驻：面板入场动画 translateY(6px) 会让满高面板瞬时溢出，
+   * 这里临时长出的滚动条会把居中的 .jx-panel 挤左又弹回（每次切换面板都水平抖一下）。
+   * 预留两侧槽位后滚动条出现/消失不再改变布局宽度。 */
+  scrollbar-gutter: stable both-edges;
+  background:#ffffff;
+}
+
+.jx-panel{
+  width:100%;
+  max-width:1400px;
+  min-height:100%;
+  height:auto;
+  padding:16px 24px 18px;
+}
+
+
+.jx-scroll{
+  min-height:0;
+  overflow:auto;
+}
+
+/* ── ChatGPT/DeepSeek 风格：居中对话列，无头像，AI 无气泡 ── */
+.jx-chatWrap{
+  min-height:100%;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  max-width:760px;
+  margin:0 auto;
+  width:100%;
+  padding-bottom:12px;
+}
+/* flex:1 1 auto → 消息少时列表撑满剩余高度，把 .jx-chatFooter 顶到视口底部；
+   消息多时列表自然超出，由 .jx-content 滚动 + footer 的 sticky 接管。
+   原先 flex:0 0 auto 会让列表只占内容高度，少消息时整个 wrap 内容聚在顶部，
+   输入框跟着浮在上方——这是从首页发起首条消息后看到的 bug。*/
+.jx-chatList{flex:1 1 auto; min-height:0; overflow:visible; padding:4px 0 6px;}
+.jx-shareSelectionBar{
+  position:sticky;
+  top:8px;
+  z-index:4;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 16px;
+  border:1px solid rgba(18,109,255,.14);
+  background:rgba(237,244,255,.94);
+  border-radius:16px;
+  box-shadow:0 8px 24px rgba(15,23,42,.06);
+}
+.jx-shareSelectionInfo{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.jx-shareSelectionTitle{
+  font-size:15px;
+  font-weight:600;
+  color:#1e293b;
+}
+.jx-shareSelectionCount{
+  font-size:13px;
+  color:rgba(15,23,42,.55);
+}
+.jx-shareSelectionActions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.jx-shareSelectionPrimaryBtn,
+.jx-shareSelectionSecondaryBtn{
+  appearance:none;
+  border:none;
+  border-radius:12px;
+  height:40px;
+  padding:0 16px;
+  font-size:14px;
+  cursor:pointer;
+  transition:all .18s ease;
+}
+.jx-shareSelectionPrimaryBtn{
+  background:#126dff;
+  color:#fff;
+  font-weight:600;
+}
+.jx-shareSelectionPrimaryBtn:hover:not(:disabled){
+  background:#0f5fe0;
+}
+.jx-shareSelectionPrimaryBtn:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+.jx-shareSelectionSecondaryBtn{
+  background:#fff;
+  color:#334155;
+  border:1px solid rgba(15,23,42,.09);
+}
+.jx-shareSelectionSecondaryBtn:hover{
+  background:#f8fafc;
+}
+/* 消息行：竖向堆叠（不再是头像+内容横排） */
+.jx-msg{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  margin:0 0 20px;
+  gap:0;
+}
+/* 入场动画只给新追加的消息（MessageBubble 按 ts 门控加 --fresh）；
+   历史加载 / 切会话灌入的消息不播，避免整列同帧抖动。 */
+.jx-msg--fresh{
+  animation:jx-kf-fadeInUp var(--motion-duration-slow) var(--motion-ease-brand-out) backwards;
+}
+/* 定位消息高亮（jx-anim-flash 原语打在消息行上时加个圆角） */
+.jx-msg.jx-anim-flash{
+  border-radius:12px;
+}
+.jx-msgInner{
+  width:100%;
+  display:flex;
+  align-items:flex-start;
+  gap:0;
+}
+.jx-msgInner.user{
+  justify-content:flex-end;
+}
+.jx-msgInner.share-selectable{
+  display:grid;
+  grid-template-columns:20px minmax(0, 1fr);
+  align-items:flex-start;
+  column-gap:10px;
+}
+.jx-shareCheckboxWrap{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:20px;
+  min-width:20px;
+  padding-top:8px;
+  animation:jx-kf-fadeIn var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+.jx-shareCheckbox{
+  appearance:none;
+  -webkit-appearance:none;
+  width:18px;
+  height:18px;
+  margin:0;
+  border-radius:5px;
+  border:1px solid #aeb9c8;
+  background:#ffffff;
+  box-shadow:0 1px 2px rgba(15, 23, 42, .04);
+  cursor:pointer;
+  position:relative;
+  transition:border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.jx-shareCheckbox:hover{
+  border-color:#8ea6c7;
+  background:#ffffff;
+  box-shadow:0 1px 3px rgba(15, 23, 42, .08);
+}
+.jx-shareCheckbox:checked{
+  border-color:#4f7cff;
+  background:#4f7cff;
+  box-shadow:0 2px 6px rgba(79, 124, 255, .22);
+}
+.jx-shareCheckbox:checked::after{
+  content:'';
+  position:absolute;
+  left:6px;
+  top:2px;
+  width:4px;
+  height:9px;
+  border:solid #fff;
+  border-width:0 2px 2px 0;
+  transform:rotate(45deg);
+}
+/* 用户消息：右对齐 */
+.jx-msg.user{
+  align-items:flex-end;
+}
+/* 头像：完全隐藏 */
+.jx-avatar{ display:none; }
+/* msgContent：Assistant 占满全宽，User 最宽 80% */
+.jx-msgContent{
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  -webkit-user-select:text !important;
+  user-select:text !important;
+  cursor:text;
+}
+.jx-msg.assistant .jx-msgContent{
+  max-width:min(calc(100vw - 136px), 820px);
+}
+.jx-msg.user .jx-msgContent{
+  width:auto;
+  max-width:min(calc(100vw - 100px), 680px);
+}
+/* ── 基础气泡（仅 user 使用，assistant 无气泡） ── */
+.jx-bubble{
+  position:relative;
+  overflow:hidden;
+  -webkit-user-select:text !important;
+  user-select:text !important;
+  cursor:text;
+  padding:10px 14px;
+  border-radius:18px 18px 4px 18px;
+  border:1px solid rgba(15,23,42,.09);
+  background:rgba(240,242,245,.96);
+  line-height:1.74;
+  font-size:14px;
+  white-space:pre-wrap;
+  word-break:break-word;
+  color:rgba(15,23,42,.80);
+  box-shadow:0 1px 3px rgba(15,23,42,.045);
+  display:inline-block;
+  letter-spacing:.003em;
+  font-weight:400;
+}
+/* markdown 气泡：HTML 元素间的 \n 不应被 pre-wrap 渲染为换行 */
+.jx-bubble.jx-md{
+  white-space:normal;
+  display:block;
+}
+/* User bubble 颜色（浅灰 ChatGPT 风格，已在上面默认） */
+.jx-bubble.user{
+  background:rgba(242,244,247,.92);
+  color:rgba(15,23,42,.78);
+  border-color:rgba(15,23,42,.075);
+  box-shadow:0 1px 3px rgba(15,23,42,.04);
+  font-size:15px;
+  line-height:1.78;
+}
+.jx-userQuote{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:10px;
+  padding:8px 10px;
+  border-radius:12px;
+  background:rgba(255,255,255,.46);
+  border:1px solid rgba(15,23,42,.08);
+}
+.jx-userQuoteLabel{
+  font-size:11px;
+  font-weight:600;
+  color:rgba(100,116,139,.88);
+  line-height:1;
+}
+.jx-userQuoteText{
+  font-size:12px;
+  line-height:1.55;
+  color:rgba(71,85,105,.88);
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+/* ── Assistant 消息：无气泡，直接渲染文字 ── */
+.jx-msg.assistant .jx-bubble{
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+  padding:2px 0 4px;
+  border-radius:0;
+  overflow:visible;
+  display:block;
+  font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  font-size:15.5px;
+  line-height:1.82;
+  letter-spacing:.004em;
+  color:rgba(15,23,42,.88);
+  font-weight:400;
+  text-rendering:optimizeLegibility;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  font-feature-settings:"kern" 1;
+}
+.jx-msg.assistant .jx-bubble > :first-child{
+  margin-top:0 !important;
+}
+.jx-msg.assistant .jx-bubble > :last-child{
+  margin-bottom:0 !important;
+}
+.jx-msg.assistant .jx-bubble::before{
+  display:none;
+}
+.jx-msg.assistant .jx-bubble p{
+  margin:0 0 13px;
+  line-height:1.84;
+  letter-spacing:.004em;
+}
+.jx-msg.assistant .jx-bubble p:last-child{
+  margin-bottom:0;
+}
+.jx-msg.assistant .jx-bubble h1,
+.jx-msg.assistant .jx-bubble h2,
+.jx-msg.assistant .jx-bubble h3,
+.jx-msg.assistant .jx-bubble h4{
+  margin:22px 0 11px;
+  line-height:1.46;
+  letter-spacing:0;
+  font-weight:600;
+  color:rgba(15,23,42,.94);
+}
+.jx-msg.assistant .jx-bubble h1:first-child,
+.jx-msg.assistant .jx-bubble h2:first-child,
+.jx-msg.assistant .jx-bubble h3:first-child,
+.jx-msg.assistant .jx-bubble h4:first-child{
+  margin-top:0;
+}
+.jx-msg.assistant .jx-bubble h1{ font-size:21px; }
+.jx-msg.assistant .jx-bubble h2{ font-size:18px; }
+.jx-msg.assistant .jx-bubble h3{ font-size:16px; }
+.jx-msg.assistant .jx-bubble h4{
+  font-size:14.5px;
+  font-weight:600;
+  color:rgba(15,23,42,.74);
+}
+.jx-msg.assistant .jx-bubble ul,
+.jx-msg.assistant .jx-bubble ol{
+  margin:10px 0 15px;
+  padding-left:1.55em;
+}
+.jx-msg.assistant .jx-bubble li{
+  margin:0;
+  line-height:1.8;
+  color:rgba(15,23,42,.84);
+}
+.jx-msg.assistant .jx-bubble ul > li + li,
+.jx-msg.assistant .jx-bubble ol > li + li{
+  margin-top:5px;
+}
+.jx-msg.assistant .jx-bubble strong{
+  font-weight:600;
+  color:rgba(15,23,42,.94);
+}
+.jx-msg.assistant .jx-bubble blockquote{
+  margin:14px 0;
+  padding:10px 14px 10px 15px;
+  border-left-width:2px;
+  border-radius:10px;
+  font-style:normal;
+  color:rgba(30,41,59,.80);
+}
+.jx-msg.assistant .jx-bubble code{
+  font-size:12.5px;
+  font-weight:500;
+}
+.jx-msg.assistant .jx-bubble pre{
+  margin:14px 0;
+  border-radius:12px;
+  border-color:rgba(15,23,42,.07);
+  box-shadow:none;
+  background:#f7f8fa;
+}
+.jx-msg.assistant .jx-bubble table{
+  margin:14px 0;
+}
+.jx-msg.assistant .jx-bubble a{
+  color:rgba(15,23,42,.86);
+  border-bottom-color:rgba(15,23,42,.18);
+}
+/* 流式占位：保留三点动画，无外框 */
+.jx-msg.assistant .jx-bubble.streaming{
+  padding:2px 0;
+}
+.jx-msg.assistant .jx-bubble.streaming::after{
+  display:none;
+}
+
+/* User 气泡流式状态 */
+.jx-bubble.user.streaming{
+  border-color:rgba(15,23,42,.14);
+}
+
+/* ── 流式打字光标：尾随圆点呼吸（非竖线闪烁——markdown 全量重渲染会重置相位，
+   圆点 pulse 对相位不敏感）。.jx-msgText 是 CitationMarkdownBlock 的包装层。 ── */
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > :last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > span.jx-msgText::after{
+  content:'';
+  display:inline-block;
+  width:8px;
+  height:8px;
+  margin-left:5px;
+  border-radius:50%;
+  background:rgba(15,23,42,.5);
+  vertical-align:-1px;
+  animation:jxStreamCaret 1s var(--motion-ease-standard) infinite;
+}
+/* 代码块 / 表格 / 列表 / 图表收尾时不挂圆点（::after 会落到块外独占一行） */
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > pre:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > table:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ul:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ol:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mermaid:last-child::after{
+  display:none;
+}
+@keyframes jxStreamCaret{
+  0%, 100% { opacity:.35; transform:scale(.8); }
+  50%      { opacity:.9;  transform:scale(1); }
+}
+
+.jx-msgContent::selection,
+.jx-msgContent *::selection{
+  background:rgba(148,163,184,.30);
+  color:#0f172a;
+}
+.jx-streamingIndicator{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-left:8px;
+  vertical-align:middle;
+}
+.jx-streamingDot{
+  width:5px;
+  height:5px;
+  border-radius:999px;
+  background:rgba(100,116,139,.55);
+  opacity:1;
+  animation:jxStreamingDot 1.2s ease-in-out infinite;
+}
+.jx-streamingDot:nth-child(2){animation-delay:.16s;}
+.jx-streamingDot:nth-child(3){animation-delay:.32s;}
+@keyframes jxStreamingDot {
+  0%, 80%, 100% { transform:translateY(0); opacity:.35; }
+  40% { transform:translateY(-2px); opacity:1; }
+}
+
+
+/* ── 上传文件预览卡片（输入区 & 用户消息） ──────── */
+.jx-fileCard{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  background:#fff;
+  border:1px solid rgba(203,213,225,.72);
+  border-radius:14px;
+  min-width:180px;
+  max-width:260px;
+  box-shadow:0 6px 16px rgba(15,23,42,.05);
+  cursor:default;
+}
+.jx-fileCard-icon{
+  width:38px;
+  height:38px;
+  display:flex;
+  overflow:hidden;
+  border-radius:var(--radius-xs);
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+}
+.jx-fileCard-info{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+}
+.jx-fileCard-name{
+  font-size:13px;
+  font-weight:500;
+  color:#1E293B;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jx-fileCard-type{
+  font-size:11px;
+  color:#6B7280;
+  margin-top:2px;
+}
+.jx-fileCard-close{
+  position:absolute;
+  top:-7px;
+  right:-7px;
+  width:20px;
+  height:20px;
+  background:#374151;
+  border:2px solid #fff;
+  border-radius:50%;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  padding:0;
+  line-height:1;
+  transition:background 0.15s;
+}
+.jx-fileCard-close:hover{
+  background:#111827;
+}
+/* 可下载状态：a 标签 */
+a.jx-fileCard--link{
+  text-decoration:none;
+  cursor:pointer;
+  transition:box-shadow 0.15s, border-color 0.15s, transform 0.15s;
+}
+a.jx-fileCard--link:hover{
+  box-shadow:0 10px 24px rgba(15,23,42,.08);
+  border-color:#cbd5e1;
+  transform:translateY(-1px);
+}
+/* Image thumbnail inside file card */
+.jx-fileCard-imgThumb{
+  width:38px;
+  height:38px;
+  object-fit:cover;
+  border-radius:var(--radius-xs);
+  display:block;
+}
+.jx-fileCard-dlIcon{
+  font-size:13px;
+  color:#94A3B8;
+  flex-shrink:0;
+  margin-left:2px;
+}
+/* 输入区多文件横排 */
+.jx-inputAttachments{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:10px;
+  padding:2px 0;
+}
+.jx-inputQuote{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:10px;
+  padding:10px 12px;
+  border-radius:14px;
+  border:1px solid rgba(59,130,246,.16);
+  background:linear-gradient(180deg, rgba(239,246,255,.98) 0%, rgba(248,250,252,.98) 100%);
+  box-shadow:0 6px 18px rgba(15,23,42,.04);
+}
+.jx-inputQuoteBadge{
+  flex-shrink:0;
+  padding:4px 8px;
+  border-radius:999px;
+  background:rgba(59,130,246,.12);
+  color:var(--color-primary-hover);
+  font-size:12px;
+  font-weight:700;
+  line-height:1;
+}
+.jx-inputQuoteText{
+  min-width:0;
+  flex:1;
+  color:#334155;
+  font-size:13px;
+  line-height:1.45;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.jx-inputQuoteRemove{
+  appearance:none;
+  border:none;
+  background:transparent;
+  color:#94a3b8;
+  width:22px;
+  height:22px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:18px;
+  line-height:1;
+  cursor:pointer;
+  transition:background .16s ease, color .16s ease;
+}
+.jx-inputQuoteRemove:hover{
+  background:rgba(148,163,184,.12);
+  color:#475569;
+}
+/* 用户消息中文件卡片靠右对齐 */
+.jx-userAttachments{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:6px;
+  justify-content:flex-end;
+}
+
+
+/* ── 输入框底部操作栏 ── */
+/* 实色背景 + 顶部渐变：用户粘贴大段内容在编辑器内部滚动时，
+   这层遮挡能防止文字"透"过来让按钮失去可读性。 */
+.jx-composerBar{
+  position:absolute;
+  bottom:0;
+  left:0;
+  right:0;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  height:50px;
+  padding:8px 16px 12px;
+  background:#fff;
+  border-bottom-left-radius:16px;
+  border-bottom-right-radius:16px;
+  pointer-events:none;
+  z-index:2;
+}
+.jx-composerBar::before{
+  content:'';
+  position:absolute;
+  left:0;
+  right:0;
+  top:-12px;
+  height:12px;
+  background:linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%);
+  pointer-events:none;
+}
+.jx-composerBar > *{
+  pointer-events:auto;
+}
+
+/* ── Mode dropdown button (left side) ── */
+.jx-modeDropBtn{
+  min-height:30px;
+  height:30px;
+  padding:7px 12px;
+  border:1px solid #E3E6EA;
+  border-radius:8px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  cursor:pointer;
+  color:rgba(15,23,42,.62);
+  font-size:13px;
+  font-weight:500;
+  outline:none;
+  white-space:nowrap;
+  transition:color .18s ease;
+}
+.jx-modeIcon{ width:16px; height:16px; flex-shrink:0; }
+.jx-modeArrow{ width:12px; height:12px; opacity:1; flex-shrink:0; filter:brightness(0) saturate(100%) invert(80%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(90%) contrast(90%); }
+.jx-modeDropBtn:hover{ color:rgba(15,23,42,.88); }
+.jx-modeDropBtn.thinking{ color:#111827; font-weight:500; }
+.jx-dispatchDropBtn{
+  min-height:30px;
+  height:30px;
+  padding:7px 12px;
+  border:1px solid #E3E6EA;
+  border-radius:8px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  cursor:pointer;
+  color:rgba(15,23,42,.62);
+  font-size:13px;
+  font-weight:500;
+  outline:none;
+  white-space:nowrap;
+  transition:border-color .18s ease;
+}
+.jx-dispatchDropBtn:hover{
+  border-color:rgba(15,23,42,.22);
+}
+.jx-dispatchOptionHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-width:96px;
+}
+
+/* ── Attachment button ── */
+.jx-attachBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:4px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  margin-right:4px;
+  transition:opacity .15s;
+  filter:brightness(0) saturate(100%) invert(13%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(13%) contrast(90%);
+  opacity:1;
+}
+.jx-attachBtn:hover{ opacity:.75; }
+.jx-attachIcon{ width:22px; height:22px; }
+
+/* ── User-selectable model dropdown (near attachment button) ── */
+.jx-modelDropBtn{
+  min-height:30px;
+  height:30px;
+  max-width:180px;
+  padding:6px 10px;
+  border:1px solid #E3E6EA;
+  border-radius:8px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  cursor:pointer;
+  color:rgba(15,23,42,.66);
+  font-size:13px;
+  font-weight:500;
+  outline:none;
+  white-space:nowrap;
+  transition:color .18s ease, border-color .18s ease;
+}
+.jx-modelDropBtn:hover{
+  color:rgba(15,23,42,.9);
+  border-color:rgba(15,23,42,.22);
+}
+.jx-modelDropIcon{
+  font-size:15px;
+  flex-shrink:0;
+}
+.jx-modelDropText{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* ── 项目选择下拉（工具栏，提示词中心右侧）── */
+.jx-projectDropBtn{
+  min-height:30px;
+  height:30px;
+  padding:7px 12px;
+  border:1px solid #E3E6EA;
+  border-radius:8px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  cursor:pointer;
+  color:rgba(15,23,42,.62);
+  font-size:13px;
+  font-weight:500;
+  outline:none;
+  white-space:nowrap;
+  min-width:0;
+  transition:color .18s ease, border-color .18s ease, background .18s ease;
+}
+.jx-projectDropBtn:hover{
+  color:rgba(15,23,42,.88);
+  border-color:rgba(15,23,42,.22);
+}
+/* 已绑定项目：灰底填充胶囊 + 近黑文字（低饱和、贴近参考稿的选中质感） */
+.jx-projectDropBtn.bound{
+  color:rgba(15,23,42,.88);
+  border-color:transparent;
+  background:#F0F1F3;
+}
+.jx-projectDropBtn.bound:hover{
+  color:#0F172A;
+  border-color:transparent;
+  background:#E9EBEE;
+}
+.jx-projectDropBtn.bound .jx-modeArrow{
+  filter:brightness(0) saturate(100%) invert(30%);
+  opacity:.7;
+}
+.jx-projectDropIcon{ font-size:14px; flex-shrink:0; }
+.jx-projectDropName{
+  min-width:0;
+  max-width:132px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+/* 项目下拉菜单：分组标题「项目」+ 选项行（folder 图标 + 名称 + 选中勾） */
+.jx-projectMenu .ant-dropdown-menu{
+  min-width:216px;
+  max-width:280px;
+  padding:6px;
+  border-radius:12px;
+  border:none;
+  box-shadow:0 8px 24px rgba(15,23,42,.14);
+}
+.jx-projectMenu .ant-dropdown-menu-item-group-title{
+  padding:6px 10px 4px;
+  font-size:12px;
+  color:rgba(15,23,42,.45);
+}
+.jx-projectMenu .ant-dropdown-menu-item{
+  border-radius:8px;
+  padding:7px 10px;
+}
+.jx-projectMenu .ant-dropdown-menu-item-group-list{
+  margin:0;
+  max-height:280px;
+  overflow-y:auto;
+}
+.jx-projectOption{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.jx-projectOptionIcon{
+  font-size:14px;
+  color:rgba(15,23,42,.55);
+  flex-shrink:0;
+}
+.jx-projectOptionName{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+  color:#262626;
+}
+
+/* ── Send button (SVG is already a 34px blue circle) ── */
+.jx-sendBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:0;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  transition:opacity .15s, transform .15s;
+}
+.jx-sendBtn:hover{ transform:scale(1.06); }
+.jx-sendBtn:active:not(:disabled){ transform:scale(.93); transition-duration:.08s; }
+.jx-sendBtn:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+.jx-sendIcon{ width:34px; height:34px; }
+
+/* ── Mode dropdown menu ── */
+.jx-modeMenu .ant-dropdown-menu{
+  padding:4px;
+  border-radius:10px;
+  border:none;
+  box-shadow:0 8px 24px rgba(15,23,42,.14);
+  min-width:180px;
+}
+.jx-modeMenu .ant-dropdown-menu-item{
+  min-height:auto;
+  border-radius:8px;
+  font-size:14px;
+  color:rgba(15,23,42,.82);
+  padding:8px 12px;
+}
+.jx-modeMenu .ant-dropdown-menu-item:hover,
+.jx-modeMenu .ant-dropdown-menu-item-active{
+  background:rgba(15,23,42,.05) !important;
+  color:#111827;
+}
+.jx-modeMenu .ant-dropdown-menu-item-selected{
+  background:transparent !important;
+  color:#111827;
+}
+/* Mode option with description */
+.jx-modeOption{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding:2px 0;
+}
+.jx-modeOptionHead{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.jx-modeOptionTitle{
+  font-weight:500;
+  font-size:14px;
+  color:#1e293b;
+  flex:1;
+}
+.jx-modeCheckIcon{ width:14px; height:14px; flex-shrink:0; }
+.jx-modeOptionDesc{
+  font-size:12px;
+  color:rgba(15,23,42,.45);
+}
+.jx-modelMenu .ant-dropdown-menu-item:hover,
+.jx-modelMenu .ant-dropdown-menu-item-active{
+  background:rgba(15,23,42,.05) !important;
+  color:#111827;
+}
+.jx-modelMenu .ant-dropdown-menu-item-selected{
+  background:transparent !important;
+  color:#111827;
+}
+.jx-modelOption{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:180px;
+  max-width:280px;
+  padding:2px 0;
+}
+.jx-modelOptionHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.jx-modelOptionTitle{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:14px;
+  font-weight:500;
+  color:#1e293b;
+}
+.jx-modelOptionDesc{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  color:rgba(15,23,42,.45);
+}
+
+/* legacy compat */
+.jx-uploadBtn{ display:none; }
+.jx-modeDropBtnArrow{ display:none; }
+
+@media (max-width: 640px){
+  .jx-modeDropBtn{ padding:0 2px 0 4px; font-size:12px; }
+  .jx-modelDropBtn{ max-width:118px; padding:4px 8px; font-size:12px; }
+  .jx-sendIcon{ width:30px; height:30px; }
+}
+
+/* ══════════════════════════════════════════
+   Empty-state (homepage) — centered layout
+   ══════════════════════════════════════════ */
+.jx-emptyPage{
+  position:relative;
+  width:100%;
+  min-height:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:0 24px;
+  box-sizing:border-box;
+}
+.jx-emptyCenter{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  width:840px;
+  max-width:100%;
+  flex:1;
+  justify-content:center;
+}
+
+/* Hero with background image */
+.jx-heroBg{
+  position:relative;
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:20px 0 32px;
+  overflow:hidden;
+}
+.jx-heroBgImg{
+  position:absolute;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%);
+  width:100%;
+  min-width:600px;
+  height:auto;
+  pointer-events:none;
+  user-select:none;
+}
+.jx-heroTitle{
+  position:relative; z-index:1;
+  font-size:44px; font-weight:500; color:black;
+  margin:0 0 2px; line-height:1.2; text-align:center;
+}
+.jx-heroSubtitle{
+  position:relative; z-index:1;
+  font-size:16px; font-weight:400; color:#808080;
+  margin:0; text-align:center;
+}
+
+/* Input container: 840×148 */
+.jx-homeInput{
+  width:100%; /* inherits 840px from parent */
+  position:relative;
+}
+.jx-homeInput .jx-inputArea{
+  position:relative; background:none; padding-top:0; width:100%;
+}
+.jx-homeInput .jx-composerWrap{
+  position:relative; width:100%; margin-bottom:0;
+  border:1px solid #99C0FF;
+  border-radius:20px;
+  box-shadow:0px 2px 14px 1px rgba(102,150,227,0.15);
+  background:#fff;
+}
+.jx-homeInput .jx-composer{
+  width:100% !important;
+  height:148px !important;
+  border:none !important;
+  border-radius:0 !important;
+  box-shadow:none !important;
+  background:transparent !important;
+}
+.jx-homeInput .jx-composer .ant-input,
+.jx-homeInput .jx-composer textarea,
+.jx-homeInput textarea.jx-composer,
+.jx-homeInput .jx-composer.ant-input{
+  height:100% !important;
+  padding:16px 16px 50px 16px !important;
+  font-size:16px !important;
+  color:#262626 !important;
+  resize:none !important;
+}
+.jx-homeInput .jx-composerBar{
+  position:absolute;
+  bottom:0; left:0; right:0;
+  height:50px;
+  padding:8px 16px 12px;
+  background:#fff;
+  border-bottom-left-radius:20px;
+  border-bottom-right-radius:20px;
+}
+.jx-homeInput .jx-composerBar::before{
+  content:'';
+  position:absolute;
+  left:0; right:0; top:-12px;
+  height:12px;
+  background:linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%);
+  pointer-events:none;
+}
+
+/* Quick pills */
+.jx-quickPills{
+  display:flex; flex-wrap:wrap; gap:12px;
+  justify-content:center; width:100%; margin-top:20px;
+  max-height:92px; /* 2 rows: 40px + 12px gap + 40px */
+  overflow:hidden;
+}
+.jx-quickPill{
+  appearance:none; border:none; background:#F5F6F7;
+  border-radius:12px; height:40px; padding:0 12px;
+  font-size:14px; font-weight:400; color:#262626;
+  cursor:pointer; transition:background .18s;
+  white-space:nowrap; display:flex; align-items:center;
+}
+.jx-quickPill:hover{ background:#EBEDEE; }
+
+/* 5 Capability cards — 60px below pills */
+.jx-capCards{
+  display:flex; gap:88px; justify-content:center; margin-top:60px;
+}
+.jx-capCard{
+  appearance:none; border:none; outline:none; background:transparent;
+  position:relative;
+  display:flex; flex-direction:column; align-items:center;
+  gap:14px; cursor:pointer;
+}
+.jx-capCardToast{
+  position:absolute;
+  top:-32px;
+  left:50%;
+  transform:translateX(-50%);
+  padding:4px 10px;
+  border-radius:10px;
+  background:rgba(15,23,42,.56);
+  color:#fff;
+  font-size:12px;
+  font-weight:400;
+  line-height:1.2;
+  white-space:nowrap;
+  box-shadow:0 6px 18px rgba(15,23,42,.12);
+  pointer-events:none;
+  animation:jxCapToastFade 1.6s ease forwards;
+}
+.jx-capCard:hover .jx-capCardIcon{ transform:translateY(-2px); }
+.jx-capCardIcon{ width:56px; height:56px; transition:transform .18s; }
+.jx-capCardLabel{ font-size:14px; font-weight:400; color:black; letter-spacing:0.28px; }
+
+@keyframes jxCapToastFade{
+  0%{ opacity:0; transform:translateX(-50%) translateY(4px); }
+  15%{ opacity:1; transform:translateX(-50%) translateY(0); }
+  80%{ opacity:1; transform:translateX(-50%) translateY(0); }
+  100%{ opacity:0; transform:translateX(-50%) translateY(-2px); }
+}
+
+/* AI Disclaimer — at page bottom */
+.jx-aiDisclaimer{
+  font-size:12px; color:rgba(15,23,42,.35);
+  text-align:center; padding:16px 0 12px;
+  flex-shrink:0; width:100%;
+}
+
+/* ── Recommend Banner ── */
+.jx-recommendBanner{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  height:48px;
+  padding:0 24px;
+  background:#EBF2FF;
+  border-radius:8px;
+  margin:12px 16px 0;
+  font-size:14px;
+  color:#262626;
+  font-weight:400;
+  flex-shrink:0;
+}
+.jx-recommendBanner-icon{
+  font-size:16px;
+  flex-shrink:0;
+}
+.jx-recommendBanner-text{
+  flex:1;
+}
+.jx-recommendBanner-link{
+  color:#126DFF;
+  font-weight:500;
+  cursor:pointer;
+  margin-left:4px;
+  text-decoration:none;
+}
+.jx-recommendBanner-link:hover{
+  color:var(--color-primary-hover);
+  text-decoration:underline;
+}
+.jx-recommendBanner-close{
+  appearance:none;
+  border:none;
+  background:transparent;
+  cursor:pointer;
+  padding:0;
+  width:16px;
+  height:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#808080;
+  transition:color .15s;
+  flex-shrink:0;
+}
+.jx-recommendBanner-close:hover{
+  color:#555;
+}
+
+/* legacy — kept so nothing breaks */
+.jx-emptyIntro{
+  text-align:center;
+  font-size:13px;
+  line-height:1.9;
+  color:rgba(31,35,40,.72);
+}
+.jx-emptyIntro strong{color:var(--color-primary)}
+.jx-emptyGuide{
+  border:1px solid rgba(18,109,255,.16);
+  background:rgba(255,255,255,.86);
+  border-radius:14px;
+  padding:12px;
+}
+.jx-emptyGuideTitle{
+  font-size:12px;
+  font-weight:900;
+  color:var(--color-primary);
+  margin-bottom:8px;
+}
+.jx-emptyPromptList{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.jx-emptyPromptBtn{
+  border-radius:10px !important;
+  min-height:40px;
+  text-align:left;
+  white-space:normal;
+}
+.jx-recommendBar{
+  border-radius:12px;
+  border:1px solid rgba(18,109,255,.20);
+  background:rgba(18,109,255,.06);
+  padding:8px 12px;
+  font-size:12px;
+  color:var(--color-primary);
+  font-weight:700;
+}
+
+.jx-composer{
+  border:none !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+}
+.jx-composer:focus,
+.jx-composer.ant-input:focus,
+.jx-composer.ant-input-focused,
+.jx-composer.ant-input-affix-wrapper:focus,
+.jx-composer.ant-input-affix-wrapper-focused{
+  border-color:transparent !important;
+  box-shadow:none !important;
+  outline:none;
+}
+.jx-composer .ant-input,
+.jx-composer textarea,
+textarea.jx-composer,
+.jx-composer.ant-input{
+  text-align:left !important;
+  padding-left:16px !important;
+  padding-right:16px !important;
+  padding-top:16px !important;
+  padding-bottom:50px !important; /* 为底部操作栏留空间 */
+  resize:none !important;
+  font-size:16px !important;
+  color:#262626 !important;
+}
+.jx-composer .ant-input::placeholder,
+.jx-composer textarea::placeholder,
+textarea.jx-composer::placeholder,
+.jx-composer.ant-input::placeholder{
+  font-size:16px !important;
+  color:#B3B3B3 !important;
+}
+/* 隐藏 textarea 右下角 resize 把手 */
+.jx-composer textarea,
+.jx-composer .ant-input textarea,
+textarea.jx-composer{
+  resize:none !important;
+}
+.jx-homeInput .jx-composer,
+.jx-homeInput .jx-composer textarea,
+.jx-homeInput textarea.jx-composer{
+  resize:none !important;
+}
+/* 覆盖 antd 默认的 resize 角标指示 */
+.jx-composerWrap .ant-input-textarea-show-count::after{
+  display:none;
+}
+/* 对话页脚：确认浮条 + 输入框一起 sticky 钉在视口底部，
+   不随消息列表滚动；空/首页分支不渲染此容器，无需特例。 */
+/* 团队项目会话共享：顶栏 banner + 只读 footer */
+.jx-chatShareBanner{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  background:#F6F8FB;
+  border-bottom:1px solid #ECEFF3;
+  font-size:12px;
+  color:#5A6477;
+}
+.jx-chatShareBanner--owner{
+  justify-content:flex-end;
+}
+.jx-chatShareBanner-text{
+  flex:1 1 auto;
+}
+.jx-chatShareBanner-owner{
+  color:#7C8595;
+}
+.jx-chatShareReadonly{
+  padding:14px 16px;
+  margin-top:8px;
+  text-align:center;
+  background:#F6F8FB;
+  color:#7C8595;
+  border:1px dashed #DADFE7;
+  border-radius:8px;
+  font-size:13px;
+}
+
+/* 上下文压缩提示条：上一轮结束后后台压缩了较早上下文，本轮首帧通知一次（可关闭） */
+.jx-compactionNotice{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  background:var(--color-primary-light, #EBF2FF);
+  border-bottom:1px solid var(--color-border, #E3E6EA);
+  font-size:12px;
+  color:var(--color-text-tertiary, #808080);
+}
+.jx-compactionNotice-text{
+  flex:1 1 auto;
+}
+.jx-compactionNotice-close{
+  flex:0 0 auto;
+  border:none;
+  background:transparent;
+  cursor:pointer;
+  font-size:14px;
+  line-height:1;
+  padding:2px 6px;
+  color:var(--color-text-tertiary, #808080);
+  border-radius:var(--radius-xs, 4px);
+}
+.jx-compactionNotice-close:hover{
+  background:var(--color-primary-bg, #DBE9FF);
+  color:var(--color-text-secondary, #4D4D4D);
+}
+
+.jx-chatFooter{
+  position:sticky;
+  bottom:0;
+  z-index:10;
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  /* 实色背景防止滚动内容从底部透出；顶部渐变见 ::before */
+  background:#fff;
+}
+.jx-inputArea{
+  padding-top:12px;
+  width:100%;
+}
+.jx-chatFooter::before{
+  content:'';
+  position:absolute;
+  left:0;
+  right:0;
+  top:-24px;
+  height:24px;
+  pointer-events:none;
+  background:linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%);
+}
+/* In empty state, input width matches design */
+.jx-emptyWrap .jx-inputArea,
+.jx-empty .jx-inputArea,
+.jx-homeInput .jx-inputArea{
+  position:relative;
+  background:none;
+  padding-top:0;
+  width:100%;
+}
+.jx-emptyWrap .jx-inputArea::before,
+.jx-empty .jx-inputArea::before,
+.jx-homeInput .jx-inputArea::before{
+  display:none;
+}
+.jx-composerWrap{
+  position:relative;
+  margin-bottom:10px;
+  border:1px solid rgba(15,23,42,.12);
+  border-radius:16px;
+  background:#fff;
+  transition:border-color var(--motion-duration-fast) var(--motion-ease-standard),
+             box-shadow var(--motion-duration-normal) var(--motion-ease-standard);
+}
+.jx-composerWrap:focus-within{
+  border-color:rgba(59,130,246,.30);
+  box-shadow:0 0 0 3px rgba(59,130,246,.08);
+}
+/* 首页输入框自带常驻投影：聚焦时光环叠加在原投影之上，避免投影被顶掉造成突兀切换 */
+.jx-homeInput .jx-composerWrap:focus-within{
+  box-shadow:0px 2px 14px 1px rgba(102,150,227,0.15), 0 0 0 3px rgba(59,130,246,.08);
+}
+/* 计划模式开启：输入框容器渐变描边光环（transition 已在 .jx-composerWrap 上） */
+.jx-composerWrap--plan{
+  border-color:rgba(22,119,255,.45);
+  box-shadow:0 0 0 3px rgba(22,119,255,.10);
+}
+.jx-homeInput .jx-composerWrap--plan{
+  box-shadow:0px 2px 14px 1px rgba(102,150,227,0.15), 0 0 0 3px rgba(22,119,255,.10);
+}
+
+/* ── 回到底部按钮：sticky 于输入框正上方 ── */
+/* margin-bottom: -36px 抵消自身高度，避免挤压输入框布局 */
+.jx-scrollToBottomBtn{
+  position:sticky;
+  bottom:170px;
+  align-self:center;
+  z-index:11;
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  border:1px solid rgba(15,23,42,.12);
+  background:#fff;
+  box-shadow:0 4px 14px rgba(15,23,42,.10);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  margin-bottom:-36px;
+  transition:background .18s ease, border-color .18s ease, box-shadow .18s ease;
+  /* 出入场由 motion（AnimatePresence）接管，CSS 不再播入场，防双播 */
+}
+.jx-scrollToBottomBtn:hover{
+  background:#f8fafc;
+  border-color:rgba(15,23,42,.22);
+  box-shadow:0 6px 16px rgba(15,23,42,.14);
+}
+.jx-scrollToBottomIcon{
+  width:16px;
+  height:16px;
+  opacity:.7;
+}
+.jx-composerActions{
+  position:absolute;
+  right:10px;
+  bottom:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.jx-composerActions .ant-btn{
+  min-height:32px;
+}
+
+.jx-metaPill{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:7px 10px;border-radius:999px;
+  border:1px solid rgba(17,24,39,.10);
+  background:rgba(255,255,255,.85);
+  color:rgba(31,35,40,.74);
+  font-size:12px; font-weight:700;
+  outline:none;
+  box-shadow:none;
+}
+
+.jx-statusDot{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  flex-shrink:0;
+  outline:none;
+  box-shadow:none;
+}
+.jx-statusDot.connected{background:var(--color-success)}
+.jx-statusDot.disconnected{background:var(--color-error)}
+
+.jx-historyFilters{display:none;}/* legacy — no longer used */
+
+.jx-historyListWrap{
+  padding:0 6px 10px;
+  overflow-y:auto;
+  min-height:0;
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.jx-historyGroup{
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+}
+.jx-historyGroupTitle{
+  padding:0 10px;
+  font-size:12px;
+  font-weight:400;
+  color:rgba(15,23,42,.45);
+  letter-spacing:0.03em;
+}
+.jx-historyGroupList{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.jx-historyEmpty{
+  padding:24px 8px;
+  font-size:12px;
+  color:rgba(15,23,42,.42);
+  text-align:center;
+}
+.jx-historyItem{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-height:36px;
+  padding:0 6px 0 10px;
+  border-radius:10px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  transition:background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  min-width:0;
+  position:relative;
+}
+.jx-historyItem:hover{
+  background:#EBEDEE;
+  border-color:transparent;
+}
+.jx-historyItem.active{
+  background:#fff;
+  border-color:transparent;
+}
+.jx-historyMain{
+  flex:1;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  padding-right:2px;
+}
+.jx-historyTitle{
+  flex:1;
+  min-width:0;
+  font-size:14px;
+  font-weight:500;
+  color:rgba(15,23,42,.76);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  line-height:1.2;
+}
+.jx-historyItem:hover .jx-historyTitle{
+  color:rgba(15,23,42,.90);
+}
+.jx-historyItem.active .jx-historyTitle{
+  font-weight:400;
+  color:#0f172a;
+}
+.jx-historyEditInput{
+  flex:1;
+  min-width:0;
+}
+.jx-historyEditInput .ant-input{
+  border-radius:8px;
+  border-color:rgba(2,132,199,.24);
+}
+
+.jx-headerTopicTag{
+  flex-shrink:0;
+  font-size:13px !important;
+  font-weight:700 !important;
+  padding:4px 12px !important;
+  height:28px !important;
+  line-height:20px !important;
+  border-radius:4px !important;
+  letter-spacing:0.02em;
+  box-shadow:none !important;
+  border:none !important;
+}
+.jx-historyActions{
+  position:absolute;
+  right:6px;
+  top:50%;
+  transform:translateY(-50%);
+  opacity:0;
+  transition:opacity .15s ease;
+  pointer-events:none;
+}
+.jx-historyItem:hover .jx-historyActions,
+.jx-historyItem.active .jx-historyActions{
+  opacity:1;
+  pointer-events:auto;
+}
+.jx-historyItem.editing .jx-historyActions{
+  display:none;
+}
+.jx-historyItem:hover .jx-historyMain,
+.jx-historyItem.active .jx-historyMain{
+  padding-right:28px;
+}
+.jx-historyMoreBtn{
+  appearance:none; border:none; outline:none; background:transparent;
+  width:24px; height:24px;
+  border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
+  font-size:13px;
+  color:rgba(15,23,42,.48);
+  padding:0;
+  transition:background .15s ease, color .15s ease;
+}
+.jx-historyMoreBtn:hover{
+  background:#F0F2F5;
+  color:#333;
+}
+
+
+/* ── 延伸问题按钮（Follow-up Questions） ── */
+.jx-followUpQuestions{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:12px;
+  margin-bottom:4px;
+  max-width:100%;
+}
+.jx-followUpBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:8px 14px;
+  border:1px solid var(--color-border);
+  border-radius:20px;
+  background:#fff;
+  color:var(--color-text);
+  font-size:14px;
+  line-height:1.5;
+  cursor:pointer;
+  transition:all .2s ease;
+  text-align:left;
+  width:fit-content;
+  max-width:100%;
+}
+.jx-followUpBtn:hover{
+  border-color:var(--color-primary);
+  color:var(--color-primary);
+  background:#f0f5ff;
+}
+.jx-followUpBtn:active{
+  background:#e6f0ff;
+}
+.jx-followUpBtn:disabled{
+  opacity:.5;
+  cursor:not-allowed;
+}
+.jx-followUpText{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-followUpArrow{
+  flex-shrink:0;
+  font-size:14px;
+  color:#999;
+  transition:color .2s ease;
+}
+.jx-followUpBtn:hover .jx-followUpArrow{
+  color:var(--color-primary);
+}
+
+/* 移动端延伸问题全宽 */
+@media(max-width:768px){
+  .jx-followUpBtn{
+    width:100%;
+  }
+  .jx-inputQuote{
+    align-items:flex-start;
+  }
+}
+
+/* ── 消息操作栏（悬停显示，参考 DeepSeek / Claude 风格） ── */
+.jx-msgActions{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 2px;
+  margin-top:-2px;
+  cursor:default;
+}
+.jx-msgActions.user{
+  justify-content:flex-end;
+}
+/* 操作按钮 & 耗时小字：默认隐藏，hover 消息时淡入（时间小字不参与，始终常驻）。
+ * 用 opacity 而非 display:none，保留占位、避免 hover 时整行抖动。 */
+.jx-msgActionBtn,
+.jx-msgDuration{
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .15s ease;
+}
+.jx-msg:hover .jx-msgActionBtn,
+.jx-msg:hover .jx-msgDuration{
+  opacity:1;
+  pointer-events:auto;
+}
+/* 「重新生成」旁的整体生成耗时小字 */
+.jx-msgDuration{
+  display:inline-flex;
+  align-items:center;
+  font-size:12px;
+  color:rgba(31,35,40,.45);
+  margin-right:2px;
+  white-space:nowrap;
+  user-select:none;
+}
+/* 与操作按钮同一行常驻显示的时间小字（assistant 在最左、user 在最右） */
+.jx-msgTime{
+  display:inline-flex;
+  align-items:center;
+  flex:0 0 auto;
+  font-size:11px;
+  color:rgba(31,35,40,.34);
+  white-space:nowrap;
+  user-select:none;
+}
+.jx-msgActionBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px;
+  height:28px;
+  border-radius:7px;
+  border:1px solid rgba(15,23,42,.10);
+  background:rgba(255,255,255,.85);
+  backdrop-filter:blur(4px);
+  color:rgba(31,35,40,.50);
+  font-size:13px;
+  cursor:pointer;
+  transition:all .15s ease;
+  user-select:none;
+  padding:0;
+}
+.jx-msgActionBtn:hover{
+  color:rgba(31,35,40,.85);
+  background:#fff;
+  border-color:rgba(15,23,42,.18);
+  box-shadow:0 2px 8px rgba(15,23,42,.08);
+}
+.jx-msgActionBtn.copied{
+  color:var(--color-success);
+  border-color:rgba(2,181,137,.25);
+  background:rgba(2,181,137,.06);
+}
+.jx-msgActionBtn.active-like{
+  color:var(--color-primary-hover);
+  border-color:rgba(18,109,255,.30);
+  background:rgba(18,109,255,.06);
+}
+.jx-msgActionBtn.active-dislike{
+  color:var(--color-error);
+  border-color:rgba(252,93,93,.30);
+  background:rgba(252,93,93,.06);
+}
+.jx-msgActionBtn.active-share{
+  color:#126dff;
+  border-color:rgba(18,109,255,.30);
+  background:rgba(18,109,255,.06);
+}
+.jx-selectionToolbar{
+  position:fixed;
+  transform:translate(-50%, -100%);
+  z-index:40;
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  padding:5px;
+  border:1px solid rgba(148,163,184,.18);
+  border-radius:14px;
+  background:rgba(255,255,255,.96);
+  box-shadow:0 10px 24px rgba(15,23,42,.10);
+  backdrop-filter:blur(10px);
+  /* 入场动画必须纯 CSS（portal + fixed，motion transform 祖先会破坏定位）；
+     keyframes 全程保留基础 translate(-50%,-100%) 定位 */
+  animation:jxSelToolbarIn .14s var(--motion-ease-brand-out) both;
+}
+@keyframes jxSelToolbarIn{
+  from{ opacity:0; transform:translate(-50%, -100%) translateY(4px) scale(.96); }
+  to{ opacity:1; transform:translate(-50%, -100%); }
+}
+.jx-selectionToolbarBtn{
+  appearance:none;
+  border:none;
+  background:transparent;
+  min-width:66px;
+  padding:7px 11px;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  color:#64748b;
+  cursor:pointer;
+  transition:background .16s ease, color .16s ease, transform .16s ease;
+}
+.jx-selectionToolbarBtn:hover{
+  background:rgba(148,163,184,.08);
+  color:#475569;
+  transform:translateY(-1px);
+}
+.jx-selectionToolbarBtn.copied{
+  color:var(--color-success);
+}
+.jx-selectionToolbarIcon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
+}
+.jx-selectionToolbarLabel{
+  font-size:13px;
+  font-weight:500;
+  line-height:1;
+}
+/* dislike 评论弹出框 */
+.jx-dislikeFeedback{
+  margin-top:8px;
+  padding:12px 14px;
+  background:#fff;
+  border:1px solid rgba(15,23,42,.12);
+  border-radius:10px;
+  box-shadow:0 4px 16px rgba(15,23,42,.08);
+  max-width:480px;
+}
+.jx-dislikeFeedback-title{
+  font-size:13px;
+  font-weight:600;
+  color:#1e293b;
+  margin:0 0 8px 0;
+}
+.jx-dislikeFeedback-input{
+  font-size:13px !important;
+  border-radius:8px !important;
+}
+.jx-dislikeFeedback-btns{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:10px;
+}
+
+@media (max-width: 960px){
+  .ant-layout{
+    flex-direction:column !important;
+  }
+  .jx-sider{
+    width:100% !important;
+    max-width:none !important;
+    flex:0 0 auto !important;
+    border-right:none;
+    border-bottom:1px solid var(--border);
+  }
+  .jx-panel{
+    padding:12px;
+  }
+  .jx-bubble{
+    max-width:100%;
+  }
+  .jx-manageDetailHeader{
+    padding:14px 16px;
+  }
+  .jx-manageDetailTitle{
+    font-size:17px;
+  }
+  .jx-manageDetailMetaText.ant-typography{
+    font-size:13px;
+    line-height:1.7;
+  }
+  .jx-manageDetailBody{
+    padding:16px;
+    font-size:14px;
+    gap:14px;
+  }
+  .jx-manageDetailBody .jx-md{
+    font-size:14px;
+  }
+  .jx-manageDetailBody .jx-md h1{font-size:21px}
+  .jx-manageDetailBody .jx-md h2{font-size:18px}
+  .jx-manageDetailBody .jx-md h3{font-size:16px}
+  .jx-mcpExplain{
+    padding:14px 16px;
+  }
+  .jx-mcpExplain > div{
+    flex-direction:column;
+    gap:4px;
+  }
+  .jx-mcpExplain strong{
+    min-width:0;
+  }
+  .jx-kv{
+    grid-template-columns:1fr;
+    gap:8px;
+    padding:14px 16px;
+  }
+  .jx-kv .k{
+    padding-top:4px;
+  }
+  .jx-updatesView, .jx-capsView{
+    padding:0 12px 20px;
+  }
+}
+
+@media (max-width: 1180px){
+  .jx-manageGrid{
+    grid-template-columns:1fr;
+  }
+}
+
+/* ── Prompt Hub button (in composer bar) ── */
+.jx-promptHubBtn{
+  min-height:30px;
+  height:30px;
+  padding:7px 12px;
+  border:1px solid #E3E6EA;
+  border-radius:8px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  cursor:pointer;
+  color:rgba(15,23,42,.62);
+  font-size:13px;
+  font-weight:500;
+  outline:none;
+  white-space:nowrap;
+  transition:color .18s ease, border-color .18s ease;
+}
+.jx-promptHubBtn:hover{
+  color:rgba(15,23,42,.88);
+  border-color:rgba(15,23,42,.22);
+}
+.jx-promptHubIcon{
+  width:16px;
+  height:16px;
+  flex-shrink:0;
+}
+
+/* ── Plan Mode Button ── */
+.jx-planModeBtn{
+  appearance:none;
+  min-height:30px;
+  height:30px;
+  padding:7px 12px;
+  border:1px solid transparent;
+  border-radius:8px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  cursor:pointer;
+  color:rgba(15,23,42,.42);
+  font-size:13px;
+  font-weight:500;
+  outline:none;
+  white-space:nowrap;
+  transition:color .18s ease, border-color .18s ease;
+  pointer-events:auto;
+}
+.jx-planModeBtn:hover{
+  color:rgba(15,23,42,.88);
+  border-color:rgba(15,23,42,.22);
+}
+/* 激活态：灰底填充胶囊 + 近黑文字，与项目选中态同一套质感 */
+.jx-planModeBtn.active{
+  color:rgba(15,23,42,.88);
+  border-color:transparent;
+  font-weight:500;
+  background:#F0F1F3;
+}
+.jx-planModeBtn.active:hover{
+  color:#0F172A;
+  border-color:transparent;
+  background:#E9EBEE;
+}
+
+/* 站点建站空态右上角「我的站点」入口 */
+.jx-siteHeroTop{
+  position:absolute;
+  top:16px;
+  right:20px;
+  z-index:2;
+}
+.jx-siteHeroTopBtn{
+  appearance:none;
+  height:32px;
+  padding:0 14px;
+  border:1px solid var(--color-border);
+  border-radius:8px;
+  background:#fff;
+  color:var(--color-text-secondary);
+  font-size:13px;
+  font-weight:500;
+  cursor:pointer;
+  transition:border-color .18s ease, color .18s ease;
+}
+.jx-siteHeroTopBtn:hover{
+  border-color:var(--color-primary);
+  color:var(--color-primary);
+}
+
+/* 「站点」建站模式标识：蓝色胶囊 @站点（对标 Codex @Sites 蓝色 chip） */
+.jx-siteModeBtn.active,
+.jx-siteModeBtn.active:hover{
+  color:var(--color-primary);
+  background:var(--color-primary-light);
+  cursor:default;
+}
+
+/* ── Prompt Hub Panel (right side) ── */
+.jx-promptHub{
+  width:447px;
+  min-width:320px;
+  flex-shrink:0;
+  border:none;
+  background:linear-gradient(26deg, #FFFFFF 0%, #FFFFFF 100%);
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  overflow:hidden;
+  box-shadow:0px 1px 12px 0px rgba(115,127,153,0.3);
+  border-radius:8px;
+}
+.jx-promptHub-header{
+  padding:14px 16px 12px;
+  border-bottom:1px solid rgba(15,23,42,.07);
+  background:#fff;
+  flex-shrink:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.jx-promptHub-headerRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.jx-promptHub-title{
+  font-size:15px;
+  font-weight:700;
+  color:#1e293b;
+}
+.jx-promptHub-search{
+  border-radius:8px !important;
+}
+.jx-promptHub-search .ant-input{
+  font-size:13px !important;
+}
+.jx-promptHub-list{
+  flex:1;
+  overflow-y:auto;
+  padding:12px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.jx-promptHub-empty{
+  text-align:center;
+  padding:40px 0;
+  color:rgba(15,23,42,.42);
+  font-size:13px;
+}
+.jx-promptHub-card{
+  padding:12px 14px;
+  border-radius:10px;
+  border:1px solid rgba(15,23,42,.08);
+  background:#f8f9fa;
+  cursor:pointer;
+  transition:all .18s ease;
+}
+.jx-promptHub-card:hover{
+  border-color:rgba(18,109,255,.25);
+  background:#f0f7ff;
+  box-shadow:0 2px 8px rgba(18,109,255,.08);
+}
+.jx-promptHub-card.selected{
+  border-color:rgba(18,109,255,.45);
+  background:#eff6ff;
+}
+.jx-promptHub-cardTitle{
+  font-size:14px;
+  font-weight:600;
+  color:#1e293b;
+  margin-bottom:6px;
+}
+.jx-promptHub-cardContent{
+  font-size:13px;
+  color:rgba(15,23,42,.55);
+  line-height:1.6;
+  display:-webkit-box;
+  -webkit-line-clamp:4;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.jx-promptHub-skeletonList{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.jx-promptHub-card--skeleton{
+  pointer-events:none;
+  cursor:default;
+  background:#f8f9fa;
+}
+.jx-promptHub-card--skeleton:hover{
+  background:#f8f9fa;
+  border-color:rgba(15,23,42,.08);
+  box-shadow:none;
+}
+.jx-promptHub-skTitle{
+  width:56%;
+  height:14px;
+  border-radius:6px;
+  margin-bottom:10px;
+}
+.jx-promptHub-skLine{
+  width:100%;
+  height:11px;
+  border-radius:6px;
+  margin-top:6px;
+}
+.jx-promptHub-skLine--short{
+  width:72%;
+}
+
+@media (max-width: 720px){
+  .jx-sideActionBar{
+    flex-direction:column;
+  }
+  .jx-tlItem{
+    grid-template-columns:62px 24px 1fr;
+  }
+  .jx-tlDateMain{ font-size:13px; }
+  .jx-docsNewTabGroup{ width:100%; justify-content:center; }
+  .jx-docsNewTab{ padding:6px 16px; }
+}
+
+.jx-sharePage{
+  /* 全局 html,body{overflow:hidden}（见 variables.css，为防浮层抖动而锁文档滚动）。
+   * 分享页是独立全屏页面，必须自身成为滚动容器，否则会话过长时底部内容被裁切、
+   * 无法下滑。height:100vh + overflow-y:auto 让滚动发生在本容器内。 */
+  height:100vh;
+  overflow-y:auto;
+  padding:
+    max(20px, env(safe-area-inset-top))
+    max(14px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at top, rgba(18,109,255,.08), transparent 34%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 42%, #f8fafc 100%);
+  -webkit-text-size-adjust:100%;
+}
+.jx-shareCard{
+  width:min(920px, 100%);
+  margin:0 auto;
+  background:rgba(255,255,255,.92);
+  border:1px solid rgba(15,23,42,.04);
+  border-radius:14px;
+  box-shadow:0 24px 60px rgba(15,23,42,.08);
+  padding:32px;
+}
+.jx-shareCardSkeleton{
+  pointer-events:none;
+  border-radius:24px;
+  background:rgba(244,244,244,.92);
+  border-color:rgba(240,240,240,.95);
+  box-shadow:none;
+}
+.jx-shareStateCard{
+  min-height:260px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  gap:12px;
+  color:#334155;
+}
+.jx-shareStateTitle{
+  font-size:28px;
+  font-weight:700;
+  color:#0f172a;
+}
+.jx-shareStateDesc{
+  font-size:15px;
+  color:rgba(15,23,42,.56);
+}
+.jx-shareHeader{
+  padding-bottom:24px;
+  border-bottom:1px solid rgba(15,23,42,.04);
+}
+.jx-shareHeaderTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+.jx-sharePreviewSkEyebrow{
+  width:180px;
+  height:11px;
+  border-radius:999px;
+}
+.jx-sharePreviewSkPrint{
+  width:72px;
+  height:34px;
+  border-radius:999px;
+}
+.jx-sharePreviewSkTitle{
+  width:min(420px, 72%);
+  height:18px;
+  margin:12px 0 10px;
+  border-radius:999px;
+}
+.jx-sharePreviewSkMeta{
+  width:132px;
+  height:11px;
+  border-radius:999px;
+}
+.jx-sharePreviewSkMetaWide{
+  width:176px;
+  margin-left:auto;
+}
+.jx-shareEyebrow{
+  font-size:13px;
+  letter-spacing:.01em;
+  color:rgba(15,23,42,.42);
+  font-weight:500;
+}
+.jx-sharePrintBtn{
+  appearance:none;
+  border:1px solid rgba(15,23,42,.10);
+  background:#fff;
+  color:#334155;
+  border-radius:10px;
+  height:36px;
+  padding:0 14px;
+  font-size:13px;
+  cursor:pointer;
+  transition:all .18s ease;
+}
+.jx-sharePrintBtn:hover{
+  border-color:rgba(18,109,255,.24);
+  color:#126dff;
+  background:#f8fbff;
+}
+.jx-shareTitle{
+  margin:8px 0 6px;
+  font-size:28px;
+  line-height:1.24;
+  color:#0f172a;
+  font-weight:650;
+}
+.jx-shareMeta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px 18px;
+  font-size:12px;
+  color:rgba(15,23,42,.48);
+}
+.jx-shareMetaId{
+  margin-left:auto;
+  text-align:right;
+  max-width:100%;
+  word-break:break-all;
+}
+.jx-shareMessages{
+  display:flex;
+  flex-direction:column;
+  gap:20px;
+  padding-top:22px;
+}
+.jx-shareFootnote{
+  margin-top:28px;
+  padding-top:14px;
+  border-top:1px solid rgba(15,23,42,.04);
+  font-size:12px;
+  color:rgba(15,23,42,.42);
+  text-align:center;
+}
+.jx-shareMessage{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+.jx-shareMessageSkeleton{
+  gap:10px;
+}
+.jx-shareMessageHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.jx-sharePreviewSkLabel{
+  width:126px;
+  height:11px;
+  border-radius:999px;
+}
+.jx-sharePreviewSkTime{
+  width:96px;
+  height:11px;
+  border-radius:999px;
+}
+.jx-sharePreviewSkBody{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:18px 20px;
+  border-radius:24px;
+  background:rgba(248,248,248,.96);
+  border:1px solid rgba(241,241,241,.98);
+}
+.jx-sharePreviewSkLine{
+  width:86%;
+  height:14px;
+  border-radius:999px;
+}
+.jx-sharePreviewSkLineLong{
+  width:100%;
+}
+.jx-sharePreviewSkLineShort{
+  width:58%;
+}
+.jx-shareMessageLabel{
+  font-size:12px;
+  font-weight:600;
+  color:rgba(15,23,42,.50);
+  letter-spacing:.02em;
+}
+.jx-shareMessageBody{
+  font-size:14px;
+  line-height:1.78;
+  color:#0f172a;
+  min-width:0;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.jx-shareMessage.assistant .jx-shareMessageBody{
+  font-size:13.5px;
+  line-height:1.9;
+  letter-spacing:.01em;
+  color:rgba(15,23,42,.88);
+}
+.jx-shareMessageBody table{
+  display:table;
+  width:100%;
+  max-width:100%;
+  border-collapse:collapse;
+  table-layout:auto;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.jx-shareMessageBody th,
+.jx-shareMessageBody td{
+  vertical-align:top;
+}
+.jx-shareMessageBody td{
+  white-space:normal;
+  word-break:break-word;
+}
+.jx-shareMessageBody table th:first-child,
+.jx-shareMessageBody table td:first-child{
+  min-width:140px;
+}
+.jx-shareMessageBody table th:last-child,
+.jx-shareMessageBody table td:last-child{
+  min-width:220px;
+}
+.jx-shareMessageBody h1,
+.jx-shareMessageBody h2,
+.jx-shareMessageBody h3,
+.jx-shareMessageBody h4,
+.jx-shareMessageBody h5,
+.jx-shareMessageBody h6{
+  margin:1em 0 .45em;
+  line-height:1.4;
+  letter-spacing:.015em;
+  color:#0f172a;
+}
+.jx-shareMessageBody h1{
+  font-size:19px;
+  font-weight:680;
+}
+.jx-shareMessageBody h2{
+  font-size:17px;
+  font-weight:660;
+}
+.jx-shareMessageBody h3{
+  font-size:15px;
+  font-weight:640;
+}
+.jx-shareMessageBody h4,
+.jx-shareMessageBody h5,
+.jx-shareMessageBody h6{
+  font-size:14px;
+  font-weight:600;
+}
+.jx-shareMessageBody p{
+  margin:.42em 0;
+}
+.jx-shareMessageBody ul,
+.jx-shareMessageBody ol{
+  margin:.55em 0;
+  padding-left:1.15em;
+}
+.jx-shareMessage.assistant .jx-shareMessageBody li{
+  margin:.22em 0;
+  padding-left:.1em;
+}
+.jx-shareMessage.assistant .jx-shareMessageBody strong{
+  font-weight:630;
+  color:#111827;
+}
+.jx-shareMessage.assistant .jx-shareMessageBody em{
+  font-style:normal;
+  color:rgba(30,41,59,.78);
+}
+.jx-shareMessage.assistant .jx-shareMessageBody blockquote{
+  margin:.75em 0;
+  padding:.2em 0 .2em .85em;
+  border-left:2px solid rgba(148,163,184,.32);
+  color:rgba(51,65,85,.82);
+}
+.jx-shareMessage.assistant .jx-shareMessageBody code{
+  font-size:.92em;
+  padding:.12em .38em;
+  border-radius:4px;
+  background:rgba(148,163,184,.12);
+  overflow-wrap:anywhere;
+}
+.jx-shareMessageBody pre{
+  max-width:100%;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.jx-shareMessageBody img{
+  max-width:100%;
+  height:auto;
+}
+.jx-shareMessage.assistant .jx-shareMessageBody hr{
+  border:none;
+  border-top:1px solid rgba(15,23,42,.06);
+  margin:1em 0;
+}
+.jx-shareMessageBody.user{
+  padding:12px 14px;
+  border-radius:18px;
+  background:#f1f5f9;
+  border:1px solid rgba(15,23,42,.06);
+}
+.jx-shareMessageTime{
+  font-size:12px;
+  color:rgba(15,23,42,.38);
+  text-align:right;
+  white-space:nowrap;
+}
+
+@media (max-width: 640px){
+  .jx-shareSelectionBar{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+  .jx-shareSelectionActions{
+    width:100%;
+  }
+  .jx-shareSelectionPrimaryBtn,
+  .jx-shareSelectionSecondaryBtn{
+    flex:1;
+  }
+  .jx-shareCard{
+    padding:18px 14px;
+    border-radius:18px;
+    box-shadow:0 14px 34px rgba(15,23,42,.08);
+  }
+  .jx-shareTitle{
+    font-size:22px;
+    line-height:1.35;
+    margin-top:10px;
+  }
+  .jx-shareHeader{
+    padding-bottom:18px;
+  }
+  .jx-shareHeaderTop{
+    align-items:flex-start;
+  }
+  .jx-shareEyebrow{
+    font-size:12px;
+  }
+  .jx-sharePrintBtn{
+    height:34px;
+    padding:0 12px;
+    font-size:12px;
+    margin-left:auto;
+  }
+  .jx-shareMeta{
+    gap:6px 0;
+    flex-direction:column;
+    align-items:flex-start;
+    font-size:12px;
+    line-height:1.6;
+  }
+  .jx-shareMetaId{
+    width:100%;
+    margin-left:0;
+    text-align:left;
+  }
+  .jx-shareMessages{
+    gap:16px;
+    padding-top:18px;
+  }
+  .jx-shareMessageHeader{
+    flex-direction:column;
+    align-items:flex-start;
+    gap:4px;
+  }
+  .jx-shareMessageTime{
+    text-align:left;
+    white-space:normal;
+  }
+  .jx-shareMessageBody{
+    font-size:13px;
+    line-height:1.8;
+  }
+  .jx-shareMessage.assistant .jx-shareMessageBody{
+    font-size:13px;
+    line-height:1.82;
+  }
+  .jx-shareMessageBody.user{
+    padding:10px 12px;
+    border-radius:16px;
+  }
+  .jx-shareFootnote{
+    margin-top:22px;
+    font-size:11px;
+  }
+  .jx-sharePreviewSkMetaWide{
+    width:148px;
+    margin-left:0;
+  }
+}
+
+/* ── @mention popup (compact) ── */
+.jx-mentionPopup {
+  position: absolute;
+  bottom: 100%;
+  left: 16px;
+  max-height: 200px;
+  min-width: 140px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #E3E6EA;
+  border-radius: 8px;
+  box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+  z-index: 50;
+  overflow-y: auto;
+  margin-bottom: 6px;
+  padding: 4px;
+}
+/* 上方空间不足时翻转到输入框下方（usePopupFlip 驱动） */
+.jx-mentionPopup--below {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 6px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+}
+.jx-mentionPopup-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #262626;
+  transition: background .12s;
+}
+.jx-mentionPopup-item:hover,
+.jx-mentionPopup-item.active {
+  background: #EBF2FF;
+}
+.jx-mentionPopup-at {
+  color: #126DFF;
+  font-weight: 600;
+}
+.jx-mentionPopup-name {
+  font-weight: 500;
+}
+
+/* ── Slash command popup ── */
+.jx-slashPopup {
+  position: absolute;
+  bottom: 100%;
+  left: 16px;
+  max-height: 200px;
+  min-width: 160px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #E3E6EA;
+  border-radius: 8px;
+  box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+  z-index: 50;
+  overflow-y: auto;
+  margin-bottom: 6px;
+  padding: 4px;
+}
+/* 上方空间不足时翻转到输入框下方（usePopupFlip 驱动） */
+.jx-slashPopup--below {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 6px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+}
+.jx-slashPopup-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #262626;
+  transition: background .12s;
+}
+.jx-slashPopup-item:hover,
+.jx-slashPopup-item.active {
+  background: #E0F2FE;
+}
+.jx-slashPopup-name {
+  font-weight: 500;
+}
+.jx-slashPopup-badge {
+  margin-left: auto;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #EDE9FE;
+  color: #6D28D9;
+}
+.jx-slashPopup-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.jx-slashPopup-icon--plugin { color: #6D28D9; }
+.jx-slashPopup-icon--skill { color: #f59e0b; }
+
+
+/* ── ContentEditable editor — replaces textarea ── */
+.jx-composerEditor {
+  position: relative;
+  min-height: 80px;
+  max-height: 200px;
+  /* padding-bottom 给绝对定位的 .jx-composerBar (50px) 让位 */
+  padding: 16px 16px 60px 16px;
+  font-size: 16px;
+  color: #262626;
+  line-height: 1.5715;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-y: auto;
+  /* 关闭浏览器滚动锚定，避免内容变化时浏览器擅自移动光标位置 */
+  overflow-anchor: none;
+  cursor: text;
+}
+/* Placeholder — must be absolute so it doesn't push the cursor */
+.jx-composerEditor--empty::before {
+  content: attr(data-placeholder);
+  color: #B3B3B3;
+  pointer-events: none;
+  position: absolute;
+}
+
+/* ── Inline chips inside the editor (same text flow) ── */
+.jx-editorChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  vertical-align: baseline;
+  cursor: default;
+  user-select: all;
+  white-space: nowrap;
+}
+.jx-editorChip--mention {
+  background: #EBF2FF;
+  color: #126DFF;
+}
+.jx-editorChip--skill {
+  background: #e0f2fe;
+  color: var(--color-primary);
+}
+/* 插件 chip 与技能 chip 视觉区分：紫色底 */
+.jx-editorChip--plugin {
+  background: #EDE9FE;
+  color: #6D28D9;
+}
+.jx-editorChip-prefix {
+  font-weight: 700;
+}
+.jx-editorChip-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Message chip badges (user bubble) ── */
+.jx-msgChipBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.jx-msgChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.jx-msgChip--mention {
+  background: #EBF2FF;
+  color: #126DFF;
+}
+.jx-msgChip--skill {
+  background: #e0f2fe;
+  color: var(--color-primary);
+}
+/* 插件 chip 与技能 chip 视觉区分：紫色底 */
+.jx-msgChip--plugin {
+  background: #EDE9FE;
+  color: #6D28D9;
+}
+.jx-msgChip-prefix {
+  font-weight: 700;
+}
+
+/* ── Attach dropdown menu ── */
+.jx-attachMenu .ant-dropdown-menu {
+  padding: 4px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(15,23,42,.14);
+  min-width: 160px;
+}
+.jx-attachMenu .ant-dropdown-menu-item {
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  gap: 8px;
+  padding: 8px 12px;
+}
+.jx-attachMenu .ant-dropdown-menu-item:hover {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+.jx-attachMenu .ant-dropdown-menu-item .anticon {
+  font-size: 15px;
+}
+/* 「自主循环」菜单项：名称在左、开关贴右 */
+.jx-attachMenu-toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 132px;
+}
+/* 子菜单浮层（技能 / 添加到项目）单独挂载，不继承 overlayClassName。
+ * 限高 + 内部滚动，避免项目/技能很多时浮层超出视口。 */
+.ant-dropdown-menu-submenu-popup .ant-dropdown-menu {
+  max-height: 60vh;
+  overflow-y: auto;
+  min-width: 180px;
+}
+
+/* ── My Space Import Modal ── */
+.jx-spaceImportModal .ant-modal-content {
+  border-radius: var(--radius-lg);
+}
+.jx-spaceImportList {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.jx-spaceImportItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background .15s;
+  border: 1px solid transparent;
+}
+.jx-spaceImportItem:hover {
+  background: var(--color-primary-light);
+}
+.jx-spaceImportItem.selected {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary-bg);
+}
+.jx-spaceImportItem-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  background: var(--color-bg-gray);
+}
+.jx-spaceImportItem-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: var(--radius-xs);
+}
+.jx-spaceImportItem-info {
+  flex: 1;
+  min-width: 0;
+}
+.jx-spaceImportItem-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jx-spaceImportItem-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+.jx-spaceImportItem--skeleton {
+  pointer-events: none;
+  cursor: default;
+}
+.jx-spaceImportItem--skeleton:hover {
+  background: transparent;
+}
+.jx-spaceImportItem-skCheckbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.jx-spaceImportItem-skIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+.jx-spaceImportItem-skName {
+  width: 64%;
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+.jx-spaceImportItem-skMeta {
+  width: 48px;
+  height: 9px;
+  border-radius: 6px;
+}
+
+/* ── My Space Import: split layout + preview ───────────────────── */
+.jx-spaceImportModal .ant-modal-body {
+  padding-top: 12px;
+}
+.jx-spaceImportLayout {
+  display: flex;
+  gap: 16px;
+  height: 560px;
+}
+.jx-spaceImportLeft {
+  width: 460px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.jx-spaceImportLeft .jx-spaceImportList {
+  max-height: none;
+  flex: 1;
+  overflow-y: auto;
+}
+.jx-spaceImportRight {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-bg-gray);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  overflow: hidden;
+  display: flex;
+}
+.jx-spaceImportItem {
+  position: relative;
+}
+.jx-spaceImportItem.previewing {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary-bg);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+/* preview pane ----------------------------------------------------*/
+.jx-spaceImportPreview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.jx-spaceImportPreview-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.jx-spaceImportPreview-headerIcon {
+  flex-shrink: 0;
+}
+.jx-spaceImportPreview-headerName {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jx-spaceImportPreview-headerAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-secondary);
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.jx-spaceImportPreview-headerAction:hover {
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+}
+.jx-spaceImportPreview-body {
+  flex: 1;
+  overflow: auto;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* empty / loading / error / unsupported */
+.jx-spaceImportPreview-empty,
+.jx-spaceImportPreview-status {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+.jx-spaceImportPreview-emptyIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  margin-bottom: 8px;
+}
+.jx-spaceImportPreview-emptyTitle,
+.jx-spaceImportPreview-statusText {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+.jx-spaceImportPreview-emptySub,
+.jx-spaceImportPreview-statusSub {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  max-width: 320px;
+  line-height: 1.6;
+}
+.jx-spaceImportPreview-status--error .jx-spaceImportPreview-statusText {
+  color: var(--color-error, #ef4444);
+}
+
+/* image / media -------------------------------------------------- */
+.jx-spaceImportPreview-image {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background:
+    linear-gradient(45deg, #f3f4f6 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, #f3f4f6 25%, transparent 25%) 0 8px / 16px 16px,
+    linear-gradient(45deg, transparent 75%, #f3f4f6 75%) 8px -8px / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, #f3f4f6 75%) 8px 0 / 16px 16px,
+    #fff;
+}
+.jx-spaceImportPreview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-xs);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+.jx-spaceImportPreview-media {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #000;
+}
+.jx-spaceImportPreview-media video {
+  max-width: 100%;
+  max-height: 100%;
+}
+.jx-spaceImportPreview-audio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+}
+.jx-spaceImportPreview-audioCover {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-bg) 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.jx-spaceImportPreview-audioName {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  max-width: 80%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jx-spaceImportPreview-audio audio {
+  width: 80%;
+  max-width: 400px;
+}
+
+/* iframe / pdf --------------------------------------------------- */
+.jx-spaceImportPreview-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* text / json --------------------------------------------------- */
+.jx-spaceImportPreview-text {
+  flex: 1;
+  margin: 0;
+  padding: 16px 20px;
+  background: #fafbfc;
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+.jx-spaceImportPreview-text--json {
+  color: #1e3a8a;
+}
+
+/* markdown ------------------------------------------------------- */
+.jx-spaceImportPreview-md {
+  flex: 1;
+  padding: 20px 28px;
+  overflow: auto;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--color-text);
+}
+.jx-spaceImportPreview-md h1,
+.jx-spaceImportPreview-md h2,
+.jx-spaceImportPreview-md h3,
+.jx-spaceImportPreview-md h4 {
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.jx-spaceImportPreview-md h1 { font-size: 1.6em; border-bottom: 1px solid var(--color-border); padding-bottom: .3em; }
+.jx-spaceImportPreview-md h2 { font-size: 1.3em; }
+.jx-spaceImportPreview-md h3 { font-size: 1.1em; }
+.jx-spaceImportPreview-md p { margin: .6em 0; }
+.jx-spaceImportPreview-md code {
+  background: var(--color-bg-gray);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.jx-spaceImportPreview-md pre {
+  background: #fafbfc;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+.jx-spaceImportPreview-md pre code {
+  background: transparent;
+  padding: 0;
+}
+.jx-spaceImportPreview-md blockquote {
+  margin: .8em 0;
+  padding: .2em 1em;
+  border-left: 3px solid var(--color-primary);
+  background: var(--color-primary-light);
+  color: var(--color-text-secondary);
+}
+.jx-spaceImportPreview-md ul,
+.jx-spaceImportPreview-md ol {
+  padding-left: 1.6em;
+  margin: .6em 0;
+}
+.jx-spaceImportPreview-md table {
+  border-collapse: collapse;
+  margin: .8em 0;
+  font-size: 12.5px;
+}
+.jx-spaceImportPreview-md table th,
+.jx-spaceImportPreview-md table td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+}
+.jx-spaceImportPreview-md table th {
+  background: var(--color-bg-gray);
+  font-weight: 600;
+}
+.jx-spaceImportPreview-md img {
+  max-width: 100%;
+  border-radius: var(--radius-xs);
+}
+
+/* csv / xlsx table ---------------------------------------------- */
+.jx-spaceImportPreview-tableWrap {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  background: #fff;
+}
+.jx-spaceImportPreview-table,
+.jx-spaceImportPreview-tableWrap table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.jx-spaceImportPreview-table th,
+.jx-spaceImportPreview-table td,
+.jx-spaceImportPreview-tableWrap table th,
+.jx-spaceImportPreview-tableWrap table td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+.jx-spaceImportPreview-table th,
+.jx-spaceImportPreview-tableWrap table th {
+  background: var(--color-bg-gray);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.jx-spaceImportPreview-table tr:nth-child(even) td,
+.jx-spaceImportPreview-tableWrap table tr:nth-child(even) td {
+  background: #fafbfc;
+}
+
+/* xlsx sheet tabs ----------------------------------------------- */
+.jx-spaceImportPreview-xlsx {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.jx-spaceImportPreview-sheetTabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--color-border);
+  background: #fff;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.jx-spaceImportPreview-sheetTab {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  border-bottom: 2px solid transparent;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.jx-spaceImportPreview-sheetTab:hover {
+  background: var(--color-bg-gray);
+  color: var(--color-text);
+}
+.jx-spaceImportPreview-sheetTab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ── Mermaid diagram blocks ────────────────────────────────────── */
+.jx-mermaid {
+  margin: 12px 0;
+  padding: 16px;
+  background: #FAFBFC;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  min-height: 60px;
+}
+.jx-mermaid--rendered {
+  background: transparent;
+  border-color: transparent;
+  padding: 8px 0;
+}
+/* 渲染完成：svg 淡入（复用全局原语 keyframes） */
+.jx-mermaid--rendered svg {
+  animation: jx-kf-fadeIn var(--motion-duration-normal) var(--motion-ease-standard) both;
+}
+.jx-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.jx-mermaid-loading {
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+  padding: 12px 0;
+}
+.jx-mermaid--error {
+  border-color: var(--color-error);
+  background: rgba(252, 93, 93, 0.04);
+}
+.jx-mermaid--error pre {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.jx-mermaid-errorMsg {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--color-error);
+}
+
+/* ── KaTeX math rendering ──────────────────────────────────────── */
+.katex {
+  font-size: 1.05em;
+}
+.katex-display {
+  overflow-x: auto;
+  padding: 8px 0;
+  margin: 4px 0;
+}
+.katex-display > .katex {
+  font-size: 1.15em;
+}
+.jx-katex-error {
+  color: var(--color-error);
+  font-size: 12px;
+}
+
+/* ── Edit message ──────────────────────────────────────────────── */
+.jx-editMessage {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--color-fill-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.jx-editMessage-input {
+  font-size: 13px;
+  resize: vertical;
+}
+.jx-editMessage-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── 消息内展开块（编辑框 / 点踩表单）：lazy-keep-mounted + jx-expandWrap 切类 ──
+   外层 margin 收到 wrap 上随展开过渡；收起态 visibility:hidden 防 Tab 聚焦到隐藏控件 */
+.jx-msgExpand{
+  visibility:hidden;
+  margin-top:0;
+  transition:grid-template-rows var(--expand-dur,.25s) var(--motion-ease-brand-out),
+             opacity calc(var(--expand-dur,.25s) - .05s) var(--motion-ease-standard),
+             margin-top var(--expand-dur,.25s) var(--motion-ease-standard),
+             visibility 0s linear var(--expand-dur,.25s);
+}
+.jx-msgExpand.jx-expandWrap--open{
+  visibility:visible;
+  margin-top:8px;
+  transition-delay:0s;
+}
+.jx-msgExpand > .jx-editMessage,
+.jx-msgExpand > .jx-dislikeFeedback{
+  min-height:0;
+  overflow:hidden;
+  margin-top:0;
+}
+
+/* ── legacy 思考块 chevron：单图标 rotate 过渡（替代双图标硬切） ── */
+.jx-thinkingBlockHeader .jx-expandIcon{
+  transition:transform var(--motion-duration-fast) var(--motion-ease-brand-out);
+}
+.jx-thinkingBlockHeader .jx-expandIcon--open{
+  transform:rotate(180deg);
+}
+
+/* ── Chat area skeleton screen ── */
+.jx-chatSkeleton {
+  justify-content: center;
+}
+.jx-chatSkeletonCenter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 840px;
+  max-width: 100%;
+  gap: 24px;
+}
+.jx-chatSkeletonHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0 8px;
+}
+.jx-chatSkeletonTitle {
+  width: 280px;
+  height: 48px;
+  border-radius: 12px !important;
+}
+.jx-chatSkeletonSubtitle {
+  width: 200px;
+  height: 20px;
+  border-radius: 999px !important;
+}
+.jx-chatSkeletonInput {
+  width: 100%;
+  height: 148px;
+  border-radius: 20px !important;
+}
+.jx-chatSkeletonCards {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.jx-chatSkeletonCard {
+  width: 80px;
+  height: 80px;
+  border-radius: 14px !important;
+  flex-shrink: 0;
+}

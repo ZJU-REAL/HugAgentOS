@@ -1,0 +1,15 @@
+<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 流程指引：步骤节点+箭头 -->
+<circle cx="7" cy="7" r="3.5" fill="#126DFF"/>
+<circle cx="21" cy="7" r="3.5" fill="#88B6FF"/>
+<circle cx="7" cy="21" r="3.5" fill="#88B6FF"/>
+<circle cx="21" cy="21" r="3.5" fill="#126DFF"/>
+<path d="M10.5 7H17.5" stroke="#126DFF" stroke-width="1.2" stroke-linecap="round"/>
+<path d="M16 5.5L17.5 7L16 8.5" stroke="#126DFF" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M21 10.5V17.5" stroke="#126DFF" stroke-width="1.2" stroke-linecap="round"/>
+<path d="M19.5 16L21 17.5L22.5 16" stroke="#126DFF" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M17.5 21H10.5" stroke="#126DFF" stroke-width="1.2" stroke-linecap="round"/>
+<path d="M12 22.5L10.5 21L12 19.5" stroke="#126DFF" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="5.5" y="5.5" width="3" height="3" rx="1.5" fill="#fff" fill-opacity="0.3"/>
+<rect x="19.5" y="19.5" width="3" height="3" rx="1.5" fill="#fff" fill-opacity="0.3"/>
+</svg>

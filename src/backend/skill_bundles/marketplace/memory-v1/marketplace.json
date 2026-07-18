@@ -1,0 +1,22 @@
+{
+  "slug": "memory-v1",
+  "entry_name": "memory-v1",
+  "display_name": "记忆管理",
+  "summary": "解决AI记忆混乱问题——\"今天讲明天忘\"。通过文件系统和规则流程实现持久记忆，确保新任务开始时自动回顾上下文，而不是靠\"想\"。核心机制：任务开始判断→读取记忆→执行→保存。适用于频繁切换话题或任务的AI协作场景。",
+  "category": "办公效率",
+  "tags": [
+    "记忆",
+    "上下文",
+    "持久化"
+  ],
+  "version": "1.0.0",
+  "author": "long577",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/a78375f1-773e-4817-b4f3-0557b6afd777.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/memory-v1",
+  "downloads": 220,
+  "stars": 10,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

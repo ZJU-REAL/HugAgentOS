@@ -1,0 +1,76 @@
+#!/bin/sh
+# ppt-cli — global shim that routes to the ppt-design skill's Python CLI
+# (``scripts/ppt.py``). Installed at /usr/local/bin/ppt-cli inside the
+# sandbox and mcp container images so the agent can call ``ppt-cli build …``
+# without bookkeeping a long path.
+#
+# Resolution order (first existing wins):
+#   1. /workspace/skills/ppt-design/scripts/ppt.py
+#      — where ``register_bash`` materializes loaded skill files inside the
+#        sandbox at runtime.
+#   2. ${SKILL_DIR}/scripts/ppt.py
+#      — escape hatch for callers that pin an explicit skill dir.
+#   3. /app/src/backend/agent_skills/skills/ppt-design/scripts/ppt.py
+#      — the canonical in-repo path; works in the mcp / backend containers.
+#   4. <this file>/../ppt.py
+#      — last-resort sibling lookup, e.g. when this shim is symlinked into
+#        the user's PATH from a checkout.
+#
+# Python selection:
+#   The opensandbox image ships a custom CPython venv at ``$PY_BIN``
+#   (currently ``/opt/python/versions/cpython-3.14.2-…/bin/python3``) with
+#   the heavy skill deps installed (python-pptx, pdfplumber, openpyxl, …).
+#   The system ``/usr/bin/python3`` does NOT have those packages. We must
+#   prefer ``$PY_BIN`` so any subcommand that touches python-pptx (``info``
+#   / ``extract`` / the python-pptx engine path of ``build``) actually
+#   imports cleanly. Mcp / script-runner containers don't set PY_BIN and
+#   their system python3 has everything, so the fallback chain still works.
+set -e
+
+if [ -n "${PY_BIN:-}" ] && [ -x "$PY_BIN" ]; then
+    PY="$PY_BIN"
+else
+    PY="$(command -v python3 || command -v python)"
+fi
+
+if [ -z "$PY" ]; then
+    echo "ppt-cli: no python interpreter found (PATH lacks python3/python and PY_BIN is unset)" >&2
+    exit 127
+fi
+
+resolve_self() {
+    target="$0"
+    while [ -L "$target" ]; do
+        link=$(readlink "$target") || break
+        case "$link" in
+            /*) target="$link" ;;
+            *)  target="$(dirname "$target")/$link" ;;
+        esac
+    done
+    dirname "$target"
+}
+
+candidates="
+/workspace/skills/ppt-design/scripts/ppt.py
+${SKILL_DIR:-}/scripts/ppt.py
+/app/src/backend/agent_skills/skills/ppt-design/scripts/ppt.py
+$(resolve_self 2>/dev/null)/ppt.py
+"
+
+for candidate in $candidates; do
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+        exec "$PY" "$candidate" "$@"
+    fi
+done
+
+cat >&2 <<'EOF'
+ppt-cli: cannot locate the ppt-design skill's scripts/ppt.py.
+Searched (first match wins):
+  - /workspace/skills/ppt-design/scripts/ppt.py
+  - $SKILL_DIR/scripts/ppt.py
+  - /app/src/backend/agent_skills/skills/ppt-design/scripts/ppt.py
+  - <shim's directory>/ppt.py
+If you're outside the sandbox / containers, point SKILL_DIR at the skill root
+or invoke the underlying script directly: python <skill_dir>/scripts/ppt.py
+EOF
+exit 127

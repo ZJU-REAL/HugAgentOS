@@ -1,0 +1,417 @@
+/* ============================================================
+   财报排雷 v1.3.0 — HTML 报告样式（内嵌）
+   设计原则：数据优先、层次分明、异常醒目、打印友好
+   ============================================================ */
+
+/* ---- 基础重置 ---- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1a1a2e;
+  background: #f0f2f5;
+  padding: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 24px rgba(0,0,0,0.07);
+  overflow: hidden;
+}
+
+/* ---- 头部 ---- */
+.header {
+  background: linear-gradient(135deg, #0f0c29, #1a1a2e, #24243e);
+  color: #fff;
+  padding: 48px 56px 40px;
+}
+.header h1 {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+.header .meta {
+  font-size: 13px;
+  opacity: 0.75;
+  letter-spacing: 0.5px;
+}
+
+/* ---- 内容区 ---- */
+.content { padding: 48px 56px 56px; }
+
+/* ---- 标题分级 ---- */
+h2 {
+  font-size: 21px;
+  font-weight: 700;
+  color: #16213e;
+  margin: 44px 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 3px solid #e94560;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+h2::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 22px;
+  background: #e94560;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+
+h3 {
+  font-size: 17px;
+  font-weight: 600;
+  color: #333;
+  margin: 28px 0 12px;
+}
+h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #555;
+  margin: 18px 0 8px;
+}
+p { margin: 8px 0; }
+ul { margin: 8px 0; padding-left: 20px; }
+
+/* ---- 警示框 ---- */
+.warning-box {
+  background: linear-gradient(135deg, #fff8e1, #fff3cd);
+  border-left: 5px solid #f39c12;
+  padding: 16px 22px;
+  margin: 16px 0 24px;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  color: #7d6608;
+}
+.danger-box {
+  background: linear-gradient(135deg, #ffebee, #ffeaea);
+  border-left: 5px solid #e74c3c;
+  padding: 16px 22px;
+  margin: 16px 0 24px;
+  border-radius: 0 8px 8px 0;
+  color: #922b21;
+  font-size: 13px;
+}
+.danger-box strong, .warning-box strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+/* ---- 速览卡片 ---- */
+.summary-box {
+  background: #f8f9fc;
+  border-left: 5px solid #16213e;
+  padding: 22px 28px;
+  margin: 16px 0 24px;
+  border-radius: 0 8px 8px 0;
+}
+.summary-box p {
+  margin: 6px 0;
+  font-size: 14px;
+}
+.summary-box .label {
+  display: inline-block;
+  min-width: 100px;
+  color: #666;
+}
+
+/* ---- 风险等级徽章 ---- */
+.risk-level {
+  display: inline-block;
+  padding: 3px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.risk-safe    { color: #27ae60; }
+.risk-warn    { color: #e67e22; }
+.risk-high    { color: #e74c3c; }
+.risk-critical{ background: #e74c3c; color: #fff; padding: 4px 16px; border-radius: 14px; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 2px;
+}
+.badge-green  { background: #d5f5e3; color: #1e8449; }
+.badge-yellow { background: #fdebd0; color: #b9770e; }
+.badge-red    { background: #fadbd8; color: #c0392b; }
+.badge-gray   { background: #ebedef; color: #7f8c8d; }
+
+/* ---- 表格系统 ---- */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 14px 0 22px;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 600px; /* 防止过窄 */
+}
+
+thead th {
+  background: #1a1a2e;
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 12px;
+  text-align: center;
+  border: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+thead th:first-child {
+  text-align: left;
+  padding-left: 16px;
+  border-radius: 8px 0 0 0;
+}
+thead th:last-child {
+  border-radius: 0 8px 0 0;
+}
+
+tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  white-space: nowrap;
+}
+tbody td:first-child {
+  font-weight: 600;
+  color: #1a1a2e;
+  padding-left: 16px;
+  white-space: nowrap;
+}
+tbody td:not(:first-child) {
+  text-align: center;
+}
+
+/* 斑马纹 */
+tbody tr:nth-child(even) {
+  background: #f8f9fc;
+}
+tbody tr:hover {
+  background: #eef1f7;
+}
+
+/* ---- 数字列右对齐 ---- */
+td.num, td.pct, td.amt {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 无数据标记 ---- */
+td.nodata {
+  color: #bbb;
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* ---- 高风险标记 ---- */
+td.warn-cell {
+  background: #fff8e1 !important;
+  color: #b9770e;
+  font-weight: 600;
+}
+td.critical-cell {
+  background: #ffeaea !important;
+  color: #c0392b;
+  font-weight: 700;
+}
+td.good-cell {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+/* ---- 排雷异常清单表格 ---- */
+.checklist-table tbody td:nth-child(3) {
+  font-weight: 700;
+  min-width: 80px;
+}
+.checklist-table tbody td:nth-child(5) {
+  font-weight: 600;
+  text-align: center;
+}
+.checklist-table tbody td:nth-child(4) {
+  font-size: 11px;
+  color: #666;
+  max-width: 300px;
+  white-space: normal;
+  word-break: break-all;
+}
+
+/* 风险等级色标 */
+.risk-label {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.risk-label-low    { background: #d5f5e3; color: #1e8449; }
+.risk-label-medium  { background: #fdebd0; color: #b9770e; }
+.risk-label-high    { background: #fadbd8; color: #c0392b; }
+.risk-label-critical{ background: #e74c3c; color: #fff; }
+
+/* ---- 异常清单列表 ---- */
+.anomaly-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 16px;
+}
+.anomaly-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 14px;
+  margin: 4px 0;
+  background: #fff8e1;
+  border-left: 4px solid #f39c12;
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+}
+.anomaly-item .anomaly-icon {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-weight: 700;
+  color: #e67e22;
+}
+.anomaly-item .anomaly-detail {
+  color: #666;
+  font-size: 12px;
+  margin-left: 4px;
+}
+.anomaly-item.anomaly-critical {
+  background: #ffeaea;
+  border-left-color: #e74c3c;
+}
+.anomaly-item.anomaly-critical .anomaly-icon {
+  color: #e74c3c;
+}
+
+/* 无异常提示 */
+.no-anomaly {
+  color: #27ae60;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 6px 0;
+}
+
+/* ---- 舞弊核查表 ---- */
+.fraud-table tbody td:nth-child(3) {
+  font-weight: 700;
+}
+
+/* ---- 公司信息行 ---- */
+.info-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin: 8px 0 16px;
+  padding: 12px 16px;
+  background: #f8f9fc;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.info-row span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.info-row .label {
+  color: #888;
+  font-weight: 500;
+}
+.info-row .value {
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+/* ---- 模块分组 ---- */
+.module-section {
+  margin-bottom: 8px;
+}
+.module-badge {
+  display: inline-block;
+  background: #16213e;
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* ---- 脚注 ---- */
+.footer {
+  text-align: center;
+  padding: 24px;
+  font-size: 12px;
+  color: #aaa;
+  border-top: 1px solid #eee;
+  background: #fafafa;
+}
+
+/* ---- 响应式 ---- */
+@media (max-width: 900px) {
+  body { padding: 12px; }
+  .header { padding: 32px 24px 28px; }
+  .content { padding: 28px 24px; }
+  .header h1 { font-size: 24px; }
+  h2 { font-size: 18px; }
+  table { font-size: 12px; min-width: 500px; }
+  thead th, tbody td { padding: 7px 8px; }
+}
+
+/* ---- 打印 ---- */
+@media print {
+  body {
+    background: #fff;
+    padding: 0;
+    font-size: 11px;
+  }
+  .container {
+    box-shadow: none;
+    border-radius: 0;
+    max-width: 100%;
+  }
+  .header { padding: 20px 28px; }
+  .content { padding: 20px 28px; }
+  h2 { margin: 24px 0 12px; font-size: 16px; }
+  table { font-size: 9px; min-width: auto; }
+  thead th, tbody td { padding: 5px 6px; }
+  .table-wrap { border: none; }
+  tr:nth-child(even) { background: #f5f5f5 !important; }
+  .anomaly-item {
+    border-left-width: 2px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  @page { margin: 1cm; }
+}

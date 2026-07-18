@@ -1,0 +1,323 @@
+/* markdown - enhanced styling */
+.jx-md{
+  font-size:14.5px;
+  line-height:1.74;
+  color:rgba(31,35,40,.84);
+  letter-spacing:.004em;
+}
+
+/* Headings with visual hierarchy */
+.jx-md h1,
+.jx-md h2,
+.jx-md h3,
+.jx-md h4{
+  font-weight:600;
+  margin:12px 0 6px;
+  line-height:1.44;
+  color:rgba(15,23,42,.94);
+}
+.jx-md h1:first-child,
+.jx-md h2:first-child,
+.jx-md h3:first-child{margin-top:0}
+
+.jx-md h1{
+  font-size:20px;
+  margin-bottom:6px;
+}
+.jx-md h2{
+  font-size:17px;
+  margin-bottom:5px;
+}
+.jx-md h3{
+  font-size:15px;
+  color:rgba(15,23,42,.88);
+  margin-bottom:4px;
+}
+.jx-md h4{
+  font-size:13px;
+  color:rgba(15,23,42,.70);
+  margin-bottom:4px;
+}
+
+/* Paragraphs */
+.jx-md p{
+  margin:0 0 10px;
+  line-height:1.76;
+}
+.jx-md p:last-child{margin-bottom:0}
+
+/* Lists with compact spacing */
+.jx-md ul,
+.jx-md ol{
+  margin:6px 0 10px;
+  padding-left:1.55em;
+}
+.jx-md li{
+  line-height:1.74;
+  margin:0;
+  color:rgba(31,35,40,.82);
+}
+.jx-md li > p{
+  margin:0;
+  line-height:1.74;
+}
+.jx-md ul > li + li,
+.jx-md ol > li + li{
+  margin-top:4px;
+}
+
+/* Nested lists */
+.jx-md li > ul,
+.jx-md li > ol{
+  margin-top:2px;
+  margin-bottom:0;
+}
+
+/* Code blocks with syntax highlighting style */
+.jx-md pre{
+  background:#f7f8fa;
+  padding:11px 14px;
+  border-radius:12px;
+  overflow:auto;
+  border:1px solid rgba(17,24,39,.07);
+  margin:10px 0;
+  box-shadow:none;
+}
+.jx-md code{
+  background:rgba(15,23,42,.05);
+  color:rgba(15,23,42,.82);
+  padding:2px 6px;
+  border-radius:6px;
+  font-size:12.5px;
+  font-family:'Consolas', 'Monaco', 'Courier New', monospace;
+  font-weight:500;
+}
+.jx-md pre code{
+  background:transparent;
+  color:rgba(31,35,40,.90);
+  padding:0;
+  font-weight:400;
+}
+
+/* Blockquotes with accent */
+.jx-md blockquote{
+  border-left:2px solid rgba(18,109,255,.50);
+  padding:10px 14px 10px 15px;
+  margin:10px 0;
+  background:rgba(18,109,255,.035);
+  border-radius:10px;
+  color:rgba(31,35,40,.82);
+  font-style:normal;
+}
+
+/* Tables */
+.jx-md table{
+  border-collapse:collapse;
+  width:100%;
+  margin:8px 0;
+  border-radius:8px;
+  overflow:hidden;
+  border:1px solid rgba(17,24,39,.12);
+  box-shadow:none;
+}
+.jx-md th,
+.jx-md td{
+  border:1px solid rgba(17,24,39,.08);
+  padding:10px 12px;
+  text-align:left;
+}
+.jx-md th{
+  background:#f3f6f9;
+  font-weight:900;
+  font-size:12px;
+  color:rgba(15,23,42,.85);
+  text-transform:uppercase;
+  letter-spacing:0.3px;
+}
+.jx-md td{
+  font-size:12px;
+  color:rgba(31,35,40,.85);
+}
+.jx-md tr:nth-child(even) td{
+  background:#f8fafc;
+}
+
+/* Links */
+.jx-md a{
+  color:rgba(15,23,42,.88);
+  text-decoration:none;
+  font-weight:600;
+  border-bottom:1px solid rgba(15,23,42,.25);
+  transition:all 0.2s ease;
+}
+.jx-md a:hover{
+  color:rgba(15,23,42,.98);
+  border-bottom-color:rgba(15,23,42,.5);
+}
+
+/* Strong/Bold text */
+.jx-md strong{
+  font-weight:900;
+  color:rgba(15,23,42,.95);
+}
+
+/* Horizontal rule */
+.jx-md hr{
+  border:none;
+  height:2px;
+  background:linear-gradient(90deg, rgba(18,109,255,.15) 0%, rgba(18,109,255,.05) 50%, rgba(18,109,255,.15) 100%);
+  margin:12px 0;
+  border-radius:2px;
+}
+
+/* ── 引用角标（CitationBadge）──
+   注意：角标在 markdown portal + DOM 移植机制下渲染，禁用 motion 组件，
+   hover 反馈一律 CSS-only；不加入场动画（流式重渲染会反复重放）。 */
+.jx-citBadge{
+  cursor:pointer;
+  color:#808080;
+  font-weight:400;
+  font-size:.72em;
+  background:#F5F6F7;
+  border:1px solid #E3E6EA;
+  border-radius:4px;
+  padding:0 4px;
+  margin:0 1px;
+  user-select:none;
+  vertical-align:super;
+  line-height:1;
+  display:inline-flex;
+  align-items:center;
+  gap:2px;
+  transition:color var(--motion-duration-fast) var(--motion-ease-standard),
+             background-color var(--motion-duration-fast) var(--motion-ease-standard),
+             border-color var(--motion-duration-fast) var(--motion-ease-standard),
+             transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-citBadge:hover{
+  color:var(--color-primary);
+  background:var(--color-primary-light);
+  border-color:rgba(18,109,255,.32);
+  transform:translateY(-1px);
+}
+
+/* ── App loading skeleton（首屏认证/Catalog 加载）───────────── */
+.jx-appLoading{
+  display:flex;
+  height:100vh;
+  width:100vw;
+  background:#fff;
+}
+.jx-appLoading-sidebar{
+  width:260px;
+  flex:0 0 260px;
+  padding:16px 12px;
+  border-right:1px solid var(--color-border);
+  background:#F4F5F7;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.jx-appLoading-brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:4px 6px 12px;
+}
+.jx-appLoading-skLogo{
+  width:28px;
+  height:28px;
+  border-radius:8px;
+  flex:0 0 auto;
+}
+.jx-appLoading-skBrandText{
+  width:96px;
+  height:14px;
+  border-radius:6px;
+}
+.jx-appLoading-skNewChat{
+  width:100%;
+  height:36px;
+  border-radius:10px;
+}
+.jx-appLoading-navList{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:4px 0;
+}
+.jx-appLoading-skNavItem{
+  width:100%;
+  height:32px;
+  border-radius:8px;
+}
+.jx-appLoading-historyList{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:8px;
+}
+.jx-appLoading-skHistoryGroupTitle{
+  width:56px;
+  height:10px;
+  border-radius:6px;
+  margin:6px 6px 2px;
+}
+.jx-appLoading-skHistoryItem{
+  width:calc(100% - 12px);
+  margin:0 6px;
+  height:32px;
+  border-radius:10px;
+}
+.jx-appLoading-main{
+  flex:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:40px;
+  overflow:hidden;
+}
+.jx-appLoading-center{
+  width:100%;
+  max-width:680px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:18px;
+}
+.jx-appLoading-skTitle{
+  width:240px;
+  height:28px;
+  border-radius:8px;
+}
+.jx-appLoading-skSubtitle{
+  width:320px;
+  height:14px;
+  border-radius:6px;
+}
+.jx-appLoading-skInput{
+  width:100%;
+  height:88px;
+  border-radius:16px;
+  margin-top:8px;
+}
+.jx-appLoading-cards{
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0, 1fr));
+  gap:12px;
+  width:100%;
+  margin-top:8px;
+}
+.jx-appLoading-skCard{
+  height:92px;
+  border-radius:12px;
+}
+@media (max-width: 720px){
+  .jx-appLoading-sidebar{
+    display:none;
+  }
+  .jx-appLoading-cards{
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+  }
+}
+

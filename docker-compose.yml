@@ -1,0 +1,503 @@
+x-logging: &id001
+  driver: json-file
+  options:
+    max-size: 50m
+    max-file: '5'
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: hugagent-postgres
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      POSTGRES_DB: hugagent
+      POSTGRES_USER: hugagent_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-hugagent_dev_password}
+      POSTGRES_INITDB_ARGS: -E UTF8 --locale=C
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    - ./src/backend/scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+    - 5432:5432
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U hugagent_user -d hugagent
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+    - hugagent-network
+  redis:
+    image: redis:7-alpine
+    container_name: hugagent-redis
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+    - redis_data:/data
+    ports:
+    - 6380:6379
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: hugagent-backend
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent
+      ENV: ${ENV:-dev}
+      PORT: ${BACKEND_PORT:-3001}
+      AUTH_MODE: ${AUTH_MODE:-mock}
+      AUTH_API_URL: ${AUTH_API_URL:-}
+      AUTH_API_TIMEOUT: ${AUTH_API_TIMEOUT:-5}
+      AUTH_RETRY_COUNT: ${AUTH_RETRY_COUNT:-2}
+      AUTH_MOCK_USER_ID: ${AUTH_MOCK_USER_ID:-dev_user_001}
+      AUTH_MOCK_USERNAME: ${AUTH_MOCK_USERNAME:-Developer}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SESSION_STORE: ${SESSION_STORE:-redis}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-8}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-jx_session}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_COOKIE_HTTPONLY: ${SESSION_COOKIE_HTTPONLY:-true}
+      SESSION_COOKIE_SAMESITE: ${SESSION_COOKIE_SAMESITE:-lax}
+      SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN:-}
+      SSO_LOGIN_MODE: ${SSO_LOGIN_MODE:-mock}
+      SSO_EXCHANGE_MODE: ${SSO_EXCHANGE_MODE:-mock}
+      SSO_MOCK_ENABLED: ${SSO_MOCK_ENABLED:-false}
+      SSO_TICKET_EXCHANGE_URL: ${SSO_TICKET_EXCHANGE_URL:-}
+      SSO_LOGIN_URL: ${SSO_LOGIN_URL:-}
+      SSO_LOGIN_PROVIDER_URL: ${SSO_LOGIN_PROVIDER_URL:-}
+      SSO_LOGOUT_URL: ${SSO_LOGOUT_URL:-}
+      SSO_CALLBACK_PARAM: ${SSO_CALLBACK_PARAM:-ticket}
+      SSO_TIMEOUT_SECONDS: ${SSO_TIMEOUT_SECONDS:-5}
+      MOCK_SSO_APP_BASE: ${MOCK_SSO_APP_BASE-}
+      OA_SSO_ENABLED: ${OA_SSO_ENABLED:-false}
+      OA_SSO_SIGN_SECRET: ${OA_SSO_SIGN_SECRET:-}
+      OA_SSO_SIGN_TTL_SECONDS: ${OA_SSO_SIGN_TTL_SECONDS:-300}
+      OA_SSO_DEFAULT_ROLE: ${OA_SSO_DEFAULT_ROLE:-member}
+      OA_SSO_TICKET_TTL_SECONDS: ${OA_SSO_TICKET_TTL_SECONDS:-60}
+      OA_SSO_REDIRECT_PATH: ${OA_SSO_REDIRECT_PATH:-/}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      CONFIG_TOKEN: ${CONFIG_TOKEN:-}
+      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      STORAGE_PATH: /app/storage
+      CATALOG_PATH: /app/storage/catalog.json
+      DESKTOP_RELEASE_DIR: ${DESKTOP_RELEASE_DIR:-/app/storage/desktop_release}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-100/minute}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_TO_FILE: ${LOG_TO_FILE:-false}
+      LOG_FILE_PATH: ${LOG_FILE_PATH:-/app/logs/backend.log}
+      LOG_FILE_MAX_BYTES: ${LOG_FILE_MAX_BYTES:-10485760}
+      LOG_FILE_BACKUP_COUNT: ${LOG_FILE_BACKUP_COUNT:-5}
+      MODEL_URL: ${MODEL_URL:-}
+      API_KEY: ${API_KEY:-}
+      BASE_MODEL_NAME: ${BASE_MODEL_NAME:-}
+      QWEN_MODEL_NAME: ${QWEN_MODEL_NAME:-}
+      SUMMARIZE_MODEL_NAME: ${SUMMARIZE_MODEL_NAME:-}
+      ENABLE_SUMMARY: ${ENABLE_SUMMARY:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE: ${OPENAI_API_BASE:-https://api.openai.com/v1}
+      QUERY_DATABASE_URL: ${QUERY_DATABASE_URL:-}
+      KNOWLEDGE_BASE: ${KNOWLEDGE_BASE:-}
+      DIFY_URL: ${DIFY_URL:-}
+      DIFY_API_KEY: ${DIFY_API_KEY:-}
+      DIFY_ALLOWED_DATASET_IDS: ${DIFY_ALLOWED_DATASET_IDS:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      INDUSTRY_URL: ${INDUSTRY_URL:-}
+      INDUSTRY_AUTH_TOKEN: ${INDUSTRY_AUTH_TOKEN:-}
+      MEM0_ENABLED: ${MEM0_ENABLED:-false}
+      MEM0_GRAPH_ENABLED: ${MEM0_GRAPH_ENABLED:-false}
+      MEMORY_MODEL_URL: ${MEMORY_MODEL_URL:-}
+      MEMORY_API_KEY: ${MEMORY_API_KEY:-}
+      MEMORY_MODEL_NAME: ${MEMORY_MODEL_NAME:-}
+      MEM0_EMBED_URL: ${MEM0_EMBED_URL:-}
+      MEM0_EMBED_API_KEY: ${MEM0_EMBED_API_KEY:-}
+      MEM0_EMBED_MODEL: ${MEM0_EMBED_MODEL:-qwen3_embedding_8b}
+      MEM0_EMBED_DIMS: ${MEM0_EMBED_DIMS:-4096}
+      MILVUS_URL: ${MILVUS_URL:-http://milvus:19530}
+      NEO4J_URL: ${NEO4J_URL:-bolt://neo4j:7687}
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-hugagent_neo4j_2026}
+      MEMORY_RETRIEVAL_BUDGET_MS: ${MEMORY_RETRIEVAL_BUDGET_MS:-600}
+      MCP_HOST: ${MCP_HOST:-mcp}
+      SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-script_runner}
+      SANDBOX_MAX_CONCURRENT: ${SANDBOX_MAX_CONCURRENT:-4}
+      SANDBOX_TOOLS_ENABLED: ${SANDBOX_TOOLS_ENABLED:-false}
+      SANDBOX_RUNNER_URL: ${SANDBOX_RUNNER_URL:-http://script-runner:8900}
+      SANDBOX_TOOLS_TIMEOUT: ${SANDBOX_TOOLS_TIMEOUT:-30}
+      SANDBOX_TOOLS_MAX_TIMEOUT: ${SANDBOX_TOOLS_MAX_TIMEOUT:-120}
+      HOST_STORAGE_PATH: ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}
+      CODE_CAPABILITY_ENABLED: ${CODE_CAPABILITY_ENABLED:-false}
+      FILE_PARSER_API_URL: ${FILE_PARSER_API_URL:-}
+      FILE_PARSER_TIMEOUT: ${FILE_PARSER_TIMEOUT:-60}
+      FILE_PARSER_LANG_LIST: ${FILE_PARSER_LANG_LIST:-ch}
+      FILE_PARSER_BACKEND: ${FILE_PARSER_BACKEND:-pipeline}
+      FILE_PARSER_PARSE_METHOD: ${FILE_PARSER_PARSE_METHOD:-auto}
+      FILE_PARSER_FORMULA_ENABLE: ${FILE_PARSER_FORMULA_ENABLE:-true}
+      FILE_PARSER_TABLE_ENABLE: ${FILE_PARSER_TABLE_ENABLE:-true}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:${BACKEND_PORT:-3001}}
+      BACKEND_INTERNAL_TOKEN: ${BACKEND_INTERNAL_TOKEN:-}
+      HOST_REPO_PATH: ${HOST_REPO_PATH:-/app/repo}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-hugagent}
+    volumes:
+    - ./src/backend:/app/src/backend
+    - ./alembic.ini:/app/alembic.ini:ro
+    - ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}:/app/storage:rw
+    - manual_data:/app/storage/manual
+    - page_config_data:/app/storage/page_config
+    - ./logs:/app/logs
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ${HOST_REPO_PATH:-./}:${HOST_REPO_PATH:-/app/repo}
+    group_add:
+    - ${DOCKER_GID:-999}
+    ports:
+    - ${BACKEND_PORT:-3001}:${BACKEND_PORT:-3001}
+    extra_hosts:
+    - host.docker.internal:host-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp:
+        condition: service_started
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:${BACKEND_PORT:-3001}/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mcp
+    container_name: hugagent-mcp
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent
+      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      STORAGE_PATH: /app/storage
+      MODEL_URL: ${MODEL_URL:-}
+      API_KEY: ${API_KEY:-}
+      BASE_MODEL_NAME: ${BASE_MODEL_NAME:-}
+      QWEN_MODEL_NAME: ${QWEN_MODEL_NAME:-}
+      KNOWLEDGE_BASE: ${KNOWLEDGE_BASE:-}
+      DIFY_URL: ${DIFY_URL:-}
+      DIFY_API_KEY: ${DIFY_API_KEY:-}
+      DIFY_ALLOWED_DATASET_IDS: ${DIFY_ALLOWED_DATASET_IDS:-}
+      MILVUS_URL: ${MILVUS_URL:-http://milvus:19530}
+      MILVUS_TOKEN: ${MILVUS_TOKEN:-}
+      RERANKER_URL: ${RERANKER_URL:-}
+      RERANKER_MODEL: ${RERANKER_MODEL:-}
+      RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+      INTERNET_SEARCH_ENGINE: ${INTERNET_SEARCH_ENGINE:-tavily}
+      INTERNET_SEARCH_CN_ONLY: ${INTERNET_SEARCH_CN_ONLY:-}
+      INTERNET_SEARCH_CN_STRICT: ${INTERNET_SEARCH_CN_STRICT:-}
+      INTERNET_SEARCH_COUNTRY: ${INTERNET_SEARCH_COUNTRY:-}
+      INTERNET_SEARCH_AUTO_PARAMETERS: ${INTERNET_SEARCH_AUTO_PARAMETERS:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      BAIDU_API_KEY: ${BAIDU_API_KEY:-}
+      INDUSTRY_URL: ${INDUSTRY_URL:-}
+      INDUSTRY_AUTH_TOKEN: ${INDUSTRY_AUTH_TOKEN:-}
+      COMPANY_API_URL: ${COMPANY_API_URL:-}
+      COMPANY_AUTH_TOKEN: ${COMPANY_AUTH_TOKEN:-}
+      QUERY_DATABASE_URL: ${QUERY_DATABASE_URL:-}
+      QUERY_DATABASE_TIMEOUT_SECONDS: ${QUERY_DATABASE_TIMEOUT_SECONDS:-}
+      QUERY_DATABASE_RETRY_TIMES: ${QUERY_DATABASE_RETRY_TIMES:-}
+      QUERY_DATABASE_MAX_OUTPUT_TOKENS: ${QUERY_DATABASE_MAX_OUTPUT_TOKENS:-}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:${BACKEND_PORT:-3001}}
+      BACKEND_INTERNAL_TOKEN: ${BACKEND_INTERNAL_TOKEN:-}
+      BACKEND_PORT: ${BACKEND_PORT:-3001}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    volumes:
+    - ./src/backend:/app/src/backend
+    - ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}:/app/storage:rw
+    - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fsS
+      - http://localhost:9100/mcp/
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+  dbhub:
+    profiles:
+    - dbhub
+    image: bytebase/dbhub:latest
+    container_name: hugagent-dbhub
+    logging: *id001
+    command:
+    - --transport
+    - http
+    - --port
+    - '8080'
+    - --host
+    - 0.0.0.0
+    - --config
+    - /config/dbhub.toml
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+    - ./docker/dbhub:/config:ro
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+  es-mcp:
+    profiles:
+    - dbhub
+    image: docker.elastic.co/mcp/elasticsearch:latest
+    container_name: hugagent-es-mcp
+    logging: *id001
+    command:
+    - http
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    env_file:
+    - path: ./docker/dbhub/es.env
+      required: false
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+  script-runner:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.script-runner
+    container_name: hugagent-script-runner
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      SCRIPT_MAX_TIMEOUT: ${SANDBOX_TOOLS_MAX_TIMEOUT:-120}
+      SCRIPT_DEFAULT_TIMEOUT: ${SANDBOX_TOOLS_TIMEOUT:-30}
+      SCRIPT_MAX_MEMORY_MB: ${SANDBOX_TOOLS_MAX_MEMORY:-256}
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      NODE_PATH: /usr/lib/node_modules
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+    - /tmp:size=256m,uid=1001,gid=1001
+    - /workspace:size=256m,uid=1001,gid=1001
+    volumes:
+    - ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}/sandbox_skills:/workspace/skills:ro
+    - ${HOST_STORAGE_PATH}/yida_cache/__shared__/workspace:/home/ubuntu/yida-workspace
+    security_opt:
+    - no-new-privileges:true
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8900/health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        SSO_LOGIN_URL: ${SSO_LOGIN_URL:-}
+        VITE_UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-50}
+    container_name: hugagent-frontend
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      BACKEND_PORT: ${BACKEND_PORT:-3001}
+      UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-50}
+    ports:
+    - ${FRONTEND_PORT:-3002}:80
+    volumes:
+    - manual_data:/usr/share/nginx/html/docs/manual
+    - page_config_data:/usr/share/nginx/html/docs/page_config
+    depends_on:
+    - backend
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --quiet
+      - --tries=1
+      - --spider
+      - http://127.0.0.1:80/
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: hugagent-etcd
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: '1000'
+      ETCD_QUOTA_BACKEND_BYTES: '4294967296'
+      ETCD_SNAPSHOT_COUNT: '50000'
+    volumes:
+    - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test:
+      - CMD
+      - etcdctl
+      - endpoint
+      - health
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+    profiles:
+    - mem0
+  minio:
+    image: minio/minio:RELEASE.2023-03-13T19-46-17Z
+    container_name: hugagent-minio
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+    - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:9000/minio/health/live
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+    profiles:
+    - mem0
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: hugagent-milvus
+    logging: *id001
+    command:
+    - milvus
+    - run
+    - standalone
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+    - milvus_data:/var/lib/milvus
+    ports:
+    - 19530:19530
+    - 9091:9091
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:9091/healthz
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+    profiles:
+    - mem0
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: hugagent-neo4j
+    logging: *id001
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-hugagent_neo4j_2026}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    volumes:
+    - neo4j_data:/data
+    - neo4j_logs:/logs
+    ports:
+    - 7474:7474
+    - 7687:7687
+    healthcheck:
+      test:
+      - CMD
+      - cypher-shell
+      - -u
+      - neo4j
+      - -p
+      - ${NEO4J_PASSWORD:-hugagent_neo4j_2026}
+      - RETURN 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+    - hugagent-network
+    restart: unless-stopped
+    profiles:
+    - mem0
+networks:
+  hugagent-network:
+    driver: bridge
+volumes:
+  postgres_data: null
+  redis_data: null
+  etcd_data: null
+  minio_data: null
+  milvus_data: null
+  neo4j_data: null
+  neo4j_logs: null
+  manual_data: null
+  page_config_data: null
+  opensandbox_data: null
+  opensandbox_config: null

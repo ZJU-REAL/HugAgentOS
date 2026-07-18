@@ -1,0 +1,46 @@
+/* API 文档页样式（原 ApiDocPanel 全内联 style，抽 class 以支持 :hover/transition） */
+
+/* 左/中栏导航条目：选中态 + hover 过渡（选中只变色不变字重，避免文字宽度跳动） */
+.jx-apidoc-navItem {
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition:
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-apidoc-navItem:hover {
+  background: #F5F7FA;
+}
+
+/* 左栏：分组 */
+.jx-apidoc-groupItem {
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--color-text);
+}
+.jx-apidoc-groupItem.active,
+.jx-apidoc-groupItem.active:hover {
+  background: #E6F0FF;
+  border-left-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* 中栏：接口条目 */
+.jx-apidoc-epItem {
+  padding: 10px 12px;
+  border-bottom: 1px solid #F0F0F0;
+}
+.jx-apidoc-epItem.active,
+.jx-apidoc-epItem.active:hover {
+  background: #F5F8FF;
+  border-left-color: var(--color-primary);
+}
+
+/* 顶栏筛选计数：数值变化 keyed 淡入 */
+.jx-apidoc-countFade {
+  display: inline-block;
+  animation: jx-kf-fadeIn var(--motion-duration-normal) var(--motion-ease-standard) both;
+}

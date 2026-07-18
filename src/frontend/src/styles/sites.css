@@ -1,0 +1,161 @@
+/* 站点管理面板（实验室 → 站点） */
+
+.jx-sites-body {
+  padding: var(--space-md) 0;
+  overflow-y: auto;
+}
+
+.jx-sites-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 880px;
+}
+
+.jx-sites-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.jx-sites-cardMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.jx-sites-cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.jx-sites-cardTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-sites-cardUrl {
+  display: inline-block;
+  font-size: 14px;
+  color: var(--color-primary);
+  margin-bottom: var(--space-xs);
+  word-break: break-all;
+}
+
+.jx-sites-cardUrl:hover {
+  color: var(--color-primary-hover);
+}
+
+.jx-sites-cardMeta {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-sites-cardActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.jx-sites-emptyHint {
+  margin-top: var(--space-xs);
+  font-size: 12px;
+  color: var(--color-text-placeholder);
+}
+
+.jx-sites-tabActions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  justify-content: flex-end;
+}
+
+.jx-sites-payload {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+/* 分享记录页的「已发布站点」区块 */
+.jx-shareSites {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  background: var(--color-bg-gray);
+}
+
+.jx-shareSitesTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+}
+
+.jx-shareSiteRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.jx-shareSiteName {
+  font-weight: 500;
+  color: var(--color-text);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-shareSiteUrl {
+  color: var(--color-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-shareSiteViews {
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.jx-shareSitesHint {
+  margin-top: var(--space-xs);
+  font-size: 12px;
+  color: var(--color-text-placeholder);
+}
+
+/* ── 建站落地视图：沿用主对话空态骨架，仅补一个右上浮层工具条 ── */
+.jx-sitesEmptyPage { position: relative; }
+
+.jx-sitesCreate-topbar {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  right: var(--space-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 3;
+}
+
+/* ── 列表视图补充 ── */
+.jx-sites-search { margin-bottom: var(--space-lg); border-radius: var(--radius-lg); }
+.jx-sites-emptyTitle { font-size: 16px; font-weight: 600; color: var(--color-text); }

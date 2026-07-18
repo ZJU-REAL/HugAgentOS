@@ -1,0 +1,22 @@
+{
+  "slug": "cody",
+  "entry_name": "cody",
+  "display_name": "代码 Review 助手",
+  "summary": "代码 Review 助手。分析 Git diff 或代码片段，输出结构化中文 Review 报告，覆盖 Bug、安全漏洞、性能问题、可读性、最佳实践、类型安全、错误处理、测试覆盖。支持严格程度配置（信息/优化/标准/严重）和多种主流语言（Python/JS/TS/Java/Go/Rust）。支持 GitHub/GitLab PR diff 获取，支持 Markdown/JSON/HTML 多种输出格式。使用场景：用户说\"帮我 review 代码\"、\"检查这段代码\"、\"review 一下最近的改动\"、\"review 这个 PR\"、\"看看这个 diff 有没有问题\"、\"代码审查\"、\"code review\"、\"严格模式 review\"、\"快速 review\"。",
+  "category": "研发效率",
+  "tags": [
+    "代码Review",
+    "Git diff",
+    "中文评审"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/cody",
+  "downloads": 1587,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hugagent"
+version = "0.1.0"
+description = "Multi-agent platform with MCP integration (AgentScope 2.0)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "HugAgentOS Team"}
+]
+# Runtime deps are declared once in requirements.txt (the single source of
+# truth); read them dynamically so `pip install .` and the compose/venv paths
+# never drift. The no-Docker quick-install installer (`install.sh` in CE)
+# installs requirements.txt then `pip install --no-deps .` for the console entry.
+dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+]
+
+# Console entry for the no-Docker local profile: `hugagent` (onboard / serve /
+# doctor). CE and EE share this technical identifier.
+[project.scripts]
+hugagent = "cli:main"
+
+# ── Packaging: src/backend is the import root ────────────────────────────────
+# The project has always run with PYTHONPATH=src/backend (top-level `api`,
+# `core`, `orchestration`, … packages). Declare that so an editable/source
+# install exposes them and the `hugagent` console script resolves `cli:main`.
+[tool.setuptools]
+package-dir = {"" = "src/backend"}
+py-modules = ["cli"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+where = ["src/backend"]
+include = [
+    "api*", "core*", "orchestration*", "prompts*", "mcp_servers*",
+    "services*", "agent_bundles*", "plugin_bundles*", "skill_bundles*",
+]
+# alembic migrations / tests / uploads / scripts are not import-time runtime deps.
+exclude = ["tests*", "alembic*", "uploads*", "scripts*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | \.eggs
+  | \.tox
+  | build
+  | dist
+  | node_modules
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+
+[tool.mypy]
+python_version = "3.10"
+# 缓存放树外，避免在仓库根堆出 .mypy_cache/（可被 MYPY_CACHE_DIR 覆盖）
+cache_dir = "/tmp/hugagent-mypy-cache"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# 缓存放树外，避免在仓库根堆出 .pytest_cache/
+cache_dir = "/tmp/hugagent-pytest-cache"
+testpaths = ["src/backend/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+# AgentScope 2.0 迁移后测试普遍为 async；auto 模式让 pytest-asyncio 自动处理
+# `@pytest.mark.asyncio` 标记与裸 async def test，消除 strict 模式下的收集报错。
+asyncio_mode = "auto"
+markers = [
+    "asyncio: mark test as async (handled by pytest-asyncio auto mode)",
+]

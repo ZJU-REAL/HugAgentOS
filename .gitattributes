@@ -1,0 +1,29 @@
+# 换行符策略：以下文件会被 COPY 进 Linux 镜像或在容器/沙箱内由 bash/sh/nginx/compose
+# 解析执行，Windows 检出若被 core.autocrlf 转成 CRLF 会直接导致容器启动失败
+# （bash: /usr/bin/env 'bash\r' / nginx [emerg]）——一律强制 LF。
+# 注意：仅按类型圈定，不做全仓 renormalize，避免触碰存量已含 CRLF 的文档类文件。
+
+# 容器入口与 shell 脚本
+*.sh text eol=lf
+*.bash text eol=lf
+
+# nginx / opensandbox 配置模板
+*.template text eol=lf
+*.tpl text eol=lf
+
+# Docker 构建与编排（compose 内嵌 /bin/sh heredoc，CRLF 会把 \r 注入脚本）
+Dockerfile* text eol=lf
+*.dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+
+# Makefile（recipe 由 POSIX shell 执行）
+Makefile text eol=lf
+*.mk text eol=lf
+
+# 后端源码会 bind-mount 进 Linux 容器运行
+*.py text eol=lf
+
+# Windows 专用脚本保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

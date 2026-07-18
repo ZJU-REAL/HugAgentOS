@@ -1,0 +1,13 @@
+{
+  "name": "sample-translator",
+  "version": "1.0.0",
+  "display_name": "示例·快速翻译",
+  "description": "一个内置示例插件，演示插件包结构：打包一个翻译技能。可作为编写自有插件的参考模板。",
+  "category": "办公效率",
+  "components": {
+    "skills": ["quick-translate"]
+  },
+  "default_enabled": {
+    "skills": ["quick-translate"]
+  }
+}

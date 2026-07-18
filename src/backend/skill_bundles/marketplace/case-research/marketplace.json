@@ -1,0 +1,22 @@
+{
+  "slug": "case-research",
+  "entry_name": "case-research",
+  "display_name": "财税法规案例检索",
+  "summary": "中国财税法律案例与法规检索助手。当用户需要检索税务相关判例、行政复议决定、税收法规政策、国家税务总局公告、各地税务实践案例，或需要查找类似税务争议案例时，应使用本 Skill。适用于税务争议应对、税务筹划合规性验证、法律研究等场景。",
+  "category": "法务合规",
+  "tags": [
+    "法规检索",
+    "财税案例",
+    "判例"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/case-research",
+  "downloads": 1571,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

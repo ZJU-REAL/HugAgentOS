@@ -1,0 +1,384 @@
+/* ══════════════════════════════════════════════════════════════════
+   MCP Tools Page — card grid list + full-page detail
+   ══════════════════════════════════════════════════════════════════ */
+
+.jx-mcp-page {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 32px 24px 60px;
+  font-family: 'PingFang SC', -apple-system, sans-serif;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+
+.jx-mcp-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.jx-mcp-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1a1a1a;
+  margin: 0 0 6px;
+}
+
+.jx-mcp-subtitle {
+  font-size: 14px;
+  color: #999;
+  font-weight: 400;
+  margin: 0;
+}
+
+.jx-mcp-headerRight {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.jx-mcp-searchBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  width: 224px;
+  height: 32px;
+  background: #fff;
+  border: 1px solid #E3E6EA;
+  border-radius: 8px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.jx-mcp-searchPlaceholder {
+  font-size: 14px;
+  color: #B3B3B3;
+}
+
+.jx-mcp-searchInput {
+  width: 224px;
+  height: 32px;
+  border-radius: 8px;
+  border-color: #E3E6EA;
+  /* 假搜索框 → 真 Input 切换淡入（技能库 / MCP 库共用） */
+  animation: jx-kf-fadeIn 150ms var(--motion-ease-standard) backwards;
+}
+
+/* ── Card grid ──────────────────────────────────────────────────── */
+
+.jx-mcp-grid {
+  display: grid;
+  /* minmax(0,1fr)：防止卡片里不可折行的长名字把整列轨道撑爆（同 .jx-sk-grid） */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+/* hover 抬升/按压由 .jx-card-lift（motion.css）提供；
+   入场 stagger 由容器 .jx-anim-stagger + 子项 --stagger-i 提供 */
+.jx-mcp-card {
+  padding: 16px 20px;
+  border: 1px solid #E3E6EA;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jx-mcp-card:hover {
+  border-color: #c0cadb;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+
+.jx-mcp-cardTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-mcp-iconWrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #E3E6EA;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.jx-mcp-iconImg {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.jx-mcp-iconFallback {
+  background: #f0f2f5;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+}
+
+.jx-mcp-cardNameGroup {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.jx-mcp-cardName {
+  font-size: 16px;
+  font-weight: 500;
+  color: #1a1a1a;
+  overflow-wrap: anywhere;
+}
+
+.jx-mcp-enabledTag.ant-tag {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  border-radius: 4px;
+  padding: 1px 4px;
+  line-height: 18px;
+  /* 启用状态颜色由 inline style 切换，这里给过渡（对 inline 值同样生效） */
+  transition: var(--motion-transition-hover);
+}
+
+.jx-mcp-cardDesc {
+  font-size: 14px;
+  color: #999;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-align: justify;
+}
+
+.jx-mcp-pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+}
+
+/* ── Detail view ────────────────────────────────────────────────── */
+
+.jx-mcp-detailTop {
+  display: flex;
+  align-items: flex-start;
+}
+
+.jx-mcp-backBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 0;
+  margin-right: 16px;
+  margin-top: 4px;
+  color: #999;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: color .12s;
+}
+
+.jx-mcp-backBtn:hover {
+  color: #1a1a1a;
+}
+
+.jx-mcp-detailContent {
+  flex: 1;
+  min-width: 0;
+  max-width: 840px;
+}
+
+.jx-mcp-detailHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.jx-mcp-detailHeaderLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.jx-mcp-detailHeaderLeft .jx-mcp-iconWrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  margin-top: 2px;
+}
+
+.jx-mcp-detailHeaderLeft .jx-mcp-iconImg {
+  width: 36px;
+  height: 36px;
+}
+
+.jx-mcp-detailNameGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jx-mcp-detailNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-mcp-detailName {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.jx-mcp-version {
+  font-size: 12px;
+  color: #B3B3B3;
+  font-weight: 400;
+}
+
+.jx-mcp-detailHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.jx-mcp-enableLabel {
+  font-size: 14px;
+  color: #1a1a1a;
+}
+
+.jx-mcp-divider {
+  border: none;
+  border-top: 1px solid #E3E6EA;
+  margin: 20px 0;
+}
+
+/* ── Explain card ───────────────────────────────────────────────── */
+
+.jx-mcp-explainCard {
+  background: #F5F5F5;
+  border: 1px solid #E3E6EA;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.jx-mcp-explainRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jx-mcp-explainLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: #000;
+}
+
+.jx-mcp-explainValue {
+  font-size: 14px;
+  color: #1a1a1a;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* ── Detail body ────────────────────────────────────────────────── */
+
+.jx-mcp-detailBody {
+  line-height: 1.75;
+}
+
+.jx-mcp-bodyTitle {
+  font-size: 16px;
+  font-weight: 500;
+  color: #000;
+  margin: 0 0 8px;
+}
+
+.jx-mcp-bodyDesc {
+  font-size: 14px;
+  color: #555;
+  line-height: 1.75;
+  margin: 0 0 20px;
+}
+
+.jx-mcp-detailMarkdown {
+  max-width: 80ch;
+}
+
+.jx-mcp-detailBody .jx-md {
+  font-size: 14px;
+  line-height: 1.78;
+  color: rgba(31,35,40,.90);
+}
+
+.jx-mcp-detailBody .jx-md h1 { font-size: 20px; }
+.jx-mcp-detailBody .jx-md h2 { font-size: 17px; }
+.jx-mcp-detailBody .jx-md h3 { font-size: 15px; font-weight: 500; color: #000; }
+.jx-mcp-detailBody .jx-md p { margin: 0 0 12px; }
+.jx-mcp-detailBody .jx-md ul,
+.jx-mcp-detailBody .jx-md ol { margin: 8px 0; padding-left: 24px; }
+.jx-mcp-detailBody .jx-md li { line-height: 2; color: #555; }
+.jx-mcp-detailBody .jx-md li + li { margin-top: 2px; }
+
+.jx-mcp-toolsList {
+  margin: 8px 0 20px;
+  padding-left: 24px;
+}
+
+.jx-mcp-toolsList li {
+  font-size: 14px;
+  color: #555;
+  line-height: 2;
+}
+
+/* ── MCP detail page: sticky header + scrollable body ──────────── */
+
+.jx-mcp-detailPage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 0 24px;
+  box-sizing: border-box;
+}
+
+.jx-mcp-stickyHeader {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 14px;
+  border-bottom: 1px solid #E3E6EA;
+  box-shadow: 0 2px 6px rgba(15,23,42,.04);
+}
+
+/* Back button inside sticky header: reset margins */
+.jx-mcp-backBtn--inline {
+  margin: 0;
+  padding: 4px 8px 4px 0;
+}
+
+.jx-mcp-stickyBody {
+  padding: 20px 0 60px;
+}

@@ -1,0 +1,22 @@
+{
+  "slug": "financial-report-minesweeper",
+  "entry_name": "financial-report-minesweeper",
+  "display_name": "财报排雷",
+  "summary": "财报排雷 v1.3.0 — A股非金融类上市公司财务报表深度排雷分析（50项核心指标）。数据源优先使用通达信MCP (tdx-connector)，不可用时自动降级为同花顺THS。一键执行：run_minesweeper.py 自动完成下载→计算→报告(MD+HTML)。覆盖偿债能力、经营类资产质量、长期生产类资产、负债与权益结构、利润表收入与盈利质量、现金流量表质量六大排雷维度，含舞弊红线规则与五级风险判定（正常→谨慎关注→关注→规避→坚决回避）。注意：不适用于银行、保险、证券等金融企业。触发词：财报排雷、财务排雷、排雷分析、财务报表分析、财务造假识别。",
+  "category": "数据分析",
+  "tags": [
+    "财报分析",
+    "风险排查",
+    "A股"
+  ],
+  "version": "1.0.0",
+  "author": "SummerJyJimJx",
+  "icon_url": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/a78375f1-773e-4817-b4f3-0557b6afd777.png",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/financial-report-minesweeper",
+  "downloads": 368,
+  "stars": 5,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

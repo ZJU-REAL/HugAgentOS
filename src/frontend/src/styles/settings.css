@@ -1,0 +1,1375 @@
+/* ── Settings page (full-page, replaces chat area) ──────────────── */
+
+.jx-settings-page {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 40px 24px 60px;
+  font-family: 'PingFang SC', -apple-system, sans-serif;
+}
+
+.jx-settings-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: #1a1a1a;
+  margin: 0 0 28px;
+}
+
+.jx-settings-section-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #000;
+  margin: 0 0 10px;
+}
+
+/* Card container — bg-neutral-100, rounded-xl, border */
+.jx-settings-card {
+  background: #F5F5F5;
+  border: 1px solid #E3E6EA;
+  border-radius: 12px;
+  padding: 0;
+  margin-bottom: 24px;
+}
+
+/* ── 账号连接面板（飞书 / 钉钉 OAuth 设备流）──────────────────────
+   外层包在 .jx-settings-card（灰底）里，自管内边距。head 是品牌卡，
+   statusBar 用白底浮层突出状态与操作，pending 展示二维码授权区。 */
+.jx-conn {
+  padding: 16px;
+}
+.jx-conn-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.jx-conn-logo {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.jx-conn-logo--lark {
+  background: linear-gradient(135deg, #00D6B9 0%, #3370FF 100%);
+}
+.jx-conn-logo--dingtalk {
+  background: linear-gradient(135deg, #2AA3FF 0%, #1677FF 100%);
+}
+.jx-conn-logo--email {
+  background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+}
+.jx-conn-headText {
+  flex: 1;
+  min-width: 0;
+}
+.jx-conn-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+.jx-conn-desc {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #6b7280;
+}
+
+/* 状态条：白底浮层，左侧状态徽标 + 账号名，右侧操作按钮 */
+.jx-conn-statusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #E8EAED;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+}
+.jx-conn-statusLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.jx-conn-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.jx-conn-badge .anticon {
+  font-size: 13px;
+}
+.jx-conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.jx-conn-badge--connected   { background: #E7F7EF; color: #0A9D52; }
+.jx-conn-badge--pending     { background: #FFF7E6; color: #D48806; }
+.jx-conn-badge--error       { background: #FFF1F0; color: #CF1322; }
+.jx-conn-badge--disconnected{ background: #F0F1F3; color: #8C8C8C; }
+.jx-conn-account {
+  font-size: 13px;
+  color: #4b5563;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jx-conn-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* pending：二维码 + 授权说明 */
+.jx-conn-pending {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #E8EAED;
+  border-radius: 10px;
+}
+.jx-conn-qr {
+  text-align: center;
+  flex-shrink: 0;
+}
+.jx-conn-qr img {
+  width: 168px;
+  height: 168px;
+  background: #fff;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid #E8EAED;
+}
+.jx-conn-qrTip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+.jx-conn-pendingMain {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.jx-conn-pendingTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.jx-conn-link {
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.jx-conn-code {
+  font-size: 13px;
+  color: #4b5563;
+}
+.jx-conn-code code {
+  padding: 2px 8px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #1a1a1a;
+}
+.jx-conn-hint {
+  font-size: 12px;
+  color: #9ca3af;
+}
+/* 宜搭：多组织账号扫码后的组织选择列表 */
+.jx-conn-orgList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+/* 电子邮箱：凭据表单（无设备流，IMAP/SMTP 授权码同步绑定） */
+.jx-conn-form {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.jx-conn-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.jx-conn-fieldLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+.jx-conn-advGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.jx-conn-srvRow {
+  display: flex;
+  gap: 8px;
+}
+.jx-conn-srvRow > :first-child {
+  flex: 1;
+}
+
+/* 错误 / 失效说明 */
+.jx-conn-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.jx-conn-note--warning {
+  background: #FFFBE6;
+  border: 1px solid #FFE58F;
+  color: #ad6800;
+}
+.jx-conn-note--error {
+  background: #FFF1F0;
+  border: 1px solid #FFCCC7;
+  color: #cf1322;
+}
+
+/* API-Key 面板：card 本身 padding:0（由内部 row 自管），这里给面板留出内边距，
+   避免内容/说明文字贴着灰色边框。 */
+.jx-apikey-panel {
+  padding: var(--space-md, 16px);
+}
+.jx-apikey-panel .jx-apikey-intro {
+  margin-bottom: var(--space-md, 16px);
+  line-height: 1.6;
+}
+
+/* ── User info ──────────────────────────────────────────────────── */
+
+.jx-settings-userInfo {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 20px;
+}
+
+.jx-settings-avatarWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.jx-settings-avatarHoverBtn {
+  position: relative;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  display: block;
+  flex-shrink: 0;
+}
+
+.jx-settings-avatarHoverBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.jx-settings-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: block;
+  object-fit: cover;
+  background: #fff;
+  border: 1px solid #E3E6EA;
+}
+
+.jx-settings-avatarOverlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.jx-settings-avatarHoverBtn:hover .jx-settings-avatarOverlay {
+  opacity: 1;
+}
+
+.jx-settings-avatarPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.jx-settings-avatarPickerHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.jx-settings-avatarPickerTitle {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #334155;
+}
+
+.jx-settings-avatarPickerDesc {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.jx-settings-avatarGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.jx-settings-avatarOption {
+  appearance: none;
+  border: 1px solid #E3E6EA;
+  border-radius: 18px;
+  background: #fff;
+  padding: 10px;
+  cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.jx-settings-avatarOption:hover {
+  transform: translateY(-1px);
+  border-color: rgba(18,109,255,.35);
+  box-shadow: 0 8px 20px rgba(15,23,42,.08);
+}
+
+.jx-settings-avatarOption.active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(18,109,255,.12);
+}
+
+.jx-settings-avatarOptionImage {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 16px;
+  display: block;
+  object-fit: cover;
+}
+
+.jx-settings-userMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.jx-settings-userName {
+  font-size: 18px;
+  font-weight: 400;
+  color: #262626;
+}
+
+.jx-settings-userId {
+  font-size: 14px;
+  color: #999;
+  font-weight: 400;
+}
+
+.jx-settings-userTeams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 4px;
+  margin-top: 6px;
+}
+
+/* ── Teams management section ───────────────────────────────────── */
+
+/* 统一到卡片自身灰色背景，不在卡片内再叠嵌套背景色 */
+.jx-settings-teamCollapse.ant-collapse {
+  background: transparent;
+  border: none;
+}
+
+.jx-settings-teamCollapse .ant-collapse-item {
+  background: transparent !important;
+  border: none;
+  border-radius: 0 !important;
+  border-bottom: 1px solid #E3E6EA;
+  overflow: hidden;
+}
+
+.jx-settings-teamCollapse .ant-collapse-item:last-child {
+  border-bottom: none;
+}
+
+.jx-settings-teamCollapse .ant-collapse-header {
+  padding: 16px 20px !important;
+  transition: background .18s ease;
+}
+
+.jx-settings-teamCollapse .ant-collapse-item-active > .ant-collapse-header,
+.jx-settings-teamCollapse .ant-collapse-header:hover {
+  background: rgba(18,109,255,0.04);
+}
+
+.jx-settings-teamCollapse .ant-collapse-content {
+  background: transparent;
+  border-top: 1px solid #E3E6EA;
+}
+
+.jx-settings-teamCollapse .ant-collapse-content-box {
+  padding: 16px 20px !important;
+}
+
+.jx-settings-teamHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.jx-settings-teamCount {
+  font-size: 12px;
+}
+
+.jx-settings-teamBody {
+  padding: 0;
+}
+
+.jx-settings-teamDesc {
+  margin: 0 0 14px;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.jx-settings-memberList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jx-settings-memberRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #E3E6EA;
+  border-radius: 8px;
+  transition: border-color .18s ease, background .18s ease;
+}
+
+.jx-settings-memberRow:hover {
+  border-color: rgba(18,109,255,0.35);
+  background: #fafcff;
+}
+
+.jx-settings-memberInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jx-settings-memberName {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.jx-settings-memberMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.jx-settings-memberJoined {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.jx-settings-teamActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #E3E6EA;
+}
+
+/* ── 设置页：左侧锚点导航 ────────────────────────────────────── */
+
+.jx-settings-shell {
+  display: flex;
+  gap: 32px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 40px 24px 60px;
+  align-items: flex-start;
+}
+
+.jx-settings-shell .jx-settings-page {
+  max-width: 840px;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-settings-nav {
+  position: sticky;
+  top: 24px;
+  width: 184px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+}
+
+.jx-settings-navTitle {
+  font-size: 12px;
+  color: #9ca3af;
+  letter-spacing: .04em;
+  padding: 0 12px 10px;
+  margin: 0;
+}
+
+.jx-settings-navItem {
+  appearance: none;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #4b5563;
+  cursor: pointer;
+  position: relative;
+  transition: background .18s ease, color .18s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 激活指示条：motion layoutId="settings-nav-indicator" 共享元素在各项间滑动 */
+.jx-settings-navIndicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  margin-top: -8px;
+  width: 3px;
+  height: 16px;
+  background: #126dff;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.jx-settings-navItem:hover {
+  background: rgba(18,109,255,0.06);
+  color: #1f2937;
+}
+
+.jx-settings-navItem.active {
+  background: rgba(18,109,255,0.09);
+  color: #126dff;
+  font-weight: 500;
+}
+
+.jx-settings-navIcon {
+  font-size: 14px;
+  color: inherit;
+  opacity: .75;
+}
+
+.jx-settings-navItem.active .jx-settings-navIcon {
+  opacity: 1;
+}
+
+/* 小屏：隐藏侧栏，避免占空间 */
+@media (max-width: 960px) {
+  .jx-settings-shell {
+    flex-direction: column;
+    padding: 24px 16px 40px;
+  }
+  .jx-settings-nav {
+    position: static;
+    flex-direction: row;
+    gap: 6px;
+    width: 100%;
+    overflow-x: auto;
+    padding: 0 0 8px;
+  }
+  .jx-settings-nav .jx-settings-navTitle {
+    display: none;
+  }
+  .jx-settings-navItem {
+    flex-shrink: 0;
+  }
+  .jx-settings-navIndicator { display: none; }
+}
+
+/* ── Rows (toggle items) ────────────────────────────────────────── */
+
+.jx-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.jx-settings-rowLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  margin-right: 16px;
+}
+
+.jx-settings-rowLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.jx-settings-rowDesc {
+  font-size: 14px;
+  color: #B3B3B3;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+.jx-settings-divider {
+  height: 0;
+  border-top: 1px solid #E3E6EA;
+  margin: 0 20px;
+}
+
+/* ── Memory detail line ─────────────────────────────────────────── */
+
+.jx-settings-memoryDetail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px 16px;
+}
+
+.jx-settings-memoryCount {
+  font-size: 14px;
+  color: #999;
+}
+
+.jx-settings-memoryLink {
+  font-size: 14px;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.jx-settings-memoryLink:hover {
+  text-decoration: underline;
+}
+
+/* ── Enabled groups ─────────────────────────────────────────────── */
+
+.jx-settings-enabledGroup {
+  padding: 16px 20px 8px;
+}
+
+.jx-settings-enabledGroup + .jx-settings-enabledGroup {
+  padding-top: 8px;
+}
+
+.jx-settings-enabledLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.jx-settings-tagWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Tags: bg-white, rounded, outline 线条, text-slate-600 */
+.jx-settings-tag.ant-tag {
+  margin: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 400;
+  padding: 4px 8px;
+  border: 1px solid #E3E6EA;
+  background: #fff;
+  color: #475569;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard),
+              border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.jx-settings-tag.ant-tag:hover {
+  transform: translateY(-1px);
+  border-color: rgba(18,109,255,.35);
+}
+
+.jx-settings-emptyHint {
+  padding: 20px 20px;
+  font-size: 14px;
+  color: #999;
+}
+
+/* ── Logout button — outline 主色, text-blue-600 ────────────────── */
+
+.jx-settings-logoutBtn.ant-btn {
+  height: 48px;
+  border-radius: 12px;
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  font-size: 14px;
+  font-weight: 500;
+  background: #fff;
+}
+
+.jx-settings-logoutBtn.ant-btn:hover {
+  border-color: var(--color-primary-active);
+  color: var(--color-primary-active);
+  background: #f8faff;
+}
+
+/* ── 退出登录全屏遮罩（与硬跳转并行，盖住清空会话的中间帧） ──── */
+
+.jx-settings-logoutMask {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #4b5563;
+  font-size: 14px;
+}
+
+/* 行 flash / 校验 shake 已统一走 styles/motion.css 原语
+   （.jx-anim-flash-row / .jx-anim-shake），本文件不再自带副本。 */
+
+/* ── L1 档案用量进度条 ──────────────────────────────────────── */
+
+.jx-settings-profileMeter {
+  height: 4px;
+  border-radius: 999px;
+  background: #ECEEF1;
+  overflow: hidden;
+  margin: 0 0 10px;
+}
+
+.jx-settings-profileMeterFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-primary);
+  transition: background-color .3s var(--motion-ease-standard);
+}
+
+.jx-settings-profileMeterFill.warn {
+  background: #fa8c16;
+}
+
+.jx-settings-avatarCrop {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.jx-settings-avatarCropStage {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    linear-gradient(45deg, rgba(226,232,240,.9) 25%, transparent 25%) -12px 0/24px 24px,
+    linear-gradient(-45deg, rgba(226,232,240,.9) 25%, transparent 25%) -12px 0/24px 24px,
+    linear-gradient(45deg, transparent 75%, rgba(226,232,240,.9) 75%) -12px 0/24px 24px,
+    linear-gradient(-45deg, transparent 75%, rgba(226,232,240,.9) 75%) -12px 0/24px 24px,
+    #f8fafc;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.jx-settings-avatarCropStage:active {
+  cursor: grabbing;
+}
+
+.jx-settings-avatarCropImage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  transform-origin: center center;
+  will-change: transform, width, height;
+}
+
+.jx-settings-avatarCropMask {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255,255,255,.85);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,.08);
+  pointer-events: none;
+}
+
+.jx-settings-avatarCropHint {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #64748B;
+  text-align: center;
+}
+
+.jx-settings-avatarZoomRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.jx-settings-avatarZoomLabel {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: #334155;
+}
+
+.jx-settings-avatarZoomRow .ant-slider {
+  flex: 1;
+  margin: 0;
+}
+
+.jx-shareRecordsPage {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 40px 24px 60px;
+}
+
+.jx-shareRecordsPage.embedded {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.jx-shareRecordsPage.embedded .jx-shareRecordsHead {
+  margin-bottom: 16px;
+  padding: 0;
+  align-items: flex-start;
+}
+
+.jx-shareRecordsPage.embedded .jx-shareRecordsHeadMain {
+  display: block;
+  min-width: 0;
+}
+
+.jx-shareRecordsPage.embedded .jx-shareRecordsHead.noDesc {
+  justify-content: flex-end;
+  transform: translateY(-8px);
+}
+
+.jx-shareRecordsPage.embedded .jx-shareRecordsDesc {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+}
+
+.jx-shareRecordsPage.embedded .jx-shareRecordsToolbar {
+  gap: 8px;
+  align-items: center;
+  padding-top: 0;
+}
+
+.jx-shareRecordsPage.embedded .jx-shareRecordsSearch {
+  width: 300px;
+  max-width: 100%;
+}
+
+.jx-shareRecordsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.jx-shareRecordsHeadMain {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  flex: 1;
+}
+
+.jx-shareRecordsToolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.jx-shareRecordsSearch {
+  width: 214px;
+  max-width: 100%;
+}
+
+.jx-shareRecordsTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.jx-shareRecordsDesc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #6b7280;
+}
+
+.jx-shareRecordsEmpty {
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #E3E6EA;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.jx-shareRecordsList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.jx-shareRecordCard {
+  border: 1px solid #E3E6EA;
+  border-radius: 12px;
+  background: #fff;
+  padding: 18px 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.jx-shareRecordsLoading {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.jx-shareRecordCardSkeleton {
+  pointer-events: none;
+  border-radius: 12px;
+  background: rgba(244, 244, 244, 0.92);
+  border-color: rgba(240, 240, 240, 0.95);
+  box-shadow: none;
+}
+
+.jx-shareRecordCardSkeleton .jx-shareRecordMeta {
+  width: 100%;
+}
+
+.jx-shareRecordSideSkeleton {
+  min-width: 228px;
+}
+
+.jx-shareSkTitle {
+  width: min(320px, 56%);
+  height: 16px;
+  border-radius: 999px;
+}
+
+.jx-shareSkTag {
+  width: 68px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.jx-shareSkTagWide {
+  width: 92px;
+}
+
+.jx-shareSkMeta {
+  width: 160px;
+  height: 11px;
+  border-radius: 999px;
+}
+
+.jx-shareSkMetaShort {
+  width: 84px;
+}
+
+.jx-shareSkAction {
+  width: 116px;
+  height: 34px;
+  border-radius: 999px;
+}
+
+.jx-shareSkViews {
+  width: 52px;
+  height: 11px;
+  border-radius: 999px;
+}
+
+.jx-shareSkTextBtn {
+  width: 54px;
+  height: 11px;
+  border-radius: 999px;
+}
+
+.jx-shareRecordTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.jx-shareRecordMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.jx-shareRecordTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.jx-shareRecordJumpBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .16s ease, transform .16s ease;
+}
+
+.jx-shareRecordJumpBtn:hover,
+.jx-shareRecordJumpBtn:focus-visible {
+  background: rgba(148, 163, 184, 0.12);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.jx-shareRecordJumpIcon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  opacity: 0.9;
+  transition: opacity .16s ease, filter .16s ease;
+}
+
+.jx-shareRecordJumpBtn:hover .jx-shareRecordJumpIcon,
+.jx-shareRecordJumpBtn:focus-visible .jx-shareRecordJumpIcon {
+  opacity: 1;
+  filter: brightness(0.85);
+}
+
+.jx-shareRecordTitleBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: color .16s ease;
+}
+
+.jx-shareRecordTitle {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #111827;
+  transition: color .16s ease;
+}
+
+.jx-shareRecordTitleBtn:hover .jx-shareRecordTitle {
+  color: #6b7280;
+}
+
+.jx-shareRecordMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #6b7280;
+}
+
+.jx-shareRecordMetaBtn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+  cursor: pointer;
+  transition: color .16s ease;
+}
+
+.jx-shareRecordMetaBtn .anticon {
+  font-size: 10px;
+}
+
+.jx-shareRecordMetaBtn:hover,
+.jx-shareRecordMetaBtn:focus {
+  color: #475569;
+}
+
+.jx-shareRecordIdPopover .ant-popover-inner {
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.10);
+}
+
+.jx-shareRecordIdValue {
+  display: inline-block;
+  max-width: 360px;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.jx-shareRecordSide {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 14px 10px;
+  align-content: start;
+  justify-content: end;
+  flex-shrink: 0;
+}
+
+.jx-shareRecordViewsMain {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.jx-shareRecordViewsMain .anticon {
+  font-size: 12px;
+}
+
+.jx-shareRecordViewsRow {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.jx-shareRecordTerminateBtn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color .16s ease;
+}
+
+.jx-shareRecordTerminateBtn:hover,
+.jx-shareRecordTerminateBtn:focus {
+  color: #64748b;
+}
+
+.jx-shareRecordActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-shareRecordActionDivider {
+  width: 1px;
+  height: 10px;
+  background: rgba(148, 163, 184, 0.45);
+}
+
+.jx-shareRecordDeleteBtn {
+  color: #94a3b8;
+}
+
+.jx-shareRecordDeleteBtn:hover,
+.jx-shareRecordDeleteBtn:focus {
+  color: #64748b;
+}
+
+.jx-shareRecordSide .ant-btn {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 11px;
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: none;
+  transition: border-color .16s ease, color .16s ease, background-color .16s ease;
+}
+
+.jx-shareRecordSide .ant-btn .anticon {
+  font-size: 13px;
+}
+
+.jx-shareRecordSide .ant-btn:hover,
+.jx-shareRecordSide .ant-btn:focus {
+  border-color: rgba(148, 163, 184, 0.42);
+  color: #0f172a;
+  background: #fbfcfe;
+}
+
+@media (max-width: 768px) {
+  .jx-shareRecordsHead,
+  .jx-shareRecordTop {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .jx-shareRecordsHeadMain {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .jx-shareRecordsToolbar {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .jx-shareRecordsSearch {
+    width: 100%;
+  }
+
+  .jx-shareRecordSide,
+  .jx-shareRecordSide {
+    width: 100%;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .jx-shareRecordSideSkeleton {
+    min-width: 0;
+  }
+
+  .jx-shareRecordViewsRow {
+    grid-column: 2;
+  }
+}
+
+/* ── CE 个人系统设置面板（模型服务 / 服务配置 / 我的日志） ─────────────── */
+
+.jx-sysPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.jx-sysPanel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.jx-sysPanel-subtitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-sysPanel-group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.jx-sysPanel-groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jx-sysPanel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.jx-sysPanel-rowLabel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.jx-sysPanel-usageSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}

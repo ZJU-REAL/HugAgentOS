@@ -1,0 +1,158 @@
+/* /admin 内容运营台动效与公共样式（admin 区原先全靠内联 style，无挂载点）
+   克制原则：动画只服务「操作落点 / 保存成败 / 任务进度」三件事；
+   时长 150–300ms，无 spring 弹跳。reduced-motion 由 motion.css 全局兜底。 */
+
+/* ── 公共 keyframes ──────────────────────────────────────────── */
+/* 行/卡片落点高亮、内容入场复用 motion.css 的 jx-kf-flash / jx-kf-fadeInUp 原语 */
+
+/* 校验失败：红色系一次性高亮（卡片背景为白，结束色回到白） */
+@keyframes admin-flash-error {
+  0%   { background-color: #FFF1F0; }
+  100% { background-color: #fff; }
+}
+
+/* 计数徽标 0→n 的一次性脉冲 */
+@keyframes admin-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.15); }
+}
+
+/* 日志呼吸光标 */
+@keyframes admin-caret {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* ── 表格行反馈（一律 rowClassName + CSS，不在 antd Table 里塞 motion） ── */
+
+/* 上移/下移落点闪烁，600ms 后由组件清除类 */
+.row-just-moved > td {
+  --flash-color: #E6F0FF;
+  animation: jx-kf-flash 0.6s ease-out;
+}
+
+/* 本地删除退场：加类 → 200ms 后组件真正从 state 移除该行 */
+.row-deleting > td {
+  opacity: 0;
+  transform: translateX(-8px);
+  transition:
+    opacity 0.2s var(--motion-ease-exit),
+    transform 0.2s var(--motion-ease-exit);
+}
+
+/* 非表格容器（抽屉里的片段卡等）的同语义落点闪烁 */
+.admin-flash-once {
+  --flash-color: #E6F0FF;
+  animation: jx-kf-flash 0.6s ease-out;
+}
+
+/* ── 内容入场 ──────────────────────────────────────────────── */
+
+.admin-fade-in {
+  --fadeInUp-distance: 4px;
+  animation: jx-kf-fadeInUp 0.18s ease-out both;
+}
+
+/* AdminApp 顶层（及其内嵌）Tab 内容一次性淡入；只入不出，不做双向滑动。
+   作用域限定在 .jx-admin-app，避免污染同套样式表的其他入口。 */
+.jx-admin-app .ant-tabs-tabpane-active {
+  --fadeInUp-distance: 4px;
+  animation: jx-kf-fadeInUp 0.18s ease-out;
+}
+
+/* ── 保存成败 / 校验反馈 ───────────────────────────────────── */
+
+.admin-flash-error,
+.admin-flash-error .ant-card-head {
+  animation: admin-flash-error 0.8s ease-out;
+}
+
+/* ── 计数徽标脉冲 ─────────────────────────────────────────── */
+
+/* 直接作用于元素本身（如 IconPicker 预览图） */
+.admin-pulse {
+  animation: admin-pulse 0.5s var(--motion-ease-standard);
+}
+
+/* 包在 antd Badge 外层，只脉冲数字角标 */
+.admin-pulse-target .ant-badge-count {
+  animation: admin-pulse 0.5s var(--motion-ease-standard);
+}
+
+/* ── 登录页 ───────────────────────────────────────────────── */
+
+.admin-login-card {
+  --fadeInUp-distance: 12px;
+  animation: jx-kf-fadeInUp 0.25s var(--motion-ease-brand-out) both;
+}
+
+/* ── IconPicker 图标格（替代手写 onMouseEnter/Leave） ───────── */
+
+.admin-icon-cell {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #f0f0f0;
+  border-radius: 10px;
+  background: #fff;
+  transition:
+    border-color 0.15s var(--motion-ease-standard),
+    transform 0.12s var(--motion-ease-standard);
+}
+.admin-icon-cell:hover {
+  border-color: #bfbfbf;
+  transform: scale(1.04);
+}
+.admin-icon-cell--active,
+.admin-icon-cell--active:hover {
+  border-color: #126DFF;
+  box-shadow: inset 0 0 0 1px #126DFF;
+}
+
+/* ── 长任务日志：run 进行中底部呼吸光标 ─────────────────────── */
+
+.admin-log-caret {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: #dcdcdc;
+  animation: admin-caret 1s ease-in-out infinite;
+}
+
+/* ── 弹窗滚动：外层 wrap 不显示滚动条，改由 modal body 内部滚动 ──
+   modal 通过 portal 挂到 body，故此规则用全局选择器（非 .jx-admin-app 作用域）。
+   配合 SkillsEditor 各 Modal 的 styles.body maxHeight + overflowY:auto。 */
+.ant-modal-wrap.jx-modal-inner-scroll {
+  overflow: hidden;
+}
+
+/* ── 外层页面滚动条隐藏 ──────────────────────────────────────
+   /admin 顶层 Content（AdminApp.tsx 的 <Content overflow:auto>）默认会在
+   内容超出视口时显示页级滚动条，视觉上偏“外框”。这里隐藏它本身但保留滚动能力；
+   弹窗内部、卡片内部等局部滚动条仍走 variables.css 的全局细滚动条样式。 */
+.jx-admin-app > .ant-layout-content {
+  scrollbar-width: none;            /* Firefox */
+}
+.jx-admin-app > .ant-layout-content::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ── 弹窗 body 自身的“大”滚动条隐藏（仍可滚动）─────────────────
+   modal 内容超出时 .ant-modal-body 会出现一条贯穿整高的滚动条（视觉上像外框）。
+   隐藏它本身，滚动仍由滚轮/触控板生效；字段内 textarea 等局部滚动条不受影响，
+   继续走 variables.css 的全局细滚动条样式。 */
+.jx-modal-scrollhide {
+  scrollbar-width: none;            /* Firefox */
+}
+.jx-modal-scrollhide::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

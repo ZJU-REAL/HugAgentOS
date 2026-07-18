@@ -1,0 +1,454 @@
+/* ══════════════════════════════════════════
+   Plan Card — structured plan display
+   ══════════════════════════════════════════ */
+
+/* ── Card container ── */
+.jx-plan-card{
+  position:relative;
+  background:#fff;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+  margin:8px 0;
+  box-shadow:var(--shadow-card);
+  transition:box-shadow .2s ease, border-color .2s ease;
+}
+.jx-plan-card:hover{
+  box-shadow:var(--shadow-card-hover);
+}
+.jx-plan-card::before{
+  content:'';
+  position:absolute;
+  top:0;left:0;right:0;
+  height:3px;
+  background:linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  border-radius:var(--radius-md) var(--radius-md) 0 0;
+}
+/* 完成顶条：用 ::after 绿色层 opacity 0→1 伪 crossfade，避免 ::before 背景硬切 */
+.jx-plan-card::after{
+  content:'';
+  position:absolute;
+  top:0;left:0;right:0;
+  height:3px;
+  background:linear-gradient(90deg, var(--color-success) 0%, var(--color-success-hover) 100%);
+  border-radius:var(--radius-md) var(--radius-md) 0 0;
+  opacity:0;
+  transition:opacity .4s var(--motion-ease-standard);
+  pointer-events:none;
+}
+.jx-plan-card--complete::after{
+  opacity:1;
+}
+.jx-plan-card--executing::before{
+  background:linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-hover) 50%, var(--color-primary) 100%);
+  background-size:200% 100%;
+  animation:jx-plan-shimmer 2s ease-in-out infinite;
+}
+@keyframes jx-plan-shimmer{
+  0%{background-position:200% 0}
+  100%{background-position:-200% 0}
+}
+
+/* ── Header ── */
+.jx-plan-header{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  padding:18px 20px 12px;
+}
+.jx-plan-headerIcon{
+  flex-shrink:0;
+  width:36px;
+  height:36px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:var(--radius-sm);
+  background:var(--color-primary-light);
+}
+.jx-plan-card--complete .jx-plan-headerIcon{
+  background:var(--color-success-light);
+}
+.jx-plan-headerText{
+  flex:1;
+  min-width:0;
+}
+.jx-plan-title{
+  margin:0 !important;
+  font-size:15px !important;
+  font-weight:600 !important;
+  color:var(--color-text) !important;
+  line-height:1.5 !important;
+  letter-spacing:0 !important;
+}
+.jx-plan-desc{
+  margin:4px 0 0 !important;
+  font-size:13px !important;
+  color:var(--color-text-tertiary) !important;
+  line-height:1.55 !important;
+}
+.jx-plan-headerBadge{
+  flex-shrink:0;
+  padding-top:2px;
+}
+.jx-plan-badge{
+  display:inline-flex;
+  align-items:center;
+  font-size:11px;
+  font-weight:600;
+  padding:2px 10px;
+  border-radius:10px;
+  letter-spacing:.3px;
+}
+.jx-plan-badge--running{
+  background:var(--color-primary-bg);
+  color:var(--color-primary);
+}
+.jx-plan-badge--done{
+  background:var(--color-success-bg);
+  color:var(--color-success);
+}
+
+/* ── Progress bar ── */
+.jx-plan-progress{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:0 20px 14px;
+}
+.jx-plan-progressTrack{
+  flex:1;
+  height:4px;
+  background:var(--color-fill-hover);
+  border-radius:2px;
+  overflow:hidden;
+}
+.jx-plan-progressFill{
+  height:100%;
+  border-radius:2px;
+  background:linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  transition:width .5s ease;
+}
+.jx-plan-card--complete .jx-plan-progressFill{
+  background:linear-gradient(90deg, var(--color-success) 0%, var(--color-success-hover) 100%);
+}
+/* 进度条到 100%（本会话内刚完成）时 fill 一次亮度闪光 */
+.jx-plan-card--justCompleted .jx-plan-progressFill{
+  animation:jx-plan-fillFlash .6s var(--motion-ease-standard) 1;
+}
+@keyframes jx-plan-fillFlash{
+  0%{filter:brightness(1)}
+  35%{filter:brightness(1.4)}
+  100%{filter:brightness(1)}
+}
+.jx-plan-progressLabel{
+  flex-shrink:0;
+  font-size:12px;
+  font-weight:600;
+  color:var(--color-text-tertiary);
+  font-family:var(--font-family-number);
+}
+
+/* ── Steps toggle (complete mode) ── */
+.jx-plan-stepsToggle{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:0 20px 8px;
+  font-size:12px;
+  color:var(--color-primary);
+  cursor:pointer;
+  font-weight:500;
+  user-select:none;
+  transition:opacity .15s;
+}
+.jx-plan-stepsToggle:hover{
+  opacity:.8;
+}
+
+/* ── Steps section ── */
+.jx-plan-steps{
+  padding:0 20px 8px;
+}
+.jx-plan-stepsLabel{
+  font-size:12px;
+  font-weight:600;
+  color:var(--color-text-tertiary);
+  text-transform:uppercase;
+  letter-spacing:.5px;
+  margin-bottom:8px;
+  padding-bottom:6px;
+  border-bottom:1px solid var(--color-fill-hover);
+}
+
+/* ── Single step ── */
+.jx-plan-step{
+  position:relative;
+  padding:10px 12px;
+  border-radius:var(--radius-sm);
+  transition:background .15s ease;
+}
+.jx-plan-step + .jx-plan-step{
+  border-top:1px solid rgba(0,0,0,.04);
+}
+.jx-plan-step:hover{
+  background:rgba(0,0,0,.015);
+}
+.jx-plan-step--active{
+  background:var(--color-primary-light) !important;
+  border-color:transparent !important;
+  border-radius:var(--radius-sm);
+}
+.jx-plan-step--done{
+  opacity:.75;
+}
+/* 步骤刚翻成 success 的一次性背景闪光 keyframes（应用规则在文件尾部，
+   与入场 stagger 动画合并声明避免 animation 互相覆盖） */
+@keyframes jx-plan-stepDoneFlash{
+  0%{background-color:rgba(2,181,137,.16);}
+  100%{background-color:transparent;}
+}
+.jx-plan-stepHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.jx-plan-stepLeft{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+  flex:1;
+}
+
+/* Step number (preview mode) */
+.jx-plan-stepNum{
+  flex-shrink:0;
+  width:22px;
+  height:22px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:50%;
+  background:var(--color-primary);
+  color:#fff;
+  font-size:11px;
+  font-weight:700;
+  font-family:var(--font-family-number);
+  line-height:1;
+}
+
+/* Status icons (execution mode) */
+.jx-plan-stepIconWrap{
+  display:inline-flex;
+  align-items:center;
+  flex-shrink:0;
+}
+.jx-plan-stepIcon{
+  flex-shrink:0;
+  font-size:16px;
+}
+.jx-plan-stepIcon--success{
+  color:var(--color-success) !important;
+}
+.jx-plan-stepIcon--error{
+  color:var(--color-error) !important;
+}
+.jx-plan-stepIcon--running{
+  color:var(--color-primary) !important;
+}
+.jx-plan-stepIcon--pending{
+  display:inline-block;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  border:2px solid var(--color-fill);
+  box-sizing:border-box;
+}
+.jx-plan-stepIcon--skipped{
+  color:var(--color-text-placeholder);
+  font-size:14px;
+  font-weight:700;
+  width:16px;
+  text-align:center;
+}
+
+.jx-plan-stepTitle{
+  font-size:13.5px;
+  font-weight:500;
+  color:var(--color-text);
+  line-height:1.5;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jx-plan-step--done .jx-plan-stepTitle{
+  color:var(--color-text-tertiary);
+}
+.jx-plan-stepExpand{
+  flex-shrink:0;
+  font-size:10px;
+  color:var(--color-text-placeholder);
+  transition:color .15s;
+}
+.jx-plan-step:hover .jx-plan-stepExpand{
+  color:var(--color-primary);
+}
+
+/* ── Step details (preview mode expandable) ── */
+.jx-plan-stepDetails{
+  margin-top:8px;
+  padding:10px 12px;
+  background:var(--color-bg-gray);
+  border-radius:var(--radius-sm);
+  border:1px solid var(--color-fill-hover);
+}
+.jx-plan-stepDesc{
+  margin:0 0 8px !important;
+  font-size:12.5px;
+  color:var(--color-text-secondary);
+  line-height:1.65;
+}
+.jx-plan-stepMeta{
+  display:flex;
+  align-items:flex-start;
+  gap:6px;
+  margin-top:6px;
+}
+.jx-plan-metaIcon{
+  flex-shrink:0;
+  font-size:12px;
+  color:var(--color-text-placeholder);
+  margin-top:2px;
+}
+.jx-plan-metaLabel{
+  flex-shrink:0;
+  font-size:11.5px;
+  font-weight:600;
+  color:var(--color-text-tertiary);
+  min-width:52px;
+}
+.jx-plan-metaVal{
+  font-size:12px;
+  color:var(--color-text-secondary);
+  line-height:1.55;
+}
+
+/* Tags */
+.jx-plan-tags{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.jx-plan-tag{
+  display:inline-flex;
+  align-items:center;
+  font-size:11px;
+  font-weight:500;
+  padding:1px 8px;
+  border-radius:4px;
+  line-height:1.7;
+  font-family:'Consolas','Monaco','Courier New',monospace;
+}
+.jx-plan-tag--tool{
+  background:rgba(18,109,255,.08);
+  color:var(--color-primary);
+}
+.jx-plan-tag--skill{
+  background:rgba(118,85,250,.08);
+  color:var(--color-icon-purple);
+}
+.jx-plan-tag--agent{
+  background:rgba(250,140,22,.08);
+  color:#d48806;
+}
+
+/* ── Step summary / progress (execution mode) ── */
+.jx-plan-stepSummary{
+  margin:6px 0 0 32px;
+  font-size:12.5px;
+  color:var(--color-text-tertiary);
+  line-height:1.6;
+}
+.jx-plan-stepProgress{
+  margin:6px 0 0 32px;
+  padding:8px 10px;
+  background:var(--color-bg-gray);
+  border-radius:6px;
+  font-size:12px;
+  color:var(--color-text-secondary);
+  line-height:1.6;
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:120px;
+  overflow-y:auto;
+}
+
+/* ── Streaming hint ── */
+.jx-plan-streamingHint{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 20px 14px;
+  font-size:12px;
+  color:var(--color-primary);
+  font-weight:500;
+}
+
+/* ── Footer (preview mode) ── */
+.jx-plan-footer{
+  padding:12px 20px;
+  border-top:1px solid var(--color-fill-hover);
+  background:var(--color-bg-gray);
+}
+.jx-plan-footerTip{
+  font-size:12.5px;
+  color:var(--color-text-tertiary);
+  line-height:1.6;
+}
+.jx-plan-footerTip strong{
+  color:var(--color-primary);
+  font-weight:600;
+}
+
+/* ── 聊天流内计划卡"揭晓时刻" ──
+   占位文案 → 卡片整体上浮 + 步骤 stagger（均复用 motion.css 的 jx-kf-fadeInUp 原语）。
+   segment key 只绑 `${ts}-seg-${idx}`（plan 段恒为 0），SSE 每帧重渲染
+   不会重挂重播；只有计划首次揭晓 / 切会话重挂时播一次。 */
+.jx-plan-card:not(.jx-plan-card--embed){
+  --fadeInUp-distance:6px;
+  animation:jx-kf-fadeInUp 280ms var(--motion-ease-brand-out) backwards;
+}
+/* 步骤行 stagger：容器在 PlanCard.tsx 挂 .jx-anim-stagger，行内 staggerStyle 注入
+   --stagger-i（首行 1、封顶 6 → 40~240ms 延迟梯）；embed 变体同样生效。 */
+.jx-plan-steps.jx-anim-stagger{
+  --stagger-step:40ms;
+  --fadeInUp-distance:4px;
+}
+/* 首子项 .jx-plan-stepsLabel 不参与 stagger（保持静态，与原 nth-child 梯一致） */
+.jx-plan-steps.jx-anim-stagger > .jx-plan-stepsLabel{
+  animation:none;
+}
+
+/* 步骤完成闪光：必须连同入场动画一起声明（单独覆盖 animation 会丢掉
+   .jx-anim-stagger > * 的入场声明），且放在入场规则之后保证生效。
+   600ms 后组件层移除 --justDone，animation-name 列表回缩不重启入场动画。 */
+.jx-plan-card:not(.jx-plan-card--embed) .jx-plan-step.jx-plan-step--justDone{
+  animation:
+    jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards,
+    jx-plan-stepDoneFlash .6s var(--motion-ease-standard) 1;
+  animation-delay:calc(var(--stagger-i, 0) * var(--stagger-step, var(--motion-stagger-step))), 0ms;
+}
+
+/* ── Complete footer ── */
+.jx-plan-completeFooter{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:10px 20px;
+  border-top:1px solid var(--color-fill-hover);
+  background:var(--color-success-light);
+  font-size:12.5px;
+  font-weight:500;
+  color:var(--color-success);
+}

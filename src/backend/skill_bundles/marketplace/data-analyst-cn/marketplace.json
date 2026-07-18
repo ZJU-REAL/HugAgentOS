@@ -1,0 +1,22 @@
+{
+  "slug": "data-analyst-cn",
+  "entry_name": "data-analyst-cn",
+  "display_name": "数据分析助手",
+  "summary": "中文数据分析工作流：数据清洗、统计分析、时间序列、可视化与分析报告模板，内置中文图表字体设置，适合经济运行数据分析",
+  "category": "数据分析",
+  "tags": [
+    "数据清洗",
+    "统计分析",
+    "可视化"
+  ],
+  "version": "1.0.23",
+  "author": "yang1002378395-cmyk",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/data-analyst-cn",
+  "downloads": 5205,
+  "stars": 7,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

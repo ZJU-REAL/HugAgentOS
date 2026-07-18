@@ -1,0 +1,73 @@
+{
+  "quality_criteria": {
+    "completeness": {
+      "weight": 25,
+      "items": [
+        {"id": "has_start", "question": "是否有明确的开始条件/前置准备？", "weight": 8},
+        {"id": "has_end", "question": "是否有明确的结束条件/收尾步骤？", "weight": 7},
+        {"id": "minimal_steps", "question": "步骤数是否 ≥ 3？", "weight": 5},
+        {"id": "no_gaps", "question": "步骤之间没有逻辑断层？", "weight": 5}
+      ]
+    },
+    "clarity": {
+      "weight": 15,
+      "items": [
+        {"id": "avg_desc_length", "question": "步骤描述是否足够详细（平均 > 20 字）？", "weight": 5},
+        {"id": "reasonable_step_count", "question": "步骤总数是否合理（≤ 15）？", "weight": 5},
+        {"id": "descriptive_titles", "question": "步骤标题是否陈述清晰？", "weight": 5}
+      ]
+    },
+    "actionability": {
+      "weight": 20,
+      "items": [
+        {"id": "has_action_verbs", "question": "是否包含具体操作动作？", "weight": 10},
+        {"id": "tools_specified", "question": "是否标注了所需工具/系统？", "weight": 5},
+        {"id": "outputs_defined", "question": "是否定义了每个步骤的产出物？", "weight": 5}
+      ]
+    },
+    "safety": {
+      "weight": 15,
+      "items": [
+        {"id": "cautions_present", "question": "是否标注了注意事项/常见错误？", "weight": 10},
+        {"id": "checkpoints_present", "question": "是否设置了检查点/验证步骤？", "weight": 5}
+      ]
+    },
+    "measurability": {
+      "weight": 10,
+      "items": [
+        {"id": "has_checkpoints", "question": "是否包含验收标准？", "weight": 5},
+        {"id": "has_time_estimates", "question": "是否包含时间估算？", "weight": 5}
+      ]
+    },
+    "efficiency": {
+      "weight": 10,
+      "items": [
+        {"id": "redundancy_count", "question": "是否存在冗余步骤？", "weight": 5},
+        {"id": "bottleneck_count", "question": "是否存在瓶颈步骤？", "weight": 5}
+      ]
+    },
+    "maintainability": {
+      "weight": 5,
+      "items": [
+        {"id": "typed_steps", "question": "步骤类型是否标注清楚？", "weight": 2},
+        {"id": "manageable_size", "question": "文档规模是否易于维护（≤ 20 步）？", "weight": 3}
+      ]
+    }
+  },
+  "grade_thresholds": {
+    "A": {"min": 85, "label": "优秀 — 可直接投入使用"},
+    "B": {"min": 70, "label": "良好 — 小修后即可发布"},
+    "C": {"min": 55, "label": "合格 — 需补充完善"},
+    "D": {"max": 55, "label": "需改进 — 建议大幅完善"}
+  },
+  "common_missing_items": [
+    {"item": "前置条件", "reason": "缺少开始前的准备工作说明", "frequency": "high"},
+    {"item": "检查点", "reason": "缺少中间验证和最终验收标准", "frequency": "high"},
+    {"item": "注意事项", "reason": "缺少常见错误和避坑提醒", "frequency": "medium"},
+    {"item": "时间估算", "reason": "缺少每个步骤的预估耗时", "frequency": "medium"},
+    {"item": "角色分配", "reason": "缺少执行人/负责人标注", "frequency": "medium"},
+    {"item": "异常处理", "reason": "缺少出错时的应对方案", "frequency": "high"},
+    {"item": "依赖关系", "reason": "缺少步骤间的先后依赖说明", "frequency": "low"},
+    {"item": "产出物清单", "reason": "缺少每个步骤的交付物说明", "frequency": "medium"}
+  ]
+}

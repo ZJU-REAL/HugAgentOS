@@ -1,0 +1,167 @@
+/xdevfiles
+
+# Runtime-generated catalog (synced from DB + filesystem at startup)
+src/backend/configs/catalog.json
+
+# OpenSandbox config — generated from docker/opensandbox-config.toml.tpl by the
+# opensandbox-config-init service at compose-up (sed 把 @@HOST_REPO_PATH@@
+# 替换成各机 .env 里的实际仓库路径)。.tpl 入库，实文件不入库。
+opensandbox-config.toml
+
+# Test results
+src/frontend/test-results/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.bak.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.log
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+dev/
+.venv-spike/
+spike/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+output/
+images/
+logs/
+result/
+# .claude/ 整体忽略，但 skills/（项目开发规范 skill）入库
+.claude/*
+!.claude/skills/
+
+# MCP servers (if needed)
+# mcp_servers/**/*.pyc
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
+
+# Docker
+docker-compose.override.yml
+.docker/
+*.dockerignore.bak
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+hugagent_dev.db
+hugagent_test.db
+
+# Content snapshots (data exports — not source)
+src/backend/scripts/exported/
+
+# Storage
+uploads/
+uploads/trash
+backups/
+
+# Monitoring & Logs
+prometheus_data/
+grafana_data/
+jaeger_data/
+alertmanager_data/
+
+# Release & Deployment
+.env.prod
+.env.production
+.env.staging
+deployment-config.local.yml
+secrets.yml
+
+# CI/CD
+.github/secrets/
+
+# Version control
+*.orig
+
+# ossconfig
+ossfs2.conf
+
+# offline docker 
+*.tar
+*.tar.gz
+*.tar.gzsdafa
+
+# claude file
+CLAUDE.md
+AGENTS.md
+
+# images
+img/
+
+# hugagent skills
+.hugagent/
+
+# codex
+.codex
+# 本地 python 虚拟环境 / CE 生成产物
+.venv/
+dist/
+
+# 部署/打包脚本与产物（环境内部资产，不入库；详见 internal design docs）
+scripts/deploy/
+
+# Evaluation Gym 运行产物与数据集（README 入库，数据/结果不入库）
+evaluation/results/
+evaluation/data/*
+!evaluation/data/README.md
+
+# DBHub / ES MCP 实际连接配置（含密码/密钥，由后端面板渲染；仅 .example + .gitkeep 入库）
+docker/dbhub/dbhub.toml
+docker/dbhub/es.env
+
+license-keys/
+deploy_kit/
+node_modules/
+
+# 建站模板必须完整入库（覆盖上面的 lib/ 与 AGENTS.md 规则），但依赖树除外
+!docker/site-template/**
+docker/site-template/react-vite/node_modules/

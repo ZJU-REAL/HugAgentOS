@@ -1,0 +1,22 @@
+{
+  "slug": "writing-polish",
+  "entry_name": "writing-polish",
+  "display_name": "中文写作润色",
+  "summary": "中文写作与润色。当用户要求润色文章、改写段落、优化文风、修改措辞、让文章更通顺、写作辅助、改稿、polish writing、或者给出一段中文文本要求改善时，使用此skill。也适用于用户说\"帮我改改这篇文章\"、\"润色一下\"、\"语言不够好\"、\"读起来不顺\"、\"太空洞了\"、\"太说教了\"等场景。即使用户没有明确说\"润色\"，只要给了一段中文文本并暗示希望改善表达，也应触发。",
+  "category": "写作助手",
+  "tags": [
+    "中文润色",
+    "改写",
+    "文风优化"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/writing-polish",
+  "downloads": 4853,
+  "stars": 0,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

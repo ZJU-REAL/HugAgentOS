@@ -1,0 +1,22 @@
+{
+  "slug": "official-doc-writer",
+  "entry_name": "official-doc-writer",
+  "display_name": "中文公文写作（GB/T 标准）",
+  "summary": "\"党政机关公文生成技能，支持通知、报告、请示、函等公文类型，符合GB/T 9704-2012标准。当用户需要生成党政机关公文、创建正式文件、导出Word格式公文时调用。无论用户使用何种表述方式（如'帮我写个报告'、'生成一份通知'、'制作公文'等），只要涉及公文文档生成，都应使用此技能。\"",
+  "category": "写作助手",
+  "tags": [
+    "党政公文",
+    "GB/T 9704",
+    "通知报告"
+  ],
+  "version": "1.0.0",
+  "author": "skillhub",
+  "icon_url": "",
+  "source": "skillhub",
+  "source_url": "https://skillhub.cn/skills/official-doc-writer",
+  "downloads": 6513,
+  "stars": 0,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

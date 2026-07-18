@@ -1,0 +1,184 @@
+[
+  {
+    "id": "operation-search-formdata",
+    "operationId": "searchFormDatas",
+    "summary": "搜索表单实例数据",
+    "description": "查询宜搭表单实例详情列表，支持条件筛选、分页、排序",
+    "url": "v2.0/yida/forms/instances/search",
+    "method": "post",
+    "inputs": [
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "desc": "宜搭应用 appType",
+            "name": "appType",
+            "required": true
+          }
+        ],
+        "desc": "路径变量",
+        "name": "Path",
+        "paramType": "Object",
+        "required": true
+      },
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "desc": "应用秘钥",
+            "name": "systemToken",
+            "queryDefaultValue": {
+              "paramType": "fixedValue",
+              "defaultValue": ""
+            },
+            "required": false
+          }
+        ],
+        "desc": "请求参数",
+        "name": "Query",
+        "paramType": "Object",
+        "required": false
+      },
+      {
+        "childList": [
+          {
+            "componentName": "TextField",
+            "desc": "表单ID",
+            "name": "formUuid",
+            "required": true
+          },
+          {
+            "componentName": "TextField",
+            "desc": "查询条件(JSON字符串)",
+            "name": "searchFieldJson",
+            "required": false
+          },
+          {
+            "componentName": "NumberField",
+            "desc": "当前页码",
+            "name": "currentPage",
+            "required": false
+          },
+          {
+            "componentName": "NumberField",
+            "desc": "每页条数(最大100)",
+            "name": "pageSize",
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "创建时间开始(yyyy-MM-DD)",
+            "name": "createFrom",
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "创建时间结束(yyyy-MM-DD)",
+            "name": "createTo",
+            "required": false
+          },
+          {
+            "componentName": "TextField",
+            "desc": "排序规则(JSON)",
+            "name": "dynamicOrder",
+            "required": false
+          }
+        ],
+        "desc": "请求体",
+        "name": "Body",
+        "paramType": "Object",
+        "required": false
+      }
+    ],
+    "parameters": {
+      "path": [
+        {
+          "name": "appType",
+          "type": "string",
+          "required": true,
+          "description": "宜搭应用 appType"
+        }
+      ],
+      "query": [
+        {
+          "name": "systemToken",
+          "type": "string",
+          "required": false,
+          "description": "应用秘钥",
+          "queryDefaultValue": {
+            "paramType": "fixedValue",
+            "defaultValue": ""
+          }
+        }
+      ],
+      "body": {
+        "type": "object",
+        "properties": {
+          "formUuid": {
+            "type": "string",
+            "description": "表单ID"
+          },
+          "searchFieldJson": {
+            "type": "string",
+            "description": "查询条件(JSON字符串)"
+          },
+          "currentPage": {
+            "type": "integer",
+            "description": "当前页码"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "每页条数"
+          }
+        }
+      }
+    },
+    "responses": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "description": "表单实例数据列表"
+        },
+        "totalCount": {
+          "type": "integer",
+          "description": "总记录数"
+        },
+        "currentPage": {
+          "type": "integer",
+          "description": "当前页码"
+        }
+      }
+    },
+    "outputs": [
+      {
+        "defaultValue": "{\"data\": [], \"totalCount\": 0, \"currentPage\": 1}",
+        "desc": "响应体结构",
+        "name": "Response",
+        "paramType": "Object",
+        "required": false,
+        "childList": [
+          {
+            "_key": "searchFormDatas%data",
+            "name": "data",
+            "paramType": "Array",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          },
+          {
+            "_key": "searchFormDatas%totalCount",
+            "name": "totalCount",
+            "paramType": "Number",
+            "children": [],
+            "childList": [],
+            "__level": 0,
+            "hidden": false
+          }
+        ]
+      }
+    ],
+    "origin": true
+  }
+]

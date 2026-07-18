@@ -1,0 +1,22 @@
+{
+  "slug": "code-review",
+  "entry_name": "code-review",
+  "display_name": "代码评审清单",
+  "summary": "体系化代码评审方法：安全、性能、可维护性、正确性与测试五大维度逐项检查，含严重级别划分、结构化反馈话术与评审反模式",
+  "category": "研发效率",
+  "tags": [
+    "代码评审",
+    "安全",
+    "工程质量"
+  ],
+  "version": "1.0.0",
+  "author": "wpank",
+  "icon_url": "",
+  "source": "clawhub",
+  "source_url": "https://clawhub.ai/skills/code-review",
+  "downloads": 16844,
+  "stars": 18,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}
