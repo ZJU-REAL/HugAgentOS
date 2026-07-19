@@ -1,0 +1,73 @@
+name: 🐛 Bug report / 缺陷报告
+description: Report a reproducible problem. 报告一个可复现的问题。
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report! 感谢反馈！
+
+        > **Note**: `src/**` is a read-only generated mirror; bugs are fixed
+        > upstream and flow back per release. 代码为只读生成镜像，缺陷在上游修复后回流。
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight / 提交前检查
+      options:
+        - label: I searched existing issues and did not find a duplicate. 我已搜索现有 Issue，未发现重复。
+          required: true
+        - label: I am running the latest release. 我使用的是最新发布版本。
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened? / 问题描述
+      description: A clear and concise description of the bug. 清晰描述实际发生的现象。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Minimal, exact steps. Include commands, requests, or a repo link. 最小化的精确复现步骤。
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 期望行为
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment profile / 部署方式
+      options:
+        - One-command / no-Docker (install.sh)
+        - Docker Compose
+        - Manual / from source
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境信息
+      description: OS, Python & Node versions, browser (if UI), model/provider. 操作系统、Python/Node 版本、浏览器、所用模型/供应商。
+      placeholder: |
+        - OS: macOS 14.5 / Ubuntu 22.04 / WSL2
+        - Python: 3.11 / Node: 20 / Model provider: OpenAI-compatible / local
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / 相关日志
+      description: Paste backend/frontend logs or a stack trace. Redact secrets. 粘贴后端/前端日志或堆栈，注意脱敏。
+      render: shell
