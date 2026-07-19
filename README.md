@@ -1,15 +1,11 @@
-<p align="center">
-  <img
-    src="./document/assets/hugagentos-readme-hero.png"
-    alt="HugAgentOS — the open-source, self-hosted workspace for AI agents"
-    width="100%"
-  />
-</p>
-
 <h1 align="center">HugAgentOS</h1>
 
 <p align="center">
-  <strong>The open-source, self-hosted workspace for AI agents</strong>
+  <strong>HugAgent: The Enterprise AgentOS for Ontology-Grounded Trustworthy Reasoning</strong>
+</p>
+
+<p align="center">
+  The open-source, self-hosted foundation for enterprise AI agents
 </p>
 
 <p align="center">
@@ -46,18 +42,11 @@
   </a>
 </p>
 
-HugAgentOS brings agentic chat, private knowledge-base RAG, sub-agents, MCP
-tools, Agent Skills, sandboxed execution, long-term memory, automation, and a
-data canvas into one self-hosted web workspace. Connect your own models and
-data, start with a conversation, and grow it into an agent system you control.
-
-<p align="center">
-  <img
-    src="./document/assets/hugagentos-product-overview.png"
-    alt="HugAgentOS workspace with chat, tool calls, knowledge, and artifacts"
-    width="100%"
-  />
-</p>
+HugAgentOS is the open-source foundation of HugAgent, an enterprise-grade
+AgentOS that treats domain ontology as a control plane for agent reasoning,
+decisions, and actions. It combines agentic chat, private knowledge-base RAG,
+sub-agents, MCP tools, Agent Skills, sandboxed execution, long-term memory,
+automation, and a data canvas in one self-hosted workspace.
 
 > [!NOTE]
 > This Community repository is generated from the upstream main repository for
@@ -128,6 +117,48 @@ flow.
     </td>
   </tr>
 </table>
+
+## Enterprise trust through domain ontology
+
+HugAgent uses domain ontology as an executable control plane, not only as a
+knowledge store. Controlled concepts, relationships, invariants, action
+contracts, roles, and permissions give the skill, memory, and orchestration
+engines one shared business language.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>🧭 Shared semantic ground</strong><br />
+      Align domain intent, skills, tools, memory, and agent roles against one
+      versioned set of concepts and relationships.
+    </td>
+    <td width="50%" valign="top">
+      <strong>🏗️ Build-time governance</strong><br />
+      Validate skills, tools, and sub-agents as they are created or imported,
+      and assemble capabilities through consistent Action contracts.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>🛡️ Policy-gated execution</strong><br />
+      Turn a candidate plan into action through deterministic rule checks,
+      risk-based evidence review, and gated execution. Violations return with
+      the rule, evidence, and repair guidance instead of silently proceeding.
+    </td>
+    <td width="50%" valign="top">
+      <strong>🔎 Traceable, governed evolution</strong><br />
+      Record approvals, rejections, evidence, and outcomes. Enforcement events
+      become versioned ontology proposals that require human review and remain
+      reversible.
+    </td>
+  </tr>
+</table>
+
+> [!NOTE]
+> The ontology trust plane is a target enterprise architecture being integrated
+> incrementally on top of the current Harness. It strengthens structured
+> compliance and evidence-backed review; it doesn't claim to eliminate every
+> free-text hallucination.
 
 ## Core capabilities
 
@@ -200,31 +231,49 @@ during the first run.
 
 ## Architecture
 
-HugAgentOS separates web access, chat runs, orchestration, and tool execution.
-The local profile uses SQLite and in-process state; the multi-user profile uses
-PostgreSQL and Redis. Milvus and Neo4j join the stack only when you enable the
-optional memory profile.
+HugAgentOS combines a three-engine Agent Harness with an ontology trust plane.
+The ontology aligns capabilities at build time, injects relevant domain rules
+at runtime, and gates actions before execution. Every decision can feed a
+traceable, human-governed improvement loop.
 
 ```mermaid
-flowchart LR
-    U[Browser] --> FE[React 19 + Nginx]
-    FE --> API[FastAPI API]
-    API --> RUN[ChatRun + Redis Stream]
-    RUN --> WF[Streaming workflow]
-    WF --> AGENT[AgentScope 2.0 ReActAgent]
+flowchart TB
+    U[Enterprise users and channels] --> API[Web / Desktop / API]
+    API --> RUN[ChatRun and streaming workflow]
 
-    AGENT --> MCP[8 general-purpose MCP tools]
-    AGENT --> SKILL[Agent Skills]
-    AGENT --> BOX[Lightweight script sandbox]
-    WF --> RAG[Private knowledge-base RAG]
-    WF --> MEM[L1 / L2 / L3 memory]
+    ONTO[Domain ontology control plane<br/>Concepts · Relationships · Invariants<br/>Action contracts · Roles · Permissions]
+    ONTO --> BUILD[Build-time validation<br/>Skills · Tools · Sub-agents]
+    ONTO --> BOOT[Domain bootstrap<br/>Semantic alignment · Relevant rules]
 
-    API --> PG[(SQLite / PostgreSQL)]
-    RUN --> REDIS[(In-process state / Redis)]
-    API --> STORE[(Local file storage)]
-    RAG -. optional .-> MILVUS[(Milvus)]
-    MEM -. optional .-> MILVUS
-    MEM -. optional .-> NEO4J[(Neo4j)]
+    subgraph HARNESS[Three-engine Agent Harness]
+        direction LR
+        SKILL[Skill engine] <--> ORCH[Orchestration engine]
+        ORCH <--> MEMORY[Memory engine]
+    end
+
+    RUN --> ORCH
+    BUILD --> SKILL
+    BOOT --> ORCH
+    BOOT --> MEMORY
+    ORCH --> PLAN[Candidate plan or action]
+
+    PLAN --> RULE[Deterministic ontology rule gate]
+    ONTO --> RULE
+    RULE -->|Low risk and compliant| EXEC[Gated execution]
+    RULE -->|Checkpoint or high risk| REVIEW[Evidence-backed review]
+    REVIEW -->|Approved| EXEC
+    RULE -->|Violation| REVISE[Reject with evidence and repair guidance]
+    REVIEW -->|Revise or escalate| REVISE
+    REVISE --> ORCH
+
+    EXEC --> CAP[MCP · Skills · Sandbox · RAG]
+    EXEC --> AUDIT[Traceable audit and replay]
+    REVISE --> AUDIT
+    AUDIT --> EVOLVE[Governed ontology proposals]
+    EVOLVE -. Human review · Versioning · Rollback .-> ONTO
+
+    API --> DATA[(SQLite / PostgreSQL · Redis · Object storage)]
+    MEMORY --> VECTOR[(Milvus / Neo4j, optional)]
 ```
 
 ### Technology stack

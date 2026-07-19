@@ -1,15 +1,11 @@
-<p align="center">
-  <img
-    src="./document/assets/hugagentos-readme-hero.png"
-    alt="HugAgentOS——开源、自托管的智能体工作台"
-    width="100%"
-  />
-</p>
-
 <h1 align="center">HugAgentOS</h1>
 
 <p align="center">
-  <strong>开源、自托管的智能体工作台</strong>
+  <strong>HugAgent：面向企业的本体驱动可信推理 AgentOS</strong>
+</p>
+
+<p align="center">
+  面向企业智能体的开源、自托管底座
 </p>
 
 <p align="center">
@@ -46,17 +42,10 @@
   </a>
 </p>
 
-HugAgentOS 把智能对话、知识库 RAG、子智能体、MCP 工具、Agent Skills、
-沙箱执行、长期记忆、自动化和数据画布整合到一个可私有部署的 Web 工作台。
-你可以接入自己的模型和数据，从一次对话开始，逐步搭建真正属于自己的智能体系统。
-
-<p align="center">
-  <img
-    src="./document/assets/hugagentos-product-overview.png"
-    alt="HugAgentOS 对话、工具调用、知识库与产物工作台概览"
-    width="100%"
-  />
-</p>
+HugAgentOS 是 HugAgent 的开源底座。HugAgent 面向企业级智能体场景，把领域本体
+提升为推理、决策与行动的控制平面，并将智能对话、私有知识库 RAG、子智能体、
+MCP 工具、Agent Skills、沙箱执行、长期记忆、自动化和数据画布整合到一个
+可私有部署的工作空间中。
 
 > [!NOTE]
 > 本社区仓库由上游主仓按发布版本自动生成，并标记为 `generated`。
@@ -120,6 +109,42 @@ HugAgentOS 的重点不是再包装一个聊天界面，而是把智能体完成
   </tr>
 </table>
 
+## 领域本体驱动的企业可信体系
+
+HugAgent 不只把本体当作知识库，而是把它作为机器可执行的控制平面。受控的领域
+概念、关系、铁律、Action 契约、角色与权限，让技能、记忆和编排三大引擎共享
+同一套业务语言。
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>🧭 统一语义底座</strong><br />
+      使用版本化的概念与关系，对齐领域意图、技能、工具、记忆和智能体角色。
+    </td>
+    <td width="50%" valign="top">
+      <strong>🏗️ 构建时治理</strong><br />
+      在技能、工具和子智能体创建或导入时进行校验，并通过一致的 Action 契约
+      完成标准化能力装配。
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>🛡️ 门控可信执行</strong><br />
+      候选计划依次经过确定性规则检查、风险分级证据评审和门控执行。违规动作
+      会携带规则、证据与修正建议返回，不会静默放行。
+    </td>
+    <td width="50%" valign="top">
+      <strong>🔎 可溯、受控的持续进化</strong><br />
+      记录审批、驳回、证据和执行结果，把执法事件整理为版本化本体建议，经过
+      人工审核后生效，并保留回滚能力。
+    </td>
+  </tr>
+</table>
+
+> [!NOTE]
+> 本体可信控制平面是正在现有 Harness 上分阶段集成的企业级目标架构。它强化
+> 结构化合规和基于证据的评审，但不对自由文本作“零幻觉”承诺。
+
 ## 核心能力
 
 社区版覆盖个人智能体从对话、执行到沉淀和复用的完整闭环；可选组件按需启用，
@@ -180,30 +205,48 @@ HugAgentOS 的重点不是再包装一个聊天界面，而是把智能体完成
 
 ## 系统架构
 
-HugAgentOS 将 Web 接入、对话运行、智能体编排和工具执行分层解耦。本地单机版
-使用 SQLite 与进程内状态，多用户部署使用 PostgreSQL 与 Redis；Milvus 与
-Neo4j 作为可选记忆组件加入。
+HugAgentOS 将技能、记忆、编排三大引擎与本体可信控制平面组合为统一 Agent
+Harness。本体在构建时对齐能力，在运行时注入相关领域规则，并在行动执行前完成
+门控；每次裁决都可以进入可追溯、有人治理的持续改进闭环。
 
 ```mermaid
-flowchart LR
-    U[浏览器] --> FE[React 19 + Nginx]
-    FE --> API[FastAPI API]
-    API --> RUN[ChatRun + Redis Stream]
-    RUN --> WF[流式工作流编排]
-    WF --> AGENT[AgentScope 2.0 ReActAgent]
+flowchart TB
+    U[企业用户与多渠道] --> API[Web / 桌面端 / API]
+    API --> RUN[ChatRun 与流式工作流]
 
-    AGENT --> MCP[8 个通用 MCP 工具]
-    AGENT --> SKILL[Agent Skills]
-    AGENT --> BOX[轻量脚本沙箱]
-    WF --> RAG[私有知识库 RAG]
-    WF --> MEM[L1 / L2 / L3 记忆]
+    ONTO[领域本体控制平面<br/>概念 · 关系 · 铁律<br/>Action 契约 · 角色 · 权限]
+    ONTO --> BUILD[构建时校验<br/>技能 · 工具 · 子智能体]
+    ONTO --> BOOT[领域 Bootstrap<br/>语义对齐 · 相关规则注入]
 
-    API --> PG[(SQLite / PostgreSQL)]
-    RUN --> REDIS[(进程内状态 / Redis)]
-    API --> STORE[(本地文件存储)]
-    RAG -. 可选 .-> MILVUS[(Milvus)]
-    MEM -. 可选 .-> MILVUS
-    MEM -. 可选 .-> NEO4J[(Neo4j)]
+    subgraph HARNESS[三引擎 Agent Harness]
+        direction LR
+        SKILL[技能引擎] <--> ORCH[编排引擎]
+        ORCH <--> MEMORY[记忆引擎]
+    end
+
+    RUN --> ORCH
+    BUILD --> SKILL
+    BOOT --> ORCH
+    BOOT --> MEMORY
+    ORCH --> PLAN[候选计划或动作]
+
+    PLAN --> RULE[确定性本体规则门]
+    ONTO --> RULE
+    RULE -->|低风险且合规| EXEC[门控执行]
+    RULE -->|检查点或高风险| REVIEW[基于证据的评审]
+    REVIEW -->|通过| EXEC
+    RULE -->|违规| REVISE[携带证据与建议驳回]
+    REVIEW -->|修改或升级人工| REVISE
+    REVISE --> ORCH
+
+    EXEC --> CAP[MCP · Skills · 沙箱 · RAG]
+    EXEC --> AUDIT[可追溯审计与回放]
+    REVISE --> AUDIT
+    AUDIT --> EVOLVE[受治理的本体候选]
+    EVOLVE -. 人工审核 · 版本化 · 可回滚 .-> ONTO
+
+    API --> DATA[(SQLite / PostgreSQL · Redis · 对象存储)]
+    MEMORY --> VECTOR[(Milvus / Neo4j，可选)]
 ```
 
 ### 技术栈
