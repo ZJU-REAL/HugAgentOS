@@ -1,0 +1,29 @@
+name: 📖 Documentation / 文档问题
+description: Report a docs error, gap, or improvement. 报告文档错误、缺失或改进点。
+title: "[Docs] "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Documentation lives under `document/` (EN + 简体中文) and accepts pull
+        requests directly. If you can fix it, a PR is very welcome!
+        文档位于 `document/`，欢迎直接提交 PR 修复。
+  - type: input
+    id: location
+    attributes:
+      label: Page / location / 文档位置
+      description: File path or URL. 文件路径或链接。
+      placeholder: document/en/deployment/quick-install.md
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What's wrong or missing? / 问题描述
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix / 建议修改

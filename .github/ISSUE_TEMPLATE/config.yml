@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions / 讨论区
+    url: https://github.com/ZJU-REAL/HugAgentOS/discussions
+    about: Ask questions, share ideas, or discuss usage. 提问、分享想法或讨论用法，请到讨论区。
+  - name: 🔒 Report a security vulnerability / 报告安全漏洞
+    url: https://github.com/ZJU-REAL/HugAgentOS/security/policy
+    about: Do NOT open a public issue for security problems. 请勿公开披露安全漏洞，参见 SECURITY.md。
+  - name: 📖 Documentation / 文档
+    url: https://github.com/ZJU-REAL/HugAgentOS/tree/main/document
+    about: Deployment, architecture, and module guides (EN / 简体中文).
