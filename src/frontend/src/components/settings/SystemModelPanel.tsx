@@ -19,6 +19,7 @@ import {
   type ProviderSchema,
 } from '../../api';
 import { t } from '../../i18n';
+import { useModelCapabilitiesStore } from '../../stores';
 
 const { Text } = Typography;
 
@@ -45,6 +46,14 @@ export function SystemModelPanel() {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [assigningRole, setAssigningRole] = useState<string | null>(null);
   const [form] = Form.useForm();
+  const userModelSwitchEnabled = useModelCapabilitiesStore(
+    (s) => s.capabilities.user_model_switch_enabled,
+  );
+  const selectableModels = useModelCapabilitiesStore(
+    (s) => s.capabilities.user_selectable_models,
+  );
+  const selectedModelProviderId = useModelCapabilitiesStore((s) => s.selectedModelProviderId);
+  const setSelectedModelProviderId = useModelCapabilitiesStore((s) => s.setSelectedModelProviderId);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -52,6 +61,7 @@ export function SystemModelPanel() {
       const [ps, rs] = await Promise.all([listModelProviders(), listModelRoles()]);
       setProviders(ps);
       setRoles(rs);
+      void useModelCapabilitiesStore.getState().fetchCapabilities();
     } catch (e) {
       message.error(t('加载模型配置失败：{msg}', { msg: (e as Error).message }));
     } finally {
@@ -171,7 +181,7 @@ export function SystemModelPanel() {
       dataIndex: 'role_key',
       render: (v: string, r: ModelRoleAssignment) => (
         <Space direction="vertical" size={0}>
-          <Text>{(r.label as string) || v}</Text>
+          <Text>{t((r.label as string) || v)}</Text>
           <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>
         </Space>
       ),
@@ -189,7 +199,7 @@ export function SystemModelPanel() {
           loading={assigningRole === r.role_key}
           options={providers
             .filter((p) => !r.type || p.provider_type === r.type)
-            .map((p) => ({ value: p.provider_id, label: `${p.display_name}（${p.model_name}）` }))}
+            .map((p) => ({ value: p.provider_id, label: `${p.display_name} (${p.model_name})` }))}
           onChange={(pid) => void handleAssign(r.role_key, (pid as string) ?? null)}
         />
       ),
@@ -270,6 +280,24 @@ export function SystemModelPanel() {
         columns={roleColumns}
         style={{ marginTop: 8 }}
       />
+
+      <h4 className="jx-sysPanel-subtitle">{t('模型选择')}</h4>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {t('选择新对话默认使用的模型；同一个选择也会显示在对话输入框中，可随时切换。')}
+      </Text>
+      <div style={{ marginTop: 8 }}>
+        <Select
+          style={{ width: '100%', maxWidth: 420 }}
+          value={selectedModelProviderId || undefined}
+          placeholder={userModelSwitchEnabled ? t('请选择对话模型') : t('当前账号未开放模型切换权限')}
+          disabled={!userModelSwitchEnabled || selectableModels.length === 0}
+          options={selectableModels.map((model) => ({
+            value: model.provider_id,
+            label: `${model.display_name} (${model.model_name || model.provider})`,
+          }))}
+          onChange={(providerId) => setSelectedModelProviderId(providerId)}
+        />
+      </div>
 
       <Modal
         title={editing ? t('编辑模型供应商') : t('添加模型供应商')}

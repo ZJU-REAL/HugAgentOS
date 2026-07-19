@@ -1,3 +1,5 @@
+import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
+
 /**
  * 轻量 i18n：中文原文作 key，英文字典翻译，缺失回退中文。
  * 语言偏好存 localStorage；切换语言整页 reload，保证模块级常量
@@ -14,7 +16,9 @@ function detectLang(): Lang {
   } catch {
     // localStorage 不可用（隐私模式等）时回退默认语言
   }
-  return 'zh-CN';
+  return IS_COMMUNITY_EDITION_BUILD || import.meta.env.VITE_DEFAULT_LANGUAGE === 'en'
+    ? 'en'
+    : 'zh-CN';
 }
 
 const currentLang: Lang = detectLang();

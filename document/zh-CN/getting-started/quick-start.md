@@ -14,9 +14,10 @@ PostgreSQL 或 Redis。
 | 项目 | 要求 |
 |---|---|
 | 操作系统 | Linux、macOS，或通过 WSL2 使用 Windows |
-| Python | 3.10 或更高版本 |
+| Python | 3.11 或更高版本 |
 | Node.js | 20 或更高版本，并包含 npm |
 | Git 与 curl | 可通过 `PATH` 直接调用 |
+| Rust 与 Cargo | 仅 Linux 没有兼容 `ripgrep` 预编译 wheel 时需要，包括 glibc 低于 2.39 的系统 |
 
 ## 一键安装
 

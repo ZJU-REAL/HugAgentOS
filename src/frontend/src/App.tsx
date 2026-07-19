@@ -29,7 +29,7 @@ import { ProjectsPanel, ProjectDetailPanel } from './components/projects';
 import { useProjectStore } from './stores/projectStore';
 import { CanvasPanel } from './components/canvas';
 import { ImagePreview, AuthExpiredModal, AppLoadingSkeleton } from './components/common';
-import { SettingsPage } from './components/settings';
+import { PasswordManagementPanel, SettingsPage } from './components/settings';
 import { CreateKBModal, ReindexModal } from './components/kb';
 import { BatchConfirmModal } from './components/batch';
 import {
@@ -95,6 +95,7 @@ export default function App() {
   const closeCanvas = useCanvasStore((s) => s.closeCanvas);
   const automationActiveGroup = useAutomationChatStore((s) => s.activeGroup);
   const exitAutomationChat = useAutomationChatStore((s) => s.exitAutomationChat);
+  const isCE = useEditionStore((s) => s.edition === 'ce');
 
   useEffect(() => {
     if (panel === 'share_records') {
@@ -518,6 +519,22 @@ export default function App() {
 
   if (!authUser || window.location.pathname.startsWith('/mock-sso/login')) return null;
 
+  if (authUser.must_change_password) {
+    return (
+      <Modal
+        open
+        title={t('修改默认密码')}
+        footer={null}
+        closable={false}
+        maskClosable={false}
+        keyboard={false}
+        width={480}
+      >
+        <PasswordManagementPanel forced />
+      </Modal>
+    );
+  }
+
   return (
     <Layout style={{ height: '100%' }}>
       <Sidebar
@@ -653,7 +670,7 @@ export default function App() {
           <SlidePanel show={!!toolResultPanel && !promptHubOpen && !canvasOpen && panel === 'chat'} panelKey="tool-result-panel" x={20} duration={0.22}>
             <ToolResultPanel />
           </SlidePanel>
-          <SlidePanel show={promptHubOpen && !canvasOpen && (panel === 'chat' || panel === 'project_detail')} panelKey="prompt-hub">
+          <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && (panel === 'chat' || panel === 'project_detail')} panelKey="prompt-hub">
             <PromptHubPanel />
           </SlidePanel>
           <SlidePanel show={canvasOpen} panelKey="canvas" x={30} duration={0.28}>

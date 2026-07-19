@@ -21,8 +21,9 @@
 | 项 | 要求 |
 |---|---|
 | 操作系统 | Linux / macOS（Windows 建议在 WSL2 内执行，见 [Windows 部署](windows-deployment.md)） |
-| Python | ≥ 3.10 |
+| Python | ≥ 3.11 |
 | Node.js | ≥ 20（公开安装器会在本机构建前端） |
+| Rust 与 Cargo | Linux 没有兼容 `ripgrep` 预编译 wheel 时需要，包括 x86_64 且 glibc 低于 2.39 的系统 |
 | 网络 | 能访问所配置的大模型 API 端点 |
 
 ## 安装
@@ -35,9 +36,9 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 安装脚本会：
 
-1. 校验 Python ≥ 3.10、Node.js ≥ 20、npm 和 Git；
+1. 校验 Python ≥ 3.11、Node.js ≥ 20、npm、Git，以及 Linux 需要源码构建 `ripgrep` 时所需的 Rust；
 2. 把 HugAgentOS 克隆或快进更新到 `~/.hugagent/source`；
-3. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`）；
+3. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`），并自动重建上次中断留下的不完整环境；
 4. 安装 `requirements.txt`、`hugagent` 控制台命令，以及可选的本地知识库和图表依赖；
 5. 把前端构建到 `src/frontend/dist`；
 6. 进入交互式首次配置向导。
@@ -48,9 +49,9 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 引导全部在终端完成，依次：
 
-**第 1 步 · 设置管理员账号**——输入用户名与密码，创建本地管理员（`super_admin`），后续用它在网页登录并进入管理台。
+**第 1 步 · 管理员账号**——全新 CE 数据目录默认只创建一个本地管理员，账号和初始密码均为 `admin`，首次登录必须修改密码。登录页不提供注册功能，后端也会拒绝注册请求。
 
-**第 2 步 · 配置模型**——选择预设厂商（DeepSeek / OpenAI / Moonshot / Qwen / Ollama）或自定义 OpenAI 兼容端点，填入 `base_url` / 模型名 / `api_key`。引导会**实测一次连通性**（真实调用 `/chat/completions`），失败即时报错，可重配。配好的模型会指派给全部对话角色（主智能体、摘要、追问、计划、代码执行等）。
+**第 2 步 · 配置模型**——选择预设厂商（DeepSeek / OpenAI / Moonshot / Qwen / Ollama）或自定义 OpenAI 兼容端点，填入 `base_url` / 模型名 / `api_key` / 上下文窗口。上下文窗口保守默认 32,768 tokens，并以 `context_length` 持久化；请按模型端点真实支持值调整。引导会**实测一次连通性**（真实调用 `/chat/completions`），失败即时报错，可重配。配好的模型会指派给全部对话角色（主智能体、摘要、追问、计划、代码执行等）。
 
 配好的对话模型会一次指派给全部 7 个对话角色。除此之外还有两类可单独配置的模型（都可跳过）：
 
@@ -68,6 +69,10 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 引导末尾会打印**本机能力概览**（Node.js / pandoc / libreoffice 是否就绪，对应 React 建站 / Word 转换 / Office 转换），随后自动起服务并打开 `http://127.0.0.1:3001/`。
 
+> **警告：** 服务默认只监听 `127.0.0.1`。若服务器确实需要接受远程连接，请使用
+> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`，并先配置强管理员密码、
+> 防火墙和 HTTPS。不要在不受信任的网络中直接暴露服务。
+
 ### 非交互安装（自动化 / CI）
 
 `onboard` 支持旁路参数，用于脚本化安装：
@@ -77,6 +82,7 @@ hugagent onboard \
   --username admin --password '<强密码>' \
   --model-base-url https://api.deepseek.com/v1 \
   --model-api-key '<your-key>' --model-name deepseek-chat \
+  --model-context-length 32768 \
   --embed-base-url https://<embed>/v1 --embed-model bge-m3 --embed-api-key '<key>' \  # 可选，向量/索引模型
   --reranker-base-url https://<rerank> --reranker-model bge-reranker --reranker-api-key '<key>' \  # 可选，重排模型
   --plugins automation,skill-manager,sites \  # 逗号分隔 slug / all / none / default
@@ -98,7 +104,7 @@ hugagent onboard \
 
 ```bash
 hugagent            # 已初始化 → 起服务并打开浏览器；未初始化 → 自动进引导
-hugagent serve      # 显式起服务（--port 改端口，--no-browser 不开浏览器）
+hugagent serve      # 显式起服务（--host 改监听地址，--port 改端口，--no-browser 不开浏览器）
 hugagent onboard    # 重跑引导 / 改配置
 hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录、前端构建、依赖等）
 ```

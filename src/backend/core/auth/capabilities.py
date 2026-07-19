@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from core.config.settings import settings
 from sqlalchemy.orm import Session
 
 # Boolean capability flags → system defaults. The first 5 are "feature module"
@@ -150,9 +151,15 @@ def team_default_permissions_for_user(db: Session, user_id: str) -> Dict[str, An
     "personal → system default").
     """
     try:
-        from core.db.repository import TeamRepository
+        # CE's PostgreSQL baseline intentionally omits the team tables while
+        # keeping this shared module importable.  Isolate the optional lookup
+        # in a SAVEPOINT: catching an undefined-table error without rolling it
+        # back leaves PostgreSQL's outer transaction aborted, breaking the
+        # caller's next otherwise-valid query.
+        with db.begin_nested():
+            from core.db.repository import TeamRepository
 
-        rows = TeamRepository(db).list_for_user(user_id)
+            rows = TeamRepository(db).list_for_user(user_id)
     except Exception:  # noqa: BLE001 — CE has no team table / any exception degrades safely
         return {}
     return merge_team_permissions(
@@ -201,7 +208,9 @@ def resolve_capabilities(
         result["allowed_apps"] = None  # system default = all
         for layer in layers:
             if isinstance(layer.get("allowed_apps"), list):
-                result["allowed_apps"] = list(layer["allowed_apps"])  # higher-priority layer whitelist
+                result["allowed_apps"] = list(
+                    layer["allowed_apps"]
+                )  # higher-priority layer whitelist
                 break
     return result
 
@@ -216,6 +225,8 @@ def user_has_capability(db: Session, user_id: str, flag: str) -> bool:
     plugin (``is_security_viewer``) share this single implementation.
     """
     if not user_id:
+        return False
+    if settings.edition.edition == "ce" and flag == "can_create_public_kb":
         return False
     from core.db.models import UserShadow
 
@@ -251,4 +262,7 @@ def resolve_user_capabilities(db: Session, user_id: str) -> Dict[str, Any]:
     meta = dict(shadow.extra_data) if (shadow and isinstance(shadow.extra_data, dict)) else {}
     role_defaults = role_permissions_for_user(db, user_id)
     team_defaults = team_default_permissions_for_user(db, user_id)
-    return resolve_capabilities(meta, role_defaults, team_defaults)
+    caps = resolve_capabilities(meta, role_defaults, team_defaults)
+    if settings.edition.edition == "ce":
+        caps["can_create_public_kb"] = False
+    return caps

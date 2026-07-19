@@ -1,23 +1,24 @@
 # Knowledge Base
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-19
 
 HugAgentOS supports two knowledge base flavors that can run side by side and are presented together in the capability center:
 
-1. **Self-hosted knowledge bases** (full Community Edition capability): document upload → parent-child chunking → vectorization into Milvus → dense + sparse hybrid retrieval (RRF fusion) → optional reranking. Includes private per-user spaces and admin-managed public spaces (the public KB admin console is Enterprise Edition, EE).
+1. **Self-hosted knowledge bases**: document upload → parent-child chunking → vectorization into Milvus → dense + sparse hybrid retrieval (RRF fusion) → optional reranking. Community Edition (CE) provides only private spaces owned by the current user. Admin-managed public spaces are an Enterprise Edition (EE) capability.
 2. **External Dify knowledge bases** (Enterprise Edition, EE): with `KNOWLEDGE_BASE=dify`, the backend injects Dify datasets into the capability catalog at runtime, and retrieval goes through the Dify Retrieval API.
 
 Both flavors are exposed to the agent as MCP tools: self-hosted retrieval uses `retrieve_local_kb`, Dify uses `retrieve_dataset_content` — both served by the same MCP server (`mcp_servers/retrieve_dataset_content_mcp/`).
+
+In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` returns only private spaces owned by the current user. The backend rejects create requests with `visibility=public` and does not expose Dify or shared-knowledge-base service settings, so this boundary does not rely on frontend hiding alone.
 
 ## Architecture
 
 ```
                 ┌──────────── Capability center /v1/catalog ─────────────┐
                 │  api/routes/v1/catalog.py aggregates three kb sources:  │
-                │  · Dify datasets (injected when is_dify_enabled(),      │
-                │    60s in-process cache)                                 │
-                │  · private self-hosted spaces (kb_spaces, private)       │
-                │  · admin public spaces (owner=system_public_kb, public)  │
+                │  · private self-hosted spaces (CE + EE)                  │
+                │  · Dify datasets (EE only, 60s in-process cache)         │
+                │  · admin public spaces (EE only, system_public_kb)       │
                 └──────────────────────────────────────────────────────────┘
 
   Ingestion (self-hosted)                   Retrieval (in conversation)
@@ -72,7 +73,7 @@ Parent-child parameters are tunable per upload via `indexing_config`: `parent_ch
 
 1. Resolve the allowed `kb_id` set (environment variables in stdio mode; `x-allowed-kb-ids` and friends as HTTP headers in streamable-http mode);
 2. `embed_text(query)` produces the query vector (embedding config reuses `MEM0_EMBED_*` or the DB `embedding` model role);
-3. `core/kb/kb_vector.py::hybrid_search()`: two `AnnSearchRequest`s — dense vectors (IP metric) and sparse vectors (bag-of-words hashing into a 100k-dimension space) — fused with `RRFRanker(k=60)`; private spaces are filtered by `user_id == current user`, public spaces pass on `kb_id` alone;
+3. `core/kb/kb_vector.py::hybrid_search()`: two `AnnSearchRequest`s — dense vectors (IP metric) and sparse vectors (bag-of-words hashing into a 100k-dimension space) — fused with `RRFRanker(k=60)`; private spaces are filtered by `user_id == current user`, while EE public spaces pass only after their authorized `kb_id` is resolved;
 4. Child-chunk / question-row hits are deduplicated, then the **parent chunk text** is fetched from PostgreSQL `kb_chunks` and returned to the LLM;
 5. If the user enabled reranking, results get a second pass through the reranker API (`RERANKER_URL/MODEL/API_KEY` or the DB `reranker` role).
 
@@ -127,7 +128,7 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 
 ## Frontend
 
-- KB browsing and toggling is integrated into the capability center catalog (`src/frontend/src/components/catalog/`, state in `stores/catalogStore.ts`);
+- KB browsing and toggling is integrated into the capability center catalog (`src/frontend/src/components/catalog/`, state in `stores/catalogStore.ts`); CE shows one private module, while EE shows public and private modules;
 - Creation / re-index modals: `src/frontend/src/components/kb/CreateKBModal.tsx`, `ReindexModal.tsx`;
 - The admin public-KB console UI lives under `src/frontend/src/components/admin/` (Enterprise Edition, EE).
 
@@ -144,7 +145,7 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 | `src/backend/core/services/kb_service.py` | KB business logic (incl. the system-managed sync space) |
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | User-facing `/v1/catalog/kb` routes |
 | `src/backend/api/routes/v1/admin_kb.py` | Admin public KB routes (Enterprise Edition, EE) |
-| `src/backend/api/routes/v1/catalog.py` | Catalog aggregation (Dify injection + private / public space listing) |
+| `src/backend/api/routes/v1/catalog.py` | Catalog aggregation (private only in CE; Dify / public spaces added in EE) |
 | `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | Retrieval MCP server (both tools) |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` ORM |
 | `src/frontend/src/components/kb/` | Creation / re-index modal components |

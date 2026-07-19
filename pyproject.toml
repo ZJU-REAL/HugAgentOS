@@ -7,7 +7,7 @@ name = "hugagent"
 version = "0.1.0"
 description = "Multi-agent platform with MCP integration (AgentScope 2.0)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "HugAgentOS Team"}
@@ -54,7 +54,7 @@ exclude = ["tests*", "alembic*", "uploads*", "scripts*"]
 
 [tool.black]
 line-length = 100
-target-version = ['py310', 'py311', 'py312']
+target-version = ['py311', 'py312']
 include = '\.pyi?$'
 exclude = '''
 /(
@@ -74,7 +74,7 @@ line_length = 100
 skip_gitignore = true
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 # 缓存放树外，避免在仓库根堆出 .mypy_cache/（可被 MYPY_CACHE_DIR 覆盖）
 cache_dir = "/tmp/hugagent-mypy-cache"
 warn_return_any = true

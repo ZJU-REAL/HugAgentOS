@@ -21,8 +21,9 @@ Technical shape: a single uvicorn process (serving both the frontend static asse
 | Item | Requirement |
 |---|---|
 | OS | Linux / macOS (on Windows, run inside WSL2 — see [Windows Deployment](windows-deployment.md)) |
-| Python | ≥ 3.10 |
+| Python | ≥ 3.11 |
 | Node.js | ≥ 20 (the public installer builds the frontend locally) |
+| Rust and Cargo | Required on Linux without a compatible prebuilt `ripgrep` wheel, including x86_64 systems with glibc earlier than 2.39 |
 | Network | Access to the configured LLM API endpoint |
 
 ## Install
@@ -35,9 +36,9 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 The installer will:
 
-1. Verify Python ≥ 3.10, Node.js ≥ 20, npm, and Git;
+1. Verify Python ≥ 3.11, Node.js ≥ 20, npm, Git, and Rust when the Linux platform must build `ripgrep` from source;
 2. Clone or fast-forward HugAgentOS at `~/.hugagent/source`;
-3. Create a virtual environment at `~/.hugagent/venv` (using [uv](https://github.com/astral-sh/uv) when available, or `python -m venv` otherwise);
+3. Create a virtual environment at `~/.hugagent/venv` (using [uv](https://github.com/astral-sh/uv) when available, or `python -m venv` otherwise), and rebuild an incomplete environment left by an interrupted run;
 4. Install `requirements.txt`, the `hugagent` console command, and optional local knowledge-base and chart dependencies;
 5. Build the frontend at `src/frontend/dist`;
 6. Enter the interactive first-run wizard.
@@ -48,9 +49,9 @@ The installer will:
 
 The wizard runs entirely in the terminal, in order:
 
-**Step 1 · Admin account** — enter a username and password to create the local admin (`super_admin`), which you then use to log in on the web and reach the admin console.
+**Step 1 · Admin account** — a fresh CE data directory creates exactly one local administrator. The initial username and password are both `admin`, and the password must be changed on first sign-in. The login page has no registration function, and the backend rejects registration requests as well.
 
-**Step 2 · Model** — pick a preset provider (DeepSeek / OpenAI / Moonshot / Qwen / Ollama) or a custom OpenAI-compatible endpoint, and fill in `base_url` / model name / `api_key`. The wizard **tests connectivity once** (a real call to `/chat/completions`) and reports failure immediately so you can reconfigure. The configured model is assigned to every chat role (main agent, summarizer, follow-up, planning, code execution, etc.).
+**Step 2 · Model** — pick a preset provider (DeepSeek / OpenAI / Moonshot / Qwen / Ollama) or a custom OpenAI-compatible endpoint, and fill in `base_url` / model name / `api_key` / context window. The context window defaults to a conservative 32,768 tokens and is stored as `context_length`; set it to the model endpoint's real supported value. The wizard **tests connectivity once** (a real call to `/chat/completions`) and reports failure immediately so you can reconfigure. The configured model is assigned to every chat role (main agent, summarizer, follow-up, planning, code execution, etc.).
 
 The chat model is assigned to all 7 chat roles at once. Two more model types can be configured separately (both skippable):
 
@@ -68,6 +69,12 @@ The chat model is assigned to all 7 chat roles at once. Two more model types can
 
 At the end the wizard prints a **host-capability summary** (whether Node.js / pandoc / libreoffice are present, gating React site-building / Word conversion / Office conversion), then starts the server and opens `http://127.0.0.1:3001/`.
 
+> **Warning:** The server listens on `127.0.0.1` by default. If the server must
+> accept remote connections, run
+> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`, and configure a
+> strong administrator password, a firewall, and HTTPS first. Don't expose the
+> service directly on an untrusted network.
+
 ### Non-interactive install (automation / CI)
 
 `onboard` accepts bypass flags for scripted installs:
@@ -77,6 +84,7 @@ hugagent onboard \
   --username admin --password '<strong-password>' \
   --model-base-url https://api.deepseek.com/v1 \
   --model-api-key '<your-key>' --model-name deepseek-chat \
+  --model-context-length 32768 \
   --embed-base-url https://<embed>/v1 --embed-model bge-m3 --embed-api-key '<key>' \  # optional, index/embedding model
   --reranker-base-url https://<rerank> --reranker-model bge-reranker --reranker-api-key '<key>' \  # optional, reranker model
   --plugins automation,skill-manager,sites \  # comma-separated slugs / all / none / default
@@ -89,7 +97,7 @@ hugagent onboard \
 
 ```bash
 hugagent            # initialized → start server and open browser; not initialized → enter the wizard
-hugagent serve      # start the server explicitly (--port to change port, --no-browser to skip opening)
+hugagent serve      # start explicitly (--host to change bind address, --port to change port)
 hugagent onboard    # re-run the wizard / change configuration
 hugagent doctor     # environment self-check (Python version, port availability, data dir, frontend build, deps, …)
 ```

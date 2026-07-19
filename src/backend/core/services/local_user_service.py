@@ -11,9 +11,29 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{2,32}$")
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+CE_DEFAULT_ADMIN_USERNAME = "admin"
+CE_DEFAULT_ADMIN_PASSWORD = "admin"
+CE_DEFAULT_ADMIN_CAPABILITIES: Dict[str, Any] = {
+    "role": "super_admin",
+    "ce_default_admin": True,
+    "lab_enabled": True,
+    "can_use_api_key": True,
+    "can_add_skill": True,
+    "can_add_mcp": True,
+    "can_import_plugin": True,
+    "can_add_agent": True,
+    "can_create_private_kb": True,
+    "can_create_public_kb": False,
+    "can_create_channel_bot": True,
+    "can_switch_model": True,
+    "can_run_autonomous_loop": True,
+    "can_system_config": True,
+    "can_content_manage": True,
+    "allowed_apps": "*",
+}
 
 from core.auth.password import hash_password, verify_password
 
@@ -28,8 +48,11 @@ except ModuleNotFoundError:
 try:
     from core.services.team_service import list_user_teams_brief
 except ModuleNotFoundError:
+
     def list_user_teams_brief(db, user_id):
         return []
+
+
 from core.config.settings import settings
 from core.db.models import LocalUser, TeamMember, UserShadow
 from core.db.repository import (
@@ -109,6 +132,7 @@ class LocalUserService:
 
         # License seat cap (M4): internal deployments / unlimited seats always pass (counting and copy in licensing/seats.py)
         from core.licensing.seats import seat_block_reason
+
         seat_block = seat_block_reason(self.db)
         if seat_block:
             return RegisterResult(False, seat_block)
@@ -126,7 +150,7 @@ class LocalUserService:
             # Create users_shadow
             shadow = UserShadow(
                 user_id=user_id,
-                user_center_id=user_id,   # local accounts use user_id as center_id
+                user_center_id=user_id,  # local accounts use user_id as center_id
                 username=username,
                 email=email,
                 avatar_url=None,
@@ -236,7 +260,10 @@ class LocalUserService:
         if self.db.query(UserShadow).filter(UserShadow.username == username).first() is not None:
             return RegisterResult(False, "账号已被占用")
         # Email uniqueness (only when an email is provided)
-        if email and self.db.query(UserShadow).filter(UserShadow.email == email).first() is not None:
+        if (
+            email
+            and self.db.query(UserShadow).filter(UserShadow.email == email).first() is not None
+        ):
             return RegisterResult(False, "邮箱已被使用")
 
         # Target team existence check (only when provided)
@@ -246,6 +273,7 @@ class LocalUserService:
 
         # License seat cap: internal deployments / unlimited seats always pass
         from core.licensing.seats import seat_block_reason
+
         seat_block = seat_block_reason(self.db)
         if seat_block:
             return RegisterResult(False, seat_block)
@@ -314,8 +342,7 @@ class LocalUserService:
         candidate = base
         suffix = 0
         while (
-            self.db.query(UserShadow).filter(UserShadow.username == candidate).first()
-            is not None
+            self.db.query(UserShadow).filter(UserShadow.username == candidate).first() is not None
         ):
             suffix += 1
             candidate = f"{base}_{suffix}"
@@ -423,7 +450,9 @@ class LocalUserService:
             ok=True,
             message="登录成功",
             user_id=shadow.user_id,
-            user_info=self._build_user_info(shadow.user_id, shadow.username, shadow=shadow, local=local),
+            user_info=self._build_user_info(
+                shadow.user_id, shadow.username, shadow=shadow, local=local
+            ),
         )
 
     # ── Password change ────────────────────────────────────────
@@ -435,10 +464,18 @@ class LocalUserService:
             return LoginResult(False, "原密码错误")
         if len(new_password or "") < settings.auth.password_min_length:
             return LoginResult(False, f"新密码长度至少 {settings.auth.password_min_length} 位")
+        if verify_password(new_password, local.password_hash):
+            return LoginResult(False, "新密码不能与原密码相同")
 
         local.password_hash = hash_password(new_password)
         local.password_updated_at = datetime.utcnow()
         local.updated_at = datetime.utcnow()
+        shadow = self.user_repo.get_by_id(user_id)
+        if shadow is not None:
+            meta = dict(shadow.extra_data or {})
+            meta.pop("must_change_password", None)
+            shadow.extra_data = meta
+            shadow.updated_at = datetime.utcnow()
         self.db.commit()
         return LoginResult(True, "密码修改成功", user_id=user_id)
 
@@ -500,5 +537,73 @@ class LocalUserService:
             ok=True,
             message="已更新",
             user_id=user_id,
-            user_info=self._build_user_info(user_id, shadow.username if shadow else "", shadow=shadow, local=local),
+            user_info=self._build_user_info(
+                user_id, shadow.username if shadow else "", shadow=shadow, local=local
+            ),
         )
+
+
+def ensure_ce_default_admin(db: Session) -> tuple[Optional[str], bool]:
+    """Ensure a fresh CE instance has an ``admin/admin`` local administrator.
+
+    The bootstrap credential is marked for mandatory password change. Existing
+    passwords are never reset. If a different local account already exists, the
+    explicit onboarding choice is preserved and no extra account is created.
+    """
+    if settings.edition.edition != "ce":
+        return None, False
+
+    shadow = db.query(UserShadow).filter(UserShadow.username == CE_DEFAULT_ADMIN_USERNAME).first()
+    created = False
+
+    if shadow is None:
+        if db.query(LocalUser).count() > 0:
+            return None, False
+        user_id = "user_ce_admin"
+        shadow = UserShadow(
+            user_id=user_id,
+            user_center_id=user_id,
+            username=CE_DEFAULT_ADMIN_USERNAME,
+            email=None,
+            avatar_url=None,
+            extra_data={
+                "auth_source": "local",
+                **CE_DEFAULT_ADMIN_CAPABILITIES,
+                "must_change_password": True,
+            },
+            last_sync_at=datetime.utcnow(),
+        )
+        db.add(shadow)
+        db.flush()
+        local = LocalUser(
+            user_id=user_id,
+            password_hash=hash_password(CE_DEFAULT_ADMIN_PASSWORD),
+            nickname="Administrator",
+            status="active",
+            password_updated_at=None,
+        )
+        db.add(local)
+        created = True
+    else:
+        local = db.query(LocalUser).filter(LocalUser.user_id == shadow.user_id).first()
+        if local is None:
+            local = LocalUser(
+                user_id=shadow.user_id,
+                password_hash=hash_password(CE_DEFAULT_ADMIN_PASSWORD),
+                nickname="Administrator",
+                status="active",
+                password_updated_at=None,
+            )
+            db.add(local)
+            created = True
+
+        meta = dict(shadow.extra_data or {})
+        meta.update(CE_DEFAULT_ADMIN_CAPABILITIES)
+        meta.setdefault("auth_source", "local")
+        if verify_password(CE_DEFAULT_ADMIN_PASSWORD, local.password_hash):
+            meta["must_change_password"] = True
+        shadow.extra_data = meta
+        shadow.updated_at = datetime.utcnow()
+
+    db.commit()
+    return shadow.user_id, created

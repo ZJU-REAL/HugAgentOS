@@ -3,19 +3,20 @@
 import logging
 from threading import Lock
 from time import monotonic
-from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, Depends, Path
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 
-from core.db.engine import get_db
-from core.auth.backend import get_current_user, UserContext
-from core.db.repository import KBRepository
-from core.services import CatalogService
-from core.infra.responses import success_response
-from core.infra.exceptions import BadRequestError
+from core.auth.backend import UserContext, get_current_user
 from core.config.catalog_runtime import get_runtime_catalog
+from core.config.settings import settings
+from core.db.engine import get_db
+from core.db.repository import KBRepository
+from core.infra.exceptions import BadRequestError
+from core.infra.responses import success_response
 from core.kb.dify_kb import is_dify_enabled, list_datasets
+from core.services import CatalogService
+from fastapi import APIRouter, Depends, Path
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 # ── Dify dataset list cache (avoids 3s timeout on every page load) ──
 _dify_cache_lock = Lock()
@@ -213,7 +214,7 @@ async def get_catalog_items(
 
     在系统默认配置的基础上叠加当前用户的个性化覆盖：每项的启用状态与配置优先返回
     用户自定义值，否则用默认值；管理员在 catalog.json 中禁用的项对前台完全隐藏。
-    KB 包含公共库（Dify）与当前用户的私有库（本地 Milvus）。
+    EE 的 KB 包含公共库与当前用户的私有库；CE 只返回当前用户的私有库。
     """
     # Opportunistically clear this user's capability-resolution cache: on the agent side,
     # resolve_all_runtime_enabled has a 30s in-process cache, and it is cross-process (the
@@ -306,9 +307,11 @@ async def get_catalog_items(
         base_catalog.get("mcp", []) + owned_mcp_items, user_overrides.get("mcps", [])
     )
 
-    # ── Public KB (Dify) ──────────────────────────────────────────────────────
+    is_ce = settings.edition.edition == "ce"
+
+    # ── Public KB (Dify; EE only) ─────────────────────────────────────────────
     public_kb_items: List[Dict[str, Any]] = []
-    if is_dify_enabled():
+    if not is_ce and is_dify_enabled():
         try:
             dify_items = _list_datasets_cached()
             # Permission assignment: narrow to datasets visible to the current user (public + granted scoped; defaults to public when unset).
@@ -337,6 +340,8 @@ async def get_catalog_items(
         spaces = []
     private_kb_items: List[Dict[str, Any]] = []
     for space in spaces:
+        if is_ce and space.visibility != "private":
+            continue
         extra = space.extra_data if isinstance(space.extra_data, dict) else {}
         is_system_managed = bool(extra.get("system_managed"))
         if is_system_managed:
@@ -376,55 +381,56 @@ async def get_catalog_items(
     # read-only, edit = can upload, admin = can manage. On the retrieval side, the
     # public/scoped branches of retrieve_local_kb admit the same visible set.
     public_local_kb_items: List[Dict[str, Any]] = []
-    try:
-        from core.auth.kb_permissions import get_accessible_local_kb_levels, level_to_caps
-        from core.db.models import KBSpace
+    if not is_ce:
+        try:
+            from core.auth.kb_permissions import get_accessible_local_kb_levels, level_to_caps
+            from core.db.models import KBSpace
 
-        levels = get_accessible_local_kb_levels(db, user.user_id)
-        owned_ids = {s.kb_id for s in spaces}
-        shared_ids = [kid for kid in levels if kid not in owned_ids]
-        shared_spaces = []
-        if shared_ids:
-            shared_spaces = (
-                db.query(KBSpace)
-                .filter(
-                    KBSpace.kb_id.in_(shared_ids),
-                    KBSpace.deleted_at.is_(None),
+            levels = get_accessible_local_kb_levels(db, user.user_id)
+            owned_ids = {s.kb_id for s in spaces}
+            shared_ids = [kid for kid in levels if kid not in owned_ids]
+            shared_spaces = []
+            if shared_ids:
+                shared_spaces = (
+                    db.query(KBSpace)
+                    .filter(
+                        KBSpace.kb_id.in_(shared_ids),
+                        KBSpace.deleted_at.is_(None),
+                    )
+                    .all()
                 )
-                .all()
-            )
-        for space in shared_spaces:
-            extra = space.extra_data if isinstance(space.extra_data, dict) else {}
-            if bool(extra.get("system_managed")):
-                continue
-            level = levels.get(space.kb_id, "view")
-            # No longer attach "public/granted" labels by visibility (the implicit model does not expose visibility distinctions to users); keep only the admin-defined tag.
-            tag = str(extra.get("tag") or "").strip()
-            public_local_kb_items.append(
-                {
-                    "id": space.kb_id,
-                    "kind": "knowledge_base",
-                    "name": space.name,
-                    "description": space.description or "无简介",
-                    "desc": space.description or "无简介",
-                    "enabled": True,
-                    "version": "local",
-                    "provider": "HugAgentOS-KB",
-                    "visibility": space.visibility,
-                    "is_public": space.visibility == "public",
-                    "access_level": level,
-                    "chunk_method": space.chunk_method or "semantic",
-                    "document_count": space.document_count or 0,
-                    "total_size_bytes": space.total_size_bytes or 0,
-                    "detail": (f"### {space.name}\n\n" f"{space.description or '暂无简介'}\n"),
-                    "tags": [tag] if tag else [],
-                    "system_managed": False,
-                    "pinned": False,
-                    **level_to_caps(level),
-                }
-            )
-    except Exception as exc:
-        logger.warning("Failed to load shared KB spaces: %s", exc)
+            for space in shared_spaces:
+                extra = space.extra_data if isinstance(space.extra_data, dict) else {}
+                if bool(extra.get("system_managed")):
+                    continue
+                level = levels.get(space.kb_id, "view")
+                # Keep only the admin-defined tag; visibility grants are not exposed as labels.
+                tag = str(extra.get("tag") or "").strip()
+                public_local_kb_items.append(
+                    {
+                        "id": space.kb_id,
+                        "kind": "knowledge_base",
+                        "name": space.name,
+                        "description": space.description or "无简介",
+                        "desc": space.description or "无简介",
+                        "enabled": True,
+                        "version": "local",
+                        "provider": "HugAgentOS-KB",
+                        "visibility": space.visibility,
+                        "is_public": space.visibility == "public",
+                        "access_level": level,
+                        "chunk_method": space.chunk_method or "semantic",
+                        "document_count": space.document_count or 0,
+                        "total_size_bytes": space.total_size_bytes or 0,
+                        "detail": (f"### {space.name}\n\n" f"{space.description or '暂无简介'}\n"),
+                        "tags": [tag] if tag else [],
+                        "system_managed": False,
+                        "pinned": False,
+                        **level_to_caps(level),
+                    }
+                )
+        except Exception as exc:
+            logger.warning("Failed to load shared KB spaces: %s", exc)
     public_local_kb_items.sort(key=lambda item: item.get("name", ""))
 
     kb_items: List[Dict[str, Any]] = public_kb_items + public_local_kb_items + private_kb_items

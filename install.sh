@@ -46,12 +46,38 @@ command -v git >/dev/null 2>&1 || die "Git is required. Install Git and run this
 command -v curl >/dev/null 2>&1 || die "curl is required. Install curl and run this command again."
 
 PYTHON_BIN="${PYTHON:-python3}"
-command -v "${PYTHON_BIN}" >/dev/null 2>&1 || die "Python 3.10 or later is required."
-"${PYTHON_BIN}" - <<'PYTHON_CHECK' || die "Python 3.10 or later is required."
+command -v "${PYTHON_BIN}" >/dev/null 2>&1 || die "Python 3.11 or later is required."
+"${PYTHON_BIN}" - <<'PYTHON_CHECK' || die "Python 3.11 or later is required."
 import sys
 
-raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
 PYTHON_CHECK
+
+# AgentScope pulls the Python ripgrep package.  On Linux, PyPI only provides a
+# prebuilt wheel for x86_64 + glibc 2.39 or newer; other Linux targets build it
+# from source and therefore need a Rust toolchain.
+NEEDS_RUST="$("${PYTHON_BIN}" - <<'PYTHON_RUST_CHECK'
+import platform
+import re
+import sys
+
+needs_rust = False
+if sys.platform.startswith("linux"):
+    machine = platform.machine().lower()
+    libc_name, libc_version = platform.libc_ver()
+    parts = tuple(int(x) for x in re.findall(r"\d+", libc_version)[:2])
+    has_compatible_wheel = (
+        machine in {"x86_64", "amd64"}
+        and libc_name.lower() == "glibc"
+        and parts >= (2, 39)
+    )
+    needs_rust = not has_compatible_wheel
+print("yes" if needs_rust else "no")
+PYTHON_RUST_CHECK
+)"
+if [[ "${NEEDS_RUST}" == "yes" ]] && ! command -v cargo >/dev/null 2>&1; then
+    die "Rust/Cargo is required on this Linux platform to build the ripgrep dependency. Install the current stable Rust toolchain and run this command again."
+fi
 
 command -v node >/dev/null 2>&1 || die "Node.js 20 or later is required to build the web application."
 command -v npm >/dev/null 2>&1 || die "npm is required to build the web application."
@@ -87,13 +113,28 @@ else
     git clone --depth 1 --branch "${REPOSITORY_BRANCH}" "${REPOSITORY_URL}" "${SOURCE_DIR}"
 fi
 
-if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
+venv_is_usable() {
+    [[ -x "${VENV_DIR}/bin/python" ]] || return 1
+    "${VENV_DIR}/bin/python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
+        >/dev/null 2>&1 || return 1
+    if command -v uv >/dev/null 2>&1; then
+        uv pip list --python "${VENV_DIR}/bin/python" >/dev/null 2>&1
+    else
+        "${VENV_DIR}/bin/python" -m pip --version >/dev/null 2>&1
+    fi
+}
+
+if ! venv_is_usable; then
+    if [[ -d "${VENV_DIR}" ]]; then
+        warn "The existing virtual environment is incomplete or uses an unsupported Python version; rebuilding it."
+    fi
     if command -v uv >/dev/null 2>&1; then
         info "Creating the Python environment with uv"
-        uv venv "${VENV_DIR}" --python "${PYTHON_BIN}" >/dev/null
+        uv venv --clear "${VENV_DIR}" --python "${PYTHON_BIN}" >/dev/null
     else
         info "Creating the Python environment with venv"
-        "${PYTHON_BIN}" -m venv "${VENV_DIR}" || die "Unable to create a virtual environment. Install the Python venv package."
+        "${PYTHON_BIN}" -m venv --clear "${VENV_DIR}" || \
+            die "Unable to create a virtual environment. On Debian/Ubuntu, install python3.11-venv (or python3-venv) and run this command again."
     fi
 fi
 
@@ -125,7 +166,11 @@ info "Building the web application"
 (
     cd src/frontend
     npm install --silent --no-audit --no-fund --no-package-lock
-    npm run build
+    BUILD_NODE_OPTIONS="${NODE_OPTIONS:-}"
+    if [[ "${BUILD_NODE_OPTIONS}" != *"--max-old-space-size="* ]]; then
+        BUILD_NODE_OPTIONS="${BUILD_NODE_OPTIONS} --max-old-space-size=6144"
+    fi
+    VITE_EDITION=ce VITE_DEFAULT_LANGUAGE=en NODE_OPTIONS="${BUILD_NODE_OPTIONS# }" npm run build
 )
 
 HUGAGENT_BIN="${VENV_DIR}/bin/hugagent"
@@ -137,11 +182,12 @@ printf '  Source: %s\n' "${SOURCE_DIR}"
 printf '  Data:   %s\n' "${HUGAGENT_DATA_DIR}"
 printf '  Start:  %s\n' "${HUGAGENT_BIN}"
 printf '\n'
-info "Starting the first-run setup"
+info "Starting HugAgentOS"
 
-# Keep the interactive wizard connected to the terminal when this script is
-# executed through a curl-to-bash pipeline.
-if [[ -r /dev/tty ]]; then
-    exec "${HUGAGENT_BIN}" </dev/tty
+# The CE server seeds admin/admin on a fresh data directory and requires a
+# password change immediately after sign-in. Model providers are configured in
+# Settings, so the one-command path does not require an interactive wizard.
+if [[ -t 1 && -r /dev/tty ]]; then
+    exec "${HUGAGENT_BIN}" serve </dev/tty
 fi
-exec "${HUGAGENT_BIN}"
+exec "${HUGAGENT_BIN}" serve

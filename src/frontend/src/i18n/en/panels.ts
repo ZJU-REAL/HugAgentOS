@@ -17,6 +17,7 @@ export const PANELS_DICT: Record<string, string> = {
   '收起项目会话': 'Collapse project chats',
   '更新记录': 'Changelog',
   '操作手册': 'User Manual',
+  '官方文档': 'Official Documentation',
   '展开侧边栏并返回首页': 'Expand sidebar and go to home',
   '展开侧边栏': 'Expand sidebar',
   '搜索对话 (⌘K)': 'Search chats (⌘K)',

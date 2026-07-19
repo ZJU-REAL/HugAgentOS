@@ -6,10 +6,9 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from sqlalchemy.orm import Session
-
 from core.config.settings import settings
 from core.db.models import ContentBlock
+from sqlalchemy.orm import Session
 
 # Branding source of truth (seam C7): in-code defaults stay neutral; the concrete
 # brand (e.g. "HugAgentOS") is injected via env BRAND_PRODUCT_NAME / the deploy-time
@@ -163,25 +162,39 @@ def normalize_app_config(payload: Any) -> dict[str, Any]:
             app_id = str(item.get("id") or "").strip()
             if not app_id:
                 continue
-            apps.append({
-                "id": app_id,
-                "enabled": bool(item.get("enabled", True)),
-                "name": str(item.get("name") or app_id),
-                "description": str(item.get("description") or ""),
-                "url": str(item.get("url") or ""),
-                "icon": str(item.get("icon") or ""),
-            })
+            apps.append(
+                {
+                    "id": app_id,
+                    "enabled": bool(item.get("enabled", True)),
+                    "name": str(item.get("name") or app_id),
+                    "description": str(item.get("description") or ""),
+                    "url": str(item.get("url") or ""),
+                    "icon": str(item.get("icon") or ""),
+                }
+            )
         return {"apps": apps}
 
     return {"apps": list(DEFAULT_APP_CONFIG["apps"])}
 
 
 DEFAULT_HOMEPAGE_SHORTCUTS: list[dict[str, Any]] = [
-    {"id": "knowledge", "enabled": True, "label": "知识检索", "icon": "/home/company-research.svg", "url": ""},
-    {"id": "portrait",  "enabled": True, "label": "企业画像", "icon": "/home/company-profile.svg", "url": ""},
-    {"id": "policy",    "enabled": True, "label": "政策对比", "icon": "/home/icon3.svg",            "url": ""},
-    {"id": "compare",   "enabled": True, "label": "材料对比", "icon": "/home/icon1.svg",            "url": ""},
-    {"id": "data",      "enabled": True, "label": "数据分析", "icon": "/home/icon2.svg",            "url": ""},
+    {
+        "id": "knowledge",
+        "enabled": True,
+        "label": "知识检索",
+        "icon": "/home/company-research.svg",
+        "url": "",
+    },
+    {
+        "id": "portrait",
+        "enabled": True,
+        "label": "企业画像",
+        "icon": "/home/company-profile.svg",
+        "url": "",
+    },
+    {"id": "policy", "enabled": True, "label": "政策对比", "icon": "/home/icon3.svg", "url": ""},
+    {"id": "compare", "enabled": True, "label": "材料对比", "icon": "/home/icon1.svg", "url": ""},
+    {"id": "data", "enabled": True, "label": "数据分析", "icon": "/home/icon2.svg", "url": ""},
 ]
 
 
@@ -196,13 +209,15 @@ def normalize_homepage_shortcuts(payload: Any) -> list[dict[str, Any]]:
         cid = str(item.get("id") or "").strip()
         if not cid:
             continue
-        out.append({
-            "id": cid,
-            "enabled": bool(item.get("enabled", True)),
-            "label": str(item.get("label") or cid),
-            "icon": str(item.get("icon") or ""),
-            "url": str(item.get("url") or ""),
-        })
+        out.append(
+            {
+                "id": cid,
+                "enabled": bool(item.get("enabled", True)),
+                "label": str(item.get("label") or cid),
+                "icon": str(item.get("icon") or ""),
+                "url": str(item.get("url") or ""),
+            }
+        )
     return out or [dict(c) for c in DEFAULT_HOMEPAGE_SHORTCUTS]
 
 
@@ -234,12 +249,71 @@ def seed_page_config_if_missing(db: Session) -> bool:
     row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
     if row:
         return False
-    db.add(ContentBlock(
-        id="page_config",
-        payload=DEFAULT_PAGE_CONFIG,
-        updated_at=datetime.now(timezone.utc),
-        updated_by="system_seed",
-    ))
+    db.add(
+        ContentBlock(
+            id="page_config",
+            payload=DEFAULT_PAGE_CONFIG,
+            updated_at=datetime.now(timezone.utc),
+            updated_by="system_seed",
+        )
+    )
+    db.commit()
+    return True
+
+
+def enforce_ce_branding(db: Session) -> bool:
+    """Keep the fixed CE product identity and auth policy consistent.
+
+    ``page_config`` survives image upgrades, so merely changing the code/env
+    defaults does not repair an already-running CE instance. CE does not expose
+    the content-management console and therefore has no supported per-instance
+    branding override or self-service registration; normalize both the small
+    set of branding fields and the registration switch on startup. EE
+    deployments are never touched.
+    """
+    if settings.edition.edition != "ce":
+        return False
+
+    row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
+    if row is None or not isinstance(row.payload, dict):
+        return False
+
+    product_name = "HugAgentOS"
+    payload = dict(row.payload)
+    branding = dict(payload.get("branding") or {})
+    navigation = dict(payload.get("navigation") or {})
+    auth = dict(payload.get("auth") or {})
+    admin_header = dict(navigation.get("admin_header") or {})
+    admin_platform = dict(navigation.get("admin_platform") or {})
+
+    desired_branding = {
+        "product_name": product_name,
+        "product_subtitle": "AI 智能助手",
+        "page_title": product_name,
+        "hero_title": f"你好，我是 {product_name}",
+    }
+    changed = any(branding.get(key) != value for key, value in desired_branding.items())
+    changed = changed or admin_header.get("title") != f"{product_name} — 后台管理"
+    changed = changed or admin_platform.get("product_name") != product_name
+    changed = changed or auth.get("allow_register") is not False
+    if not changed:
+        return False
+
+    branding.update(desired_branding)
+    admin_header["title"] = f"{product_name} — 后台管理"
+    admin_platform["product_name"] = product_name
+    navigation["admin_header"] = admin_header
+    navigation["admin_platform"] = admin_platform
+    auth["allow_register"] = False
+    payload["branding"] = branding
+    payload["navigation"] = navigation
+    payload["auth"] = auth
+    row.payload = payload
+    row.updated_at = datetime.now(timezone.utc)
+    row.updated_by = "system_seed"
+    from sqlalchemy.orm.attributes import flag_modified
+
+    flag_modified(row, "payload")
     db.commit()
     return True
 
@@ -318,6 +392,7 @@ def backfill_navigation_entries(db: Session) -> int:
         row.updated_by = "system_seed"
         # SQLAlchemy JSONB does not auto-detect mutation — flag explicitly
         from sqlalchemy.orm.attributes import flag_modified
+
         flag_modified(row, "payload")
         db.commit()
     return changed
@@ -335,6 +410,7 @@ def get_branding_info() -> dict[str, str]:
     }
     try:
         from core.db.engine import SessionLocal
+
         db = SessionLocal()
         try:
             row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
@@ -351,14 +427,19 @@ def get_branding_info() -> dict[str, str]:
 
 
 def is_register_allowed() -> bool:
-    """Read page_config.auth.allow_register (login-page register switch); defaults to True when missing/on error.
+    """Return whether self-service local-account registration is enabled.
 
-    Reused by the server-rendered login page (mock_sso) to decide whether to show
-    the "register" tab/subpage, and to perform server-side fallback validation on
-    register submissions (not just frontend hiding).
+    CE is permanently single-account and therefore always returns ``False``.
+    Other editions read ``page_config.auth.allow_register`` and keep the legacy
+    default of ``True`` when the setting is missing or cannot be read. The value
+    gates both the server-rendered UI and registration submissions.
     """
+    if settings.edition.edition == "ce":
+        return False
+
     try:
         from core.db.engine import SessionLocal
+
         db = SessionLocal()
         try:
             row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
@@ -390,6 +471,7 @@ def get_admin_platform_info() -> dict[str, str]:
     }
     try:
         from core.db.engine import SessionLocal
+
         db = SessionLocal()
         try:
             row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
@@ -435,19 +517,14 @@ def build_docs_snapshot(
     Defaults to the docs blocks; pass ``block_map=PROMPT_BLOCK_MAP`` (or use
     ``build_prompt_snapshot``) to snapshot the system prompt pool instead.
     """
-    rows = (
-        db.query(ContentBlock)
-        .filter(ContentBlock.id.in_(list(block_map.values())))
-        .all()
-    )
+    rows = db.query(ContentBlock).filter(ContentBlock.id.in_(list(block_map.values()))).all()
     row_map = {row.id: row for row in rows}
 
     return {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "blocks": {
-            alias: _serialize_block(row_map.get(db_id), alias)
-            for alias, db_id in block_map.items()
+            alias: _serialize_block(row_map.get(db_id), alias) for alias, db_id in block_map.items()
         },
     }
 
@@ -570,6 +647,7 @@ def import_docs_snapshot(
 
 
 # ── System prompt pool snapshot (opt-in migration) ──────────────────────────
+
 
 def build_prompt_snapshot(db: Session) -> dict[str, Any]:
     """Build a portable snapshot of the system prompt pool (prompt_versions).

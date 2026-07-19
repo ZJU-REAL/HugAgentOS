@@ -34,10 +34,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc zip unzip libreoffice-writer \
     && fc-cache -f \
     # 1. Node.js 20
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 \
+      https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     # 2. 微软源 + .NET 8
-    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 \
+      https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
     && echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/microsoft-prod.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends dotnet-runtime-8.0 \
@@ -50,7 +52,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # can launch it without trying to download browsers on demand.
 RUN mkdir -p /ms-playwright \
     && npm install -g pptxgenjs playwright \
-    && PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx playwright install --with-deps chromium \
+    && if PLAYWRIGHT_BROWSERS_PATH=/ms-playwright timeout 180s \
+         npx playwright install --with-deps chromium; then \
+         echo "[script-runner] Playwright Chromium installed"; \
+       else \
+         rm -rf /ms-playwright/*; \
+         echo "[script-runner] optional Chromium download failed; browser rendering will be unavailable" >&2; \
+       fi \
     && chmod -R a+rX /ms-playwright
 
 # firecrawl CLI（网页抓取/检索）——firecrawl 插件的官方技能靠它运行（Bash(firecrawl *)）。
@@ -74,12 +82,14 @@ RUN npm install -g openyida@2026.7.12-1
 # himalaya（电子邮箱 CLI）——email 插件的 email 技能靠它运行（Bash(himalaya *)）。
 # 静态二进制，无运行时依赖。凭据是用户自填的 config.toml，不烤进镜像。
 ARG HIMALAYA_VERSION=1.2.0
-RUN curl -fsSL "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
-        -o /tmp/himalaya.tgz \
-    && tar -xzf /tmp/himalaya.tgz -C /usr/local/bin himalaya \
-    && chmod +x /usr/local/bin/himalaya \
-    && rm -f /tmp/himalaya.tgz \
-    && himalaya --version
+RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
+        "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
+        -o /tmp/himalaya.tgz; then \
+      tar -xzf /tmp/himalaya.tgz -C /usr/local/bin himalaya && \
+      chmod +x /usr/local/bin/himalaya && himalaya --version; \
+    else \
+      echo "[script-runner] optional himalaya download failed; email skill will be unavailable" >&2; \
+    fi && rm -f /tmp/himalaya.tgz
 
 # Python deps
 COPY docker/requirements-script-runner.txt /tmp/

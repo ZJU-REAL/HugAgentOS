@@ -1,22 +1,24 @@
 # 知识库
 
-> 最后更新：2026-06-11
+> 最后更新：2026-07-19
 
 HugAgentOS 的知识库提供两种形态，可同时启用、在能力中心统一呈现：
 
-1. **自建知识库**（社区版完整能力）：文档上传 → 父子分块 → 向量化入 Milvus → 稠密 + 稀疏混合检索（RRF 融合）→ 可选重排。包含个人私有知识库与管理员维护的公共知识库（公共知识库管理台属商业版 EE）。
+1. **自建知识库**：文档上传 → 父子分块 → 向量化入 Milvus → 稠密 + 稀疏混合检索（RRF 融合）→ 可选重排。社区版 CE 仅提供当前用户拥有的私有知识库；管理员维护的公共知识库属于商业版 EE。
 2. **Dify 外接知识库**（商业版 EE）：`KNOWLEDGE_BASE=dify` 时，后端在运行时把 Dify datasets 注入能力中心目录，检索经 Dify Retrieval API 完成。
 
 两种形态最终都以 MCP 工具的形式暴露给智能体：自建走 `retrieve_local_kb`，Dify 走 `retrieve_dataset_content`，均由同一个 MCP server（`mcp_servers/retrieve_dataset_content_mcp/`）提供。
+
+社区版 CE 的前端只显示「私有知识库」，`/v1/catalog` 也只返回当前用户的私有库。后端会拒绝 `visibility=public` 的创建请求，并且不提供 Dify / 共享知识库服务配置，避免仅靠前端隐藏造成能力越界。
 
 ## 整体架构
 
 ```
                     ┌──────────────── 能力中心 /v1/catalog ───────────────┐
                     │  api/routes/v1/catalog.py 运行时聚合三类 kb item：    │
-                    │  · Dify datasets（is_dify_enabled() 时注入，60s 缓存）│
-                    │  · 私有自建知识库（kb_spaces, visibility=private）    │
-                    │  · 管理员公共知识库（owner=system_public_kb, public） │
+                    │  · 私有自建知识库（CE + EE）                          │
+                    │  · Dify datasets（仅 EE，启用时注入，60s 缓存）       │
+                    │  · 管理员公共知识库（仅 EE，system_public_kb）        │
                     └──────────────────────────────────────────────────────┘
 
   上传入库（自建）                          检索（对话中）
@@ -70,7 +72,7 @@ ORM 定义在 `src/backend/core/db/models/knowledge.py`：
 
 1. 解析允许的 `kb_id` 集合（stdio 模式从环境变量、HTTP 模式从 `x-allowed-kb-ids` 等请求头）；
 2. `embed_text(query)` 得到查询向量（embedding 配置复用 `MEM0_EMBED_*` 或 DB 中 `embedding` 角色模型）；
-3. `core/kb/kb_vector.py::hybrid_search()`：稠密向量（IP 度量）与稀疏向量（词袋 hash，10 万维空间）两路 `AnnSearchRequest`，`RRFRanker(k=60)` 融合；私有库按 `user_id == 当前用户` 过滤，公共库按 `kb_id` 全局放行；
+3. `core/kb/kb_vector.py::hybrid_search()`：稠密向量（IP 度量）与稀疏向量（词袋 hash，10 万维空间）两路 `AnnSearchRequest`，`RRFRanker(k=60)` 融合；私有库按 `user_id == 当前用户` 过滤，EE 公共库按授权后的 `kb_id` 放行；
 4. 命中子块 / 问题行去重后回 PostgreSQL `kb_chunks` 取**父块原文**返回给 LLM；
 5. 用户开启重排时经 Reranker API（`RERANKER_URL/MODEL/API_KEY` 或 DB `reranker` 角色）二次排序。
 
@@ -125,7 +127,7 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 
 ## 前端
 
-- 知识库浏览与启停集成在能力中心目录页（`src/frontend/src/components/catalog/`，状态在 `stores/catalogStore.ts`）；
+- 知识库浏览与启停集成在能力中心目录页（`src/frontend/src/components/catalog/`，状态在 `stores/catalogStore.ts`）；CE 只显示私有知识库，EE 显示公共 / 私有两个模块；
 - 创建 / 重建索引弹窗：`src/frontend/src/components/kb/CreateKBModal.tsx`、`ReindexModal.tsx`；
 - 管理台公共知识库界面在 `src/frontend/src/components/admin/`（商业版 EE）。
 
@@ -142,7 +144,7 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 | `src/backend/core/services/kb_service.py` | 知识库业务逻辑（含系统托管同步库） |
 | `src/backend/api/routes/v1/kb.py` + `kb_models.py` | 用户侧 `/v1/catalog/kb` 路由 |
 | `src/backend/api/routes/v1/admin_kb.py` | 管理台公共知识库路由（商业版 EE） |
-| `src/backend/api/routes/v1/catalog.py` | 能力目录聚合（Dify 注入 + 私有 / 公共库列表） |
+| `src/backend/api/routes/v1/catalog.py` | 能力目录聚合（CE 仅私有库；EE 追加 Dify / 公共库） |
 | `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | 检索 MCP server（两个工具） |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` ORM |
 | `src/frontend/src/components/kb/` | 创建 / 重索引弹窗组件 |

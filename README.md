@@ -1,4 +1,6 @@
-<h1 align="center">HugAgentOS</h1>
+<p align="center">
+  <img src="./src/frontend/public/home/hugagentos-logo.png" alt="HugAgentOS logo" width="800" />
+</p>
 
 <p align="center">
   <strong>HugAgent: The Enterprise AgentOS for Ontology-Grounded Trustworthy Reasoning</strong>
@@ -57,8 +59,10 @@ automation, and a data canvas in one self-hosted workspace.
 ## Quick start
 
 Install the personal, single-machine profile on Linux, macOS, or WSL2 with one
-command. You need Python 3.10 or later, Node.js 20 or later, Git, and access to
-an LLM API. You don't need Docker, PostgreSQL, or Redis.
+command. You need Python 3.11 or later, Node.js 20 or later, Git, and access to
+an LLM API. On Linux platforms without a compatible prebuilt `ripgrep` wheel,
+you also need the current stable Rust toolchain. You don't need Docker,
+PostgreSQL, or Redis.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh | bash
@@ -69,6 +73,17 @@ Python environment, installs the dependencies, builds the web application, and
 opens the first-run wizard. Follow the prompts to create an administrator and
 connect an OpenAI-compatible or local model. HugAgentOS then opens at
 [http://127.0.0.1:3001](http://127.0.0.1:3001).
+
+A fresh data directory creates exactly one local administrator. The initial
+username and password are both `admin`, and the password must be changed on the
+first sign-in. CE does not provide self-service registration.
+
+> [!WARNING]
+> The one-click server listens on `127.0.0.1` by default. If you need remote
+> access to a server, run
+> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`, and configure a
+> strong administrator password, a firewall, and HTTPS first. Don't expose the
+> service directly on an untrusted network.
 
 Start HugAgentOS again at any time with this command:
 

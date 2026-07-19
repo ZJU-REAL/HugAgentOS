@@ -22,6 +22,7 @@ import { buildSidebarChatItems } from '../../utils/history';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import { getAutomationRuns } from '../../api';
 import type { ChatItem, PanelKey } from '../../types';
+import { HELP_DOCUMENTATION_URL, IS_COMMUNITY_EDITION_BUILD } from '../../edition';
 
 // The sidebar has 3 groups: Projects (project row + nested chats under it) / Automation / History (pinned items sorted to the top of the group).
 type HistoryGroupKey = 'projects' | 'automation' | 'history';
@@ -419,14 +420,16 @@ export function Sidebar({
           onSetPanel(meta.targetPanel);
         },
       })),
-      ...(authUser?.can_system_config || authUser?.can_content_manage ? [{ type: 'divider' as const }] : []),
-      ...(authUser?.can_system_config ? [{
+      ...(!IS_COMMUNITY_EDITION_BUILD && (authUser?.can_system_config || authUser?.can_content_manage)
+        ? [{ type: 'divider' as const }]
+        : []),
+      ...(!IS_COMMUNITY_EDITION_BUILD && authUser?.can_system_config ? [{
         key: 'system_config',
         label: t('系统配置'),
         icon: <img src="/home/settings.svg" alt="" style={{ width: 16, height: 16 }} />,
         onClick: () => { window.location.href = '/config'; },
       }] : []),
-      ...(authUser?.can_content_manage ? [{
+      ...(!IS_COMMUNITY_EDITION_BUILD && authUser?.can_content_manage ? [{
         key: 'content_manage',
         label: t('内容管理'),
         icon: <img src="/home/knowledge.svg" alt="" style={{ width: 16, height: 16 }} />,
@@ -454,8 +457,18 @@ export function Sidebar({
   };
   const helpMenu: MenuProps = {
     items: [
-      { key: 'docs', label: t('更新记录'), icon: <img src="/home/updates.svg" alt="" style={{ width: 16, height: 16 }} />, onClick: () => onSetPanel('docs') },
-      { key: 'manual', label: t('操作手册'), icon: <img src="/home/knowledge.svg" alt="" style={{ width: 16, height: 16 }} />, onClick: () => window.open('/docs/manual/manual.pdf', '_blank') },
+      ...(!IS_COMMUNITY_EDITION_BUILD ? [{
+        key: 'docs',
+        label: t('更新记录'),
+        icon: <img src="/home/updates.svg" alt="" style={{ width: 16, height: 16 }} />,
+        onClick: () => onSetPanel('docs'),
+      }] : []),
+      {
+        key: IS_COMMUNITY_EDITION_BUILD ? 'official_docs' : 'manual',
+        label: t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '操作手册'),
+        icon: <img src="/home/knowledge.svg" alt="" style={{ width: 16, height: 16 }} />,
+        onClick: () => window.open(HELP_DOCUMENTATION_URL, '_blank', 'noopener,noreferrer'),
+      },
     ],
   };
 
@@ -551,8 +564,8 @@ export function Sidebar({
           <div className="jx-miniRailSpacer" />
           <div className="jx-miniRailFooter">
             <Dropdown menu={helpMenu} trigger={['click']} placement="topRight" overlayClassName="jx-settingsMenu">
-              <Tooltip title={t('帮助 / 更新记录')} placement="right">
-                <button type="button" className="jx-miniRailBtn" aria-label={t('帮助')}>
+              <Tooltip title={t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '帮助 / 更新记录')} placement="right">
+                <button type="button" className="jx-miniRailBtn" aria-label={t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '帮助')}>
                   <img src="/home/help.svg" alt="" className="jx-miniRailIcon" style={{ opacity: 0.55 }} />
                 </button>
               </Tooltip>
@@ -761,7 +774,7 @@ export function Sidebar({
             </button>
           </Dropdown>
           <Dropdown menu={helpMenu} trigger={['click']} placement="topRight" overlayClassName="jx-settingsMenu">
-            <button className="jx-helpBtn" title={t('帮助')}>
+            <button className="jx-helpBtn" title={t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '帮助')}>
               <img src="/home/help.svg" alt="" style={{ width: 16, height: 16, opacity: 0.45 }} />
             </button>
           </Dropdown>

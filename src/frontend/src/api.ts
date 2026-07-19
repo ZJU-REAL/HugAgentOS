@@ -1458,6 +1458,8 @@ export interface AuthUser {
   can_system_config?: boolean;
   /** Whether the user may enter the /admin content management console without a token (default false) */
   can_content_manage?: boolean;
+  /** CE bootstrap accounts must replace the temporary default password before normal use. */
+  must_change_password?: boolean;
 }
 
 export interface MyProfile extends AuthUser {
@@ -1499,6 +1501,17 @@ export async function updateMyProfile(payload: UpdateMyProfilePayload): Promise<
     body: JSON.stringify(payload),
   });
   return unwrapData<MyProfile>(wrapped);
+}
+
+export async function changeMyPassword(
+  oldPassword: string,
+  newPassword: string,
+): Promise<{ user_id: string; must_change_password: boolean }> {
+  const wrapped = await apiRequest<unknown>('/v1/me/password', {
+    method: 'PUT',
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  });
+  return unwrapData<{ user_id: string; must_change_password: boolean }>(wrapped);
 }
 
 export interface AvatarUpdateResult {

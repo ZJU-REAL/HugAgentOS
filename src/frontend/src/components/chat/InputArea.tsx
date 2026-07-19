@@ -7,7 +7,7 @@ import {
   AppstoreOutlined, FolderOutlined, FolderOpenOutlined, FolderAddOutlined, RobotOutlined,
   OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SwapOutlined, SyncOutlined,
 } from '@ant-design/icons';
-import { useChatStore, useFileStore, useUIStore, useModelCapabilitiesStore, useCatalogStore, useAuthStore, usePluginStore } from '../../stores';
+import { useChatStore, useFileStore, useUIStore, useModelCapabilitiesStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { ChatMode } from '../../stores/chatStore';
@@ -232,6 +232,7 @@ export function InputArea({
   const selectedModelProviderId = useModelCapabilitiesStore((s) => s.selectedModelProviderId);
   const setSelectedModelProviderId = useModelCapabilitiesStore((s) => s.setSelectedModelProviderId);
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
+  const isCE = useEditionStore((s) => s.edition === 'ce');
   const _currentChat = currentChat();
   const isPlanChat = !!_currentChat?.planChat;
   const isBatchChat = !!_currentChat?.batchChat;
@@ -687,10 +688,12 @@ export function InputArea({
             );
           })()}
 
-          <button className="jx-promptHubBtn" onClick={() => setPromptHubOpen(!promptHubOpen)} aria-label={t('提示词中心')}>
-            <img src="/home/prompt.svg" alt="" className="jx-promptHubIcon" />
-            <span>{t('提示词中心')}</span>
-          </button>
+          {!isCE && (
+            <button className="jx-promptHubBtn" onClick={() => setPromptHubOpen(!promptHubOpen)} aria-label={t('提示词中心')}>
+              <img src="/home/prompt.svg" alt="" className="jx-promptHubIcon" />
+              <span>{t('提示词中心')}</span>
+            </button>
+          )}
 
           {!projectComposer && (() => {
             // Project selector dropdown: default (no project bound) / bound to a project / create a new personal project.

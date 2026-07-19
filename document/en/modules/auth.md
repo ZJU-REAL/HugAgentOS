@@ -1,6 +1,6 @@
 # Authentication & Permissions
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-19
 
 The authentication and permission system in HugAgentOS covers three independent tracks: **end-user authentication** (local accounts / mock SSO / enterprise SSO / personal API keys), **administrative credentials** (the `ADMIN_TOKEN` and `CONFIG_TOKEN` Bearer tokens), and **resource-level permissions** (fine-grained access control over team files, projects, and chat shares). The implementation lives in `src/backend/core/auth/`, with the FastAPI dependency-injection entry points in `src/backend/api/deps.py`.
 
@@ -28,13 +28,13 @@ The resolution priority in `get_current_user` (`core/auth/backend.py`) is the sa
 
 ### Local accounts (Community Edition default)
 
-With `LOCAL_AUTH_ENABLED=true` (default), the `login_router` in `api/routes/v1/mock_sso.py` serves a unified login page:
+With `LOCAL_AUTH_ENABLED=true` (default), the `login_router` in `api/routes/v1/mock_sso.py` serves a unified login page. A fresh CE database creates exactly one local administrator: both the default username and initial password are `admin`, and the password must be changed immediately after the first sign-in. If one-click onboarding already created a custom administrator, CE preserves that sole account and does not add `admin`.
 
-- `GET /login` — renders a login / registration tabbed page (the registration tab only appears when local accounts are enabled)
+- `GET /login` — renders only the login form in CE, with no registration entry point
 - `POST /login` — username/password login
-- `POST /register` — local account registration (optionally requiring an invite code, see below)
+- `POST /register` — always rejects self-service registration in CE; other editions can control it with `page_config.auth.allow_register`
 
-Password hashing lives in `core/auth/password.py`; the minimum length is controlled by `PASSWORD_MIN_LENGTH` (default 8). Local accounts are stored in the `local_users` table (`LocalUser` in `core/db/models`), linked one-to-one to the shadow user table.
+Password hashing lives in `core/auth/password.py`; the minimum length is controlled by `PASSWORD_MIN_LENGTH` (default 8). Local accounts are stored in the `local_users` table (`LocalUser` in `core/db/models`), linked one-to-one to the shadow user table. CE also disables the known mock accounts and the password-free `?auto=` shortcut; those are available only outside CE when `SSO_LOGIN_MODE=mock` is explicitly configured for development.
 
 ### Mock SSO (development)
 

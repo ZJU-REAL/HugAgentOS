@@ -11,13 +11,14 @@ Covers the pieces that are new or SQLite-risky (see
 """
 
 import asyncio
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-
 # ── fakeredis (REDIS_URL=memory://) ──────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_memory_redis_uses_fakeredis_and_blocks_on_xread(monkeypatch):
@@ -51,6 +52,7 @@ async def test_memory_redis_uses_fakeredis_and_blocks_on_xread(monkeypatch):
 
 # ── SQLite BigInteger autoincrement PK portability ───────────────────────────
 
+
 def test_bigint_pk_autoincrements_on_sqlite(db_session):
     """AuditLog.log_id (BigIntPK) must autoincrement under SQLite, not stay NULL."""
     from core.db.models import AuditLog
@@ -64,32 +66,39 @@ def test_bigint_pk_autoincrements_on_sqlite(db_session):
 
 # ── Built-in MCP catalog seed ────────────────────────────────────────────────
 
+
 def test_seed_builtin_mcp_is_idempotent_and_templates_url(db_session):
-    from core.services.mcp_service import (
-        seed_builtin_mcp_servers_if_empty,
-        BUILTIN_MCP_SERVERS,
-    )
     from core.db.models import AdminMcpServer
+    from core.services.mcp_service import BUILTIN_MCP_SERVERS, seed_builtin_mcp_servers_if_empty
+    from mcp_servers._ports import PORTS
 
     seeded = seed_builtin_mcp_servers_if_empty(db_session)
-    assert len(seeded) == len(BUILTIN_MCP_SERVERS) == 8
+    expected_ids = {spec["server_id"] for spec in BUILTIN_MCP_SERVERS if spec["server_id"] in PORTS}
+    assert set(seeded) == expected_ids
 
     # Second call is a no-op (never resurrects rows / double-inserts).
     assert seed_builtin_mcp_servers_if_empty(db_session) == []
-    assert db_session.query(AdminMcpServer).count() == 8
+    assert db_session.query(AdminMcpServer).count() == len(expected_ids)
 
-    q = db_session.query(AdminMcpServer).filter_by(server_id="query_database").first()
-    assert q.transport == "streamable_http"
-    assert q.url.endswith(":9101/mcp/")  # port from _ports, host from settings
+    sample_id = next(iter(expected_ids))
+    sample = db_session.query(AdminMcpServer).filter_by(server_id=sample_id).one()
+    assert sample.transport == "streamable_http"
+    assert sample.url.endswith(f":{PORTS[sample_id]}/mcp/")
 
 
 def test_seed_builtin_mcp_skips_when_catalog_present(db_session):
-    from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
     from core.db.models import AdminMcpServer
+    from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
 
     # A pre-existing global built-in row means the catalog already exists.
-    db_session.add(AdminMcpServer(server_id="preexisting", display_name="x",
-                                  transport="streamable_http", url="http://x/mcp/"))
+    db_session.add(
+        AdminMcpServer(
+            server_id="preexisting",
+            display_name="x",
+            transport="streamable_http",
+            url="http://x/mcp/",
+        )
+    )
     db_session.commit()
     assert seed_builtin_mcp_servers_if_empty(db_session) == []
     assert db_session.query(AdminMcpServer).count() == 1
@@ -97,10 +106,11 @@ def test_seed_builtin_mcp_skips_when_catalog_present(db_session):
 
 # ── super_admin bootstrap ────────────────────────────────────────────────────
 
+
 def test_super_admin_bootstrap_writes_role(db_session):
+    from core.db.models import UserShadow
     from core.services.local_user_service import LocalUserService
     from core.services.user_service import UserService
-    from core.db.models import UserShadow
 
     res = LocalUserService(db_session).create_by_admin(username="admin", password="pw-123456")
     assert res.ok and res.user_id
@@ -115,11 +125,213 @@ def test_super_admin_bootstrap_writes_role(db_session):
     assert shadow.extra_data.get("auth_source") == "local"
 
 
+def test_ce_default_admin_is_idempotent_and_requires_password_change(db_session, monkeypatch):
+    import core.services.local_user_service as local_users
+    from core.auth.password import verify_password
+    from core.db.models import LocalUser, UserShadow
+
+    monkeypatch.setattr(
+        local_users,
+        "settings",
+        SimpleNamespace(
+            edition=SimpleNamespace(edition="ce"),
+            auth=SimpleNamespace(password_min_length=8),
+        ),
+    )
+
+    user_id, created = local_users.ensure_ce_default_admin(db_session)
+    assert (user_id, created) == ("user_ce_admin", True)
+
+    shadow = db_session.query(UserShadow).filter_by(user_id=user_id).one()
+    local = db_session.query(LocalUser).filter_by(user_id=user_id).one()
+    assert shadow.username == "admin"
+    assert verify_password("admin", local.password_hash)
+    assert shadow.extra_data["role"] == "super_admin"
+    assert shadow.extra_data["can_add_skill"] is True
+    assert shadow.extra_data["can_add_mcp"] is True
+    assert shadow.extra_data["can_import_plugin"] is True
+    assert shadow.extra_data["can_create_private_kb"] is True
+    assert shadow.extra_data["can_create_public_kb"] is False
+    assert shadow.extra_data["can_create_channel_bot"] is True
+    assert shadow.extra_data["can_switch_model"] is True
+    assert shadow.extra_data["must_change_password"] is True
+
+    assert local_users.ensure_ce_default_admin(db_session) == (user_id, False)
+    result = local_users.LocalUserService(db_session).change_password(
+        user_id,
+        old_password="admin",
+        new_password="new-password-123",
+    )
+    assert result.ok is True
+    db_session.refresh(shadow)
+    assert "must_change_password" not in shadow.extra_data
+    assert local_users.LocalUserService(db_session).authenticate("admin", "new-password-123").ok
+
+
+def test_ce_optional_permission_layers_use_savepoints():
+    from core.auth.capabilities import team_default_permissions_for_user
+    from core.auth.role_permissions import role_permissions_for_user
+
+    class MissingOptionalTablesSession:
+        def __init__(self):
+            self.savepoints = 0
+
+        def begin_nested(self):
+            self.savepoints += 1
+            return nullcontext()
+
+        def query(self, *_args, **_kwargs):
+            raise RuntimeError("optional CE table is absent")
+
+    db = MissingOptionalTablesSession()
+    assert role_permissions_for_user(db, "user_ce_admin") == {}
+    assert team_default_permissions_for_user(db, "user_ce_admin") == {}
+    assert db.savepoints == 2
+
+
+def test_ce_branding_repairs_persistent_page_config(db_session, monkeypatch):
+    import core.content.content_blocks as blocks
+    from core.db.models import ContentBlock
+
+    monkeypatch.setattr(
+        blocks,
+        "settings",
+        SimpleNamespace(edition=SimpleNamespace(edition="ce")),
+    )
+    db_session.add(
+        ContentBlock(
+            id="page_config",
+            payload={
+                "auth": {"allow_register": True},
+                "branding": {
+                    "product_name": "旧名称",
+                    "product_subtitle": "旧副标题",
+                    "page_title": "旧标签",
+                    "hero_title": "你好，我是旧名称",
+                    "logo_url": "/custom.svg",
+                },
+                "navigation": {
+                    "admin_header": {"title": "旧名称 — 后台管理", "subtitle": "后台管理"},
+                    "admin_platform": {"product_name": "旧名称", "config_label": "系统配置"},
+                },
+            },
+        )
+    )
+    db_session.commit()
+
+    assert blocks.enforce_ce_branding(db_session) is True
+    row = db_session.query(ContentBlock).filter_by(id="page_config").one()
+    assert row.payload["branding"] == {
+        "product_name": "HugAgentOS",
+        "product_subtitle": "AI 智能助手",
+        "page_title": "HugAgentOS",
+        "hero_title": "你好，我是 HugAgentOS",
+        "logo_url": "/custom.svg",
+    }
+    assert row.payload["navigation"]["admin_header"]["title"] == "HugAgentOS — 后台管理"
+    assert row.payload["navigation"]["admin_platform"]["product_name"] == "HugAgentOS"
+    assert row.payload["auth"]["allow_register"] is False
+    assert blocks.enforce_ce_branding(db_session) is False
+
+
+def test_ce_registration_is_disabled_unconditionally(monkeypatch):
+    import core.content.content_blocks as blocks
+
+    monkeypatch.setattr(
+        blocks,
+        "settings",
+        SimpleNamespace(edition=SimpleNamespace(edition="ce")),
+    )
+
+    assert blocks.is_register_allowed() is False
+
+
+@pytest.mark.asyncio
+async def test_ce_local_login_starts_in_english_with_brand_title(monkeypatch):
+    import api.routes.v1.mock_sso as mock_sso
+    import core.config.settings as settings_module
+    from starlette.requests import Request
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        SimpleNamespace(
+            auth=SimpleNamespace(local_enabled=True),
+            edition=SimpleNamespace(edition="ce"),
+            sso=SimpleNamespace(effective_login_mode="local"),
+        ),
+    )
+    monkeypatch.setattr(mock_sso, "is_register_allowed", lambda: False)
+    monkeypatch.setattr(
+        mock_sso,
+        "get_branding_info",
+        lambda: {"product_name": "HugAgentOS", "logo_url": "/icon.png"},
+    )
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/login",
+            "raw_path": b"/login",
+            "query_string": b"",
+            "headers": [],
+            "client": ("testclient", 123),
+            "server": ("testserver", 80),
+        }
+    )
+
+    response = await mock_sso.mock_login_page(
+        request,
+        redirect="/",
+        auto="0",
+        error=None,
+        tab=None,
+        reg_error=None,
+    )
+    html = response.body.decode()
+    assert response.status_code == 200
+    assert '<html lang="en">' in html
+    assert "<title>HugAgentOS</title>" in html
+    assert 'data-tab="register"' not in html
+    assert 'name="confirm_password"' not in html
+    assert '<img class="brand-logo" src="/home/hugagentos-logo.png" alt="HugAgentOS" />' in html
+    assert "<span>HugAgentOS</span>" not in html
+    assert "document.title = 'HugAgentOS'" in html
+
+
+def test_mock_login_shortcuts_require_non_ce_explicit_mock_mode(monkeypatch):
+    import api.routes.v1.mock_sso as mock_sso
+    import core.config.settings as settings_module
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        SimpleNamespace(
+            edition=SimpleNamespace(edition="ce"),
+            sso=SimpleNamespace(effective_login_mode="mock"),
+        ),
+    )
+    assert mock_sso._mock_account_shortcuts_enabled() is False
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        SimpleNamespace(
+            edition=SimpleNamespace(edition="ee"),
+            sso=SimpleNamespace(effective_login_mode="mock"),
+        ),
+    )
+    assert mock_sso._mock_account_shortcuts_enabled() is True
+
+
 # ── Local single-origin hosting: /api strip + SPA fallback ───────────────────
 
+
 def _local_app(tmp_path: Path):
+    from api.local_hosting import mount_frontend_static, setup_local_api_prefix
     from fastapi import FastAPI
-    from api.local_hosting import setup_local_api_prefix, mount_frontend_static
 
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
@@ -134,6 +346,7 @@ def _local_app(tmp_path: Path):
 
     setup_local_api_prefix(app)  # /api/* -> /*
     import os
+
     os.environ["FRONTEND_DIST_DIR"] = str(dist)
     mount_frontend_static(app)
     return app
@@ -162,6 +375,7 @@ def test_local_api_prefix_and_spa_fallback(tmp_path, monkeypatch):
 
 # ── Self-built KB over embedded Milvus Lite (dense-only) ─────────────────────
 
+
 def test_kb_milvus_lite_dense_only(tmp_path, monkeypatch):
     """The vector KB must run server-less on Milvus Lite: a file MILVUS_URL is
     detected as Lite, the collection is created dense-only (no sparse field), an
@@ -175,7 +389,9 @@ def test_kb_milvus_lite_dense_only(tmp_path, monkeypatch):
 
     monkeypatch.setenv("MILVUS_URL", str(tmp_path / "kb.db"))
     import importlib
+
     import core.kb.kb_vector as kv
+
     importlib.reload(kv)  # re-read MILVUS_URL
 
     DIM = 8
@@ -184,18 +400,30 @@ def test_kb_milvus_lite_dense_only(tmp_path, monkeypatch):
 
     assert kv._is_lite() is True
     kv.get_or_create_collection()
-    kv.upsert_rows([{
-        "chunk_id": "c1", "parent_chunk_id": "c1", "row_type": "chunk", "user_id": "u1",
-        "kb_id": "kb1", "document_id": "d1", "title": "t", "content": "机器学习",
-        "tags_text": "", "chunk_index": 0,
-        "dense_embedding": [0.1] * DIM,
-        "sparse_embedding": kv.text_to_sparse("机器学习"),  # must be stripped on Lite
-    }])
+    kv.upsert_rows(
+        [
+            {
+                "chunk_id": "c1",
+                "parent_chunk_id": "c1",
+                "row_type": "chunk",
+                "user_id": "u1",
+                "kb_id": "kb1",
+                "document_id": "d1",
+                "title": "t",
+                "content": "机器学习",
+                "tags_text": "",
+                "chunk_index": 0,
+                "dense_embedding": [0.1] * DIM,
+                "sparse_embedding": kv.text_to_sparse("机器学习"),  # must be stripped on Lite
+            }
+        ]
+    )
     hits = kv.hybrid_search("u1", ["kb1"], "机器学习", [0.1] * DIM, top_k=5)
     assert len(hits) == 1 and hits[0]["content"] == "机器学习"
 
 
 # ── /workspace alias (site-building + skills work when WORKSPACE != /workspace) ─
+
 
 def test_workspace_path_alias_in_local_mode(monkeypatch):
     """When the real workspace root differs (no-Docker local), the file-tool path
@@ -205,15 +433,19 @@ def test_workspace_path_alias_in_local_mode(monkeypatch):
 
     monkeypatch.setattr(p, "WORKSPACE_ROOT", "/home/u/.hugagent/workspace")
     assert p.canonicalize_ws_path("/workspace") == "/home/u/.hugagent/workspace"
-    assert p.canonicalize_ws_path("/workspace/site-src/foo") == \
-        "/home/u/.hugagent/workspace/site-src/foo"
+    assert (
+        p.canonicalize_ws_path("/workspace/site-src/foo")
+        == "/home/u/.hugagent/workspace/site-src/foo"
+    )
     assert p.canonicalize_ws_path("/workspaces/other") == "/workspaces/other"
     assert p.canonicalize_ws_path("/myspace/a") == "/myspace/a"
     # The model passes container-canonical /workspace paths → validation accepts them.
     assert p.validate_workspace_path("/workspace/.site-dist/x") is None
     # to_physical_path returns the aliased (real) root for non-myspace paths.
-    assert p.to_physical_path("/workspace/site-src/foo", "u1") == \
-        "/home/u/.hugagent/workspace/site-src/foo"
+    assert (
+        p.to_physical_path("/workspace/site-src/foo", "u1")
+        == "/home/u/.hugagent/workspace/site-src/foo"
+    )
 
     # Docker parity: root == /workspace → every alias is a byte-for-byte no-op.
     monkeypatch.setattr(p, "WORKSPACE_ROOT", "/workspace")
@@ -232,6 +464,7 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch):
 
     # The bash-command regex rewrites path-boundary /workspace but not /workspaces.
     ws_re = __import__("re").compile(r'/workspace(?=/|$|["\'\s:;)&|])')
-    out = ws_re.sub("/home/u/.hugagent/workspace",
-                    "cd /workspace && npm run build; echo /workspaces")
+    out = ws_re.sub(
+        "/home/u/.hugagent/workspace", "cd /workspace && npm run build; echo /workspaces"
+    )
     assert out == "cd /home/u/.hugagent/workspace && npm run build; echo /workspaces"

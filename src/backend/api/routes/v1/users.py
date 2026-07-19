@@ -5,20 +5,19 @@ import os
 import re
 import time
 import uuid
-from typing import Optional, List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile
-from fastapi.responses import Response
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
-
+from core.auth.backend import UserContext, get_current_user
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import get_db
-from core.auth.backend import get_current_user, UserContext
-from core.db.repository import UserRepository, CatalogRepository
+from core.db.repository import CatalogRepository, UserRepository
+from core.infra.exceptions import AccessDeniedError, ResourceNotFoundError, ValidationError
 from core.infra.responses import success_response
-from core.infra.exceptions import ResourceNotFoundError, AccessDeniedError, ValidationError
 from core.storage import get_storage
+from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -62,32 +61,36 @@ def _delete_old_avatar_storage(meta: dict) -> None:
 # Request/Response Models
 class UserPreferences(BaseModel):
     """User preferences model."""
+
     default_model: Optional[str] = Field(DEFAULT_CHAT_MODEL_ALIAS, description="Default AI model")
     language: Optional[str] = Field("zh-CN", description="Preferred language")
     theme: Optional[str] = Field("auto", description="UI theme: light, dark, auto")
-    enabled_skills: Optional[List[str]] = Field(default_factory=list, description="Enabled skill IDs")
-    enabled_mcps: Optional[List[str]] = Field(default_factory=list, description="Enabled MCP server IDs")
+    enabled_skills: Optional[List[str]] = Field(
+        default_factory=list, description="Enabled skill IDs"
+    )
+    enabled_mcps: Optional[List[str]] = Field(
+        default_factory=list, description="Enabled MCP server IDs"
+    )
 
 
 @router.get("/me", summary="获取当前用户信息（含部门、团队、本地账号资料）")
 async def get_current_user_info(
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """获取当前登录用户信息，包含部门、所属团队及本地账号资料（昵称/真实姓名/电话）。"""
     user_repo = UserRepository(db)
     user_shadow = user_repo.get_by_id(user.user_id)
 
     if not user_shadow:
-        raise ResourceNotFoundError(
-            resource_type="user",
-            resource_id=user.user_id
-        )
+        raise ResourceNotFoundError(resource_type="user", resource_id=user.user_id)
 
     from core.db.models import LocalUser
+
     try:
         from core.services.team_service import list_user_teams_brief
-    except ModuleNotFoundError:  # CE: single-tenant has no teams -- only degrade the teams field, user info returns as usual
+    except (
+        ModuleNotFoundError
+    ):  # CE: single-tenant has no teams -- only degrade the teams field, user info returns as usual
         list_user_teams_brief = None
 
     local = db.query(LocalUser).filter(LocalUser.user_id == user.user_id).first()
@@ -106,21 +109,25 @@ async def get_current_user_info(
         "phone": local.phone if local else None,
         "department": meta.get("department"),
         "auth_source": "local" if local else "external",
+        "must_change_password": bool(meta.get("must_change_password")),
         "teams": teams,
         "created_at": user_shadow.created_at.isoformat(),
     }
 
-    return success_response(
-        data=data,
-        message="User information retrieved successfully"
-    )
+    return success_response(data=data, message="User information retrieved successfully")
 
 
 class UpdateMyProfileRequest(BaseModel):
     """Profile fields the current user can self-update (all optional, updated only when provided)."""
+
     nickname: Optional[str] = Field(None, description="用户名（昵称），1-32 位")
     real_name: Optional[str] = Field(None, description="真实姓名")
     phone: Optional[str] = Field(None, description="联系电话")
+
+
+class ChangeMyPasswordRequest(BaseModel):
+    old_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 @router.patch("/me", summary="更新当前用户资料（本地账号可改 nickname / real_name / phone）")
@@ -131,8 +138,8 @@ async def update_current_user_info(
 ):
     """更新当前用户资料（nickname / real_name / phone，仅传的字段才更新）。仅本地账号可改，外部 SSO 用户需到身份源修改。"""
     from core.db.models import LocalUser
-    from core.services.local_user_service import LocalUserService
     from core.infra.exceptions import ValidationError
+    from core.services.local_user_service import LocalUserService
 
     local = db.query(LocalUser).filter(LocalUser.user_id == user.user_id).first()
     if not local:
@@ -149,9 +156,36 @@ async def update_current_user_info(
         phone=payload.phone,
     )
     if not result.ok:
-        raise ValidationError(errors=[{"message": result.message or "更新失败"}], message=result.message or "更新失败")
+        raise ValidationError(
+            errors=[{"message": result.message or "更新失败"}], message=result.message or "更新失败"
+        )
 
     return success_response(data=result.user_info, message=result.message)
+
+
+@router.put("/me/password", summary="修改当前本地账号密码")
+async def change_my_password(
+    payload: ChangeMyPasswordRequest,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Verify the current password, save the replacement, and clear the first-login flag."""
+    from core.services.local_user_service import LocalUserService
+
+    result = LocalUserService(db).change_password(
+        user_id=user.user_id,
+        old_password=payload.old_password,
+        new_password=payload.new_password,
+    )
+    if not result.ok:
+        raise ValidationError(
+            errors=[{"field": "password", "message": result.message}],
+            message=result.message,
+        )
+    return success_response(
+        data={"user_id": user.user_id, "must_change_password": False},
+        message=result.message,
+    )
 
 
 # ── Avatar management ────────────────────────────────────────────────────────
@@ -182,10 +216,13 @@ def _persist_avatar_url(
         meta["avatar_storage_key"] = new_storage_key
     else:
         meta.pop("avatar_storage_key", None)
-    user_repo.update(user_shadow.user_id, {
-        "avatar_url": new_avatar_url,
-        "extra_data": meta,
-    })
+    user_repo.update(
+        user_shadow.user_id,
+        {
+            "avatar_url": new_avatar_url,
+            "extra_data": meta,
+        },
+    )
     return {
         "user_id": user_shadow.user_id,
         "avatar_url": new_avatar_url,
@@ -215,7 +252,9 @@ async def upload_my_avatar(
         )
     if len(file_bytes) > _AVATAR_MAX_BYTES:
         raise ValidationError(
-            errors=[{"field": "file", "message": f"超过 {_AVATAR_MAX_BYTES // 1024 // 1024}MB 上限"}],
+            errors=[
+                {"field": "file", "message": f"超过 {_AVATAR_MAX_BYTES // 1024 // 1024}MB 上限"}
+            ],
             message="头像文件过大",
         )
 
@@ -325,14 +364,13 @@ async def get_user_avatar_raw(
 async def get_user_preferences(
     user_id: str = Path(..., description="User ID"),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """获取用户偏好设置（默认模型、语言、主题，及启用的技能/MCP 列表）。仅能访问本人偏好。"""
     # Check if user is accessing their own preferences
     if user_id != user.user_id:
         raise AccessDeniedError(
-            message="Access denied",
-            reason="Users can only access their own preferences"
+            message="Access denied", reason="Users can only access their own preferences"
         )
 
     user_repo = UserRepository(db)
@@ -341,10 +379,7 @@ async def get_user_preferences(
     # Get user shadow
     user_shadow = user_repo.get_by_id(user_id)
     if not user_shadow:
-        raise ResourceNotFoundError(
-            resource_type="user",
-            resource_id=user_id
-        )
+        raise ResourceNotFoundError(resource_type="user", resource_id=user_id)
 
     # Get metadata preferences
     metadata = user_shadow.extra_data or {}
@@ -352,14 +387,8 @@ async def get_user_preferences(
 
     # Get enabled skills and MCPs from catalog overrides
     overrides = catalog_repo.list_overrides(user_id)
-    enabled_skills = [
-        o.item_id for o in overrides
-        if o.kind == "skill" and o.enabled
-    ]
-    enabled_mcps = [
-        o.item_id for o in overrides
-        if o.kind == "mcp" and o.enabled
-    ]
+    enabled_skills = [o.item_id for o in overrides if o.kind == "skill" and o.enabled]
+    enabled_mcps = [o.item_id for o in overrides if o.kind == "mcp" and o.enabled]
 
     # Build preferences response
     data = {
@@ -367,13 +396,10 @@ async def get_user_preferences(
         "language": preferences.get("language", "zh-CN"),
         "theme": preferences.get("theme", "auto"),
         "enabled_skills": enabled_skills,
-        "enabled_mcps": enabled_mcps
+        "enabled_mcps": enabled_mcps,
     }
 
-    return success_response(
-        data=data,
-        message="User preferences retrieved successfully"
-    )
+    return success_response(data=data, message="User preferences retrieved successfully")
 
 
 @router.put("/users/{user_id}/preferences", summary="更新用户偏好设置")
@@ -381,14 +407,13 @@ async def update_user_preferences(
     preferences: UserPreferences,
     user_id: str = Path(..., description="User ID"),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """更新用户偏好设置，字段均可选、仅传的才更新。仅能更新本人偏好；enabled_skills/enabled_mcps 同步到 catalog_overrides 表。"""
     # Check if user is updating their own preferences
     if user_id != user.user_id:
         raise AccessDeniedError(
-            message="Access denied",
-            reason="Users can only update their own preferences"
+            message="Access denied", reason="Users can only update their own preferences"
         )
 
     user_repo = UserRepository(db)
@@ -397,10 +422,7 @@ async def update_user_preferences(
     # Get user shadow
     user_shadow = user_repo.get_by_id(user_id)
     if not user_shadow:
-        raise ResourceNotFoundError(
-            resource_type="user",
-            resource_id=user_id
-        )
+        raise ResourceNotFoundError(resource_type="user", resource_id=user_id)
 
     # Update metadata preferences
     metadata = user_shadow.extra_data or {}
@@ -426,20 +448,14 @@ async def update_user_preferences(
         # Update enabled status for all skills
         for skill_id in preferences.enabled_skills:
             catalog_repo.upsert_override(
-                user_id=user_id,
-                kind="skill",
-                item_id=skill_id,
-                enabled=True
+                user_id=user_id, kind="skill", item_id=skill_id, enabled=True
             )
 
         # Disable skills that are not in the enabled list
         for skill in existing_skills:
             if skill.item_id not in preferences.enabled_skills:
                 catalog_repo.upsert_override(
-                    user_id=user_id,
-                    kind="skill",
-                    item_id=skill.item_id,
-                    enabled=False
+                    user_id=user_id, kind="skill", item_id=skill.item_id, enabled=False
                 )
 
     if preferences.enabled_mcps is not None:
@@ -448,23 +464,13 @@ async def update_user_preferences(
 
         # Update enabled status for all MCPs
         for mcp_id in preferences.enabled_mcps:
-            catalog_repo.upsert_override(
-                user_id=user_id,
-                kind="mcp",
-                item_id=mcp_id,
-                enabled=True
-            )
+            catalog_repo.upsert_override(user_id=user_id, kind="mcp", item_id=mcp_id, enabled=True)
 
         # Disable MCPs that are not in the enabled list
         for mcp in existing_mcps:
             if mcp.item_id not in preferences.enabled_mcps:
                 catalog_repo.upsert_override(
-                    user_id=user_id,
-                    kind="mcp",
-                    item_id=mcp.item_id,
-                    enabled=False
+                    user_id=user_id, kind="mcp", item_id=mcp.item_id, enabled=False
                 )
 
-    return success_response(
-        message="User preferences updated successfully"
-    )
+    return success_response(message="User preferences updated successfully")

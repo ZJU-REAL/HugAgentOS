@@ -27,8 +27,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-
 # ── Data dir & environment ────────────────────────────────────────────────────
+
 
 def data_dir() -> Path:
     return Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser()
@@ -54,6 +54,8 @@ def apply_local_env(port: int) -> dict:
     dist = _resolve_frontend_dist()
     defaults = {
         "DEPLOY_PROFILE": "local",
+        "JX_EDITION": "ce",
+        "BRAND_PRODUCT_NAME": "HugAgentOS",
         "DATABASE_URL": f"sqlite:///{dd / 'data.db'}",
         "REDIS_URL": "memory://",
         "SESSION_STORE": "memory",
@@ -121,9 +123,10 @@ def _is_initialized() -> bool:
 
 # ── DB helpers (import lazily, after env is set) ─────────────────────────────
 
+
 def _ensure_schema_and_seed():
     """create_all + built-in catalog seed (mirrors the app's startup hooks)."""
-    from core.db.engine import init_db, SessionLocal
+    from core.db.engine import SessionLocal, init_db
     from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
 
     init_db()
@@ -143,6 +146,11 @@ _PRESETS = {
     "qwen": ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
     "ollama": ("http://127.0.0.1:11434/v1", "qwen2.5"),
 }
+
+# Conservative default for arbitrary OpenAI-compatible chat endpoints.  The
+# value is persisted explicitly because the runtime intentionally refuses to
+# guess a missing context window.
+DEFAULT_LOCAL_CONTEXT_LENGTH = 32768
 
 
 def _prompt(msg: str, default: str = "") -> str:
@@ -173,16 +181,22 @@ def bootstrap_admin(username: str, password: str) -> str:
         db.close()
 
 
-def configure_model(base_url: str, api_key: str, model_name: str,
-                    provider_type: str = "chat", test: bool = True) -> None:
+def configure_model(
+    base_url: str,
+    api_key: str,
+    model_name: str,
+    provider_type: str = "chat",
+    test: bool = True,
+    context_length: Optional[int] = None,
+) -> None:
     """Create a provider, assign it to every chat role, invalidate the cache.
 
     When ``test`` is set, pings the endpoint first and raises on failure.
     """
     import asyncio
 
-    from core.db.engine import SessionLocal
     from core.db import model_repository as mr
+    from core.db.engine import SessionLocal
     from core.services.model_config import ModelConfigService
 
     if test:
@@ -202,6 +216,13 @@ def configure_model(base_url: str, api_key: str, model_name: str,
 
     db = SessionLocal()
     try:
+        extra_config = {}
+        if provider_type == "chat":
+            resolved_context_length = int(context_length or DEFAULT_LOCAL_CONTEXT_LENGTH)
+            if resolved_context_length <= 0:
+                raise ValueError("context_length 必须是正整数")
+            extra_config["context_length"] = resolved_context_length
+
         provider = mr.create_provider(
             db,
             display_name=f"{model_name} (local)",
@@ -209,6 +230,7 @@ def configure_model(base_url: str, api_key: str, model_name: str,
             base_url=base_url,
             api_key=api_key,
             model_name=model_name,
+            extra_config=extra_config,
         )
         # Assign the onboarded model to every role of its type — derive the set
         # from the single source of truth (ROLE_DEFINITIONS) so a new chat role
@@ -255,9 +277,7 @@ def install_plugins(slugs: list) -> list:
     try:
         for slug in slugs:
             try:
-                plugin_service.install_plugin(
-                    db, slug, owner_user_id=None, created_by="onboard"
-                )
+                plugin_service.install_plugin(db, slug, owner_user_id=None, created_by="onboard")
                 done.append(slug)
                 print(f"  ✓ 已安装插件：{slug}")
             except Exception as exc:  # noqa: BLE001
@@ -296,8 +316,10 @@ def _select_plugins_interactively(available: list) -> list:
 
 # ── File parser (PDF / document parsing on upload) ────────────────────────────
 
-def configure_file_parser(api_url: str, *, backend: str = "pipeline",
-                          parse_method: str = "auto") -> None:
+
+def configure_file_parser(
+    api_url: str, *, backend: str = "pipeline", parse_method: str = "auto"
+) -> None:
     """Write the file-parser service config into system_configs.
 
     PDF (and scanned-document) parsing on upload calls an external MinerU/pipeline
@@ -322,6 +344,7 @@ def configure_file_parser(api_url: str, *, backend: str = "pipeline",
 
 # ── Internet search (Tavily / Baidu key) ─────────────────────────────────────
 
+
 def configure_search_engine(engine: str, api_key: str) -> None:
     """Write the internet-search engine + key into system_configs.
 
@@ -345,6 +368,7 @@ def configure_search_engine(engine: str, api_key: str) -> None:
 
 
 # ── Site-building template (React path) ──────────────────────────────────────
+
 
 def _repo_site_template_dir() -> Optional[Path]:
     """Locate the shipped React site template (docker/site-template/) in the repo."""
@@ -378,7 +402,8 @@ def provision_site_template(verbose: bool = False) -> bool:
         home.mkdir(parents=True, exist_ok=True)
         if not (home / "init-react-site.sh").is_file():
             shutil.copytree(
-                src / "react-vite", home / "react-vite",
+                src / "react-vite",
+                home / "react-vite",
                 ignore=shutil.ignore_patterns("node_modules"),
                 dirs_exist_ok=True,
             )
@@ -389,8 +414,10 @@ def provision_site_template(verbose: bool = False) -> bool:
             if tools["node"] and tools["npm"]:
                 print(f"  ✓ React 建站模板已就绪：{home}")
             else:
-                print(f"  ✓ React 建站模板已铺入：{home}"
-                      "（缺 Node/npm，装 Node ≥ 20 后首次建站会自动装依赖）")
+                print(
+                    f"  ✓ React 建站模板已铺入：{home}"
+                    "（缺 Node/npm，装 Node ≥ 20 后首次建站会自动装依赖）"
+                )
         return True
     except Exception as exc:  # noqa: BLE001
         if verbose:
@@ -399,6 +426,7 @@ def provision_site_template(verbose: bool = False) -> bool:
 
 
 # ── Host tool capability probe ────────────────────────────────────────────────
+
 
 def _probe_host_tools() -> dict:
     """Which optional host tools are present (affects local-mode capabilities)."""
@@ -417,16 +445,23 @@ def _print_capability_summary() -> None:
     tools = _probe_host_tools()
     print("\n本机能力概览（缺失项对应能力会降级，可事后补装）：")
     node_ok = bool(tools["node"] and tools["npm"])
-    print(f"  [{'✓' if node_ok else '·'}] Node.js + npm — React 对话建站"
-          + ("" if node_ok else "（未装：建站将只能手写静态站；装 Node ≥ 20 后可用）"))
-    print(f"  [{'✓' if tools['pandoc'] else '·'}] pandoc — Word 文档转换"
-          + ("" if tools["pandoc"] else "（未装：Word 转换降级）"))
-    print(f"  [{'✓' if tools['libreoffice'] else '·'}] libreoffice — Office 格式转换"
-          + ("" if tools["libreoffice"] else "（未装：PPT/Office 转换降级）"))
+    print(
+        f"  [{'✓' if node_ok else '·'}] Node.js + npm — React 对话建站"
+        + ("" if node_ok else "（未装：建站将只能手写静态站；装 Node ≥ 20 后可用）")
+    )
+    print(
+        f"  [{'✓' if tools['pandoc'] else '·'}] pandoc — Word 文档转换"
+        + ("" if tools["pandoc"] else "（未装：Word 转换降级）")
+    )
+    print(
+        f"  [{'✓' if tools['libreoffice'] else '·'}] libreoffice — Office 格式转换"
+        + ("" if tools["libreoffice"] else "（未装：PPT/Office 转换降级）")
+    )
 
 
-def _configure_aux_model_step(args, *, ptype: str, title: str, ok_label: str,
-                              bu, key, model, interactive: bool) -> None:
+def _configure_aux_model_step(
+    args, *, ptype: str, title: str, ok_label: str, bu, key, model, interactive: bool
+) -> None:
     """Optionally configure a non-chat model role (embedding / reranker).
 
     Uses flag-provided creds when present, else prompts interactively; a blank
@@ -479,6 +514,7 @@ def cmd_onboard(args) -> int:
     # Step 2 — chat model (the main model; assigned to all 7 chat roles)
     if args.model_base_url and args.model_api_key and args.model_name:
         base_url, api_key, model_name = args.model_base_url, args.model_api_key, args.model_name
+        context_length = args.model_context_length
     else:
         print("\n[2] 配置对话模型（主模型，OpenAI 兼容端点）")
         print("  会指派给全部对话角色（主智能体 / 摘要 / 追问 / 记忆 / 图表 / 计划 / 代码执行）")
@@ -487,11 +523,24 @@ def cmd_onboard(args) -> int:
         pb, pm = _PRESETS.get(preset, ("", ""))
         base_url = _prompt("  base_url", pb)
         model_name = _prompt("  模型名", pm)
+        try:
+            context_length = int(
+                _prompt("  上下文窗口（context_length）", str(DEFAULT_LOCAL_CONTEXT_LENGTH))
+            )
+        except ValueError:
+            print("✗ context_length 必须是正整数", file=sys.stderr)
+            return 1
         import getpass
 
         api_key = getpass.getpass("  api_key: ").strip()
     try:
-        configure_model(base_url, api_key, model_name, test=not args.no_test)
+        configure_model(
+            base_url,
+            api_key,
+            model_name,
+            test=not args.no_test,
+            context_length=context_length,
+        )
         print(f"✓ 模型已配置并联通：{model_name}")
     except Exception as exc:
         print(f"✗ 模型配置失败：{exc}", file=sys.stderr)
@@ -502,20 +551,26 @@ def cmd_onboard(args) -> int:
     # Step 2b (optional) — index/embedding model. Enables the self-built vector
     # knowledge base (embedded Milvus Lite) + L2 memory vectorization.
     _configure_aux_model_step(
-        args, ptype="embedding",
+        args,
+        ptype="embedding",
         title="[2b] 向量 / 索引模型（embedding，知识库检索与记忆用；直接回车跳过）",
         ok_label="向量/索引模型已配置",
-        bu=args.embed_base_url, key=args.embed_api_key, model=args.embed_model,
+        bu=args.embed_base_url,
+        key=args.embed_api_key,
+        model=args.embed_model,
         interactive=interactive,
     )
 
     # Step 2c (optional) — reranker model. Re-ranks KB hybrid-search results for
     # sharper retrieval; skippable (retrieval still works without it).
     _configure_aux_model_step(
-        args, ptype="reranker",
+        args,
+        ptype="reranker",
         title="[2c] 重排模型（reranker，知识库检索结果重排增强；直接回车跳过）",
         ok_label="重排模型已配置",
-        bu=args.reranker_base_url, key=args.reranker_api_key, model=args.reranker_model,
+        bu=args.reranker_base_url,
+        key=args.reranker_api_key,
+        model=args.reranker_model,
         interactive=interactive,
     )
 
@@ -525,8 +580,7 @@ def cmd_onboard(args) -> int:
     else:
         # No --plugins in a non-interactive run == "default"; otherwise parse it.
         raw = (args.plugins or "default").strip().lower()
-        avail_slugs = {it["slug"] for it in list_installable_plugins()
-                       if not it.get("installed")}
+        avail_slugs = {it["slug"] for it in list_installable_plugins() if not it.get("installed")}
         if raw in ("", "default"):
             slugs = [s for s in _DEFAULT_PLUGINS if s in avail_slugs]
         elif raw in ("none", "-"):
@@ -534,8 +588,9 @@ def cmd_onboard(args) -> int:
         elif raw == "all":
             slugs = list(avail_slugs)
         else:
-            slugs = [s.strip() for s in raw.replace("，", ",").split(",")
-                     if s.strip() in avail_slugs]
+            slugs = [
+                s.strip() for s in raw.replace("，", ",").split(",") if s.strip() in avail_slugs
+            ]
     if slugs:
         print(f"\n[插件] 安装 {len(slugs)} 个插件…")
         installed_slugs = install_plugins(slugs)
@@ -584,6 +639,7 @@ def cmd_onboard(args) -> int:
 
 # ── Serve ─────────────────────────────────────────────────────────────────────
 
+
 def _open_browser_when_ready(port: int) -> None:
     url = f"http://127.0.0.1:{port}/"
     for _ in range(60):
@@ -608,28 +664,31 @@ def cmd_serve(args) -> int:
     import uvicorn
     from api.app import app
 
+    host = args.host
     port = int(os.environ["PORT"])
-    print(f"HugAgentOS 运行于 http://127.0.0.1:{port}/  (Ctrl-C 停止)")
+    print(f"HugAgentOS 监听于 http://{host}:{port}/  (Ctrl-C 停止)")
     if not args.no_browser:
         threading.Thread(target=_open_browser_when_ready, args=(port,), daemon=True).start()
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run(app, host=host, port=port, log_level="info")
     return 0
 
 
 # ── Doctor ────────────────────────────────────────────────────────────────────
 
+
 def cmd_doctor(args) -> int:
     apply_local_env(args.port)
     ok = True
 
-    def check(label: str, passed: bool, detail: str = "") -> None:
+    def check(label: str, passed: bool, detail: str = "", *, required: bool = True) -> None:
         nonlocal ok
-        mark = "✓" if passed else "✗"
+        mark = "✓" if passed else ("✗" if required else "·")
         print(f"  [{mark}] {label}" + (f" — {detail}" if detail else ""))
-        ok = ok and passed
+        if required:
+            ok = ok and passed
 
     print("HugAgentOS 环境自检\n" + "─" * 40)
-    check("Python ≥ 3.10", sys.version_info >= (3, 10), sys.version.split()[0])
+    check("Python ≥ 3.11", sys.version_info >= (3, 11), sys.version.split()[0])
 
     dd = data_dir()
     writable = os.access(dd, os.W_OK)
@@ -646,25 +705,40 @@ def cmd_doctor(args) -> int:
     check(f"端口 {port} 可用", free)
 
     dist = _resolve_frontend_dist()
-    check("前端已构建 (dist)", dist is not None,
-          dist or "缺失：cd src/frontend && npm run build")
+    check("前端已构建 (dist)", dist is not None, dist or "缺失：cd src/frontend && npm run build")
 
     try:
         import fakeredis  # noqa: F401
+
         check("fakeredis 已安装", True)
     except Exception:
         check("fakeredis 已安装", False, "pip install fakeredis")
 
     _tools = _probe_host_tools()
-    check("Node.js + npm（可选，React 对话建站）", bool(_tools["node"] and _tools["npm"]),
-          "" if _tools["node"] and _tools["npm"] else "未装 Node ≥ 20，建站仅能手写静态站")
-    check("pandoc（可选，Word 转换 / 报告导出）", _tools["pandoc"] is not None,
-          "" if _tools["pandoc"] else "未安装，Word 转换降级")
-    check("libreoffice（可选，Office 格式转换）", _tools["libreoffice"] is not None,
-          "" if _tools["libreoffice"] else "未安装，PPT/Office 转换降级")
+    check(
+        "Node.js + npm（可选，React 对话建站）",
+        bool(_tools["node"] and _tools["npm"]),
+        "" if _tools["node"] and _tools["npm"] else "未装 Node ≥ 20，建站仅能手写静态站",
+        required=False,
+    )
+    check(
+        "pandoc（可选，Word 转换 / 报告导出）",
+        _tools["pandoc"] is not None,
+        "" if _tools["pandoc"] else "未安装，Word 转换降级",
+        required=False,
+    )
+    check(
+        "libreoffice（可选，Office 格式转换）",
+        _tools["libreoffice"] is not None,
+        "" if _tools["libreoffice"] else "未安装，PPT/Office 转换降级",
+        required=False,
+    )
 
-    check("已初始化（存在管理员）", _is_initialized(),
-          "" if _is_initialized() else "运行 `hugagent onboard`")
+    check(
+        "已初始化（存在管理员）",
+        _is_initialized(),
+        "" if _is_initialized() else "运行 `hugagent onboard`",
+    )
 
     print("─" * 40)
     print("✓ 自检通过" if ok else "✗ 存在需处理的问题（见上）")
@@ -673,14 +747,21 @@ def cmd_doctor(args) -> int:
 
 # ── Entry ─────────────────────────────────────────────────────────────────────
 
+
 def build_parser() -> argparse.ArgumentParser:
     # Shared options usable both before and after the subcommand
-    # (`hugagent --port X serve` and `hugagent serve --port X` both work).
+    # (`hugagent --host X --port Y serve` and options after `serve` both work).
     common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--host",
+        default=os.getenv("HUGAGENT_BIND_HOST", "127.0.0.1"),
+        help="监听地址（默认 127.0.0.1；远程访问可显式设为 0.0.0.0）",
+    )
     common.add_argument("--port", type=int, default=int(os.getenv("PORT", "3001")))
 
-    p = argparse.ArgumentParser(prog="hugagent", parents=[common],
-                                description="HugAgentOS 无 Docker 本地版")
+    p = argparse.ArgumentParser(
+        prog="hugagent", parents=[common], description="HugAgentOS 无 Docker 本地版"
+    )
     sub = p.add_subparsers(dest="command")
 
     po = sub.add_parser("onboard", parents=[common], help="首次引导（账号 + 模型 + 启动）")
@@ -689,16 +770,25 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--model-base-url")
     po.add_argument("--model-api-key")
     po.add_argument("--model-name")
+    po.add_argument(
+        "--model-context-length",
+        type=int,
+        default=int(os.getenv("MODEL_CONTEXT_LENGTH", str(DEFAULT_LOCAL_CONTEXT_LENGTH))),
+        help=f"主模型上下文窗口（默认 {DEFAULT_LOCAL_CONTEXT_LENGTH}）",
+    )
     po.add_argument("--embed-base-url", help="向量/索引模型端点（可选，用于知识库/记忆）")
     po.add_argument("--embed-api-key")
     po.add_argument("--embed-model")
     po.add_argument("--reranker-base-url", help="重排模型端点（可选，知识库检索增强）")
     po.add_argument("--reranker-api-key")
     po.add_argument("--reranker-model")
-    po.add_argument("--plugins", help="要安装的插件：逗号分隔 slug / all / none / default（缺省交互选择）")
+    po.add_argument(
+        "--plugins", help="要安装的插件：逗号分隔 slug / all / none / default（缺省交互选择）"
+    )
     po.add_argument("--file-parser-url", help="PDF/文档解析服务 API URL（可选）")
-    po.add_argument("--search-engine", choices=["tavily", "baidu"],
-                    help="互联网搜索引擎（可选，默认 tavily）")
+    po.add_argument(
+        "--search-engine", choices=["tavily", "baidu"], help="互联网搜索引擎（可选，默认 tavily）"
+    )
     po.add_argument("--search-api-key", help="互联网搜索 API Key（可选）")
     po.add_argument("--no-test", action="store_true", help="跳过模型连通性实测")
     po.add_argument("--no-serve", action="store_true", help="初始化后不自动起服务")
@@ -719,13 +809,25 @@ def main(argv: Optional[list] = None) -> int:
     if not getattr(args, "command", None):
         # bare `hugagent`: onboard if fresh, else serve.
         args.func = cmd_serve if _is_initialized() else cmd_onboard
-        for attr, val in (("username", None), ("password", None), ("model_base_url", None),
-                          ("model_api_key", None), ("model_name", None),
-                          ("embed_base_url", None), ("embed_api_key", None), ("embed_model", None),
-                          ("reranker_base_url", None), ("reranker_api_key", None),
-                          ("reranker_model", None),
-                          ("plugins", None), ("file_parser_url", None),
-                          ("no_test", False), ("no_serve", False), ("no_browser", False)):
+        for attr, val in (
+            ("username", None),
+            ("password", None),
+            ("model_base_url", None),
+            ("model_api_key", None),
+            ("model_name", None),
+            ("model_context_length", DEFAULT_LOCAL_CONTEXT_LENGTH),
+            ("embed_base_url", None),
+            ("embed_api_key", None),
+            ("embed_model", None),
+            ("reranker_base_url", None),
+            ("reranker_api_key", None),
+            ("reranker_model", None),
+            ("plugins", None),
+            ("file_parser_url", None),
+            ("no_test", False),
+            ("no_serve", False),
+            ("no_browser", False),
+        ):
             setattr(args, attr, getattr(args, attr, val))
     return args.func(args) or 0
 

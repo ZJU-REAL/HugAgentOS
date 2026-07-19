@@ -15,10 +15,11 @@ import sys
 from contextlib import asynccontextmanager
 from typing import Callable
 
-from fastapi import FastAPI
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from dotenv import load_dotenv
-
+from api.health import router as health_router
+from api.middleware.cors import setup_cors
+from api.middleware.error_handler import setup_error_handlers
+from api.middleware.license_gate import setup_license_gate
+from api.middleware.logging import setup_logging_middleware
 from api.routes import files_router, sites_serve_router
 from api.routes.v1 import (
     CE_ROUTERS,
@@ -27,14 +28,12 @@ from api.routes.v1 import (
     login_router,
     mock_sso_router,
 )
-from core.licensing import Feature, requires_feature
-from api.middleware.cors import setup_cors
-from api.middleware.logging import setup_logging_middleware
-from api.middleware.error_handler import setup_error_handlers
-from api.middleware.license_gate import setup_license_gate
-from api.health import router as health_router
 from core.config.settings import settings
 from core.infra.logging import get_logger
+from core.licensing import Feature, requires_feature
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
 # ---------------------------------------------------------------------------
 # Bootstrap
@@ -54,6 +53,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     # ── startup ──
     await _startup_ensure_tables()
+    await _startup_seed_ce_admin()
     await _startup_local_sidecars()
     await _startup_recover_chat_runs()
     await _startup_resume_loops()
@@ -117,8 +117,8 @@ app = FastAPI(
 
 
 def _build_custom_openapi():
-    from fastapi.openapi.utils import get_openapi
     from api.openapi_data_schemas import DATA_COMPONENTS, DATA_SCHEMAS
+    from fastapi.openapi.utils import get_openapi
 
     def _custom_openapi():
         if app.openapi_schema:
@@ -422,6 +422,25 @@ async def _startup_ensure_tables():
         init_db()
 
 
+async def _startup_seed_ce_admin():
+    """Seed the CE bootstrap administrator without affecting EE deployments."""
+    if settings.edition.edition != "ce":
+        return
+    try:
+        from core.db.engine import SessionLocal
+        from core.services.local_user_service import ensure_ce_default_admin
+
+        db = SessionLocal()
+        try:
+            user_id, created = ensure_ce_default_admin(db)
+            if created:
+                logger.info("[startup] CE default administrator created: %s", user_id)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("[startup] CE default administrator seed failed: %s", exc)
+
+
 async def _startup_recover_chat_runs():
     """Mark running/pending chat_runs left over from before the last process crash as failed."""
     try:
@@ -542,7 +561,7 @@ async def _startup_idle_session_reaper():
 async def _startup_seed_page_config():
     """Seed default page_config content block if missing (idempotent)."""
     try:
-        from core.content.content_blocks import seed_page_config_if_missing
+        from core.content.content_blocks import enforce_ce_branding, seed_page_config_if_missing
         from core.db.engine import SessionLocal
 
         db = SessionLocal()
@@ -550,6 +569,8 @@ async def _startup_seed_page_config():
             inserted = seed_page_config_if_missing(db)
             if inserted:
                 logger.info("[startup] default page_config seeded")
+            if enforce_ce_branding(db):
+                logger.info("[startup] CE page config normalized")
         finally:
             db.close()
     except Exception as exc:
@@ -562,8 +583,8 @@ async def _startup_seed_prompt_versions():
     Idempotent: only inserts versions that don't already exist.
     """
     try:
-        from core.services import prompt_version_service as pvs
         from core.db.engine import SessionLocal
+        from core.services import prompt_version_service as pvs
 
         db = SessionLocal()
         try:
@@ -584,8 +605,8 @@ async def _startup_seed_roles():
     populates fresh deployments. When CE has no roles table, degrades entirely to a no-op.
     """
     try:
-        from core.services.role_service import seed_default_roles
         from core.db.engine import SessionLocal
+        from core.services.role_service import seed_default_roles
 
         db = SessionLocal()
         try:
@@ -628,8 +649,8 @@ async def _startup_seed_mcp_servers():
     admin-deleted rows. Missing table (CE edge) degrades to a no-op.
     """
     try:
-        from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
         from core.db.engine import SessionLocal
+        from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
 
         db = SessionLocal()
         try:
@@ -733,8 +754,8 @@ async def _startup_preload():
         #    row. See _NAV_BACKFILL_ENTRIES in content_blocks.py — append a
         #    new entry there each time we add a sidebar feature.
         def _backfill_nav():
-            from core.db.engine import SessionLocal
             from core.content.content_blocks import backfill_navigation_entries
+            from core.db.engine import SessionLocal
 
             db = SessionLocal()
             try:

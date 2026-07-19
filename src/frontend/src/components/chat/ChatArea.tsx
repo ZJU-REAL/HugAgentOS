@@ -8,7 +8,7 @@ import {
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useAuthStore } from '../../stores';
+import { useChatStore, useBatchStore, useAuthStore, useEditionStore } from '../../stores';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePageConfigStore, type HomepageShortcut } from '../../stores/pageConfigStore';
@@ -192,9 +192,10 @@ export function ChatArea({
   }, [chat?.messages, pendingScrollMessageTs, setPendingScrollMessageTs]);
 
   const homepageShortcuts = usePageConfigStore((s) => s.homepageShortcuts);
+  const isCE = useEditionStore((s) => s.edition === 'ce');
   const enabledShortcuts = useMemo(
-    () => homepageShortcuts.filter((c) => c.enabled),
-    [homepageShortcuts],
+    () => (isCE ? [] : homepageShortcuts.filter((c) => c.enabled)),
+    [homepageShortcuts, isCE],
   );
   const ssoToken = useAuthStore((s) => s.authUser?.sso_token ?? null);
 

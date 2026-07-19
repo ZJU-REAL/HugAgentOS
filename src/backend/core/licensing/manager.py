@@ -18,6 +18,10 @@ class LicenseManager:
     def mode(self) -> str:
         return "ce"
 
+    def is_active(self) -> bool:
+        """CE is always runnable and is never gated by commercial licensing."""
+        return True
+
     def has(self, feature: Feature) -> bool:
         return False
 

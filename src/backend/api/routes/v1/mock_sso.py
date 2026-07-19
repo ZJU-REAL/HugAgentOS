@@ -15,11 +15,10 @@ import os
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
-from fastapi import APIRouter, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-
 from core.content.content_blocks import get_branding_info, is_register_allowed
 from core.infra.logging import get_logger
+from fastapi import APIRouter, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 logger = get_logger(__name__)
 
@@ -28,10 +27,8 @@ router = APIRouter(prefix="/mock-sso", tags=["Mock SSO"])
 # ── Mock-SSO ticket store ─────────────────────────────────────────────────
 # Moved to core.auth.mock_ticket_store so core.auth.sso can validate tickets
 # without importing this route module. Re-exported under original names.
-from core.auth.mock_ticket_store import (  # noqa: E402
-    consume_ticket,
-    generate_ticket as _generate_ticket,
-)
+from core.auth.mock_ticket_store import consume_ticket
+from core.auth.mock_ticket_store import generate_ticket as _generate_ticket  # noqa: E402
 
 # Predefined mock users with passwords
 # The password field is only used for mock login verification; it is never sent to business systems with user_info
@@ -73,6 +70,16 @@ _USER_BY_NAME: Dict[str, Dict[str, Any]] = {u["username"]: u for u in MOCK_USERS
 def _user_info_without_password(user: Dict[str, Any]) -> Dict[str, Any]:
     """Return user info without the password field, for downstream business use."""
     return {k: v for k, v in user.items() if k != "password"}
+
+
+def _mock_account_shortcuts_enabled() -> bool:
+    """Allow known mock users and password-free shortcuts only in explicit dev mode."""
+    try:
+        from core.config.settings import settings as _settings
+
+        return _settings.edition.edition != "ce" and _settings.sso.effective_login_mode == "mock"
+    except Exception:
+        return False
 
 
 def _resolve_frontend_origin(request: Request, redirect: str) -> str:
@@ -123,14 +130,16 @@ def _build_redirect_target(request: Request, redirect: str, ticket: str) -> str:
     existing_query["ticket"] = ticket
     existing_query["redirect"] = redirect_path
 
-    return urlunparse((
-        urlparse(frontend_origin).scheme,
-        urlparse(frontend_origin).netloc,
-        redirect_path,
-        "",
-        urlencode(existing_query, doseq=True),
-        redirect_fragment,
-    ))
+    return urlunparse(
+        (
+            urlparse(frontend_origin).scheme,
+            urlparse(frontend_origin).netloc,
+            redirect_path,
+            "",
+            urlencode(existing_query, doseq=True),
+            redirect_fragment,
+        )
+    )
 
 
 def _render_register_form(redirect: str, error_html: str, action: str = "register") -> str:
@@ -243,9 +252,7 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
 
     Kept as the /mock-sso/login entry in mock mode to preserve the "previous state", decoupled from the new /login.
     """
-    error_html = (
-        f'<div class="error-row" id="formError" role="alert"{" hidden" if not error else ""}>{error or ""}</div>'
-    )
+    error_html = f'<div class="error-row" id="formError" role="alert"{" hidden" if not error else ""}>{error or ""}</div>'
     first = MOCK_USERS[0] if MOCK_USERS else {"username": "", "email": ""}
     option_items = "".join(
         f'<li><button type="button" class="username-option{" active" if i == 0 else ""}" '
@@ -256,7 +263,6 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
     )
     brand = get_branding_info()
     brand_name = brand["product_name"]
-    brand_logo = brand["logo_url"]
 
     return f"""<!DOCTYPE html>
 <html lang="zh">
@@ -280,10 +286,9 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
       background-attachment: fixed;
     }}
     .page {{ position:relative; min-height:100vh; overflow:hidden; }}
-    .brand {{ position:relative; z-index:1; display:flex; align-items:center; gap:12px; padding:46px 56px 0; }}
-    .brand-link {{ display:inline-flex; align-items:center; gap:12px; text-decoration:none; color:inherit; }}
-    .brand img {{ width:38px; height:38px; display:block; }}
-    .brand span {{ font-size:24px; font-weight:600; color:#101828; }}
+    .brand {{ position:relative; z-index:1; display:flex; align-items:center; padding:46px 56px 0; }}
+    .brand-link {{ display:inline-flex; align-items:center; text-decoration:none; color:inherit; }}
+    .brand-logo {{ width:280px; max-width:calc(100vw - 112px); height:auto; display:block; }}
     .main {{
       position:relative; z-index:1;
       display:grid; grid-template-columns:minmax(0,1.08fr) minmax(380px,497px);
@@ -378,6 +383,7 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
     }}
     @media (max-width: 960px) {{
       .brand {{ padding:28px 24px 0; }}
+      .brand-logo {{ width:240px; max-width:calc(100vw - 48px); }}
       .main {{ grid-template-columns:1fr; gap:24px; min-height:auto; padding:12px 20px 108px; }}
       .visual {{ display:none; }}
       .card {{ min-height:unset; padding:40px 22px 28px; }}
@@ -389,7 +395,7 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
   <div class="page">
     <header class="brand">
       <a class="brand-link" href="/mock-sso/login?redirect={redirect}">
-        <img src="{brand_logo}" alt="logo"/><span>{brand_name}</span>
+        <img class="brand-logo" src="/home/hugagentos-logo.png" alt="{brand_name}"/>
       </a>
     </header>
     <main class="main">
@@ -484,7 +490,7 @@ async def mock_legacy_login_page(
     error: Optional[str] = Query(None),
 ):
     """/mock-sso/login 专用：保留旧版 Mock 登录页样式（下拉 + 密码）。"""
-    if auto is not None:
+    if auto is not None and _mock_account_shortcuts_enabled():
         try:
             idx = int(auto)
             user = MOCK_USERS[idx]
@@ -494,12 +500,16 @@ async def mock_legacy_login_page(
         target = _build_redirect_target(request, redirect, ticket)
         return RedirectResponse(url=target, status_code=302)
     # local mode no longer exposes the Mock dropdown-account page: everything converges on /login, so no entry point bounces back to the mock page.
-    # (In mock mode the legacy dropdown page is still shown; auto direct-login is handled above with priority and is unaffected.)
+    # In explicit non-CE mock mode, the legacy dropdown page and its auto-login
+    # shortcut remain available for development.
     try:
         from core.config.settings import settings as _settings
+
         if _settings.sso.effective_login_mode == "local":
             login_target = (
-                f"/login?redirect={_encode_query(redirect)}" if redirect and redirect != "/" else "/login"
+                f"/login?redirect={_encode_query(redirect)}"
+                if redirect and redirect != "/"
+                else "/login"
             )
             return RedirectResponse(url=login_target, status_code=302)
     except Exception:
@@ -508,6 +518,7 @@ async def mock_legacy_login_page(
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────
+
 
 async def mock_login_page(
     request: Request,
@@ -519,7 +530,7 @@ async def mock_login_page(
 ):
     """Render a login page with tabs for login/register (local accounts) and a dev-only Mock account entry."""
     # Auto-login shortcut (for scripts/tests, skips the password)
-    if auto is not None:
+    if auto is not None and _mock_account_shortcuts_enabled():
         try:
             idx = int(auto)
             user = MOCK_USERS[idx]
@@ -532,9 +543,12 @@ async def mock_login_page(
     # Deferred import to avoid a module-level dependency on settings / the database
     try:
         from core.config.settings import settings as _settings
+
         local_enabled = bool(_settings.auth.local_enabled)
+        default_lang = "en" if _settings.edition.edition == "ce" else "zh-CN"
     except Exception:
         local_enabled = True
+        default_lang = "zh-CN"
 
     # The registration entry is gated by two switches: the local-account master switch (env) + the page_config registration switch (operators configure it under /config).
     show_register = local_enabled and is_register_allowed()
@@ -547,36 +561,35 @@ async def mock_login_page(
     login_action = "login"
     register_action = "register"
 
-    login_error_html = (
-        f'<div class="error-row" id="loginError" role="alert"{" hidden" if not error else ""}>{error or ""}</div>'
-    )
-    register_error_html = (
-        f'<div class="error-row" id="registerError" role="alert"{" hidden" if not reg_error else ""}>{reg_error or ""}</div>'
-    )
+    login_error_html = f'<div class="error-row" id="loginError" role="alert"{" hidden" if not error else ""}>{error or ""}</div>'
+    register_error_html = f'<div class="error-row" id="registerError" role="alert"{" hidden" if not reg_error else ""}>{reg_error or ""}</div>'
     register_tab_button = (
         f'<button type="button" class="tab-btn {register_active}" data-tab="register" data-i18n="注册">注册</button>'
-        if show_register else ""
+        if show_register
+        else ""
     )
     # When registration is disabled, hide the entire tab bar — only the login form remains, instead of showing a lone "Login" tab.
-    login_tab_button = (
-        f'<button type="button" class="tab-btn {login_active}" data-tab="login" role="tab" data-i18n="登录">登录</button>'
-    )
+    login_tab_button = f'<button type="button" class="tab-btn {login_active}" data-tab="login" role="tab" data-i18n="登录">登录</button>'
     tabs_html = (
         f'<div class="tabs" role="tablist">{login_tab_button}{register_tab_button}</div>'
-        if show_register else ""
+        if show_register
+        else ""
     )
-    register_form_html = _render_register_form(redirect, register_error_html, register_action) if show_register else ""
+    register_form_html = (
+        _render_register_form(redirect, register_error_html, register_action)
+        if show_register
+        else ""
+    )
     mock_hint_html = ""
     brand = get_branding_info()
     brand_name = brand["product_name"]
-    brand_logo = brand["logo_url"]
 
     html = f"""<!DOCTYPE html>
-<html lang="zh">
+<html lang="{default_lang if default_lang == 'en' else 'zh-CN'}">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>统一身份认证登录</title>
+  <title>{brand_name}</title>
   <link rel="preload" as="image" href="/home/mock-sso-bg-original.png"/>
   <style>
     :root {{
@@ -618,7 +631,6 @@ async def mock_login_page(
       z-index:1;
       display:flex;
       align-items:center;
-      gap:12px;
       padding:46px 56px 0;
     }}
     .brand-link {{
@@ -634,16 +646,11 @@ async def mock_login_page(
       opacity:.9;
       transform:translateY(-1px);
     }}
-    .brand img {{
-      width:38px;
-      height:38px;
+    .brand-logo {{
+      width:280px;
+      max-width:calc(100vw - 112px);
+      height:auto;
       display:block;
-    }}
-    .brand span {{
-      font-size:24px;
-      font-weight:600;
-      line-height:1;
-      color:#101828;
     }}
     .main {{
       position:relative;
@@ -1171,6 +1178,7 @@ async def mock_login_page(
     }}
     @media (max-width: 960px) {{
       .brand {{ padding:28px 24px 0; }}
+      .brand-logo {{ width:240px; max-width:calc(100vw - 48px); }}
       .main {{
         grid-template-columns:1fr;
         gap:24px;
@@ -1190,8 +1198,7 @@ async def mock_login_page(
   <div class="page">
     <header class="brand">
       <a class="brand-link" href="/login?redirect={redirect}">
-        <img src="{brand_logo}" alt="logo" />
-        <span>{brand_name}</span>
+        <img class="brand-logo" src="/home/hugagentos-logo.png" alt="{brand_name}" />
       </a>
     </header>
     <main class="main">
@@ -1301,7 +1308,10 @@ async def mock_login_page(
       }};
       const LANG_KEY = 'jx_lang';
       function getLang() {{
-        try {{ return localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'zh-CN'; }} catch (e) {{ return 'zh-CN'; }}
+        try {{
+          const saved = localStorage.getItem(LANG_KEY);
+          return saved === 'en' || saved === 'zh-CN' ? saved : '{default_lang}';
+        }} catch (e) {{ return '{default_lang}'; }}
       }}
       let curLang = getLang();
       function tr(text) {{
@@ -1315,7 +1325,7 @@ async def mock_login_page(
       }}
       function applyLang() {{
         document.documentElement.lang = curLang === 'en' ? 'en' : 'zh';
-        document.title = tr('统一身份认证登录');
+        document.title = '{brand_name}';
         document.querySelectorAll('[data-i18n]').forEach((el) => {{ el.textContent = tr(el.dataset.i18n); }});
         document.querySelectorAll('input[data-ph]').forEach((el) => {{ el.placeholder = tr(el.dataset.ph); }});
         ['loginError', 'registerError'].forEach((id) => {{
@@ -1435,6 +1445,7 @@ def _try_local_login(username: str, password: str) -> Optional[Dict[str, Any]]:
     """Try local-account authentication. Returns user_info (password stripped) on success; None on failure."""
     try:
         from core.config.settings import settings as _settings
+
         if not _settings.auth.local_enabled:
             return None
     except Exception:
@@ -1475,16 +1486,18 @@ def _audit_local_login(
 
         db = SessionLocal()
         try:
-            AuditLogRepository(db).create({
-                "user_id": user_id,
-                "action": "auth.local_login.success" if success else "auth.local_login.failed",
-                "resource_type": "auth",
-                "details": {"username": (username or "")[:120]},
-                "ip_address": request.client.host if request.client else None,
-                "user_agent": request.headers.get("user-agent"),
-                "status": "success" if success else "failure",
-                "error_code": None if success else 401,
-            })
+            AuditLogRepository(db).create(
+                {
+                    "user_id": user_id,
+                    "action": "auth.local_login.success" if success else "auth.local_login.failed",
+                    "resource_type": "auth",
+                    "details": {"username": (username or "")[:120]},
+                    "ip_address": request.client.host if request.client else None,
+                    "user_agent": request.headers.get("user-agent"),
+                    "status": "success" if success else "failure",
+                    "error_code": None if success else 401,
+                }
+            )
         finally:
             db.close()
     except Exception:  # noqa: BLE001 — an audit failure must never block login
@@ -1534,21 +1547,16 @@ async def _handle_login_submit(
     # 1) Local accounts
     local_info = _try_local_login(username, password)
     if local_info is not None:
-        _audit_local_login(
-            request, username, success=True, user_id=local_info.get("user_id")
-        )
+        _audit_local_login(request, username, success=True, user_id=local_info.get("user_id"))
         local_info["remember"] = remember_flag
         ticket = _generate_ticket(local_info)
         target = _build_redirect_target(request, redirect, ticket)
         return RedirectResponse(url=target, status_code=303)
 
-    # 2) Mock accounts (dev fallback). In no-Docker local single-machine mode (DEPLOY_PROFILE=local)
-    #    this hardcoded backdoor (Zhang San / Li Si / ...) is **disabled** — single-machine deployments only accept
-    #    local accounts created via onboard; otherwise anyone could log in with the publicly known mock passwords.
-    #    Behavior in compose/dev environments is unchanged.
-    from core.config.settings import settings as _settings
-
-    if not _settings.deploy.is_local:
+    # 2) Known mock accounts are development-only. CE never accepts the public
+    #    mock credentials, even if an old deployment accidentally left mock SSO
+    #    environment variables enabled.
+    if _mock_account_shortcuts_enabled():
         mock_user = _USER_BY_NAME.get(username)
         if mock_user is not None and mock_user["password"] == password:
             mock_info = _user_info_without_password(mock_user)
@@ -1589,6 +1597,7 @@ async def _handle_register_submit(
 
     try:
         from core.config.settings import settings as _settings
+
         if not _settings.auth.local_enabled or not is_register_allowed():
             return RedirectResponse(
                 url=f"{page_path}?redirect={_encode_query(redirect)}&error={_encode_query('注册已关闭')}",
@@ -1668,7 +1677,16 @@ async def mock_register_submit(
     成功则生成 ticket 并 303 跳回 redirect，失败带错误信息回跳注册 Tab；本地注册关闭时拒绝。
     """
     return await _handle_register_submit(
-        request, code, username, nickname, email, password, confirm_password, real_name, phone, redirect,
+        request,
+        code,
+        username,
+        nickname,
+        email,
+        password,
+        confirm_password,
+        real_name,
+        phone,
+        redirect,
     )
 
 
@@ -1733,7 +1751,16 @@ async def register_submit(
     与 /mock-sso/register 提交逻辑一致，成功 303 跳回 redirect，失败回跳注册 Tab。
     """
     return await _handle_register_submit(
-        request, code, username, nickname, email, password, confirm_password, real_name, phone, redirect,
+        request,
+        code,
+        username,
+        nickname,
+        email,
+        password,
+        confirm_password,
+        real_name,
+        phone,
+        redirect,
     )
 
 

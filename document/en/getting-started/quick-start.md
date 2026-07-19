@@ -15,9 +15,10 @@ local model with an OpenAI-compatible endpoint.
 | Item | Requirement |
 |---|---|
 | Operating system | Linux, macOS, or Windows through WSL2 |
-| Python | 3.10 or later |
+| Python | 3.11 or later |
 | Node.js | 20 or later, with npm |
 | Git and curl | Available on `PATH` |
+| Rust and Cargo | Required only on Linux without a compatible prebuilt `ripgrep` wheel, including glibc versions earlier than 2.39 |
 
 ## Install
 

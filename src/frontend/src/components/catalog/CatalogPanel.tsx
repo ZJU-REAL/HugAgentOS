@@ -13,7 +13,7 @@ import { getFileIconSrc, getFolderIconSrc } from '../../utils/fileIcon';
 import { parseSeparators } from '../../utils/separators';
 import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
 import { usePanelHeader } from '../../hooks/usePageConfig';
-import { useCatalogStore, useKbStore } from '../../stores';
+import { useCatalogStore, useEditionStore, useKbStore } from '../../stores';
 import { t } from '../../i18n';
 import {
   createKBSpace,
@@ -185,6 +185,7 @@ function filterDisplayTags(tags?: string[]): string[] {
 }
 
 export function CatalogPanel() {
+  const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title: kbTitle, subtitle: kbSubtitle } = usePanelHeader('kb', {
     title: '知识库',
     subtitle: '浏览知识库、查看文档列表，并支持文档内检索。',
@@ -199,7 +200,9 @@ export function CatalogPanel() {
 
   // There are two kinds of create-knowledge-base permission: private (self only) / public (visible to everyone by default, can be further restricted by authorization).
   const canCreatePrivateKb = useAuthStore((s) => s.authUser?.can_create_private_kb === true);
-  const canCreatePublicKb = useAuthStore((s) => s.authUser?.can_create_public_kb === true);
+  const canCreatePublicKb = useAuthStore(
+    (s) => !isCE && s.authUser?.can_create_public_kb === true,
+  );
   const canCreateKb = canCreatePrivateKb || canCreatePublicKb;
 
   const {
@@ -232,7 +235,9 @@ export function CatalogPanel() {
     chunkSaving, setChunkSaving,
   } = useKbStore();
 
-  const [activeTab, setActiveTab] = useState<KBTabKey>(() => loadActiveKbTab());
+  const [activeTab, setActiveTab] = useState<KBTabKey>(() => (
+    isCE ? 'private' : loadActiveKbTab()
+  ));
   const [detailDescExpanded, setDetailDescExpanded] = useState(false);
   const [detailDescOverflow, setDetailDescOverflow] = useState(false);
   const [kbDocPage, setKbDocPage] = useState(1);
@@ -264,7 +269,14 @@ export function CatalogPanel() {
     });
   }, []);
 
-  const kbItems = catalog.kb as KBItem[];
+  const kbItems = useMemo(
+    () => (catalog.kb as KBItem[]).filter((item) => !isCE || resolveVisibility(item) === 'private'),
+    [catalog.kb, isCE],
+  );
+
+  useEffect(() => {
+    if (isCE && activeTab !== 'private') setActiveTab('private');
+  }, [activeTab, isCE]);
 
   const counts = useMemo(() => {
     let publicCount = 0;
@@ -687,7 +699,7 @@ export function CatalogPanel() {
             </div>
             <section className="jx-kbTabsWrap">
               <div className="jx-kbTabs" ref={tabsRef}>
-                {(['public', 'private'] as KBTabKey[]).map((tab) => {
+                {((isCE ? ['private'] : ['public', 'private']) as KBTabKey[]).map((tab) => {
                   const tabLabel = tab === 'public' ? t('公共知识库') : t('私有知识库');
                   return (
                     <button

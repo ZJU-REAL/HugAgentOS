@@ -17,10 +17,6 @@ import asyncio
 import logging
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
 from api.deps import require_system_settings, user_can_manage_system_settings
 from core.auth.backend import UserContext, require_auth
 from core.config.settings import settings
@@ -32,6 +28,9 @@ from core.services.service_probes import (
     test_service_group,
 )
 from core.services.system_config import SystemConfigService
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/v1/me/system", tags=["My System Settings"])
 logger = logging.getLogger(__name__)
@@ -48,6 +47,17 @@ PERSONAL_GROUPS: Dict[str, str] = {
 
 # Whitelist groups that support connectivity testing (sandbox/context are pure switches, no external service to test)
 _TESTABLE_GROUPS = {"internet_search", "file_parser", "knowledge_base"}
+
+
+def _personal_groups() -> Dict[str, str]:
+    """Return the edition-specific settings surface.
+
+    CE provides only owner-isolated local knowledge bases, so the shared/Dify
+    knowledge-base connector is not configurable there.
+    """
+    if settings.edition.edition == "ce":
+        return {key: label for key, label in PERSONAL_GROUPS.items() if key != "knowledge_base"}
+    return PERSONAL_GROUPS
 
 
 class ConfigUpdateItem(BaseModel):
@@ -73,9 +83,7 @@ async def system_settings_access(
 ):
     """前端据此显隐「设置 → 系统管理」入口；只返回布尔与版本，不泄露配置内容。"""
     allowed = bool(user) and user_can_manage_system_settings(db, user.user_id)
-    return success_response(
-        data={"allowed": allowed, "edition": settings.edition.edition}
-    )
+    return success_response(data={"allowed": allowed, "edition": settings.edition.edition})
 
 
 # ── Service configs (whitelist groups) ───────────────────────────────────────────────────
@@ -85,8 +93,9 @@ async def system_settings_access(
 async def list_personal_configs(_: str = Depends(require_system_settings)):
     """按分组返回白名单内的服务配置项；密钥类配置已脱敏。"""
     configs = _svc().get_all_configs()
+    personal_groups = _personal_groups()
     grouped: Dict[str, dict] = {}
-    for gk, label in PERSONAL_GROUPS.items():
+    for gk, label in personal_groups.items():
         grouped[gk] = {
             "group_key": gk,
             "label": label,
@@ -113,10 +122,11 @@ async def update_personal_configs(
     if not body.items:
         raise HTTPException(status_code=400, detail="items cannot be empty")
     svc = _svc()
+    personal_groups = _personal_groups()
     key_to_group = {c["config_key"]: c.get("group_key") for c in svc.get_all_configs()}
     for item in body.items:
         group = key_to_group.get(item.key.strip())
-        if group not in PERSONAL_GROUPS:
+        if group not in personal_groups:
             raise HTTPException(
                 status_code=400,
                 detail=f"配置项 {item.key} 不在个人可配置范围内",
@@ -132,7 +142,7 @@ async def test_personal_config(
     _: str = Depends(require_system_settings),
 ):
     """对白名单分组做一次实际连通性测试（互联网搜索测 Tavily/百度，文件解析/知识库做健康检查）。"""
-    if group_key not in PERSONAL_GROUPS:
+    if group_key not in _personal_groups():
         raise HTTPException(status_code=404, detail=f"Unknown group: {group_key}")
     if group_key not in _TESTABLE_GROUPS:
         raise HTTPException(status_code=400, detail="该分组无可测试的外部服务")

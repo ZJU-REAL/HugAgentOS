@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Modal, Switch, Button, Tag, List, Typography, Slider, message, Tabs, Empty, Input, Select,
   Skeleton, Spin, Tooltip,
@@ -6,7 +6,7 @@ import {
 import {
   ApiOutlined, AppstoreOutlined, CheckOutlined, CloseOutlined, DatabaseOutlined,
   DeploymentUnitOutlined, EditOutlined, ExclamationCircleFilled, FileTextOutlined,
-  KeyOutlined, LinkOutlined, LogoutOutlined, MessageOutlined, RobotOutlined,
+  KeyOutlined, LinkOutlined, LockOutlined, LogoutOutlined, MessageOutlined, RobotOutlined,
   TeamOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
@@ -22,6 +22,7 @@ import { ChannelBotsPanel } from './ChannelBotsPanel';
 import { SystemModelPanel } from './SystemModelPanel';
 import { SystemServicePanel } from './SystemServicePanel';
 import { MyLogsPanel } from './MyLogsPanel';
+import { PasswordManagementPanel } from './PasswordManagementPanel';
 import { FactsList } from '../memory/FactsList';
 import { roleLabel } from '../../utils/roles';
 import { getLang, setLang, t, type Lang } from '../../i18n';
@@ -41,6 +42,7 @@ const SETTINGS_SECTIONS: SectionDef[] = [
 ];
 
 const API_KEY_SECTION: SectionDef = { id: 'apikey', label: 'API-Key', icon: <KeyOutlined /> };
+const PASSWORD_SECTION: SectionDef = { id: 'password', label: t('密码管理'), icon: <LockOutlined /> };
 const CHANNELS_SECTION: SectionDef = { id: 'channels', label: t('我的机器人'), icon: <RobotOutlined /> };
 // CE personal system settings (EE uses the /config system console to avoid dual entry points; see the /v1/me/system/access probe)
 const SYS_MODEL_SECTION: SectionDef = { id: 'sysmodel', label: t('模型服务'), icon: <DeploymentUnitOutlined /> };
@@ -115,6 +117,7 @@ export default function SettingsPage() {
   // Only show a section in the settings center when the admin has enabled the corresponding capability bit
   const sections = useMemo<SectionDef[]>(() => {
     let base = multiTenancy ? SETTINGS_SECTIONS : SETTINGS_SECTIONS.filter((s) => s.id !== 'teams');
+    if (isCE) base = [base[0], PASSWORD_SECTION, ...base.slice(1)];
     if (apiKeyEnabled) base = [...base, API_KEY_SECTION];
     if (channelBotEnabled) base = [...base, CHANNELS_SECTION];
     if (isCE && sysAccess) base = [...base, SYS_MODEL_SECTION, SYS_SERVICE_SECTION];
@@ -184,6 +187,7 @@ export default function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragStartRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
   const [activeSection, setActiveSection] = useState<string>('profile');
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [memoryTab, setMemoryTab] = useState('profile');
   // Switch optimistic-update rollback on failure → shake the corresponding row once
   const [shakeRowKey, setShakeRowKey] = useState<'memory' | 'memoryWrite' | null>(null);
@@ -224,41 +228,11 @@ export default function SettingsPage() {
     }
   }, [selectedImageUrl]);
 
-  // Lock the IntersectionObserver callback while a nav click triggers smooth scrolling,
-  // otherwise the indicator bar would sweep across all intermediate sections along the way.
-  const scrollLockUntilRef = useRef(0);
-
-  // Side navigation: highlight the current section based on scroll position
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (Date.now() < scrollLockUntilRef.current) return;
-        // Take the topmost section on screen as active
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible.length > 0) {
-          const raw = visible[0].target.id;
-          setActiveSection(raw.replace('section-', ''));
-        }
-      },
-      { rootMargin: '-20% 0px -60% 0px', threshold: 0 },
-    );
-    sections.forEach((s) => {
-      const el = document.getElementById(`section-${s.id}`);
-      if (el) observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, [sections]);
-
-  const scrollToSection = useCallback((id: string) => {
-    const el = document.getElementById(`section-${id}`);
-    if (el) {
-      scrollLockUntilRef.current = Date.now() + 600;
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setActiveSection(id);
+    if (!sections.some((section) => section.id === activeSection)) {
+      setActiveSection(sections[0]?.id ?? 'profile');
     }
-  }, []);
+  }, [activeSection, sections]);
 
   const closeCropModal = () => {
     setCropModalOpen(false);
@@ -433,7 +407,7 @@ export default function SettingsPage() {
               key={s.id}
               type="button"
               className={`jx-settings-navItem${activeSection === s.id ? ' active' : ''}`}
-              onClick={() => scrollToSection(s.id)}
+              onClick={() => setActiveSection(s.id)}
             >
               {activeSection === s.id && (
                 <motion.span
@@ -448,12 +422,28 @@ export default function SettingsPage() {
           ))}
         </nav>
       <div className="jx-settings-page">
-        <h2 className="jx-settings-title">{t('系统设置')}</h2>
+        <div className="jx-settings-pageHeader">
+          <h2 className="jx-settings-title">
+            {sections.find((section) => section.id === activeSection)?.label ?? t('系统设置')}
+          </h2>
+          <p className="jx-settings-subtitle">{t('每次只显示一个设置模块，修改会立即保存或在提交后生效。')}</p>
+        </div>
+
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activeSection}
+            className="jx-settings-module"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: DUR.fast, ease: EASE.standard }}
+          >
 
         {/* ── Personal info ─────────────────────────────────── */}
-        <section id="section-profile">
+        {activeSection === 'profile' && (
+        <section id="section-profile" className="jx-settings-section">
         <h3 className="jx-settings-section-title">{t('个人信息')}</h3>
-        <div className="jx-settings-card">
+        <div className="jx-settings-card jx-settings-card--padded">
           <div className="jx-settings-userInfo">
             <div className="jx-settings-avatarWrap">
               <button type="button" className="jx-settings-avatarHoverBtn" onClick={() => setAvatarPickerOpen(true)} title={t('更换头像')}>
@@ -585,9 +575,28 @@ export default function SettingsPage() {
           </div>
         </div>
         </section>
+        )}
+
+        {/* ── CE password management ─────────────────────────────── */}
+        {isCE && activeSection === 'password' && (
+          <section id="section-password" className="jx-settings-section">
+            <h3 className="jx-settings-section-title">{t('密码管理')}</h3>
+            <div className="jx-settings-card jx-settings-card--padded">
+              <div className="jx-settings-securityAction">
+                <div className="jx-settings-securityIcon" aria-hidden="true"><LockOutlined /></div>
+                <div className="jx-settings-securityCopy">
+                  <span className="jx-settings-rowLabel">{t('登录密码')}</span>
+                  <span className="jx-settings-rowDesc">{t('使用独立弹窗修改密码，提交成功后立即生效。')}</span>
+                </div>
+                <Button type="primary" onClick={() => setPasswordModalOpen(true)}>{t('修改密码')}</Button>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* ── Session settings ─────────────────────────────────── */}
-        <section id="section-session">
+        {activeSection === 'session' && (
+        <section id="section-session" className="jx-settings-section">
         <h3 className="jx-settings-section-title">{t('会话设置')}</h3>
         <div className="jx-settings-card">
           <div className="jx-settings-row">
@@ -616,7 +625,7 @@ export default function SettingsPage() {
               value={getLang()}
               style={{ width: 140 }}
               options={[
-                { value: 'zh-CN', label: '简体中文' },
+                { value: 'zh-CN', label: t('简体中文') },
                 { value: 'en', label: 'English' },
               ]}
               onChange={(v) => setLang(v as Lang)}
@@ -624,9 +633,11 @@ export default function SettingsPage() {
           </div>
         </div>
         </section>
+        )}
 
         {/* ── Memory settings ─────────────────────────────────── */}
-        <section id="section-memory">
+        {activeSection === 'memory' && (
+        <section id="section-memory" className="jx-settings-section">
         <h3 className="jx-settings-section-title">{t('记忆设置')}</h3>
         <div className="jx-settings-card">
           {/* Memory write */}
@@ -689,9 +700,11 @@ export default function SettingsPage() {
           </AnimatePresence>
         </div>
         </section>
+        )}
 
         {/* ── Enabled list ────────────────────────────────── */}
-        <section id="section-enabled">
+        {activeSection === 'enabled' && (
+        <section id="section-enabled" className="jx-settings-section">
         <h3 className="jx-settings-section-title">{t('已启用清单')}</h3>
         <div className="jx-settings-card">
           {enabledGroups.map((group) => group.tags.length > 0 && (
@@ -710,68 +723,69 @@ export default function SettingsPage() {
           )}
         </div>
         </section>
+        )}
 
         {/* ── Team management (multi-tenancy capability bit; hidden under CE / unlicensed) ──── */}
-        {multiTenancy && (
-          <section id="section-teams">
+        {multiTenancy && activeSection === 'teams' && (
+          <section id="section-teams" className="jx-settings-section">
           <h3 className="jx-settings-section-title">{t('团队管理')}</h3>
-          <div className="jx-settings-card">
+          <div className="jx-settings-card jx-settings-card--padded">
             <TeamsSection />
           </div>
           </section>
         )}
 
         {/* ── API-Key (shown only when the admin has enabled it) ─────────────────── */}
-        {apiKeyEnabled && (
-          <section id="section-apikey">
+        {apiKeyEnabled && activeSection === 'apikey' && (
+          <section id="section-apikey" className="jx-settings-section">
             <h3 className="jx-settings-section-title">API-Key</h3>
-            <div className="jx-settings-card">
+            <div className="jx-settings-card jx-settings-card--padded">
               <ApiKeyPanel />
             </div>
           </section>
         )}
 
         {/* ── My bots (shown only when the admin has enabled channel bots) ──────── */}
-        {channelBotEnabled && (
-          <section id="section-channels">
+        {channelBotEnabled && activeSection === 'channels' && (
+          <section id="section-channels" className="jx-settings-section">
             <h3 className="jx-settings-section-title">{t('我的机器人')}</h3>
-            <div className="jx-settings-card">
+            <div className="jx-settings-card jx-settings-card--padded">
               <ChannelBotsPanel />
             </div>
           </section>
         )}
 
         {/* ── CE personal system settings: model service / service config (shown only when the probe permits) ──── */}
-        {isCE && sysAccess && (
-          <section id="section-sysmodel">
+        {isCE && sysAccess && activeSection === 'sysmodel' && (
+          <section id="section-sysmodel" className="jx-settings-section">
             <h3 className="jx-settings-section-title">{t('模型服务')}</h3>
-            <div className="jx-settings-card">
+            <div className="jx-settings-card jx-settings-card--padded">
               <SystemModelPanel />
             </div>
           </section>
         )}
 
-        {isCE && sysAccess && (
-          <section id="section-sysservice">
+        {isCE && sysAccess && activeSection === 'sysservice' && (
+          <section id="section-sysservice" className="jx-settings-section">
             <h3 className="jx-settings-section-title">{t('服务配置')}</h3>
-            <div className="jx-settings-card">
+            <div className="jx-settings-card jx-settings-card--padded">
               <SystemServicePanel />
             </div>
           </section>
         )}
 
         {/* ── My logs (CE: the user's own call logs and usage) ──────────────── */}
-        {isCE && (
-          <section id="section-mylogs">
+        {isCE && activeSection === 'mylogs' && (
+          <section id="section-mylogs" className="jx-settings-section">
             <h3 className="jx-settings-section-title">{t('我的日志')}</h3>
-            <div className="jx-settings-card">
+            <div className="jx-settings-card jx-settings-card--padded">
               <MyLogsPanel />
             </div>
           </section>
         )}
 
         {/* ── Log out ──────────────────────────────────── */}
-        <Button
+        {activeSection === 'profile' && <Button
           className="jx-settings-logoutBtn"
           icon={<LogoutOutlined />}
           onClick={() => {
@@ -788,9 +802,23 @@ export default function SettingsPage() {
           block
         >
           {t('退出登录')}
-        </Button>
+        </Button>}
+          </motion.div>
+        </AnimatePresence>
       </div>
       </div>
+
+      <Modal
+        title={t('修改密码')}
+        open={passwordModalOpen}
+        onCancel={() => setPasswordModalOpen(false)}
+        footer={null}
+        destroyOnHidden
+        width={480}
+        className="jx-passwordModal"
+      >
+        <PasswordManagementPanel onChanged={() => setPasswordModalOpen(false)} />
+      </Modal>
 
       {/* Logout full-screen overlay: runs in parallel with the hard redirect, covering the intermediate frames after clearForLogout */}
       {loggingOut && (
@@ -1028,4 +1056,3 @@ function renderGraphTab(
     />
   );
 }
-

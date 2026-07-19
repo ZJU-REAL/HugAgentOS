@@ -25,6 +25,17 @@ const ENUM_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   ],
 };
 
+const BOOLEAN_CONFIG_KEYS = new Set([
+  'file_parser.formula_enable',
+  'file_parser.table_enable',
+  'sandbox.code_capability_enable',
+]);
+
+function isBooleanConfig(item: ServiceConfigItem): boolean {
+  const value = (item.config_value ?? '').trim().toLowerCase();
+  return BOOLEAN_CONFIG_KEYS.has(item.config_key) || value === 'true' || value === 'false';
+}
+
 /**
  * "Settings → System Management → Service Configs" panel (whitelisted service configs pushed down in CE).
  *
@@ -68,7 +79,7 @@ export function SystemServicePanel() {
     setSavingGroup(group.group_key);
     try {
       await updateMyServiceConfigs(items);
-      message.success(t('{label} 配置已保存（约 30 秒内生效）', { label: group.label }));
+      message.success(t('{label} 配置已保存（约 30 秒内生效）', { label: t(group.label) }));
       await reload();
     } catch (e) {
       message.error((e as Error).message);
@@ -82,9 +93,9 @@ export function SystemServicePanel() {
     try {
       const r = await testMyServiceConfig(group.group_key);
       if (r.success) {
-        message.success(t('{label} 连通性正常（{ms}ms）', { label: group.label, ms: String(r.latency_ms) }));
+        message.success(t('{label} 连通性正常（{ms}ms）', { label: t(group.label), ms: String(r.latency_ms) }));
       } else {
-        message.error(t('{label} 连通性失败：{msg}', { label: group.label, msg: r.error || '' }));
+        message.error(t('{label} 连通性失败：{msg}', { label: t(group.label), msg: r.error || '' }));
       }
     } catch (e) {
       message.error((e as Error).message);
@@ -104,7 +115,7 @@ export function SystemServicePanel() {
       {groups.map((group) => (
         <div key={group.group_key} className="jx-sysPanel-group">
           <div className="jx-sysPanel-groupHeader">
-            <h4 className="jx-sysPanel-subtitle">{group.label}</h4>
+            <h4 className="jx-sysPanel-subtitle">{t(group.label)}</h4>
             <Space size="small">
               {group.testable && (
                 <Button
@@ -129,12 +140,23 @@ export function SystemServicePanel() {
           {group.items.map((item) => (
             <div key={item.config_key} className="jx-sysPanel-row">
               <div className="jx-sysPanel-rowLabel">
-                <Text>{item.display_name}</Text>
+                <Text>{t(item.display_name)}</Text>
                 {item.description && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>{item.description}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t(item.description)}</Text>
                 )}
               </div>
-              {ENUM_OPTIONS[item.config_key] ? (
+              {isBooleanConfig(item) ? (
+                <Select
+                  size="small"
+                  style={{ width: 260 }}
+                  value={valueOf(item).toLowerCase() || undefined}
+                  options={[
+                    { value: 'true', label: t('启用') },
+                    { value: 'false', label: t('禁用') },
+                  ]}
+                  onChange={(v) => setEdited((prev) => ({ ...prev, [item.config_key]: v }))}
+                />
+              ) : ENUM_OPTIONS[item.config_key] ? (
                 <Select
                   size="small"
                   style={{ width: 260 }}

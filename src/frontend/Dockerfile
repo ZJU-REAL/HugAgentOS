@@ -8,12 +8,18 @@ WORKDIR /build
 # Accept build arguments
 ARG VITE_API_BASE_URL=
 ARG SSO_LOGIN_URL=
+ARG VITE_EDITION=ee
+ARG VITE_DEFAULT_LANGUAGE=zh-CN
+ARG NODE_HEAP_MB=6144
 # Upload size hint baked into the JS bundle; keep in sync with the runtime
 # UPLOAD_MAX_MB below (compose feeds both from the same UPLOAD_MAX_MB env var)
 ARG VITE_UPLOAD_MAX_MB=50
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV SSO_LOGIN_URL=$SSO_LOGIN_URL
+ENV VITE_EDITION=$VITE_EDITION
+ENV VITE_DEFAULT_LANGUAGE=$VITE_DEFAULT_LANGUAGE
 ENV VITE_UPLOAD_MAX_MB=$VITE_UPLOAD_MAX_MB
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
 
 # Copy package files
 COPY package*.json ./

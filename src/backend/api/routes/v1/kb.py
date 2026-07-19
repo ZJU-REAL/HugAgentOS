@@ -10,17 +10,17 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, UploadFile, File, Form, status
-from sqlalchemy.orm import Session
-
 from api.routes.v1.kb_models import (
     CreateKBSpaceRequest,
     PolishKBDescriptionRequest,
     ReindexRequest,
-    UpdateKBSpaceRequest,
     UpdateChunkRequest,
+    UpdateKBSpaceRequest,
 )
-from core.auth.backend import get_current_user, UserContext
+from core.auth.backend import UserContext, get_current_user
+from core.config.settings import settings
+from core.content.file_validation import validate_kb_file
+from core.content.kb_processing import update_document_status, vectorise_document_background
 from core.db.engine import get_db
 from core.infra.exceptions import (
     AccessDeniedError,
@@ -29,13 +29,13 @@ from core.infra.exceptions import (
     ResourceNotFoundError,
     StorageError,
 )
-from core.content.file_validation import validate_kb_file
-from core.content.kb_processing import update_document_status, vectorise_document_background
 from core.infra.responses import created_response, paginated_response, success_response
 from core.llm.chat_models import get_summarize_model
 from core.llm.message_compat import extract_text_from_chat_response, strip_thinking
 from core.services import KBService
 from core.storage import generate_storage_key, get_storage
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Path, Query, UploadFile, status
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ MAX_PREVIEW_SIZE = 20 * 1024 * 1024  # 20MB
 def _can_read_space(db, space, user_id: str) -> bool:
     """Read permission: owner / everyone for public KBs / grantees of a scoped-visibility KB (single-source-of-truth resolution)."""
     from core.auth.kb_permissions import resolve_local_kb_level
+
     return resolve_local_kb_level(db, user_id, space.kb_id) != "none"
 
 
@@ -58,6 +59,7 @@ def _require_kb_write(db, space, user_id: str, required: str) -> None:
     Raises AccessDeniedError when insufficient. The owner is always admin, superadmins are always admin, granted users go by their level.
     """
     from core.auth.kb_permissions import has_kb_permission, resolve_local_kb_level
+
     level = resolve_local_kb_level(db, user_id, space.kb_id)
     if not has_kb_permission(level, required):
         raise AccessDeniedError(message="Access denied", reason=f"requires kb level >= {required}")
@@ -98,9 +100,10 @@ async def _generate_kb_description(name: str, description: str) -> str:
         model = get_summarize_model()
         # AgentScope 2.0: model.__call__ takes list[Msg] (not list[dict])
         from agentscope.message import Msg, TextBlock
-        result = await model(messages=[Msg(
-            name="user", role="user",
-            content=[TextBlock(type="text", text=prompt)])])
+
+        result = await model(
+            messages=[Msg(name="user", role="user", content=[TextBlock(type="text", text=prompt)])]
+        )
         polished = strip_thinking(extract_text_from_chat_response(result)).strip()
         polished = " ".join(polished.split())
         return polished or _fallback_kb_description(name, description)
@@ -111,16 +114,25 @@ async def _generate_kb_description(name: str, description: str) -> str:
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 
+
 @router.post("/preview-chunks", summary="预览文档分块效果")
 async def preview_chunks(
     file: UploadFile = File(..., description="Document file to preview"),
-    chunk_method: str = Form("structured", description="Chunking method: structured|recursive|embedding_semantic|laws|qa"),
+    chunk_method: str = Form(
+        "structured", description="Chunking method: structured|recursive|embedding_semantic|laws|qa"
+    ),
     parent_chunk_size: int = Form(1024, description="Parent chunk size in tokens"),
     child_chunk_size: int = Form(128, description="Child chunk size in tokens"),
     overlap_tokens: int = Form(20, description="Overlap between child chunks"),
-    parent_child_indexing: bool = Form(True, description="Enable parent-child indexing; False = flat chunks only"),
-    separators: Optional[str] = Form(None, description="父分块分隔符，JSON 数组字符串；为空用默认层级"),
-    child_separators: Optional[str] = Form(None, description="子分块分隔符，JSON 数组字符串；为空走定长滑窗"),
+    parent_child_indexing: bool = Form(
+        True, description="Enable parent-child indexing; False = flat chunks only"
+    ),
+    separators: Optional[str] = Form(
+        None, description="父分块分隔符，JSON 数组字符串；为空用默认层级"
+    ),
+    child_separators: Optional[str] = Form(
+        None, description="子分块分隔符，JSON 数组字符串；为空走定长滑窗"
+    ),
     user: UserContext = Depends(get_current_user),
 ):
     """预览文档的分块效果，不落库、不写入向量库。上传文件并按指定分块方法（structured/recursive/embedding_semantic/laws/qa）与父子分块参数解析，返回父块及其子块预览，用于创建知识库前调参。文件大小受 MAX_PREVIEW_SIZE（20MB）限制。"""
@@ -134,7 +146,7 @@ async def preview_chunks(
         raise BadRequestError(message="Filename is required", data={"field": "file"})
     _, mime_type = validate_kb_file(file.filename, content)
 
-    from core.kb.kb_parser import parse_and_chunk, parse_separators_form, _count_tokens
+    from core.kb.kb_parser import _count_tokens, parse_and_chunk, parse_separators_form
 
     _separators = parse_separators_form(separators)
     _child_separators = parse_separators_form(child_separators)
@@ -142,10 +154,12 @@ async def preview_chunks(
     embed_fn = None
     if chunk_method == "embedding_semantic":
         from core.kb.kb_vector import embed_batch
+
         embed_fn = embed_batch
 
     parent_chunks = parse_and_chunk(
-        content, mime_type,
+        content,
+        mime_type,
         chunk_method=chunk_method,
         parent_size=parent_chunk_size,
         child_size=child_chunk_size,
@@ -161,20 +175,25 @@ async def preview_chunks(
     for idx, pc in enumerate(parent_chunks):
         if parent_child_indexing:
             children_preview = [
-                {"index": c.index, "content": c.content[:200] + ("..." if len(c.content) > 200 else "")}
+                {
+                    "index": c.index,
+                    "content": c.content[:200] + ("..." if len(c.content) > 200 else ""),
+                }
                 for c in pc.children[:5]
             ]
             children_count = len(pc.children)
         else:
             children_preview = []
             children_count = 0
-        chunks_preview.append({
-            "index": idx,
-            "content": pc.content,
-            "token_count": _count_tokens(pc.content),
-            "children_count": children_count,
-            "children_preview": children_preview,
-        })
+        chunks_preview.append(
+            {
+                "index": idx,
+                "content": pc.content,
+                "token_count": _count_tokens(pc.content),
+                "children_count": children_count,
+                "children_preview": children_preview,
+            }
+        )
 
     return success_response(
         data={
@@ -200,10 +219,18 @@ async def create_kb_space(
     """
     visibility = (request.visibility or "private").strip()
     if visibility not in ("private", "public"):
-        raise BadRequestError(message="visibility 仅支持 private / public", data={"field": "visibility"})
+        raise BadRequestError(
+            message="visibility 仅支持 private / public", data={"field": "visibility"}
+        )
+    if settings.edition.edition == "ce" and visibility != "private":
+        raise BadRequestError(
+            message="CE 仅支持私有知识库",
+            data={"field": "visibility", "allowed": ["private"]},
+        )
 
     # Permission check: require the creation permission matching the chosen visibility
     from core.auth.capabilities import resolve_user_capabilities
+
     caps = resolve_user_capabilities(db, user.user_id)
     required_cap = "can_create_public_kb" if visibility == "public" else "can_create_private_kb"
     if not caps.get(required_cap, False):
@@ -219,6 +246,7 @@ async def create_kb_space(
     grant_team_ids: list[str] = []
     if visibility == "public":
         from core.auth.kb_permissions import _user_team_ids
+
         grant_team_ids = sorted(_user_team_ids(db, user.user_id))
 
     space = kb_service.create_space(
@@ -288,6 +316,7 @@ async def upload_document(
     kb_service = KBService(db)
 
     from core.db.repository import KBRepository
+
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
 
@@ -310,7 +339,9 @@ async def upload_document(
 
     checksum = hashlib.sha256(content).hexdigest()
     env = os.getenv("ENVIRONMENT", "dev")
-    storage_key = generate_storage_key(env=env, user_id=user.user_id, category="kb_documents", filename=file.filename)
+    storage_key = generate_storage_key(
+        env=env, user_id=user.user_id, category="kb_documents", filename=file.filename
+    )
 
     try:
         storage = get_storage()
@@ -318,7 +349,9 @@ async def upload_document(
         logger.info("Document uploaded to storage: %s", storage_key)
     except StorageError as e:
         logger.error("Failed to upload document to storage: %s", e)
-        raise StorageError(operation="upload", error=f"Failed to upload document: {e.data.get('error', str(e))}")
+        raise StorageError(
+            operation="upload", error=f"Failed to upload document: {e.data.get('error', str(e))}"
+        )
 
     doc_title = title or file.filename
 
@@ -330,9 +363,14 @@ async def upload_document(
 
     try:
         document = kb_service.upload_document(
-            kb_id=kb_id, user_id=user.user_id, title=doc_title,
-            filename=file.filename, size_bytes=file_size, mime_type=mime_type,
-            storage_key=storage_key, checksum=checksum,
+            kb_id=kb_id,
+            user_id=user.user_id,
+            title=doc_title,
+            filename=file.filename,
+            size_bytes=file_size,
+            mime_type=mime_type,
+            storage_key=storage_key,
+            checksum=checksum,
         )
     except PermissionError as e:
         raise AccessDeniedError(message="Access denied", reason=str(e))
@@ -343,15 +381,20 @@ async def upload_document(
         try:
             _upload_indexing_config = json.loads(indexing_config)
         except json.JSONDecodeError:
-            raise BadRequestError(message="Invalid indexing_config JSON", data={"field": "indexing_config"})
+            raise BadRequestError(
+                message="Invalid indexing_config JSON", data={"field": "indexing_config"}
+            )
     _space_extra = kb_space.extra_data if isinstance(kb_space.extra_data, dict) else {}
     _indexing_config = _upload_indexing_config or _space_extra.get("indexing_config")
 
     background_tasks.add_task(
         vectorise_document_background,
         document_id=document["document_id"],
-        kb_id=kb_id, user_id=user.user_id, title=doc_title,
-        file_bytes=content, mime_type=mime_type,
+        kb_id=kb_id,
+        user_id=user.user_id,
+        title=doc_title,
+        file_bytes=content,
+        mime_type=mime_type,
         chunk_method=_effective_chunk_method,
         db_url=os.getenv("DATABASE_URL", ""),
         indexing_config=_indexing_config,
@@ -373,11 +416,14 @@ async def list_documents(
 ):
     """分页获取指定知识库空间下的文档列表。仅空间所有者可查看本地知识库；当 kb_id 不是本地空间且启用了 Dify 时，回退到 Dify 数据集获取文档列表。"""
     from core.db.repository import KBRepository
+
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
 
     if not kb_space:
-        from core.kb.dify_kb import is_dify_enabled, list_documents as dify_list_docs
+        from core.kb.dify_kb import is_dify_enabled
+        from core.kb.dify_kb import list_documents as dify_list_docs
+
         if is_dify_enabled():
             result = dify_list_docs(kb_id, page=page, limit=page_size)
             return paginated_response(
@@ -391,7 +437,9 @@ async def list_documents(
 
     # Public KBs (created in the admin console, owned by the system principal) are readable by all logged-in users
     if not _can_read_space(db, kb_space, user.user_id):
-        raise AccessDeniedError(message="Access denied", reason="Only the KB space owner can list documents")
+        raise AccessDeniedError(
+            message="Access denied", reason="Only the KB space owner can list documents"
+        )
 
     documents, total = kb_repo.list_documents(kb_id, page, page_size)
     items = [
@@ -408,7 +456,13 @@ async def list_documents(
         }
         for d in documents
     ]
-    return paginated_response(items=items, page=page, page_size=page_size, total_items=total, message="Documents retrieved successfully")
+    return paginated_response(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total_items=total,
+        message="Documents retrieved successfully",
+    )
 
 
 @router.get("/{kb_id}/documents/{document_id}", summary="获取知识库文档详情")
@@ -420,11 +474,14 @@ async def get_document_detail(
 ):
     """获取指定文档的详情，包括标题、文件名、类型及拼接后的全文内容（按分块顺序合并）。仅空间所有者可查看本地知识库；当 kb_id 不是本地空间且启用了 Dify 时，回退到 Dify 获取文档详情。"""
     from core.db.repository import KBRepository
+
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
 
     if not kb_space:
-        from core.kb.dify_kb import is_dify_enabled, get_document_detail as dify_get_document_detail
+        from core.kb.dify_kb import get_document_detail as dify_get_document_detail
+        from core.kb.dify_kb import is_dify_enabled
+
         if is_dify_enabled():
             detail = dify_get_document_detail(kb_id, document_id)
             return success_response(data=detail, message="Document detail retrieved successfully")
@@ -432,13 +489,16 @@ async def get_document_detail(
 
     # Public KBs are readable by all logged-in users
     if not _can_read_space(db, kb_space, user.user_id):
-        raise AccessDeniedError(message="Access denied", reason="Only the KB space owner can view document details")
+        raise AccessDeniedError(
+            message="Access denied", reason="Only the KB space owner can view document details"
+        )
 
     document = kb_repo.get_document(document_id)
     if not document or document.kb_id != kb_id:
         raise ResourceNotFoundError(resource_type="kb_document", resource_id=document_id)
 
     from core.db.models import KBChunk
+
     chunks = (
         db.query(KBChunk)
         .filter(KBChunk.document_id == document_id, KBChunk.kb_id == kb_id)
@@ -500,8 +560,8 @@ async def reindex_document(
     db: Session = Depends(get_db),
 ):
     """对指定文档重新建立索引。会先清除该文档的旧分块及向量数据，再从存储重新下载原文，按可选的索引配置与分块方法异步重新解析、分块、向量化。仅空间所有者可操作，立即返回 indexing_status=processing。"""
-    from core.db.repository import KBRepository
     from core.db.models import KBChunk
+    from core.db.repository import KBRepository
 
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
@@ -519,6 +579,7 @@ async def reindex_document(
 
     try:
         from core.kb.kb_vector import delete_by_document
+
         delete_by_document(document_id, user.user_id)
     except Exception as exc:
         logger.warning("Milvus cleanup failed for reindex of %s: %s", document_id, exc)
@@ -528,7 +589,10 @@ async def reindex_document(
         file_bytes = storage.download_bytes(document.storage_key)
     except Exception as exc:
         update_document_status(document_id, "failed")
-        raise BadRequestError(message=f"Failed to retrieve document from storage: {exc}", data={"document_id": document_id})
+        raise BadRequestError(
+            message=f"Failed to retrieve document from storage: {exc}",
+            data={"document_id": document_id},
+        )
 
     _idx_cfg = None
     if request and request.indexing_config:
@@ -537,13 +601,22 @@ async def reindex_document(
         _space_extra = kb_space.extra_data if isinstance(kb_space.extra_data, dict) else {}
         _idx_cfg = _space_extra.get("indexing_config")
 
-    _reindex_chunk_method = (request.chunk_method if request and request.chunk_method else None) or kb_space.chunk_method or "semantic"
+    _reindex_chunk_method = (
+        (request.chunk_method if request and request.chunk_method else None)
+        or kb_space.chunk_method
+        or "semantic"
+    )
 
     background_tasks.add_task(
         vectorise_document_background,
-        document_id=document_id, kb_id=kb_id, user_id=user.user_id,
-        title=document.title, file_bytes=file_bytes, mime_type=document.mime_type,
-        chunk_method=_reindex_chunk_method, db_url=os.getenv("DATABASE_URL", ""),
+        document_id=document_id,
+        kb_id=kb_id,
+        user_id=user.user_id,
+        title=document.title,
+        file_bytes=file_bytes,
+        mime_type=document.mime_type,
+        chunk_method=_reindex_chunk_method,
+        db_url=os.getenv("DATABASE_URL", ""),
         indexing_config=_idx_cfg,
     )
 
@@ -563,8 +636,8 @@ async def list_chunks(
     db: Session = Depends(get_db),
 ):
     """分页获取知识库分块列表，可选按 document_id 过滤。每个分块返回完整正文内容、标签和问题列表，供分块管理界面查看与编辑。仅空间所有者可访问。"""
-    from core.db.repository import KBRepository
     from core.db.models import KBChunk
+    from core.db.repository import KBRepository
 
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
@@ -578,7 +651,9 @@ async def list_chunks(
     if document_id:
         query = query.filter(KBChunk.document_id == document_id)
     total = query.count()
-    chunks = query.order_by(KBChunk.chunk_index).offset((page - 1) * page_size).limit(page_size).all()
+    chunks = (
+        query.order_by(KBChunk.chunk_index).offset((page - 1) * page_size).limit(page_size).all()
+    )
 
     items = [
         {
@@ -602,8 +677,8 @@ async def list_chunk_children(
     db: Session = Depends(get_db),
 ):
     """返回某父块在向量库里的子块（父子分块模式）。扁平模式无子块时返回空列表。仅空间可读者可访问。"""
-    from core.db.repository import KBRepository
     from core.db.models import KBChunk
+    from core.db.repository import KBRepository
 
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
@@ -617,8 +692,12 @@ async def list_chunk_children(
         raise ResourceNotFoundError(resource_type="kb_chunk", resource_id=chunk_id)
 
     from core.kb.kb_vector import get_children_for_parent
+
     children = get_children_for_parent(chunk_id)
-    return success_response(data={"children": children, "count": len(children)}, message="Chunk children retrieved successfully")
+    return success_response(
+        data={"children": children, "count": len(children)},
+        message="Chunk children retrieved successfully",
+    )
 
 
 @router.patch("/{kb_id}/chunks/{chunk_id}", summary="更新分块内容/标签/问题")
@@ -634,8 +713,8 @@ async def update_chunk(
     传入 ``content`` 时会对该分块重新向量化（dense + sparse）；仅改标签时只刷新稀疏/标签
     索引；问题始终单独重建问题向量行。仅空间所有者（admin 权限）可操作，系统托管知识库禁止
     编辑分块；仅传入的字段会被更新。"""
-    from core.db.repository import KBRepository
     from core.db.models import KBChunk, KBDocument
+    from core.db.repository import KBRepository
     from core.kb.kb_vector import reindex_chunk_content, reindex_chunk_tags, upsert_question_rows
 
     kb_repo = KBRepository(db)
@@ -644,7 +723,9 @@ async def update_chunk(
         raise ResourceNotFoundError(resource_type="kb_space", resource_id=kb_id)
     _require_kb_write(db, kb_space, user.user_id, "admin")
     if KBService(db)._is_system_managed_space(kb_space):
-        raise AccessDeniedError(message="Access denied", reason="System managed KB does not allow chunk edits")
+        raise AccessDeniedError(
+            message="Access denied", reason="System managed KB does not allow chunk edits"
+        )
 
     chunk = db.query(KBChunk).filter(KBChunk.chunk_id == chunk_id, KBChunk.kb_id == kb_id).first()
     if not chunk:
@@ -670,18 +751,25 @@ async def update_chunk(
         if content_changed:
             # Content changed: re-vectorize the whole chunk (current tags already included)
             reindex_chunk_content(
-                chunk_id=chunk_id, content=chunk.content, tags=chunk.tags or [],
-                user_id=user.user_id, kb_id=kb_id,
-                document_id=chunk.document_id, title=doc_title,
+                chunk_id=chunk_id,
+                content=chunk.content,
+                tags=chunk.tags or [],
+                user_id=user.user_id,
+                kb_id=kb_id,
+                document_id=chunk.document_id,
+                title=doc_title,
                 chunk_index=chunk.chunk_index,
             )
         elif request.tags is not None:
             reindex_chunk_tags(chunk_id, chunk.content, chunk.tags)
         if request.questions is not None:
             upsert_question_rows(
-                parent_chunk_id=chunk_id, questions=chunk.questions,
-                user_id=user.user_id, kb_id=kb_id,
-                document_id=chunk.document_id, title=doc_title,
+                parent_chunk_id=chunk_id,
+                questions=chunk.questions,
+                user_id=user.user_id,
+                kb_id=kb_id,
+                document_id=chunk.document_id,
+                title=doc_title,
                 chunk_index=chunk.chunk_index,
             )
     except Exception as exc:

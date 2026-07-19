@@ -15,10 +15,8 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
-
 from core.db.models import UserShadow
-
+from fastapi import HTTPException
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -90,8 +88,6 @@ def test_anonymous_denied(db_session, monkeypatch):
 
     _patch_edition(monkeypatch, edition="ce", auth_mode="mock")
     assert user_can_manage_system_settings(db_session, None) is False
-
-
 
 
 def _run(coro):
@@ -207,6 +203,18 @@ def test_list_masks_secrets(monkeypatch):
     assert "supersecret" not in items[0]["config_value"]
 
 
+def test_ce_excludes_shared_knowledge_base_connector(monkeypatch):
+    import api.routes.v1.me_system as me_system
+
+    monkeypatch.setattr(
+        me_system,
+        "settings",
+        SimpleNamespace(edition=SimpleNamespace(edition="ce")),
+    )
+    assert "knowledge_base" not in me_system._personal_groups()
+    assert "internet_search" in me_system._personal_groups()
+
+
 def test_whitelist_groups_exist_in_seed_configs():
     """Every whitelist group must have config items in SEED_CONFIGS (prevents the whitelist dangling after a seed regroup)."""
     from api.routes.v1.me_system import PERSONAL_GROUPS
@@ -239,4 +247,6 @@ def test_pricing_enabled_in_ee(monkeypatch, db_session):
     fake = SimpleNamespace(edition=SimpleNamespace(edition="ee"))
     monkeypatch.setattr(models, "settings", fake)
     assert models._pricing_enabled() is True
-    assert models._pricing_map(db_session) == {}  # runs a real query, empty table returns an empty map
+    assert (
+        models._pricing_map(db_session) == {}
+    )  # runs a real query, empty table returns an empty map

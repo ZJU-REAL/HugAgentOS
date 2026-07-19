@@ -26,9 +26,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
-
 from core.auth.capabilities import BOOL_CAPABILITY_DEFAULTS, merge_team_permissions
+from sqlalchemy.orm import Session
 
 
 def normalize_role_permissions(payload: Any) -> Dict[str, Any]:
@@ -77,33 +76,42 @@ def role_permissions_for_user(
     "personal → team default → system default").
     """
     try:
-        from core.db.models import Role, RoleAssignment, TeamMember
+        # The CE PostgreSQL schema omits role/team tables.  A plain try/except
+        # is insufficient there because an undefined-table error poisons the
+        # current transaction even after Python catches it.  A nested
+        # transaction rolls the optional lookup back to its SAVEPOINT and
+        # leaves subsequent model/API-key queries usable.
+        with db.begin_nested():
+            from core.db.models import Role, RoleAssignment, TeamMember
 
-        if team_ids is None:
-            team_ids = [
-                tid for (tid,) in db.query(TeamMember.team_id).filter(TeamMember.user_id == user_id).all()
+            if team_ids is None:
+                team_ids = [
+                    tid
+                    for (tid,) in db.query(TeamMember.team_id)
+                    .filter(TeamMember.user_id == user_id)
+                    .all()
+                ]
+
+            conds = [
+                (RoleAssignment.principal_type == "user") & (RoleAssignment.principal_id == user_id)
             ]
+            if team_ids:
+                conds.append(
+                    (RoleAssignment.principal_type == "team")
+                    & (RoleAssignment.principal_id.in_(team_ids))
+                )
 
-        conds = [
-            (RoleAssignment.principal_type == "user") & (RoleAssignment.principal_id == user_id)
-        ]
-        if team_ids:
-            conds.append(
-                (RoleAssignment.principal_type == "team")
-                & (RoleAssignment.principal_id.in_(team_ids))
-            )
+            from sqlalchemy import or_
 
-        from sqlalchemy import or_
-
-        role_ids = [
-            rid
-            for (rid,) in db.query(RoleAssignment.role_id).filter(or_(*conds)).distinct().all()
-        ]
-        if not role_ids:
-            return {}
-        perms_list = [
-            p for (p,) in db.query(Role.permissions).filter(Role.role_id.in_(role_ids)).all()
-        ]
+            role_ids = [
+                rid
+                for (rid,) in db.query(RoleAssignment.role_id).filter(or_(*conds)).distinct().all()
+            ]
+            if not role_ids:
+                return {}
+            perms_list = [
+                p for (p,) in db.query(Role.permissions).filter(Role.role_id.in_(role_ids)).all()
+            ]
     except Exception:  # noqa: BLE001 — CE without role tables / any exception degrades safely
         return {}
     return merge_role_permissions(perms_list)

@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import { getEditionInfo } from '../api';
+import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
+
+const BUILD_EDITION = IS_COMMUNITY_EDITION_BUILD
+  ? 'ce'
+  : ((import.meta.env.VITE_EDITION as string) || 'ee').trim().toLowerCase();
 
 /**
  * Frontend consumer of the Edition / license probe (/v1/meta/edition).
@@ -22,8 +27,8 @@ interface EditionState {
 }
 
 export const useEditionStore = create<EditionState>((set, get) => ({
-  edition: 'ee',
-  mode: 'internal',
+  edition: BUILD_EDITION,
+  mode: BUILD_EDITION === 'ce' ? 'ce' : 'internal',
   features: {},
   loaded: false,
   fetching: false,

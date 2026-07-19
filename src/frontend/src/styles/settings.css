@@ -9,9 +9,20 @@
 
 .jx-settings-title {
   font-size: 20px;
-  font-weight: 500;
+  font-weight: 600;
   color: #1a1a1a;
-  margin: 0 0 28px;
+  margin: 0;
+}
+
+.jx-settings-pageHeader {
+  margin-bottom: 24px;
+}
+
+.jx-settings-subtitle {
+  margin: 8px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .jx-settings-section-title {
@@ -28,6 +39,31 @@
   border-radius: 12px;
   padding: 0;
   margin-bottom: 24px;
+}
+
+.jx-settings-card--padded {
+  padding: 24px;
+}
+
+.jx-settings-card--padded > .jx-settings-userInfo {
+  padding: 0;
+}
+
+.jx-settings-section,
+.jx-settings-module {
+  width: 100%;
+}
+
+.jx-settings-module {
+  min-height: 360px;
+}
+
+.jx-settings-module .jx-settings-section-title {
+  display: none;
+}
+
+.jx-settings-card--padded .ant-table-wrapper {
+  overflow-x: auto;
 }
 
 /* ── 账号连接面板（飞书 / 钉钉 OAuth 设备流）──────────────────────
@@ -641,6 +677,28 @@
     flex-shrink: 0;
   }
   .jx-settings-navIndicator { display: none; }
+
+  .jx-settings-shell .jx-settings-page {
+    width: 100%;
+  }
+
+  .jx-settings-card--padded {
+    padding: 18px;
+  }
+
+  .jx-settings-securityAction,
+  .jx-sysPanel-toolbar,
+  .jx-sysPanel-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .jx-settings-securityAction .ant-btn,
+  .jx-sysPanel-row .ant-input,
+  .jx-sysPanel-row .ant-input-affix-wrapper,
+  .jx-sysPanel-row .ant-select {
+    width: 100% !important;
+  }
 }
 
 /* ── Rows (toggle items) ────────────────────────────────────────── */
@@ -678,6 +736,45 @@
   height: 0;
   border-top: 1px solid #E3E6EA;
   margin: 0 20px;
+}
+
+.jx-settings-securityAction {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.jx-settings-securityIcon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 109, 255, 0.1);
+  color: var(--color-primary);
+  font-size: 20px;
+}
+
+.jx-settings-securityCopy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.jx-passwordModal .ant-modal-content {
+  border-radius: 16px;
+}
+
+.jx-passwordModal .ant-modal-body {
+  padding-top: 8px;
+}
+
+.jx-passwordPanel .ant-form-item:last-of-type {
+  margin-bottom: 18px;
 }
 
 /* ── Memory detail line ─────────────────────────────────────────── */

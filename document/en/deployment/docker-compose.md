@@ -1,6 +1,6 @@
 # Docker Compose Deployment
 
-> Last updated: 2026-07-16 ｜ [简体中文](../../zh-CN/deployment/docker-compose.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: 2026-07-19 ｜ [简体中文](../../zh-CN/deployment/docker-compose.md) ｜ Back to [Deployment Guide](README.md)
 
 > **When to use**: the **standard deployment form** for teams / production — multi-user, full features. For a personal single-machine trial, the lighter [No-Docker Quick Install](quick-install.md) is available.
 
@@ -12,11 +12,13 @@ All HugAgentOS services are orchestrated by a single `docker-compose.yml` at the
 
 | Service | Container | Image / build | Ports (host→container) | Role |
 |---|---|---|---|---|
-| `postgres` | hugagent-postgres | `postgres:15-alpine` | `5432:5432` | Primary relational DB (business data, content_blocks, usage logs) |
-| `redis` | hugagent-redis | `redis:7-alpine` | `6380:6379` | Session store, streaming follower (Redis Streams), rate limiting |
-| `backend` | hugagent-backend | `docker/Dockerfile` (target `production`) | `${BACKEND_PORT:-3001}:same` | FastAPI app; runs alembic migrations automatically at startup |
+| `postgres` | hugagent-postgres | `postgres:15-alpine` | `${POSTGRES_HOST_PORT:-5432}:5432` | Primary relational DB (business data, content_blocks, usage logs) |
+| `redis` | hugagent-redis | `redis:7-alpine` | `${REDIS_HOST_PORT:-6380}:6379` | Session store, streaming follower (Redis Streams), rate limiting |
+| `backend` | hugagent-backend | `docker/Dockerfile` (target `production`) | `${BACKEND_HOST_PORT:-3001}:${BACKEND_PORT:-3001}` | FastAPI app; runs alembic migrations automatically at startup |
 | `mcp` | hugagent-mcp | `docker/Dockerfile.mcp` | none exposed | 10 MCP servers listening on streamable-http ports `9100–9108` and `9112`; the backend calls them at `http://mcp:91XX/mcp/` |
 | `frontend` | hugagent-frontend | `src/frontend/Dockerfile` | `${FRONTEND_PORT:-3002}:80` | nginx serving the frontend static bundle + `/api` reverse proxy to the backend |
+
+`BACKEND_PORT` is the container-internal listen port used by nginx, MCP, and the health check, and should normally remain `3001`. If host ports are occupied, adjust only `BACKEND_HOST_PORT`, `POSTGRES_HOST_PORT`, or `REDIS_HOST_PORT`; do not change the container-internal ports. For example, publish the backend on `13003` while keeping its internal port at `3001`.
 
 ### Sandbox sidecars (pick one profile; mutually exclusive)
 
@@ -145,6 +147,12 @@ docker-compose up -d backend frontend
 ```
 
 > Verify the code inside the container: `docker exec hugagent-backend grep '<new code marker>' /app/src/backend/<file>`. When "my change has no effect", 90% of the time a cached layer skipped the fresh code.
+
+> **Note:** The first build downloads optional DingTalk, Feishu, email, and
+> browser-rendering tools. Each download has retries and a bounded timeout. If
+> an optional source stays unavailable, the core backend and Python/bash
+> sandbox still build; the build log identifies the integration that remains
+> unavailable.
 
 ## Database migrations
 

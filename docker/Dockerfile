@@ -50,7 +50,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # in a group whose GID matches the host docker socket's GID; this is handled
 # at runtime via `group_add` in docker-compose.yml (DOCKER_GID env var).
 RUN install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 \
+      https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     chmod a+r /etc/apt/keyrings/docker.gpg && \
     . /etc/os-release && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $VERSION_CODENAME stable" \
@@ -62,36 +63,42 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
 # dws（DingTalk Workspace CLI）—— 后端以子进程跑 per-user 设备流 OAuth 登录
 # （进程稳定存活，不受沙箱杀后台进程影响；每用户独立 HOME 隔离）。单 Go 二进制。
 ARG DWS_VERSION=v1.0.37
-RUN curl -fsSL "https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/releases/download/${DWS_VERSION}/dws-linux-amd64.tar.gz" \
-        -o /tmp/dws.tar.gz \
-    && tar -xzf /tmp/dws.tar.gz -C /usr/local/bin dws \
-    && chmod +x /usr/local/bin/dws \
-    && rm -f /tmp/dws.tar.gz \
-    && dws --version
+RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
+        "https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/releases/download/${DWS_VERSION}/dws-linux-amd64.tar.gz" \
+        -o /tmp/dws.tar.gz; then \
+      tar -xzf /tmp/dws.tar.gz -C /usr/local/bin dws && \
+      chmod +x /usr/local/bin/dws && dws --version; \
+    else \
+      echo "[backend] optional dws download failed; DingTalk integration will be unavailable" >&2; \
+    fi && rm -f /tmp/dws.tar.gz
 
 # lark-cli（Feishu/Lark CLI）—— 后端以子进程跑 per-user 扫码设备流 OAuth 登录
 # （config init 写应用配置 + auth login 落 user_access_token；每用户独立 HOME 隔离）。
 # 后端取**独立的静态 Go 二进制**（GitHub release tarball），无需在 slim 镜像里装 node
 # ——沙箱镜像才用 npm 全局装。凭据落 $STORAGE/lark_cache/{uid}/，bind-mount 进沙盒。
 ARG LARK_CLI_VERSION=1.0.34
-RUN curl -fsSL "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/lark-cli-${LARK_CLI_VERSION}-linux-amd64.tar.gz" \
-        -o /tmp/lark-cli.tar.gz \
-    && tar -xzf /tmp/lark-cli.tar.gz -C /tmp \
-    && find /tmp -maxdepth 2 -name lark-cli -type f -exec mv {} /usr/local/bin/lark-cli \; \
-    && chmod +x /usr/local/bin/lark-cli \
-    && rm -rf /tmp/lark-cli.tar.gz \
-    && lark-cli --version
+RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
+        "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/lark-cli-${LARK_CLI_VERSION}-linux-amd64.tar.gz" \
+        -o /tmp/lark-cli.tar.gz; then \
+      tar -xzf /tmp/lark-cli.tar.gz -C /tmp && \
+      find /tmp -maxdepth 2 -name lark-cli -type f -exec mv {} /usr/local/bin/lark-cli \; && \
+      chmod +x /usr/local/bin/lark-cli && lark-cli --version; \
+    else \
+      echo "[backend] optional lark-cli download failed; Feishu integration will be unavailable" >&2; \
+    fi && rm -f /tmp/lark-cli.tar.gz
 
 # himalaya（电子邮箱 CLI）—— 后端以子进程跑 per-user IMAP/SMTP 连通性校验
 # （himalaya folder list）。静态二进制（musl，static-pie），无运行时依赖。凭据是用户
 # 自填的 config.toml，落 $STORAGE/email_cache/{uid}/，bind-mount 进沙盒。
 ARG HIMALAYA_VERSION=1.2.0
-RUN curl -fsSL "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
-        -o /tmp/himalaya.tgz \
-    && tar -xzf /tmp/himalaya.tgz -C /usr/local/bin himalaya \
-    && chmod +x /usr/local/bin/himalaya \
-    && rm -f /tmp/himalaya.tgz \
-    && himalaya --version
+RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
+        "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
+        -o /tmp/himalaya.tgz; then \
+      tar -xzf /tmp/himalaya.tgz -C /usr/local/bin himalaya && \
+      chmod +x /usr/local/bin/himalaya && himalaya --version; \
+    else \
+      echo "[backend] optional himalaya download failed; email integration will be unavailable" >&2; \
+    fi && rm -f /tmp/himalaya.tgz
 
 # Copy installed packages from builder
 COPY --from=builder /root/.local /home/appuser/.local
@@ -128,4 +135,3 @@ EXPOSE 3001
 
 # Start command
 CMD ["bash", "/app/src/backend/scripts/backend_entrypoint.sh"]
-
