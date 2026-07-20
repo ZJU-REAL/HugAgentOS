@@ -133,5 +133,9 @@ def test_ce_installer_and_script_runner_ship_office_skill_runtime():
 
     assert "pip_install -r docker/requirements-script-runner.txt" in installer
     assert '--prefix "${SKILL_NODE_DIR}" pptxgenjs playwright' in installer
+    assert "apt-get download fonts-wqy-zenhei" in installer
+    assert '"JX_FONT_DIR": str(dd / "fonts")' in (
+        repo_root / "src" / "backend" / "cli.py"
+    ).read_text(encoding="utf-8")
     for command in ("word-cli", "excel-cli", "ppt-cli", "pdf-cli"):
         assert f"/usr/local/bin/{command}" in dockerfile

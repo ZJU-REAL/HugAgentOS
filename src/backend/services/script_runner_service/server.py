@@ -100,7 +100,7 @@ SAFE_ENV = {
     "DOTNET_NOLOGO": "1",  # suppress dotnet startup banner
     "DOTNET_EnableDiagnostics": "0",  # stop dotnet from creating diagnostic pipes/core dump files
 }
-for _key in ("NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH"):
+for _key in ("NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH", "JX_FONT_DIR"):
     _val = os.getenv(_key)
     if _val:
         SAFE_ENV[_key] = _val

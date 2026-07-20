@@ -33,6 +33,7 @@ import json
 import os
 import sys
 import importlib.util
+from pathlib import Path
 
 
 # ── Dependency bootstrap ───────────────────────────────────────────────────────
@@ -72,11 +73,12 @@ _CJK_RE = re.compile(
     r'\uff00-\uffef\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]'
 )
 
-_CJK_FONT_CANDIDATES = [
+_SYSTEM_CJK_FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
     "/usr/share/fonts/truetype/fangzheng/FZSSJW.TTF",
     "/usr/share/fonts/truetype/fangzheng/FZHTJW.TTF",
     "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+    "/System/Library/Fonts/PingFang.ttc",
 ]
 
 _CJK_FONT_NAME = None  # set by register_fonts if CJK font is available
@@ -102,6 +104,19 @@ def _content_has_cjk(content: list) -> bool:
     return False
 
 
+def _cjk_font_candidates() -> list[str]:
+    """Return user-provisioned fonts first, followed by known system fonts."""
+    candidates: list[str] = []
+    local_dir = os.getenv("JX_FONT_DIR", "").strip()
+    if local_dir:
+        font_dir = Path(local_dir).expanduser()
+        if font_dir.is_dir():
+            for pattern in ("*.ttf", "*.ttc", "*.otf", "*.TTF", "*.TTC", "*.OTF"):
+                candidates.extend(str(path) for path in sorted(font_dir.rglob(pattern)))
+    candidates.extend(_SYSTEM_CJK_FONT_CANDIDATES)
+    return list(dict.fromkeys(candidates))
+
+
 # ── Font registration ──────────────────────────────────────────────────────────
 def register_fonts(tokens: dict, content: list | None = None):
     """Register TTF fonts from token font_paths if present.
@@ -121,7 +136,7 @@ def register_fonts(tokens: dict, content: list | None = None):
 
     # Auto-register CJK font when content contains CJK characters
     if content and _content_has_cjk(content):
-        for candidate in _CJK_FONT_CANDIDATES:
+        for candidate in _cjk_font_candidates():
             if not os.path.exists(candidate):
                 continue
             try:

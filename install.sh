@@ -16,6 +16,7 @@ REPOSITORY_BRANCH="main"
 HUGAGENT_DATA_DIR="${HUGAGENT_HOME:-${HOME}/.hugagent}"
 SOURCE_DIR="${HUGAGENT_SOURCE_DIR:-${HUGAGENT_DATA_DIR}/source}"
 VENV_DIR="${HUGAGENT_DATA_DIR}/venv"
+CJK_FONT_DIR="${HUGAGENT_DATA_DIR}/fonts"
 
 if [[ -t 1 ]]; then
     GREEN=$'\033[32m'
@@ -88,7 +89,44 @@ NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
 info "Python: $("${PYTHON_BIN}" --version 2>&1)"
 info "Node.js: $(node --version)"
 
-mkdir -p "${HUGAGENT_DATA_DIR}"
+mkdir -p "${HUGAGENT_DATA_DIR}" "${CJK_FONT_DIR}"
+
+has_local_cjk_font() {
+    local candidate
+    for candidate in \
+        "${CJK_FONT_DIR}"/*.[tT][tT][fFcC] \
+        "${CJK_FONT_DIR}"/*.[oO][tT][fF]; do
+        [[ -f "${candidate}" ]] && return 0
+    done
+    return 1
+}
+
+# PDF Agent Skills need a Unicode font to render Chinese instead of square
+# placeholders. Prefer an existing system font; otherwise download and unpack
+# WenQuanYi into the user's HugAgentOS data directory without requiring root.
+if [[ ! -f /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc ]] && ! has_local_cjk_font; then
+    if command -v apt-get >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1; then
+        info "Installing a local CJK font for PDF Agent Skills"
+        FONT_PACKAGE_DIR="$(mktemp -d)"
+        if (
+            cd "${FONT_PACKAGE_DIR}"
+            apt-get download fonts-wqy-zenhei >/dev/null 2>&1
+            FONT_PACKAGE="$(find . -maxdepth 1 -type f -name 'fonts-wqy-zenhei_*.deb' -print -quit)"
+            [[ -n "${FONT_PACKAGE}" ]]
+            dpkg-deb -x "${FONT_PACKAGE}" extracted
+            FONT_FILE="$(find extracted -type f -iname 'wqy-zenhei.ttc' -print -quit)"
+            [[ -n "${FONT_FILE}" ]]
+            cp "${FONT_FILE}" "${CJK_FONT_DIR}/wqy-zenhei.ttc"
+        ); then
+            info "Local CJK font is ready"
+        else
+            warn "Unable to download a CJK font. PDFs can still be created, but Chinese text may render as square placeholders."
+        fi
+        rm -rf -- "${FONT_PACKAGE_DIR}"
+    else
+        warn "No supported CJK font was found. PDFs can still be created, but Chinese text may render as square placeholders."
+    fi
+fi
 
 if [[ -e "${SOURCE_DIR}" && ! -d "${SOURCE_DIR}/.git" ]]; then
     die "${SOURCE_DIR} exists but is not a Git checkout. Set HUGAGENT_SOURCE_DIR to another path."
