@@ -70,7 +70,7 @@ _CLEAR_LOGIN: Dict[str, Any] = {
 }
 
 _EXPIRED_ERROR = "飞书登录已失效（令牌被刷新或过期），请到设置页重新扫码连接飞书"
-_NO_APP_ERROR = "飞书应用尚未配置，请联系管理员在「系统配置 → 飞书工作台」填写 App ID / App Secret"
+_NO_APP_ERROR = "飞书应用尚未配置，请联系管理员在「插件库 → 飞书工作台」初始化飞书应用"
 
 # Markers in auth/login results that positively confirm "auth invalid / device code terminated".
 _AUTH_FAIL_MARKERS = (

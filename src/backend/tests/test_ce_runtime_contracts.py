@@ -28,6 +28,57 @@ def test_ce_user_router_exposes_self_service_password_change():
     assert "/v1/me/password" in paths
 
 
+def test_dingtalk_status_env_does_not_import_ee_sandbox_module(monkeypatch, tmp_path):
+    from core.sandbox import _common
+    from core.services.dingtalk_service import _dws_env
+
+    monkeypatch.setattr(_common, "dws_home_dir", lambda _user_id: tmp_path / "dws-home")
+    monkeypatch.setattr(
+        _common,
+        "dws_extra_envs",
+        lambda: {"DWS_TRUSTED_DOMAINS": "*.dingtalk.com"},
+    )
+
+    env = _dws_env("ce-user")
+
+    assert env["HOME"] == str(tmp_path / "dws-home")
+    assert env["DWS_TRUSTED_DOMAINS"] == "*.dingtalk.com"
+
+
+def test_ce_ignores_stale_database_query_builtin(db_session, monkeypatch):
+    from core.db.models import AdminMcpServer
+    from core.services import mcp_service
+    from core.services.mcp_service import McpServerConfigService
+    from mcp_servers._ports import PORTS
+
+    assert "query_database" not in PORTS
+    db_session.add_all(
+        [
+            AdminMcpServer(
+                server_id="query_database",
+                display_name="Legacy database query",
+                transport="streamable_http",
+                url="http://mcp:9101/mcp/",
+                is_enabled=True,
+            ),
+            AdminMcpServer(
+                server_id="custom_remote_mcp",
+                display_name="Custom remote MCP",
+                transport="streamable_http",
+                url="https://mcp.example.com/mcp/",
+                is_enabled=True,
+            ),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(mcp_service, "SessionLocal", lambda: db_session)
+
+    servers = McpServerConfigService().get_all_servers(enabled_only=True)
+
+    assert "query_database" not in servers
+    assert "custom_remote_mcp" in servers
+
+
 def test_onboard_cli_has_safe_context_window_default():
     args = build_parser().parse_args(["onboard"])
     assert args.model_context_length == DEFAULT_LOCAL_CONTEXT_LENGTH

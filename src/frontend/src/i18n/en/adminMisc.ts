@@ -61,6 +61,8 @@ export const ADMIN_MISC_DICT: Record<string, string> = {
   '或点此在浏览器中打开配置页': 'Or open the setup page in a browser',
   '完成后自动就绪，无需手动刷新。': 'It will be ready automatically once done - no manual refresh needed.',
   '全组共用此应用，用户在「设置 → 集成」扫码登录各自账号即可。': 'The whole org shares this app; users just scan to log in with their own account under "Settings - Integrations".',
+  '全组共用此应用，用户可在下方「账号连接」区域扫码登录各自账号。': 'The whole org shares this app; users can scan to connect their own account in the Account Connection section below.',
+  '确认重新初始化飞书应用？': 'Re-initialize the Feishu app?',
   '初始化失败：{msg}': 'Initialization failed: {msg}',
   '百度搜索': 'Baidu Search',
   '选择搜索引擎': 'Select search engine',

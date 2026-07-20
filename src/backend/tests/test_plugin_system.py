@@ -478,6 +478,44 @@ def test_app_registers_plugin_router():
     paths = {r.path for r in app.routes}
     assert "/v1/plugins" in paths
     assert "/v1/plugins/import" in paths
+    assert "/v1/plugins/feishu-cli/app/status" in paths
+    assert "/v1/plugins/feishu-cli/app/init" in paths
+    assert "/v1/plugins/feishu-cli/app/reset" in paths
+
+
+@pytest.mark.asyncio
+async def test_feishu_plugin_app_routes_delegate_to_lark_service(monkeypatch):
+    from api.routes.v1 import plugins as plugin_routes
+    from core.services import lark_service
+
+    calls = []
+
+    class FakeLarkService:
+        def __init__(self, db):
+            assert db is None
+
+        def app_status(self):
+            calls.append("status")
+            return {"configured": True, "status": "configured"}
+
+        async def start_app_init(self):
+            calls.append("init")
+            return {"configured": False, "status": "pending"}
+
+        async def reset_app(self):
+            calls.append("reset")
+            return {"configured": False, "status": "idle"}
+
+    monkeypatch.setattr(lark_service, "LarkService", FakeLarkService)
+
+    status = await plugin_routes.get_feishu_app_status(_="admin")
+    started = await plugin_routes.init_feishu_app(_="admin")
+    reset = await plugin_routes.reset_feishu_app(_="admin")
+
+    assert status["data"]["configured"] is True
+    assert started["data"]["status"] == "pending"
+    assert reset["data"]["status"] == "idle"
+    assert calls == ["status", "init", "reset"]
 
 
 # ── Route-layer end-to-end: real HTTP stack (multipart zip upload → import → list → uninstall) ──────

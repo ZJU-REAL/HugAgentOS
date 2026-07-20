@@ -15,6 +15,7 @@ import { DingTalkConnect } from '../settings/DingTalkConnect';
 import { LarkConnect } from '../settings/LarkConnect';
 import { EmailConnect } from '../settings/EmailConnect';
 import { YidaConnect } from '../settings/YidaConnect';
+import { LarkAppInitCard } from './LarkAppInitCard';
 import {
   listPlugins, listInstalledPlugins, getInstalledPluginDetail,
   installPlugin, importPlugin, uninstallPlugin, setPluginEnabled,
@@ -372,6 +373,8 @@ export function PluginsPage({ onDetailChange }: PluginsPageProps) {
             <p className="jx-sk-metaDesc">{d.description || t('暂无描述')}</p>
             {d.category && <Tag>{d.category}</Tag>}
           </div>
+
+          {d.slug === 'feishu-cli' && <LarkAppInitCard />}
 
           {/* Account connection (per-user OAuth device flow): when a plugin declares a connection, the one-time authorization is completed here.
               It used to be under "Settings → Integrations"; now it's consolidated into the corresponding plugin detail page. */}

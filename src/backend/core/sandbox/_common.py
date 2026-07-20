@@ -7,6 +7,7 @@ keeping behavior aligned across providers.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -19,11 +20,14 @@ __all__ = [
     "MAX_OUTPUT_BYTES", "MAX_STDERR_BYTES", "MAX_TOTAL_FILE_SIZE",
     "STDIN_FILE", "USER_ID_RE", "WORKSPACE",
     "myspace_cache_dir", "team_cache_dir", "dws_cache_dir", "dws_home_dir",
+    "dws_extra_envs",
     "lark_cache_dir", "lark_home_dir", "lark_app_home_dir",
     "email_cache_dir", "email_home_dir", "email_himalaya_config",
     "yida_cache_dir", "yida_workspace_dir", "yida_shared_workspace_dir",
     "safe_user_id", "shell_escape",
 ]
+
+logger = logging.getLogger(__name__)
 
 # Kept aligned with services/script_runner_service/server.py
 ALLOWED_EXTENSIONS = {
@@ -99,6 +103,33 @@ def dws_home_dir(user_id: str) -> Path:
     isolation: each user gets an independent home directory, never shared.
     """
     return dws_cache_dir(user_id) / "home"
+
+
+def dws_extra_envs() -> dict[str, str]:
+    """Return deployment-level dws Custom App environment variables.
+
+    This helper lives in the provider-neutral sandbox module because both the
+    backend OAuth subprocess and optional sandbox providers need it.  Keeping
+    it here also lets the CE build use DingTalk without importing the EE-only
+    OpenSandbox implementation.
+    """
+    out: dict[str, str] = {}
+    try:
+        from core.services.system_config import SystemConfigService
+
+        svc = SystemConfigService.get_instance()
+        client_id = (svc.get("dingtalk.client_id") or "").strip()
+        client_secret = (svc.get("dingtalk.client_secret") or "").strip()
+        trusted_domains = (svc.get("dingtalk.trusted_domains") or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[dws] read dingtalk config failed: %s", exc)
+        return out
+    if client_id and client_secret:
+        out["DWS_CLIENT_ID"] = client_id
+        out["DWS_CLIENT_SECRET"] = client_secret
+    if trusted_domains:
+        out["DWS_TRUSTED_DOMAINS"] = trusted_domains
+    return out
 
 
 def lark_cache_dir(user_id: str) -> Path:

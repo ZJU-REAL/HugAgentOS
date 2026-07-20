@@ -115,6 +115,11 @@ class McpServerConfigService:
                     .all()
                 )
                 for row in rows:
+                    if is_removed_builtin_mcp_server(
+                        row.server_id,
+                        source_plugin=row.source_plugin,
+                    ):
+                        continue
                     cfg = self._row_to_config(row)
                     all_map[row.server_id] = cfg
                     if row.is_enabled:
@@ -346,6 +351,28 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
         "icon": "/home/mcp/list.svg",
     },
 ]
+
+
+def is_removed_builtin_mcp_server(
+    server_id: str,
+    *,
+    source_plugin: Optional[str] = None,
+) -> bool:
+    """Return whether a legacy built-in row is unavailable in this edition.
+
+    CE removes commercial MCP packages and their port registrations at build
+    time, while an upgraded deployment may still retain the old global rows in
+    ``admin_mcp_servers``.  Those stale rows must not be connected or exposed as
+    working runtime tools.  Plugin-provided rows remain valid because their
+    lifecycle and process registration are managed by the plugin itself.
+    """
+    if source_plugin is not None:
+        return False
+
+    from mcp_servers._ports import PORTS
+
+    builtin_ids = {str(spec["server_id"]) for spec in BUILTIN_MCP_SERVERS}
+    return server_id in builtin_ids and server_id not in PORTS
 
 
 def seed_builtin_mcp_servers_if_empty(db) -> List[str]:

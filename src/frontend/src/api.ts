@@ -1407,6 +1407,30 @@ export async function setPluginEnabled(installId: string, enabled: boolean): Pro
   });
 }
 
+export interface LarkAppInitStatus {
+  configured: boolean;
+  app_id: string | null;
+  status: 'idle' | 'pending' | 'configured' | 'error' | string;
+  verification_url: string | null;
+  qr_data_uri: string | null;
+  error: string | null;
+}
+
+export async function getLarkAppInitStatus(): Promise<LarkAppInitStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/status');
+  return unwrapData<LarkAppInitStatus>(wrapped);
+}
+
+export async function startLarkAppInit(): Promise<LarkAppInitStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/init', { method: 'POST' });
+  return unwrapData<LarkAppInitStatus>(wrapped);
+}
+
+export async function resetLarkAppInit(): Promise<LarkAppInitStatus> {
+  const wrapped = await apiRequest<unknown>('/v1/plugins/feishu-cli/app/reset', { method: 'POST' });
+  return unwrapData<LarkAppInitStatus>(wrapped);
+}
+
 // ── Auth API (SSO session) ──────────────────────────────────────────────
 
 export interface TeamMembershipBrief {

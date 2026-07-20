@@ -3,6 +3,9 @@
 GET    /v1/plugins                          plugin marketplace list (flags whether already installed)
 GET    /v1/plugins/installed                my installed plugins
 GET    /v1/plugins/installed/{id}/detail    installed plugin detail (incl. skill/MCP components and their details)
+GET    /v1/plugins/feishu-cli/app/status    Feishu shared-app initialization status
+POST   /v1/plugins/feishu-cli/app/init      start Feishu shared-app initialization
+POST   /v1/plugins/feishu-cli/app/reset     reset Feishu shared-app initialization
 GET    /v1/plugins/{slug}                   marketplace plugin detail (component manifest + required secrets + dropped preview)
 POST   /v1/plugins/{slug}/install           install from the plugin marketplace (private, owner = current user)
 POST   /v1/plugins/import                   upload a .zip to import an external plugin (native/CC/Codex)
@@ -15,6 +18,9 @@ marketplace and importing a zip require ``can_import_plugin``** (same as the ski
 off by default). Admin global install goes through ``admin_plugins``. Installed/imported components
 automatically appear in the "mine" section of ``/v1/catalog`` and are registered to the agent
 (owned private items, effective once is_enabled=True).
+
+The Feishu shared-app initialization endpoints require ``require_system_settings`` so CE instance
+admins can use them without exposing the instance-wide app setup to ordinary users.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from api.deps import require_system_settings
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
@@ -85,6 +92,32 @@ async def get_installed_detail(
     return success_response(data=ps.get_installed_detail(
         db, install_id, owner_user_id=str(user.user_id)
     ))
+
+
+@router.get("/feishu-cli/app/status", summary="查询飞书插件共享应用初始化状态")
+async def get_feishu_app_status(_: str = Depends(require_system_settings)):
+    """Expose the existing one-click Lark app setup from the plugin page.
+
+    CE does not ship the Config console, so the system-settings capability is
+    the shared authorization seam for both CE instance admins and EE admins.
+    """
+    from core.services.lark_service import LarkService
+
+    return success_response(data=LarkService(None).app_status())
+
+
+@router.post("/feishu-cli/app/init", summary="从飞书插件页发起共享应用初始化")
+async def init_feishu_app(_: str = Depends(require_system_settings)):
+    from core.services.lark_service import LarkService
+
+    return success_response(data=await LarkService(None).start_app_init())
+
+
+@router.post("/feishu-cli/app/reset", summary="从飞书插件页重置共享应用")
+async def reset_feishu_app(_: str = Depends(require_system_settings)):
+    from core.services.lark_service import LarkService
+
+    return success_response(data=await LarkService(None).reset_app())
 
 
 @router.get("/{slug}", summary="内置插件详情")

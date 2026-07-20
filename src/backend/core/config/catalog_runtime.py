@@ -109,6 +109,7 @@ def _public_db_skill_items(db: Session, *, include_runtime_details: bool) -> Lis
 def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[Dict[str, Any]]:
     from core.config.user_intros import MCP_SERVER_USER_INTROS
     from core.db.models import AdminMcpServer
+    from core.services.mcp_service import is_removed_builtin_mcp_server
 
     rows = (
         db.query(AdminMcpServer)
@@ -118,6 +119,11 @@ def _public_db_mcp_items(db: Session, *, include_runtime_details: bool) -> List[
     )
     items: List[Dict[str, Any]] = []
     for row in rows:
+        if is_removed_builtin_mcp_server(
+            row.server_id,
+            source_plugin=row.source_plugin,
+        ):
+            continue
         if row.server_id in DB_HIDDEN_SERVERS:
             continue
         item = _item(

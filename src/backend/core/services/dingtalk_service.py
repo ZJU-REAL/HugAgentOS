@@ -6,7 +6,7 @@ status / DingTalk identity summary into the ``dingtalk_connections`` table.
 The credentials themselves (token + encrypted keychain) are persisted at
 ``$STORAGE/dws_cache/{uid}/`` via ``_make_dws_creds_volumes``'s per-user
 bind-mount, never stored in the DB. The Custom App's client-id/secret are
-injected into the sandbox environment by ``_dws_extra_envs``, bypassing the
+injected into the sandbox environment by ``dws_extra_envs``, bypassing the
 DingTalk co-creation-period allowlist. Design in
 internal design docs.
 
@@ -156,8 +156,7 @@ def _dws_env(user_id: str) -> Dict[str, str]:
     isolated ``HOME`` (the root of credential isolation) + deployment-level
     Custom App client credentials + domain whitelist. Multi-tenant isolation
     is guaranteed by the per-user HOME."""
-    from core.sandbox._common import dws_home_dir
-    from core.sandbox._opensandbox_internals import _dws_extra_envs
+    from core.sandbox._common import dws_extra_envs, dws_home_dir
 
     home = dws_home_dir(user_id)
     try:
@@ -166,7 +165,7 @@ def _dws_env(user_id: str) -> Dict[str, str]:
         logger.warning("[dingtalk] mkdir home %s failed: %s", home, exc)
     env = dict(os.environ)
     env["HOME"] = str(home)
-    env.update(_dws_extra_envs())
+    env.update(dws_extra_envs())
     return env
 
 
