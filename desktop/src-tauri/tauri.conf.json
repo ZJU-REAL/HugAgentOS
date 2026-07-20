@@ -40,7 +40,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4MjI4Q0QxNzlCODE3NjYKUldSbUY3aDUwWXdpS0w2bW1tYzU4Tk4xUDJpRnRLdUhZVjc4ZXIyYzhoWUtHUjMzUkhnRS9RRkoK",
       "endpoints": [
-        "http://localhost:3000/api/v1/desktop/latest.json"
+        "https://localhost:3000/api/v1/desktop/latest.json"
       ],
       "windows": {
         "installMode": "passive"
