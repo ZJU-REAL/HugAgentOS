@@ -115,6 +115,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # The frontend build (tsc + vite over Univer/AntD/Mermaid/KaTeX) peaks
+          # near Node's ~2 GB default heap and OOMs intermittently on runners
+          # (exit 134). tauri's beforeBuildCommand spawns it, so raise the limit
+          # here and it is inherited by the child process. Runners have 7 GB+.
+          NODE_OPTIONS: "--max-old-space-size=4096"
         with:
           projectPath: desktop
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
