@@ -1,6 +1,6 @@
 # Chat & Agent Orchestration
 
-> Last updated: July 18, 2026
+> Last updated: July 20, 2026
 
 Chat is the core pipeline of HugAgentOS: a user message travels through the FastAPI route, runtime-context assembly, and the streaming orchestrator, then an AgentScope 2.0 ReActAgent drives multi-turn "think → call tool → observe" loops whose events are pushed to the frontend in real time over SSE. This page walks the end-to-end flow as it exists in the code, then covers the citation system, plan mode, sub-agents, conversation summarization, chat sharing, context compression, and oversized-tool-result offloading.
 
@@ -65,12 +65,15 @@ Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (k
 |---|---|---|
 | `thinking` | Reasoning (delta or stage hint) | `delta` / `message` |
 | `content` | Answer text delta | `event: "ai_message"`, `delta`, `chat_id` |
+| `content_replace` | Replaces the streamed draft in place when ontology review revises the final answer | `content`, `reason: "ontology_review"`, `chat_id` |
 | `tool_call` | A tool invocation (args complete) | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, plus `subagent_name` for sub-agent calls |
 | `tool_result` | Tool invocation result | `tool_name`, `result`, `tool_id`, `citations[]` |
+| `subagent_event` | Child execution details nested under the parent `call_subagent` card | `parent_tool_id`, `sub_type`, `agent_name`, plus child tool or content fields |
+| `ontology_activation` / `ontology_gate` / `ontology_review` | Ontology-governance state, separate from model reasoning | workflow activation, gate decision, and committee status or verdict |
 | `tool_pending` | Tool started, args still streaming | `tool_name` |
 | `batch_confirm` | Batch plan generated, awaiting user confirmation (human gate) | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | A tool is suspended awaiting confirmation of a MySpace write | confirmation context; the tool resumes in place after an out-of-band `POST /v1/chats/{chat_id}/file-confirm` |
-| `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `warnings`, `is_markdown`, `message_id`, `usage` |
+| `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
 | `error` | Failure (mapped to a user-friendly message) | `error`, `chat_id` |
 | `heartbeat` | Heartbeat (event-level; a `: heartbeat` comment line also exists) | — |
 
@@ -88,7 +91,17 @@ data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":1
 data: [DONE]
 ```
 
-After `meta`, `chats.py` persists the assistant message, backfills artifacts, and launches a background follow-up-question generator (`orchestration/followups.py`; results land in the message's `extra_data.follow_up_questions` and are fetched via `GET /v1/chats/{chat_id}/messages/{message_id}/followups`).
+After `meta`, `chat_run_executor.py` persists the assistant message, backfills artifacts,
+and launches a background follow-up-question generator
+(`orchestration/followups.py`; results land in the message's
+`extra_data.follow_up_questions` and are fetched through
+`GET /v1/chats/{chat_id}/messages/{message_id}/followups`). The frontend
+collects ontology events in a standalone **Domain Ontology Governance** module
+instead of model reasoning. The model draft continues to stream token by token.
+If the committee changes the answer, the backend sends one `content_replace`
+event, the frontend replaces the body in place, and the database stores only
+the reviewed final answer. It persists `ontology_governance` with the assistant
+message so the module remains available after a history refresh.
 
 ## Citation system
 
@@ -124,10 +137,42 @@ supports these sources:
   enable the MCP for the main agent. An administrator-disabled MCP remains
   unavailable.
 
-You can reach a sub-agent in two ways:
+You can reach a sub-agent through four paths with different orchestration
+ownership:
 
-- **Direct conversation**: when the request context carries `agent_id`, `workflow.py::_astream_subagent_direct` builds an agent from that config, sharing the streaming/memory/citation infrastructure; `meta.route` becomes `subagent:<agent_id>`.
-- **Main-agent dispatch**: `core/llm/subagent_tool.py` registers a `call_subagent` tool on the main agent; each sub-agent runs in its own thread with its own event loop (avoiding anyio cancel-scope cross-task errors) and returns text. `@AgentName` mentions in the user message are parsed by `workflow.py::_parse_agent_mentions` (longest-name-first to prevent prefix shadowing); the mention hint is injected into the *current user message*, not the system prompt, to preserve the LLM provider's prefix cache.
+- **Structured `@` delegation**: selecting one `@sub-agent` in the composer
+  sends both `mention_agent_id` and its display name. The backend removes the
+  display-only `@name` prefix and injects a strict per-turn delegation
+  constraint. The main model keeps its normal reasoning and token stream, and
+  its next genuine tool call must be `call_subagent` for the selected target;
+  it cannot query data first. The complete child execution happens inside that
+  tool, with reasoning, tools, and text emitted as `subagent_event` entries
+  under the real tool card. The main model then streams the integrated answer.
+  The turn stays on the `main` route and does not permanently bind the regular
+  chat to that sub-agent. Older clients that send only `mention_name` are
+  accepted only when exactly one accessible agent has that name.
+- **Explicit natural-language delegation**: a Chinese command that starts with
+  `调用` or `请调用`, contains one unique and complete accessible sub-agent
+  name, and ends with an action-oriented task resolves the target and injects a
+  constraint into the current user turn. The backend doesn't fabricate tool
+  events or bypass the main model. The main model keeps its normal reasoning
+  and streaming path, and its next real tool call must be `call_subagent` for
+  the resolved target; it can't call another tool first. For example,
+  `调用企业风险分析子智能体 分析杭州量知的风险` displays the `call_subagent` card when
+  the model issues the real call. Child reasoning and tools arrive as
+  `subagent_event` entries under that card, and the main model then streams its
+  integrated final answer. The turn keeps the `main` route, while
+  `call_subagent` and child tools retain their real audit logs. Ambiguous names,
+  disabled targets, empty tasks, and discussion questions don't trigger forced
+  delegation.
+- **Dedicated conversation**: a chat opened from the sub-agent detail page uses
+  `agent_id`, so subsequent turns continue with that sub-agent.
+- **Autonomous main-agent dispatch**: when neither a structured `@` selection
+  nor the strict natural-language command matches, the main agent can use the
+  `call_subagent` tool registered by
+  `core/llm/subagent_tool.py`. Each child runs in its own thread and event loop,
+  then returns text for the main agent to integrate. This path supports parallel
+  sub-agents, task decomposition, and cross-domain synthesis.
 
 ## Conversation summarization & context compression
 
@@ -180,4 +225,4 @@ The same orchestration foundation also powers: response regeneration (`POST /v1/
 | Oversized-result offloading | `src/backend/core/llm/offloader.py` |
 | Chat sharing | `src/backend/api/routes/v1/chat_shares.py` |
 | Follow-up generation | `src/backend/orchestration/followups.py` |
-| Frontend stream parsing | `src/frontend/src/hooks/useStreaming.ts`, `src/frontend/src/App.tsx` |
+| Frontend stream parsing | `src/frontend/src/hooks/chatStream.ts` |

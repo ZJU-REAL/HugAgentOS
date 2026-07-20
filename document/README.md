@@ -1,6 +1,6 @@
 # HugAgentOS 文档 / Documentation
 
-> 最后更新：2026-07-18
+> 最后更新：2026-07-19
 
 HugAgentOS 是一个企业级 AI Agent 平台（FastAPI + React + AgentScope 2.0），以 open-core 模式提供 **开源社区版（CE）** 与 **商业版（EE）** 双形态。产品文档按语言分树维护：
 
@@ -21,7 +21,7 @@ document/
 │   ├── getting-started/     # 产品简介、快速开始
 │   ├── deployment/          # 部署总览(选型) + 无 Docker 一键安装 / Docker Compose / 离线生产 / Windows(WSL2) / 环境变量参考
 │   ├── architecture/        # 总体架构、后端、前端、数据模型
-│   ├── modules/             # 15 个功能模块文档（对话/提示词/能力目录/模型/
+│   ├── modules/             # 17 个功能模块文档（对话/提示词/能力目录/模型/
 │   │                        #   MCP 工具/技能/沙箱/记忆/知识库/存储/项目空间/
 │   │                        #   认证/管理台/自动化/画布与产物）
 │   ├── api/                 # API 总览（信封/鉴权/SSE/路由清单）、错误码
@@ -29,6 +29,7 @@ document/
 │   └── development/         # 后端 / 前端开发指南
 └── internal/                # ⚠️ 内部文档（仅主仓，不随社区版分发）
     ├── sandbox-snapshot-design.md            # 沙箱快照持久化设计（已实现，被代码注释引用）
+    ├── ontology-harness-implementation.md     # 本体驱动 Harness 工程实施与治理边界
     ├── 开源与商业化产品方案.md                 # CE/EE 产品与商业策略（权威边界来源）
     ├── community-commercial-edition-plan.md  # CE/EE 拆分施工图（逐行技术方案）
     └── ce-ee-repo-restructure-plan.md        # CE/EE 仓库结构与生成管线方案

@@ -1,6 +1,6 @@
 # Backend Architecture
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-19
 
 The backend lives in `src/backend/` and is a cleanly layered FastAPI monolith: the API layer handles only protocol and auth, the orchestration layer turns each chat into a resumable streaming Run, `core/` holds all domain logic, and MCP tools plus the script-execution sidecar run as independent processes. This page walks the stack top-down.
 
@@ -8,9 +8,9 @@ The backend lives in `src/backend/` and is a cleanly layered FastAPI monolith: t
 
 ```
 src/backend/
-├── api/             # FastAPI app, middleware, 52 v1 route files
+├── api/             # FastAPI app, middleware, 74 v1 route files
 ├── orchestration/   # Chat orchestration: Run executor, workflow, strategy, citations, schedulers
-├── core/            # Domain core: 15 submodules (auth/llm/db/services/...)
+├── core/            # Domain core: 17 submodules (auth/llm/db/ontology/services/...)
 ├── mcp_servers/     # 10 standalone MCP servers (streamable-http processes)
 ├── prompts/         # Prompt assembly runtime + file fallback texts
 ├── skill_bundles/   # Skill assets: default (preinstalled) + marketplace (seeds)
@@ -60,7 +60,7 @@ Dependencies are one-directional: `api → orchestration → core`; `mcp_servers
 | File/Package | Responsibility |
 |---|---|
 | `engine.py` | Engine, SessionLocal, `init_db` startup table fallback |
-| `models/` | ORM model package, split into 11 domain files (see [Data Model](./data-model.md)) |
+| `models/` | ORM model package, split into 14 domain files (see [Data Model](./data-model.md)) |
 | `repository/` | Repository layer: `agent/artifact/audit/catalog/chat/kb/team/user.py` |
 | `model_repository.py` | Repository for model providers / role assignments |
 | `edition_tables.py` | `EE_ONLY_TABLES` + `ce_create_all()` — single source of truth for the CE/EE table boundary |
@@ -78,7 +78,7 @@ Dependencies are one-directional: `api → orchestration → core`; `mcp_servers
 | `runtime_env.py` | DB-backed env lookup for services in the mcp container |
 | `distillation.py` (Enterprise Edition, EE) | Skill-distillation thresholds / keywords / cron defaults |
 
-### core/services — business service layer (29 services)
+### core/services — business service layer (59 services)
 
 Chat domain: `chat_service` (sessions and messages), `plan_service` (plan mode), `automation_service` (scheduled tasks), `user_agent_service` (custom sub-agents).
 
@@ -87,6 +87,8 @@ Content domain: `artifact_service` (artifacts / MySpace resources), `kb_service`
 User domain: `user_service`, `local_user_service` (register / login / password change), `api_key_service` (personal API keys), `user_folder_service`, `project_service` + `project_file_service` + `project_scope` (project workspaces).
 
 Config domain: `model_config` (DB-backed model config, cached), `system_config` (service config), `mcp_service` (MCP server config), `log_service` (async observability log writer).
+
+Ontology domain: `ontology_service` (user setting, versions, and runtime cropping) and `ontology_evolution_service` (evidence prefiltering, sanitization, human-review drafts, and inactive-version materialization); `core/ontology/` contains the four-layer schema, build gate, deterministic runtime gate, tool filter, and prompt renderer.
 
 Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (teams and SSO sync), `distillation_service` (skill distillation), `sandbox_rebuild_service` + `cube_template_builder` (persistent-sandbox template rebuilds), `security_service` (read-only security-console aggregation).
 
@@ -165,15 +167,15 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 
 ### The router registry (CE/EE seam C1)
 
-`api/routes/v1/__init__.py` is the registry shared by both editions: `CE_ROUTERS` (28 entries) register unconditionally; `EE_ROUTERS` (22 entries) each carry a license feature bit (`audit` / `content_admin` / `billing` / `multi_tenancy` / `system_config`) enforced by `core/licensing/deps.py` as the second line of defense (the first being that the CE derived tree physically deletes those files). Three entries — `config_verify` / `config_license` / `auth` — are explicitly exempt so that an expired license can still be replaced.
+`api/routes/v1/__init__.py` is the registry shared by both editions: `CE_ROUTERS` (39 entries) register unconditionally; `EE_ROUTERS` (32 entries) each carry a license feature bit enforced by `core/licensing/deps.py` as the second line of defense (the first being that the CE derived tree physically deletes those files). Three entries — `config_verify` / `config_license` / `auth` — are explicitly exempt so that an expired license can still be replaced.
 
-### Route file groups (52 files under v1)
+### Route file groups (74 files under v1)
 
 | Group | Files |
 |---|---|
 | Chat and streaming | `chats.py` (the SSE streaming entry point), `chat_runs.py`, `chat_shares.py`, `summary.py`, `classify.py`, `memories.py` |
 | Content and files | `content.py`, `file_upload.py`, `file_parse.py`, `artifacts.py`, `myspace_folders.py`, `kb.py` (+ `kb_models.py`, Pydantic models only), `projects.py` |
-| Capabilities and config | `catalog.py`, `models.py`, `config.py`, `marketplace.py`, `me_capabilities.py` (self-service capability center), `agents.py`, `plans.py`, `automations.py`, `batch.py` + `internal_batch.py`, `meta.py` (edition / feature probe, unauthenticated) |
+| Capabilities and config | `catalog.py`, `models.py`, `config.py`, `marketplace.py`, `me_capabilities.py` (self-service capability center), `ontologies.py` (user setting, version governance, evidence loop), `agents.py`, `plans.py`, `automations.py`, `batch.py` + `internal_batch.py`, `meta.py` (edition / feature probe, unauthenticated) |
 | Users and auth | `users.py`, `me.py`, `api_keys.py`, `mock_sso.py` (dev) |
 | Content console (Enterprise Edition, EE; backend of `/admin`) | `admin_skills.py`, `admin_prompts.py`, `admin_kb.py`, `admin_agents.py`, `admin_mcp_servers.py`, `admin_marketplace.py`, `admin_skill_drafts.py`, `admin_sandbox.py`, `admin_logs.py`, `admin_usage_logs.py`, `admin_billing.py`, `admin_chat_history.py` |
 | System console (Enterprise Edition, EE; backend of `/config`) | `config_users.py`, `config_teams.py`, `config_invites.py`, `config_security.py`, `config_verify.py`, `config_license.py`, `service_configs.py` |

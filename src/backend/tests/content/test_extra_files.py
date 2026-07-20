@@ -17,11 +17,15 @@ import pytest
 
 # ── 1. Registry: AgentSkillSpec has extra_files / base_dir fields ─────────
 
+
 def test_agent_skill_spec_has_extra_files():
     from core.agent_skills.registry import AgentSkillSpec
 
     spec = AgentSkillSpec(
-        id="test", name="test", description="test desc", version="1.0.0",
+        id="test",
+        name="test",
+        description="test desc",
+        version="1.0.0",
         instructions=["do this"],
         extra_files=["a.md", "b.json"],
         base_dir="/tmp/test",
@@ -34,7 +38,10 @@ def test_agent_skill_spec_extra_files_defaults_empty():
     from core.agent_skills.registry import AgentSkillSpec
 
     spec = AgentSkillSpec(
-        id="test", name="test", description="test desc", version="1.0.0",
+        id="test",
+        name="test",
+        description="test desc",
+        version="1.0.0",
         instructions=["do this"],
     )
     assert spec.extra_files == []
@@ -42,6 +49,7 @@ def test_agent_skill_spec_extra_files_defaults_empty():
 
 
 # ── 2. FilesystemBackend.get_extra_files ──────────────────────────────────
+
 
 def test_filesystem_backend_get_extra_files():
     from core.agent_skills.backends.filesystem import FilesystemBackend
@@ -76,13 +84,14 @@ def test_filesystem_backend_get_extra_files_missing_skill():
 
 # ── 3. DatabaseBackend.get_extra_files ────────────────────────────────────
 
+
 def test_database_backend_get_extra_files():
     from core.agent_skills.backends.database import DatabaseBackend
 
-    mock_row = MagicMock()
-    mock_row.extra_files = {"data.csv": "a,b,c\n1,2,3"}
     mock_session = MagicMock()
-    mock_session.query.return_value.filter.return_value.first.return_value = mock_row
+    mock_session.query.return_value.filter.return_value.scalar.return_value = {
+        "data.csv": "a,b,c\n1,2,3"
+    }
 
     backend = DatabaseBackend()
     with patch.object(backend, "_get_session_and_model") as mock_gsm:
@@ -95,10 +104,8 @@ def test_database_backend_get_extra_files():
 def test_database_backend_get_extra_files_none():
     from core.agent_skills.backends.database import DatabaseBackend
 
-    mock_row = MagicMock()
-    mock_row.extra_files = None
     mock_session = MagicMock()
-    mock_session.query.return_value.filter.return_value.first.return_value = mock_row
+    mock_session.query.return_value.filter.return_value.scalar.return_value = None
 
     backend = DatabaseBackend()
     with patch.object(backend, "_get_session_and_model") as mock_gsm:
@@ -110,7 +117,7 @@ def test_database_backend_get_extra_files_skill_not_found():
     from core.agent_skills.backends.database import DatabaseBackend
 
     mock_session = MagicMock()
-    mock_session.query.return_value.filter.return_value.first.return_value = None
+    mock_session.query.return_value.filter.return_value.scalar.return_value = None
 
     backend = DatabaseBackend()
     with patch.object(backend, "_get_session_and_model") as mock_gsm:
@@ -120,6 +127,7 @@ def test_database_backend_get_extra_files_skill_not_found():
 
 # ── 4. CompositeBackend.get_extra_files ───────────────────────────────────
 
+
 def test_composite_backend_get_extra_files():
     from core.agent_skills.backends.composite import CompositeBackend
     from core.agent_skills.backends.protocol import SkillFileInfo
@@ -128,8 +136,9 @@ def test_composite_backend_get_extra_files():
     mock_fs.source_name = "built-in"
     mock_fs.priority = 10
     mock_fs.list_skill_files.return_value = [
-        SkillFileInfo(skill_id="my-skill", file_path=Path("/x/SKILL.md"),
-                      source_name="built-in", priority=10)
+        SkillFileInfo(
+            skill_id="my-skill", file_path=Path("/x/SKILL.md"), source_name="built-in", priority=10
+        )
     ]
     mock_fs.get_extra_files.return_value = {"readme.txt": "hello"}
 
@@ -156,6 +165,7 @@ def test_composite_backend_get_extra_files_not_found():
 
 # ── 5. Zip extraction logic ──────────────────────────────────────────────
 
+
 def _make_zip(files: dict[str, str | bytes]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -179,17 +189,34 @@ version: 1.0.0
 
 def test_zip_extraction_basic():
     TEXT_EXTENSIONS = {
-        ".md", ".txt", ".json", ".py", ".yaml", ".yml", ".toml", ".cfg",
-        ".ini", ".csv", ".xml", ".html", ".css", ".js", ".ts", ".sh", ".conf",
+        ".md",
+        ".txt",
+        ".json",
+        ".py",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".cfg",
+        ".ini",
+        ".csv",
+        ".xml",
+        ".html",
+        ".css",
+        ".js",
+        ".ts",
+        ".sh",
+        ".conf",
     }
-    zip_data = _make_zip({
-        "test-skill/SKILL.md": SKILL_MD,
-        "test-skill/config.json": '{"key": "value"}',
-        "test-skill/templates/report.md": "# Report",
-        "test-skill/data.csv": "a,b,c\n1,2,3",
-        "test-skill/image.png": b"\x89PNG\r\n\x1a\n",
-        "test-skill/script.py": "print('hello')",
-    })
+    zip_data = _make_zip(
+        {
+            "test-skill/SKILL.md": SKILL_MD,
+            "test-skill/config.json": '{"key": "value"}',
+            "test-skill/templates/report.md": "# Report",
+            "test-skill/data.csv": "a,b,c\n1,2,3",
+            "test-skill/image.png": b"\x89PNG\r\n\x1a\n",
+            "test-skill/script.py": "print('hello')",
+        }
+    )
     zf = zipfile.ZipFile(io.BytesIO(zip_data))
     prefix = "test-skill/"
 
@@ -206,14 +233,21 @@ def test_zip_extraction_basic():
             content = zf.read(entry).decode("utf-8")
         except (UnicodeDecodeError, KeyError):
             continue
-        extra_files[entry[len(prefix):]] = content
+        extra_files[entry[len(prefix) :]] = content
 
-    assert set(extra_files.keys()) == {"config.json", "templates/report.md", "data.csv", "script.py"}
+    assert set(extra_files.keys()) == {
+        "config.json",
+        "templates/report.md",
+        "data.csv",
+        "script.py",
+    }
     assert "image.png" not in extra_files
 
 
 def test_zip_extraction_flat():
-    zip_data = _make_zip({"SKILL.md": SKILL_MD, "config.json": '{"flat": true}', "readme.txt": "hi"})
+    zip_data = _make_zip(
+        {"SKILL.md": SKILL_MD, "config.json": '{"flat": true}', "readme.txt": "hi"}
+    )
     zf = zipfile.ZipFile(io.BytesIO(zip_data))
     TEXT_EXTENSIONS = {".json", ".txt"}
 
@@ -232,8 +266,10 @@ def test_zip_extraction_flat():
 
 # ── 6. DB model has extra_files column ────────────────────────────────────
 
+
 def test_admin_skill_model_has_extra_files():
     from core.db.models import AdminSkill
+
     assert hasattr(AdminSkill, "extra_files")
     col = AdminSkill.__table__.columns["extra_files"]
     # The model uses JSONType = JSON().with_variant(JSONB(), "postgresql"): the class
@@ -243,6 +279,7 @@ def test_admin_skill_model_has_extra_files():
     assert type_name in ("JSON", "JSONB"), f"expected JSON-family, got {type_name}"
     if type_name == "JSON":
         from sqlalchemy.dialects.postgresql import JSONB
+
         variant = getattr(col.type, "_variant_mapping", {}) or {}
         pg = variant.get("postgresql")
         assert pg is not None and isinstance(pg, JSONB), "extra_files 应有 postgresql JSONB variant"
@@ -250,8 +287,14 @@ def test_admin_skill_model_has_extra_files():
 
 # ── 7. Migration file is valid ────────────────────────────────────────────
 
+
 def test_migration_file_valid():
-    migration_path = Path(__file__).resolve().parent.parent.parent / "alembic" / "versions" / "b2c3d4e5f6g7_add_extra_files_to_admin_skills.py"
+    migration_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "alembic"
+        / "versions"
+        / "b2c3d4e5f6g7_add_extra_files_to_admin_skills.py"
+    )
     assert migration_path.exists()
     content = migration_path.read_text()
     assert "extra_files" in content
@@ -259,6 +302,7 @@ def test_migration_file_valid():
 
 
 # ── 8. Loader get_extra_files delegates to backend ────────────────────────
+
 
 def test_loader_get_extra_files():
     from core.agent_skills.loader import MultiSourceSkillLoader
@@ -272,14 +316,18 @@ def test_loader_get_extra_files():
 
 # ── 9. Loader.get_skill_dir for filesystem skills ────────────────────────
 
+
 def test_loader_get_skill_dir_filesystem():
     from core.agent_skills.loader import MultiSourceSkillLoader
     from core.agent_skills.backends.protocol import SkillFileInfo
 
     mock_backend = MagicMock()
     mock_backend.get_skill_info.return_value = SkillFileInfo(
-        skill_id="test", file_path=Path("/opt/skills/test/SKILL.md"),
-        source_name="built-in", priority=10, content=None,
+        skill_id="test",
+        file_path=Path("/opt/skills/test/SKILL.md"),
+        source_name="built-in",
+        priority=10,
+        content=None,
     )
     loader = MultiSourceSkillLoader(backend=mock_backend)
     assert loader.get_skill_dir("test") == "/opt/skills/test"
@@ -287,14 +335,17 @@ def test_loader_get_skill_dir_filesystem():
 
 # ── 10. Loader.get_skill_dir for DB skills (materialization) ─────────────
 
+
 def test_loader_get_skill_dir_db_materializes():
     from core.agent_skills.loader import MultiSourceSkillLoader
     from core.agent_skills.backends.protocol import SkillFileInfo
 
     mock_backend = MagicMock()
     mock_backend.get_skill_info.return_value = SkillFileInfo(
-        skill_id="db-skill", file_path=Path("/db/admin_skills/db-skill/SKILL.md"),
-        source_name="admin", priority=75,
+        skill_id="db-skill",
+        file_path=Path("/db/admin_skills/db-skill/SKILL.md"),
+        source_name="admin",
+        priority=75,
         content="---\nname: db-skill\ndescription: test\n---\n## Instructions\n1. do\n",
     )
     mock_backend.get_extra_files.return_value = {"config.json": '{"x":1}'}
@@ -311,10 +362,12 @@ def test_loader_get_skill_dir_db_materializes():
 
     # Cleanup
     import shutil
+
     shutil.rmtree(p)
 
 
 # ── 11. register_skills_to_toolkit with AgentScope Toolkit ───────────────
+
 
 def test_register_skills_to_toolkit():
     from agentscope.tool import Toolkit

@@ -1,6 +1,6 @@
 # API Overview
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-19
 
 The HugAgentOS backend is a FastAPI application; all business endpoints live under the `/v1/*` prefix. In a production deployment, Nginx strips the `/api/` prefix before forwarding to the backend (see `src/frontend/default.conf.template`), so **the full browser-facing path is `/api/v1/...`**, while hitting the backend container directly uses `/v1/...`. Examples in this document use the local development address `http://localhost:3000/api`.
 
@@ -190,6 +190,7 @@ Auth column legend: "User" = session cookie or personal API key (`get_current_us
 | Personal space | `myspace_folders.py` | `/v1/myspace/folders` | `GET/POST /`, `POST /move-artifact` | User |
 | Personal space | `artifacts.py` | `/v1/artifacts` | `GET /`, `GET /favorites`, `DELETE /{artifact_id}` | User |
 | Memory | `memories.py` | `/v1/memories` | `GET /`, `DELETE /{memory_id}`, `GET/PATCH /settings`, `GET /profile`, `GET /graph` | User |
+| Domain ontology | `ontologies.py` | `/v1/ontologies`, `/v1/admin/ontologies` | User setting/runtime preview; Domain Pack versions, build preflight, gate/review evidence, metrics, and evolution-draft governance | User / ADMIN |
 | Capability catalog | `catalog.py` | `/v1/catalog` | `GET /` (capability catalog), `PATCH /{kind}/{id}` | User |
 | Capability catalog | `kb.py` | `/v1/catalog/kb` | `POST /`, `POST /{kb_id}/documents`, `GET /{kb_id}/chunks` (personal knowledge bases) | User |
 | Capability catalog | `marketplace.py` | `/v1/marketplace` | `GET /skills`, `POST /install`, `POST /submissions` (skill marketplace) | User |

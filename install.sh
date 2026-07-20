@@ -91,6 +91,106 @@ info "Node.js: $(node --version)"
 
 mkdir -p "${HUGAGENT_DATA_DIR}" "${CJK_FONT_DIR}"
 
+has_libreoffice() {
+    command -v libreoffice >/dev/null 2>&1 ||
+        command -v soffice >/dev/null 2>&1 ||
+        [[ -x /Applications/LibreOffice.app/Contents/MacOS/soffice ]]
+}
+
+run_as_root() {
+    if (( EUID == 0 )); then
+        "$@"
+        return
+    fi
+    command -v sudo >/dev/null 2>&1 || return 1
+    if sudo -n true >/dev/null 2>&1; then
+        sudo "$@"
+    elif [[ -r /dev/tty && -w /dev/tty ]]; then
+        sudo "$@" </dev/tty
+    else
+        return 1
+    fi
+}
+
+install_libreoffice() {
+    if command -v apt-get >/dev/null 2>&1; then
+        run_as_root apt-get update &&
+            run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                libreoffice-impress libreoffice-writer libreoffice-calc
+    elif command -v dnf >/dev/null 2>&1; then
+        run_as_root dnf install -y libreoffice-impress libreoffice-writer libreoffice-calc
+    elif command -v yum >/dev/null 2>&1; then
+        run_as_root yum install -y libreoffice-impress libreoffice-writer libreoffice-calc
+    elif command -v apk >/dev/null 2>&1; then
+        run_as_root apk add --no-cache libreoffice
+    elif command -v pacman >/dev/null 2>&1; then
+        run_as_root pacman -S --needed --noconfirm libreoffice-fresh
+    elif command -v brew >/dev/null 2>&1; then
+        brew install --cask libreoffice
+    else
+        return 1
+    fi
+}
+
+libreoffice_install_hint() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "sudo dnf install -y libreoffice-impress libreoffice-writer libreoffice-calc"
+    elif command -v yum >/dev/null 2>&1; then
+        echo "sudo yum install -y libreoffice-impress libreoffice-writer libreoffice-calc"
+    elif command -v apk >/dev/null 2>&1; then
+        echo "sudo apk add libreoffice"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "sudo pacman -S --needed libreoffice-fresh"
+    elif command -v brew >/dev/null 2>&1; then
+        echo "brew install --cask libreoffice"
+    else
+        echo "Install LibreOffice with your system package manager"
+    fi
+}
+
+wants_libreoffice_install() {
+    case "${HUGAGENT_INSTALL_LIBREOFFICE:-ask}" in
+        1|true|TRUE|yes|YES) return 0 ;;
+        0|false|FALSE|no|NO) return 1 ;;
+        ask|"") ;;
+        *) warn "Ignoring invalid HUGAGENT_INSTALL_LIBREOFFICE value; expected 1 or 0." ;;
+    esac
+
+    # `curl ... | bash` consumes stdin, so read the answer from the controlling
+    # terminal. Non-interactive installs skip this optional dependency unless
+    # HUGAGENT_INSTALL_LIBREOFFICE=1 is set explicitly.
+    if [[ -t 1 && -r /dev/tty ]]; then
+        local answer
+        printf '%sLibreOffice is optional. Install it now for PPT/Word previews and Office-to-PDF conversion? [Y/n] %s' "${YELLOW}" "${RESET}" >/dev/tty
+        IFS= read -r answer </dev/tty || return 1
+        case "${answer}" in
+            ""|y|Y|yes|YES) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+    return 1
+}
+
+# LibreOffice remains optional, but surface the affected features during
+# installation instead of waiting for the first Office preview to fail.
+if ! has_libreoffice; then
+    warn "LibreOffice wasn't found. PPT/Word online preview and Office-to-PDF conversion will be unavailable; document generation and download still work."
+    if wants_libreoffice_install; then
+        info "Installing LibreOffice for PPT and Word previews"
+        install_libreoffice || warn "LibreOffice couldn't be installed automatically."
+    else
+        warn "Skipping optional LibreOffice installation."
+    fi
+fi
+if has_libreoffice; then
+    info "LibreOffice is ready for PPT and Word previews"
+else
+    warn "Continuing without LibreOffice. Install it later and restart HugAgentOS to enable the affected features."
+    warn "Manual install: $(libreoffice_install_hint)"
+fi
+
 has_local_cjk_font() {
     local candidate
     for candidate in \

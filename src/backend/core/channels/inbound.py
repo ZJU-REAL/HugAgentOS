@@ -434,6 +434,15 @@ async def _process_inbound(msg: InboundMsg) -> None:
             enabled_skills=enabled["enabled_skills"], enabled_agents=enabled["enabled_agents"],
             enabled_mcps=enabled["enabled_mcps"], enabled_kbs=enabled["enabled_kbs"],
         )
+        from core.services.ontology_service import build_user_ontology_runtime
+
+        ontology_enabled, ontology_runtime = build_user_ontology_runtime(
+            user_id=owner_id,
+            task=user_text,
+            db=db,
+        )
+        context["ontology_enabled"] = ontology_enabled
+        context["ontology_runtime"] = ontology_runtime
         # Cross-turn file readability: inject files uploaded/generated earlier in this session
         # (including last turn's Feishu attachments) as a summary block so the model gets real
         # file_ids to call read_artifact with. Exclude this turn's attachments (already injected

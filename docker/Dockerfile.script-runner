@@ -108,16 +108,6 @@ RUN pip install --no-cache-dir -r /opt/skill-deps/requirements-skills.txt || \
 # files materialized into /workspace at runtime.
 COPY --from=docx-builder /out/ /opt/minimax-docx/
 
-# Bundled Chinese fonts (方正仿宋 / 小标宋 / 楷体 / 黑体). 主 Dockerfile 同款逻辑：
-# 党政机关 docx 模板硬引方正字体，缺失会让 LibreOffice fallback 到 WenQuanYi，
-# 导致 docx→pdf 时字符渲染异常、排版错位（用户感知的"PDF 乱码"）。
-# 放在末尾，避免重建时让上面的 Node/pip/dotnet 重层缓存失效。
-COPY resources/fonts /tmp/fonts
-RUN mkdir -p /usr/share/fonts/truetype/fangzheng && \
-    find /tmp/fonts -type f \( -name "*.ttf" -o -name "*.TTF" \) -exec cp {} /usr/share/fonts/truetype/fangzheng/ \; && \
-    rm -rf /tmp/fonts && \
-    fc-cache -f
-
 COPY src/backend/services/script_runner_service/ /app/
 WORKDIR /app
 

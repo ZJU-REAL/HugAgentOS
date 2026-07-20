@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from core.db.models import AdminMcpServer, AdminSkill, UserAgent, UserShadow
 from core.services import agent_market_service as am
 from core.services.user_agent_service import UserAgentService
@@ -17,21 +16,33 @@ def _seed_users(db):
 
 def _seed_resolvable_resources(db):
     """Insert one globally-available skill + one global MCP as resolvable bindings."""
-    db.add(AdminSkill(
-        skill_id="test-skill", skill_content="---\nname: test-skill\n---\nbody",
-        display_name="Test Skill", description="d", is_enabled=True,
-    ))
-    db.add(AdminMcpServer(
-        server_id="test-mcp", display_name="Test MCP", description="d",
-        transport="stdio", is_enabled=True,
-    ))
+    db.add(
+        AdminSkill(
+            skill_id="test-skill",
+            skill_content="---\nname: test-skill\n---\nbody",
+            display_name="Test Skill",
+            description="d",
+            is_enabled=True,
+        )
+    )
+    db.add(
+        AdminMcpServer(
+            server_id="test-mcp",
+            display_name="Test MCP",
+            description="d",
+            transport="stdio",
+            is_enabled=True,
+        )
+    )
     db.commit()
 
 
 def _make_source_agent(db):
     """u1 creates a sub-agent with bindings (including both resolvable and unresolvable items)."""
     return UserAgentService(db).create(
-        user_id="u1", operator_name="u1", owner_type="user",
+        user_id="u1",
+        operator_name="u1",
+        owner_type="user",
         data={
             "name": "数据助手",
             "description": "帮你分析数据",
@@ -40,6 +51,7 @@ def _make_source_agent(db):
             "suggested_questions": ["分析这份数据"],
             "skill_ids": ["test-skill", "ghost-skill"],
             "mcp_server_ids": ["test-mcp", "ghost-mcp"],
+            "ontology_tags": ["ontology:RiskReport"],
         },
     )
 
@@ -52,8 +64,13 @@ def test_submit_review_install_lifecycle(db_session):
 
     # 1) Submit a listing request → pending
     sub = am.submit_to_marketplace(
-        db, src["agent_id"], owner_user_id="u1", submitter_name="U1",
-        category="数据分析", summary="数据分析助手", note="求上架",
+        db,
+        src["agent_id"],
+        owner_user_id="u1",
+        submitter_name="U1",
+        category="数据分析",
+        summary="数据分析助手",
+        note="求上架",
     )
     assert sub["status"] == "pending"
     slug = sub["slug"]
@@ -72,6 +89,7 @@ def test_submit_review_install_lifecycle(db_session):
     assert slug in market
     assert market[slug]["category"] == "数据分析"
     assert market[slug]["source"] == "community"
+    assert market[slug]["tags"] == ["ontology:RiskReport"]
 
     # 3) u2 installs = clone into a private sub-agent + dependencies installed along
     res = am.install_marketplace_agent(db, slug, owner_user_id="u2", operator_name="U2")
@@ -79,6 +97,7 @@ def test_submit_review_install_lifecycle(db_session):
     assert clone is not None
     assert clone.owner_type == "user" and clone.user_id == "u2"
     assert clone.source_market_slug == slug
+    assert clone.extra_config["ontology_tags"] == ["ontology:RiskReport"]
     # Resolvable bindings get bound, unresolvable items are dropped
     assert clone.skill_ids == ["test-skill"]
     assert clone.mcp_server_ids == ["test-mcp"]
@@ -90,8 +109,14 @@ def test_submit_review_install_lifecycle(db_session):
 
     # 4) Installed annotation: u2 hits, u3 not installed
     items = am.list_marketplace_agents(db)
-    assert am.annotate_installed([i for i in items if i["slug"] == slug], db, "u2")[0]["installed"] is True
-    assert am.annotate_installed([i for i in items if i["slug"] == slug], db, "u3")[0]["installed"] is False
+    assert (
+        am.annotate_installed([i for i in items if i["slug"] == slug], db, "u2")[0]["installed"]
+        is True
+    )
+    assert (
+        am.annotate_installed([i for i in items if i["slug"] == slug], db, "u3")[0]["installed"]
+        is False
+    )
     assert am.is_installed(db, slug, "u2") is True
 
     # 5) Admin delists (rejects an approved one) → no longer shown in the user-facing marketplace, installed clones unaffected
@@ -113,7 +138,9 @@ def test_preset_bundles_load_and_install(db_session):
     assert detail["system_prompt"]
     assert detail["category"] == "职场办公"
 
-    res = am.install_marketplace_agent(db, "product-manager", owner_user_id="u1", operator_name="U1")
+    res = am.install_marketplace_agent(
+        db, "product-manager", owner_user_id="u1", operator_name="U1"
+    )
     clone = db.query(UserAgent).filter(UserAgent.agent_id == res["agent_id"]).first()
     assert clone is not None
     assert clone.source_market_slug == "product-manager"

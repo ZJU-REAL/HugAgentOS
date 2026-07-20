@@ -1,4 +1,4 @@
-import { licenseErrorMessage, readErrorMessage } from './apiError';
+import { createApiResponseError, LicenseError, licenseErrorMessage, readErrorMessage } from './apiError';
 import { t } from '../i18n';
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
@@ -68,7 +68,10 @@ function createAuthFetch(storageKey: string, expiredEvent: string) {
         localStorage.removeItem(storageKey);
         window.dispatchEvent(new CustomEvent(expiredEvent));
       }
-      throw new Error(readAdminError(res.status, err));
+      if (res.status === 402) {
+        throw new LicenseError(readAdminError(res.status, err));
+      }
+      throw createApiResponseError(res.status, err, `HTTP ${res.status}`);
     }
     return res.json();
   };

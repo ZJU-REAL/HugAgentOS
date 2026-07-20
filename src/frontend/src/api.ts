@@ -4,9 +4,9 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, KBChunk, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, KBChunk, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
 import type { TeamRole } from './utils/roles';
-import { LicenseError, licenseErrorMessage, readErrorMessage } from './utils/apiError';
+import { createApiResponseError, LicenseError, licenseErrorMessage, readErrorMessage } from './utils/apiError';
 import { t } from './i18n';
 
 export { LicenseError } from './utils/apiError';
@@ -227,7 +227,7 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
     if (response.status === 402) {
       throw new LicenseError(licenseErrorMessage(payload));
     }
-    throw new Error(readErrorMessage(payload, `API Error: ${response.status}`));
+    throw createApiResponseError(response.status, payload, `API Error: ${response.status}`);
   }
   return payload as T;
 }
@@ -1022,6 +1022,34 @@ export async function updateRerankerSettings(rerankerEnabled: boolean): Promise<
   });
 }
 
+export interface OntologySettings {
+  ontology_enabled: boolean;
+  ontology_pack_ids: string[];
+  available: boolean;
+  active_packs: Array<{ pack_id: string; version_id: string; version: string }>;
+}
+
+export async function getOntologySettings(): Promise<OntologySettings> {
+  const wrapped = await apiRequest<unknown>('/v1/ontologies/settings');
+  return unwrapData<OntologySettings>(wrapped);
+}
+
+export async function updateOntologySettings(ontologyEnabled: boolean): Promise<void> {
+  await apiRequest('/v1/ontologies/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ ontology_enabled: ontologyEnabled }),
+  });
+}
+
+/** Tags from active Domain Packs that actually trigger workflows for this asset kind. */
+export async function getOntologyTagOptions(assetKind: OntologyAssetKind): Promise<OntologyTagOption[]> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/ontologies/tags?asset_kind=${encodeURIComponent(assetKind)}`,
+  );
+  const data = unwrapData<{ items?: OntologyTagOption[] }>(wrapped);
+  return Array.isArray(data.items) ? data.items : [];
+}
+
 // ── Personal API keys ────────────────────────────────────────────────────
 
 export interface ApiKeyItem {
@@ -1113,6 +1141,7 @@ export interface CreateSkillInput {
   description: string;  // Required: a skill with an empty description cannot be loaded/registered (backend 422)
   instructions: string;
   tags?: string[];
+  mcp_server_ids?: string[];
   user_intro?: string;
   icon?: string;        // preset:<key> / URL / data-URI
 }
@@ -1145,6 +1174,8 @@ export interface MySkillDetail {
   description: string;
   instructions: string;
   tags: string[];
+  mcp_server_ids: string[];
+  allowed_tools?: string[];
   user_intro?: string | null;
   icon?: string | null;
   extra_files?: MySkillFileInfo[];
@@ -1484,6 +1515,8 @@ export interface AuthUser {
   can_content_manage?: boolean;
   /** CE bootstrap accounts must replace the temporary default password before normal use. */
   must_change_password?: boolean;
+  /** CE bootstrap owner must finish the browser first-run setup before entering the app shell. */
+  onboarding_required?: boolean;
 }
 
 export interface MyProfile extends AuthUser {
@@ -1536,6 +1569,19 @@ export async function changeMyPassword(
     body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
   });
   return unwrapData<{ user_id: string; must_change_password: boolean }>(wrapped);
+}
+
+export async function completeFirstRunSetup(): Promise<{
+  user_id: string;
+  onboarding_required: boolean;
+  onboarding_completed_version: number;
+}> {
+  const wrapped = await apiRequest<unknown>('/v1/me/onboarding/complete', { method: 'POST' });
+  return unwrapData<{
+    user_id: string;
+    onboarding_required: boolean;
+    onboarding_completed_version: number;
+  }>(wrapped);
 }
 
 export interface AvatarUpdateResult {
@@ -2256,6 +2302,8 @@ export const api = {
   updateMemorySettings,
   updateMemoryWriteSettings,
   updateRerankerSettings,
+  getOntologySettings,
+  updateOntologySettings,
   exchangeSsoCredential,
   checkSession,
   logout,
@@ -3362,10 +3410,21 @@ export interface SystemAccessInfo {
   edition: string;
 }
 
+export interface OntologyGovernanceAccessInfo {
+  allowed: boolean;
+  edition: string;
+}
+
 /** Probe: whether the current user can manage personal system settings (the frontend shows/hides the "System management" entry based on this). */
 export async function getMySystemAccess(): Promise<SystemAccessInfo> {
   const wrapped = await apiRequest<unknown>('/v1/me/system/access');
   return unwrapData<SystemAccessInfo>(wrapped);
+}
+
+/** Probe: whether the current CE user may manage the instance-wide Domain Packs from Settings. */
+export async function getOntologyGovernanceAccess(): Promise<OntologyGovernanceAccessInfo> {
+  const wrapped = await apiRequest<unknown>('/v1/ontologies/governance/access');
+  return unwrapData<OntologyGovernanceAccessInfo>(wrapped);
 }
 
 export interface ServiceConfigItem {
@@ -3447,6 +3506,7 @@ export interface ModelRoleAssignment {
   label?: string;
   description?: string;
   type?: string;
+  required_type?: string;
   provider_id: string | null;
   provider_name?: string | null;
   [key: string]: unknown;

@@ -32,7 +32,7 @@ glob 模式（相对仓库根），命中即不拷贝。覆盖：
 - **10 个行业 / 品牌技能**（`skill_bundles/marketplace/` 下，前 5 个硬依赖 EE 行业 MCP，后 5 个含品牌域文案）；
 - **EE 强耦合测试**、`tests/licensing/**`；
 - **前端管理台**：`AdminApp.tsx`、`ConfigApp.tsx`、`components/admin/**`、`components/config/**`（lab = 自动化实验室属 CE，保留）；
-- **根级 EE 部署物与开源卫生项**：EE Dockerfile / compose 片段、LiteLLM 网关配置（`docker/litellm/**`）、`internal design docs`、`CLAUDE.md`、`.github/**`、内部 `.env` 默认、品牌操作手册 PDF、不可再分发的商业字体（`resources/fonts/**`，overlay 留 README 占位保住 Dockerfile COPY）、内嵌第三方凭据的技能、签发工具 `scripts/license_tool.py`、生成器自身（`ce/**`、`scripts/build_ce.py`）；
+- **根级 EE 部署物与开源卫生项**：EE Dockerfile / compose 片段、LiteLLM 网关配置（`docker/litellm/**`）、`internal design docs`、`CLAUDE.md`、`.github/**`、内部 `.env` 默认、品牌操作手册 PDF、内置商业字体资产、内嵌第三方凭据的技能、签发工具 `scripts/license_tool.py`、生成器自身（`ce/**`、`scripts/build_ce.py`）；
 - **项目开发 skill 的 EE 专属模板**：`.claude/skills/*/templates/admin_route.py`、`admin-editor.tsx`（admin 路由 / 内容台在 CE 物理不存在）。
 
 ### 1.5 `renames` — 可选路径改名
@@ -56,6 +56,7 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `requirements` | `requirements.txt` | 删云存储 / 持久沙箱依赖（boto3 / oss2 / opensandbox）；neo4j / mem0ai 移入可选档 `requirements-mem0.txt` |
 | `docker_compose` | `docker-compose.yml` | 删 opensandbox / litellm 服务及 depends_on；`script-runner` 摘掉 profile 转默认启动；整树摘除被排除组件的 env 注入（`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` 前缀） |
 | `frontend_lock` | `package-lock.json` + 前端 Dockerfile | 删 lock（与裁剪后的 package.json 必然失同步）、`npm ci` 改 `npm install` |
+| `repository_resources` | 内置商业字体的构建与源码引用 | 从 CE Dockerfile 删除字体复制/安装段，并清除后端的仓库字体目录回退引用；生成后由禁止产物门禁再次检查 |
 
 ### 4. `split` — 文件内 user/admin 混合端点的 CE 子集断言
 
@@ -70,7 +71,6 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `README.md` / `README_CN.md` / `LICENSE` / `NOTICE` / `CONTRIBUTING.md` / `SECURITY.md` | CE 开源仓门面文件；默认 README 为英文，中文作为语言切换入口保留 |
 | `install.sh` | 面向个人无 Docker 模式的公开一键安装脚本 |
 | `.env.example` | CE 环境模板（`JX_EDITION=ce`，无内网 IP / 无品牌默认） |
-| `resources/fonts/README.md` | 商业字体占位说明（保住 Dockerfile COPY 路径） |
 | `src/backend/core/licensing/manager.py` | **CE stub**：`mode()` 恒 `"ce"`、`has()` 恒 False、不限席位，无任何验签实现体 |
 | `src/backend/core/auth/permissions_iface.py` | 权限接口层单租户 stub（接缝 C3）：自己的资源恒最高权限，团队权限恒 `none`（存量团队数据不因 stub 放行而对全员可读） |
 | `src/backend/core/memory/audit.py` | 记忆审计 no-op stub（同名接口、不落数据） |

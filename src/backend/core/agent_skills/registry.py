@@ -29,6 +29,7 @@ class AgentSkillMetadata:
     version: str
     tags: List[str] = field(default_factory=list)
     allowed_tools: List[str] = field(default_factory=list)  # Added for tool filtering
+    mcp_server_ids: List[str] = field(default_factory=list)
     skill_path: str = ""
 
 
@@ -44,6 +45,7 @@ class AgentSkillSpec:
     outputs: str = ""
     tags: List[str] = field(default_factory=list)
     allowed_tools: List[str] = field(default_factory=list)  # Tool filtering support
+    mcp_server_ids: List[str] = field(default_factory=list)
     extra_files: List[str] = field(default_factory=list)    # Available resource file names
     base_dir: str = ""                                      # Materialized directory path (for {baseDir} substitution)
     examples: List[Dict[str, Any]] = field(default_factory=list)
@@ -198,6 +200,16 @@ def _parse_allowed_tools(fm: Dict[str, str]) -> List[str]:
     return tools
 
 
+def _parse_mcp_server_ids(fm: Dict[str, str]) -> List[str]:
+    """Parse MCP server bindings persisted by the skill creation form."""
+    raw = fm.get("mcp_servers", "") or fm.get("mcp-server-ids", "")
+    if not raw:
+        return []
+    return list(
+        dict.fromkeys(item.strip() for item in raw.replace(",", " ").split() if item.strip())
+    )
+
+
 def _load_skill_metadata_from_str(content: str, skill_id: str) -> AgentSkillMetadata:
     """Load only metadata from SKILL.md content string (for DB-backed skills)."""
     fm, body = _split_frontmatter(content)
@@ -210,6 +222,7 @@ def _load_skill_metadata_from_str(content: str, skill_id: str) -> AgentSkillMeta
     version = (fm.get("version", "") or "1.0.0").strip()
     tags = _parse_tags(fm, body)
     allowed_tools = _parse_allowed_tools(fm)
+    mcp_server_ids = _parse_mcp_server_ids(fm)
 
     return AgentSkillMetadata(
         id=skill_id,
@@ -218,6 +231,7 @@ def _load_skill_metadata_from_str(content: str, skill_id: str) -> AgentSkillMeta
         version=version,
         tags=tags,
         allowed_tools=allowed_tools,
+        mcp_server_ids=mcp_server_ids,
         skill_path=f"db:admin/{skill_id}",
     )
 
@@ -240,6 +254,7 @@ def _load_skill_from_str(content: str, skill_id: str) -> AgentSkillSpec:
     outputs = _extract_section_text(body, "Outputs")
     tags = _parse_tags(fm, body)
     allowed_tools = _parse_allowed_tools(fm)
+    mcp_server_ids = _parse_mcp_server_ids(fm)
 
     return AgentSkillSpec(
         id=skill_id,
@@ -251,6 +266,7 @@ def _load_skill_from_str(content: str, skill_id: str) -> AgentSkillSpec:
         outputs=outputs,
         tags=tags,
         allowed_tools=allowed_tools,
+        mcp_server_ids=mcp_server_ids,
         examples=[],
         skill_path=f"db:admin/{skill_id}",
     )
@@ -270,6 +286,7 @@ def _load_skill_metadata_from_file(path: Path) -> AgentSkillMetadata:
     version = (fm.get("version", "") or "1.0.0").strip()
     tags = _parse_tags(fm, body)
     allowed_tools = _parse_allowed_tools(fm)
+    mcp_server_ids = _parse_mcp_server_ids(fm)
 
     return AgentSkillMetadata(
         id=skill_id,
@@ -278,6 +295,7 @@ def _load_skill_metadata_from_file(path: Path) -> AgentSkillMetadata:
         version=version,
         tags=tags,
         allowed_tools=allowed_tools,
+        mcp_server_ids=mcp_server_ids,
         skill_path=str(path),
     )
 
@@ -302,6 +320,7 @@ def _load_skill_from_file(path: Path) -> AgentSkillSpec:
     outputs = _extract_section_text(body, "Outputs")
     tags = _parse_tags(fm, body)
     allowed_tools = _parse_allowed_tools(fm)
+    mcp_server_ids = _parse_mcp_server_ids(fm)
 
     return AgentSkillSpec(
         id=skill_id,
@@ -313,6 +332,7 @@ def _load_skill_from_file(path: Path) -> AgentSkillSpec:
         outputs=outputs,
         tags=tags,
         allowed_tools=allowed_tools,
+        mcp_server_ids=mcp_server_ids,
         examples=[],
         skill_path=str(path),
     )
@@ -382,4 +402,3 @@ def render_skills_prompt(skills: Sequence[AgentSkillSpec]) -> str:
         lines.append("")
 
     return "\n".join(lines).strip()
-

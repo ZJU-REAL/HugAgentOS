@@ -7,17 +7,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response, StreamingResponse
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
-
 from api.schemas import AttachmentItem, ChatRequest, ChatResponse
-from core.auth.backend import get_current_user, UserContext
-from core.auth.permissions_iface import (
-    can_delete_session,
-    can_modify_share_scope,
-)
+from core.auth.backend import UserContext, get_current_user
+from core.auth.permissions_iface import can_delete_session, can_modify_share_scope
+from core.chat.context import build_effective_user_message as _build_effective_user_message
 from core.chat.context import (
     build_runtime_context,
     generate_smart_title,
@@ -26,28 +19,32 @@ from core.chat.context import (
     resolve_enabled_capabilities,
     resolve_user_facing_error,
 )
-from core.db.engine import get_db, SessionLocal
-from core.db.models import Artifact as ArtifactModel, MessageFeedback
+from core.db.engine import SessionLocal, get_db
+from core.db.models import Artifact as ArtifactModel
+from core.db.models import MessageFeedback
+from core.infra.exceptions import ResourceNotFoundError, ServiceUnavailableError
+from core.infra.logging import get_logger
+from core.infra.responses import (
+    created_response,
+    paginated_response,
+    sse_response,
+    success_response,
+)
+from core.llm.message_compat import strip_thinking
+from core.services import ChatService, UserService
 from core.services.model_config import ModelConfigService
+from core.services.project_scope import project_scope_from_context
 from core.services.user_model_selection import (
     UserModelSelectionError,
     resolve_effective_chat_model_name,
     resolve_user_model_provider_id,
 )
-from core.services import ChatService, UserService
-from core.services.project_scope import project_scope_from_context
-from core.infra.responses import (
-    success_response,
-    paginated_response,
-    created_response,
-    sse_response,
-)
-from core.infra.exceptions import ResourceNotFoundError
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response, StreamingResponse
 from orchestration.followups import get_followup_generator
-from orchestration.workflow import run_chat_workflow, astream_chat_workflow
-from core.chat.context import build_effective_user_message as _build_effective_user_message
-from core.llm.message_compat import strip_thinking
-from core.infra.logging import get_logger
+from orchestration.workflow import astream_chat_workflow, run_chat_workflow
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -63,9 +60,7 @@ from core.chat.tool_log import (  # noqa: E402
     build_tool_call_event,
     build_tool_result_event,
 )
-from core.services.artifact_service import (  # noqa: E402
-    persist_artifacts as _persist_artifacts,
-)
+from core.services.artifact_service import persist_artifacts as _persist_artifacts  # noqa: E402
 
 
 def _ensure_main_model_configured() -> None:
@@ -587,6 +582,115 @@ def _resolve_actual_chat_model_name(
     )
 
 
+def _resolve_chat_agent_targets(
+    db: Session,
+    request: ChatRequest,
+    user_id: str,
+) -> tuple[ChatRequest, Optional[str], str, Optional[Any]]:
+    """Resolve persistent and per-turn direct sub-agent targets.
+
+    ``agent_id`` binds a dedicated sub-agent conversation and is therefore
+    persisted on the chat session. ``mention_agent_id`` is an explicit @mention
+    delegation for this turn only. Older clients send only ``mention_name``;
+    accept that form when it resolves to exactly one accessible enabled agent.
+
+    A strict natural-language command (``调用「完整名称」子智能体：...``) is
+    returned separately as ``explicit_command``. It must not be rewritten to
+    ``mention_agent_id``. Both forms remain on the main-model stream and
+    constrain its next real tool call to ``call_subagent``. Only a persistent
+    ``agent_id`` conversation executes the selected sub-agent directly.
+    """
+    from core.services.user_agent_service import UserAgentService
+
+    service = UserAgentService(db)
+    persistent_agent_name: Optional[str] = None
+    execution_message = request.message
+    explicit_command = None
+
+    if request.agent_id:
+        try:
+            persistent = service.get_by_id(request.agent_id, user_id=user_id)
+            persistent_agent_name = str(persistent["name"])
+        except (LookupError, PermissionError) as exc:
+            raise HTTPException(status_code=403, detail="无法访问该子智能体") from exc
+
+    mention_agent_id = request.mention_agent_id
+    mention_agent_name = request.mention_name
+    if not mention_agent_id and not mention_agent_name:
+        from core.services.subagent_routing_service import parse_explicit_subagent_command
+
+        explicit_command = parse_explicit_subagent_command(
+            request.message,
+            service.list_for_user(user_id),
+        )
+        if explicit_command:
+            return request, persistent_agent_name, explicit_command.task, explicit_command
+
+    if mention_agent_id:
+        try:
+            mentioned = service.get_by_id(mention_agent_id, user_id=user_id)
+        except (LookupError, PermissionError) as exc:
+            raise HTTPException(status_code=403, detail="无法访问 @ 指定的子智能体") from exc
+        if mention_agent_name:
+            selected_display_name = mention_agent_name
+            mention_agent_name = str(mentioned["name"])
+            execution_message = _strip_direct_mention_prefix(
+                request.message,
+                selected_display_name,
+            )
+        else:
+            from core.services.subagent_routing_service import parse_explicit_subagent_command
+
+            command = parse_explicit_subagent_command(request.message, [mentioned])
+            if command:
+                execution_message = command.task
+    elif mention_agent_name:
+        exact_matches = [
+            item
+            for item in service.list_for_user(user_id)
+            if item.get("name") == mention_agent_name and item.get("is_enabled", True)
+        ]
+        if not exact_matches:
+            raise HTTPException(status_code=403, detail="无法访问 @ 指定的子智能体")
+        if len(exact_matches) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="存在同名子智能体，请重新从 @ 列表选择以确定目标",
+            )
+        mention_agent_id = str(exact_matches[0]["agent_id"])
+        execution_message = _strip_direct_mention_prefix(
+            request.message,
+            mention_agent_name,
+        )
+
+    if mention_agent_id != request.mention_agent_id or (
+        mention_agent_name and mention_agent_name != request.mention_name
+    ):
+        request = request.model_copy(
+            update={
+                "mention_agent_id": mention_agent_id,
+                "mention_name": mention_agent_name,
+            }
+        )
+
+    return request, persistent_agent_name, execution_message, explicit_command
+
+
+def _strip_direct_mention_prefix(message: str, mention_name: Optional[str]) -> str:
+    """Remove the frontend's display-only ``@name`` prefix before execution."""
+    if not mention_name:
+        return message
+    token = f"@{mention_name}"
+    if message == token:
+        return message
+    if message.startswith(token) and len(message) > len(token):
+        separator = message[len(token)]
+        if separator.isspace():
+            stripped = message[len(token) :].lstrip()
+            return stripped or message
+    return message
+
+
 def _build_user_extra_data(
     request: ChatRequest,
     model_provider_id: Optional[str] = None,
@@ -621,6 +725,8 @@ def _build_user_extra_data(
         extra["plugin_name"] = request.plugin_name
     if request.mention_name:
         extra["mention_name"] = request.mention_name
+    if request.mention_agent_id:
+        extra["mention_agent_id"] = request.mention_agent_id
     return extra
 
 
@@ -646,9 +752,9 @@ def _backfill_artifact_cache(
     if not attachments or not user_id:
         return
     try:
+        from core.content.artifact_summary import build_summary_from_text
         from core.db.engine import SessionLocal
         from core.db.models import Artifact as _ArtifactModel
-        from core.content.artifact_summary import build_summary_from_text
     except Exception:
         return
 
@@ -708,8 +814,8 @@ def _backfill_artifact_cache(
 # logic — otherwise channel conversations never re-surface prior file_ids to the
 # model and it hallucinates non-existent ids. Re-exported here under the old
 # private names for backward compatibility (call site + tests).
+from core.chat.context import _extract_message_file_ids
 from core.chat.context import (  # noqa: E402
-    _extract_message_file_ids,
     collect_historical_attachments as _collect_historical_attachments,
 )
 
@@ -725,6 +831,8 @@ def _build_ctx(
     reranker_enabled=False,
     model_provider_id: Optional[str] = None,
     actual_model_name: Optional[str] = None,
+    ontology_enabled: bool = False,
+    ontology_pack_ids: Optional[List[str]] = None,
 ):
     # Explicitly referenced plugins: force-enable the plugin's MCP server into this turn's tool set ("enabled means usable").
     # enabled_mcps being None means using the catalog defaults (which already include enabled owned MCPs), so no forced narrowing is needed.
@@ -756,16 +864,16 @@ def _build_ctx(
     project_folder_name: Optional[str] = None
     project_folder_kind: Optional[str] = None  # 'personal' | 'team'
     project_folder_id: Optional[str] = None  # linked_folder_id / linked_team_folder_id
-    project_team_id: Optional[str] = None  # Set only for team kind; lets agent file tools resolve via TeamFolder
+    project_team_id: Optional[str] = (
+        None  # Set only for team kind; lets agent file tools resolve via TeamFolder
+    )
     project_files: Optional[List[Dict[str, Any]]] = None
     if project_id:
         try:
             from core.db.engine import SessionLocal as _Sess
-            from core.db.models import (
-                Project as _Project,
-                TeamFolder as _TF,
-                UserFolder as _UF,
-            )
+            from core.db.models import Project as _Project
+            from core.db.models import TeamFolder as _TF
+            from core.db.models import UserFolder as _UF
             from core.services.project_file_service import ProjectFileService as _PFS
 
             with _Sess() as _db:
@@ -822,6 +930,28 @@ def _build_ctx(
         f"team:{project_team_id}" if project_folder_kind == "team" and project_team_id else None
     )
 
+    from core.services.ontology_service import disabled_ontology_runtime
+
+    ontology_runtime: Dict[str, Any] = disabled_ontology_runtime()
+    if ontology_enabled:
+        try:
+            from core.services.ontology_service import OntologyService
+
+            with SessionLocal() as _ontology_db:
+                ontology_runtime = OntologyService(_ontology_db).build_runtime(
+                    task=request.message,
+                    pack_ids=ontology_pack_ids or None,
+                )
+                if not ontology_runtime.get("enabled"):
+                    raise ServiceUnavailableError(
+                        "本体校验已开启，但当前没有可用的已激活 Domain Pack"
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[ontology] failed to build runtime policy")
+            raise ServiceUnavailableError(
+                "本体校验已开启，但运行时策略暂时不可用；为避免绕过校验，本次请求已停止"
+            ) from exc
+
     ctx: Dict[str, Any] = {
         "model_name": actual_model_name or request.model_name,
         "model_provider_id": model_provider_id or "",
@@ -836,6 +966,8 @@ def _build_ctx(
         "memory_enabled": memory_enabled,
         "memory_write_enabled": memory_write_enabled,
         "reranker_enabled": reranker_enabled,
+        "ontology_enabled": ontology_enabled,
+        "ontology_runtime": ontology_runtime,
         # Preserve None so downstream (SkillsMiddleware) falls back to catalog defaults.
         # Only call _clean_id_list when there's an actual list to normalize.
         "enabled_skills": _clean_id_list(enabled_skills) if enabled_skills is not None else None,
@@ -845,6 +977,12 @@ def _build_ctx(
             _clean_id_list(request.enabled_kbs) if request.enabled_kbs is not None else None
         ),
         "agent_id": request.agent_id,
+        "mention_agent_id": request.mention_agent_id,
+        # A persistent child-agent conversation is the only direct route.
+        # Per-turn @mentions stay on the normal main-model stream so the model
+        # emits a real call_subagent tool call (with thinking and token deltas).
+        "direct_agent_id": request.agent_id,
+        "direct_agent_source": "dedicated_chat" if request.agent_id else None,
         "skill_id": request.skill_id,
         "skill_ids": request.skill_ids,
         "mcp_ids": request.mcp_ids,
@@ -952,10 +1090,17 @@ async def chat_send(
     """
     _ensure_main_model_configured()
     chat_service = ChatService(db)
-    effective_user_message = _build_effective_user_message(
-        request.message, request.quoted_follow_up
-    )
     db_user_id = resolve_db_user_id(db, _authenticated_user_id(user))
+    request, _agent_name, execution_message, explicit_subagent_command = (
+        _resolve_chat_agent_targets(
+            db,
+            request,
+            db_user_id,
+        )
+    )
+    effective_user_message = _build_effective_user_message(
+        execution_message, request.quoted_follow_up
+    )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(request, selected_model_provider_id)
     enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(
@@ -966,22 +1111,10 @@ async def chat_send(
         request.enabled_mcps,
     )
 
-    # ── Validate agent_id if present ──
-    _agent_name: Optional[str] = None
-    if request.agent_id:
-        from core.services.user_agent_service import UserAgentService
-
-        agent_svc = UserAgentService(db)
-        try:
-            agent_info = agent_svc.get_by_id(request.agent_id, user_id=db_user_id)
-            _agent_name = agent_info["name"]
-        except (LookupError, PermissionError):
-            raise HTTPException(status_code=403, detail="无法访问该子智能体")
-
     # Project attachment check: if the project is inaccessible, return 404
     if request.project_id:
-        from core.db.models import Project as _Project
         from core.auth.permissions_iface import resolve_project_permission
+        from core.db.models import Project as _Project
 
         _proj = (
             db.query(_Project)
@@ -1030,6 +1163,7 @@ async def chat_send(
             extra_data=_build_user_extra_data(request, selected_model_provider_id),
         )
 
+        _user_settings = UserService(db).get_user_settings(db_user_id)
         ctx = _build_ctx(
             request,
             db_user_id,
@@ -1038,7 +1172,15 @@ async def chat_send(
             enabled_mcps,
             model_provider_id=selected_model_provider_id,
             actual_model_name=actual_model_name,
+            ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
+            ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
         )
+        if explicit_subagent_command:
+            ctx["explicit_subagent_command"] = {
+                "agent_id": explicit_subagent_command.agent_id,
+                "agent_name": explicit_subagent_command.agent_name,
+                "task": explicit_subagent_command.task,
+            }
 
         def _run():
             return run_chat_workflow(
@@ -1065,6 +1207,11 @@ async def chat_send(
                 "warnings": result.warnings,
                 "citations": (
                     list(result.meta.get("citations", [])) if isinstance(result.meta, dict) else []
+                ),
+                **(
+                    {"ontology_governance": result.meta.get("ontology_governance")}
+                    if isinstance(result.meta, dict) and result.meta.get("ontology_governance")
+                    else {}
                 ),
                 "follow_up_questions": follow_up_questions,
                 **(
@@ -1105,10 +1252,17 @@ async def chat_stream(
     """
     _ensure_main_model_configured()
     chat_service = ChatService(db)
-    effective_user_message = _build_effective_user_message(
-        request.message, request.quoted_follow_up
-    )
     db_user_id = resolve_db_user_id(db, _authenticated_user_id(user))
+    request, _agent_name_stream, execution_message, explicit_subagent_command = (
+        _resolve_chat_agent_targets(
+            db,
+            request,
+            db_user_id,
+        )
+    )
+    effective_user_message = _build_effective_user_message(
+        execution_message, request.quoted_follow_up
+    )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(request, selected_model_provider_id)
 
@@ -1159,22 +1313,10 @@ async def chat_stream(
     _memory_write_enabled = bool(_user_settings.get("memory_write_enabled", False))
     _reranker_enabled = bool(_user_settings.get("reranker_enabled", False))
 
-    # ── Validate agent_id if present ──
-    _agent_name_stream: Optional[str] = None
-    if request.agent_id:
-        from core.services.user_agent_service import UserAgentService
-
-        agent_svc = UserAgentService(db)
-        try:
-            agent_info = agent_svc.get_by_id(request.agent_id, user_id=db_user_id)
-            _agent_name_stream = agent_info["name"]
-        except (LookupError, PermissionError):
-            raise HTTPException(status_code=403, detail="无法访问该子智能体")
-
     # Project attachment check: if the project is inaccessible, return 404 (avoids writing an unknown project_id onto the session)
     if request.project_id:
-        from core.db.models import Project as _Project
         from core.auth.permissions_iface import resolve_project_permission
+        from core.db.models import Project as _Project
 
         _proj = (
             db.query(_Project)
@@ -1232,11 +1374,25 @@ async def chat_stream(
         reranker_enabled=_reranker_enabled,
         model_provider_id=selected_model_provider_id,
         actual_model_name=actual_model_name,
+        ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
+        ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
     )
+    if explicit_subagent_command:
+        context["explicit_subagent_command"] = {
+            "agent_id": explicit_subagent_command.agent_id,
+            "agent_name": explicit_subagent_command.agent_name,
+            "task": explicit_subagent_command.task,
+        }
 
     from orchestration import chat_run_executor
 
     request_payload = request.model_dump(exclude_none=True)
+    if explicit_subagent_command:
+        request_payload["explicit_subagent_command"] = {
+            "agent_id": explicit_subagent_command.agent_id,
+            "agent_name": explicit_subagent_command.agent_name,
+            "task": explicit_subagent_command.task,
+        }
     if selected_model_provider_id:
         request_payload["model_provider_id"] = selected_model_provider_id
     else:
@@ -1381,6 +1537,10 @@ async def _stream_sse_response(
                 if delta:
                     full_response += delta
                     yield f"data: {json.dumps({'type': 'content', 'event': 'ai_message', 'delta': delta, 'chat_id': chat_id}, ensure_ascii=False)}\n\n"
+            elif chunk_type == "content_replace":
+                full_response = str(chunk.get("content") or "")
+                event = {**chunk, "chat_id": chat_id}
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call":
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
                 yield f"data: {json.dumps(_tc_evt, ensure_ascii=False)}\n\n"
@@ -1395,6 +1555,8 @@ async def _stream_sse_response(
                     "chat_id": chat_id,
                     "reason": chunk.get("reason", "llm_buffering"),
                 }
+                if chunk.get("scope"):
+                    _tp_evt["scope"] = chunk["scope"]
                 yield f"data: {json.dumps(_tp_evt, ensure_ascii=False)}\n\n"
             elif chunk_type in ("batch_confirm", "file_confirm", "design_pick"):
                 # Confirmation-type events are passed through whole: batch-execution confirm /
@@ -1408,6 +1570,16 @@ async def _stream_sse_response(
                     "chat_id": chat_id,
                 }
                 yield f"data: {json.dumps(_cf_evt, ensure_ascii=False)}\n\n"
+            elif chunk_type in {
+                "ontology_activation",
+                "ontology_gate",
+                "ontology_review",
+                "ontology_repair",
+                "ontology_revision",
+                "ontology_revision_thinking",
+            }:
+                event = {**chunk, "chat_id": chat_id}
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             elif chunk_type == "meta":
                 pending_message_id = f"msg_{uuid.uuid4().hex[:16]}"
                 # Strict workspace gate: the agent's pin_to_workspace calls
@@ -1429,6 +1601,7 @@ async def _stream_sse_response(
                     "message_id": pending_message_id,
                     "citations": chunk.get("citations", []),
                     "workspace_files": _ws_files,
+                    "ontology_governance": chunk.get("ontology_governance"),
                 }
                 yield f"data: {json.dumps(metadata, ensure_ascii=False)}\n\n"
 
@@ -1443,6 +1616,8 @@ async def _stream_sse_response(
                     "citations": metadata.get("citations", []),
                     "workspace_files": metadata.get("workspace_files", []),
                 }
+                if metadata.get("ontology_governance"):
+                    _persist_extra["ontology_governance"] = metadata["ontology_governance"]
                 if context.get("model_provider_id"):
                     _persist_extra["model_provider_id"] = context.get("model_provider_id")
                 chat_service.add_message(
@@ -1595,6 +1770,8 @@ async def regenerate_message(
         reranker_enabled=bool(_user_settings.get("reranker_enabled", False)),
         model_provider_id=selected_model_provider_id,
         actual_model_name=actual_model_name,
+        ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
+        ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
     )
 
     return sse_response(
@@ -1682,6 +1859,8 @@ async def edit_and_resend(
         reranker_enabled=bool(_user_settings.get("reranker_enabled", False)),
         model_provider_id=selected_model_provider_id,
         actual_model_name=actual_model_name,
+        ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
+        ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
     )
 
     return sse_response(
@@ -1700,6 +1879,35 @@ async def edit_and_resend(
 
 
 # ── Feedback ──────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/messages/{message_id}/ontology-revision/accept",
+    summary="采用领域本体优化稿",
+)
+async def accept_ontology_revision(
+    message_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Atomically replace one assistant message with its reviewed candidate answer."""
+    chat_service = ChatService(db)
+    target = chat_service.get_message_by_id(message_id)
+    if not target or target.role != "assistant":
+        raise ResourceNotFoundError(resource_type="chat_message", resource_id=message_id)
+    db_user_id = resolve_db_user_id(db, _authenticated_user_id(user))
+    access = chat_service.get_session_with_access(target.chat_id, db_user_id)
+    if access is None:
+        raise ResourceNotFoundError(resource_type="chat_message", resource_id=message_id)
+    if access[1] not in ("admin", "edit"):
+        raise HTTPException(status_code=403, detail="只读共享会话不可替换消息正文")
+    updated = chat_service.accept_ontology_revision(message_id)
+    if updated is None:
+        raise HTTPException(status_code=409, detail="当前消息没有可采用的本体优化稿")
+    return success_response(
+        data={"message_id": message_id, "content": updated.content},
+        message="已采用本体优化稿",
+    )
 
 
 class FeedbackRequest(BaseModel):
@@ -1751,6 +1959,20 @@ async def submit_feedback(
         db.commit()
         db.refresh(record)
 
+    if body.rating == "dislike" and (body.comment or "").strip() and record.chat_id:
+        try:
+            from core.services.ontology_evolution_service import OntologyEvolutionService
+
+            OntologyEvolutionService(db).ingest_user_correction(
+                user_id=db_user_id,
+                chat_id=record.chat_id,
+                message_id=message_id,
+                feedback_id=str(record.feedback_id),
+                comment=(body.comment or "").strip(),
+            )
+        except Exception:  # noqa: BLE001 - feedback persistence must remain available
+            logger.warning("ontology user-correction ingestion failed", exc_info=True)
+
     return {"ok": True, "feedback_id": record.feedback_id, "rating": record.rating}
 
 
@@ -1764,9 +1986,7 @@ class FileConfirmBody(BaseModel):
     decision: str = Field(
         ..., description="allow | allow_session | deny | choice | skip（后两者为建站设计三选一）"
     )
-    option_id: Optional[str] = Field(
-        None, description="decision=choice 时必填：选中的设计方案 id"
-    )
+    option_id: Optional[str] = Field(None, description="decision=choice 时必填：选中的设计方案 id")
 
 
 @router.get("/{chat_id}/pending-confirm", summary="查询会话是否有待确认的我的空间写操作")
@@ -1810,9 +2030,7 @@ async def file_confirm(
 
     from core.llm.tools import _myspace_confirm as _mc
 
-    res = _mc.set_decision(
-        chat_id, body.confirm_id, body.decision, option_id=body.option_id
-    )
+    res = _mc.set_decision(chat_id, body.confirm_id, body.decision, option_id=body.option_id)
     if not res.get("ok"):
         # An expired confirmation (timeout reclaim / process restart) is not the user's fault —
         # return 200 with a stale flag so the frontend silently dismisses the zombie confirmation
@@ -1850,6 +2068,7 @@ def _detect_chat_run_interrupted(db: Session, chat_id: str) -> bool:
     """
     try:
         from datetime import timedelta, timezone
+
         from core.db.models import ChatRun
 
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
@@ -1865,5 +2084,7 @@ def _detect_chat_run_interrupted(db: Session, chat_id: str) -> bool:
             return False
         err = (recent.error_message or "").lower()
         return "server restarted" in err or "server_restart" in err
-    except Exception:  # noqa: BLE001 — on detection failure fall back to the old path; must not affect the main confirm flow
+    except (
+        Exception
+    ):  # noqa: BLE001 — on detection failure fall back to the old path; must not affect the main confirm flow
         return False

@@ -19,6 +19,7 @@ import { STORES_DICT } from './stores';
 import { APIDOC_DICT } from './apidoc';
 import { DB_METADATA_DICT } from './dbMetadata';
 import { AGENT_MARKET_DICT } from './agentMarket';
+import { ONBOARDING_DICT } from './onboarding';
 
 export const EN_DICT: Record<string, string> = {
   ...CORE_DICT,
@@ -41,4 +42,5 @@ export const EN_DICT: Record<string, string> = {
   ...APIDOC_DICT,
   ...DB_METADATA_DICT,
   ...AGENT_MARKET_DICT,
+  ...ONBOARDING_DICT,
 };

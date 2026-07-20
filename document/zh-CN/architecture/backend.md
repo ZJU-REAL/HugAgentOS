@@ -1,6 +1,6 @@
 # 后端架构详解
 
-> 最后更新：2026-06-11
+> 最后更新：2026-07-19
 
 后端位于 `src/backend/`，是一个分层清晰的 FastAPI 单体：API 层只做协议与鉴权，编排层负责把一次对话变成可断线续播的流式 Run，`core/` 承载全部领域逻辑，MCP 工具与脚本执行 sidecar 则以独立进程运行。本文自顶向下逐层拆解。
 
@@ -8,9 +8,9 @@
 
 ```
 src/backend/
-├── api/             # FastAPI 应用、中间件、52 个 v1 路由文件
+├── api/             # FastAPI 应用、中间件、74 个 v1 路由文件
 ├── orchestration/   # 对话编排：Run 执行器、工作流、策略、引用、调度器
-├── core/            # 领域核心：15 个子模块（auth/llm/db/services/...）
+├── core/            # 领域核心：17 个子模块（auth/llm/db/ontology/services/...）
 ├── mcp_servers/     # 10 个独立 MCP 服务器（streamable-http 进程）
 ├── prompts/         # 提示词装配运行时 + 文件兜底文本
 ├── skill_bundles/   # 技能资产：default（预置）+ marketplace（技能市场种子）
@@ -60,7 +60,7 @@ src/backend/
 | 文件/包 | 职责 |
 |---|---|
 | `engine.py` | 引擎、SessionLocal、`init_db` 启动兜底建表 |
-| `models/` | ORM 模型包，按领域拆 11 个文件（见 [数据模型](./data-model.md)） |
+| `models/` | ORM 模型包，按领域拆 14 个文件（见 [数据模型](./data-model.md)） |
 | `repository/` | 仓储层：`agent/artifact/audit/catalog/chat/kb/team/user.py` |
 | `model_repository.py` | 模型供应商 / 角色指派的仓储 |
 | `edition_tables.py` | `EE_ONLY_TABLES` + `ce_create_all()`——CE/EE 建表边界单一真源 |
@@ -78,7 +78,7 @@ src/backend/
 | `runtime_env.py` | mcp 容器内服务的 DB 化 env 查询 |
 | `distillation.py`（商业版 EE） | 技能蒸馏阈值 / 关键词 / cron 默认值 |
 
-### core/services — 业务服务层（29 个服务）
+### core/services — 业务服务层（59 个服务）
 
 会话域：`chat_service`（会话与消息）、`plan_service`（计划模式）、`automation_service`（定时任务）、`user_agent_service`（自定义子智能体）。
 
@@ -87,6 +87,8 @@ src/backend/
 用户域：`user_service`、`local_user_service`（注册 / 登录 / 改密）、`api_key_service`（个人 API-Key）、`user_folder_service`、`project_service` + `project_file_service` + `project_scope`（项目工作空间）。
 
 配置域：`model_config`（DB 化模型配置，带缓存）、`system_config`（服务配置）、`mcp_service`（MCP 服务器配置）、`log_service`（可观测性日志异步落库）。
+
+本体域：`ontology_service`（用户开关、版本与运行时裁剪）、`ontology_evolution_service`（证据预筛、脱敏、人审草案与未激活版本物化）；`core/ontology/` 收口四层 Schema、构建校验、确定性门禁、工具过滤和提示词渲染。
 
 商业版 EE：`team_service` / `team_folder_service` / `sso_sync`（团队与 SSO 同步）、`distillation_service`（技能蒸馏）、`sandbox_rebuild_service` + `cube_template_builder`（持久沙箱模板重建）、`security_service`（安全管理台只读聚合）。
 
@@ -165,15 +167,15 @@ src/backend/
 
 ### 路由注册表（CE/EE 接缝 C1）
 
-`api/routes/v1/__init__.py` 是两版共用的注册表：`CE_ROUTERS`（28 个）无条件注册；`EE_ROUTERS`（22 个）每项携带 license 能力位（`audit` / `content_admin` / `billing` / `multi_tenancy` / `system_config`），由 `core/licensing/deps.py` 做第二道防线（第一道是 CE 派生树物理删除这些文件）；`config_verify` / `config_license` / `auth` 三项显式豁免，保证 license 失效时仍能换证。
+`api/routes/v1/__init__.py` 是两版共用的注册表：`CE_ROUTERS`（39 个）无条件注册；`EE_ROUTERS`（32 个）每项携带 license 能力位，由 `core/licensing/deps.py` 做第二道防线（第一道是 CE 派生树物理删除这些文件）；`config_verify` / `config_license` / `auth` 三项显式豁免，保证 license 失效时仍能换证。
 
-### 路由文件分组（v1 共 52 个文件）
+### 路由文件分组（v1 共 74 个文件）
 
 | 分组 | 文件 |
 |---|---|
 | 会话与流式 | `chats.py`（流式 SSE 主入口）、`chat_runs.py`、`chat_shares.py`、`summary.py`、`classify.py`、`memories.py` |
 | 内容与文件 | `content.py`、`file_upload.py`、`file_parse.py`、`artifacts.py`、`myspace_folders.py`、`kb.py`（+ `kb_models.py` 纯 Pydantic 模型）、`projects.py` |
-| 能力与配置 | `catalog.py`、`models.py`、`config.py`、`marketplace.py`、`me_capabilities.py`（能力中心自助）、`agents.py`、`plans.py`、`automations.py`、`batch.py` + `internal_batch.py`、`meta.py`（版本 / 能力位探针，无鉴权） |
+| 能力与配置 | `catalog.py`、`models.py`、`config.py`、`marketplace.py`、`me_capabilities.py`（能力中心自助）、`ontologies.py`（用户开关、版本治理与证据闭环）、`agents.py`、`plans.py`、`automations.py`、`batch.py` + `internal_batch.py`、`meta.py`（版本 / 能力位探针，无鉴权） |
 | 用户与认证 | `users.py`、`me.py`、`api_keys.py`、`mock_sso.py`（开发态） |
 | 内容管理台（商业版 EE，`/admin` 后端） | `admin_skills.py`、`admin_prompts.py`、`admin_kb.py`、`admin_agents.py`、`admin_mcp_servers.py`、`admin_marketplace.py`、`admin_skill_drafts.py`、`admin_sandbox.py`、`admin_logs.py`、`admin_usage_logs.py`、`admin_billing.py`、`admin_chat_history.py` |
 | 系统管理台（商业版 EE，`/config` 后端） | `config_users.py`、`config_teams.py`、`config_invites.py`、`config_security.py`、`config_verify.py`、`config_license.py`、`service_configs.py` |

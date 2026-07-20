@@ -1,5 +1,6 @@
 /** 英文字典（lab 域）：key 为中文原文，value 为英文译文。 */
 export const LAB_DICT: Record<string, string> = {
+  '本体治理标签': 'Ontology governance tags',
   // ── 团队子智能体 ───────────────────────────────────────────────────────────
   '个人': 'Personal',
   '个人子智能体': 'Personal Sub-agent',

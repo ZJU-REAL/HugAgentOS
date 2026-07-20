@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Modal, Form, message } from 'antd';
 import { useAgentStore, type UserAgentItem } from '../../stores/agentStore';
 import { AgentFormFields } from './AgentFormFields';
+import { OntologyBuildValidationModal } from '../common/OntologyBuildValidationModal';
+import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
 import { t } from '../../i18n';
 
 interface AgentFormModalProps {
@@ -15,6 +17,7 @@ export function AgentFormModal({ open, agent, onClose }: AgentFormModalProps) {
     useAgentStore();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [buildFailure, setBuildFailure] = useState<OntologyBuildFailure | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -28,15 +31,16 @@ export function AgentFormModal({ open, agent, onClose }: AgentFormModalProps) {
           mcp_server_ids: agent.mcp_server_ids || [],
           skill_ids: agent.skill_ids || [],
           plugin_ids: agent.plugin_ids || [],
+          ontology_tags: agent.ontology_tags || [],
           max_iters: agent.max_iters ?? 10,
           temperature: agent.temperature ?? 0.6,
         });
       } else {
         form.resetFields();
-        form.setFieldsValue({ max_iters: 10, temperature: 0.6 });
+        form.setFieldsValue({ max_iters: 10, temperature: 0.6, ontology_tags: [] });
       }
     }
-  }, [open, agent]);
+  }, [open, agent, fetchAvailableResources, form]);
 
   async function handleOk() {
     try {
@@ -51,29 +55,37 @@ export function AgentFormModal({ open, agent, onClose }: AgentFormModalProps) {
       }
       await fetchAgents();
       onClose();
-    } catch (e: any) {
-      if (e.errorFields) return; // form validation error
-      message.error(e.message || t('操作失败'));
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'errorFields' in error) return;
+      const ontologyFailure = getOntologyBuildFailure(error);
+      if (ontologyFailure) {
+        setBuildFailure(ontologyFailure);
+      } else {
+        message.error(error instanceof Error ? error.message : t('操作失败'));
+      }
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Modal
-      title={agent ? t('编辑智能体') : t('创建智能体')}
-      open={open}
-      onOk={handleOk}
-      onCancel={onClose}
-      confirmLoading={saving}
-      okText={agent ? t('保存') : t('创建')}
-      cancelText={t('取消')}
-      width={560}
-      destroyOnClose
-    >
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <AgentFormFields availableResources={availableResources} />
-      </Form>
-    </Modal>
+    <>
+      <Modal
+        title={agent ? t('编辑智能体') : t('创建智能体')}
+        open={open}
+        onOk={handleOk}
+        onCancel={onClose}
+        confirmLoading={saving}
+        okText={agent ? t('保存') : t('创建')}
+        cancelText={t('取消')}
+        width={560}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          <AgentFormFields availableResources={availableResources} />
+        </Form>
+      </Modal>
+      <OntologyBuildValidationModal failure={buildFailure} onClose={() => setBuildFailure(null)} />
+    </>
   );
 }

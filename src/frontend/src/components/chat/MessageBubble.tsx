@@ -22,6 +22,7 @@ import { ToolProgressInline } from '../tool/ToolProgressInline';
 import { anyToolRunning } from '../tool/renderers/utils';
 import { ThinkingInline } from './ThinkingInline';
 import { StreamWaitIndicator } from './StreamWaitIndicator';
+import { OntologyRevisionPanel } from './OntologyRevisionPanel';
 import { useStallDetector } from '../../hooks';
 import { PlanCard } from './PlanCard';
 import { ArtifactCardList } from './ArtifactCardList';
@@ -149,7 +150,6 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
   const messagePlainText = m.segments
     ? m.segments.filter(s => s.type === 'text').map(s => s.content || '').join('\n\n') || m.content
     : m.content;
-
   // Drives the "正在准备调用工具" pending step inside the ToolRunShell — the
   // configured LLM buffers tool-call args server-side, so when the message is
   // streaming and goes silent (or backend has fired `tool_pending`) we want
@@ -943,6 +943,17 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
               </motion.button>
             ))}
           </motion.div>
+        )}
+
+        {m.role === 'assistant' && m.ontologyGovernance && (
+          <div className="jx-ontologyReviewInline">
+            <OntologyRevisionPanel
+              governance={m.ontologyGovernance}
+              message={m}
+              chatId={currentChatId}
+              dispatchProcessVisible={dispatchProcessVisible}
+            />
+          </div>
         )}
 
         {/* Selection quick menu — rendered via portal to document.body so that

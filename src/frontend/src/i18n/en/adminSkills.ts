@@ -1,5 +1,7 @@
 /** 英文字典（adminSkills 域）：key 为中文原文，value 为英文译文。 */
 export const ADMIN_SKILLS_DICT: Record<string, string> = {
+  '声明受控本体标签时使用 ontology:ConceptId；系统会按激活领域词表校验':
+    'Use ontology:ConceptId for governed ontology tags; active domain vocabularies validate them.',
   // ── SandboxDepsManager · 等待安装依赖的技能 ───────────────────────────
   '等待安装依赖的技能（{n}）': 'Skills awaiting dependency install ({n})',
   '这些技能由用户导入、检测到缺少依赖，已软禁用。重建沙盒装好依赖后会自动恢复可用并提示用户。':
@@ -24,6 +26,9 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   '版本': 'Version',
   '排序': 'Sort',
   '允许工具': 'Allowed Tools',
+  '系统会读取 MCP 的实际工具清单，用于本体构建校验并写入 SKILL.md。':
+    'The system reads the MCP\'s discovered tools for ontology build validation and writes them to SKILL.md.',
+  '额外工具名称（高级，可选）': 'Additional tool names (advanced, optional)',
   '执行指令': 'Instructions',
   '分类': 'Category',
   '包名': 'Package',

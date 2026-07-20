@@ -129,10 +129,9 @@ export function useStreaming(
     const currentPlugin = activePlugin;
     const currentMention = activeMention;
 
-    // The "wire message" sent to the backend needs the @agent-name prefix; the routing layer's
-    // _parse_agent_mentions uses it to route the message to the matching sub-agent. But the msg
-    // used for display/storage stays clean — the @mention is rendered separately by the
-    // mentionName badge on the bubble and must not repeat in the body (it would show twice).
+    // Keep the @name prefix for persisted history/display compatibility. The authoritative
+    // routing key is mention_agent_id below, so the backend can bypass the main agent and run
+    // the selected sub-agent directly without a name lookup or a second call_subagent spawn.
     let wireMsg = currentMention ? `@${currentMention.name} ${msg}` : msg;
 
     // "Site building" conversation: append site-building guidance to the wire message (the msg
@@ -292,7 +291,10 @@ export function useStreaming(
           ...(currentPlugin && currentPlugin.skillIds.length > 0 ? { skill_ids: currentPlugin.skillIds } : {}),
           ...(currentPlugin && currentPlugin.mcpIds.length > 0 ? { mcp_ids: currentPlugin.mcpIds } : {}),
           ...(currentPlugin ? { plugin_name: currentPlugin.name } : {}),
-          ...(currentMention ? { mention_name: currentMention.name } : {}),
+          ...(currentMention ? {
+            mention_agent_id: currentMention.id,
+            mention_name: currentMention.name,
+          } : {}),
           ...(planChat ? { plan_chat: true } : {}),
           ...(batchChat ? { batch_chat: true } : {}),
           // Project mount: read from the chat's own projectId (the frontend binds it when

@@ -1,9 +1,10 @@
-"""In-process mock-SSO ticket store (dev/test only).
+"""In-process ticket store for local-account and mock-SSO login.
 
-Holds the one-time ticket state used by the mock SSO flow. Relocated out of
-``api/routes/v1/mock_sso.py`` so that ``core.auth.sso`` can validate tickets
-without importing an API route module (breaks the ``core/auth → api`` upward
-dependency). The mock SSO route re-uses these.
+Holds the one-time ticket state used by the local-account and mock SSO flows.
+Relocated out of ``api/routes/v1/mock_sso.py`` so that ``core.auth.sso`` can
+validate tickets without importing an API route module (breaks the
+``core/auth → api`` upward dependency). The unified login route and mock SSO
+route both reuse this store.
 """
 
 import secrets
@@ -14,6 +15,7 @@ from typing import Any, Dict, Optional
 # and are one-time use.
 TICKET_STORE: Dict[str, Dict[str, Any]] = {}
 TICKET_TTL = 300  # seconds
+TICKET_PREFIX = "mock_ticket_"
 
 
 def cleanup_expired() -> None:
@@ -27,12 +29,17 @@ def cleanup_expired() -> None:
 def generate_ticket(user_info: Dict[str, Any]) -> str:
     """Generate a one-time ticket for the given user."""
     cleanup_expired()
-    ticket = f"mock_ticket_{secrets.token_urlsafe(16)}"
+    ticket = f"{TICKET_PREFIX}{secrets.token_urlsafe(16)}"
     TICKET_STORE[ticket] = {
         "user_info": user_info,
         "created_at": time.time(),
     }
     return ticket
+
+
+def is_local_ticket(ticket: str) -> bool:
+    """Return whether a credential belongs to this process-local ticket namespace."""
+    return bool(ticket) and ticket.startswith(TICKET_PREFIX)
 
 
 def consume_ticket(ticket: str) -> Optional[Dict[str, Any]]:

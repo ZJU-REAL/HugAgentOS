@@ -1,6 +1,6 @@
 # HugAgentOS Documentation
 
-> Last updated: 2026-06-11 | [简体中文](../zh-CN/README.md)
+> Last updated: 2026-07-19 | [简体中文](../zh-CN/README.md)
 
 HugAgentOS is an enterprise-grade AI agent platform: a FastAPI backend, a React frontend, and an AgentScope 2.0 agent runtime, fully containerized with Docker and shipped in an open-core model as a **Community Edition (CE)** and an **Enterprise Edition (EE)**. This tree is the complete product documentation for operators, users, and integrators.
 
@@ -31,7 +31,7 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 | [Overview](architecture/overview.md) | Layered architecture, full request lifecycle, container topology, key design decisions |
 | [Backend](architecture/backend.md) | Full `src/backend/` walkthrough: api / orchestration / 15 core submodules / router registry |
 | [Frontend](architecture/frontend.md) | Five app entries, component groups, Zustand stores, hooks, build chain |
-| [Data Model](architecture/data-model.md) | 44 tables by domain, dual alembic chains, CE/EE table boundary |
+| [Data Model](architecture/data-model.md) | 76 tables by domain, dual alembic chains, CE/EE table boundary |
 
 ## Modules
 
@@ -45,6 +45,7 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 | [Agent Skills](modules/agent-skills.md) | SKILL.md mechanics, bundle layering, skill marketplace, distillation |
 | [Sandbox Execution](modules/sandbox.md) | Three providers, bash tools, snapshot persistence, MySpace bind-mount |
 | [Memory System](modules/memory.md) | L1/L2/L3 layered memory, sanitization, audit, mem0 infrastructure |
+| [Domain Ontology Governance and Validation](modules/ontology-harness.md) | CE Settings governance, Domain Packs, tool gates, pre-delivery review, and governed evolution |
 | [Knowledge Base](modules/knowledge-base.md) | Self-hosted KB (hybrid retrieval) and Dify integration, public KB admin |
 | [Object Storage](modules/storage.md) | local / s3 / oss backends, artifact store, file pipelines |
 | [Projects & My Space](modules/projects-myspace.md) | Project workspaces, personal/team folders, files into context |

@@ -28,10 +28,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
-
 from core.db.models import AgentMarketSubmission, UserAgent
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.services import marketplace_listing as ml
@@ -40,6 +36,9 @@ from core.services.agent_market_categories import (
     DEFAULT_AGENT_CATEGORY,
     validate_category,
 )
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +54,7 @@ _MAX_DESC = 20
 
 
 # ── Preset bundle reading ────────────────────────────────────────────────────
+
 
 def _read_bundle(slug: str) -> Optional[Dict[str, Any]]:
     """Read and validate a single preset sub-agent's ``agent.json`` (fault-tolerant; returns None if broken)."""
@@ -100,9 +100,20 @@ def _binding_counts(bindings: Dict[str, List[str]]) -> Dict[str, int]:
 
 
 def _make_market_meta(
-    *, slug: str, name: str, avatar: str, summary: str, description: str,
-    category: str, tags: Any, version: str, author: str, source: str,
-    featured: bool, deletable: bool, bindings: Dict[str, List[str]],
+    *,
+    slug: str,
+    name: str,
+    avatar: str,
+    summary: str,
+    description: str,
+    category: str,
+    tags: Any,
+    version: str,
+    author: str,
+    source: str,
+    featured: bool,
+    deletable: bool,
+    bindings: Dict[str, List[str]],
 ) -> Dict[str, Any]:
     """Preset bundle / community listing → isomorphic public list metadata (without the system_prompt body)."""
     return {
@@ -125,21 +136,37 @@ def _make_market_meta(
 def _bundle_public_meta(b: Dict[str, Any]) -> Dict[str, Any]:
     # Presets (filesystem) ship with the repo; admins cannot delete them online (deletable=False).
     return _make_market_meta(
-        slug=b.get("slug"), name=b.get("name"), avatar=b.get("avatar"),
-        summary=b.get("summary"), description=b.get("description"),
-        category=b.get("category"), tags=b.get("tags"), version=b.get("version"),
-        author=b.get("author") or "内置", source="builtin",
-        featured=bool(b.get("featured")), deletable=False, bindings=_bindings_of(b),
+        slug=b.get("slug"),
+        name=b.get("name"),
+        avatar=b.get("avatar"),
+        summary=b.get("summary"),
+        description=b.get("description"),
+        category=b.get("category"),
+        tags=b.get("tags"),
+        version=b.get("version"),
+        author=b.get("author") or "内置",
+        source="builtin",
+        featured=bool(b.get("featured")),
+        deletable=False,
+        bindings=_bindings_of(b),
     )
 
 
 def _submission_public_meta(sub: AgentMarketSubmission) -> Dict[str, Any]:
     # DB listing records (admin upload / user community submission) → admins can delete online (deletable=True).
     return _make_market_meta(
-        slug=sub.slug, name=sub.name, avatar=sub.avatar, summary=sub.summary,
-        description=sub.description, category=sub.category, tags=sub.tags,
-        version=sub.version, author=sub.submitter_name or sub.owner_user_id,
-        source="community", featured=False, deletable=True,
+        slug=sub.slug,
+        name=sub.name,
+        avatar=sub.avatar,
+        summary=sub.summary,
+        description=sub.description,
+        category=sub.category,
+        tags=sub.tags,
+        version=sub.version,
+        author=sub.submitter_name or sub.owner_user_id,
+        source="community",
+        featured=False,
+        deletable=True,
         bindings=_normalize_binding_lists(sub.bindings_snapshot),
     )
 
@@ -166,6 +193,7 @@ def _get_approved_submission(db: Session, slug: str) -> Optional[AgentMarketSubm
 
 # ── List / categories / detail ───────────────────────────────────────────────
 
+
 def list_marketplace_agents(
     db: Session, *, include_disabled: bool = False, viewer_user_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
@@ -181,8 +209,12 @@ def list_marketplace_agents(
     items.sort(key=lambda x: (0 if x["featured"] else 1, x["slug"]))
     items.extend(_submission_public_meta(s) for s in _approved_submissions(db))
     items = ml.annotate_and_filter(
-        db, ml.KIND_AGENT, items, id_key="slug",
-        include_disabled=include_disabled, viewer_user_id=viewer_user_id,
+        db,
+        ml.KIND_AGENT,
+        items,
+        id_key="slug",
+        include_disabled=include_disabled,
+        viewer_user_id=viewer_user_id,
     )
     return items
 
@@ -201,7 +233,9 @@ def list_categories(
 ) -> List[str]:
     """Marketplace category list (standalone entry point; the list endpoint should reuse categories_from_items to avoid a second scan)."""
     return categories_from_items(
-        list_marketplace_agents(db, include_disabled=include_disabled, viewer_user_id=viewer_user_id)
+        list_marketplace_agents(
+            db, include_disabled=include_disabled, viewer_user_id=viewer_user_id
+        )
     )
 
 
@@ -233,9 +267,7 @@ def _installed_slugs(db: Session, owner_user_id: Optional[str], slugs: List[str]
     """The subset of these marketplace slugs already installed (cloned) in the given scope (user / global admin)."""
     if not slugs:
         return set()
-    q = db.query(UserAgent.source_market_slug).filter(
-        UserAgent.source_market_slug.in_(slugs)
-    )
+    q = db.query(UserAgent.source_market_slug).filter(UserAgent.source_market_slug.in_(slugs))
     if owner_user_id is None:
         q = q.filter(UserAgent.owner_type == "admin")
     else:
@@ -261,6 +293,7 @@ def is_installed(db: Session, slug: str, owner_user_id: Optional[str]) -> bool:
 
 # ── Install (clone + install-on-demand dependencies) ─────────────────────────
 
+
 def _resolve_market_entry(db: Session, slug: str) -> Dict[str, Any]:
     """Normalize a preset bundle / community listing into a unified clone-source dict."""
     b = _read_bundle(slug)
@@ -275,6 +308,11 @@ def _resolve_market_entry(db: Session, slug: str) -> Dict[str, Any]:
             "suggested_questions": list(b.get("suggested_questions") or []),
             "model_config": dict(b.get("model_config") or {}),
             "bindings": _bindings_of(b),
+            "ontology_tags": [
+                str(tag)
+                for tag in (b.get("ontology_tags") or b.get("tags") or [])
+                if str(tag).startswith("ontology:")
+            ],
         }
     sub = _get_approved_submission(db, slug)
     if sub is None:
@@ -289,6 +327,7 @@ def _resolve_market_entry(db: Session, slug: str) -> Dict[str, Any]:
         "suggested_questions": list(sub.suggested_questions or []),
         "model_config": dict(sub.model_config_snapshot or {}),
         "bindings": _normalize_binding_lists(sub.bindings_snapshot),
+        "ontology_tags": [str(tag) for tag in (sub.tags or []) if str(tag).startswith("ontology:")],
     }
 
 
@@ -305,8 +344,8 @@ def _resolve_bindings(
     - plugin slugs: bind if already installed, otherwise install as private and then bind;
     - unresolvable items go into ``dropped``; auto-installed skills/plugins requiring credentials go into ``needs_secret``.
     """
-    from core.services import marketplace_service as mk
     from core.config.catalog import get_enabled_ids
+    from core.services import marketplace_service as mk
     from core.services import plugin_service
     from core.services.user_agent_service import UserAgentService
 
@@ -322,10 +361,16 @@ def _resolve_bindings(
     avail_kb = {k["id"] for k in avail.get("kb_spaces", [])}
 
     final: Dict[str, List[str]] = {
-        "skill_ids": [], "mcp_server_ids": [], "plugin_ids": [], "kb_ids": [],
+        "skill_ids": [],
+        "mcp_server_ids": [],
+        "plugin_ids": [],
+        "kb_ids": [],
     }
     report: Dict[str, List[str]] = {
-        "bound": [], "installed": [], "dropped": [], "needs_secret": [],
+        "bound": [],
+        "installed": [],
+        "dropped": [],
+        "needs_secret": [],
     }
 
     # MCP tools
@@ -355,8 +400,10 @@ def _resolve_bindings(
     # Plugins (bindings store the slug; bind the install_id if installed, otherwise auto-install)
     for pslug in bindings.get("plugin_ids", []):
         gid = f"{pslug}@global"
-        match = gid if gid in avail_plugin else next(
-            (p for p in avail_plugin if p.startswith(f"{pslug}@")), None
+        match = (
+            gid
+            if gid in avail_plugin
+            else next((p for p in avail_plugin if p.startswith(f"{pslug}@")), None)
         )
         if match:
             final["plugin_ids"].append(match)
@@ -396,9 +443,7 @@ def install_marketplace_agent(
     from core.services.user_agent_service import UserAgentService
 
     entry = _resolve_market_entry(db, slug)
-    final_bindings, report = _resolve_bindings(
-        db, entry["bindings"], owner_user_id, operator_name
-    )
+    final_bindings, report = _resolve_bindings(db, entry["bindings"], owner_user_id, operator_name)
 
     mc = entry.get("model_config") or {}
     data: Dict[str, Any] = {
@@ -413,6 +458,7 @@ def install_marketplace_agent(
         "plugin_ids": final_bindings["plugin_ids"],
         "kb_ids": final_bindings["kb_ids"],
         "source_market_slug": slug,
+        "ontology_tags": list(entry.get("ontology_tags") or []),
     }
     if mc.get("temperature") is not None:
         data["temperature"] = mc["temperature"]
@@ -432,8 +478,12 @@ def install_marketplace_agent(
     )
     logger.info(
         "agent_market_install: slug=%s owner=%s agent=%s bound=%d installed=%d dropped=%d",
-        slug, owner_user_id or "global", agent["agent_id"],
-        len(report["bound"]), len(report["installed"]), len(report["dropped"]),
+        slug,
+        owner_user_id or "global",
+        agent["agent_id"],
+        len(report["bound"]),
+        len(report["installed"]),
+        len(report["dropped"]),
     )
     return {
         "agent_id": agent["agent_id"],
@@ -445,6 +495,7 @@ def install_marketplace_agent(
 
 
 # ── Community listing: user submission + admin review ───────────────────────
+
 
 def _existing_slugs(db: Session) -> set:
     """Marketplace slugs currently taken: preset directory + all submissions (including rejected; slugs are table-wide unique)."""
@@ -487,7 +538,9 @@ def _bindings_snapshot(agent: UserAgent) -> Dict[str, List[str]]:
     }
 
 
-def _submission_to_dict(sub: AgentMarketSubmission, *, with_content: bool = False) -> Dict[str, Any]:
+def _submission_to_dict(
+    sub: AgentMarketSubmission, *, with_content: bool = False
+) -> Dict[str, Any]:
     data = {
         "submission_id": sub.submission_id,
         "slug": sub.slug,
@@ -550,6 +603,7 @@ def _new_submission(
     suggested_questions: Optional[List[str]] = None,
     model_config_snapshot: Optional[Dict[str, Any]] = None,
     bindings_snapshot: Optional[Dict[str, Any]] = None,
+    tags: Optional[List[str]] = None,
     reviewed_at: Optional[datetime] = None,
 ) -> AgentMarketSubmission:
     """Uniformly construct one ``AgentMarketSubmission`` (fixed fields and default normalization centralized here).
@@ -570,7 +624,7 @@ def _new_submission(
         description=description or "",
         summary=summary or "",
         category=category,
-        tags=[],
+        tags=list(tags or []),
         version="1.0.0",
         note=(note or "").strip(),
         system_prompt=system_prompt or "",
@@ -628,13 +682,17 @@ def submit_to_marketplace(
         suggested_questions=agent.suggested_questions,
         model_config_snapshot=_model_config_snapshot(agent),
         bindings_snapshot=_bindings_snapshot(agent),
+        tags=list((agent.extra_config or {}).get("ontology_tags") or []),
         status="pending",
     )
     db.add(sub)
     db.commit()
     logger.info(
         "agent_market_submission_created: id=%s agent=%s owner=%s slug=%s",
-        sub.submission_id, agent_id, owner_user_id, sub.slug,
+        sub.submission_id,
+        agent_id,
+        owner_user_id,
+        sub.slug,
     )
     return _submission_to_dict(sub)
 
@@ -722,12 +780,15 @@ def review_submission(
     db.commit()
     logger.info(
         "agent_market_submission_reviewed: id=%s slug=%s status=%s",
-        sub.submission_id, sub.slug, sub.status,
+        sub.submission_id,
+        sub.slug,
+        sub.status,
     )
     return _submission_to_dict(sub)
 
 
 # ── Admin direct upload + delete + list/delist ───────────────────────────────
+
 
 def publish_agent_to_market(
     db: Session,
@@ -767,6 +828,7 @@ def publish_agent_to_market(
         existing.suggested_questions = list(agent.suggested_questions or [])
         existing.model_config_snapshot = _model_config_snapshot(agent)
         existing.bindings_snapshot = _bindings_snapshot(agent)
+        existing.tags = list((agent.extra_config or {}).get("ontology_tags") or [])
         existing.status = "approved"
         existing.review_note = ""
         existing.reviewed_at = now
@@ -774,6 +836,7 @@ def publish_agent_to_market(
         flag_modified(existing, "suggested_questions")
         flag_modified(existing, "model_config_snapshot")
         flag_modified(existing, "bindings_snapshot")
+        flag_modified(existing, "tags")
         db.commit()
         return {"slug": existing.slug, "action": "updated", "message": "子智能体市场内容已更新"}
 
@@ -794,6 +857,7 @@ def publish_agent_to_market(
         suggested_questions=agent.suggested_questions,
         model_config_snapshot=_model_config_snapshot(agent),
         bindings_snapshot=_bindings_snapshot(agent),
+        tags=list((agent.extra_config or {}).get("ontology_tags") or []),
         status="approved",
         reviewed_at=now,
     )
@@ -816,6 +880,7 @@ def create_market_agent(
     suggested_questions: Optional[List[str]] = None,
     bindings: Optional[Dict[str, Any]] = None,
     model_config: Optional[Dict[str, Any]] = None,
+    tags: Optional[List[str]] = None,
     submitter_name: str = "管理员上传",
 ) -> Dict[str, Any]:
     """An admin directly "creates" a sub-agent and lists it on the marketplace as approved (no global agent created).
@@ -844,6 +909,7 @@ def create_market_agent(
         suggested_questions=suggested_questions,
         model_config_snapshot=model_config,
         bindings_snapshot=bindings,
+        tags=tags,
         status="approved",
         reviewed_at=now,
     )
@@ -857,11 +923,7 @@ def delete_market_agent(db: Session, slug: str) -> Dict[str, Any]:
     """An admin deletes one DB listing record from the marketplace. Presets ship with the repo and cannot be deleted online (400)."""
     if _read_bundle(slug) is not None:
         raise BadRequestError(message="预置子智能体随仓库发布，不可在线删除")
-    sub = (
-        db.query(AgentMarketSubmission)
-        .filter(AgentMarketSubmission.slug == slug)
-        .first()
-    )
+    sub = db.query(AgentMarketSubmission).filter(AgentMarketSubmission.slug == slug).first()
     if sub is None:
         raise ResourceNotFoundError("marketplace_agent", slug)
     db.delete(sub)

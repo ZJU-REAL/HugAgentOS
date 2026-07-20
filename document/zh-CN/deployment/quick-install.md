@@ -38,10 +38,11 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 1. 校验 Python ≥ 3.11、Node.js ≥ 20、npm、Git，以及 Linux 需要源码构建 `ripgrep` 时所需的 Rust；
 2. 把 HugAgentOS 克隆或快进更新到 `~/.hugagent/source`；
-3. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`），并自动重建上次中断留下的不完整环境；
-4. 安装 `requirements.txt`、`hugagent` 控制台命令、内置 Agent Skills 的 Python/Node.js 依赖，以及可选的本地知识库依赖；
-5. 把前端构建到 `src/frontend/dist`；
-6. 进入交互式首次配置向导。
+3. 检测可选的 LibreOffice；缺失时说明不可用能力并询问是否立即安装，跳过或安装失败不会阻断其余功能；
+4. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`），并自动重建上次中断留下的不完整环境；
+5. 安装 `requirements.txt`、`hugagent` 控制台命令、内置 Agent Skills 的 Python/Node.js 依赖，以及可选的本地知识库依赖；
+6. 把前端构建到 `src/frontend/dist`；
+7. 进入交互式首次配置向导。
 
 > 把命令加入 PATH 方便日常使用：`export PATH="$HOME/.hugagent/venv/bin:$PATH"`。
 
@@ -67,7 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 **第 5 步（可选）· 配置互联网搜索**——智能体联网检索需要一个搜索引擎密钥：选 `tavily`（默认，[tavily.com](https://tavily.com) 注册取 key）或 `baidu`（千帆 AppBuilder），填入 API Key；直接回车跳过。事后也可在网页「设置 → 系统管理 → 服务配置」里补配。
 
-引导末尾会打印**本机能力概览**（Node.js / pandoc / libreoffice 是否就绪，对应 React 建站 / Word 转换 / Office 转换），随后自动起服务并打开 `http://127.0.0.1:3001/`。
+引导末尾会打印**本机能力概览**（Node.js / pandoc / LibreOffice 是否就绪，对应 React 建站 / Word 转换 / PPT 和 Word 在线预览），随后自动起服务并打开 `http://127.0.0.1:3001/`。
 
 > **警告：** 服务默认只监听 `127.0.0.1`。若服务器确实需要接受远程连接，请使用
 > `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`，并先配置强管理员密码、
@@ -141,7 +142,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 
 **需额外条件**
 - **对话建站的 React 工程构建**：装 `sites` 插件后即支持——onboard 把 React 工程模板铺入 `~/.hugagent/site-template/`，首次建站时按需 `npm install`。**需宿主装有 Node.js ≥ 20 + npm**；缺则只能手写静态站点。建站链路的 `/workspace` 路径已参数化到本地工作区（静态站与 Docker 版一致）。
-- **办公文档转换**（Word/PPT/PDF 的格式转换）：需宿主装有 `libreoffice` / `pandoc`；缺则相关技能优雅报错降级（Excel 走 openpyxl 无此依赖）。
+- **办公文档转换与预览**：PPT/Word 在线预览和 Office 转 PDF 需要 LibreOffice。一键安装器检测到缺失时会说明影响并询问是否安装；选择跳过不影响文档生成、下载和其它核心功能。非交互安装可设 `HUGAGENT_INSTALL_LIBREOFFICE=1` 自动安装，或设为 `0` 明确跳过。Word 的其它转换还会用到 `pandoc`，Excel 读写仍可走 openpyxl。
 - **PDF / Word 文件解析入库**：PDF 需配置外部解析服务（onboard 第 4 步填 API URL，或 `FILE_PARSER_API_URL`）；Word 需宿主 `pandoc` / `libreoffice`。Excel / CSV / PPTX / 文本为进程内解析、开箱可用。
 - **L2 向量记忆**：默认关闭，可设 `MEM0_ENABLED=true` 实验性走同一 Milvus Lite。
 
@@ -161,6 +162,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 网页打开是一段 JSON 而非应用 | 前端未构建：`cd src/frontend && npm run build`，或设 `FRONTEND_DIST_DIR` 指向已构建的 `dist` |
 | 登录报模型不可用 | 重跑 `hugagent onboard` 重配模型（引导会实测连通性） |
 | 想换模型 / 改配置 | 重跑 `hugagent onboard`，或登录后到「设置 → 系统管理 → 模型服务 / 服务配置」调整 |
+| PPT/Word 预览提示 LibreOffice 未安装 | 重新运行一键安装器并在提示时选择安装；Debian/Ubuntu 也可执行 `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`，然后重启 HugAgentOS |
 | 技能执行反复出现 `fork: Resource temporarily unavailable` | 停止当前服务，重新运行公开安装器完成升级，再启动 `hugagent`。旧版本若留下子进程，先检查当前用户的进程，必要时注销当前登录会话后重试。 |
 | 环境是否就绪 | `hugagent doctor` 一次性自检 |
 

@@ -5,3 +5,5 @@ export { ElapsedTimer } from './ElapsedTimer';
 export { default as AppLoadingSkeleton } from './AppLoadingSkeleton';
 export { LangToggleButton } from './LangToggleButton';
 export { VisibilityScopeModal } from './VisibilityScopeModal';
+export { OntologyBuildValidationModal } from './OntologyBuildValidationModal';
+export { OntologyTagSelect } from './OntologyTagSelect';

@@ -82,6 +82,7 @@ htmlcov/
 *.tmp
 *.bak
 .cache/
+tmp/
 
 # Docker
 docker-compose.override.yml

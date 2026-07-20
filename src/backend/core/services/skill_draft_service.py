@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from core.db.models import AdminSkill, AdminSkillDraft
+from core.ontology.build_validator import ensure_ontology_build_valid
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,33 @@ def approve_draft(
         d.skill_content = edited_content
 
     skill_id = d.proposed_skill_id
+    validation_target = None
+    if d.decision == "patch":
+        target_id = d.patch_target_id or skill_id
+        validation_target = (
+            db.query(AdminSkill).filter(AdminSkill.skill_id == target_id).first()
+        )
+        if not validation_target:
+            raise HTTPException(status_code=400, detail=f"patch_target_missing:{target_id}")
+    ensure_ontology_build_valid(
+        db,
+        asset_type="skill",
+        name=d.display_name
+        or (validation_target.display_name if validation_target else None)
+        or skill_id,
+        description=d.description
+        or (validation_target.description if validation_target else None)
+        or "",
+        instructions=d.skill_content or "",
+        tool_names=list(
+            d.allowed_tools
+            or (validation_target.allowed_tools if validation_target else None)
+            or []
+        ),
+        ontology_tags=list(
+            d.tags or (validation_target.tags if validation_target else None) or []
+        ),
+    )
 
     if d.decision == "new_skill" and publish_to_marketplace:
         # Approved new skill goes to the skill marketplace (not directly into the formal store). The marketplace publish commits internally.
@@ -108,9 +136,8 @@ def approve_draft(
         db.add(skill)
     elif d.decision == "patch":
         target_id = d.patch_target_id or skill_id
-        target = db.query(AdminSkill).filter(AdminSkill.skill_id == target_id).first()
-        if not target:
-            raise HTTPException(status_code=400, detail=f"patch_target_missing:{target_id}")
+        target = validation_target
+        assert target is not None
         target.skill_content = d.skill_content
         if d.display_name:
             target.display_name = d.display_name

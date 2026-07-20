@@ -38,9 +38,10 @@ class CompositeBackend:
         for backend in sorted_backends:
             for skill_info in backend.list_skill_files():
                 # Higher priority (or later in list) overwrites
-                if skill_info.skill_id not in merged or skill_info.priority >= merged[
-                    skill_info.skill_id
-                ].priority:
+                if (
+                    skill_info.skill_id not in merged
+                    or skill_info.priority >= merged[skill_info.skill_id].priority
+                ):
                     merged[skill_info.skill_id] = skill_info
 
         return merged
@@ -92,7 +93,12 @@ class CompositeBackend:
             raise FileNotFoundError(f"Skill not found in any backend: {skill_id}")
 
         skill_info = self._skill_map[skill_id]
-        # DB-backed skills embed content directly; filesystem skills use file I/O
+        if skill_info.is_database:
+            for backend in self._backends:
+                if backend.source_name == skill_info.source_name:
+                    return backend.read_skill_file(skill_id)
+            raise FileNotFoundError(f"Owning backend not found for DB skill: {skill_id}")
+        # Inline/remote backends may still embed content; filesystem skills use file I/O.
         if skill_info.content is not None:
             return skill_info.content
         return skill_info.file_path.read_text(encoding="utf-8")

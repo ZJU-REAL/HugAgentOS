@@ -68,6 +68,7 @@ from core.agent_skills.registry import (
 )
 from core.db.models import AdminSkill, MarketplaceSubmission
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.ontology.build_validator import ensure_ontology_build_valid
 
 logger = logging.getLogger(__name__)
 
@@ -676,6 +677,16 @@ def install_marketplace_skill(
     version = m.get("version") or meta.version or "1.0.0"
     user_intro = _build_user_intro(m)
 
+    ensure_ontology_build_valid(
+        db,
+        asset_type="skill",
+        name=display_name or install_id,
+        description=description,
+        instructions=skill_content,
+        tool_names=list(meta.allowed_tools or []),
+        ontology_tags=list(tags),
+    )
+
     now = datetime.utcnow()
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == install_id).first()
     if existing is not None:
@@ -996,6 +1007,15 @@ def publish_skill_zip_to_marketplace(
     parsed = parse_skill_zip(data)
     meta = parsed["meta"]
     name = (display_name or "").strip() or meta.name or parsed["skill_id"]
+    ensure_ontology_build_valid(
+        db,
+        asset_type="skill",
+        name=name,
+        description=(summary or "").strip() or meta.description or "",
+        instructions=parsed["skill_content"],
+        tool_names=list(meta.allowed_tools or []),
+        ontology_tags=list(meta.tags or []),
+    )
     slug, action = _upsert_admin_submission(
         db,
         skill_id=parsed["skill_id"],
@@ -1041,6 +1061,22 @@ def publish_skill_to_marketplace(
     (valid frontmatter).
     """
     name = (display_name or "").strip() or skill_id
+    try:
+        meta = _load_skill_metadata_from_str(skill_content, skill_id)
+        allowed_tools = list(meta.allowed_tools or [])
+        parsed_description = meta.description or ""
+    except Exception:  # Some reviewed legacy drafts have minimal frontmatter.
+        allowed_tools = []
+        parsed_description = ""
+    ensure_ontology_build_valid(
+        db,
+        asset_type="skill",
+        name=name,
+        description=description or parsed_description,
+        instructions=skill_content,
+        tool_names=allowed_tools,
+        ontology_tags=list(tags or []),
+    )
     slug, action = _upsert_admin_submission(
         db,
         skill_id=skill_id,

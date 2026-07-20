@@ -2,28 +2,37 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from core.config.catalog_resolver import (
+    enabled_kb_ids_from_context,
+    enabled_mcp_ids_from_context,
+    enabled_skill_ids_from_context,
+)
+from core.config.display_names import TOOL_DISPLAY_NAMES
 from core.llm.agent_factory import create_agent_executor
 from core.llm.context_manager import (
     ContextBudget,
     ContextWindowManager,
     resolve_model_context_window,
 )
-from core.llm.message_compat import session_to_msgs, strip_thinking
 from core.llm.mcp_manager import close_clients
-from core.config.catalog_resolver import (
-    enabled_skill_ids_from_context,
-    enabled_mcp_ids_from_context,
-    enabled_kb_ids_from_context,
+from core.llm.message_compat import session_to_msgs, strip_thinking
+from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
+from core.ontology.validator import (
+    activate_runtime_for_asset,
+    claim_output_review,
+    complete_output_review,
+    release_output_review,
+    requires_output_review,
 )
-from orchestration.streaming import StreamingAgent
+from core.services.ontology_service import resolve_runtime_asset_tags
 from orchestration.citations import extract_citations_with_offset
-from core.config.display_names import TOOL_DISPLAY_NAMES
-
+from orchestration.streaming import StreamingAgent
 
 # Project mode: extracted from chats.py's ctx and passed through to agent_factory so the system prompt renders the project section.
 _PROJECT_CTX_KEYS = (
@@ -63,16 +72,557 @@ def _extract_skill_id_from_path(path: str) -> str:
     return ""
 
 
+def _ontology_review_event_context(runtime: Dict[str, Any]) -> Dict[str, Any]:
+    committee_size = max(
+        (int(pack.get("config", {}).get("committee_size", 3)) for pack in runtime.get("packs", [])),
+        default=3,
+    )
+    workflows = [
+        {
+            "pack_id": pack.get("pack_id"),
+            "workflow_id": workflow.get("id"),
+            "workflow_name": workflow.get("name"),
+        }
+        for pack in runtime.get("packs", [])
+        for workflow in pack.get("workflows", [])
+    ]
+    review_state = runtime.get("output_review") or {}
+    return {
+        "governance_run_id": runtime.get("governance_run_id"),
+        "review_owner": review_state.get("owner"),
+        "review_count": int(review_state.get("count") or 0),
+        "committee_size": committee_size,
+        "workflows": workflows,
+        "activation_sources": sorted(
+            {
+                str(event.get("source"))
+                for event in runtime.get("runtime_events", [])
+                if event.get("type") == "ontology_activation" and event.get("source")
+            }
+        ),
+    }
+
+
+def _ontology_governance_summary(runtime: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Build the compact, persisted governance card payload for one answer."""
+    if not runtime.get("enabled"):
+        return None
+    events = list(runtime.get("runtime_events") or [])
+    activations = [
+        {
+            key: event.get(key)
+            for key in (
+                "pack_id",
+                "workflow_id",
+                "workflow_name",
+                "source",
+                "asset_kind",
+                "asset_id",
+                "review_level",
+            )
+            if event.get(key) is not None
+        }
+        for event in events
+        if event.get("type") == "ontology_activation"
+    ]
+    gates = [
+        {
+            key: event.get(key)
+            for key in (
+                "decision",
+                "tool_name",
+                "matched_rule_ids",
+                "violations",
+                "denial_count",
+                "circuit_breaker",
+            )
+            if event.get(key) is not None
+        }
+        for event in events
+        if event.get("type") == "ontology_gate"
+    ]
+    review_state = dict(runtime.get("output_review") or {})
+    review_state["level"] = runtime.get("review_level", "none")
+    review_state["committee_size"] = _ontology_review_event_context(runtime)["committee_size"]
+    if not activations and not gates and review_state.get("status") == "pending":
+        return None
+    if review_state.get("status") == "pending" and not requires_output_review(runtime):
+        review_state["status"] = "skipped"
+    return {
+        "governance_run_id": runtime.get("governance_run_id"),
+        "activations": activations,
+        "gates": gates,
+        "review": review_state,
+    }
+
+
+def _ontology_review_owner(runtime: Dict[str, Any], context: Dict[str, Any]) -> str:
+    """Stable owner token for the one outer-workflow final review."""
+    run_id = runtime.get("governance_run_id") or context.get("chat_id") or "request"
+    return f"outer_workflow:{run_id}"
+
+
+def _ontology_review_failure_result(answer: str, exc: Exception) -> Dict[str, Any]:
+    """Keep a completed draft usable when the post-answer review itself fails."""
+    logger.error(
+        "[ontology-review] automatic review failed; preserving original answer: %s",
+        exc,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return {
+        "verdict": "escalate",
+        "answer": answer,
+        "revised": False,
+        "annotated": True,
+        "repair_attempts": 0,
+        "attempts": 1,
+        "violations": [],
+        "affected_claims": [],
+        "evidence": [],
+        "feedback": ["自动评审未正常完成，已保留原文并转人工复核。"],
+        "manual_review": {
+            "required": True,
+            "title": "领域本体人工复核",
+            "summary": "自动评审未正常完成，原文已保留，请人工核对或重新发起评审。",
+            "items": [
+                {
+                    "quote": "本轮完整答案",
+                    "rule_id": "ontology_review_runtime",
+                    "risk": "自动评审未完成，系统无法确认答案满足全部领域约束。",
+                    "manual_check": "核对关键事实、推断、适用前提和原始工具证据。",
+                }
+            ],
+            "actions": ["重新发起本体评审，或在采用结论前完成人工核对。"],
+        },
+        "new_tools": [],
+        "new_citation_count": 0,
+        "latency_ms": None,
+    }
+
+
+async def _anext_in_subagent_log_scope(iterator, subagent_log_id: str):  # noqa: ANN001
+    """Advance one agent-stream item without leaking log tokens across SSE yields."""
+    from core.services import log_service as log_writer
+
+    with log_writer.subagent_scope(subagent_log_id, source="subagent"):
+        return await anext(iterator)
+
+
+def _record_ontology_activations(
+    activations: List[Dict[str, Any]],
+    runtime: Dict[str, Any],
+    context: Dict[str, Any],
+) -> None:
+    if not activations:
+        return
+    try:
+        from core.services.ontology_service import record_runtime_activation
+
+        for event in activations:
+            record_runtime_activation(
+                event,
+                runtime,
+                user_id=str(context.get("user_id", "")) or None,
+                chat_id=context.get("chat_id"),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ontology] workflow activation audit persistence failed: %s", exc)
+
+
+def _bounded_trace_value(value: Any, max_chars: int = 4000) -> Any:
+    """Keep reviewer evidence useful without copying unbounded tool output."""
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        text = str(value)
+    if len(text) <= max_chars:
+        return value
+    return {"truncated": True, "preview": text[:max_chars]}
+
+
+def _parse_tool_result_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value) if value else {}
+    except json.JSONDecodeError:
+        return {"result": value}
+
+
+def _capture_nested_ontology_evidence(
+    payload: Dict[str, Any],
+    trace: List[Dict[str, Any]],
+    citations: List[Dict[str, Any]],
+    citation_offsets: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    """Merge trusted ``call_subagent`` bypass events into the outer review trace."""
+    sub_type = str(payload.get("sub_type") or "")
+    tool_name = str(payload.get("tool_name") or "")
+    tool_id = str(payload.get("tool_id") or "")
+    provenance = {
+        key: payload.get(key)
+        for key in ("agent_id", "agent_name", "sub_run_id", "parent_tool_id")
+        if payload.get(key) is not None
+    }
+    if sub_type == "tool_call" and tool_name and payload.get("input") is not None:
+        trace.append(
+            {
+                "type": "tool_call",
+                "tool_id": tool_id,
+                "tool_name": tool_name,
+                "input": _bounded_trace_value(payload.get("input")),
+                "source": "subagent",
+                **provenance,
+            }
+        )
+        return []
+    if sub_type != "tool_result" or not tool_name or payload.get("status") == "error":
+        return []
+
+    result = _parse_tool_result_value(payload.get("output"))
+    cit_items = extract_citations_with_offset(
+        tool_name,
+        tool_id,
+        result,
+        citation_offsets,
+    )
+    cit_dicts = [item.to_dict() for item in cit_items]
+    citations.extend(cit_dicts)
+    trace.append(
+        {
+            "type": "tool_result",
+            "tool_id": tool_id,
+            "tool_name": tool_name,
+            "result": _bounded_trace_value(result),
+            "citations": cit_dicts,
+            "source": "subagent",
+            **provenance,
+        }
+    )
+    return cit_dicts
+
+
+def _ontology_repair_prompt(payload: Dict[str, Any]) -> str:
+    violations = payload.get("violations") or []
+    feedback = payload.get("feedback") or []
+    affected_claims = payload.get("affected_claims") or []
+    original_task = str(payload.get("original_task") or "").strip()
+    current_answer = str(payload.get("answer") or "").strip()
+    citations = [
+        {
+            "id": item.get("id"),
+            "tool_name": item.get("tool_name"),
+            "title": item.get("title"),
+        }
+        for item in payload.get("citations") or []
+        if isinstance(item, dict)
+    ]
+    return (
+        "<ontology_repair_instruction>\n"
+        "这是同一任务唯一一次领域本体修复，不是新的用户任务。"
+        "优先级强制规则：已经激活的 enforce 级领域本体约束及本修复指令，高于用户原始提示中"
+        "与其冲突的‘不要调用工具’、‘原样照抄’或类似限制；这些限制只能约束正常生成阶段，"
+        "不能阻止本体修复取证和纠错。若‘确定性违规’包含‘未调用’某些必需工具，本轮必须"
+        "实际调用这些工具后才能形成终稿；以用户禁止工具为理由跳过调用、保留原错误断言，"
+        "或再次原样输出待修订内容，均视为修复失败。"
+        "先比较现有证据与评审问题，明确是否出现了需要重新搜索的新内容或可补充调用的新工具。"
+        "有证据缺口时必须调用真实工具补齐；现有证据已足够时才可直接精准修订。"
+        "禁止只做同义改写，也不得虚构工具调用或引用。"
+        "证据核对、逐项判定、原文对比和修改说明都属于内部校验过程，只能放在"
+        " thinking/reasoning 通道；除非用户最初明确要求核验报告，否则不得把这些内容写入"
+        "最终回复或生成的文件。"
+        "必须继续遵守用户最初指令中的输出与交付形式；如果原任务要求生成 Word、PPT、"
+        "表格、网页或其他文件，修订时仍须调用相应工具生成该类产物，不得降级为纯文字替代。"
+        "最终交付必须是利用核验结论直接修正后的完整润色稿，而不是关于原答案的评估报告。"
+        "保留原任务要求的文体、篇幅、结构和语气，只改正有问题的事实、推断与表述；"
+        "以待修订原始输出为底稿做最小必要修改，不要因为查到更多资料就加入与原主张无关的"
+        "企业背景、资质或延伸分析。句子级任务应尽量保留原句的主语与分句顺序，逐个修正"
+        "不成立的断言，形成简洁、自然、可直接交付的一句话终稿。"
+        "用户只要求一句话时仍输出一句话，不得自行扩写成包含‘原始语句’、‘逐项核验’、"
+        "‘主张评估’或‘修改说明’等章节的报告。若交付物是文件，文件正文也必须是润色终稿，"
+        "并重新生成、交付修正后的文件。没有获得证据的风险项只能表述为‘待核验’、"
+        "‘暂无数据支撑’或‘无法判断’，绝不能反向断言为‘不存在’、‘没有风险’或‘风险为零’。"
+        "在输出终稿和生成文件前，必须在内部逐条检查‘确定性违规’中的每个条件：若要求"
+        "最低长度，终稿必须达到该长度；若要求引用，相关事实后必须包含真实 `[ref:工具名-序号]`"
+        "且按规则补齐参考资料；若要求区分事实、推断和待核验项，可在同一句中用分号和简短标签"
+        "表达，不得省略。先确定唯一的合格终稿，再把完全相同的正文写入用户要求的文件，"
+        "不得先生成文件后又输出一份更短、缺引用或结论不同的候选正文。"
+        "思考过程只放在模型的 thinking/reasoning 通道。最终正文必须且只能放在"
+        " `<ontology_revision>完整候选答案</ontology_revision>` 中。"
+        "在正式输出最终正文前，不要复述、引用或示例化这组标签，也不要用省略号代替正文。"
+        "标签内必须是可独立阅读、内容完整的修订答案；若无法修订，则原样放入当前完整答案。"
+        "事实、推断和待核验项必须明确区分；引用已有或新增工具结果时使用"
+        " `[ref:工具名-序号]`。\n"
+        f"用户最初指令：{json.dumps(original_task, ensure_ascii=False)[:12000]}\n"
+        f"待修订原始输出：{json.dumps(current_answer, ensure_ascii=False)[:12000]}\n"
+        f"修复轮次：{payload.get('attempt', 1)}\n"
+        f"问题来源：{payload.get('source', 'review')}\n"
+        f"确定性违规：{json.dumps(violations, ensure_ascii=False)[:8000]}\n"
+        f"委员会意见：{json.dumps(feedback, ensure_ascii=False)[:8000]}\n"
+        f"受影响内容：{json.dumps(affected_claims, ensure_ascii=False)[:5000]}\n"
+        f"当前可用引用：{json.dumps(citations, ensure_ascii=False)[:5000]}\n"
+        "直接开始补充工具或输出修复后的完整答案。\n"
+        "</ontology_repair_instruction>"
+    )
+
+
+async def _run_ontology_repair_round(
+    *,
+    streaming_agent: StreamingAgent,
+    context: Dict[str, Any],
+    payload: Dict[str, Any],
+    runtime: Dict[str, Any],
+    trace: List[Dict[str, Any]],
+    citations: List[Dict[str, Any]],
+    citation_offsets: Dict[str, int],
+    event_cursor: int,
+    subagent_log_id: Optional[str] = None,
+    event_sink: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+) -> Tuple[str, List[Dict[str, Any]], int, int]:
+    """Continue the originating agent and stream a separate revision candidate."""
+    answer = ""
+    events: List[Dict[str, Any]] = []
+    tool_count = 0
+    text_buffer = ""
+    raw_text = ""
+    revision_open = False
+    revision_closed = False
+    thinking_line_prefix = ""
+
+    async def _publish(event: Dict[str, Any]) -> None:
+        events.append(event)
+        if event_sink is not None:
+            await event_sink(event)
+
+    async def _publish_text_thinking(delta: str) -> None:
+        """Publish text-channel reasoning and remember its current line prefix."""
+        nonlocal thinking_line_prefix
+        if not delta:
+            return
+        if "\n" in delta:
+            thinking_line_prefix = delta.rsplit("\n", 1)[-1]
+        else:
+            thinking_line_prefix = (thinking_line_prefix + delta)[-256:]
+        await _publish({"type": "ontology_revision_thinking", "delta": delta})
+
+    def _is_revision_opening_boundary(line_before_open: str) -> bool:
+        """Allow a revision wrapper after whitespace or a reasoning close tag."""
+
+        prefix = line_before_open.rstrip()
+        return not prefix or prefix.endswith(("</think>", "</analysis>"))
+
+    await _publish(
+        {
+            "type": "ontology_repair",
+            "status": "started",
+            "attempt": payload.get("attempt", 1),
+            "source": payload.get("source", "review"),
+        }
+    )
+
+    stream = streaming_agent.stream(
+        [{"role": "user", "content": _ontology_repair_prompt(payload)}],
+        context,
+    ).__aiter__()
+    while True:
+        try:
+            if subagent_log_id:
+                event_type, event_payload = await _anext_in_subagent_log_scope(
+                    stream,
+                    subagent_log_id,
+                )
+            else:
+                event_type, event_payload = await anext(stream)
+        except StopAsyncIteration:
+            break
+
+        state_runtime = getattr(streaming_agent.agent.state, "ontology_runtime", None)
+        if isinstance(state_runtime, dict):
+            runtime = state_runtime
+            context["ontology_runtime"] = state_runtime
+        pending_events = runtime.get("runtime_events", [])[event_cursor:]
+        for item in pending_events:
+            await _publish(dict(item))
+        event_cursor += len(pending_events)
+
+        if event_type == "text_delta":
+            delta = str(event_payload or "")
+            if not delta:
+                continue
+            raw_text += delta
+            if revision_closed:
+                await _publish_text_thinking(delta)
+                continue
+            text_buffer += delta
+            while text_buffer:
+                if not revision_open:
+                    open_idx = text_buffer.find("<ontology_revision>")
+                    if open_idx < 0:
+                        keep = min(len("<ontology_revision>") - 1, len(text_buffer))
+                        safe_len = len(text_buffer) - keep
+                        if safe_len > 0:
+                            await _publish_text_thinking(text_buffer[:safe_len])
+                            text_buffer = text_buffer[safe_len:]
+                        break
+                    before_open = text_buffer[:open_idx]
+                    line_before_open = (thinking_line_prefix + before_open).rsplit("\n", 1)[-1]
+                    if not _is_revision_opening_boundary(line_before_open):
+                        # Reasoning models sometimes describe the contract as
+                        # `<ontology_revision>...</ontology_revision>`.  A real
+                        # wrapper starts a new line or immediately follows the
+                        # model's reasoning close tag.  Other inline occurrences
+                        # remain folded as examples rather than candidate text.
+                        ignored = text_buffer[: open_idx + len("<ontology_revision>")]
+                        await _publish_text_thinking(ignored)
+                        text_buffer = text_buffer[open_idx + len("<ontology_revision>") :]
+                        continue
+                    if open_idx > 0:
+                        await _publish_text_thinking(before_open)
+                    text_buffer = text_buffer[open_idx + len("<ontology_revision>") :]
+                    revision_open = True
+                    continue
+                close_idx = text_buffer.find("</ontology_revision>")
+                if close_idx < 0:
+                    keep = min(len("</ontology_revision>") - 1, len(text_buffer))
+                    safe_len = len(text_buffer) - keep
+                    if safe_len > 0:
+                        candidate_delta = text_buffer[:safe_len]
+                        answer += candidate_delta
+                        await _publish({"type": "ontology_revision", "delta": candidate_delta})
+                        text_buffer = text_buffer[safe_len:]
+                    break
+                if close_idx > 0:
+                    candidate_delta = text_buffer[:close_idx]
+                    answer += candidate_delta
+                    await _publish({"type": "ontology_revision", "delta": candidate_delta})
+                text_buffer = text_buffer[close_idx + len("</ontology_revision>") :]
+                revision_closed = True
+                break
+        elif event_type == "thinking_delta":
+            await _publish(
+                {"type": "ontology_revision_thinking", "delta": str(event_payload or "")}
+            )
+        elif event_type == "tool_call":
+            tool_name = str(event_payload.get("name") or "unknown")
+            tool_id = str(event_payload.get("id") or "")
+            tool_args = event_payload.get("args") or {}
+            trace.append(
+                {
+                    "type": "tool_call",
+                    "tool_id": tool_id,
+                    "tool_name": tool_name,
+                    "input": _bounded_trace_value(tool_args),
+                    "source": "ontology_repair",
+                }
+            )
+            await _publish(
+                {
+                    "type": "tool_call",
+                    "tool_name": tool_name,
+                    "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
+                    "tool_args": tool_args,
+                    "input": tool_args,
+                    "tool_id": tool_id,
+                    "scope": "ontology_revision",
+                }
+            )
+        elif event_type == "tool_result":
+            tool_count += 1
+            tool_name = str(event_payload.get("name") or "unknown")
+            tool_id = str(event_payload.get("id") or "")
+            result = _parse_tool_result_value(event_payload.get("content"))
+            cit_items = extract_citations_with_offset(
+                tool_name,
+                tool_id,
+                result,
+                citation_offsets,
+            )
+            cit_dicts = [item.to_dict() for item in cit_items]
+            citations.extend(cit_dicts)
+            trace.append(
+                {
+                    "type": "tool_result",
+                    "tool_id": tool_id,
+                    "tool_name": tool_name,
+                    "result": _bounded_trace_value(result),
+                    "citations": cit_dicts,
+                    "source": "ontology_repair",
+                }
+            )
+            await _publish(
+                {
+                    "type": "tool_result",
+                    "tool_name": tool_name,
+                    "result": result,
+                    "tool_id": tool_id,
+                    "citations": cit_dicts,
+                    "scope": "ontology_revision",
+                }
+            )
+        elif event_type == "subagent_event":
+            nested_citations = _capture_nested_ontology_evidence(
+                event_payload or {},
+                trace,
+                citations,
+                citation_offsets,
+            )
+            sub_type = str((event_payload or {}).get("sub_type") or "")
+            if sub_type in {"start", "thinking", "content", "tool_call", "tool_result", "end"}:
+                await _publish(
+                    {
+                        "type": "subagent_event",
+                        **(event_payload or {}),
+                        "scope": "ontology_revision",
+                        **({"citations": nested_citations} if nested_citations else {}),
+                    }
+                )
+        elif event_type == "tool_pending":
+            await _publish(
+                {
+                    "type": "tool_pending",
+                    **(event_payload or {}),
+                    "scope": "ontology_revision",
+                }
+            )
+        elif event_type in {"file_confirm", "design_pick"}:
+            raise RuntimeError("本体自动修复轮不支持等待交互确认，请转人工复核")
+        elif event_type == "error":
+            if isinstance(event_payload, BaseException):
+                raise event_payload
+            raise RuntimeError(str(event_payload))
+
+    if revision_open and not revision_closed and text_buffer:
+        answer += text_buffer
+        await _publish({"type": "ontology_revision", "delta": text_buffer})
+    elif not revision_open and text_buffer.strip():
+        # Compatibility fallback for models that ignored the wrapper.  When
+        # embedded </think> text exists, only the content after the last closing
+        # marker can be a candidate; never promote the hidden reasoning itself.
+        fallback = normalize_revision_candidate(raw_text.rsplit("</think>", 1)[-1])
+        if is_substantive_revision(fallback):
+            answer = fallback
+            await _publish({"type": "ontology_revision", "delta": answer})
+
+    await _publish(
+        {
+            "type": "ontology_repair",
+            "status": "completed",
+            "attempt": payload.get("attempt", 1),
+            "tool_calls": tool_count,
+        }
+    )
+    return normalize_revision_candidate(answer), events, event_cursor, tool_count
+
+
 # SSE tool-result payload builders (moved to routing.tool_payloads)
 from orchestration.tool_payloads import (  # noqa: E402
+    _FAST_EMIT_TOOLS,
     _build_read_artifact_payload,
     _build_read_tool_payload,
     _build_skill_load_payload,
     _build_view_text_file_payload,
     _tool_args_ready,
-    _FAST_EMIT_TOOLS,
 )
-
 
 # Process-level persistent references: after each streaming run,
 # (streaming_agent, mcp_clients) is pushed in so HTTP transport MCP clients
@@ -95,18 +645,17 @@ from orchestration.tool_payloads import (  # noqa: E402
 _persistent_clients: list = []
 
 
-# Re-export public helpers for backward compatibility
-from orchestration.message_parser import (  # noqa: F401
-    looks_markdown as _looks_markdown,
-    resolve_sources_conflict as _resolve_sources_conflict,
-)
 from orchestration.memory_integration import (  # noqa: F401
-    launch_memory_retrieval,
     build_frozen_memory_block,
     build_user_identity_block,
     inject_frozen_memory,
+    launch_memory_retrieval,
     save_memories_background,
 )
+
+# Re-export public helpers for backward compatibility
+from orchestration.message_parser import looks_markdown as _looks_markdown  # noqa: F401
+from orchestration.message_parser import resolve_sources_conflict as _resolve_sources_conflict
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +701,18 @@ def _resolve_batch_runner_visibility(
     return [m for m in enabled_mcp_ids if m != _BATCH_RUNNER_ID]
 
 
+def _explicit_skill_ids_from_context(context: Dict[str, Any]) -> List[str]:
+    skill_ids: List[str] = []
+    single = context.get("skill_id")
+    if single:
+        skill_ids.append(str(single))
+    multi = context.get("skill_ids")
+    if isinstance(multi, list):
+        skill_ids.extend(str(item) for item in multi if item)
+    seen: set[str] = set()
+    return [item for item in skill_ids if not (item in seen or seen.add(item))]
+
+
 def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Build an explicit-invocation hint message (skill load instructions + MCP tool activation notice).
 
@@ -171,15 +732,7 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     Returns a dict {"role": "user", "content": "..."} or None.
     """
-    skill_ids: List[str] = []
-    single = context.get("skill_id")
-    if single:
-        skill_ids.append(str(single))
-    multi = context.get("skill_ids")
-    if isinstance(multi, list):
-        skill_ids.extend(str(x) for x in multi if x)
-    seen: set = set()
-    skill_ids = [i for i in skill_ids if not (i in seen or seen.add(i))]
+    skill_ids = _explicit_skill_ids_from_context(context)
 
     mcp_ids = [str(m) for m in (context.get("mcp_ids") or []) if m]
     plugin_name = context.get("plugin_name")
@@ -310,6 +863,33 @@ def _parse_agent_mentions(message: str, available_agents: list) -> list:
     return ordered
 
 
+def _direct_agent_id_from_context(context: Dict[str, Any]) -> Optional[str]:
+    """Return the target only for a persistent dedicated sub-agent chat.
+
+    A per-turn @mention must stay on the main-model stream so it produces a
+    genuine ``call_subagent`` tool call instead of silently bypassing the
+    parent model's reasoning and streaming lifecycle.
+    """
+    value = context.get("agent_id")
+    return str(value) if value else None
+
+
+def _load_direct_user_agent(agent_id: str, user_id: str):
+    """Load and detach the complete user-agent configuration for execution."""
+    from core.db.engine import SessionLocal
+    from core.services.user_agent_service import UserAgentService
+
+    with SessionLocal() as db:
+        user_agent = UserAgentService(db).get_raw_by_id(agent_id, user_id=user_id)
+        # Eagerly load every relationship/config field consumed after the DB
+        # session closes. SQLAlchemy expires lazy relationships on close.
+        _ = user_agent.mcp_server_ids, user_agent.skill_ids, user_agent.kb_ids
+        _ = user_agent.system_prompt, user_agent.model_provider_id
+        _ = user_agent.max_iters, user_agent.temperature, user_agent.max_tokens
+        _ = user_agent.timeout, user_agent.extra_config
+        return user_agent
+
+
 # ------------------------------------------------------------------
 # Data containers
 # ------------------------------------------------------------------
@@ -339,6 +919,63 @@ def run_chat_workflow(
 ) -> WorkflowResult:
     """Run route -> target execution."""
 
+    _explicit_command = context.get("explicit_subagent_command")
+    _explicit_agent_id = (
+        str(_explicit_command.get("agent_id"))
+        if isinstance(_explicit_command, dict) and _explicit_command.get("agent_id")
+        else None
+    )
+    _mention_agent_id = str(context.get("mention_agent_id") or "") or None
+    _direct_agent_id = _direct_agent_id_from_context(context)
+    _direct_user_agent = None
+    _visible_subagents: List[Dict[str, Any]] = []
+    _request_ontology_runtime = context.get("ontology_runtime")
+    if not isinstance(_request_ontology_runtime, dict):
+        _request_ontology_runtime = {}
+        context["ontology_runtime"] = _request_ontology_runtime
+    if _direct_agent_id:
+        _direct_user_agent = _load_direct_user_agent(
+            _direct_agent_id,
+            str(context.get("user_id", "")),
+        )
+        activations = activate_runtime_for_asset(
+            _request_ontology_runtime,
+            kind="subagent",
+            asset_id=_direct_agent_id,
+            tags=list((_direct_user_agent.extra_config or {}).get("ontology_tags") or []),
+        )
+        _record_ontology_activations(
+            activations,
+            _request_ontology_runtime,
+            context,
+        )
+    else:
+        try:
+            from core.db.engine import SessionLocal as _SessionLocal
+            from core.services.user_agent_service import UserAgentService as _UAS
+
+            with _SessionLocal() as _db:
+                _visible_subagents = _UAS(_db).list_for_user(str(context.get("user_id", "")))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[workflow] failed to load visible subagents: %s", exc)
+    for skill_id in _explicit_skill_ids_from_context(context):
+        resolve_runtime_asset_tags(
+            runtime=_request_ontology_runtime,
+            kind="skill",
+            asset_id=skill_id,
+            user_id=str(context.get("user_id", "") or ""),
+        )
+        activations = activate_runtime_for_asset(
+            _request_ontology_runtime,
+            kind="skill",
+            asset_id=skill_id,
+        )
+        _record_ontology_activations(
+            activations,
+            _request_ontology_runtime,
+            context,
+        )
+
     # ── Inject explicit skill instructions ──
     skill_msg = _build_skill_injection(context)
     if skill_msg:
@@ -346,9 +983,9 @@ def run_chat_workflow(
         logger.info("[skill_inject] injected skill instructions for '%s'", context.get("skill_id"))
 
     warnings: List[str] = []
-    enabled_skill_ids = enabled_skill_ids_from_context(context)
-    enabled_kb_ids = enabled_kb_ids_from_context(context)
-    enabled_mcp_ids = enabled_mcp_ids_from_context(context)
+    enabled_skill_ids = None if _direct_user_agent else enabled_skill_ids_from_context(context)
+    enabled_kb_ids = None if _direct_user_agent else enabled_kb_ids_from_context(context)
+    enabled_mcp_ids = None if _direct_user_agent else enabled_mcp_ids_from_context(context)
 
     enabled_mcp_ids = _resolve_batch_runner_visibility(context, enabled_mcp_ids)
 
@@ -373,10 +1010,14 @@ def run_chat_workflow(
             model_provider_id=_workflow_model_provider_id,
             chat_mode=_workflow_chat_mode,
             memory_enabled=_workflow_mem_enabled,
-            batch_mode=_workflow_batch_chat,
+            batch_mode=_workflow_batch_chat if _direct_user_agent is None else False,
+            user_agent=_direct_user_agent,
+            visible_subagents=_visible_subagents if _visible_subagents else None,
+            chat_id=context.get("chat_id"),
             project_ctx=_extract_project_ctx(context),
             channel_origin=context.get("channel_origin"),
             automation_run=bool(context.get("automation_run")),
+            ontology_runtime=context.get("ontology_runtime"),
         )
         try:
             from agentscope.message import Msg, TextBlock
@@ -421,11 +1062,84 @@ def run_chat_workflow(
             # ownership by state.user_id); no manual append here, otherwise it
             # would duplicate the middleware's injection and waste tokens.
 
+            model_user_message = user_message or ""
+            _delegated_agent_id = _explicit_agent_id or _mention_agent_id
+            if _delegated_agent_id and _visible_subagents:
+                from core.llm.subagent_tool import build_explicit_subagent_command_hint
+
+                explicit_hint = build_explicit_subagent_command_hint(
+                    _visible_subagents,
+                    _delegated_agent_id,
+                )
+                if explicit_hint:
+                    model_user_message = f"{explicit_hint}\n{model_user_message}"
             user_msg = Msg(
-                name="user", role="user", content=[TextBlock(type="text", text=user_message or "")]
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text=model_user_message)],
             )
             result = await agent.reply(inputs=user_msg)
-            return strip_thinking(result.get_text_content() or "")
+            response = strip_thinking(result.get_text_content() or "")
+            ontology_runtime = context.get("ontology_runtime")
+            if not isinstance(ontology_runtime, dict):
+                ontology_runtime = {}
+                context["ontology_runtime"] = ontology_runtime
+            review_owner = _ontology_review_owner(ontology_runtime, context)
+            review_claimed = bool(
+                response and claim_output_review(ontology_runtime, owner=review_owner)
+            )
+            if review_claimed:
+                from orchestration.subagents.ontology_reviewer import review_ontology_output
+
+                async def _remediate(payload: Dict[str, Any]) -> str:
+                    repair_msg = Msg(
+                        name="user",
+                        role="user",
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text=_ontology_repair_prompt(payload),
+                            )
+                        ],
+                    )
+                    repaired_result = await agent.reply(inputs=repair_msg)
+                    return strip_thinking(repaired_result.get_text_content() or "").strip()
+
+                try:
+                    review = await review_ontology_output(
+                        task=user_message,
+                        answer=response,
+                        runtime=ontology_runtime,
+                        trace=[],
+                        citations=[],
+                        user_id=_workflow_user_id,
+                        chat_id=context.get("chat_id"),
+                        model_name=_workflow_model_name or None,
+                        model_provider_id=_workflow_model_provider_id or None,
+                        trace_complete=False,
+                        remediate=_remediate,
+                    )
+                except BaseException:
+                    release_output_review(ontology_runtime, owner=review_owner)
+                    raise
+                complete_output_review(
+                    ontology_runtime,
+                    owner=review_owner,
+                    verdict=str(review.get("verdict") or "unknown"),
+                    attempts=int(review.get("attempts") or 1),
+                )
+                ontology_runtime.setdefault("output_review", {}).update(
+                    {
+                        "revised": bool(review.get("revised")),
+                        "annotated": bool(review.get("annotated")),
+                        "repair_attempts": int(review.get("repair_attempts") or 0),
+                        "violations": review.get("violations") or [],
+                        "affected_claims": review.get("affected_claims") or [],
+                        "latency_ms": review.get("latency_ms"),
+                    }
+                )
+                response = review["answer"]
+            return response
         finally:
             await close_clients(mcp_clients)
 
@@ -438,13 +1152,19 @@ def run_chat_workflow(
         response = ""
 
     return WorkflowResult(
-        route="main",
+        route=f"subagent:{_direct_agent_id}" if _direct_agent_id else "main",
         response=response,
         is_markdown=_looks_markdown(response),
         sources=_resolve_sources_conflict([]),
         artifacts=[],
         warnings=warnings,
-        meta={},
+        meta={
+            "ontology_governance": _ontology_governance_summary(
+                context.get("ontology_runtime")
+                if isinstance(context.get("ontology_runtime"), dict)
+                else {}
+            )
+        },
     )
 
 
@@ -470,20 +1190,74 @@ async def _astream_subagent_direct(
 
     _wf_start = _time.monotonic()
 
-    # Load UserAgent ORM object
-    from core.db.engine import SessionLocal
-    from core.services.user_agent_service import UserAgentService
+    user_agent = _load_direct_user_agent(
+        agent_id,
+        str(context.get("user_id", "")),
+    )
+    from core.services import log_service as log_writer
 
-    with SessionLocal() as _db:
-        svc = UserAgentService(_db)
-        user_agent = svc.get_raw_by_id(
-            agent_id,
-            user_id=str(context.get("user_id", "")),
+    _direct_log_started = _time.monotonic()
+    _direct_tool_count = 0
+    _direct_skill_count = 0
+    _direct_log_finished = False
+    _is_call_subagent_dispatch = context.get("direct_agent_source") == "explicit_command_tool"
+    _direct_log_id = await log_writer.start_subagent_log(
+        {
+            "user_id": str(context.get("user_id", "")) or None,
+            "chat_id": context.get("chat_id"),
+            "subagent_name": user_agent.name,
+            "subagent_type": "user_agent" if _is_call_subagent_dispatch else "user_agent_direct",
+            "subagent_id": agent_id,
+            "input_messages": {
+                "task": user_message,
+                "invocation": (
+                    "call_subagent"
+                    if _is_call_subagent_dispatch
+                    else context.get("direct_agent_source") or "dedicated_chat"
+                ),
+            },
+        }
+    )
+
+    async def _finish_direct_log(
+        status: str,
+        *,
+        output: str = "",
+        error: Optional[str] = None,
+        usage: Optional[Dict[str, int]] = None,
+    ) -> None:
+        nonlocal _direct_log_finished
+        if _direct_log_finished:
+            return
+        _direct_log_finished = True
+        await log_writer.finish_subagent_log(
+            _direct_log_id,
+            status=status,
+            output_content=output or None,
+            token_usage=usage,
+            tool_calls_count=_direct_tool_count,
+            skill_calls_count=_direct_skill_count,
+            error_message=error,
+            duration_ms=int((_time.monotonic() - _direct_log_started) * 1000),
         )
-        # Eagerly load fields before session closes
-        _ = user_agent.mcp_server_ids, user_agent.skill_ids, user_agent.kb_ids
-        _ = user_agent.system_prompt, user_agent.model_provider_id
-        _ = user_agent.max_iters, user_agent.temperature, user_agent.max_tokens, user_agent.timeout
+
+    _ontology_runtime = context.get("ontology_runtime")
+    if not isinstance(_ontology_runtime, dict):
+        _ontology_runtime = {}
+        context["ontology_runtime"] = _ontology_runtime
+    activations = activate_runtime_for_asset(
+        _ontology_runtime,
+        kind="subagent",
+        asset_id=agent_id,
+        tags=list((user_agent.extra_config or {}).get("ontology_tags") or []),
+    )
+    if activations:
+        await asyncio.to_thread(
+            _record_ontology_activations,
+            activations,
+            _ontology_runtime,
+            context,
+        )
 
     # ── [memory] Non-blocking retrieval: background task, skipped on budget timeout ───
     _mem0_user_id = str(context.get("user_id", ""))
@@ -514,9 +1288,14 @@ async def _astream_subagent_direct(
     displayed_tools: set[str] = set()
     all_citations: List[Dict[str, Any]] = []
     citation_offsets: Dict[str, int] = {}
+    _ontology_event_cursor = 0
+    _ontology_trace: List[Dict[str, Any]] = []
 
     try:
         yield {"type": "thinking", "message": "正在连接子智能体..."}
+        for ontology_event in _ontology_runtime.get("runtime_events", []):
+            yield dict(ontology_event)
+        _ontology_event_cursor = len(_ontology_runtime.get("runtime_events", []))
 
         _stream_user_id = str(context.get("user_id", ""))
         _stream_model_name = str(context.get("model_name", ""))
@@ -547,6 +1326,7 @@ async def _astream_subagent_direct(
             project_ctx=_extract_project_ctx(context),
             channel_origin=context.get("channel_origin"),
             automation_run=bool(context.get("automation_run")),
+            ontology_runtime=context.get("ontology_runtime"),
         )
 
         logger.info("[subagent] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000)
@@ -600,8 +1380,31 @@ async def _astream_subagent_direct(
         # and passes it explicitly). See the header comment in
         # core/services/project_scope.py.
 
+        # Never keep a ContextVar token alive across an async-generator
+        # ``yield``. The consumer may resume this generator in a copied
+        # context, making reset(token) fail with "created in a different
+        # Context". Enter the audit scope only while advancing the underlying
+        # agent stream; tool execution and persistence happen during anext().
+        _direct_stream = streaming_agent.stream(session_messages, context).__aiter__()
         try:
-            async for event_type, payload in streaming_agent.stream(session_messages, context):
+            while True:
+                try:
+                    event_type, payload = await _anext_in_subagent_log_scope(
+                        _direct_stream,
+                        _direct_log_id,
+                    )
+                except StopAsyncIteration:
+                    break
+                state_runtime = getattr(streaming_agent.agent.state, "ontology_runtime", None)
+                if isinstance(state_runtime, dict):
+                    _ontology_runtime = state_runtime
+                    context["ontology_runtime"] = state_runtime
+                pending_ontology_events = _ontology_runtime.get("runtime_events", [])[
+                    _ontology_event_cursor:
+                ]
+                for ontology_event in pending_ontology_events:
+                    yield dict(ontology_event)
+                _ontology_event_cursor += len(pending_ontology_events)
                 if event_type == "text_delta":
                     full_response += payload
                     yield {"type": "content", "event": "ai_message", "delta": payload}
@@ -650,6 +1453,14 @@ async def _astream_subagent_direct(
                         else TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
                     )
                     safe_args = tool_args if isinstance(tool_args, dict) else {}
+                    _ontology_trace.append(
+                        {
+                            "type": "tool_call",
+                            "tool_id": tool_id,
+                            "tool_name": tool_name,
+                            "input": _bounded_trace_value(safe_args),
+                        }
+                    )
 
                     yield {
                         "type": "tool_call",
@@ -668,7 +1479,10 @@ async def _astream_subagent_direct(
                         and "SKILL.md" in str(payload.get("content", ""))
                     )
                     if is_skill_result:
+                        _direct_skill_count += 1
                         tool_name = "load_skill"
+                    else:
+                        _direct_tool_count += 1
                     tool_content = payload.get("content", "")
 
                     try:
@@ -711,6 +1525,15 @@ async def _astream_subagent_direct(
                     )
                     cit_dicts = [c.to_dict() for c in cit_items]
                     all_citations.extend(cit_dicts)
+                    _ontology_trace.append(
+                        {
+                            "type": "tool_result",
+                            "tool_id": tool_id,
+                            "tool_name": tool_name,
+                            "result": _bounded_trace_value(tool_result_json),
+                            "citations": cit_dicts,
+                        }
+                    )
 
                     yield {
                         "type": "tool_result",
@@ -732,7 +1555,17 @@ async def _astream_subagent_direct(
                     # thinking/tool_call/tool_result/content — attached under
                     # the call_subagent tool card that launched it (linked via
                     # parent_tool_id).
-                    yield {"type": "subagent_event", **(payload or {})}
+                    nested_citations = _capture_nested_ontology_evidence(
+                        payload or {},
+                        _ontology_trace,
+                        all_citations,
+                        citation_offsets,
+                    )
+                    yield {
+                        "type": "subagent_event",
+                        **(payload or {}),
+                        **({"citations": nested_citations} if nested_citations else {}),
+                    }
 
                 elif event_type in ("file_confirm", "design_pick"):
                     # Confirmation-type events (§13 MySpace write confirm /
@@ -753,15 +1586,10 @@ async def _astream_subagent_direct(
                         raise payload
                     raise RuntimeError(str(payload))
 
-        finally:
-            # shutdown() only SIGTERMs stdio subprocesses; HTTP clients
-            # (_process is None) are skipped. Push (streaming_agent,
-            # mcp_clients) into the process-level persistent list to prevent
-            # HTTP clients being GC'd and triggering the anyio cross-task
-            # cancel scope bug. See the _persistent_clients comment at the top
-            # of the module.
-            await streaming_agent.shutdown()
-            _persistent_clients.append((streaming_agent, list(mcp_clients)))
+        except BaseException:
+            # Keep clients alive after a normal first draft so the same agent
+            # can continue its ReAct context during ontology repair.
+            raise
 
     except Exception as e:
         import traceback
@@ -776,8 +1604,136 @@ async def _astream_subagent_direct(
             full_response = fallback_msg
             yield {"type": "content", "event": "ai_message", "delta": fallback_msg}
         elif not full_response:
+            if "streaming_agent" in locals():
+                await streaming_agent.shutdown()
+                _persistent_clients.append((streaming_agent, list(mcp_clients)))
+            await _finish_direct_log("failed", error=str(e)[:200])
             raise
 
+    pending_ontology_events = _ontology_runtime.get("runtime_events", [])[_ontology_event_cursor:]
+    for ontology_event in pending_ontology_events:
+        yield dict(ontology_event)
+    _ontology_event_cursor += len(pending_ontology_events)
+
+    _ontology_review_owner_id = _ontology_review_owner(_ontology_runtime, context)
+    _ontology_review_claimed = bool(
+        full_response and claim_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
+    )
+    if _ontology_review_claimed:
+        from orchestration.subagents.ontology_reviewer import review_ontology_output
+
+        yield {
+            "type": "ontology_review",
+            "status": "started",
+            "level": _ontology_runtime.get("review_level", "checkpoint"),
+            **_ontology_review_event_context(_ontology_runtime),
+        }
+        repair_event_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+
+        async def _remediate(payload: Dict[str, Any]) -> str:
+            nonlocal _ontology_event_cursor, _direct_tool_count
+            repaired, _, cursor, tool_count = await _run_ontology_repair_round(
+                streaming_agent=streaming_agent,
+                context=context,
+                payload=payload,
+                runtime=_ontology_runtime,
+                trace=_ontology_trace,
+                citations=all_citations,
+                citation_offsets=citation_offsets,
+                event_cursor=_ontology_event_cursor,
+                subagent_log_id=_direct_log_id,
+                event_sink=repair_event_queue.put,
+            )
+            _ontology_event_cursor = cursor
+            _direct_tool_count += tool_count
+            return repaired
+
+        review_task = asyncio.create_task(
+            review_ontology_output(
+                task=user_message,
+                answer=full_response,
+                runtime=_ontology_runtime,
+                trace=_ontology_trace,
+                citations=all_citations,
+                user_id=str(context.get("user_id", "")),
+                chat_id=context.get("chat_id"),
+                model_name=str(context.get("model_name", "") or "") or None,
+                model_provider_id=str(context.get("model_provider_id", "") or "") or None,
+                remediate=_remediate,
+            )
+        )
+        try:
+            while not review_task.done() or not repair_event_queue.empty():
+                try:
+                    repair_event = await asyncio.wait_for(
+                        repair_event_queue.get(),
+                        timeout=0.1,
+                    )
+                except asyncio.TimeoutError:
+                    continue
+                yield repair_event
+            review = await review_task
+        except asyncio.CancelledError:
+            if not review_task.done():
+                review_task.cancel()
+            release_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
+            await streaming_agent.shutdown()
+            _persistent_clients.append((streaming_agent, list(mcp_clients)))
+            raise
+        except Exception as exc:  # noqa: BLE001
+            if not review_task.done():
+                review_task.cancel()
+            review = _ontology_review_failure_result(full_response, exc)
+        complete_output_review(
+            _ontology_runtime,
+            owner=_ontology_review_owner_id,
+            verdict=str(review.get("verdict") or "unknown"),
+            attempts=int(review.get("attempts") or 1),
+        )
+        _ontology_runtime.setdefault("output_review", {}).update(
+            {
+                "revised": bool(review.get("revised")),
+                "annotated": bool(review.get("annotated")),
+                "repair_attempts": int(review.get("repair_attempts") or 0),
+                "violations": review.get("violations") or [],
+                "affected_claims": review.get("affected_claims") or [],
+                "evidence": review.get("evidence") or [],
+                "feedback": review.get("feedback") or [],
+                "manual_review": review.get("manual_review") or {},
+                "candidate_answer": (review.get("answer") if review.get("revised") else ""),
+                "new_tools": review.get("new_tools") or [],
+                "new_citation_count": int(review.get("new_citation_count") or 0),
+                "latency_ms": review.get("latency_ms"),
+            }
+        )
+        yield {
+            "type": "ontology_review",
+            "status": "completed",
+            "level": _ontology_runtime.get("review_level", "checkpoint"),
+            "verdict": review["verdict"],
+            "revised": bool(review.get("revised")),
+            "annotated": bool(review.get("annotated")),
+            "repair_attempts": int(review.get("repair_attempts") or 0),
+            "candidate_answer": review.get("answer") if review.get("revised") else "",
+            "manual_review": review.get("manual_review") or {},
+            "violations": review.get("violations") or [],
+            "affected_claims": review.get("affected_claims") or [],
+            "evidence": review.get("evidence") or [],
+            "feedback": review.get("feedback") or [],
+            "new_tools": review.get("new_tools") or [],
+            "new_citation_count": int(review.get("new_citation_count") or 0),
+            "latency_ms": review.get("latency_ms"),
+            **_ontology_review_event_context(_ontology_runtime),
+        }
+
+    _direct_usage = streaming_agent.get_usage()
+    await streaming_agent.shutdown()
+    _persistent_clients.append((streaming_agent, list(mcp_clients)))
+    await _finish_direct_log(
+        "success",
+        output=full_response,
+        usage=_direct_usage,
+    )
     yield {
         "type": "meta",
         "route": f"subagent:{agent_id}",
@@ -786,7 +1742,8 @@ async def _astream_subagent_direct(
         "artifacts": [],
         "warnings": warnings,
         "citations": all_citations,
-        "usage": streaming_agent.get_usage(),
+        "usage": _direct_usage,
+        "ontology_governance": _ontology_governance_summary(_ontology_runtime),
     }
 
     # ── [memory] Post-response pipeline (SSE already closed, user isn't waiting) ────
@@ -825,8 +1782,10 @@ async def astream_chat_workflow(
     - {"type": "meta", "route": "...", "sources": [...], ...}
     """
 
-    # ── Sub-agent direct conversation mode ──
-    _agent_id = context.get("agent_id")
+    # ── Persistent dedicated sub-agent conversation mode ──
+    # Per-turn @mentions deliberately remain on the main route so the parent
+    # model emits the real call_subagent tool event and keeps normal streaming.
+    _agent_id = _direct_agent_id_from_context(context)
     if _agent_id:
         async for chunk in _astream_subagent_direct(
             agent_id=_agent_id,
@@ -836,6 +1795,32 @@ async def astream_chat_workflow(
         ):
             yield chunk
         return
+
+    _request_ontology_runtime = context.get("ontology_runtime")
+    if not isinstance(_request_ontology_runtime, dict):
+        _request_ontology_runtime = {}
+        context["ontology_runtime"] = _request_ontology_runtime
+    explicit_skill_ids = _explicit_skill_ids_from_context(context)
+    for skill_id in explicit_skill_ids:
+        await asyncio.to_thread(
+            resolve_runtime_asset_tags,
+            runtime=_request_ontology_runtime,
+            kind="skill",
+            asset_id=skill_id,
+            user_id=str(context.get("user_id", "") or ""),
+        )
+        activations = activate_runtime_for_asset(
+            _request_ontology_runtime,
+            kind="skill",
+            asset_id=skill_id,
+        )
+        if activations:
+            await asyncio.to_thread(
+                _record_ontology_activations,
+                activations,
+                _request_ontology_runtime,
+                context,
+            )
 
     # ── Inject explicit skill instructions ──
     skill_msg = _build_skill_injection(context)
@@ -879,6 +1864,9 @@ async def astream_chat_workflow(
     displayed_tools: set[str] = set()
     all_citations: List[Dict[str, Any]] = []
     citation_offsets: Dict[str, int] = {}
+    _ontology_runtime = _request_ontology_runtime
+    _ontology_event_cursor = 0
+    _ontology_trace: List[Dict[str, Any]] = []
 
     try:
         import time as _time
@@ -886,6 +1874,9 @@ async def astream_chat_workflow(
         _wf_start = _time.monotonic()
 
         yield {"type": "thinking", "message": "正在分析您的问题..."}
+        for ontology_event in _ontology_runtime.get("runtime_events", []):
+            yield dict(ontology_event)
+        _ontology_event_cursor = len(_ontology_runtime.get("runtime_events", []))
 
         _stream_user_id = str(context.get("user_id", ""))
         _stream_model_name = str(context.get("model_name", ""))
@@ -904,6 +1895,13 @@ async def astream_chat_workflow(
         # ── Load visible sub-agents for main agent routing ──
         _visible_subagents: list = []
         _mentioned_ids: list = []
+        _explicit_command = context.get("explicit_subagent_command")
+        _explicit_agent_id = (
+            str(_explicit_command.get("agent_id"))
+            if isinstance(_explicit_command, dict) and _explicit_command.get("agent_id")
+            else ""
+        )
+        _mention_agent_id = str(context.get("mention_agent_id") or "")
         try:
             from core.db.engine import SessionLocal as _SessionLocal
             from core.services.user_agent_service import UserAgentService as _UAS
@@ -911,9 +1909,17 @@ async def astream_chat_workflow(
             with _SessionLocal() as _db:
                 _ua_svc = _UAS(_db)
                 _visible_subagents = _ua_svc.list_for_user(_stream_user_id)
-            # Parse @mention in user message
+            # Prefer the structured per-turn target. Text parsing remains a
+            # compatibility fallback for callers that only include @name.
             if _visible_subagents:
-                _mentioned_ids = _parse_agent_mentions(user_message, _visible_subagents)
+                _delegated_agent_id = _explicit_agent_id or _mention_agent_id
+                if _delegated_agent_id and any(
+                    str(item.get("agent_id") or "") == _delegated_agent_id
+                    for item in _visible_subagents
+                ):
+                    _mentioned_ids = [_delegated_agent_id]
+                else:
+                    _mentioned_ids = _parse_agent_mentions(user_message, _visible_subagents)
         except Exception as _exc:
             logger.warning("[workflow] failed to load visible subagents: %s", _exc)
 
@@ -936,6 +1942,7 @@ async def astream_chat_workflow(
             project_ctx=_extract_project_ctx(context),
             channel_origin=context.get("channel_origin"),
             automation_run=bool(context.get("automation_run")),
+            ontology_runtime=context.get("ontology_runtime"),
             # The single positive source of truth for enter_plan_mode: enabled
             # only for "interactive main chats that can host plan mode" — has
             # a chat_id, not a channel bot, not automation, not plan_chat, not
@@ -953,14 +1960,29 @@ async def astream_chat_workflow(
 
         logger.info("[workflow] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000)
 
-        # ── Inject per-turn @-mention hint into the current user message ──
+        # ── Inject the per-turn sub-agent constraint into the current user message ──
         # Keeps it OUT of the system prompt so the LLM provider's prefix cache
         # hits across turns within a chat (otherwise every turn with different
-        # @mentions would re-build the cache from scratch).
+        # targets would re-build the cache from scratch). A strict natural-
+        # language command remains on this normal model stream; it only
+        # constrains the model's next real tool call instead of fabricating one
+        # in the workflow layer.
         if _mentioned_ids and _visible_subagents:
-            from core.llm.subagent_tool import build_subagent_mention_hint
+            from core.llm.subagent_tool import (
+                build_explicit_subagent_command_hint,
+                build_subagent_mention_hint,
+            )
 
-            _mention_hint = build_subagent_mention_hint(_visible_subagents, _mentioned_ids)
+            if _explicit_agent_id or _mention_agent_id:
+                _mention_hint = build_explicit_subagent_command_hint(
+                    _visible_subagents,
+                    _explicit_agent_id or _mention_agent_id,
+                )
+            else:
+                _mention_hint = build_subagent_mention_hint(
+                    _visible_subagents,
+                    _mentioned_ids,
+                )
             if (
                 _mention_hint
                 and session_messages
@@ -1062,6 +2084,16 @@ async def astream_chat_workflow(
 
         try:
             async for event_type, payload in streaming_agent.stream(session_messages, context):
+                state_runtime = getattr(streaming_agent.agent.state, "ontology_runtime", None)
+                if isinstance(state_runtime, dict):
+                    _ontology_runtime = state_runtime
+                    context["ontology_runtime"] = state_runtime
+                pending_ontology_events = _ontology_runtime.get("runtime_events", [])[
+                    _ontology_event_cursor:
+                ]
+                for ontology_event in pending_ontology_events:
+                    yield dict(ontology_event)
+                _ontology_event_cursor += len(pending_ontology_events)
                 if event_type == "text_delta":
                     full_response += payload
                     yield {"type": "content", "event": "ai_message", "delta": payload}
@@ -1116,6 +2148,14 @@ async def astream_chat_workflow(
                         else TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
                     )
                     safe_args = tool_args if isinstance(tool_args, dict) else {}
+                    _ontology_trace.append(
+                        {
+                            "type": "tool_call",
+                            "tool_id": tool_id,
+                            "tool_name": tool_name,
+                            "input": _bounded_trace_value(safe_args),
+                        }
+                    )
 
                     # enter_plan_mode: stash the arguments (in streaming, args
                     # may arrive across frames — take the one carrying
@@ -1201,6 +2241,15 @@ async def astream_chat_workflow(
                     )
                     cit_dicts = [c.to_dict() for c in cit_items]
                     all_citations.extend(cit_dicts)
+                    _ontology_trace.append(
+                        {
+                            "type": "tool_result",
+                            "tool_id": tool_id,
+                            "tool_name": tool_name,
+                            "result": _bounded_trace_value(tool_result_json),
+                            "citations": cit_dicts,
+                        }
+                    )
 
                     # Resolve sub-agent name from call_subagent result text
                     _tr_sa_name = ""
@@ -1338,7 +2387,17 @@ async def astream_chat_workflow(
                     # thinking/tool_call/tool_result/content — attached under
                     # the call_subagent tool card that launched it (linked via
                     # parent_tool_id).
-                    yield {"type": "subagent_event", **(payload or {})}
+                    nested_citations = _capture_nested_ontology_evidence(
+                        payload or {},
+                        _ontology_trace,
+                        all_citations,
+                        citation_offsets,
+                    )
+                    yield {
+                        "type": "subagent_event",
+                        **(payload or {}),
+                        **({"citations": nested_citations} if nested_citations else {}),
+                    }
 
                 elif event_type in ("file_confirm", "design_pick"):
                     # Confirmation-type events (§13 MySpace write confirm /
@@ -1359,14 +2418,10 @@ async def astream_chat_workflow(
                         raise payload
                     raise RuntimeError(str(payload))
 
-        finally:
-            # Same as _astream_subagent_direct: after terminating the stdio
-            # subprocesses, (streaming_agent, mcp_clients) must be kept alive
-            # permanently to prevent HTTP transport MCP clients blowing up the
-            # anyio cancel scope when GC'd. Full story in the comment at the
-            # top of the module.
-            await streaming_agent.shutdown()
-            _persistent_clients.append((streaming_agent, list(mcp_clients)))
+        except BaseException:
+            # A normal first draft keeps its clients so ontology remediation
+            # can continue the same ReAct state with tools enabled.
+            raise
 
     except Exception as e:
         import traceback
@@ -1381,7 +2436,127 @@ async def astream_chat_workflow(
             full_response = fallback_msg
             yield {"type": "content", "event": "ai_message", "delta": fallback_msg}
         elif not full_response:
+            if "streaming_agent" in locals():
+                await streaming_agent.shutdown()
+                _persistent_clients.append((streaming_agent, list(mcp_clients)))
             raise
+
+    pending_ontology_events = _ontology_runtime.get("runtime_events", [])[_ontology_event_cursor:]
+    for ontology_event in pending_ontology_events:
+        yield dict(ontology_event)
+    _ontology_event_cursor += len(pending_ontology_events)
+
+    _ontology_review_owner_id = _ontology_review_owner(_ontology_runtime, context)
+    _ontology_review_claimed = bool(
+        full_response and claim_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
+    )
+    if _ontology_review_claimed:
+        from orchestration.subagents.ontology_reviewer import review_ontology_output
+
+        yield {
+            "type": "ontology_review",
+            "status": "started",
+            "level": _ontology_runtime.get("review_level", "checkpoint"),
+            **_ontology_review_event_context(_ontology_runtime),
+        }
+        repair_event_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+
+        async def _remediate(payload: Dict[str, Any]) -> str:
+            nonlocal _ontology_event_cursor
+            repaired, _, cursor, _ = await _run_ontology_repair_round(
+                streaming_agent=streaming_agent,
+                context=context,
+                payload=payload,
+                runtime=_ontology_runtime,
+                trace=_ontology_trace,
+                citations=all_citations,
+                citation_offsets=citation_offsets,
+                event_cursor=_ontology_event_cursor,
+                event_sink=repair_event_queue.put,
+            )
+            _ontology_event_cursor = cursor
+            return repaired
+
+        review_task = asyncio.create_task(
+            review_ontology_output(
+                task=user_message,
+                answer=full_response,
+                runtime=_ontology_runtime,
+                trace=_ontology_trace,
+                citations=all_citations,
+                user_id=str(context.get("user_id", "")),
+                chat_id=context.get("chat_id"),
+                model_name=str(context.get("model_name", "") or "") or None,
+                model_provider_id=str(context.get("model_provider_id", "") or "") or None,
+                remediate=_remediate,
+            )
+        )
+        try:
+            while not review_task.done() or not repair_event_queue.empty():
+                try:
+                    repair_event = await asyncio.wait_for(
+                        repair_event_queue.get(),
+                        timeout=0.1,
+                    )
+                except asyncio.TimeoutError:
+                    continue
+                yield repair_event
+            review = await review_task
+        except asyncio.CancelledError:
+            if not review_task.done():
+                review_task.cancel()
+            release_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
+            await streaming_agent.shutdown()
+            _persistent_clients.append((streaming_agent, list(mcp_clients)))
+            raise
+        except Exception as exc:  # noqa: BLE001
+            if not review_task.done():
+                review_task.cancel()
+            review = _ontology_review_failure_result(full_response, exc)
+        complete_output_review(
+            _ontology_runtime,
+            owner=_ontology_review_owner_id,
+            verdict=str(review.get("verdict") or "unknown"),
+            attempts=int(review.get("attempts") or 1),
+        )
+        _ontology_runtime.setdefault("output_review", {}).update(
+            {
+                "revised": bool(review.get("revised")),
+                "annotated": bool(review.get("annotated")),
+                "repair_attempts": int(review.get("repair_attempts") or 0),
+                "violations": review.get("violations") or [],
+                "affected_claims": review.get("affected_claims") or [],
+                "evidence": review.get("evidence") or [],
+                "feedback": review.get("feedback") or [],
+                "manual_review": review.get("manual_review") or {},
+                "candidate_answer": (review.get("answer") if review.get("revised") else ""),
+                "new_tools": review.get("new_tools") or [],
+                "new_citation_count": int(review.get("new_citation_count") or 0),
+                "latency_ms": review.get("latency_ms"),
+            }
+        )
+        yield {
+            "type": "ontology_review",
+            "status": "completed",
+            "level": _ontology_runtime.get("review_level", "checkpoint"),
+            "verdict": review["verdict"],
+            "revised": bool(review.get("revised")),
+            "annotated": bool(review.get("annotated")),
+            "repair_attempts": int(review.get("repair_attempts") or 0),
+            "candidate_answer": review.get("answer") if review.get("revised") else "",
+            "manual_review": review.get("manual_review") or {},
+            "violations": review.get("violations") or [],
+            "affected_claims": review.get("affected_claims") or [],
+            "evidence": review.get("evidence") or [],
+            "feedback": review.get("feedback") or [],
+            "new_tools": review.get("new_tools") or [],
+            "new_citation_count": int(review.get("new_citation_count") or 0),
+            "latency_ms": review.get("latency_ms"),
+            **_ontology_review_event_context(_ontology_runtime),
+        }
+
+    await streaming_agent.shutdown()
+    _persistent_clients.append((streaming_agent, list(mcp_clients)))
 
     yield {
         "type": "meta",
@@ -1392,6 +2567,7 @@ async def astream_chat_workflow(
         "warnings": warnings,
         "citations": all_citations,
         "usage": streaming_agent.get_usage(),
+        "ontology_governance": _ontology_governance_summary(_ontology_runtime),
     }
 
     # ── [memory] Post-response pipeline (SSE already closed, user isn't waiting) ──

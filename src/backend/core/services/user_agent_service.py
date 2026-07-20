@@ -9,10 +9,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
-
-from core.db.repository import UserAgentRepository, AuditLogRepository
 from core.db.models import UserAgent
+from core.db.repository import AuditLogRepository, UserAgentRepository
+from core.ontology.build_validator import ensure_ontology_build_valid
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,24 @@ class UserAgentService:
         data: Dict[str, Any],
         team_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        data = dict(data)
+        incoming_extra = dict(data.get("extra_config") or {})
+        ontology_tags = list(
+            data.pop("ontology_tags", incoming_extra.get("ontology_tags") or []) or []
+        )
+        incoming_extra["ontology_tags"] = ontology_tags
+        data["extra_config"] = incoming_extra
+        ensure_ontology_build_valid(
+            self.db,
+            asset_type="subagent",
+            name=str(data.get("name") or ""),
+            description=str(data.get("description") or ""),
+            instructions=str(data.get("system_prompt") or ""),
+            mcp_server_ids=list(data.get("mcp_server_ids") or []),
+            skill_ids=list(data.get("skill_ids") or []),
+            plugin_ids=list(data.get("plugin_ids") or []),
+            ontology_tags=ontology_tags,
+        )
         if owner_type == "user":
             if not user_id:
                 raise ValueError("user_id required for user agents")
@@ -102,16 +120,18 @@ class UserAgentService:
 
         agent_id = f"ua_{uuid.uuid4().hex[:16]}"
         created_at = self._now_iso()
-        creation_history = [{
-            "version": DEFAULT_AGENT_VERSION,
-            "timestamp": created_at,
-            "content": "创建了子智能体",
-            "operator_name": operator_name or user_id or "未知用户",
-            "details": [],
-        }]
+        creation_history = [
+            {
+                "version": DEFAULT_AGENT_VERSION,
+                "timestamp": created_at,
+                "content": "创建了子智能体",
+                "operator_name": operator_name or user_id or "未知用户",
+                "details": [],
+            }
+        ]
         extra_config = self._merge_extra_config(
             current_extra=None,
-            incoming_extra=data.get("extra_config"),
+            incoming_extra=incoming_extra,
             version=DEFAULT_AGENT_VERSION,
             change_history=creation_history,
         )
@@ -127,7 +147,9 @@ class UserAgentService:
         }
         agent = self.repo.create(record)
         self._audit(
-            user_id, "agent.create", agent_id,
+            user_id,
+            "agent.create",
+            agent_id,
             {"owner_type": owner_type, "team_id": team_id, "name": data.get("name")},
         )
         return self._serialize(agent)
@@ -145,7 +167,33 @@ class UserAgentService:
             raise LookupError(f"Agent {agent_id} not found")
         self._check_ownership(agent, user_id, owner_type)
 
+        data = dict(data)
         current_extra = dict(agent.extra_config or {})
+        incoming_extra = dict(data.get("extra_config") or {})
+        ontology_tags = list(
+            data.pop(
+                "ontology_tags",
+                incoming_extra.get("ontology_tags", current_extra.get("ontology_tags") or []),
+            )
+            or []
+        )
+        incoming_extra["ontology_tags"] = ontology_tags
+        if "extra_config" in data or ontology_tags != list(
+            current_extra.get("ontology_tags") or []
+        ):
+            data["extra_config"] = incoming_extra
+        ensure_ontology_build_valid(
+            self.db,
+            asset_type="subagent",
+            name=str(data.get("name", agent.name) or ""),
+            description=str(data.get("description", agent.description) or ""),
+            instructions=str(data.get("system_prompt", agent.system_prompt) or ""),
+            mcp_server_ids=list(data.get("mcp_server_ids", agent.mcp_server_ids) or []),
+            skill_ids=list(data.get("skill_ids", agent.skill_ids) or []),
+            plugin_ids=list(data.get("plugin_ids", agent.plugin_ids) or []),
+            ontology_tags=ontology_tags,
+        )
+
         changed_fields = self._collect_changed_fields(agent, data)
         versioned_fields = [field for field in changed_fields if field not in NON_VERSIONED_FIELDS]
         changed_labels = [VERSIONED_FIELDS[field] for field in changed_fields]
@@ -159,19 +207,21 @@ class UserAgentService:
             if versioned_fields:
                 next_version = self._increment_version(next_version)
                 entry_version = next_version
-            change_history.append({
-                "version": entry_version,
-                "timestamp": self._now_iso(),
-                "content": change_summary,
-                "operator_name": operator_name or user_id or "未知用户",
-                "details": change_details,
-            })
+            change_history.append(
+                {
+                    "version": entry_version,
+                    "timestamp": self._now_iso(),
+                    "content": change_summary,
+                    "operator_name": operator_name or user_id or "未知用户",
+                    "details": change_details,
+                }
+            )
             change_history = change_history[-MAX_CHANGE_HISTORY:]
 
         payload = dict(data)
         payload["extra_config"] = self._merge_extra_config(
             current_extra=current_extra,
-            incoming_extra=data.get("extra_config"),
+            incoming_extra=incoming_extra,
             version=next_version,
             change_history=change_history,
         )
@@ -223,18 +273,20 @@ class UserAgentService:
         on for the user's main agent.  Deployment-global MCPs disabled by an
         administrator remain unavailable.
         """
+        from core.db.models import AdminMcpServer, InstalledPlugin, KBSpace
         from sqlalchemy import or_
-        from core.db.models import AdminMcpServer, KBSpace, InstalledPlugin
 
         # ── Plugin list + their component id sets (used to strip plugin capabilities from the loose skills/tools) ──
         # Query the ORM directly for component_ids (authoritative): global plugins + current user's private plugins.
         try:
             pq = self.db.query(InstalledPlugin)
             if owner_user_id:
-                pq = pq.filter(or_(
-                    InstalledPlugin.owner_user_id == owner_user_id,
-                    InstalledPlugin.owner_user_id.is_(None),
-                ))
+                pq = pq.filter(
+                    or_(
+                        InstalledPlugin.owner_user_id == owner_user_id,
+                        InstalledPlugin.owner_user_id.is_(None),
+                    )
+                )
             else:
                 pq = pq.filter(InstalledPlugin.owner_user_id.is_(None))
             plugin_rows = pq.order_by(InstalledPlugin.created_at.desc()).all()
@@ -273,8 +325,7 @@ class UserAgentService:
                     "_owned": is_owned,
                 }
         plugin_list: List[Dict[str, Any]] = [
-            {k: v for k, v in item.items() if k != "_owned"}
-            for item in _plugin_by_slug.values()
+            {k: v for k, v in item.items() if k != "_owned"} for item in _plugin_by_slug.values()
         ]
 
         # Built-in plugin MCPs can also be present in the static catalog without
@@ -420,44 +471,61 @@ class UserAgentService:
         skill_list: List[Dict[str, Any]] = []
         try:
             _skill_owner_ok = (
-                or_(AdminSkill.owner_user_id.is_(None),
-                    AdminSkill.owner_user_id == owner_user_id)
+                or_(AdminSkill.owner_user_id.is_(None), AdminSkill.owner_user_id == owner_user_id)
                 if owner_user_id
                 else AdminSkill.owner_user_id.is_(None)
             )
-            db_skills = self.db.query(AdminSkill).filter(
-                AdminSkill.is_enabled == True,
-                _skill_owner_ok,
-            ).order_by(AdminSkill.updated_at.desc()).all()
+            db_skills = (
+                self.db.query(AdminSkill)
+                .filter(
+                    AdminSkill.is_enabled == True,
+                    _skill_owner_ok,
+                )
+                .order_by(AdminSkill.updated_at.desc())
+                .all()
+            )
             seen_ids = set()
             for s in db_skills:
                 if s.skill_id in _excluded_skill_ids:
                     continue
-                skill_list.append({"id": s.skill_id, "name": s.display_name, "description": s.description or ""})
+                skill_list.append(
+                    {"id": s.skill_id, "name": s.display_name, "description": s.description or ""}
+                )
                 seen_ids.add(s.skill_id)
         except Exception:
             seen_ids = set()
 
         try:
             from core.agent_skills.loader import get_skill_loader
+
             loader = get_skill_loader()
             for sid, meta in loader.load_all_metadata().items():
                 if sid not in seen_ids and sid not in _excluded_skill_ids:
-                    skill_list.append({
-                        "id": sid,
-                        "name": getattr(meta, "name", sid),
-                        "description": getattr(meta, "description", ""),
-                    })
+                    skill_list.append(
+                        {
+                            "id": sid,
+                            "name": getattr(meta, "name", sid),
+                            "description": getattr(meta, "description", ""),
+                        }
+                    )
         except Exception as exc:
             logger.debug("Failed to load filesystem skills: %s", exc)
 
         # KB spaces
         kb_list: List[Dict[str, Any]] = []
         try:
-            kb_spaces = self.db.query(KBSpace).filter(
-                KBSpace.deleted_at.is_(None),
-            ).order_by(KBSpace.created_at.desc()).all()
-            kb_list = [{"id": s.kb_id, "name": s.name, "description": s.description or ""} for s in kb_spaces]
+            kb_spaces = (
+                self.db.query(KBSpace)
+                .filter(
+                    KBSpace.deleted_at.is_(None),
+                )
+                .order_by(KBSpace.created_at.desc())
+                .all()
+            )
+            kb_list = [
+                {"id": s.kb_id, "name": s.name, "description": s.description or ""}
+                for s in kb_spaces
+            ]
         except Exception:
             pass
 
@@ -466,7 +534,14 @@ class UserAgentService:
             "skills": skill_list,
             "plugins": plugin_list,
             "kb_spaces": kb_list,
+            "ontology_tags": self._ontology_tag_options(),
         }
+
+    def _ontology_tag_options(self) -> List[Dict[str, Any]]:
+        """Controlled labels that activate a sub-agent ontology workflow at runtime."""
+        from core.services.ontology_service import OntologyService
+
+        return OntologyService(self.db).list_asset_tag_options("subagent")
 
     # ── Helpers ───────────────────────────────────────────────────────
 
@@ -532,6 +607,7 @@ class UserAgentService:
             "is_enabled": agent.is_enabled,
             "sort_order": agent.sort_order,
             "source_market_slug": agent.source_market_slug,
+            "ontology_tags": list(extra_config.get("ontology_tags") or []),
             "extra_config": extra_config,
             "version": UserAgentService._read_version(extra_config),
             "change_history": UserAgentService._read_change_history(extra_config),
@@ -540,17 +616,21 @@ class UserAgentService:
             "created_by": agent.created_by,
         }
 
-    def _audit(self, user_id: Optional[str], action: str, resource_id: str, details: Dict = None) -> None:
+    def _audit(
+        self, user_id: Optional[str], action: str, resource_id: str, details: Dict = None
+    ) -> None:
         try:
             audit_repo = AuditLogRepository(self.db)
-            audit_repo.create({
-                "user_id": user_id,
-                "action": action,
-                "resource_type": "user_agent",
-                "resource_id": resource_id,
-                "details": details or {},
-                "status": "success",
-            })
+            audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": action,
+                    "resource_type": "user_agent",
+                    "resource_id": resource_id,
+                    "details": details or {},
+                    "status": "success",
+                }
+            )
         except Exception as exc:
             logger.warning("Audit log failed: %s", exc)
 
@@ -604,13 +684,21 @@ class UserAgentService:
             details = item.get("details")
             if not isinstance(timestamp, str) or not isinstance(content, str):
                 continue
-            history.append({
-                "timestamp": timestamp,
-                "content": content,
-                "version": UserAgentService._normalize_version(version if isinstance(version, str) else ""),
-                "operator_name": operator_name if isinstance(operator_name, str) and operator_name.strip() else "未知用户",
-                "details": UserAgentService._normalize_change_details(details),
-            })
+            history.append(
+                {
+                    "timestamp": timestamp,
+                    "content": content,
+                    "version": UserAgentService._normalize_version(
+                        version if isinstance(version, str) else ""
+                    ),
+                    "operator_name": (
+                        operator_name
+                        if isinstance(operator_name, str) and operator_name.strip()
+                        else "未知用户"
+                    ),
+                    "details": UserAgentService._normalize_change_details(details),
+                }
+            )
         return history
 
     @staticmethod
@@ -636,16 +724,20 @@ class UserAgentService:
         return f"修改了{preview}等{len(changed_labels)}项"
 
     @classmethod
-    def _build_change_details(cls, agent: UserAgent, changed_fields: List[str], data: Dict[str, Any]) -> List[Dict[str, str]]:
+    def _build_change_details(
+        cls, agent: UserAgent, changed_fields: List[str], data: Dict[str, Any]
+    ) -> List[Dict[str, str]]:
         details: List[Dict[str, str]] = []
         for field in changed_fields:
             old_value = cls._stringify_detail_value(field, getattr(agent, field, None))
             new_value = cls._stringify_detail_value(field, data.get(field))
-            details.append({
-                "field": VERSIONED_FIELDS[field],
-                "before": old_value,
-                "after": new_value,
-            })
+            details.append(
+                {
+                    "field": VERSIONED_FIELDS[field],
+                    "before": old_value,
+                    "after": new_value,
+                }
+            )
         return details
 
     @staticmethod
@@ -674,11 +766,13 @@ class UserAgentService:
             after = item.get("after")
             if not isinstance(field, str):
                 continue
-            normalized.append({
-                "field": field,
-                "before": before if isinstance(before, str) else "未填写",
-                "after": after if isinstance(after, str) else "未填写",
-            })
+            normalized.append(
+                {
+                    "field": field,
+                    "before": before if isinstance(before, str) else "未填写",
+                    "after": after if isinstance(after, str) else "未填写",
+                }
+            )
         return normalized
 
     @staticmethod

@@ -4,7 +4,7 @@ import { toFileConfirmInfo, toDesignPickInfo } from '../api';
 import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore } from '../stores';
-import type { ChatItem, ChatMessage, CitationItem, MessageSegment, SubagentStep, ToolCall } from '../types';
+import type { ChatItem, ChatMessage, CitationItem, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
 
 /**
  * Unified chat SSE stream processor (single source of truth).
@@ -168,6 +168,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   let toolCalls: ToolCall[] = [];
   const thinking: { content: string; timestamp: number }[] = [];
   const segments: MessageSegment[] = [];
+  let ontologyGovernance: OntologyGovernanceSummary | undefined;
   let metaMessageId: string | undefined;
   let metaFollowUps: string[] = [];
   let allCitations: CitationItem[] = [];
@@ -178,6 +179,20 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   let parseBuffer = '';
   let toolPending = false;
   let pendingPlanRedirect: string | null = null;
+
+  const ensureOntologyGovernance = (eventObj?: Record<string, unknown>) => {
+    if (!ontologyGovernance) {
+      ontologyGovernance = {
+        governance_run_id: typeof eventObj?.governance_run_id === 'string' ? eventObj.governance_run_id : undefined,
+        activations: [],
+        gates: [],
+        review: {},
+      };
+    } else if (!ontologyGovernance.governance_run_id && typeof eventObj?.governance_run_id === 'string') {
+      ontologyGovernance = { ...ontologyGovernance, governance_run_id: eventObj.governance_run_id };
+    }
+    return ontologyGovernance;
+  };
   let aborted = false;
 
   // ── <think>...</think> stripping state machine ──
@@ -194,6 +209,38 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       if (tag.startsWith(text.slice(text.length - len))) return len;
     }
     return 0;
+  };
+
+  const ensureOntologyRevision = (source?: string) => {
+    const governance = ensureOntologyGovernance();
+    if (!governance.revision) {
+      governance.revision = {
+        status: 'pending',
+        source,
+        content: '',
+        thinking: [],
+        toolCalls: [],
+      };
+    } else if (source && !governance.revision.source) {
+      governance.revision = { ...governance.revision, source };
+    }
+    return governance.revision;
+  };
+
+  const appendRevisionThinking = (content: string) => {
+    if (!content) return;
+    const revision = ensureOntologyRevision();
+    const items = [...revision.thinking];
+    const last = items[items.length - 1];
+    if (last) items[items.length - 1] = { ...last, content: last.content + content };
+    else items.push({ content, timestamp: Date.now() });
+    revision.thinking = items;
+  };
+
+  const appendRevisionText = (content: string) => {
+    if (!content) return;
+    const revision = ensureOntologyRevision();
+    revision.content += content;
   };
 
   const appendThinkContent = (content: string, isDelta: boolean) => {
@@ -216,6 +263,17 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     const last = segments[segments.length - 1];
     if (last && last.type === 'text') last.content = (last.content || '') + text;
     else segments.push({ type: 'text', content: text });
+  };
+
+  const replaceAnswerText = (text: string) => {
+    // Keep reasoning and tool chronology, but replace every draft text
+    // segment with the committee-reviewed final answer. This event arrives
+    // only when the review actually changed the draft.
+    full = text;
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (segments[i].type === 'text') segments.splice(i, 1);
+    }
+    if (text) segments.push({ type: 'text', content: text });
   };
 
   /** Streaming <think>/<\/think> splitter: buffers half-cut tags across deltas and routes
@@ -404,6 +462,21 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         isMarkdown: isMd,
         toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined,
         thinking: thinking.length > 0 ? [...thinking] : undefined,
+        ontologyGovernance: ontologyGovernance
+          ? {
+              ...ontologyGovernance,
+              activations: [...ontologyGovernance.activations],
+              gates: [...ontologyGovernance.gates],
+              review: { ...ontologyGovernance.review },
+              revision: ontologyGovernance.revision
+                ? {
+                    ...ontologyGovernance.revision,
+                    thinking: [...ontologyGovernance.revision.thinking],
+                    toolCalls: [...ontologyGovernance.revision.toolCalls],
+                  }
+                : undefined,
+            }
+          : undefined,
         segments: segments.length > 0 ? [...segments] : undefined,
         isStreaming: streaming,
         toolPending: streaming && toolPending,
@@ -479,7 +552,41 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           streamEnded = true;
           return;
         }
-        if (eventType === 'error') throw new Error(typeof obj.error === 'string' ? obj.error : t('流式响应异常'));
+        if (eventType === 'error') {
+          const streamError = typeof obj.error === 'string' ? obj.error : t('流式响应异常');
+          if (ontologyGovernance?.review.status === 'running') {
+            ontologyGovernance = {
+              ...ontologyGovernance,
+              review: {
+                ...ontologyGovernance.review,
+                status: 'failed',
+                verdict: 'escalate',
+                revised: false,
+                error: streamError,
+                feedback: [t('自动评审未完成，原文已保留。')],
+                manual_review: {
+                  required: true,
+                  title: t('领域本体人工复核'),
+                  summary: t('自动评审未完成，原文已保留，请重新发起评审或人工核对。'),
+                  items: [],
+                  actions: [],
+                },
+              },
+            };
+            appendOrUpdate(false, allCitations);
+          }
+          throw new Error(streamError);
+        }
+
+        const ontologyRevisionTool = eventObj.scope === 'ontology_revision';
+
+        if (eventType === 'tool_pending' && ontologyRevisionTool) {
+          const revision = ensureOntologyRevision();
+          revision.status = 'streaming';
+          revision.toolPending = true;
+          appendOrUpdate(true, allCitations);
+          return;
+        }
 
         if (eventType === 'tool_pending') {
           if (!toolPending) {
@@ -492,6 +599,119 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         if (toolPending && eventType !== 'heartbeat') {
           toolPending = false;
           appendOrUpdate(true);
+        }
+
+        if (eventType === 'ontology_repair') {
+          const revision = ensureOntologyRevision(
+            typeof eventObj.source === 'string' ? eventObj.source : undefined,
+          );
+          revision.status = eventObj.status === 'completed' ? 'completed' : 'streaming';
+          if (eventObj.status === 'started' || eventObj.status === 'completed') {
+            revision.toolPending = false;
+          }
+          if (typeof eventObj.tool_calls === 'number') revision.toolCallCount = eventObj.tool_calls;
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (eventType === 'ontology_revision_thinking') {
+          const content = String(eventObj.delta || eventObj.content || '');
+          if (content) appendRevisionThinking(content);
+          ensureOntologyRevision().toolPending = false;
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (eventType === 'ontology_revision') {
+          const content = String(eventObj.delta || eventObj.content || '');
+          // The backend has already separated pre-wrapper reasoning from the
+          // <ontology_revision> body, so every delta can be rendered directly.
+          // Sending it through the outer <think> state machine would buffer the
+          // whole candidate as hidden reasoning when no </think> tag follows.
+          const revision = ensureOntologyRevision();
+          revision.status = 'streaming';
+          revision.toolPending = false;
+          if (content) appendRevisionText(content);
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (ontologyRevisionTool && (eventType === 'tool_use' || eventType === 'tool_call' || eventType === 'tool_start')) {
+          const revision = ensureOntologyRevision();
+          revision.toolPending = false;
+          const eventToolId = getEventToolId(eventObj);
+          const existingIndex = eventToolId
+            ? revision.toolCalls.findIndex((tool) => normalizeToolId(tool.id) === eventToolId)
+            : -1;
+          const toolInput = eventObj.input ?? eventObj.args ?? eventObj.tool_args ?? eventObj.arguments;
+          const rawName = getEventToolRawName(eventObj) || t('工具调用');
+          const displayName = getEventToolDisplayName(eventObj);
+          if (existingIndex >= 0) {
+            revision.toolCalls[existingIndex] = {
+              ...revision.toolCalls[existingIndex],
+              input: toolInput,
+              status: 'running',
+            };
+          } else {
+            revision.toolCalls = [...revision.toolCalls, {
+              id: eventToolId || `ontology_tool_${Date.now()}_${revision.toolCalls.length}`,
+              name: rawName,
+              displayName,
+              input: toolInput,
+              status: 'running',
+              timestamp: Date.now(),
+              scope: 'ontology_revision',
+            }];
+          }
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (ontologyRevisionTool && (eventType === 'tool_result' || eventType === 'tool_end')) {
+          const revision = ensureOntologyRevision();
+          revision.toolPending = false;
+          const eventToolId = getEventToolId(eventObj);
+          const toolName = getEventToolRawName(eventObj);
+          let index = eventToolId
+            ? revision.toolCalls.findIndex((tool) => normalizeToolId(tool.id) === eventToolId)
+            : -1;
+          if (index < 0 && toolName) {
+            index = revision.toolCalls.findIndex((tool) => tool.name === toolName && tool.status === 'running');
+          }
+          const output = eventObj.output ?? eventObj.result;
+          if (index >= 0) {
+            revision.toolCalls[index] = {
+              ...revision.toolCalls[index],
+              output,
+              status: obj.error ? 'error' : 'success',
+            };
+          } else {
+            revision.toolCalls = [...revision.toolCalls, {
+              id: eventToolId,
+              name: toolName || t('工具调用'),
+              output,
+              status: obj.error ? 'error' : 'success',
+              timestamp: Date.now(),
+              scope: 'ontology_revision',
+            }];
+          }
+          if (Array.isArray(eventObj.citations)) {
+            allCitations = [...allCitations, ...(eventObj.citations as CitationItem[])];
+          }
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (ontologyRevisionTool && eventType === 'subagent_event') {
+          const revision = ensureOntologyRevision();
+          revision.toolPending = false;
+          if (applySubagentEvent(revision.toolCalls, eventObj)) {
+            if (Array.isArray(eventObj.citations)) {
+              allCitations = [...allCitations, ...(eventObj.citations as CitationItem[])];
+            }
+            appendOrUpdate(true, allCitations);
+          }
+          return;
         }
 
         if (eventType === 'tool_use' || eventType === 'tool_call' || eventType === 'tool_start') {
@@ -573,6 +793,98 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           return;
         }
 
+        if (eventType === 'ontology_activation') {
+          const governance = ensureOntologyGovernance(eventObj);
+          const activation = {
+            pack_id: typeof eventObj.pack_id === 'string' ? eventObj.pack_id : undefined,
+            workflow_id: typeof eventObj.workflow_id === 'string' ? eventObj.workflow_id : undefined,
+            workflow_name: typeof eventObj.workflow_name === 'string' ? eventObj.workflow_name : undefined,
+            source: typeof eventObj.source === 'string' ? eventObj.source : 'text',
+            asset_kind: typeof eventObj.asset_kind === 'string' ? eventObj.asset_kind : undefined,
+            asset_id: typeof eventObj.asset_id === 'string' ? eventObj.asset_id : undefined,
+            review_level: typeof eventObj.review_level === 'string' ? eventObj.review_level : undefined,
+          };
+          const activationKey = `${activation.pack_id || ''}:${activation.workflow_id || ''}`;
+          if (!governance.activations.some((item) => `${item.pack_id || ''}:${item.workflow_id || ''}` === activationKey)) {
+            governance.activations = [...governance.activations, activation];
+          }
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (eventType === 'ontology_gate') {
+          const governance = ensureOntologyGovernance(eventObj);
+          governance.gates = [...governance.gates, {
+            decision: typeof eventObj.decision === 'string' ? eventObj.decision : 'pass',
+            tool_name: typeof eventObj.tool_name === 'string' ? eventObj.tool_name : undefined,
+            matched_rule_ids: Array.isArray(eventObj.matched_rule_ids)
+              ? eventObj.matched_rule_ids.filter((item): item is string => typeof item === 'string')
+              : [],
+            violations: Array.isArray(eventObj.violations)
+              ? eventObj.violations.filter((item): item is string => typeof item === 'string')
+              : [],
+            denial_count: typeof eventObj.denial_count === 'number' ? eventObj.denial_count : undefined,
+            circuit_breaker: eventObj.circuit_breaker === true,
+          }];
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (eventType === 'ontology_review') {
+          const governance = ensureOntologyGovernance(eventObj);
+          const status = typeof eventObj.status === 'string' ? eventObj.status : '';
+          const level = typeof eventObj.level === 'string' ? eventObj.level : 'checkpoint';
+          const committeeSize = typeof eventObj.committee_size === 'number'
+            ? eventObj.committee_size
+            : 3;
+          governance.review = {
+            ...governance.review,
+            status: status === 'started' ? 'running' : status,
+            level,
+            committee_size: committeeSize,
+            count: typeof eventObj.review_count === 'number' ? eventObj.review_count : governance.review.count,
+            verdict: typeof eventObj.verdict === 'string' ? eventObj.verdict : governance.review.verdict,
+            revised: typeof eventObj.revised === 'boolean' ? eventObj.revised : governance.review.revised,
+            latency_ms: typeof eventObj.latency_ms === 'number' ? eventObj.latency_ms : governance.review.latency_ms,
+            owner: typeof eventObj.review_owner === 'string' ? eventObj.review_owner : governance.review.owner,
+            candidate_answer: typeof eventObj.candidate_answer === 'string'
+              ? eventObj.candidate_answer
+              : governance.review.candidate_answer,
+            manual_review: eventObj.manual_review && typeof eventObj.manual_review === 'object'
+              ? eventObj.manual_review as typeof governance.review.manual_review
+              : governance.review.manual_review,
+            violations: Array.isArray(eventObj.violations)
+              ? eventObj.violations as Array<Record<string, unknown>>
+              : governance.review.violations,
+            affected_claims: Array.isArray(eventObj.affected_claims)
+              ? eventObj.affected_claims as typeof governance.review.affected_claims
+              : governance.review.affected_claims,
+            evidence: Array.isArray(eventObj.evidence)
+              ? eventObj.evidence.filter((item): item is string => typeof item === 'string')
+              : governance.review.evidence,
+            feedback: Array.isArray(eventObj.feedback)
+              ? eventObj.feedback.filter((item): item is string => typeof item === 'string')
+              : governance.review.feedback,
+            new_tools: Array.isArray(eventObj.new_tools)
+              ? eventObj.new_tools.filter((item): item is string => typeof item === 'string')
+              : governance.review.new_tools,
+            new_citation_count: typeof eventObj.new_citation_count === 'number'
+              ? eventObj.new_citation_count
+              : governance.review.new_citation_count,
+          };
+          if (status === 'completed') {
+            const candidate = governance.review.candidate_answer || '';
+            if (candidate || governance.revision) {
+              const revision = ensureOntologyRevision();
+              revision.status = 'completed';
+              revision.toolPending = false;
+              if (candidate) revision.content = candidate;
+            }
+          }
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
         if (eventType === 'thinking' || eventType === 'thought') {
           // Structured reasoning channel (e.g. DeepSeek v4
           // `reasoning_content`): thinking is delivered via this SSE
@@ -607,6 +919,36 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           if (Array.isArray(eventObj.workspace_files)) {
             metaWorkspaceFiles = (eventObj.workspace_files as unknown[])
               .filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+          }
+          if (eventObj.ontology_governance && typeof eventObj.ontology_governance === 'object') {
+            const persisted = eventObj.ontology_governance as Partial<OntologyGovernanceSummary>;
+            const persistedReview = persisted.review && typeof persisted.review === 'object'
+              ? persisted.review
+              : {};
+            const liveRevision = ontologyGovernance?.revision;
+            const persistedCandidate = typeof persistedReview.candidate_answer === 'string'
+              ? persistedReview.candidate_answer
+              : '';
+            ontologyGovernance = {
+              governance_run_id: persisted.governance_run_id,
+              activations: Array.isArray(persisted.activations) ? persisted.activations : [],
+              gates: Array.isArray(persisted.gates) ? persisted.gates : [],
+              review: persistedReview,
+              revision: liveRevision
+                ? {
+                    ...liveRevision,
+                    status: 'completed',
+                    content: persistedCandidate || liveRevision.content,
+                  }
+                : persistedCandidate
+                  ? {
+                      status: 'completed',
+                      content: persistedCandidate,
+                      thinking: [],
+                      toolCalls: [],
+                    }
+                  : undefined,
+            };
           }
           appendArtifactsToStreamToolCalls(Array.isArray(eventObj.artifacts) ? eventObj.artifacts : []);
           appendOrUpdate(true, allCitations);
@@ -674,6 +1016,19 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             metaFollowUps = eventObj.follow_up_questions as string[];
             appendOrUpdate(true, allCitations);
           }
+          return;
+        }
+
+        if (eventType === 'content_replace') {
+          const answer = (obj.content || obj.text || '') as string;
+          if (parseBuffer) {
+            if (thinkingPhaseActive) appendThinkContent(parseBuffer, true);
+            parseBuffer = '';
+          }
+          thinkingPhaseActive = false;
+          structuredReasoning = true;
+          replaceAnswerText(answer);
+          appendOrUpdate(true, allCitations);
           return;
         }
 
@@ -747,6 +1102,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         isMarkdown: isMd,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         thinking: thinking.length > 0 ? thinking : undefined,
+        ontologyGovernance,
         segments: segments.length > 0 ? segments : undefined,
         citations: allCitations.length > 0 ? allCitations : undefined,
         followUpQuestions: metaFollowUps.length > 0 ? metaFollowUps : undefined,

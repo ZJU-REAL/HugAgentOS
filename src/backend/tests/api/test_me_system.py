@@ -90,6 +90,34 @@ def test_anonymous_denied(db_session, monkeypatch):
     assert user_can_manage_system_settings(db_session, None) is False
 
 
+def test_ce_super_admin_can_manage_ontology_governance(db_session, super_admin, monkeypatch):
+    from api.deps import user_can_manage_ontology_governance
+
+    _patch_edition(monkeypatch, edition="ce", auth_mode="session")
+    assert user_can_manage_ontology_governance(db_session, super_admin.user_id) is True
+
+
+def test_ce_regular_session_user_cannot_manage_global_ontology(db_session, regular, monkeypatch):
+    from api.deps import user_can_manage_ontology_governance
+
+    _patch_edition(monkeypatch, edition="ce", auth_mode="session")
+    assert user_can_manage_ontology_governance(db_session, regular.user_id) is False
+
+
+def test_ce_mock_user_can_manage_ontology_governance(db_session, regular, monkeypatch):
+    from api.deps import user_can_manage_ontology_governance
+
+    _patch_edition(monkeypatch, edition="ce", auth_mode="mock")
+    assert user_can_manage_ontology_governance(db_session, regular.user_id) is True
+
+
+def test_ee_uses_admin_console_instead_of_settings_governance(db_session, super_admin, monkeypatch):
+    from api.deps import user_can_manage_ontology_governance
+
+    _patch_edition(monkeypatch, edition="ee", auth_mode="session")
+    assert user_can_manage_ontology_governance(db_session, super_admin.user_id) is False
+
+
 def _run(coro):
     """Reuse/create the current event loop to drive the coroutine, keeping the loop **open and current**.
 

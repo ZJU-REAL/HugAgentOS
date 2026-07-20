@@ -12,6 +12,7 @@ from core.auth.permissions_iface import (
 )
 from core.db.repository import ChatSessionRepository, ChatMessageRepository, AuditLogRepository
 from core.db.models import ChatSession, ChatMessage
+from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 
 
 class ChatService:
@@ -506,6 +507,28 @@ class ChatService:
     ) -> bool:
         """Merge *patch* into a message's extra_data. Returns True on success."""
         return self.message_repo.update_extra_data(message_id, patch) is not None
+
+    def accept_ontology_revision(self, message_id: str) -> Optional[ChatMessage]:
+        """Replace an assistant message with its persisted ontology revision candidate."""
+        message = self.message_repo.get_by_id(message_id)
+        if not message or message.role != "assistant":
+            return None
+        extra_data = dict(message.extra_data or {})
+        governance = extra_data.get("ontology_governance")
+        if not isinstance(governance, dict):
+            return None
+        review = governance.get("review")
+        if not isinstance(review, dict):
+            return None
+        candidate = normalize_revision_candidate(review.get("candidate_answer"))
+        if not is_substantive_revision(candidate):
+            return None
+        updated_review = {**review, "candidate_answer": candidate, "accepted": True}
+        extra_data["ontology_governance"] = {**governance, "review": updated_review}
+        return self.message_repo.update(
+            message_id,
+            {"content": candidate, "extra_data": extra_data},
+        )
 
     def search_sessions(
         self,

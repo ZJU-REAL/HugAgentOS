@@ -6,6 +6,8 @@ import { listMyTeamsForProjects } from '../../api';
 import type { TeamForProjectCreation } from '../../types';
 import { AgentFormFields } from './AgentFormFields';
 import { getRandomIconUrl } from './AgentPanel';
+import { OntologyBuildValidationModal } from '../common/OntologyBuildValidationModal';
+import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
 import { t } from '../../i18n';
 
 interface AgentCreatePageProps {
@@ -18,6 +20,7 @@ export function AgentCreatePage({ onBack, onCreated, agent }: AgentCreatePagePro
   const { createAgent, updateAgent, fetchAgents, fetchAvailableResources, availableResources } = useAgentStore();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [buildFailure, setBuildFailure] = useState<OntologyBuildFailure | null>(null);
   const isEdit = !!agent;
   // Creation scope: personal / team (team is only open for teams where you are owner/admin)
   const [scope, setScope] = useState<'personal' | 'team'>('personal');
@@ -45,14 +48,15 @@ export function AgentCreatePage({ onBack, onCreated, agent }: AgentCreatePagePro
         mcp_server_ids: agent.mcp_server_ids || [],
         skill_ids: agent.skill_ids || [],
         plugin_ids: agent.plugin_ids || [],
+        ontology_tags: agent.ontology_tags || [],
         max_iters: agent.max_iters ?? 10,
         shared_context: !!ec.shared_context,
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ max_iters: 10, shared_context: false });
+      form.setFieldsValue({ max_iters: 10, shared_context: false, ontology_tags: [] });
     }
-  }, [agent]);
+  }, [agent, fetchAvailableResources, form]);
 
   async function handleSubmit() {
     try {
@@ -81,9 +85,14 @@ export function AgentCreatePage({ onBack, onCreated, agent }: AgentCreatePagePro
       }
       await fetchAgents();
       onCreated();
-    } catch (e: any) {
-      if (e.errorFields) return;
-      message.error(e.message || (isEdit ? t('更新失败') : t('创建失败')));
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'errorFields' in error) return;
+      const ontologyFailure = getOntologyBuildFailure(error);
+      if (ontologyFailure) {
+        setBuildFailure(ontologyFailure);
+      } else {
+        message.error(error instanceof Error ? error.message : (isEdit ? t('更新失败') : t('创建失败')));
+      }
     } finally {
       setSaving(false);
     }
@@ -163,6 +172,7 @@ export function AgentCreatePage({ onBack, onCreated, agent }: AgentCreatePagePro
           </Button>
         </div>
       </div>
+      <OntologyBuildValidationModal failure={buildFailure} onClose={() => setBuildFailure(null)} />
     </div>
   );
 }

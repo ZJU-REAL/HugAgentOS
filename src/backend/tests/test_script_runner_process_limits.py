@@ -134,6 +134,12 @@ def test_ce_installer_and_script_runner_ship_office_skill_runtime():
     assert "pip_install -r docker/requirements-script-runner.txt" in installer
     assert '--prefix "${SKILL_NODE_DIR}" pptxgenjs playwright' in installer
     assert "apt-get download fonts-wqy-zenhei" in installer
+    assert "install_libreoffice" in installer
+    assert "wants_libreoffice_install" in installer
+    assert "HUGAGENT_INSTALL_LIBREOFFICE" in installer
+    assert "libreoffice-impress libreoffice-writer libreoffice-calc" in installer
+    assert "PPT and Word previews" in installer
+    assert "Continuing without LibreOffice" in installer
     assert '"JX_FONT_DIR": str(dd / "fonts")' in (
         repo_root / "src" / "backend" / "cli.py"
     ).read_text(encoding="utf-8")

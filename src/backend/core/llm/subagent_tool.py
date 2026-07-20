@@ -14,12 +14,12 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.services import log_service as log_writer
-
+from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
+
 # AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
-from agentscope.message import TextBlock
+from core.services import log_service as log_writer
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,20 @@ logger = logging.getLogger(__name__)
 # Each thread gets its own event loop so anyio cancel scopes stay within
 # a single task — avoiding the cross-task RuntimeError.
 _subagent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subagent")
+
+
+def _shared_ontology_runtime(agent_ref: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return the parent request's ontology runtime without copying it.
+
+    A child agent may activate an additional asset-tag workflow or raise the
+    required review level. Keeping the same dictionary object makes those
+    monotonic policy changes visible to the outer workflow, which remains the
+    sole owner of final-answer review.
+    """
+    if not agent_ref or not agent_ref.get("agent"):
+        return None
+    runtime = getattr(agent_ref["agent"].state, "ontology_runtime", None)
+    return runtime if isinstance(runtime, dict) else None
 
 
 class _SubMapper:
@@ -39,9 +53,9 @@ class _SubMapper:
     """
 
     def __init__(self) -> None:
-        self._names: Dict[str, str] = {}      # tool_id → name
-        self._args: Dict[str, str] = {}       # tool_id → accumulated args JSON string
-        self._results: Dict[str, str] = {}    # tool_id → accumulated result text
+        self._names: Dict[str, str] = {}  # tool_id → name
+        self._args: Dict[str, str] = {}  # tool_id → accumulated args JSON string
+        self._results: Dict[str, str] = {}  # tool_id → accumulated result text
         # Inline thinking (<think>…</think>) splitting: the deepseek/qwen family models
         # commonly used by sub-agents inline the reasoning chain in the body deltas, and
         # often omit the opening <think>. Buffer the leading text per "model turn" —
@@ -51,8 +65,8 @@ class _SubMapper:
         # model's plain answer, re-emitted as content at turn end. Structured
         # ThinkingBlockDeltaEvent likewise goes through the thinking channel. State resets
         # on each ModelCall turn.
-        self._think_buf = ""       # pending text before </think> in this turn
-        self._closed = False       # whether thinking is confirmed finished this turn (saw </think> or structured thinking)
+        self._think_buf = ""  # pending text before </think> in this turn
+        self._closed = False  # whether thinking is confirmed finished this turn (saw </think> or structured thinking)
 
     def _flush_pending_as_content(self, out: List[Dict[str, Any]]) -> None:
         if self._think_buf:
@@ -78,7 +92,7 @@ class _SubMapper:
             close_i = self._think_buf.find("</think>")
             if close_i != -1:
                 think_txt = self._think_buf[:close_i].replace("<think>", "")
-                rest = self._think_buf[close_i + len("</think>"):]
+                rest = self._think_buf[close_i + len("</think>") :]
                 self._think_buf = ""
                 self._closed = True
                 if think_txt.strip():
@@ -104,8 +118,15 @@ class _SubMapper:
             name = getattr(ev, "tool_call_name", "") or "unknown"
             self._names[tid] = name
             self._args[tid] = ""
-            out.append({"sub_type": "tool_call", "tool_id": tid,
-                        "tool_name": name, "input": None, "status": "running"})
+            out.append(
+                {
+                    "sub_type": "tool_call",
+                    "tool_id": tid,
+                    "tool_name": name,
+                    "input": None,
+                    "status": "running",
+                }
+            )
 
         elif nm == "ToolCallDeltaEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
@@ -119,8 +140,15 @@ class _SubMapper:
                 args = json.loads(args_str) if args_str else {}
             except json.JSONDecodeError:
                 args = {"_raw": args_str}
-            out.append({"sub_type": "tool_call", "tool_id": tid,
-                        "tool_name": name, "input": args, "status": "running"})
+            out.append(
+                {
+                    "sub_type": "tool_call",
+                    "tool_id": tid,
+                    "tool_name": name,
+                    "input": args,
+                    "status": "running",
+                }
+            )
 
         elif nm == "ToolResultTextDeltaEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
@@ -131,9 +159,15 @@ class _SubMapper:
             content = self._results.pop(tid, "")
             name = getattr(ev, "tool_call_name", "") or self._names.get(tid, "unknown")
             state = str(getattr(ev, "state", "") or "")
-            out.append({"sub_type": "tool_result", "tool_id": tid,
-                        "tool_name": name, "output": content,
-                        "status": "error" if state == "error" else "success"})
+            out.append(
+                {
+                    "sub_type": "tool_result",
+                    "tool_id": tid,
+                    "tool_name": name,
+                    "output": content,
+                    "status": "error" if state == "error" else "success",
+                }
+            )
 
         return out
 
@@ -146,6 +180,7 @@ def _run_subagent_in_thread(
     current_user_id: str,
     shared_messages: Optional[List[Dict[str, Any]]] = None,
     emit: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ontology_runtime: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, str, List[Dict[str, Any]]]:
     """Run a single sub-agent inside a *new* event loop on a worker thread.
 
@@ -163,20 +198,26 @@ def _run_subagent_in_thread(
     is always taken from the reply's **final Msg** — fully equivalent to the old
     ``agent.reply()``, leaving the tool result the main agent receives unchanged.
     """
+
     async def _inner() -> str:
+        from agentscope.message import Msg
         from core.db.engine import SessionLocal
-        from core.services.user_agent_service import UserAgentService
         from core.llm.agent_factory import create_agent_executor
         from core.llm.mcp_manager import close_clients
-        from agentscope.message import Msg
-        from core.llm.message_compat import strip_thinking, session_to_msgs
+        from core.llm.message_compat import session_to_msgs, strip_thinking
+        from core.services.user_agent_service import UserAgentService
 
         with SessionLocal() as db:
             svc = UserAgentService(db)
             user_agent = svc.get_raw_by_id(agent_id, user_id=current_user_id)
             _ = user_agent.mcp_server_ids, user_agent.skill_ids, user_agent.kb_ids
             _ = user_agent.system_prompt, user_agent.model_provider_id
-            _ = user_agent.max_iters, user_agent.temperature, user_agent.max_tokens, user_agent.timeout
+            _ = (
+                user_agent.max_iters,
+                user_agent.temperature,
+                user_agent.max_tokens,
+                user_agent.timeout,
+            )
 
         # The sub-agent uses an "independent user-bound persistent sandbox" — the same
         # _create_jupyter_sandbox path as the main conversation, mounting that user's
@@ -193,12 +234,14 @@ def _run_subagent_in_thread(
             current_user_id=current_user_id,
             isolated=True,
             sandbox_session_id=sub_session_id,
+            ontology_runtime=ontology_runtime,
         )
         # The sub-agent runs in its own thread/event loop → its own workspace ContextVar.
         # Initialize one so the sub-agent's pin_to_workspace has somewhere to land; after the
         # run, get_pinned() hands the files back to the main context for re-pinning —
         # otherwise files pinned to the workspace are lost and never shown in the main conversation.
         from core.llm import workspace as _ws
+
         _ws.init_state()
 
         try:
@@ -212,8 +255,7 @@ def _run_subagent_in_thread(
             prompt_parts.append(f"用户任务：{task}")
             prompt = "\n\n".join(prompt_parts)
 
-            user_msg = Msg(name="user", role="user",
-                           content=[TextBlock(type="text", text=prompt)])
+            user_msg = Msg(name="user", role="user", content=[TextBlock(type="text", text=prompt)])
 
             if emit is None:
                 # No listener (non-interactive / batch / main stream not registered): take the original one-shot path.
@@ -233,7 +275,9 @@ def _run_subagent_in_thread(
                 try:
                     for sub in mapper.feed(chunk):
                         emit(sub)
-                except Exception:  # noqa: BLE001 — bypass mapping must never take down the sub-agent
+                except (
+                    Exception
+                ):  # noqa: BLE001 — bypass mapping must never take down the sub-agent
                     logger.debug("subagent event map failed (ignored)", exc_info=True)
             response_text = (final_msg.get_text_content() if final_msg else "") or ""
             return True, strip_thinking(response_text), _ws.get_pinned()
@@ -261,7 +305,9 @@ def _run_subagent_in_thread(
     except Exception as e:
         logger.error(
             "subagent thread failed: agent=%s, error=%s",
-            agent_name, e, exc_info=True,
+            agent_name,
+            e,
+            exc_info=True,
         )
         return False, str(e)[:200], []
     finally:
@@ -316,10 +362,14 @@ def register_subagent_tool(
                 子智能体的执行结果。结果对用户不可见，你需要汇总后呈现给用户。
         """
         if agent_id not in agent_map:
-            return ToolResponse(content=[TextBlock(
-                type="text",
-                text=f"错误：子智能体 {agent_id} 不存在或无权访问。请检查 ID 是否正确。",
-            )])
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"错误：子智能体 {agent_id} 不存在或无权访问。请检查 ID 是否正确。",
+                    )
+                ]
+            )
 
         agent_info = agent_map[agent_id]
         agent_name = agent_info.get("name", agent_id)
@@ -330,11 +380,13 @@ def register_subagent_tool(
         if shared_context and agent_ref and agent_ref.get("agent"):
             try:
                 from core.llm.message_compat import extract_messages_from_context
+
                 # 2.0: agent.memory → agent.state.context; this function is now synchronous
                 shared_messages = extract_messages_from_context(agent_ref["agent"].state.context)
                 logger.info(
                     "[subagent_tool] shared_context enabled for agent=%s, messages=%d",
-                    agent_name, len(shared_messages),
+                    agent_name,
+                    len(shared_messages),
                 )
             except Exception as exc:
                 logger.warning("[subagent_tool] shared_context extraction failed: %s", exc)
@@ -356,6 +408,7 @@ def register_subagent_tool(
         if bool(chat_id) and _subagent_stream.is_active(chat_id):
             try:
                 from core.llm.middlewares import CURRENT_TOOL_CALL_ID
+
                 parent_tool_id = CURRENT_TOOL_CALL_ID.get("") or ""
             except Exception:  # noqa: BLE001
                 parent_tool_id = ""
@@ -364,13 +417,16 @@ def register_subagent_tool(
             def _emit(sub: Dict[str, Any]) -> None:
                 if sub.get("sub_type") == "tool_result":
                     _tool_count["n"] += 1
-                _subagent_stream.push(chat_id, {
-                    "parent_tool_id": parent_tool_id,
-                    "sub_run_id": sub_run_id,
-                    "agent_id": agent_id,
-                    "agent_name": agent_name,
-                    **sub,
-                })
+                _subagent_stream.push(
+                    chat_id,
+                    {
+                        "parent_tool_id": parent_tool_id,
+                        "sub_run_id": sub_run_id,
+                        "agent_id": agent_id,
+                        "agent_name": agent_name,
+                        **sub,
+                    },
+                )
 
             _emit({"sub_type": "start", "task": task[:200]})
 
@@ -379,12 +435,14 @@ def register_subagent_tool(
         # mode — every call_subagent dispatch of a user-built sub-agent becomes an auditable
         # record. Best-effort, never blocks tool execution. ──
         _run_start = time.monotonic()
-        _sub_log_id = await log_writer.start_subagent_log({
-            "subagent_name": agent_name,
-            "subagent_type": "user_agent",
-            "subagent_id": agent_id,
-            "input_messages": {"task": task, "context_summary": context_summary},
-        })
+        _sub_log_id = await log_writer.start_subagent_log(
+            {
+                "subagent_name": agent_name,
+                "subagent_type": "user_agent",
+                "subagent_id": agent_id,
+                "input_messages": {"task": task, "context_summary": context_summary},
+            }
+        )
 
         async def _finish(status: str, *, output: str = "", error: Optional[str] = None) -> None:
             await log_writer.finish_subagent_log(
@@ -398,12 +456,21 @@ def register_subagent_tool(
 
         try:
             loop = asyncio.get_running_loop()
+            # The parent and child must share one governance run. A shallow
+            # copy here would let child activations update nested lists while
+            # losing scalar changes such as an escalated review_level.
+            ontology_runtime = _shared_ontology_runtime(agent_ref)
             ok, text, sub_pinned = await loop.run_in_executor(
                 _subagent_pool,
                 _run_subagent_in_thread,
-                agent_id, agent_name, task, context_summary, current_user_id,
+                agent_id,
+                agent_name,
+                task,
+                context_summary,
+                current_user_id,
                 shared_messages,
                 _emit,
+                ontology_runtime,
             )
 
             # Feed the files the sub-agent pinned to its workspace back into the main
@@ -414,6 +481,7 @@ def register_subagent_tool(
             if sub_pinned:
                 try:
                     from core.llm import workspace as _ws
+
                     for _it in sub_pinned:
                         _ws.pin(
                             file_id=_it.get("file_id"),
@@ -431,31 +499,45 @@ def register_subagent_tool(
 
             if not ok:
                 await _finish("failed", output=text, error=text)
-                return ToolResponse(content=[TextBlock(
-                    type="text",
-                    text=f"子智能体「{agent_name}」执行出错：{text}",
-                )])
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=f"子智能体「{agent_name}」执行出错：{text}",
+                        )
+                    ]
+                )
 
             logger.info(
                 "[subagent_tool] call_subagent completed: agent=%s, task_len=%d, response_len=%d",
-                agent_name, len(task), len(text),
+                agent_name,
+                len(task),
+                len(text),
             )
 
             await _finish("success", output=text)
-            return ToolResponse(content=[TextBlock(
-                type="text",
-                text=f"【{agent_name}】的回复：\n\n{text}",
-            )])
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"【{agent_name}】的回复：\n\n{text}",
+                    )
+                ]
+            )
 
         except Exception as e:
             logger.error("call_subagent failed: agent=%s, error=%s", agent_id, e, exc_info=True)
             if _emit is not None:
                 _emit({"sub_type": "error", "error": str(e)[:200]})
             await _finish("failed", error=str(e)[:200])
-            return ToolResponse(content=[TextBlock(
-                type="text",
-                text=f"子智能体「{agent_name}」执行出错：{str(e)[:200]}",
-            )])
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"子智能体「{agent_name}」执行出错：{str(e)[:200]}",
+                    )
+                ]
+            )
 
     toolkit.register_tool_function(call_subagent, namesake_strategy="skip")
 
@@ -492,13 +574,14 @@ def build_subagent_prompt_section(
         if has_shared:
             shared_agents.append(a["name"])
 
-    table = "| ID | 名称 | 适用场景 | 可用工具 | 共享上下文 |\n|---|---|---|---|---|\n" + "\n".join(rows)
+    table = "| ID | 名称 | 适用场景 | 可用工具 | 共享上下文 |\n|---|---|---|---|---|\n" + "\n".join(
+        rows
+    )
 
     section = (
         "## 可用子智能体\n\n"
         "你可以通过 `call_subagent` 工具将专业任务分派给子智能体处理。"
-        "每个子智能体拥有独立的工具和专业知识。\n\n"
-        + table + "\n\n"
+        "每个子智能体拥有独立的工具和专业知识。\n\n" + table + "\n\n"
         "### 何时使用子智能体\n"
         "- 任务需要子智能体拥有的专业工具（参见上表「可用工具」列）\n"
         "- 用户通过 @名称 明确指定时\n"
@@ -546,4 +629,33 @@ def build_subagent_mention_hint(
     return (
         f"**用户已指定调用子智能体：{'、'.join(names)}。"
         "请直接使用 call_subagent 工具调用指定的子智能体。**\n"
+    )
+
+
+def build_explicit_subagent_command_hint(
+    visible_agents: List[Dict[str, Any]],
+    agent_id: str,
+) -> str:
+    """Constrain an explicit natural-language delegation without bypassing the LLM.
+
+    The hint lives in the current user turn so the stable system prompt remains
+    cacheable. The main model still reasons and emits the actual tool call, but
+    it cannot reinterpret an unambiguous ``调用 <name> 子智能体`` command as
+    permission to query its own tools first.
+    """
+    target = next(
+        (item for item in visible_agents if str(item.get("agent_id") or "") == agent_id),
+        None,
+    )
+    if not target:
+        return ""
+    agent_name = str(target.get("name") or agent_id)
+    return (
+        "<explicit_subagent_command>\n"
+        f"用户已明确要求调用子智能体「{agent_name}」（agent_id={agent_id}）。\n"
+        "你必须保留正常的思考与流式输出，并将下一个工具调用设为 "
+        f'call_subagent(agent_id="{agent_id}", task=<下方用户任务>)。\n'
+        "调用子智能体之前不得调用其他工具，也不得先自行查询或执行该任务。"
+        "子智能体返回后，不再调用其他数据工具，直接基于其结果整合最终回答。\n"
+        "</explicit_subagent_command>"
     )

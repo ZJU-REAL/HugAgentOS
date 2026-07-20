@@ -363,6 +363,8 @@ async def cancel_and_resume(
         memory_enabled=bool(_user_settings.get("memory_enabled", False)),
         memory_write_enabled=bool(_user_settings.get("memory_write_enabled", False)),
         reranker_enabled=bool(_user_settings.get("reranker_enabled", False)),
+        ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
+        ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
     )
 
     # Use the modern chat_run_executor pipeline so:

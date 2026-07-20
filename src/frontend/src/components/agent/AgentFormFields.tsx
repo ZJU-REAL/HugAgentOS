@@ -11,6 +11,7 @@ import { useAuthStore } from '../../stores';
 import { useAgentStore, type AvailableResources } from '../../stores/agentStore';
 import { PluginMarketplaceModal } from '../catalog/PluginMarketplaceModal';
 import { SkillMarketplaceModal } from '../catalog/SkillMarketplaceModal';
+import { OntologyTagSelect } from '../common/OntologyTagSelect';
 import { t } from '../../i18n';
 
 const { TextArea } = Input;
@@ -226,6 +227,17 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
         ) : (
           <Spin size="small" />
         )}
+      </Form.Item>
+
+      <Form.Item
+        name="ontology_tags"
+        label={t('本体治理标签')}
+        tooltip={t('标签来自当前激活领域包；实际调用子智能体时，会触发标签关联的本体工作流和评审级别。')}
+      >
+        <OntologyTagSelect
+          options={availableResources?.ontology_tags ?? []}
+          loading={!availableResources}
+        />
       </Form.Item>
 
       <Form.Item name="max_iters" label={t('最大推理轮次')}>

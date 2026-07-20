@@ -32,7 +32,7 @@ Glob patterns (relative to the repo root); a match means the file is never copie
 - **10 industry/branded skills** (under `skill_bundles/marketplace/`; the first 5 hard-depend on EE industry MCPs, the other 5 contain branded domain copy);
 - **EE-coupled tests** and `tests/licensing/**`;
 - **Frontend consoles**: `AdminApp.tsx`, `ConfigApp.tsx`, `components/admin/**`, `components/config/**` (lab = the automation lab is CE and stays);
-- **Root-level EE deployment assets and open-source hygiene items**: EE Dockerfiles / compose fragments, LiteLLM gateway config (`docker/litellm/**`), `internal design docs`, `CLAUDE.md`, `.github/**`, internal `.env` defaults, branded manual PDFs, non-redistributable commercial fonts (`resources/fonts/**` — the overlay leaves a README placeholder to keep the Dockerfile COPY alive), a skill with embedded third-party credentials, the issuance tool `scripts/license_tool.py`, and the generator itself (`ce/**`, `scripts/build_ce.py`);
+- **Root-level EE deployment assets and open-source hygiene items**: EE Dockerfiles / compose fragments, LiteLLM gateway config (`docker/litellm/**`), `internal design docs`, `CLAUDE.md`, `.github/**`, internal `.env` defaults, branded manual PDFs, bundled commercial-font assets, a skill with embedded third-party credentials, the issuance tool `scripts/license_tool.py`, and the generator itself (`ce/**`, `scripts/build_ce.py`);
 - **EE-only templates inside the project dev skills**: `.claude/skills/*/templates/admin_route.py`, `admin-editor.tsx` (admin routes / the admin console physically don't exist in CE).
 
 ### 1.5 `renames` — optional path renames
@@ -56,6 +56,7 @@ Content edits that plain text substitution cannot express, implemented in `build
 | `requirements` | `requirements.txt` | drops cloud storage / persistent-sandbox deps (boto3 / oss2 / opensandbox); moves neo4j / mem0ai into the optional `requirements-mem0.txt` |
 | `docker_compose` | `docker-compose.yml` | removes the opensandbox / litellm services and their depends_on; un-profiles `script-runner` so it starts by default; strips env injections of excluded components tree-wide (`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` prefixes) |
 | `frontend_lock` | `package-lock.json` + frontend Dockerfile | deletes the lock (inevitably out of sync with the pruned package.json) and rewrites `npm ci` to `npm install` |
+| `repository_resources` | build and source references to bundled commercial fonts | removes the font-copy/install stanzas from CE Dockerfiles and the backend fallback to the repository font directory; a forbidden-artifact gate verifies the generated tree again |
 
 ### 4. `split` — assertion for files mixing user + admin endpoints
 
@@ -70,7 +71,6 @@ The three route files `content.py` / `models.py` / `projects.py` contain both us
 | `README.md` / `README_CN.md` / `LICENSE` / `NOTICE` / `CONTRIBUTING.md` / `SECURITY.md` | CE open-source repo front matter; English is the default README and Chinese remains available as a language alternative |
 | `install.sh` | Public one-command installer for the personal no-Docker profile |
 | `.env.example` | CE environment template (`JX_EDITION=ce`, no intranet IPs / brand defaults) |
-| `resources/fonts/README.md` | Commercial-font placeholder (keeps the Dockerfile COPY path alive) |
 | `src/backend/core/licensing/manager.py` | **CE stub**: `mode()` always `"ce"`, `has()` always False, unlimited seats, no verification logic at all |
 | `src/backend/core/auth/permissions_iface.py` | Single-tenant permission-interface stub (seam C3): your own resources are always full-permission; team permission is always `none` (legacy team data migrated from EE must not become world-readable through a permissive stub) |
 | `src/backend/core/memory/audit.py` | Memory-audit no-op stub (same interface, writes nothing) |

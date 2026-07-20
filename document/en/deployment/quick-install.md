@@ -38,10 +38,11 @@ The installer will:
 
 1. Verify Python ≥ 3.11, Node.js ≥ 20, npm, Git, and Rust when the Linux platform must build `ripgrep` from source;
 2. Clone or fast-forward HugAgentOS at `~/.hugagent/source`;
-3. Create a virtual environment at `~/.hugagent/venv` (using [uv](https://github.com/astral-sh/uv) when available, or `python -m venv` otherwise), and rebuild an incomplete environment left by an interrupted run;
-4. Install `requirements.txt`, the `hugagent` console command, the built-in Agent Skills Python and Node.js dependencies, and optional local knowledge-base dependencies;
-5. Build the frontend at `src/frontend/dist`;
-6. Enter the interactive first-run wizard.
+3. Detect optional LibreOffice and, when it is missing, explain the unavailable features and ask whether to install it; skipping it or a failed install doesn't block the remaining features;
+4. Create a virtual environment at `~/.hugagent/venv` (using [uv](https://github.com/astral-sh/uv) when available, or `python -m venv` otherwise), and rebuild an incomplete environment left by an interrupted run;
+5. Install `requirements.txt`, the `hugagent` console command, the built-in Agent Skills Python and Node.js dependencies, and optional local knowledge-base dependencies;
+6. Build the frontend at `src/frontend/dist`;
+7. Enter the interactive first-run wizard.
 
 > Add the command to your PATH for daily use: `export PATH="$HOME/.hugagent/venv/bin:$PATH"`.
 
@@ -67,7 +68,7 @@ The chat model is assigned to all 7 chat roles at once. Two more model types can
 
 **Step 5 (optional) · Internet search** — agent web search needs a search-engine key: choose `tavily` (default, get a key at [tavily.com](https://tavily.com)) or `baidu` (Qianfan AppBuilder) and enter the API key, or press Enter to skip. You can also configure it later under Settings → System → Service Config.
 
-At the end the wizard prints a **host-capability summary** (whether Node.js / pandoc / libreoffice are present, gating React site-building / Word conversion / Office conversion), then starts the server and opens `http://127.0.0.1:3001/`.
+At the end the wizard prints a **host-capability summary** (whether Node.js, pandoc, and LibreOffice are present, gating React site-building, Word conversion, and PPT/Word online previews), then starts the server and opens `http://127.0.0.1:3001/`.
 
 > **Warning:** The server listens on `127.0.0.1` by default. If the server must
 > accept remote connections, run
@@ -134,7 +135,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 
 **Needs extra conditions**
 - **React project build for conversational site-building**: supported once the `sites` plugin is installed — onboard provisions the React template into `~/.hugagent/site-template/` and runs `npm install` on first build. **Requires host Node.js ≥ 20 + npm**; without it only hand-written static sites are possible. The build chain's `/workspace` paths are parameterized to the local workspace (static sites match the Docker form).
-- **Office document conversion** (format conversion for Word/PPT/PDF): requires `libreoffice` / `pandoc` on the host; without them the relevant skills degrade with a clean error (Excel via openpyxl has no such dependency).
+- **Office document conversion and preview**: PPT/Word online previews and Office-to-PDF conversion require LibreOffice. When it is missing, the one-command installer explains the impact and asks whether to install it. Skipping it doesn't affect document generation, downloads, or other core features. For non-interactive installs, set `HUGAGENT_INSTALL_LIBREOFFICE=1` to install it automatically or `0` to skip it explicitly. Other Word conversions also use `pandoc`, and Excel read/write still uses openpyxl.
 - **PDF / Word file parsing on upload**: PDF needs an external parser service (set its API URL in onboard Step 4, or `FILE_PARSER_API_URL`); Word needs host `pandoc` / `libreoffice`. Excel / CSV / PPTX / text parse in-process and work out of the box.
 - **L2 vector memory**: off by default; can be enabled experimentally over the same Milvus Lite with `MEM0_ENABLED=true`.
 
@@ -154,6 +155,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 | The page shows JSON instead of the app | Frontend not built: `cd src/frontend && npm run build`, or set `FRONTEND_DIST_DIR` to a built `dist` |
 | Login reports the model is unavailable | Re-run `hugagent onboard` to reconfigure the model (the wizard tests connectivity) |
 | Want to switch model / change config | Re-run `hugagent onboard`, or log in and adjust under Settings → System → Model Services / Service Config |
+| PPT/Word preview reports that LibreOffice isn't installed | Re-run the one-command installer and choose to install it when prompted. On Debian/Ubuntu, you can instead run `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`, then restart HugAgentOS. |
 | Skill execution repeatedly reports `fork: Resource temporarily unavailable` | Stop the current service, rerun the public installer to upgrade, and start `hugagent` again. If an older version left child processes behind, inspect processes owned by the current user and, when needed, sign out of the login session before retrying. |
 | Is the environment ready | `hugagent doctor` runs a one-shot self-check |
 

@@ -1,13 +1,13 @@
 # 数据模型概览
 
-> 最后更新：2026-06-11
+> 最后更新：2026-07-19
 
-数据访问层位于 `src/backend/core/db/`：ORM 模型按领域拆为 `models/` 包（11 个领域文件，全部经 `models/__init__.py` 原样 re-export，旧的 `from core.db.models import X` 写法不变），仓储层在 `repository/` 包，引擎与会话在 `engine.py`。开发环境用 SQLite、生产用 PostgreSQL——`models/__init__.py` 定义 `JSONType`（PostgreSQL 自动升级为 JSONB）与 `INETType`（PostgreSQL 用 INET）两个方言感知类型，全部模型共用。
+数据访问层位于 `src/backend/core/db/`：ORM 模型按领域拆为 `models/` 包（14 个领域文件，全部经 `models/__init__.py` 原样 re-export，旧的 `from core.db.models import X` 写法不变），仓储层在 `repository/` 包，引擎与会话在 `engine.py`。开发环境用 SQLite、生产用 PostgreSQL——`models/__init__.py` 定义 `JSONType`（PostgreSQL 自动升级为 JSONB）与 `INETType`（PostgreSQL 用 INET）两个方言感知类型，全部模型共用。
 
 ```
 core/db/
 ├── engine.py            # 引擎、SessionLocal、init_db 启动兜底建表
-├── models/              # ORM 模型包（按领域 11 个文件）
+├── models/              # ORM 模型包（按领域 14 个文件）
 │   ├── identity.py      # 用户、团队、文件夹、API-Key
 │   ├── chat.py          # 会话、消息、Run、反馈、沙箱快照
 │   ├── project.py       # 项目工作空间
@@ -18,7 +18,10 @@ core/db/
 │   ├── agent.py         # 子智能体、计划模式
 │   ├── automation.py    # 定时任务、蒸馏、批量计划
 │   ├── logs.py          # 工具/子智能体/技能调用日志、审计
-│   └── memory.py        # 画像记忆、记忆审计、脱敏规则
+│   ├── memory.py        # 画像记忆、记忆审计、脱敏规则
+│   ├── datasource.py    # 数据源、元数据治理与黄金 SQL
+│   ├── site.py          # 站点、连接器与渠道配置
+│   └── ontology.py      # Domain Pack 版本、门禁、委员会与演进草案
 ├── repository/          # 仓储层：agent/artifact/audit/catalog/chat/kb/team/user
 ├── model_repository.py  # 模型供应商/角色指派仓储
 └── edition_tables.py    # CE/EE 建表边界单一真源
@@ -124,6 +127,16 @@ core/db/
 | `skill_call_logs` | 技能触发记录（view / run_script / auto_load） |
 | `audit_logs`（商业版 EE） | 用户态关键操作审计 |
 
+### 领域本体（models/ontology.py）
+
+| 表 | 用途 |
+|---|---|
+| `ontology_packs` | Domain Pack 身份、启用/默认标记与激活版本指针 |
+| `ontology_pack_versions` | 不可变的四层本体版本内容与校验报告 |
+| `ontology_enforcement_events` | 构建、工具和输出门禁的追加式证据 |
+| `ontology_review_runs` | checkpoint / committee 评审裁决、证据与延迟 |
+| `ontology_drafts` | 待人工审查的演进候选及物化版本指针 |
+
 ## Alembic 迁移机制
 
 - **商业版主链**：`src/backend/alembic/versions/` 下 53 个迁移，从初始建表一路演进（含 MCP 迁往 streamable-http、办公 MCP 下线改技能等结构性变更）。常用命令：`alembic upgrade head`、`make migrate-new msg="..."`（autogenerate 基于 `core/db/models` 元数据）；
@@ -154,6 +167,7 @@ sandbox_rebuilds · admin_skill_drafts · distillation_runs # 持久沙箱重建
 | 主题 | 路径 |
 |---|---|
 | ORM 模型包 | `src/backend/core/db/models/` |
+| 本体仓储 | `src/backend/core/db/repository/ontology.py` |
 | 引擎与启动建表 | `src/backend/core/db/engine.py` |
 | 仓储层 | `src/backend/core/db/repository/` |
 | CE/EE 建表边界 | `src/backend/core/db/edition_tables.py` |

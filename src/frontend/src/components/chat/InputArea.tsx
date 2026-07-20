@@ -10,6 +10,7 @@ import {
 import { useChatStore, useFileStore, useUIStore, useModelCapabilitiesStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { useAgentStore } from '../../stores/agentStore';
+import type { UserAgentItem } from '../../stores/agentStore';
 import type { ChatMode } from '../../stores/chatStore';
 import { FileAttachmentCard, MySpaceImportModal } from '../file';
 import CreateProjectModal from '../projects/CreateProjectModal';
@@ -368,30 +369,30 @@ export function InputArea({
 
   // ── Chip insertion handlers ──
   /** Insert a sub-agent mention chip and set it as the currently active one (shared by the @ popup and the "+" menu). */
-  function applyMention(agentName: string) {
+  function applyMention(agent: UserAgentItem) {
     const ed = editorRef.current;
     if (!ed) return;
-    insertChipAtCursor(ed, '@', agentName, 'jx-editorChip--mention');
-    setActiveMention({ name: agentName });
+    insertChipAtCursor(ed, '@', agent.name, 'jx-editorChip--mention');
+    setActiveMention({ id: agent.agent_id, name: agent.name });
     setMentionVisible(false);
     syncText();
     ed.focus();
   }
 
-  function onMentionSelect(agentName: string) {
+  function onMentionSelect(agent: UserAgentItem) {
     const ed = editorRef.current;
     if (!ed) return;
     removeQueryAtCursor(ed, '@');
-    applyMention(agentName);
+    applyMention(agent);
   }
 
   /** Pick a sub-agent from the "+" menu: move the caret to the end first, then insert the chip. */
-  function onPickAgentFromMenu(agentName: string) {
+  function onPickAgentFromMenu(agent: UserAgentItem) {
     const ed = editorRef.current;
     if (!ed) return;
     ed.focus();
     moveCaretToEnd(ed);
-    applyMention(agentName);
+    applyMention(agent);
   }
 
   /** Insert a skill chip and set it as the currently active skill (shared by the / popup and the "+" menu). */
@@ -491,7 +492,7 @@ export function InputArea({
       e.preventDefault();
       const list = getMentionFiltered(input);
       const sel = list[mIdx] || list[0];
-      if (sel) onMentionSelect(sel.name);
+      if (sel) onMentionSelect(sel);
       return;
     }
     // Mention popup: Escape
@@ -906,7 +907,7 @@ export function InputArea({
                   return enabled.map((a) => ({
                     key: `agent-${a.agent_id}`,
                     label: a.name,
-                    onClick: () => onPickAgentFromMenu(a.name),
+                    onClick: () => onPickAgentFromMenu(a),
                   }));
                 })(),
               }] : []),

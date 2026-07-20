@@ -16,6 +16,7 @@ EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 CE_DEFAULT_ADMIN_USERNAME = "admin"
 CE_DEFAULT_ADMIN_PASSWORD = "admin"
+CE_ONBOARDING_VERSION = 1
 CE_DEFAULT_ADMIN_CAPABILITIES: Dict[str, Any] = {
     "role": "super_admin",
     "ce_default_admin": True,
@@ -34,6 +35,19 @@ CE_DEFAULT_ADMIN_CAPABILITIES: Dict[str, Any] = {
     "can_content_manage": True,
     "allowed_apps": "*",
 }
+
+
+def ce_onboarding_required(metadata: Optional[Dict[str, Any]]) -> bool:
+    """Return whether the CE bootstrap owner must finish the current Web setup flow."""
+    if settings.edition.edition != "ce":
+        return False
+    meta = metadata or {}
+    try:
+        completed_version = int(meta.get("onboarding_completed_version") or 0)
+    except (TypeError, ValueError):
+        completed_version = 0
+    return bool(meta.get("onboarding_required")) and completed_version < CE_ONBOARDING_VERSION
+
 
 from core.auth.password import hash_password, verify_password
 
@@ -489,6 +503,7 @@ class LocalUserService:
         shadow = shadow or self.user_repo.get_by_id(user_id)
         if local is None:
             local = self.local_repo.get(user_id)
+        meta = dict(shadow.extra_data or {}) if shadow else {}
         return {
             "user_center_id": user_id,
             "username": username,
@@ -497,6 +512,8 @@ class LocalUserService:
             "nickname": local.nickname if local else None,
             "real_name": local.real_name if local else None,
             "auth_source": "local",
+            "must_change_password": bool(meta.get("must_change_password")),
+            "onboarding_required": ce_onboarding_required(meta),
             "teams": list_user_teams_brief(self.db, user_id),
         }
 
@@ -570,6 +587,7 @@ def ensure_ce_default_admin(db: Session) -> tuple[Optional[str], bool]:
                 "auth_source": "local",
                 **CE_DEFAULT_ADMIN_CAPABILITIES,
                 "must_change_password": True,
+                "onboarding_required": True,
             },
             last_sync_at=datetime.utcnow(),
         )
@@ -600,6 +618,14 @@ def ensure_ce_default_admin(db: Session) -> tuple[Optional[str], bool]:
         meta = dict(shadow.extra_data or {})
         meta.update(CE_DEFAULT_ADMIN_CAPABILITIES)
         meta.setdefault("auth_source", "local")
+        try:
+            completed_version = int(meta.get("onboarding_completed_version") or 0)
+        except (TypeError, ValueError):
+            completed_version = 0
+        if completed_version < CE_ONBOARDING_VERSION:
+            meta["onboarding_required"] = True
+        else:
+            meta.pop("onboarding_required", None)
         if verify_password(CE_DEFAULT_ADMIN_PASSWORD, local.password_hash):
             meta["must_change_password"] = True
         shadow.extra_data = meta

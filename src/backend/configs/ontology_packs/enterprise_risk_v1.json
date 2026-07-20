@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "enterprise_risk",
+  "name": "企业风险分析领域包",
+  "version": "1.1.0",
+  "domain": "enterprise-risk",
+  "description": "约束企业风险画像、风险预警与经营分析中的术语、证据和交付流程。",
+  "config": {
+    "injection_enabled": true,
+    "max_concepts": 12,
+    "token_budget": 2500,
+    "committee_size": 3,
+    "repeated_denial_threshold": 2,
+    "circuit_breaker_threshold": 5,
+    "allow_unresolved_tools": false
+  },
+  "concepts": [
+    {
+      "id": "DomainEntity",
+      "name": "领域实体",
+      "aliases": ["领域对象"],
+      "definition": "企业风险分析领域中可被唯一描述、关联或引用的对象。",
+      "tags": ["根概念"],
+      "risk": "low"
+    },
+    {
+      "id": "Enterprise",
+      "name": "企业主体",
+      "aliases": ["公司", "经营主体"],
+      "definition": "具有可唯一识别名称或统一社会信用代码的经营主体。",
+      "parent_id": "DomainEntity",
+      "tags": ["主体", "企业画像"],
+      "risk": "low"
+    },
+    {
+      "id": "RiskEvent",
+      "name": "风险事件",
+      "aliases": ["风险信号", "风险预警"],
+      "definition": "有明确来源、发生时间和关联主体，可影响经营判断的事实事件。",
+      "parent_id": "DomainEntity",
+      "tags": ["风险", "事件"],
+      "risk": "high"
+    },
+    {
+      "id": "RiskLevel",
+      "name": "风险等级",
+      "aliases": ["风险级别"],
+      "definition": "基于已核验证据作出的分层，不等同于对企业的最终定性。",
+      "parent_id": "DomainEntity",
+      "closed_values": ["低", "中", "高", "待核验"],
+      "tags": ["风险", "枚举"],
+      "risk": "high"
+    },
+    {
+      "id": "EvidenceSource",
+      "name": "证据来源",
+      "aliases": ["数据来源", "引用来源"],
+      "definition": "能够追溯到工具结果、知识库文档或公开网页的原始依据。",
+      "parent_id": "DomainEntity",
+      "tags": ["证据", "引用"],
+      "risk": "high"
+    },
+    {
+      "id": "RiskReport",
+      "name": "企业风险报告",
+      "aliases": ["风险画像", "风险分析"],
+      "definition": "区分事实、推断与未知项，并附证据来源和时间边界的风险分析交付物。",
+      "parent_id": "DomainEntity",
+      "tags": ["报告", "交付物"],
+      "risk": "high"
+    }
+  ],
+  "relations": [
+    {
+      "id": "enterprise_has_risk_event",
+      "subject": "Enterprise",
+      "predicate": "发生或关联",
+      "object": "RiskEvent",
+      "description": "风险事件必须明确关联到一个企业主体。",
+      "min_cardinality": 0,
+      "forbidden": false
+    },
+    {
+      "id": "risk_event_has_evidence",
+      "subject": "RiskEvent",
+      "predicate": "由证据支持",
+      "object": "EvidenceSource",
+      "description": "高风险结论至少应有一个可追溯来源。",
+      "min_cardinality": 1,
+      "forbidden": false
+    },
+    {
+      "id": "report_summarizes_event",
+      "subject": "RiskReport",
+      "predicate": "汇总",
+      "object": "RiskEvent",
+      "description": "报告只能汇总已检索到的事件，不得虚构。",
+      "min_cardinality": 0,
+      "forbidden": false
+    }
+  ],
+  "constraints": [
+    {
+      "id": "risk_query_requires_enterprise",
+      "name": "风险查询必须给出企业主体",
+      "target": {
+        "kind": "tool",
+        "tool": "get_company_risk_warning"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "company_id": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "required": ["company_id"]
+      },
+      "concept_id": "Enterprise",
+      "requires_citations": false,
+      "prerequisite_tools": ["search_company", "get_company_base_info"],
+      "mode": "enforce",
+      "risk": "high",
+      "message": "企业风险查询缺少明确主体或尚未核验企业基本信息。",
+      "suggestion": "先调用 search_company 获取企业 ID，再调用 get_company_base_info 核验主体，最后用同一 company_id 查询风险。",
+      "enabled": true
+    },
+    {
+      "id": "risk_report_requires_evidence",
+      "name": "风险报告必须有引用证据",
+      "target": {
+        "kind": "output",
+        "output_tag": "enterprise_risk_report"
+      },
+      "schema": {
+        "type": "string",
+        "minLength": 80
+      },
+      "concept_id": "RiskReport",
+      "requires_citations": true,
+      "prerequisite_tools": [],
+      "mode": "enforce",
+      "risk": "high",
+      "message": "企业风险报告必须具备足够内容并引用可追溯证据。",
+      "suggestion": "区分事实、推断和待核验项，并为关键风险结论附上工具引用。",
+      "enabled": true
+    }
+  ],
+  "workflows": [
+    {
+      "id": "enterprise_risk_analysis",
+      "name": "企业风险分析",
+      "triggers": ["企业风险", "风险预警", "经营风险", "风险画像"],
+      "asset_triggers": [
+        {
+          "kind": "tool",
+          "ids": ["get_company_risk_warning"],
+          "tags_any": ["ontology:RiskEvent", "ontology:RiskReport"]
+        },
+        {
+          "kind": "skill",
+          "tags_any": ["ontology:RiskReport"]
+        },
+        {
+          "kind": "subagent",
+          "tags_any": ["ontology:RiskReport"]
+        }
+      ],
+      "required_tools": ["search_company", "get_company_base_info", "get_company_risk_warning"],
+      "forbidden_tools": [],
+      "output_tags": ["enterprise_risk_report"],
+      "review_level": "committee",
+      "risk": "high"
+    },
+    {
+      "id": "enterprise_profile_checkpoint",
+      "name": "企业画像核验",
+      "triggers": ["企业画像", "公司画像", "经营分析"],
+      "asset_triggers": [
+        {
+          "kind": "tool",
+          "ids": ["get_company_base_info"],
+          "tags_any": ["ontology:Enterprise"]
+        },
+        {
+          "kind": "skill",
+          "tags_any": ["ontology:Enterprise"]
+        },
+        {
+          "kind": "subagent",
+          "tags_any": ["ontology:Enterprise"]
+        }
+      ],
+      "required_tools": ["search_company", "get_company_base_info"],
+      "forbidden_tools": [],
+      "output_tags": [],
+      "review_level": "checkpoint",
+      "risk": "medium"
+    }
+  ]
+}

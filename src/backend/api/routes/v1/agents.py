@@ -8,16 +8,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from core.auth.backend import UserContext, get_current_user
+from core.auth.capabilities import resolve_user_capabilities
+from core.db.engine import get_db
+from core.infra.exceptions import AccessDeniedError
+from core.infra.responses import error_response, success_response
+from core.services.user_agent_service import UserAgentService
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-
-from core.auth.backend import get_current_user, UserContext
-from core.auth.capabilities import resolve_user_capabilities
-from core.db.engine import get_db
-from core.services.user_agent_service import UserAgentService
-from core.infra.exceptions import AccessDeniedError
-from core.infra.responses import success_response, error_response
 
 router = APIRouter(prefix="/v1/agents", tags=["User Agents"])
 logger = logging.getLogger(__name__)
@@ -26,10 +25,13 @@ logger = logging.getLogger(__name__)
 def _require_can_add_agent(user_id: str, db: Session) -> None:
     # personal explicit (user management) → team default (team management) → off by default
     if not resolve_user_capabilities(db, user_id)["can_add_agent"]:
-        raise AccessDeniedError(message="管理员未开放自建/安装子智能体功能", reason="can_add_agent_disabled")
+        raise AccessDeniedError(
+            message="管理员未开放自建/安装子智能体功能", reason="can_add_agent_disabled"
+        )
 
 
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
+
 
 class AgentCreateRequest(BaseModel):
     # passing team_id = create a team sub-agent (requires being owner/admin of that team); omitting = personal sub-agent
@@ -49,6 +51,7 @@ class AgentCreateRequest(BaseModel):
     max_tokens: Optional[int] = None
     max_iters: Optional[int] = 10
     timeout: Optional[int] = 120
+    ontology_tags: Optional[List[str]] = Field(default_factory=list)
     extra_config: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -69,10 +72,12 @@ class AgentUpdateRequest(BaseModel):
     max_iters: Optional[int] = None
     timeout: Optional[int] = None
     is_enabled: Optional[bool] = None
+    ontology_tags: Optional[List[str]] = None
     extra_config: Optional[Dict[str, Any]] = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("", summary="列出当前用户可见的所有子智能体")
 async def list_agents(
@@ -159,7 +164,13 @@ async def update_agent(
     svc = UserAgentService(db)
     data = body.model_dump(exclude_none=True)
     try:
-        agent = svc.update(agent_id, user_id=user.user_id, operator_name=user.username, owner_type="user", data=data)
+        agent = svc.update(
+            agent_id,
+            user_id=user.user_id,
+            operator_name=user.username,
+            owner_type="user",
+            data=data,
+        )
     except LookupError:
         return error_response(code=404, message="Agent not found")
     except PermissionError:

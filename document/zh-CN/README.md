@@ -1,6 +1,6 @@
 # HugAgentOS 中文文档
 
-> 最后更新：2026-06-11 ｜ [English](../en/README.md)
+> 最后更新：2026-07-19 ｜ [English](../en/README.md)
 
 HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + AgentScope 2.0 智能体底座，全栈 Docker 化部署，以 open-core 模式提供**开源社区版（CE）**与**商业版（EE）**。本目录是面向部署者、使用者与二次开发者的完整产品文档。
 
@@ -31,7 +31,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + 
 | [总体架构](architecture/overview.md) | 分层架构图、一次对话的完整生命周期、容器拓扑、关键设计决策 |
 | [后端架构](architecture/backend.md) | `src/backend/` 全目录详解：api / orchestration / core 15 子模块 / 路由注册表 |
 | [前端架构](architecture/frontend.md) | 五入口分发、组件组、Zustand store、hooks、构建链 |
-| [数据模型](architecture/data-model.md) | 44 张表分组速览、alembic 双迁移链、CE/EE 表边界 |
+| [数据模型](architecture/data-model.md) | 76 张表分组速览、alembic 双迁移链、CE/EE 表边界 |
 
 ## 功能模块
 
@@ -45,6 +45,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + 
 | [技能系统](modules/agent-skills.md) | SKILL.md 机制、技能包分层、技能市场、技能蒸馏 |
 | [沙箱执行](modules/sandbox.md) | 三种 provider、bash 工具、快照持久化、MySpace 直挂 |
 | [记忆系统](modules/memory.md) | L1/L2/L3 三层记忆、脱敏、审计、mem0 基础设施 |
+| [领域本体治理与校验](modules/ontology-harness.md) | CE 设置页治理、Domain Pack、工具门禁、交付前评审与人审演进 |
 | [知识库](modules/knowledge-base.md) | 自建知识库（混合检索）与 Dify 外接、公共库管理 |
 | [对象存储](modules/storage.md) | local / s3 / oss 三后端、产物仓、文件链路 |
 | [项目空间与我的空间](modules/projects-myspace.md) | 项目工作区、个人/团队文件夹、文件入上下文 |

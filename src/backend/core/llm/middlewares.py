@@ -15,37 +15,40 @@ Pure-logic helpers still reuse hooks.py / finish_guard.py (they are agentscope-v
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import json
 import logging
+import time
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, List
-
-from pydantic import ConfigDict, Field
 
 from agentscope.agent import Agent
 from agentscope.event import ToolCallEndEvent
-from agentscope.message import DataBlock, Base64Source, Msg, TextBlock
+from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, ToolResultState
 from agentscope.middleware import MiddlewareBase
 from agentscope.state import AgentState
-
+from agentscope.tool._response import ToolChunk
 from core.llm.hooks import (
+    _FILE_ID_RE,
     _GOAL_ANCHOR_INTERVAL,
     _GOAL_ANCHOR_OUTPUT_TOOLS,
     _GOAL_ANCHOR_REMINDER_TEMPLATE,
     _GOAL_ANCHOR_WARMUP_CALLS,
-    _FILE_ID_RE,
     _PIN_HINT_SKIP_TOOLS,
     _build_file_context,
     _build_historical_files_context,
     _fetch_image_base64,
     _get_main_model,
-    _get_provider_model,
     _get_pin_hint_state,
+    _get_provider_model,
     _is_image,
     _resolve_chat_mode,
     reset_artifact_read_state,
     reset_pin_hint_state,
 )
+from pydantic import ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,8 @@ class AgentRuntimeState(AgentState):
     uploaded_files: List[dict] = Field(default_factory=list)
     historical_files: List[dict] = Field(default_factory=list)
     user_message_text: str = ""
+    ontology_enabled: bool = False
+    ontology_runtime: dict = Field(default_factory=dict)
 
     def apply_request_context(self, context: dict, user_message_text: str) -> None:
         """Populate per-request runtime fields from the request ``context`` dict (replaces the 1.x agent._jx_context).
@@ -128,6 +133,242 @@ class AgentRuntimeState(AgentState):
         self.uploaded_files = list(context.get("uploaded_files", []) or [])
         self.historical_files = list(context.get("historical_files", []) or [])
         self.user_message_text = user_message_text or ""
+        self.ontology_enabled = bool(context.get("ontology_enabled", False))
+        runtime = context.get("ontology_runtime")
+        self.ontology_runtime = runtime if isinstance(runtime, dict) else {}
+
+
+class OntologyGateMiddleware(MiddlewareBase):
+    """L-a deterministic gate: validate every visible tool call without an LLM."""
+
+    def __init__(self, runtime: dict | None = None) -> None:
+        self.runtime = runtime if isinstance(runtime, dict) else {}
+        self.completed_tools: set[str] = set()
+        self.denial_counts: dict[str, int] = {}
+
+    async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):  # noqa: ANN001
+        state_runtime = getattr(agent.state, "ontology_runtime", None)
+        runtime = state_runtime if isinstance(state_runtime, dict) else self.runtime
+        if not runtime.get("enabled"):
+            async for item in next_handler(**input_kwargs):
+                yield item
+            return
+
+        from core.ontology.validator import (
+            activate_runtime_for_asset,
+            evaluate_tool_call,
+            render_runtime_prompt,
+        )
+        from core.services.ontology_service import resolve_runtime_asset_tags
+
+        started = time.monotonic()
+        tool_call = input_kwargs.get("tool_call")
+        tool_name = str(getattr(tool_call, "name", "") or "")
+        raw_input = getattr(tool_call, "input", "{}")
+        try:
+            tool_input = raw_input if isinstance(raw_input, dict) else json.loads(raw_input or "{}")
+        except (TypeError, json.JSONDecodeError):
+            tool_input = {}
+        asset_kind, asset_id = self._resolve_invoked_asset(tool_name, tool_input)
+        await asyncio.to_thread(
+            resolve_runtime_asset_tags,
+            runtime=runtime,
+            kind=asset_kind,
+            asset_id=asset_id,
+            user_id=str(getattr(agent.state, "user_id", "") or ""),
+        )
+        activations = activate_runtime_for_asset(
+            runtime,
+            kind=asset_kind,
+            asset_id=asset_id,
+        )
+        if activations:
+            agent.state.ontology_enabled = True
+            agent.state.ontology_runtime = runtime
+            contract = render_runtime_prompt(runtime)
+            if contract:
+                agent.state.context.append(
+                    Msg(
+                        name="user",
+                        role="user",
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text=(
+                                    "<system-reminder>\n"
+                                    "检测到受领域本体治理的运行时资产，策略已升级且本轮不可降级。\n"
+                                    f"{contract}\n"
+                                    "</system-reminder>"
+                                ),
+                            )
+                        ],
+                    )
+                )
+            await self._audit_activations(agent, runtime, activations)
+        decision = evaluate_tool_call(
+            runtime,
+            tool_name=tool_name,
+            tool_input=tool_input,
+            completed_tools=self.completed_tools,
+        )
+        if not decision.allowed:
+            key = ",".join(decision.matched_rule_ids) or tool_name
+            self.denial_counts[key] = self.denial_counts.get(key, 0) + 1
+            denial_count = self.denial_counts[key]
+            thresholds = [pack.get("config", {}) for pack in runtime.get("packs", [])]
+            strategy_threshold = min(
+                (int(item.get("repeated_denial_threshold", 2)) for item in thresholds),
+                default=2,
+            )
+            breaker_threshold = min(
+                (int(item.get("circuit_breaker_threshold", 5)) for item in thresholds),
+                default=5,
+            )
+            guidance = list(decision.suggestions)
+            if denial_count >= strategy_threshold:
+                guidance.append("同一规则已重复拦截，请改变执行策略，不要原样重试。")
+            if denial_count >= breaker_threshold:
+                guidance.append("本体门禁已触发熔断；停止调用该工具，并向用户说明缺失条件。")
+            await self._audit(
+                agent,
+                runtime,
+                tool_name,
+                decision,
+                started,
+                denial_count=denial_count,
+                circuit_breaker=denial_count >= breaker_threshold,
+            )
+            if denial_count == strategy_threshold and getattr(agent.state, "chat_id", None):
+                try:
+                    from core.services.ontology_evolution_service import schedule_ontology_evolution
+
+                    schedule_ontology_evolution(
+                        user_id=str(getattr(agent.state, "user_id", "") or "system")
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[ontology] evolution scheduling failed: %s", exc)
+            payload = {
+                "code": "ONTOLOGY_GATE_DENIED",
+                "tool": tool_name,
+                "violations": decision.violations,
+                "suggestions": guidance,
+                "denial_count": denial_count,
+                "circuit_breaker": denial_count >= breaker_threshold,
+            }
+            yield ToolChunk(
+                content=[TextBlock(type="text", text=json.dumps(payload, ensure_ascii=False))],
+                state=ToolResultState.DENIED,
+                metadata={"ontology_gate": payload},
+            )
+            return
+
+        await self._audit(agent, runtime, tool_name, decision, started)
+
+        last_state = None
+        async for item in next_handler(**input_kwargs):
+            last_state = getattr(item, "state", last_state)
+            yield item
+        if last_state not in {
+            ToolResultState.ERROR,
+            ToolResultState.DENIED,
+            ToolResultState.INTERRUPTED,
+        }:
+            self.completed_tools.add(tool_name)
+
+    async def _audit(
+        self,
+        agent: Agent,
+        runtime: dict[str, Any],
+        tool_name: str,
+        decision,
+        started: float,
+        *,
+        denial_count: int = 0,
+        circuit_breaker: bool = False,
+    ) -> None:  # noqa: ANN001
+        if not decision.violations and not decision.matched_rule_ids:
+            return
+        runtime.setdefault("runtime_events", []).append(
+            {
+                "type": "ontology_gate",
+                "status": "completed",
+                "governance_run_id": runtime.get("governance_run_id"),
+                "stage": "tool",
+                "decision": decision.decision,
+                "tool_name": tool_name,
+                "matched_rule_ids": list(decision.matched_rule_ids),
+                "violations": list(decision.violations),
+                "suggestions": list(decision.suggestions),
+                "denial_count": denial_count,
+                "circuit_breaker": circuit_breaker,
+            }
+        )
+        try:
+            from core.services.ontology_service import record_enforcement_event
+
+            first = decision.violations[0] if decision.violations else {}
+            pack_id = first.get("pack_id")
+            version_id = None
+            for pack in runtime.get("packs", []):
+                if pack.get("pack_id") == pack_id:
+                    version_id = pack.get("version_id")
+                    break
+            payload = {
+                "user_id": getattr(agent.state, "user_id", None),
+                "chat_id": getattr(agent.state, "chat_id", None),
+                "pack_id": pack_id,
+                "version_id": version_id,
+                "rule_id": first.get("rule_id")
+                or (decision.matched_rule_ids[0] if decision.matched_rule_ids else None),
+                "stage": "tool",
+                "event_type": "tool_call_gate",
+                "decision": decision.decision,
+                "mode": first.get("mode", "enforce"),
+                "target": tool_name,
+                "latency_ms": round((time.monotonic() - started) * 1000),
+                "details": {
+                    "governance_run_id": runtime.get("governance_run_id"),
+                    "violations": decision.violations,
+                    "matched_rule_ids": decision.matched_rule_ids,
+                    "suggestions": decision.suggestions,
+                    "denial_count": denial_count,
+                    "circuit_breaker": circuit_breaker,
+                },
+            }
+            await asyncio.to_thread(record_enforcement_event, payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[ontology] audit event persistence failed: %s", exc)
+
+    @staticmethod
+    def _resolve_invoked_asset(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str]:
+        if tool_name == "call_subagent" and tool_input.get("agent_id"):
+            return "subagent", str(tool_input["agent_id"])
+        if tool_name == "view_text_file":
+            file_path = str(tool_input.get("file_path") or "")
+            path = Path(file_path)
+            if path.name == "SKILL.md" and path.parent.name:
+                return "skill", path.parent.name
+        return "tool", tool_name
+
+    @staticmethod
+    async def _audit_activations(
+        agent: Agent,
+        runtime: dict[str, Any],
+        activations: list[dict[str, Any]],
+    ) -> None:
+        try:
+            from core.services.ontology_service import record_runtime_activation
+
+            for event in activations:
+                await asyncio.to_thread(
+                    record_runtime_activation,
+                    event,
+                    runtime,
+                    user_id=getattr(agent.state, "user_id", None),
+                    chat_id=getattr(agent.state, "chat_id", None),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[ontology] activation audit persistence failed: %s", exc)
 
 
 # ── DynamicModel ──────────────────────────────────────────────────────────
