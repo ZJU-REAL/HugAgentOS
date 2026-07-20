@@ -154,13 +154,24 @@ cd "${SOURCE_DIR}"
 
 info "Installing Python dependencies. This can take several minutes."
 pip_install -r requirements.txt
+info "Installing Agent Skills Python dependencies"
+pip_install -r docker/requirements-script-runner.txt
 pip_install --no-deps -e .
+
+SKILL_NODE_DIR="${HUGAGENT_DATA_DIR}/node"
+PLAYWRIGHT_BROWSER_DIR="${SKILL_NODE_DIR}/browsers"
+info "Installing Agent Skills Node.js dependencies"
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --silent --no-audit --no-fund \
+    --no-package-lock --prefix "${SKILL_NODE_DIR}" pptxgenjs playwright
+if PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSER_DIR}" \
+    "${SKILL_NODE_DIR}/node_modules/.bin/playwright" install chromium; then
+    info "Chromium for PDF rendering is ready"
+else
+    warn "Chromium download failed. Word, Excel, and PPT generation still work; advanced PDF cover rendering will use its fallback."
+fi
 
 info "Installing optional local knowledge-base support"
 pip_install milvus-lite || warn "milvus-lite is unavailable on this platform. Vector knowledge bases will remain disabled."
-
-info "Installing optional chart support"
-pip_install matplotlib || warn "matplotlib installation failed. Chart generation will remain disabled."
 
 info "Building the web application"
 (

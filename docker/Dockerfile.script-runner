@@ -132,6 +132,12 @@ RUN chmod +x /usr/local/bin/ppt-cli
 COPY src/backend/skill_bundles/default/word-editing/scripts/word-cli /usr/local/bin/word-cli
 RUN chmod +x /usr/local/bin/word-cli
 
+# Same idea for excel-cli and pdf-cli. CE uses script-runner by default, so all
+# four built-in Office skill entry points must exist in this image.
+COPY src/backend/skill_bundles/default/excel-editing/scripts/excel-cli /usr/local/bin/excel-cli
+COPY src/backend/skill_bundles/default/pdf-editing/scripts/pdf-cli /usr/local/bin/pdf-cli
+RUN chmod +x /usr/local/bin/excel-cli /usr/local/bin/pdf-cli
+
 RUN mkdir -p /workspace /tmp/scripts && chown -R runner:runner /workspace /tmp/scripts
 
 USER runner

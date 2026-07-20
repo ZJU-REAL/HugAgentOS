@@ -6,6 +6,7 @@ flowchart) + merge + reformat end to end. Skips if reportlab/pypdf absent.
 """
 import importlib.util
 import tempfile
+import warnings
 from pathlib import Path
 
 import pytest
@@ -97,6 +98,55 @@ def test_pdf_create_rejects_bad_spec():
     with pytest.raises(creator.PdfCreateError):
         creator.create(spec={"title": "t", "content": []},
                         output_filename="x.pdf")
+
+
+def test_reportlab_fallback_cover_embeds_chinese_text():
+    """Quick installs without Chromium must not render CJK as tofu boxes."""
+    from pypdf import PdfReader
+    from pdf_engine import creator
+    from pdf_engine._palette import build_tokens
+
+    tokens = build_tokens(
+        title="CE 快速部署 Agent Skills 测试报告",
+        doc_type="report",
+        author="测试组",
+        date="2026-07-20",
+    )
+    tokens["subtitle"] = "PDF 中文封面验证"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "fallback-cover.pdf"
+        creator._render_cover_fallback(tokens, out)
+        text = PdfReader(str(out)).pages[0].extract_text()
+
+    assert "快速部署" in text
+    assert "中文封面验证" in text
+
+
+def test_matplotlib_chart_uses_registered_cjk_font():
+    """Chart titles and labels should render without missing-glyph warnings."""
+    from pdf_engine import _body
+    from pdf_engine._palette import build_tokens
+
+    tokens = build_tokens(title="中文图表", doc_type="report")
+    _body.register_fonts(tokens, [{"type": "body", "text": "产物数量"}])
+    if _body._CJK_FONT_PATH is None:
+        pytest.skip("no CJK font installed in the test environment")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        png = _body._render_chart_png(
+            {
+                "chart_type": "bar",
+                "title": "产物数量",
+                "labels": ["一月", "二月"],
+                "datasets": [{"label": "数量", "values": [1, 2]}],
+            },
+            "#2463EB",
+        )
+
+    assert png and len(png) > 1000
+    assert not [warning for warning in caught if "Glyph" in str(warning.message)]
 
 
 def test_palette_normalize_hex_accepts_3_and_6_digit():

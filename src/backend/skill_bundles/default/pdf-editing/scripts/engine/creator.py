@@ -74,6 +74,18 @@ def _render_cover_fallback(tokens: dict[str, Any], out_pdf: Path) -> None:
     from reportlab.lib.utils import simpleSplit
     from reportlab.pdfgen import canvas
 
+    # Chromium is optional in a quick install, so the fallback is a normal
+    # production path rather than an error-only last resort.  Register the
+    # same CJK font used by body pages before drawing cover text; ReportLab's
+    # built-in Helvetica otherwise replaces every Chinese glyph with a box.
+    cover_text = " ".join(
+        str(tokens.get(key, "") or "")
+        for key in ("title", "subtitle", "author", "date")
+    )
+    _body.register_fonts(tokens, [{"type": "body", "text": cover_text}])
+    title_font = tokens.get("font_display_rl", "Helvetica-Bold")
+    body_font = tokens.get("font_body_rl", "Helvetica")
+
     w, h = A4
     c = canvas.Canvas(str(out_pdf), pagesize=A4)
     cover_bg = tokens.get("cover_bg", "#0F1F2E")
@@ -88,17 +100,17 @@ def _render_cover_fallback(tokens: dict[str, Any], out_pdf: Path) -> None:
 
     c.setFillColor(HexColor(text_light))
     title = str(tokens.get("title", "Untitled"))
-    c.setFont("Helvetica-Bold", 34)
+    c.setFont(title_font, 34)
     y = h - 300
-    for line in simpleSplit(title, "Helvetica-Bold", 34, w - 128):
+    for line in simpleSplit(title, title_font, 34, w - 128):
         c.drawString(64, y, line)
         y -= 42
 
     sub = str(tokens.get("subtitle", "") or "")
     if sub:
-        c.setFont("Helvetica", 16)
+        c.setFont(body_font, 16)
         y -= 8
-        for line in simpleSplit(sub, "Helvetica", 16, w - 128):
+        for line in simpleSplit(sub, body_font, 16, w - 128):
             c.drawString(64, y, line)
             y -= 22
 
@@ -106,7 +118,7 @@ def _render_cover_fallback(tokens: dict[str, Any], out_pdf: Path) -> None:
         x for x in (str(tokens.get("author", "")), str(tokens.get("date", ""))) if x
     )
     if meta:
-        c.setFont("Helvetica", 11)
+        c.setFont(body_font, 11)
         c.drawString(64, 80, meta)
     c.showPage()
     c.save()

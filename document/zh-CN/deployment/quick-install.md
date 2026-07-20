@@ -1,6 +1,6 @@
 # 无 Docker 一键安装（本地单机）
 
-> 最后更新：2026-07-19 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
+> 最后更新：2026-07-20 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
 
 面向**个人单机尝鲜**与**二次开发体验**的极简部署方式：一条命令装好，终端引导设管理员、配模型，随后单进程起服务并打开浏览器。全程**零 Docker、零 PostgreSQL、零 Redis**。
 
@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 1. 校验 Python ≥ 3.11、Node.js ≥ 20、npm、Git，以及 Linux 需要源码构建 `ripgrep` 时所需的 Rust；
 2. 把 HugAgentOS 克隆或快进更新到 `~/.hugagent/source`；
 3. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`），并自动重建上次中断留下的不完整环境；
-4. 安装 `requirements.txt`、`hugagent` 控制台命令，以及可选的本地知识库和图表依赖；
+4. 安装 `requirements.txt`、`hugagent` 控制台命令、内置 Agent Skills 的 Python/Node.js 依赖，以及可选的本地知识库依赖；
 5. 把前端构建到 `src/frontend/dist`；
 6. 进入交互式首次配置向导。
 
@@ -119,6 +119,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | `storage/` | 本地文件存储（我的空间、产物等） |
 | `workspace/` | 沙箱工作目录（代码执行落盘处，替代容器内 `/workspace`） |
 | `venv/` | 安装脚本创建的虚拟环境 |
+| `node/` | PPT/PDF 等 Agent Skills 使用的本地 Node.js 包与 Chromium |
 | `logs/` | 后端日志 |
 
 > 卸载即删除 `~/.hugagent/` 目录（数据一并清除）。
@@ -129,7 +130,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 
 **开箱可用**
 - **核心对话 + ReAct 工具编排 + 计划模式 + 断线续播 + 引用标注**。
-- **代码执行（bash / Python）**：沙箱以宿主子进程执行（无容器隔离），靠资源限额（rlimit）+ 超时兜底；文件工具（读/写/编辑）与产物暂存（`sandbox_put/get_artifact`）均落在 `~/.hugagent/workspace/`。信任边界是「用户在自己机器上跑自己的助手」，与多租户服务器不同。
+- **代码执行（bash / Python）**：沙箱以宿主子进程执行（无容器隔离），使用受限环境变量、执行超时和进程组回收兜底；文件工具（读/写/编辑）与产物暂存（`sandbox_put/get_artifact`）均落在 `~/.hugagent/workspace/`。信任边界是「用户在自己机器上跑自己的助手」，与多租户服务器不同。
 - **内置技能**（word / excel / ppt / pdf 编辑等 5 个）：安装时同步到工作区，沙箱可直接调用其脚本。
 - **内置工具型 MCP**：互联网搜索 / 网页抓取 / 批量执行 / 知识库检索等——服务本身正常运行（部分需配置对应外部服务或密钥才有数据，见下）。
 - **数据可视化（图表）**：安装脚本会装 matplotlib；装上即可用。
@@ -160,6 +161,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 网页打开是一段 JSON 而非应用 | 前端未构建：`cd src/frontend && npm run build`，或设 `FRONTEND_DIST_DIR` 指向已构建的 `dist` |
 | 登录报模型不可用 | 重跑 `hugagent onboard` 重配模型（引导会实测连通性） |
 | 想换模型 / 改配置 | 重跑 `hugagent onboard`，或登录后到「设置 → 系统管理 → 模型服务 / 服务配置」调整 |
+| 技能执行反复出现 `fork: Resource temporarily unavailable` | 停止当前服务，重新运行公开安装器完成升级，再启动 `hugagent`。旧版本若留下子进程，先检查当前用户的进程，必要时注销当前登录会话后重试。 |
 | 环境是否就绪 | `hugagent doctor` 一次性自检 |
 
 ## 相关源码

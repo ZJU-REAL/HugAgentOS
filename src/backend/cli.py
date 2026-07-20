@@ -48,7 +48,7 @@ def _resolve_frontend_dist() -> Optional[str]:
 def apply_local_env(port: int) -> dict:
     """Populate the local-profile env (idempotent; real env wins) + data dirs."""
     dd = data_dir()
-    for sub in ("", "storage", "workspace", "logs"):
+    for sub in ("", "storage", "workspace", "logs", "node", "node/browsers"):
         (dd / sub).mkdir(parents=True, exist_ok=True)
 
     dist = _resolve_frontend_dist()
@@ -70,6 +70,10 @@ def apply_local_env(port: int) -> dict:
         # shares the host filesystem, no bind mount) sees built-in + installed
         # skill files at {workspace}/skills/<id> — the path the model is told.
         "SANDBOX_SKILLS_DIR": str(dd / "workspace" / "skills"),
+        # Office Agent Skills use locally installed Node packages without
+        # requiring a writable global npm prefix.
+        "NODE_PATH": str(dd / "node" / "node_modules"),
+        "PLAYWRIGHT_BROWSERS_PATH": str(dd / "node" / "browsers"),
         "MCP_HOST": "127.0.0.1",
         "STORAGE_TYPE": "local",
         "STORAGE_PATH": str(dd / "storage"),

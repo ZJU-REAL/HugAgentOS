@@ -14,7 +14,9 @@ import mimetypes
 import os
 import re
 import resource
+import signal
 import shutil
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -39,7 +41,7 @@ MAX_MEMORY_MB = int(os.getenv("SCRIPT_MAX_MEMORY_MB", "256"))
 # is created on first use; ``_validate_workspace_path`` confines writes to it.
 WORKSPACE_ROOT = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
-MAX_SCRIPT_SIZE = 512 * 1024    # 512KB
+MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
 
 # Local-profile /workspace→real-root rewrite for executed script text. Compiled
 # once here (invariant: WORKSPACE_ROOT is read from env at import). None in Docker,
@@ -47,7 +49,8 @@ MAX_SCRIPT_SIZE = 512 * 1024    # 512KB
 # path boundary so an unrelated substring like /workspaces is left alone.
 _WS_REWRITE = (
     (re.compile(r'/workspace(?=/|$|["\'\s:;)&|])'), WORKSPACE_ROOT.rstrip("/"))
-    if WORKSPACE_ROOT != "/workspace" else None
+    if WORKSPACE_ROOT != "/workspace"
+    else None
 )
 
 INTERPRETERS = {
@@ -57,13 +60,27 @@ INTERPRETERS = {
 }
 
 # ── Generated-file capture ──
-MAX_FILE_SIZE = 10 * 1024 * 1024      # 10MB per file
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
 MAX_TOTAL_FILE_SIZE = 20 * 1024 * 1024  # 20MB total
 MAX_FILE_COUNT = 20
 ALLOWED_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
-    ".csv", ".xlsx", ".xls", ".json", ".txt", ".pdf",
-    ".html", ".htm", ".docx", ".pptx", ".md",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".csv",
+    ".xlsx",
+    ".xls",
+    ".json",
+    ".txt",
+    ".pdf",
+    ".html",
+    ".htm",
+    ".docx",
+    ".pptx",
+    ".md",
 }
 
 # Clean environment variables — leak no sensitive information
@@ -88,25 +105,50 @@ for _key in ("NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH"):
     if _val:
         SAFE_ENV[_key] = _val
 
-# No-Docker local profile: the Docker sandbox image bakes node/npm into /usr/bin and
-# the site-building template env into the image; the host subprocess runner has
-# neither. Pass the site-building env through and add the host's node/npm dirs to
-# PATH so React path-B building (init script → npm build) resolves. No-op elsewhere.
-if os.getenv("DEPLOY_PROFILE") == "local":
-    import shutil as _shutil
+_LOCAL_SKILL_CLI_IDS = ("word-editing", "excel-editing", "ppt-design", "pdf-editing")
 
-    for _k in ("SCRIPT_RUNNER_WORKSPACE", "SITE_TEMPLATE_HOME", "SITE_TEMPLATE_DIR",
-               "SITE_NODE_BASE", "SITE_CACHE", "SITE_DIST"):
+
+def _local_safe_path_entries() -> list[str]:
+    """Return trusted executable directories for the no-Docker runner.
+
+    The quick installer runs the backend from ``~/.hugagent/venv`` while the
+    subprocess sandbox intentionally starts from a clean PATH. Include that
+    venv explicitly so skill shims use the same Python dependencies as the
+    server, then expose each materialized built-in Office CLI without copying
+    executables into a system directory.
+    """
+    entries = [os.path.dirname(sys.executable)]
+    skills_root = os.getenv("SANDBOX_SKILLS_DIR", "").strip()
+    if skills_root:
+        entries.extend(
+            str(Path(skills_root) / skill_id / "scripts") for skill_id in _LOCAL_SKILL_CLI_IDS
+        )
+
+    for binary in ("node", "npm", "npx"):
+        path = shutil.which(binary)
+        if path:
+            entries.append(os.path.dirname(path))
+
+    return list(dict.fromkeys(entry for entry in entries if entry))
+
+
+# No-Docker local profile: the Docker sandbox image bakes the Office CLI shims,
+# Python dependencies, and Node modules into the image; the host runner needs
+# explicit equivalents. Pass the site-building/Node env through and prepend
+# only trusted executable directories to the clean PATH. No-op elsewhere.
+if os.getenv("DEPLOY_PROFILE") == "local":
+    for _k in (
+        "SCRIPT_RUNNER_WORKSPACE",
+        "SITE_TEMPLATE_HOME",
+        "SITE_TEMPLATE_DIR",
+        "SITE_NODE_BASE",
+        "SITE_CACHE",
+        "SITE_DIST",
+    ):
         _v = os.getenv(_k)
         if _v:
             SAFE_ENV[_k] = _v
-    _extra_path: list = []
-    for _bin in ("node", "npm", "npx"):
-        _p = _shutil.which(_bin)
-        if _p:
-            _d = os.path.dirname(_p)
-            if _d and _d not in _extra_path:
-                _extra_path.append(_d)
+    _extra_path = _local_safe_path_entries()
     if _extra_path:
         SAFE_ENV["PATH"] = os.pathsep.join(_extra_path + [SAFE_ENV["PATH"]])
     # npm/vite need a writable HOME for cache/config; keep the real one locally.
@@ -224,7 +266,7 @@ def _canon_ws(path: str) -> str:
     if path == "/workspace":
         return WORKSPACE_ROOT
     if path.startswith("/workspace/"):
-        return WORKSPACE_ROOT.rstrip("/") + path[len("/workspace"):]
+        return WORKSPACE_ROOT.rstrip("/") + path[len("/workspace") :]
     return path
 
 
@@ -410,12 +452,14 @@ async def execute(req: ExecuteRequest):
             mime, _ = mimetypes.guess_type(str(fpath))
             with open(fpath, "rb") as fh:
                 content_b64 = base64.b64encode(fh.read()).decode("ascii")
-            generated_files.append({
-                "name": fpath.name,
-                "size": fsize,
-                "content_b64": content_b64,
-                "mime_type": mime or "application/octet-stream",
-            })
+            generated_files.append(
+                {
+                    "name": fpath.name,
+                    "size": fsize,
+                    "content_b64": content_b64,
+                    "mime_type": mime or "application/octet-stream",
+                }
+            )
             seen_names.add(fpath.name)
             total_size += fsize
             return True
@@ -448,43 +492,129 @@ async def execute(req: ExecuteRequest):
         # The sidecar container's lifecycle is the cleanup boundary.
 
 
-async def _execute_subprocess(
-    cmd: list, stdin_data: str, timeout: int, cwd: str
-) -> Dict[str, Any]:
+async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str) -> Dict[str, Any]:
     """Execute a command in a restricted subprocess."""
 
+    nproc_limit = _subprocess_nproc_limit(cmd)
+
     def _set_limits():
-        # Do not limit RLIMIT_AS (virtual address space): mmap-ing .so shared libraries
-        # needs lots of virtual address space; 256MB makes C extensions like lxml/numpy
-        # fail with "failed to map segment from shared object".
-        # Do not limit RLIMIT_FSIZE: internal file operations during .NET runtime startup trigger SIGXFSZ.
-        # Actual disk usage is controlled at the container level by Docker tmpfs size and mem_limit.
-        nproc_limit = 128 if cmd and cmd[0] in {"node", "bash"} else 64
+        # Keep the post-fork callback minimal: non-async-safe Python work in a
+        # multi-threaded server's preexec_fn can deadlock before exec().
         resource.setrlimit(resource.RLIMIT_NPROC, (nproc_limit, nproc_limit))
 
+    proc: Optional[asyncio.subprocess.Process] = None
+    # Do not expose PIPE file descriptors to document-tool descendants.  Some
+    # renderers briefly fan out or leave a helper behind; an inherited pipe then
+    # keeps ``communicate()`` waiting for EOF even after the requested CLI has
+    # exited successfully.  Regular temporary files avoid that false timeout and
+    # also prevent a verbose child from filling an OS pipe buffer.
+    with (
+        tempfile.TemporaryFile() as stdin_file,
+        tempfile.TemporaryFile() as stdout_file,
+        tempfile.TemporaryFile() as stderr_file,
+    ):
+        stdin_file.write(stdin_data.encode("utf-8"))
+        stdin_file.seek(0)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=stdin_file,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                cwd=cwd,
+                env=SAFE_ENV,
+                # Host-local quick installs intentionally pass no preexec_fn at all.
+                # Apart from avoiding the UID-wide limit, this also avoids a
+                # post-fork Python callback in the multi-threaded backend process.
+                preexec_fn=_set_limits if nproc_limit is not None else None,
+                # Give every execution its own process group.  A document skill may
+                # fan out through bash -> Python/Node/LibreOffice; killing only bash
+                # on timeout otherwise leaves those descendants running forever.
+                start_new_session=True,
+            )
+            await asyncio.wait_for(_wait_for_process_exit(proc), timeout=timeout)
+            exit_code = proc.returncode or 0
+            # A script can exit after starting a background helper.  Clean the
+            # execution group on successful completion as well as on failure so
+            # the quick-install service cannot accumulate orphan processes.
+            await _terminate_process_group(proc)
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout_bytes = stdout_file.read(MAX_OUTPUT_BYTES)
+            stderr_bytes = stderr_file.read(10240)
+            return {
+                "stdout": stdout_bytes.decode("utf-8", errors="replace"),
+                "stderr": stderr_bytes.decode("utf-8", errors="replace"),
+                "exit_code": exit_code,
+            }
+        except asyncio.TimeoutError:
+            await _terminate_process_group(proc)
+            return {"stdout": "", "stderr": f"执行超时（{timeout}秒）", "exit_code": -1}
+        except asyncio.CancelledError:
+            # Client disconnects and server shutdown cancellation need the same
+            # descendant cleanup as an ordinary execution timeout.
+            await _terminate_process_group(proc)
+            raise
+        except Exception as e:
+            await _terminate_process_group(proc)
+            logger.exception("subprocess execution failed")
+            return {"stdout": "", "stderr": str(e), "exit_code": -1}
+
+
+def _subprocess_nproc_limit(cmd: list) -> Optional[int]:
+    """Return the child limit that is safe for the selected deployment profile.
+
+    Linux accounts ``RLIMIT_NPROC`` against the process' real UID, not against
+    the child or its process tree.  The no-Docker quick-install profile shares
+    its UID with the backend, MCP sidecars, desktop session, and every other
+    process owned by the user.  Setting a limit of 64/128 there makes a child
+    start successfully but prevents bash from forking as soon as the user's
+    *total* process count reaches the limit.  Docker deployments have their own
+    UID namespace plus a cgroup ``pids_limit``, so retain the defence in depth
+    there and skip only the unsafe host-local limit.
+    """
+    if os.getenv("DEPLOY_PROFILE", "").strip().lower() == "local":
+        return None
+
+    # Do not limit RLIMIT_AS (virtual address space): mmap-ing .so shared libraries
+    # needs lots of virtual address space; 256MB makes C extensions like lxml/numpy
+    # fail with "failed to map segment from shared object".
+    # Do not limit RLIMIT_FSIZE: internal file operations during .NET runtime startup trigger SIGXFSZ.
+    # Actual disk usage is controlled at the container level by Docker tmpfs size and mem_limit.
+    return 128 if cmd and cmd[0] in {"node", "bash"} else 64
+
+
+async def _terminate_process_group(
+    proc: Optional[asyncio.subprocess.Process],
+) -> None:
+    """Kill and reap one execution process together with all descendants."""
+    if proc is None:
+        return
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=SAFE_ENV,
-            preexec_fn=_set_limits,
-        )
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(input=stdin_data.encode("utf-8")),
-            timeout=timeout,
-        )
-        return {
-            "stdout": stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT_BYTES],
-            "stderr": stderr_bytes.decode("utf-8", errors="replace")[:10240],
-            "exit_code": proc.returncode or 0,
-        }
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return {"stdout": "", "stderr": f"执行超时（{timeout}秒）", "exit_code": -1}
-    except Exception as e:
-        logger.exception("subprocess execution failed")
-        return {"stdout": "", "stderr": str(e), "exit_code": -1}
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except (AttributeError, PermissionError):
+        # Defensive fallback for unusual POSIX runtimes where process-group
+        # signalling is unavailable even though this service uses ``resource``.
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+    if proc.returncode is None:
+        await _wait_for_process_exit(proc)
+
+
+async def _wait_for_process_exit(proc: asyncio.subprocess.Process) -> int:
+    """Wait until asyncio's child watcher has reaped the subprocess.
+
+    ``Process.wait()`` has a race on some local quick-install runtimes when a
+    very short-lived shell exits between waiter registration and the transport
+    callback: ``returncode`` is already populated, yet the waiter is never
+    resolved.  Polling the child-watcher-owned return code avoids that false
+    timeout without doing our own ``waitpid`` or blocking the event loop.
+    """
+    while proc.returncode is None:
+        await asyncio.sleep(0.02)
+    return proc.returncode

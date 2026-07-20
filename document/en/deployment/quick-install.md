@@ -1,6 +1,6 @@
 # No-Docker Quick Install (Single Machine)
 
-> Last updated: July 19, 2026 ｜ [简体中文](../../zh-CN/deployment/quick-install.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: July 20, 2026 ｜ [简体中文](../../zh-CN/deployment/quick-install.md) ｜ Back to [Deployment Guide](README.md)
 
 The simplest way to deploy, aimed at **personal single-machine trials** and **development experience**: one command installs everything, a terminal wizard sets the admin account and configures the model, then a single process starts the server and opens the browser. Zero **Docker, PostgreSQL, and Redis**.
 
@@ -39,7 +39,7 @@ The installer will:
 1. Verify Python ≥ 3.11, Node.js ≥ 20, npm, Git, and Rust when the Linux platform must build `ripgrep` from source;
 2. Clone or fast-forward HugAgentOS at `~/.hugagent/source`;
 3. Create a virtual environment at `~/.hugagent/venv` (using [uv](https://github.com/astral-sh/uv) when available, or `python -m venv` otherwise), and rebuild an incomplete environment left by an interrupted run;
-4. Install `requirements.txt`, the `hugagent` console command, and optional local knowledge-base and chart dependencies;
+4. Install `requirements.txt`, the `hugagent` console command, the built-in Agent Skills Python and Node.js dependencies, and optional local knowledge-base dependencies;
 5. Build the frontend at `src/frontend/dist`;
 6. Enter the interactive first-run wizard.
 
@@ -112,6 +112,7 @@ All state lives under `~/.hugagent/` (override the location with the `HUGAGENT_H
 | `storage/` | Local file storage (My Space, artifacts, etc.) |
 | `workspace/` | Sandbox working directory (where code execution writes files, replacing the in-container `/workspace`) |
 | `venv/` | The virtualenv created by the installer |
+| `node/` | Local Node.js packages and Chromium used by PPT and PDF Agent Skills |
 | `logs/` | Backend logs |
 
 > To uninstall, delete the `~/.hugagent/` directory (this removes all data).
@@ -122,7 +123,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 
 **Works out of the box**
 - **Core chat + ReAct tool orchestration + plan mode + reconnect replay + citations.**
-- **Code execution (bash / Python)**: the sandbox runs as a host subprocess (no container isolation), backed by resource limits (rlimit) + timeouts; file tools (read/write/edit) and artifact staging (`sandbox_put/get_artifact`) all land under `~/.hugagent/workspace/`. The trust boundary is "a user running their own assistant on their own machine," different from a multi-tenant server.
+- **Code execution (bash / Python)**: the sandbox runs as a host subprocess (no container isolation), backed by a restricted environment, execution timeouts, and process-group cleanup; file tools (read/write/edit) and artifact staging (`sandbox_put/get_artifact`) all land under `~/.hugagent/workspace/`. The trust boundary is "a user running their own assistant on their own machine," different from a multi-tenant server.
 - **Built-in skills** (the 5 word / excel / ppt / pdf editing skills): synced into the workspace at install time so the sandbox can run their scripts directly.
 - **Built-in tool MCPs**: internet search / web fetch / batch execution / KB retrieval, etc. — the servers run fine (some need a configured external service or key to return data, see below).
 - **Data visualization (charts)**: the installer installs matplotlib; works once present.
@@ -153,6 +154,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 | The page shows JSON instead of the app | Frontend not built: `cd src/frontend && npm run build`, or set `FRONTEND_DIST_DIR` to a built `dist` |
 | Login reports the model is unavailable | Re-run `hugagent onboard` to reconfigure the model (the wizard tests connectivity) |
 | Want to switch model / change config | Re-run `hugagent onboard`, or log in and adjust under Settings → System → Model Services / Service Config |
+| Skill execution repeatedly reports `fork: Resource temporarily unavailable` | Stop the current service, rerun the public installer to upgrade, and start `hugagent` again. If an older version left child processes behind, inspect processes owned by the current user and, when needed, sign out of the login session before retrying. |
 | Is the environment ready | `hugagent doctor` runs a one-shot self-check |
 
 ## Related source

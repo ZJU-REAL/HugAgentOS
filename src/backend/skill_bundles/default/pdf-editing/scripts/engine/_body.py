@@ -80,6 +80,7 @@ _CJK_FONT_CANDIDATES = [
 ]
 
 _CJK_FONT_NAME = None  # set by register_fonts if CJK font is available
+_CJK_FONT_PATH = None  # used by matplotlib charts/flowcharts
 
 
 def _has_cjk(text: str) -> bool:
@@ -109,7 +110,7 @@ def register_fonts(tokens: dict, content: list | None = None):
     a CJK font and rewrite the token font names so the body renders
     Chinese/Japanese/Korean text correctly.
     """
-    global _CJK_FONT_NAME
+    global _CJK_FONT_NAME, _CJK_FONT_PATH
 
     for name, fpath in tokens.get("font_paths", {}).items():
         if os.path.exists(fpath):
@@ -130,6 +131,7 @@ def register_fonts(tokens: dict, content: list | None = None):
                 else:
                     pdfmetrics.registerFont(TTFont("CJK-Regular", candidate))
                 _CJK_FONT_NAME = "CJK-Regular"
+                _CJK_FONT_PATH = candidate
 
                 # Register a bold variant — try the same file (many CJK fonts
                 # only have one weight, which is fine as a bold stand-in).
@@ -152,6 +154,27 @@ def register_fonts(tokens: dict, content: list | None = None):
                 print(f"[render_body] CJK font registration failed for {candidate}: {e}",
                       file=sys.stderr)
                 continue
+
+
+def _configure_matplotlib_cjk(matplotlib) -> None:
+    """Teach matplotlib to use the CJK font already selected for ReportLab."""
+    if not _CJK_FONT_PATH:
+        return
+    try:
+        from matplotlib import font_manager
+
+        font_manager.fontManager.addfont(_CJK_FONT_PATH)
+        family = font_manager.FontProperties(fname=_CJK_FONT_PATH).get_name()
+        configured = list(matplotlib.rcParams.get("font.sans-serif", []))
+        matplotlib.rcParams["font.family"] = "sans-serif"
+        matplotlib.rcParams["font.sans-serif"] = [
+            family,
+            *(name for name in configured if name != family),
+        ]
+        matplotlib.rcParams["axes.unicode_minus"] = False
+    except Exception:
+        # Chart generation must remain best-effort even with an unusual font.
+        pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -393,6 +416,7 @@ def _render_math_png(expr: str, dpi: int = 180) -> bytes | None:
     try:
         import matplotlib
         matplotlib.use("Agg")
+        _configure_matplotlib_cjk(matplotlib)
         import matplotlib.pyplot as plt
 
         fig = plt.figure(figsize=(8, 1.2))
@@ -430,6 +454,7 @@ def _render_chart_png(item: dict, accent: str, dpi: int = 150) -> bytes | None:
     try:
         import matplotlib
         matplotlib.use("Agg")
+        _configure_matplotlib_cjk(matplotlib)
         import matplotlib.pyplot as plt
         import matplotlib.colors as mcolors
         import colorsys
@@ -541,6 +566,7 @@ def _render_flowchart_png(item: dict, accent: str, dark: str,
     try:
         import matplotlib
         matplotlib.use("Agg")
+        _configure_matplotlib_cjk(matplotlib)
         import matplotlib.pyplot as plt
         import matplotlib.patches as mpatch
         from matplotlib.patches import FancyBboxPatch
