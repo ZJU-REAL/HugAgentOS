@@ -1,0 +1,126 @@
+# Build and publish the HugAgentOS Tauri desktop client for all platforms.
+#
+# Tauri cannot cross-compile, so each OS is built on its own native runner
+# (macOS / Ubuntu / Windows) and the artifacts are collected into a single
+# GitHub Release. Updater artifacts (*.sig + latest.json) are produced too,
+# using the shared signing key stored in repository secrets.
+#
+# ── Required repository secrets ─────────────────────────────────────────────
+#   TAURI_SIGNING_PRIVATE_KEY           updater private key (content of the
+#                                       `.key` file; base64 is expected as-is).
+#                                       Build FAILS without it because
+#                                       tauri.conf.json sets createUpdaterArtifacts.
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  key password ("" if none).
+#   GITHUB_TOKEN                         auto-provided; used to create the Release.
+#
+# ── How to cut a release ────────────────────────────────────────────────────
+#   1. Bump the version in desktop/package.json, desktop/src-tauri/Cargo.toml
+#      and desktop/src-tauri/tauri.conf.json (keep them in sync).
+#   2. Push a tag `desktop-vX.Y.Z` (or run this workflow manually with that tag).
+#   3. A DRAFT release is created with every platform's installer + latest.json;
+#      review it, then publish.
+#
+# Note: macOS bundles are NOT Apple-code-signed/notarized (no Apple cert). They
+# work, but users must right-click → Open (or clear the quarantine attribute) on
+# first launch. Add APPLE_* secrets + signing env later to make this seamless.
+
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. desktop-v0.2.0)"
+        required: true
+
+# Allow the job to create the GitHub Release.
+permissions:
+  contents: write
+
+# One release build per ref at a time.
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS: one universal (arm64 + x86_64) build → .dmg + .app(.tar.gz updater).
+          - platform: macos-latest
+            args: "--target universal-apple-darwin --bundles app dmg"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          # Linux: tauri.linux.conf.json overrides targets to appimage + deb.
+          - platform: ubuntu-22.04
+            args: ""
+            rust-targets: ""
+          # Windows: base tauri.conf.json targets are nsis + msi.
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            file
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      # The frontend dist is built by tauri's beforeBuildCommand
+      # (`npm --prefix ../src/frontend run build`), which needs deps installed.
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm install
+
+      - name: Install desktop toolchain (@tauri-apps/cli)
+        working-directory: desktop
+        run: npm install
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: "HugAgentOS Desktop __VERSION__"
+          releaseBody: "Download the installer for your platform below. See the docs for setup."
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
