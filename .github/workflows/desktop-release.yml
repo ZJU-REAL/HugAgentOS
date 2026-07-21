@@ -1,28 +1,19 @@
-# Build and publish the HugAgentOS Tauri desktop client for all platforms.
+# Build and publish the HugAgentOS Tauri desktop client from the public CE tree.
 #
-# Tauri cannot cross-compile, so each OS is built on its own native runner
-# (macOS / Ubuntu / Windows) and the artifacts are collected into a single
-# GitHub Release. Updater artifacts (*.sig + latest.json) are produced too,
-# using the shared signing key stored in repository secrets.
+# This workflow belongs to the CE overlay because the main repository excludes
+# `.github/**` during derivation. Windows stages the already-derived tracked CE
+# checkout as its local-server payload; the private FULL checkout continues to
+# generate that payload with scripts/build_ce.py before it reaches this tree.
 #
-# ── Required repository secrets ─────────────────────────────────────────────
-#   TAURI_SIGNING_PRIVATE_KEY           updater private key (content of the
-#                                       `.key` file; base64 is expected as-is).
-#                                       Build FAILS without it because
-#                                       tauri.conf.json sets createUpdaterArtifacts.
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  key password ("" if none).
-#   GITHUB_TOKEN                         auto-provided; used to create the Release.
+# Required repository secrets:
+#   TAURI_SIGNING_PRIVATE_KEY
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 #
-# ── How to cut a release ────────────────────────────────────────────────────
-#   1. Bump the version in desktop/package.json, desktop/src-tauri/Cargo.toml
-#      and desktop/src-tauri/tauri.conf.json (keep them in sync).
-#   2. Push a tag `desktop-vX.Y.Z` (or run this workflow manually with that tag).
-#   3. A DRAFT release is created with every platform's installer + latest.json;
-#      review it, then publish.
-#
-# Note: macOS bundles are NOT Apple-code-signed/notarized (no Apple cert). They
-# work, but users must right-click → Open (or clear the quarantine attribute) on
-# first launch. Add APPLE_* secrets + signing env later to make this seamless.
+# To cut a release:
+#   1. Keep desktop/package.json, desktop/src-tauri/Cargo.toml, and
+#      desktop/src-tauri/tauri.conf.json on the same version.
+#   2. Push or dispatch exactly `desktop-vX.Y.Z` for that version.
+#   3. Review the draft release after every platform succeeds, then publish it.
 
 name: Desktop Release
 
@@ -33,33 +24,54 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (e.g. desktop-v0.2.0)"
+        description: "Release tag; must match the desktop version (for example, desktop-v0.2.1)"
         required: true
 
-# Allow the job to create the GitHub Release.
 permissions:
-  contents: write
+  contents: read
 
-# One release build per ref at a time.
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  validate-release:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Test desktop release helpers
+        working-directory: desktop
+        run: npm run test:scripts
+
+      - name: Validate release tag and desktop versions
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: node desktop/scripts/validate-release-version.mjs "$RELEASE_TAG"
+
   build:
+    needs: validate-release
+    permissions:
+      contents: write
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
-          # macOS: one universal (arm64 + x86_64) build → .dmg + .app(.tar.gz updater).
+          # macOS: one universal (arm64 + x86_64) build -> .dmg + updater archive.
           - platform: macos-latest
             args: "--target universal-apple-darwin --bundles app dmg"
             rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
-          # Linux: tauri.linux.conf.json overrides targets to appimage + deb.
+          # Linux: tauri.linux.conf.json overrides targets to AppImage + deb.
           - platform: ubuntu-22.04
             args: ""
             rust-targets: ""
-          # Windows: base tauri.conf.json targets are nsis + msi.
+          # Windows: the base configuration builds the NSIS installer.
           - platform: windows-latest
             args: ""
             rust-targets: ""
@@ -99,15 +111,15 @@ jobs:
         with:
           workspaces: desktop/src-tauri -> target
 
-      # The frontend dist is built by tauri's beforeBuildCommand
-      # (`npm --prefix ../src/frontend run build`), which needs deps installed.
+      # The public CE tree intentionally has no frontend lockfile. Avoid
+      # generating one so the release checkout remains clean for payload staging.
       - name: Install frontend dependencies
         working-directory: src/frontend
-        run: npm install
+        run: npm install --no-package-lock --no-audit --no-fund
 
       - name: Install desktop toolchain (@tauri-apps/cli)
         working-directory: desktop
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
@@ -115,10 +127,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # The frontend build (tsc + vite over Univer/AntD/Mermaid/KaTeX) peaks
-          # near Node's ~2 GB default heap and OOMs intermittently on runners
-          # (exit 134). tauri's beforeBuildCommand spawns it, so raise the limit
-          # here and it is inherited by the child process. Runners have 7 GB+.
+          HUGAGENT_RELEASE_BUILD: "1"
+          # tsc + Vite peaks near Node's default heap limit on hosted runners.
           NODE_OPTIONS: "--max-old-space-size=4096"
         with:
           projectPath: desktop

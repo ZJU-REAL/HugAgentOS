@@ -12,7 +12,18 @@ import { useCallback, useState } from 'react';
 import { authFetch } from '../../api';
 import { t } from '../../i18n';
 import { useChatStore } from '../../stores';
-import type { ChatMessage, MessageSegment, OntologyGovernanceSummary } from '../../types';
+import type {
+  ChatMessage,
+  MessageSegment,
+  OntologyActivationSummary,
+  OntologyGateSummary,
+  OntologyGovernanceSummary,
+  OntologyManualReview,
+  OntologyManualReviewItem,
+  OntologyReviewSummary,
+  OntologyRevisionSummary,
+  ToolCall,
+} from '../../types';
 import { CitationMarkdownBlock } from '../citation';
 import { ToolProgressInline, ToolRunShell } from '../tool';
 import type { ShellStep } from '../tool/ToolRunShell';
@@ -31,6 +42,10 @@ function hasSubstantiveCandidate(value: string): boolean {
   return (value.match(/[A-Za-z0-9\u3400-\u9fff]/g) || []).length >= 8;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function OntologyRevisionPanel({
   governance,
   message: chatMessage,
@@ -38,23 +53,56 @@ export function OntologyRevisionPanel({
   dispatchProcessVisible,
 }: OntologyRevisionPanelProps) {
   const [accepting, setAccepting] = useState(false);
-  const revision = governance.revision;
+  const safeGovernance = isRecord(governance)
+    ? governance as unknown as Partial<OntologyGovernanceSummary>
+    : {};
+  const revision = isRecord(safeGovernance.revision)
+    ? safeGovernance.revision as OntologyRevisionSummary
+    : undefined;
   // Persisted chats and live SSE frames can contain an older or partial
   // governance shape. Treat every collection as untrusted at this rendering
   // boundary so an incomplete frame cannot crash the whole conversation.
-  const review = governance.review && typeof governance.review === 'object'
-    ? governance.review
+  const review: OntologyReviewSummary = isRecord(safeGovernance.review)
+    ? safeGovernance.review as OntologyReviewSummary
     : {};
-  const activations = Array.isArray(governance.activations) ? governance.activations : [];
-  const gates = Array.isArray(governance.gates) ? governance.gates : [];
-  const revisionToolCalls = Array.isArray(revision?.toolCalls) ? revision.toolCalls : [];
+  const activations = Array.isArray(safeGovernance.activations)
+    ? safeGovernance.activations.filter(
+        (item): item is OntologyActivationSummary => isRecord(item),
+      )
+    : [];
+  const gates = Array.isArray(safeGovernance.gates)
+    ? safeGovernance.gates.filter((item): item is OntologyGateSummary => isRecord(item))
+    : [];
+  const revisionToolCalls = Array.isArray(revision?.toolCalls)
+    ? revision.toolCalls.filter(
+        (item): item is ToolCall => isRecord(item) && typeof item.name === 'string',
+      )
+    : [];
   const revisionThinkingItems = Array.isArray(revision?.thinking) ? revision.thinking : [];
-  const manualReview = review.manual_review && typeof review.manual_review === 'object'
-    ? review.manual_review
+  const manualReview = isRecord(review.manual_review)
+    ? review.manual_review as unknown as OntologyManualReview
     : undefined;
-  const manualReviewItems = Array.isArray(manualReview?.items) ? manualReview.items : [];
-  const reviewEvidence = Array.isArray(review.evidence) ? review.evidence : [];
-  const newTools = Array.isArray(review.new_tools) ? review.new_tools : [];
+  const manualReviewItems = Array.isArray(manualReview?.items)
+    ? manualReview.items.filter(
+        (item): item is OntologyManualReviewItem => isRecord(item)
+          && typeof item.quote === 'string'
+          && typeof item.rule_id === 'string'
+          && typeof item.risk === 'string'
+          && typeof item.manual_check === 'string',
+      )
+    : [];
+  const reviewEvidence = Array.isArray(review.evidence)
+    ? review.evidence.filter((item): item is string => typeof item === 'string')
+    : [];
+  const newTools = Array.isArray(review.new_tools)
+    ? review.new_tools.filter((item): item is string => typeof item === 'string')
+    : [];
+  const manualReviewTitle = typeof manualReview?.title === 'string'
+    ? manualReview.title
+    : t('领域本体人工复核');
+  const manualReviewSummary = typeof manualReview?.summary === 'string'
+    ? manualReview.summary
+    : '';
   const candidate = typeof revision?.content === 'string'
     ? revision.content
     : typeof review.candidate_answer === 'string'
@@ -290,16 +338,16 @@ export function OntologyRevisionPanel({
             </div>
           )}
           {hasCandidateContent ? (
-          <CitationMarkdownBlock
-            className="jx-ontologyRevision-text"
-            text={candidate}
-            isMarkdown
-            citations={chatMessage.citations || []}
-            messageIsStreaming={isRevisionStreaming}
-          />
-        ) : (
-          <div className="jx-ontologyRevision-placeholder">{t('正在生成优化稿…')}</div>
-        )}
+            <CitationMarkdownBlock
+              className="jx-ontologyRevision-text"
+              text={candidate}
+              isMarkdown
+              citations={Array.isArray(chatMessage.citations) ? chatMessage.citations : []}
+              messageIsStreaming={isRevisionStreaming}
+            />
+          ) : (
+            <div className="jx-ontologyRevision-placeholder">{t('正在生成优化稿…')}</div>
+          )}
         </div>
       )}
 
@@ -308,8 +356,8 @@ export function OntologyRevisionPanel({
           <div className="jx-ontologyManualReview-head">
             <FileSearchOutlined />
             <div>
-              <strong>{manualReview?.title || t('领域本体人工复核')}</strong>
-              <p>{manualReview?.summary}</p>
+              <strong>{manualReviewTitle}</strong>
+              <p>{manualReviewSummary}</p>
             </div>
           </div>
           <div className="jx-ontologyManualReview-grid">

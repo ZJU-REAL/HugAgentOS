@@ -3495,3 +3495,12 @@ textarea.jx-composer{
   border-radius: 14px !important;
   flex-shrink: 0;
 }
+.jx-messageRenderError {
+  margin: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--bg);
+  font-size: 13px;
+}

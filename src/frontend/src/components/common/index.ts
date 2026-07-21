@@ -4,6 +4,7 @@ export { default as BrandLoader } from './BrandLoader';
 export { ElapsedTimer } from './ElapsedTimer';
 export { default as AppLoadingSkeleton } from './AppLoadingSkeleton';
 export { default as AppErrorBoundary } from './AppErrorBoundary';
+export { default as ContentErrorBoundary } from './ContentErrorBoundary';
 export { LangToggleButton } from './LangToggleButton';
 export { VisibilityScopeModal } from './VisibilityScopeModal';
 export { OntologyBuildValidationModal } from './OntologyBuildValidationModal';

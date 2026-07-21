@@ -196,4 +196,5 @@ export const CHAT_DICT: Record<string, string> = {
   '用时 {sec}s': 'Took {sec}s',
   '用时 {min}分{sec}秒': 'Took {min}m {sec}s',
   '本次回答整体生成耗时': 'Total generation time for this response',
+  '这条消息包含无法显示的旧格式数据，已跳过异常内容。': 'This message contains legacy data that cannot be displayed. The invalid content was skipped.',
 };
