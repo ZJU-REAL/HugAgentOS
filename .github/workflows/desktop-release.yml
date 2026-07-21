@@ -119,7 +119,12 @@ jobs:
 
       - name: Install desktop toolchain (@tauri-apps/cli)
         working-directory: desktop
-        run: npm install --no-audit --no-fund
+        # The derived CE tree stages tracked files for the release payload. Use
+        # the lockfile exactly as committed so npm does not dirty the checkout.
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify dependency installation kept the checkout clean
+        run: git diff --exit-code -- desktop/package-lock.json
 
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
