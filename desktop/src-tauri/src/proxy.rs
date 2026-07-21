@@ -40,9 +40,10 @@ pub struct ProxyState {
 /// 在 127.0.0.1 随机端口起反代，返回实际端口。axum serve 在后台 task 常驻。
 pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> {
     let index = web_dir.join("index.html");
-    // SPA 首页注入一体化标题栏；静态资源仍直接读取原 dist。
+    // SPA 首页注入平台标题栏；macOS 保留原生菜单与交通灯，只叠加轻量工具栏。
+    // Windows/Linux 继续使用一体化自绘标题栏。静态资源仍直接读取原 dist。
     let raw_index = std::fs::read_to_string(&index).unwrap_or_default();
-    let injected_index = inject_after_body(&raw_index, &titlebar_block(TB_OFFSET_SPA));
+    let injected_index = inject_after_body(&raw_index, &platform_titlebar_block(true));
     let injected_path =
         std::env::temp_dir().join(format!("hugagent-shell-index-{}.html", std::process::id()));
     if let Err(error) = std::fs::write(&injected_path, injected_index.as_bytes()) {
@@ -166,7 +167,7 @@ async fn login_page() -> Html<String> {
     let html = LOGIN_HTML
         .replace("HugAgentOS", brand::NAME)
         .replace("/icon.png", brand::LOGIN_LOGO_URL);
-    Html(inject_after_body(&html, &titlebar_block(TB_OFFSET_PAGE)))
+    Html(inject_after_body(&html, &platform_titlebar_block(false)))
 }
 
 /// 关闭主窗口时的自定义确认页（带「记住我的选择」勾选框）。按钮整页导航到
@@ -182,7 +183,7 @@ async fn server_config_page(State(state): State<ProxyState>) -> Html<String> {
     let html = SERVER_CONFIG_HTML
         .replace("__CURRENT_BASE__", &html_escape(&state.server_base))
         .replace("HugAgentOS", brand::NAME);
-    Html(inject_after_body(&html, &titlebar_block(TB_OFFSET_PAGE)))
+    Html(inject_after_body(&html, &platform_titlebar_block(false)))
 }
 
 /// 后端不可达或用户在安装器选择本机服务时展示的一体化部署页。
@@ -201,8 +202,18 @@ async fn setup_page(State(state): State<ProxyState>) -> Html<String> {
                 "false"
             },
         )
+        .replace(
+            "__PLATFORM__",
+            if cfg!(target_os = "macos") {
+                "macos"
+            } else if cfg!(target_os = "windows") {
+                "windows"
+            } else {
+                "linux"
+            },
+        )
         .replace("HugAgentOS", brand::NAME);
-    Html(inject_after_body(&html, &titlebar_block(TB_OFFSET_PAGE)))
+    Html(inject_after_body(&html, &platform_titlebar_block(false)))
 }
 
 #[derive(serde::Serialize)]
@@ -245,6 +256,11 @@ const TITLEBAR_HEIGHT: u8 = 36;
 const TB_OFFSET_SPA: &str =
     "body{box-sizing:border-box!important;padding-top:36px!important}.jx-appLoading{height:100%!important}";
 const TB_OFFSET_PAGE: &str = "body{box-sizing:border-box!important;padding-top:36px!important}";
+
+const MAC_TITLEBAR_HEIGHT: u8 = 52;
+const MAC_OFFSET_SPA: &str =
+    "body{box-sizing:border-box!important;padding-top:52px!important}.jx-appLoading{height:100%!important}";
+const MAC_OFFSET_PAGE: &str = "body{box-sizing:border-box!important;padding-top:52px!important}";
 
 const TB_CSS: &str = r##"
 #hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:36px;z-index:2147483647;display:flex;align-items:center;background:#F7F8FA;border-bottom:1px solid #E5E9EF;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#30343B}
@@ -339,6 +355,42 @@ bar.addEventListener('mousedown',function(event){if(event.button!==0||isControl(
 bar.addEventListener('dblclick',function(event){if(isControl(event.target))return;sentinel('/__desktop/win?action=toggle-maximize');});
 })();"##;
 
+// macOS keeps the application menu in the system menu bar and the native
+// traffic-light controls on the left. The in-window strip only exposes app
+// actions, matching the compact icon-toolbar pattern used by modern Mac apps.
+const MAC_TB_CSS: &str = r##"
+#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:52px;z-index:2147483647;display:flex;align-items:center;padding:0 12px 0 82px;background:rgba(247,247,246,.86);border-bottom:1px solid rgba(28,28,28,.09);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color:#252522;-webkit-user-select:none;user-select:none}
+#hugagent-mac-titlebar *{box-sizing:border-box}
+#hugagent-mac-titlebar .mac-brand{display:flex;align-items:center;min-width:0;gap:8px;font-size:13px;font-weight:590;letter-spacing:-.01em;color:#3a3935}
+#hugagent-mac-titlebar .mac-logo{width:18px;height:18px;border-radius:5px;object-fit:cover;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+#hugagent-mac-titlebar .mac-spacer{flex:1;height:100%;min-width:24px}
+#hugagent-mac-titlebar .mac-actions{display:flex;align-items:center;gap:7px}
+#hugagent-mac-titlebar .mac-toolButton{width:30px;height:30px;padding:0;border:1px solid rgba(28,28,28,.1);border-radius:8px;background:rgba(255,255,255,.64);color:#45443f;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 1px rgba(0,0,0,.03);cursor:default;transition:background .12s ease,border-color .12s ease,transform .08s ease}
+#hugagent-mac-titlebar .mac-toolButton:hover{background:rgba(255,255,255,.96);border-color:rgba(28,28,28,.16)}
+#hugagent-mac-titlebar .mac-toolButton:active{background:rgba(232,231,227,.92);transform:scale(.96)}
+@media(prefers-color-scheme:dark){#hugagent-mac-titlebar{background:rgba(38,38,36,.88);border-bottom-color:rgba(255,255,255,.09);color:#f2f2ef}#hugagent-mac-titlebar .mac-brand{color:#e7e6e1}#hugagent-mac-titlebar .mac-toolButton{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.12);color:#e9e8e3}#hugagent-mac-titlebar .mac-toolButton:hover{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.18)}}
+"##;
+
+const MAC_TB_JS: &str = r##"(function(){
+var bar=document.getElementById('hugagent-mac-titlebar');if(!bar)return;
+if(new URLSearchParams(location.search).get('quickask')==='1'){
+  bar.remove();var style=document.getElementById('hugagent-titlebar-style');if(style)style.remove();return;
+}
+function sentinel(path){window.location.href=path;}
+bar.querySelectorAll('[data-act]').forEach(function(item){
+  item.addEventListener('mousedown',function(event){event.preventDefault();});
+  item.addEventListener('click',function(event){event.stopPropagation();sentinel('/__desktop/menu?action='+encodeURIComponent(item.dataset.act));});
+});
+bar.addEventListener('mousedown',function(event){
+  if(event.button!==0||(event.target instanceof Element&&event.target.closest('button')))return;
+  sentinel('/__desktop/win?action=drag');
+});
+bar.addEventListener('dblclick',function(event){
+  if(event.target instanceof Element&&event.target.closest('button'))return;
+  sentinel('/__desktop/win?action=toggle-maximize');
+});
+})();"##;
+
 fn titlebar_block(offset_css: &str) -> String {
     format!(
         "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
@@ -354,6 +406,32 @@ fn titlebar_block(offset_css: &str) -> String {
         controls = TB_CONTROLS,
         script = TB_JS,
     )
+}
+
+fn mac_titlebar_block(offset_css: &str) -> String {
+    format!(
+        "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
+<header id=\"hugagent-mac-titlebar\" data-height=\"{height}\">\
+<div class=\"mac-brand\"><img class=\"mac-logo\" src=\"{logo}\" alt=\"\" onerror=\"this.style.display='none'\"/><span>{name}</span></div>\
+<div class=\"mac-spacer\"></div><div class=\"mac-actions\">\
+<button class=\"mac-toolButton\" type=\"button\" data-act=\"new_chat\" aria-label=\"新建对话\" title=\"新建对话\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\"><path d=\"M9.8 2.5H4.2A1.7 1.7 0 0 0 2.5 4.2v7.6a1.7 1.7 0 0 0 1.7 1.7h7.6a1.7 1.7 0 0 0 1.7-1.7V6.2M8 8l5.2-5.2M10.5 2.5h3v3\" stroke=\"currentColor\" stroke-width=\"1.35\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>\
+<button class=\"mac-toolButton\" type=\"button\" data-act=\"server_config\" aria-label=\"服务设置\" title=\"服务设置\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\"><path d=\"M3 4h10M5.5 8h5M4 12h8\" stroke=\"currentColor\" stroke-width=\"1.35\" stroke-linecap=\"round\"/><circle cx=\"10.5\" cy=\"4\" r=\"1.25\" fill=\"currentColor\"/><circle cx=\"6.5\" cy=\"8\" r=\"1.25\" fill=\"currentColor\"/><circle cx=\"9.5\" cy=\"12\" r=\"1.25\" fill=\"currentColor\"/></svg></button>\
+</div></header><script>{script}</script>",
+        css = MAC_TB_CSS,
+        offset = offset_css,
+        height = MAC_TITLEBAR_HEIGHT,
+        logo = brand::LOGIN_LOGO_URL,
+        name = brand::NAME,
+        script = MAC_TB_JS,
+    )
+}
+
+fn platform_titlebar_block(spa: bool) -> String {
+    if cfg!(target_os = "macos") {
+        mac_titlebar_block(if spa { MAC_OFFSET_SPA } else { MAC_OFFSET_PAGE })
+    } else {
+        titlebar_block(if spa { TB_OFFSET_SPA } else { TB_OFFSET_PAGE })
+    }
 }
 
 fn inject_after_body(html: &str, block: &str) -> String {
@@ -514,10 +592,17 @@ const SETUP_HTML: &str = r##"<!doctype html>
     color:#D5DEEC;font:11.5px/1.55 Consolas,"SFMono-Regular",monospace;white-space:pre-wrap;word-break:break-all}
   .error{display:none;color:var(--danger);font-size:13px;margin-top:12px}.ready{color:var(--ok)}
   .current{margin-top:17px;color:#94A3B8;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  body.platform-macos{background:#ECECEA;padding-left:22px;padding-right:22px}
+  body.platform-macos .shell{max-width:720px;border-color:rgba(28,28,28,.1);border-radius:16px;box-shadow:0 22px 55px rgba(0,0,0,.12)}
+  body.platform-macos .head{padding-top:25px;background:rgba(252,252,250,.92)}
+  body.platform-macos .body{background:#FAFAF8}
+  body.platform-macos .choice{border-color:rgba(28,28,28,.1);border-radius:13px;box-shadow:0 1px 1px rgba(0,0,0,.025)}
+  body.platform-macos .choice.recommended{border-color:rgba(18,109,255,.3);background:#F7FAFF}
+  body.platform-macos .btn{border-radius:9px;box-shadow:none}
   @media(max-width:640px){.choices{grid-template-columns:1fr}.desc{min-height:0}.head,.body{padding-left:22px;padding-right:22px}}
 </style>
 </head>
-<body>
+<body class="platform-__PLATFORM__">
   <main class="shell">
     <header class="head">
       <div class="brand">HugAgentOS 桌面端</div>
@@ -559,6 +644,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
   var activeLocal = __ACTIVE_LOCAL__;
   var localSupported = __LOCAL_SUPPORTED__;
   var installing = false;
+  var pollTimer = null;
   if(manage){document.getElementById('lead').textContent='查看或切换本机单用户服务，也可以继续连接已部署的团队服务器。';}
   function sentinel(path){ window.location.href = path; }
   function connectServer(){ sentinel('/__desktop/connect-server'); }
@@ -567,19 +653,25 @@ const SETUP_HTML: &str = r##"<!doctype html>
   function finishReady(){ if(activeLocal){location.replace('/');}else{activateLocal();} }
   async function installLocal(){
     if(!localSupported){showError('当前安装包暂不支持在此系统一键部署本机服务。');return;}
-    if(!activeLocal){ activateLocal(); return; }
     installing = true;
-    document.getElementById('install').disabled = true;
+    var button=document.getElementById('install');
+    button.disabled=true;button.textContent='正在启动安装…';
     document.getElementById('progressWrap').style.display = 'block';
-    try{ await fetch('/__desktop/setup/install',{method:'POST'}); }
-    catch(e){ showError('无法启动安装：' + e.message); }
-    poll();
+    document.getElementById('message').textContent='正在准备本机服务…';
+    document.getElementById('error').style.display='none';
+    try{
+      var response=await fetch('/__desktop/setup/install',{method:'POST'});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      await response.json();
+      poll();
+    }catch(e){installing=false;showError('无法启动安装：'+e.message);}
   }
   function showError(text){
     var el=document.getElementById('error');el.textContent=text;el.style.display='block';
-    document.getElementById('install').disabled=false;
+    var button=document.getElementById('install');button.disabled=false;button.textContent='重试安装';
   }
   async function poll(){
+    if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
     try{
       var response=await fetch('/__desktop/setup/status',{cache:'no-store'});
       var s=await response.json();
@@ -598,16 +690,24 @@ const SETUP_HTML: &str = r##"<!doctype html>
       }
       if(s.phase==='error'){showError(s.message||'安装失败，请重试。');installing=false;return;}
       if(s.ready){
+        installing=false;
         document.getElementById('message').innerHTML='<span class="ready">本机服务已就绪</span>';
         document.getElementById('install').style.display='none';
         if(s.active_local && !manage){ setTimeout(function(){location.replace('/__desktop/login')},450);return; }
+        if(!s.active_local && !manage){
+          document.getElementById('message').textContent='安装完成，正在切换到本机服务…';
+          setTimeout(activateLocal,350);return;
+        }
         document.getElementById('readyButton').textContent=s.active_local?'返回应用':'切换到本机服务';
         document.getElementById('readyActions').style.display='block';
         return;
       }
-      if(s.phase==='installing'||s.phase==='starting'){installing=true;document.getElementById('install').disabled=true;}
+      if(s.phase==='installing'||s.phase==='starting'){
+        installing=true;var button=document.getElementById('install');button.disabled=true;
+        button.textContent=s.phase==='starting'?'正在启动服务…':'正在安装…';
+      }
     }catch(e){ if(installing) showError('读取安装状态失败：'+e.message); }
-    setTimeout(poll,900);
+    pollTimer=setTimeout(poll,900);
   }
   poll();
 </script>
@@ -730,7 +830,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn titlebar_keeps_product_and_four_menus_on_one_row() {
+    fn windows_titlebar_keeps_product_and_four_menus_on_one_row() {
         let block = titlebar_block(TB_OFFSET_SPA);
         assert!(block.contains("tb-name"));
         for label in ["文件", "编辑", "视图", "帮助"] {
@@ -738,6 +838,24 @@ mod tests {
         }
         assert!(block.contains("data-win=\"minimize\""));
         assert!(block.contains("data-win=\"close\""));
+    }
+
+    #[test]
+    fn mac_titlebar_keeps_native_window_controls_and_uses_app_actions() {
+        let block = mac_titlebar_block(MAC_OFFSET_SPA);
+        assert!(block.contains("hugagent-mac-titlebar"));
+        assert!(block.contains("data-act=\"new_chat\""));
+        assert!(block.contains("data-act=\"server_config\""));
+        assert!(!block.contains("data-win=\"minimize\""));
+        assert!(!block.contains("data-win=\"close\""));
+        assert!(!block.contains("tb-menuLabel"));
+    }
+
+    #[test]
+    fn setup_install_starts_in_place_before_switching_modes() {
+        assert!(SETUP_HTML.contains("fetch('/__desktop/setup/install'"));
+        assert!(SETUP_HTML.contains("正在启动安装"));
+        assert!(!SETUP_HTML.contains("if(!activeLocal){ activateLocal(); return; }"));
     }
 
     #[test]

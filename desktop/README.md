@@ -130,7 +130,7 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 | `src-tauri/src/auth.rs` | token 落盘 + handoff 票据 redeem |
 | `src-tauri/src/config.rs` | server.json / 环境变量 / 默认值；`save_server_base` 写回 |
 | `src-tauri/src/local_server.rs` | 本机服务安装、版本检测、进程托管、健康检查、进度与日志状态 |
-| `src-tauri/src/menu.rs` | 顶部原生菜单栏（文件/编辑/视图/帮助）构建 + 事件分发 |
+| `src-tauri/src/menu.rs` | 平台菜单构建 + 事件分发；macOS 使用系统菜单栏，Windows/Linux 使用窗口内菜单 |
 | `src-tauri/src/notify.rs` | **A1** 后台通知轮询 → 原生系统通知（接后端 `automations/notifications/list`） |
 | `src-tauri/src/update.rs` | **A3** 一键自动更新：拉后端 manifest → 验签 → 安装 → 重启 |
 | `src-tauri/tauri.conf.json` | 窗口/打包/deep-link scheme/资源/**updater 配置（pubkey + endpoints）** |
@@ -151,14 +151,15 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
   `chatStream.ts` 全部对话能力，零重复实现）。未登录时退化为唤起主窗。
 - **A3 一键自动更新**（`update.rs`）：菜单「帮助 → 检查更新…」或托盘触发，见下方《自动更新》。
 - **A4 托盘增强**：托盘菜单新增「新建对话」「检查更新…」。
-- **原生菜单栏**（`menu.rs`）：顶部「文件 / 编辑 / 视图 / 帮助」。文件=新建对话·设置服务器地址·退出；
-  编辑=撤销/剪切/复制/粘贴/全选（系统预定义，直接作用于焦点输入框）；视图=重新加载·全屏；
-  帮助=检查更新·访问官网·关于。
+- **平台化菜单与标题栏**（`menu.rs` + `proxy.rs`）：Windows/Linux 保留紧凑的一体化窗口菜单；macOS
+  使用系统菜单栏和左侧原生交通灯，窗口内只保留半透明工具栏及「新建对话」「服务设置」两个 Mac
+  风格图标按钮，不显示 Windows 式右侧最小化、最大化和关闭按钮。
 - **设置服务器地址 UI**（菜单「文件 → 设置服务器地址…」）：填后端地址→写回 server.json→重启生效，
   不再必须手改 JSON。
 - **本机服务一键安装**（菜单「文件 → 本机服务…」）：后端不可达时也会自动显示。安装过程提供
   阶段进度、实时日志、失败重试和健康检查；客户端更新携带新 CE 资源时自动升级服务代码，
-  `data/` 目录保持不变。
+  `data/` 目录保持不变。远程模式下点击安装会先在当前页面完成安装，服务通过健康检查后才切换
+  `server.json` 并重启，避免提前重启造成按钮无响应或安装状态不可见。
 
 > 交互全部走「原生菜单/托盘 → Rust」或「导航到 `/__desktop/*` 哨兵 → 导航守卫」，**不依赖 Tauri
 > IPC**——因为前端跑在本地反代这个「远程源」上，`window.__TAURI__`/invoke 不保证注入。这是本壳
