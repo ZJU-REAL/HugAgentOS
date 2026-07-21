@@ -107,15 +107,19 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 > （Windows：NSIS）；Mac 接入时同理加 `tauri.macos.conf.json`。Linux 只有 **AppImage
 > 支持自动更新**，deb 仅作首装分发。WSL 下打 AppImage 建议带 `APPIMAGE_EXTRACT_AND_RUN=1`。
 
-> Windows overlay 的 `beforeBuildCommand` 会运行 `scripts/prepare-bundle.mjs`：构建桌面前端、用
-> `scripts/build_ce.py` 生成通过开源边界门禁的 CE 树、构建 CE 登录前端，并删除构建期
-> `node_modules` 后再交给 Tauri 打包。Linux 仍只构建桌面前端，不携带 Windows 本机服务载荷；
-> dev 模式从仓库内 `src/frontend/dist` 读取静态资源。
+> Windows overlay 的 `beforeBuildCommand` 会运行 `scripts/prepare-bundle.mjs`：构建桌面前端、准备
+> CE 服务树、构建 CE 登录前端，并删除构建期 `node_modules` 后再交给 Tauri 打包。FULL 主仓存在
+> `scripts/build_ce.py` 时，脚本正常运行生成器并执行开源边界门禁；公开 CE 仓不含生成器，脚本会先
+> 校验根目录 `.hugagent-edition` 为 `ce`，再只复制当前已派生 checkout 中的 Git tracked 文件。
+> Linux 仍只构建桌面前端，不携带 Windows 本机服务载荷；dev 模式从仓库内
+> `src/frontend/dist` 读取静态资源。
 
 正式发版前需确保工作区干净，并在 Windows PowerShell 设置
 `$env:HUGAGENT_RELEASE_BUILD="1"`；此时 CE 生成器不会接受 `--allow-dirty`。版本号必须同时更新
 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`（本机服务从 `0.2.0` 起提供），
-`prepare-bundle.mjs` 会在耗时构建开始前校验三者一致。
+`prepare-bundle.mjs` 会在耗时构建开始前校验三者一致。公开 CE 的 Desktop Release workflow 还会在
+启动三平台矩阵前校验 release tag 必须精确等于 `desktop-v<上述版本号>`；版本或 tag 不一致时不会
+创建任何平台产物。
 
 ## 关键文件
 
@@ -133,6 +137,8 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 | `src-tauri/installer-hooks.nsh` | Windows 首装时选择“本机服务”或“仅客户端”；静默更新不重复询问 |
 | `resources/server-bootstrap/install-local-server.ps1` | Windows 用户目录内创建 Python 环境并安装随包 CE 服务 |
 | `scripts/prepare-bundle.mjs` | 发行构建前生成同版本 CE 服务资源和 `desktop-bundle.json` |
+| `scripts/ce-payload.mjs` | 在公开 CE 仓校验版本标识并只暂存 tracked tree，FULL 仓仍走生成器 |
+| `scripts/validate-release-version.mjs` | CI 三平台矩阵启动前校验桌面版本文件与 release tag |
 | `src-tauri/capabilities/default.json` | 插件权限（opener / deep-link / notification / global-shortcut / updater） |
 
 ## 本次新增能力（Tier A + 菜单栏 + 一键更新）

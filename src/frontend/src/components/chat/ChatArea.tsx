@@ -34,6 +34,7 @@ import { DesignPickerCard } from './DesignPickerCard';
 import { ChatShareBanner } from './ChatShareBanner';
 import { getChatDetail } from '../../api';
 import { BatchProgressPanel } from '../batch';
+import { ContentErrorBoundary } from '../common';
 
 /** Render any active or recently-finished batch plans associated with the
  *  current chat. Plans without a chat_id (legacy) match any chat so the
@@ -481,16 +482,25 @@ export function ChatArea({
       )}
       <div className="jx-chatList" ref={chatListRef}>
         {(chat.messages || []).map((m, idx) => (
-          <MessageBubble
+          <ContentErrorBoundary
             key={m.ts}
-            m={m}
-            messageIndex={idx}
-            currentChatId={currentChatId}
-            send={send}
-            exportChatRecord={exportChatRecord}
-            regenerate={regenerate}
-            editAndResend={editAndResend}
-          />
+            resetKey={`${currentChatId}:${m.ts}`}
+            fallback={(
+              <div className="jx-messageRenderError" role="alert">
+                {t('这条消息包含无法显示的旧格式数据，已跳过异常内容。')}
+              </div>
+            )}
+          >
+            <MessageBubble
+              m={m}
+              messageIndex={idx}
+              currentChatId={currentChatId}
+              send={send}
+              exportChatRecord={exportChatRecord}
+              regenerate={regenerate}
+              editAndResend={editAndResend}
+            />
+          </ContentErrorBoundary>
         ))}
         <BatchPanelsForChat chatId={currentChatId} />
         <div ref={messagesEndRef} />

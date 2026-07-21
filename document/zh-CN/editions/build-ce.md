@@ -71,6 +71,8 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `README.md` / `README_CN.md` / `LICENSE` / `NOTICE` / `CONTRIBUTING.md` / `SECURITY.md` | CE 开源仓门面文件；默认 README 为英文，中文作为语言切换入口保留 |
 | `install.sh` | 面向个人无 Docker 模式的公开一键安装脚本 |
 | `.env.example` | CE 环境模板（`JX_EDITION=ce`，无内网 IP / 无品牌默认） |
+| `.hugagent-edition` | 仅在派生后出现的机器可读 `ce` 标识；让发布工具区分公开 CE checkout 与生成器异常缺失的 FULL checkout |
+| `.github/workflows/desktop-release.yml` | 公开 CE 桌面发版 workflow，包含 release tag / 版本前置门禁 |
 | `src/backend/core/licensing/manager.py` | **CE stub**：`mode()` 恒 `"ce"`、`has()` 恒 False、不限席位，无任何验签实现体 |
 | `src/backend/core/auth/permissions_iface.py` | 权限接口层单租户 stub（接缝 C3）：自己的资源恒最高权限，团队权限恒 `none`（存量团队数据不因 stub 放行而对全员可读） |
 | `src/backend/core/memory/audit.py` | 记忆审计 no-op stub（同名接口、不落数据） |
@@ -104,6 +106,11 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 ```
 
 以 `git ls-files` 为拷贝清单意味着 `.env`、本地数据库等未跟踪 / 已忽略文件**天然不会进入 CE 树**。
+
+Windows 桌面服务载荷在两种仓库里遵守同一边界：FULL 仓中，`desktop/scripts/prepare-bundle.mjs`
+仍会找到并运行 `scripts/build_ce.py`；在有意移除生成器的公开 CE 仓中，它要求
+`.hugagent-edition` 内容为 `ce`，然后只暂存当前 checkout 的 Git tracked 文件。正式发布会拒绝脏
+checkout，因此该 fallback 不能把一个生成器异常缺失的任意仓库静默当成 CE 载荷。
 
 ## CE 数据库差异
 
@@ -148,6 +155,8 @@ EE（含 internal / licensed 等全部 license 状态）始终全量建表，行
 | 生成器 | `scripts/build_ce.py` |
 | 品牌门禁模式 | `ce/brand_scan.txt` |
 | overlay 目录 | `ce/overlay/` |
+| 派生树版本标识 | `ce/overlay/.hugagent-edition` |
+| 公开桌面发版 workflow | `ce/overlay/.github/workflows/desktop-release.yml` |
 | CE/EE 建表边界 | `src/backend/core/db/edition_tables.py` |
 | 启动建表 CE 分支 | `src/backend/core/db/engine.py::init_db` |
 | CE 迁移基线 | `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` |

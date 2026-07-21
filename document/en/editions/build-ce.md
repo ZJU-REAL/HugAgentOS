@@ -71,6 +71,8 @@ The three route files `content.py` / `models.py` / `projects.py` contain both us
 | `README.md` / `README_CN.md` / `LICENSE` / `NOTICE` / `CONTRIBUTING.md` / `SECURITY.md` | CE open-source repo front matter; English is the default README and Chinese remains available as a language alternative |
 | `install.sh` | Public one-command installer for the personal no-Docker profile |
 | `.env.example` | CE environment template (`JX_EDITION=ce`, no intranet IPs / brand defaults) |
+| `.hugagent-edition` | Machine-readable `ce` marker used only after derivation; it lets release tooling distinguish a public CE checkout from a FULL checkout whose generator is unexpectedly missing |
+| `.github/workflows/desktop-release.yml` | Public CE desktop release workflow, including the release-tag/version preflight gate |
 | `src/backend/core/licensing/manager.py` | **CE stub**: `mode()` always `"ce"`, `has()` always False, unlimited seats, no verification logic at all |
 | `src/backend/core/auth/permissions_iface.py` | Single-tenant permission-interface stub (seam C3): your own resources are always full-permission; team permission is always `none` (legacy team data migrated from EE must not become world-readable through a permissive stub) |
 | `src/backend/core/memory/audit.py` | Memory-audit no-op stub (same interface, writes nothing) |
@@ -110,6 +112,8 @@ The three route files `content.py` / `models.py` / `projects.py` contain both us
 ```
 
 Using `git ls-files` as the copy list means `.env`, local databases, and other untracked/ignored files **can never enter the CE tree**.
+
+The Windows desktop payload follows the same boundary in both repositories. In FULL, `desktop/scripts/prepare-bundle.mjs` finds and runs `scripts/build_ce.py` as before. In the public CE repository, where the generator is intentionally absent, it requires `.hugagent-edition` to contain `ce` and stages only the current checkout's tracked files. Release builds reject a dirty checkout. This fallback cannot silently turn an arbitrary repository into a CE payload.
 
 ## CE database differences
 
@@ -154,6 +158,8 @@ A qualifying release build must pass all of:
 | Generator | `scripts/build_ce.py` |
 | Brand-gate patterns | `ce/brand_scan.txt` |
 | Overlay directory | `ce/overlay/` |
+| Derived-tree edition marker | `ce/overlay/.hugagent-edition` |
+| Public desktop release workflow | `ce/overlay/.github/workflows/desktop-release.yml` |
 | CE/EE table boundary | `src/backend/core/db/edition_tables.py` |
 | Startup table-creation CE branch | `src/backend/core/db/engine.py::init_db` |
 | CE migration baseline | `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` |

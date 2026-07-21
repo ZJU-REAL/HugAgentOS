@@ -324,6 +324,8 @@ export const PANELS_DICT: Record<string, string> = {
   '{done}/{total}（成功 {success}，跳过 {failed}）': '{done}/{total} (success: {success}, skipped: {failed})',
   '错误：{msg}': 'Error: {msg}',
   '暂无结果': 'No results yet',
+  '本体校验结果暂时无法显示': 'The ontology validation result cannot be displayed',
+  '当前会话仍可继续使用，请稍后重新打开结果。': 'You can continue using this chat and reopen the result later.',
   '正在处理第 {n} 项…': 'Processing item {n}…',
 
   // ── AppCenterPanel ───────────────────────────────────────────────────
