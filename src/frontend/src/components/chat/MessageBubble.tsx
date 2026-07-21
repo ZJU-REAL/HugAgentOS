@@ -22,7 +22,7 @@ import { ToolProgressInline } from '../tool/ToolProgressInline';
 import { anyToolRunning } from '../tool/renderers/utils';
 import { ThinkingInline } from './ThinkingInline';
 import { StreamWaitIndicator } from './StreamWaitIndicator';
-import { OntologyRevisionPanel } from './OntologyRevisionPanel';
+import { OntologyReviewTrigger } from './OntologyReviewTrigger';
 import { useStallDetector } from '../../hooks';
 import { PlanCard } from './PlanCard';
 import { ArtifactCardList } from './ArtifactCardList';
@@ -947,11 +947,10 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
 
         {m.role === 'assistant' && m.ontologyGovernance && (
           <div className="jx-ontologyReviewInline">
-            <OntologyRevisionPanel
+            <OntologyReviewTrigger
               governance={m.ontologyGovernance}
-              message={m}
               chatId={currentChatId}
-              dispatchProcessVisible={dispatchProcessVisible}
+              messageTs={m.ts}
             />
           </div>
         )}

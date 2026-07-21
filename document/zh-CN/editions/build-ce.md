@@ -53,7 +53,7 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 |---|---|---|
 | `catalog_json` | `core/config/catalog.json` | 去掉 EE MCP 种子（`database_query`、`query_database`、`ai_chain_information_mcp`） |
 | `package_json` | `src/frontend/package.json` | 改名 `hugagent-ui`；删商业 License 预设 `@univerjs/preset-sheets-advanced` 与死依赖 `pptxgenjs`；固定 `@univerjs/icons=1.1.1`，避免无主仓 lockfile 时与 Univer 0.19 发生导出契约不兼容 |
-| `requirements` | `requirements.txt` | 删云存储 / 持久沙箱依赖（boto3 / oss2 / opensandbox）；neo4j / mem0ai 移入可选档 `requirements-mem0.txt` |
+| `requirements` | `requirements.txt` | 删云存储 / 持久沙箱依赖（boto3 / oss2 / opensandbox）；neo4j / mem0ai 移入独立档 `requirements-mem0.txt`（无 Docker 一键安装器会默认安装该档） |
 | `docker_compose` | `docker-compose.yml` | 删 opensandbox / litellm 服务及 depends_on；`script-runner` 摘掉 profile 转默认启动；整树摘除被排除组件的 env 注入（`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` 前缀） |
 | `frontend_lock` | `package-lock.json` + 前端 Dockerfile | 删 lock（与裁剪后的 package.json 必然失同步）、`npm ci` 改 `npm install` |
 | `repository_resources` | 内置商业字体的构建与源码引用 | 从 CE Dockerfile 删除字体复制/安装段，并清除后端的仓库字体目录回退引用；生成后由禁止产物门禁再次检查 |

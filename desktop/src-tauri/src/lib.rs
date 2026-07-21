@@ -11,6 +11,7 @@
 mod auth;
 mod brand;
 mod config;
+mod local_server;
 mod menu;
 mod notify;
 mod prefs;
@@ -35,20 +36,76 @@ use tokio::sync::RwLock;
 /// size afterwards.
 pub(crate) const WEBVIEW_BROWSER_ARGS: &str = "--force-device-scale-factor=1";
 
-/// Restore the monitor's visual scale after `WEBVIEW_BROWSER_ARGS` pins WebView2's device scale.
-/// Call this for every newly created webview window so controls keep their normal size at 125%,
-/// 150%, and other Windows display scales.
+/// 根据系统 DPI 与当前显示器物理分辨率共同计算 WebView 缩放。
+///
+/// 远程桌面（尤其 Mac Retina → Windows）可能报告「高 DPI + 较低虚拟分辨率」。若直接把
+/// `scale_factor` 当 zoom，会把页面和图标二次放大。这里以 2560×1440 为缩放基准，并把
+/// 最大 zoom 限制为 1.5：1080p 远程桌面保持 1.0，4K 本地屏最多使用 1.5。
+fn adaptive_display_zoom(scale_factor: f64, width: u32, height: u32) -> f64 {
+    let safe_scale = if scale_factor.is_finite() {
+        scale_factor.clamp(1.0, 1.5)
+    } else {
+        1.0
+    };
+    let resolution_cap = ((width as f64 / 2560.0).min(height as f64 / 1440.0)).clamp(1.0, 1.5);
+    safe_scale.min(resolution_cap)
+}
+
+/// 主窗口初始尺寸同样按显示器的逻辑分辨率计算，避免远程会话中 1280×860 逻辑像素
+/// 被高 DPI 放大后超出可用桌面。
+fn adaptive_window_dimensions(
+    physical_width: u32,
+    physical_height: u32,
+    scale_factor: f64,
+) -> (f64, f64, f64, f64) {
+    let scale = if scale_factor.is_finite() {
+        scale_factor.max(1.0)
+    } else {
+        1.0
+    };
+    let logical_width = physical_width as f64 / scale;
+    let logical_height = physical_height as f64 / scale;
+    let available_width = (logical_width - 32.0).max(760.0);
+    let available_height = (logical_height - 48.0).max(520.0);
+    let width = (logical_width * 0.86)
+        .clamp(960.0, 1280.0)
+        .min(available_width);
+    let height = (logical_height * 0.86)
+        .clamp(640.0, 860.0)
+        .min(available_height);
+    (width, height, width.min(960.0), height.min(640.0))
+}
+
+fn main_window_dimensions(app: &tauri::AppHandle) -> (f64, f64, f64, f64) {
+    app.primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| {
+            let size = monitor.size();
+            adaptive_window_dimensions(size.width, size.height, monitor.scale_factor())
+        })
+        .unwrap_or((1280.0, 860.0, 960.0, 640.0))
+}
+
+/// `WEBVIEW_BROWSER_ARGS` 把 WebView2 设备缩放固定为整数 1，消除分数 DPI 下 Ant Design
+/// 弹层坐标漂移；这里再施加经过分辨率限幅的视觉缩放。
 pub(crate) fn apply_display_zoom(window: &tauri::WebviewWindow) {
-    if let Ok(scale_factor) = window.scale_factor() {
-        if scale_factor > 1.01 {
-            let _ = window.set_zoom(scale_factor);
-        }
-    }
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    let monitor_size = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| *monitor.size())
+        .or_else(|| window.inner_size().ok())
+        .unwrap_or(tauri::PhysicalSize::new(1920, 1080));
+    let zoom = adaptive_display_zoom(scale_factor, monitor_size.width, monitor_size.height);
+    let _ = window.set_zoom(zoom);
 }
 
 /// 跨组件共享的运行时状态（经 Tauri manage 注入）。
 pub(crate) struct Shared {
     pub(crate) server_base: String,
+    pub(crate) update_base: String,
     pub(crate) token: Arc<RwLock<Option<String>>>,
     pub(crate) http: reqwest::Client,
     pub(crate) port: u16,
@@ -90,7 +147,7 @@ async fn logout_desktop(app: tauri::AppHandle) {
     }
     let idle = app.state::<Shared>().login_idle_url();
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.eval(&format!("window.location.replace('{}')", idle));
+        let _ = w.eval(format!("window.location.replace('{}')", idle));
         let _ = w.set_focus();
     }
 }
@@ -135,6 +192,16 @@ pub fn run() {
         // 可在托盘「关闭时重新询问」重置。（自定义窗而非原生对话框，是因为原生对话框
         // 不支持勾选框。）
         .on_window_event(|window, event| {
+            // RDP/ToDesk 调整分辨率、或把窗口移到不同 DPI 的显示器时重新计算 zoom。
+            // `set_zoom` 不改变外窗尺寸，因此处理 Resized 不会形成窗口 resize 循环。
+            if matches!(
+                event,
+                tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Resized(_)
+            ) {
+                if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                    apply_display_zoom(&webview);
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
                     return;
@@ -164,7 +231,25 @@ pub fn run() {
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
             std::fs::create_dir_all(&config_dir).ok();
 
-            let cfg = config::load(&config_dir);
+            let mut cfg = config::load(&config_dir);
+
+            // NSIS 交互安装可选择「同时安装本机服务」。选择通过一次性 pending
+            // 文件交给应用消费；自动更新不写 pending，用户日后的菜单切换也不会
+            // 被旧安装选择覆盖。该机制同时兼容已有 server.json 的旧版客户端升级。
+            if let Some(installer_mode) = config::pending_installer_mode(&config_dir) {
+                match installer_mode {
+                    config::DeploymentMode::Local => {
+                        config::save_local_server(&config_dir, local_server::LOCAL_SERVER_BASE)
+                            .map_err(std::io::Error::other)?;
+                    }
+                    config::DeploymentMode::Remote => {
+                        config::save_server_base(&config_dir, cfg.server_base_trimmed())
+                            .map_err(std::io::Error::other)?;
+                    }
+                }
+                config::clear_pending_installer_mode(&config_dir).map_err(std::io::Error::other)?;
+                cfg = config::load(&config_dir);
+            }
 
             let http = reqwest::Client::builder()
                 .danger_accept_invalid_certs(cfg.insecure_tls)
@@ -172,20 +257,57 @@ pub fn run() {
                 .build()
                 .expect("构建 http client 失败");
 
-            // 启动时校验已存 token：失效（401 / 后端不可达 / token 已被吊销）就当
-            // 未登录处理并清盘。否则带着废 token 进首页 → 前端鉴权 401 → 落到无路由
-            // 的登录回跳页 → 白屏。
-            let mut token0 = auth::load_token(&config_dir);
-            if let Some(t) = token0.clone() {
-                let valid = tauri::async_runtime::block_on(auth::validate(
+            let resource_dir = app
+                .path()
+                .resource_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let local_data_dir = app
+                .path()
+                .app_local_data_dir()
+                .unwrap_or_else(|_| config_dir.clone());
+            let local_server = local_server::LocalServerManager::new(
+                local_data_dir.join("local-server"),
+                resource_dir.join("server-ce"),
+                resource_dir
+                    .join("server-bootstrap")
+                    .join("install-local-server.ps1"),
+                http.clone(),
+            );
+
+            // 本机模式下，安装包版本变化会自动升级服务资源；已安装且同版本则直接
+            // 拉起服务。安装/启动都在后台进行，主窗口显示可观察、可重试的进度页。
+            if cfg.uses_local_server() {
+                if local_server.needs_install() {
+                    local_server.install_in_background();
+                } else if !tauri::async_runtime::block_on(local_server.is_ready()) {
+                    local_server.start_in_background();
+                }
+            }
+
+            let backend_ready = if cfg.uses_local_server() {
+                tauri::async_runtime::block_on(local_server.is_ready())
+            } else {
+                tauri::async_runtime::block_on(local_server::LocalServerManager::probe_base(
                     &http,
                     cfg.server_base_trimmed(),
-                    &cfg.cookie_name,
-                    &t,
-                ));
-                if !valid {
-                    token0 = None;
-                    auth::save_token(&config_dir, None);
+                ))
+            };
+
+            // 后端可达时校验已存 token：已吊销/过期就清盘。后端暂时不可达时保留
+            // token，避免一次断网把有效桌面会话永久注销。
+            let mut token0 = auth::load_token(&config_dir);
+            if backend_ready {
+                if let Some(t) = token0.clone() {
+                    let valid = tauri::async_runtime::block_on(auth::validate(
+                        &http,
+                        cfg.server_base_trimmed(),
+                        &cfg.cookie_name,
+                        &t,
+                    ));
+                    if !valid {
+                        token0 = None;
+                        auth::save_token(&config_dir, None);
+                    }
                 }
             }
             let token = Arc::new(RwLock::new(token0.clone()));
@@ -198,12 +320,15 @@ pub fn run() {
                 server_base: cfg.server_base_trimmed().to_string(),
                 cookie_name: cfg.cookie_name.clone(),
                 token: token.clone(),
+                local_server: local_server.clone(),
+                active_local: cfg.uses_local_server(),
             };
             let port = tauri::async_runtime::block_on(proxy::serve(pstate, web_dir))
                 .expect("启动本地反代失败");
 
             app.manage(Shared {
                 server_base: cfg.server_base.clone(),
+                update_base: cfg.update_base(),
                 token: token.clone(),
                 http: http.clone(),
                 port,
@@ -227,7 +352,9 @@ pub fn run() {
 
             // 初始窗口：有 token 进首页，没有则进登录卡片「初始态」（不自动开浏览器，
             // 等用户点「开始使用」再拉起）。退出登录同样回到这张卡片，避免白屏。
-            let start = if token0.is_some() {
+            let start = if !backend_ready {
+                format!("http://127.0.0.1:{}/__desktop/setup", port)
+            } else if token0.is_some() {
                 format!("http://127.0.0.1:{}/", port)
             } else {
                 format!("http://127.0.0.1:{}/__desktop/login", port)
@@ -308,65 +435,17 @@ fn toggle_quickask(app: &tauri::AppHandle) {
         .map(|window| apply_display_zoom(&window));
 }
 
-/// 打开「设置服务器地址」小窗（菜单栏「文件 → 设置服务器地址…」）。保存走导航哨兵
-/// `/__desktop/save-server`，由本窗导航守卫写回 server.json 后重启。
+/// 在主窗口打开「设置服务器地址」页。独立 WebView 小窗在部分 Windows/WebView2 环境下
+/// 可能只创建出空白窗口；复用已经完成初始化的主 WebView 更稳定，也不依赖 Tauri IPC。
 pub(crate) fn open_server_config(app: &tauri::AppHandle) {
-    if let Some(w) = app.get_webview_window("server-config") {
-        let _ = w.show();
-        let _ = w.set_focus();
-        return;
-    }
     let port = app.state::<Shared>().port;
-    let url = format!("http://127.0.0.1:{}/__desktop/server-config", port);
-    let parsed = match url::Url::parse(&url) {
-        Ok(u) => u,
-        Err(_) => return,
-    };
-    let app_for_nav = app.clone();
-    let _ = WebviewWindowBuilder::new(app, "server-config", WebviewUrl::External(parsed))
-        .title(format!("{} · 服务器地址", brand::NAME))
-        .additional_browser_args(WEBVIEW_BROWSER_ARGS)
-        .inner_size(460.0, 320.0)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .center()
-        .focused(true)
-        .on_navigation(move |u| {
-            // 只拦保存哨兵；页面自身加载及其它放行。
-            if !(matches!(u.scheme(), "http" | "https")
-                && u.host_str() == Some("127.0.0.1")
-                && u.path() == "/__desktop/save-server")
-            {
-                return true;
-            }
-            let mut base = String::new();
-            for (k, v) in u.query_pairs() {
-                if k == "base" {
-                    base = v.into_owned();
-                }
-            }
-            let app2 = app_for_nav.clone();
-            tauri::async_runtime::spawn(async move {
-                if !base.trim().is_empty() {
-                    let dir = app2.state::<Shared>().config_dir.clone();
-                    if let Err(e) = config::save_server_base(&dir, &base) {
-                        eprintln!("[config] 保存 server.json 失败: {e}");
-                    }
-                }
-                if let Some(cw) = app2.get_webview_window("server-config") {
-                    let _ = cw.close();
-                }
-                app2.dialog()
-                    .message("服务器地址已保存，点击确定重启客户端生效。")
-                    .title(brand::NAME)
-                    .blocking_show();
-                app2.restart();
-            });
-            false
-        })
-        .build()
-        .map(|window| apply_display_zoom(&window));
+    if let Some(w) = app.get_webview_window("main") {
+        let url = format!("http://127.0.0.1:{port}/__desktop/server-config");
+        let _ = w.eval(format!("window.location.assign('{url}')"));
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
 }
 
 /// 构建系统托盘：左键单击恢复主窗口；右键菜单「显示主窗口 / 退出」。
@@ -492,12 +571,15 @@ fn open_close_confirm(app: &tauri::AppHandle) {
 fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
     let parsed = url::Url::parse(url).expect("窗口起始 URL 非法");
     let app_for_nav = app.clone();
+    let (width, height, min_width, min_height) = main_window_dimensions(app);
 
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(brand::NAME)
+        // 用反代注入的一体化标题栏替代「系统标题栏 + 原生菜单栏」两行。
+        .decorations(false)
         .additional_browser_args(WEBVIEW_BROWSER_ARGS)
-        .inner_size(1280.0, 860.0)
-        .min_inner_size(960.0, 640.0)
+        .inner_size(width, height)
+        .min_inner_size(min_width, min_height)
         .on_navigation(move |u| {
             let scheme = u.scheme();
             // Tauri 内部 / 数据类源放行。
@@ -520,11 +602,104 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                         let shared = app2.state::<Shared>();
                         let _ = app2.opener().open_url(shared.login_url(), None::<String>);
                         if let Some(w) = app2.get_webview_window("main") {
-                            let _ = w.eval(&format!(
+                            let _ = w.eval(format!(
                                 "window.location.replace('{}')",
                                 shared.waiting_url()
                             ));
                         }
+                    });
+                    return false;
+                }
+                // 服务设置页动作同样走导航哨兵，避免依赖远程源下不稳定的 Tauri IPC。
+                if path == "/__desktop/connect-server" {
+                    open_server_config(&app_for_nav);
+                    return false;
+                }
+                if path == "/__desktop/save-server" {
+                    let base = u
+                        .query_pairs()
+                        .find_map(|(key, value)| (key == "base").then(|| value.into_owned()))
+                        .unwrap_or_default();
+                    let app2 = app_for_nav.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if !base.trim().is_empty() {
+                            let dir = app2.state::<Shared>().config_dir.clone();
+                            if let Err(error) = config::save_server_base(&dir, &base) {
+                                eprintln!("[config] 保存 server.json 失败: {error}");
+                                return;
+                            }
+                        }
+                        app2.dialog()
+                            .message("服务器地址已保存，点击确定重启客户端生效。")
+                            .title(brand::NAME)
+                            .blocking_show();
+                        app2.restart();
+                    });
+                    return false;
+                }
+                // 自定义标题栏的窗口动作走导航哨兵，避免远程源下依赖 Tauri IPC。
+                if path == "/__desktop/win" {
+                    let action = u
+                        .query_pairs()
+                        .find_map(|(key, value)| (key == "action").then(|| value.into_owned()))
+                        .unwrap_or_default();
+                    if let Some(window) = app_for_nav.get_webview_window("main") {
+                        match action.as_str() {
+                            "minimize" => {
+                                let _ = window.minimize();
+                            }
+                            "toggle-maximize" => {
+                                if window.is_maximized().unwrap_or(false) {
+                                    let _ = window.unmaximize();
+                                } else {
+                                    let _ = window.maximize();
+                                }
+                            }
+                            "fullscreen" => {
+                                let fullscreen = window.is_fullscreen().unwrap_or(false);
+                                let _ = window.set_fullscreen(!fullscreen);
+                            }
+                            "drag" => {
+                                let _ = window.start_dragging();
+                            }
+                            // 延迟关闭，避免在 on_navigation 中嵌套触发 CloseRequested。
+                            "close" => {
+                                tauri::async_runtime::spawn(async move {
+                                    let _ = window.close();
+                                });
+                            }
+                            "quit" => app_for_nav.exit(0),
+                            _ => {}
+                        }
+                    }
+                    return false;
+                }
+                // 菜单动作复用 menu::dispatch；切到主线程下一拍执行，避免导航回调重入。
+                if path == "/__desktop/menu" {
+                    let action = u
+                        .query_pairs()
+                        .find_map(|(key, value)| (key == "action").then(|| value.into_owned()))
+                        .unwrap_or_default();
+                    let app = app_for_nav.clone();
+                    let _ = app_for_nav.run_on_main_thread(move || {
+                        menu::dispatch(&app, &action);
+                    });
+                    return false;
+                }
+                if path == "/__desktop/retry-server" {
+                    app_for_nav.restart();
+                }
+                if path == "/__desktop/activate-local" {
+                    let app2 = app_for_nav.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let dir = app2.state::<Shared>().config_dir.clone();
+                        if let Err(error) =
+                            config::save_local_server(&dir, local_server::LOCAL_SERVER_BASE)
+                        {
+                            eprintln!("[config] 切换本机服务失败: {error}");
+                            return;
+                        }
+                        app2.restart();
                     });
                     return false;
                 }
@@ -546,7 +721,7 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                 *shared.token.write().await = None;
                 auth::save_token(&shared.config_dir, None);
                 if let Some(w) = app2.get_webview_window("main") {
-                    let _ = w.eval(&format!(
+                    let _ = w.eval(format!(
                         "window.location.replace('{}')",
                         shared.login_idle_url()
                     ));
@@ -558,15 +733,7 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
 
     apply_display_zoom(&window);
 
-    // 顶部原生菜单栏只挂主窗口（悬浮问答 / 关闭确认 / 服务器配置等小窗不带菜单）。
-    match menu::build(app) {
-        Ok(m) => {
-            if let Err(e) = window.set_menu(m) {
-                eprintln!("[menu] 挂载菜单栏失败: {e}");
-            }
-        }
-        Err(e) => eprintln!("[menu] 构建菜单栏失败，将不显示菜单: {e}"),
-    }
+    // 主窗口不再挂原生菜单；文件/编辑/视图/帮助与产品名共用一体化标题栏。
 
     Ok(())
 }
@@ -585,7 +752,7 @@ fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
                 auth::save_token(&shared.config_dir, Some(&tok));
                 let home = shared.home_url();
                 if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.eval(&format!("window.location.replace('{}')", home));
+                    let _ = w.eval(format!("window.location.replace('{}')", home));
                 }
                 show_main_window(&app);
             }
@@ -629,4 +796,33 @@ fn resolve_web_dir(app: &tauri::App) -> std::path::PathBuf {
         .resource_dir()
         .map(|r| r.join("web"))
         .unwrap_or_else(|_| std::path::PathBuf::from("web"))
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn remote_retina_dpi_is_capped_by_virtual_resolution() {
+        assert_eq!(adaptive_display_zoom(2.0, 1920, 1080), 1.0);
+        assert_eq!(adaptive_display_zoom(1.5, 2560, 1440), 1.0);
+    }
+
+    #[test]
+    fn high_resolution_display_gets_moderate_zoom() {
+        assert_eq!(adaptive_display_zoom(2.0, 3840, 2160), 1.5);
+        assert_eq!(adaptive_display_zoom(1.25, 3840, 2160), 1.25);
+    }
+
+    #[test]
+    fn remote_window_stays_inside_logical_desktop() {
+        assert_eq!(
+            adaptive_window_dimensions(1920, 1080, 2.0),
+            (928.0, 520.0, 928.0, 520.0)
+        );
+        assert_eq!(
+            adaptive_window_dimensions(3840, 2160, 2.0),
+            (1280.0, 860.0, 960.0, 640.0)
+        );
+    }
 }

@@ -18,10 +18,13 @@ Validation**.
 - On with a checkpoint match: one independent reviewer checks the answer after the draft streams.
 - On with a committee match: independent reviewers vote to pass, revise, or escalate.
 
-The chat displays review status. The original draft remains on the left while
-the revised answer streams in a separate panel on the right. Revision thinking
-is collapsed by default, and you can expand its tool calls and new citations.
-The system doesn't overwrite the draft until you select **Replace Original**.
+When review starts, the right panel opens automatically and streams validation
+status and the revised answer while the original draft remains on the left.
+Revision thinking is collapsed by default, and you can expand its tool calls
+and new citations. Use the top-right panel button to collapse or reopen the
+panel, or use the ontology-validation entry below a historical message to
+revisit that result. The system doesn't overwrite the draft until you select
+**Replace Original**.
 
 ## Domain Packs
 
@@ -130,10 +133,11 @@ available as a working draft, but pending items aren't presented as
 domain-approved conclusions.
 
 The original draft stays on the left. The revised answer, collapsed thinking,
-additional tool calls, and human-review cards appear on the right. The system
-doesn't overwrite the draft automatically. After you select **Replace
-Original**, it atomically updates the message and preserves its accepted state
-in chat history.
+additional tool calls, and human-review cards appear in the right panel, which
+follows incoming SSE deltas to the bottom. If you scroll up, the panel stops
+following so it doesn't interrupt reading. The system doesn't overwrite the
+draft automatically. After you select **Replace Original**, it atomically
+updates the message and preserves its accepted state in chat history.
 
 The same setting applies to regular chats, sub-agents, channel bots, automation, plans, batch
 items, and autonomous loops. If the user opted in but the runtime policy cannot be built, the run

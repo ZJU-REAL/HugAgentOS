@@ -1,6 +1,6 @@
 [package]
 name = "hugagent-desktop"
-version = "0.1.0"
+version = "0.2.1"
 description = "HugAgentOS桌面客户端"
 edition = "2021"
 rust-version = "1.77"
@@ -37,7 +37,7 @@ zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 # 交叉最省事），feature 并集后 flate2 才有可用后端，zip 的 deflate 解压链才完整。
 flate2 = { version = "1", features = ["rust_backend"] }
 
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "process", "io-util", "time"] }
 axum = "0.7"
 # default-features=false + rustls 避免对系统 OpenSSL 的依赖，便于跨平台/Windows 构建；
 # stream 用于把上游响应（含 SSE）逐帧转发，不缓冲。

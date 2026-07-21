@@ -1,14 +1,91 @@
-# Windows Deployment (Docker Desktop / WSL2)
+# Windows installation and deployment
 
-> Last updated: 2026-07-16 ｜ [简体中文](../../zh-CN/deployment/windows-deployment.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: July 21, 2026 ｜ [简体中文](../../zh-CN/deployment/windows-deployment.md) ｜ Back to [Deployment Guide](README.md)
 
-> **When to use**: running [Docker Compose](docker-compose.md) on a **Windows host** via Docker Desktop + WSL2; this page only covers the deltas from a Linux deployment.
+Windows users can run a Docker-free, desktop-managed local service or deploy the
+team service through Docker Desktop and WSL2. The local option is for personal use;
+the Compose option is for collaboration and production.
 
-HugAgentOS's standard deployment is Linux container orchestration (see the Docker Compose deployment guide). On a Windows host, the recommended and only supported approach is **Docker Desktop + WSL2**: every service still runs as a Linux container; Windows is merely the host. This page lists the deltas and required configuration compared with a Linux deployment.
+## Install a local service with the desktop client
 
-Running the backend directly on native Windows Python (without Docker) is **not supported** — the code has POSIX-only dependencies and container-path assumptions.
+Personal users on Windows x86_64 can use the NSIS desktop installer. The package
+contains a matching CE server payload that has passed the Community Edition boundary
+checks. On first launch, it creates an isolated Python environment in the current
+user's profile. Docker Desktop, WSL2, PostgreSQL, and Redis aren't required.
 
-## Prerequisites
+### Prerequisites
+
+The local-service installer has the following requirements:
+
+| Item | Requirement |
+|---|---|
+| Operating system | Windows 10 or Windows 11 on x86_64 |
+| WebView2 | Included with Windows 11; the Tauri installer handles it when missing on Windows 10 |
+| Network | Required on first install to download Python wheels and optional Node tools; the server source and web build are already in the package |
+| Python | Reuses Python 3.11+ when present; otherwise, it first tries a per-user install through `winget` |
+| Node.js | When Node.js 20+ is absent, the installer tries to add it through `winget`; failure doesn't block the core service |
+| Disk | Keep at least 5 GB free for the Python environment, tool dependencies, data, and logs |
+
+### Installation
+
+Complete these steps for a personal local installation:
+
+1. Run the HugAgentOS NSIS `.exe` installer.
+2. Select **Yes** when asked whether to install the Docker-free local service.
+3. Launch the desktop client and wait for resource copy, dependency installation,
+   and the health check to finish on the service setup page.
+4. Sign in with the generated `admin` / `admin` account, then change the password
+   when prompted.
+5. Configure a working model provider in first-run setup.
+
+If installation fails, the service setup page retains recent logs. Fix the network,
+Python, or disk issue, then select **Install and start** to retry idempotently. You
+don't need to reinstall the desktop client.
+
+### Runtime and data
+
+The local service listens only on `http://127.0.0.1:32101`; it isn't exposed to the
+LAN. Exiting the desktop app stops the service process. Minimizing to the tray keeps
+it running for background automations.
+
+The runtime and data live under this directory:
+
+```text
+%LOCALAPPDATA%\com.hugagent.desktop\local-server\
+  data\                 SQLite, storage, workspace, and logs
+  source\               CE server payload matching the desktop version
+  venv\                 Isolated Python environment
+  logs\                  Installer and server runtime logs
+  server.pid             PID marker used to safely adopt/stop a process after a crash
+  installed-bundle.json Installed-version marker
+```
+
+When a desktop update contains a new service payload, the client upgrades `source`
+and Python dependencies while preserving `data`. Uninstalling the desktop app also
+preserves this directory to prevent accidental data loss. Delete it manually only
+when you no longer need the local data.
+
+Use **File → Set server address…** to switch to a team server. Use
+**File → Local service…** to reinstall, start, or switch back to the local service.
+
+> **Note:** The local service shares the single-process local profile used by the
+> [No-Docker quick install](quick-install.md), but optional Windows host tools can
+> degrade: React site building and advanced PDF rendering remain unavailable when
+> automatic Node.js installation fails, and Milvus Lite vector knowledge bases are
+> not currently available on native Windows. Multi-user, production,
+> high-availability, and full container sandbox use still require Docker Compose.
+
+## Team deployment with Docker Desktop and WSL2
+
+HugAgentOS uses Linux container orchestration for standard team deployments. On a
+Windows host, run it through **Docker Desktop + WSL2**. Every service remains in a
+Linux container, and Windows acts only as the host. The following sections cover
+the differences from Linux deployment.
+
+Outside the desktop-managed personal profile, manually running the team backend in
+native Windows Python isn't supported.
+
+### Prerequisites
 
 | Item | Requirement |
 |---|---|
@@ -17,7 +94,7 @@ Running the backend directly on native Windows Python (without Docker) is **not 
 | WSL2 distro | Any mainstream Linux distro (e.g. Ubuntu 22.04+); all deployment operations happen in its bash shell |
 | Compose | Docker Desktop ships the v2 plugin (`docker compose`), which is sufficient |
 
-## Key principle: keep everything on the WSL2 native filesystem
+### Key principle: keep everything on the WSL2 native filesystem
 
 The repository and data directories must live on WSL2's ext4 filesystem (e.g. `/home/<user>/`), **not** on a Windows drive (`/mnt/c/...`):
 
@@ -31,7 +108,7 @@ git clone <repo-url> ~/HugAgentOS
 cd ~/HugAgentOS
 ```
 
-## Line endings (CRLF)
+### Line endings (CRLF)
 
 The repository ships a `.gitattributes` that forces LF for scripts, templates, Dockerfiles, and compose files executed inside containers, so a fresh clone just works. For older clones or if you have changed git config globally, also set inside WSL2:
 
@@ -41,7 +118,7 @@ git config core.autocrlf input
 
 > Symptom reference: a container failing with `bash\r: No such file or directory`, or nginx `[emerg]` config parse errors, means scripts/templates were converted to CRLF — re-checkout with LF.
 
-## `.env` deltas
+### `.env` deltas
 
 On top of `.env.example`, pay special attention to these variables on Windows/WSL2:
 
@@ -58,12 +135,12 @@ mkdir -p ~/hugagent-storage
 sudo chown -R 1000:1000 ~/hugagent-storage
 ```
 
-## Choosing a sandbox provider
+### Choosing a sandbox provider
 
 - **Use the default `script_runner`** (profile `script_runner`): a single sidecar container with no second-hop host-path forwarding; works fine on Windows.
 - **Do not use `opensandbox` (EE)**: it spawns nested sandbox containers through the host `docker.sock` and requires "path inside the backend container == path as seen by the host daemon" to match exactly. Docker Desktop runs its daemon in a separate `docker-desktop` distro whose filesystem view differs from your distro, so the path whitelist checks and bind-mounts will most likely fail. This provider is only recommended on Linux hosts.
 
-## Startup
+### Startup
 
 Run every command inside WSL2 bash (`make` and `scripts/deploy/*.sh` are bash scripts; PowerShell/CMD cannot run them directly):
 
@@ -78,7 +155,7 @@ docker compose ps
 curl -fsS http://localhost:3000/api/health
 ```
 
-## Optional: mem0 memory infrastructure
+### Optional: mem0 memory infrastructure
 
 The `mem0` profile (Milvus + etcd + MinIO + Neo4j) is memory-heavy. On Windows, raise the WSL2 memory cap first in `%UserProfile%\.wslconfig` (e.g. `memory=12GB`), then enable:
 
@@ -86,11 +163,11 @@ The `mem0` profile (Milvus + etcd + MinIO + Neo4j) is memory-heavy. On Windows, 
 docker compose --profile mem0 up -d
 ```
 
-## Known limitations
+### Known limitations
 
 | Item | Notes |
 |---|---|
-| Backend on native Windows | Not supported (POSIX dependencies, container-path assumptions, docker.sock dependency) |
+| Manually running the team backend on native Windows | Not supported; use the desktop-managed local service for personal use |
 | `opensandbox` provider (EE) | Not usable under Docker Desktop; use `script_runner` |
 | ARM Windows | Not supported (amd64-only images and binaries) |
 | Repo/storage on `/mnt/c` | Not supported (performance and path-semantics issues); must live on the WSL2 filesystem |

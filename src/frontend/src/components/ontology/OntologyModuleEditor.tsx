@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -19,6 +19,8 @@ import {
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { adminFetch } from '../../utils/adminApi';
 import { t } from '../../i18n';
+import { OntologyListPagination } from './OntologyListPagination';
+import { ONTOLOGY_LIST_DEFAULT_PAGE_SIZE, paginateOntologyItems } from './ontologyPagination';
 import type {
   OntologyConcept,
   OntologyConstraint,
@@ -472,6 +474,8 @@ export function OntologyModuleEditor({
   const [form] = Form.useForm<OntologyEditorValues>();
   const [saving, setSaving] = useState(false);
   const [saveIssues, setSaveIssues] = useState<ValidationIssue[]>([]);
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(ONTOLOGY_LIST_DEFAULT_PAGE_SIZE);
   const isWorkingDraft = version?.status === 'draft';
   const watchedConcepts = Form.useWatch('concepts', form) as OntologyConcept[] | undefined;
   const conceptOptions = useMemo(
@@ -504,7 +508,23 @@ export function OntologyModuleEditor({
       })),
     });
     setSaveIssues([]);
+    setListPage(1);
+    setListPageSize(ONTOLOGY_LIST_DEFAULT_PAGE_SIZE);
   }, [document, existingVersions, form, isWorkingDraft, module, open]);
+
+  const handleListPageChange = useCallback((page: number, pageSize: number) => {
+    setListPage(page);
+    setListPageSize(pageSize);
+  }, []);
+
+  const moveToLastListPage = useCallback((total: number) => {
+    setListPage(Math.max(1, Math.ceil(total / listPageSize)));
+  }, [listPageSize]);
+
+  const keepListPageInRange = useCallback((total: number) => {
+    const lastPage = Math.max(1, Math.ceil(total / listPageSize));
+    setListPage((current) => Math.min(current, lastPage));
+  }, [listPageSize]);
 
   const buildNextDocument = (values: OntologyEditorValues): OntologyDocument => {
     if (!document || !module) throw new Error(t('缺少可编辑的本体版本'));
@@ -656,11 +676,14 @@ export function OntologyModuleEditor({
             title={t('概念词表')}
             description={t('逐项维护领域术语、定义、别名、层级和受控取值。')}
           />
-          {fields.map((field, index) => (
+          {paginateOntologyItems(fields, listPage, listPageSize).map((field) => (
             <Card
               size="small"
-              title={t('概念 {n}', { n: index + 1 })}
-              extra={<RemoveButton onClick={() => remove(field.name)} />}
+              title={t('概念 {n}', { n: field.name + 1 })}
+              extra={<RemoveButton onClick={() => {
+                remove(field.name);
+                keepListPageInRange(fields.length - 1);
+              }} />}
               key={field.key}
               className="jx-ontologyEditor-itemCard"
             >
@@ -713,12 +736,21 @@ export function OntologyModuleEditor({
               </Form.Item>
             </Card>
           ))}
+          <OntologyListPagination
+            current={listPage}
+            pageSize={listPageSize}
+            total={fields.length}
+            onChange={handleListPageChange}
+          />
           <Form.ErrorList errors={meta.errors} />
           <Button
             type="dashed"
             block
             icon={<PlusOutlined />}
-            onClick={() => add({ aliases: [], closed_values: [], tags: [], risk: 'low' })}
+            onClick={() => {
+              add({ aliases: [], closed_values: [], tags: [], risk: 'low' });
+              moveToLastListPage(fields.length + 1);
+            }}
           >
             {t('添加概念')}
           </Button>
@@ -735,11 +767,14 @@ export function OntologyModuleEditor({
             title={t('概念关系')}
             description={t('从已有概念中选择起点和终点，并设置基数或禁止关系。')}
           />
-          {fields.map((field, index) => (
+          {paginateOntologyItems(fields, listPage, listPageSize).map((field) => (
             <Card
               size="small"
-              title={t('关系 {n}', { n: index + 1 })}
-              extra={<RemoveButton onClick={() => remove(field.name)} />}
+              title={t('关系 {n}', { n: field.name + 1 })}
+              extra={<RemoveButton onClick={() => {
+                remove(field.name);
+                keepListPageInRange(fields.length - 1);
+              }} />}
               key={field.key}
               className="jx-ontologyEditor-itemCard"
             >
@@ -794,12 +829,21 @@ export function OntologyModuleEditor({
               </Form.Item>
             </Card>
           ))}
+          <OntologyListPagination
+            current={listPage}
+            pageSize={listPageSize}
+            total={fields.length}
+            onChange={handleListPageChange}
+          />
           <Form.ErrorList errors={meta.errors} />
           <Button
             type="dashed"
             block
             icon={<PlusOutlined />}
-            onClick={() => add({ forbidden: false, min_cardinality: 0 })}
+            onClick={() => {
+              add({ forbidden: false, min_cardinality: 0 });
+              moveToLastListPage(fields.length + 1);
+            }}
           >
             {t('添加关系')}
           </Button>
@@ -816,11 +860,14 @@ export function OntologyModuleEditor({
             title={t('执行约束')}
             description={t('配置工具参数或输出要求；校验规则以表单字段维护。')}
           />
-          {fields.map((field, index) => (
+          {paginateOntologyItems(fields, listPage, listPageSize).map((field) => (
             <Card
               size="small"
-              title={t('约束 {n}', { n: index + 1 })}
-              extra={<RemoveButton onClick={() => remove(field.name)} />}
+              title={t('约束 {n}', { n: field.name + 1 })}
+              extra={<RemoveButton onClick={() => {
+                remove(field.name);
+                keepListPageInRange(fields.length - 1);
+              }} />}
               key={field.key}
               className="jx-ontologyEditor-itemCard"
             >
@@ -928,20 +975,29 @@ export function OntologyModuleEditor({
               <SchemaFields field={field} />
             </Card>
           ))}
+          <OntologyListPagination
+            current={listPage}
+            pageSize={listPageSize}
+            total={fields.length}
+            onChange={handleListPageChange}
+          />
           <Form.ErrorList errors={meta.errors} />
           <Button
             type="dashed"
             block
             icon={<PlusOutlined />}
-            onClick={() => add({
-              target: { kind: 'tool' },
-              schema_form: { enabled: false, type: 'object', additional_properties: true, properties: [] },
-              prerequisite_tools: [],
-              requires_citations: false,
-              mode: 'log',
-              risk: 'low',
-              enabled: true,
-            })}
+            onClick={() => {
+              add({
+                target: { kind: 'tool' },
+                schema_form: { enabled: false, type: 'object', additional_properties: true, properties: [] },
+                prerequisite_tools: [],
+                requires_citations: false,
+                mode: 'log',
+                risk: 'low',
+                enabled: true,
+              });
+              moveToLastListPage(fields.length + 1);
+            }}
           >
             {t('添加约束')}
           </Button>
@@ -958,11 +1014,14 @@ export function OntologyModuleEditor({
             title={t('领域工作流')}
             description={t('配置文本或资产触发入口、工具边界和交付前评审级别。')}
           />
-          {fields.map((field, index) => (
+          {paginateOntologyItems(fields, listPage, listPageSize).map((field) => (
             <Card
               size="small"
-              title={t('工作流 {n}', { n: index + 1 })}
-              extra={<RemoveButton onClick={() => remove(field.name)} />}
+              title={t('工作流 {n}', { n: field.name + 1 })}
+              extra={<RemoveButton onClick={() => {
+                remove(field.name);
+                keepListPageInRange(fields.length - 1);
+              }} />}
               key={field.key}
               className="jx-ontologyEditor-itemCard"
             >
@@ -1070,20 +1129,29 @@ export function OntologyModuleEditor({
               </Row>
             </Card>
           ))}
+          <OntologyListPagination
+            current={listPage}
+            pageSize={listPageSize}
+            total={fields.length}
+            onChange={handleListPageChange}
+          />
           <Form.ErrorList errors={meta.errors} />
           <Button
             type="dashed"
             block
             icon={<PlusOutlined />}
-            onClick={() => add({
-              triggers: [],
-              asset_triggers: [],
-              required_tools: [],
-              forbidden_tools: [],
-              output_tags: [],
-              review_level: 'none',
-              risk: 'low',
-            })}
+            onClick={() => {
+              add({
+                triggers: [],
+                asset_triggers: [],
+                required_tools: [],
+                forbidden_tools: [],
+                output_tags: [],
+                review_level: 'none',
+                risk: 'low',
+              });
+              moveToLastListPage(fields.length + 1);
+            }}
           >
             {t('添加工作流')}
           </Button>

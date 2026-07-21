@@ -53,7 +53,7 @@ Content edits that plain text substitution cannot express, implemented in `build
 |---|---|---|
 | `catalog_json` | `core/config/catalog.json` | drops the EE MCP seeds (`database_query`, `query_database`, `ai_chain_information_mcp`) |
 | `package_json` | `src/frontend/package.json` | renames to `hugagent-ui`; drops the commercially licensed `@univerjs/preset-sheets-advanced` and dead dependency `pptxgenjs`; pins `@univerjs/icons=1.1.1` to preserve the Univer 0.19 export contract when the main-repo lockfile is absent |
-| `requirements` | `requirements.txt` | drops cloud storage / persistent-sandbox deps (boto3 / oss2 / opensandbox); moves neo4j / mem0ai into the optional `requirements-mem0.txt` |
+| `requirements` | `requirements.txt` | drops cloud storage / persistent-sandbox deps (boto3 / oss2 / opensandbox); moves neo4j / mem0ai into the separate `requirements-mem0.txt` (installed by default by the no-Docker installer) |
 | `docker_compose` | `docker-compose.yml` | removes the opensandbox / litellm services and their depends_on; un-profiles `script-runner` so it starts by default; strips env injections of excluded components tree-wide (`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` prefixes) |
 | `frontend_lock` | `package-lock.json` + frontend Dockerfile | deletes the lock (inevitably out of sync with the pruned package.json) and rewrites `npm ci` to `npm install` |
 | `repository_resources` | build and source references to bundled commercial fonts | removes the font-copy/install stanzas from CE Dockerfiles and the backend fallback to the repository font directory; a forbidden-artifact gate verifies the generated tree again |

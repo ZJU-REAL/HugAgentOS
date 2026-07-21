@@ -3,6 +3,7 @@ export { default as AuthExpiredModal } from './AuthExpiredModal';
 export { default as BrandLoader } from './BrandLoader';
 export { ElapsedTimer } from './ElapsedTimer';
 export { default as AppLoadingSkeleton } from './AppLoadingSkeleton';
+export { default as AppErrorBoundary } from './AppErrorBoundary';
 export { LangToggleButton } from './LangToggleButton';
 export { VisibilityScopeModal } from './VisibilityScopeModal';
 export { OntologyBuildValidationModal } from './OntologyBuildValidationModal';

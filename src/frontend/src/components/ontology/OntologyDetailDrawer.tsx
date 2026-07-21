@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -26,6 +26,8 @@ import {
 import { adminFetch } from '../../utils/adminApi';
 import { formatDateTime } from '../../utils/date';
 import { t } from '../../i18n';
+import { OntologyListPagination } from './OntologyListPagination';
+import { ONTOLOGY_LIST_DEFAULT_PAGE_SIZE, paginateOntologyItems } from './ontologyPagination';
 import { OntologyModuleEditor } from './OntologyModuleEditor';
 import type {
   OntologyDocument,
@@ -51,6 +53,27 @@ interface EditableModulePanelProps {
   description: string;
   onEdit: (module: OntologyEditableModule) => void;
   children: React.ReactNode;
+}
+
+type PaginatedOntologyModule = Exclude<OntologyEditableModule, 'overview'>;
+
+interface OntologyModulePaginationState {
+  current: number;
+  pageSize: number;
+}
+
+interface OntologyPaginationStore {
+  requestKey: string;
+  modules: Record<PaginatedOntologyModule, OntologyModulePaginationState>;
+}
+
+function createModulePagination(): Record<PaginatedOntologyModule, OntologyModulePaginationState> {
+  return {
+    concepts: { current: 1, pageSize: ONTOLOGY_LIST_DEFAULT_PAGE_SIZE },
+    relations: { current: 1, pageSize: ONTOLOGY_LIST_DEFAULT_PAGE_SIZE },
+    constraints: { current: 1, pageSize: ONTOLOGY_LIST_DEFAULT_PAGE_SIZE },
+    workflows: { current: 1, pageSize: ONTOLOGY_LIST_DEFAULT_PAGE_SIZE },
+  };
 }
 
 const MODULE_TITLES: Record<OntologyEditableModule, string> = {
@@ -161,6 +184,13 @@ export function OntologyDetailDrawer({
   const requestKey = packId && effectiveVersionId
     ? `${packId}:${effectiveVersionId}:${selectedVersion?.checksum ?? ''}`
     : '';
+  const [paginationStore, setPaginationStore] = useState<OntologyPaginationStore>(() => ({
+    requestKey: '',
+    modules: createModulePagination(),
+  }));
+  const modulePagination = paginationStore.requestKey === requestKey
+    ? paginationStore.modules
+    : createModulePagination();
 
   const handleEditModule = (module: OntologyEditableModule) => {
     if (workingDraft && effectiveVersionId !== workingDraft.version_id) {
@@ -193,6 +223,25 @@ export function OntologyDetailDrawer({
     return () => { cancelled = true; };
   }, [apiPrefix, effectiveVersionId, packId, requestKey, token]);
 
+  const handleModulePageChange = useCallback((
+    module: PaginatedOntologyModule,
+    current: number,
+    pageSize: number,
+  ) => {
+    setPaginationStore((previous) => {
+      const modules = previous.requestKey === requestKey
+        ? previous.modules
+        : createModulePagination();
+      return {
+        requestKey,
+        modules: {
+          ...modules,
+          [module]: { current, pageSize },
+        },
+      };
+    });
+  }, [requestKey]);
+
   const isCurrentRequest = Boolean(requestKey) && loadState.key === requestKey;
   const loading = Boolean(requestKey) && !isCurrentRequest;
   const document = isCurrentRequest ? loadState.document : null;
@@ -201,6 +250,26 @@ export function OntologyDetailDrawer({
   const relations = document?.relations ?? [];
   const constraints = document?.constraints ?? [];
   const workflows = document?.workflows ?? [];
+  const pagedConcepts = paginateOntologyItems(
+    concepts,
+    modulePagination.concepts.current,
+    modulePagination.concepts.pageSize,
+  );
+  const pagedRelations = paginateOntologyItems(
+    relations,
+    modulePagination.relations.current,
+    modulePagination.relations.pageSize,
+  );
+  const pagedConstraints = paginateOntologyItems(
+    constraints,
+    modulePagination.constraints.current,
+    modulePagination.constraints.pageSize,
+  );
+  const pagedWorkflows = paginateOntologyItems(
+    workflows,
+    modulePagination.workflows.current,
+    modulePagination.workflows.pageSize,
+  );
   const conceptNames = useMemo(
     () => new Map(concepts.map((concept) => [concept.id, concept.name])),
     [concepts],
@@ -247,7 +316,7 @@ export function OntologyDetailDrawer({
       onEdit={handleEditModule}
     >
       <div className="jx-ontologyDetail-cardGrid">
-        {concepts.map((concept) => (
+        {pagedConcepts.map((concept) => (
         <Card className="jx-ontologyDetail-concept" size="small" key={concept.id}>
           <div className="jx-ontologyDetail-cardHead">
             <div>
@@ -280,6 +349,12 @@ export function OntologyDetailDrawer({
         </Card>
         ))}
       </div>
+      <OntologyListPagination
+        current={modulePagination.concepts.current}
+        pageSize={modulePagination.concepts.pageSize}
+        total={concepts.length}
+        onChange={(current, pageSize) => handleModulePageChange('concepts', current, pageSize)}
+      />
     </EditableModulePanel>
   ) : (
     <EditableModulePanel module="concepts" description={t('当前没有概念，可从这里开始添加。')} onEdit={handleEditModule}>
@@ -294,7 +369,7 @@ export function OntologyDetailDrawer({
       onEdit={handleEditModule}
     >
       <div className="jx-ontologyDetail-relationList">
-        {relations.map((relation) => (
+        {pagedRelations.map((relation) => (
         <Card size="small" key={relation.id}>
           <div className="jx-ontologyDetail-relationFlow">
             <div><Text strong>{conceptNames.get(relation.subject) || relation.subject}</Text><Text code>{relation.subject}</Text></div>
@@ -311,6 +386,12 @@ export function OntologyDetailDrawer({
         </Card>
         ))}
       </div>
+      <OntologyListPagination
+        current={modulePagination.relations.current}
+        pageSize={modulePagination.relations.pageSize}
+        total={relations.length}
+        onChange={(current, pageSize) => handleModulePageChange('relations', current, pageSize)}
+      />
     </EditableModulePanel>
   ) : (
     <EditableModulePanel module="relations" description={t('当前没有关系，可从已有概念中建立连接。')} onEdit={handleEditModule}>
@@ -325,7 +406,7 @@ export function OntologyDetailDrawer({
       onEdit={handleEditModule}
     >
       <div className="jx-ontologyDetail-stack">
-        {constraints.map((constraint) => {
+        {pagedConstraints.map((constraint) => {
         const target = constraint.target;
         const targetValue = target.kind === 'output'
           ? target.output_tag
@@ -360,6 +441,12 @@ export function OntologyDetailDrawer({
         );
         })}
       </div>
+      <OntologyListPagination
+        current={modulePagination.constraints.current}
+        pageSize={modulePagination.constraints.pageSize}
+        total={constraints.length}
+        onChange={(current, pageSize) => handleModulePageChange('constraints', current, pageSize)}
+      />
     </EditableModulePanel>
   ) : (
     <EditableModulePanel module="constraints" description={t('当前没有执行约束，可按工具或输出目标添加。')} onEdit={handleEditModule}>
@@ -374,9 +461,11 @@ export function OntologyDetailDrawer({
       onEdit={handleEditModule}
     >
       <div className="jx-ontologyDetail-stack">
-        {workflows.map((workflow, index) => (
+        {pagedWorkflows.map((workflow, index) => (
         <Card size="small" key={workflow.id} className="jx-ontologyDetail-workflowCard">
-          <div className="jx-ontologyDetail-workflowIndex">{String(index + 1).padStart(2, '0')}</div>
+          <div className="jx-ontologyDetail-workflowIndex">
+            {String((modulePagination.workflows.current - 1) * modulePagination.workflows.pageSize + index + 1).padStart(2, '0')}
+          </div>
           <div className="jx-ontologyDetail-workflowBody">
             <div className="jx-ontologyDetail-cardHead">
               <div><Title level={5}>{workflow.name}</Title><Text code>{workflow.id}</Text></div>
@@ -403,6 +492,12 @@ export function OntologyDetailDrawer({
         </Card>
         ))}
       </div>
+      <OntologyListPagination
+        current={modulePagination.workflows.current}
+        pageSize={modulePagination.workflows.pageSize}
+        total={workflows.length}
+        onChange={(current, pageSize) => handleModulePageChange('workflows', current, pageSize)}
+      />
     </EditableModulePanel>
   ) : (
     <EditableModulePanel module="workflows" description={t('当前没有工作流，可配置文本或资产触发入口。')} onEdit={handleEditModule}>

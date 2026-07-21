@@ -1,6 +1,152 @@
 /* ══════════════════════════════════════════════════════
-   Canvas Preview Panel — 右侧文件预览面板
+   Shared Right Sidebar — 文件预览 / 本体校验
    ══════════════════════════════════════════════════════ */
+
+.jx-rightSidebarSlot {
+  width: 58%;
+}
+
+.jx-rightSidebarSlot > .jx-rightSidebar {
+  width: 100%;
+  max-width: none;
+}
+
+.jx-rightSidebar {
+  width: 500px;
+  min-width: 0;
+  max-width: 900px;
+  flex-shrink: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--color-border);
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.jx-rightSidebar-body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.jx-rightSidebar--ontology .jx-rightSidebar-body {
+  padding: 0;
+  scroll-behavior: smooth;
+}
+
+.jx-rightSidebar--ontology .jx-ontologyRevision {
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+/* Codex-style continuous white workspace: hierarchy comes from spacing and
+   neutral separators instead of nested blue/yellow surfaces. These overrides
+   are scoped to the sidebar so the inline chat and admin variants stay intact. */
+.jx-rightSidebar--ontology .jx-ontologyRevision-head,
+.jx-rightSidebar--ontology .jx-ontologyReviewProgress,
+.jx-rightSidebar--ontology .jx-ontologyPassResult,
+.jx-rightSidebar--ontology .jx-ontologyPassResult-summary > div,
+.jx-rightSidebar--ontology .jx-ontologyRevision-evidence,
+.jx-rightSidebar--ontology .jx-ontologyRevision-document,
+.jx-rightSidebar--ontology .jx-ontologyManualReview,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-card,
+.jx-rightSidebar--ontology .jx-ontologyRevision-actions {
+  background: var(--bg);
+}
+
+.jx-rightSidebar--ontology .jx-ontologyRevision-head {
+  padding: 20px 24px 18px;
+}
+
+.jx-rightSidebar--ontology .jx-ontologyRevision-kicker,
+.jx-rightSidebar--ontology .jx-ontologyReviewProgress-icon,
+.jx-rightSidebar--ontology .jx-ontologyPassResult-title > .anticon,
+.jx-rightSidebar--ontology .jx-ontologyRevision-evidence > .anticon,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-head > .anticon,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-index {
+  color: var(--color-text-secondary);
+}
+
+.jx-rightSidebar--ontology .jx-ontologyRevision-state,
+.jx-rightSidebar--ontology .jx-ontologyRevision-state.is-streaming,
+.jx-rightSidebar--ontology .jx-ontologyRevision-state.is-accepted,
+.jx-rightSidebar--ontology .jx-ontologyRevision-state.is-warning {
+  border-color: var(--color-border);
+  background: var(--bg);
+  color: var(--color-text-secondary);
+}
+
+.jx-rightSidebar--ontology .jx-ontologyReviewProgress,
+.jx-rightSidebar--ontology .jx-ontologyPassResult,
+.jx-rightSidebar--ontology .jx-ontologyRevision-evidence,
+.jx-rightSidebar--ontology .jx-ontologyManualReview,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-card {
+  border-color: var(--color-border);
+}
+
+.jx-rightSidebar--ontology .jx-ontologyReviewProgress-icon {
+  background: transparent;
+}
+
+.jx-rightSidebar--ontology .jx-ontologyManualReview.is-required {
+  box-shadow: none;
+}
+
+.jx-rightSidebar--ontology .jx-ontologyManualReview-head strong,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-card > strong,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-head p,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-card dt,
+.jx-rightSidebar--ontology .jx-ontologyManualReview-card dd {
+  color: var(--color-text-secondary);
+}
+
+.jx-rightSidebar--ontology .jx-ontologyRevision-actions .ant-btn-primary {
+  border-color: var(--color-border);
+  background: var(--bg);
+  color: var(--color-text-secondary);
+}
+
+.jx-rightSidebar--ontology .jx-ontologyRevision-actions .ant-btn-primary:not(:disabled):hover,
+.jx-rightSidebar--ontology .jx-ontologyRevision-actions .ant-btn-primary:not(:disabled):focus-visible {
+  border-color: var(--color-fill);
+  background: var(--color-bg-gray);
+  color: var(--color-text);
+}
+
+.jx-rightSidebar-empty {
+  display: flex;
+  min-height: 100%;
+  padding: 32px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.jx-rightSidebar-empty > .anticon {
+  margin-bottom: 5px;
+  color: var(--color-primary-disabled);
+  font-size: 30px;
+}
+
+.jx-rightSidebar-empty strong {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.jx-rightSidebar-empty span {
+  max-width: 260px;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
 
 /* ── Panel container ── */
 .jx-canvas {
@@ -19,6 +165,18 @@
      这里只保留展开/收起的宽度过渡。 */
   transition: width var(--motion-duration-slow) var(--motion-ease-brand-out);
   position: relative;
+}
+
+@media (max-width: 900px) {
+  .jx-rightSidebarSlot {
+    width: 72vw;
+    max-width: 78vw;
+  }
+
+  .jx-rightSidebarSlot > .jx-rightSidebar {
+    width: 100%;
+    max-width: none;
+  }
 }
 /* 拖拽 resize 期间逐帧跟手，禁过渡 */
 .jx-canvas--dragging {

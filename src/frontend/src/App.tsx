@@ -2,9 +2,11 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Layout, Button, Typography, Tag, Modal,
+  Tooltip,
 } from 'antd';
 import {
   CloseOutlined,
+  InsertRowRightOutlined,
 } from '@ant-design/icons';
 import 'highlight.js/styles/github.css';
 import { t } from './i18n';
@@ -27,7 +29,7 @@ import LabPanel from './components/lab/LabPanel';
 import { MySpacePanel } from './components/myspace';
 import { ProjectsPanel, ProjectDetailPanel } from './components/projects';
 import { useProjectStore } from './stores/projectStore';
-import { CanvasPanel } from './components/canvas';
+import { RightSidebarPanel } from './components/canvas';
 import { ImagePreview, AuthExpiredModal, AppLoadingSkeleton } from './components/common';
 import { PasswordManagementPanel, SettingsPage } from './components/settings';
 import { FirstRunSetup } from './components/onboarding';
@@ -46,21 +48,22 @@ import { useMySpaceStore } from './stores/mySpaceStore';
 
 const { Header, Content } = Layout;
 
-function SlidePanel({ show, panelKey, children, x = 24, duration = 0.25 }: {
-  show: boolean; panelKey: string; children: ReactNode; x?: number; duration?: number;
+function SlidePanel({ show, panelKey, children, className, x = 24, duration = 0.25 }: {
+  show: boolean; panelKey: string; children: ReactNode; className?: string; x?: number; duration?: number;
 }) {
   return (
     <AnimatePresence>
       {show && (
         <motion.div
           key={panelKey}
+          className={className}
           initial={{ opacity: 0, x }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x, transition: { duration: duration * 0.7, ease: EASE.exit } }}
           transition={{ duration, ease: SLIDE_EASE }}
           /* display:contents cannot be used — it generates no box, so opacity/transform
            * all stop working. This participates in the .jx-mainRow layout as a real flex
-           * child; width is determined by the inner panel itself. */
+           * child; width comes from the optional slot class or the inner panel. */
           style={{ display: 'flex', flex: 'none', height: '100%', minWidth: 0 }}
         >
           {children}
@@ -93,7 +96,11 @@ export default function App() {
   const setCatalogPanel = useCatalogStore((s) => s.setPanel);
   const setMySpaceTab = useMySpaceStore((s) => s.setTab);
   const canvasOpen = useCanvasStore((s) => s.isOpen);
+  const rightSidebarView = useCanvasStore((s) => s.activeView);
   const closeCanvas = useCanvasStore((s) => s.closeCanvas);
+  const openRightSidebar = useCanvasStore((s) => s.openSidebar);
+  const openOntologySidebar = useCanvasStore((s) => s.openOntology);
+  const resetRightSidebar = useCanvasStore((s) => s.resetSidebar);
   const automationActiveGroup = useAutomationChatStore((s) => s.activeGroup);
   const exitAutomationChat = useAutomationChatStore((s) => s.exitAutomationChat);
   const isCE = useEditionStore((s) => s.edition === 'ce');
@@ -177,10 +184,11 @@ export default function App() {
     return () => clearInterval(timer);
   }, [authUser, fetchNotifCount, setSidebarTasks]);
 
-  // Close canvas when panel or chat changes
+  // Right-side content belongs to the current main panel/chat. Clear it when
+  // context changes so a file or ontology result never leaks into another chat.
   useEffect(() => {
-    closeCanvas();
-  }, [panel, currentChatId, closeCanvas]);
+    resetRightSidebar();
+  }, [panel, currentChatId, resetRightSidebar]);
 
   // Sync the "composer context" when switching the main view panel: a site session's plugin
   // reference is kept only on the chat panel; switching to the project page/any other page
@@ -216,6 +224,24 @@ export default function App() {
   }, [openSearchModal]);
 
   const chat = store.chats[currentChatId];
+  const latestOntologyMessage = [...(chat?.messages || [])]
+    .reverse()
+    .find((message) => Boolean(message.ontologyGovernance));
+  const handleRightSidebarToggle = () => {
+    if (canvasOpen) {
+      closeCanvas();
+      return;
+    }
+    if (rightSidebarView !== 'empty') {
+      openRightSidebar();
+      return;
+    }
+    if (latestOntologyMessage) {
+      openOntologySidebar({ chatId: currentChatId, messageTs: latestOntologyMessage.ts });
+      return;
+    }
+    openRightSidebar();
+  };
   // Name of the project the current chat belongs to (for the "project name / title"
   // breadcrumb in the chat header). Prefer the projectName cached on the chat; sessions
   // fetched from the backend only carry projectId, so fall back to looking the name up
@@ -565,7 +591,19 @@ export default function App() {
         onSelectSearchResult={handleSelectSearchResult}
       />
 
-      <Layout style={{ overflow: 'hidden', background: '#ffffff' }}>
+      <Layout className="jx-appMainLayout" style={{ overflow: 'hidden', background: '#ffffff' }}>
+        {panel === 'chat' && !isEmptyChat && (
+          <Tooltip title={canvasOpen ? t('收起右侧面板') : t('展开右侧面板')} placement="bottomRight">
+            <Button
+              type="text"
+              className={`jx-rightSidebarToggle${canvasOpen ? ' is-open' : ''}`}
+              icon={<InsertRowRightOutlined />}
+              onClick={handleRightSidebarToggle}
+              aria-label={canvasOpen ? t('收起右侧面板') : t('展开右侧面板')}
+              aria-pressed={canvasOpen}
+            />
+          </Tooltip>
+        )}
         {/* Non-chat panels: standard header */}
         {showHeader && (
           <Header className="jx-topbar" style={{ paddingInline: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
@@ -683,8 +721,14 @@ export default function App() {
           <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && (panel === 'chat' || panel === 'project_detail')} panelKey="prompt-hub">
             <PromptHubPanel />
           </SlidePanel>
-          <SlidePanel show={canvasOpen} panelKey="canvas" x={30} duration={0.28}>
-            <CanvasPanel />
+          <SlidePanel
+            show={canvasOpen}
+            panelKey="canvas"
+            className={rightSidebarView === 'file' ? undefined : 'jx-rightSidebarSlot'}
+            x={30}
+            duration={0.28}
+          >
+            <RightSidebarPanel />
           </SlidePanel>
 
           {/* Automation run timeline — persistent panel (not mutually exclusive with SlidePanels).

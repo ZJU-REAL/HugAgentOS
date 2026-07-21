@@ -27,6 +27,7 @@ from core.memory.service import (
 )
 from core.infra.responses import success_response, error_response
 from core.services import UserService
+from core.services.memory_settings_service import MemorySettingsService
 
 router = APIRouter(prefix="/v1/memories", tags=["memories"])
 
@@ -60,10 +61,11 @@ async def get_memory_settings(
     """获取用户记忆 / 重排开关设置。"""
     svc = UserService(db)
     settings = svc.get_user_settings(str(user.user_id))
+    availability = MemorySettingsService(db).availability()
     return success_response(data={
         "memory_enabled": settings.get("memory_enabled", False),
         "memory_write_enabled": settings.get("memory_write_enabled", False),
-        "mem0_available": _jx_settings.memory.enabled,
+        **availability,
         "reranker_enabled": settings.get("reranker_enabled", False),
         "reranker_available": _is_reranker_available(),
     })
@@ -85,6 +87,7 @@ async def update_memory_settings(
     if body.reranker_enabled is not None:
         patch["reranker_enabled"] = body.reranker_enabled
     if patch:
+        MemorySettingsService(db).validate_patch(patch)
         svc.update_user_metadata(user_id=str(user.user_id), patch=patch)
     return success_response(data={
         **({"memory_enabled": body.memory_enabled} if body.memory_enabled is not None else {}),

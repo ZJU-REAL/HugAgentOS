@@ -292,6 +292,9 @@ cd "${SOURCE_DIR}"
 
 info "Installing Python dependencies. This can take several minutes."
 pip_install -r requirements.txt
+info "Installing memory dependencies"
+pip_install -r requirements-mem0.txt
+pip_install "pymilvus[milvus-lite]>=2.5.0"
 info "Installing Agent Skills Python dependencies"
 pip_install -r docker/requirements-script-runner.txt
 pip_install --no-deps -e .
@@ -307,9 +310,6 @@ if PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSER_DIR}" \
 else
     warn "Chromium download failed. Word, Excel, and PPT generation still work; advanced PDF cover rendering will use its fallback."
 fi
-
-info "Installing optional local knowledge-base support"
-pip_install milvus-lite || warn "milvus-lite is unavailable on this platform. Vector knowledge bases will remain disabled."
 
 info "Building the web application"
 (

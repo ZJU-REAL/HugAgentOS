@@ -992,6 +992,8 @@ export interface UserSettings {
   memory_enabled: boolean;
   memory_write_enabled: boolean;
   mem0_available: boolean;
+  embedding_available: boolean;
+  memory_available: boolean;
   reranker_enabled: boolean;
   reranker_available: boolean;
 }

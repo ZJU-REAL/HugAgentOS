@@ -1,6 +1,6 @@
 # No-Docker Quick Install (Single Machine)
 
-> Last updated: July 20, 2026 ｜ [简体中文](../../zh-CN/deployment/quick-install.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: July 21, 2026 ｜ [简体中文](../../zh-CN/deployment/quick-install.md) ｜ Back to [Deployment Guide](README.md)
 
 The simplest way to deploy, aimed at **personal single-machine trials** and **development experience**: one command installs everything, a terminal wizard sets the admin account and configures the model, then a single process starts the server and opens the browser. Zero **Docker, PostgreSQL, and Redis**.
 
@@ -14,13 +14,13 @@ Technical shape: a single uvicorn process (serving both the frontend static asse
 |---|---|
 | Quickly trying it out on your own machine | Multi-user / team collaboration (in-memory sessions, single-writer SQLite) |
 | Running the whole stack cheaply during development | Production (no container isolation, no HA) |
-| No Docker environment, just want a taste | Persistent sandboxes, L2/L3 memory, and other heavy capabilities |
+| No Docker environment, just want a taste | Persistent sandboxes, L3 graph memory, and other heavy capabilities |
 
 ## Prerequisites
 
 | Item | Requirement |
 |---|---|
-| OS | Linux / macOS (on Windows, run inside WSL2 — see [Windows Deployment](windows-deployment.md)) |
+| OS | Linux / macOS. On Windows, use the [desktop-managed local service](windows-deployment.md) for personal use; run this command-line installer inside WSL2 |
 | Python | ≥ 3.11 |
 | Node.js | ≥ 20 (the public installer builds the frontend locally) |
 | Rust and Cargo | Required on Linux without a compatible prebuilt `ripgrep` wheel, including x86_64 systems with glibc earlier than 2.39 |
@@ -56,7 +56,7 @@ The wizard runs entirely in the terminal, in order:
 
 The chat model is assigned to all 7 chat roles at once. Two more model types can be configured separately (both skippable):
 
-**Step 2b (optional) · Index / embedding model** — powers the **self-built vector knowledge base** retrieval and L2 memory vectorization. Provide an embedding endpoint (`base_url` / model name / `api_key`); press Enter to skip (the KB is then unavailable; everything else is unaffected). The KB's vector store uses embedded **Milvus Lite** (a single file at `~/.hugagent/milvus.db`, no server required).
+**Step 2b (optional) · Index / embedding model** — powers the **self-built vector knowledge base** retrieval and L2 memory vectorization. Provide an embedding endpoint (`base_url` / model name / `api_key`). You may press Enter to skip, but both the knowledge base and persistent memory remain disabled until an embedding provider is configured and assigned to the embedding role under Settings → Model Services. Vector storage uses embedded **Milvus Lite** (a single file at `~/.hugagent/milvus.db`, no server required).
 
 **Step 2c (optional) · Reranker model** — re-ranks KB hybrid-search results for sharper retrieval. Provide a reranker endpoint (`base_url` / model name / `api_key`); press Enter to skip (retrieval still works, just without re-ranking).
 
@@ -130,6 +130,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 - **Data visualization (charts)**: the installer installs matplotlib; works once present.
 - **Projects / My Space / artifacts / data canvas / scheduled automations (created & fired from the UI) / docs & prompts**: all work on SQLite + local storage.
 - **Self-built vector knowledge base**: backed by embedded **Milvus Lite** (a single file, no server), **dense-only** retrieval; requires configuring an embedding model during onboarding. For stronger hybrid retrieval, point `MILVUS_URL` at a real Milvus server (switches back automatically).
+- **L2 vector memory**: the installer includes mem0 and Milvus Lite and enables the memory runtime by default. Persistent memory and automatic writes default to on after an active embedding provider is assigned; without one, both the frontend and backend prevent enabling memory.
 
 - **Automation / skill-authoring / site-building plugin capabilities**: `automation` / `skill-manager` / `sites` are **plugins** — install them with one keystroke in onboard Step 3 (or add/remove them later from the plugin market); once installed their MCP is auto-reachable locally (`http://mcp:*` hostnames are rewritten to `127.0.0.1`).
 
@@ -137,8 +138,6 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 - **React project build for conversational site-building**: supported once the `sites` plugin is installed — onboard provisions the React template into `~/.hugagent/site-template/` and runs `npm install` on first build. **Requires host Node.js ≥ 20 + npm**; without it only hand-written static sites are possible. The build chain's `/workspace` paths are parameterized to the local workspace (static sites match the Docker form).
 - **Office document conversion and preview**: PPT/Word online previews and Office-to-PDF conversion require LibreOffice. When it is missing, the one-command installer explains the impact and asks whether to install it. Skipping it doesn't affect document generation, downloads, or other core features. For non-interactive installs, set `HUGAGENT_INSTALL_LIBREOFFICE=1` to install it automatically or `0` to skip it explicitly. Other Word conversions also use `pandoc`, and Excel read/write still uses openpyxl.
 - **PDF / Word file parsing on upload**: PDF needs an external parser service (set its API URL in onboard Step 4, or `FILE_PARSER_API_URL`); Word needs host `pandoc` / `libreoffice`. Excel / CSV / PPTX / text parse in-process and work out of the box.
-- **L2 vector memory**: off by default; can be enabled experimentally over the same Milvus Lite with `MEM0_ENABLED=true`.
-
 **Unavailable**
 - **L3 graph memory**: needs Neo4j, no embedded substitute.
 - **Persistent sandbox / online sandbox-dependency rebuild**: depend on Docker; unavailable in local mode (degrades gracefully, no impact on the rest).

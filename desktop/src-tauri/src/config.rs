@@ -1,18 +1,31 @@
 //! 桌面客户端运行时配置。
 //!
-//! 解析优先级：`<应用配置目录>/server.json`  >  环境变量 `HUGAGENT_SERVER_BASE`
-//! >  编译期默认值。把「服务器地址」做成运行时可配，是为了一个 .exe 通吃
-//!  / HugAgentOS / 私有化多环境（见桌面方案 §阶段二）。
+//! 解析优先级从高到低为：环境变量 `HUGAGENT_SERVER_BASE`、
+//! `<应用配置目录>/server.json`、编译期默认值。把「服务器地址」做成运行时可配，
+//! 是为了一个 .exe 通吃 HugAgentOS / HugAgentOS / 私有化多环境（见桌面方案 §阶段二）。
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 // 编译期默认后端地址：真源在 `brand.rs`（可用构建时环境变量 JX_DEFAULT_SERVER_BASE
 // 覆盖）。正式分发也可再用运行时 server.json / HUGAGENT_SERVER_BASE 覆盖。
-use crate::brand::DEFAULT_SERVER_BASE;
+use crate::brand::{DEFAULT_SERVER_BASE, DESKTOP_UPDATE_BASE};
+
+/// 桌面端使用远程服务，或由客户端托管本机 CE 单机服务。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentMode {
+    Local,
+    #[default]
+    Remote,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// 服务部署形态。旧版 server.json 没有该字段时保持远程瘦客户端行为。
+    #[serde(default)]
+    pub deployment_mode: DeploymentMode,
+
     /// 后端根地址，例如 `https://agent.example.gov.cn`（不带尾斜杠也可）。
     /// 本地反代把 `/api/*` 转发到这里，跳转登录开 `<server_base>/?desktop=1`。
     #[serde(default = "default_server_base")]
@@ -38,6 +51,7 @@ fn default_cookie_name() -> String {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            deployment_mode: DeploymentMode::Remote,
             server_base: default_server_base(),
             cookie_name: default_cookie_name(),
             insecure_tls: false,
@@ -48,6 +62,29 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn server_base_trimmed(&self) -> &str {
         self.server_base.trim_end_matches('/')
+    }
+
+    pub fn uses_local_server(&self) -> bool {
+        self.deployment_mode == DeploymentMode::Local
+    }
+
+    /// 桌面整包更新源与业务服务地址解耦：远程模式默认跟随当前服务器；本机模式
+    /// 使用构建时发布源，避免去 127.0.0.1 查询一个并不存在的安装包清单。
+    pub fn update_base(&self) -> String {
+        if let Ok(value) = std::env::var("HUGAGENT_UPDATE_SERVER_BASE") {
+            let value = value.trim().trim_end_matches('/');
+            if !value.is_empty() {
+                return value.to_string();
+            }
+        }
+        if self.uses_local_server() {
+            let configured = DESKTOP_UPDATE_BASE.trim().trim_end_matches('/');
+            if !configured.is_empty() {
+                return configured.to_string();
+            }
+            return DEFAULT_SERVER_BASE.trim().trim_end_matches('/').to_string();
+        }
+        self.server_base_trimmed().to_string()
     }
 }
 
@@ -67,6 +104,7 @@ pub fn load(config_dir: &Path) -> AppConfig {
     if let Ok(v) = std::env::var("HUGAGENT_SERVER_BASE") {
         if !v.trim().is_empty() {
             cfg.server_base = v;
+            cfg.deployment_mode = DeploymentMode::Remote;
         }
     }
 
@@ -77,9 +115,94 @@ pub fn load(config_dir: &Path) -> AppConfig {
 /// 供菜单栏「设置服务器地址…」使用；写入后需重启客户端才生效（config 只在启动读一次）。
 pub fn save_server_base(config_dir: &Path, server_base: &str) -> Result<(), String> {
     let mut cfg = load(config_dir);
+    cfg.deployment_mode = DeploymentMode::Remote;
     cfg.server_base = server_base.trim().trim_end_matches('/').to_string();
+    save(config_dir, &cfg)
+}
+
+/// 切换为客户端托管的本机服务。端口固定，便于桌面壳重启后恢复连接。
+pub fn save_local_server(config_dir: &Path, server_base: &str) -> Result<(), String> {
+    let mut cfg = load(config_dir);
+    cfg.deployment_mode = DeploymentMode::Local;
+    cfg.server_base = server_base.trim().trim_end_matches('/').to_string();
+    save(config_dir, &cfg)
+}
+
+fn save(config_dir: &Path, cfg: &AppConfig) -> Result<(), String> {
     let path = config_dir.join("server.json");
-    let text = serde_json::to_string_pretty(&cfg).map_err(|e| format!("序列化失败: {e}"))?;
+    let text = serde_json::to_string_pretty(cfg).map_err(|e| format!("序列化失败: {e}"))?;
     std::fs::create_dir_all(config_dir).ok();
     std::fs::write(&path, text).map_err(|e| format!("写入 server.json 失败: {e}"))
+}
+
+/// NSIS 交互安装写入的一次性选择。`install-mode` 由安装器保留，用于避免升级时
+/// 重复询问；应用只消费 `.pending`，因此用户日后在菜单切换模式不会被旧选择覆盖。
+pub fn pending_installer_mode(config_dir: &Path) -> Option<DeploymentMode> {
+    let value = std::fs::read_to_string(config_dir.join("install-mode.pending")).ok()?;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "local" => Some(DeploymentMode::Local),
+        "remote" => Some(DeploymentMode::Remote),
+        _ => None,
+    }
+}
+
+pub fn clear_pending_installer_mode(config_dir: &Path) -> Result<(), String> {
+    let path = config_dir.join("install-mode.pending");
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("清理安装器选择失败: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "hugagent-desktop-config-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn legacy_config_defaults_to_remote_mode() {
+        let dir = temp_dir("legacy");
+        std::fs::write(
+            dir.join("server.json"),
+            r#"{"server_base":"https://example.test","cookie_name":"jx_session"}"#,
+        )
+        .unwrap();
+
+        let cfg = load(&dir);
+        assert_eq!(cfg.deployment_mode, DeploymentMode::Remote);
+        assert_eq!(cfg.server_base, "https://example.test");
+    }
+
+    #[test]
+    fn switching_modes_is_persisted() {
+        let dir = temp_dir("modes");
+        save_local_server(&dir, "http://127.0.0.1:32101/").unwrap();
+        let local = load(&dir);
+        assert!(local.uses_local_server());
+        assert_eq!(local.server_base, "http://127.0.0.1:32101");
+
+        save_server_base(&dir, "https://example.test/").unwrap();
+        let remote = load(&dir);
+        assert!(!remote.uses_local_server());
+        assert_eq!(remote.server_base, "https://example.test");
+    }
+
+    #[test]
+    fn pending_installer_choice_is_one_time() {
+        let dir = temp_dir("installer-choice");
+        std::fs::write(dir.join("install-mode.pending"), "local").unwrap();
+        assert_eq!(pending_installer_mode(&dir), Some(DeploymentMode::Local));
+        clear_pending_installer_mode(&dir).unwrap();
+        assert_eq!(pending_installer_mode(&dir), None);
+    }
 }

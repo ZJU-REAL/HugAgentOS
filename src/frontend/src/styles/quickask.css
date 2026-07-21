@@ -11,6 +11,9 @@
 .quickask .jx-chatTopbar {
   display: none !important;
 }
+.quickask .jx-rightSidebarToggle {
+  display: none !important;
+}
 
 .quickask,
 .quickask body,

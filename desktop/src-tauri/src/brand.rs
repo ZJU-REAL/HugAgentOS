@@ -6,6 +6,7 @@
 //! ```powershell
 //! $env:JX_BRAND_NAME='HugAgentOS'
 //! $env:JX_DEFAULT_SERVER_BASE='https://agent.example.gov.cn'
+//! $env:JX_DESKTOP_UPDATE_BASE='https://downloads.example.gov.cn'
 //! $env:JX_BRAND_LOGO_URL='/home/logo.svg'
 //! cargo tauri build
 //! ```
@@ -33,6 +34,13 @@ pub const NAME: &str = match option_env!("JX_BRAND_NAME") {
 pub const DEFAULT_SERVER_BASE: &str = match option_env!("JX_DEFAULT_SERVER_BASE") {
     Some(v) => v,
     None => "http://localhost:3000",
+};
+
+/// 桌面安装包更新源。留空时沿用编译期默认后端；本机服务模式不能从 127.0.0.1
+/// 获取安装包，因此正式分发本机版时应设置本变量或 JX_DEFAULT_SERVER_BASE。
+pub const DESKTOP_UPDATE_BASE: &str = match option_env!("JX_DESKTOP_UPDATE_BASE") {
+    Some(v) => v,
+    None => "",
 };
 
 /// 登录卡片上展示的 logo（走本地反代的静态路径，或可访问的绝对 URL）。

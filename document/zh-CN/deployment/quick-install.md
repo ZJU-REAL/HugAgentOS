@@ -1,6 +1,6 @@
 # 无 Docker 一键安装（本地单机）
 
-> 最后更新：2026-07-20 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
+> 最后更新：2026-07-21 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
 
 面向**个人单机尝鲜**与**二次开发体验**的极简部署方式：一条命令装好，终端引导设管理员、配模型，随后单进程起服务并打开浏览器。全程**零 Docker、零 PostgreSQL、零 Redis**。
 
@@ -14,13 +14,13 @@
 |---|---|
 | 个人在自己机器上快速试用 | 多用户 / 团队协作（内存会话、SQLite 单写） |
 | 二次开发时低成本跑起整栈 | 生产环境（无容器隔离、无高可用） |
-| 没有 Docker 环境、只想尝鲜 | 需要持久沙箱、L2/L3 记忆等重能力 |
+| 没有 Docker 环境、只想尝鲜 | 需要持久沙箱、L3 图谱记忆等重能力 |
 
 ## 前置条件
 
 | 项 | 要求 |
 |---|---|
-| 操作系统 | Linux / macOS（Windows 建议在 WSL2 内执行，见 [Windows 部署](windows-deployment.md)） |
+| 操作系统 | Linux / macOS；Windows 个人用户优先用[桌面端本机服务一键安装](windows-deployment.md)，命令行安装仍在 WSL2 内执行 |
 | Python | ≥ 3.11 |
 | Node.js | ≥ 20（公开安装器会在本机构建前端） |
 | Rust 与 Cargo | Linux 没有兼容 `ripgrep` 预编译 wheel 时需要，包括 x86_64 且 glibc 低于 2.39 的系统 |
@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 配好的对话模型会一次指派给全部 7 个对话角色。除此之外还有两类可单独配置的模型（都可跳过）：
 
-**第 2b 步（可选）· 向量 / 索引模型（embedding）**——用于**自建向量知识库**检索与 L2 记忆向量化。填 embedding 端点（`base_url` / 模型名 / `api_key`），直接回车跳过（知识库随后不可用，其余不受影响）。知识库向量存储用嵌入式 **Milvus Lite**（单文件落 `~/.hugagent/milvus.db`，无需服务端）。
+**第 2b 步（可选）· 向量 / 索引模型（embedding）**——用于**自建向量知识库**检索与 L2 记忆向量化。填 embedding 端点（`base_url` / 模型名 / `api_key`）。直接回车可跳过，但知识库和永久记忆都会保持关闭；之后可在网页「设置 → 模型服务」补配并指派 embedding 角色。向量存储用嵌入式 **Milvus Lite**（单文件落 `~/.hugagent/milvus.db`，无需服务端）。
 
 **第 2c 步（可选）· 重排模型（reranker）**——对知识库混合检索结果做重排增强，检索更准。填 reranker 端点（`base_url` / 模型名 / `api_key`），直接回车跳过（不配则检索照常、只是不重排）。
 
@@ -137,6 +137,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 - **数据可视化（图表）**：安装脚本会装 matplotlib；装上即可用。
 - **项目 / 我的空间 / 产物 / 数据画布 / 自动化定时任务（网页创建与触发）/ 文档与提示词**：均在 SQLite + 本地存储上正常工作。
 - **自建向量知识库**：用嵌入式 **Milvus Lite**（单文件，无需服务端），**纯向量（dense）检索**；需在 onboard 配置 embedding 模型。要更强的混合检索，把 `MILVUS_URL` 指向真正的 Milvus 服务即可自动切回。
+- **L2 向量记忆**：安装器会装好 mem0 与 Milvus Lite，并默认启用记忆运行时。配置并指派可用的 embedding 模型后，用户的永久记忆与自动写入默认开启；缺少 embedding 时，前后端都会阻止打开记忆开关。
 
 - **自动化 / 技能创作 / 建站等插件能力**：`automation` / `skill-manager` / `sites` 是**插件**，可在 onboard 第 3 步一键勾选安装（或事后到插件市场增减）；安装后其 MCP 在本地已自动连通（`http://mcp:*` 主机名会被重写到 `127.0.0.1`）。
 
@@ -144,8 +145,6 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 - **对话建站的 React 工程构建**：装 `sites` 插件后即支持——onboard 把 React 工程模板铺入 `~/.hugagent/site-template/`，首次建站时按需 `npm install`。**需宿主装有 Node.js ≥ 20 + npm**；缺则只能手写静态站点。建站链路的 `/workspace` 路径已参数化到本地工作区（静态站与 Docker 版一致）。
 - **办公文档转换与预览**：PPT/Word 在线预览和 Office 转 PDF 需要 LibreOffice。一键安装器检测到缺失时会说明影响并询问是否安装；选择跳过不影响文档生成、下载和其它核心功能。非交互安装可设 `HUGAGENT_INSTALL_LIBREOFFICE=1` 自动安装，或设为 `0` 明确跳过。Word 的其它转换还会用到 `pandoc`，Excel 读写仍可走 openpyxl。
 - **PDF / Word 文件解析入库**：PDF 需配置外部解析服务（onboard 第 4 步填 API URL，或 `FILE_PARSER_API_URL`）；Word 需宿主 `pandoc` / `libreoffice`。Excel / CSV / PPTX / 文本为进程内解析、开箱可用。
-- **L2 向量记忆**：默认关闭，可设 `MEM0_ENABLED=true` 实验性走同一 Milvus Lite。
-
 **不可用**
 - **L3 图谱记忆**：需 Neo4j，无嵌入式替代。
 - **持久沙箱 / 沙盒依赖在线重建**：依赖 Docker，本地档不可用（优雅降级、不影响其余）。
