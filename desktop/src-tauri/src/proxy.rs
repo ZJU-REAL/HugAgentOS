@@ -196,7 +196,7 @@ async fn setup_page(State(state): State<ProxyState>) -> Html<String> {
         )
         .replace(
             "__LOCAL_SUPPORTED__",
-            if cfg!(target_os = "windows") {
+            if cfg!(any(target_os = "windows", target_os = "macos")) {
                 "true"
             } else {
                 "false"
@@ -257,10 +257,10 @@ const TB_OFFSET_SPA: &str =
     "body{box-sizing:border-box!important;padding-top:36px!important}.jx-appLoading{height:100%!important}";
 const TB_OFFSET_PAGE: &str = "body{box-sizing:border-box!important;padding-top:36px!important}";
 
-const MAC_TITLEBAR_HEIGHT: u8 = 52;
+const MAC_TITLEBAR_HEIGHT: u8 = 38;
 const MAC_OFFSET_SPA: &str =
-    "body{box-sizing:border-box!important;padding-top:52px!important}.jx-appLoading{height:100%!important}";
-const MAC_OFFSET_PAGE: &str = "body{box-sizing:border-box!important;padding-top:52px!important}";
+    "body{box-sizing:border-box!important;padding-top:38px!important}.jx-appLoading{height:100%!important}";
+const MAC_OFFSET_PAGE: &str = "body{box-sizing:border-box!important;padding-top:38px!important}";
 
 const TB_CSS: &str = r##"
 #hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:36px;z-index:2147483647;display:flex;align-items:center;background:#F7F8FA;border-bottom:1px solid #E5E9EF;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#30343B}
@@ -355,20 +355,12 @@ bar.addEventListener('mousedown',function(event){if(event.button!==0||isControl(
 bar.addEventListener('dblclick',function(event){if(isControl(event.target))return;sentinel('/__desktop/win?action=toggle-maximize');});
 })();"##;
 
-// macOS keeps the application menu in the system menu bar and the native
-// traffic-light controls on the left. The in-window strip only exposes app
-// actions, matching the compact icon-toolbar pattern used by modern Mac apps.
+// macOS keeps application actions in the native system menu. Inside the window
+// we only reserve a compact draggable title region for the traffic lights; a
+// second branded toolbar would duplicate the native chrome and waste space.
 const MAC_TB_CSS: &str = r##"
-#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:52px;z-index:2147483647;display:flex;align-items:center;padding:0 12px 0 82px;background:rgba(247,247,246,.86);border-bottom:1px solid rgba(28,28,28,.09);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;color:#252522;-webkit-user-select:none;user-select:none}
+#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:38px;z-index:2147483647;background:rgba(250,250,248,.78);border-bottom:1px solid rgba(28,28,28,.075);backdrop-filter:saturate(160%) blur(18px);-webkit-backdrop-filter:saturate(160%) blur(18px);-webkit-user-select:none;user-select:none}
 #hugagent-mac-titlebar *{box-sizing:border-box}
-#hugagent-mac-titlebar .mac-brand{display:flex;align-items:center;min-width:0;gap:8px;font-size:13px;font-weight:590;letter-spacing:-.01em;color:#3a3935}
-#hugagent-mac-titlebar .mac-logo{width:18px;height:18px;border-radius:5px;object-fit:cover;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-#hugagent-mac-titlebar .mac-spacer{flex:1;height:100%;min-width:24px}
-#hugagent-mac-titlebar .mac-actions{display:flex;align-items:center;gap:7px}
-#hugagent-mac-titlebar .mac-toolButton{width:30px;height:30px;padding:0;border:1px solid rgba(28,28,28,.1);border-radius:8px;background:rgba(255,255,255,.64);color:#45443f;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 1px rgba(0,0,0,.03);cursor:default;transition:background .12s ease,border-color .12s ease,transform .08s ease}
-#hugagent-mac-titlebar .mac-toolButton:hover{background:rgba(255,255,255,.96);border-color:rgba(28,28,28,.16)}
-#hugagent-mac-titlebar .mac-toolButton:active{background:rgba(232,231,227,.92);transform:scale(.96)}
-@media(prefers-color-scheme:dark){#hugagent-mac-titlebar{background:rgba(38,38,36,.88);border-bottom-color:rgba(255,255,255,.09);color:#f2f2ef}#hugagent-mac-titlebar .mac-brand{color:#e7e6e1}#hugagent-mac-titlebar .mac-toolButton{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.12);color:#e9e8e3}#hugagent-mac-titlebar .mac-toolButton:hover{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.18)}}
 "##;
 
 const MAC_TB_JS: &str = r##"(function(){
@@ -376,18 +368,12 @@ var bar=document.getElementById('hugagent-mac-titlebar');if(!bar)return;
 if(new URLSearchParams(location.search).get('quickask')==='1'){
   bar.remove();var style=document.getElementById('hugagent-titlebar-style');if(style)style.remove();return;
 }
-function sentinel(path){window.location.href=path;}
-bar.querySelectorAll('[data-act]').forEach(function(item){
-  item.addEventListener('mousedown',function(event){event.preventDefault();});
-  item.addEventListener('click',function(event){event.stopPropagation();sentinel('/__desktop/menu?action='+encodeURIComponent(item.dataset.act));});
-});
 bar.addEventListener('mousedown',function(event){
-  if(event.button!==0||(event.target instanceof Element&&event.target.closest('button')))return;
-  sentinel('/__desktop/win?action=drag');
+  if(event.button!==0)return;
+  window.location.href='/__desktop/win?action=drag';
 });
 bar.addEventListener('dblclick',function(event){
-  if(event.target instanceof Element&&event.target.closest('button'))return;
-  sentinel('/__desktop/win?action=toggle-maximize');
+  window.location.href='/__desktop/win?action=toggle-maximize';
 });
 })();"##;
 
@@ -411,17 +397,10 @@ fn titlebar_block(offset_css: &str) -> String {
 fn mac_titlebar_block(offset_css: &str) -> String {
     format!(
         "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
-<header id=\"hugagent-mac-titlebar\" data-height=\"{height}\">\
-<div class=\"mac-brand\"><img class=\"mac-logo\" src=\"{logo}\" alt=\"\" onerror=\"this.style.display='none'\"/><span>{name}</span></div>\
-<div class=\"mac-spacer\"></div><div class=\"mac-actions\">\
-<button class=\"mac-toolButton\" type=\"button\" data-act=\"new_chat\" aria-label=\"新建对话\" title=\"新建对话\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\"><path d=\"M9.8 2.5H4.2A1.7 1.7 0 0 0 2.5 4.2v7.6a1.7 1.7 0 0 0 1.7 1.7h7.6a1.7 1.7 0 0 0 1.7-1.7V6.2M8 8l5.2-5.2M10.5 2.5h3v3\" stroke=\"currentColor\" stroke-width=\"1.35\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>\
-<button class=\"mac-toolButton\" type=\"button\" data-act=\"server_config\" aria-label=\"服务设置\" title=\"服务设置\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 16 16\" fill=\"none\"><path d=\"M3 4h10M5.5 8h5M4 12h8\" stroke=\"currentColor\" stroke-width=\"1.35\" stroke-linecap=\"round\"/><circle cx=\"10.5\" cy=\"4\" r=\"1.25\" fill=\"currentColor\"/><circle cx=\"6.5\" cy=\"8\" r=\"1.25\" fill=\"currentColor\"/><circle cx=\"9.5\" cy=\"12\" r=\"1.25\" fill=\"currentColor\"/></svg></button>\
-</div></header><script>{script}</script>",
+<header id=\"hugagent-mac-titlebar\" data-height=\"{height}\" aria-hidden=\"true\"></header><script>{script}</script>",
         css = MAC_TB_CSS,
         offset = offset_css,
         height = MAC_TITLEBAR_HEIGHT,
-        logo = brand::LOGIN_LOGO_URL,
-        name = brand::NAME,
         script = MAC_TB_JS,
     )
 }
@@ -435,9 +414,12 @@ fn platform_titlebar_block(spa: bool) -> String {
 }
 
 fn inject_after_body(html: &str, block: &str) -> String {
-    match html.find("<body>") {
-        Some(position) => {
-            let index = position + "<body>".len();
+    match html.find("<body").and_then(|position| {
+        html[position..]
+            .find('>')
+            .map(|closing| position + closing + 1)
+    }) {
+        Some(index) => {
             let mut output = String::with_capacity(html.len() + block.len());
             output.push_str(&html[..index]);
             output.push_str(block);
@@ -456,66 +438,58 @@ const LOGIN_HTML: &str = r##"<!doctype html>
 <title>登录 · HugAgentOS</title>
 <style>
   :root{
-    --primary:#126DFF; --primary-hover:#3C87FF; --primary-active:#0862F3;
-    --text:#262626; --text-2:#808080; --text-3:#B3B3B3; --border:#E8EBF0; --card:#fff;
+    color-scheme:light;--primary:#0A66FF;--primary-hover:#005BE6;--primary-active:#0052CC;
+    --text:#1D1D1F;--text-2:#6E6E73;--text-3:#8E8E93;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
     color:var(--text);
-    background:
-      radial-gradient(1200px 560px at 50% -12%, #E5EFFF 0%, rgba(229,239,255,0) 62%),
-      linear-gradient(180deg,#FBFCFE 0%, #EEF2F8 100%);
+    background:linear-gradient(180deg,#FBFBFA 0%,#F4F4F2 100%);
     display:flex; align-items:center; justify-content:center;
     -webkit-user-select:none; user-select:none;
   }
   .card{
-    width:392px; padding:46px 42px 30px; text-align:center;
-    background:var(--card); border:1px solid var(--border); border-radius:22px;
-    box-shadow:0 24px 70px rgba(18,109,255,.12), 0 2px 10px rgba(15,23,42,.05);
+    width:min(380px,calc(100% - 40px));padding:32px 20px;text-align:center;margin-top:-18px;
   }
   .logo{
-    width:74px;height:74px;border-radius:19px;margin:0 auto 20px;display:block;
-    box-shadow:0 10px 24px rgba(18,109,255,.24);
+    width:64px;height:64px;border-radius:16px;margin:0 auto 20px;display:block;
+    box-shadow:0 8px 24px rgba(0,0,0,.1);
   }
-  h1{font-size:22px;font-weight:600;margin:0 0 8px;letter-spacing:.4px}
-  .sub{font-size:13.5px;color:var(--text-2);margin:0 0 32px;line-height:1.75}
+  .edition{display:inline-flex;height:24px;align-items:center;padding:0 10px;margin-bottom:14px;
+    border:1px solid rgba(60,60,67,.16);border-radius:999px;color:var(--text-2);background:rgba(255,255,255,.72);
+    font-size:11px;font-weight:600}
+  h1{font-size:28px;line-height:1.2;font-weight:650;margin:0;letter-spacing:-.035em}
+  .sub{font-size:14px;color:var(--text-2);margin:12px 0 28px;line-height:1.65}
   .btn{
-    width:100%;height:48px;border:none;border-radius:13px;cursor:pointer;
-    background:var(--primary);color:#fff;font-size:15px;font-weight:500;
-    display:inline-flex;align-items:center;justify-content:center;gap:9px;
-    transition:background .15s ease, transform .04s ease, box-shadow .15s ease;
-    box-shadow:0 6px 16px rgba(18,109,255,.28);
+    width:100%;height:46px;border:none;border-radius:11px;cursor:pointer;
+    background:var(--primary);color:#fff;font-size:14px;font-weight:600;
+    transition:background .14s ease,transform .08s ease;box-shadow:0 1px 2px rgba(0,0,0,.08);
   }
   .btn:hover{background:var(--primary-hover)}
-  .btn:active{background:var(--primary-active);transform:translateY(1px)}
-  .hint{margin-top:16px;font-size:12.5px;color:var(--text-3)}
+  .btn:active{background:var(--primary-active);transform:scale(.99)}
+  .hint{margin-top:14px;font-size:12px;color:var(--text-3)}
   .links{margin-top:8px;font-size:13px}
   .links a{color:var(--primary);text-decoration:none;cursor:pointer;margin:0 8px}
   .links a:hover{text-decoration:underline}
-  .spin{width:36px;height:36px;margin:8px auto 20px;border:3px solid #E8EBF0;
+  .spin{width:32px;height:32px;margin:8px auto 22px;border:3px solid #E5E5EA;
     border-top-color:var(--primary);border-radius:50%;animation:r .9s linear infinite}
   @keyframes r{to{transform:rotate(360deg)}}
-  .foot{margin-top:30px;padding-top:18px;border-top:1px solid #F0F2F6;
-    font-size:12px;color:var(--text-3)}
+  .foot{margin-top:24px;font-size:11px;color:var(--text-3)}
   .hidden{display:none}
 </style>
 </head>
 <body>
   <div class="card">
     <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.display='none'"/>
+    <span class="edition">社区版 CE</span>
     <!-- 初始态：等待用户点击登录 -->
     <div id="idle">
       <h1>HugAgentOS</h1>
-      <p class="sub">在系统浏览器中安全登录后<br/>自动返回桌面客户端继续使用</p>
-      <button class="btn" onclick="startLogin()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5M10 17l5-5-5-5M15 12H3"
-            stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        开始使用
-      </button>
-      <div class="hint">点击后将在系统默认浏览器中打开登录页面</div>
+      <p class="sub">登录后即可在桌面端继续使用。<br/>验证会在系统浏览器中安全完成。</p>
+      <button class="btn" onclick="startLogin()">登录并继续</button>
+      <div class="hint">完成后会自动返回此窗口</div>
     </div>
     <!-- 等待态：浏览器已打开，等待回跳 -->
     <div id="waiting" class="hidden">
@@ -559,85 +533,76 @@ const SETUP_HTML: &str = r##"<!doctype html>
 <title>服务设置 · HugAgentOS</title>
 <style>
   :root{
-    --primary:#126DFF;--primary-hover:#3C87FF;--text:#1F2937;--text-2:#64748B;
-    --border:#E5EAF1;--bg:#F4F7FB;--ok:#0F9D68;--danger:#D4380D;
+    color-scheme:light;
+    --accent:#0A66FF;--accent-hover:#005BE6;--accent-active:#0052CC;
+    --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
+    --line:rgba(60,60,67,.16);--ok:#248A3D;--danger:#D70015;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-    color:var(--text);background:radial-gradient(900px 440px at 50% -15%,#DCE9FF 0,transparent 68%),var(--bg);
-    display:flex;align-items:center;justify-content:center;padding:28px}
-  .shell{width:min(760px,100%);background:#fff;border:1px solid var(--border);border-radius:22px;
-    box-shadow:0 24px 70px rgba(30,64,175,.12);overflow:hidden}
-  .head{padding:28px 32px 22px;border-bottom:1px solid #EEF1F5}
-  .brand{font-size:13px;color:var(--primary);font-weight:650;margin-bottom:8px}
-  h1{font-size:24px;margin:0 0 8px}.lead{margin:0;color:var(--text-2);font-size:14px;line-height:1.7}
-  .body{padding:24px 32px 30px}.choices{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .choice{border:1px solid var(--border);border-radius:16px;padding:20px;background:#fff}
-  .choice.recommended{border-color:#B8D2FF;background:#F8FBFF}
-  .tag{display:inline-flex;padding:3px 8px;border-radius:999px;background:#E8F1FF;color:var(--primary);
-    font-size:11px;font-weight:650;margin-bottom:10px}
-  h2{font-size:17px;margin:0 0 8px}.desc{font-size:13px;color:var(--text-2);line-height:1.7;min-height:66px}
-  .btn{height:42px;border-radius:10px;padding:0 17px;border:1px solid var(--border);background:#fff;
-    color:var(--text);font-size:14px;font-weight:550;cursor:pointer;transition:.15s}
-  .btn:hover{background:#F8FAFC}.btn.primary{width:100%;border:0;background:var(--primary);color:#fff;
-    box-shadow:0 5px 14px rgba(18,109,255,.25)}.btn.primary:hover{background:var(--primary-hover)}
-  .btn:disabled{opacity:.55;cursor:not-allowed}.actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
-  .progress-wrap{display:none;margin-top:22px;border-top:1px solid #EEF1F5;padding-top:20px}
-  .progress-head{display:flex;justify-content:space-between;gap:12px;font-size:13px;margin-bottom:9px}
-  .progress{height:8px;border-radius:999px;background:#E9EEF5;overflow:hidden}.bar{height:100%;width:0;
-    background:linear-gradient(90deg,#126DFF,#5B9BFF);transition:width .3s ease}
-  .message{color:var(--text-2)}.percent{font-variant-numeric:tabular-nums;color:var(--primary)}
-  .log{margin-top:12px;height:128px;overflow:auto;padding:11px 12px;border-radius:10px;background:#101827;
-    color:#D5DEEC;font:11.5px/1.55 Consolas,"SFMono-Regular",monospace;white-space:pre-wrap;word-break:break-all}
-  .error{display:none;color:var(--danger);font-size:13px;margin-top:12px}.ready{color:var(--ok)}
-  .current{margin-top:17px;color:#94A3B8;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  body.platform-macos{background:#ECECEA;padding-left:22px;padding-right:22px}
-  body.platform-macos .shell{max-width:720px;border-color:rgba(28,28,28,.1);border-radius:16px;box-shadow:0 22px 55px rgba(0,0,0,.12)}
-  body.platform-macos .head{padding-top:25px;background:rgba(252,252,250,.92)}
-  body.platform-macos .body{background:#FAFAF8}
-  body.platform-macos .choice{border-color:rgba(28,28,28,.1);border-radius:13px;box-shadow:0 1px 1px rgba(0,0,0,.025)}
-  body.platform-macos .choice.recommended{border-color:rgba(18,109,255,.3);background:#F7FAFF}
-  body.platform-macos .btn{border-radius:9px;box-shadow:none}
-  @media(max-width:640px){.choices{grid-template-columns:1fr}.desc{min-height:0}.head,.body{padding-left:22px;padding-right:22px}}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
+    color:var(--text);background:#FAFAF8;display:flex;align-items:center;justify-content:center;
+    padding:28px;-webkit-user-select:none;user-select:none}
+  .setup{width:min(520px,100%);text-align:center;padding:24px 34px 28px}
+  .logo{display:block;width:64px;height:64px;margin:0 auto 20px;border-radius:16px;
+    box-shadow:0 8px 24px rgba(0,0,0,.1)}
+  .edition{display:inline-flex;align-items:center;height:24px;padding:0 10px;margin-bottom:14px;
+    border:1px solid var(--line);border-radius:999px;color:var(--secondary);background:rgba(255,255,255,.72);
+    font-size:11px;font-weight:600;letter-spacing:.02em}
+  h1{margin:0;font-size:28px;line-height:1.2;font-weight:650;letter-spacing:-.035em}
+  .lead{max-width:430px;margin:12px auto 0;color:var(--secondary);font-size:14px;line-height:1.65}
+  .actions{width:min(360px,100%);margin:28px auto 0}
+  .button{width:100%;height:46px;border:0;border-radius:11px;padding:0 18px;font:600 14px/1 inherit;
+    cursor:pointer;transition:background .14s ease,transform .08s ease,opacity .14s ease}
+  .button.primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .button.primary:hover{background:var(--accent-hover)}.button.primary:active{background:var(--accent-active);transform:scale(.99)}
+  .button:disabled{opacity:.5;cursor:default;transform:none}
+  .link-button{margin-top:13px;padding:6px 10px;border:0;background:transparent;color:var(--accent);
+    font:500 13px/1.2 inherit;cursor:pointer;border-radius:7px}
+  .link-button:hover{background:rgba(10,102,255,.07)}
+  .promise{display:flex;justify-content:center;gap:8px;margin:18px 0 0;color:var(--tertiary);font-size:12px}
+  .promise span+span::before{content:"·";margin-right:8px;color:#C7C7CC}
+  .progress-wrap{display:none;margin-top:28px;padding-top:24px;border-top:1px solid var(--line);text-align:left}
+  .progress-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;font-size:13px}
+  .message{color:var(--secondary)}.percent{color:var(--accent);font-variant-numeric:tabular-nums}
+  .progress{height:6px;border-radius:999px;background:#E5E5EA;overflow:hidden}
+  .bar{height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .28s ease}
+  .error{display:none;margin-top:12px;padding:10px 12px;border-radius:9px;background:#FFF1F0;color:var(--danger);
+    font-size:12.5px;line-height:1.5}.ready{color:var(--ok);font-weight:600}
+  details{margin-top:12px;color:var(--secondary);font-size:12px}summary{width:max-content;cursor:pointer;outline:none}
+  .log{height:116px;margin:9px 0 0;padding:11px 12px;overflow:auto;border:1px solid var(--line);
+    border-radius:9px;background:#F2F2F4;color:#48484A;font:11px/1.55 "SFMono-Regular",Consolas,monospace;
+    white-space:pre-wrap;word-break:break-all;-webkit-user-select:text;user-select:text}
+  .ready-actions{display:none;margin-top:16px}
+  .connection{margin-top:26px;color:var(--tertiary);font-size:11px;line-height:1.5;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .connection button{padding:2px 4px;border:0;background:transparent;color:var(--secondary);font:inherit;cursor:pointer}
+  body.platform-macos{background:linear-gradient(180deg,#FBFBFA 0%,#F4F4F2 100%)}
+  body.platform-macos .setup{margin-top:-18px}
+  @media(max-width:620px){body{padding:18px}.setup{padding:18px 12px 24px}h1{font-size:25px}.promise{flex-wrap:wrap}}
 </style>
 </head>
 <body class="platform-__PLATFORM__">
-  <main class="shell">
-    <header class="head">
-      <div class="brand">HugAgentOS 桌面端</div>
-      <h1>选择服务运行方式</h1>
-      <p class="lead" id="lead">当前服务不可用。你可以在本机一键安装单用户服务，也可以连接已经部署的团队服务器。</p>
-    </header>
-    <section class="body">
-      <div class="choices">
-        <article class="choice recommended">
-          <span class="tag">推荐 · 无需 Docker</span>
-          <h2>安装本机服务</h2>
-          <p class="desc">自动创建独立 Python 环境并启动内置 CE 单机服务。数据只保存在当前电脑，适合个人使用。</p>
-          <button class="btn primary" id="install" onclick="installLocal()">一键安装并启动</button>
-          <div class="actions" id="readyActions" style="display:none">
-            <button class="btn primary" id="readyButton" onclick="finishReady()">切换到本机服务</button>
-          </div>
-        </article>
-        <article class="choice">
-          <span class="tag">团队 / 私有化</span>
-          <h2>连接已有服务器</h2>
-          <p class="desc">继续使用组织已经部署的 HugAgentOS 服务。填写 HTTP 或 HTTPS 后端地址即可。</p>
-          <div class="actions">
-            <button class="btn" onclick="connectServer()">设置服务器地址</button>
-            <button class="btn" onclick="retry()">重试当前地址</button>
-          </div>
-        </article>
-      </div>
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-head"><span class="message" id="message">准备安装…</span><span class="percent" id="percent">0%</span></div>
-        <div class="progress"><div class="bar" id="bar"></div></div>
-        <pre class="log" id="log">等待安装日志…</pre>
-        <div class="error" id="error"></div>
-      </div>
-      <div class="current">当前地址：__CURRENT_BASE__</div>
+  <main class="setup">
+    <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" />
+    <span class="edition">社区版 CE</span>
+    <h1 id="title">在这台电脑上开始使用</h1>
+    <p class="lead" id="lead">自动准备运行环境并启动本机服务。完成后即可直接进入 HugAgentOS，无需 Docker，也无需手动配置。</p>
+    <section class="actions" aria-label="初始化操作">
+      <button class="button primary" id="install" type="button" onclick="installLocal()">从零开始安装</button>
+      <button class="link-button" id="connect" type="button" onclick="connectServer()">连接已有服务器</button>
+      <p class="promise"><span>单用户运行</span><span>数据保存在本机</span><span>可随时切换服务器</span></p>
     </section>
+    <section class="progress-wrap" id="progressWrap" aria-live="polite">
+      <div class="progress-head"><span class="message" id="message">准备安装…</span><span class="percent" id="percent">0%</span></div>
+      <div class="progress" role="progressbar" aria-label="安装进度" aria-valuemin="0" aria-valuemax="100"><div class="bar" id="bar"></div></div>
+      <div class="error" id="error"></div>
+      <details id="details"><summary>查看安装详情</summary><pre class="log" id="log">等待安装日志…</pre></details>
+      <div class="ready-actions" id="readyActions">
+        <button class="button primary" id="readyButton" type="button" onclick="finishReady()">进入 HugAgentOS</button>
+      </div>
+    </section>
+    <div class="connection">当前连接：__CURRENT_BASE__ <button type="button" onclick="retry()">重新检测</button></div>
   </main>
 <script>
   var manage = new URLSearchParams(location.search).get('manage') === '1';
@@ -645,7 +610,14 @@ const SETUP_HTML: &str = r##"<!doctype html>
   var localSupported = __LOCAL_SUPPORTED__;
   var installing = false;
   var pollTimer = null;
-  if(manage){document.getElementById('lead').textContent='查看或切换本机单用户服务，也可以继续连接已部署的团队服务器。';}
+  if(document.body.classList.contains('platform-macos')){
+    document.getElementById('title').textContent='在这台 Mac 上开始使用';
+  }
+  if(manage){
+    document.getElementById('title').textContent='本机服务';
+    document.getElementById('lead').textContent='查看当前状态，重新安装本机服务，或切换到团队服务器。';
+    document.getElementById('install').textContent='安装或修复本机服务';
+  }
   function sentinel(path){ window.location.href = path; }
   function connectServer(){ sentinel('/__desktop/connect-server'); }
   function retry(){ sentinel('/__desktop/retry-server'); }
@@ -655,7 +627,9 @@ const SETUP_HTML: &str = r##"<!doctype html>
     if(!localSupported){showError('当前安装包暂不支持在此系统一键部署本机服务。');return;}
     installing = true;
     var button=document.getElementById('install');
-    button.disabled=true;button.textContent='正在启动安装…';
+    button.disabled=true;button.textContent='正在开始…';
+    document.getElementById('connect').style.display='none';
+    document.querySelector('.promise').style.display='none';
     document.getElementById('progressWrap').style.display = 'block';
     document.getElementById('message').textContent='正在准备本机服务…';
     document.getElementById('error').style.display='none';
@@ -668,7 +642,8 @@ const SETUP_HTML: &str = r##"<!doctype html>
   }
   function showError(text){
     var el=document.getElementById('error');el.textContent=text;el.style.display='block';
-    var button=document.getElementById('install');button.disabled=false;button.textContent='重试安装';
+    document.getElementById('details').open=true;
+    var button=document.getElementById('install');button.disabled=false;button.textContent='重新安装';
   }
   async function poll(){
     if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
@@ -678,8 +653,10 @@ const SETUP_HTML: &str = r##"<!doctype html>
       activeLocal=!!s.active_local;
       var active=['installing','starting','ready','error'].includes(s.phase) || installing;
       if(active) document.getElementById('progressWrap').style.display='block';
-      document.getElementById('bar').style.width=(s.progress||0)+'%';
-      document.getElementById('percent').textContent=(s.progress||0)+'%';
+      var progress=Math.max(0,Math.min(100,s.progress||0));
+      document.getElementById('bar').style.width=progress+'%';
+      document.querySelector('.progress').setAttribute('aria-valuenow',String(progress));
+      document.getElementById('percent').textContent=progress+'%';
       document.getElementById('message').textContent=s.message||'准备安装…';
       document.getElementById('log').textContent=(s.logs&&s.logs.length?s.logs.join('\n'):'等待安装日志…');
       document.getElementById('log').scrollTop=document.getElementById('log').scrollHeight;
@@ -704,7 +681,9 @@ const SETUP_HTML: &str = r##"<!doctype html>
       }
       if(s.phase==='installing'||s.phase==='starting'){
         installing=true;var button=document.getElementById('install');button.disabled=true;
-        button.textContent=s.phase==='starting'?'正在启动服务…':'正在安装…';
+        button.textContent=s.phase==='starting'?'正在启动…':'正在安装…';
+      }else if(s.installed&&!manage){
+        document.getElementById('install').textContent='启动本机服务';
       }
     }catch(e){ if(installing) showError('读取安装状态失败：'+e.message); }
     pollTimer=setTimeout(poll,900);
@@ -841,11 +820,12 @@ mod tests {
     }
 
     #[test]
-    fn mac_titlebar_keeps_native_window_controls_and_uses_app_actions() {
+    fn mac_titlebar_is_a_compact_drag_region_without_duplicate_actions() {
         let block = mac_titlebar_block(MAC_OFFSET_SPA);
         assert!(block.contains("hugagent-mac-titlebar"));
-        assert!(block.contains("data-act=\"new_chat\""));
-        assert!(block.contains("data-act=\"server_config\""));
+        assert!(block.contains("height:38px"));
+        assert!(!block.contains("data-act="));
+        assert!(!block.contains("mac-toolButton"));
         assert!(!block.contains("data-win=\"minimize\""));
         assert!(!block.contains("data-win=\"close\""));
         assert!(!block.contains("tb-menuLabel"));
@@ -854,8 +834,15 @@ mod tests {
     #[test]
     fn setup_install_starts_in_place_before_switching_modes() {
         assert!(SETUP_HTML.contains("fetch('/__desktop/setup/install'"));
-        assert!(SETUP_HTML.contains("正在启动安装"));
+        assert!(SETUP_HTML.contains("从零开始安装"));
         assert!(!SETUP_HTML.contains("if(!activeLocal){ activateLocal(); return; }"));
+    }
+
+    #[test]
+    fn setup_mac_copy_and_single_primary_action_are_present() {
+        assert!(SETUP_HTML.contains("在这台 Mac 上开始使用"));
+        assert_eq!(SETUP_HTML.matches("id=\"install\"").count(), 1);
+        assert!(!SETUP_HTML.contains("class=\"choices\""));
     }
 
     #[test]
@@ -865,6 +852,16 @@ mod tests {
         assert_eq!(
             output,
             "<html><body><header>titlebar</header><main>content</main></body></html>"
+        );
+    }
+
+    #[test]
+    fn titlebar_is_injected_inside_body_with_attributes() {
+        let html = "<!doctype html><html><body class=\"platform-macos\"><main>content</main></body></html>";
+        let output = inject_after_body(html, "<header>titlebar</header>");
+        assert_eq!(
+            output,
+            "<!doctype html><html><body class=\"platform-macos\"><header>titlebar</header><main>content</main></body></html>"
         );
     }
 }

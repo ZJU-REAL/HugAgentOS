@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "node scripts/prepare-bundle.mjs"
+  },
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "resources": {
+      "../resources/server-bootstrap": "server-bootstrap",
+      "../generated/server-ce": "server-ce"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}

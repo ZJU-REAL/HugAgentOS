@@ -46,7 +46,7 @@ jobs:
         include:
           - name: macOS Rust tests
             os: macos-latest
-            prepare_payload: false
+            prepare_payload: true
           - name: Windows CE payload and Rust tests
             os: windows-latest
             prepare_payload: true
@@ -77,12 +77,7 @@ jobs:
         working-directory: desktop
         run: npm ci --no-audit --no-fund
 
-      - name: Build frontend for macOS tests
-        if: ${{ !matrix.prepare_payload }}
-        working-directory: src/frontend
-        run: npm run build
-
-      - name: Stage the public CE local-server payload on Windows
+      - name: Stage the public CE local-server payload
         if: ${{ matrix.prepare_payload }}
         working-directory: desktop
         run: node scripts/prepare-bundle.mjs

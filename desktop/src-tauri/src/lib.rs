@@ -265,12 +265,15 @@ pub fn run() {
                 .path()
                 .app_local_data_dir()
                 .unwrap_or_else(|_| config_dir.clone());
+            let installer_name = if cfg!(target_os = "macos") {
+                "install-local-server.sh"
+            } else {
+                "install-local-server.ps1"
+            };
             let local_server = local_server::LocalServerManager::new(
                 local_data_dir.join("local-server"),
                 resource_dir.join("server-ce"),
-                resource_dir
-                    .join("server-bootstrap")
-                    .join("install-local-server.ps1"),
+                resource_dir.join("server-bootstrap").join(installer_name),
                 http.clone(),
             );
 
@@ -587,7 +590,7 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
         .decorations(true)
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(18.0, 18.0));
+        .traffic_light_position(tauri::LogicalPosition::new(14.0, 13.0));
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(false);
 

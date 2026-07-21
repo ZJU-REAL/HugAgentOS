@@ -2,7 +2,7 @@
   "name": "hugagent-desktop",
   "version": "0.2.1",
   "private": true,
-  "description": "HugAgentOS 桌面客户端（远程连接 + Windows 无 Docker 本机服务）",
+  "description": "HugAgentOS 桌面客户端（远程连接 + Windows/macOS 无 Docker 本机服务）",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
