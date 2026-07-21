@@ -59,6 +59,7 @@ def _resolve_embed_config() -> tuple[str, str, str]:
     """Resolve embedding config from DB, with env fallback."""
     try:
         from core.services.model_config import ModelConfigService
+
         cfg = ModelConfigService.get_instance().resolve("embedding")
         if cfg:
             return cfg.base_url.rstrip("/"), cfg.model_name, cfg.api_key
@@ -75,6 +76,7 @@ def _resolve_reranker_config() -> tuple[str, str, str]:
     """Resolve reranker config from DB, with env fallback."""
     try:
         from core.services.model_config import ModelConfigService
+
         cfg = ModelConfigService.get_instance().resolve("reranker")
         if cfg:
             return cfg.base_url.rstrip("/"), cfg.model_name, cfg.api_key
@@ -100,16 +102,28 @@ _EMBED_BATCH_SIZE = max(1, int(os.getenv("KB_EMBED_BATCH_SIZE", "32")))
 _EMBED_TIMEOUT = max(1, int(os.getenv("KB_EMBED_TIMEOUT", "120")))
 
 
-def _embed_request(url: str, headers: dict, inputs: list[str], embed_model: str) -> list[list[float]]:
+def _embed_request(
+    url: str,
+    headers: dict,
+    inputs: list[str],
+    embed_model: str,
+    *,
+    timeout: float | None = None,
+) -> list[list[float]]:
     """Post a single embedding request and return vectors ordered by input index."""
     payload = {"input": inputs, "model": embed_model}
-    resp = requests.post(url, headers=headers, json=payload, timeout=_EMBED_TIMEOUT)
+    resp = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=timeout or _EMBED_TIMEOUT,
+    )
     resp.raise_for_status()
     data = resp.json()
     return [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
 
 
-def embed_text(text: str) -> list[float]:
+def embed_text(text: str, *, timeout: float | None = None) -> list[float]:
     """Call the configured embedding service and return a dense vector."""
     embed_url, embed_model, api_key = _resolve_embed_config()
 
@@ -121,7 +135,10 @@ def embed_text(text: str) -> list[float]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    return _embed_request(url, headers, [text], embed_model)[0]
+    vector = _embed_request(url, headers, [text], embed_model, timeout=timeout)[0]
+    if vector:
+        _DETECTED_DIM_CACHE[(embed_url, embed_model)] = len(vector)
+    return vector
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
@@ -146,13 +163,15 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
 
     results: list[list[float]] = []
     for start in range(0, len(texts), _EMBED_BATCH_SIZE):
-        sub = texts[start:start + _EMBED_BATCH_SIZE]
+        sub = texts[start : start + _EMBED_BATCH_SIZE]
         try:
             results.extend(_embed_request(url, headers, sub, embed_model))
         except Exception as exc:
             logger.warning(
                 "Sub-batch embed failed for [%d:%d] (%s); falling back to one-by-one",
-                start, start + len(sub), exc,
+                start,
+                start + len(sub),
+                exc,
             )
             for one in sub:
                 results.extend(_embed_request(url, headers, [one], embed_model))
@@ -180,12 +199,14 @@ def detect_embed_dim() -> int:
     except Exception as exc:
         logger.warning(
             "Embedding dim auto-detect failed (%s); falling back to MEM0_EMBED_DIMS=%d",
-            exc, _EMBED_DIMS,
+            exc,
+            _EMBED_DIMS,
         )
     return _EMBED_DIMS
 
 
 # ── Reranker ──────────────────────────────────────────────────────────────────
+
 
 def is_reranker_configured() -> bool:
     """Check if a reranker model endpoint is configured."""
@@ -193,7 +214,13 @@ def is_reranker_configured() -> bool:
     return bool(reranker_url and reranker_model)
 
 
-def rerank(query: str, documents: list[str], top_n: int | None = None) -> list[dict]:
+def rerank(
+    query: str,
+    documents: list[str],
+    top_n: int | None = None,
+    *,
+    timeout: float = 30,
+) -> list[dict]:
     """Call the configured reranker endpoint (OpenAI-compatible /rerank).
 
     Returns a list of {"index": int, "relevance_score": float} sorted by score descending.
@@ -216,7 +243,7 @@ def rerank(query: str, documents: list[str], top_n: int | None = None) -> list[d
     if top_n is not None:
         payload["top_n"] = top_n
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
 
@@ -227,8 +254,10 @@ def rerank(query: str, documents: list[str], top_n: int | None = None) -> list[d
 
 # ── Milvus helpers ─────────────────────────────────────────────────────────────
 
+
 def _milvus_uri() -> str:
     from core.config.settings import settings
+
     return os.getenv("MILVUS_URL") or settings.memory.milvus_url
 
 
@@ -246,6 +275,7 @@ def _is_lite() -> bool:
 def _get_client():
     """Return a MilvusClient connected to the configured Milvus instance."""
     from pymilvus import MilvusClient
+
     url = _milvus_uri()
     token = os.getenv("MILVUS_TOKEN", "")
     if token:
@@ -266,10 +296,10 @@ def _upsert(client, data: list[dict[str, Any]]) -> None:
     client.upsert(collection_name=COLLECTION_NAME, data=data)
 
 
-def _collection_dense_dim(client) -> Optional[int]:
+def _collection_dense_dim(client, *, timeout: float | None = None) -> Optional[int]:
     """Read the dense_embedding dimension of the existing collection; return None if it can't be read."""
     try:
-        desc = client.describe_collection(COLLECTION_NAME)
+        desc = client.describe_collection(COLLECTION_NAME, timeout=timeout)
         for f in desc.get("fields", []):
             if f.get("name") == "dense_embedding":
                 dim = f.get("params", {}).get("dim")
@@ -279,7 +309,7 @@ def _collection_dense_dim(client) -> Optional[int]:
     return None
 
 
-def get_or_create_collection() -> None:
+def get_or_create_collection(*, timeout: float | None = None) -> None:
     """Idempotently create hugagent_kb_private (hybrid retrieval schema) at the current embedding model's real dimension.
 
     The dimension auto-follows the model: if an existing collection's dimension differs from the current model's output (meaning
@@ -292,34 +322,37 @@ def get_or_create_collection() -> None:
     client = _get_client()
     target_dim = detect_embed_dim()
 
-    if client.has_collection(COLLECTION_NAME):
+    if client.has_collection(COLLECTION_NAME, timeout=timeout):
         if _VERIFIED_COLLECTION_DIM == target_dim:
             return
-        existing_dim = _collection_dense_dim(client)
+        existing_dim = _collection_dense_dim(client, timeout=timeout)
         if existing_dim == target_dim:
             _VERIFIED_COLLECTION_DIM = target_dim
             return
         logger.warning(
             "KB collection 维度不匹配（已存在=%s，当前模型=%d）：drop 重建。"
             "旧向量来自不同 embedding 模型、不可复用，需重新索引文档。",
-            existing_dim, target_dim,
+            existing_dim,
+            target_dim,
         )
-        client.drop_collection(COLLECTION_NAME)
+        client.drop_collection(COLLECTION_NAME, timeout=timeout)
         _VERIFIED_COLLECTION_DIM = None
 
     lite = _is_lite()
 
     schema = client.create_schema(auto_id=False, enable_dynamic_field=False)
-    schema.add_field("chunk_id",        DataType.VARCHAR, max_length=64, is_primary=True)
+    schema.add_field("chunk_id", DataType.VARCHAR, max_length=64, is_primary=True)
     schema.add_field("parent_chunk_id", DataType.VARCHAR, max_length=64)
-    schema.add_field("row_type",        DataType.VARCHAR, max_length=16)   # "chunk" | "question"
-    schema.add_field("user_id",         DataType.VARCHAR, max_length=64)
-    schema.add_field("kb_id",           DataType.VARCHAR, max_length=64)
-    schema.add_field("document_id",     DataType.VARCHAR, max_length=64)
-    schema.add_field("title",           DataType.VARCHAR, max_length=TITLE_FIELD_MAX_BYTES)
-    schema.add_field("content",         DataType.VARCHAR, max_length=CONTENT_FIELD_MAX_BYTES)
-    schema.add_field("tags_text",       DataType.VARCHAR, max_length=TAGS_FIELD_MAX_BYTES)  # BM25 augmentation
-    schema.add_field("chunk_index",     DataType.INT64)
+    schema.add_field("row_type", DataType.VARCHAR, max_length=16)  # "chunk" | "question"
+    schema.add_field("user_id", DataType.VARCHAR, max_length=64)
+    schema.add_field("kb_id", DataType.VARCHAR, max_length=64)
+    schema.add_field("document_id", DataType.VARCHAR, max_length=64)
+    schema.add_field("title", DataType.VARCHAR, max_length=TITLE_FIELD_MAX_BYTES)
+    schema.add_field("content", DataType.VARCHAR, max_length=CONTENT_FIELD_MAX_BYTES)
+    schema.add_field(
+        "tags_text", DataType.VARCHAR, max_length=TAGS_FIELD_MAX_BYTES
+    )  # BM25 augmentation
+    schema.add_field("chunk_index", DataType.INT64)
     schema.add_field("dense_embedding", DataType.FLOAT_VECTOR, dim=target_dim)
     if not lite:
         schema.add_field("sparse_embedding", DataType.SPARSE_FLOAT_VECTOR)
@@ -354,15 +387,19 @@ def get_or_create_collection() -> None:
         collection_name=COLLECTION_NAME,
         schema=schema,
         index_params=index_params,
+        timeout=timeout,
     )
     _VERIFIED_COLLECTION_DIM = target_dim
     logger.info(
         "Created Milvus collection: %s (dim=%d, mode=%s)",
-        COLLECTION_NAME, target_dim, "lite/dense-only" if lite else "hybrid",
+        COLLECTION_NAME,
+        target_dim,
+        "lite/dense-only" if lite else "hybrid",
     )
 
 
 # ── Write ──────────────────────────────────────────────────────────────────────
+
 
 def upsert_rows(rows: list[dict[str, Any]]) -> None:
     """Upsert a batch of rows into hugagent_kb_private.
@@ -442,19 +479,20 @@ def delete_by_chunk(parent_chunk_id: str) -> None:
 
 # ── Search ─────────────────────────────────────────────────────────────────────
 
+
 def _hit_to_dict(ent, score: float) -> dict:
     """Build the shared KB search-result row. ``ent`` is any entity accessor with
     ``.get`` (a dict from Milvus Lite, or a Hit entity from hybrid search)."""
     return {
-        "chunk_id":        ent.get("chunk_id"),
+        "chunk_id": ent.get("chunk_id"),
         "parent_chunk_id": ent.get("parent_chunk_id") or ent.get("chunk_id"),
-        "row_type":        ent.get("row_type"),
-        "kb_id":           ent.get("kb_id"),
-        "document_id":     ent.get("document_id"),
-        "title":           ent.get("title"),
-        "content":         ent.get("content"),
-        "chunk_index":     ent.get("chunk_index"),
-        "score":           score,
+        "row_type": ent.get("row_type"),
+        "kb_id": ent.get("kb_id"),
+        "document_id": ent.get("document_id"),
+        "title": ent.get("title"),
+        "content": ent.get("content"),
+        "chunk_index": ent.get("chunk_index"),
+        "score": score,
     }
 
 
@@ -466,6 +504,7 @@ def hybrid_search(
     top_k: int = 10,
     *,
     public_kb_ids: list[str] | None = None,
+    timeout: float | None = None,
 ) -> list[dict[str, Any]]:
     """Hybrid search over dense + sparse vectors with RRF fusion.
 
@@ -477,23 +516,29 @@ def hybrid_search(
     filtered by ``kb_id`` only (no owner check), since public KBs are global and
     ``kb_id`` is globally unique.
     """
-    from pymilvus import AnnSearchRequest, RRFRanker, MilvusClient
+    from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
 
-    get_or_create_collection()
+    get_or_create_collection(timeout=timeout)
     client = _get_client()
 
     clauses: list[str] = []
     if kb_ids:
         clauses.append(f'(user_id == "{user_id}" and kb_id in {json.dumps(kb_ids)})')
     if public_kb_ids:
-        clauses.append(f'kb_id in {json.dumps(public_kb_ids)}')
+        clauses.append(f"kb_id in {json.dumps(public_kb_ids)}")
     if not clauses:
         return []
     expr = " or ".join(clauses)
 
     output_fields = [
-        "chunk_id", "parent_chunk_id", "row_type",
-        "kb_id", "document_id", "title", "content", "chunk_index",
+        "chunk_id",
+        "parent_chunk_id",
+        "row_type",
+        "kb_id",
+        "document_id",
+        "title",
+        "content",
+        "chunk_index",
     ]
 
     # Milvus Lite (no-Docker local): no sparse field / hybrid search — fall back to
@@ -507,9 +552,11 @@ def hybrid_search(
             limit=top_k * 2,
             filter=expr,
             output_fields=output_fields,
+            timeout=timeout,
         )
-        return [_hit_to_dict(hit.get("entity", hit), hit.get("distance", 0.0))
-                for hit in lite_res[0]]
+        return [
+            _hit_to_dict(hit.get("entity", hit), hit.get("distance", 0.0)) for hit in lite_res[0]
+        ]
 
     # Dense vector search request
     dense_req = AnnSearchRequest(
@@ -536,12 +583,14 @@ def hybrid_search(
         ranker=RRFRanker(k=60),
         limit=top_k * 2,
         output_fields=output_fields,
+        timeout=timeout,
     )
 
     return [_hit_to_dict(hit.entity, hit.score) for hit in results[0]]
 
 
 # ── Tag/question re-index ──────────────────────────────────────────────────────
+
 
 def build_sparse_text(content: str, tags: list[str]) -> str:
     """Build combined text for sparse vectorisation."""
@@ -562,7 +611,7 @@ def text_to_sparse(text: str) -> dict[int, float]:
     from collections import Counter
 
     # Simple tokenisation: split on non-alphanumeric (works for CJK + Latin)
-    tokens = re.findall(r'[\w\u4e00-\u9fff]+', text.lower())
+    tokens = re.findall(r"[\w\u4e00-\u9fff]+", text.lower())
     if not tokens:
         return {0: 1.0}
 
@@ -586,9 +635,17 @@ def reindex_chunk_tags(chunk_id: str, content: str, tags: list[str]) -> None:
     rows = client.query(
         collection_name=COLLECTION_NAME,
         filter=f'chunk_id == "{chunk_id}"',
-        output_fields=["chunk_id", "parent_chunk_id", "row_type", "user_id",
-                       "kb_id", "document_id", "title", "chunk_index",
-                       "dense_embedding"],
+        output_fields=[
+            "chunk_id",
+            "parent_chunk_id",
+            "row_type",
+            "user_id",
+            "kb_id",
+            "document_id",
+            "title",
+            "chunk_index",
+            "dense_embedding",
+        ],
     )
     if not rows:
         logger.warning("reindex_chunk_tags: chunk_id %s not found in Milvus", chunk_id)
@@ -669,18 +726,20 @@ def upsert_question_rows(
     vecs = embed_batch(questions)
     rows = []
     for i, (q, vec) in enumerate(zip(questions, vecs)):
-        rows.append({
-            "chunk_id":        f"q_{parent_chunk_id}_{i}",
-            "parent_chunk_id": parent_chunk_id,
-            "row_type":        "question",
-            "user_id":         user_id,
-            "kb_id":           kb_id,
-            "document_id":     document_id,
-            "title":           truncate_utf8(title, TITLE_FIELD_MAX_BYTES),
-            "content":         truncate_utf8(q),
-            "tags_text":       "",
-            "chunk_index":     chunk_index,
-            "dense_embedding": vec,
-            "sparse_embedding": text_to_sparse(q),
-        })
+        rows.append(
+            {
+                "chunk_id": f"q_{parent_chunk_id}_{i}",
+                "parent_chunk_id": parent_chunk_id,
+                "row_type": "question",
+                "user_id": user_id,
+                "kb_id": kb_id,
+                "document_id": document_id,
+                "title": truncate_utf8(title, TITLE_FIELD_MAX_BYTES),
+                "content": truncate_utf8(q),
+                "tags_text": "",
+                "chunk_index": chunk_index,
+                "dense_embedding": vec,
+                "sparse_embedding": text_to_sparse(q),
+            }
+        )
     _upsert(client, rows)

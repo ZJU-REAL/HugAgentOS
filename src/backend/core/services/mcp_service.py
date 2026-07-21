@@ -38,6 +38,7 @@ def _rewrite_builtin_mcp_host(url: str) -> str:
     if not url or "//mcp:" not in url and "//mcp/" not in url:
         return url
     from urllib.parse import urlparse, urlunparse
+
     from core.config.settings import settings
 
     try:
@@ -162,6 +163,17 @@ class McpServerConfigService:
         if row.headers:
             cfg["headers"] = dict(row.headers)
 
+        # Optional per-server timeouts live in the existing free-form JSON
+        # field, avoiding a schema migration while still allowing long-running
+        # tools to override the safe global defaults.
+        extra_config: Dict[str, Any] = (
+            row.extra_config if isinstance(row.extra_config, dict) else {}
+        )
+        for timeout_key in ("execution_timeout", "transport_timeout"):
+            timeout_value = extra_config.get(timeout_key)
+            if timeout_value is not None:
+                cfg[timeout_key] = timeout_value
+
         return cfg
 
     def _build_env(self, row: AdminMcpServer) -> Dict[str, str]:
@@ -169,7 +181,7 @@ class McpServerConfigService:
         env: Dict[str, str] = {}
 
         # Phase 1: inherit from OS environment
-        for key in (row.env_inherit or []):
+        for key in row.env_inherit or []:
             val = os.getenv(key)
             if val is not None:
                 env[key] = val
@@ -182,6 +194,7 @@ class McpServerConfigService:
         # Phase 3: apply DB-driven overlays (model config, system config)
         try:
             from core.services.model_config import ModelConfigService
+
             overlay = ModelConfigService.get_instance().get_mcp_env_overlay()
             if overlay:
                 env.update(overlay)
@@ -190,6 +203,7 @@ class McpServerConfigService:
 
         try:
             from core.services.system_config import SystemConfigService
+
             svc_overlay = SystemConfigService.get_instance().get_service_env_overlay()
             if svc_overlay:
                 env.update(svc_overlay)
@@ -209,9 +223,7 @@ class McpServerConfigService:
         owned: Dict[str, dict] = {}
         try:
             with SessionLocal() as session:
-                q = session.query(AdminMcpServer).filter(
-                    AdminMcpServer.owner_user_id == user_id
-                )
+                q = session.query(AdminMcpServer).filter(AdminMcpServer.owner_user_id == user_id)
                 if enabled_only:
                     q = q.filter(AdminMcpServer.is_enabled.is_(True))
                 for row in q.order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id).all():
@@ -240,9 +252,11 @@ class McpServerConfigService:
     def get_all_rows(self) -> List[AdminMcpServer]:
         """Return all DB rows (for admin API). Not cached."""
         with SessionLocal() as session:
-            return session.query(AdminMcpServer).order_by(
-                AdminMcpServer.sort_order, AdminMcpServer.server_id
-            ).all()
+            return (
+                session.query(AdminMcpServer)
+                .order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id)
+                .all()
+            )
 
 
 # ── Built-in MCP catalog seed (single source of truth for fresh installs) ──────
@@ -269,8 +283,8 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
         "description": "查询数据仓库中的行业指标与统计数值，支持自然语言提问直接获取精确数据。",
         "user_intro": (
             "## 用途\n用自然语言向结构化数据仓库提问，自动生成查询语句并返回精确数值，"
-            "避免互联网信息的不确定性。\n\n## 适用场景\n- \"某年某地区的工业增加值是多少\"\n"
-            "- \"各区今年 1–9 月固投同比\"\n\n## 输出示例\n- 精确数值 + 数据口径标注\n"
+            '避免互联网信息的不确定性。\n\n## 适用场景\n- "某年某地区的工业增加值是多少"\n'
+            '- "各区今年 1–9 月固投同比"\n\n## 输出示例\n- 精确数值 + 数据口径标注\n'
             "- 时间 / 地区 / 行业等多维度数据切片\n- 同比、环比、累计值自动计算\n"
         ),
         "is_stable": True,
@@ -384,8 +398,8 @@ def seed_builtin_mcp_servers_if_empty(db) -> List[str]:
     it bootstraps a fresh ``create_all`` DB (local profile) without touching a DB
     that alembic already seeded and without resurrecting admin-deleted rows.
     """
-    from mcp_servers._ports import PORTS
     from core.config.settings import settings
+    from mcp_servers._ports import PORTS
 
     existing = (
         db.query(AdminMcpServer.server_id)

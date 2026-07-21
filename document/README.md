@@ -1,6 +1,6 @@
 # HugAgentOS 文档 / Documentation
 
-> 最后更新：2026-07-19
+> 最后更新：2026-07-21
 
 HugAgentOS 是一个企业级 AI Agent 平台（FastAPI + React + AgentScope 2.0），以 open-core 模式提供 **开源社区版（CE）** 与 **商业版（EE）** 双形态。产品文档按语言分树维护：
 
@@ -18,7 +18,7 @@ HugAgentOS is an enterprise-grade AI agent platform (FastAPI + React + AgentScop
 ```
 document/
 ├── zh-CN/ · en/             # 双语产品文档（镜像）
-│   ├── getting-started/     # 产品简介、快速开始
+│   ├── getting-started/     # 产品简介、快速开始、领域本体快速入门
 │   ├── deployment/          # 部署总览(选型) + 无 Docker 一键安装 / Docker Compose / 离线生产 / Windows(WSL2) / 环境变量参考
 │   ├── architecture/        # 总体架构、后端、前端、数据模型
 │   ├── modules/             # 17 个功能模块文档（对话/提示词/能力目录/模型/

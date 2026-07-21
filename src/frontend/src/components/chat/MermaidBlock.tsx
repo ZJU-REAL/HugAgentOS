@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from '../../i18n';
 
 let mermaidModule: typeof import('mermaid') | null = null;
@@ -27,45 +27,62 @@ async function getMermaid() {
 
 let idCounter = 0;
 
+interface MermaidRenderState {
+  chart: string;
+  svg?: string;
+  error?: string;
+}
+
 export function MermaidBlock({ chart }: { chart: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [rendered, setRendered] = useState(false);
+  const [renderState, setRenderState] = useState<MermaidRenderState | null>(null);
+  const currentRender = renderState?.chart === chart ? renderState : null;
 
   useEffect(() => {
     let cancelled = false;
     const render = async () => {
       try {
         const mermaid = await getMermaid();
-        if (cancelled || !containerRef.current) return;
+        if (cancelled) return;
         const id = `jx-mermaid-${++idCounter}`;
         const { svg } = await mermaid.default.render(id, chart);
-        if (cancelled || !containerRef.current) return;
-        containerRef.current.innerHTML = svg;
-        setRendered(true);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || t('Mermaid 渲染失败'));
+        if (!cancelled) setRenderState({ chart, svg });
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setRenderState({
+            chart,
+            error: error instanceof Error ? error.message : t('Mermaid 渲染失败'),
+          });
+        }
       }
     };
-    render();
+    void render();
     return () => { cancelled = true; };
   }, [chart]);
 
-  if (error) {
+  if (currentRender?.error) {
     return (
       <div className="jx-mermaid jx-mermaid--error">
         <pre><code>{chart}</code></pre>
-        <div className="jx-mermaid-errorMsg">{error}</div>
+        <div className="jx-mermaid-errorMsg">{currentRender.error}</div>
       </div>
     );
   }
 
+  if (typeof currentRender?.svg === 'string') {
+    // React must remain the sole owner of this subtree. Writing to a ref's
+    // innerHTML here would remove the loading node behind React's back and
+    // make the next reconciliation fail with a removeChild NotFoundError.
+    return (
+      <div
+        className="jx-mermaid jx-mermaid--rendered"
+        dangerouslySetInnerHTML={{ __html: currentRender.svg }}
+      />
+    );
+  }
+
   return (
-    <div
-      ref={containerRef}
-      className={`jx-mermaid${rendered ? ' jx-mermaid--rendered' : ''}`}
-    >
-      {!rendered && <div className="jx-mermaid-loading">{t('加载图表中...')}</div>}
+    <div className="jx-mermaid">
+      <div className="jx-mermaid-loading">{t('加载图表中...')}</div>
     </div>
   );
 }

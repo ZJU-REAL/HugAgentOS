@@ -1,0 +1,229 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2733 1331" role="img" aria-labelledby="title desc">
+  <title id="title">HugAgentOS layered architecture</title>
+  <desc id="desc">Platform, agent, capability component, ontology, data governance, data foundation, and security governance layers.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+      .section-bg { fill: #f4f8fc; stroke: #b7d4ed; stroke-width: 4; }
+      .agent-bg { fill: #eaf2fb; stroke: #24569f; stroke-width: 6; }
+      .section-label { fill: #2559a5; }
+      .section-label-text { fill: #fff; font-size: 29px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .group { fill: none; stroke: #8db5dd; stroke-width: 4; stroke-dasharray: 13 10; }
+      .group-title { fill: #557aa9; font-size: 30px; font-weight: 700; }
+      .box { fill: #fff; stroke: #8bb3dc; stroke-width: 4; }
+      .box-text { fill: #171717; font-size: 27px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
+      .agent-box { fill: #fff; stroke: #4f83c4; stroke-width: 4; }
+      .agent-text { fill: #24569f; font-size: 29px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .engine { fill: #fff; stroke: #24569f; stroke-width: 6; }
+      .engine-text { fill: #24569f; font-size: 33px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .badge { fill: #24569f; }
+      .badge-text { fill: #fff; font-size: 20px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .action { fill: #fff; stroke: #c40000; stroke-width: 5; }
+      .action-text { fill: #c40000; font-size: 25px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .ontology-focus { fill: #fff; stroke: #c40000; stroke-width: 5; }
+      .ontology-focus-text { fill: #c40000; font-size: 31px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .governance-bg { fill: #fff9ed; stroke: #dfa12d; stroke-width: 5; }
+      .governance-label { fill: #e5a127; }
+      .governance-title { fill: #fff; font-size: 24px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .chevron { fill: #fff4d6; stroke: #e4b33c; stroke-width: 4; }
+      .chevron-text { fill: #875600; font-size: 26px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .side-bg { fill: #fff9ed; stroke: #d99a26; stroke-width: 5; }
+      .side-box { fill: #fff; stroke: #d99a26; stroke-width: 4; }
+      .side-title { fill: #9a6200; font-size: 31px; font-weight: 700; text-anchor: middle; }
+      .side-text { fill: #815400; font-size: 27px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+    </style>
+  </defs>
+
+  <rect width="2733" height="1331" fill="#fff"/>
+
+  <!-- Platform layer -->
+  <rect class="section-bg" x="18" y="18" width="2328" height="255" rx="18"/>
+  <rect class="section-label" x="42" y="87" width="255" height="116" rx="16"/>
+  <text class="section-label-text" x="169" y="145">Platform Layer</text>
+
+  <rect class="group" x="322" y="39" width="736" height="212" rx="14"/>
+  <rect class="box" x="340" y="86" width="337" height="66" rx="10"/>
+  <rect class="box" x="693" y="86" width="337" height="66" rx="10"/>
+  <rect class="box" x="340" y="164" width="337" height="66" rx="10"/>
+  <rect class="box" x="693" y="164" width="337" height="66" rx="10"/>
+  <text class="box-text" x="508" y="119">Web App</text>
+  <text class="box-text" x="862" y="119">Desktop Client</text>
+  <text class="box-text" x="508" y="197">Collaborative Canvas</text>
+  <text class="box-text" x="862" y="197">Public Sites</text>
+
+  <rect class="group" x="1080" y="39" width="733" height="212" rx="14"/>
+  <rect class="box" x="1098" y="86" width="337" height="66" rx="10"/>
+  <rect class="box" x="1451" y="86" width="337" height="66" rx="10"/>
+  <rect class="box" x="1098" y="164" width="337" height="66" rx="10"/>
+  <rect class="box" x="1451" y="164" width="337" height="66" rx="10"/>
+  <text class="box-text" x="1266" y="119">DingTalk</text>
+  <text class="box-text" x="1619" y="119">WeCom</text>
+  <text class="box-text" x="1266" y="197">WeChat</text>
+  <text class="box-text" x="1619" y="197">Lark</text>
+
+  <rect class="group" x="1835" y="39" width="487" height="212" rx="14"/>
+  <rect class="box" x="1853" y="86" width="451" height="66" rx="10"/>
+  <rect class="box" x="1853" y="164" width="218" height="66" rx="10"/>
+  <rect class="box" x="2086" y="164" width="218" height="66" rx="10"/>
+  <text class="box-text" x="2078" y="119">Personal API Key</text>
+  <text class="box-text" x="1962" y="197">Model Gateway</text>
+  <text class="box-text" x="2195" y="197">API Docs</text>
+  <text class="group-title" x="341" y="70">Interfaces</text>
+  <text class="group-title" x="1099" y="70">IM Channels</text>
+  <text class="group-title" x="1854" y="70">Open APIs</text>
+
+  <!-- Agent layer -->
+  <rect class="agent-bg" x="18" y="290" width="2328" height="235" rx="18"/>
+  <rect class="section-label" x="42" y="347" width="255" height="116" rx="16"/>
+  <text class="section-label-text" x="169" y="405">Agent Layer</text>
+  <rect class="agent-box" x="322" y="311" width="380" height="72" rx="10"/>
+  <rect class="agent-box" x="722" y="311" width="380" height="72" rx="10"/>
+  <rect class="agent-box" x="1122" y="311" width="380" height="72" rx="10"/>
+  <rect class="agent-box" x="1522" y="311" width="380" height="72" rx="10"/>
+  <rect class="agent-box" x="1922" y="311" width="380" height="72" rx="10"/>
+  <text class="agent-text" x="512" y="347" style="font-size:26px">Multi-Agent Orchestration</text>
+  <text class="agent-text" x="912" y="347">Plan Mode</text>
+  <text class="agent-text" x="1312" y="347">Batch Execution</text>
+  <text class="agent-text" x="1712" y="347">Automation</text>
+  <text class="agent-text" x="2112" y="347">Loop Engineering</text>
+  <rect class="agent-box" x="525" y="407" width="378" height="72" rx="10"/>
+  <rect class="agent-box" x="921" y="407" width="378" height="72" rx="10"/>
+  <rect class="agent-box" x="1317" y="407" width="378" height="72" rx="10"/>
+  <rect class="agent-box" x="1713" y="407" width="378" height="72" rx="10"/>
+  <text class="agent-text" x="714" y="443">Digital Twin</text>
+  <text class="agent-text" x="1110" y="443">Citation Traceability</text>
+  <text class="agent-text" x="1506" y="443">Context Compression</text>
+  <text class="agent-text" x="1902" y="443">Stream Resumption</text>
+
+  <!-- Capability component layer -->
+  <rect class="section-bg" x="18" y="539" width="2328" height="265" rx="18"/>
+  <rect class="section-label" x="42" y="612" width="255" height="116" rx="16"/>
+  <text class="section-label-text" x="169" y="642" style="font-size:23px">
+    <tspan x="169" dy="0">Capability</tspan>
+    <tspan x="169" dy="28">Components</tspan>
+    <tspan x="169" dy="28">Layer</tspan>
+  </text>
+  <rect class="engine" x="322" y="565" width="650" height="116" rx="13"/>
+  <rect class="engine" x="997" y="565" width="650" height="116" rx="13"/>
+  <rect class="engine" x="1672" y="565" width="650" height="116" rx="13"/>
+  <text class="engine-text" x="647" y="623">Skill Engine</text>
+  <text class="engine-text" x="1322" y="623">Memory Engine</text>
+  <text class="engine-text" x="1997" y="623">Orchestration Engine</text>
+  <rect class="badge" x="780" y="540" width="185" height="52" rx="25"/>
+  <rect class="badge" x="1455" y="540" width="185" height="52" rx="25"/>
+  <rect class="badge" x="2130" y="540" width="185" height="52" rx="25"/>
+  <text class="badge-text" x="872" y="566">Evolvable ↻</text>
+  <text class="badge-text" x="1547" y="566">Evolvable ↻</text>
+  <text class="badge-text" x="2222" y="566">Evolvable ↻</text>
+  <rect class="box" x="322" y="707" width="342" height="72" rx="10"/>
+  <rect class="box" x="680" y="707" width="342" height="72" rx="10"/>
+  <rect class="box" x="1038" y="707" width="342" height="72" rx="10"/>
+  <rect class="box" x="1396" y="707" width="342" height="72" rx="10"/>
+  <rect class="box" x="1754" y="707" width="568" height="72" rx="10"/>
+  <text class="box-text" x="493" y="743">Agent Factory</text>
+  <text class="box-text" x="851" y="743">Plugin Factory</text>
+  <text class="box-text" x="1209" y="743">Skill Factory</text>
+  <text class="box-text" x="1567" y="743">Knowledge Base Factory</text>
+  <text class="box-text" x="2038" y="743">Sandbox Execution</text>
+
+  <!-- Action assembly -->
+  <path d="M470 900 V840 H430 L500 792 L570 840 H530 V900 Z" fill="#c40000"/>
+  <path d="M2085 900 V840 H2045 L2115 792 L2185 840 H2145 V900 Z" fill="#c40000"/>
+  <rect class="action" x="565" y="823" width="1380" height="65" rx="32"/>
+  <text class="action-text" x="1255" y="855">Action-driven capability assembly: Generate Plan → Approval &amp; Validation → Gated Execution</text>
+
+  <!-- Ontology layer -->
+  <rect class="section-bg" x="18" y="900" width="2328" height="126" rx="18"/>
+  <rect class="section-label" x="42" y="916" width="255" height="94" rx="16"/>
+  <text class="section-label-text" x="169" y="963">Ontology Layer</text>
+  <rect class="box" x="322" y="921" width="342" height="82" rx="10"/>
+  <rect class="box" x="680" y="921" width="342" height="82" rx="10"/>
+  <rect class="ontology-focus" x="1038" y="921" width="342" height="82" rx="10"/>
+  <rect class="box" x="1396" y="921" width="342" height="82" rx="10"/>
+  <rect class="box" x="1754" y="921" width="568" height="82" rx="10"/>
+  <text class="box-text" x="493" y="962">Domain Ontology</text>
+  <text class="box-text" x="851" y="947" style="font-size:24px">
+    <tspan x="851" dy="0">Entities · Relations</tspan>
+    <tspan x="851" dy="30">· Invariants</tspan>
+  </text>
+  <text class="ontology-focus-text" x="1209" y="962">Action Contracts</text>
+  <text class="box-text" x="1567" y="947" style="font-size:24px">
+    <tspan x="1567" dy="0">Role &amp; Permission</tspan>
+    <tspan x="1567" dy="30">Derivation</tspan>
+  </text>
+  <text class="box-text" x="2038" y="962">Capability Graph · Memory Graph</text>
+
+  <!-- Data governance -->
+  <rect class="governance-bg" x="18" y="1042" width="2328" height="118" rx="18"/>
+  <rect class="governance-label" x="42" y="1042" width="255" height="118" rx="16"/>
+  <text class="governance-title" x="169" y="1101">Data Governance</text>
+  <polygon class="chevron" points="322,1055 592,1055 637,1101 592,1147 322,1147 367,1101"/>
+  <polygon class="chevron" points="647,1055 917,1055 962,1101 917,1147 647,1147 692,1101"/>
+  <polygon class="chevron" points="972,1055 1242,1055 1287,1101 1242,1147 972,1147 1017,1101"/>
+  <polygon class="chevron" points="1297,1055 1567,1055 1612,1101 1567,1147 1297,1147 1342,1101"/>
+  <polygon class="chevron" points="1622,1055 1892,1055 1937,1101 1892,1147 1622,1147 1667,1101"/>
+  <polygon class="chevron" points="1947,1055 2217,1055 2262,1101 2217,1147 1947,1147 1992,1101"/>
+  <text class="chevron-text" x="479" y="1101">Data Ingestion</text>
+  <text class="chevron-text" x="804" y="1101">Metadata Scan</text>
+  <text class="chevron-text" x="1129" y="1101">Data Profiling</text>
+  <text class="chevron-text" x="1454" y="1101">Ontology Proposals</text>
+  <text class="chevron-text" x="1779" y="1101">Semantic Mapping</text>
+  <text class="chevron-text" x="2104" y="1101">Governance Approval</text>
+
+  <!-- Data foundation -->
+  <rect class="section-bg" x="18" y="1177" width="2328" height="136" rx="18"/>
+  <rect class="section-label" x="42" y="1190" width="255" height="110" rx="16"/>
+  <text class="section-label-text" x="169" y="1245">Data Foundation</text>
+  <rect class="box" x="322" y="1200" width="300" height="90" rx="10"/>
+  <rect class="box" x="638" y="1200" width="300" height="90" rx="10"/>
+  <rect class="box" x="954" y="1200" width="300" height="90" rx="10"/>
+  <rect class="box" x="1270" y="1200" width="300" height="90" rx="10"/>
+  <rect class="box" x="1586" y="1200" width="300" height="90" rx="10"/>
+  <rect class="box" x="1902" y="1200" width="420" height="90" rx="10"/>
+  <text class="box-text" x="472" y="1245">PostgreSQL</text>
+  <text class="box-text" x="788" y="1245">Redis</text>
+  <text class="box-text" x="1104" y="1245">Milvus</text>
+  <text class="box-text" x="1420" y="1245">Neo4j</text>
+  <text class="box-text" x="1736" y="1245">Object Storage</text>
+  <text class="box-text" x="2112" y="1245">Sandbox Runtime</text>
+
+  <path d="M485 1177 V1164 H465 L500 1136 L535 1164 H515 V1177 Z" fill="#e4b33c"/>
+  <path d="M1185 1177 V1164 H1165 L1200 1136 L1235 1164 H1215 V1177 Z" fill="#e4b33c"/>
+  <path d="M1885 1177 V1164 H1865 L1900 1136 L1935 1164 H1915 V1177 Z" fill="#e4b33c"/>
+  <path d="M485 1042 V1029 H465 L500 1001 L535 1029 H515 V1042 Z" fill="#e4b33c"/>
+  <path d="M1185 1042 V1029 H1165 L1200 1001 L1235 1029 H1215 V1042 Z" fill="#e4b33c"/>
+  <path d="M1885 1042 V1029 H1865 L1900 1001 L1935 1029 H1915 V1042 Z" fill="#e4b33c"/>
+
+  <!-- Security and platform governance -->
+  <rect class="side-bg" x="2372" y="18" width="343" height="1295" rx="18"/>
+  <text class="side-title" x="2543" y="66">
+    <tspan x="2543" dy="0">Security Management</tspan>
+    <tspan x="2543" dy="38">Platform Governance</tspan>
+  </text>
+  <rect class="side-box" x="2396" y="150" width="295" height="120" rx="12"/>
+  <rect class="side-box" x="2396" y="292" width="295" height="120" rx="12"/>
+  <rect class="side-box" x="2396" y="434" width="295" height="120" rx="12"/>
+  <rect class="side-box" x="2396" y="576" width="295" height="120" rx="12"/>
+  <rect class="side-box" x="2396" y="718" width="295" height="120" rx="12"/>
+  <rect class="side-box" x="2396" y="860" width="295" height="120" rx="12"/>
+  <rect class="side-box" x="2396" y="1002" width="295" height="120" rx="12"/>
+  <text class="side-text" x="2543" y="210">Content Operations</text>
+  <text class="side-text" x="2543" y="352">System Settings</text>
+  <text class="side-text" x="2543" y="480">
+    <tspan x="2543" dy="0">Sandbox</tspan>
+    <tspan x="2543" dy="34">Management</tspan>
+  </text>
+  <text class="side-text" x="2543" y="628">
+    <tspan x="2543" dy="0">Permissions &amp;</tspan>
+    <tspan x="2543" dy="34">Authorization</tspan>
+  </text>
+  <text class="side-text" x="2543" y="770">
+    <tspan x="2543" dy="0">External Gateway</tspan>
+    <tspan x="2543" dy="34">Management</tspan>
+  </text>
+  <text class="side-text" x="2543" y="920">Audit &amp; Logs</text>
+  <text class="side-text" x="2543" y="1054">
+    <tspan x="2543" dy="0">Data Masking &amp;</tspan>
+    <tspan x="2543" dy="34">Rate Limiting</tspan>
+  </text>
+</svg>
