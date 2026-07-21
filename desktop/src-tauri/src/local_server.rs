@@ -1,6 +1,6 @@
 //! 桌面端托管的无 Docker 本机服务。
 //!
-//! Windows 安装包携带同版本 CE 派生树。这里负责调用 PowerShell 引导脚本创建
+//! Windows 与 macOS 安装包携带同版本 CE 派生树。这里负责调用平台引导脚本创建
 //! 独立 Python 环境、启动 `hugagent serve`、轮询健康状态，并在桌面进程退出时
 //! 回收子进程。业务数据和 Python 环境都在应用本地数据目录，不写安装目录。
 
@@ -42,7 +42,7 @@ impl Default for LocalServerStatus {
             logs: Vec::new(),
             installed: false,
             ready: false,
-            supported: cfg!(target_os = "windows"),
+            supported: cfg!(any(target_os = "windows", target_os = "macos")),
             server_base: LOCAL_SERVER_BASE.to_string(),
         }
     }
@@ -375,8 +375,8 @@ impl LocalServerManager {
     }
 
     async fn run_install(self: &Arc<Self>) -> Result<(), String> {
-        if !cfg!(target_os = "windows") {
-            return Err("当前版本仅支持在 Windows 安装包中一键部署本机服务".to_string());
+        if !cfg!(any(target_os = "windows", target_os = "macos")) {
+            return Err("当前版本暂不支持在此系统一键部署本机服务".to_string());
         }
         if !self.bundle_dir.join("pyproject.toml").is_file() {
             return Err("安装包未携带本机服务资源，请重新下载完整安装包".to_string());
@@ -397,12 +397,14 @@ impl LocalServerManager {
         self.append_log("开始安装本机服务；首次安装通常需要数分钟。")
             .await;
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
             use tokio::process::Command as TokioCommand;
 
+            #[cfg(target_os = "windows")]
             let mut command = TokioCommand::new("powershell.exe");
+            #[cfg(target_os = "windows")]
             command
                 .args([
                     "-NoLogo",
@@ -420,11 +422,28 @@ impl LocalServerManager {
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+            #[cfg(target_os = "windows")]
             command.kill_on_drop(true);
+            #[cfg(target_os = "windows")]
             hide_tokio_console(&mut command);
+
+            #[cfg(target_os = "macos")]
+            let mut command = TokioCommand::new("/bin/bash");
+            #[cfg(target_os = "macos")]
+            command
+                .arg(&self.installer_script)
+                .arg("--bundle-dir")
+                .arg(&self.bundle_dir)
+                .arg("--install-root")
+                .arg(&self.root)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+
             let mut child = command
                 .spawn()
-                .map_err(|e| format!("无法启动 PowerShell 安装器：{e}"))?;
+                .map_err(|e| format!("无法启动本机服务安装器：{e}"))?;
             let stdout = child.stdout.take().ok_or("无法读取安装器输出")?;
             let stderr = child.stderr.take().ok_or("无法读取安装器错误输出")?;
 
@@ -458,7 +477,7 @@ impl LocalServerManager {
         self.start_server().await
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     async fn consume_installer_line(&self, line: String) {
         if let Some(rest) = line.strip_prefix("HUGAGENT_PROGRESS|") {
             let mut parts = rest.splitn(2, '|');

@@ -1,8 +1,8 @@
 # HugAgentOS 桌面客户端（Tauri v2）
 
-把现有 Web 平台封装为桌面客户端（Windows / Linux，Mac 待接入构建机）。客户端支持两种
-运行方式：连接已部署的团队服务器，或在 Windows 首装时选择由客户端一键安装并托管本机
-CE 单机服务。两种方式都通过内置本地反代访问后端。
+把现有 Web 平台封装为桌面客户端（Windows / macOS / Linux）。客户端支持两种运行方式：
+连接已部署的团队服务器，或在 Windows 和 macOS 上由客户端从零安装并托管本机 CE 单机服务。
+两种方式都通过内置本地反代访问后端。
 
 登录走**方案 B**——系统浏览器跳转登录 + `hugagent://` deep-link 唤起 App + 一次性
 handoff 票据换 token。前端源码零改动（复用 `src/frontend`）。
@@ -30,12 +30,12 @@ handoff 票据换 token。前端源码零改动（复用 `src/frontend`）。
 
 deep-link 上只走**单次、秒级过期**的 handoff 票据，长期 token 永不进 URL。
 
-Windows 本机服务模式在这条链路前增加一层客户端托管：
+Windows 和 macOS 本机服务模式在这条链路前增加一层客户端托管：
 
 ```text
-NSIS 首装选择“本机服务”
+首次启动选择“从零开始安装”
   → 安装包内同版本 CE 派生树
-  → %LOCALAPPDATA%\com.hugagent.desktop\local-server\venv
+  → 应用本地数据目录下的 local-server/venv
   → hugagent serve --host 127.0.0.1 --port 32101
   → 健康检查通过
   → 桌面本地反代继续复用既有登录与 API 转发链路
@@ -78,7 +78,8 @@ Windows 机器上打，**Linux 包可在任意装好 Rust 的 Linux / WSL 环境
 }
 ```
 
-- `<应用配置目录>`：Windows `%APPDATA%\com.hugagent.desktop`，Linux `~/.config/com.hugagent.desktop`
+- `<应用配置目录>`：Windows `%APPDATA%\com.hugagent.desktop`，macOS
+  `~/Library/Application Support/com.hugagent.desktop`，Linux `~/.config/com.hugagent.desktop`
 - `deployment_mode` 可取 `remote` / `local`；切换本机服务时客户端会把地址固定为
   `http://127.0.0.1:32101`
 - 也可用环境变量 `HUGAGENT_SERVER_BASE` 覆盖（优先级高于 server.json，并强制切回远程模式）
@@ -95,20 +96,24 @@ cd desktop
 npm install            # 装 @tauri-apps/cli
 
 # 生产构建（自动先 build 前端；构建须注入更新签名私钥，见《自动更新》）
-# Windows 侧 → 打 NSIS .exe：       产物 src-tauri/target/release/bundle/nsis/
-# Linux 本机 → 打 AppImage + deb： 产物 src-tauri/target/release/bundle/{appimage,deb}/
+# Windows 侧 → 打 NSIS .exe：      产物 src-tauri/target/release/bundle/nsis/
+# macOS 侧 → 打 universal DMG：    npm run build -- --target universal-apple-darwin
+# Linux 本机 → 打 AppImage + deb：产物 src-tauri/target/release/bundle/{appimage,deb}/
 npm run build
 
 # 开发调试：先确保 src/frontend 已 npm run build（反代直接 serve dist），再
 HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 ```
 
-> 平台打包目标由 `src-tauri/tauri.linux.conf.json`（Linux：appimage+deb）覆盖基础配置
-> （Windows：NSIS）；Mac 接入时同理加 `tauri.macos.conf.json`。Linux 只有 **AppImage
-> 支持自动更新**，deb 仅作首装分发。WSL 下打 AppImage 建议带 `APPIMAGE_EXTRACT_AND_RUN=1`。
+> 平台打包目标由 `src-tauri/tauri.linux.conf.json`（Linux：AppImage + deb）、
+> `src-tauri/tauri.windows.conf.json`（Windows：NSIS + CE 本机服务）和
+> `src-tauri/tauri.macos.conf.json`（macOS：app + DMG + CE 本机服务）覆盖基础配置。
+> Linux 只有 **AppImage 支持自动更新**，deb 仅作首装分发。WSL 下打 AppImage 建议带
+> `APPIMAGE_EXTRACT_AND_RUN=1`。
 
-> Windows overlay 的 `beforeBuildCommand` 会运行 `scripts/prepare-bundle.mjs`：构建桌面前端、准备
-> CE 服务树、构建 CE 登录前端，并删除构建期 `node_modules` 后再交给 Tauri 打包。FULL 主仓存在
+> Windows 和 macOS overlay 的 `beforeBuildCommand` 会运行 `scripts/prepare-bundle.mjs`：构建
+> 桌面前端、准备 CE 服务树、构建 CE 登录前端，并删除构建期 `node_modules` 后再交给 Tauri
+> 打包。FULL 主仓存在
 > `scripts/build_ce.py` 时，脚本正常运行生成器并执行开源边界门禁；公开 CE 仓不含生成器，脚本会先
 > 校验根目录 `.hugagent-edition` 为 `ce`，再只复制当前已派生 checkout 中的 Git tracked 文件。
 > Linux 仍只构建桌面前端，不携带 Windows 本机服务载荷；dev 模式从仓库内
@@ -136,6 +141,7 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 | `src-tauri/tauri.conf.json` | 窗口/打包/deep-link scheme/资源/**updater 配置（pubkey + endpoints）** |
 | `src-tauri/installer-hooks.nsh` | Windows 首装时选择“本机服务”或“仅客户端”；静默更新不重复询问 |
 | `resources/server-bootstrap/install-local-server.ps1` | Windows 用户目录内创建 Python 环境并安装随包 CE 服务 |
+| `resources/server-bootstrap/install-local-server.sh` | macOS 应用数据目录内准备独立 Python 运行时并安装随包 CE 服务 |
 | `scripts/prepare-bundle.mjs` | 发行构建前生成同版本 CE 服务资源和 `desktop-bundle.json` |
 | `scripts/ce-payload.mjs` | 在公开 CE 仓校验版本标识并只暂存 tracked tree，FULL 仓仍走生成器 |
 | `scripts/validate-release-version.mjs` | CI 三平台矩阵启动前校验桌面版本文件与 release tag |
@@ -151,12 +157,13 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
   `chatStream.ts` 全部对话能力，零重复实现）。未登录时退化为唤起主窗。
 - **A3 一键自动更新**（`update.rs`）：菜单「帮助 → 检查更新…」或托盘触发，见下方《自动更新》。
 - **A4 托盘增强**：托盘菜单新增「新建对话」「检查更新…」。
-- **平台化菜单与标题栏**（`menu.rs` + `proxy.rs`）：Windows/Linux 保留紧凑的一体化窗口菜单；macOS
-  使用系统菜单栏和左侧原生交通灯，窗口内只保留半透明工具栏及「新建对话」「服务设置」两个 Mac
-  风格图标按钮，不显示 Windows 式右侧最小化、最大化和关闭按钮。
+- **平台化菜单与标题栏**（`menu.rs` + `proxy.rs`）：Windows/Linux 保留紧凑的一体化窗口菜单；
+  macOS 使用系统菜单栏和左侧原生交通灯，窗口内只保留 38px 可拖动标题区，不再重复展示品牌栏
+  或右侧操作按钮。
 - **设置服务器地址 UI**（菜单「文件 → 设置服务器地址…」）：填后端地址→写回 server.json→重启生效，
   不再必须手改 JSON。
-- **本机服务一键安装**（菜单「文件 → 本机服务…」）：后端不可达时也会自动显示。安装过程提供
+- **本机服务一键安装**（菜单「文件 → 本机服务…」）：Windows 和 macOS 后端不可达时也会自动
+  显示。安装过程提供
   阶段进度、实时日志、失败重试和健康检查；客户端更新携带新 CE 资源时自动升级服务代码，
   `data/` 目录保持不变。远程模式下点击安装会先在当前页面完成安装，服务通过健康检查后才切换
   `server.json` 并重启，避免提前重启造成按钮无响应或安装状态不可见。
@@ -246,8 +253,13 @@ npm run build
   优先用 `winget` 为当前用户静默安装；系统同时缺少 Python 和 `winget` 时，进度页会给出可重试错误。
   Node.js 20+ 缺失时也会尝试通过 `winget` 补齐；这一步失败不阻断核心服务，但 React 建站和高级
   PDF 渲染会保持降级状态。
-- 本机服务数据位于 `%LOCALAPPDATA%\com.hugagent.desktop\local-server\data`。卸载桌面客户端
-  默认保留该目录，避免误删用户数据；确认不再需要后可手动删除。
+- macOS 本机服务首次安装会在应用数据目录下载独立的 `uv` 和 Python 3.11，不修改系统 Python
+  或 shell 配置。安装仍需联网下载 Python wheels；Node.js 20+ 仅影响可选的建站和高级文档能力，
+  缺失时不阻断核心服务启动。
+- 本机服务数据位于应用本地数据目录的 `local-server/data`。Windows 的默认位置是
+  `%LOCALAPPDATA%\com.hugagent.desktop\local-server\data`，macOS 的默认位置是
+  `~/Library/Application Support/com.hugagent.desktop/local-server/data`。卸载桌面客户端默认保留
+  该目录，避免误删用户数据；确认不再需要后可手动删除。
 - Linux 托盘依赖 libayatana-appindicator；Wayland 下全局快捷键（Ctrl+Shift+Space）兼容性因桌面
   环境而异。
 - 依赖版本号（tauri 插件、axum/reqwest 等）以实际 `cargo build` 为准；个别 capability
