@@ -294,7 +294,14 @@ info "Installing Python dependencies. This can take several minutes."
 pip_install -r requirements.txt
 info "Installing memory dependencies"
 pip_install -r requirements-mem0.txt
-pip_install "pymilvus[milvus-lite]>=2.5.0"
+# Install the embedded client/server as a tested pair, and actively reconcile an
+# existing venv.  PyMilvus 3 calls AllocTimestamp, which the current embedded
+# Lite adapter does not implement.  Keep Lite 3.1 so existing local data stays in
+# the same storage format; protobuf<7 is required by current mem0.
+pip_install --upgrade \
+    "protobuf<7" \
+    "pymilvus==2.5.18" \
+    "milvus-lite==3.1.0"
 info "Installing Agent Skills Python dependencies"
 pip_install -r docker/requirements-script-runner.txt
 pip_install --no-deps -e .
