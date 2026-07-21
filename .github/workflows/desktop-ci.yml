@@ -38,6 +38,8 @@ jobs:
 
   platform-tests:
     name: ${{ matrix.name }}
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
     strategy:
       fail-fast: false
       matrix:
