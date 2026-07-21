@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>HugAgent: The Enterprise AgentOS for Ontology-Grounded Trustworthy Reasoning</strong>
+  <strong>HugAgentOS: The Enterprise AgentOS for Ontology-Grounded Trustworthy Reasoning</strong>
 </p>
 
 <p align="center">
@@ -44,9 +44,9 @@
   </a>
 </p>
 
-HugAgentOS is the open-source foundation of HugAgent, an enterprise-grade
-AgentOS that treats domain ontology as a control plane for agent reasoning,
-decisions, and actions. It combines agentic chat, private knowledge-base RAG,
+HugAgentOS is an enterprise-grade AgentOS that treats domain ontology as a
+control plane for agent reasoning, decisions, and actions. Its open-source
+Community Edition combines agentic chat, private knowledge-base RAG,
 sub-agents, MCP tools, Agent Skills, sandboxed execution, long-term memory,
 automation, and a data canvas in one self-hosted workspace.
 
@@ -58,11 +58,16 @@ automation, and a data canvas in one self-hosted workspace.
 
 ## Quick start
 
-Install the personal, single-machine profile on Linux, macOS, or WSL2 with one
-command. You need Python 3.11 or later, Node.js 20 or later, Git, and access to
-an LLM API. On Linux platforms without a compatible prebuilt `ripgrep` wheel,
-you also need the current stable Rust toolchain. You don't need Docker,
-PostgreSQL, or Redis.
+Choose the local installer for a personal trial or Docker Compose for a
+server-oriented, service-isolated deployment. Both methods require access to an
+OpenAI-compatible or local model.
+
+### Option 1: one-command installation
+
+Install the personal, single-machine profile on Linux, macOS, or WSL2. You
+need Python 3.11 or later, Node.js 20 or later, Git, and `curl`. On Linux
+platforms without a compatible prebuilt `ripgrep` wheel, you also need the
+current stable Rust toolchain. You don't need Docker, PostgreSQL, or Redis.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh | bash
@@ -93,12 +98,36 @@ Start HugAgentOS again at any time with this command:
 
 > [!NOTE]
 > The one-command profile is designed for personal trials and development. It
-> uses SQLite, in-process state, and a local subprocess sandbox. For teams or
-> production, use the [Docker Compose deployment
+> uses SQLite, in-process state, and a local subprocess sandbox. For long-running
+> servers or production-style isolation, use the [Docker Compose deployment
 > guide](./document/en/deployment/docker-compose.md).
 
 For installer options, capability boundaries, and troubleshooting, read the
 [no-Docker installation guide](./document/en/deployment/quick-install.md).
+
+### Option 2: Docker Compose
+
+Use Docker Compose when you need PostgreSQL, Redis, an isolated sandbox,
+durable service volumes, or a long-running server deployment. You need Git,
+Docker Engine or Docker Desktop, and Docker Compose v2.
+
+```bash
+git clone https://github.com/ZJU-REAL/HugAgentOS.git
+cd HugAgentOS
+cp .env.example .env
+mkdir -p data/storage
+docker compose up -d --build
+```
+
+Open [http://localhost:3002](http://localhost:3002). The initial account and
+password are both `admin`; change the password at the first sign-in. Then open
+**Settings → System Administration → Model Services** to connect an
+OpenAI-compatible or local model.
+
+Check the service status with `docker compose ps`. To stop the stack without
+deleting its data, run `docker compose down`. For profiles, persistence,
+production configuration, and rebuild workflows, read the
+[Docker Compose deployment guide](./document/en/deployment/docker-compose.md).
 
 ## From answers to outcomes
 
@@ -135,7 +164,7 @@ flow.
 
 ## Enterprise trust through domain ontology
 
-HugAgent uses domain ontology as an executable control plane, not only as a
+HugAgentOS uses domain ontology as an executable control plane, not only as a
 knowledge store. Controlled concepts, relationships, invariants, action
 contracts, roles, and permissions give the skill, memory, and orchestration
 engines one shared business language.
@@ -246,50 +275,18 @@ during the first run.
 
 ## Architecture
 
-HugAgentOS combines a three-engine Agent Harness with an ontology trust plane.
-The ontology aligns capabilities at build time, injects relevant domain rules
-at runtime, and gates actions before execution. Every decision can feed a
-traceable, human-governed improvement loop.
+HugAgentOS separates user channels, agent workflows, reusable capability
+engines, ontology contracts, data governance, and infrastructure into clear
+layers. Action contracts connect the ontology layer to planning, validation,
+and gated execution, while security and platform governance span the complete
+stack.
 
-```mermaid
-flowchart TB
-    U[Enterprise users and channels] --> API[Web / Desktop / API]
-    API --> RUN[ChatRun and streaming workflow]
+![HugAgentOS layered architecture in English](./assets/hugagentos-architecture-en.svg)
 
-    ONTO[Domain ontology control plane<br/>Concepts · Relationships · Invariants<br/>Action contracts · Roles · Permissions]
-    ONTO --> BUILD[Build-time validation<br/>Skills · Tools · Sub-agents]
-    ONTO --> BOOT[Domain bootstrap<br/>Semantic alignment · Relevant rules]
-
-    subgraph HARNESS[Three-engine Agent Harness]
-        direction LR
-        SKILL[Skill engine] <--> ORCH[Orchestration engine]
-        ORCH <--> MEMORY[Memory engine]
-    end
-
-    RUN --> ORCH
-    BUILD --> SKILL
-    BOOT --> ORCH
-    BOOT --> MEMORY
-    ORCH --> PLAN[Candidate plan or action]
-
-    PLAN --> RULE[Deterministic ontology rule gate]
-    ONTO --> RULE
-    RULE -->|Low risk and compliant| EXEC[Gated execution]
-    RULE -->|Checkpoint or high risk| REVIEW[Evidence-backed review]
-    REVIEW -->|Approved| EXEC
-    RULE -->|Violation| REVISE[Reject with evidence and repair guidance]
-    REVIEW -->|Revise or escalate| REVISE
-    REVISE --> ORCH
-
-    EXEC --> CAP[MCP · Skills · Sandbox · RAG]
-    EXEC --> AUDIT[Traceable audit and replay]
-    REVISE --> AUDIT
-    AUDIT --> EVOLVE[Governed ontology proposals]
-    EVOLVE -. Human review · Versioning · Rollback .-> ONTO
-
-    API --> DATA[(SQLite / PostgreSQL · Redis · Object storage)]
-    MEMORY --> VECTOR[(Milvus / Neo4j, optional)]
-```
+> [!NOTE]
+> The diagram shows the complete HugAgentOS product architecture. Some
+> governance, collaboration, gateway, and persistent-sandbox capabilities are
+> available only in Enterprise Edition.
 
 ### Technology stack
 
@@ -338,6 +335,7 @@ operators, users, and contributors, and you can read it offline.
 | Run it in 10 minutes | [Quick start](./document/en/getting-started/quick-start.md) | [快速开始](./document/zh-CN/getting-started/quick-start.md) |
 | Configure a deployment | [Deployment](./document/en/deployment/README.md) | [部署指南](./document/zh-CN/deployment/README.md) |
 | Explore the system design | [Architecture](./document/en/architecture/overview.md) | [架构总览](./document/zh-CN/architecture/overview.md) |
+| Build a domain ontology | [Domain ontology quickstart](./document/en/getting-started/domain-ontology-quickstart.md) | [快速构建领域本体](./document/zh-CN/getting-started/domain-ontology-quickstart.md) |
 | Learn MCP, skills, memory, and sandboxing | [Modules](./document/en/README.md#modules) | [功能模块](./document/zh-CN/README.md#功能模块) |
 | Build backend or frontend features | [Development](./document/en/README.md#development) | [开发指南](./document/zh-CN/README.md#开发指南) |
 

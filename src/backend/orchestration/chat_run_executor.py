@@ -85,24 +85,42 @@ _STALE_QUIET_SEC = float(os.getenv("CHAT_RUN_STALE_QUIET_SEC", str(_INACTIVITY_T
 _HARD_MAX_AGE_SEC = float(os.getenv("CHAT_RUN_HARD_MAX_AGE_SEC", "21600"))
 
 
-async def _aiter_with_inactivity_timeout(aiter: AsyncIterator[Any], timeout: float):
-    """Yield from an async iterator, raising ``TimeoutError`` when no item is
-    produced within ``timeout`` seconds.
+async def _aiter_with_inactivity_timeout(
+    aiter: AsyncIterator[Any],
+    timeout: float,
+    *,
+    is_activity: Callable[[Any], bool] | None = None,
+):
+    """Yield from an async iterator and enforce a meaningful-activity deadline.
 
     Guards against a hung workflow (model loop / blocked MCP / asyncio
     deadlock) leaving the chat run stuck in 'running' forever — on timeout
     the underlying generator is closed and the error propagates into the
     existing ``except Exception`` path that writes the ``failed`` terminal.
+
+    Transport keep-alives may still be yielded to the caller, but they do not
+    reset the deadline when ``is_activity`` marks them as non-meaningful.
     """
+    activity_check = is_activity or (lambda _: True)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+
     while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            with contextlib.suppress(Exception):
+                await aiter.aclose()  # type: ignore[attr-defined]
+            raise TimeoutError(f"工作流 {timeout:.0f}s 内无有效输出，已判定为卡死并中止")
         try:
-            item = await asyncio.wait_for(aiter.__anext__(), timeout=timeout)
+            item = await asyncio.wait_for(aiter.__anext__(), timeout=remaining)
         except StopAsyncIteration:
             return
         except asyncio.TimeoutError as exc:
             with contextlib.suppress(Exception):
                 await aiter.aclose()  # type: ignore[attr-defined]
-            raise TimeoutError(f"工作流 {timeout:.0f}s 内无任何输出，已判定为卡死并中止") from exc
+            raise TimeoutError(f"工作流 {timeout:.0f}s 内无有效输出，已判定为卡死并中止") from exc
+        if activity_check(item):
+            deadline = loop.time() + timeout
         yield item
 
 
@@ -386,6 +404,7 @@ async def _run_workflow(
                 context=context,
             ),
             _INACTIVITY_TIMEOUT_SEC,
+            is_activity=lambda item: item.get("type") != "heartbeat",
         ):
             chunk_type = chunk.get("type")
 
