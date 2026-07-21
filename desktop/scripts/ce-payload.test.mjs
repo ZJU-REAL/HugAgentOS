@@ -82,6 +82,21 @@ test("rejects release staging from a dirty CE repository", () => {
   }
 });
 
+test("rejects release staging when a tracked change is staged", () => {
+  const root = createCeFixture();
+  const output = join(root, "desktop", "generated", "server-ce");
+  try {
+    writeFileSync(join(root, "src", "backend", "app.py"), 'print("staged")\n');
+    git(root, ["add", "src/backend/app.py"]);
+    assert.throws(
+      () => stageTrackedCeRepository(root, output, { requireClean: true }),
+      /clean Git checkout/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects fallback staging without the derived CE marker", () => {
   const root = mkdtempSync(join(tmpdir(), "hugagent-not-ce-"));
   try {
