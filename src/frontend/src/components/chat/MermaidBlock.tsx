@@ -1,5 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { ReloadOutlined, ZoomInOutlined, ZoomOutOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
+
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+const ZOOM_STEP = 0.25;
+
+function clampZoom(value: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+}
 
 let mermaidModule: typeof import('mermaid') | null = null;
 let mermaidLoading: Promise<typeof import('mermaid')> | null = null;
@@ -35,7 +44,14 @@ interface MermaidRenderState {
 
 export function MermaidBlock({ chart }: { chart: string }) {
   const [renderState, setRenderState] = useState<MermaidRenderState | null>(null);
+  const [zoom, setZoom] = useState(1);
   const currentRender = renderState?.chart === chart ? renderState : null;
+  // Keep the innerHTML prop stable while zoom changes. Reassigning innerHTML
+  // would recreate the SVG and replay its entrance animation on every click.
+  const svgHtml = useMemo(
+    () => typeof currentRender?.svg === 'string' ? { __html: currentRender.svg } : null,
+    [currentRender?.svg],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -68,15 +84,55 @@ export function MermaidBlock({ chart }: { chart: string }) {
     );
   }
 
-  if (typeof currentRender?.svg === 'string') {
+  if (svgHtml) {
     // React must remain the sole owner of this subtree. Writing to a ref's
     // innerHTML here would remove the loading node behind React's back and
     // make the next reconciliation fail with a removeChild NotFoundError.
     return (
-      <div
-        className="jx-mermaid jx-mermaid--rendered"
-        dangerouslySetInnerHTML={{ __html: currentRender.svg }}
-      />
+      <div className="jx-mermaid jx-mermaid--rendered">
+        <div className="jx-mermaid-toolbar">
+          <button
+            type="button"
+            className="jx-mermaid-zoomButton"
+            title={t('缩小')}
+            aria-label={t('缩小')}
+            disabled={zoom <= MIN_ZOOM}
+            onClick={() => setZoom((value) => clampZoom(value - ZOOM_STEP))}
+          >
+            <ZoomOutOutlined />
+          </button>
+          <span className="jx-mermaid-zoomValue" aria-live="polite">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            type="button"
+            className="jx-mermaid-zoomButton"
+            title={t('放大')}
+            aria-label={t('放大')}
+            disabled={zoom >= MAX_ZOOM}
+            onClick={() => setZoom((value) => clampZoom(value + ZOOM_STEP))}
+          >
+            <ZoomInOutlined />
+          </button>
+          <button
+            type="button"
+            className="jx-mermaid-zoomButton"
+            title={t('重置')}
+            aria-label={t('重置')}
+            disabled={zoom === 1}
+            onClick={() => setZoom(1)}
+          >
+            <ReloadOutlined />
+          </button>
+        </div>
+        <div className="jx-mermaid-viewport">
+          <div
+            className="jx-mermaid-svgHost"
+            style={{ '--jx-mermaid-width': `${zoom * 100}%` } as CSSProperties}
+            dangerouslySetInnerHTML={svgHtml}
+          />
+        </div>
+      </div>
     );
   }
 
