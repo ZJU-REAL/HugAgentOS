@@ -573,13 +573,25 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
     let app_for_nav = app.clone();
     let (width, height, min_width, min_height) = main_window_dimensions(app);
 
-    let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
+    let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
         .title(brand::NAME)
-        // 用反代注入的一体化标题栏替代「系统标题栏 + 原生菜单栏」两行。
-        .decorations(false)
         .additional_browser_args(WEBVIEW_BROWSER_ARGS)
         .inner_size(width, height)
-        .min_inner_size(min_width, min_height)
+        .min_inner_size(min_width, min_height);
+
+    // Windows/Linux keep the compact custom chrome. macOS uses native window
+    // decorations and traffic lights, with content extending into a translucent
+    // toolbar in the same visual hierarchy as Codex and other modern Mac apps.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .decorations(true)
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(18.0, 18.0));
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.decorations(false);
+
+    let window = builder
         .on_navigation(move |u| {
             let scheme = u.scheme();
             // Tauri 内部 / 数据类源放行。
@@ -733,7 +745,17 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
 
     apply_display_zoom(&window);
 
-    // 主窗口不再挂原生菜单；文件/编辑/视图/帮助与产品名共用一体化标题栏。
+    // macOS application menus belong in the system menu bar. Windows/Linux use
+    // the in-window menu injected by proxy.rs to avoid a second chrome row.
+    #[cfg(target_os = "macos")]
+    match menu::build(app) {
+        Ok(menu) => {
+            if let Err(error) = window.set_menu(menu) {
+                eprintln!("[menu] 挂载 macOS 原生菜单失败: {error}");
+            }
+        }
+        Err(error) => eprintln!("[menu] 构建 macOS 原生菜单失败: {error}"),
+    }
 
     Ok(())
 }

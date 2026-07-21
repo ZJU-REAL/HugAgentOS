@@ -1,0 +1,89 @@
+# Validate desktop changes before they reach the release-only workflow.
+name: Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "src/frontend/**"
+      - ".github/workflows/desktop-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scripts:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install desktop toolchain
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      - name: Test release and CE payload helpers
+        working-directory: desktop
+        run: npm run test:scripts
+
+  platform-tests:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Rust tests
+            os: macos-latest
+            prepare_payload: false
+          - name: Windows CE payload and Rust tests
+            os: windows-latest
+            prepare_payload: true
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Install desktop toolchain
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      - name: Build frontend for macOS tests
+        if: ${{ !matrix.prepare_payload }}
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Stage the public CE local-server payload on Windows
+        if: ${{ matrix.prepare_payload }}
+        working-directory: desktop
+        run: node scripts/prepare-bundle.mjs
+
+      - name: Run desktop Rust tests
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
