@@ -77,7 +77,10 @@ argon2-cffi>=23.1.0
 croniter>=2.0.0
 
 # mem0 Memory System
-pymilvus>=2.5.0
+# mem0's Milvus adapter is compatible with the PyMilvus 2.5 API.  PyMilvus 3
+# calls AllocTimestamp, which the embedded Milvus Lite adapter does not
+# implement yet (the no-Docker CE installer pins the matching Lite runtime).
+pymilvus>=2.5.0,<2.6.0
 
 # Sandbox Provider — alibaba/OpenSandbox (optional;
 # only required when SANDBOX_PROVIDER=opensandbox)

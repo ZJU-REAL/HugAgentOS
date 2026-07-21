@@ -287,6 +287,33 @@
   flex-direction:column;
   gap:18px;
 }
+.jx-firstRun-modelSection{
+  padding:24px 0;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  border-top:1px solid #ececec;
+}
+.jx-firstRun-modelSection:last-of-type{border-bottom:1px solid #ececec}
+.jx-firstRun-modelSection--required{padding-top:0;border-top:0}
+.jx-firstRun-modelSectionHeader{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+}
+.jx-firstRun-modelSectionHeader > div{min-width:0}
+.jx-firstRun-modelSectionHeader .ant-typography{
+  margin:7px 0 0;
+  color:#737373;
+  font-size:12px;
+  line-height:1.6;
+}
+.jx-firstRun-modelSectionHeader .ant-btn{
+  height:auto;
+  padding:0;
+  flex:none;
+}
 .jx-firstRun-modelGrid{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));

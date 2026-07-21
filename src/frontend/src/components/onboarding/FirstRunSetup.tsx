@@ -67,9 +67,42 @@ interface ModelDraft {
   contextLength: number;
 }
 
+type AuxiliaryModelType = 'embedding' | 'reranker';
+
+const AUXILIARY_MODEL_META: Record<AuxiliaryModelType, {
+  roleKey: AuxiliaryModelType;
+  title: string;
+  description: string;
+  defaultDisplayName: string;
+}> = {
+  embedding: {
+    roleKey: 'embedding',
+    title: '索引模型',
+    description: '用于长期记忆和知识库向量检索；配置后初始化向导中的长期记忆开关即可启用。',
+    defaultDisplayName: '索引模型',
+  },
+  reranker: {
+    roleKey: 'reranker',
+    title: '重排模型',
+    description: '用于对检索结果二次排序，提高长期记忆与知识库召回结果的相关性。',
+    defaultDisplayName: '重排模型',
+  },
+};
+
+function createModelDraft(displayName: string): ModelDraft {
+  return {
+    displayName: t(displayName),
+    provider: 'openai_compatible',
+    baseUrl: '',
+    apiKey: '',
+    modelName: '',
+    contextLength: CHAT_CONTEXT_DEFAULT,
+  };
+}
+
 const STEP_META = [
   { title: '语言与区域', hint: '选择界面语言' },
-  { title: '主模型', hint: '连接推理服务' },
+  { title: '模型配置', hint: '连接推理与检索服务' },
   { title: '联网搜索', hint: '可选服务' },
   { title: '文件解析', hint: '可选服务' },
   { title: '智能增强', hint: '记忆与本体' },
@@ -108,14 +141,17 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   const [schemas, setSchemas] = useState<ProviderSchema[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [creatingModel, setCreatingModel] = useState(false);
-  const [modelDraft, setModelDraft] = useState<ModelDraft>({
-    displayName: t('主对话模型'),
-    provider: 'openai_compatible',
-    baseUrl: '',
-    apiKey: '',
-    modelName: '',
-    contextLength: CHAT_CONTEXT_DEFAULT,
-  });
+  const [modelDraft, setModelDraft] = useState<ModelDraft>(() => createModelDraft('主对话模型'));
+  const [selectedAuxProviderIds, setSelectedAuxProviderIds] = useState<
+    Record<AuxiliaryModelType, string | null>
+  >({ embedding: null, reranker: null });
+  const [creatingAuxModels, setCreatingAuxModels] = useState<
+    Record<AuxiliaryModelType, boolean>
+  >({ embedding: true, reranker: true });
+  const [auxModelDrafts, setAuxModelDrafts] = useState<Record<AuxiliaryModelType, ModelDraft>>(() => ({
+    embedding: createModelDraft(AUXILIARY_MODEL_META.embedding.defaultDisplayName),
+    reranker: createModelDraft(AUXILIARY_MODEL_META.reranker.defaultDisplayName),
+  }));
   const [serviceGroups, setServiceGroups] = useState<ServiceConfigGroup[]>([]);
   const [serviceValues, setServiceValues] = useState<Record<string, string>>({});
   const [dirtyServiceKeys, setDirtyServiceKeys] = useState<Record<string, boolean>>({});
@@ -165,6 +201,28 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
       setSelectedProviderId(currentProvider?.provider_id || firstChatProvider?.provider_id || null);
       setCreatingModel(!currentProvider && !firstChatProvider);
 
+      const nextAuxProviderIds = {} as Record<AuxiliaryModelType, string | null>;
+      const nextCreatingAuxModels = {} as Record<AuxiliaryModelType, boolean>;
+      (Object.keys(AUXILIARY_MODEL_META) as AuxiliaryModelType[]).forEach((providerType) => {
+        const role = modelRoles.find(
+          (item) => item.role_key === AUXILIARY_MODEL_META[providerType].roleKey,
+        );
+        const assigned = modelProviders.find(
+          (provider) => provider.provider_id === role?.provider_id
+            && provider.provider_type === providerType
+            && provider.is_active,
+        );
+        const firstAvailable = modelProviders.find(
+          (provider) => provider.provider_type === providerType && provider.is_active,
+        );
+        nextAuxProviderIds[providerType] = assigned?.provider_id
+          || firstAvailable?.provider_id
+          || null;
+        nextCreatingAuxModels[providerType] = !assigned && !firstAvailable;
+      });
+      setSelectedAuxProviderIds(nextAuxProviderIds);
+      setCreatingAuxModels(nextCreatingAuxModels);
+
       setServiceGroups(groups);
       const values: Record<string, string> = {};
       for (const group of groups) {
@@ -202,9 +260,9 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     ) || null;
   }, [providers, roles]);
 
-  const providerOptions = useMemo(
-    () => schemas
-      .filter((schema) => !schema.supports_types || schema.supports_types.includes('chat'))
+  const providerOptionsForType = useCallback(
+    (providerType: ModelProviderItem['provider_type']) => schemas
+      .filter((schema) => !schema.supports_types || schema.supports_types.includes(providerType))
       .map((schema) => ({ value: schema.id, label: schema.label || schema.id })),
     [schemas],
   );
@@ -266,6 +324,45 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     return false;
   };
 
+  const saveAuxiliaryModel = async (providerType: AuxiliaryModelType): Promise<string | null> => {
+    let providerId = selectedAuxProviderIds[providerType];
+    const draft = auxModelDrafts[providerType];
+    if (creatingAuxModels[providerType]) {
+      const hasDraftValues = Boolean(
+        draft.baseUrl.trim() || draft.apiKey.trim() || draft.modelName.trim(),
+      );
+      if (!hasDraftValues) return null;
+      if (!draft.baseUrl.trim() || !draft.modelName.trim()) {
+        throw new Error(t('请完整填写{model}的模型地址和模型名', {
+          model: t(AUXILIARY_MODEL_META[providerType].title),
+        }));
+      }
+      const created = await createModelProvider({
+        display_name: draft.displayName.trim() || draft.modelName.trim(),
+        provider_type: providerType,
+        provider: draft.provider,
+        base_url: draft.baseUrl.trim(),
+        api_key: draft.apiKey.trim(),
+        model_name: draft.modelName.trim(),
+        is_active: true,
+      });
+      providerId = created.provider_id;
+      setProviders((previous) => [created, ...previous]);
+      setSelectedAuxProviderIds((previous) => ({
+        ...previous,
+        [providerType]: created.provider_id,
+      }));
+      setCreatingAuxModels((previous) => ({
+        ...previous,
+        [providerType]: false,
+      }));
+    }
+    if (providerId) {
+      await assignModelRole(AUXILIARY_MODEL_META[providerType].roleKey, providerId);
+    }
+    return providerId;
+  };
+
   const saveModel = async () => {
     let providerId = selectedProviderId;
     if (creatingModel) {
@@ -291,9 +388,34 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
 
     const chatRoles = roles.filter(isChatRole);
     await Promise.all(chatRoles.map((role) => assignModelRole(role.role_key, providerId!)));
-    setRoles((previous) => previous.map((role) => (
-      isChatRole(role) ? { ...role, provider_id: providerId } : role
-    )));
+
+    await saveAuxiliaryModel('embedding');
+    await saveAuxiliaryModel('reranker');
+
+    const [nextProviders, nextRoles, memory] = await Promise.all([
+      listModelProviders(),
+      listModelRoles(),
+      getMemorySettings(),
+    ]);
+    setProviders(nextProviders);
+    setRoles(nextRoles);
+    setMemoryAvailable(memory.mem0_available);
+    setEmbeddingAvailable(memory.embedding_available);
+    setMemoryEnabled(memory.memory_enabled);
+    setMemoryWriteEnabled(memory.memory_write_enabled);
+
+    const nextAuxProviderIds = { ...selectedAuxProviderIds };
+    (Object.keys(AUXILIARY_MODEL_META) as AuxiliaryModelType[]).forEach((providerType) => {
+      const role = nextRoles.find(
+        (item) => item.role_key === AUXILIARY_MODEL_META[providerType].roleKey,
+      );
+      nextAuxProviderIds[providerType] = role?.provider_id || null;
+    });
+    setSelectedAuxProviderIds(nextAuxProviderIds);
+    setCreatingAuxModels({
+      embedding: !nextAuxProviderIds.embedding,
+      reranker: !nextAuxProviderIds.reranker,
+    });
     void useModelCapabilitiesStore.getState().fetchCapabilities();
   };
 
@@ -361,6 +483,26 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     }));
   };
 
+  const updateAuxModelDraft = (
+    providerType: AuxiliaryModelType,
+    patch: Partial<ModelDraft>,
+  ) => {
+    setAuxModelDrafts((previous) => ({
+      ...previous,
+      [providerType]: { ...previous[providerType], ...patch },
+    }));
+  };
+
+  const selectAuxProviderSchema = (providerType: AuxiliaryModelType, provider: string) => {
+    const schema = schemas.find((item) => item.id === provider);
+    updateAuxModelDraft(providerType, {
+      provider,
+      baseUrl: schema?.autofill_base_url && schema.base_url_template
+        ? schema.base_url_template
+        : auxModelDrafts[providerType].baseUrl,
+    });
+  };
+
   const renderLanguage = () => (
     <div className="jx-firstRun-choiceGrid">
       {([
@@ -386,114 +528,197 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     </div>
   );
 
-  const renderModel = () => (
-    <div className="jx-firstRun-form">
-      {currentMainProvider && (
-        <Alert
-          type="success"
-          showIcon
-          message={t('已检测到可用主模型')}
-          description={`${currentMainProvider.display_name} · ${currentMainProvider.model_name}`}
-        />
-      )}
-      {providers.some((provider) => provider.provider_type === 'chat' && provider.is_active) && (
-        <div className="jx-firstRun-field">
-          <div className="jx-firstRun-labelRow">
-            <Text strong>{t('使用已有模型')}</Text>
-            <Button type="link" onClick={() => setCreatingModel((value) => !value)}>
-              {creatingModel ? t('返回已有模型') : t('添加新模型')}
-            </Button>
-          </div>
-          {!creatingModel && (
-            <Select
-              size="large"
-              value={selectedProviderId || undefined}
-              placeholder={t('选择一个对话模型')}
-              options={providers
-                .filter((provider) => provider.provider_type === 'chat' && provider.is_active)
-                .map((provider) => ({
-                  value: provider.provider_id,
-                  label: `${provider.display_name} · ${provider.model_name}`,
-                }))}
-              onChange={setSelectedProviderId}
-            />
-          )}
-        </div>
-      )}
-      {creatingModel && (
-        <div className="jx-firstRun-modelGrid">
-          <label className="jx-firstRun-field">
-            <Text strong>{t('厂商或协议')}</Text>
-            <Select
-              size="large"
-              value={modelDraft.provider}
-              options={providerOptions.length ? providerOptions : [
-                { value: 'openai_compatible', label: 'OpenAI Compatible' },
-              ]}
-              onChange={selectProviderSchema}
-            />
-          </label>
-          <label className="jx-firstRun-field">
-            <Text strong>{t('显示名称')}</Text>
-            <Input
-              size="large"
-              value={modelDraft.displayName}
-              onChange={(event) => setModelDraft((previous) => ({
-                ...previous, displayName: event.target.value,
-              }))}
-            />
-          </label>
-          <label className="jx-firstRun-field jx-firstRun-field--wide">
-            <Text strong>{t('模型接口地址')}</Text>
-            <Input
-              size="large"
-              placeholder="https://api.example.com/v1"
-              value={modelDraft.baseUrl}
-              onChange={(event) => setModelDraft((previous) => ({
-                ...previous, baseUrl: event.target.value,
-              }))}
-            />
-          </label>
-          <label className="jx-firstRun-field">
-            <Text strong>{t('模型名')}</Text>
-            <Input
-              size="large"
-              placeholder="model-name"
-              value={modelDraft.modelName}
-              onChange={(event) => setModelDraft((previous) => ({
-                ...previous, modelName: event.target.value,
-              }))}
-            />
-          </label>
-          <label className="jx-firstRun-field">
-            <Text strong>API Key</Text>
-            <Input.Password
-              size="large"
-              placeholder="sk-..."
-              autoComplete="new-password"
-              value={modelDraft.apiKey}
-              onChange={(event) => setModelDraft((previous) => ({
-                ...previous, apiKey: event.target.value,
-              }))}
-            />
-          </label>
+  const renderModelFields = (
+    providerType: ModelProviderItem['provider_type'],
+    draft: ModelDraft,
+    onPatch: (patch: Partial<ModelDraft>) => void,
+    onProviderChange: (provider: string) => void,
+    includeContext = false,
+  ) => {
+    const options = providerOptionsForType(providerType);
+    return (
+      <div className="jx-firstRun-modelGrid">
+        <label className="jx-firstRun-field">
+          <Text strong>{t('厂商或协议')}</Text>
+          <Select
+            size="large"
+            value={draft.provider}
+            options={options.length ? options : [
+              { value: 'openai_compatible', label: 'OpenAI Compatible' },
+            ]}
+            onChange={onProviderChange}
+          />
+        </label>
+        <label className="jx-firstRun-field">
+          <Text strong>{t('显示名称')}</Text>
+          <Input
+            size="large"
+            value={draft.displayName}
+            onChange={(event) => onPatch({ displayName: event.target.value })}
+          />
+        </label>
+        <label className="jx-firstRun-field jx-firstRun-field--wide">
+          <Text strong>{t('模型接口地址')}</Text>
+          <Input
+            size="large"
+            placeholder="https://api.example.com/v1"
+            value={draft.baseUrl}
+            onChange={(event) => onPatch({ baseUrl: event.target.value })}
+          />
+        </label>
+        <label className="jx-firstRun-field">
+          <Text strong>{t('模型名')}</Text>
+          <Input
+            size="large"
+            placeholder="model-name"
+            value={draft.modelName}
+            onChange={(event) => onPatch({ modelName: event.target.value })}
+          />
+        </label>
+        <label className="jx-firstRun-field">
+          <Text strong>API Key</Text>
+          <Input.Password
+            size="large"
+            placeholder="sk-..."
+            autoComplete="new-password"
+            value={draft.apiKey}
+            onChange={(event) => onPatch({ apiKey: event.target.value })}
+          />
+        </label>
+        {includeContext && (
           <label className="jx-firstRun-field">
             <Text strong>{t('上下文窗口')}</Text>
             <InputNumber
               size="large"
               min={1024}
               step={1024}
-              value={modelDraft.contextLength}
-              onChange={(value) => setModelDraft((previous) => ({
-                ...previous, contextLength: Number(value || CHAT_CONTEXT_DEFAULT),
-              }))}
+              value={draft.contextLength}
+              onChange={(value) => onPatch({
+                contextLength: Number(value || CHAT_CONTEXT_DEFAULT),
+              })}
             />
           </label>
+        )}
+      </div>
+    );
+  };
+
+  const renderAuxiliaryModel = (providerType: AuxiliaryModelType) => {
+    const meta = AUXILIARY_MODEL_META[providerType];
+    const activeProviders = providers.filter(
+      (provider) => provider.provider_type === providerType && provider.is_active,
+    );
+    const selected = activeProviders.find(
+      (provider) => provider.provider_id === selectedAuxProviderIds[providerType],
+    );
+    const role = roles.find((item) => item.role_key === meta.roleKey);
+    const creating = creatingAuxModels[providerType];
+    const draft = auxModelDrafts[providerType];
+    return (
+      <section className="jx-firstRun-modelSection" key={providerType}>
+        <div className="jx-firstRun-modelSectionHeader">
+          <div>
+            <Space size={8}>
+              <Text strong>{t(meta.title)}</Text>
+              <Tag>{t('可选')}</Tag>
+              {role?.provider_id && <Tag color="success">{t('已配置')}</Tag>}
+            </Space>
+            <Paragraph>{t(meta.description)}</Paragraph>
+          </div>
+          {activeProviders.length > 0 && (
+            <Button
+              type="link"
+              onClick={() => setCreatingAuxModels((previous) => ({
+                ...previous,
+                [providerType]: !previous[providerType],
+              }))}
+            >
+              {creating ? t('返回已有模型') : t('添加新模型')}
+            </Button>
+          )}
         </div>
-      )}
+        {!creating && activeProviders.length > 0 && (
+          <Select
+            size="large"
+            value={selected?.provider_id}
+            placeholder={t('选择已有{model}', { model: t(meta.title) })}
+            options={activeProviders.map((provider) => ({
+              value: provider.provider_id,
+              label: `${provider.display_name} · ${provider.model_name}`,
+            }))}
+            onChange={(providerId) => setSelectedAuxProviderIds((previous) => ({
+              ...previous,
+              [providerType]: providerId,
+            }))}
+          />
+        )}
+        {creating && renderModelFields(
+          providerType,
+          draft,
+          (patch) => updateAuxModelDraft(providerType, patch),
+          (provider) => selectAuxProviderSchema(providerType, provider),
+        )}
+      </section>
+    );
+  };
+
+  const renderModel = () => (
+    <div className="jx-firstRun-form">
+      <section className="jx-firstRun-modelSection jx-firstRun-modelSection--required">
+        <div className="jx-firstRun-modelSectionHeader">
+          <div>
+            <Space size={8}>
+              <Text strong>{t('主对话模型')}</Text>
+              <Tag color="blue">{t('必填')}</Tag>
+            </Space>
+            <Paragraph>{t('用于对话、智能体任务和内容生成，保存后会绑定全部对话角色。')}</Paragraph>
+          </div>
+        </div>
+        {currentMainProvider && (
+          <Alert
+            type="success"
+            showIcon
+            message={t('已检测到可用主模型')}
+            description={`${currentMainProvider.display_name} · ${currentMainProvider.model_name}`}
+          />
+        )}
+        {providers.some((provider) => provider.provider_type === 'chat' && provider.is_active) && (
+          <div className="jx-firstRun-field">
+            <div className="jx-firstRun-labelRow">
+              <Text strong>{t('使用已有模型')}</Text>
+              <Button type="link" onClick={() => setCreatingModel((value) => !value)}>
+                {creatingModel ? t('返回已有模型') : t('添加新模型')}
+              </Button>
+            </div>
+            {!creatingModel && (
+              <Select
+                size="large"
+                value={selectedProviderId || undefined}
+                placeholder={t('选择一个对话模型')}
+                options={providers
+                  .filter((provider) => provider.provider_type === 'chat' && provider.is_active)
+                  .map((provider) => ({
+                    value: provider.provider_id,
+                    label: `${provider.display_name} · ${provider.model_name}`,
+                  }))}
+                onChange={setSelectedProviderId}
+              />
+            )}
+          </div>
+        )}
+        {creatingModel && renderModelFields(
+          'chat',
+          modelDraft,
+          (patch) => setModelDraft((previous) => ({ ...previous, ...patch })),
+          selectProviderSchema,
+          true,
+        )}
+      </section>
+      {renderAuxiliaryModel('embedding')}
+      {renderAuxiliaryModel('reranker')}
       <div className="jx-firstRun-note">
         <ThunderboltOutlined />
-        <span>{t('保存时会实际测试模型连通性，并自动指派给全部对话角色。')}</span>
+        <span>{t('保存时会实际测试已填写模型的连通性并自动指派角色；索引模型和重排模型留空即可跳过。')}</span>
       </div>
     </div>
   );
@@ -675,6 +900,8 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
       <div className="jx-firstRun-summary">
         <div><span>{t('界面语言')}</span><strong>{language === 'en' ? 'English' : '简体中文'}</strong></div>
         <div><span>{t('主模型')}</span><strong>{currentMainProvider?.model_name || modelDraft.modelName || t('已配置')}</strong></div>
+        <div><span>{t('索引模型')}</span><strong>{selectedAuxProviderIds.embedding ? t('已配置') : t('未配置')}</strong></div>
+        <div><span>{t('重排模型')}</span><strong>{selectedAuxProviderIds.reranker ? t('已配置') : t('未配置')}</strong></div>
         <div><span>{t('永久记忆')}</span><strong>{memoryAvailable && embeddingAvailable && memoryEnabled ? t('开启') : t('关闭')}</strong></div>
         <div><span>{t('本体核验')}</span><strong>{ontologyAvailable && ontologyEnabled ? t('开启') : t('关闭')}</strong></div>
       </div>
@@ -691,7 +918,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   ];
   const stepDescriptions = [
     ['先选择你最熟悉的语言', '界面、设置和引导说明会使用该语言。'],
-    ['连接你的 AI 模型', '这是运行对话和智能体任务所必需的核心服务。'],
+    ['连接你的 AI 模型', '主对话模型为必填项；索引模型和重排模型可按需配置。'],
     ['让智能体访问实时信息', '配置搜索服务后，天气、新闻和公开资料查询会更加完整。'],
     ['决定如何读取复杂文档', '外部解析服务适合 PDF、扫描件和包含公式的文档。'],
     ['选择需要的智能增强', '你可以控制是否跨对话记忆，以及是否执行领域本体核验。'],

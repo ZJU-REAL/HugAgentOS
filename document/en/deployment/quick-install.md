@@ -153,6 +153,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 | Startup reports the port is in use | `hugagent serve --port <other-port>`; or run `hugagent doctor` first to check |
 | The page shows JSON instead of the app | Frontend not built: `cd src/frontend && npm run build`, or set `FRONTEND_DIST_DIR` to a built `dist` |
 | Login reports the model is unavailable | Re-run `hugagent onboard` to reconfigure the model (the wizard tests connectivity) |
+| Startup logs repeatedly report `AllocTimestamp` / `Method not implemented` | Stop the service and rerun the public one-command installer. The installer reconciles PyMilvus and Milvus Lite to compatible versions without deleting `~/.hugagent/milvus.db`. |
 | Want to switch model / change config | Re-run `hugagent onboard`, or log in and adjust under Settings → System → Model Services / Service Config |
 | PPT/Word preview reports that LibreOffice isn't installed | Re-run the one-command installer and choose to install it when prompted. On Debian/Ubuntu, you can instead run `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`, then restart HugAgentOS. |
 | Skill execution repeatedly reports `fork: Resource temporarily unavailable` | Stop the current service, rerun the public installer to upgrade, and start `hugagent` again. If an older version left child processes behind, inspect processes owned by the current user and, when needed, sign out of the login session before retrying. |

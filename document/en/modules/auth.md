@@ -1,6 +1,6 @@
 # Authentication & Permissions
 
-> Last updated: July 20, 2026
+> Last updated: July 21, 2026
 
 The authentication and permission system in HugAgentOS covers three independent tracks: **end-user authentication** (local accounts / mock SSO / enterprise SSO / personal API keys), **administrative credentials** (the `ADMIN_TOKEN` and `CONFIG_TOKEN` Bearer tokens), and **resource-level permissions** (fine-grained access control over team files, projects, and chat shares). The implementation lives in `src/backend/core/auth/`, with the FastAPI dependency-injection entry points in `src/backend/api/deps.py`.
 
@@ -41,16 +41,25 @@ Password hashing lives in `core/auth/password.py`; the minimum length is control
 When you sign in to a CE instance with the default `admin/admin` credentials,
 you must replace the temporary password first. The application then opens a
 full-screen setup flow instead of the workspace. The flow covers display
-language, the primary chat model, internet search, document parsing,
-persistent memory, and ontology validation.
+language, models, internet search, document parsing, persistent memory, and
+ontology validation.
 
-- The primary chat model is required. Saving tests the real connection and
-  assigns the model to every chat role. The completion endpoint won't unlock
-  the workspace without an active `main_agent` model.
+- The model step includes a required primary chat model and optional embedding
+  and reranker models. Saving tests every completed model configuration and
+  assigns the corresponding chat, `embedding`, or `reranker` roles. The
+  completion endpoint won't unlock the workspace without an active
+  `main_agent` model.
+- After you configure an embedding model, the next step immediately checks the
+  dependency again and enables the persistent memory switch. The reranker
+  improves the relevance of persistent memory and knowledge base results. You
+  can leave either retrieval model blank without blocking setup.
 - Internet search and external document parsing are optional. You can add them
   later under **Settings → System**.
 - Memory and ontology switches check whether the instance has the required
   service or a published Domain Pack. Unavailable features remain off.
+- On a new CE deployment, **Show Dispatch Process** defaults to on when the
+  browser has no saved preference. If you turn it off under **Settings → Chat
+  Settings**, the browser preserves your choice.
 - The application stores a versioned completion marker in the administrator's
   `users_shadow.metadata`. Refreshing or signing in again doesn't repeat a
   completed setup flow.

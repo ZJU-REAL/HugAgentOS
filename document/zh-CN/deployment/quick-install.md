@@ -160,6 +160,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 起服务报端口被占用 | `hugagent serve --port <其他端口>`；或先 `hugagent doctor` 查占用 |
 | 网页打开是一段 JSON 而非应用 | 前端未构建：`cd src/frontend && npm run build`，或设 `FRONTEND_DIST_DIR` 指向已构建的 `dist` |
 | 登录报模型不可用 | 重跑 `hugagent onboard` 重配模型（引导会实测连通性） |
+| 启动日志反复出现 `AllocTimestamp` / `Method not implemented` | 停止当前服务并重新运行公开一键安装器。安装器会把 PyMilvus 与 Milvus Lite 校准到兼容版本，不会删除 `~/.hugagent/milvus.db`。 |
 | 想换模型 / 改配置 | 重跑 `hugagent onboard`，或登录后到「设置 → 系统管理 → 模型服务 / 服务配置」调整 |
 | PPT/Word 预览提示 LibreOffice 未安装 | 重新运行一键安装器并在提示时选择安装；Debian/Ubuntu 也可执行 `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`，然后重启 HugAgentOS |
 | 技能执行反复出现 `fork: Resource temporarily unavailable` | 停止当前服务，重新运行公开安装器完成升级，再启动 `hugagent`。旧版本若留下子进程，先检查当前用户的进程，必要时注销当前登录会话后重试。 |
