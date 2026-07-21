@@ -83,9 +83,10 @@ def apply_local_env(port: int) -> dict:
         # the server-less engine; kb_vector degrades to dense-only there). Requires
         # an embedding model — configure one in `onboard`.
         "MILVUS_URL": str(dd / "milvus.db"),
-        # L2/L3 mem0 memory stays off by default (L3 graph needs Neo4j; L2 can be
-        # enabled experimentally over the same Lite backend by setting MEM0_ENABLED=true).
-        "MEM0_ENABLED": "false",
+        # L2 mem0 memory is available by default over the same Lite backend. The
+        # user switch still requires an assigned embedding model. L3 stays off
+        # unless a separate Neo4j service is configured.
+        "MEM0_ENABLED": "true",
         # Conversational React site-building: the site-builder skill / init script /
         # vite config all reference a container-canonical /opt/site-template + /workspace.
         # In local mode we provision the template under the data dir and point the

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "HugAgentOS",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "identifier": "com.hugagent.desktop",
   "build": {
     "frontendDist": "../../src/frontend/dist",
@@ -18,7 +18,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis"],
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
@@ -29,6 +29,13 @@
     ],
     "resources": {
       "../../src/frontend/dist": "web"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": false
+      }
     }
   },
   "plugins": {
@@ -39,8 +46,9 @@
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4MjI4Q0QxNzlCODE3NjYKUldSbUY3aDUwWXdpS0w2bW1tYzU4Tk4xUDJpRnRLdUhZVjc4ZXIyYzhoWUtHUjMzUkhnRS9RRkoK",
+      "dangerousInsecureTransportProtocol": true,
       "endpoints": [
-        "https://localhost:3000/api/v1/desktop/latest.json"
+        "http://localhost:3000/api/v1/desktop/latest.json"
       ],
       "windows": {
         "installMode": "passive"

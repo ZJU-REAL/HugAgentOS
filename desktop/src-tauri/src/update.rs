@@ -1,12 +1,11 @@
 //! A3 · 一键自动更新。
 //!
 //! 解决「前端/壳一改就得重编译分发新客户端」的痛点：客户在「帮助 → 检查更新」或托盘触发，
-//! 壳去后端拉更新清单（`<server_base>/api/v1/desktop/latest.json`）→ 本地用内置 pubkey 验签
+//! 壳去发布源拉更新清单（`<update_base>/api/v1/desktop/latest.json`）→ 本地用内置 pubkey 验签
 //! → 下载安装包 → 安装 → 重启。**整包替换**，因此前端 dist（打进包里的）也一并更新。
 //!
-//! 关键设计：updater 的 endpoint **运行时**用当前 `server_base` 拼装，而非写死在
-//! `tauri.conf.json`——这样一个 .exe 通吃多套私有化环境（server.json / 环境变量切后端，
-//! 更新源自动跟着走），也避开了配置里 `{{...}}` 占位被 URL 编码的坑。
+//! 关键设计：updater 的 endpoint **运行时**拼装，而非写死在 `tauri.conf.json`。远程模式
+//! 默认跟随当前 `server_base`，本机服务模式则使用编译期发布源，避免向 127.0.0.1 查询安装包。
 //!
 //! 交互：**确认/结果**走原生对话框（`tauri-plugin-dialog`）——因为检查更新是从原生菜单/托盘
 //! （Rust 侧）触发的，不经主 WebView，天然不受「远程源下 Tauri IPC 不可靠」影响。
@@ -52,14 +51,14 @@ const PROGRESS_HTML: &str = r#"<!doctype html><html lang="zh-CN"><head><meta cha
 
 /// 检查更新，用户确认后下载安装并重启。
 ///
-/// - `server_base`：当前后端根地址，用于拼更新 endpoint。
+/// - `update_base`：桌面发布源根地址，用于拼更新 endpoint。
 /// - `silent`：为 true 时「已是最新」「检查失败」都不弹框（预留给启动静默检查）；
 ///   但「发现新版本」始终弹确认框——绝不静默自动安装。
-pub fn check_and_install(app: AppHandle, server_base: String, silent: bool) {
+pub fn check_and_install(app: AppHandle, update_base: String, silent: bool) {
     tauri::async_runtime::spawn(async move {
         let endpoint = format!(
             "{}/api/v1/desktop/latest.json",
-            server_base.trim_end_matches('/')
+            update_base.trim_end_matches('/')
         );
         let url = match url::Url::parse(&endpoint) {
             Ok(u) => u,
@@ -200,9 +199,8 @@ fn build_progress_window(app: &AppHandle) -> Option<WebviewWindow> {
                 .always_on_top(true)
                 .center()
                 .build()
-                .map(|window| {
-                    apply_display_zoom(&window);
-                    window
+                .inspect(|window| {
+                    apply_display_zoom(window);
                 })
                 .ok();
         let _ = tx.send(win);

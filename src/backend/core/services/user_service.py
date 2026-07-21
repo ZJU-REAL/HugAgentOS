@@ -83,11 +83,17 @@ class UserService:
 
 
     def get_user_settings(self, user_id: str) -> Dict[str, Any]:
-        """Read memory/preferences from users_shadow.metadata JSONB."""
+        """Read preferences and apply effective memory capability defaults."""
         user = self.repo.get_by_id(user_id)
         if not user:
             return {}
-        return dict(user.extra_data) if user.extra_data else {}
+        metadata = dict(user.extra_data) if user.extra_data else {}
+
+        # Imported lazily to keep the services package's compatibility exports
+        # from creating an import cycle during application startup.
+        from core.services.memory_settings_service import MemorySettingsService
+
+        return MemorySettingsService(self.db).apply_effective_defaults(metadata)
 
     def update_user_metadata(self, user_id: str, patch: Dict[str, Any]) -> None:
         """Merge `patch` into users_shadow.metadata JSONB (shallow merge)."""

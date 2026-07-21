@@ -56,6 +56,7 @@ export const ONBOARDING_DICT: Record<string, string> = {
   '识别表格': 'Recognize tables',
   '跨会话保留你的偏好与背景，让回答逐渐更贴合你的工作方式。': 'Keep your preferences and context across conversations so responses adapt to your work.',
   '当前实例未配置记忆服务': 'Memory service is not configured for this instance',
+  '开启记忆前请先配置并分配 embedding 模型': 'Configure and assign an embedding model before enabling memory',
   '允许对话自动沉淀新记忆': 'Allow conversations to create new memories',
   '本体核验': 'Ontology validation',
   '工具调用和高风险结果会经过领域规则检查，减少不符合业务约束的输出。': 'Check tool calls and high-risk results against domain rules to reduce policy-breaking output.',

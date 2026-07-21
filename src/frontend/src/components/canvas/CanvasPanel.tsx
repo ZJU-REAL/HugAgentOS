@@ -286,7 +286,7 @@ function UnknownRenderer({ name }: { name: string }) {
 /* ── Main Panel ── */
 
 export function CanvasPanel() {
-  const { isOpen, artifact, closeCanvas, updateArtifact, openSeq } = useCanvasStore();
+  const { isOpen, activeView, artifact, closeCanvas, updateArtifact, openSeq } = useCanvasStore();
   const [expanded, setExpanded] = useState(false);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   // Drag-resize in progress: kills the width transition (frame-accurate follow)
@@ -312,7 +312,7 @@ export function CanvasPanel() {
 
   // Intercept Ctrl+S to prevent browser "Save Page" and trigger xlsx save instead
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || activeView !== 'file') return;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
@@ -321,7 +321,7 @@ export function CanvasPanel() {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [isOpen]);
+  }, [activeView, isOpen]);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -347,7 +347,7 @@ export function CanvasPanel() {
     document.addEventListener('mouseup', onUp);
   }, []);
 
-  if (!isOpen || !artifact) return null;
+  if (!isOpen || activeView !== 'file' || !artifact) return null;
 
   const fileUrl = `${effectiveApiUrl}${artifact.url}`;
   const category = getFileCategory(artifact);

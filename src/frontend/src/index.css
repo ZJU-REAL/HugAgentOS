@@ -13,3 +13,60 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+.jx-appError {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 15% 12%, rgba(69, 112, 255, 0.12), transparent 32%),
+    #f6f8fc;
+  color: #182033;
+}
+
+.jx-appError-card {
+  width: min(460px, 100%);
+  box-sizing: border-box;
+  padding: 36px;
+  border: 1px solid rgba(24, 32, 51, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 60px rgba(31, 47, 82, 0.12);
+}
+
+.jx-appError-code {
+  color: #5570c9;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.jx-appError-card h1 {
+  margin: 12px 0 10px;
+  font-size: 24px;
+  line-height: 1.35;
+}
+
+.jx-appError-card p {
+  margin: 0;
+  color: #5d6577;
+  line-height: 1.7;
+}
+
+.jx-appError-card button {
+  margin-top: 24px;
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 10px;
+  background: #3157d5;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jx-appError-card button:hover {
+  background: #2748b7;
+}

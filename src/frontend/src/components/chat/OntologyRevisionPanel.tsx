@@ -7,7 +7,7 @@ import {
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { Button, message } from 'antd';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { authFetch } from '../../api';
 import { t } from '../../i18n';
@@ -39,9 +39,27 @@ export function OntologyRevisionPanel({
 }: OntologyRevisionPanelProps) {
   const [accepting, setAccepting] = useState(false);
   const revision = governance.revision;
-  const review = governance.review;
-  const manualReview = review.manual_review;
-  const candidate = revision?.content || review.candidate_answer || '';
+  // Persisted chats and live SSE frames can contain an older or partial
+  // governance shape. Treat every collection as untrusted at this rendering
+  // boundary so an incomplete frame cannot crash the whole conversation.
+  const review = governance.review && typeof governance.review === 'object'
+    ? governance.review
+    : {};
+  const activations = Array.isArray(governance.activations) ? governance.activations : [];
+  const gates = Array.isArray(governance.gates) ? governance.gates : [];
+  const revisionToolCalls = Array.isArray(revision?.toolCalls) ? revision.toolCalls : [];
+  const revisionThinkingItems = Array.isArray(revision?.thinking) ? revision.thinking : [];
+  const manualReview = review.manual_review && typeof review.manual_review === 'object'
+    ? review.manual_review
+    : undefined;
+  const manualReviewItems = Array.isArray(manualReview?.items) ? manualReview.items : [];
+  const reviewEvidence = Array.isArray(review.evidence) ? review.evidence : [];
+  const newTools = Array.isArray(review.new_tools) ? review.new_tools : [];
+  const candidate = typeof revision?.content === 'string'
+    ? revision.content
+    : typeof review.candidate_answer === 'string'
+      ? review.candidate_answer
+      : '';
   const hasCandidateContent = candidate.length > 0;
   const hasCandidate = hasSubstantiveCandidate(candidate);
   const accepted = review.accepted === true && hasCandidate;
@@ -54,13 +72,12 @@ export function OntologyRevisionPanel({
   const isReviewFailed = review.status === 'failed';
   const canReplaceOriginal = hasCandidate && review.revised === true;
   const hasManualReview = !!manualReview
-    && (manualReview.required || (manualReview.items?.length || 0) > 0);
-  const workflowCount = useMemo(
-    () => new Set(governance.activations.map((item) => `${item.pack_id || ''}:${item.workflow_id || ''}`)).size,
-    [governance.activations],
-  );
-  const gatePassCount = governance.gates.filter((item) => item.decision !== 'deny').length;
-  const gateDeniedCount = governance.gates.filter((item) => item.decision === 'deny').length;
+    && (manualReview.required || manualReviewItems.length > 0);
+  const workflowCount = new Set(
+    activations.map((item) => `${item.pack_id || ''}:${item.workflow_id || ''}`),
+  ).size;
+  const gatePassCount = gates.filter((item) => item.decision !== 'deny').length;
+  const gateDeniedCount = gates.filter((item) => item.decision === 'deny').length;
   const reviewMode = review.level === 'committee'
     ? t('委员会复核 · {count} 位', { count: review.committee_size || 3 })
     : t('独立核验');
@@ -69,28 +86,29 @@ export function OntologyRevisionPanel({
       ? `${(review.latency_ms / 1000).toFixed(1)}s`
       : `${review.latency_ms}ms`
     : '—';
-  const revisionThinking = useMemo(
-    () => (revision?.thinking || []).map((item) => item.content).filter(Boolean).join('\n\n'),
-    [revision?.thinking],
-  );
-  const revisionRunSteps = useMemo<ShellStep[]>(() => {
-    const steps: ShellStep[] = [];
-    if (revisionThinking) {
-      steps.push({
-        kind: 'thinking',
-        content: revisionThinking,
-        active: isRevisionStreaming && !hasCandidateContent,
-        key: `${chatMessage.ts}-ontology-thinking`,
-      });
-    }
-    (revision?.toolCalls || []).forEach((tool, index) => {
-      steps.push({ kind: 'tool', tool, key: `${chatMessage.ts}-ontology-tool-${tool.id || index}` });
+  const revisionThinking = revisionThinkingItems
+    .map((item) => (item && typeof item.content === 'string' ? item.content : ''))
+    .filter(Boolean)
+    .join('\n\n');
+  const revisionRunSteps: ShellStep[] = [];
+  if (revisionThinking) {
+    revisionRunSteps.push({
+      kind: 'thinking',
+      content: revisionThinking,
+      active: isRevisionStreaming && !hasCandidateContent,
+      key: `${chatMessage.ts}-ontology-thinking`,
     });
-    if (revision?.toolPending) {
-      steps.push({ kind: 'pending', startTs: chatMessage.lastActivityTs || chatMessage.ts, key: `${chatMessage.ts}-ontology-pending` });
-    }
-    return steps;
-  }, [chatMessage.lastActivityTs, chatMessage.ts, hasCandidateContent, isRevisionStreaming, revision?.toolCalls, revision?.toolPending, revisionThinking]);
+  }
+  revisionToolCalls.forEach((tool, index) => {
+    revisionRunSteps.push({ kind: 'tool', tool, key: `${chatMessage.ts}-ontology-tool-${tool.id || index}` });
+  });
+  if (revision?.toolPending) {
+    revisionRunSteps.push({
+      kind: 'pending',
+      startTs: chatMessage.lastActivityTs || chatMessage.ts,
+      key: `${chatMessage.ts}-ontology-pending`,
+    });
+  }
 
   const handleAccept = useCallback(async () => {
     if (!candidate.trim() || accepting || accepted) return;
@@ -215,10 +233,10 @@ export function OntologyRevisionPanel({
             <div><span>{t('评审方式')}</span><strong>{reviewMode}</strong></div>
             <div><span>{t('评审耗时')}</span><strong>{latencyLabel}</strong></div>
           </div>
-          {!!review.evidence?.length && (
+          {reviewEvidence.length > 0 && (
             <div className="jx-ontologyPassResult-evidence">
               <span><SafetyCertificateOutlined /> {t('证据摘要')}</span>
-              <ul>{review.evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+              <ul>{reviewEvidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
             </div>
           )}
         </section>
@@ -241,22 +259,22 @@ export function OntologyRevisionPanel({
               isActive={isRevisionStreaming && !hasCandidateContent}
             />
           )}
-          {!!revision?.toolCalls.length && (
+          {revisionToolCalls.length > 0 && (
             <ToolProgressInline
-              message={{ ...chatMessage, toolCalls: revision.toolCalls, isStreaming: isRevisionStreaming }}
-              toolCalls={revision.toolCalls}
+              message={{ ...chatMessage, toolCalls: revisionToolCalls, isStreaming: isRevisionStreaming }}
+              toolCalls={revisionToolCalls}
               panelKey={`__progress_timeline__-${chatMessage.ts}-ontology`}
             />
           )}
         </>
       )}
 
-      {(review.new_tools?.length || review.new_citation_count) ? (
+      {(newTools.length || review.new_citation_count) ? (
         <div className="jx-ontologyRevision-evidence">
           <FileSearchOutlined />
           <span>
-            {review.new_tools?.length
-              ? t('新增调用：{tools}', { tools: review.new_tools.join('、') })
+            {newTools.length
+              ? t('新增调用：{tools}', { tools: newTools.join('、') })
               : t('已复用现有证据')}
             {review.new_citation_count ? ` · ${t('新增 {count} 条引用', { count: review.new_citation_count })}` : ''}
           </span>
@@ -295,7 +313,7 @@ export function OntologyRevisionPanel({
             </div>
           </div>
           <div className="jx-ontologyManualReview-grid">
-            {(manualReview?.items || []).map((item, index) => (
+            {manualReviewItems.map((item, index) => (
               <article key={`${item.rule_id}-${index}`} className="jx-ontologyManualReview-card">
                 <span className="jx-ontologyManualReview-index">{String(index + 1).padStart(2, '0')}</span>
                 <strong>{item.quote}</strong>

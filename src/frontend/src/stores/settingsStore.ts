@@ -34,6 +34,8 @@ interface SettingsState {
   settingsOpen: boolean;
   memoryEnabled: boolean;
   memoryWriteEnabled: boolean;
+  memoryServiceAvailable: boolean;
+  embeddingAvailable: boolean;
   memoryItems: MemoryItem[];
   memoryPanelOpen: boolean;
   memoryLoading: boolean;
@@ -81,6 +83,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   settingsOpen: false,
   memoryEnabled: localStorage.getItem('hugagent_memory_enabled') === 'true',
   memoryWriteEnabled: localStorage.getItem('hugagent_memory_write_enabled') === 'true',
+  memoryServiceAvailable: false,
+  embeddingAvailable: false,
   memoryItems: [],
   memoryPanelOpen: false,
   memoryLoading: false,
@@ -120,6 +124,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({
         memoryEnabled: settings.memory_enabled,
         memoryWriteEnabled: settings.memory_write_enabled,
+        memoryServiceAvailable: settings.mem0_available,
+        embeddingAvailable: settings.embedding_available,
         rerankerEnabled: settings.reranker_enabled,
         rerankerAvailable: settings.reranker_available,
       });
@@ -145,28 +151,52 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   toggleMemory: async (enabled) => {
+    if (enabled && !get().memoryServiceAvailable) {
+      set({ memoryEnabled: false, lastToggleError: { key: 'memory', ts: Date.now() } });
+      localStorage.setItem('hugagent_memory_enabled', 'false');
+      message.error(t('当前实例未配置记忆服务'));
+      return;
+    }
+    if (enabled && !get().embeddingAvailable) {
+      set({ memoryEnabled: false, lastToggleError: { key: 'memory', ts: Date.now() } });
+      localStorage.setItem('hugagent_memory_enabled', 'false');
+      message.warning(t('开启记忆前请先配置并分配 embedding 模型'));
+      return;
+    }
     const prev = get().memoryEnabled;
     set({ memoryEnabled: enabled });
     localStorage.setItem('hugagent_memory_enabled', String(enabled));
     try {
       await updateMemorySettings(enabled);
-    } catch {
+    } catch (error) {
       set({ memoryEnabled: prev, lastToggleError: { key: 'memory', ts: Date.now() } });
       localStorage.setItem('hugagent_memory_enabled', String(prev));
-      message.error(t('记忆设置更新失败'));
+      message.error((error as Error).message || t('记忆设置更新失败'));
     }
   },
 
   toggleMemoryWrite: async (enabled) => {
+    if (enabled && !get().memoryServiceAvailable) {
+      set({ memoryWriteEnabled: false, lastToggleError: { key: 'memoryWrite', ts: Date.now() } });
+      localStorage.setItem('hugagent_memory_write_enabled', 'false');
+      message.error(t('当前实例未配置记忆服务'));
+      return;
+    }
+    if (enabled && !get().embeddingAvailable) {
+      set({ memoryWriteEnabled: false, lastToggleError: { key: 'memoryWrite', ts: Date.now() } });
+      localStorage.setItem('hugagent_memory_write_enabled', 'false');
+      message.warning(t('开启记忆前请先配置并分配 embedding 模型'));
+      return;
+    }
     const prev = get().memoryWriteEnabled;
     set({ memoryWriteEnabled: enabled });
     localStorage.setItem('hugagent_memory_write_enabled', String(enabled));
     try {
       await updateMemoryWriteSettings(enabled);
-    } catch {
+    } catch (error) {
       set({ memoryWriteEnabled: prev, lastToggleError: { key: 'memoryWrite', ts: Date.now() } });
       localStorage.setItem('hugagent_memory_write_enabled', String(prev));
-      message.error(t('写入记忆设置更新失败'));
+      message.error((error as Error).message || t('写入记忆设置更新失败'));
     }
   },
 

@@ -121,6 +121,86 @@
   animation: jx-ontologyInlineEnter .24s cubic-bezier(.2, .8, .2, 1) both;
 }
 
+.jx-ontologyReviewTrigger {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  padding: 10px 12px;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  border: 1px solid rgba(18, 109, 255, .16);
+  border-radius: 12px;
+  background: var(--color-primary-light);
+  color: var(--color-text);
+  text-align: left;
+  box-shadow: 0 4px 14px rgba(21, 45, 74, .04);
+  transition: border-color .16s, box-shadow .16s, transform .16s;
+}
+
+.jx-ontologyReviewTrigger:hover {
+  border-color: rgba(18, 109, 255, .3);
+  box-shadow: 0 7px 18px rgba(18, 109, 255, .08);
+  transform: translateY(-1px);
+}
+
+.jx-ontologyReviewTrigger:focus-visible {
+  outline: 2px solid var(--color-primary-disabled);
+  outline-offset: 2px;
+}
+
+.jx-ontologyReviewTrigger.is-warning {
+  border-color: rgba(250, 173, 20, .3);
+  background: var(--color-warning-light);
+}
+
+.jx-ontologyReviewTrigger-icon {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 31px;
+  place-items: center;
+  border-radius: 9px;
+  background: rgba(18, 109, 255, .09);
+  color: var(--color-primary);
+  font-size: 15px;
+}
+
+.jx-ontologyReviewTrigger.is-warning .jx-ontologyReviewTrigger-icon {
+  background: rgba(250, 173, 20, .12);
+  color: var(--color-warning-active);
+}
+
+.jx-ontologyReviewTrigger-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.jx-ontologyReviewTrigger-copy strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-ontologyReviewTrigger-copy small {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-ontologyReviewTrigger-arrow {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
 @keyframes jx-ontologyInlineEnter {
   from { opacity: 0; transform: translate3d(0, 6px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
@@ -1124,6 +1204,18 @@
   gap: 14px;
 }
 
+.jx-ontologyListPagination {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+  overflow-x: auto;
+  padding: 4px 0 2px;
+}
+
+.jx-ontologyListPagination > .ant-pagination {
+  margin-left: auto;
+}
+
 .jx-ontologyEditor-listHead {
   display: flex;
   align-items: flex-start;
@@ -1208,6 +1300,8 @@
   .jx-ontologyDetail-moduleHead,
   .jx-ontologyEditor-schemaHead { flex-direction: column; }
   .jx-ontologyDetail-moduleHead > .ant-btn { width: 100%; }
+  .jx-ontologyListPagination { justify-content: center; }
+  .jx-ontologyListPagination > .ant-pagination { margin: 0 auto; }
   .jx-ontologyEditor-propertyRemove { padding-top: 0; }
   .jx-ontologyVersionManager-summary { align-items: flex-start; }
 }

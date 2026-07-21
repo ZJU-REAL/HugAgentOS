@@ -1677,7 +1677,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hugagent-desktop"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "bytes",
@@ -4554,6 +4554,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeftOutlined,
-  ArrowRightOutlined,
   CheckCircleFilled,
-  CloudOutlined,
-  FileTextOutlined,
-  GlobalOutlined,
-  LogoutOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
@@ -74,12 +68,12 @@ interface ModelDraft {
 }
 
 const STEP_META = [
-  { title: '语言与区域', hint: '选择界面语言', icon: <GlobalOutlined /> },
-  { title: '主模型', hint: '连接推理服务', icon: <RobotOutlined /> },
-  { title: '联网搜索', hint: '可选服务', icon: <CloudOutlined /> },
-  { title: '文件解析', hint: '可选服务', icon: <FileTextOutlined /> },
-  { title: '智能增强', hint: '记忆与本体', icon: <SafetyCertificateOutlined /> },
-  { title: '准备就绪', hint: '检查并进入', icon: <CheckCircleFilled /> },
+  { title: '语言与区域', hint: '选择界面语言' },
+  { title: '主模型', hint: '连接推理服务' },
+  { title: '联网搜索', hint: '可选服务' },
+  { title: '文件解析', hint: '可选服务' },
+  { title: '智能增强', hint: '记忆与本体' },
+  { title: '准备就绪', hint: '检查并进入' },
 ] as const;
 
 function safeStoredStep(userId: string): number {
@@ -128,6 +122,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   const [memoryEnabled, setMemoryEnabled] = useState(false);
   const [memoryWriteEnabled, setMemoryWriteEnabled] = useState(false);
   const [memoryAvailable, setMemoryAvailable] = useState(false);
+  const [embeddingAvailable, setEmbeddingAvailable] = useState(false);
   const [ontologyEnabled, setOntologyEnabled] = useState(false);
   const [ontologyAvailable, setOntologyAvailable] = useState(false);
   const [activeOntologyCount, setActiveOntologyCount] = useState(0);
@@ -185,6 +180,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
       setMemoryEnabled(memory.memory_enabled);
       setMemoryWriteEnabled(memory.memory_write_enabled);
       setMemoryAvailable(memory.mem0_available);
+      setEmbeddingAvailable(memory.embedding_available);
       setOntologyEnabled(ontology.ontology_enabled);
       setOntologyAvailable(ontology.available);
       setActiveOntologyCount(ontology.active_packs?.length || 0);
@@ -315,8 +311,10 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         await saveServiceGroup(parserGroup);
       } else if (step === 4) {
         await Promise.all([
-          updateMemorySettings(memoryAvailable && memoryEnabled),
-          updateMemoryWriteSettings(memoryAvailable && memoryEnabled && memoryWriteEnabled),
+          updateMemorySettings(memoryAvailable && embeddingAvailable && memoryEnabled),
+          updateMemoryWriteSettings(
+            memoryAvailable && embeddingAvailable && memoryEnabled && memoryWriteEnabled,
+          ),
           updateOntologySettings(ontologyAvailable && ontologyEnabled),
         ]);
       } else {
@@ -343,6 +341,15 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     }
   };
 
+  const handleMemoryToggle = (checked: boolean) => {
+    if (checked && !embeddingAvailable) {
+      message.warning(t('开启记忆前请先配置并分配 embedding 模型'));
+      setMemoryEnabled(false);
+      return;
+    }
+    setMemoryEnabled(checked);
+  };
+
   const selectProviderSchema = (provider: string) => {
     const schema = schemas.find((item) => item.id === provider);
     setModelDraft((previous) => ({
@@ -357,19 +364,23 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   const renderLanguage = () => (
     <div className="jx-firstRun-choiceGrid">
       {([
-        { value: 'zh-CN' as Lang, eyebrow: '中文', title: '简体中文', desc: '使用简体中文浏览界面与设置' },
-        { value: 'en' as Lang, eyebrow: 'English', title: 'English', desc: 'Use English for the interface and settings' },
+        { value: 'zh-CN' as Lang, title: '简体中文', desc: '使用简体中文浏览界面与设置' },
+        { value: 'en' as Lang, title: 'English', desc: 'Use English for the interface and settings' },
       ]).map((option) => (
         <button
           key={option.value}
           type="button"
           className={`jx-firstRun-choice${language === option.value ? ' jx-firstRun-choice--active' : ''}`}
+          aria-pressed={language === option.value}
           onClick={() => setLanguage(option.value)}
         >
-          <span className="jx-firstRun-choiceEyebrow">{option.eyebrow}</span>
-          <strong>{option.title}</strong>
-          <span>{option.desc}</span>
-          {language === option.value && <CheckCircleFilled className="jx-firstRun-choiceCheck" />}
+          <span className="jx-firstRun-choiceText">
+            <strong>{option.title}</strong>
+            <span>{option.desc}</span>
+          </span>
+          <span className="jx-firstRun-choiceControl" aria-hidden="true">
+            {language === option.value ? <CheckCircleFilled /> : null}
+          </span>
         </button>
       ))}
     </div>
@@ -608,20 +619,27 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
 
   const renderIntelligence = () => (
     <div className="jx-firstRun-featureGrid">
-      <div className={`jx-firstRun-feature${memoryEnabled ? ' jx-firstRun-feature--active' : ''}`}>
+      <div className={`jx-firstRun-feature${memoryAvailable && embeddingAvailable && memoryEnabled
+        ? ' jx-firstRun-feature--active'
+        : ''}`}>
         <div className="jx-firstRun-featureIcon"><RobotOutlined /></div>
         <div className="jx-firstRun-featureBody">
           <div className="jx-firstRun-labelRow">
             <Text strong>{t('永久记忆')}</Text>
             <Switch
-              checked={memoryAvailable && memoryEnabled}
+              checked={memoryAvailable && embeddingAvailable && memoryEnabled}
               disabled={!memoryAvailable}
-              onChange={setMemoryEnabled}
+              onChange={handleMemoryToggle}
             />
           </div>
           <Paragraph>{t('跨会话保留你的偏好与背景，让回答逐渐更贴合你的工作方式。')}</Paragraph>
           {!memoryAvailable && <Tag>{t('当前实例未配置记忆服务')}</Tag>}
-          {memoryAvailable && memoryEnabled && (
+          {memoryAvailable && !embeddingAvailable && (
+            <Tag color="warning">
+              {t('开启记忆前请先配置并分配 embedding 模型')}
+            </Tag>
+          )}
+          {memoryAvailable && embeddingAvailable && memoryEnabled && (
             <label className="jx-firstRun-subSwitch">
               <span>{t('允许对话自动沉淀新记忆')}</span>
               <Switch size="small" checked={memoryWriteEnabled} onChange={setMemoryWriteEnabled} />
@@ -657,7 +675,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
       <div className="jx-firstRun-summary">
         <div><span>{t('界面语言')}</span><strong>{language === 'en' ? 'English' : '简体中文'}</strong></div>
         <div><span>{t('主模型')}</span><strong>{currentMainProvider?.model_name || modelDraft.modelName || t('已配置')}</strong></div>
-        <div><span>{t('永久记忆')}</span><strong>{memoryAvailable && memoryEnabled ? t('开启') : t('关闭')}</strong></div>
+        <div><span>{t('永久记忆')}</span><strong>{memoryAvailable && embeddingAvailable && memoryEnabled ? t('开启') : t('关闭')}</strong></div>
         <div><span>{t('本体核验')}</span><strong>{ontologyAvailable && ontologyEnabled ? t('开启') : t('关闭')}</strong></div>
       </div>
     </div>
@@ -701,21 +719,22 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
 
   return (
     <div className="jx-firstRun-root">
-      <div className="jx-firstRun-aurora jx-firstRun-aurora--one" />
-      <div className="jx-firstRun-aurora jx-firstRun-aurora--two" />
       <header className="jx-firstRun-topbar">
         <div className="jx-firstRun-brand">
-          <span className="jx-firstRun-brandMark">H</span>
-          <span>{brandName}</span>
-          <Tag color="blue">CE</Tag>
+          <img
+            className="jx-firstRun-wordmark"
+            src="/home/hugagentos-logo.png"
+            alt={brandName}
+          />
+          <span className="jx-firstRun-editionLabel">Community Edition</span>
         </div>
-        <Button type="text" icon={<LogoutOutlined />} onClick={() => void doLogout()}>
+        <Button type="text" onClick={() => void doLogout()}>
           {t('退出登录')}
         </Button>
       </header>
 
       <main className="jx-firstRun-shell">
-        <aside className="jx-firstRun-rail">
+        <aside className="jx-firstRun-rail" aria-label={t('首次设置')}>
           <div className="jx-firstRun-railIntro">
             <span>{t('首次设置')}</span>
             <strong>{t('让我们完成最后几项配置')}</strong>
@@ -725,9 +744,10 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
               <li
                 key={item.title}
                 className={`${index === step ? 'is-active' : ''}${index < step ? ' is-done' : ''}`}
+                aria-current={index === step ? 'step' : undefined}
               >
-                <span className="jx-firstRun-stepIcon">
-                  {index < step ? <CheckCircleFilled /> : item.icon}
+                <span className="jx-firstRun-stepIndex" aria-hidden="true">
+                  {index < step ? <CheckCircleFilled /> : String(index + 1).padStart(2, '0')}
                 </span>
                 <span>
                   <strong>{t(item.title)}</strong>
@@ -738,13 +758,22 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           </ol>
           <div className="jx-firstRun-railFooter">
             <span>{t('步骤 {current} / {total}', { current: step + 1, total: STEP_META.length })}</span>
-            <div><i style={{ width: `${((step + 1) / STEP_META.length) * 100}%` }} /></div>
+            <div
+              role="progressbar"
+              aria-valuemin={1}
+              aria-valuemax={STEP_META.length}
+              aria-valuenow={step + 1}
+            >
+              <i style={{ width: `${((step + 1) / STEP_META.length) * 100}%` }} />
+            </div>
           </div>
         </aside>
 
         <section className="jx-firstRun-card">
           <div className="jx-firstRun-cardHeader">
-            <Text className="jx-firstRun-kicker">{t('HugAgentOS 社区版初始化')}</Text>
+            <Text className="jx-firstRun-kicker">
+              {t('步骤 {current} / {total}', { current: step + 1, total: STEP_META.length })}
+            </Text>
             <Title level={1}>{t(stepDescriptions[step][0])}</Title>
             <Paragraph>{t(stepDescriptions[step][1])}</Paragraph>
           </div>
@@ -753,10 +782,10 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={step}
-                initial={{ opacity: 0, x: 24 }}
+                initial={{ opacity: 0, x: 12 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -16 }}
-                transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+                exit={{ opacity: 0, x: -8 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               >
                 {panels[step]}
               </motion.div>
@@ -765,8 +794,8 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
 
           <footer className="jx-firstRun-actions">
             <Button
+              type="text"
               size="large"
-              icon={<ArrowLeftOutlined />}
               disabled={step === 0 || busy}
               onClick={() => persistStep(Math.max(0, step - 1))}
             >
@@ -777,12 +806,12 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
               <Button
                 type="primary"
                 size="large"
+                className="jx-firstRun-primaryButton"
                 loading={busy}
                 icon={step === STEP_META.length - 1 ? <CheckCircleFilled /> : undefined}
                 onClick={() => void handleNext()}
               >
                 {step === STEP_META.length - 1 ? t('完成并进入工作台') : t('继续')}
-                {step < STEP_META.length - 1 && <ArrowRightOutlined />}
               </Button>
             </Space>
           </footer>

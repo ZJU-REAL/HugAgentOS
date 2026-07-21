@@ -36,6 +36,29 @@ def get_provider(db: Session, provider_id: str) -> Optional[ModelProvider]:
     return db.query(ModelProvider).filter(ModelProvider.provider_id == provider_id).first()
 
 
+def get_active_role_provider(
+    db: Session,
+    role_key: str,
+    *,
+    provider_type: str | None = None,
+) -> Optional[ModelProvider]:
+    """Return the active provider assigned to a role, optionally enforcing its type."""
+    query = (
+        db.query(ModelProvider)
+        .join(
+            ModelRoleAssignment,
+            ModelRoleAssignment.provider_id == ModelProvider.provider_id,
+        )
+        .filter(
+            ModelRoleAssignment.role_key == role_key,
+            ModelProvider.is_active.is_(True),
+        )
+    )
+    if provider_type:
+        query = query.filter(ModelProvider.provider_type == provider_type)
+    return query.first()
+
+
 def create_provider(db: Session, *, display_name: str, provider_type: str,
                     base_url: str, api_key: str, model_name: str,
                     provider: str = "openai_compatible",

@@ -13,11 +13,13 @@ use tauri_plugin_opener::OpenerExt;
 use crate::brand;
 use crate::Shared;
 
-/// 构建应用菜单栏。挂在主窗口上（见 `build_window`）。
+/// 原生菜单保留为平台回退；Windows 主窗口使用与标题同一行的 WebView 标题栏。
+#[allow(dead_code)]
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let file = SubmenuBuilder::new(app, "文件")
         .text("new_chat", "新建对话")
         .text("server_config", "设置服务器地址…")
+        .text("local_server", "本机服务…")
         .separator()
         .quit()
         .build()?;
@@ -64,7 +66,7 @@ pub fn dispatch(app: &AppHandle, id: &str) {
         "new_chat" => {
             if let Some(w) = app.get_webview_window("main") {
                 let port = app.state::<Shared>().port;
-                let _ = w.eval(&format!(
+                let _ = w.eval(format!(
                     "window.location.replace('http://127.0.0.1:{}/')",
                     port
                 ));
@@ -74,14 +76,26 @@ pub fn dispatch(app: &AppHandle, id: &str) {
             }
         }
         "server_config" => crate::open_server_config(app),
+        "local_server" => {
+            if let Some(w) = app.get_webview_window("main") {
+                let port = app.state::<Shared>().port;
+                let _ = w.eval(format!(
+                    "window.location.replace('http://127.0.0.1:{}/__desktop/setup?manage=1')",
+                    port
+                ));
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }
         "reload" => {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.eval("window.location.reload()");
             }
         }
         "check_update" => {
-            let server_base = app.state::<Shared>().server_base.clone();
-            crate::update::check_and_install(app.clone(), server_base, false);
+            let update_base = app.state::<Shared>().update_base.clone();
+            crate::update::check_and_install(app.clone(), update_base, false);
         }
         "website" => {
             let shared = app.state::<Shared>();

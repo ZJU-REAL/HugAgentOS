@@ -6,16 +6,29 @@ import XxxRepository`` keeps working unchanged.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import sqlalchemy as sa
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, func, select
+from core.config.settings import settings
 from core.db.models import (
-    UserShadow, ChatSession, ChatMessage, CatalogOverride,
-    KBSpace, KBDocument, Artifact, AuditLog, UserAgent,
-    LocalUser, Team, TeamMember, TeamFolder, InviteCode,
+    Artifact,
+    AuditLog,
+    CatalogOverride,
+    ChatMessage,
+    ChatSession,
+    InviteCode,
+    KBDocument,
+    KBSpace,
+    LocalUser,
+    Team,
+    TeamFolder,
+    TeamMember,
+    UserAgent,
+    UserShadow,
 )
+from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy.orm import Session
 
 
 class UserAgentRepository:
@@ -31,23 +44,37 @@ class UserAgentRepository:
         """Return all agents visible to a user: enabled admin agents + user's own agents
         + team agents — every member sees *enabled* team agents; team owner/admin also
         see *disabled* ones (so they can re-enable them; there is no separate admin view)."""
-        member_team_ids = self.db.query(TeamMember.team_id).filter(TeamMember.user_id == user_id)
-        manager_team_ids = self.db.query(TeamMember.team_id).filter(
-            TeamMember.user_id == user_id,
-            TeamMember.role.in_(("owner", "admin")),
-        )
-        return self.db.query(UserAgent).filter(
-            or_(
-                and_(UserAgent.owner_type == "admin", UserAgent.is_enabled == True),
-                and_(UserAgent.owner_type == "user", UserAgent.user_id == user_id),
-                and_(
-                    UserAgent.owner_type == "team",
-                    UserAgent.is_enabled == True,
-                    UserAgent.team_id.in_(member_team_ids),
-                ),
-                and_(UserAgent.owner_type == "team", UserAgent.team_id.in_(manager_team_ids)),
+        visibility_filters = [
+            and_(UserAgent.owner_type == "admin", UserAgent.is_enabled == True),
+            and_(UserAgent.owner_type == "user", UserAgent.user_id == user_id),
+        ]
+        if settings.edition.is_ee:
+            member_team_ids = self.db.query(TeamMember.team_id).filter(
+                TeamMember.user_id == user_id
             )
-        ).order_by(UserAgent.owner_type.desc(), UserAgent.sort_order, UserAgent.created_at).all()
+            manager_team_ids = self.db.query(TeamMember.team_id).filter(
+                TeamMember.user_id == user_id,
+                TeamMember.role.in_(("owner", "admin")),
+            )
+            visibility_filters.extend(
+                [
+                    and_(
+                        UserAgent.owner_type == "team",
+                        UserAgent.is_enabled == True,
+                        UserAgent.team_id.in_(member_team_ids),
+                    ),
+                    and_(
+                        UserAgent.owner_type == "team",
+                        UserAgent.team_id.in_(manager_team_ids),
+                    ),
+                ]
+            )
+        return (
+            self.db.query(UserAgent)
+            .filter(or_(*visibility_filters))
+            .order_by(UserAgent.owner_type.desc(), UserAgent.sort_order, UserAgent.created_at)
+            .all()
+        )
 
     def list_admin(self) -> List[UserAgent]:
         """Return all admin-owned agents."""

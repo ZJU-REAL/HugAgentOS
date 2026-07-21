@@ -94,6 +94,8 @@ export default function SettingsPage() {
   const {
     memoryEnabled,
     memoryWriteEnabled,
+    memoryServiceAvailable,
+    embeddingAvailable,
     memoryItems,
     memoryPanelOpen,
     memoryLoading,
@@ -677,6 +679,7 @@ export default function SettingsPage() {
             </div>
             <Switch
               checked={memoryWriteEnabled}
+              disabled={!memoryServiceAvailable}
               onChange={(checked) => toggleMemoryWrite(checked)}
             />
           </div>
@@ -690,9 +693,18 @@ export default function SettingsPage() {
               <span className="jx-settings-rowDesc">
                 {t('开启后 AI 将记住您跨会话的偏好和背景信息')}
               </span>
+              {!memoryServiceAvailable && (
+                <Tag>{t('当前实例未配置记忆服务')}</Tag>
+              )}
+              {memoryServiceAvailable && !embeddingAvailable && (
+                <Tag color="warning">
+                  {t('开启记忆前请先配置并分配 embedding 模型')}
+                </Tag>
+              )}
             </div>
             <Switch
               checked={memoryEnabled}
+              disabled={!memoryServiceAvailable}
               onChange={(checked) => toggleMemory(checked)}
             />
           </div>

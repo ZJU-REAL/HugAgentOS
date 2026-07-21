@@ -7,8 +7,9 @@ dependencies and their licenses:
             (Apache-2.0), mcp (MIT), httpx (BSD-3), structlog (Apache-2.0)
   Frontend: React (MIT), Ant Design (MIT), Zustand (MIT), Univer presets —
             free tiers only (Apache-2.0), Mermaid (MIT), KaTeX (MIT)
-  Optional: mem0ai (Apache-2.0), neo4j Python driver (Apache-2.0) — installed
-            only with the `mem0` profile (requirements-mem0.txt)
+  Memory  : mem0ai (Apache-2.0), neo4j Python driver (Apache-2.0) — packaged
+            separately in requirements-mem0.txt; the no-Docker installer
+            installs this file to provide L2 memory by default
 
 Commercial-licensed components (e.g. @univerjs/preset-sheets-advanced) and
 proprietary cloud SDKs (oss2, opensandbox) are NOT part of this distribution;

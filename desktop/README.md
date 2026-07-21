@@ -1,12 +1,17 @@
 # HugAgentOS 桌面客户端（Tauri v2）
 
-把现有 Web 平台封装为桌面客户端（Windows / Linux，Mac 待接入构建机）的**瘦客户端外壳**：后端集群不变，客户端通过
-内置本地反代访问内网后端。登录走**方案 B**——系统浏览器跳转登录 + `hugagent://` deep-link
-唤起 App + 一次性 handoff 票据换 token。前端源码零改动（复用 `src/frontend`）。
+把现有 Web 平台封装为桌面客户端（Windows / Linux，Mac 待接入构建机）。客户端支持两种
+运行方式：连接已部署的团队服务器，或在 Windows 首装时选择由客户端一键安装并托管本机
+CE 单机服务。两种方式都通过内置本地反代访问后端。
+
+登录走**方案 B**——系统浏览器跳转登录 + `hugagent://` deep-link 唤起 App + 一次性
+handoff 票据换 token。前端源码零改动（复用 `src/frontend`）。
 
 > 完整设计见 `internal design docs`。本目录是方案 B 的落地实现。
 
 ## 架构一图
+
+远程服务器模式保持原有瘦客户端架构：
 
 ```
 桌面App ──系统浏览器──► <server>/?desktop=1 ──SSO登录──► 前端换 handoff 票据
@@ -24,6 +29,20 @@
 ```
 
 deep-link 上只走**单次、秒级过期**的 handoff 票据，长期 token 永不进 URL。
+
+Windows 本机服务模式在这条链路前增加一层客户端托管：
+
+```text
+NSIS 首装选择“本机服务”
+  → 安装包内同版本 CE 派生树
+  → %LOCALAPPDATA%\com.hugagent.desktop\local-server\venv
+  → hugagent serve --host 127.0.0.1 --port 32101
+  → 健康检查通过
+  → 桌面本地反代继续复用既有登录与 API 转发链路
+```
+
+本机服务不需要 Docker、PostgreSQL 或 Redis。它使用 SQLite、进程内 Redis 和宿主子进程
+沙箱，定位是个人单机使用，不替代团队生产部署。
 
 ## 依赖的后端能力（后端已内置）
 
@@ -52,6 +71,7 @@ Windows 机器上打，**Linux 包可在任意装好 Rust 的 Linux / WSL 环境
 
 ```json
 {
+  "deployment_mode": "remote",
   "server_base": "https://agent.example.gov.cn",
   "cookie_name": "jx_session",
   "insecure_tls": false
@@ -59,10 +79,14 @@ Windows 机器上打，**Linux 包可在任意装好 Rust 的 Linux / WSL 环境
 ```
 
 - `<应用配置目录>`：Windows `%APPDATA%\com.hugagent.desktop`，Linux `~/.config/com.hugagent.desktop`
-- 也可用环境变量 `HUGAGENT_SERVER_BASE` 覆盖（优先级低于 server.json）
+- `deployment_mode` 可取 `remote` / `local`；切换本机服务时客户端会把地址固定为
+  `http://127.0.0.1:32101`
+- 也可用环境变量 `HUGAGENT_SERVER_BASE` 覆盖（优先级高于 server.json，并强制切回远程模式）
 - `cookie_name` 必须与后端 `SESSION_COOKIE_NAME` 一致（默认 `jx_session`）
 - 内网自签 HTTPS 时把 `insecure_tls` 设为 `true`
 - 编译期默认值来自 `src-tauri/src/brand.rs`，可用 `JX_DEFAULT_SERVER_BASE` 覆盖；正式分发务必通过构建变量、server.json 或环境变量配置实际服务地址
+- 本机模式的桌面更新源用 `JX_DESKTOP_UPDATE_BASE` 在构建时指定（未设则回退
+  `JX_DEFAULT_SERVER_BASE`），也可由 `HUGAGENT_UPDATE_SERVER_BASE` 在运行时覆盖
 
 ## 构建 / 运行
 
@@ -71,7 +95,7 @@ cd desktop
 npm install            # 装 @tauri-apps/cli
 
 # 生产构建（自动先 build 前端；构建须注入更新签名私钥，见《自动更新》）
-# Windows 侧 → 打 .msi/.exe：      产物 src-tauri/target/release/bundle/{msi,nsis}/
+# Windows 侧 → 打 NSIS .exe：       产物 src-tauri/target/release/bundle/nsis/
 # Linux 本机 → 打 AppImage + deb： 产物 src-tauri/target/release/bundle/{appimage,deb}/
 npm run build
 
@@ -80,11 +104,18 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 ```
 
 > 平台打包目标由 `src-tauri/tauri.linux.conf.json`（Linux：appimage+deb）覆盖基础配置
-> （Windows：nsis+msi）；Mac 接入时同理加 `tauri.macos.conf.json`。Linux 只有 **AppImage
+> （Windows：NSIS）；Mac 接入时同理加 `tauri.macos.conf.json`。Linux 只有 **AppImage
 > 支持自动更新**，deb 仅作首装分发。WSL 下打 AppImage 建议带 `APPIMAGE_EXTRACT_AND_RUN=1`。
 
-> `beforeBuildCommand` 已配置为自动 `npm --prefix ../src/frontend run build`，构建时无需手动 build 前端。
-> dev 模式下反代从仓库内 `src/frontend/dist` 读取静态资源（见 `resolve_web_dir` 的回落链）。
+> Windows overlay 的 `beforeBuildCommand` 会运行 `scripts/prepare-bundle.mjs`：构建桌面前端、用
+> `scripts/build_ce.py` 生成通过开源边界门禁的 CE 树、构建 CE 登录前端，并删除构建期
+> `node_modules` 后再交给 Tauri 打包。Linux 仍只构建桌面前端，不携带 Windows 本机服务载荷；
+> dev 模式从仓库内 `src/frontend/dist` 读取静态资源。
+
+正式发版前需确保工作区干净，并在 Windows PowerShell 设置
+`$env:HUGAGENT_RELEASE_BUILD="1"`；此时 CE 生成器不会接受 `--allow-dirty`。版本号必须同时更新
+`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`（本机服务从 `0.2.0` 起提供），
+`prepare-bundle.mjs` 会在耗时构建开始前校验三者一致。
 
 ## 关键文件
 
@@ -94,10 +125,14 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 | `src-tauri/src/proxy.rs` | 本地反代：静态 serve + `/api` 转发 + cookie 注入 + SSE 透传；`/__desktop/*` 原生页（登录/关闭确认/服务器配置） |
 | `src-tauri/src/auth.rs` | token 落盘 + handoff 票据 redeem |
 | `src-tauri/src/config.rs` | server.json / 环境变量 / 默认值；`save_server_base` 写回 |
+| `src-tauri/src/local_server.rs` | 本机服务安装、版本检测、进程托管、健康检查、进度与日志状态 |
 | `src-tauri/src/menu.rs` | 顶部原生菜单栏（文件/编辑/视图/帮助）构建 + 事件分发 |
 | `src-tauri/src/notify.rs` | **A1** 后台通知轮询 → 原生系统通知（接后端 `automations/notifications/list`） |
 | `src-tauri/src/update.rs` | **A3** 一键自动更新：拉后端 manifest → 验签 → 安装 → 重启 |
 | `src-tauri/tauri.conf.json` | 窗口/打包/deep-link scheme/资源/**updater 配置（pubkey + endpoints）** |
+| `src-tauri/installer-hooks.nsh` | Windows 首装时选择“本机服务”或“仅客户端”；静默更新不重复询问 |
+| `resources/server-bootstrap/install-local-server.ps1` | Windows 用户目录内创建 Python 环境并安装随包 CE 服务 |
+| `scripts/prepare-bundle.mjs` | 发行构建前生成同版本 CE 服务资源和 `desktop-bundle.json` |
 | `src-tauri/capabilities/default.json` | 插件权限（opener / deep-link / notification / global-shortcut / updater） |
 
 ## 本次新增能力（Tier A + 菜单栏 + 一键更新）
@@ -115,6 +150,9 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
   帮助=检查更新·访问官网·关于。
 - **设置服务器地址 UI**（菜单「文件 → 设置服务器地址…」）：填后端地址→写回 server.json→重启生效，
   不再必须手改 JSON。
+- **本机服务一键安装**（菜单「文件 → 本机服务…」）：后端不可达时也会自动显示。安装过程提供
+  阶段进度、实时日志、失败重试和健康检查；客户端更新携带新 CE 资源时自动升级服务代码，
+  `data/` 目录保持不变。
 
 > 交互全部走「原生菜单/托盘 → Rust」或「导航到 `/__desktop/*` 哨兵 → 导航守卫」，**不依赖 Tauri
 > IPC**——因为前端跑在本地反代这个「远程源」上，`window.__TAURI__`/invoke 不保证注入。这是本壳
@@ -125,10 +163,10 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 桌面端把前端 dist **打进安装包**，所以以往前端/壳一更新就得重新编译、重新分发客户端。现在客户端能
 **整包自更新**：检查更新 → 后端拉清单 → 本地验签 → 下载安装 → 重启（新的前端 dist 一并换掉）。
 
-**链路**：`客户端「检查更新」→ <server_base>/api/v1/desktop/latest.json →（有新版）下载安装包 →
-pubkey 验签 → 安装 → 重启`。更新 endpoint **运行时**用当前 `server_base` 拼装，因此一个 .exe 通吃
-多套私有化环境（server.json 切后端，更新源自动跟着走）。后端接口见
-`src/backend/api/routes/v1/desktop.py`。
+**链路**：`客户端「检查更新」→ <update_base>/api/v1/desktop/latest.json →（有新版）下载安装包 →
+pubkey 验签 → 安装 → 重启`。远程模式默认让更新源跟随当前 `server_base`；本机模式改用构建时
+`JX_DESKTOP_UPDATE_BASE`（未设时回退 `JX_DEFAULT_SERVER_BASE`），避免向本机 CE 服务查询并不存在的
+桌面安装包。后端接口见 `src/backend/api/routes/v1/desktop.py`。
 
 ### 一次性前置：生成签名密钥（不做则构建/更新都不可用）
 
@@ -150,7 +188,8 @@ npm run build
 > 同一对密钥三平台共用——Windows / Linux / Mac 构建都注入同一个私钥，客户端用同一个 pubkey 验签。
 
 > `tauri.conf.json → plugins.updater.endpoints` 里的默认 endpoint 仅作占位/兜底，实际运行时会被
-> `server_base` 覆盖；正式分发按需把它也改成正式地址。
+> Rust 侧 endpoint 覆盖；正式本机版构建须设置 `JX_DESKTOP_UPDATE_BASE` 或
+> `JX_DEFAULT_SERVER_BASE` 为可发布桌面包的后端地址。
 
 ### 发布一个新版本（在后端侧）
 
@@ -196,6 +235,12 @@ npm run build
 
 - **Windows 包**仍需在 Windows 侧构建（Tauri 不支持交叉编译）；**Linux 包在装好 Rust 的
   Linux / WSL 环境可直接构建**（apt 依赖见上）。
+- Windows 本机服务首次安装需要联网下载 Python wheels。未安装 Python 3.11+ 时，引导脚本会
+  优先用 `winget` 为当前用户静默安装；系统同时缺少 Python 和 `winget` 时，进度页会给出可重试错误。
+  Node.js 20+ 缺失时也会尝试通过 `winget` 补齐；这一步失败不阻断核心服务，但 React 建站和高级
+  PDF 渲染会保持降级状态。
+- 本机服务数据位于 `%LOCALAPPDATA%\com.hugagent.desktop\local-server\data`。卸载桌面客户端
+  默认保留该目录，避免误删用户数据；确认不再需要后可手动删除。
 - Linux 托盘依赖 libayatana-appindicator；Wayland 下全局快捷键（Ctrl+Shift+Space）兼容性因桌面
   环境而异。
 - 依赖版本号（tauri 插件、axum/reqwest 等）以实际 `cargo build` 为准；个别 capability

@@ -1,4 +1,5 @@
 node_modules/
+generated/
 src-tauri/target/
 src-tauri/gen/
 # 运行时生成的本地配置/凭据（绝不入库）

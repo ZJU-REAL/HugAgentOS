@@ -179,6 +179,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   let parseBuffer = '';
   let toolPending = false;
   let pendingPlanRedirect: string | null = null;
+  let ontologySidebarAutoOpened = false;
 
   const ensureOntologyGovernance = (eventObj?: Record<string, unknown>) => {
     if (!ontologyGovernance) {
@@ -443,6 +444,15 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   };
 
   const placeholderTs = Date.now();
+  const autoOpenOntologySidebar = () => {
+    if (ontologySidebarAutoOpened) return;
+    ontologySidebarAutoOpened = true;
+    // A background stream must not replace the panel in the chat the user is
+    // currently reading. The result remains available from its message entry.
+    if (useChatStore.getState().currentChatId !== chatId) return;
+    if (useCatalogStore.getState().panel !== 'chat') return;
+    useCanvasStore.getState().openOntology({ chatId, messageTs: placeholderTs });
+  };
   const appendOrUpdate = (streaming: boolean, cits?: CitationItem[]) => {
     useChatStore.getState().updateStore((prev) => {
       const c = prev.chats[chatId];
@@ -606,6 +616,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             typeof eventObj.source === 'string' ? eventObj.source : undefined,
           );
           revision.status = eventObj.status === 'completed' ? 'completed' : 'streaming';
+          if (eventObj.status === 'started') autoOpenOntologySidebar();
           if (eventObj.status === 'started' || eventObj.status === 'completed') {
             revision.toolPending = false;
           }
@@ -631,6 +642,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           const revision = ensureOntologyRevision();
           revision.status = 'streaming';
           revision.toolPending = false;
+          autoOpenOntologySidebar();
           if (content) appendRevisionText(content);
           appendOrUpdate(true, allCitations);
           return;
@@ -872,6 +884,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               ? eventObj.new_citation_count
               : governance.review.new_citation_count,
           };
+          if (status === 'started') autoOpenOntologySidebar();
           if (status === 'completed') {
             const candidate = governance.review.candidate_answer || '';
             if (candidate || governance.revision) {
