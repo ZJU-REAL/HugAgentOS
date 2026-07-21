@@ -43,8 +43,11 @@ export function assertDerivedCeRepository(repoRoot) {
 }
 
 export function assertCleanRepository(repoRoot) {
-  const status = git(repoRoot, ["status", "--porcelain"]);
-  if (status.trim()) {
+  // Build tools may leave ignored/untracked artifacts (for example frontend
+  // dist output). The payload is assembled exclusively from tracked files, so
+  // only staged or unstaged changes to tracked files can make it non-reproducible.
+  const trackedChanges = git(repoRoot, ["status", "--porcelain", "--untracked-files=no"]);
+  if (trackedChanges.trim()) {
     throw new Error(
       "Desktop release payloads must be built from a clean Git checkout",
     );
