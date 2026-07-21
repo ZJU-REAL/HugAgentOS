@@ -2,7 +2,7 @@
   position:relative;
   width:100%;
   height:100%;
-  min-height:680px;
+  min-height:0;
   overflow:auto;
   color:var(--color-text);
   background:#fff;
@@ -50,10 +50,11 @@
 .jx-firstRun-shell{
   width:min(1200px,calc(100% - 48px));
   height:calc(100vh - 72px);
-  min-height:608px;
+  min-height:0;
   margin:72px auto 0;
   display:grid;
   grid-template-columns:248px minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr);
   overflow:hidden;
   background:#fff;
 }
@@ -158,9 +159,11 @@
 
 .jx-firstRun-card{
   min-width:0;
+  min-height:0;
   padding:64px clamp(48px,7vw,96px) 32px;
   display:grid;
   grid-template-rows:auto minmax(0,1fr) auto;
+  overflow:hidden;
 }
 .jx-firstRun-cardHeader,
 .jx-firstRun-cardBody,
@@ -196,7 +199,20 @@
 .jx-firstRun-cardBody{
   min-height:0;
   padding:42px 0 28px;
-  overflow:auto;
+  overflow-x:hidden;
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+  scrollbar-color:#b8b8b8 transparent;
+  overscroll-behavior:contain;
+}
+.jx-firstRun-cardBody::-webkit-scrollbar{width:8px}
+.jx-firstRun-cardBody::-webkit-scrollbar-thumb{
+  background:#c4c4c4;
+  border:2px solid #fff;
+  border-radius:999px;
+}
+.jx-firstRun-cardBody::-webkit-scrollbar-thumb:hover{
+  background:#a8a8a8;
 }
 .jx-firstRun-actions{
   padding-top:20px;

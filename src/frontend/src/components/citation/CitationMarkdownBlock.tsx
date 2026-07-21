@@ -70,6 +70,14 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     () => isMarkdown ? mdToHtml(normalizedText) : '',
     [normalizedText, isMarkdown],
   );
+  // Keep the prop object stable when only portal state changes. Otherwise a
+  // Mermaid scan followed by setState can make React assign innerHTML again,
+  // detaching the freshly discovered portal target before it is used.
+  const renderedHtmlProp = useMemo(() => ({ __html: renderedHtml }), [renderedHtml]);
+  const shouldRenderMermaid = !messageIsStreaming
+    && isMarkdown
+    && hasMermaid(normalizedText);
+  const visibleMermaidCharts = shouldRenderMermaid ? mermaidCharts : EMPTY_MERMAID;
 
   // Lazy-load KaTeX when LaTeX content detected
   useEffect(() => {
@@ -80,13 +88,14 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     }
   }, [normalizedText, isMarkdown]);
 
-  // After render, scan for mermaid placeholders
+  // After render, scan for mermaid placeholders. While text is streaming,
+  // `dangerouslySetInnerHTML` replaces the markdown subtree for every delta.
+  // A portal mounted into one of those placeholders would therefore be
+  // destroyed and recreated repeatedly, making the diagram jump between the
+  // small loading box and the full SVG. Keep the placeholder stable during
+  // streaming and render each diagram once after the message settles.
   useEffect(() => {
-    if (!isMarkdown || !hasMermaid(normalizedText) || !containerRef.current) {
-      // Use stable reference to avoid re-render from new empty array
-      setMermaidCharts(prev => prev.length === 0 ? prev : EMPTY_MERMAID);
-      return;
-    }
+    if (!shouldRenderMermaid || !containerRef.current) return;
     // Small delay to let DOM update
     const timer = setTimeout(() => {
       if (!containerRef.current) return;
@@ -94,14 +103,14 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
       setMermaidCharts(charts);
     }, 0);
     return () => clearTimeout(timer);
-  }, [normalizedText, isMarkdown]);
+  }, [normalizedText, shouldRenderMermaid]);
 
   if (!hasCit) {
     if (isMarkdown) {
       return (
         <div className={className} ref={containerRef as RefObject<HTMLDivElement>}>
-          <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-          {mermaidCharts.map((mc, i) =>
+          <div dangerouslySetInnerHTML={renderedHtmlProp} />
+          {visibleMermaidCharts.map((mc, i) =>
             createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
           )}
         </div>
@@ -111,7 +120,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     return (
       <span className={className} ref={containerRef as RefObject<HTMLSpanElement>}>
         {normalizedText}
-        {mermaidCharts.map((mc, i) =>
+        {visibleMermaidCharts.map((mc, i) =>
           createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
         )}
       </span>
@@ -141,7 +150,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
           citations={citations}
           onCitationAction={onCitationAction}
         />
-        {mermaidCharts.map((mc, i) =>
+        {visibleMermaidCharts.map((mc, i) =>
           createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
         )}
       </div>
@@ -156,7 +165,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
         citations={citations}
         onCitationAction={onCitationAction}
       />
-      {mermaidCharts.map((mc, i) =>
+      {visibleMermaidCharts.map((mc, i) =>
         createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
       )}
     </span>
