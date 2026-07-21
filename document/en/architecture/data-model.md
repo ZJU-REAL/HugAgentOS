@@ -1,13 +1,13 @@
 # Data Model Overview
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-19
 
-The data-access layer lives in `src/backend/core/db/`: ORM models are split by domain into the `models/` package (11 domain files, all re-exported verbatim from `models/__init__.py`, so the legacy `from core.db.models import X` style still works), the repository layer sits in `repository/`, and the engine and sessions in `engine.py`. Development uses SQLite, production PostgreSQL — `models/__init__.py` defines two dialect-aware types shared by all models: `JSONType` (automatically upgraded to JSONB on PostgreSQL) and `INETType` (INET on PostgreSQL).
+The data-access layer lives in `src/backend/core/db/`: ORM models are split by domain into the `models/` package (14 domain files, all re-exported verbatim from `models/__init__.py`, so the legacy `from core.db.models import X` style still works), the repository layer sits in `repository/`, and the engine and sessions in `engine.py`. Development uses SQLite, production PostgreSQL — `models/__init__.py` defines two dialect-aware types shared by all models: `JSONType` (automatically upgraded to JSONB on PostgreSQL) and `INETType` (INET on PostgreSQL).
 
 ```
 core/db/
 ├── engine.py            # Engine, SessionLocal, init_db startup table fallback
-├── models/              # ORM model package (11 domain files)
+├── models/              # ORM model package (14 domain files)
 │   ├── identity.py      # Users, teams, folders, API keys
 │   ├── chat.py          # Sessions, messages, runs, feedback, sandbox snapshots
 │   ├── project.py       # Project workspaces
@@ -18,7 +18,10 @@ core/db/
 │   ├── agent.py         # Sub-agents, plan mode
 │   ├── automation.py    # Scheduled tasks, distillation, batch plans
 │   ├── logs.py          # Tool/sub-agent/skill call logs, audit
-│   └── memory.py        # Profile memory, memory audit, sanitizer rules
+│   ├── memory.py        # Profile memory, memory audit, sanitizer rules
+│   ├── datasource.py    # Data sources, metadata governance, golden SQL
+│   ├── site.py          # Sites, connectors, and channel configuration
+│   └── ontology.py      # Domain Pack versions, gates, committees, evolution drafts
 ├── repository/          # Repository layer: agent/artifact/audit/catalog/chat/kb/team/user
 ├── model_repository.py  # Repository for model providers / role assignments
 └── edition_tables.py    # Single source of truth for the CE/EE table boundary
@@ -124,6 +127,16 @@ Tables marked "(Enterprise Edition, EE)" belong to the `EE_ONLY_TABLES` set and 
 | `skill_call_logs` | Skill triggers (view / run_script / auto_load) |
 | `audit_logs` (Enterprise Edition, EE) | User-facing audit of critical operations |
 
+### Domain ontology (models/ontology.py)
+
+| Table | Purpose |
+|---|---|
+| `ontology_packs` | Domain Pack identity, enable/default flags, and active-version pointer |
+| `ontology_pack_versions` | Immutable four-layer ontology content and validation report |
+| `ontology_enforcement_events` | Append-only evidence from build, tool, and output gates |
+| `ontology_review_runs` | Checkpoint/committee verdicts, evidence, and latency |
+| `ontology_drafts` | Human-reviewed evolution candidates and their materialized-version pointer |
+
 ## Alembic Migrations
 
 - **EE main chain**: 53 migrations under `src/backend/alembic/versions/`, evolving from the initial schema (including structural moves such as MCP-to-streamable-http and the retirement of the office MCPs in favor of skills). Common commands: `alembic upgrade head`, `make migrate-new msg="..."` (autogenerate is driven by `core/db/models` metadata);
@@ -154,6 +167,7 @@ A few tables that *look* EE but are required by CE are deliberately excluded fro
 | Topic | Path |
 |---|---|
 | ORM model package | `src/backend/core/db/models/` |
+| Ontology repository | `src/backend/core/db/repository/ontology.py` |
 | Engine and startup table creation | `src/backend/core/db/engine.py` |
 | Repository layer | `src/backend/core/db/repository/` |
 | CE/EE table boundary | `src/backend/core/db/edition_tables.py` |

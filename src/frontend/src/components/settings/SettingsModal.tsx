@@ -8,6 +8,7 @@ import {
   DeploymentUnitOutlined, EditOutlined, ExclamationCircleFilled, FileTextOutlined,
   KeyOutlined, LinkOutlined, LockOutlined, LogoutOutlined, MessageOutlined, RobotOutlined,
   TeamOutlined, UserOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSettingsStore, useAuthStore, useCatalogStore, useUIStore, useEditionStore, usePluginStore } from '../../stores';
@@ -15,7 +16,14 @@ import { DUR, EASE, SLIDE_EASE } from '../../utils/motionTokens';
 import type { MemoryItem } from '../../types';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import { mdToHtml } from '../../utils/markdown';
-import { getMyProfile, getMySystemAccess, setMyAvatarUrl, updateMyProfile, uploadMyAvatar } from '../../api';
+import {
+  getMyProfile,
+  getMySystemAccess,
+  getOntologyGovernanceAccess,
+  setMyAvatarUrl,
+  updateMyProfile,
+  uploadMyAvatar,
+} from '../../api';
 import { TeamsSection } from './TeamsSection';
 import { ApiKeyPanel } from './ApiKeyPanel';
 import { ChannelBotsPanel } from './ChannelBotsPanel';
@@ -24,6 +32,7 @@ import { SystemServicePanel } from './SystemServicePanel';
 import { MyLogsPanel } from './MyLogsPanel';
 import { PasswordManagementPanel } from './PasswordManagementPanel';
 import { FactsList } from '../memory/FactsList';
+import { OntologyManager } from '../ontology';
 import { roleLabel } from '../../utils/roles';
 import { getLang, setLang, t, type Lang } from '../../i18n';
 
@@ -37,6 +46,7 @@ const SETTINGS_SECTIONS: SectionDef[] = [
   { id: 'profile', label: t('个人信息'), icon: <UserOutlined /> },
   { id: 'session', label: t('会话设置'), icon: <MessageOutlined /> },
   { id: 'memory', label: t('记忆设置'), icon: <DatabaseOutlined /> },
+  { id: 'ontology', label: t('本体校验'), icon: <SafetyCertificateOutlined /> },
   { id: 'enabled', label: t('已启用清单'), icon: <AppstoreOutlined /> },
   { id: 'teams', label: t('团队管理'), icon: <TeamOutlined /> },
 ];
@@ -91,9 +101,14 @@ export default function SettingsPage() {
     memoryGraph,
     memoryGraphEnabled,
     lastToggleError,
+    ontologyEnabled,
+    ontologyAvailable,
+    ontologyActivePacks,
     setMemoryPanelOpen,
     toggleMemory,
     toggleMemoryWrite,
+    toggleOntology,
+    loadOntologySettings,
     loadMemoryAllLayers,
     removeMemory,
     clearMemories,
@@ -108,22 +123,34 @@ export default function SettingsPage() {
   // model service / service config; "My logs" is the user's own data, visible to all logged-in users under CE.
   const isCE = useEditionStore((s) => (s.loaded ? s.edition === 'ce' : false));
   const [sysAccess, setSysAccess] = useState(false);
+  const [ontologyGovernanceAccess, setOntologyGovernanceAccess] = useState(false);
   useEffect(() => {
     if (!isCE) { setSysAccess(false); return; }
     getMySystemAccess()
       .then((info) => setSysAccess(!!info.allowed))
       .catch(() => setSysAccess(false));
   }, [isCE, authUser?.user_id]);
+  useEffect(() => {
+    if (!isCE) { setOntologyGovernanceAccess(false); return; }
+    getOntologyGovernanceAccess()
+      .then((info) => setOntologyGovernanceAccess(!!info.allowed))
+      .catch(() => setOntologyGovernanceAccess(false));
+  }, [isCE, authUser?.user_id]);
   // Only show a section in the settings center when the admin has enabled the corresponding capability bit
   const sections = useMemo<SectionDef[]>(() => {
     let base = multiTenancy ? SETTINGS_SECTIONS : SETTINGS_SECTIONS.filter((s) => s.id !== 'teams');
+    if (isCE && ontologyGovernanceAccess) {
+      base = base.map((section) => (
+        section.id === 'ontology' ? { ...section, label: t('本体治理') } : section
+      ));
+    }
     if (isCE) base = [base[0], PASSWORD_SECTION, ...base.slice(1)];
     if (apiKeyEnabled) base = [...base, API_KEY_SECTION];
     if (channelBotEnabled) base = [...base, CHANNELS_SECTION];
     if (isCE && sysAccess) base = [...base, SYS_MODEL_SECTION, SYS_SERVICE_SECTION];
     if (isCE) base = [...base, MY_LOGS_SECTION];
     return base;
-  }, [apiKeyEnabled, channelBotEnabled, multiTenancy, isCE, sysAccess]);
+  }, [apiKeyEnabled, channelBotEnabled, multiTenancy, isCE, ontologyGovernanceAccess, sysAccess]);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [savingNickname, setSavingNickname] = useState(false);
@@ -190,7 +217,7 @@ export default function SettingsPage() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [memoryTab, setMemoryTab] = useState('profile');
   // Switch optimistic-update rollback on failure → shake the corresponding row once
-  const [shakeRowKey, setShakeRowKey] = useState<'memory' | 'memoryWrite' | null>(null);
+  const [shakeRowKey, setShakeRowKey] = useState<'memory' | 'memoryWrite' | 'ontology' | null>(null);
   useEffect(() => {
     if (!lastToggleError) return;
     setShakeRowKey(lastToggleError.key);
@@ -399,7 +426,7 @@ export default function SettingsPage() {
   return (
     <>
       {contextHolder}
-      <div className="jx-settings-shell">
+      <div className={`jx-settings-shell${isCE && ontologyGovernanceAccess && activeSection === 'ontology' ? ' jx-settings-shell--wide' : ''}`}>
         <nav className="jx-settings-nav" aria-label={t('系统设置')}>
           <p className="jx-settings-navTitle">{t('系统设置')}</p>
           {sections.map((s) => (
@@ -699,6 +726,62 @@ export default function SettingsPage() {
             )}
           </AnimatePresence>
         </div>
+        </section>
+        )}
+
+        {/* ── Ontology validation ─────────────────────────────── */}
+        {activeSection === 'ontology' && (
+        <section id="section-ontology" className="jx-settings-section">
+        <h3 className="jx-settings-section-title">{isCE && ontologyGovernanceAccess ? t('本体治理') : t('本体校验')}</h3>
+        <div className="jx-settings-card">
+          <div className={`jx-settings-row${shakeRowKey === 'ontology' ? ' jx-anim-shake' : ''}`}>
+            <div className="jx-settings-rowLeft">
+              <span className="jx-settings-rowLabel">{t('使用领域本体校验')}</span>
+              <span className="jx-settings-rowDesc">
+                {ontologyAvailable
+                  ? t('开启后，工具调用会先经过领域规则门禁，高风险答案会在交付前由独立评审委员会校验')
+                  : isCE && ontologyGovernanceAccess
+                    ? t('请先在下方导入并发布可用的领域本体包')
+                    : t('管理员尚未激活可用的领域本体包')}
+              </span>
+            </div>
+            <Tooltip title={!ontologyAvailable ? t('暂无可用本体包') : undefined}>
+              <span>
+                <Switch
+                  checked={ontologyEnabled && ontologyAvailable}
+                  disabled={!ontologyAvailable}
+                  onChange={(checked) => toggleOntology(checked)}
+                />
+              </span>
+            </Tooltip>
+          </div>
+          {ontologyActivePacks.length > 0 && (
+            <>
+              <div className="jx-settings-divider" />
+              <div className="jx-settings-row">
+                <div className="jx-settings-rowLeft">
+                  <span className="jx-settings-rowLabel">{t('当前领域包')}</span>
+                  <span className="jx-settings-rowDesc">{t('仅在任务命中领域工作流时注入相关概念和规则')}</span>
+                </div>
+                <div className="jx-settings-tagWrap">
+                  {ontologyActivePacks.map((pack) => (
+                    <Tag key={pack.version_id} color="geekblue">
+                      {pack.pack_id} · v{pack.version}
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {isCE && ontologyGovernanceAccess && (
+          <div className="jx-settings-card jx-settings-card--padded jx-settings-ontologyGovernance">
+            <OntologyManager
+              apiPrefix="/v1/ontologies/governance"
+              onChanged={loadOntologySettings}
+            />
+          </div>
+        )}
         </section>
         )}
 

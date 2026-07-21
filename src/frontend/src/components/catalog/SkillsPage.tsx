@@ -3,17 +3,20 @@ import { motion } from 'motion/react';
 import { Switch, Tag, Input, Typography, Button, Popconfirm, message, Dropdown, Modal, Form, Select, Pagination, Tooltip } from 'antd';
 import { t } from '../../i18n';
 import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined, UploadOutlined, EditOutlined, DownOutlined, AppstoreAddOutlined, CloudUploadOutlined, DownloadOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
-import { useCatalogStore, useAuthStore } from '../../stores';
-import type { PanelKey, MarketplaceFetchers, MarketplaceSubmission } from '../../types';
+import { useAgentStore, useCatalogStore, useAuthStore } from '../../stores';
+import type { PanelKey, MarketplaceFetchers, MarketplaceSubmission, OntologyTagOption } from '../../types';
 import { isCatalogKind, MARKETPLACE_CATEGORIES } from '../../utils/constants';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
-import { createMySkill, deleteMySkill, uploadMySkill, getMySkill, getMySkillFile, saveMySkillFile, deleteMySkillFile, uploadMySkillFile, exportMySkillZip, getMarketplaceSkills, getMarketplaceSkillDetail, installMarketplaceSkill, submitSkillToMarketplace, getMySkillSubmissions, withdrawSkillSubmission, type MySkillFileInfo } from '../../api';
+import { createMySkill, deleteMySkill, uploadMySkill, getMySkill, getMySkillFile, saveMySkillFile, deleteMySkillFile, uploadMySkillFile, exportMySkillZip, getMarketplaceSkills, getMarketplaceSkillDetail, installMarketplaceSkill, submitSkillToMarketplace, getMySkillSubmissions, withdrawSkillSubmission, getOntologyTagOptions, type MySkillFileInfo } from '../../api';
 import { SkillMarketplaceModal } from './SkillMarketplaceModal';
 import { SkillAvatar } from './skillIcons';
 import { SkillIconPicker } from './SkillIconPicker';
+import { OntologyBuildValidationModal } from '../common/OntologyBuildValidationModal';
+import { OntologyTagSelect } from '../common/OntologyTagSelect';
+import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
 
 const SKILLS_DETAIL_ID_STORAGE_KEY = 'hugagent_skills_detail_id';
 const SKILLS_DETAIL_KIND_STORAGE_KEY = 'hugagent_skills_detail_kind';
@@ -59,6 +62,8 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
   const canAddSkill = useAuthStore((s) => s.authUser?.can_add_skill === true);
+  const availableResources = useAgentStore((s) => s.availableResources);
+  const fetchAvailableResources = useAgentStore((s) => s.fetchAvailableResources);
 
   const initialDetailState = embedded ? { id: null, kind: 'skills' as const } : loadSkillsDetailState();
   const [selectedId, setSelectedId] = useState<string | null>(initialDetailState.id);
@@ -178,6 +183,30 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
   const [loadingSkill, setLoadingSkill] = useState(false);
   const [skillIcon, setSkillIcon] = useState('');
   const [skillForm] = Form.useForm();
+  const [ontologyTagOptions, setOntologyTagOptions] = useState<OntologyTagOption[]>([]);
+  const [ontologyTagsLoading, setOntologyTagsLoading] = useState(false);
+  const [buildFailure, setBuildFailure] = useState<OntologyBuildFailure | null>(null);
+
+  useEffect(() => {
+    if (!canAddSkill) return;
+    void fetchAvailableResources();
+    let cancelled = false;
+    setOntologyTagsLoading(true);
+    void getOntologyTagOptions('skill')
+      .then((items) => { if (!cancelled) setOntologyTagOptions(items); })
+      .catch(() => { if (!cancelled) setOntologyTagOptions([]); })
+      .finally(() => { if (!cancelled) setOntologyTagsLoading(false); });
+    return () => { cancelled = true; };
+  }, [canAddSkill, fetchAvailableResources]);
+
+  const skillMcpOptions = useMemo(
+    () => (availableResources?.mcp_servers || []).map((server) => ({
+      value: server.id,
+      label: server.enabled ? server.name : `${server.name}${t('（未启用）')}`,
+      description: server.description,
+    })),
+    [availableResources?.mcp_servers],
+  );
 
   // ── Skill file management (edit mode) ────────────────────────────────────────────
   const [skillFiles, setSkillFiles] = useState<MySkillFileInfo[]>([]);
@@ -199,6 +228,7 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
     setEditingSkillId(null);
     setSkillIcon('');
     skillForm.resetFields();
+    skillForm.setFieldsValue({ tags: [], ontology_tags: [], mcp_server_ids: [] });
     resetSkillFileState();
     setHandwriteOpen(true);
   }, [skillForm, resetSkillFileState]);
@@ -216,7 +246,9 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
         name: detail.id,
         display_name: detail.display_name,
         description: detail.description,
-        tags: detail.tags || [],
+        tags: (detail.tags || []).filter((tag) => !tag.startsWith('ontology:')),
+        ontology_tags: (detail.tags || []).filter((tag) => tag.startsWith('ontology:')),
+        mcp_server_ids: detail.mcp_server_ids || [],
         instructions: detail.instructions,
       });
       setSkillFiles(detail.extra_files || []);
@@ -339,7 +371,11 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
         display_name: v.display_name,
         description: (v.description || '').trim(),
         instructions: v.instructions,
-        tags: v.tags || [],
+        tags: Array.from(new Set([
+          ...(Array.isArray(v.tags) ? v.tags.filter((tag: string) => !tag.startsWith('ontology:')) : []),
+          ...(Array.isArray(v.ontology_tags) ? v.ontology_tags : []),
+        ])),
+        mcp_server_ids: Array.isArray(v.mcp_server_ids) ? v.mcp_server_ids : [],
         icon: skillIcon,
       });
       message.success(editingSkillId ? t('技能已更新') : t('技能已创建'));
@@ -348,8 +384,16 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
       skillForm.resetFields();
       resetSkillFileState();
       await fetchCatalog();
-    } catch (e) {
-      message.error((e as Error).message || (editingSkillId ? t('更新失败') : t('创建失败')));
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return;
+      const ontologyFailure = getOntologyBuildFailure(e);
+      if (ontologyFailure) {
+        setBuildFailure(ontologyFailure);
+      } else {
+        message.error(e instanceof Error && e.message
+          ? e.message
+          : (editingSkillId ? t('更新失败') : t('创建失败')));
+      }
     } finally {
       setCreatingSkill(false);
     }
@@ -800,8 +844,34 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
           >
             <Input placeholder={t('这个技能是做什么的、什么时候用')} maxLength={2000} />
           </Form.Item>
-          <Form.Item name="tags" label={t('标签（可选）')}>
+          <Form.Item
+            name="tags"
+            label={t('普通标签（可选）')}
+          >
             <Select mode="tags" placeholder={t('回车添加标签')} tokenSeparators={[',']} />
+          </Form.Item>
+          <Form.Item
+            name="ontology_tags"
+            label={t('本体治理标签')}
+            tooltip={t('标签来自当前激活领域包；实际调用技能时，会触发标签关联的本体工作流和评审级别。')}
+          >
+            <OntologyTagSelect options={ontologyTagOptions} loading={ontologyTagsLoading} />
+          </Form.Item>
+          <Form.Item
+            name="mcp_server_ids"
+            label={t('绑定工具 (MCP)')}
+            tooltip={t('选择技能执行时依赖的 MCP。系统会读取 MCP 的实际工具清单，用于本体构建校验。')}
+            extra={t('如果本体流程要求特定工具，请在这里绑定对应 MCP；绑定信息和工具清单会写入 SKILL.md。')}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              maxTagCount="responsive"
+              placeholder={t('选择可用的 MCP 工具')}
+              options={skillMcpOptions}
+            />
           </Form.Item>
           <Form.Item name="instructions" label={t('技能正文（指令）')} rules={[{ required: true, message: t('请输入技能正文') }]}>
             <Input.TextArea rows={10} placeholder={t('用 Markdown 写清楚这个技能怎么用、步骤、注意事项……')} />
@@ -869,6 +939,8 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
           </div>
         )}
       </Modal>
+
+      <OntologyBuildValidationModal failure={buildFailure} onClose={() => setBuildFailure(null)} />
 
       {/* Skill file editor modal —— separate from the edit-skill modal to avoid stretching the card too long */}
       <Modal

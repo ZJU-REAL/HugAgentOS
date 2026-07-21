@@ -13,6 +13,7 @@ once the per-job cost cap trips, we go into reduce early with the digests gather
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -42,6 +43,7 @@ from core.infra.distillation_budget import (
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.llm._distill_shared import skill_to_markdown
 from core.llm.persona_distiller import distill_persona, summarize_session
+from core.ontology.build_validator import ensure_ontology_build_valid
 from core.services.distillation_service import assemble_trajectory
 
 logger = logging.getLogger(__name__)
@@ -666,6 +668,36 @@ async def _run_job_inner(db: Session, job_id: str) -> None:
         return
 
     # ── reduce ──
+    try:
+        from core.ontology.validator import render_runtime_prompt
+        from core.services.ontology_service import build_user_ontology_runtime
+
+        ontology_task = "\n".join(
+            filter(
+                None,
+                [hint, json.dumps(digests[:5], ensure_ascii=False, default=str)[:8000]],
+            )
+        )
+        _, ontology_runtime = build_user_ontology_runtime(
+            user_id=str(job.target_user_id),
+            task=ontology_task,
+            db=db,
+        )
+        ontology_context = render_runtime_prompt(ontology_runtime)
+        if ontology_context:
+            hint = "\n\n".join(
+                filter(
+                    None,
+                    [
+                        hint,
+                        "生成的技能草稿必须使用规范领域术语并满足完整工作流：\n"
+                        + ontology_context,
+                    ],
+                )
+            )
+    except Exception as exc:  # The materialization gate still validates the draft.
+        logger.debug("persona_distill: ontology bootstrap unavailable (%s)", exc)
+
     effective_ratio = sampled_ratio * (len(digests) / len(chat_ids) if chat_ids else 1.0)
     out = await distill_persona(
         job.kind,
@@ -826,6 +858,16 @@ def save_personal_skill(
             count=1,
             flags=re.MULTILINE,
         )
+
+    ensure_ontology_build_valid(
+        db,
+        asset_type="skill",
+        name=meta.name or skill_id,
+        description=meta.description or "",
+        instructions=content,
+        tool_names=list(meta.allowed_tools or []),
+        ontology_tags=list(meta.tags or []),
+    )
 
     skill = AdminSkill(
         skill_id=skill_id,

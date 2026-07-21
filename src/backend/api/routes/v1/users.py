@@ -8,7 +8,7 @@ import uuid
 from typing import List, Optional
 
 from core.auth.backend import UserContext, get_current_user
-from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
+from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS, settings
 from core.db.engine import get_db
 from core.db.repository import CatalogRepository, UserRepository
 from core.infra.exceptions import AccessDeniedError, ResourceNotFoundError, ValidationError
@@ -97,6 +97,8 @@ async def get_current_user_info(
     teams = list_user_teams_brief(db, user.user_id) if list_user_teams_brief else []
     meta = dict(user_shadow.extra_data or {})
 
+    from core.services.local_user_service import ce_onboarding_required
+
     data = {
         "user_id": user_shadow.user_id,
         "user_center_id": user_shadow.user_center_id,
@@ -110,6 +112,7 @@ async def get_current_user_info(
         "department": meta.get("department"),
         "auth_source": "local" if local else "external",
         "must_change_password": bool(meta.get("must_change_password")),
+        "onboarding_required": ce_onboarding_required(meta),
         "teams": teams,
         "created_at": user_shadow.created_at.isoformat(),
     }
@@ -185,6 +188,72 @@ async def change_my_password(
     return success_response(
         data={"user_id": user.user_id, "must_change_password": False},
         message=result.message,
+    )
+
+
+@router.post("/me/onboarding/complete", summary="完成 CE 首次初始化")
+async def complete_my_onboarding(
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Complete the CE bootstrap-owner setup after a usable main model exists.
+
+    Language, service endpoints, memory, and ontology preferences are saved by
+    their existing APIs as each wizard step advances. This endpoint is the
+    final, idempotent checkpoint that unlocks the normal application shell.
+    """
+    from core.db.models import ModelProvider, ModelRoleAssignment
+    from core.services.local_user_service import CE_ONBOARDING_VERSION
+
+    if settings.edition.edition != "ce":
+        raise AccessDeniedError(
+            message="首次初始化仅适用于社区版",
+            reason="onboarding is a CE bootstrap flow",
+        )
+
+    user_repo = UserRepository(db)
+    shadow = user_repo.get_by_id(user.user_id)
+    if shadow is None:
+        raise ResourceNotFoundError(resource_type="user", resource_id=user.user_id)
+
+    meta = dict(shadow.extra_data or {})
+    if not meta.get("ce_default_admin"):
+        raise AccessDeniedError(
+            message="当前账号不是社区版实例管理员",
+            reason="only the CE bootstrap owner can complete instance onboarding",
+        )
+    if meta.get("must_change_password"):
+        raise ValidationError(
+            errors=[{"field": "password", "message": "请先修改默认密码"}],
+            message="请先修改默认密码",
+        )
+
+    main_model = (
+        db.query(ModelRoleAssignment)
+        .join(ModelProvider, ModelProvider.provider_id == ModelRoleAssignment.provider_id)
+        .filter(
+            ModelRoleAssignment.role_key == "main_agent",
+            ModelProvider.provider_type == "chat",
+            ModelProvider.is_active.is_(True),
+        )
+        .first()
+    )
+    if main_model is None:
+        raise ValidationError(
+            errors=[{"field": "model", "message": "请先配置并启用主对话模型"}],
+            message="请先配置并启用主对话模型",
+        )
+
+    meta["onboarding_completed_version"] = CE_ONBOARDING_VERSION
+    meta.pop("onboarding_required", None)
+    user_repo.update(user.user_id, {"extra_data": meta})
+    return success_response(
+        data={
+            "user_id": user.user_id,
+            "onboarding_required": False,
+            "onboarding_completed_version": CE_ONBOARDING_VERSION,
+        },
+        message="首次初始化已完成",
     )
 
 

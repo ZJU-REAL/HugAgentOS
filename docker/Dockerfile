@@ -103,13 +103,6 @@ RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout
 # Copy installed packages from builder
 COPY --from=builder /root/.local /home/appuser/.local
 
-# Install bundled Chinese fonts without copying backend source code.
-COPY resources/fonts /tmp/fonts
-RUN mkdir -p /usr/share/fonts/truetype/fangzheng && \
-    find /tmp/fonts -type f \( -name "*.ttf" -o -name "*.TTF" \) -exec cp {} /usr/share/fonts/truetype/fangzheng/ \; && \
-    rm -rf /tmp/fonts && \
-    fc-cache -f
-
 # Prepare mount points and writable directories.
 RUN mkdir -p /app/src/backend /app/storage /app/logs /app/storage/manual /app/storage/page_config && \
     chown -R appuser:appuser /app/src/backend /app/storage /app/logs /app/storage/manual /app/storage/page_config && \

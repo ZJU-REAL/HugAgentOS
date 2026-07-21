@@ -31,6 +31,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("file_upload", "router"),
     ("content", "router"),
     ("memories", "router"),
+    ("ontologies", "router"),
     ("models", "router"),
     ("chat_shares", "router"),
     ("agents", "router"),

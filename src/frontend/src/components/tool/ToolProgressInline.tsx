@@ -10,13 +10,15 @@ interface ToolProgressInlineProps {
   message: ChatMessage;
   /** Segment-level tool calls (subset) — if provided, only these are shown */
   toolCalls?: NonNullable<ChatMessage['toolCalls']>;
+  /** Optional stable key when one message renders more than one independent tool timeline. */
+  panelKey?: string;
 }
 
 /**
  * Single-line inline summary for tool calls when dispatchProcessVisible is off.
  * Shows a pulse dot + tool names + ">" arrow. Clicking opens the Canvas timeline.
  */
-export function ToolProgressInline({ message, toolCalls }: ToolProgressInlineProps) {
+export function ToolProgressInline({ message, toolCalls, panelKey }: ToolProgressInlineProps) {
   const { toolDisplayNames, toolResultPanel, setToolResultPanel } = useChatStore();
   const tools = toolCalls ?? message.toolCalls ?? [];
   if (tools.length === 0) return null;
@@ -36,15 +38,15 @@ export function ToolProgressInline({ message, toolCalls }: ToolProgressInlinePro
     .slice(0, 3);
   const label = names.join('、') + (tools.length > 3 ? t('等{n}项', { n: tools.length }) : '');
 
-  const panelKey = `__progress_timeline__-${message.ts}`;
-  const isOpen = toolResultPanel?.key === panelKey;
+  const resolvedPanelKey = panelKey || `__progress_timeline__-${message.ts}`;
+  const isOpen = toolResultPanel?.key === resolvedPanelKey;
 
   const handleClick = () => {
     if (isOpen) {
       setToolResultPanel(null);
     } else {
       setToolResultPanel({
-        key: panelKey,
+        key: resolvedPanelKey,
         toolName: '__progress_timeline__',
         displayName: t('工具调用'),
         output: { message, toolCalls: tools },

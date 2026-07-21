@@ -40,6 +40,8 @@ def test_routes_registration():
         # Personal system settings / personal logs (delegated to CE)
         '/v1/me/system/access',
         '/v1/me/system/service-configs',
+        '/v1/ontologies/governance/access',
+        '/v1/ontologies/governance',
         '/v1/me/logs/tools',
         '/v1/me/logs/usage',
         # Model management (must still be registered after switching the gate to require_system_settings)

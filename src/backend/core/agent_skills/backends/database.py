@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import List, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from .protocol import SkillFileInfo
 
 # Sentinel path used when skill content comes from DB (never actually read)
 _DB_SENTINEL = Path("/db/admin_skills")
+
+
+def _mcp_server_ids_from_header(header: str) -> list[str]:
+    """Parse the scalar MCP binding from a bounded SKILL.md frontmatter prefix."""
+    match = re.search(r"(?m)^(?:mcp_servers|mcp-server-ids):\s*(.+?)\s*$", header or "")
+    if not match:
+        return []
+    return list(
+        dict.fromkeys(
+            item.strip() for item in match.group(1).replace(",", " ").split() if item.strip()
+        )
+    )
 
 
 class DatabaseBackend:
@@ -56,10 +69,11 @@ class DatabaseBackend:
         """Lazily import DB session and model to avoid startup-time DB connection."""
         from core.db.engine import SessionLocal
         from core.db.models import AdminSkill
+
         return SessionLocal, AdminSkill
 
     def list_skill_files(self) -> List[SkillFileInfo]:
-        """List all enabled admin skills from the database.
+        """List enabled DB skills without hydrating instructions or extra files.
 
         Includes user-private skills (owner_user_id non-null) — the loader is a global
         singleton and must be able to resolve / materialize / register all skills by id.
@@ -73,21 +87,58 @@ class DatabaseBackend:
         try:
             # Deterministic ordering: without ORDER BY, Postgres row order can drift, and
             # if downstream assembles the prompt in that order it busts the LLM prefix cache.
+            # Every runtime-selection field is denormalized except the legacy
+            # mcp_servers frontmatter binding. Full SKILL.md and extra_files stay
+            # in the database until one of the user's selected skills is materialized.
             rows = (
-                db.query(AdminSkill)
+                db.query(
+                    AdminSkill.skill_id,
+                    AdminSkill.display_name,
+                    AdminSkill.description,
+                    AdminSkill.version,
+                    AdminSkill.tags,
+                    AdminSkill.allowed_tools,
+                )
                 .filter(AdminSkill.is_enabled == True)
                 .order_by(AdminSkill.skill_id)
                 .all()
             )
+            # Old rows persist MCP ids only inside SKILL.md. Fetch full content
+            # for that small subset instead of hydrating every enabled skill.
+            mcp_bindings = {
+                row.skill_id: _mcp_server_ids_from_header(row.skill_content)
+                for row in (
+                    db.query(AdminSkill.skill_id, AdminSkill.skill_content)
+                    .filter(
+                        AdminSkill.is_enabled == True,
+                        or_(
+                            AdminSkill.skill_content.contains("mcp_servers:"),
+                            AdminSkill.skill_content.contains("mcp-server-ids:"),
+                        ),
+                    )
+                    .all()
+                )
+            }
             result = []
             for row in rows:
-                result.append(SkillFileInfo(
-                    skill_id=row.skill_id,
-                    file_path=_DB_SENTINEL / row.skill_id / "SKILL.md",
-                    source_name=self.source_name,
-                    priority=self._priority,
-                    content=row.skill_content,
-                ))
+                result.append(
+                    SkillFileInfo(
+                        skill_id=row.skill_id,
+                        file_path=_DB_SENTINEL / row.skill_id / "SKILL.md",
+                        source_name=self.source_name,
+                        priority=self._priority,
+                        metadata={
+                            "id": row.skill_id,
+                            "name": row.display_name or row.skill_id,
+                            "description": row.description or "",
+                            "version": row.version or "1.0.0",
+                            "tags": list(row.tags or []),
+                            "allowed_tools": list(row.allowed_tools or []),
+                            "mcp_server_ids": mcp_bindings.get(row.skill_id, []),
+                        },
+                        is_database=True,
+                    )
+                )
             return result
         finally:
             db.close()
@@ -97,10 +148,12 @@ class DatabaseBackend:
         SessionLocal, AdminSkill = self._get_session_and_model()
         db = SessionLocal()
         try:
-            row = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
-            if row is None:
+            content = (
+                db.query(AdminSkill.skill_content).filter(AdminSkill.skill_id == skill_id).scalar()
+            )
+            if content is None:
                 raise FileNotFoundError(f"Admin skill not found in DB: {skill_id}")
-            return row.skill_content
+            return str(content)
         finally:
             db.close()
 
@@ -109,10 +162,12 @@ class DatabaseBackend:
         SessionLocal, AdminSkill = self._get_session_and_model()
         db = SessionLocal()
         try:
-            row = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
-            if row is None or not row.extra_files:
+            extra_files = (
+                db.query(AdminSkill.extra_files).filter(AdminSkill.skill_id == skill_id).scalar()
+            )
+            if not extra_files:
                 return {}
-            return dict(row.extra_files)
+            return dict(extra_files)
         finally:
             db.close()
 

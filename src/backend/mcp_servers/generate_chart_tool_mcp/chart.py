@@ -35,14 +35,11 @@ load_dotenv()
 
 # 方正中文字体目录解析（与源码位置解耦）：
 #   1. JX_FONT_DIR 环境变量覆盖
-#   2. 容器内永久安装位置（所有镜像 Dockerfile 都把 resources/fonts 装到这里）
-#   3. 本地 dev 回退到仓库顶层 resources/fonts
 # 模板里再用 os.path.isdir 兜底，目录缺失时 matplotlib 自动退回系统 CJK 字体。
 def _resolve_font_dir() -> str:
     candidates = [
         os.getenv("JX_FONT_DIR", ""),
         "/usr/share/fonts/truetype/fangzheng",
-        str(Path(__file__).resolve().parents[4] / "resources" / "fonts"),
     ]
     for c in candidates:
         if c and os.path.isdir(c):

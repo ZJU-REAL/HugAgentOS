@@ -7,7 +7,7 @@ import { attachArtifactsToToolCalls } from '../utils/fileParser';
 import { isAutomationHistoryChat } from '../utils/history';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, UpdateEntry, CapItem, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, OntologyGovernanceSummary, ToolCall, UpdateEntry, CapItem, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -26,7 +26,7 @@ const inflightMsgLoads = new Set<string>();
 // pick it up automatically.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseHistoryMessage(m: any): ChatMessage {
-  const baseToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
+  const allToolCalls: ToolCall[] | undefined = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ? m.tool_calls.map((tc: any) => ({
         id: tc.tool_id ?? tc.id,
@@ -47,8 +47,11 @@ function parseHistoryMessage(m: any): ChatMessage {
         ...(tc.subagent_name ?? tc.subagentName
           ? { subagentName: tc.subagent_name ?? tc.subagentName }
           : {}),
+        ...(typeof tc.scope === 'string' ? { scope: tc.scope } : {}),
       }))
     : undefined;
+  const revisionToolCalls = allToolCalls?.filter((tool) => tool.scope === 'ontology_revision') ?? [];
+  const baseToolCalls = allToolCalls?.filter((tool) => tool.scope !== 'ontology_revision');
   const metadataArtifacts = Array.isArray(m.metadata?.artifacts) ? m.metadata.artifacts : [];
   const toolCalls = attachArtifactsToToolCalls(
     baseToolCalls,
@@ -134,6 +137,36 @@ function parseHistoryMessage(m: any): ChatMessage {
     ? (m.metadata.workspace_files as unknown[])
         .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
     : undefined;
+  const rawOntologyGovernance = m.role === 'assistant'
+    && m.metadata?.ontology_governance
+    && typeof m.metadata.ontology_governance === 'object'
+    ? m.metadata.ontology_governance as Partial<OntologyGovernanceSummary>
+    : undefined;
+  const histOntologyGovernance: OntologyGovernanceSummary | undefined = rawOntologyGovernance
+    ? {
+        governance_run_id: rawOntologyGovernance.governance_run_id,
+        activations: Array.isArray(rawOntologyGovernance.activations) ? rawOntologyGovernance.activations : [],
+        gates: Array.isArray(rawOntologyGovernance.gates) ? rawOntologyGovernance.gates : [],
+        review: rawOntologyGovernance.review && typeof rawOntologyGovernance.review === 'object'
+          ? rawOntologyGovernance.review
+          : {},
+        revision: (rawOntologyGovernance.review
+          && typeof rawOntologyGovernance.review === 'object'
+          && typeof rawOntologyGovernance.review.candidate_answer === 'string'
+          && rawOntologyGovernance.review.candidate_answer)
+          || revisionToolCalls.length > 0
+          ? {
+              status: 'completed',
+              content: typeof rawOntologyGovernance.review?.candidate_answer === 'string'
+                ? rawOntologyGovernance.review.candidate_answer
+                : '',
+              thinking: [],
+              toolCalls: revisionToolCalls,
+              toolCallCount: revisionToolCalls.length,
+            }
+          : undefined,
+      }
+    : undefined;
 
   // Citation badges (/skills, /plugins, @sub-agents) are rebuilt from extra_data so they still show after a history session refresh.
   const histSkillName = m.role === 'user' && typeof m.metadata?.skill_name === 'string'
@@ -164,6 +197,7 @@ function parseHistoryMessage(m: any): ChatMessage {
     ...(histAttachments && histAttachments.length > 0 && { attachments: histAttachments }),
     ...(histQuotedFollowUp?.text && { quotedFollowUp: histQuotedFollowUp }),
     ...(histWorkspaceFiles !== undefined && { workspaceFiles: histWorkspaceFiles }),
+    ...(histOntologyGovernance && { ontologyGovernance: histOntologyGovernance }),
     ...(histSkillId && { skillId: histSkillId }),
     ...(histSkillName && { skillName: histSkillName }),
     ...(histPluginName && { pluginName: histPluginName }),
@@ -173,7 +207,7 @@ function parseHistoryMessage(m: any): ChatMessage {
 
 export function useChatInit() {
   const { authUser, authExpiredUrl, authChecking, initAuth } = useAuthStore();
-  const { loadMemorySettings } = useSettingsStore();
+  const { loadMemorySettings, loadOntologySettings } = useSettingsStore();
   const { setFeatureUpdates, setCapabilitiesList } = useUIStore();
   const {
     updateStore, setCurrentChatId, setChatsLoading, setToolDisplayNames,
@@ -193,6 +227,7 @@ export function useChatInit() {
   useEffect(() => {
     if (!authUser) return;
     loadMemorySettings();
+    loadOntologySettings();
   }, [authUser]);
 
   // Proactive session heartbeat

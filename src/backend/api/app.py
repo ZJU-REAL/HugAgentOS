@@ -64,6 +64,8 @@ async def lifespan(app: FastAPI):
     await _startup_seed_prompt_versions()
     await _startup_seed_roles()
     await _startup_seed_mcp_servers()
+    await _startup_recover_datasource_sidecars()
+    await _startup_seed_ontologies()
     await _startup_preload()
     await _startup_automation_scheduler()
     await _startup_distillation_scheduler()
@@ -74,6 +76,7 @@ async def lifespan(app: FastAPI):
     # ── shutdown ──
     await _shutdown_stale_run_reaper()
     await _shutdown_channel_manager()
+    await _shutdown_datasource_sidecar_recovery()
     await _shutdown_local_sidecars()
     await _shutdown_pools()
 
@@ -661,6 +664,110 @@ async def _startup_seed_mcp_servers():
             db.close()
     except Exception as exc:
         logger.warning("[startup] MCP catalog seed failed: %s", exc)
+
+
+async def _startup_recover_datasource_sidecars():
+    """Recover configured DBHub/ES MCP sidecars without blocking API startup."""
+    import asyncio
+
+    async def _recover() -> None:
+        try:
+            from core.services.datasource_service import recover_sidecars
+
+            result = await recover_sidecars()
+            failures = [
+                state.get("error", "unknown error")
+                for key in ("dbhub", "es")
+                if (state := result.get(key) or {}).get("desired") and not state.get("ok")
+            ]
+            if failures:
+                logger.warning(
+                    "[startup] datasource sidecar recovery incomplete: %s",
+                    "; ".join(failures),
+                )
+                return
+            recovered = [
+                key for key in ("dbhub", "es") if (state := result.get(key) or {}).get("desired")
+            ]
+            if recovered:
+                logger.info(
+                    "[startup] datasource sidecars ready: %s",
+                    ", ".join(recovered),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[startup] datasource sidecar recovery failed: %s", exc)
+
+    app.state.datasource_sidecar_recovery_task = asyncio.create_task(_recover())
+
+
+async def _shutdown_datasource_sidecar_recovery():
+    import asyncio
+    import contextlib
+
+    task = getattr(app.state, "datasource_sidecar_recovery_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def _startup_seed_ontologies():
+    """Seed or stage the latest built-in enterprise-risk Domain Pack.
+
+    A fresh database activates the bundled version. Existing installations get
+    a new immutable draft and keep their current active version until an
+    administrator explicitly activates the update.
+    """
+    try:
+        import json
+        from pathlib import Path
+
+        from core.db.engine import SessionLocal
+        from core.services.ontology_service import OntologyService
+
+        pack_path = (
+            Path(__file__).resolve().parents[1]
+            / "configs"
+            / "ontology_packs"
+            / "enterprise_risk_v1.json"
+        )
+        with SessionLocal() as db:
+            service = OntologyService(db)
+            document = json.loads(pack_path.read_text(encoding="utf-8"))
+            pack_id = str(document["pack_id"])
+            version_name = str(document["version"])
+            if service.repo.get_pack_version(pack_id, version_name) is not None:
+                return
+            is_fresh = service.repo.get_pack(pack_id) is None
+            if not is_fresh and service.repo.get_working_draft(pack_id) is not None:
+                logger.info(
+                    "[startup] built-in ontology update deferred because a working draft exists: %s@%s",
+                    pack_id,
+                    version_name,
+                )
+                return
+            service.create_version(
+                document,
+                actor_id="system_seed",
+                activate=is_fresh,
+            )
+            if is_fresh:
+                service.set_pack_flags(pack_id, is_enabled=True, is_default=True)
+                logger.info(
+                    "[startup] built-in ontology seeded and activated: %s@%s",
+                    pack_id,
+                    version_name,
+                )
+            else:
+                logger.info(
+                    "[startup] built-in ontology update staged as draft: %s@%s",
+                    pack_id,
+                    version_name,
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[startup] ontology seed failed: %s", exc)
 
 
 async def _startup_preload():

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# 方正字体系列（与仓库顶层 resources/fonts/ 中的文件名对齐）
 BODY_FONT = "方正仿宋简体"
 HEADING_FONT = "方正小标宋简体"
 CODE_FONT = "Courier New"

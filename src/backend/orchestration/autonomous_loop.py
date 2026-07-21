@@ -249,6 +249,8 @@ async def _run_worker_iteration(
     is_cancelled: Optional[CancelFn],
     project_ctx: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
+    ontology_enabled: bool = False,
+    ontology_runtime: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Run a brand-new tools-enabled agent (bound to the persistent sandbox); returns {text, tokens, tool_calls}.
 
@@ -268,10 +270,18 @@ async def _run_worker_iteration(
         chat_id=chat_id,
         isolated=True,  # independent MCP clients per iteration, avoids cross-task cancel-scope
         max_iters=worker_max_iters,
+        ontology_runtime=ontology_runtime,
     )
     sa = StreamingAgent(agent, clients)
     text = ""
     tool_calls = 0
+    trace: List[Dict[str, Any]] = []
+    citations: List[Dict[str, Any]] = []
+    citation_offsets: Dict[str, int] = {}
+    from core.ontology.validator import requires_output_review
+
+    runtime = ontology_runtime or {"enabled": False, "packs": [], "review_level": "none"}
+    hold_output = requires_output_review(runtime)
     try:
         async for et, payload in sa.stream(
             [{"role": "user", "content": prompt}],
@@ -283,6 +293,8 @@ async def _run_worker_iteration(
                 # → _resolve_chat_mode → reasoning_effort. If omitted, the middleware falls back on
                 # enable_thinking (True=medium/False=fast) and the "high/extreme" levels would be lost.
                 "chat_mode": (chat_mode or "").lower(),
+                "ontology_enabled": ontology_enabled,
+                "ontology_runtime": runtime,
             },
         ):
             if is_cancelled and is_cancelled():
@@ -292,17 +304,56 @@ async def _run_worker_iteration(
             # chat (content/tool_call/tool_result) rather than as an "iteration N" block.
             if et == "text_delta":
                 text += payload
-                if emit:
+                if emit and not hold_output:
                     await emit({"type": "content", "event": "ai_message", "delta": payload})
             elif et == "thinking_delta":
                 if emit:
                     await emit({"type": "thinking", "delta": payload})
             elif et == "tool_call":
                 tool_calls += 1
+                trace.append(
+                    {
+                        "type": "tool_call",
+                        "tool_name": payload.get("name"),
+                        "tool_id": payload.get("id"),
+                        "tool_args": payload.get("args"),
+                    }
+                )
                 if emit:
                     await emit({"type": "tool_call", "tool_name": payload.get("name"),
                                 "tool_id": payload.get("id"), "tool_args": payload.get("args")})
             elif et == "tool_result":
+                tool_name = payload.get("name")
+                tool_id = payload.get("id")
+                tool_content = payload.get("content")
+                trace.append(
+                    {
+                        "type": "tool_result",
+                        "tool_name": tool_name,
+                        "tool_id": tool_id,
+                        "result": tool_content,
+                    }
+                )
+                try:
+                    parsed_result = (
+                        json.loads(tool_content)
+                        if isinstance(tool_content, str)
+                        else tool_content
+                    )
+                    if isinstance(parsed_result, dict):
+                        from orchestration.citations import extract_citations_with_offset
+
+                        citations.extend(
+                            item.to_dict()
+                            for item in extract_citations_with_offset(
+                                tool_name or "unknown",
+                                tool_id or "",
+                                parsed_result,
+                                citation_offsets,
+                            )
+                        )
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
                 if emit:
                     await emit({"type": "tool_result", "tool_name": payload.get("name"),
                                 "tool_id": payload.get("id"), "result": payload.get("content")})
@@ -314,6 +365,38 @@ async def _run_worker_iteration(
     finally:
         usage = sa.get_usage()
         await close_clients(clients)
+    if hold_output and text:
+        from orchestration.subagents.ontology_reviewer import review_ontology_output
+
+        if emit:
+            await emit(
+                {
+                    "type": "ontology_review",
+                    "status": "started",
+                    "level": runtime.get("review_level", "checkpoint"),
+                }
+            )
+        review = await review_ontology_output(
+            task=prompt,
+            answer=text,
+            runtime=runtime,
+            trace=trace,
+            citations=citations,
+            user_id=user_id,
+            chat_id=chat_id,
+            model_name=model_name,
+        )
+        text = review["answer"]
+        if emit:
+            await emit(
+                {
+                    "type": "ontology_review",
+                    "status": "completed",
+                    "level": runtime.get("review_level", "checkpoint"),
+                    "verdict": review["verdict"],
+                }
+            )
+            await emit({"type": "content", "event": "ai_message", "delta": text})
     return {
         "text": text,
         "tokens": int(usage.get("total_tokens", 0)),
@@ -440,6 +523,12 @@ async def run_autonomous_loop(
     (pure task-style loop / tests).
     """
     session = session_id or f"loop-{loop_id}"
+    from core.services.ontology_service import build_user_ontology_runtime
+
+    ontology_enabled, ontology_runtime = build_user_ontology_runtime(
+        user_id=user_id,
+        task=goal_spec.objective,
+    )
     in_project = bool(project_ctx)
     t0 = time.monotonic()
     history: List[Dict[str, Any]] = []
@@ -582,6 +671,8 @@ async def run_autonomous_loop(
             worker_max_iters=worker_max_iters, enable_thinking=enable_thinking,
             chat_mode=chat_mode, emit=emit, is_cancelled=is_cancelled,
             project_ctx=project_ctx, chat_id=chat_id,
+            ontology_enabled=ontology_enabled,
+            ontology_runtime=ontology_runtime,
         )
         tokens_spent += work["tokens"]
         req["attempts"] = int(req.get("attempts", 0)) + 1

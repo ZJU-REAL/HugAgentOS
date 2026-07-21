@@ -379,6 +379,13 @@ async def astream_generate_plan(
     from core.services.project_scope import build_project_ctx_from_chat_id
 
     _project_ctx = build_project_ctx_from_chat_id(db, chat_id)
+    from core.services.ontology_service import build_user_ontology_runtime
+
+    ontology_enabled, ontology_runtime = build_user_ontology_runtime(
+        user_id=user_id,
+        task=task_description,
+        db=db,
+    )
 
     try:
         # ``enabled_skill_ids=[]`` keeps the factory from falling back to all
@@ -393,6 +400,7 @@ async def astream_generate_plan(
             current_user_id=user_id,
             chat_id=chat_id,
             project_ctx=_project_ctx,
+            ontology_runtime=ontology_runtime,
         )
 
         # Embed plan prompt as part of user message (avoid system message
@@ -422,6 +430,8 @@ async def astream_generate_plan(
                     "model_provider_id": model_provider_id or "",
                     "enable_thinking": False,
                     "chat_mode": "fast",
+                    "ontology_enabled": ontology_enabled,
+                    "ontology_runtime": ontology_runtime,
                 },
             ):
                 if event_type == "text_delta":
@@ -754,6 +764,13 @@ async def astream_execute_plan(
 
                 # max_iters bounds tool calls per step so the agent doesn't loop excessively.
                 _step_max_iters = int(os.environ.get("PLAN_STEP_MAX_ITERS", "5"))
+                from core.services.ontology_service import build_user_ontology_runtime
+
+                _step_ontology_enabled, step_ontology_runtime = build_user_ontology_runtime(
+                    user_id=user_id,
+                    task=f"{plan.task_input}\n{step_instruction}",
+                    db=db,
+                )
                 agent, mcp_clients = await create_agent_executor(
                     enabled_mcp_ids=step_mcp_ids,
                     enabled_skill_ids=step_skill_ids,
@@ -764,6 +781,7 @@ async def astream_execute_plan(
                     chat_id=chat_id,
                     max_iters=_step_max_iters,
                     project_ctx=_project_ctx,
+                    ontology_runtime=step_ontology_runtime,
                     # top_level_chat not passed (defaults to False) → plan-execution steps
                     # inherently never get enter_plan_mode, ruling out "plan inside a plan"
                     # nesting (aligned with Claude Code: tool availability is pinned down by
@@ -1019,6 +1037,52 @@ async def astream_execute_plan(
                     step_text = re.sub(
                         r"<think>.*?</think>", "", step_text, flags=re.DOTALL
                     ).strip()
+
+                    from core.ontology.validator import requires_output_review
+
+                    if step_text and requires_output_review(step_ontology_runtime):
+                        from orchestration.subagents.ontology_reviewer import (
+                            review_ontology_output,
+                        )
+
+                        yield {
+                            "type": "ontology_review",
+                            "status": "started",
+                            "level": step_ontology_runtime.get(
+                                "review_level", "checkpoint"
+                            ),
+                            "step_id": step.step_id,
+                        }
+                        trace = [
+                            {
+                                "type": "tool_result",
+                                "tool_name": item.get("tool_name"),
+                                "tool_id": item.get("tool_id"),
+                                "result": item.get("result"),
+                            }
+                            for item in step_tool_calls
+                            if "result" in item
+                        ]
+                        ontology_review = await review_ontology_output(
+                            task=f"{plan.task_input}\n{step_instruction}",
+                            answer=step_text,
+                            runtime=step_ontology_runtime,
+                            trace=trace,
+                            citations=[],
+                            user_id=user_id,
+                            chat_id=chat_id,
+                            model_name=model_name,
+                        )
+                        step_text = ontology_review["answer"]
+                        yield {
+                            "type": "ontology_review",
+                            "status": "completed",
+                            "level": step_ontology_runtime.get(
+                                "review_level", "checkpoint"
+                            ),
+                            "verdict": ontology_review["verdict"],
+                            "step_id": step.step_id,
+                        }
 
                     yield {
                         "type": "plan_step_progress",

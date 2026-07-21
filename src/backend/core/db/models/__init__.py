@@ -24,6 +24,13 @@ from core.db.models.logs import ToolCallLog, SubAgentCallLog, SkillCallLog, Audi
 from core.db.models.memory import ProfileMemory, MemoryAudit, MemorySanitizerRule
 from core.db.models.datasource import DataSource, DsTableMeta, DsColumnMeta, DsGoldenSql
 from core.db.models.site import Site, SiteKV, SiteSubmission
+from core.db.models.ontology import (
+    OntologyDraft,
+    OntologyEnforcementEvent,
+    OntologyPack,
+    OntologyPackVersion,
+    OntologyReviewRun,
+)
 
 __all__ = [
     "Site",
@@ -100,4 +107,9 @@ __all__ = [
     "ProfileMemory",
     "MemoryAudit",
     "MemorySanitizerRule",
+    "OntologyPack",
+    "OntologyPackVersion",
+    "OntologyEnforcementEvent",
+    "OntologyReviewRun",
+    "OntologyDraft",
 ]

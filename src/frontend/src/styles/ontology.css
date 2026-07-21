@@ -1,0 +1,1213 @@
+/* Ontology validation feedback and admin Domain Pack detail. */
+
+.jx-ontologyGovernance {
+  width: min(680px, 100%);
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-primary-bg);
+  border-radius: 12px;
+  background: var(--color-primary-light);
+  color: var(--color-text);
+}
+
+.jx-ontologyGovernance.is-running {
+  border-color: rgba(38, 116, 255, 0.28);
+}
+
+.jx-ontologyGovernance.has-denial {
+  border-color: rgba(250, 173, 20, 0.38);
+  background: var(--color-warning-light);
+}
+
+.jx-ontologyGovernance-head,
+.jx-ontologyGovernance-title,
+.jx-ontologyGovernance-status,
+.jx-ontologyGovernance-summary,
+.jx-ontologyGovernance-workflows,
+.jx-ontologyGovernance-workflows > span {
+  display: flex;
+  align-items: center;
+}
+
+.jx-ontologyGovernance-head {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jx-ontologyGovernance-title {
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.jx-ontologyGovernance-title > .anticon {
+  color: var(--color-primary);
+  font-size: 16px;
+}
+
+.jx-ontologyGovernance-status {
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--color-primary-bg);
+  color: var(--color-primary-active);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.jx-ontologyGovernance-status.is-running {
+  background: rgba(38, 116, 255, 0.1);
+  color: var(--color-primary);
+}
+
+.jx-ontologyGovernance-status.is-warning {
+  background: rgba(250, 173, 20, 0.12);
+  color: var(--color-warning-active);
+}
+
+.jx-ontologyGovernance-summary {
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 9px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.jx-ontologyGovernance-summary strong {
+  color: var(--color-text);
+  font-family: var(--font-family-number);
+}
+
+.jx-ontologyGovernance-workflows {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.jx-ontologyGovernance-workflows > span {
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-ontologyGovernance-workflows small {
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+}
+
+@media (max-width: 640px) {
+  .jx-ontologyGovernance-head {
+    align-items: flex-start;
+  }
+
+  .jx-ontologyGovernance-summary {
+    gap: 5px 10px;
+  }
+}
+
+/* Ontology review follows the assistant answer in the normal conversation flow. */
+.jx-ontologyReviewInline {
+  width: 100%;
+  max-width: 100%;
+  margin: 8px 0 4px;
+  animation: jx-ontologyInlineEnter .24s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@keyframes jx-ontologyInlineEnter {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+.jx-ontologyRevision {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(18, 109, 255, .2);
+  border-radius: 14px;
+  background: var(--color-bg);
+  box-shadow: 0 8px 24px rgba(21, 45, 74, .07);
+  cursor: default;
+  pointer-events: auto;
+  scrollbar-color: rgba(100, 116, 139, .22) transparent;
+  scrollbar-width: thin;
+  contain: inline-size;
+}
+
+.jx-ontologyRevision,
+.jx-ontologyRevision * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.jx-ontologyRevision-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 17px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-primary-light);
+}
+
+.jx-ontologyRevision-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--color-primary);
+  font-family: var(--font-family-number);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .15em;
+}
+
+.jx-ontologyRevision-head h3 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-ontologyRevision-state {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border: 1px solid rgba(21, 45, 74, .1);
+  border-radius: 999px;
+  background: #f5f7f8;
+  color: #627083;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.jx-ontologyRevision-state.is-streaming {
+  border-color: rgba(18, 109, 255, .18);
+  background: rgba(18, 109, 255, .07);
+  color: var(--color-primary);
+}
+
+.jx-ontologyRevision-state.is-accepted {
+  border-color: var(--color-primary-bg);
+  background: var(--color-primary-light);
+  color: var(--color-primary-active);
+}
+
+.jx-ontologyRevision-state.is-warning {
+  border-color: rgba(250, 173, 20, .22);
+  background: rgba(250, 173, 20, .09);
+  color: var(--color-warning-active);
+}
+
+.jx-ontologyReviewProgress {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 14px;
+  padding: 15px;
+  border: 1px solid rgba(18, 109, 255, .14);
+  border-radius: 12px;
+  background: var(--color-primary-light);
+}
+
+.jx-ontologyReviewProgress-icon {
+  display: grid;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(18, 109, 255, .09);
+  color: var(--color-primary);
+  font-size: 16px;
+}
+
+.jx-ontologyReviewProgress strong {
+  color: #203a58;
+  font-size: 13px;
+}
+
+.jx-ontologyReviewProgress p {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.jx-ontologyPassResult {
+  margin: 14px;
+  padding: 15px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  background: var(--color-bg-gray);
+}
+
+.jx-ontologyPassResult-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.jx-ontologyPassResult-title > .anticon {
+  margin-top: 2px;
+  color: var(--color-primary);
+  font-size: 21px;
+}
+
+.jx-ontologyPassResult-title h4 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.jx-ontologyPassResult-title p {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.jx-ontologyPassResult-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.jx-ontologyPassResult-summary > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .7);
+}
+
+.jx-ontologyPassResult-summary span,
+.jx-ontologyPassResult-summary strong {
+  display: block;
+}
+
+.jx-ontologyPassResult-summary span {
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+}
+
+.jx-ontologyPassResult-summary strong {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-family-number);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-ontologyPassResult-evidence {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--color-border);
+}
+
+.jx-ontologyPassResult-evidence > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.jx-ontologyPassResult-evidence ul {
+  margin: 7px 0 0;
+  padding-left: 17px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.jx-ontologyRevision > .jx-inlineSummary {
+  margin: 10px 14px 0;
+}
+
+.jx-ontologyRevision-evidence {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-primary-bg);
+  border-radius: 9px;
+  background: var(--color-primary-light);
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.jx-ontologyRevision-evidence > .anticon {
+  margin-top: 2px;
+  color: var(--color-primary);
+}
+
+.jx-ontologyRevision-document {
+  width: 100%;
+  max-width: 100%;
+  margin: 12px 0 0;
+  padding: 4px 18px 18px;
+  overflow-x: hidden;
+  overflow-y: visible;
+  color: rgba(15, 23, 42, .86);
+}
+
+.jx-ontologyRevision-documentHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.jx-ontologyRevision-documentHead strong {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.jx-ontologyRevision-documentHead span {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-ontologyRevision-text {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+
+.jx-ontologyRevision-text > div,
+.jx-ontologyRevision-text p,
+.jx-ontologyRevision-text li,
+.jx-ontologyRevision-text blockquote,
+.jx-ontologyRevision-text dd,
+.jx-ontologyRevision-text a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.jx-ontologyRevision-text pre {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.jx-ontologyRevision-text table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.jx-ontologyRevision-text img,
+.jx-ontologyRevision-text svg,
+.jx-ontologyRevision-text canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+.jx-ontologyRevision-text h1,
+.jx-ontologyRevision-text h2,
+.jx-ontologyRevision-text h3 {
+  margin: 18px 0 8px;
+  color: #172e49;
+  line-height: 1.4;
+}
+
+.jx-ontologyRevision-text p {
+  margin: 0 0 10px;
+}
+
+.jx-ontologyRevision-placeholder {
+  min-height: 140px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+
+.jx-ontologyManualReview {
+  margin: 0 14px 14px;
+  padding: 12px;
+  border: 1px solid rgba(250, 173, 20, .24);
+  border-radius: 12px;
+  background: #fffdf7;
+}
+
+.jx-ontologyManualReview.is-required {
+  box-shadow: inset 3px 0 0 #d99918;
+}
+
+.jx-ontologyManualReview-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.jx-ontologyManualReview-head > .anticon {
+  margin-top: 2px;
+  color: #b87809;
+}
+
+.jx-ontologyManualReview-head strong {
+  color: #5f440e;
+  font-size: 13px;
+}
+
+.jx-ontologyManualReview-head p {
+  margin: 3px 0 0;
+  color: #796744;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.jx-ontologyManualReview-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.jx-ontologyManualReview-card {
+  position: relative;
+  padding: 10px 10px 10px 38px;
+  border: 1px solid rgba(95, 68, 14, .11);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .82);
+}
+
+.jx-ontologyManualReview-index {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  color: #b38a3d;
+  font-family: var(--font-family-number);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.jx-ontologyManualReview-card > strong {
+  display: block;
+  color: #493a1d;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.jx-ontologyManualReview-card dl {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+}
+
+.jx-ontologyManualReview-card dl > div {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.jx-ontologyManualReview-card dt {
+  color: #9b7f4c;
+}
+
+.jx-ontologyManualReview-card dd {
+  margin: 0;
+  color: #665536;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.jx-ontologyRevision-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(21, 45, 74, .09);
+  background: #fff;
+}
+
+.jx-ontologyRevision-actions > span {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.jx-ontologyRevision-actions .ant-btn {
+  flex: 0 0 auto;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+@media (max-width: 640px) {
+  .jx-ontologyRevision-head,
+  .jx-ontologyRevision-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .jx-ontologyRevision-actions .ant-btn {
+    width: 100%;
+  }
+
+  .jx-ontologyPassResult-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+.jx-ontologyTagSelect {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+}
+
+.jx-ontologyTagSelect > .ant-select {
+  width: 100%;
+}
+
+.jx-ontologyTagSelect-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+  white-space: normal;
+}
+
+.jx-ontologyTagSelect-optionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jx-ontologyTagSelect-definition {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.jx-ontologyTagSelect-triggered {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--color-primary-bg);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+}
+
+.jx-ontologyTagSelect-triggered > .ant-typography {
+  flex: 0 0 auto;
+  line-height: 22px;
+}
+
+.jx-ontologyTagSelect-triggered > .ant-space {
+  min-width: 0;
+}
+
+.jx-ontologyValidationModal .ant-modal-body {
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.jx-ontologyValidation {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 4px;
+}
+
+.jx-ontologyValidation-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.jx-ontologyValidation-count {
+  min-height: 76px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(145deg, #fff, var(--color-bg-gray));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.jx-ontologyValidation-count > span {
+  color: var(--color-text);
+  font-family: var(--font-family-number);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.jx-ontologyValidation-count--error {
+  border-color: var(--color-error-bg);
+  background: var(--color-error-light);
+}
+
+.jx-ontologyValidation-count--error > span { color: var(--color-error-active); }
+
+.jx-ontologyValidation-count--warning {
+  border-color: var(--color-warning-bg);
+  background: var(--color-warning-light);
+}
+
+.jx-ontologyValidation-count--warning > span { color: var(--color-warning-active); }
+
+.jx-ontologyValidation-section > .ant-typography {
+  margin: 0 0 10px;
+}
+
+.jx-ontologyValidation-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jx-ontologyValidation-issue {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.jx-ontologyValidation-issue--error { border-left-color: var(--color-error); }
+.jx-ontologyValidation-issue--warning { border-left-color: var(--color-warning); }
+.jx-ontologyValidation-issue--error .jx-ontologyValidation-issueIcon { color: var(--color-error); }
+.jx-ontologyValidation-issue--warning .jx-ontologyValidation-issueIcon { color: var(--color-warning-active); }
+
+.jx-ontologyValidation-issueIcon {
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+.jx-ontologyValidation-issueBody { min-width: 0; flex: 1; }
+.jx-ontologyValidation-issueMessage.ant-typography { margin: 7px 0 0; color: var(--color-text-secondary); }
+
+.jx-ontologyValidation-mcpSuggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 11px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-success-bg);
+  border-radius: var(--radius-sm);
+  background: var(--color-success-light);
+}
+
+.jx-ontologyValidation-mcpCard {
+  display: grid;
+  grid-template-columns: minmax(190px, .8fr) minmax(0, 1.2fr);
+  gap: 10px;
+  align-items: start;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.jx-ontologyValidation-mcpCard > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.jx-ontologyValidation-mcpCard .ant-typography code { font-size: 11px; }
+
+.jx-ontologyValidation-suggestions {
+  padding: 14px 16px;
+  border: 1px solid var(--color-primary-bg);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+}
+
+.jx-ontologyValidation-suggestions ol {
+  margin: 0;
+  padding-left: 24px;
+}
+
+.jx-ontologyValidation-suggestions li {
+  padding: 4px 0 4px 4px;
+  color: var(--color-text-secondary);
+}
+
+.jx-ontologyValidation-detected {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.jx-ontologyValidation-detected > div {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-gray);
+}
+
+.jx-ontologyValidation-copy {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: var(--color-success-active);
+  font-size: 12px;
+}
+
+.jx-ontologyDetailDrawer .ant-drawer-body {
+  background: var(--color-bg-gray);
+}
+
+.jx-ontologyDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.jx-ontologyDetail-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  gap: 16px;
+  padding: 22px 24px;
+  border: 1px solid rgba(18, 109, 255, .16);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at 92% 12%, rgba(118, 85, 250, .12), transparent 30%),
+    linear-gradient(135deg, #fff 24%, var(--color-primary-light));
+  box-shadow: var(--shadow-card);
+}
+
+.jx-ontologyDetail-heroIcon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 52px;
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(18, 109, 255, .22);
+  font-size: 24px;
+}
+
+.jx-ontologyDetail-heroBody { min-width: 0; }
+.jx-ontologyDetail-heroBody h3.ant-typography { margin: 9px 0 5px; }
+.jx-ontologyDetail-heroBody p.ant-typography { margin: 0; color: var(--color-text-secondary); }
+
+.jx-ontologyDetail-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.jx-ontologyDetail-stats > div {
+  display: grid;
+  grid-template-columns: 32px auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  min-height: 78px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+}
+
+.jx-ontologyDetail-stats .anticon {
+  grid-row: 1 / span 2;
+  color: var(--color-primary);
+  font-size: 23px;
+}
+
+.jx-ontologyDetail-stats strong {
+  align-self: end;
+  font-family: var(--font-family-number);
+  font-size: 23px;
+  line-height: 1.15;
+}
+
+.jx-ontologyDetail-stats span { align-self: start; color: var(--color-text-tertiary); font-size: 12px; }
+
+.jx-ontologyDetail-tabs {
+  padding: 0 18px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+}
+
+.jx-ontologyDetail-tabs > .ant-tabs-nav { margin-bottom: 18px; }
+
+.jx-ontologyDetail-overview,
+.jx-ontologyDetail-stack,
+.jx-ontologyDetail-relationList,
+.jx-ontologyDetail-validationList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jx-ontologyDetail-cardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.jx-ontologyDetail-concept,
+.jx-ontologyDetail-ruleCard,
+.jx-ontologyDetail-workflowCard,
+.jx-ontologyDetail-relationList > .ant-card {
+  border-color: var(--color-border);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .035);
+}
+
+.jx-ontologyDetail-cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.jx-ontologyDetail-cardHead h5.ant-typography { margin: 0 0 4px; }
+.jx-ontologyDetail-concept .ant-typography { overflow-wrap: anywhere; }
+
+.jx-ontologyDetail-line {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 9px;
+}
+
+.jx-ontologyDetail-relationFlow {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(130px, auto) minmax(140px, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.jx-ontologyDetail-relationFlow > div:not(.jx-ontologyDetail-predicate) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-gray);
+  text-align: center;
+}
+
+.jx-ontologyDetail-predicate {
+  position: relative;
+  color: var(--color-primary);
+  text-align: center;
+}
+
+.jx-ontologyDetail-predicate::before,
+.jx-ontologyDetail-predicate::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 1px;
+  background: var(--color-primary-disabled);
+}
+
+.jx-ontologyDetail-predicate::before { left: -5px; transform: translateX(-100%); }
+.jx-ontologyDetail-predicate::after { right: -5px; transform: translateX(100%); }
+
+.jx-ontologyDetail-schema { margin-top: 12px; }
+.jx-ontologyDetail-schema pre,
+.jx-ontologyDetail-raw pre {
+  margin: 7px 0 0;
+  padding: 14px;
+  border: 1px solid #263247;
+  border-radius: var(--radius-sm);
+  background: #172033;
+  color: #d8e4f8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.jx-ontologyDetail-workflowCard .ant-card-body { display: flex; gap: 16px; }
+.jx-ontologyDetail-workflowIndex {
+  width: 42px;
+  flex: 0 0 42px;
+  color: var(--color-primary-disabled);
+  font-family: var(--font-family-number);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+}
+.jx-ontologyDetail-workflowBody { min-width: 0; flex: 1; }
+
+.jx-ontologyDetail-validationItem {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.jx-ontologyDetail-validationItem--error { background: var(--color-error-light); color: var(--color-error-active); }
+.jx-ontologyDetail-validationItem--warning { background: var(--color-warning-light); color: var(--color-warning-active); }
+.jx-ontologyDetail-validationItem p.ant-typography { margin: 5px 0 0; color: var(--color-text-secondary); }
+
+.jx-ontologyDetail-rawHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.jx-ontologyDetail-raw pre {
+  max-height: calc(100vh - 330px);
+  overflow: auto;
+}
+
+.jx-ontologyVersionManager-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.jx-ontologyVersionManager-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-gray);
+}
+
+.jx-ontologyVersionManager-summaryIcon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 42px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-size: 20px;
+}
+
+.jx-ontologyVersionManager-summaryBody {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.jx-ontologyVersionManager-summaryBody h5.ant-typography {
+  margin: 0;
+}
+
+.jx-ontologyVersionManager-versionId {
+  max-width: 150px;
+  font-size: 11px;
+}
+
+.jx-ontologyVersionManager-issueCount {
+  font-size: 11px;
+}
+
+.jx-ontologyVersionManager-footnote {
+  align-self: flex-end;
+  font-size: 12px;
+}
+
+.jx-ontologyDetail-module {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.jx-ontologyDetail-moduleHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-primary-bg);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+}
+
+.jx-ontologyDetail-moduleHead > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.jx-ontologyDetail-moduleHead > .ant-btn {
+  flex: 0 0 auto;
+}
+
+.jx-ontologyEditorModal .ant-modal-body {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.jx-ontologyEditor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.jx-ontologyEditor-versionCard {
+  border-color: var(--color-primary-bg);
+  background: var(--color-primary-light);
+}
+
+.jx-ontologyEditor-versionCard .ant-form-item {
+  margin-bottom: 0;
+}
+
+.jx-ontologyEditor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.jx-ontologyEditor-listHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jx-ontologyEditor-listHead h5.ant-typography,
+.jx-ontologyEditor-schemaHead p.ant-typography {
+  margin: 0;
+}
+
+.jx-ontologyEditor-listHead > div,
+.jx-ontologyEditor-schemaHead > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.jx-ontologyEditor-itemCard {
+  border-color: var(--color-border);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, .04);
+}
+
+.jx-ontologyEditor-itemCard > .ant-card-head {
+  background: var(--color-bg-gray);
+}
+
+.jx-ontologyEditor-schemaCard {
+  margin-top: 4px;
+  border-color: var(--color-primary-bg);
+  background: rgba(18, 109, 255, .025);
+}
+
+.jx-ontologyEditor-schemaHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.jx-ontologyEditor-property,
+.jx-ontologyEditor-trigger {
+  padding: 12px 12px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.jx-ontologyEditor-propertyRemove {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 23px;
+}
+
+.jx-ontologyEditor-workflowLists {
+  margin-top: 14px;
+}
+
+.jx-ontologyEditor-errorList {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.jx-ontologyEditor-errorList li + li {
+  margin-top: 6px;
+}
+
+@media (max-width: 760px) {
+  .jx-ontologyValidation-summary,
+  .jx-ontologyDetail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .jx-ontologyValidation-detected,
+  .jx-ontologyDetail-cardGrid { grid-template-columns: 1fr; }
+  .jx-ontologyValidation-mcpCard { grid-template-columns: 1fr; }
+  .jx-ontologyDetail-hero { padding: 18px; }
+  .jx-ontologyDetail-relationFlow { grid-template-columns: 1fr; }
+  .jx-ontologyDetail-predicate::before,
+  .jx-ontologyDetail-predicate::after { display: none; }
+  .jx-ontologyDetail-workflowCard .ant-card-body { flex-direction: column; }
+  .jx-ontologyDetail-line { grid-template-columns: 72px minmax(0, 1fr); }
+  .jx-ontologyDetail-moduleHead,
+  .jx-ontologyEditor-schemaHead { flex-direction: column; }
+  .jx-ontologyDetail-moduleHead > .ant-btn { width: 100%; }
+  .jx-ontologyEditor-propertyRemove { padding-top: 0; }
+  .jx-ontologyVersionManager-summary { align-items: flex-start; }
+}

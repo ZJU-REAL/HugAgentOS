@@ -249,6 +249,25 @@ def configure_model(
     ModelConfigService.get_instance().invalidate_cache()
 
 
+def mark_web_onboarding_complete(user_id: str) -> None:
+    """Avoid repeating the browser setup after the terminal wizard succeeds."""
+    from core.db.engine import SessionLocal
+    from core.services.local_user_service import CE_ONBOARDING_VERSION
+    from core.services.user_service import UserService
+
+    db = SessionLocal()
+    try:
+        UserService(db).update_user_metadata(
+            user_id,
+            {
+                "onboarding_completed_version": CE_ONBOARDING_VERSION,
+                "onboarding_required": False,
+            },
+        )
+    finally:
+        db.close()
+
+
 # ── Plugins ───────────────────────────────────────────────────────────────────
 
 # Recommended default plugin set for a personal single-machine install: task
@@ -437,11 +456,13 @@ def _probe_host_tools() -> dict:
     """Which optional host tools are present (affects local-mode capabilities)."""
     import shutil
 
+    from core.content.office import find_libreoffice_binary
+
     return {
         "node": shutil.which("node") or shutil.which("nodejs"),
         "npm": shutil.which("npm"),
         "pandoc": shutil.which("pandoc"),
-        "libreoffice": shutil.which("libreoffice") or shutil.which("soffice"),
+        "libreoffice": find_libreoffice_binary(),
     }
 
 
@@ -460,7 +481,11 @@ def _print_capability_summary() -> None:
     )
     print(
         f"  [{'✓' if tools['libreoffice'] else '·'}] libreoffice — Office 格式转换"
-        + ("" if tools["libreoffice"] else "（未装：PPT/Office 转换降级）")
+        + (
+            ""
+            if tools["libreoffice"]
+            else "（未装：PPT/Word 无法预览；重新运行一键安装器可选择补装）"
+        )
     )
 
 
@@ -633,6 +658,7 @@ def cmd_onboard(args) -> int:
             print(f"! 搜索引擎配置失败：{exc}", file=sys.stderr)
 
     _print_capability_summary()
+    mark_web_onboarding_complete(user_id)
 
     print("\n✓ 初始化完成。", end=" ")
     if args.no_serve:
@@ -733,9 +759,9 @@ def cmd_doctor(args) -> int:
         required=False,
     )
     check(
-        "libreoffice（可选，Office 格式转换）",
+        "libreoffice（PPT/Word 在线预览、Office 格式转换）",
         _tools["libreoffice"] is not None,
-        "" if _tools["libreoffice"] else "未安装，PPT/Office 转换降级",
+        ("" if _tools["libreoffice"] else "未安装；重新运行一键安装器，或手动安装后重启服务"),
         required=False,
     )
 

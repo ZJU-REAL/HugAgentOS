@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-# 方正字体系列（body / heading），与仓库顶层 resources/fonts/ 中的文件对应
 _BODY_FONT = "方正仿宋简体"
 _HEADING_FONT = "方正小标宋简体"
 _CODE_FONT = "Courier New"

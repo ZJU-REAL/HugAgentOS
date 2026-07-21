@@ -4,19 +4,15 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException, Request
-from sqlalchemy.orm import Session
-
 from core.auth.backend import UserContext, get_current_user, require_auth
+from core.auth.permissions_iface import PermissionLevel, require_team_file_permission
 from core.auth.roles import TeamRole, at_least
-from core.auth.permissions_iface import (
-    PermissionLevel,
-    require_team_file_permission,
-)
 from core.config.settings import settings
 from core.db.engine import get_db
 from core.db.models import UserShadow
 from core.db.repository import AuditLogRepository, TeamRepository
+from fastapi import Depends, Header, HTTPException, Request
+from sqlalchemy.orm import Session
 
 
 def _require_token_or_flag(
@@ -96,20 +92,22 @@ def _audit_grant(
             return
         from core.infra.logging import trace_id_var
 
-        AuditLogRepository(db).create({
-            "trace_id": trace_id_var.get() or None,
-            "user_id": user_id,
-            "action": granted_action,
-            "resource_type": "backend_console",
-            "details": {
-                "method": request.method.upper(),
-                "path": request.url.path,
-                "via": via,
-            },
-            "ip_address": request.client.host if request.client else None,
-            "user_agent": request.headers.get("user-agent"),
-            "status": "success",
-        })
+        AuditLogRepository(db).create(
+            {
+                "trace_id": trace_id_var.get() or None,
+                "user_id": user_id,
+                "action": granted_action,
+                "resource_type": "backend_console",
+                "details": {
+                    "method": request.method.upper(),
+                    "path": request.url.path,
+                    "via": via,
+                },
+                "ip_address": request.client.host if request.client else None,
+                "user_agent": request.headers.get("user-agent"),
+                "status": "success",
+            }
+        )
     except Exception:  # noqa: BLE001 — an audit failure must never block a console request
         pass
 
@@ -183,7 +181,7 @@ async def _resolve_session_user_id(request: Request) -> Optional[str]:
             payload = await validate_session(token)
             if payload:
                 return payload.get("user_id")
-    except Exception:  # noqa: BLE001 — missing cookie / expired session degrades safely to anonymous
+    except Exception:  # noqa: BLE001 — auth failure degrades safely to anonymous
         return None
     return None
 
@@ -227,6 +225,21 @@ def user_can_manage_system_settings(db: Session, user_id: Optional[str]) -> bool
     return settings.edition.edition == "ce" and settings.auth.mode == "mock"
 
 
+def user_can_manage_ontology_governance(db: Session, user_id: Optional[str]) -> bool:
+    """Whether a signed-in CE instance owner may manage global ontology assets.
+
+    The management surface is intentionally delegated only in CE, where the
+    separate Admin console is not shipped.  A CE user must still be either a
+    content/system administrator (super-admin implies both) or the sole mock
+    user in the single-trust-domain development mode.
+    """
+    if not user_id or settings.edition.edition != "ce":
+        return False
+    return _user_has_meta_flag(
+        db, user_id, "can_content_manage"
+    ) or user_can_manage_system_settings(db, user_id)
+
+
 async def require_system_settings(
     request: Request,
     db: Session = Depends(get_db),
@@ -267,6 +280,45 @@ async def require_system_settings(
     if user is None:
         raise HTTPException(status_code=401, detail="未登录")
     raise HTTPException(status_code=403, detail="需要系统配置权限")
+
+
+async def require_ontology_governance(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: Optional[UserContext] = Depends(require_auth(False)),
+) -> str:
+    """Authorize the CE settings-page ontology governance surface.
+
+    ``ADMIN_TOKEN`` remains an operational fallback. Browser access is limited
+    to users accepted by :func:`user_can_manage_ontology_governance`.
+    """
+    token = os.getenv("ADMIN_TOKEN") or getattr(settings.auth, "admin_token", "")
+    authorization = request.headers.get("authorization")
+    if token and authorization == f"Bearer {token}":
+        _audit_grant(db, request, "ontology_governance.access_granted", user_id=None, via="token")
+        return "admin_token"
+    if user is not None and user_can_manage_ontology_governance(db, user.user_id):
+        _audit_grant(
+            db,
+            request,
+            "ontology_governance.access_granted",
+            user_id=user.user_id,
+            via="session",
+        )
+        return user.user_id
+    if authorization or user is not None:
+        AuditLogRepository(db).log_denial(
+            user_id=user.user_id if user else None,
+            action="ontology_governance.access_denied",
+            reason="insufficient_permission",
+            required="ce_ontology_governance",
+            actual="regular_user" if user else "anonymous",
+            resource_type="backend_console",
+            request=request,
+        )
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    raise HTTPException(status_code=403, detail="需要 CE 本体治理权限")
 
 
 async def require_super_admin(
@@ -369,6 +421,7 @@ class TeamFileAccess:
     ``access: TeamFileAccess = Depends(require_team_file_perm("edit"))`` to get:
     the resolved user / db / the validated permission level.
     """
+
     user: UserContext
     db: Session
     team_id: str

@@ -16,6 +16,7 @@ from core.db.repository.team import TeamRepository, InviteCodeRepository
 from core.db.repository.role import RoleRepository
 from core.db.repository.channel import ChannelConnectionRepository
 from core.db.repository.site import SiteRepository
+from core.db.repository.ontology import OntologyRepository
 
 __all__ = [
     "UserRepository", "LocalUserRepository", "DingTalkConnectionRepository",
@@ -28,4 +29,5 @@ __all__ = [
     "RoleRepository",
     "ChannelConnectionRepository",
     "SiteRepository",
+    "OntologyRepository",
 ]

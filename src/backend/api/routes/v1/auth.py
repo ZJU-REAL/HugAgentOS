@@ -54,6 +54,7 @@ def _clear_session_cookie(response: Response) -> None:
 
 def _serialize_user(db: Session, user_data: dict, ttl_seconds: Optional[int] = None) -> dict:
     from core.db.models import LocalUser, UserShadow
+    from core.services.local_user_service import ce_onboarding_required
 
     user_id = user_data["user_id"]
     shadow = db.query(UserShadow).filter(UserShadow.user_id == user_id).first()
@@ -72,6 +73,7 @@ def _serialize_user(db: Session, user_data: dict, ttl_seconds: Optional[int] = N
         "expires_at": expires_at_iso(ttl_seconds or user_data.get("ttl_seconds")),
         "sso_token": None,
         "must_change_password": bool(meta.get("must_change_password")),
+        "onboarding_required": ce_onboarding_required(meta),
         **caps,
         **page_admin_flags(meta, caps),
     }

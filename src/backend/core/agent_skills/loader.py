@@ -50,21 +50,27 @@ def _auto_detect_scripts(
             candidates.append(fname)
 
     # From filesystem (filesystem skills without extra_files)
-    if not candidates and skill_info.content is None:
+    if not candidates and not skill_info.is_database and skill_info.content is None:
         skill_dir = skill_info.file_path.parent
         for p in skill_dir.iterdir():
-            if p.is_file() and not p.name.startswith("_") and p.suffix.lower() in _SCRIPT_EXTENSIONS:
+            if (
+                p.is_file()
+                and not p.name.startswith("_")
+                and p.suffix.lower() in _SCRIPT_EXTENSIONS
+            ):
                 candidates.append(p.name)
 
     # Build whitelist entries
     ext_to_lang = {".py": "python", ".js": "javascript", ".sh": "bash", ".r": "r", ".R": "r"}
     for name in sorted(candidates):
         ext = Path(name).suffix.lower()
-        scripts.append({
-            "name": name,
-            "language": ext_to_lang.get(ext, "python"),
-            "timeout": 60,
-        })
+        scripts.append(
+            {
+                "name": name,
+                "language": ext_to_lang.get(ext, "python"),
+                "timeout": 60,
+            }
+        )
 
     return scripts
 
@@ -109,11 +115,13 @@ class MultiSourceSkillLoader:
             if src.name == "admin":
                 backends.append(DatabaseBackend(priority=src.priority))
             else:
-                backends.append(FilesystemBackend(
-                    root_dir=src.root_dir,
-                    source_name=src.name,
-                    priority=src.priority,
-                ))
+                backends.append(
+                    FilesystemBackend(
+                        root_dir=src.root_dir,
+                        source_name=src.name,
+                        priority=src.priority,
+                    )
+                )
         return CompositeBackend(backends)
 
     def _get_backend_change_token(self) -> Optional[Any]:
@@ -163,8 +171,21 @@ class MultiSourceSkillLoader:
 
         for skill_info in skill_files:
             try:
-                if skill_info.content is not None:
-                    metadata = _load_skill_metadata_from_str(skill_info.content, skill_info.skill_id)
+                if skill_info.metadata is not None:
+                    item = skill_info.metadata
+                    metadata = AgentSkillMetadata(
+                        id=str(item.get("id") or skill_info.skill_id),
+                        name=str(item.get("name") or skill_info.skill_id),
+                        description=str(item.get("description") or ""),
+                        version=str(item.get("version") or "1.0.0"),
+                        tags=list(item.get("tags") or []),
+                        allowed_tools=list(item.get("allowed_tools") or []),
+                        mcp_server_ids=list(item.get("mcp_server_ids") or []),
+                    )
+                elif skill_info.content is not None:
+                    metadata = _load_skill_metadata_from_str(
+                        skill_info.content, skill_info.skill_id
+                    )
                 else:
                     metadata = _load_skill_metadata_from_file(skill_info.file_path)
                 # Add source information to skill_path for debugging
@@ -175,6 +196,7 @@ class MultiSourceSkillLoader:
                     version=metadata.version,
                     tags=metadata.tags,
                     allowed_tools=metadata.allowed_tools,
+                    mcp_server_ids=metadata.mcp_server_ids,
                     skill_path=f"{skill_info.source_name}:{skill_info.file_path}",
                 )
                 metadata_map[metadata.id] = metadata_with_source
@@ -206,7 +228,12 @@ class MultiSourceSkillLoader:
             return None
 
         try:
-            if skill_info.content is not None:
+            if skill_info.is_database:
+                spec = _load_skill_from_str(
+                    self._backend.read_skill_file(skill_id),
+                    skill_info.skill_id,
+                )
+            elif skill_info.content is not None:
                 spec = _load_skill_from_str(skill_info.content, skill_info.skill_id)
             else:
                 spec = _load_skill_from_file(skill_info.file_path)
@@ -221,7 +248,7 @@ class MultiSourceSkillLoader:
 
             # Resolve base_dir for {baseDir} substitution
             base_dir = ""
-            if skill_info.content is None:
+            if not skill_info.is_database and skill_info.content is None:
                 # Filesystem skill: folder containing SKILL.md
                 base_dir = str(skill_info.file_path.parent)
             elif extra_file_names:
@@ -232,7 +259,11 @@ class MultiSourceSkillLoader:
             # Parse _scripts.json if present
             executable_scripts: List[Dict] = []
             scripts_json_content = ef.get("_scripts.json", "")
-            if not scripts_json_content and skill_info.content is None:
+            if (
+                not scripts_json_content
+                and not skill_info.is_database
+                and skill_info.content is None
+            ):
                 # Filesystem skill: check file directly
                 scripts_path = skill_info.file_path.parent / "_scripts.json"
                 if scripts_path.is_file():
@@ -248,9 +279,12 @@ class MultiSourceSkillLoader:
                 auto_scripts = _auto_detect_scripts(ef, skill_info)
                 if auto_scripts:
                     executable_scripts = auto_scripts
-                    logger.info("Auto-detected %d script(s) for skill '%s': %s",
-                                len(auto_scripts), skill_id,
-                                [s["name"] for s in auto_scripts])
+                    logger.info(
+                        "Auto-detected %d script(s) for skill '%s': %s",
+                        len(auto_scripts),
+                        skill_id,
+                        [s["name"] for s in auto_scripts],
+                    )
 
             # Add source information to skill_path
             spec_with_source = AgentSkillSpec(
@@ -263,6 +297,7 @@ class MultiSourceSkillLoader:
                 outputs=spec.outputs,
                 tags=spec.tags,
                 allowed_tools=spec.allowed_tools,
+                mcp_server_ids=spec.mcp_server_ids,
                 extra_files=extra_file_names,
                 base_dir=base_dir,
                 examples=spec.examples,
@@ -307,14 +342,15 @@ class MultiSourceSkillLoader:
             return None
 
         # Filesystem skills: the folder containing SKILL.md
-        if skill_info.content is None:
+        if not skill_info.is_database and skill_info.content is None:
             return str(skill_info.file_path.parent)
 
         # DB skills: materialize to a persistent cache dir
         return self._materialize_skill_files(skill_id)
 
-    def _materialize_skill_files(self, skill_id: str,
-                                  extra_files: Optional[Dict[str, str]] = None) -> str:
+    def _materialize_skill_files(
+        self, skill_id: str, extra_files: Optional[Dict[str, str]] = None
+    ) -> str:
         """Write DB extra_files to disk so scripts can be executed.
 
         Uses an in-memory cache to avoid redundant I/O. Files are only
@@ -346,8 +382,13 @@ class MultiSourceSkillLoader:
 
         # Write SKILL.md
         skill_info = self._backend.get_skill_info(skill_id)
-        if skill_info and skill_info.content:
-            (cache_root / "SKILL.md").write_text(skill_info.content, encoding="utf-8")
+        if skill_info:
+            if skill_info.is_database:
+                content = self._backend.read_skill_file(skill_id)
+            else:
+                content = skill_info.content
+            if content:
+                (cache_root / "SKILL.md").write_text(content, encoding="utf-8")
 
         # Write extra files (reuse pre-fetched data if available)
         if extra_files is None:
@@ -364,8 +405,9 @@ class MultiSourceSkillLoader:
 
         result_path = str(cache_root)
         self._materialized_cache[skill_id] = (result_path, time.monotonic())
-        logger.info("Materialized skill '%s' to %s (%d files)",
-                     skill_id, cache_root, len(extra_files))
+        logger.info(
+            "Materialized skill '%s' to %s (%d files)", skill_id, cache_root, len(extra_files)
+        )
         return result_path
 
     def get_skill_dir(self, skill_id: str) -> Optional[str]:
@@ -385,7 +427,7 @@ class MultiSourceSkillLoader:
             return None
 
         # Filesystem skill: SKILL.md parent dir
-        if skill_info.content is None:
+        if not skill_info.is_database and skill_info.content is None:
             return str(skill_info.file_path.parent)
 
         # DB skill: materialize to cache dir so AgentScope can read it

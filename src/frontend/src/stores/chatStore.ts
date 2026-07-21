@@ -129,8 +129,8 @@ interface ChatState {
   /** Active plugin referenced via / or + menu. On send: skillIds→skill_ids (injects skill
    *  instructions), mcpIds→mcp_ids (force-enables the plugin's MCP tools into this turn's toolset). */
   activePlugin: { name: string; skillIds: string[]; mcpIds: string[] } | null;
-  /** Active @mention selected via popup */
-  activeMention: { name: string } | null;
+  /** Active @mention selected via popup; id is the authoritative per-turn direct target. */
+  activeMention: { id: string; name: string } | null;
   /** Whether plan mode is enabled */
   planMode: boolean;
   /** Whether autonomous-loop mode is enabled */
@@ -190,7 +190,7 @@ interface ChatState {
   setQuotedFollowUp: (quote: { text: string; ts: number } | null) => void;
   setActiveSkill: (skill: { id: string; name: string } | null) => void;
   setActivePlugin: (plugin: { name: string; skillIds: string[]; mcpIds: string[] } | null) => void;
-  setActiveMention: (mention: { name: string } | null) => void;
+  setActiveMention: (mention: { id: string; name: string } | null) => void;
   setPlanMode: (v: boolean) => void;
   setLoopMode: (v: boolean) => void;
   /** Sync the "composer context" when switching the main view panel: activePlugin references the

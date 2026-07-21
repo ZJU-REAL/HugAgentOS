@@ -197,6 +197,10 @@ export const CATALOG_DICT: Record<string, string> = {
   '这个技能是做什么的、什么时候用': "What this skill does and when to use it",
   '标签（可选）': 'Tags (optional)',
   '回车添加标签': 'Press Enter to add a tag',
+  '选择技能执行时依赖的 MCP。系统会读取 MCP 的实际工具清单，用于本体构建校验。':
+    'Select the MCP services this skill depends on. The system reads their discovered tools for ontology build validation.',
+  '如果本体流程要求特定工具，请在这里绑定对应 MCP；绑定信息和工具清单会写入 SKILL.md。':
+    'If an ontology workflow requires specific tools, bind the corresponding MCP here. The binding and tool list are written to SKILL.md.',
   '技能正文（指令）': 'Skill Body (Instructions)',
   '请输入技能正文': 'Please enter skill instructions',
   '用 Markdown 写清楚这个技能怎么用、步骤、注意事项……': 'Use Markdown to describe how to use this skill, steps, notes…',

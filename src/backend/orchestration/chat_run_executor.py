@@ -25,8 +25,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Literal, Optional
 
-from redis.exceptions import TimeoutError as RedisTimeoutError
-
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun
@@ -34,6 +32,7 @@ from core.infra.logging import get_logger
 from core.infra.redis import get_redis
 from core.services import ChatService
 from orchestration.workflow import astream_chat_workflow
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 logger = get_logger(__name__)
 
@@ -323,6 +322,7 @@ async def _run_workflow(
     chats.py:889-1087; the frontend needs no changes to its chunk parsing —
     only the new ``run_started`` event type is added.
     """
+    from core.chat.context import now_iso, resolve_user_facing_error
     from core.chat.tool_log import (
         attach_subagent_step,
         build_thinking_event,
@@ -330,7 +330,6 @@ async def _run_workflow(
         build_tool_result_event,
     )
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
-    from core.chat.context import now_iso, resolve_user_facing_error
 
     _update_run_status(run_id, status="running", started_at=_utcnow())
 
@@ -406,6 +405,21 @@ async def _run_workflow(
                         }
                     )
 
+            elif chunk_type == "content_replace":
+                # Ontology review runs after the draft has streamed. If the
+                # committee revised it, replace the visible/persisted answer
+                # atomically instead of appending a second full answer.
+                replacement = str(chunk.get("content") or "")
+                full_response = replacement
+                await _emit(
+                    {
+                        "type": "content_replace",
+                        "content": replacement,
+                        "reason": chunk.get("reason"),
+                        "chat_id": chat_id,
+                    }
+                )
+
             elif chunk_type == "tool_call":
                 await _emit(build_tool_call_event(chunk, chat_id, tool_calls_log))
 
@@ -417,13 +431,14 @@ async def _run_workflow(
                 continue
 
             elif chunk_type == "tool_pending":
-                await _emit(
-                    {
-                        "type": "tool_pending",
-                        "chat_id": chat_id,
-                        "reason": chunk.get("reason", "llm_buffering"),
-                    }
-                )
+                pending_event = {
+                    "type": "tool_pending",
+                    "chat_id": chat_id,
+                    "reason": chunk.get("reason", "llm_buffering"),
+                }
+                if chunk.get("scope"):
+                    pending_event["scope"] = chunk["scope"]
+                await _emit(pending_event)
 
             elif chunk_type == "subagent_event":
                 # Streaming sub-steps inside a subagent — passed through as-is
@@ -517,6 +532,18 @@ async def _run_workflow(
                     }
                 )
 
+            elif chunk_type in {
+                "ontology_activation",
+                "ontology_gate",
+                "ontology_review",
+                "ontology_repair",
+                "ontology_revision",
+                "ontology_revision_thinking",
+            }:
+                ontology_event = dict(chunk)
+                ontology_event["chat_id"] = chat_id
+                await _emit(ontology_event)
+
             elif chunk_type == "meta":
                 # Strict workspace gate: pinned list is the sole source of
                 # user-visible artifacts. See chats.py:_stream_sse_response.
@@ -533,6 +560,7 @@ async def _run_workflow(
                     "message_id": message_id,
                     "citations": chunk.get("citations", []),
                     "workspace_files": _ws_files,
+                    "ontology_governance": chunk.get("ontology_governance"),
                 }
                 await _emit(metadata)
 
@@ -549,6 +577,8 @@ async def _run_workflow(
                     "message_id": message_id,
                     "workspace_files": _ws_files,
                 }
+                if metadata.get("ontology_governance"):
+                    _persist_extra["ontology_governance"] = metadata["ontology_governance"]
                 if context.get("model_provider_id"):
                     _persist_extra["model_provider_id"] = context.get("model_provider_id")
                 with SessionLocal() as db:
@@ -695,8 +725,10 @@ def _spawn_compaction_task(*, chat_id: str, model_name: str, usage: Optional[Dic
             if not should_compact(active_tokens, limit):
                 return
             logger.info(
-                "chat_compaction_triggered", chat_id=chat_id,
-                active_tokens=active_tokens, limit=limit,
+                "chat_compaction_triggered",
+                chat_id=chat_id,
+                active_tokens=active_tokens,
+                limit=limit,
             )
             await run_post_turn_compaction(chat_id)
         except Exception as exc:  # noqa: BLE001
@@ -946,11 +978,11 @@ async def _run_plan_execute_workflow(
     Uses short-lived sessions (one per logical operation) to avoid holding a
     DB connection across the entire long-running stream.
     """
-    from orchestration.subagents.plan_mode import astream_execute_plan
-    from core.services.plan_service import PlanService
     from core.chat.tool_log import attach_tool_result as _attach_tool_result
-    from core.services.artifact_service import persist_artifacts as _persist_artifacts
     from core.llm import workspace as _workspace_mod
+    from core.services.artifact_service import persist_artifacts as _persist_artifacts
+    from core.services.plan_service import PlanService
+    from orchestration.subagents.plan_mode import astream_execute_plan
 
     _update_run_status(run_id, status="running", started_at=_utcnow())
 
@@ -1280,10 +1312,14 @@ async def _run_autonomous_loop_workflow(
         elif et == "tool_call":
             _tid = str(event.get("tool_id") or f"t{len(tool_log)}")
             tool_idx[_tid] = len(tool_log)
-            tool_log.append({
-                "id": _tid, "name": event.get("tool_name") or "tool",
-                "input": event.get("tool_args"), "status": "running",
-            })
+            tool_log.append(
+                {
+                    "id": _tid,
+                    "name": event.get("tool_name") or "tool",
+                    "input": event.get("tool_args"),
+                    "status": "running",
+                }
+            )
         elif et == "tool_result":
             _i = tool_idx.get(str(event.get("tool_id") or ""))
             if _i is not None:
@@ -1313,11 +1349,12 @@ async def _run_autonomous_loop_workflow(
         try:
             with SessionLocal() as db:
                 ChatService(db).upsert_message(
-                    chat_id=chat_id, role="assistant", content=body,
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=body,
                     message_id=message_id,
                     tool_calls=tool_log if tool_log else None,
-                    extra_data={"autonomous_loop": True, "loop_id": loop_id,
-                                "loop_status": status},
+                    extra_data={"autonomous_loop": True, "loop_id": loop_id, "loop_status": status},
                 )
         except Exception:  # noqa: BLE001 - incremental persist failure must not take down the run
             logger.warning("loop incremental persist failed", exc_info=True)
@@ -1343,16 +1380,20 @@ async def _run_autonomous_loop_workflow(
     if project_id:
         try:
             from core.services.project_scope import build_project_ctx
+
             with SessionLocal() as db:
                 project_ctx = build_project_ctx(db, project_id)
                 if project_ctx:
                     # Bind the loop session to the project (publish_site's internal API reverse-looks-up via ChatSession.project_id).
                     from core.db.models import ChatSession
+
                     sess = db.query(ChatSession).filter(ChatSession.chat_id == chat_id).first()
                     if sess is not None and sess.project_id != project_id:
                         sess.project_id = project_id
                         db.commit()
-        except Exception:  # noqa: BLE001 - project resolution failure degrades to the isolated sandbox; must not take down the loop
+        except (
+            Exception
+        ):  # noqa: BLE001 - project resolution failure degrades to the isolated sandbox; must not take down the loop
             logger.warning("loop project_ctx resolve failed", exc_info=True)
             project_ctx = None
     session_id = chat_id if project_ctx else f"loop-{loop_id}"
@@ -1382,40 +1423,59 @@ async def _run_autonomous_loop_workflow(
             _LoopSvc(db).save_ledger(loop_id, led)
 
     try:
-        await _emit({
-            "type": "run_started", "run_id": run_id, "message_id": message_id,
-            "chat_id": chat_id, "kind": "autonomous_loop", "loop_id": loop_id,
-        })
+        await _emit(
+            {
+                "type": "run_started",
+                "run_id": run_id,
+                "message_id": message_id,
+                "chat_id": chat_id,
+                "kind": "autonomous_loop",
+                "loop_id": loop_id,
+            }
+        )
         if conversational and gs.objective and not is_resume:
             # Only the first start persists the objective as a user message; "continue" (resume) does not insert it again.
             try:
                 with SessionLocal() as db:
                     ChatService(db).add_message(
-                        chat_id=chat_id, role="user", content=gs.objective,
+                        chat_id=chat_id,
+                        role="user",
+                        content=gs.objective,
                         extra_data={"autonomous_loop": True, "loop_id": loop_id},
                     )
             except Exception:  # noqa: BLE001
                 logger.warning("loop user-msg persist failed", exc_info=True)
         try:
             from core.services.loop_service import LoopService
+
             with SessionLocal() as db:
                 LoopService(db).mark_running(loop_id, workspace_session=session_id)
         except Exception:  # noqa: BLE001 - audit is non-critical; don't block execution
             logger.warning("loop mark_running failed", exc_info=True)
 
         result = await run_autonomous_loop(
-            loop_id=loop_id, user_id=user_id, goal_spec=gs, budget=bud,
-            model_name=model_name, evaluator_model=evaluator_model or "fast",
-            worker_max_iters=worker_max_iters, session_id=session_id,
-            hitl_enabled=hitl_enabled, enable_thinking=enable_thinking,
+            loop_id=loop_id,
+            user_id=user_id,
+            goal_spec=gs,
+            budget=bud,
+            model_name=model_name,
+            evaluator_model=evaluator_model or "fast",
+            worker_max_iters=worker_max_iters,
+            session_id=session_id,
+            hitl_enabled=hitl_enabled,
+            enable_thinking=enable_thinking,
             chat_mode=chat_mode,
-            emit=_emit, is_cancelled=lambda: is_run_cancelled(run_id),
-            load_ledger=_load_ledger, save_ledger=_save_ledger,
-            project_ctx=project_ctx, chat_id=chat_id,
+            emit=_emit,
+            is_cancelled=lambda: is_run_cancelled(run_id),
+            load_ledger=_load_ledger,
+            save_ledger=_save_ledger,
+            project_ctx=project_ctx,
+            chat_id=chat_id,
         )
 
         try:
             from core.services.loop_service import LoopService
+
             with SessionLocal() as db:
                 LoopService(db).persist_result(loop_id, result)
         except Exception:  # noqa: BLE001
@@ -1429,7 +1489,11 @@ async def _run_autonomous_loop_workflow(
                 if _body:
                     _asst_content = _body + (
                         f"\n\n---\n**{_status_zh}** · 共 {result.iterations} 轮"
-                        + (f" · 最终分 {result.final_score}" if result.final_score is not None else "")
+                        + (
+                            f" · 最终分 {result.final_score}"
+                            if result.final_score is not None
+                            else ""
+                        )
                     )
                 else:
                     _asst_content = _loop_transcript_md(gs.objective, result)
@@ -1439,24 +1503,32 @@ async def _run_autonomous_loop_workflow(
                     # state overwrite it with the final version carrying the
                     # status footer — no duplicate rows.
                     ChatService(db).upsert_message(
-                        chat_id=chat_id, role="assistant",
+                        chat_id=chat_id,
+                        role="assistant",
                         content=_asst_content,
                         usage={"total_tokens": result.tokens_spent},
                         tool_calls=tool_log if tool_log else None,
-                        extra_data={"autonomous_loop": True, "loop_id": loop_id,
-                                    "loop_status": result.status},
+                        extra_data={
+                            "autonomous_loop": True,
+                            "loop_id": loop_id,
+                            "loop_status": result.status,
+                        },
                         message_id=message_id,
                     )
             except Exception:  # noqa: BLE001
                 logger.warning("loop assistant-msg persist failed", exc_info=True)
 
         run_status = (
-            "completed" if result.status in ("completed", "budget_exhausted", "awaiting_human")
+            "completed"
+            if result.status in ("completed", "budget_exhausted", "awaiting_human")
             else ("cancelled" if result.status == "cancelled" else "failed")
         )
         _finalize_run(
-            run_id, status=run_status, usage={"total_tokens": result.tokens_spent},
-            completed_at=_utcnow(), last_event_offset=offset_counter,
+            run_id,
+            status=run_status,
+            usage={"total_tokens": result.tokens_spent},
+            completed_at=_utcnow(),
+            last_event_offset=offset_counter,
         )
         await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
     except asyncio.CancelledError:
@@ -1472,8 +1544,11 @@ async def _run_autonomous_loop_workflow(
         logger.exception("autonomous_loop_run_failed", run_id=run_id)
         _flush_loop_message("failed")  # persist partial progress before crashing
         _finalize_run(
-            run_id, status="failed", error_message=str(exc)[:1000],
-            completed_at=_utcnow(), last_event_offset=offset_counter,
+            run_id,
+            status="failed",
+            error_message=str(exc)[:1000],
+            completed_at=_utcnow(),
+            last_event_offset=offset_counter,
         )
         await _emit({"type": "loop_error", "error": str(exc)[:500]})
         await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
@@ -1793,8 +1868,14 @@ async def resume_running_loops() -> int:
     with SessionLocal() as db:
         loops = db.query(AgentLoop).filter(AgentLoop.status == "running").all()
         specs = [
-            (x.loop_id, x.chat_id, x.user_id, dict(x.goal_spec or {}), dict(x.budget or {}),
-             (x.extra_data or {}).get("project_id"))
+            (
+                x.loop_id,
+                x.chat_id,
+                x.user_id,
+                dict(x.goal_spec or {}),
+                dict(x.budget or {}),
+                (x.extra_data or {}).get("project_id"),
+            )
             for x in loops
         ]
     for loop_id, chat_id, user_id, goal_spec, budget, project_id in specs:
@@ -1802,8 +1883,12 @@ async def resume_running_loops() -> int:
             continue
         try:
             await start_autonomous_loop_run(
-                loop_id=loop_id, chat_id=chat_id, user_id=user_id,
-                goal_spec=goal_spec, budget=budget, project_id=project_id,
+                loop_id=loop_id,
+                chat_id=chat_id,
+                user_id=user_id,
+                goal_spec=goal_spec,
+                budget=budget,
+                project_id=project_id,
                 is_resume=True,
             )
             resumed += 1

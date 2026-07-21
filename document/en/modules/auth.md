@@ -1,6 +1,6 @@
 # Authentication & Permissions
 
-> Last updated: 2026-07-19
+> Last updated: July 20, 2026
 
 The authentication and permission system in HugAgentOS covers three independent tracks: **end-user authentication** (local accounts / mock SSO / enterprise SSO / personal API keys), **administrative credentials** (the `ADMIN_TOKEN` and `CONFIG_TOKEN` Bearer tokens), and **resource-level permissions** (fine-grained access control over team files, projects, and chat shares). The implementation lives in `src/backend/core/auth/`, with the FastAPI dependency-injection entry points in `src/backend/api/deps.py`.
 
@@ -35,6 +35,29 @@ With `LOCAL_AUTH_ENABLED=true` (default), the `login_router` in `api/routes/v1/m
 - `POST /register` — always rejects self-service registration in CE; other editions can control it with `page_config.auth.allow_register`
 
 Password hashing lives in `core/auth/password.py`; the minimum length is controlled by `PASSWORD_MIN_LENGTH` (default 8). Local accounts are stored in the `local_users` table (`LocalUser` in `core/db/models`), linked one-to-one to the shadow user table. CE also disables the known mock accounts and the password-free `?auto=` shortcut; those are available only outside CE when `SSO_LOGIN_MODE=mock` is explicitly configured for development.
+
+### CE first-run setup
+
+When you sign in to a CE instance with the default `admin/admin` credentials,
+you must replace the temporary password first. The application then opens a
+full-screen setup flow instead of the workspace. The flow covers display
+language, the primary chat model, internet search, document parsing,
+persistent memory, and ontology validation.
+
+- The primary chat model is required. Saving tests the real connection and
+  assigns the model to every chat role. The completion endpoint won't unlock
+  the workspace without an active `main_agent` model.
+- Internet search and external document parsing are optional. You can add them
+  later under **Settings → System**.
+- Memory and ontology switches check whether the instance has the required
+  service or a published Domain Pack. Unavailable features remain off.
+- The application stores a versioned completion marker in the administrator's
+  `users_shadow.metadata`. Refreshing or signing in again doesn't repeat a
+  completed setup flow.
+
+The terminal-based `hugagent onboard` command already configures the account
+and model. After it finishes successfully, it writes the same completion
+marker so the browser doesn't repeat the setup.
 
 ### Mock SSO (development)
 
@@ -78,6 +101,7 @@ User-facing endpoints:
 | `GET/PATCH /v1/me` | `api/routes/v1/users.py` | Profile (incl. department, teams, local account data); local accounts may edit nickname / real name / phone |
 | `POST/PUT/DELETE /v1/me/avatar` | `api/routes/v1/users.py` | Avatar upload (≤2 MB) / set / clear |
 | `GET/PUT /v1/users/{id}/preferences` | `api/routes/v1/users.py` | User preferences |
+| `POST /v1/me/onboarding/complete` | `api/routes/v1/users.py` | Validate the primary model and complete CE first-run setup |
 | `GET /v1/me/teams` etc. | `api/routes/v1/me.py` | User-side team viewing, member invitation, removal / leaving (Enterprise Edition; degrades to 404 in CE trees lacking the team module) |
 | `GET /v1/me/users/search` | `api/routes/v1/me.py` | User search for invitations |
 

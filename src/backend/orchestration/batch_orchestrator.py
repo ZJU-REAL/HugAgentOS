@@ -367,6 +367,12 @@ async def _run_item_via_workflow(
     # downstream id-based lookup/dedup would mis-locate or drop entries. The main chat path
     # (routing/workflow.py) uses the same extract_citations_with_offset helper; shared here.
     citation_offsets: Dict[str, int] = {}
+    from core.services.ontology_service import build_user_ontology_runtime
+
+    ontology_enabled, ontology_runtime = build_user_ontology_runtime(
+        user_id=user_id,
+        task=prompt,
+    )
 
     # ⚠️ isolated=True is mandatory for the batch runner. Two things must both happen:
     #   1) skip the shared MCP pool and spawn brand-new stdio subprocesses per item
@@ -394,6 +400,7 @@ async def _run_item_via_workflow(
         # temporary container, reclaimed on finish — so multiple items don't fight over the
         # same persistent kernel state and cross-contaminate (docs §4.1).
         sandbox_session_id="",
+        ontology_runtime=ontology_runtime,
     )
     streaming_agent = StreamingAgent(agent, clients)
 
@@ -429,6 +436,8 @@ async def _run_item_via_workflow(
                 "user_id": user_id,
                 "model_name": DEFAULT_CHAT_MODEL_ALIAS,
                 "enable_thinking": False,
+                "ontology_enabled": ontology_enabled,
+                "ontology_runtime": ontology_runtime,
             },
         ):
             if event_type == "text_delta":
@@ -485,6 +494,33 @@ async def _run_item_via_workflow(
                 agent=agent,
                 prompt_preview=prompt_preview,
             )
+
+        from core.ontology.validator import requires_output_review
+
+        if full_response and requires_output_review(ontology_runtime):
+            from orchestration.subagents.ontology_reviewer import review_ontology_output
+
+            trace = [
+                {
+                    "type": "tool_result",
+                    "tool_name": item.get("tool_name"),
+                    "tool_id": item.get("tool_id"),
+                    "result": item.get("result"),
+                }
+                for item in tool_calls_log
+                if "result" in item
+            ]
+            review = await review_ontology_output(
+                task=prompt,
+                answer=full_response,
+                runtime=ontology_runtime,
+                trace=trace,
+                citations=citations,
+                user_id=user_id,
+                chat_id=None,
+                model_name=DEFAULT_CHAT_MODEL_ALIAS,
+            )
+            full_response = review["answer"]
 
         # Strict workspace gate: replace artifacts list with the pinned
         # subset BEFORE leaving the scope (state is reset on __exit__).

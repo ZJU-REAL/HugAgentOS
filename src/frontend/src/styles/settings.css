@@ -586,6 +586,18 @@
   min-width: 0;
 }
 
+.jx-settings-shell--wide {
+  max-width: 1380px;
+}
+
+.jx-settings-shell--wide .jx-settings-page {
+  max-width: 1120px;
+}
+
+.jx-settings-ontologyGovernance {
+  background: #fff;
+}
+
 .jx-settings-nav {
   position: sticky;
   top: 24px;

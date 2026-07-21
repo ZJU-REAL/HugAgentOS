@@ -19,11 +19,13 @@ def test_convert_office_to_pdf_returns_generated_pdf(monkeypatch, tmp_path):
     source.write_bytes(b"pptx")
 
     def fake_run(command, capture_output, text, timeout):
+        assert command[0] == "/usr/bin/soffice"
         outdir = Path(command[command.index("--outdir") + 1])
         input_path = Path(command[-1])
         (outdir / f"{input_path.stem}.pdf").write_bytes(b"%PDF-1.4\n")
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
+    monkeypatch.setattr(file_routes, "find_libreoffice_binary", lambda: "/usr/bin/soffice")
     monkeypatch.setattr(file_routes.subprocess, "run", fake_run)
 
     pdf_path, temp_dir = file_routes._convert_office_to_pdf(str(source), "ppt_1")
@@ -33,6 +35,23 @@ def test_convert_office_to_pdf_returns_generated_pdf(monkeypatch, tmp_path):
     assert Path(temp_dir).is_dir()
 
     file_routes._cleanup_path(temp_dir)
+
+
+def test_convert_office_to_pdf_explains_how_to_install_libreoffice(monkeypatch, tmp_path):
+    source = tmp_path / "deck.pptx"
+    source.write_bytes(b"pptx")
+    monkeypatch.setattr(file_routes, "find_libreoffice_binary", lambda: None)
+    monkeypatch.setattr(
+        file_routes.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("conversion must not run without LibreOffice"),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        file_routes._convert_office_to_pdf(str(source), "ppt_missing_lo")
+
+    assert "重新运行一键安装器" in str(exc_info.value)
+    assert "libreoffice-impress/libreoffice-writer" in str(exc_info.value)
 
 
 def test_preview_file_returns_inline_pdf_for_powerpoint(monkeypatch, tmp_path):

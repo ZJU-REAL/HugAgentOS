@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from core.artifacts.store import get_artifact
 from core.auth.backend import UserContext, require_auth
 from core.auth.permissions_iface import resolve_artifact_access
+from core.content.office import find_libreoffice_binary
 from core.db.engine import get_db
 from core.db.repository import AuditLogRepository
 from core.infra.exceptions import StorageError
@@ -194,6 +195,13 @@ def _is_office_previewable(item: dict[str, Any]) -> bool:
 
 def _convert_office_to_pdf(source_path: str, file_id: str) -> tuple[str, str]:
     """Render an Office document (PPT/PPTX/DOC/DOCX) to PDF via headless LibreOffice."""
+    libreoffice = find_libreoffice_binary()
+    if not libreoffice:
+        raise RuntimeError(
+            "LibreOffice 未安装，无法预览 Office 文档。请重新运行一键安装器并选择安装，"
+            "或安装 libreoffice-impress/libreoffice-writer 后重启服务。"
+        )
+
     temp_dir = tempfile.mkdtemp(prefix=f"office_preview_{file_id}_")
     source = Path(source_path)
     staged_name = source.name or file_id
@@ -202,7 +210,7 @@ def _convert_office_to_pdf(source_path: str, file_id: str) -> tuple[str, str]:
 
     profile_dir = Path(temp_dir) / "lo-profile"
     command = [
-        "libreoffice",
+        libreoffice,
         f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
         "--headless",
         "--convert-to",
@@ -220,7 +228,9 @@ def _convert_office_to_pdf(source_path: str, file_id: str) -> tuple[str, str]:
         )
     except FileNotFoundError as exc:
         _cleanup_path(temp_dir)
-        raise RuntimeError("LibreOffice 未安装，无法预览 Office 文档") from exc
+        raise RuntimeError(
+            "LibreOffice 命令不可用，无法预览 Office 文档。请重新运行一键安装器后重启服务。"
+        ) from exc
     except subprocess.TimeoutExpired as exc:
         _cleanup_path(temp_dir)
         raise RuntimeError("Office 文档预览转换超时") from exc

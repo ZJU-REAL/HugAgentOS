@@ -15,6 +15,8 @@ import './plan.css';
 import './config.css';
 import './projects.css';
 import './admin.css';
+import './ontology.css';
+import './onboarding.css';
 import './apidoc.css';
 import './share-preview.css';
 import './quickask.css';

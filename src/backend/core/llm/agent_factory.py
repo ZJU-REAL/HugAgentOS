@@ -11,21 +11,17 @@ import os
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from dotenv import load_dotenv
-
 # AgentScope 2.0
 from agentscope.agent import Agent, ContextConfig, ReActConfig
 from agentscope.agent._config import ModelConfig  # not in agent's public exports
 from agentscope.mcp import MCPClient
 from agentscope.tool import Toolkit
-
 from core.agent_skills.loader import get_skill_loader
 from core.config.catalog import get_enabled_ids
 from core.config.catalog_loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
-from core.services.mcp_service import McpServerConfigService
 from core.llm.chat_models import get_default_model, make_chat_model
-from core.llm.providers.registry import get_spec, split_provider_extra
-from core.llm.tool_collector import ToolCollector
+from core.llm.mcp_manager import close_clients
+from core.llm.mcp_pool import MCPConnectionPool
 from core.llm.middlewares import (
     ActingToolCallIdMiddleware,
     AgentRuntimeState,
@@ -34,14 +30,17 @@ from core.llm.middlewares import (
     FinishPinGuardMiddleware,
     GoalAnchorReminderMiddleware,
     IterBudgetReminderMiddleware,
+    OntologyGateMiddleware,
     WorkspacePinHintMiddleware,
 )
+from core.llm.providers.registry import get_spec, split_provider_extra
+from core.llm.tool_collector import ToolCollector
 from core.llm.tools import (
     ReadStateTracker,
     register_bash,
-    register_get_data_context,
     register_delete,
     register_edit,
+    register_get_data_context,
     register_glob,
     register_grep,
     register_mkdir,
@@ -56,11 +55,12 @@ from core.llm.tools import (
     register_write,
 )
 from core.llm.tools._common import resolve_sandbox_session
-from core.llm.mcp_manager import close_clients
-from core.llm.mcp_pool import MCPConnectionPool
+from core.ontology.toolkit import OntologyFilteredToolkit
+from core.ontology.validator import register_runtime_asset_tags, render_runtime_prompt
+from core.services.mcp_service import McpServerConfigService
+from dotenv import load_dotenv
 from prompts.prompt_config import load_prompt_config
-from prompts.prompt_runtime import build_system_prompt, build_subagent_system_prompt, select_tools
-
+from prompts.prompt_runtime import build_subagent_system_prompt, build_system_prompt, select_tools
 
 # Batch-execution-mode system prompt — appended at the end of the regular system prompt.
 # All the details of the trigger rules are still carried by the
@@ -188,8 +188,8 @@ def _filter_kb_ids_for_user(kb_ids: list[str], user_id: Optional[str]) -> list[s
     if not kb_ids or not user_id:
         return kb_ids
     try:
-        from core.db.engine import SessionLocal
         from core.auth.kb_permissions import filter_accessible_kb_ids
+        from core.db.engine import SessionLocal
 
         with SessionLocal() as db:
             return filter_accessible_kb_ids(db, str(user_id), kb_ids)
@@ -232,7 +232,9 @@ from mcp_servers._ports import PORTS as _MCP_PORTS
 # Fallback URL when a server config is missing ``url``. ``configs/mcp_config.py``
 # is the canonical builder; the port comes from mcp_servers/_ports.py (the
 # declared single source of truth) instead of a duplicated literal.
-KB_MCP_HTTP_URL = f"http://{_settings.server.mcp_host}:{_MCP_PORTS['retrieve_dataset_content']}/mcp/"
+KB_MCP_HTTP_URL = (
+    f"http://{_settings.server.mcp_host}:{_MCP_PORTS['retrieve_dataset_content']}/mcp/"
+)
 
 
 def _inject_runtime_headers(
@@ -357,6 +359,25 @@ def _effective_main_available_skills() -> list[str]:
     return []
 
 
+def _mcp_ids_bound_to_skills(skill_ids: list[str]) -> list[str]:
+    """Collect explicit MCP bindings declared by enabled skills."""
+    if not skill_ids:
+        return []
+    try:
+        metadata = get_skill_loader().load_all_metadata()
+    except Exception:
+        return []
+    result: list[str] = []
+    for skill_id in skill_ids:
+        item = metadata.get(skill_id)
+        if item is None:
+            continue
+        for server_id in item.mcp_server_ids or []:
+            if server_id and server_id not in result:
+                result.append(server_id)
+    return result
+
+
 async def create_agent_executor(
     agent_spec: Optional[AgentSpec] = None,
     user_query: Optional[str] = None,
@@ -397,6 +418,7 @@ async def create_agent_executor(
     # is for read-only verification; the prompt side constrains it from
     # writing). Mirrors the Codex reviewer's sandbox_mode=read-only.
     read_only: bool = False,
+    ontology_runtime: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Agent, List[MCPClient]]:
     """Create and return an AgentScope 2.0 Agent along with its MCP client list.
 
@@ -440,6 +462,22 @@ async def create_agent_executor(
     if enabled_skill_ids:
         enabled_skill_ids = _filter_skill_ids_for_user(enabled_skill_ids, current_user_id)
 
+    # A skill's MCP binding is an explicit capability grant, just like a sub-agent binding.
+    # Merge only the MCPs declared by enabled skills; unrelated disabled MCPs remain disabled.
+    skill_ids_for_bindings = (
+        enabled_skill_ids if enabled_skill_ids is not None else _effective_main_available_skills()
+    )
+    skill_bound_mcp_ids = (
+        _mcp_ids_bound_to_skills(skill_ids_for_bindings) if not disable_tools else []
+    )
+    if skill_bound_mcp_ids:
+        base_mcp_ids = (
+            enabled_mcp_ids
+            if isinstance(enabled_mcp_ids, list)
+            else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
+        )
+        enabled_mcp_ids = list(dict.fromkeys([*base_mcp_ids, *skill_bound_mcp_ids]))
+
     # Security: strip out KBs the current user has no access to (public-KB
     # permission assignment) — the frontend-supplied enabled_kb_ids may include
     # unauthorized scoped KBs; filter by the user's visible set here so the
@@ -457,7 +495,7 @@ async def create_agent_executor(
                 # owner's personally disabled MCPs without enabling it for the
                 # main agent. The explicit enabled_mcp_ids list below remains
                 # the final allowlist, so unrelated private MCPs are not loaded.
-                enabled_only=user_agent is None,
+                enabled_only=user_agent is None and not skill_bound_mcp_ids,
             )
         except Exception:
             owned_mcp_servers = {}
@@ -627,10 +665,7 @@ async def create_agent_executor(
             # mutating tools' __call__, gate() suspends awaiting user
             # confirmation.
             if _mcp_confirm_should_gate and key in CONFIRM_MCP_SERVERS:
-                from core.llm.mcp_confirm import (
-                    confirm_specs_for,
-                    make_confirm_gated_client,
-                )
+                from core.llm.mcp_confirm import confirm_specs_for, make_confirm_gated_client
 
                 client = make_confirm_gated_client(
                     key, _http_cfg, chat_id=chat_id, specs=confirm_specs_for(key)
@@ -784,8 +819,7 @@ async def create_agent_executor(
 
         _ui_reachable = _interactive and not _is_channel_run and not automation_run
         if skill_ids_to_register and any(
-            design_picker_tool.skill_uses_choose_design(str(sid))
-            for sid in skill_ids_to_register
+            design_picker_tool.skill_uses_choose_design(str(sid)) for sid in skill_ids_to_register
         ):
             design_picker_tool.register_choose_design(
                 toolkit,
@@ -928,13 +962,41 @@ async def create_agent_executor(
     # ── Phase 4: Build system prompt (DB parts pre-fetched) ──
     _agent_ref: Optional[Dict] = None
 
+    _ontology_runtime = ontology_runtime if isinstance(ontology_runtime, dict) else {}
+    skill_metadata = loader.load_all_metadata()
+    for skill_id in skill_ids_to_register or []:
+        metadata = skill_metadata.get(skill_id)
+        register_runtime_asset_tags(
+            _ontology_runtime,
+            kind="skill",
+            asset_id=skill_id,
+            tags=list(getattr(metadata, "tags", []) or []),
+        )
+    for visible_agent in visible_subagents or []:
+        extra = visible_agent.get("extra_config") or {}
+        tags = list(visible_agent.get("ontology_tags") or [])
+        tags.extend(extra.get("ontology_tags") or [])
+        register_runtime_asset_tags(
+            _ontology_runtime,
+            kind="subagent",
+            asset_id=str(visible_agent.get("agent_id") or ""),
+            tags=tags,
+        )
+    _ontology_hidden_tools = {
+        tool_name
+        for pack in _ontology_runtime.get("packs", [])
+        for workflow in pack.get("workflows", [])
+        for tool_name in workflow.get("forbidden_tools", [])
+    }
+
     def _build_toolkit() -> Toolkit:
         # ``toolkit`` here is still the ToolCollector; construct the real Toolkit from the current collection state.
-        return Toolkit(
+        return OntologyFilteredToolkit(
             tools=toolkit.function_tools,
             mcps=[*mcp_clients, *http_clients],
             skills_or_loaders=toolkit.skill_loaders or None,
             skill_instruction_template=_SKILL_INSTRUCTION_TEMPLATE,
+            hidden_tools=_ontology_hidden_tools,
         )
 
     # Compute schemas first in the "subagent tools not yet registered" state
@@ -951,6 +1013,14 @@ async def create_agent_executor(
         _log.info(
             "[factory] +%s subagent system prompt built (%d chars)", _elapsed(), len(system_prompt)
         )
+        _ontology_prompt = render_runtime_prompt(_ontology_runtime)
+        if _ontology_prompt:
+            system_prompt += "\n\n" + _ontology_prompt
+            _log.info(
+                "[factory] +%s subagent ontology contract injected (%d chars)",
+                _elapsed(),
+                len(_ontology_prompt),
+            )
     else:
         _sp_ctx: Dict[str, Any] = {
             "tools": tool_schemas,
@@ -962,6 +1032,16 @@ async def create_agent_executor(
             _sp_ctx.update(project_ctx)
         system_prompt = build_system_prompt(cfg, ctx=_sp_ctx)
         _log.info("[factory] +%s system prompt built (%d chars)", _elapsed(), len(system_prompt))
+
+        _ontology_prompt = render_runtime_prompt(_ontology_runtime)
+        if _ontology_prompt:
+            system_prompt += "\n\n" + _ontology_prompt
+            _log.info(
+                "[factory] +%s ontology contract injected (%d chars, hidden_tools=%d)",
+                _elapsed(),
+                len(_ontology_prompt),
+                len(_ontology_hidden_tools),
+            )
 
         # ── Inject code-capability system prompt ──
         # Gating: CODE_CAPABILITY_ENABLED=true injects in all modes.
@@ -988,7 +1068,7 @@ async def create_agent_executor(
 
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:
-            from core.llm.subagent_tool import register_subagent_tool, build_subagent_prompt_section
+            from core.llm.subagent_tool import build_subagent_prompt_section, register_subagent_tool
 
             _agent_ref = {"agent": None}  # set after creation
             register_subagent_tool(
@@ -1039,7 +1119,8 @@ async def create_agent_executor(
                 system_prompt = system_prompt + "\n\n" + _ep_section
             _log.info(
                 "[factory] +%s enter_plan_mode tool registered (chat_id=%s)",
-                _elapsed(), chat_id,
+                _elapsed(),
+                chat_id,
             )
 
     # Create model (streaming enabled for SSE)
@@ -1236,7 +1317,9 @@ async def create_agent_executor(
     try:
         from core.services.system_config import SystemConfigService
 
-        _db_ratio = (SystemConfigService.get_instance().get("chat.compress_in_turn_ratio") or "").strip()
+        _db_ratio = (
+            SystemConfigService.get_instance().get("chat.compress_in_turn_ratio") or ""
+        ).strip()
         if _db_ratio:
             _parsed = float(_db_ratio)
             if 0.1 <= _parsed <= 0.99:
@@ -1368,6 +1451,8 @@ async def create_agent_executor(
         model_pinned=_subagent_model_pinned,
         user_id=current_user_id,
         chat_id=chat_id,
+        ontology_enabled=bool(_ontology_runtime.get("enabled")),
+        ontology_runtime=_ontology_runtime,
         permission_context=PermissionContext(),
     )
 
@@ -1376,6 +1461,7 @@ async def create_agent_executor(
         FileContextMiddleware(),  # on_reply: inject file context
         WorkspacePinHintMiddleware(),  # on_reasoning: remind to pin
         IterBudgetReminderMiddleware(),  # on_reasoning: inject a wrap-up reminder near max_iters
+        OntologyGateMiddleware(_ontology_runtime),  # on_acting: zero-LLM L-a contract gate
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
     ]
     if not batch_mode:
@@ -1391,7 +1477,7 @@ async def create_agent_executor(
     toolkit = _build_toolkit()
 
     # Allow all registered tools via native allow_rules (replacing BYPASS, see the explanation above).
-    from agentscope.permission import PermissionRule, PermissionBehavior
+    from agentscope.permission import PermissionBehavior, PermissionRule
 
     _state.permission_context.allow_rules = {
         n: [

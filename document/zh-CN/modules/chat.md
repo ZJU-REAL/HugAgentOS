@@ -1,6 +1,6 @@
 # 对话与智能体编排
 
-> 最后更新：2026-07-18
+> 最后更新：2026-07-20
 
 对话是 HugAgentOS 的核心链路：一条用户消息经过 FastAPI 路由、运行时上下文装配、流式编排器，最终由 AgentScope 2.0 的 ReActAgent 驱动多轮「思考 → 调工具 → 观察」循环，并以 SSE 事件流实时推送到前端。本篇按真实代码走一遍端到端流程，并展开引用系统、计划模式、子智能体、会话摘要、会话分享、上下文压缩与超长结果 offload 等子能力。
 
@@ -65,12 +65,15 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 |---|---|---|
 | `thinking` | 思考过程（增量或阶段提示） | `delta` / `message` |
 | `content` | 回答正文增量 | `event: "ai_message"`, `delta`, `chat_id` |
+| `content_replace` | 本体评审修订了已流式展示的草稿时，原位替换最终答案 | `content`, `reason: "ontology_review"`, `chat_id` |
 | `tool_call` | 一次工具调用（参数已完整） | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`，调子智能体时附 `subagent_name` |
 | `tool_result` | 工具调用结果 | `tool_name`, `result`, `tool_id`, `citations[]` |
+| `subagent_event` | 子智能体内部过程，挂在父 `call_subagent` 卡片下 | `parent_tool_id`, `sub_type`, `agent_name`，以及内部工具或内容字段 |
+| `ontology_activation` / `ontology_gate` / `ontology_review` | 本体治理状态，不属于模型思考 | 工作流、门禁决策、委员会状态与结论 |
 | `tool_pending` | 工具已开始、参数仍在流式生成 | `tool_name` |
 | `batch_confirm` | 批量计划生成完毕，等待用户确认（人审门） | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | 确认上下文；用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后工具原地续跑 |
-| `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `warnings`, `is_markdown`, `message_id`, `usage` |
+| `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
 | `error` | 出错（已映射为用户友好中文文案） | `error`, `chat_id` |
 | `heartbeat` | 心跳（事件级；另有 `: heartbeat` 注释行） | — |
 
@@ -88,7 +91,7 @@ data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":1
 data: [DONE]
 ```
 
-`meta` 之后，`chats.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`orchestration/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。
+`meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`orchestration/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。本体事件在前端汇总为独立的“领域本体治理”模块，不再写入或显示在“思考过程”中。模型草稿保持逐 token 流式展示；委员会仅在实际修订答案时发送一次 `content_replace`，前端原位替换正文，数据库只保存评审后的最终答案。`ontology_governance` 随助手消息持久化，刷新历史会话后仍可回显。
 
 ## 引用系统（Citations）
 
@@ -115,10 +118,27 @@ data: [DONE]
 - 技能市场和插件市场，安装完成后自动绑定到当前子智能体；需要凭据的市场资源仍先走原有凭据配置与安装权限校验；
 - 当前用户未启用、但管理员仍允许使用的 MCP。该绑定只对当前子智能体生效，不会同步开启主智能体的个人能力开关；管理员全局停用的 MCP 仍不可绑定。
 
-子智能体有两种触达方式：
+子智能体有四种触达方式，编排归属取决于用户是否明确指定了目标：
 
-- **直接对话**：请求 context 带 `agent_id` 时，`workflow.py::_astream_subagent_direct` 用该配置建 agent，与主链路共享流式/记忆/引用基础设施，`meta.route` 为 `subagent:<agent_id>`。
-- **主智能体编排**：`core/llm/subagent_tool.py` 给主智能体注册 `call_subagent` 工具；每个子智能体在独立线程 + 独立事件循环中运行（规避 anyio cancel-scope 跨任务问题），结果以文本回传。用户消息中的 `@智能体名` 由 `workflow.py::_parse_agent_mentions` 解析（最长名优先、防前缀遮蔽），提及提示注入**当前用户消息**而非系统提示词，以保住 LLM 前缀缓存。
+- **结构化 `@` 委派**：从输入框选择一个 `@子智能体` 时，前端同时提交
+  `mention_agent_id` 和显示名。后端移除仅用于展示的 `@名称` 前缀，并向当前用户回合注入严格委派
+  约束；主模型仍保留正常思考和逐 token 输出，其下一个真实工具调用必须是目标智能体的
+  `call_subagent`，不得先自行查询数据。子智能体的完整执行均发生在该工具内部，其思考、工具和正文
+  作为 `subagent_event` 挂在真实工具卡片下，返回后主模型继续流式整合答案。该回合保持 `main`
+  路由，且不会把普通会话永久绑定为子智能体会话。旧客户端只提交 `mention_name` 时，后端仅在名称
+  唯一且可访问时兼容解析。
+- **自然语言显式委派**：以“调用”或“请调用”开头，并包含唯一、完整的可访问子智能体名称和
+  明确动作任务时，后端只解析目标并向当前用户回合注入委派约束，不会伪造工具事件或绕过主模型。
+  主模型保留正常思考和流式链路，其下一个真实工具调用必须是目标智能体的 `call_subagent`，不得在此之前调用其他工具。
+  例如，`调用企业风险分析子智能体 分析杭州量知的风险` 会在模型发出真实调用时显示 `call_subagent` 卡片，
+  子智能体的思考和内部工具作为 `subagent_event` 挂在该卡片下，返回后由主模型继续流式整合最终回答。
+  该回合仍是 `main` 路由，`call_subagent` 及内部工具各自保留真实审计日志。名称重复、目标已停用、任务为空，
+  或者“调用企业风险分析子智能体是否合适？”这类讨论句不会触发强制委派。
+- **专属会话**：从子智能体详情页进入的会话使用 `agent_id`，后续轮次持续由该子智能体执行。
+- **主智能体自主编排**：既没有结构化 `@`，也没有命中严格自然语言调用语法时，主智能体可
+  按任务需要调用
+  `core/llm/subagent_tool.py` 注册的 `call_subagent`。子智能体在独立线程和事件循环中运行，结果
+  回传给主智能体整合。这一路径适合多子智能体并行、任务拆分和跨领域汇总。
 
 ## 会话摘要与上下文压缩
 
@@ -171,4 +191,4 @@ data: [DONE]
 | 超长结果 offload | `src/backend/core/llm/offloader.py` |
 | 会话分享 | `src/backend/api/routes/v1/chat_shares.py` |
 | 追问生成 | `src/backend/orchestration/followups.py` |
-| 前端流式解析 | `src/frontend/src/hooks/useStreaming.ts`，`src/frontend/src/App.tsx` |
+| 前端流式解析 | `src/frontend/src/hooks/chatStream.ts` |

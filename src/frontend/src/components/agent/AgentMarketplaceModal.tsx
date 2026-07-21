@@ -6,7 +6,8 @@ import { t } from '../../i18n';
 import type { MarketplaceAgent, MarketplaceAgentDetail, AgentMarketplaceFetchers, MarketVisibilityValue } from '../../types';
 import { mdToHtml } from '../../utils/markdown';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
-import { VisibilityScopeModal } from '../common';
+import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
+import { OntologyBuildValidationModal, VisibilityScopeModal } from '../common';
 
 // Sub-agent marketplace modal: browse preset/community sub-agents, view their prompts and capability bindings, and install (clone) them.
 // The transport (user / admin) is injected via fetchers, reusing the skill marketplace's jx-mk-* styles.
@@ -60,6 +61,7 @@ export function AgentMarketplaceModal({
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
   const [detail, setDetail] = useState<MarketplaceAgentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [buildFailure, setBuildFailure] = useState<OntologyBuildFailure | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,8 +123,13 @@ export function AgentMarketplaceModal({
         }
         markInstalled(agent.slug);
         onInstalled?.();
-      } catch (e) {
-        message.error((e as Error).message || t('安装失败'));
+      } catch (error: unknown) {
+        const ontologyFailure = getOntologyBuildFailure(error);
+        if (ontologyFailure) {
+          setBuildFailure(ontologyFailure);
+        } else {
+          message.error(error instanceof Error ? error.message : t('安装失败'));
+        }
       } finally {
         setInstallingSlug(null);
       }
@@ -421,6 +428,7 @@ export function AgentMarketplaceModal({
         onSaved={onVisibilitySaved}
       />
     )}
+    <OntologyBuildValidationModal failure={buildFailure} onClose={() => setBuildFailure(null)} />
     </>
   );
 }

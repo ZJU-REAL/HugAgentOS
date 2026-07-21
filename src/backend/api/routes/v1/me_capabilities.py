@@ -19,17 +19,16 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
-
-from core.auth.backend import get_current_user, UserContext
+from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
 from core.db.models import AdminMcpServer, AdminSkill
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
-from core.infra.responses import success_response, created_response
+from core.infra.responses import created_response, success_response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 router = APIRouter(prefix="/v1/me", tags=["My Capabilities"])
 logger = logging.getLogger(__name__)
@@ -49,12 +48,14 @@ def _require_flag(user_id: str, db: Session, flag: str, label: str) -> None:
 
 # ── MCP ──────────────────────────────────────────────────────────────────────
 
+
 class CreateUserMcpRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=255, description="展示名称")
     description: str = Field("", max_length=2000)
     user_intro: Optional[str] = Field(None, description="能力中心详情页介绍（Markdown）")
-    transport: str = Field("streamable_http", pattern=r"^(streamable_http|sse)$",
-                           description="仅支持远程 HTTP/SSE")
+    transport: str = Field(
+        "streamable_http", pattern=r"^(streamable_http|sse)$", description="仅支持远程 HTTP/SSE"
+    )
     url: str = Field(..., description="远程 MCP 端点 URL")
     headers: Dict[str, str] = Field(default_factory=dict, description="自定义请求头（如鉴权）")
     icon: Optional[str] = None
@@ -87,7 +88,7 @@ async def create_my_mcp_server(
         transport=body.transport,
         url=body.url.strip(),
         headers=body.headers or {},
-        is_stable=False,          # user-private MCPs don't enter the warmup connection pool
+        is_stable=False,  # user-private MCPs don't enter the warmup connection pool
         is_enabled=True,
         owner_user_id=str(user.user_id),
         icon=body.icon,
@@ -98,7 +99,7 @@ async def create_my_mcp_server(
 
     from api.routes.v1.admin_mcp_servers import _probe_connectivity, _refresh_caches
 
-    ok, err = await _probe_connectivity(row)
+    ok, err = await _probe_connectivity(row, db)
     if not ok:
         raise BadRequestError(message=f"MCP 连接失败，无法添加：{err}")
 
@@ -107,13 +108,15 @@ async def create_my_mcp_server(
     db.refresh(row)
     _refresh_caches()
 
-    return created_response(data={
-        "server_id": row.server_id,
-        "display_name": row.display_name,
-        "transport": row.transport,
-        "url": row.url,
-        "owner": "self",
-    })
+    return created_response(
+        data={
+            "server_id": row.server_id,
+            "display_name": row.display_name,
+            "transport": row.transport,
+            "url": row.url,
+            "owner": "self",
+        }
+    )
 
 
 @router.delete("/mcp-servers/{server_id}", summary="删除我的私有 MCP")
@@ -145,6 +148,7 @@ async def delete_my_mcp_server(
 
 # ── Skills ─────────────────────────────────────────────────────────────────
 
+
 @router.post("/skills/upload", status_code=201, summary="自助上传私有技能")
 async def upload_my_skill(
     file: UploadFile = File(...),
@@ -175,7 +179,9 @@ async def upload_my_skill(
 
 
 class CreateUserSkillRequest(BaseModel):
-    name: str = Field(..., pattern=r"^[a-z0-9_-]{1,63}$", description="技能 id（小写字母/数字/-/_）")
+    name: str = Field(
+        ..., pattern=r"^[a-z0-9_-]{1,63}$", description="技能 id（小写字母/数字/-/_）"
+    )
     display_name: str = Field(..., min_length=1, max_length=255, description="展示名称")
     # description is required and non-empty: the SKILL.md frontmatter description is a hard
     # requirement for skill loading/registration (registry._load_skill_metadata_from_str raises
@@ -184,6 +190,10 @@ class CreateUserSkillRequest(BaseModel):
     description: str = Field(..., min_length=1, max_length=2000, description="一句话描述")
     instructions: str = Field(..., min_length=1, description="技能正文（SKILL.md 指令，Markdown）")
     tags: List[str] = Field(default_factory=list)
+    mcp_server_ids: Optional[List[str]] = Field(
+        default=None,
+        description="绑定的 MCP 服务；省略时编辑操作保留原绑定",
+    )
     user_intro: Optional[str] = Field(None, description="能力中心详情页介绍（Markdown）")
     icon: Optional[str] = Field(None, description="图标：preset:<key> / URL / data-URI")
 
@@ -209,20 +219,49 @@ async def create_my_skill(
     """
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
-    from api.routes.v1.admin_skills import _build_skill_content, _refresh_caches
+    from api.routes.v1.admin_skills import (
+        _build_skill_content,
+        _extract_mcp_server_ids,
+        _refresh_caches,
+        _resolve_mcp_bindings,
+        _resolve_ontology_workflows,
+    )
 
     skill_id = body.name
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
     if existing is not None and existing.owner_user_id != str(user.user_id):
         if existing.owner_user_id is None:
-            raise HTTPException(status_code=409, detail=f"技能 id 「{skill_id}」与公共技能冲突，请改名")
+            raise HTTPException(
+                status_code=409, detail=f"技能 id 「{skill_id}」与公共技能冲突，请改名"
+            )
         raise HTTPException(status_code=409, detail=f"技能 id 「{skill_id}」已被占用")
 
-    # When editing an existing skill, preserve the original version / allowed_tools, so the
-    # hand-written form (which doesn't expose these two) doesn't overwrite and lose the version
-    # number and tool whitelist of a zip-uploaded skill. On creation existing is None → defaults.
+    # Preserve the version of a zip-uploaded skill. MCP-derived tools are rebuilt from the
+    # selected servers, while unrelated tool declarations from an imported skill remain intact.
     version = (existing.version if existing else None) or "1.0.0"
-    allowed_tools = (existing.allowed_tools if existing else None) or []
+    existing_mcp_ids = _extract_mcp_server_ids(existing.skill_content if existing else "")
+    _, existing_mcp_tools = _resolve_mcp_bindings(
+        db,
+        existing_mcp_ids,
+        owner_user_id=str(user.user_id),
+        strict=False,
+    )
+    if body.mcp_server_ids is None:
+        mcp_server_ids = existing_mcp_ids
+        allowed_tools = list((existing.allowed_tools if existing else None) or [])
+    else:
+        mcp_server_ids, mcp_tool_names = _resolve_mcp_bindings(
+            db,
+            body.mcp_server_ids,
+            owner_user_id=str(user.user_id),
+        )
+        additional_tools = [
+            tool
+            for tool in ((existing.allowed_tools if existing else None) or [])
+            if tool not in set(existing_mcp_tools)
+        ]
+        allowed_tools = list(dict.fromkeys([*additional_tools, *mcp_tool_names]))
+    ontology_workflows = _resolve_ontology_workflows(db, body.tags)
     content = _build_skill_content(
         skill_id=skill_id,
         display_name=body.display_name,
@@ -231,6 +270,20 @@ async def create_my_skill(
         tags=body.tags,
         allowed_tools=allowed_tools,
         instructions=body.instructions,
+        mcp_server_ids=mcp_server_ids,
+        ontology_workflows=ontology_workflows,
+    )
+    from core.ontology.build_validator import ensure_ontology_build_valid
+
+    ensure_ontology_build_valid(
+        db,
+        asset_type="skill",
+        name=body.display_name or skill_id,
+        description=body.description,
+        instructions=body.instructions,
+        tool_names=list(allowed_tools),
+        mcp_server_ids=mcp_server_ids,
+        ontology_tags=list(body.tags),
     )
     now = datetime.utcnow()
     if existing is not None:
@@ -239,29 +292,41 @@ async def create_my_skill(
         existing.description = body.description
         existing.user_intro = body.user_intro
         existing.tags = body.tags
+        existing.allowed_tools = allowed_tools
         existing.is_enabled = True
         existing.updated_at = now
     else:
-        db.add(AdminSkill(
-            skill_id=skill_id,
-            skill_content=content,
-            display_name=body.display_name,
-            description=body.description,
-            user_intro=body.user_intro,
-            version=version,
-            tags=body.tags,
-            allowed_tools=allowed_tools,
-            is_enabled=True,
-            owner_user_id=str(user.user_id),
-            created_at=now,
-            updated_at=now,
-        ))
+        db.add(
+            AdminSkill(
+                skill_id=skill_id,
+                skill_content=content,
+                display_name=body.display_name,
+                description=body.description,
+                user_intro=body.user_intro,
+                version=version,
+                tags=body.tags,
+                allowed_tools=allowed_tools,
+                is_enabled=True,
+                owner_user_id=str(user.user_id),
+                created_at=now,
+                updated_at=now,
+            )
+        )
     db.commit()
     if body.icon is not None:
         from core.services.skill_icon_service import set_skill_icon
+
         set_skill_icon(db, skill_id, body.icon)
     _refresh_caches()
-    return created_response(data={"id": skill_id, "owner": "self", "message": "Skill created"})
+    return created_response(
+        data={
+            "id": skill_id,
+            "owner": "self",
+            "mcp_server_ids": mcp_server_ids,
+            "allowed_tools": allowed_tools,
+            "message": "Skill created",
+        }
+    )
 
 
 def _get_own_skill(db: Session, user_id: str, skill_id: str) -> AdminSkill:
@@ -294,7 +359,7 @@ async def get_my_skill(
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = _get_own_skill(db, str(user.user_id), skill_id)
 
-    from api.routes.v1.admin_skills import _extract_instructions
+    from api.routes.v1.admin_skills import _extract_instructions, _extract_mcp_server_ids
     from core.agent_skills.binary_files import is_binary_value
     from core.services.skill_icon_service import get_skill_icon
 
@@ -306,17 +371,21 @@ async def get_my_skill(
         }
         for fn, content in sorted((row.extra_files or {}).items())
     ]
-    return success_response(data={
-        "id": row.skill_id,
-        "display_name": row.display_name or row.skill_id,
-        "description": row.description or "",
-        "instructions": _extract_instructions(row.skill_content),
-        "tags": list(row.tags or []),
-        "user_intro": row.user_intro,
-        "icon": get_skill_icon(db, row.skill_id),
-        "owner": "self",
-        "extra_files": extra_files,
-    })
+    return success_response(
+        data={
+            "id": row.skill_id,
+            "display_name": row.display_name or row.skill_id,
+            "description": row.description or "",
+            "instructions": _extract_instructions(row.skill_content),
+            "tags": list(row.tags or []),
+            "mcp_server_ids": _extract_mcp_server_ids(row.skill_content),
+            "allowed_tools": list(row.allowed_tools or []),
+            "user_intro": row.user_intro,
+            "icon": get_skill_icon(db, row.skill_id),
+            "owner": "self",
+            "extra_files": extra_files,
+        }
+    )
 
 
 # ── Private skill file management (read/write/delete/upload of files inside the skill folder) ──
@@ -437,7 +506,9 @@ async def upload_my_skill_file(
     flag_modified(row, "extra_files")
     db.commit()
     _refresh_caches()
-    return success_response(data={"filename": filename, "size": len(raw), "message": "File uploaded"})
+    return success_response(
+        data={"filename": filename, "size": len(raw), "message": "File uploaded"}
+    )
 
 
 @router.get("/skills/{skill_id}/export", summary="导出我的技能 zip")

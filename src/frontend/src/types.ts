@@ -120,6 +120,33 @@ export interface UpdateEntry {
   desc: string;
 }
 
+export type OntologyAssetKind = 'tool' | 'skill' | 'subagent';
+
+export interface OntologyTagPack {
+  pack_id: string;
+  pack_name: string;
+  domain: string;
+  version: string;
+}
+
+export interface OntologyTagWorkflow {
+  workflow_ref: string;
+  workflow_name: string;
+  review_level: string;
+  risk: string;
+}
+
+/** A controlled tag declared by an active Domain Pack as an asset workflow trigger. */
+export interface OntologyTagOption {
+  value: string;
+  concept_id: string;
+  concept_name: string;
+  definition: string;
+  risk: string;
+  packs: OntologyTagPack[];
+  workflows: OntologyTagWorkflow[];
+}
+
 export interface CapItem {
   title: string;
   desc: string;
@@ -157,6 +184,7 @@ export interface ToolCall {
   // call_subagent only: the sub-agent's internal streaming sub-steps + the sub-agent's name
   subSteps?: SubagentStep[];
   subagentName?: string;
+  scope?: 'ontology_revision' | string;
 }
 
 /** §13 MySpace write confirmation decision (literal counterparts of the backend's _myspace_confirm.DECISION_*). */
@@ -191,6 +219,80 @@ export interface DesignPickInfo {
 export interface ThinkingBlock {
   content: string;
   timestamp?: number;
+}
+
+export interface OntologyActivationSummary {
+  pack_id?: string;
+  workflow_id?: string;
+  workflow_name?: string;
+  source?: 'text' | 'tool' | 'skill' | 'subagent' | string;
+  asset_kind?: string;
+  asset_id?: string;
+  review_level?: string;
+}
+
+export interface OntologyGateSummary {
+  decision?: 'pass' | 'deny' | string;
+  tool_name?: string;
+  matched_rule_ids?: string[];
+  violations?: string[];
+  denial_count?: number;
+  circuit_breaker?: boolean;
+}
+
+export interface OntologyReviewSummary {
+  status?: 'pending' | 'running' | 'completed' | 'failed' | string;
+  level?: 'none' | 'checkpoint' | 'committee' | string;
+  owner?: string | null;
+  count?: number;
+  verdict?: 'pass' | 'revise' | 'escalate' | string;
+  revised?: boolean;
+  latency_ms?: number;
+  committee_size?: number;
+  candidate_answer?: string;
+  accepted?: boolean;
+  violations?: Array<Record<string, unknown>>;
+  affected_claims?: OntologyManualReviewItem[];
+  evidence?: string[];
+  feedback?: string[];
+  error?: string;
+  manual_review?: OntologyManualReview;
+  new_tools?: string[];
+  new_citation_count?: number;
+}
+
+export interface OntologyManualReviewItem {
+  quote: string;
+  rule_id: string;
+  risk: string;
+  manual_check: string;
+}
+
+export interface OntologyManualReview {
+  required: boolean;
+  title: string;
+  summary: string;
+  items: OntologyManualReviewItem[];
+  actions: string[];
+}
+
+export interface OntologyRevisionSummary {
+  status: 'pending' | 'streaming' | 'completed' | string;
+  source?: string;
+  content: string;
+  thinking: ThinkingBlock[];
+  toolCalls: ToolCall[];
+  toolCallCount?: number;
+  toolPending?: boolean;
+}
+
+/** User-visible ontology governance evidence, intentionally separate from model thinking. */
+export interface OntologyGovernanceSummary {
+  governance_run_id?: string;
+  activations: OntologyActivationSummary[];
+  gates: OntologyGateSummary[];
+  review: OntologyReviewSummary;
+  revision?: OntologyRevisionSummary;
 }
 
 /** Records the order of a message's elements (text/tool calls/thinking) for inline interleaved rendering */
@@ -238,6 +340,7 @@ export interface ChatMessage {
   messageId?: string;   // backend message_id, used for feedback submission
   toolCalls?: ToolCall[];
   thinking?: ThinkingBlock[];
+  ontologyGovernance?: OntologyGovernanceSummary;
   segments?: MessageSegment[];  // ordered segment list (used by new messages)
   citations?: CitationItem[];   // tool-call citation registry
   followUpQuestions?: string[]; // follow-up questions (clickable to send)

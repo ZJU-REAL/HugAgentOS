@@ -38,6 +38,8 @@ def build_tool_call_event(chunk: dict, chat_id: str, tool_calls_log: list) -> Di
     }
     if chunk.get("subagent_name"):
         tc["subagent_name"] = chunk["subagent_name"]
+    if chunk.get("scope"):
+        tc["scope"] = chunk["scope"]
     upsert_tool_call(tool_calls_log, tc)
     return {"type": "tool_call", **tc, "chat_id": chat_id}
 
@@ -61,6 +63,8 @@ def build_tool_result_event(chunk: dict, chat_id: str, tool_calls_log: list) -> 
     }
     if chunk.get("subagent_name"):
         evt["subagent_name"] = chunk["subagent_name"]
+    if chunk.get("scope"):
+        evt["scope"] = chunk["scope"]
     attach_tool_result(tool_calls_log, tid, tn, res)
     return evt
 

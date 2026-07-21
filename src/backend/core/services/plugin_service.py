@@ -49,6 +49,7 @@ from core.db.models import (
     PluginMarketSkillExclusion,
 )
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.ontology.build_validator import ensure_ontology_build_valid
 from core.services.marketplace_service import (
     _inject_secrets,
     _rewrite_frontmatter_name,
@@ -202,6 +203,15 @@ def _apply_skill(
     deps = detect_dependencies(
         {fn: c for fn, c in extra_files.items() if not is_binary_value(c)}
     )
+    ensure_ontology_build_valid(
+        db,
+        asset_type="skill",
+        name=_display_name or sk.name or skill_id,
+        description=meta.description or "",
+        instructions=content,
+        tool_names=list(meta.allowed_tools or []),
+        ontology_tags=list(meta.tags or []),
+    )
     now = datetime.utcnow()
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
     fields = dict(
@@ -243,6 +253,22 @@ def _apply_mcp(
     """
     server_id = _make_server_id(slug, mc.name, owner_user_id)
     effective_enabled = bool(enabled) and not mc.needs_runtime
+    tools_meta = [item for item in list(getattr(mc, "tools", None) or []) if isinstance(item, dict)]
+    ensure_ontology_build_valid(
+        db,
+        asset_type="tool",
+        name=mc.display_name or mc.name,
+        description=mc.description or (mc.note or ""),
+        tool_names=[str(item["name"]) for item in tools_meta if item.get("name")],
+        tool_schemas={
+            str(item["name"]): item.get("inputSchema")
+            or item.get("input_schema")
+            or item.get("parameters")
+            or {}
+            for item in tools_meta
+            if item.get("name")
+        },
+    )
     now = datetime.utcnow()
     existing = db.query(AdminMcpServer).filter(AdminMcpServer.server_id == server_id).first()
     fields = dict(
@@ -254,7 +280,7 @@ def _apply_mcp(
         url=mc.url,
         env_vars=dict(mc.env_vars or {}),
         headers=dict(mc.headers or {}),
-        tools_json=list(getattr(mc, "tools", None) or []),
+        tools_json=tools_meta,
         is_enabled=effective_enabled,
         owner_user_id=owner_user_id,
         source_plugin=slug,

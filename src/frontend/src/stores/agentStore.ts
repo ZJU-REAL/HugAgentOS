@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { createApiResponseError } from '../utils/apiError';
+import type { OntologyTagOption } from '../types';
 
 export interface AgentChangeHistoryItem {
   version: string;
@@ -34,6 +36,7 @@ export interface UserAgentItem {
   timeout: number;
   is_enabled: boolean;
   sort_order: number;
+  ontology_tags: string[];
   extra_config: Record<string, unknown>;
   version: string;
   change_history: AgentChangeHistoryItem[];
@@ -46,6 +49,7 @@ export interface AvailableResources {
   mcp_servers: Array<{ id: string; name: string; description: string; enabled: boolean }>;
   skills: Array<{ id: string; name: string; description: string }>;
   plugins: Array<{ id: string; name: string; description: string; skill_count: number; mcp_count: number }>;
+  ontology_tags: OntologyTagOption[];
 }
 
 interface AgentState {
@@ -72,38 +76,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function formatApiError(payload: unknown, status: number): string {
-  const body = isRecord(payload) ? payload : {};
-  const message = body.message;
-  if (typeof message === 'string' && message.trim()) return message;
-
-  const detail = body.detail;
-  if (typeof detail === 'string' && detail.trim()) return detail;
-  if (Array.isArray(detail)) {
-    const firstMsg = detail.find(
-      (item) => isRecord(item) && typeof item.msg === 'string',
-    );
-    if (isRecord(firstMsg) && typeof firstMsg.msg === 'string') {
-      return firstMsg.msg;
-    }
-  } else if (isRecord(detail)) {
-    if (typeof detail.message === 'string' && detail.message.trim()) return detail.message;
-  }
-
-  const errors = body.errors;
-  if (Array.isArray(errors)) {
-    const firstError = errors.find(
-      (item) => isRecord(item) && typeof item.msg === 'string',
-    );
-    if (isRecord(firstError) && typeof firstError.msg === 'string') {
-      const firstMsg = firstError.msg;
-      if (firstMsg) return firstMsg;
-    }
-  }
-
-  return `HTTP ${status}`;
-}
-
 async function agentApiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiUrl()}${path}`;
   const response = await fetch(url, {
@@ -116,7 +88,7 @@ async function agentApiRequest<T>(path: string, options?: RequestInit): Promise<
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(formatApiError(payload, response.status));
+    throw createApiResponseError(response.status, payload, `HTTP ${response.status}`);
   }
   const payload: unknown = await response.json();
   return (isRecord(payload) && 'data' in payload ? payload.data : payload) as T;

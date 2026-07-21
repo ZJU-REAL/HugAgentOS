@@ -1,9 +1,9 @@
 """API request/response models."""
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing import Literal, Optional, Dict, Any, List
+from typing import Any, Dict, List, Literal, Optional
 
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ChatMode = Literal["fast", "medium", "high", "max"]
 
@@ -80,6 +80,14 @@ class ChatRequest(BaseModel):
         description="子智能体 ID，传入时使用该智能体配置对话（不传则使用主智能体）",
         max_length=64,
     )
+    mention_agent_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "本轮通过 @ 显式指定的子智能体 ID。传入时主智能体保留正常思考与流式输出，"
+            "并通过真实 call_subagent 工具把任务交给该子智能体；不会永久绑定整个会话。"
+        ),
+        max_length=64,
+    )
     plan_chat: bool = Field(
         default=False,
         description="是否为计划模式对话（从应用中心入口创建的对话）",
@@ -110,7 +118,10 @@ class ChatRequest(BaseModel):
     )
     mention_name: Optional[str] = Field(
         default=None,
-        description="@ 引用的子智能体名（仅用于会话记录回显徽标；路由仍走消息正文里的 @前缀）",
+        description=(
+            "@ 引用的子智能体名，用于会话记录回显徽标；旧客户端未传 "
+            "mention_agent_id 时，后端会按唯一可访问名称解析委派目标。"
+        ),
         max_length=255,
     )
     skill_ids: Optional[List[str]] = Field(

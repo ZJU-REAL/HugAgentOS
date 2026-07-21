@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,8 @@ class SkillFileInfo:
     source_name: str  # Backend source name (e.g., "built-in", "user", "project")
     priority: int  # Priority for conflict resolution (higher = higher priority)
     content: Optional[str] = None  # Non-None when content comes from DB (skips file I/O)
+    metadata: Optional[Dict[str, Any]] = None  # Lightweight metadata without instructions
+    is_database: bool = False  # Full content must be fetched from the owning DB backend
 
 
 class SkillBackendProtocol(Protocol):

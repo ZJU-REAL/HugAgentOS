@@ -30,6 +30,7 @@ import { useProjectStore } from './stores/projectStore';
 import { CanvasPanel } from './components/canvas';
 import { ImagePreview, AuthExpiredModal, AppLoadingSkeleton } from './components/common';
 import { PasswordManagementPanel, SettingsPage } from './components/settings';
+import { FirstRunSetup } from './components/onboarding';
 import { CreateKBModal, ReindexModal } from './components/kb';
 import { BatchConfirmModal } from './components/batch';
 import {
@@ -75,7 +76,7 @@ export default function App() {
   const panelTitles = pageConfig.navigation.panel_titles;
   const brandName = usePageConfig('branding.product_name', 'HugAgentOS');
   const recommendBannerText = usePageConfig('texts.recommend_banner_text', '');
-  const { authUser, authChecking } = useAuthStore();
+  const { authUser, authChecking, setAuthUser } = useAuthStore();
   const {
     searchKeyword, setSearchResults, setSearchLoading,
     openSearchModal,
@@ -532,6 +533,15 @@ export default function App() {
       >
         <PasswordManagementPanel forced />
       </Modal>
+    );
+  }
+
+  if (authUser.onboarding_required) {
+    return (
+      <FirstRunSetup
+        user={authUser}
+        onComplete={() => setAuthUser({ ...authUser, onboarding_required: false })}
+      />
     );
   }
 

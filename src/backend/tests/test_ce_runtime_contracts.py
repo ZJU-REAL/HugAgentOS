@@ -1,5 +1,7 @@
 """Regression tests for CE-only runtime seams."""
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from api.routes.v1.auth import router as auth_router
@@ -26,6 +28,7 @@ def test_ce_auth_router_keeps_local_session_contract():
 def test_ce_user_router_exposes_self_service_password_change():
     paths = {route.path for route in users_router.routes}
     assert "/v1/me/password" in paths
+    assert "/v1/me/onboarding/complete" in paths
 
 
 def test_dingtalk_status_env_does_not_import_ee_sandbox_module(monkeypatch, tmp_path):
@@ -128,3 +131,41 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
     assert captured["extra_config"] == {"context_length": 65536}
     assert db.closed is True
     assert invalidated == [True]
+
+
+def test_ce_bundles_compilable_default_ontology_pack():
+    from core.ontology.schemas import OntologyPackDocument
+    from core.ontology.validator import build_runtime_payload
+
+    pack_path = (
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "ontology_packs"
+        / "enterprise_risk_v1.json"
+    )
+    document = OntologyPackDocument.model_validate(
+        json.loads(pack_path.read_text(encoding="utf-8"))
+    )
+
+    runtime = build_runtime_payload([document], "请生成企业风险画像")
+
+    assert runtime["enabled"] is True
+    assert runtime["packs"]
+    assert runtime["asset_tags"] == {"tool": {}, "skill": {}, "subagent": {}}
+
+
+def test_ce_schema_keeps_ontology_control_plane_tables():
+    import core.db.models  # noqa: F401  register all model metadata
+    from core.db.edition_tables import EE_ONLY_TABLES
+    from core.db.engine import Base
+
+    ontology_tables = {
+        "ontology_packs",
+        "ontology_pack_versions",
+        "ontology_enforcement_events",
+        "ontology_review_runs",
+        "ontology_drafts",
+    }
+
+    assert ontology_tables <= set(Base.metadata.tables)
+    assert ontology_tables.isdisjoint(EE_ONLY_TABLES)

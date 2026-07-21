@@ -8,6 +8,8 @@ import {
   updateMemorySettings,
   updateMemoryWriteSettings,
   updateRerankerSettings,
+  getOntologySettings,
+  updateOntologySettings,
   getMemoryProfile,
   getMemoryGraph,
 } from '../api';
@@ -37,8 +39,11 @@ interface SettingsState {
   memoryLoading: boolean;
   rerankerEnabled: boolean;
   rerankerAvailable: boolean;
+  ontologyEnabled: boolean;
+  ontologyAvailable: boolean;
+  ontologyActivePacks: Array<{ pack_id: string; version_id: string; version: string }>;
   /** Hint for rolling back a failed optimistic Switch update: which switch + the failure timestamp (the UI uses it as a shake-animation trigger) */
-  lastToggleError: { key: 'memory' | 'memoryWrite'; ts: number } | null;
+  lastToggleError: { key: 'memory' | 'memoryWrite' | 'ontology'; ts: number } | null;
 
   // Layered memory
   memoryProfile: MemoryProfile | null;
@@ -53,11 +58,14 @@ interface SettingsState {
   setMemoryLoading: (v: boolean) => void;
   setRerankerEnabled: (v: boolean) => void;
   setRerankerAvailable: (v: boolean) => void;
+  setOntologyEnabled: (v: boolean) => void;
 
   loadMemorySettings: () => Promise<void>;
+  loadOntologySettings: () => Promise<void>;
   toggleMemory: (enabled: boolean) => Promise<void>;
   toggleMemoryWrite: (enabled: boolean) => Promise<void>;
   toggleReranker: (enabled: boolean) => Promise<void>;
+  toggleOntology: (enabled: boolean) => Promise<void>;
 
   /** Load memory of all layers (for batch refresh of the tabbed panel) */
   loadMemoryAllLayers: () => Promise<void>;
@@ -78,6 +86,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   memoryLoading: false,
   rerankerEnabled: false,
   rerankerAvailable: false,
+  ontologyEnabled: localStorage.getItem('hugagent_ontology_enabled') === 'true',
+  ontologyAvailable: false,
+  ontologyActivePacks: [],
   lastToggleError: null,
 
   memoryProfile: null,
@@ -98,6 +109,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setMemoryLoading: (v) => set({ memoryLoading: v }),
   setRerankerEnabled: (v) => set({ rerankerEnabled: v }),
   setRerankerAvailable: (v) => set({ rerankerAvailable: v }),
+  setOntologyEnabled: (v) => {
+    localStorage.setItem('hugagent_ontology_enabled', String(v));
+    set({ ontologyEnabled: v });
+  },
 
   loadMemorySettings: async () => {
     try {
@@ -112,6 +127,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       localStorage.setItem('hugagent_memory_write_enabled', String(settings.memory_write_enabled));
     } catch (e) {
       console.error('Failed to load memory settings:', e);
+    }
+  },
+
+  loadOntologySettings: async () => {
+    try {
+      const settings = await getOntologySettings();
+      set({
+        ontologyEnabled: settings.ontology_enabled,
+        ontologyAvailable: settings.available,
+        ontologyActivePacks: settings.active_packs || [],
+      });
+      localStorage.setItem('hugagent_ontology_enabled', String(settings.ontology_enabled));
+    } catch (e) {
+      console.error('Failed to load ontology settings:', e);
     }
   },
 
@@ -149,6 +178,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     } catch {
       set({ rerankerEnabled: prev });
       message.error(t('重排序设置更新失败'));
+    }
+  },
+
+  toggleOntology: async (enabled) => {
+    const prev = get().ontologyEnabled;
+    set({ ontologyEnabled: enabled });
+    localStorage.setItem('hugagent_ontology_enabled', String(enabled));
+    try {
+      await updateOntologySettings(enabled);
+    } catch {
+      set({ ontologyEnabled: prev, lastToggleError: { key: 'ontology', ts: Date.now() } });
+      localStorage.setItem('hugagent_ontology_enabled', String(prev));
+      message.error(t('本体校验设置更新失败'));
     }
   },
 

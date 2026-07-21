@@ -109,7 +109,6 @@ export function ChatArea({
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
 
   const chat = store.chats[currentChatId];
-
   useEffect(() => {
     const content = document.querySelector<HTMLElement>('.jx-content');
     if (!content) return;

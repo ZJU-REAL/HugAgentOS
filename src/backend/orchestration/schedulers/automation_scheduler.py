@@ -424,6 +424,14 @@ class AutomationScheduler:
             "enabled_kbs": enabled_kb_ids,
             "enabled_agents": enabled_agent_ids,
         }
+        from core.services.ontology_service import build_user_ontology_runtime
+
+        ontology_enabled, ontology_runtime = build_user_ontology_runtime(
+            user_id=user_id,
+            task=prompt,
+        )
+        context["ontology_enabled"] = ontology_enabled
+        context["ontology_runtime"] = ontology_runtime
         session_messages = [{"role": "user", "content": prompt}]
 
         full_response = ""

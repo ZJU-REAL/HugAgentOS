@@ -3,12 +3,13 @@ import { AnimatePresence, motion } from 'motion/react';
 import { scaleIn } from '../../utils/motionVariants';
 import { usePopupFlip } from '../../hooks/usePopupFlip';
 import { useAgentStore } from '../../stores/agentStore';
+import type { UserAgentItem } from '../../stores/agentStore';
 
 interface AgentMentionPopupProps {
   input: string;
   visible: boolean;
   selectedIndex: number;
-  onSelect: (agentName: string) => void;
+  onSelect: (agent: UserAgentItem) => void;
   onHover: (index: number) => void;
 }
 
@@ -64,7 +65,7 @@ export function AgentMentionPopup({ input, visible, selectedIndex, onSelect, onH
               ref={(el) => { itemRefs.current[idx] = el; }}
               className={`jx-mentionPopup-item${idx === selectedIndex ? ' active' : ''}`}
               onMouseEnter={() => onHover(idx)}
-              onClick={() => onSelect(agent.name)}
+              onClick={() => onSelect(agent)}
             >
               <span className="jx-mentionPopup-at">@</span>
               <span className="jx-mentionPopup-name">{agent.name}</span>
