@@ -27,7 +27,7 @@ export function readDesktopVersions(desktopDir) {
   );
   const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
   const cargoLockVersion = cargoLock.match(
-    /\[\[package\]\]\nname = "hugagent-desktop"\nversion = "([^"]+)"/,
+    /\[\[package\]\]\r?\nname = "hugagent-desktop"\r?\nversion = "([^"]+)"/,
   )?.[1];
 
   return {
@@ -112,7 +112,7 @@ export function setDesktopVersion(desktopDir, version) {
   writeFileSync(cargoPath, cargoToml, "utf8");
 
   const cargoLock = readFileSync(cargoLockPath, "utf8").replace(
-    /(\[\[package\]\]\nname = "hugagent-desktop"\nversion = ")[^"]+("\n)/,
+    /(\[\[package\]\]\r?\nname = "hugagent-desktop"\r?\nversion = ")[^"]+("\r?\n)/,
     `$1${version}$2`,
   );
   writeFileSync(cargoLockPath, cargoLock, "utf8");

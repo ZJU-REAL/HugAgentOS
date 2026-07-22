@@ -93,6 +93,20 @@ test("manual release derives its tag from the committed desktop version", () => 
   }
 });
 
+test("reads and updates Cargo.lock with Windows CRLF line endings", () => {
+  const fixture = createDesktopFixture();
+  try {
+    writeFileSync(
+      join(fixture.desktopDir, "src-tauri", "Cargo.lock"),
+      '[[package]]\r\nname = "hugagent-desktop"\r\nversion = "1.2.3"\r\n',
+    );
+    assert.equal(readDesktopVersion(fixture.desktopDir), "1.2.3");
+    assert.equal(setDesktopVersion(fixture.desktopDir, "1.3.0"), "1.3.0");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("version command synchronizes every desktop manifest", () => {
   const fixture = createDesktopFixture();
   try {
