@@ -103,11 +103,45 @@ function Resolve-Node {
     return $null
 }
 
+function Resolve-Bash {
+    $Candidates = @(
+        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
+    )
+    $WinGetPackages = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    if (Test-Path $WinGetPackages) {
+        Get-ChildItem $WinGetPackages -Filter "bash.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.FullName -like "*Git*\bin\bash.exe") {
+                $Candidates += $_.FullName
+            }
+        }
+    }
+    foreach ($Candidate in $Candidates | Select-Object -Unique) {
+        if ($Candidate -and (Test-Path $Candidate)) {
+            try {
+                & $Candidate --version 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    return $Candidate
+                }
+            }
+            catch {
+                # Try the next native Git Bash candidate.
+            }
+        }
+    }
+    return $null
+}
+
 if (-not (Test-Path (Join-Path $BundleDir "pyproject.toml"))) {
     throw "The desktop package doesn't contain a valid CE server payload."
 }
 if (-not (Test-Path (Join-Path $BundleDir "src\frontend\dist\index.html"))) {
     throw "The bundled CE web application is missing."
+}
+$MemoryRequirements = Join-Path $BundleDir "requirements-mem0.txt"
+if (-not (Test-Path $MemoryRequirements)) {
+    throw "The desktop package doesn't contain the persistent-memory dependencies."
 }
 
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
@@ -170,13 +204,49 @@ Invoke-Checked $VenvPython @(
     "-r", (Join-Path $SourceDir "requirements.txt")
 ) "Unable to install the server dependencies"
 
+Write-ProgressLine 58 "正在安装永久记忆运行环境…"
+Invoke-Checked $VenvPython @(
+    "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary", "--upgrade",
+    "-r", (Join-Path $SourceDir "requirements-mem0.txt"),
+    "protobuf<7", "pymilvus==2.5.18", "milvus-lite==3.1.0"
+) "Unable to install the persistent-memory dependencies"
+
 Write-ProgressLine 70 "正在安装本机脚本与文档处理能力…"
 Invoke-Checked $VenvPython @(
     "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary",
     "-r", (Join-Path $SourceDir "docker\requirements-script-runner.txt")
 ) "Unable to install the local tool dependencies"
 
-Write-ProgressLine 77 "正在准备可选的 Node.js 文档能力…"
+Write-ProgressLine 75 "正在准备本机 Bash 脚本能力…"
+$BashExecutableFile = Join-Path $InstallRoot "bash-executable.txt"
+$Bash = Resolve-Bash
+if (-not $Bash) {
+    $Winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
+    if ($Winget) {
+        try {
+            Invoke-Checked $Winget.Source @(
+                "install", "--id", "Git.Git", "--exact", "--scope", "user", "--silent",
+                "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"
+            ) "Unable to install Git Bash with winget"
+            $Bash = Resolve-Bash
+        }
+        catch {
+            Write-Warning "Git Bash couldn't be installed automatically. Python and JavaScript still work; Bash scripts remain unavailable. $($_.Exception.Message)"
+        }
+    }
+}
+if ($Bash) {
+    [System.IO.File]::WriteAllText(
+        $BashExecutableFile,
+        [string]$Bash,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
+elseif (Test-Path $BashExecutableFile) {
+    Remove-Item $BashExecutableFile -Force
+}
+
+Write-ProgressLine 78 "正在准备可选的 Node.js 文档能力…"
 $NodeExecutableFile = Join-Path $InstallRoot "node-executable.txt"
 $Node = Resolve-Node
 if (-not $Node) {

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircleFilled,
+  ExclamationCircleFilled,
   RobotOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
@@ -11,6 +12,7 @@ import {
   Button,
   Input,
   InputNumber,
+  Modal,
   Select,
   Skeleton,
   Space,
@@ -129,11 +131,15 @@ function configuredSecret(value: string | null | undefined): boolean {
 export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   const brandName = usePageConfig('branding.product_name', 'HugAgentOS');
   const doLogout = useAuthStore((state) => state.doLogout);
+  const loggingOut = useAuthStore((state) => state.loggingOut);
   const [step, setStep] = useState(() => safeStoredStep(user.user_id));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [testingGroup, setTestingGroup] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const cardBodyRef = useRef<HTMLDivElement>(null);
   const [language, setLanguage] = useState<Lang>(getLang());
   const [preferences, setPreferences] = useState<UserPreferences>({});
   const [providers, setProviders] = useState<ModelProviderItem[]>([]);
@@ -164,6 +170,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   const [activeOntologyCount, setActiveOntologyCount] = useState(0);
 
   const persistStep = useCallback((next: number) => {
+    setSubmitError('');
     setStep(next);
     try {
       window.localStorage.setItem(`${STEP_STORAGE_PREFIX}${user.user_id}`, String(next));
@@ -252,6 +259,10 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    cardBodyRef.current?.scrollTo({ top: 0 });
+  }, [step]);
 
   const currentMainProvider = useMemo(() => {
     const mainRole = roles.find((role) => role.role_key === 'main_agent');
@@ -420,6 +431,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   };
 
   const handleNext = async () => {
+    setSubmitError('');
     setBusy(true);
     try {
       if (step === 0) {
@@ -457,7 +469,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
       }
       persistStep(Math.min(step + 1, STEP_META.length - 1));
     } catch (error) {
-      message.error((error as Error).message || t('保存失败，请重试'));
+      setSubmitError((error as Error).message || t('保存失败，请重试'));
     } finally {
       setBusy(false);
     }
@@ -955,7 +967,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           />
           <span className="jx-firstRun-editionLabel">Community Edition</span>
         </div>
-        <Button type="text" onClick={() => void doLogout()}>
+        <Button type="text" onClick={() => setLogoutConfirmOpen(true)}>
           {t('退出登录')}
         </Button>
       </header>
@@ -1005,7 +1017,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
             <Paragraph>{t(stepDescriptions[step][1])}</Paragraph>
           </div>
 
-          <div className="jx-firstRun-cardBody">
+          <div ref={cardBodyRef} className="jx-firstRun-cardBody">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={step}
@@ -1018,6 +1030,18 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
               </motion.div>
             </AnimatePresence>
           </div>
+
+          {submitError && (
+            <Alert
+              className="jx-firstRun-submitError"
+              type="error"
+              showIcon
+              closable
+              message={t('无法继续')}
+              description={submitError}
+              onClose={() => setSubmitError('')}
+            />
+          )}
 
           <footer className="jx-firstRun-actions">
             <Button
@@ -1044,6 +1068,21 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           </footer>
         </section>
       </main>
+
+      <Modal
+        title={<Space><ExclamationCircleFilled style={{ color: '#F8AB42' }} />{t('确认退出登录？')}</Space>}
+        open={logoutConfirmOpen}
+        okText={t('退出登录')}
+        cancelText={t('取消')}
+        okButtonProps={{ danger: true }}
+        confirmLoading={loggingOut}
+        maskClosable={!loggingOut}
+        closable={!loggingOut}
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onOk={() => void doLogout()}
+      >
+        {t('退出登录不会丢失任何数据，你仍可以登录此账号。')}
+      </Modal>
     </div>
   );
 }

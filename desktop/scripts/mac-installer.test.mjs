@@ -40,6 +40,7 @@ test("macOS bootstrap completes a clean CE install with an isolated runtime", ()
     mkdirSync(join(bundle, "docker"), { recursive: true });
     writeFileSync(join(bundle, "pyproject.toml"), "[project]\nname='test'\n");
     writeFileSync(join(bundle, "requirements.txt"), "");
+    writeFileSync(join(bundle, "requirements-mem0.txt"), "mem0ai>=0.1.50\n");
     writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
     writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "ok");
     writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"test"}\n');
@@ -121,6 +122,9 @@ fi
     const uvCalls = readFileSync(uvLog, "utf8");
     assert.match(uvCalls, /--overrides .*requirements-macos-overrides\.txt/);
     assert.match(uvCalls, /--only-binary pikepdf/);
+    assert.match(uvCalls, /--requirements .*requirements-mem0\.txt/);
+    assert.match(uvCalls, /pymilvus==2\.5\.18/);
+    assert.match(uvCalls, /milvus-lite==3\.1\.0/);
     assert.doesNotMatch(uvCalls, /--prefer-binary/);
 
     writeFileSync(
@@ -221,6 +225,7 @@ test("macOS bootstrap leaves the previous release untouched after dependency fai
     mkdirSync(join(bundle, "docker"), { recursive: true });
     writeFileSync(join(bundle, "pyproject.toml"), "[project]\nname='test'\n");
     writeFileSync(join(bundle, "requirements.txt"), "broken>=1\n");
+    writeFileSync(join(bundle, "requirements-mem0.txt"), "mem0ai>=0.1.50\n");
     writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
     writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "new");
     writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"new"}\n');
@@ -295,6 +300,7 @@ test("macOS bootstrap stops before copying when free space is insufficient", () 
     mkdirSync(join(bundle, "docker"), { recursive: true });
     writeFileSync(join(bundle, "pyproject.toml"), "[project]\nname='test'\n");
     writeFileSync(join(bundle, "requirements.txt"), "");
+    writeFileSync(join(bundle, "requirements-mem0.txt"), "mem0ai>=0.1.50\n");
     writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
     writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "ok");
     writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"test"}\n');

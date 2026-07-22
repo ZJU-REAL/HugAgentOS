@@ -39,6 +39,7 @@ export const ONBOARDING_DICT: Record<string, string> = {
   '请选择或添加一个主模型': 'Select or add a primary model',
   '初始化完成，欢迎使用 {name}': 'Setup complete. Welcome to {name}',
   '保存失败，请重试': 'Could not save. Try again.',
+  '无法继续': 'Could not continue',
   '已检测到可用主模型': 'An available primary model was detected',
   '使用已有模型': 'Use an existing model',
   '返回已有模型': 'Back to existing models',

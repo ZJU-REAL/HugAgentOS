@@ -356,15 +356,16 @@ impl LocalServerManager {
     }
 
     fn apply_tool_path(&self, command: &mut Command) {
-        let Ok(node_executable) = std::fs::read_to_string(self.root.join("node-executable.txt"))
-        else {
-            return;
-        };
-        let node_executable = PathBuf::from(node_executable.trim());
-        let Some(node_dir) = node_executable.parent() else {
-            return;
-        };
-        let mut paths = vec![node_dir.to_path_buf()];
+        let mut paths = Vec::new();
+        for filename in ["node-executable.txt", "bash-executable.txt"] {
+            let Ok(executable) = std::fs::read_to_string(self.root.join(filename)) else {
+                continue;
+            };
+            let executable = PathBuf::from(executable.trim());
+            if let Some(parent) = executable.parent() {
+                paths.push(parent.to_path_buf());
+            }
+        }
         if let Some(current) = std::env::var_os("PATH") {
             paths.extend(std::env::split_paths(&current));
         }

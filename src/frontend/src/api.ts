@@ -3624,40 +3624,97 @@ function logQueryString(q: MyLogQuery): string {
 
 export interface MyToolLogItem {
   id: string;
+  trace_id?: string | null;
   chat_id?: string | null;
+  message_id?: string | null;
   session_title?: string | null;
+  user_name?: string | null;
   tool_name: string;
   tool_display_name?: string | null;
+  tool_call_id?: string | null;
+  mcp_server?: string | null;
+  sandbox_id?: string | null;
+  tool_args?: unknown;
+  tool_result?: unknown;
+  result_truncated?: boolean;
   status: string;
   source: string;
   duration_ms?: number | null;
   error_message?: string | null;
+  subagent_log_id?: string | null;
+  skill_log_id?: string | null;
+  started_at?: string | null;
   created_at?: string | null;
-  [key: string]: unknown;
 }
 
 export interface MySkillLogItem {
   id: string;
+  trace_id?: string | null;
   chat_id?: string | null;
+  message_id?: string | null;
   session_title?: string | null;
-  skill_name: string;
+  user_name?: string | null;
+  skill_id: string;
+  skill_name?: string | null;
+  skill_version?: string | null;
+  skill_source?: string | null;
   invocation_type?: string | null;
+  script_name?: string | null;
+  script_language?: string | null;
+  script_args?: unknown;
+  script_stdin?: string | null;
+  script_stdout?: string | null;
+  script_stderr?: string | null;
+  output_truncated?: boolean;
+  exit_code?: number | null;
   status: string;
+  source?: string | null;
   duration_ms?: number | null;
   error_message?: string | null;
+  subagent_log_id?: string | null;
+  started_at?: string | null;
   created_at?: string | null;
-  [key: string]: unknown;
 }
 
 export interface MySubagentLogItem {
   id: string;
+  trace_id?: string | null;
   chat_id?: string | null;
+  message_id?: string | null;
   session_title?: string | null;
+  user_name?: string | null;
+  subagent_id?: string | null;
   subagent_name: string;
+  subagent_type?: string | null;
+  plan_id?: string | null;
+  step_id?: string | null;
+  step_index?: number | null;
+  step_title?: string | null;
+  model?: string | null;
+  input_messages?: unknown;
+  output_content?: string | null;
+  intermediate_steps?: unknown;
+  token_usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    llm_call_count?: number;
+  } | null;
+  tool_calls_count?: number;
+  skill_calls_count?: number;
   status: string;
+  error_message?: string | null;
   duration_ms?: number | null;
+  parent_subagent_log_id?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
   created_at?: string | null;
-  [key: string]: unknown;
+}
+
+export interface MySubagentLogDetail extends MySubagentLogItem {
+  child_steps: MySubagentLogItem[];
+  tool_calls: MyToolLogItem[];
+  skill_calls: MySkillLogItem[];
 }
 
 export interface MyUsageItem {
@@ -3690,12 +3747,29 @@ export function getMyToolLogs(q: MyLogQuery = {}): Promise<MyLogPage<MyToolLogIt
   return fetchLogPage<MyToolLogItem>('/v1/me/logs/tools', q);
 }
 
+export async function getMyToolLog(logId: string): Promise<MyToolLogItem> {
+  const wrapped = await apiRequest<unknown>(`/v1/me/logs/tools/${encodeURIComponent(logId)}`);
+  return unwrapData<MyToolLogItem>(wrapped);
+}
+
 export function getMySkillLogs(q: MyLogQuery = {}): Promise<MyLogPage<MySkillLogItem>> {
   return fetchLogPage<MySkillLogItem>('/v1/me/logs/skills', q);
 }
 
+export async function getMySkillLog(logId: string): Promise<MySkillLogItem> {
+  const wrapped = await apiRequest<unknown>(`/v1/me/logs/skills/${encodeURIComponent(logId)}`);
+  return unwrapData<MySkillLogItem>(wrapped);
+}
+
 export function getMySubagentLogs(q: MyLogQuery = {}): Promise<MyLogPage<MySubagentLogItem>> {
   return fetchLogPage<MySubagentLogItem>('/v1/me/logs/subagents', q);
+}
+
+export async function getMySubagentLog(logId: string): Promise<MySubagentLogDetail> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/me/logs/subagents/${encodeURIComponent(logId)}`,
+  );
+  return unwrapData<MySubagentLogDetail>(wrapped);
 }
 
 export function getMyUsage(q: MyLogQuery = {}): Promise<MyLogPage<MyUsageItem>> {

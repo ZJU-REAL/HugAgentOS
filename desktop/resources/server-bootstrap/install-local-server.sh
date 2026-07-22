@@ -40,6 +40,10 @@ if [[ ! -f "$BundleDir/src/frontend/dist/index.html" ]]; then
   echo "The bundled CE web application is missing." >&2
   exit 3
 fi
+if [[ ! -f "$BundleDir/requirements-mem0.txt" ]]; then
+  echo "The desktop package doesn't contain the persistent-memory dependencies." >&2
+  exit 3
+fi
 if [[ ! -f "$MacOverrides" ]]; then
   echo "The macOS dependency compatibility overrides are missing." >&2
   exit 3
@@ -180,6 +184,13 @@ uv_run pip install --python "$VenvPython" --upgrade pip setuptools wheel
 progress 42 "正在安装服务端依赖，首次安装需要数分钟…"
 uv_run pip install --python "$VenvPython" \
   --requirements "$SourceDir/requirements.txt"
+
+progress 58 "正在安装永久记忆运行环境…"
+uv_run pip install --python "$VenvPython" --upgrade \
+  --requirements "$SourceDir/requirements-mem0.txt" \
+  "protobuf<7" \
+  "pymilvus==2.5.18" \
+  "milvus-lite==3.1.0"
 
 progress 70 "正在安装本机脚本与文档处理能力…"
 uv_run pip install --python "$VenvPython" \

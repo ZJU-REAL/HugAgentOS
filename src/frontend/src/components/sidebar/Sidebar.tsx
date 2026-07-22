@@ -73,7 +73,9 @@ export function Sidebar({
     pendingDesignPick,
   } = useUIStore();
   const { store, currentChatId, chatsLoading, sendingChatIds, updateStore, addBackendSessionId } = useChatStore();
-  const { authUser, doLogout } = useAuthStore();
+  const { authUser, doLogout, loggingOut } = useAuthStore();
+  const [footerMenuOpen, setFooterMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   // ── Page config (text and branding configurable via the admin console) ──
   const cfgProductName = usePageConfig('branding.product_name', 'HugAgentOS');
   const cfgProductSub = usePageConfig('branding.product_subtitle', 'HugAgentOS AI 智能助手');
@@ -442,15 +444,10 @@ export function Sidebar({
         icon: <img src="/home/logout.svg" alt="" style={{ width: 16, height: 16 }} />,
         danger: true,
         onClick: () => {
-          Modal.confirm({
-            title: cfgLogoutTitle,
-            icon: <ExclamationCircleFilled style={{ color: '#F8AB42' }} />,
-            content: cfgLogoutContent,
-            okText: cfgLogoutOk,
-            cancelText: t('取消'),
-            okButtonProps: { danger: true },
-            onOk: () => void doLogout(),
-          });
+          // Let the dropdown exit before presenting its modal. WebView2 can
+          // otherwise composite both overlays in one frame and visibly flash.
+          setFooterMenuOpen(false);
+          window.setTimeout(() => setLogoutConfirmOpen(true), 100);
         },
       },
     ],
@@ -767,7 +764,14 @@ export function Sidebar({
 
         {/* Footer: user info + help button */}
         <div className="jx-sideFooter">
-          <Dropdown menu={footerSettingsMenu} trigger={['click']} placement="topLeft" overlayClassName="jx-settingsMenu">
+          <Dropdown
+            menu={footerSettingsMenu}
+            trigger={['click']}
+            placement="topLeft"
+            overlayClassName="jx-settingsMenu"
+            open={footerMenuOpen}
+            onOpenChange={setFooterMenuOpen}
+          >
             <button className="jx-userInfoBtn">
               <img src={resolveAvatarUrl(authUser?.avatar_url)} alt="" className="jx-userAvatar" />
               <span className="jx-userName">{authUser?.nickname || authUser?.real_name || authUser?.username || t('用户')}</span>
@@ -779,6 +783,26 @@ export function Sidebar({
             </button>
           </Dropdown>
         </div>
+
+        <Modal
+          title={(
+            <span>
+              <ExclamationCircleFilled style={{ color: '#F8AB42', marginRight: 8 }} />
+              {cfgLogoutTitle}
+            </span>
+          )}
+          open={logoutConfirmOpen}
+          okText={cfgLogoutOk}
+          cancelText={t('取消')}
+          okButtonProps={{ danger: true }}
+          confirmLoading={loggingOut}
+          maskClosable={!loggingOut}
+          closable={!loggingOut}
+          onCancel={() => setLogoutConfirmOpen(false)}
+          onOk={() => void doLogout()}
+        >
+          {cfgLogoutContent}
+        </Modal>
       </div>
     </Sider>
   );
