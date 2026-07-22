@@ -305,6 +305,8 @@ impl LocalServerManager {
                     .arg("--no-browser")
                     .current_dir(self.source_dir())
                     .env("HUGAGENT_HOME", self.data_dir())
+                    .env("PYTHONUTF8", "1")
+                    .env("PYTHONIOENCODING", "utf-8")
                     .env("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1")
                     .env(
                         "FRONTEND_DIST_DIR",
