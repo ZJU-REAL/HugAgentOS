@@ -13,5 +13,4 @@ export { useAutomationChatStore } from './automationChatStore';
 export { useBatchStore } from './batchStore';
 export { useModelCapabilitiesStore } from './modelCapabilitiesStore';
 export { useEditionStore } from './editionStore';
-export { useSkillDistillStore } from './skillDistillStore';
 export { usePluginStore } from './pluginStore';

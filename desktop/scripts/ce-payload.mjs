@@ -43,24 +43,23 @@ export function assertDerivedCeRepository(repoRoot) {
 }
 
 export function assertCleanRepository(repoRoot) {
-  // Tauri may touch Cargo.toml while inspecting dependencies. On Windows with
-  // CRLF conversion, `git status` can report that stat-only rewrite as modified
-  // even when the normalized content is identical to HEAD. Compare content
-  // directly so only real staged or unstaged tracked changes block a release.
-  const result = spawnSync("git", ["diff", "--quiet", "HEAD", "--"], {
+  // Release payloads require a genuinely clean checkout: staged, unstaged, and
+  // non-ignored untracked files all block staging. This is deliberately stricter
+  // than a content-only diff because release inputs must be auditable from HEAD.
+  const result = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], {
     cwd: repoRoot,
     encoding: "utf8",
     shell: false,
   });
   if (result.error) throw result.error;
-  if (result.status === 1) {
-    throw new Error(
-      "Desktop release payloads must be built from a clean Git checkout",
-    );
-  }
   if (result.status !== 0) {
     throw new Error(
-      `git diff --quiet HEAD -- failed with exit code ${result.status}`,
+      `git status --porcelain failed with exit code ${result.status}`,
+    );
+  }
+  if (result.stdout.trim()) {
+    throw new Error(
+      "Desktop release payloads must be built from a clean Git checkout",
     );
   }
 }

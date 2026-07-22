@@ -6,16 +6,13 @@ import XxxRepository`` keeps working unchanged.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import sqlalchemy as sa
+from core.db.models import ChatMessage, ChatSession
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, func, select
-from core.db.models import (
-    UserShadow, ChatSession, ChatMessage, CatalogOverride,
-    KBSpace, KBDocument, Artifact, AuditLog, UserAgent,
-    LocalUser, Team, TeamMember, TeamFolder, InviteCode,
-)
 
 
 class ChatSessionRepository:
@@ -26,10 +23,11 @@ class ChatSessionRepository:
 
     def get_by_id(self, chat_id: str) -> Optional[ChatSession]:
         """Get chat session by ID."""
-        return self.db.query(ChatSession).filter(
-            ChatSession.chat_id == chat_id,
-            ChatSession.deleted_at.is_(None)
-        ).first()
+        return (
+            self.db.query(ChatSession)
+            .filter(ChatSession.chat_id == chat_id, ChatSession.deleted_at.is_(None))
+            .first()
+        )
 
     def list_by_user(
         self,
@@ -42,8 +40,7 @@ class ChatSessionRepository:
     ) -> tuple[List[ChatSession], int]:
         """List chat sessions for a user with pagination."""
         query = self.db.query(ChatSession).filter(
-            ChatSession.user_id == user_id,
-            ChatSession.deleted_at.is_(None)
+            ChatSession.user_id == user_id, ChatSession.deleted_at.is_(None)
         )
 
         if pinned_only:
@@ -65,9 +62,12 @@ class ChatSessionRepository:
         total = query.count()
 
         # Apply pagination and ordering
-        sessions = query.order_by(desc(ChatSession.updated_at)).offset(
-            (page - 1) * page_size
-        ).limit(page_size).all()
+        sessions = (
+            query.order_by(desc(ChatSession.updated_at))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
 
         return sessions, total
 
@@ -158,18 +158,26 @@ class ChatSessionRepository:
 
         # Fetch title-matched sessions first, then content-matched sessions
         title_sessions = (
-            self.db.query(ChatSession)
-            .filter(ChatSession.chat_id.in_(title_id_set))
-            .order_by(desc(ChatSession.updated_at))
-            .all()
-        ) if title_id_set else []
+            (
+                self.db.query(ChatSession)
+                .filter(ChatSession.chat_id.in_(title_id_set))
+                .order_by(desc(ChatSession.updated_at))
+                .all()
+            )
+            if title_id_set
+            else []
+        )
 
         content_sessions = (
-            self.db.query(ChatSession)
-            .filter(ChatSession.chat_id.in_(content_id_set))
-            .order_by(desc(ChatSession.updated_at))
-            .all()
-        ) if content_id_set else []
+            (
+                self.db.query(ChatSession)
+                .filter(ChatSession.chat_id.in_(content_id_set))
+                .order_by(desc(ChatSession.updated_at))
+                .all()
+            )
+            if content_id_set
+            else []
+        )
 
         # Merge: title matches first, then content matches
         ordered = title_sessions + content_sessions
@@ -213,11 +221,13 @@ class ChatSessionRepository:
                             snippet = snippet + "..."
                         matched_snippet = snippet
 
-            results.append({
-                "session": s,
-                "match_type": match_type,
-                "matched_snippet": matched_snippet,
-            })
+            results.append(
+                {
+                    "session": s,
+                    "match_type": match_type,
+                    "matched_snippet": matched_snippet,
+                }
+            )
 
         return results, total
 
@@ -230,15 +240,10 @@ class ChatMessageRepository:
 
     def get_by_id(self, message_id: str) -> Optional[ChatMessage]:
         """Get message by ID."""
-        return self.db.query(ChatMessage).filter(
-            ChatMessage.message_id == message_id
-        ).first()
+        return self.db.query(ChatMessage).filter(ChatMessage.message_id == message_id).first()
 
     def list_by_chat(
-        self,
-        chat_id: str,
-        page: int = 1,
-        page_size: int = 50
+        self, chat_id: str, page: int = 1, page_size: int = 50
     ) -> tuple[List[ChatMessage], int]:
         """List messages for a chat session with pagination.
 
@@ -251,9 +256,12 @@ class ChatMessageRepository:
         )
 
         total = query.count()
-        messages = query.order_by(ChatMessage.created_at).offset(
-            (page - 1) * page_size
-        ).limit(page_size).all()
+        messages = (
+            query.order_by(ChatMessage.created_at)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
 
         return messages, total
 
@@ -293,4 +301,3 @@ class ChatMessageRepository:
         self.db.commit()
         self.db.refresh(message)
         return message
-

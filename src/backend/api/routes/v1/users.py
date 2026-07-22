@@ -73,11 +73,11 @@ class UserPreferences(BaseModel):
     )
 
 
-@router.get("/me", summary="获取当前用户信息（含部门、团队、本地账号资料）")
+@router.get("/me", summary="获取当前用户资料")
 async def get_current_user_info(
     user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """获取当前登录用户信息，包含部门、所属团队及本地账号资料（昵称/真实姓名/电话）。"""
+    """获取当前登录用户的账号与个人资料。"""
     user_repo = UserRepository(db)
     user_shadow = user_repo.get_by_id(user.user_id)
 
@@ -86,15 +86,7 @@ async def get_current_user_info(
 
     from core.db.models import LocalUser
 
-    try:
-        from core.services.team_service import list_user_teams_brief
-    except (
-        ModuleNotFoundError
-    ):  # CE: single-tenant has no teams -- only degrade the teams field, user info returns as usual
-        list_user_teams_brief = None
-
     local = db.query(LocalUser).filter(LocalUser.user_id == user.user_id).first()
-    teams = list_user_teams_brief(db, user.user_id) if list_user_teams_brief else []
     meta = dict(user_shadow.extra_data or {})
 
     from core.services.local_user_service import ce_onboarding_required
@@ -113,9 +105,12 @@ async def get_current_user_info(
         "auth_source": "local" if local else "external",
         "must_change_password": bool(meta.get("must_change_password")),
         "onboarding_required": ce_onboarding_required(meta),
-        "teams": teams,
         "created_at": user_shadow.created_at.isoformat(),
     }
+
+    from core.auth.account_view import extend_current_account
+
+    data = extend_current_account(db, str(user.user_id), data)
 
     return success_response(data=data, message="User information retrieved successfully")
 
@@ -398,7 +393,7 @@ async def get_user_avatar_raw(
     _user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """同源 cookie 鉴权后任意登录用户都可读取（用于团队成员之间互相看到头像）。"""
+    """同源 cookie 鉴权后，已登录用户可读取其他用户的头像。"""
     user_repo = UserRepository(db)
     target = user_repo.get_by_id(user_id)
     if not target:

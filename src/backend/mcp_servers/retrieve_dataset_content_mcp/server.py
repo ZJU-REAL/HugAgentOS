@@ -273,7 +273,7 @@ _LIST_DATASETS_DESCRIPTION = """列出当前可用的所有知识库（公有 + 
 
 Returns:
     dict: {"public_datasets": [...], "private_datasets": [...], "total": N}
-    - public_datasets：公有/共享知识库（含 Dify 外接数据集与本地公有库）。带 dataset_id 的用
+    - public_datasets：公有/共享知识库（含外接数据集与本地公有库）。带 dataset_id 的用
       retrieve_dataset_content 检索；带 kb_id 的（本地公有库）用 retrieve_local_kb 检索。
     - private_datasets：仅当前用户自己的私有库（kb_id），用 retrieve_local_kb 检索。
     用户问"有几个公有知识库 / 公有库列表"时以 public_datasets 为准，不要把本地公有库当私有库。

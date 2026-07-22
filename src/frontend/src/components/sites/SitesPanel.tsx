@@ -13,7 +13,6 @@ import {
   LockOutlined,
   SearchOutlined,
   SettingOutlined,
-  TeamOutlined,
 } from '@ant-design/icons';
 import {
   clearSiteKv,
@@ -21,7 +20,6 @@ import {
   deleteSite,
   deleteSiteKvKey,
   exportSiteSubmissions,
-  getMyTeams,
   getSiteDetail,
   listSiteKv,
   listSiteSubmissions,
@@ -32,8 +30,15 @@ import {
   type SiteKvItem,
   type SiteSubmissionItem,
   type SiteVersionItem,
-  type TeamMembershipBrief,
 } from '../../api';
+import {
+  EditionSiteVisibilityFields,
+  EditionSiteVisibilityTag,
+  editionSiteFormValues,
+  editionSiteUpdateFields,
+  getSiteVisibilityOptions,
+  type SiteVisibility,
+} from '../../editionSiteVisibility';
 import { useCatalogStore } from '../../stores';
 import { useChatStore } from '../../stores/chatStore';
 import { usePluginStore } from '../../stores/pluginStore';
@@ -104,8 +109,8 @@ function VisibilityTag({ site }: { site: SiteItem }) {
   if (site.visibility === 'public') {
     return <Tag icon={<GlobalOutlined />} color="blue">{t('公开')}</Tag>;
   }
-  if (site.visibility === 'team') {
-    return <Tag icon={<TeamOutlined />} color="geekblue">{t('团队')}</Tag>;
+  if (site.visibility !== 'private') {
+    return <EditionSiteVisibilityTag visibility={site.visibility} />;
   }
   return <Tag icon={<LockOutlined />}>{t('私密')}</Tag>;
 }
@@ -120,8 +125,7 @@ function SiteManageModal({
 }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  const [teams, setTeams] = useState<TeamMembershipBrief[]>([]);
-  const [visibility, setVisibility] = useState(site.visibility);
+  const [visibility, setVisibility] = useState<SiteVisibility>(site.visibility);
   const [versions, setVersions] = useState<SiteVersionItem[]>([]);
   const [currentVersion, setCurrentVersion] = useState(site.current_version);
   const [rollingBack, setRollingBack] = useState<number | null>(null);
@@ -133,9 +137,9 @@ function SiteManageModal({
   useEffect(() => {
     form.setFieldsValue({
       title: site.title, slug: site.slug,
-      visibility: site.visibility, team_id: site.team_id ?? undefined,
+      visibility: site.visibility,
+      ...editionSiteFormValues(site),
     });
-    void getMyTeams().then(setTeams).catch(() => setTeams([]));
     void getSiteDetail(site.site_id)
       .then((d) => { setVersions([...d.versions].reverse()); setCurrentVersion(d.current_version); })
       .catch(() => {});
@@ -153,7 +157,7 @@ function SiteManageModal({
         title: values.title,
         slug: values.slug !== site.slug ? values.slug : undefined,
         visibility: values.visibility,
-        team_id: values.visibility === 'team' ? values.team_id : undefined,
+        ...editionSiteUpdateFields(values.visibility, values),
       });
       onChanged(updated);
       message.success(t('已保存'));
@@ -283,25 +287,10 @@ function SiteManageModal({
                 <Form.Item name="visibility" label={t('可见性')}>
                   <Select
                     onChange={(v) => setVisibility(v)}
-                    options={[
-                      { value: 'public', label: t('公开 — 任何人凭链接访问') },
-                      { value: 'team', label: t('团队 — 指定团队成员登录后可见') },
-                      { value: 'private', label: t('私密 — 仅自己登录后可见') },
-                    ]}
+                    options={getSiteVisibilityOptions()}
                   />
                 </Form.Item>
-                {visibility === 'team' ? (
-                  <Form.Item
-                    name="team_id"
-                    label={t('授权团队')}
-                    rules={[{ required: true, message: t('请选择团队') }]}
-                  >
-                    <Select
-                      placeholder={teams.length ? t('选择团队') : t('你还没有加入任何团队')}
-                      options={teams.map((tm) => ({ value: tm.team_id, label: tm.name }))}
-                    />
-                  </Form.Item>
-                ) : null}
+                <EditionSiteVisibilityFields visibility={visibility} />
                 <Button type="primary" onClick={handleSave} loading={saving}>{t('保存')}</Button>
               </Form>
             ),

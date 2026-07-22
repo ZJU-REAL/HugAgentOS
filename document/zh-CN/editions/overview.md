@@ -1,5 +1,5 @@
 # 社区版与商业版总览
-> 最后更新：2026-07-02
+> 最后更新：2026-07-22
 
 HugAgentOS 采用 **open-core（开放内核）** 模式发行，对标 Dify / FastGPT 等开源 Agent 平台的通行做法：
 
@@ -59,7 +59,7 @@ python scripts/build_ce.py        # 生成 dist/ce/（CE 派生树）
 
 | 形态 | 配置 | 行为 |
 |---|---|---|
-| 社区版 | `JX_EDITION=ce`（CE 派生树 `.env.example` 默认值） | 全部 EE 能力位恒 `False`，不限席位；`core/licensing/manager.py` 在 CE 树被 overlay 替换为无验签 stub |
+| 社区版 | `JX_EDITION=ce`（CE 派生树 `.env.example` 默认值） | CE 树物理不含 License 实现；版本探针固定返回 CE 形态与空的 EE 能力集，不执行验签、不限制席位 |
 | 商业版 · internal | `JX_EDITION=ee` 且未配置 license 文件且 `JX_LICENSE_REQUIRED=false`（主仓默认） | **内部 / 全托管部署模式：全功能放行**，与历史部署行为完全一致——存量部署升级到含 license 机制的版本后无需任何配置变更 |
 | 商业版 · licensed | `JX_EDITION=ee` + 有效 license 文件 | 按 license 中的 entitlement（能力位清单 + 席位 + 有效期）放行 |
 
@@ -85,7 +85,7 @@ COMPOSE_PROFILES=mem0 docker compose up -d
 
 ## 升级路径
 
-- **CE → EE**：商业版以**镜像包 + License 文件**交付（适配政务内网离线环境）。数据库层面 CE 表集合是 EE 的真子集，且跨边界外键列（`team_id` 等）在 CE 中保留为恒 NULL（方案 D3），数据可保留迁移。
+- **CE → EE**：商业版以**镜像包 + License 文件**交付（适配政务内网离线环境）。CE 表集合是 EE 的真子集：20 张 EE 表、其外键及共享资源上的商业作用域列均不注册；升级时由交付迁移补齐组织结构。
   > ⚠️ 注意：CE 走独立迁移链（基线 `ce_0001`，见 [CE 构建管线](build-ce.md#ce-数据库差异)），与 EE 的主仓迁移链不同；CE 存量库切换 EE 镜像时的 alembic 版本对接由交付实施完成（当前无自动转换工具，属规划中）。
 - **EE internal → EE licensed**：私有化交付时配置 `LICENSE_KEY_PATH` 与 `JX_LICENSE_REQUIRED=true`，在 `/config` 管理台 License 面板上传 `.lic` 文件即时激活，无需重启。
 - **续期 / 扩容**：上传新 license 文件热替换（同上），到期后有宽限期缓冲（默认 14 天）。
@@ -95,8 +95,8 @@ COMPOSE_PROFILES=mem0 docker compose up -d
 | 主题 | 路径 |
 |---|---|
 | 版本 / License 配置 | `src/backend/core/config/settings.py`（`EditionSettings` / `LicenseSettings`） |
-| License 门面与状态机 | `src/backend/core/licensing/manager.py` |
-| EE 能力位枚举 | `src/backend/core/licensing/features.py` |
+| License 状态机 | `src/backend/edition_ee/licensing/manager.py` |
+| EE 能力位枚举 | `src/backend/edition_ee/licensing/features.py` |
 | 路由注册表（CE/EE 两表） | `src/backend/api/routes/v1/__init__.py` |
 | 版本探针 | `src/backend/api/routes/v1/meta.py` |
 | 前端 edition 门控 | `src/frontend/src/stores/editionStore.ts` |

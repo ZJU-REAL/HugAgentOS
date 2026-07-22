@@ -194,31 +194,3 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     timestamp: str
-
-
-class KBGrantItem(BaseModel):
-    """单条知识库授权项（用户/团队管理页共用）。"""
-
-    resource_id: str = Field(..., max_length=64)
-    resource_type: str = Field("local", pattern="^(local|dify)$")
-    level: str = Field("view", pattern="^(view|edit|admin)$")
-
-
-class KBGrantsBody(BaseModel):
-    """全量替换语义：提交后该用户/团队的知识库授权 = grants 列表。"""
-
-    grants: List[KBGrantItem] = Field(default_factory=list)
-
-
-class MarketVisibilityGrantItem(BaseModel):
-    """单条市场可见范围授权（三大市场 admin 端共用）。"""
-
-    principal_type: str = Field(..., pattern="^(user|team|role)$")
-    principal_id: str = Field(..., min_length=1, max_length=64)
-
-
-class MarketVisibilityRequest(BaseModel):
-    """全量替换语义：public=全员可见（grants 忽略）；scoped=仅 grants 白名单可见。"""
-
-    visibility: str = Field(..., pattern="^(public|scoped)$")
-    grants: List[MarketVisibilityGrantItem] = Field(default_factory=list)

@@ -72,7 +72,7 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 
 | 来源 | 条件 | 标记 |
 |---|---|---|
-| Dify 外部知识库 | `KNOWLEDGE_BASE=dify` 且凭据可用（`core/kb/dify_kb.py::is_dify_enabled`），数据集列表带 60s 进程缓存 | `visibility: public`（**商业版 EE**：对接外部 Dify 知识库） |
+| Dify 外部知识库 | `KNOWLEDGE_BASE=dify` 且凭据可用（`edition_ee/kb/dify.py::is_dify_enabled`），数据集列表带进程缓存 | `visibility: public`（**商业版 EE**：适配器不进入 CE） |
 | 公共自建知识库 | 管理台「知识库管理」创建（本地 Milvus），所有用户可见、前台只读 | `visibility: public` |
 | 用户私有知识库 | 当前用户的本地 KB 空间 | `visibility: private` |
 
@@ -123,6 +123,6 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 | 用户自助能力 | `src/backend/api/routes/v1/me_capabilities.py` |
 | MCP 服务配置（DB） | `src/backend/core/services/mcp_service.py`，`api/routes/v1/admin_mcp_servers.py` |
 | 技能管理 | `src/backend/api/routes/v1/admin_skills.py`，`core/agent_skills/` |
-| Dify KB 注入 | `src/backend/core/kb/dify_kb.py` |
+| Dify KB 注入（EE） | `src/backend/edition_ee/kb/dify.py`，经共享接缝 `core/kb/external_provider.py` 调用 |
 | 前端能力中心 | `src/frontend/src/components/catalog/`，`stores/catalogStore.ts` |
 | 工厂消费侧 | `src/backend/core/llm/agent_factory.py::_effective_mcp_server_keys` |

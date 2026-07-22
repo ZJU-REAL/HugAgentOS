@@ -1,16 +1,13 @@
 """Shared authentication dependencies."""
 
 import os
-from dataclasses import dataclass
 from typing import Optional
 
-from core.auth.backend import UserContext, get_current_user, require_auth
-from core.auth.permissions_iface import PermissionLevel, require_team_file_permission
-from core.auth.roles import TeamRole, at_least
+from core.auth.backend import UserContext, require_auth
 from core.config.settings import settings
 from core.db.engine import get_db
 from core.db.models import UserShadow
-from core.db.repository import AuditLogRepository, TeamRepository
+from core.db.repository import AuditLogRepository
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -353,102 +350,3 @@ async def require_super_admin(
         )
         raise HTTPException(status_code=403, detail="需要 super_admin 权限")
     return user_id
-
-
-def require_team_role(min_role: TeamRole = "member"):
-    """FastAPI dependency factory: require the current user to have >= min_role in the team given by the team_id path parameter."""
-
-    async def dependency(
-        team_id: str,
-        request: Request,
-        db: Session = Depends(get_db),
-    ) -> str:
-        user_id = _resolve_current_user_id(request)
-        if not user_id:
-            AuditLogRepository(db).log_denial(
-                user_id=None,
-                action="team_role.access_denied",
-                reason="not_logged_in",
-                required=min_role,
-                actual="anonymous",
-                resource_type="team",
-                resource_id=team_id,
-                request=request,
-            )
-            raise HTTPException(status_code=401, detail="未登录")
-        if _is_super_admin(db, user_id):
-            return user_id
-        role = TeamRepository(db).get_member_role(team_id, user_id)
-        if role is None:
-            AuditLogRepository(db).log_denial(
-                user_id=user_id,
-                action="team_role.access_denied",
-                reason="not_a_member",
-                required=min_role,
-                actual="none",
-                resource_type="team",
-                resource_id=team_id,
-                request=request,
-            )
-            raise HTTPException(status_code=403, detail="未加入该团队")
-        if not at_least(role, min_role):
-            AuditLogRepository(db).log_denial(
-                user_id=user_id,
-                action="team_role.access_denied",
-                reason="insufficient_role",
-                required=min_role,
-                actual=role,
-                resource_type="team",
-                resource_id=team_id,
-                request=request,
-            )
-            raise HTTPException(status_code=403, detail=f"需要 {min_role} 以上角色")
-        return user_id
-
-    return dependency
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Team file permissions — unified dependency
-# ═══════════════════════════════════════════════════════════════════════
-
-
-@dataclass
-class TeamFileAccess:
-    """Access context produced by `require_team_file_perm()`.
-
-    A route signature only needs a single
-    ``access: TeamFileAccess = Depends(require_team_file_perm("edit"))`` to get:
-    the resolved user / db / the validated permission level.
-    """
-
-    user: UserContext
-    db: Session
-    team_id: str
-    permission: PermissionLevel  # the current user's actual permission (view/edit/admin)
-
-
-def require_team_file_perm(min_permission: PermissionLevel, *, action: str = "team_file.access"):
-    """FastAPI dependency factory: verify the current user's file permission on the path ``team_id`` is >= ``min_permission``.
-
-    When not satisfied, ``require_team_file_permission()`` is responsible for
-    raising 403/404 and writing the audit denial log.
-    """
-
-    async def dependency(
-        team_id: str,
-        request: Request,
-        user: UserContext = Depends(get_current_user),
-        db: Session = Depends(get_db),
-    ) -> TeamFileAccess:
-        perm = require_team_file_permission(
-            db,
-            str(user.user_id),
-            team_id,
-            min_permission,
-            request=request,
-            action=action,
-        )
-        return TeamFileAccess(user=user, db=db, team_id=team_id, permission=perm)
-
-    return dependency

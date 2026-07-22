@@ -613,10 +613,7 @@ async def _run_workflow(
                         extra_data=_persist_extra,
                     )
                     # Build a ProjectScope from the workflow context and pass it
-                    # explicitly: in a team project, without this line →
-                    # scope=None → pinned files are treated as a non-project chat
-                    # and written as orphan rows with user_folder_id=NULL/
-                    # team_id=NULL, leaking into the personal MySpace root.
+                    # explicitly so pinned files keep their project ownership.
                     from core.services.project_scope import project_scope_from_context
 
                     _persist_artifacts(

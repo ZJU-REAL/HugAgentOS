@@ -228,11 +228,11 @@ The last column is the license feature flag declared in `EE_ROUTERS`; `—` mean
 | Observability & audit | `admin_logs.py` | `/v1/admin/logs` | `GET /tools`, `GET /subagents`, `GET /trace/{trace_id}` | CONFIG | `audit` |
 | Login & session | `auth.py` | `/v1/auth` | `POST /ticket/exchange` (SSO ticket → session), `GET /session/check`, `POST /logout` | Public (session infrastructure) | — |
 | Config console | `config_verify.py` | `/v1/config` | `GET /verify` (CONFIG_TOKEN validation) | CONFIG | — |
-| Config console | `config_license.py` | `/v1/config/license` | `GET /` (license details), `POST /` (replace license) | CONFIG | — |
-| Multi-tenancy | `config_users.py` | `/v1/config/users` | `GET /`, `PATCH /{user_id}/status`, `POST /{user_id}/reset-password` | CONFIG | `multi_tenancy` |
-| Multi-tenancy | `config_teams.py` | `/v1/config/teams` | `GET/POST /`, `POST /{team_id}/members` | CONFIG | `multi_tenancy` |
-| Multi-tenancy | `config_invites.py` | `/v1/config/invite-codes` | `GET/POST /`, `POST /{code}/revoke` | CONFIG | `multi_tenancy` |
-| Multi-tenancy | `team_files.py` | `/v1/my-teams`, `/v1/teams`, `/v1/artifacts` | `GET /my-teams`, `POST /teams/{id}/files/upload`, `POST /artifacts/{id}/move-to-team` | User + team file permission | `multi_tenancy` |
+| Config console | `edition_ee/routes/config_license.py` | `/v1/config/license` | `GET /` (license details), `POST /` (replace license) | CONFIG | — |
+| Multi-tenancy | `edition_ee/routes/config_users.py` | `/v1/config/users` | `GET /`, `PATCH /{user_id}/status`, `POST /{user_id}/reset-password` | CONFIG | `multi_tenancy` |
+| Multi-tenancy | `edition_ee/routes/config_teams.py` | `/v1/config/teams` | `GET/POST /`, `POST /{team_id}/members` | CONFIG | `multi_tenancy` |
+| Multi-tenancy | `edition_ee/routes/config_invites.py` | `/v1/config/invite-codes` | `GET/POST /`, `POST /{code}/revoke` | CONFIG | `multi_tenancy` |
+| Multi-tenancy | `edition_ee/routes/team_files.py` | `/v1/my-teams`, `/v1/teams`, `/v1/artifacts` | `GET /my-teams`, `POST /teams/{id}/files/upload`, `POST /artifacts/{id}/move-to-team` | User + team file permission | `multi_tenancy` |
 | System config | `config_security.py` | `/v1/config/security` | `GET /sandbox/overview`, `GET /audit-logs`, `GET /system-health` | CONFIG | `system_config` |
 | System config | `service_configs.py` | `/v1/service-configs` | `GET/PUT /`, `POST /test/{group_key}` (external service connectivity tests) | CONFIG | `system_config` |
 

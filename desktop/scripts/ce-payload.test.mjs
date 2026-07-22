@@ -97,6 +97,20 @@ test("rejects release staging when a tracked change is staged", () => {
   }
 });
 
+test("rejects release staging when a non-ignored untracked file exists", () => {
+  const root = createCeFixture();
+  const output = join(root, "desktop", "generated", "server-ce");
+  try {
+    writeFileSync(join(root, "stray-source.py"), 'print("untracked")\n');
+    assert.throws(
+      () => stageTrackedCeRepository(root, output, { requireClean: true }),
+      /clean Git checkout/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects fallback staging without the derived CE marker", () => {
   const root = mkdtempSync(join(tmpdir(), "hugagent-not-ce-"));
   try {

@@ -3,13 +3,13 @@
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-
-from sqlalchemy.orm import Session
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from core.content.artifact_refs import infer_artifact_type, resolve_artifact_storage_key
 from core.db.models import Artifact as ArtifactModel
 from core.db.repository import ArtifactRepository
+from core.services.artifact_edition import artifact_scope_fields
+from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
     from core.services.project_scope import ProjectScope
@@ -83,7 +83,7 @@ class ArtifactService:
         size_bytes: int,
         mime_type: str,
         storage_key: str,
-        chat_id: Optional[str] = None
+        chat_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a new artifact."""
         artifact_data = {
@@ -95,7 +95,7 @@ class ArtifactService:
             "filename": filename,
             "size_bytes": size_bytes,
             "mime_type": mime_type,
-            "storage_key": storage_key
+            "storage_key": storage_key,
         }
 
         artifact = self.repo.create(artifact_data)
@@ -105,7 +105,7 @@ class ArtifactService:
             "type": artifact.type,
             "title": artifact.title,
             "filename": artifact.filename,
-            "created_at": artifact.created_at.isoformat()
+            "created_at": artifact.created_at.isoformat(),
         }
 
     def get_artifact(self, artifact_id: str, user_id: str) -> Optional[Dict[str, Any]]:
@@ -123,7 +123,7 @@ class ArtifactService:
             "storage_key": artifact.storage_key,
             "size_bytes": artifact.size_bytes,
             "mime_type": artifact.mime_type,
-            "created_at": artifact.created_at.isoformat()
+            "created_at": artifact.created_at.isoformat(),
         }
 
 
@@ -152,58 +152,58 @@ def persist_artifacts(
     User-uploaded files take a separate path (`api/routes/v1/file_upload.py`,
     extra_data.source = "user_upload") and never go through this helper.
 
-    Project-mode auto-placement: ``scope`` is passed in explicitly.
-    - ``scope.is_personal``: the artifact automatically lands in
-      ``scope.root_folder_id`` (UserFolder), without relying on the LLM to
-      pass a path explicitly.
-    - ``scope.is_team``: the artifact is written with ``team_id`` +
-      ``team_folder_id`` (TeamFolder subtree), so all team-project members can
-      see the output — no more leaking into the personal MySpace root.
-    - ``scope is None``: non-project chat; lands in the MySpace root
-      (``user_folder_id=NULL``).
+    Project-mode auto-placement is delegated to the edition scope seam. The
+    shared implementation only knows the personal folder field; commercial
+    ownership columns are supplied by the enterprise module.
 
     **Important**: ``scope`` must be constructed explicitly by the caller from
     the workflow context and passed in. This function no longer reads the
     ContextVar — on the old path, by the time chats.py made the wrap-up call,
-    workflow.py's finally had already reset the ContextVar, causing team-project
-    AI outputs to leak into the personal MySpace root (trace 9d218075…).
+    workflow.py's finally had already reset the ContextVar, causing project
+    outputs to land in the wrong scope.
     """
     if not collected:
         return
 
-    user_folder_id_val: Optional[str] = None
-    team_id_val: Optional[str] = None
-    team_folder_id_val: Optional[str] = None
-    if scope is not None and scope.is_team:
-        team_id_val = scope.team_id
-        team_folder_id_val = scope.root_folder_id or None
-    elif scope is not None and scope.is_personal:
-        user_folder_id_val = scope.root_folder_id or None
+    scope_fields = artifact_scope_fields(scope)
 
     all_fids = [a["file_id"] for a in collected if a.get("file_id")]
-    existing_ids = set(
-        r[0] for r in db.query(ArtifactModel.artifact_id)
-        .filter(ArtifactModel.artifact_id.in_(all_fids)).all()
-    ) if all_fids else set()
+    existing_ids = (
+        set(
+            r[0]
+            for r in db.query(ArtifactModel.artifact_id)
+            .filter(ArtifactModel.artifact_id.in_(all_fids))
+            .all()
+        )
+        if all_fids
+        else set()
+    )
     for art in collected:
         art_id = art.get("file_id", "")
         if not art_id or art_id in existing_ids:
             continue
         mime = art.get("mime_type", "application/octet-stream")
         try:
-            storage_key = resolve_artifact_storage_key(art_id, art.get("storage_key")) or f"artifacts/{art_id}"
-            db.add(ArtifactModel(
-                artifact_id=art_id, chat_id=chat_id, user_id=user_id,
-                user_folder_id=user_folder_id_val,
-                team_id=team_id_val,
-                team_folder_id=team_folder_id_val,
-                type=infer_artifact_type(mime),
-                title=art.get("name", ""), filename=art.get("name", ""),
-                size_bytes=max(art.get("size", 0) or 0, 1),
-                mime_type=mime, storage_key=storage_key,
-                storage_url=art.get("url", ""),
-                extra_data={"source": "ai_generated", "tool_name": art.get("tool_name", "")},
-            ))
+            storage_key = (
+                resolve_artifact_storage_key(art_id, art.get("storage_key"))
+                or f"artifacts/{art_id}"
+            )
+            db.add(
+                ArtifactModel(
+                    artifact_id=art_id,
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    type=infer_artifact_type(mime),
+                    title=art.get("name", ""),
+                    filename=art.get("name", ""),
+                    size_bytes=max(art.get("size", 0) or 0, 1),
+                    mime_type=mime,
+                    storage_key=storage_key,
+                    storage_url=art.get("url", ""),
+                    extra_data={"source": "ai_generated", "tool_name": art.get("tool_name", "")},
+                    **scope_fields,
+                )
+            )
         except Exception as e:
             logger.warning("artifact_db_insert_failed: %s", e)
     try:

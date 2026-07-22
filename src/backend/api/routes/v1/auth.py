@@ -69,7 +69,6 @@ def _serialize_user(db: Session, user_data: dict, ttl_seconds: Optional[int] = N
         "nickname": local.nickname if local else user_data.get("nickname"),
         "real_name": local.real_name if local else user_data.get("real_name"),
         "department": None,
-        "teams": [],
         "expires_at": expires_at_iso(ttl_seconds or user_data.get("ttl_seconds")),
         "sso_token": None,
         "must_change_password": bool(meta.get("must_change_password")),

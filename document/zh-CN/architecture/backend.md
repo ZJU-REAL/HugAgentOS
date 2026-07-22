@@ -1,6 +1,6 @@
 # 后端架构详解
 
-> 最后更新：2026-07-19
+> 最后更新：2026-07-22
 
 后端位于 `src/backend/`，是一个分层清晰的 FastAPI 单体：API 层只做协议与鉴权，编排层负责把一次对话变成可断线续播的流式 Run，`core/` 承载全部领域逻辑，MCP 工具与脚本执行 sidecar 则以独立进程运行。本文自顶向下逐层拆解。
 
@@ -8,7 +8,8 @@
 
 ```
 src/backend/
-├── api/             # FastAPI 应用、中间件、74 个 v1 路由文件
+├── api/             # FastAPI 应用、中间件与 CE 路由
+├── edition_ee/      # 商业版路由、License、Team/RBAC、ORM、Dify 与服务实现
 ├── orchestration/   # 对话编排：Run 执行器、工作流、策略、引用、调度器
 ├── core/            # 领域核心：17 个子模块（auth/llm/db/ontology/services/...）
 ├── mcp_servers/     # 10 个独立 MCP 服务器（streamable-http 进程）
@@ -133,10 +134,10 @@ src/backend/
 |---|---|
 | `core/chat` | workflow 上下文组装（`context.py`）、SSE 工具日志事件构造（`tool_log.py`） |
 | `core/content` | 附件解析（`file_parser.py`）、KB 文档分块/关键词/向量化（`kb_processing.py`）、上传校验（`file_validation.py`）、产物读取与摘要（`artifact_reader/refs/summary.py`）、内容块导入导出（`content_blocks.py`）、`svg_fit.py` |
-| `core/kb` | 自建知识库解析与父子分块（`kb_parser.py`）、Milvus 向量库（`kb_vector.py`）、Dify 外部知识库客户端（`dify_kb.py`，对接外部 KB 为商业版 EE 增项） |
+| `core/kb` / `edition_ee/kb` | 自建知识库解析与 Milvus 向量库保留在 `core/kb`；Dify 客户端与外部检索适配器只存在于 `edition_ee/kb`（商业版 EE） |
 | `core/artifacts` | 产物存储 `store.py`：本地 / OSS 双模式 |
 | `core/infra` | 统一响应（`responses.py`）、异常（`exceptions.py`）、结构化日志（`logging.py`）、限流（`rate_limit.py`）、Redis 单例（`redis.py`）、指标（`metrics.py`）、后台任务注册表（`runtime_state.py`）、脱敏（`data_masking.py`）、蒸馏预算闸门（`distillation_budget.py`，商业版 EE） |
-| `core/licensing` | license 门面 `manager.py`（GitLab 式离线模型：签名文件 + 进程内验签）、能力位枚举 `features.py`、FastAPI 守卫依赖 `deps.py`、席位计数 `seats.py`；验签实现 `_ee_verify.py`（商业版 EE，CE 树用恒 False stub 替换） |
+| `edition_ee/licensing` | 能力枚举、验签、时钟回拨防护、席位策略、中间件和 manager 全部只存在于商业版 EE；CE 树物理不含 License 包，由 `api/middleware/edition.py` 的 CE overlay 提供固定版本探针 |
 | `core/storage` | 存储协议 `protocol.py` + 工厂 `factory.py`；`local.py`（CE）、`s3.py` / `oss.py`（商业版 EE） |
 
 ## orchestration/ — 编排层
@@ -167,9 +168,11 @@ src/backend/
 
 ### 路由注册表（CE/EE 接缝 C1）
 
-`api/routes/v1/__init__.py` 是两版共用的注册表：`CE_ROUTERS`（39 个）无条件注册；`EE_ROUTERS`（32 个）每项携带 license 能力位，由 `core/licensing/deps.py` 做第二道防线（第一道是 CE 派生树物理删除这些文件）；`config_verify` / `config_license` / `auth` 三项显式豁免，保证 license 失效时仍能换证。
+全量仓库由 `api/routes/v1/__init__.py` 的 `CE_ROUTERS` 与 `edition_ee/routes/registry.py` 的 `EE_ROUTERS` 组合注册（当前各 36 项）。EE 表项携带 License 能力位，由 `edition_ee/licensing/deps.py` 做第二道防线（第一道是 CE 派生树物理删除 EE 文件）；CE overlay 把 `EE_ROUTERS` 固定为空。`config_verify` / `config_license` / `auth` 三项显式豁免，保证 License 失效时仍能登录和换证。
 
-### 路由文件分组（v1 共 74 个文件）
+### 路由文件分组
+
+CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition_ee/routes/`，其余历史管理路由由 EE 注册表按能力位挂载。
 
 | 分组 | 文件 |
 |---|---|
@@ -197,7 +200,7 @@ src/backend/
 2. **orchestration 只做编排**：把领域服务串成流式工作流，不直接操作 ORM；
 3. **core/services 是唯一业务入口**：路由不得绕过服务层直查 `core/db/models`（少量只读快路径除外）；
 4. **进程边界即故障边界**：MCP、script-runner、沙箱均独立进程 / 容器，与后端只过协议层；
-5. **CE/EE 接缝集中**：路由注册表、`edition_tables`、`permissions_iface`、licensing 门面四处收口，业务代码不散落 `if edition` 判断。
+5. **CE/EE 接缝集中**：路由注册表、`edition_tables`、`permissions_iface` 与版本中间件集中收口，商业实现进入 `edition_ee`，业务代码不散落 `if edition` 判断。
 
 ## 相关源码
 
@@ -210,6 +213,6 @@ src/backend/
 | 能力目录 | `src/backend/core/config/catalog.py` |
 | 沙箱协议 | `src/backend/core/sandbox/protocol.py` |
 | 记忆流水线 | `src/backend/core/memory/pipeline.py` |
-| license 门面 | `src/backend/core/licensing/manager.py` |
+| EE License 实现 / CE 版本中间件 | `src/backend/edition_ee/licensing/`、`src/backend/api/middleware/edition.py` |
 | 技能引擎 | `src/backend/core/agent_skills/loader.py` |
 | MCP 端口表 | `src/backend/mcp_servers/_ports.py` |

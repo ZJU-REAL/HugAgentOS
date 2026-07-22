@@ -11,7 +11,7 @@ HugAgentOS ships **two independent management consoles**, aimed at content opera
 
 Entry routing happens in `src/frontend/src/main.tsx`: based on the `window.location.pathname` prefix it renders `AdminApp` (`/admin`), `ConfigApp` (`/config`), `ApiDocApp` (`/api-docs`), or the main app. The two consoles cross-link (the `/admin` header's "系统配置" button → `/config`; the `/config` header's "内容管理" button → `/admin`). For how the two tokens authenticate, see [Authentication & Permissions](auth.md).
 
-The CE/EE assignment of backend admin routes has a single source of truth — the route registry `src/backend/api/routes/v1/__init__.py`: the CE-derived tree **physically omits** EE route files (first line of defense), and EE deployments are additionally guarded by license features (`content_admin` / `billing` / `audit` / `multi_tenancy` / `system_config`) via `core/licensing/deps.py::requires_feature` (second line of defense). Each group below is labeled accordingly.
+The CE/EE assignment of backend admin routes has one composed source of truth — `src/backend/api/routes/v1/__init__.py` plus `src/backend/edition_ee/routes/registry.py`: the CE-derived tree **physically omits** EE route files (first line of defense), and EE deployments are additionally guarded by license features (`content_admin` / `billing` / `audit` / `multi_tenancy` / `system_config`) via `edition_ee/licensing/deps.py::requires_feature` (second line of defense). Each group below is labeled accordingly.
 
 ## /admin operations console
 
@@ -148,13 +148,14 @@ Aligned with chapter 4 of the productization plan and the route registry:
 | System console | `src/frontend/src/ConfigApp.tsx`, `src/frontend/src/components/config/` |
 | Route registry (CE/EE single source of truth) | `src/backend/api/routes/v1/__init__.py` |
 | Administrative credential dependencies | `src/backend/api/deps.py` |
-| License features | `src/backend/core/licensing/features.py`, `src/backend/core/licensing/deps.py` |
+| License features | `src/backend/edition_ee/licensing/features.py`, `src/backend/edition_ee/licensing/deps.py` |
 | Skills / drafts / marketplace | `src/backend/api/routes/v1/admin_skills.py`, `admin_skill_drafts.py`, `admin_marketplace.py` |
 | Prompts / MCP / sub-agents | `src/backend/api/routes/v1/admin_prompts.py`, `admin_mcp_servers.py`, `admin_agents.py` |
-| Knowledge base / sandbox | `src/backend/api/routes/v1/admin_kb.py`, `admin_sandbox.py` |
+| Knowledge base / sandbox | `src/backend/edition_ee/routes/admin_kb.py`, `src/backend/api/routes/v1/admin_sandbox.py` |
 | Billing / usage / logs / chat review | `src/backend/api/routes/v1/admin_billing.py`, `admin_usage_logs.py`, `admin_logs.py`, `admin_chat_history.py` |
 | Content management | `src/backend/api/routes/v1/content.py` |
-| Users / teams / invites / security / license | `src/backend/api/routes/v1/config_users.py`, `config_teams.py`, `config_invites.py`, `config_security.py`, `config_license.py` |
+| Users / teams / invites / license (EE) | `src/backend/edition_ee/routes/config_users.py`, `config_teams.py`, `config_invites.py`, `config_license.py` |
+| Security | `src/backend/api/routes/v1/config_security.py` |
 | Service configs | `src/backend/api/routes/v1/service_configs.py` |
 
 Further reading: [Authentication & Permissions](auth.md) · [Prompt System](prompts.md) · [Editions & Licensing](../editions/overview.md)

@@ -1,52 +1,33 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
+import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, Empty, Input, Select, Spin } from 'antd';
-import { SearchOutlined, PlusOutlined } from '@ant-design/icons';
-import { useProjectStore } from '../../stores/projectStore';
+
 import { usePanelHeader } from '../../hooks/usePageConfig';
-import ProjectCard from './ProjectCard';
-import CreateProjectModal from './CreateProjectModal';
 import { t } from '../../i18n';
+import { useProjectStore } from '../../stores/projectStore';
+import CreateProjectModal from './CreateProjectModal';
+import ProjectCard from './ProjectCard';
 
-interface Props {
-  onOpenProject: (projectId: string) => void;
-}
-
-export default function ProjectsPanel({ onOpenProject }: Props) {
-  const list = useProjectStore((s) => s.list);
-  const loading = useProjectStore((s) => s.listLoading);
-  const search = useProjectStore((s) => s.searchKeyword);
-  const setSearch = useProjectStore((s) => s.setSearchKeyword);
-  const sort = useProjectStore((s) => s.sort);
-  const setSort = useProjectStore((s) => s.setSort);
-  const fetchProjects = useProjectStore((s) => s.fetchProjects);
-  const setCreateOpen = useProjectStore((s) => s.setCreateModalOpen);
-  const toggleFavoriteById = useProjectStore((s) => s.toggleFavoriteById);
+export default function ProjectsPanel({ onOpenProject }: { onOpenProject: (projectId: string) => void }) {
+  const list = useProjectStore((state) => state.list);
+  const loading = useProjectStore((state) => state.listLoading);
+  const search = useProjectStore((state) => state.searchKeyword);
+  const setSearch = useProjectStore((state) => state.setSearchKeyword);
+  const sort = useProjectStore((state) => state.sort);
+  const setSort = useProjectStore((state) => state.setSort);
+  const fetchProjects = useProjectStore((state) => state.fetchProjects);
+  const setCreateOpen = useProjectStore((state) => state.setCreateModalOpen);
+  const toggleFavoriteById = useProjectStore((state) => state.toggleFavoriteById);
   const { title, subtitle } = usePanelHeader('projects', {
     title: '项目',
     subtitle: '把对话、文件和指令打包成专属工作空间',
   });
 
+  useEffect(() => { void fetchProjects(); }, [fetchProjects, sort]);
   useEffect(() => {
-    void fetchProjects();
-  }, [fetchProjects, sort]);
-
-  // Search debounce
-  useEffect(() => {
-    const id = setTimeout(() => void fetchProjects(), 300);
-    return () => clearTimeout(id);
-  }, [search, fetchProjects]);
-
-  const grouped = useMemo(() => {
-    const personal = list.filter((p) => p.kind === 'personal');
-    const team = list.filter((p) => p.kind === 'team');
-    return { personal, team };
-  }, [list]);
-
-  // Optimistic star update: the store flips the list first and rolls back on failure —
-  // no longer calls openProject + a full refetch
-  const handleStar = (projectId: string, on: boolean) => {
-    void toggleFavoriteById(projectId, on);
-  };
+    const timer = setTimeout(() => void fetchProjects(), 300);
+    return () => clearTimeout(timer);
+  }, [fetchProjects, search]);
 
   return (
     <div className="jx-projects">
@@ -59,7 +40,6 @@ export default function ProjectsPanel({ onOpenProject }: Props) {
           <div className="jx-projects-actions">
             <span className="jx-projects-sortLabel">Sort by</span>
             <Select
-              size="middle"
               value={sort}
               onChange={setSort}
               style={{ width: 120 }}
@@ -69,69 +49,41 @@ export default function ProjectsPanel({ onOpenProject }: Props) {
                 { value: 'created', label: t('创建时间') },
               ]}
             />
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setCreateOpen(true)}
-            >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               {t('新建项目')}
             </Button>
           </div>
         </div>
-
         <Input
           allowClear
           prefix={<SearchOutlined />}
           placeholder={t('搜索项目...')}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
           className="jx-projects-searchInput"
         />
-
         {loading && list.length === 0 ? (
           <div className="jx-projects-loading"><Spin /></div>
         ) : list.length === 0 ? (
           <Empty description={t('还没有项目，创建一个开始吧')} style={{ marginTop: 60 }} />
         ) : (
-          <>
-            {grouped.personal.length > 0 && (
-              <section className="jx-projects-section">
-                <div className="jx-projects-sectionTitle">{t('个人项目')}</div>
-                {/* CSS stagger: plays only once when elements are first inserted into the DOM; a refetch (key unchanged) does not replay it */}
-                <div className="jx-projects-grid jx-anim-stagger">
-                  {grouped.personal.map((p, i) => (
-                    <ProjectCard
-                      key={p.project_id}
-                      project={p}
-                      staggerIndex={i}
-                      onOpen={() => onOpenProject(p.project_id)}
-                      onToggleFavorite={() => handleStar(p.project_id, !p.favorite)}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-            {grouped.team.length > 0 && (
-              <section className="jx-projects-section">
-                <div className="jx-projects-sectionTitle">{t('团队项目')}</div>
-                <div className="jx-projects-grid jx-anim-stagger">
-                  {grouped.team.map((p, i) => (
-                    <ProjectCard
-                      key={p.project_id}
-                      project={p}
-                      staggerIndex={i}
-                      onOpen={() => onOpenProject(p.project_id)}
-                      onToggleFavorite={() => handleStar(p.project_id, !p.favorite)}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
+          <section className="jx-projects-section">
+            <div className="jx-projects-sectionTitle">{t('个人项目')}</div>
+            <div className="jx-projects-grid jx-anim-stagger">
+              {list.map((project, index) => (
+                <ProjectCard
+                  key={project.project_id}
+                  project={project}
+                  staggerIndex={index}
+                  onOpen={() => onOpenProject(project.project_id)}
+                  onToggleFavorite={() => void toggleFavoriteById(project.project_id, !project.favorite)}
+                />
+              ))}
+            </div>
+          </section>
         )}
       </div>
-
-      <CreateProjectModal onCreated={(id) => onOpenProject(id)} />
+      <CreateProjectModal onCreated={onOpenProject} />
     </div>
   );
 }

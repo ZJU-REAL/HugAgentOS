@@ -68,7 +68,7 @@ if (existsSync(ceBuilder)) {
   if (!requireClean) ceArgs.push("--allow-dirty");
 
   console.log(
-    "[desktop] Generating the CE server payload from the FULL source tree",
+    "[desktop] Generating the CE server payload from the source checkout",
   );
   rmSync(generatedRoot, {
     recursive: true,

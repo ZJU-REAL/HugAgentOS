@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-
 Confidentiality = Literal["public", "internal", "sensitive"]
 
 
@@ -44,10 +43,8 @@ class MemoryContext:
     # caller at the workflow layer (whether to invoke the retrieve path) and is
     # not part of ctx
     write_enabled: bool = False
-    # mem0 scope identifier. Under a team project = "team:<team_id>", all members
-    # share reads and writes; default / personal projects = None, falling back to
-    # user_id. audit / metadata.author_user_id still record the real user_id so
-    # audits stay traceable.
+    # Optional edition scope identifier. Default and personal projects use None,
+    # falling back to user_id. Audit metadata still records the real user_id.
     scope_user_id: Optional[str] = None
 
     @property
@@ -56,7 +53,7 @@ class MemoryContext:
 
     @property
     def effective_scope_user_id(self) -> str:
-        """The user_id passed into mem0. Team scope under team projects, otherwise the real user."""
+        """Return the memory scope identifier, or the real user by default."""
         return self.scope_user_id or self.user_id
 
     def with_confidentiality(self, level: Confidentiality) -> "MemoryContext":

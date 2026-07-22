@@ -228,11 +228,11 @@ curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/cancel \
 | 观测与审计 | `admin_logs.py` | `/v1/admin/logs` | `GET /tools`、`GET /subagents`、`GET /trace/{trace_id}` | CONFIG | `audit` |
 | 登录与会话 | `auth.py` | `/v1/auth` | `POST /ticket/exchange`（SSO 票据换会话）、`GET /session/check`、`POST /logout` | 公开（会话基础设施） | — |
 | 配置台 | `config_verify.py` | `/v1/config` | `GET /verify`（CONFIG_TOKEN 校验） | CONFIG | — |
-| 配置台 | `config_license.py` | `/v1/config/license` | `GET /`（license 详情）、`POST /`（更换 license） | CONFIG | — |
-| 多租户 | `config_users.py` | `/v1/config/users` | `GET /`、`PATCH /{user_id}/status`、`POST /{user_id}/reset-password` | CONFIG | `multi_tenancy` |
-| 多租户 | `config_teams.py` | `/v1/config/teams` | `GET/POST /`、`POST /{team_id}/members` | CONFIG | `multi_tenancy` |
-| 多租户 | `config_invites.py` | `/v1/config/invite-codes` | `GET/POST /`、`POST /{code}/revoke` | CONFIG | `multi_tenancy` |
-| 多租户 | `team_files.py` | `/v1/my-teams`、`/v1/teams`、`/v1/artifacts` | `GET /my-teams`、`POST /teams/{id}/files/upload`、`POST /artifacts/{id}/move-to-team` | 用户 + 团队文件权限 | `multi_tenancy` |
+| 配置台 | `edition_ee/routes/config_license.py` | `/v1/config/license` | `GET /`（license 详情）、`POST /`（更换 license） | CONFIG | — |
+| 多租户 | `edition_ee/routes/config_users.py` | `/v1/config/users` | `GET /`、`PATCH /{user_id}/status`、`POST /{user_id}/reset-password` | CONFIG | `multi_tenancy` |
+| 多租户 | `edition_ee/routes/config_teams.py` | `/v1/config/teams` | `GET/POST /`、`POST /{team_id}/members` | CONFIG | `multi_tenancy` |
+| 多租户 | `edition_ee/routes/config_invites.py` | `/v1/config/invite-codes` | `GET/POST /`、`POST /{code}/revoke` | CONFIG | `multi_tenancy` |
+| 多租户 | `edition_ee/routes/team_files.py` | `/v1/my-teams`、`/v1/teams`、`/v1/artifacts` | `GET /my-teams`、`POST /teams/{id}/files/upload`、`POST /artifacts/{id}/move-to-team` | 用户 + 团队文件权限 | `multi_tenancy` |
 | 系统配置 | `config_security.py` | `/v1/config/security` | `GET /sandbox/overview`、`GET /audit-logs`、`GET /system-health` | CONFIG | `system_config` |
 | 系统配置 | `service_configs.py` | `/v1/service-configs` | `GET/PUT /`、`POST /test/{group_key}`（外部服务连通性测试） | CONFIG | `system_config` |
 

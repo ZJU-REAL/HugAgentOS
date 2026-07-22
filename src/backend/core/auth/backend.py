@@ -6,25 +6,26 @@ Supports three AUTH_MODE values:
   - session: SSO ticket mode, validates jx_session Cookie against Redis
 """
 
-from typing import Optional, Dict, Any
-from fastapi import Request, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import requests
-from pydantic import BaseModel
+from typing import Any, Dict, Optional
 
+import requests
+from core.auth.account_policy import AccountCapacityExceeded
 from core.config.settings import settings
 from core.db.engine import get_db
-from sqlalchemy.orm import Session
-from core.services import UserService
 from core.db.repository import AuditLogRepository
 from core.infra.logging import get_logger
-from core.licensing import SeatLimitExceeded
+from core.services import UserService
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
 
 class UserContext(BaseModel):
     """User context injected into requests after authentication."""
+
     user_id: str
     user_center_id: str
     username: str
@@ -55,11 +56,7 @@ class AuthService:
         if not self.user_center_url:
             raise HTTPException(
                 status_code=500,
-                detail={
-                    "code": 52002,
-                    "message": "AUTH_API_URL not configured",
-                    "data": {}
-                }
+                detail={"code": 52002, "message": "AUTH_API_URL not configured", "data": {}},
             )
 
         headers = {"Authorization": f"Bearer {token}"}
@@ -67,9 +64,7 @@ class AuthService:
         for attempt in range(self.retry_count):
             try:
                 response = requests.get(
-                    f"{self.user_center_url}/verify",
-                    headers=headers,
-                    timeout=self.timeout
+                    f"{self.user_center_url}/verify", headers=headers, timeout=self.timeout
                 )
 
                 if response.status_code == 200:
@@ -86,8 +81,8 @@ class AuthService:
                         detail={
                             "code": 52001,
                             "message": "User center unavailable",
-                            "data": {"error": str(e)}
-                        }
+                            "data": {"error": str(e)},
+                        },
                     )
                 continue
 
@@ -100,13 +95,13 @@ class AuthService:
                 "user_center_id": token,
                 "username": token,
                 "email": f"{token}@mock.local",
-                "avatar_url": None
+                "avatar_url": None,
             }
         return {
             "user_center_id": settings.auth.mock_user_id,
             "username": settings.auth.mock_username,
             "email": "dev@example.com",
-            "avatar_url": None
+            "avatar_url": None,
         }
 
     def verify_token(self, token: str, db: Session = None) -> Dict[str, Any]:
@@ -119,14 +114,16 @@ class AuthService:
                 if db:
                     try:
                         audit_repo = AuditLogRepository(db)
-                        audit_repo.create({
-                            "user_id": "unknown",
-                            "action": "auth.login.failed",
-                            "resource_type": "user",
-                            "resource_id": "unknown",
-                            "status": "failed",
-                            "details": {"reason": "invalid_or_expired_token"}
-                        })
+                        audit_repo.create(
+                            {
+                                "user_id": "unknown",
+                                "action": "auth.login.failed",
+                                "resource_type": "user",
+                                "resource_id": "unknown",
+                                "status": "failed",
+                                "details": {"reason": "invalid_or_expired_token"},
+                            }
+                        )
                     except Exception as e:
                         logger.warning(f"Failed to log auth failure: {e}")
 
@@ -135,8 +132,8 @@ class AuthService:
                     detail={
                         "code": 30002,
                         "message": "Invalid or expired token",
-                        "data": {"login_url": _sso_login_url()}
-                    }
+                        "data": {"login_url": _sso_login_url()},
+                    },
                 )
             return user_info
 
@@ -216,15 +213,15 @@ async def _resolve_session_user(request: Request) -> Optional[UserContext]:
         detail={
             "code": 30003,
             "message": "Session expired",
-            "data": {"login_url": _sso_login_url()}
-        }
+            "data": {"login_url": _sso_login_url()},
+        },
     )
 
 
 async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> UserContext:
     """Dependency to get current authenticated user.
 
@@ -256,8 +253,8 @@ async def get_current_user(
             detail={
                 "code": 30001,
                 "message": "Authorization required",
-                "data": {"login_url": _sso_login_url()}
-            }
+                "data": {"login_url": _sso_login_url()},
+            },
         )
 
     # ── 3. mock / remote: Bearer token path ──
@@ -270,8 +267,8 @@ async def get_current_user(
                 detail={
                     "code": 30001,
                     "message": "Authorization header required",
-                    "data": {"login_url": _sso_login_url()}
-                }
+                    "data": {"login_url": _sso_login_url()},
+                },
             )
         token = "mock_token"
     else:
@@ -284,25 +281,27 @@ async def get_current_user(
         user_center_id=user_info["user_center_id"],
         username=user_info["username"],
         email=user_info.get("email"),
-        avatar_url=user_info.get("avatar_url")
+        avatar_url=user_info.get("avatar_url"),
     )
 
     # Audit log for successful authentication
     audit_repo = AuditLogRepository(db)
-    audit_repo.create({
-        "user_id": user_shadow.user_id,
-        "action": "auth.login.success",
-        "resource_type": "user",
-        "resource_id": user_shadow.user_id,
-        "status": "success"
-    })
+    audit_repo.create(
+        {
+            "user_id": user_shadow.user_id,
+            "action": "auth.login.success",
+            "resource_type": "user",
+            "resource_id": user_shadow.user_id,
+            "status": "success",
+        }
+    )
 
     return UserContext(
         user_id=user_shadow.user_id,
         user_center_id=user_shadow.user_center_id,
         username=user_shadow.username,
         email=user_shadow.email,
-        avatar_url=user_shadow.avatar_url
+        avatar_url=user_shadow.avatar_url,
     )
 
 
@@ -321,7 +320,10 @@ def require_auth(required: bool = True):
     if required:
         return get_current_user
     else:
-        async def optional_user(request: Request, db: Session = Depends(get_db)) -> Optional[UserContext]:
+
+        async def optional_user(
+            request: Request, db: Session = Depends(get_db)
+        ) -> Optional[UserContext]:
             auth_mode = _auth_mode()
 
             # ── Try Cookie session first (all modes) ──
@@ -367,7 +369,7 @@ def require_auth(required: bool = True):
                     user_center_id=user_info["user_center_id"],
                     username=user_info["username"],
                     email=user_info.get("email"),
-                    avatar_url=user_info.get("avatar_url")
+                    avatar_url=user_info.get("avatar_url"),
                 )
 
                 return UserContext(
@@ -375,12 +377,10 @@ def require_auth(required: bool = True):
                     user_center_id=user_shadow.user_center_id,
                     username=user_shadow.username,
                     email=user_shadow.email,
-                    avatar_url=user_shadow.avatar_url
+                    avatar_url=user_shadow.avatar_url,
                 )
-            except SeatLimitExceeded:
-                # Seat/license blocks must be explicitly raised as 402 — silently downgrading to
-                # anonymous would disguise a seat problem as "some features available", diverging
-                # from the behavior of required-auth endpoints
+            except AccountCapacityExceeded:
+                # Edition admission blocks must not degrade to anonymous access.
                 try:
                     db.rollback()
                 except Exception:

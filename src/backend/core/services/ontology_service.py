@@ -46,6 +46,35 @@ def disabled_ontology_runtime() -> dict[str, Any]:
     return {"enabled": False, "packs": [], "review_level": "none"}
 
 
+def build_ontology_runtime_for_preference(
+    *,
+    enabled: bool,
+    task: str,
+    db: Session,
+    pack_ids: list[str] | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Resolve the effective ontology switch and compile its runtime policy.
+
+    A user's stored opt-in is subordinate to the administrator-controlled pack
+    availability.  Disabling the selected/default packs is therefore an
+    intentional global off switch, not a runtime-policy failure.  Once an
+    active pack exists, compilation remains fail-closed so malformed policy
+    data cannot silently bypass validation.
+    """
+    if not enabled:
+        return False, disabled_ontology_runtime()
+
+    service = OntologyService(db)
+    selected = pack_ids or None
+    if not service.repo.get_active_versions(selected):
+        return False, disabled_ontology_runtime()
+
+    runtime = service.build_runtime(task=task, pack_ids=selected)
+    if not runtime.get("enabled"):
+        raise ServiceUnavailableError("本体校验运行时策略编译失败")
+    return True, runtime
+
+
 class OntologyService:
     def __init__(self, db: Session):
         self.db = db
@@ -561,13 +590,12 @@ def build_user_ontology_runtime(
             if isinstance(pack_ids, list)
             else None
         )
-        runtime = OntologyService(db).build_runtime(
+        return build_ontology_runtime_for_preference(
+            enabled=opted_in,
             task=task,
+            db=db,
             pack_ids=selected or None,
         )
-        if not runtime.get("enabled"):
-            raise ServiceUnavailableError("本体校验已开启，但当前没有可用的已激活 Domain Pack")
-        return True, runtime
     finally:
         if owns_session:
             db.close()

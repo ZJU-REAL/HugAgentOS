@@ -6,17 +6,19 @@ import XxxRepository`` keeps working unchanged.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import sqlalchemy as sa
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, func, select
 from core.db.models import (
-    UserShadow, ChatSession, ChatMessage, CatalogOverride,
-    KBSpace, KBDocument, Artifact, AuditLog, UserAgent,
-    LocalUser, Team, TeamMember, TeamFolder, InviteCode,
-    DingTalkConnection, LarkConnection, EmailConnection,
+    DingTalkConnection,
+    EmailConnection,
+    LarkConnection,
+    LocalUser,
+    UserShadow,
 )
+from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy.orm import Session
 
 
 class UserRepository:
@@ -31,9 +33,7 @@ class UserRepository:
 
     def get_by_user_center_id(self, user_center_id: str) -> Optional[UserShadow]:
         """Get user by user center ID."""
-        return self.db.query(UserShadow).filter(
-            UserShadow.user_center_id == user_center_id
-        ).first()
+        return self.db.query(UserShadow).filter(UserShadow.user_center_id == user_center_id).first()
 
     def create(self, user_data: Dict[str, Any]) -> UserShadow:
         """Create a new user shadow."""
@@ -131,9 +131,7 @@ class DingTalkConnectionRepository:
 
     def get(self, user_id: str) -> Optional[DingTalkConnection]:
         return (
-            self.db.query(DingTalkConnection)
-            .filter(DingTalkConnection.user_id == user_id)
-            .first()
+            self.db.query(DingTalkConnection).filter(DingTalkConnection.user_id == user_id).first()
         )
 
     def ensure(self, user_id: str) -> DingTalkConnection:
@@ -167,11 +165,7 @@ class LarkConnectionRepository:
         self.db = db
 
     def get(self, user_id: str) -> Optional[LarkConnection]:
-        return (
-            self.db.query(LarkConnection)
-            .filter(LarkConnection.user_id == user_id)
-            .first()
-        )
+        return self.db.query(LarkConnection).filter(LarkConnection.user_id == user_id).first()
 
     def ensure(self, user_id: str) -> LarkConnection:
         """Idempotent: return existing record, otherwise create a disconnected record."""
@@ -204,11 +198,7 @@ class EmailConnectionRepository:
         self.db = db
 
     def get(self, user_id: str) -> Optional[EmailConnection]:
-        return (
-            self.db.query(EmailConnection)
-            .filter(EmailConnection.user_id == user_id)
-            .first()
-        )
+        return self.db.query(EmailConnection).filter(EmailConnection.user_id == user_id).first()
 
     def ensure(self, user_id: str) -> EmailConnection:
         """Idempotent: return existing record, otherwise create a disconnected record."""

@@ -1,5 +1,5 @@
 # Community vs. Enterprise Edition
-> Last updated: 2026-07-02
+> Last updated: 2026-07-22
 
 HugAgentOS is distributed under an **open-core** model, following the established practice of open-source agent platforms such as Dify and FastGPT:
 
@@ -59,7 +59,7 @@ Two environment variables define the deployment shape (`EditionSettings` / `Lice
 
 | Shape | Configuration | Behavior |
 |---|---|---|
-| Community | `JX_EDITION=ce` (default in the CE tree's `.env.example`) | All EE feature bits are constantly `False`; unlimited seats; `core/licensing/manager.py` is replaced in the CE tree by a verification-free stub via overlay |
+| Community | `JX_EDITION=ce` (default in the CE tree's `.env.example`) | The CE tree physically contains no license implementation; its edition probe reports the CE shape and an empty EE capability set, with no signature verification or seat limit |
 | Enterprise · internal | `JX_EDITION=ee`, no license file configured, and `JX_LICENSE_REQUIRED=false` (main-repo default) | **Internal / fully-managed mode: everything enabled** — identical to historical behavior, so existing deployments need zero config changes after upgrading to a license-aware release |
 | Enterprise · licensed | `JX_EDITION=ee` + a valid license file | Gated by the license entitlement (feature list + seats + validity window) |
 
@@ -86,7 +86,7 @@ COMPOSE_PROFILES=mem0 docker compose up -d
 
 ## Upgrade paths
 
-- **CE → EE**: the Enterprise Edition is delivered as an **image bundle + license file** (suitable for air-gapped government networks). At the database level, the CE table set is a strict subset of EE's, and cross-boundary foreign-key columns (`team_id`, etc.) are kept in CE as always-NULL (design decision D3), so data carries over.
+- **CE → EE**: the Enterprise Edition is delivered as an **image bundle + license file** (suitable for air-gapped government networks). The CE table set is a strict subset of EE's: 20 EE tables, their foreign keys, and commercial-scope columns on shared resources are not registered; delivery migration adds organization structures during an upgrade.
   > ⚠️ Caveat: CE runs an independent migration chain (baseline `ce_0001`, see [CE Build Pipeline](build-ce.md#ce-database-differences)) which differs from the EE chain; reconciling the alembic version of an existing CE database when switching to the EE image is handled during delivery — there is no automated conversion tool yet (planned).
 - **EE internal → EE licensed**: for private delivery, set `LICENSE_KEY_PATH` and `JX_LICENSE_REQUIRED=true`, then upload the `.lic` file in the License panel of the `/config` console — activation is immediate, no restart needed.
 - **Renewal / expansion**: upload a new license file to hot-swap (same flow); after expiry there is a grace window (14 days by default).
@@ -96,8 +96,8 @@ COMPOSE_PROFILES=mem0 docker compose up -d
 | Topic | Path |
 |---|---|
 | Edition / license settings | `src/backend/core/config/settings.py` (`EditionSettings` / `LicenseSettings`) |
-| License facade & state machine | `src/backend/core/licensing/manager.py` |
-| EE feature enum | `src/backend/core/licensing/features.py` |
+| License state machine | `src/backend/edition_ee/licensing/manager.py` |
+| EE feature enum | `src/backend/edition_ee/licensing/features.py` |
 | Router registry (CE/EE tables) | `src/backend/api/routes/v1/__init__.py` |
 | Edition probe | `src/backend/api/routes/v1/meta.py` |
 | Frontend edition gating | `src/frontend/src/stores/editionStore.ts` |

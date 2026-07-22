@@ -6,16 +6,13 @@ import XxxRepository`` keeps working unchanged.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import sqlalchemy as sa
+from core.db.models import CatalogOverride
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, desc, func, select
-from core.db.models import (
-    UserShadow, ChatSession, ChatMessage, CatalogOverride,
-    KBSpace, KBDocument, Artifact, AuditLog, UserAgent,
-    LocalUser, Team, TeamMember, TeamFolder, InviteCode,
-)
 
 
 class CatalogRepository:
@@ -26,24 +23,28 @@ class CatalogRepository:
 
     def get_override(self, user_id: str, kind: str, item_id: str) -> Optional[CatalogOverride]:
         """Get catalog override for a specific item."""
-        return self.db.query(CatalogOverride).filter(
-            CatalogOverride.user_id == user_id,
-            CatalogOverride.kind == kind,
-            CatalogOverride.item_id == item_id
-        ).first()
+        return (
+            self.db.query(CatalogOverride)
+            .filter(
+                CatalogOverride.user_id == user_id,
+                CatalogOverride.kind == kind,
+                CatalogOverride.item_id == item_id,
+            )
+            .first()
+        )
 
     def list_overrides(self, user_id: str, kind: Optional[str] = None) -> List[CatalogOverride]:
         """List all catalog overrides for a user."""
-        query = self.db.query(CatalogOverride).filter(
-            CatalogOverride.user_id == user_id
-        )
+        query = self.db.query(CatalogOverride).filter(CatalogOverride.user_id == user_id)
 
         if kind:
             query = query.filter(CatalogOverride.kind == kind)
 
         return query.all()
 
-    def upsert_override(self, user_id: str, kind: str, item_id: str, enabled: bool, config: Dict = None) -> CatalogOverride:
+    def upsert_override(
+        self, user_id: str, kind: str, item_id: str, enabled: bool, config: Dict = None
+    ) -> CatalogOverride:
         """Create or update catalog override."""
         override = self.get_override(user_id, kind, item_id)
 
@@ -58,7 +59,7 @@ class CatalogRepository:
                 kind=kind,
                 item_id=item_id,
                 enabled=enabled,
-                config_data=config or {}
+                config_data=config or {},
             )
             self.db.add(override)
 

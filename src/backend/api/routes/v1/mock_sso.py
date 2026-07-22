@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/mock-sso", tags=["Mock SSO"])
 
 # ── Mock-SSO ticket store ─────────────────────────────────────────────────
-# Moved to core.auth.mock_ticket_store so core.auth.sso can validate tickets
+# Moved to core.auth.mock_ticket_store so edition authentication can validate tickets
 # without importing this route module. Re-exported under original names.
 from core.auth.mock_ticket_store import consume_ticket
 from core.auth.mock_ticket_store import generate_ticket as _generate_ticket  # noqa: E402

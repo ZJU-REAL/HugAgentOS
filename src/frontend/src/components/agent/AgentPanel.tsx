@@ -21,7 +21,7 @@ import { useCatalogStore } from '../../stores/catalogStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { ChannelBotsPanel } from '../settings/ChannelBotsPanel';
-import { listMyTeamsForProjects } from '../../api';
+import { EditionAgentBadge, useEditionAgentPolicy } from '../../agentEdition';
 import { nowId } from '../../storage';
 import { formatDateTime } from '../../utils/date';
 import { mdToHtml } from '../../utils/markdown';
@@ -218,8 +218,7 @@ export function AgentPanel() {
   // Distinguish "user clicks navigation" from "localStorage restore / panel reset": only the former plays the list↔detail transition
   const [navDir, setNavDir] = useState<'detail' | 'list' | null>(null);
 
-  // Teams where I am owner/admin — determines whether team sub-agents can be edited/deleted
-  const [managerTeamIds, setManagerTeamIds] = useState<Set<string>>(new Set());
+  const editionAgentPolicy = useEditionAgentPolicy();
 
   // Sub-agent market / listing application
   const [marketOpen, setMarketOpen] = useState(false);
@@ -265,23 +264,20 @@ export function AgentPanel() {
   useEffect(() => {
     void fetchAgents();
     void fetchAvailableResources();
-    listMyTeamsForProjects()
-      .then((teams) => setManagerTeamIds(new Set(teams.map((tm) => tm.team_id))))
-      .catch(() => { /* ignore */ });
   }, []);
   useEffect(() => { saveDetailId(selectedAgentId); }, [selectedAgentId]);
 
-  // Team sub-agents: manageable only when the current user is owner/admin of that team
   const canEditAgent = (a: UserAgentItem): boolean =>
-    a.owner_type === 'user' || (a.owner_type === 'team' && !!a.team_id && managerTeamIds.has(a.team_id));
+    a.owner_type === 'user' || editionAgentPolicy.canManage(a);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    // team agents are delivered by the backend per member/manager scope (members only get enabled ones); include all of them here
-    const list = agents.filter((a) => a.is_enabled || a.owner_type === 'user' || a.owner_type === 'team');
+    const list = agents.filter((a) => (
+      a.is_enabled || a.owner_type === 'user' || editionAgentPolicy.includeInLibrary(a)
+    ));
     if (!q) return list;
     return list.filter((a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q));
-  }, [agents, search]);
+  }, [agents, editionAgentPolicy, search]);
 
   const selectedAgent = useMemo(
     () => (selectedAgentId ? agents.find((a) => a.agent_id === selectedAgentId) ?? null : null),
@@ -388,9 +384,7 @@ export function AgentPanel() {
             label: t('创建者类型'),
             value: selectedAgent.owner_type === 'user'
               ? t('用户创建')
-              : selectedAgent.owner_type === 'team'
-                ? t('团队共享')
-                : t('系统内置'),
+              : editionAgentPolicy.creatorLabel(selectedAgent),
           },
           { label: t('创建时间'), value: formatDateTime(selectedAgent.created_at, t('未记录')) },
         ],
@@ -744,9 +738,7 @@ export function AgentPanel() {
                     {/* name + badge */}
                     <div className="jx-agentCard-nameRow">
                       <span className="jx-agentCard-name">{agent.name}</span>
-                      {agent.owner_type === 'team' && (
-                        <span className="jx-agentCard-badge">{t('团队')}</span>
-                      )}
+                      <EditionAgentBadge agent={agent} />
                       <span className={`jx-agentCard-badge${agent.is_enabled ? ' on' : ''}`}>
                         {agent.is_enabled ? t('已启用') : t('未启用')}
                       </span>

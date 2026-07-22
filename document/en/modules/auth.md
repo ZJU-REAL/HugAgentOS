@@ -111,8 +111,8 @@ User-facing endpoints:
 | `POST/PUT/DELETE /v1/me/avatar` | `api/routes/v1/users.py` | Avatar upload (≤2 MB) / set / clear |
 | `GET/PUT /v1/users/{id}/preferences` | `api/routes/v1/users.py` | User preferences |
 | `POST /v1/me/onboarding/complete` | `api/routes/v1/users.py` | Validate the primary model and complete CE first-run setup |
-| `GET /v1/me/teams` etc. | `api/routes/v1/me.py` | User-side team viewing, member invitation, removal / leaving (Enterprise Edition; degrades to 404 in CE trees lacking the team module) |
-| `GET /v1/me/users/search` | `api/routes/v1/me.py` | User search for invitations |
+| `GET /v1/me/teams` etc. | `edition_ee/routes/me_teams.py` | User-side team viewing, member invitation, removal / leaving (Enterprise Edition; the module is physically absent from CE) |
+| `GET /v1/me/users/search` | `edition_ee/routes/me_teams.py` | User search for invitations |
 
 ## Permission system
 
@@ -122,15 +122,15 @@ User-facing endpoints:
 
 | Implementation file | Responsibility |
 |---|---|
-| `core/auth/team_permissions.py` | Team folder permission resolution (Enterprise Edition) |
-| `core/auth/project_permissions.py` | Project access (team projects are Enterprise Edition) |
-| `core/auth/chat_share_permissions.py` | Chat access / deletion / share-scope permissions |
+| `edition_ee/auth/team_permissions.py` | Team folder permission resolution (Enterprise Edition) |
+| `edition_ee/auth/project_permissions.py` | Project access for team projects (Enterprise Edition) |
+| `edition_ee/auth/chat_share_permissions.py` | Team-chat access / deletion / share-scope permissions (Enterprise Edition) |
 
 `resolve_artifact_access(db, user_id, owner_id, team_id)` is the unified owner ∪ team access-level resolver: owner is always `admin` → team members follow team permission → everyone else gets `none`. File download (`api/routes/files.py`), knowledge base, My Space, and all other artifact access points share it.
 
 ### Team roles and file permissions (Enterprise Edition)
 
-`core/auth/roles.py` defines three team roles: `owner` > `admin` > `member`. The team file permission mapping (`team_permissions.py`):
+`edition_ee/auth/roles.py` defines three team roles: `owner` > `admin` > `member`. The team file permission mapping lives in `edition_ee/auth/team_permissions.py`:
 
 | Team role | File permission | Allowed actions |
 |---|---|---|
@@ -143,7 +143,7 @@ Routes consume them through the dependency factories in `api/deps.py`: `require_
 
 ### Per-user permission flags
 
-User-granular feature switches are stored in the `users_shadow.metadata` JSON column (ORM attribute `extra_data`) and set from the user management module of the Config console (`api/routes/v1/config_users.py`). **All default to off** (turning a flag off removes the key from metadata):
+User-granular feature switches are stored in the `users_shadow.metadata` JSON column (ORM attribute `extra_data`) and set by the EE user-management module in the Config console (`edition_ee/routes/config_users.py`). **All default to off** (turning a flag off removes the key from metadata):
 
 | Flag | Default | Control endpoint | Gates |
 |---|---|---|---|
@@ -188,9 +188,9 @@ Keys look like `sk-jx-...` and can be used as a Bearer token to call business AP
 
 Teams and registration codes are multi-tenant capabilities (license feature `multi_tenancy`), administered from the Config system console:
 
-- **Team management** (`api/routes/v1/config_teams.py`): team CRUD, member add/remove, role assignment (owner/admin/member).
-- **Invite code management** (`api/routes/v1/config_invites.py`): batch generation, listing, revocation, deletion. Codes look like `JX-ABCD-2345` (`core/auth/invite.py`, with an alphabet that drops confusable characters like O/0 and I/1); default validity is `INVITE_CODE_DEFAULT_TTL_HOURS` (168 hours). Consumption uses a conditional UPDATE for concurrency safety and can pre-bind a team and role.
-- **User side** (`api/routes/v1/me.py`): team owners/admins can invite and remove members directly; members can leave.
+- **Team management** (`edition_ee/routes/config_teams.py`): team CRUD, member add/remove, role assignment (owner/admin/member).
+- **Invite code management** (`edition_ee/routes/config_invites.py`): batch generation, listing, revocation, deletion. Codes look like `JX-ABCD-2345` (`edition_ee/auth/invite.py`, with an alphabet that drops confusable characters like O/0 and I/1); default validity is `INVITE_CODE_DEFAULT_TTL_HOURS` (168 hours). Consumption uses a conditional UPDATE for concurrency safety and can pre-bind a team and role.
+- **User side** (`edition_ee/routes/me_teams.py`): team owners/admins can invite and remove members directly; members can leave.
 
 ## Auditing
 
@@ -206,15 +206,15 @@ Key authentication events all land in the audit table (`audit_logs`): login succ
 | Mock SSO / local login & registration page | `src/backend/api/routes/v1/mock_sso.py`, `src/backend/core/auth/mock_ticket_store.py` |
 | Password hashing | `src/backend/core/auth/password.py` |
 | Permission interface layer (CE/EE seam) | `src/backend/core/auth/permissions_iface.py` |
-| Team roles / file permissions | `src/backend/core/auth/roles.py`, `src/backend/core/auth/team_permissions.py` |
-| Project / chat-share permissions | `src/backend/core/auth/project_permissions.py`, `src/backend/core/auth/chat_share_permissions.py` |
+| Team roles / file permissions (EE) | `src/backend/edition_ee/auth/roles.py`, `src/backend/edition_ee/auth/team_permissions.py` |
+| Project / chat-share permissions (EE) | `src/backend/edition_ee/auth/project_permissions.py`, `src/backend/edition_ee/auth/chat_share_permissions.py` |
 | Administrative credential dependencies | `src/backend/api/deps.py` |
-| Profile / preferences | `src/backend/api/routes/v1/users.py`, `src/backend/api/routes/v1/me.py` |
-| Per-user permission flags | `src/backend/api/routes/v1/config_users.py` |
+| Profile / preferences | `src/backend/api/routes/v1/users.py` |
+| Per-user permission flags | `src/backend/edition_ee/routes/config_users.py` |
 | Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `src/backend/core/services/api_key_service.py` |
 | Capability-center self-service (owner isolation) | `src/backend/api/routes/v1/me_capabilities.py` |
-| Invite codes | `src/backend/core/auth/invite.py`, `src/backend/api/routes/v1/config_invites.py` |
-| Team management | `src/backend/api/routes/v1/config_teams.py` |
-| License feature guards | `src/backend/core/licensing/features.py`, `src/backend/core/licensing/deps.py` |
+| Invite codes | `src/backend/edition_ee/auth/invite.py`, `src/backend/edition_ee/routes/config_invites.py` |
+| Team management | `src/backend/edition_ee/routes/config_teams.py`, `src/backend/edition_ee/routes/me_teams.py` |
+| License feature guards | `src/backend/edition_ee/licensing/features.py`, `src/backend/edition_ee/licensing/deps.py` |
 
 Further reading: [Admin Consoles](admin-console.md) · [Editions & Licensing](../editions/overview.md) · [Environment Variables](../deployment/environment-variables.md)

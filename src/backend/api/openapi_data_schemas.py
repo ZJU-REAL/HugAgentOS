@@ -279,42 +279,10 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "nickname": {"type": "string"},
             "real_name": {"type": "string"},
             "department": {"type": "string"},
-            "teams": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
             "expires_at": {"type": "string", "format": "date-time"},
             "sso_token": {"type": "string"},
             "allowed_apps": {"type": "array", "items": {"type": "string"}},
             "lab_enabled": {"type": "boolean"},
-        },
-    },
-    "TeamBrief": {
-        "type": "object",
-        "properties": {
-            "team_id": {"type": "string"},
-            "name": {"type": "string"},
-            "description": {"type": "string"},
-            "member_count": {"type": "integer"},
-            "role": {"type": "string"},
-            "avatar": {"type": "string"},
-        },
-    },
-    "TeamMemberItem": {
-        "type": "object",
-        "properties": {
-            "user_id": {"type": "string"},
-            "username": {"type": "string"},
-            "avatar_url": {"type": "string"},
-            "role": {"type": "string"},
-            "joined_at": {"type": "string", "format": "date-time"},
-            "is_self": {"type": "boolean"},
-        },
-    },
-    "UserSearchResult": {
-        "type": "object",
-        "properties": {
-            "user_id": {"type": "string"},
-            "username": {"type": "string"},
-            "real_name": {"type": "string"},
-            "avatar_url": {"type": "string"},
         },
     },
     "CurrentUserInfo": {
@@ -331,7 +299,6 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "phone": {"type": "string"},
             "department": {"type": "string"},
             "auth_source": {"type": "string", "enum": ["local", "external"]},
-            "teams": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
             "created_at": {"type": "string", "format": "date-time"},
         },
     },
@@ -399,7 +366,10 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
         "type": "object",
         "properties": {
             "enabled": {"type": "boolean"},
-            "relations": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            "relations": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
             "count": {"type": "integer"},
         },
     },
@@ -455,6 +425,7 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
 # 2. Endpoint registry: (METHOD, PATH) → data field schema
 # ---------------------------------------------------------------------------
 
+
 # Shorthand for writing $ref
 def _ref(name: str) -> Dict[str, Any]:
     return {"$ref": f"#/components/schemas/{name}"}
@@ -506,7 +477,10 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
             "is_markdown": {"type": "boolean"},
             "route": {"type": "string"},
             "sources": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-            "artifacts": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            "artifacts": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
             "warnings": {"type": "array", "items": {"type": "string"}},
         },
     },
@@ -683,47 +657,9 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
         "type": "object",
         "properties": {"login_url": {"type": "string"}},
     },
-    # ===== Me / Teams =====
+    # ===== Current user =====
     ("GET", "/v1/me"): _ref("CurrentUserInfo"),
     ("PATCH", "/v1/me"): _ref("CurrentUserInfo"),
-    ("GET", "/v1/me/teams"): {
-        "type": "object",
-        "properties": {
-            "items": {"type": "array", "items": _ref("TeamBrief")},
-            "total": {"type": "integer"},
-        },
-    },
-    ("GET", "/v1/me/teams/{team_id}"): _ref("TeamBrief"),
-    ("GET", "/v1/me/teams/{team_id}/members"): {
-        "type": "object",
-        "properties": {
-            "items": {"type": "array", "items": _ref("TeamMemberItem")},
-            "my_role": {"type": "string"},
-        },
-    },
-    ("POST", "/v1/me/teams/{team_id}/members"): {
-        "type": "object",
-        "properties": {
-            "team_id": {"type": "string"},
-            "user_id": {"type": "string"},
-            "username": {"type": "string"},
-            "role": {"type": "string"},
-        },
-    },
-    ("DELETE", "/v1/me/teams/{team_id}/members/{member_user_id}"): {
-        "type": "object",
-        "properties": {
-            "team_id": {"type": "string"},
-            "user_id": {"type": "string"},
-            "self_leave": {"type": "boolean"},
-        },
-    },
-    ("GET", "/v1/me/users/search"): {
-        "type": "object",
-        "properties": {
-            "items": {"type": "array", "items": _ref("UserSearchResult")},
-        },
-    },
     # ===== User preferences =====
     ("GET", "/v1/users/{user_id}/preferences"): _ref("UserPreferencesResponse"),
     ("PUT", "/v1/users/{user_id}/preferences"): {"type": "null"},

@@ -142,30 +142,6 @@ async def test_baidu(api_key: str) -> dict:
         return {"success": False, "latency_ms": latency, "error": str(exc)}
 
 
-async def test_dify(base_url: str, api_key: str) -> dict:
-    """Test Dify KB connectivity by listing datasets."""
-    url = f"{base_url.rstrip('/')}/datasets"
-    start = time.monotonic()
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                url,
-                headers={"Authorization": f"Bearer {api_key}"},
-                params={"limit": 1},
-            )
-        latency = int((time.monotonic() - start) * 1000)
-        if resp.status_code == 200:
-            return {"success": True, "latency_ms": latency, "error": None}
-        return {
-            "success": False,
-            "latency_ms": latency,
-            "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
-        }
-    except Exception as exc:
-        latency = int((time.monotonic() - start) * 1000)
-        return {"success": False, "latency_ms": latency, "error": str(exc)}
-
-
 async def test_service_group(group_key: str) -> dict:
     """Run one connectivity test for a group (reading the current SystemConfigService config).
 
@@ -177,11 +153,13 @@ async def test_service_group(group_key: str) -> dict:
     svc = SystemConfigService.get_instance()
 
     if group_key == "knowledge_base":
+        from core.services.edition_service_probe import test_external_knowledge
+
         url = svc.get("knowledge_base.url")
         api_key = svc.get("knowledge_base.api_key")
         if not url:
             return {"success": False, "error": "URL 未配置", "latency_ms": 0}
-        return await test_dify(url, api_key or "")
+        return await test_external_knowledge(url, api_key or "")
 
     if group_key == "industry":
         url = svc.get("industry.url")

@@ -141,24 +141,26 @@ Tables marked "(Enterprise Edition, EE)" belong to the `EE_ONLY_TABLES` set and 
 
 - **EE main chain**: 53 migrations under `src/backend/alembic/versions/`, evolving from the initial schema (including structural moves such as MCP-to-streamable-http and the retirement of the office MCPs in favor of skills). Common commands: `alembic upgrade head`, `make migrate-new msg="..."` (autogenerate is driven by `core/db/models` metadata);
 - **Startup fallback**: the lifespan hook `_startup_ensure_tables` in `api/app.py` calls `core/db/engine.py::init_db`, which idempotently fills in missing tables for the SQLite dev database;
-- **Independent CE chain**: the CE derived tree excludes the entire main chain; the overlay supplies a single baseline, `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` — `create_all` from SQLAlchemy metadata filtered by `EE_ONLY_TABLES`, dialect-aware (works on both SQLite and PostgreSQL). Subsequent CE schema evolution appends regular migrations on that chain.
+- **Independent CE chain**: the CE derived tree excludes the entire main chain; the overlay supplies a single baseline, `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` — `create_all` directly from CE-only SQLAlchemy metadata, dialect-aware on SQLite and PostgreSQL. Subsequent CE schema evolution appends regular migrations on that chain.
 
 ## The CE/EE Table Boundary (core/db/edition_tables.py)
 
-The `core.db.models` package is shared by both editions (EE model class definitions are harmless), but CE must not create empty EE-only tables. `EE_ONLY_TABLES` is the single source of truth for this boundary — 18 tables:
+EE ORM classes are concentrated under `edition_ee/db/models/`, a package physically absent from the CE derived tree. Full-source validation uses `edition_ee/db/edition_tables.py::EE_ONLY_TABLES`, while the release gate independently forbids the same 20 tables:
 
 ```
 teams · team_members · team_folders · invite_codes        # multi-tenancy / SSO / invites
 roles · role_assignments                                  # organization role model
+chat_session_user_states                                  # per-member state for shared team chats
 kb_grants                                                 # per-user / per-team KB grants
-audit_logs · memory_audit                                 # audit (the CE memory audit is a stub — no table)
+marketplace_visibility_grants                             # scoped marketplace visibility
+audit_logs · memory_audit                                 # audit (CE contains no implementation or table)
 model_pricing                                             # billing
 data_sources · ds_table_meta · ds_column_meta · ds_golden_sql # data sources / metadata governance
 gateway_virtual_keys                                      # external model-gateway virtual key mirror
 sandbox_rebuilds · admin_skill_drafts · distillation_runs # sandbox rebuilds / skill distillation
 ```
 
-`ce_create_all(bind)` creates every non-EE table on a **cloned MetaData**: cross-boundary foreign keys from CE tables into EE tables (e.g. `projects/artifacts → teams/team_folders`, scheme D3 "keep the column, always NULL") would make PostgreSQL fail because the referenced tables don't exist — so those constraints are stripped on the clone (columns kept, the original metadata untouched, ORM mappings unaffected). Both table-creation entry points filter identically from the same source: the CE branch of `init_db` (filtering only when `JX_EDITION=ce`) and the CE migration baseline `ce_0001`. Maintenance rule: any new EE-only model must be added to `EE_ONLY_TABLES`; set membership is asserted against the real metadata table names at startup, so a renamed model cannot silently degrade the boundary into create-everything.
+In the full source checkout, `ce_create_all(bind)` filters those names and cross-boundary foreign keys on a cloned MetaData for local boundary validation. The actual CE tree never imports EE ORM at all; its overlay clones only the registered CE metadata and defensively strips any foreign key whose target table is absent. Adding an EE model therefore requires coordinated updates to `EE_ONLY_TABLES`, the forbidden-table contract in `ce/manifest.yaml`, and any affected overlay.
 
 A few tables that *look* EE but are required by CE are deliberately excluded from the set: `admin_prompt_parts` (read by the prompt runtime), `memory_sanitizer_rules` (queried unconditionally by the scrubbing gate), `admin_skills` / `admin_mcp_servers` (personal self-service capabilities, owner-isolated), and `marketplace_submissions` (CE keeps the submission endpoint).
 
@@ -166,7 +168,7 @@ A few tables that *look* EE but are required by CE are deliberately excluded fro
 
 | Topic | Path |
 |---|---|
-| ORM model package | `src/backend/core/db/models/` |
+| Shared ORM / EE ORM | `src/backend/core/db/models/`, `src/backend/edition_ee/db/models/` |
 | Ontology repository | `src/backend/core/db/repository/ontology.py` |
 | Engine and startup table creation | `src/backend/core/db/engine.py` |
 | Repository layer | `src/backend/core/db/repository/` |

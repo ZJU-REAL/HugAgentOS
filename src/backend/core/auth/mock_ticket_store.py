@@ -1,7 +1,7 @@
 """In-process ticket store for local-account and mock-SSO login.
 
 Holds the one-time ticket state used by the local-account and mock SSO flows.
-Relocated out of ``api/routes/v1/mock_sso.py`` so that ``core.auth.sso`` can
+Relocated out of ``api/routes/v1/mock_sso.py`` so that edition authentication can
 validate tickets without importing an API route module (breaks the
 ``core/auth → api`` upward dependency). The unified login route and mock SSO
 route both reuse this store.

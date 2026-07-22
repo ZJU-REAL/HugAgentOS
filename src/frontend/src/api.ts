@@ -5,11 +5,18 @@
  */
 
 import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, KBChunk, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
-import type { TeamRole } from './utils/roles';
-import { createApiResponseError, LicenseError, licenseErrorMessage, readErrorMessage } from './utils/apiError';
+import type { EditionAuthUserFields } from './editionApiTypes';
+import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
+import { createEditionAccessError } from './editionAccessError';
+import { createApiResponseError, readErrorMessage } from './utils/apiError';
 import { t } from './i18n';
-
-export { LicenseError } from './utils/apiError';
+import {
+  normalizeSiteEditionFields,
+  normalizeSiteVisibility,
+  type SiteEditionFields,
+  type SiteUpdateEditionFields,
+  type SiteVisibility,
+} from './editionSiteVisibility';
 
 type JsonObject = Record<string, unknown>;
 
@@ -117,7 +124,7 @@ function isApiEnvelope<T>(payload: unknown): payload is ApiEnvelope<T> {
   return !!payload && typeof payload === 'object' && 'code' in payload && 'data' in payload;
 }
 
-function unwrapData<T>(payload: unknown): T {
+export function unwrapData<T>(payload: unknown): T {
   if (isApiEnvelope<T>(payload)) {
     return payload.data;
   }
@@ -205,7 +212,7 @@ function throwIfSessionExpired(status: number, payload: unknown): void {
   throw new Error('Session expired');
 }
 
-async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiUrl()}${path}`;
   const response = await fetch(url, {
     ...options,
@@ -224,9 +231,8 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   if (!response.ok) {
     // 401 → session expired, show login; 403 → insufficient permission, fall through to the generic branch below to surface the backend message
     throwIfSessionExpired(response.status, payload);
-    if (response.status === 402) {
-      throw new LicenseError(licenseErrorMessage(payload));
-    }
+    const editionError = createEditionAccessError(response.status, payload, readErrorMessage);
+    if (editionError) throw editionError;
     throw createApiResponseError(response.status, payload, `API Error: ${response.status}`);
   }
   return payload as T;
@@ -277,25 +283,6 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
     supports_reasoning_effort: !!main.supports_reasoning_effort,
     user_model_switch_enabled: !!switchInfo.enabled,
     user_selectable_models: models,
-  };
-}
-
-export interface EditionInfo {
-  /** Deployment edition: ce (community) / ee (commercial). */
-  edition: string;
-  /** License state machine: internal / licensed / grace / expired / invalid / missing / ce. */
-  mode: string;
-  /** Feature-flag boolean map (multi_tenancy / audit / billing ...); all false on CE. */
-  features: Record<string, boolean>;
-}
-
-export async function getEditionInfo(): Promise<EditionInfo> {
-  const wrapped = await apiRequest<unknown>('/v1/meta/edition');
-  const data = unwrapData<JsonObject>(wrapped);
-  return {
-    edition: String(data?.edition || 'ee'),
-    mode: String(data?.mode || 'internal'),
-    features: (data?.features as Record<string, boolean> | undefined) || {},
   };
 }
 
@@ -398,23 +385,17 @@ export async function deleteSession(chatId: string): Promise<void> {
   });
 }
 
-export interface ChatDetail {
+export type ChatDetail = {
   chat_id: string;
   title: string;
   user_id: string;
   project_id: string | null;
-  share_scope: 'private' | 'team_read' | 'team_edit';
-  owner_user_id: string;
-  is_owner: boolean;
-  access_level: 'admin' | 'edit' | 'read';
-  /** Whether this chat belongs to a team project — determines whether the owner can set it to shared. */
-  is_team_project?: boolean;
   pinned?: boolean;
   favorite?: boolean;
   metadata?: Record<string, unknown>;
-}
+} & EditionChatDetailFields;
 
-/** Fetch chat detail (carries share_scope / is_owner / access_level in shared scenarios). */
+/** Fetch chat detail, extended by the active edition's response contract. */
 export async function getChatDetail(chatId: string): Promise<ChatDetail> {
   const wrapped = await apiRequest<unknown>(`/v1/chats/${encodeURIComponent(chatId)}`);
   return unwrapData<ChatDetail>(wrapped);
@@ -1466,17 +1447,7 @@ export async function resetLarkAppInit(): Promise<LarkAppInitStatus> {
 
 // ── Auth API (SSO session) ──────────────────────────────────────────────
 
-export interface TeamMembershipBrief {
-  team_id: string;
-  name: string;
-  role: TeamRole;
-  source?: 'manual' | 'sso_auto';
-  sso_department?: string | null;
-  description?: string | null;
-  member_count?: number;
-}
-
-export interface AuthUser {
+export interface AuthUser extends EditionAuthUserFields {
   user_id: string;
   username: string;
   email?: string;
@@ -1484,7 +1455,6 @@ export interface AuthUser {
   nickname?: string | null;
   real_name?: string | null;
   department?: string | null;
-  teams?: TeamMembershipBrief[];
   expires_at?: string;
   sso_token?: string | null;
   /** null/undefined = all enabled apps visible by default; array = only the app IDs in the list are visible */
@@ -1525,22 +1495,6 @@ export interface MyProfile extends AuthUser {
   user_center_id?: string;
   phone?: string | null;
   auth_source?: 'local' | 'external';
-}
-
-export interface TeamMemberBrief {
-  user_id: string;
-  username: string;
-  avatar_url?: string | null;
-  role: TeamRole;
-  joined_at?: string | null;
-  is_self?: boolean;
-}
-
-export interface UserSearchResult {
-  user_id: string;
-  username: string;
-  real_name?: string | null;
-  avatar_url?: string | null;
 }
 
 export async function getMyProfile(): Promise<MyProfile> {
@@ -1624,40 +1578,6 @@ export async function setMyAvatarUrl(avatarUrl: string): Promise<AvatarUpdateRes
 export async function clearMyAvatar(): Promise<AvatarUpdateResult> {
   const wrapped = await apiRequest<unknown>('/v1/me/avatar', { method: 'DELETE' });
   return unwrapData<AvatarUpdateResult>(wrapped);
-}
-
-export async function getMyTeams(): Promise<TeamMembershipBrief[]> {
-  const wrapped = await apiRequest<unknown>('/v1/me/teams');
-  const d = unwrapData<{ items?: TeamMembershipBrief[] }>(wrapped);
-  return Array.isArray(d?.items) ? d.items : [];
-}
-
-export async function getTeamMembers(teamId: string): Promise<{ items: TeamMemberBrief[]; my_role: string }> {
-  const wrapped = await apiRequest<unknown>(`/v1/me/teams/${encodeURIComponent(teamId)}/members`);
-  const d = unwrapData<{ items: TeamMemberBrief[]; my_role: string }>(wrapped);
-  return { items: d?.items || [], my_role: d?.my_role || 'member' };
-}
-
-export async function inviteTeamMember(
-  teamId: string,
-  body: { user_id?: string; username?: string; role?: Exclude<TeamRole, 'owner'> },
-): Promise<void> {
-  await apiRequest(`/v1/me/teams/${encodeURIComponent(teamId)}/members`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
-export async function removeTeamMember(teamId: string, memberUserId: string): Promise<void> {
-  await apiRequest(`/v1/me/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberUserId)}`, {
-    method: 'DELETE',
-  });
-}
-
-export async function searchUsers(q: string, limit = 10): Promise<UserSearchResult[]> {
-  const wrapped = await apiRequest<unknown>(`/v1/me/users/search?q=${encodeURIComponent(q)}&limit=${limit}`);
-  const d = unwrapData<{ items?: UserSearchResult[] }>(wrapped);
-  return Array.isArray(d?.items) ? d.items : [];
 }
 
 export interface ChatShareRecord {
@@ -1972,202 +1892,6 @@ export async function copyArtifactToPersonalFolder(
   });
 }
 
-// ── Team folders / team files API ────────────────────────────────
-import type {
-  MyTeamItem,
-  TeamFolderNode,
-  TeamFolderFlat,
-  TeamMemberPermission,
-  TeamFilePermission,
-} from './types/teamFiles';
-
-export async function listMyTeamsWithPermissions(): Promise<MyTeamItem[]> {
-  const wrapped = await apiRequest<unknown>('/v1/my-teams');
-  const data = unwrapData<{ items: MyTeamItem[] }>(wrapped);
-  return data.items || [];
-}
-
-export async function listTeamFolderTree(teamId: string): Promise<TeamFolderNode[]> {
-  const wrapped = await apiRequest<unknown>(`/v1/teams/${encodeURIComponent(teamId)}/folders?as=tree`);
-  const data = unwrapData<{ tree: TeamFolderNode[] }>(wrapped);
-  return data.tree || [];
-}
-
-export async function listTeamFoldersFlat(teamId: string): Promise<TeamFolderFlat[]> {
-  const wrapped = await apiRequest<unknown>(`/v1/teams/${encodeURIComponent(teamId)}/folders?as=flat`);
-  const data = unwrapData<{ items: TeamFolderFlat[] }>(wrapped);
-  return data.items || [];
-}
-
-export async function createTeamFolder(
-  teamId: string,
-  name: string,
-  parentFolderId: string | null,
-): Promise<{ folder_id: string }> {
-  const wrapped = await apiRequest<unknown>(`/v1/teams/${encodeURIComponent(teamId)}/folders`, {
-    method: 'POST',
-    body: JSON.stringify({ name, parent_folder_id: parentFolderId }),
-  });
-  return unwrapData<{ folder_id: string }>(wrapped);
-}
-
-export async function renameTeamFolder(
-  teamId: string,
-  folderId: string,
-  name: string,
-): Promise<void> {
-  await apiRequest(`/v1/teams/${encodeURIComponent(teamId)}/folders/${encodeURIComponent(folderId)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ name }),
-  });
-}
-
-export async function moveTeamFolder(
-  teamId: string,
-  folderId: string,
-  newParentFolderId: string | null,
-): Promise<void> {
-  await apiRequest(`/v1/teams/${encodeURIComponent(teamId)}/folders/${encodeURIComponent(folderId)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ parent_folder_id: newParentFolderId }),
-  });
-}
-
-export async function deleteTeamFolder(
-  teamId: string,
-  folderId: string,
-): Promise<{ artifacts_affected: number }> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/teams/${encodeURIComponent(teamId)}/folders/${encodeURIComponent(folderId)}`,
-    { method: 'DELETE' },
-  );
-  return unwrapData<{ artifacts_affected: number }>(wrapped);
-}
-
-export async function getFolderAffectedCount(
-  teamId: string,
-  folderId: string,
-): Promise<number> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/teams/${encodeURIComponent(teamId)}/folders/${encodeURIComponent(folderId)}/affected-count`,
-  );
-  const data = unwrapData<{ count: number }>(wrapped);
-  return data.count || 0;
-}
-
-export async function listTeamFiles(params: {
-  teamId: string;
-  folderId: string | null;
-  type?: 'document' | 'image';
-  keyword?: string;
-  page?: number;
-  page_size?: number;
-}): Promise<{ items: ResourceItem[]; total: number; has_more: boolean }> {
-  const qs = new URLSearchParams();
-  if (params.folderId) qs.set('folder_id', params.folderId);
-  if (params.type) qs.set('type', params.type);
-  if (params.keyword) qs.set('keyword', params.keyword);
-  if (params.page) qs.set('page', String(params.page));
-  if (params.page_size) qs.set('page_size', String(params.page_size));
-  const q = qs.toString();
-  const wrapped = await apiRequest<unknown>(
-    `/v1/teams/${encodeURIComponent(params.teamId)}/files${q ? '?' + q : ''}`,
-  );
-  return unwrapData<{ items: ResourceItem[]; total: number; has_more: boolean }>(wrapped);
-}
-
-export async function uploadTeamFile(
-  teamId: string,
-  folderId: string | null,
-  file: File,
-): Promise<ResourceItem> {
-  const url = `${getApiUrl()}/v1/teams/${encodeURIComponent(teamId)}/files/upload`;
-  const form = new FormData();
-  form.append('file', file);
-  if (folderId) form.append('folder_id', folderId);
-  const response = await fetch(url, { method: 'POST', credentials: 'include', body: form });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(readErrorMessage(payload, `Upload failed: ${response.status}`));
-  }
-  const payload = await response.json();
-  return unwrapData<ResourceItem>(payload);
-}
-
-export async function deleteTeamFile(teamId: string, artifactId: string): Promise<void> {
-  await apiRequest(
-    `/v1/teams/${encodeURIComponent(teamId)}/files/${encodeURIComponent(artifactId)}`,
-    { method: 'DELETE' },
-  );
-}
-
-export async function moveTeamFile(
-  teamId: string,
-  artifactId: string,
-  targetFolderId: string | null,
-): Promise<ResourceItem> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/teams/${encodeURIComponent(teamId)}/files/${encodeURIComponent(artifactId)}/move`,
-    { method: 'POST', body: JSON.stringify({ folder_id: targetFolderId }) },
-  );
-  return unwrapData<ResourceItem>(wrapped);
-}
-
-export async function moveArtifactToTeam(
-  artifactId: string,
-  teamId: string,
-  folderId: string | null,
-): Promise<ResourceItem> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/artifacts/${encodeURIComponent(artifactId)}/move-to-team`,
-    { method: 'POST', body: JSON.stringify({ team_id: teamId, folder_id: folderId }) },
-  );
-  return unwrapData<ResourceItem>(wrapped);
-}
-
-/** Copy a personal file into a team folder (non-destructive; keeps the personal original). */
-export async function copyArtifactToTeam(
-  artifactId: string,
-  teamId: string,
-  folderId: string | null,
-): Promise<ResourceItem> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/artifacts/${encodeURIComponent(artifactId)}/copy-to-team`,
-    { method: 'POST', body: JSON.stringify({ team_id: teamId, folder_id: folderId }) },
-  );
-  return unwrapData<ResourceItem>(wrapped);
-}
-
-/** Recursively copy a personal folder into a team folder (keeps the personal originals). Returns {folders, files} counts. */
-export async function copyFolderToTeam(
-  personalFolderId: string,
-  teamId: string,
-  folderId: string | null,
-): Promise<{ folders: number; files: number }> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/myspace/folders/${encodeURIComponent(personalFolderId)}/copy-to-team`,
-    { method: 'POST', body: JSON.stringify({ team_id: teamId, folder_id: folderId }) },
-  );
-  return unwrapData<{ folders: number; files: number }>(wrapped);
-}
-
-export async function listTeamMemberPermissions(teamId: string): Promise<TeamMemberPermission[]> {
-  const wrapped = await apiRequest<unknown>(`/v1/teams/${encodeURIComponent(teamId)}/members/permissions`);
-  const data = unwrapData<{ items: TeamMemberPermission[] }>(wrapped);
-  return data.items || [];
-}
-
-export async function setTeamMemberPermission(
-  teamId: string,
-  userId: string,
-  permission: TeamFilePermission,
-): Promise<void> {
-  await apiRequest(
-    `/v1/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}/permission`,
-    { method: 'PUT', body: JSON.stringify({ file_permission: permission }) },
-  );
-}
-
 // ── Plan Mode API ─────────────────────────────────────────────────────────
 
 import type { Plan } from './types';
@@ -2462,80 +2186,6 @@ export async function deleteNotifications(ids: string[]): Promise<void> {
 
 // ── Skill Distillation (Lab personal skill distillation) ────────────────
 
-export interface SkillDistillResultMeta {
-  proposed_skill_id?: string;
-  display_name?: string;
-  description?: string;
-  tags?: string[];
-  confidence?: number;
-  digest_text?: string;
-  sampled_ratio?: number;
-  partial?: boolean;
-  session_count?: number;
-  useful_digests?: number;
-}
-
-export interface SkillDistillJob {
-  job_id: string;
-  kind: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-  progress_done: number;
-  progress_total: number;
-  cost_usd: number;
-  scope: { chat_ids?: string[] | null; hint?: string; include_project_memories?: boolean };
-  result_meta: SkillDistillResultMeta;
-  saved_skill_id?: string | null;
-  error?: string | null;
-  created_at?: string | null;
-  started_at?: string | null;
-  finished_at?: string | null;
-  result_skill_content?: string | null;
-}
-
-export async function createSkillDistillJob(params: {
-  chat_ids: string[] | 'all';
-  hint?: string;
-  include_project_memories?: boolean;
-}): Promise<SkillDistillJob> {
-  const res = await apiRequest<unknown>('/v1/lab/skill-distill/jobs', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  });
-  return unwrapData<SkillDistillJob>(res);
-}
-
-export async function listSkillDistillJobs(limit = 20): Promise<SkillDistillJob[]> {
-  const res = await apiRequest<unknown>(`/v1/lab/skill-distill/jobs?limit=${limit}`);
-  const data = unwrapData<{ items: SkillDistillJob[] }>(res);
-  return Array.isArray(data.items) ? data.items : [];
-}
-
-export async function getSkillDistillJob(jobId: string): Promise<SkillDistillJob> {
-  const res = await apiRequest<unknown>(`/v1/lab/skill-distill/jobs/${jobId}`);
-  return unwrapData<SkillDistillJob>(res);
-}
-
-export async function saveSkillDistillJob(
-  jobId: string,
-  params: { skill_content?: string; enable?: boolean },
-): Promise<{ skill_id: string; display_name: string; is_enabled: boolean; job: SkillDistillJob }> {
-  const res = await apiRequest<unknown>(`/v1/lab/skill-distill/jobs/${jobId}/save`, {
-    method: 'POST',
-    body: JSON.stringify(params),
-  });
-  return unwrapData<{ skill_id: string; display_name: string; is_enabled: boolean; job: SkillDistillJob }>(res);
-}
-
-export async function cancelSkillDistillJob(jobId: string): Promise<SkillDistillJob> {
-  const res = await apiRequest<unknown>(`/v1/lab/skill-distill/jobs/${jobId}/cancel`, {
-    method: 'POST',
-  });
-  return unwrapData<SkillDistillJob>(res);
-}
-
-export async function deleteSkillDistillJob(jobId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/lab/skill-distill/jobs/${jobId}`, { method: 'DELETE' });
-}
 
 // ── Batch execution API ────────────────────────────────────────────────────
 
@@ -2673,7 +2323,7 @@ import type {
   ProjectDetail,
   ProjectFileItem,
   ProjectItem,
-  TeamForProjectCreation,
+  ProjectKind,
 } from './types';
 
 export interface ProjectListResponse {
@@ -2692,20 +2342,12 @@ export async function listProjects(opts: { q?: string; sort?: string; page?: num
   return unwrapData<ProjectListResponse>(wrapped);
 }
 
-export async function listMyTeamsForProjects(): Promise<TeamForProjectCreation[]> {
-  const wrapped = await apiRequest<unknown>('/v1/projects/teams');
-  const data = unwrapData<{ teams: TeamForProjectCreation[] }>(wrapped);
-  return data?.teams || [];
-}
-
 export async function createProject(body: {
   name: string;
   description?: string;
-  kind: 'personal' | 'team';
-  team_id?: string;
+  kind: ProjectKind;
   linked_folder_id?: string;
-  linked_team_folder_id?: string;
-}): Promise<ProjectDetail> {
+} & EditionCreateProjectFields): Promise<ProjectDetail> {
   const wrapped = await apiRequest<unknown>('/v1/projects', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -2809,25 +2451,6 @@ export async function listProjectChats(
   );
   const data = unwrapData<{ items: ProjectChatSummary[]; pagination: { total_items: number } }>(wrapped);
   return { items: data?.items || [], total: data?.pagination?.total_items || 0 };
-}
-
-/**
- * Set the current chat's share scope within a team project.
- * Only the chat owner may call this; the chat must belong to a ``kind='team'``
- * project to be set to anything other than private.
- */
-export async function updateChatShareScope(
-  chatId: string,
-  shareScope: 'private' | 'team_read' | 'team_edit',
-): Promise<unknown> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/chats/${encodeURIComponent(chatId)}/share`,
-    {
-      method: 'POST',
-      body: JSON.stringify({ share_scope: shareScope }),
-    },
-  );
-  return unwrapData<unknown>(wrapped);
 }
 
 // ── Third-party integration: DingTalk account connection (dingtalk skill / dws CLI) ──
@@ -3246,15 +2869,14 @@ export async function cancelLoop(loopId: string): Promise<boolean> {
 
 // ── Sites (site hosting) ────────────────────────────────────────────────
 
-export interface SiteItem {
+export interface SiteItem extends SiteEditionFields {
   site_id: string;
   slug: string;
   /** In-app relative access URL, of the form /site/<slug>/ */
   url: string;
   title: string;
   description: string | null;
-  visibility: 'public' | 'private' | 'team';
-  team_id: string | null;
+  visibility: SiteVisibility;
   entry_file: string;
   current_version: number;
   file_count: number;
@@ -3276,8 +2898,8 @@ function toSiteItem(raw: JsonObject): SiteItem {
     url: String(raw.url ?? `/site/${raw.slug ?? ''}/`),
     title: String(raw.title ?? ''),
     description: typeof raw.description === 'string' ? raw.description : null,
-    visibility: raw.visibility === 'private' ? 'private' : raw.visibility === 'team' ? 'team' : 'public',
-    team_id: typeof raw.team_id === 'string' ? raw.team_id : null,
+    visibility: normalizeSiteVisibility(raw.visibility),
+    ...normalizeSiteEditionFields(raw),
     entry_file: String(raw.entry_file ?? 'index.html'),
     current_version: Number(raw.current_version ?? 1),
     file_count: Number(raw.file_count ?? 0),
@@ -3301,7 +2923,12 @@ export async function listSites(page = 1, pageSize = 50): Promise<{ items: SiteI
 
 export async function updateSite(
   siteId: string,
-  data: { title?: string; visibility?: 'public' | 'private' | 'team'; team_id?: string; slug?: string; description?: string },
+  data: {
+    title?: string;
+    visibility?: SiteVisibility;
+    slug?: string;
+    description?: string;
+  } & SiteUpdateEditionFields,
 ): Promise<SiteItem> {
   const wrapped = await apiRequest<unknown>(`/v1/sites/${encodeURIComponent(siteId)}`, {
     method: 'PATCH',

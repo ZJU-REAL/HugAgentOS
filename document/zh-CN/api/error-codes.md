@@ -1,8 +1,8 @@
 # 错误码参考
 
-> 最后更新：2026-06-11
+> 最后更新：2026-07-22
 
-本文以代码实际实装为准：业务异常类定义在 `src/backend/core/infra/exceptions.py`（license 相关两个在 `src/backend/core/licensing/features.py`），由全局异常处理器 `src/backend/api/middleware/error_handler.py` 统一转换为[统一响应信封](overview.md#统一响应信封)。本文只列**已实装**的错误码；各分类号段内未列出的码位为预留空间。
+本文以代码实际实装为准：业务异常类定义在 `src/backend/core/infra/exceptions.py`（商业版 License 相关两个在 `src/backend/edition_ee/licensing/features.py`），由全局异常处理器 `src/backend/api/middleware/error_handler.py` 统一转换为[统一响应信封](overview.md#统一响应信封)。本文只列**已实装**的错误码；各分类号段内未列出的码位为预留空间。
 
 ## 错误响应结构
 
@@ -108,7 +108,7 @@
 
 ## License 未授权（HTTP 402）
 
-EE 路由按 `api/routes/v1/__init__.py` 注册表挂载 license 能力位守卫（`core/licensing/deps.py` → `requires_feature`）。未授权时抛 `FeatureNotLicensed`，由 `error_handler` 兑现为：
+EE 路由按 `edition_ee/routes/registry.py` 注册表挂载 License 能力位守卫（`edition_ee/licensing/deps.py` → `requires_feature`）。未授权时抛 `FeatureNotLicensed`，由 `error_handler` 兑现为：
 
 ```json
 {
@@ -120,7 +120,7 @@ EE 路由按 `api/routes/v1/__init__.py` 注册表挂载 license 能力位守卫
 }
 ```
 
-设计要点（`core/licensing/features.py`）：
+设计要点（`edition_ee/licensing/features.py`）：
 
 - `FeatureNotLicensed` 是 402 信封的**唯一来源**，路由/服务层不允许再手搓 `HTTPException(402)`。
 - 选 402 而非 403：403 会被前端当作会话失效触发强制登出，而 license 缺失不应把用户登出。

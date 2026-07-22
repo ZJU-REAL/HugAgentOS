@@ -1,4 +1,5 @@
-import { createApiResponseError, LicenseError, licenseErrorMessage, readErrorMessage } from './apiError';
+import { createEditionAccessError } from '../editionAccessError';
+import { createApiResponseError, readErrorMessage } from './apiError';
 import { t } from '../i18n';
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
@@ -43,13 +44,6 @@ export const ADMIN_TABLE_PAGINATION = {
 };
 
 /** Error message extraction goes uniformly through utils/apiError.ts (shared with api.ts, single source of copy). */
-function readAdminError(status: number, err: unknown): string {
-  if (status === 402) {
-    return licenseErrorMessage(err);
-  }
-  return readErrorMessage(err, `HTTP ${status}`);
-}
-
 function createAuthFetch(storageKey: string, expiredEvent: string) {
   // When token is an empty string, send no Authorization header and rely on session cookie auth instead (users granted admin permissions get direct access without a token).
   return async (token: string, path: string, init?: RequestInit) => {
@@ -68,9 +62,8 @@ function createAuthFetch(storageKey: string, expiredEvent: string) {
         localStorage.removeItem(storageKey);
         window.dispatchEvent(new CustomEvent(expiredEvent));
       }
-      if (res.status === 402) {
-        throw new LicenseError(readAdminError(res.status, err));
-      }
+      const editionError = createEditionAccessError(res.status, err, readErrorMessage);
+      if (editionError) throw editionError;
       throw createApiResponseError(res.status, err, `HTTP ${res.status}`);
     }
     return res.json();
@@ -151,7 +144,9 @@ export async function uploadPageAsset(
       localStorage.removeItem(CONFIG_STORAGE_KEY);
       window.dispatchEvent(new CustomEvent(CONFIG_AUTH_EXPIRED_EVENT));
     }
-    throw new Error(readAdminError(res.status, err));
+    const editionError = createEditionAccessError(res.status, err, readErrorMessage);
+    if (editionError) throw editionError;
+    throw createApiResponseError(res.status, err, `HTTP ${res.status}`);
   }
   const body = await res.json();
   return body.data;

@@ -30,7 +30,7 @@
 2. 运行时动态 `import('@univerjs/presets')` + `@univerjs/preset-sheets-core`（中文语言包）渲染电子表格——**实际只加载免费的 core 预设**。
 3. 编辑后通过 `exportXlsx()` 导出为新的 xlsx File，由 `CanvasPanel` 调 `api.ts::overwriteFile` 回写到同一个 `file_id`，dirty 状态驱动「保存」按钮。
 
-> 多人实时协同编辑为商业版 EE 能力（`Feature.CANVAS_COLLAB`，`core/licensing/features.py`）。注意 `src/frontend/package.json` 目前仍声明了 `@univerjs/preset-sheets-advanced` 依赖（Univer 商业 License 预设）——运行时代码并未导入它；按开源方案，CE 派生树不应携带该依赖。
+> 多人实时协同编辑为商业版 EE 能力（`Feature.CANVAS_COLLAB`，`edition_ee/licensing/features.py`）。注意 `src/frontend/package.json` 目前仍声明了 `@univerjs/preset-sheets-advanced` 依赖（Univer 商业 License 预设）——运行时代码并未导入它；按开源方案，CE 派生树不应携带该依赖。
 
 ## Artifact 中心（我的空间）
 

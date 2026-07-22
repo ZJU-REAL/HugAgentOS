@@ -1,6 +1,6 @@
 # 无 Docker 一键安装（本地单机）
 
-> 最后更新：2026-07-21 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
+> 最后更新：2026-07-23 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
 
 面向**个人单机尝鲜**与**二次开发体验**的极简部署方式：一条命令装好，终端引导设管理员、配模型，随后单进程起服务并打开浏览器。全程**零 Docker、零 PostgreSQL、零 Redis**。
 
@@ -62,7 +62,11 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 > HugAgentOS 共有 9 个模型角色：7 个对话角色（主智能体 / 摘要 / 追问 / 记忆 / 图表 / 计划 / 代码执行，共用上面的对话模型）+ 向量（embedding）+ 重排（reranker）。onboard 覆盖全部三类；登录后还可在网页「设置 → 系统管理 → 模型服务」为单个角色指派不同模型。
 
-**第 3 步 · 选择插件**——从内置插件列表勾选要安装的能力（序号逗号分隔 / `all` 全装 / `none` 跳过；直接回车装 ★ 推荐项）。默认推荐：`automation`（定时任务）、`skill-manager`（技能管理）、`sites`（对话建站）。装 `sites` 时会自动铺入 React 建站工程模板。插件随后可在插件市场随时增减。
+**第 3 步 · 插件初始化**——全新安装会自动安装并启用
+`automation`（定时任务）、`skill-manager`（技能管理）和 `sites`
+（对话建站）。用户无需登录后再去插件市场安装。安装 `sites` 时还会
+铺入 React 建站工程模板。首次初始化完成后，用户仍可在插件库停用或卸载；
+后续重启不会把用户主动卸载的插件重新装回。
 
 **第 4 步（可选）· 配置文件解析服务**——上传 PDF / 扫描件解析需要一个外部解析服务（MinerU 兼容），填入其 API URL 即可（写入 `file_parser.api_url`）；直接回车跳过。Excel / CSV / PPTX / 文本为进程内解析，无需此项。
 
@@ -139,7 +143,9 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 - **自建向量知识库**：用嵌入式 **Milvus Lite**（单文件，无需服务端），**纯向量（dense）检索**；需在 onboard 配置 embedding 模型。要更强的混合检索，把 `MILVUS_URL` 指向真正的 Milvus 服务即可自动切回。
 - **L2 向量记忆**：安装器会装好 mem0 与 Milvus Lite，并默认启用记忆运行时。配置并指派可用的 embedding 模型后，用户的永久记忆与自动写入默认开启；缺少 embedding 时，前后端都会阻止打开记忆开关。
 
-- **自动化 / 技能创作 / 建站等插件能力**：`automation` / `skill-manager` / `sites` 是**插件**，可在 onboard 第 3 步一键勾选安装（或事后到插件市场增减）；安装后其 MCP 在本地已自动连通（`http://mcp:*` 主机名会被重写到 `127.0.0.1`）。
+- **自动化 / 技能创作 / 建站等插件能力**：`automation` / `skill-manager` /
+  `sites` 在全新安装中默认安装并启用，无需用户前往插件市场操作。其 MCP
+  启动时会经过工具列表校验，本地地址统一使用 `127.0.0.1`。
 
 **需额外条件**
 - **对话建站的 React 工程构建**：装 `sites` 插件后即支持——onboard 把 React 工程模板铺入 `~/.hugagent/site-template/`，首次建站时按需 `npm install`。**需宿主装有 Node.js ≥ 20 + npm**；缺则只能手写静态站点。建站链路的 `/workspace` 路径已参数化到本地工作区（静态站与 Docker 版一致）。

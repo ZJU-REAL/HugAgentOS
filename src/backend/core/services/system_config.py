@@ -17,6 +17,8 @@ from typing import Optional
 
 from core.db.engine import SessionLocal
 from core.db.models import SystemConfig
+from core.services.edition_system_config import CONFIG_KEY_TO_ENV as EDITION_CONFIG_KEY_TO_ENV
+from core.services.edition_system_config import SEED_CONFIGS as EDITION_SEED_CONFIGS
 
 logger = logging.getLogger(__name__)
 
@@ -50,32 +52,6 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "数据库查询能力总开关",
         "控制统一「数据库查询」能力是否在能力中心可用。由数据库工具页维护，不写入 catalog.json。",
         "query_database",
-        False,
-    ),
-    # knowledge_base
-    ("knowledge_base.provider", "dify", "知识库后端", "知识库服务提供方", "knowledge_base", False),
-    (
-        "knowledge_base.url",
-        None,
-        "知识库 API URL",
-        "Dify 或其他知识库服务地址",
-        "knowledge_base",
-        False,
-    ),
-    (
-        "knowledge_base.api_key",
-        None,
-        "知识库 API Key",
-        "知识库服务鉴权密钥",
-        "knowledge_base",
-        True,
-    ),
-    (
-        "knowledge_base.allowed_dataset_ids",
-        None,
-        "允许的数据集 ID",
-        "逗号分隔的数据集 ID 白名单，为空则全部允许",
-        "knowledge_base",
         False,
     ),
     (
@@ -240,7 +216,7 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "auth",
         False,
     ),
-]
+] + EDITION_SEED_CONFIGS
 
 # config_key → env var name mapping
 _CONFIG_KEY_TO_ENV: dict[str, str] = {
@@ -248,10 +224,6 @@ _CONFIG_KEY_TO_ENV: dict[str, str] = {
     "query_database.timeout": "QUERY_DATABASE_TIMEOUT_SECONDS",
     "query_database.retry_times": "QUERY_DATABASE_RETRY_TIMES",
     "query_database.max_output_tokens": "QUERY_DATABASE_MAX_OUTPUT_TOKENS",
-    "knowledge_base.provider": "KNOWLEDGE_BASE",
-    "knowledge_base.url": "DIFY_URL",
-    "knowledge_base.api_key": "DIFY_API_KEY",
-    "knowledge_base.allowed_dataset_ids": "DIFY_ALLOWED_DATASET_IDS",
     "knowledge_base.detail_max_chars": "KB_DETAIL_CONTENT_MAX_CHARS",
     "industry.url": "INDUSTRY_URL",
     "industry.auth_token": "INDUSTRY_AUTH_TOKEN",
@@ -267,6 +239,7 @@ _CONFIG_KEY_TO_ENV: dict[str, str] = {
     "internet_search.baidu_api_key": "BAIDU_API_KEY",
     # Note: sandbox.code_capability_enable deliberately does **not** map to an env var —— the admin toggle is the sole
     # authority (plan B), explicitly seeded to "true", and env CODE_CAPABILITY_ENABLED is retired.
+    **EDITION_CONFIG_KEY_TO_ENV,
 }
 
 # Reverse mapping for env-fallback lookups

@@ -17,8 +17,8 @@ from typing import Callable
 
 from api.health import router as health_router
 from api.middleware.cors import setup_cors
+from api.middleware.edition import edition_router_dependencies, setup_edition_middleware
 from api.middleware.error_handler import setup_error_handlers
-from api.middleware.license_gate import setup_license_gate
 from api.middleware.logging import setup_logging_middleware
 from api.routes import files_router, sites_serve_router
 from api.routes.v1 import (
@@ -30,7 +30,6 @@ from api.routes.v1 import (
 )
 from core.config.settings import settings
 from core.infra.logging import get_logger
-from core.licensing import Feature, requires_feature
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
@@ -64,6 +63,7 @@ async def lifespan(app: FastAPI):
     await _startup_seed_prompt_versions()
     await _startup_seed_roles()
     await _startup_seed_mcp_servers()
+    await _startup_seed_default_plugins()
     await _startup_recover_datasource_sidecars()
     await _startup_seed_ontologies()
     await _startup_preload()
@@ -121,6 +121,7 @@ app = FastAPI(
 
 def _build_custom_openapi():
     from api.openapi_data_schemas import DATA_COMPONENTS, DATA_SCHEMAS
+    from api.openapi_edition_schemas import EDITION_DATA_COMPONENTS, EDITION_DATA_SCHEMAS
     from fastapi.openapi.utils import get_openapi
 
     def _custom_openapi():
@@ -139,7 +140,7 @@ def _build_custom_openapi():
         components = schema.setdefault("components", {}).setdefault("schemas", {})
 
         # Inject business-entity component schemas (from the central registry)
-        for name, comp_schema in DATA_COMPONENTS.items():
+        for name, comp_schema in {**DATA_COMPONENTS, **EDITION_DATA_COMPONENTS}.items():
             if name not in components:
                 components[name] = comp_schema
 
@@ -207,7 +208,9 @@ def _build_custom_openapi():
 
         def _envelope_schema_for(method_upper: str, path: str) -> dict:
             """Registry hit → allOf merge; otherwise fall back to a plain envelope ref."""
-            data_schema = DATA_SCHEMAS.get((method_upper, path))
+            data_schema = EDITION_DATA_SCHEMAS.get(
+                (method_upper, path), DATA_SCHEMAS.get((method_upper, path))
+            )
             if data_schema is None:
                 return dict(envelope_ref)
             return {
@@ -301,10 +304,9 @@ async def custom_redoc_html():
 # ---------------------------------------------------------------------------
 
 # Registration order is the reverse of execution order (later registrations sit
-# further out and run first). license_gate is registered first → innermost, so
-# CORS wraps around it and the 402 returned in the disabled state still carries
-# CORS headers, letting the browser read it.
-setup_license_gate(app)
+# further out and run first). Edition middleware is innermost so CORS can still
+# decorate any edition-specific rejection response.
+setup_edition_middleware(app)
 setup_cors(app)
 setup_logging_middleware(app)
 setup_error_handlers(app)
@@ -354,19 +356,16 @@ app.include_router(files_router)
 # Public site hosting (/site/{slug}/…): nginx location /site/ reverse-proxies here verbatim
 app.include_router(sites_serve_router)
 
-# V1 API routers — edition registry (seam C1): CE first, then EE.
-# When an EE module is physically absent from the CE derived tree,
-# iter_edition_routers skips it automatically; in the main repo both tables are
-# complete, so the registered set is equivalent to line-by-line includes.
-# EE routes get a license guard per the feature flag in the table (M4 second
-# line of defense); in internal deployments (no license file) the guard passes
-# everything through, matching historical behavior.
+# V1 API routers — community-capable routes first, then edition extensions.
+# The CE registry contains no extension entries and the derived tree does not
+# carry their modules. The full repository attaches edition policy dependencies
+# while registering extension routers.
 for _name, _router, _ in iter_edition_routers(CE_ROUTERS):
     app.include_router(_router)
 for _name, _router, _feature in iter_edition_routers(EE_ROUTERS):
     app.include_router(
         _router,
-        dependencies=[requires_feature(Feature(_feature))] if _feature else None,
+        dependencies=edition_router_dependencies(_feature),
     )
 
 # Unified login entry points: /login + /register (always on, coexisting with mock-sso)
@@ -609,7 +608,7 @@ async def _startup_seed_roles():
     """
     try:
         from core.db.engine import SessionLocal
-        from core.services.role_service import seed_default_roles
+        from core.services.edition_startup import seed_default_roles
 
         db = SessionLocal()
         try:
@@ -623,13 +622,21 @@ async def _startup_seed_roles():
 
 
 async def _startup_local_sidecars():
-    """Spawn MCP + script_runner sidecars in local profile (no-op otherwise)."""
+    """Spawn and verify MCP + script_runner sidecars in local profile.
+
+    A local desktop process must not pass its health check while the MCP tools
+    promised by the default plugins are absent.  Compose deployments are a
+    no-op inside ``start_local_sidecars`` and keep their existing best-effort
+    startup behavior.
+    """
     try:
         from orchestration.local_subprocess import start_local_sidecars
 
         await start_local_sidecars()
     except Exception as exc:
-        logger.warning("[startup] local sidecars spawn failed: %s", exc)
+        logger.error("[startup] local sidecars failed readiness: %s", exc)
+        if settings.deploy.is_local:
+            raise
 
 
 async def _shutdown_local_sidecars():
@@ -653,10 +660,16 @@ async def _startup_seed_mcp_servers():
     """
     try:
         from core.db.engine import SessionLocal
-        from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
+        from core.services.mcp_service import (
+            prune_removed_builtin_mcp_servers,
+            seed_builtin_mcp_servers_if_empty,
+        )
 
         db = SessionLocal()
         try:
+            pruned = prune_removed_builtin_mcp_servers(db)
+            if pruned:
+                logger.info("[startup] unavailable built-in MCP rows pruned: %s", ", ".join(pruned))
             seeded = seed_builtin_mcp_servers_if_empty(db)
             if seeded:
                 logger.info("[startup] built-in MCP catalog seeded: %s", ", ".join(seeded))
@@ -664,6 +677,39 @@ async def _startup_seed_mcp_servers():
             db.close()
     except Exception as exc:
         logger.warning("[startup] MCP catalog seed failed: %s", exc)
+
+
+async def _startup_seed_default_plugins():
+    """Install the three credential-free plugins on first CE Compose boot.
+
+    Local/desktop installs run the equivalent bootstrap in ``cli.py`` before
+    the API is imported. Compose needs a database-backed marker so a user who
+    later uninstalls one of the defaults does not have it resurrected after a
+    container restart.
+    """
+    if settings.edition.edition != "ce" or settings.deploy.is_local:
+        return
+
+    from core.db.engine import SessionLocal
+    from core.services.plugin_service import (
+        DEFAULT_BOOTSTRAP_PLUGIN_SLUGS,
+        ensure_default_plugins_bootstrapped,
+    )
+
+    db = SessionLocal()
+    try:
+        if ensure_default_plugins_bootstrapped(db):
+            logger.info(
+                "[startup] default plugins bootstrapped: %s",
+                ", ".join(DEFAULT_BOOTSTRAP_PLUGIN_SLUGS),
+            )
+    except Exception as exc:
+        logger.error("[startup] default plugin bootstrap failed: %s", exc)
+        # These plugins are part of the advertised CE baseline. Do not report a
+        # healthy web deployment with only a partial/default-missing toolset.
+        raise
+    finally:
+        db.close()
 
 
 async def _startup_recover_datasource_sidecars():

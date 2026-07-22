@@ -141,24 +141,26 @@ core/db/
 
 - **商业版主链**：`src/backend/alembic/versions/` 下 53 个迁移，从初始建表一路演进（含 MCP 迁往 streamable-http、办公 MCP 下线改技能等结构性变更）。常用命令：`alembic upgrade head`、`make migrate-new msg="..."`（autogenerate 基于 `core/db/models` 元数据）；
 - **启动兜底**：`api/app.py` lifespan 的 `_startup_ensure_tables` 调 `core/db/engine.py::init_db`，对 SQLite 开发库幂等补建缺表；
-- **社区版独立链**：CE 派生树整体排除主链迁移，overlay 提供单一基线 `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py`——以 SQLAlchemy 元数据为源、按 `EE_ONLY_TABLES` 过滤后 `create_all`，方言感知（SQLite / PostgreSQL 通吃）；后续 CE schema 演进在该链上追加常规迁移。
+- **社区版独立链**：CE 派生树整体排除主链迁移，overlay 提供单一基线 `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py`——直接以 CE-only SQLAlchemy 元数据 `create_all`，方言感知（SQLite / PostgreSQL 通吃）；后续 CE schema 演进在该链上追加常规迁移。
 
 ## CE/EE 建表边界（core/db/edition_tables.py）
 
-`core.db.models` 包在两版共用（EE 表类定义本身无害），但 CE 不应建出 EE 专属空表。`EE_ONLY_TABLES` 是这一边界的单一真源，共 18 张表：
+EE ORM 类定义集中在 `edition_ee/db/models/`，CE 派生树物理不包含该包。全量源码校验使用 `edition_ee/db/edition_tables.py::EE_ONLY_TABLES`，发布门禁同步禁止 20 张表：
 
 ```
 teams · team_members · team_folders · invite_codes        # 多租户 / SSO / 邀请
 roles · role_assignments                                  # 组织角色权限体系
+chat_session_user_states                                  # 团队共享会话的成员态
 kb_grants                                                 # 知识库逐用户 / 团队授权
-audit_logs · memory_audit                                 # 审计（CE 的 memory audit 为 stub，不落表）
+marketplace_visibility_grants                             # 市场条目指定范围可见
+audit_logs · memory_audit                                 # 审计（CE 不含实现、不落表）
 model_pricing                                             # 计费
 data_sources · ds_table_meta · ds_column_meta · ds_golden_sql # 数据源 / 元数据治理
 gateway_virtual_keys                                      # 对外模型网关虚拟密钥镜像
 sandbox_rebuilds · admin_skill_drafts · distillation_runs # 持久沙箱重建 / 技能蒸馏
 ```
 
-`ce_create_all(bind)` 在 **克隆的 MetaData** 上建出全部非 EE 表：CE 表里指向 EE 表的跨边界外键（如 `projects/artifacts → teams/team_folders`，方案 D3「列保留、恒 NULL」）若原样下发，PostgreSQL 会因引用表不存在而失败——因此在克隆上摘除这些约束（列保留、原 metadata 不动、ORM 映射不受影响）。两个建表入口同源同滤：`init_db` 的 CE 分支（`JX_EDITION=ce` 时过滤）与 CE 迁移基线 `ce_0001`。维护规则：新增 EE 专属模型必须同步加进 `EE_ONLY_TABLES`，集合名与 metadata 实表名做启动断言，防止改名漏更新悄悄退化为全量建表。
+全量源码下的 `ce_create_all(bind)` 会在克隆 MetaData 上过滤上述表与跨界外键，用于本地边界校验。真正的 CE 树则根本不导入 EE ORM；CE overlay 仅克隆已注册的 CE 元数据，并防御性摘除所有指向缺失表的外键。新增 EE 模型时必须同步更新 `EE_ONLY_TABLES`、`ce/manifest.yaml` 的禁止表契约与对应 overlay。
 
 几个「看着像 EE 实际 CE 必需」的表刻意不在集合内：`admin_prompt_parts`（提示词运行时读）、`memory_sanitizer_rules`（脱敏闸门无条件查询）、`admin_skills` / `admin_mcp_servers`（个人自助能力，owner 隔离）、`marketplace_submissions`（CE 保留提交端点）。
 
@@ -166,7 +168,7 @@ sandbox_rebuilds · admin_skill_drafts · distillation_runs # 持久沙箱重建
 
 | 主题 | 路径 |
 |---|---|
-| ORM 模型包 | `src/backend/core/db/models/` |
+| 共享 ORM / EE ORM | `src/backend/core/db/models/`、`src/backend/edition_ee/db/models/` |
 | 本体仓储 | `src/backend/core/db/repository/ontology.py` |
 | 引擎与启动建表 | `src/backend/core/db/engine.py` |
 | 仓储层 | `src/backend/core/db/repository/` |

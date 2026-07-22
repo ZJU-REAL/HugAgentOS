@@ -52,7 +52,7 @@ _TESTABLE_GROUPS = {"internet_search", "file_parser", "knowledge_base"}
 def _personal_groups() -> Dict[str, str]:
     """Return the edition-specific settings surface.
 
-    CE provides only owner-isolated local knowledge bases, so the shared/Dify
+    CE provides only owner-isolated local knowledge bases, so the external
     knowledge-base connector is not configurable there.
     """
     if settings.edition.edition == "ce":

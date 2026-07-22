@@ -51,7 +51,7 @@ export const PRESETS: Record<string, PresetIcon> = {
   folder: { key: 'folder', label: t('文件夹'), color: '#FFA726', paths: (<><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></>) },
   cloud: { key: 'cloud', label: t('云端'), color: '#4FC3F7', paths: (<><path d="M7 18a4 4 0 01-.5-8 6 6 0 0111.5 1.5A3.5 3.5 0 0117 18z" /></>) },
   lock: { key: 'lock', label: t('加密'), color: '#EF5350', paths: (<><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 018 0v3" /></>) },
-  users: { key: 'users', label: t('团队'), color: '#66BB6A', paths: (<><circle cx="9" cy="9" r="3" /><circle cx="17" cy="10" r="2" /><path d="M3 19a6 6 0 0112 0M15 19a4 4 0 016-3" /></>) },
+  users: { key: 'users', label: t('用户'), color: '#66BB6A', paths: (<><circle cx="9" cy="9" r="3" /><circle cx="17" cy="10" r="2" /><path d="M3 19a6 6 0 0112 0M15 19a4 4 0 016-3" /></>) },
   location: { key: 'location', label: t('位置'), color: '#EC407A', paths: (<><path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" /></>) },
   bolt: { key: 'bolt', label: t('自动化'), color: '#FBC02D', paths: (<><path d="M13 3L5 13h6l-2 8 8-10h-6z" /></>) },
   star: { key: 'star', label: t('收藏'), color: '#FFB300', paths: (<><path d="M12 3l2.7 5.5 6 .9-4.3 4.2 1 6-5.4-2.8L6.6 19.6l1-6L3.3 9.4l6-.9z" /></>) },

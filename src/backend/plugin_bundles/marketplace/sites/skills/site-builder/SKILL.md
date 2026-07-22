@@ -150,7 +150,7 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 - 公开站点在浏览器里以**沙箱模式**运行（无 cookie / localStorage）——不要写依赖
   登录态或浏览器本地存储的逻辑，持久化用下面的轻后端 API。
 - 可见性 `visibility`：`public`（默认，凭链接访问）/ `private`（仅本人登录可见）/
-  `team`（指定团队成员可见，配合 `team_id`）。
+
 
 ## 站点内置轻后端 API（可选，需要动态能力时用）
 

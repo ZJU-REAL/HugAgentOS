@@ -1,7 +1,5 @@
 """CE sub-agent visibility regression tests."""
 
-from types import SimpleNamespace
-
 from core.db.edition_tables import ce_create_all
 from core.db.models import UserAgent, UserShadow
 from core.services.user_agent_service import UserAgentService
@@ -9,13 +7,15 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 
-def test_ce_list_for_user_does_not_query_team_members(monkeypatch):
-    """A fresh CE database omits team tables, but chat still resolves visible agents."""
-    from core.db.repository import agent as agent_repository
+def test_ce_list_for_user_has_no_organization_repository_contracts():
+    """A fresh CE database and repository expose only personal/admin agents."""
+    from core.db.repository.agent import UserAgentRepository
 
     engine = create_engine("sqlite:///:memory:")
     ce_create_all(engine)
     assert inspect(engine).has_table("team_members") is False
+    assert not hasattr(UserAgentRepository, "count_team_agents")
+    assert not hasattr(UserAgentRepository, "list_for_team")
 
     session = sessionmaker(bind=engine)()
     try:
@@ -54,12 +54,6 @@ def test_ce_list_for_user_does_not_query_team_members(monkeypatch):
             ]
         )
         session.commit()
-        monkeypatch.setattr(
-            agent_repository,
-            "settings",
-            SimpleNamespace(edition=SimpleNamespace(is_ee=False)),
-        )
-
         agents = UserAgentService(session).list_for_user("ce-user")
 
         assert {item["agent_id"] for item in agents} == {"admin-enabled", "ce-personal"}

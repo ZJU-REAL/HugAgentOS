@@ -343,6 +343,7 @@ info "Starting HugAgentOS"
 # The CE server seeds admin/admin on a fresh data directory and requires a
 # password change immediately after sign-in. Model providers are configured in
 # Settings, so the one-command path does not require an interactive wizard.
+export HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS=1
 if [[ -t 1 && -r /dev/tty ]]; then
     exec "${HUGAGENT_BIN}" serve </dev/tty
 fi

@@ -10,6 +10,7 @@ import {
 import { CopyButton } from '../common/CopyButton';
 import { EASE } from '../../utils/motionTokens';
 import { t } from '../../i18n';
+import { EDITION_API_CATEGORY_RULES } from '../../toolEdition';
 
 const { Text, Paragraph } = Typography;
 
@@ -96,7 +97,8 @@ const CATEGORY_RULES: Array<{ test: RegExp; group: string }> = [
   { test: /^\/v1\/automations(\/|$)/,                        group: '自动化' },
   { test: /^\/v1\/code(\/|$)/,                               group: '代码执行' },
   { test: /^\/v1\/(artifacts|plans)(\/|$)/,                  group: '工件与计划' },
-  { test: /^\/v1\/(teams|my-teams|myspace)(\/|$)/,           group: '团队 / 个人空间' },
+  { test: /^\/v1\/myspace(\/|$)/,                            group: '个人空间' },
+  ...EDITION_API_CATEGORY_RULES,
   { test: /^\/v1\/(batch|internal\/batch)(\/|$)/,            group: '批量处理' },
   { test: /^\/v1\/projects(\/|$)/,                           group: '项目' },
   { test: /^\/v1\/(audit|summary|classify)(\/|$)/,           group: '辅助处理' },

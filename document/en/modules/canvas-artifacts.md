@@ -30,7 +30,7 @@ Panel state is managed by `stores/canvasStore.ts` (`openCanvas` / `closeCanvas` 
 2. At runtime it dynamically `import('@univerjs/presets')` plus `@univerjs/preset-sheets-core` (with the zh-CN locale) to render the spreadsheet — **only the free core preset is actually loaded**.
 3. After editing, `exportXlsx()` produces a new xlsx File which `CanvasPanel` writes back to the same `file_id` via `api.ts::overwriteFile`; a dirty flag drives the Save button.
 
-> Real-time collaborative editing is an Enterprise Edition capability (`Feature.CANVAS_COLLAB`, `core/licensing/features.py`). Note that `src/frontend/package.json` still declares the `@univerjs/preset-sheets-advanced` dependency (Univer's commercially licensed preset) — runtime code never imports it, and per the open-sourcing plan the CE-derived tree must not ship it.
+> Real-time collaborative editing is an Enterprise Edition capability (`Feature.CANVAS_COLLAB`, `edition_ee/licensing/features.py`). Note that `src/frontend/package.json` still declares the `@univerjs/preset-sheets-advanced` dependency (Univer's commercially licensed preset) — runtime code never imports it, and per the open-sourcing plan the CE-derived tree must not ship it.
 
 ## Artifact center (My Space)
 

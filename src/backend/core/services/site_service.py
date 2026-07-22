@@ -20,21 +20,27 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
-
 from core.db.models import Site
 from core.db.repository import SiteRepository
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.services.site_access_policy import (
+    can_view_site,
+    resolve_site_scope,
+    site_scope_write_fields,
+)
 from core.storage import get_storage
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 # ── Quotas ───────────────────────────────────────────────────────
 MAX_SITE_FILES = 300
-MAX_SITE_TOTAL_BYTES = 30 * 1024 * 1024   # 30MB / site
-MAX_SITE_FILE_BYTES = 10 * 1024 * 1024    # 10MB / file
+MAX_SITE_TOTAL_BYTES = 30 * 1024 * 1024  # 30MB / site
+MAX_SITE_FILE_BYTES = 10 * 1024 * 1024  # 10MB / file
 MAX_SITES_PER_USER = 50
-KEEP_VERSIONS = 3  # number of historical versions kept after publishing a new one in local mode (incl. current)
+KEEP_VERSIONS = (
+    3  # number of historical versions kept after publishing a new one in local mode (incl. current)
+)
 
 # Site-level KV / form-collection quotas (a minimal subset benchmarked against D1/R2)
 MAX_KV_KEYS_PER_SITE = 200
@@ -52,9 +58,26 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$")
 # under /site/<slug>/, so in theory there's no conflict; this list guards
 # against a future move of sites to the root path + avoids misleading addresses)
 RESERVED_SLUGS = {
-    "api", "assets", "admin", "config", "docs", "files", "gateway", "health",
-    "home", "login", "logout", "mock-sso", "openapi", "redoc", "register",
-    "share", "site", "sites", "static", "www",
+    "api",
+    "assets",
+    "admin",
+    "config",
+    "docs",
+    "files",
+    "gateway",
+    "health",
+    "home",
+    "login",
+    "logout",
+    "mock-sso",
+    "openapi",
+    "redoc",
+    "register",
+    "share",
+    "site",
+    "sites",
+    "static",
+    "www",
 }
 
 # Fill in gaps in the default mimetypes table (/etc/mime.types inside the container may be incomplete)
@@ -136,7 +159,7 @@ class SiteService:
         chat_id: Optional[str] = None,
         visibility: str = "public",
         description: str = "",
-        team_id: Optional[str] = None,
+        scope_id: Optional[str] = None,
         project_id: Optional[str] = None,
         build_info: Optional[dict] = None,
     ) -> Site:
@@ -160,9 +183,7 @@ class SiteService:
         title = (title or "").strip()
         if not title:
             raise BadRequestError("站点标题不能为空")
-        if visibility not in ("public", "private", "team"):
-            raise BadRequestError("visibility 仅支持 public / private / team")
-        team_id = self._resolve_team(user_id, visibility, team_id)
+        resolved_scope_id = resolve_site_scope(self.db, user_id, visibility, scope_id)
 
         cleaned = self._validate_files(files)
         entry_file = self._pick_entry_file(cleaned)
@@ -175,9 +196,7 @@ class SiteService:
             from core.db.models import ChatSession
 
             exists = (
-                self.db.query(ChatSession.chat_id)
-                .filter(ChatSession.chat_id == chat_id)
-                .first()
+                self.db.query(ChatSession.chat_id).filter(ChatSession.chat_id == chat_id).first()
             )
             if not exists:
                 chat_id = None
@@ -189,8 +208,13 @@ class SiteService:
             if site.user_id != user_id:
                 raise BadRequestError("无权更新该站点（不属于当前用户）")
             return self._publish_new_version(
-                site, cleaned, title=title, entry_file=entry_file,
-                visibility=visibility, description=description, team_id=team_id,
+                site,
+                cleaned,
+                title=title,
+                entry_file=entry_file,
+                visibility=visibility,
+                description=description,
+                scope_id=resolved_scope_id,
                 build_info=build_info,
             )
 
@@ -204,25 +228,27 @@ class SiteService:
         new_id = f"site_{uuid.uuid4().hex[:16]}"
         version = 1
         total_size = self._write_version_files(new_id, version, cleaned)
-        return self.repo.create({
-            "site_id": new_id,
-            "slug": final_slug,
-            "user_id": user_id,
-            "chat_id": chat_id,
-            "team_id": team_id,
-            "project_id": (project_id or None),
-            "title": title,
-            "description": description or None,
-            "visibility": visibility,
-            "entry_file": entry_file,
-            "current_version": version,
-            "file_count": len(cleaned),
-            "total_size_bytes": total_size,
-            "extra_data": {
-                "versions": [self._version_meta(version, cleaned, total_size)],
-                **({"build": build_info} if build_info else {}),
-            },
-        })
+        return self.repo.create(
+            {
+                "site_id": new_id,
+                "slug": final_slug,
+                "user_id": user_id,
+                "chat_id": chat_id,
+                **site_scope_write_fields(resolved_scope_id),
+                "project_id": (project_id or None),
+                "title": title,
+                "description": description or None,
+                "visibility": visibility,
+                "entry_file": entry_file,
+                "current_version": version,
+                "file_count": len(cleaned),
+                "total_size_bytes": total_size,
+                "extra_data": {
+                    "versions": [self._version_meta(version, cleaned, total_size)],
+                    **({"build": build_info} if build_info else {}),
+                },
+            }
+        )
 
     def _publish_new_version(
         self,
@@ -233,7 +259,7 @@ class SiteService:
         entry_file: str,
         visibility: str,
         description: str,
-        team_id: Optional[str] = None,
+        scope_id: Optional[str] = None,
         build_info: Optional[dict] = None,
     ) -> Site:
         meta = dict(site.extra_data or {})
@@ -242,8 +268,7 @@ class SiteService:
         versions = list(meta.get("versions") or [])
         # New version number = historical max + 1 (after a rollback, current_version may be lower than the historical max)
         max_ver = max(
-            [int(site.current_version or 1)]
-            + [int(v.get("version") or 0) for v in versions]
+            [int(site.current_version or 1)] + [int(v.get("version") or 0) for v in versions]
         )
         version = max_ver + 1
         total_size = self._write_version_files(site.site_id, version, cleaned)
@@ -251,37 +276,22 @@ class SiteService:
         versions.append(self._version_meta(version, cleaned, total_size))
         meta["versions"] = versions[-20:]  # keep only the 20 most recent records
 
-        updated = self.repo.update(site.site_id, {
-            "title": title or site.title,
-            "description": description or site.description,
-            "visibility": visibility or site.visibility,
-            "team_id": team_id if team_id is not None else site.team_id,
-            "entry_file": entry_file,
-            "current_version": version,
-            "file_count": len(cleaned),
-            "total_size_bytes": total_size,
-            "extra_data": meta,
-        })
+        updated = self.repo.update(
+            site.site_id,
+            {
+                "title": title or site.title,
+                "description": description or site.description,
+                "visibility": visibility or site.visibility,
+                **site_scope_write_fields(scope_id),
+                "entry_file": entry_file,
+                "current_version": version,
+                "file_count": len(cleaned),
+                "total_size_bytes": total_size,
+                "extra_data": meta,
+            },
+        )
         self._prune_old_versions(site.site_id, version)
         return updated
-
-    def _resolve_team(
-        self, user_id: str, visibility: str, team_id: Optional[str]
-    ) -> Optional[str]:
-        """When visibility=team, resolve and validate the authorized team; other visibility tiers return None."""
-        if visibility != "team":
-            return None
-        from core.db.repository import TeamRepository
-
-        teams = TeamRepository(self.db)
-        if team_id:
-            if not teams.get_member(team_id, user_id):
-                raise BadRequestError("你不是该团队成员，无法发布团队站点")
-            return team_id
-        mine = teams.list_for_user(user_id)
-        if not mine:
-            raise BadRequestError("你还没有加入任何团队，无法使用团队可见档")
-        return mine[0][0].team_id
 
     @staticmethod
     def _version_meta(
@@ -294,15 +304,11 @@ class SiteService:
             "created_at": datetime.utcnow().isoformat(),
         }
 
-    def _validate_files(
-        self, files: List[Tuple[str, bytes]]
-    ) -> List[Tuple[str, bytes]]:
+    def _validate_files(self, files: List[Tuple[str, bytes]]) -> List[Tuple[str, bytes]]:
         if not files:
             raise BadRequestError("站点内容为空（目录里没有可发布的文件）")
         if len(files) > MAX_SITE_FILES:
-            raise BadRequestError(
-                f"站点文件数超限：{len(files)} > {MAX_SITE_FILES}"
-            )
+            raise BadRequestError(f"站点文件数超限：{len(files)} > {MAX_SITE_FILES}")
         cleaned: List[Tuple[str, bytes]] = []
         seen: set[str] = set()
         total = 0
@@ -334,22 +340,16 @@ class SiteService:
         paths = {p for p, _ in cleaned}
         if "index.html" in paths:
             return "index.html"
-        root_htmls = sorted(
-            p for p in paths if "/" not in p and p.endswith((".html", ".htm"))
-        )
+        root_htmls = sorted(p for p in paths if "/" not in p and p.endswith((".html", ".htm")))
         if len(root_htmls) == 1:
             return root_htmls[0]
-        raise BadRequestError(
-            "站点根目录必须有 index.html（或唯一的一个 .html 文件作为入口）"
-        )
+        raise BadRequestError("站点根目录必须有 index.html（或唯一的一个 .html 文件作为入口）")
 
     def _resolve_slug(self, slug: str) -> str:
         slug = (slug or "").strip().lower()
         if slug:
             if not SLUG_RE.match(slug):
-                raise BadRequestError(
-                    "slug 仅支持 3-50 位小写字母/数字/连字符，且首尾为字母数字"
-                )
+                raise BadRequestError("slug 仅支持 3-50 位小写字母/数字/连字符，且首尾为字母数字")
             if slug in RESERVED_SLUGS:
                 raise BadRequestError(f"slug '{slug}' 是保留字，请换一个")
             if self.repo.get_by_slug(slug):
@@ -400,9 +400,7 @@ class SiteService:
 
     # ── Hosted file retrieval ────────────────────────────────────
 
-    def resolve_site_file(
-        self, site: Site, path: str
-    ) -> Optional[Tuple[bytes, str]]:
+    def resolve_site_file(self, site: Site, path: str) -> Optional[Tuple[bytes, str]]:
         """Fetch a site file by the requested path; returns (bytes, content_type), or None if not found.
 
         Fallback order: exact path → directory index.html (``foo/`` or
@@ -459,7 +457,7 @@ class SiteService:
         visibility: Optional[str] = None,
         slug: Optional[str] = None,
         description: Optional[str] = None,
-        team_id: Optional[str] = None,
+        scope_id: Optional[str] = None,
     ) -> Site:
         site = self.get_owned(site_id, user_id)
         data: Dict[str, Any] = {}
@@ -469,12 +467,9 @@ class SiteService:
                 raise BadRequestError("站点标题不能为空")
             data["title"] = title
         if visibility is not None:
-            if visibility not in ("public", "private", "team"):
-                raise BadRequestError("visibility 仅支持 public / private / team")
+            resolved_scope_id = resolve_site_scope(self.db, user_id, visibility, scope_id)
             data["visibility"] = visibility
-            data["team_id"] = self._resolve_team(
-                user_id, visibility, team_id or site.team_id
-            )
+            data.update(site_scope_write_fields(resolved_scope_id))
         if description is not None:
             data["description"] = description or None
         if slug is not None and slug != site.slug:
@@ -490,8 +485,7 @@ class SiteService:
         if version == site.current_version:
             raise BadRequestError(f"v{version} 已是当前线上版本")
         versions = {
-            int(v.get("version") or 0)
-            for v in (site.extra_data or {}).get("versions") or []
+            int(v.get("version") or 0) for v in (site.extra_data or {}).get("versions") or []
         }
         if version not in versions:
             raise BadRequestError(f"版本 v{version} 不存在")
@@ -508,28 +502,19 @@ class SiteService:
             "to": version,
             "at": datetime.utcnow().isoformat(),
         }
-        return self.repo.update(site.site_id, {
-            "current_version": version,
-            "extra_data": meta,
-        })
+        return self.repo.update(
+            site.site_id,
+            {
+                "current_version": version,
+                "extra_data": meta,
+            },
+        )
 
     # ── View authorization (shared by the hosting route & site API) ─
 
     def authorize_view(self, site: Site, viewer_user_id: Optional[str]) -> bool:
-        """Decide whether the viewer may access the site based on the visibility tier."""
-        if site.visibility == "public":
-            return True
-        if not viewer_user_id:
-            return False
-        if viewer_user_id == site.user_id:
-            return True
-        if site.visibility == "team" and site.team_id:
-            from core.db.repository import TeamRepository
-
-            return TeamRepository(self.db).get_member(
-                site.team_id, viewer_user_id
-            ) is not None
-        return False
+        """Decide whether the viewer may access the site under this edition's policy."""
+        return can_view_site(self.db, site, viewer_user_id)
 
     # ── Site-level KV (a minimal subset benchmarked against D1) ──
 
@@ -562,7 +547,10 @@ class SiteService:
     # ── Form collection (export lands as an artifact) ────────────
 
     def submit_form(
-        self, site: Site, form_key: str, payload: Dict[str, Any],
+        self,
+        site: Site,
+        form_key: str,
+        payload: Dict[str, Any],
         client_ip: Optional[str] = None,
     ) -> str:
         if not FORM_KEY_RE.match(form_key or ""):
@@ -578,12 +566,12 @@ class SiteService:
         row = self.repo.submission_add(site.site_id, form_key, payload, client_ip)
         return row.id
 
-    def export_submissions_to_artifact(
-        self, site_id: str, user_id: str
-    ) -> Dict[str, Any]:
+    def export_submissions_to_artifact(self, site_id: str, user_id: str) -> Dict[str, Any]:
         """Export all form submissions as a CSV artifact (persisted; visible and downloadable in "My Space")."""
         site = self.get_owned(site_id, user_id)
-        rows, total = self.repo.submission_list(site.site_id, page=1, page_size=MAX_SUBMISSIONS_PER_SITE)
+        rows, total = self.repo.submission_list(
+            site.site_id, page=1, page_size=MAX_SUBMISSIONS_PER_SITE
+        )
         if not rows:
             raise BadRequestError("该站点还没有表单数据")
 
@@ -601,17 +589,23 @@ class SiteService:
         writer.writerow(["提交时间", "表单", *field_names])
         for r in reversed(rows):  # export in chronological order
             payload = r.payload or {}
-            writer.writerow([
-                r.created_at.isoformat() if r.created_at else "",
-                r.form_key,
-                *[
-                    _json.dumps(payload.get(k), ensure_ascii=False)
-                    if isinstance(payload.get(k), (dict, list))
-                    else ("" if payload.get(k) is None else str(payload.get(k)))
-                    for k in field_names
-                ],
-            ])
-        content = buf.getvalue().encode("utf-8-sig")  # BOM: opens directly in Excel without mojibake
+            writer.writerow(
+                [
+                    r.created_at.isoformat() if r.created_at else "",
+                    r.form_key,
+                    *[
+                        (
+                            _json.dumps(payload.get(k), ensure_ascii=False)
+                            if isinstance(payload.get(k), (dict, list))
+                            else ("" if payload.get(k) is None else str(payload.get(k)))
+                        )
+                        for k in field_names
+                    ],
+                ]
+            )
+        content = buf.getvalue().encode(
+            "utf-8-sig"
+        )  # BOM: opens directly in Excel without mojibake
 
         from core.artifacts.store import save_artifact_bytes
         from core.services.artifact_service import ArtifactService
@@ -650,6 +644,4 @@ class SiteService:
 
         if (os.getenv("STORAGE_TYPE", "local").lower()) == "local":
             base = os.getenv("STORAGE_PATH", "./storage")
-            shutil.rmtree(
-                os.path.join(base, "sites", site.site_id), ignore_errors=True
-            )
+            shutil.rmtree(os.path.join(base, "sites", site.site_id), ignore_errors=True)

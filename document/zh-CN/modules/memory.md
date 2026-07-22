@@ -83,7 +83,7 @@ save_memories_background()
 - 失败不冒泡（审计不阻塞主流程）；
 - 开关：`MEMORY_AUDIT_ENABLED`（默认 `true`）。
 
-按 [版本说明](../editions/overview.md)，记忆审计是商业版能力位（`core/licensing/features.py::Feature.MEMORY_AUDIT`）。审计查询接口为 `GET /v1/memories/audit`（支持按 action / layer 过滤）。
+按 [版本说明](../editions/overview.md)，记忆审计是商业版能力位（`edition_ee/licensing/features.py::Feature.MEMORY_AUDIT`）。审计查询接口为 `GET /v1/memories/audit`（支持按 action / layer 过滤）。
 
 ## 记忆管理 API
 
@@ -195,7 +195,8 @@ RERANKER_API_KEY=...
 | `src/backend/orchestration/memory_integration.py` | 检索启动、冻结块组装与注入、保存转调 |
 | `src/backend/orchestration/workflow.py` | 主编排：记忆 hook 接线点 |
 | `src/backend/api/routes/v1/memories.py` | `/v1/memories` 管理 API |
-| `src/backend/core/db/models/memory.py` | `MemoryAudit` / `MemorySanitizerRule` ORM |
+| `src/backend/core/db/models/memory.py` | 共享的 `MemorySanitizerRule` ORM |
+| `src/backend/edition_ee/db/models/memory.py` | `MemoryAudit` ORM（仅 EE） |
 | `src/frontend/src/components/settings/SettingsModal.tsx` | 记忆设置 + 分层记忆弹窗 |
 | `src/frontend/src/components/memory/FactsList.tsx` | L2 事实列表组件 |
 | `docker-compose.yml`（`mem0` profile） | Milvus / etcd / MinIO / Neo4j |

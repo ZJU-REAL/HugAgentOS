@@ -15,13 +15,15 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class CitationItem:
-    id: str             # e.g. "internet_search-1"
+    id: str  # e.g. "internet_search-1"
     tool_name: str
     tool_id: Optional[str]
     title: str
     url: str
     snippet: str
-    source_type: str    # internet | knowledge_base | database | industry_news | ai_news | chain_info | unknown
+    source_type: (
+        str  # internet | knowledge_base | database | industry_news | ai_news | chain_info | unknown
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -80,9 +82,12 @@ def extract_citations(
         if tool_name == "get_chain_information":
             return _chain_info(tool_id, source_type, result)
         if tool_name in {
-            "search_company", "get_company_base_info",
-            "get_company_business_analysis", "get_company_tech_insight",
-            "get_company_funding", "get_company_risk_warning",
+            "search_company",
+            "get_company_base_info",
+            "get_company_business_analysis",
+            "get_company_tech_insight",
+            "get_company_funding",
+            "get_company_risk_warning",
         }:
             return _company_profile(tool_name, tool_id, source_type, result)
     except Exception:
@@ -143,15 +148,17 @@ def _internet_search(tool_id: Optional[str], source_type: str, data: dict) -> Li
         title = str(item.get("title") or item.get("url") or "互联网搜索结果")[:120]
         url = str(item.get("url", ""))
         snippet = str(item.get("content") or item.get("snippet") or "")[:300]
-        out.append(CitationItem(
-            id=f"internet_search-{i}",
-            tool_name="internet_search",
-            tool_id=tool_id,
-            title=title,
-            url=url,
-            snippet=snippet,
-            source_type=source_type,
-        ))
+        out.append(
+            CitationItem(
+                id=f"internet_search-{i}",
+                tool_name="internet_search",
+                tool_id=tool_id,
+                title=title,
+                url=url,
+                snippet=snippet,
+                source_type=source_type,
+            )
+        )
     return out
 
 
@@ -161,28 +168,26 @@ def _dataset_content(tool_id: Optional[str], source_type: str, data: dict) -> Li
     for i, item in enumerate(items, 1):
         if not isinstance(item, dict):
             continue
-        # Support both the cleaned format (文件名称/文件内容 keys) and the raw Dify format (document/segment)
+        # Support both the normalized format and generic external-provider records.
         doc = item.get("document") or {}
         seg = item.get("segment") or {}
-        title = str(
-            item.get("文件名称")
-            or doc.get("name") or doc.get("title")
-            or "知识库文档"
-        )[:120]
-        snippet = str(
-            item.get("文件内容")
-            or seg.get("content") or item.get("content")
-            or ""
-        )[:3000]
-        out.append(CitationItem(
-            id=f"retrieve_dataset_content-{i}",
-            tool_name="retrieve_dataset_content",
-            tool_id=tool_id,
-            title=title,
-            url="",
-            snippet=snippet,
-            source_type=source_type,
-        ))
+        title = str(item.get("文件名称") or doc.get("name") or doc.get("title") or "知识库文档")[
+            :120
+        ]
+        snippet = str(item.get("文件内容") or seg.get("content") or item.get("content") or "")[
+            :3000
+        ]
+        out.append(
+            CitationItem(
+                id=f"retrieve_dataset_content-{i}",
+                tool_name="retrieve_dataset_content",
+                tool_id=tool_id,
+                title=title,
+                url="",
+                snippet=snippet,
+                source_type=source_type,
+            )
+        )
     return out
 
 
@@ -196,30 +201,34 @@ def _local_kb(tool_id: Optional[str], source_type: str, data: dict) -> List[Cita
             continue
         title = str(item.get("title") or "私有知识库文档")[:120]
         snippet = str(item.get("content") or "")[:3000]
-        out.append(CitationItem(
-            id=f"retrieve_local_kb-{i}",
-            tool_name="retrieve_local_kb",
-            tool_id=tool_id,
-            title=title,
-            url="",
-            snippet=snippet,
-            source_type=source_type,
-        ))
+        out.append(
+            CitationItem(
+                id=f"retrieve_local_kb-{i}",
+                tool_name="retrieve_local_kb",
+                tool_id=tool_id,
+                title=title,
+                url="",
+                snippet=snippet,
+                source_type=source_type,
+            )
+        )
     return out
 
 
 def _database(tool_id: Optional[str], source_type: str, data: dict) -> List[CitationItem]:
     res = data.get("result", data)
     snippet = str(res) if not isinstance(res, str) else res
-    return [CitationItem(
-        id="query_database-1",
-        tool_name="query_database",
-        tool_id=tool_id,
-        title="数据库查询结果",
-        url="",
-        snippet=snippet[:3000],
-        source_type=source_type,
-    )]
+    return [
+        CitationItem(
+            id="query_database-1",
+            tool_name="query_database",
+            tool_id=tool_id,
+            title="数据库查询结果",
+            url="",
+            snippet=snippet[:3000],
+            source_type=source_type,
+        )
+    ]
 
 
 def _news(
@@ -238,28 +247,32 @@ def _news(
         summary = str(item.get("摘要") or item.get("summary") or "")
         time_str = str(item.get("时间") or "")
         snippet = (f"[{time_str}] {summary}" if time_str else summary)[:3000]
-        out.append(CitationItem(
-            id=f"{tool_name}-{i}",
-            tool_name=tool_name,
-            tool_id=tool_id,
-            title=title,
-            url=url,
-            snippet=snippet,
-            source_type=source_type,
-        ))
+        out.append(
+            CitationItem(
+                id=f"{tool_name}-{i}",
+                tool_name=tool_name,
+                tool_id=tool_id,
+                title=title,
+                url=url,
+                snippet=snippet,
+                source_type=source_type,
+            )
+        )
     return out
 
 
 def _chain_info(tool_id: Optional[str], source_type: str, data: dict) -> List[CitationItem]:
-    return [CitationItem(
-        id="get_chain_information-1",
-        tool_name="get_chain_information",
-        tool_id=tool_id,
-        title="产业链分析报告",
-        url="",
-        snippet="产业链深度全景分析数据",
-        source_type=source_type,
-    )]
+    return [
+        CitationItem(
+            id="get_chain_information-1",
+            tool_name="get_chain_information",
+            tool_id=tool_id,
+            title="产业链分析报告",
+            url="",
+            snippet="产业链深度全景分析数据",
+            source_type=source_type,
+        )
+    ]
 
 
 _COMPANY_TOOL_TITLES: Dict[str, str] = {
@@ -291,26 +304,30 @@ def _company_profile(
                 item.get("企业状态", ""),
             ]
             snippet = " · ".join(str(p) for p in snippet_parts if p)[:300]
-            out.append(CitationItem(
-                id=f"search_company-{i}",
-                tool_name=tool_name,
-                tool_id=tool_id,
-                title=title,
-                url="",
-                snippet=snippet,
-                source_type=source_type,
-            ))
+            out.append(
+                CitationItem(
+                    id=f"search_company-{i}",
+                    tool_name=tool_name,
+                    tool_id=tool_id,
+                    title=title,
+                    url="",
+                    snippet=snippet,
+                    source_type=source_type,
+                )
+            )
         return out
 
     # Other 5 tools: single citation
     title = _COMPANY_TOOL_TITLES.get(tool_name, "企业画像")
     snippet = json.dumps(data, ensure_ascii=False)[:500] if data else ""
-    return [CitationItem(
-        id=f"{tool_name}-1",
-        tool_name=tool_name,
-        tool_id=tool_id,
-        title=title,
-        url="",
-        snippet=snippet,
-        source_type=source_type,
-    )]
+    return [
+        CitationItem(
+            id=f"{tool_name}-1",
+            tool_name=tool_name,
+            tool_id=tool_id,
+            title=title,
+            url="",
+            snippet=snippet,
+            source_type=source_type,
+        )
+    ]

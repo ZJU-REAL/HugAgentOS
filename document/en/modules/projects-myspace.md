@@ -97,7 +97,7 @@ Project frontend lives in `src/frontend/src/components/projects/`: `ProjectsPane
 
 ## Team folders and team files (Enterprise Edition, EE)
 
-User-facing routes are in `src/backend/api/routes/v1/team_files.py`, gated by the `multi_tenancy` feature flag (EE router table); the admin counterpart is `/v1/config/teams/*` (`config_teams.py`).
+User-facing routes are in `src/backend/edition_ee/routes/team_files.py`, gated by the `multi_tenancy` feature flag (EE router table); the admin counterpart is `/v1/config/teams/*` (`edition_ee/routes/config_teams.py`).
 
 | Method | Path | Description |
 |---|---|---|
@@ -109,7 +109,7 @@ User-facing routes are in `src/backend/api/routes/v1/team_files.py`, gated by th
 | POST | `/v1/artifacts/{artifact_id}/move-to-team` | Convert a personal file into a team file |
 | GET / PUT | `/v1/teams/{team_id}/members/permissions`, `.../{user_id}/permission` | View / adjust member file permissions |
 
-Permission model: `TeamMember.role` (owner/admin/member) + `file_permission` (viewer/editor, effective only for members), encapsulated in `core/auth/team_permissions.py`. Team files have a dedicated shared sandbox cache, `team_cache_dir(team_id)`, reused across members of the same team.
+Permission model: `TeamMember.role` (owner/admin/member) + `file_permission` (viewer/editor, effective only for members), encapsulated in the EE-only `edition_ee/auth/team_permissions.py`. Team files have a dedicated shared sandbox cache, `team_cache_dir(team_id)`, reused across members of the same team.
 
 ## How files enter conversation context
 
@@ -128,10 +128,11 @@ Three complementary paths:
 | `src/backend/core/services/project_scope.py` | `ProjectScope` (sandbox path scoping) |
 | `src/backend/api/routes/v1/myspace_folders.py` | Personal folders API |
 | `src/backend/api/routes/v1/artifacts.py` | Asset list / chat favorites / add-to-KB |
-| `src/backend/api/routes/v1/team_files.py` | Team folders & files API (Enterprise Edition, EE) |
+| `src/backend/edition_ee/routes/team_files.py` | Team folders & files API (Enterprise Edition, EE) |
 | `src/backend/api/routes/v1/file_upload.py` | File upload (folder targeting) |
 | `src/backend/core/db/models/project.py` | `Project` / `ProjectFavorite` ORM |
-| `src/backend/core/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` / `UserFolder` ORM |
+| `src/backend/core/db/models/identity.py` | Shared identity ORM such as `UserFolder` |
+| `src/backend/edition_ee/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` ORM (EE only) |
 | `src/backend/core/db/models/artifact.py` | `Artifact` ORM |
 | `src/backend/core/llm/hooks.py` | Attachment context injection (`_build_file_context`, etc.) |
 | `src/backend/core/llm/agent_factory.py` | Project section injection into the system prompt |

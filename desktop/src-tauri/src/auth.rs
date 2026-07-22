@@ -55,7 +55,10 @@ pub async fn redeem(
         return Err(format!("换票失败: HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("响应解析失败: {e}"))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("响应解析失败: {e}"))?;
     // 后端统一信封 { code, message, data: { token, cookie_name, expires_at } }
     let token = body
         .get("data")

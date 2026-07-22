@@ -1010,6 +1010,50 @@ def test_user_runtime_resolver_preserves_opt_out(db_session):
     assert opted_in is True
     assert runtime["review_level"] == "committee"
 
+    service.set_pack_flags("enterprise_risk", is_enabled=False)
+    opted_in, runtime = build_user_ontology_runtime(
+        user_id=user.user_id,
+        task="分析企业风险",
+        db=db_session,
+    )
+    assert opted_in is False
+    assert runtime == {"enabled": False, "packs": [], "review_level": "none"}
+
+
+def test_chat_context_treats_admin_disabled_pack_as_effective_opt_out(db_session, monkeypatch):
+    from api.routes.v1 import chats as chat_routes
+    from api.schemas import ChatRequest
+    from sqlalchemy.orm import sessionmaker
+
+    service = OntologyService(db_session)
+    service.create_version(_sample_payload(), actor_id="tester", activate=True)
+    service.set_pack_flags("enterprise_risk", is_enabled=False, is_default=True)
+
+    session_factory = sessionmaker(bind=db_session.get_bind())
+    monkeypatch.setattr(chat_routes, "SessionLocal", session_factory)
+    monkeypatch.setattr(chat_routes, "_backfill_artifact_cache", lambda *_args: None)
+    monkeypatch.setattr(
+        chat_routes,
+        "_collect_historical_attachments",
+        lambda **_kwargs: [],
+    )
+
+    context = chat_routes._build_ctx(
+        ChatRequest(chat_id="ontology_disabled_chat", message="分析企业风险"),
+        "ontology_user",
+        [],
+        [],
+        [],
+        ontology_enabled=True,
+    )
+
+    assert context["ontology_enabled"] is False
+    assert context["ontology_runtime"] == {
+        "enabled": False,
+        "packs": [],
+        "review_level": "none",
+    }
+
 
 def test_explicit_user_correction_enters_human_review_queue(db_session):
     from core.db.models import UserShadow

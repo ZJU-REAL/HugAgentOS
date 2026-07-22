@@ -1,11 +1,11 @@
 # License 机制（商业版）
-> 最后更新：2026-06-11
+> 最后更新：2026-07-22
 
-商业版（EE）采用 **GitLab 式离线 License 模型**：一份经 Ed25519 签名的授权文件（`.lic`）+ 进程内验签，**全程离线、无 license 服务器**，适配政务内网等隔离环境。本文逐项说明状态机、执法机制、签发流程与管理界面，全部内容以 `src/backend/core/licensing/` 代码为准。
+商业版（EE）采用 **GitLab 式离线 License 模型**：一份经 Ed25519 签名的授权文件（`.lic`）+ 进程内验签，**全程离线、无 license 服务器**，适配政务内网等隔离环境。能力位、验签、状态机、席位与闸门实现全部集中在 `src/backend/edition_ee/licensing/`，CE 派生树中不存在 License 运行时代码。
 
 ## License 文件格式
 
-`.lic` 文件是 JSON 信封（`src/backend/core/licensing/_ee_verify.py`，格式版本 `jx-license/1`）：
+`.lic` 文件是 JSON 信封（`src/backend/edition_ee/licensing/verify.py`，格式版本 `jx-license/1`）：
 
 ```json
 {
@@ -29,11 +29,11 @@
 }
 ```
 
-验签公钥内置于 `_ee_verify.py`（`_BUILTIN_PUBKEY`），可经环境变量 `LICENSE_PUBLIC_KEY` 覆盖（密钥轮换用）。`_ee_verify.py` 是**商业版专属模块，不进社区版派生树**（`ce/manifest.yaml` 显式排除；CE 树的 `manager.py` 被 overlay 替换为恒 False stub）。
+验签公钥内置于 `edition_ee/licensing/verify.py`（`_BUILTIN_PUBKEY`），可经环境变量 `LICENSE_PUBLIC_KEY` 覆盖（密钥轮换用）。整个 `edition_ee/licensing` 实现在 CE 派生树中物理不存在；CE 的版本中间件由 overlay 提供固定探针，不提供 License manager 或同名验签 stub。
 
 ## 状态机
 
-`core/licensing/manager.py::LicenseManager.mode()` 返回 7 种状态之一：
+`edition_ee/licensing/manager.py::LicenseManager.mode()` 返回 7 种状态之一：
 
 | mode | 触发条件 | EE 能力位 |
 |---|---|---|
@@ -65,14 +65,14 @@
 
 ### Feature 枚举
 
-`core/licensing/features.py::Feature` 只列「组织级」商业能力位（自动化 / 批量 / 个人画布 / L2-L3 记忆属社区版，不在枚举内）：
+`edition_ee/licensing/features.py::Feature` 只列「组织级」商业能力位（自动化 / 批量 / 个人画布 / L2-L3 记忆属社区版，不在枚举内）：
 
 `sso`、`multi_tenancy`、`audit`、`memory_audit`、`billing`、`quota`、`persistent_sandbox`、`cloud_storage`、`industry_tools`、`content_admin`、`system_config`、`canvas_collab`、`whitelabel`。
 
 ### 两道防线
 
 1. **第一道：路由注册表**（CE 树物理不含 EE 路由文件）——见 [CE 构建管线](build-ce.md)。
-2. **第二道：`requires_feature` 守卫**（`core/licensing/deps.py`）——防「商业版部署了全量代码、但 license 未购买某能力包」。
+2. **第二道：`requires_feature` 守卫**（`edition_ee/licensing/deps.py`）——防「商业版部署了全量代码、但 license 未购买某能力包」。
 
 EE 路由与能力位的对应关系在注册表 `src/backend/api/routes/v1/__init__.py::EE_ROUTERS` 中声明（表项第三列即能力位），`api/app.py` 注册时按表挂守卫：
 
@@ -85,7 +85,7 @@ EE 路由与能力位的对应关系在注册表 `src/backend/api/routes/v1/__in
 | `config_security`、`service_configs` | `system_config` |
 | `config_verify`、`config_license`、`auth` | **None（显式豁免）** |
 
-三个豁免项是刻意设计：`config_verify` 是控制台登录校验、`config_license` 是换 license 的入口、`auth` 是登录 / 会话基础设施——license 失效时也必须可达，否则用户陷入「402 → 登出 → 登录 → 402」死循环且无从换 license。SSO 能力位不在路由级整体豁免，而是自行守卫：authorize-url 端点挂 `requires_feature(Feature.SSO)`（`api/routes/v1/auth.py`），remote ticket 交换在 `core/auth/sso.py::exchange_ticket` 内检查。
+三个豁免项是刻意设计：`config_verify` 是控制台登录校验、`config_license` 是换 license 的入口、`auth` 是登录 / 会话基础设施——license 失效时也必须可达，否则用户陷入「402 → 登出 → 登录 → 402」死循环且无从换 license。SSO 能力位不在路由级整体豁免，而是自行守卫：authorize-url 端点挂 `requires_feature(Feature.SSO)`（`edition_ee/routes/auth.py`），remote ticket 交换在 `edition_ee/auth/sso.py::exchange_ticket` 内检查。
 
 > 注：`quota` / `persistent_sandbox` / `cloud_storage` / `industry_tools` / `canvas_collab` / `whitelabel` / `memory_audit` 当前在 license entitlement 与探针中表达，但**未挂路由级守卫**——这些能力的边界主要由 CE 树物理排除与部署配置兑现。
 
@@ -101,7 +101,7 @@ EE 路由与能力位的对应关系在注册表 `src/backend/api/routes/v1/__in
 
 ## 席位上限
 
-席位计数单一真源在 `core/licensing/seats.py`：
+席位计数单一真源在 `edition_ee/licensing/seats.py`：
 
 - `seats_used(db)`：已占用席位 = `users_shadow` 全量行数（含 SSO 影子账号）；
 - `seat_available(db)`：新增用户前的校验（本地注册、SSO 自动建号共用）。CE / internal / 不限席位（`seats=0`）恒放行；`licensed` / `grace` 下要求 `active_users < seats`；`expired` / `invalid` / `missing` 恒拒绝；
@@ -115,7 +115,7 @@ EE 路由与能力位的对应关系在注册表 `src/backend/api/routes/v1/__in
 
 ### `GET/POST /v1/config/license`（CONFIG_TOKEN 鉴权）
 
-`api/routes/v1/config_license.py`：
+`edition_ee/routes/config_license.py`：
 
 - `GET`：完整状态（`license_manager.status()` + `seats_used`），含各能力位实时判定、宽限天数、license 元信息；
 - `POST`：上传 `.lic` 全文（≤64KB）热换。流程：**先验签再落盘**（无效文件不覆盖现有 license）→ 拒绝激活已过宽限期的 license（grace 期内放行，保证文件丢失 / 主机重建时宽限窗口内能重新挂回）→ 原子写入 `LICENSE_KEY_PATH`（tmp + `os.replace`）→ `license_manager.reload()` 即时生效，**无需重启**。未配置 `LICENSE_KEY_PATH` 时返回 400 提示先配置。
@@ -141,7 +141,7 @@ const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenan
 ```bash
 # 1. 生成 Ed25519 密钥对（一次性；私钥务必离线保管，泄露即可被任意签发）
 python scripts/license_tool.py keygen --out-dir ~/jx-license-keys
-#    输出公钥值 → 更新到 core/licensing/_ee_verify.py::_BUILTIN_PUBKEY（或客户侧 LICENSE_PUBLIC_KEY）
+#    输出公钥值 → 更新到 edition_ee/licensing/verify.py::_BUILTIN_PUBKEY（或客户侧 LICENSE_PUBLIC_KEY）
 
 # 2. 签发
 python scripts/license_tool.py issue \
@@ -157,7 +157,7 @@ python scripts/license_tool.py inspect customer.lic
 python scripts/license_tool.py verify customer.lic --pub ~/jx-license-keys/license_signing.pub
 ```
 
-`issue` 自动生成 `license_id`（`lic_` + 16 位 hex）、校验日期格式；`--seats 0` 表示不限席位；`--features` 逗号分隔能力位，`"*"` 为全功能。信封格式与验签逻辑的唯一真源在后端 `_ee_verify.py`，签发工具直接复用（显式传公钥，不拖入后端配置链）。
+`issue` 自动生成 `license_id`（`lic_` + 16 位 hex）、校验日期格式；`--seats 0` 表示不限席位；`--features` 逗号分隔能力位，`"*"` 为全功能。信封格式与验签逻辑的唯一真源在 `edition_ee/licensing/verify.py`，签发工具直接复用（显式传公钥，不拖入后端配置链）。
 
 ## 私有化交付清单
 
@@ -170,14 +170,14 @@ python scripts/license_tool.py verify customer.lic --pub ~/jx-license-keys/licen
 
 | 主题 | 路径 |
 |---|---|
-| 状态机 / 门面 | `src/backend/core/licensing/manager.py` |
-| Ed25519 验签（EE 专属） | `src/backend/core/licensing/_ee_verify.py` |
-| 能力位枚举 + 402 异常 | `src/backend/core/licensing/features.py` |
-| `requires_feature` 守卫 | `src/backend/core/licensing/deps.py` |
-| 席位计数 | `src/backend/core/licensing/seats.py` |
+| EE 状态机 | `src/backend/edition_ee/licensing/manager.py` |
+| Ed25519 验签（EE 专属） | `src/backend/edition_ee/licensing/verify.py` |
+| 能力位枚举 + 402 异常 | `src/backend/edition_ee/licensing/features.py` |
+| `requires_feature` 守卫 | `src/backend/edition_ee/licensing/deps.py` |
+| 席位计数 | `src/backend/edition_ee/licensing/seats.py` |
 | EE 路由 ↔ 能力位注册表 | `src/backend/api/routes/v1/__init__.py` |
 | 守卫挂接 | `src/backend/api/app.py`（edition 注册循环） |
-| 状态查询 / 热换 | `src/backend/api/routes/v1/config_license.py` |
+| 状态查询 / 热换 | `src/backend/edition_ee/routes/config_license.py` |
 | 探针 | `src/backend/api/routes/v1/meta.py` |
 | 签发工具 | `scripts/license_tool.py` |
 | License 面板 | `src/frontend/src/components/config/LicensePanel.tsx` |

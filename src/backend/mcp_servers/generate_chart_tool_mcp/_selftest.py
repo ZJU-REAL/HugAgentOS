@@ -18,8 +18,6 @@ def _fail(msg: str) -> None:
 def main() -> None:
     # Import-time env guards for other modules.
     os.environ.setdefault("TAVILY_API_KEY", "DUMMY")
-    os.environ.setdefault("DIFY_API_KEY", "DUMMY")
-    os.environ.setdefault("DIFY_URL", "http://localhost")
     os.environ.setdefault("DATABASE_URL", "http://localhost")
 
     try:

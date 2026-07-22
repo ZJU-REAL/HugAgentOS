@@ -33,6 +33,17 @@ DB_UMBRELLA_DESC = (
 )
 
 
+def _database_query_capability_available() -> bool:
+    """Whether this edition ships a runnable database-query implementation."""
+    try:
+        from mcp_servers._ports import PORTS
+
+        return "query_database" in PORTS
+    except Exception as exc:
+        _LOGGER.warning("Database-query runtime registry unavailable: %s", exc)
+        return False
+
+
 def _private_skill_ids() -> set:
     """Set of private skill ids in admin_skills owned by some user (owner_user_id non-null).
 
@@ -126,8 +137,8 @@ def _default_catalog() -> Dict[str, Any]:
 
     # Build MCP items from mcp_config.py with auto-extracted detail field
     try:
-        from core.config.mcp_config import MCP_SERVER_DISPLAY_NAMES as _MCP_ZH_NAMES
         from core.config.mcp_config import MCP_SERVER_DESCRIPTIONS as _MCP_ZH_DESC
+        from core.config.mcp_config import MCP_SERVER_DISPLAY_NAMES as _MCP_ZH_NAMES
     except Exception:
         _MCP_ZH_NAMES = {}
         _MCP_ZH_DESC = {}
@@ -144,16 +155,17 @@ def _default_catalog() -> Dict[str, Any]:
         for k in mcp_servers.keys()
         if k not in DB_HIDDEN_SERVERS
     ]
-    mcp_items.append(
-        _item(
-            item_id=DB_UMBRELLA_ID,
-            kind="mcp_server",
-            name=DB_UMBRELLA_NAME,
-            description=DB_UMBRELLA_DESC,
-            enabled=True,
-            config={"server": DB_UMBRELLA_ID},
+    if _database_query_capability_available():
+        mcp_items.append(
+            _item(
+                item_id=DB_UMBRELLA_ID,
+                kind="mcp_server",
+                name=DB_UMBRELLA_NAME,
+                description=DB_UMBRELLA_DESC,
+                enabled=True,
+                config={"server": DB_UMBRELLA_ID},
+            )
         )
-    )
 
     skill_items: List[Dict[str, Any]] = []
     for metadata in _load_builtin_skill_metadata():
@@ -377,9 +389,9 @@ def _load_dynamic_mcp_specs() -> Dict[str, Dict[str, str]]:
     """
     try:
         from core.config.mcp_config import (
-            MCP_SERVERS,
             MCP_SERVER_DESCRIPTIONS,
             MCP_SERVER_DISPLAY_NAMES,
+            MCP_SERVERS,
         )
     except Exception as e:
         _LOGGER.warning(f"Failed to load MCP configs: {e}")
@@ -438,13 +450,16 @@ def _load_dynamic_mcp_specs() -> Dict[str, Dict[str, str]]:
             "detail": row.user_intro or MCP_SERVER_USER_INTROS.get(sid, ""),
         }
 
-    # Inject the synthetic "database query" umbrella capability (corresponds to no admin_mcp_servers row).
-    result[DB_UMBRELLA_ID] = {
-        "id": DB_UMBRELLA_ID,
-        "name": DB_UMBRELLA_NAME,
-        "description": DB_UMBRELLA_DESC,
-        "detail": MCP_SERVER_USER_INTROS.get(DB_UMBRELLA_ID, ""),
-    }
+    # Inject the synthetic umbrella only when this edition ships a database
+    # query runtime.  Otherwise the sync layer would recreate an item that the
+    # CE build deliberately removed from catalog.json.
+    if _database_query_capability_available():
+        result[DB_UMBRELLA_ID] = {
+            "id": DB_UMBRELLA_ID,
+            "name": DB_UMBRELLA_NAME,
+            "description": DB_UMBRELLA_DESC,
+            "detail": MCP_SERVER_USER_INTROS.get(DB_UMBRELLA_ID, ""),
+        }
 
     return result
 
