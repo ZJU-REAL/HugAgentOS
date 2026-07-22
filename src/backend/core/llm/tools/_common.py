@@ -10,9 +10,10 @@ import shlex
 from typing import Any, Optional
 
 from agentscope.message import TextBlock
+
 # AgentScope 2.0: tool functions must return ToolChunk; aliased (its fields are a superset of ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
-
+from core.llm.tools.edition_myspace_vfs import organization_mutation_blocked
 from core.services.project_scope import ProjectScope
 
 logger = logging.getLogger(__name__)
@@ -24,14 +25,19 @@ def resp_json(payload: dict[str, Any]) -> ToolResponse:
     Mirrors ``core.llm.tool._resp_json``. Re-implemented here so this package
     has zero cross-imports back to the large monolithic ``tool.py``.
     """
-    return ToolResponse(content=[TextBlock(
-        type="text",
-        text=json.dumps(payload, ensure_ascii=False),
-    )])
+    return ToolResponse(
+        content=[
+            TextBlock(
+                type="text",
+                text=json.dumps(payload, ensure_ascii=False),
+            )
+        ]
+    )
 
 
 def resolve_sandbox_session(
-    sandbox_session_id: Optional[str], chat_id: Optional[str],
+    sandbox_session_id: Optional[str],
+    chat_id: Optional[str],
 ) -> Optional[str]:
     """``sandbox_session_id`` wins; ``None`` means 'unspecified' → fall back to
     ``chat_id`` (legacy behavior). Explicit ``""`` stays ephemeral."""
@@ -39,8 +45,13 @@ def resolve_sandbox_session(
 
 
 async def myspace_write_guard(
-    *, chat_id: Optional[str], op: str, logical_path: str,
-    is_myspace: bool, interactive: bool, summary: str,
+    *,
+    chat_id: Optional[str],
+    op: str,
+    logical_path: str,
+    is_myspace: bool,
+    interactive: bool,
+    summary: str,
 ) -> Optional[ToolResponse]:
     """§13 gate (Claude Code shape): an unconfirmed /myspace write **suspends the
     current tool coroutine** to wait for the user's out-of-band decision; approve
@@ -58,9 +69,13 @@ async def myspace_write_guard(
     if not is_myspace:
         return None
     from core.llm.tools import _myspace_confirm as _mc
+
     blk = await _mc.gate(
-        chat_id=chat_id, op=op, logical_path=logical_path,
-        interactive=interactive, summary=summary,
+        chat_id=chat_id,
+        op=op,
+        logical_path=logical_path,
+        interactive=interactive,
+        summary=summary,
     )
     return resp_json(blk) if blk is not None else None
 
@@ -80,22 +95,19 @@ async def sandbox_exec_bash(
     resolved ``_sess`` (``sandbox_session_id`` or chat_id fallback), never a
     DB-scoping chat id. Kept named ``chat_id`` to avoid churning call sites.
     """
-    from core.sandbox import (
-        ExecuteRequest,
-        SandboxError,
-        SandboxConnectError,
-        get_sandbox_provider,
-    )
+    from core.sandbox import ExecuteRequest, SandboxConnectError, SandboxError, get_sandbox_provider
 
     try:
         provider = get_sandbox_provider()
-        result = await provider.execute(ExecuteRequest(
-            script_content=script,
-            script_name="_tool_helper.sh",
-            language="bash",
-            timeout=max(1, min(int(timeout or 30), 60)),
-            session_id=chat_id,
-        ))
+        result = await provider.execute(
+            ExecuteRequest(
+                script_content=script,
+                script_name="_tool_helper.sh",
+                language="bash",
+                timeout=max(1, min(int(timeout or 30), 60)),
+                session_id=chat_id,
+            )
+        )
         return result.exit_code, result.stdout, result.stderr
     except (SandboxError, SandboxConnectError) as exc:
         return -1, "", str(exc)
@@ -139,14 +151,9 @@ def upsert_myspace_artifact(
         logger.warning("[artifact-sync] missing user_id or filename; skip")
         return None
 
-    # PR 1 read-only: under a team-project scope, files produced by
-    # sandbox_get_artifact / bash are not auto-upserted for now (otherwise it
-    # would create orphan artifacts with user_id=self/team_id=NULL, polluting the
-    # personal MySpace root). PR 2 will enable "auto-place into the team-linked
-    # folder" after adding the permission gate.
-    if scope is not None and scope.is_team:
+    if organization_mutation_blocked(scope):
         logger.info(
-            "[artifact-sync] team scope: skip auto-upsert for filename=%s (PR 1 read-only)",
+            "[artifact-sync] edition scope blocked auto-upsert for filename=%s",
             filename,
         )
         return None
@@ -158,6 +165,7 @@ def upsert_myspace_artifact(
     # ── 1. Mirror to myspace_cache so next sandbox seed sees the update ──
     try:
         from core.sandbox._common import myspace_cache_dir
+
         cache_dir = myspace_cache_dir(user_id)
         cache_dir.mkdir(parents=True, exist_ok=True)
         (cache_dir / name).write_bytes(content)
@@ -168,6 +176,7 @@ def upsert_myspace_artifact(
     # ── 2. Try in-place update of an existing live artifact ────────────
     try:
         from datetime import datetime, timezone
+
         from core.db.engine import SessionLocal
         from core.db.models import Artifact
         from core.storage import get_storage
@@ -194,7 +203,8 @@ def upsert_myspace_artifact(
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "[artifact-sync] upload_bytes failed for %s: %s",
-                    row.storage_key, exc,
+                    row.storage_key,
+                    exc,
                 )
                 return None
             row.size_bytes = max(len(content), 1)
@@ -203,7 +213,10 @@ def upsert_myspace_artifact(
             db.commit()
             logger.info(
                 "[artifact-sync] in-place updated artifact %s (user=%s name=%s size=%d)",
-                row.artifact_id, user_id, name, len(content),
+                row.artifact_id,
+                user_id,
+                name,
+                len(content),
             )
             return {
                 "file_id": row.artifact_id,
@@ -239,12 +252,14 @@ def upsert_myspace_artifact(
         return None
 
     refs = _store_generated_files(
-        [{
-            "name": name,
-            "size": len(content),
-            "content_b64": base64.b64encode(content).decode("ascii"),
-            "mime_type": mime,
-        }],
+        [
+            {
+                "name": name,
+                "size": len(content),
+                "content_b64": base64.b64encode(content).decode("ascii"),
+                "mime_type": mime,
+            }
+        ],
         user_id=user_id,
         source="myspace_sync",
         extra_metadata={"chat_id": chat_id} if chat_id else None,
@@ -260,6 +275,7 @@ def upsert_myspace_artifact(
     if new_file_id and chat_id:
         try:
             from datetime import datetime, timezone
+
             from core.db.engine import SessionLocal
             from core.db.models import Artifact
         except Exception as exc:  # noqa: BLE001
@@ -270,31 +286,35 @@ def upsert_myspace_artifact(
             # register_as_artifact path carries no logical path, so sync_upsert's
             # myspace_rel prefix cannot cover it — we must explicitly set folder here.
             _proj_folder_id: Optional[str] = (
-                scope.root_folder_id
-                if scope is not None and scope.is_personal
-                else None
+                scope.root_folder_id if scope is not None and scope.is_personal else None
             )
             db = SessionLocal()
             try:
                 # Guard against race / duplicate
-                existing = db.query(Artifact).filter(
-                    Artifact.artifact_id == new_file_id,
-                ).first()
+                existing = (
+                    db.query(Artifact)
+                    .filter(
+                        Artifact.artifact_id == new_file_id,
+                    )
+                    .first()
+                )
                 if existing is None:
-                    db.add(Artifact(
-                        artifact_id=new_file_id,
-                        chat_id=chat_id,
-                        user_id=user_id,
-                        user_folder_id=_proj_folder_id,
-                        type="other",
-                        title=name,
-                        filename=name,
-                        size_bytes=max(len(content), 1),
-                        mime_type=mime,
-                        storage_key=ref.get("storage_key") or f"artifacts/{new_file_id}",
-                        storage_url=ref.get("url"),
-                        extra_data={"source": "myspace_sync"},
-                    ))
+                    db.add(
+                        Artifact(
+                            artifact_id=new_file_id,
+                            chat_id=chat_id,
+                            user_id=user_id,
+                            user_folder_id=_proj_folder_id,
+                            type="other",
+                            title=name,
+                            filename=name,
+                            size_bytes=max(len(content), 1),
+                            mime_type=mime,
+                            storage_key=ref.get("storage_key") or f"artifacts/{new_file_id}",
+                            storage_url=ref.get("url"),
+                            extra_data={"source": "myspace_sync"},
+                        )
+                    )
                     db.commit()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[artifact-sync] DB insert failed for %s: %s", new_file_id, exc)
@@ -304,7 +324,9 @@ def upsert_myspace_artifact(
 
     logger.info(
         "[artifact-sync] new artifact %s registered (user=%s name=%s)",
-        new_file_id, user_id, name,
+        new_file_id,
+        user_id,
+        name,
     )
     return ref
 
@@ -326,6 +348,7 @@ def pin_artifact_to_workspace(ref: dict[str, Any]) -> bool:
         return False
     try:
         from core.llm import workspace as _workspace
+
         pinned = _workspace.pin(
             file_id=str(file_id),
             name=ref.get("name"),

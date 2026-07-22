@@ -1,24 +1,20 @@
 import { create } from 'zustand';
-import { createApiResponseError } from '../utils/apiError';
+
 import type { OntologyTagOption } from '../types';
+import { createApiResponseError } from '../utils/apiError';
 
 export interface AgentChangeHistoryItem {
   version: string;
   timestamp: string;
   content: string;
   operator_name: string;
-  details: Array<{
-    field: string;
-    before: string;
-    after: string;
-  }>;
+  details: Array<{ field: string; before: string; after: string }>;
 }
 
 export interface UserAgentItem {
   agent_id: string;
-  owner_type: 'admin' | 'user' | 'team';
+  owner_type: 'admin' | 'user';
   user_id: string | null;
-  team_id: string | null;
   name: string;
   avatar: string | null;
   description: string;
@@ -53,15 +49,10 @@ export interface AvailableResources {
 }
 
 interface AgentState {
-  /** All agents visible to current user (admin + own) */
   agents: UserAgentItem[];
-  /** Currently selected agent for chat (null = main agent) */
   currentAgent: UserAgentItem | null;
-  /** Loading state */
   loading: boolean;
-  /** Available MCP/skill resources for binding */
   availableResources: AvailableResources | null;
-
   fetchAgents: () => Promise<void>;
   fetchAvailableResources: () => Promise<void>;
   createAgent: (data: Partial<UserAgentItem>) => Promise<UserAgentItem>;
@@ -70,21 +61,17 @@ interface AgentState {
   setCurrentAgent: (agent: UserAgentItem | null) => void;
 }
 
-const getApiUrl = () => (import.meta.env.VITE_API_BASE_URL as string) || '/api';
+const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string) || '/api';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-async function agentApiRequest<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = `${getApiUrl()}${path}`;
-  const response = await fetch(url, {
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiBase()}${path}`, {
     ...options,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers ?? {}),
-    },
+    headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
@@ -101,54 +88,47 @@ export const useAgentStore = create<AgentState>((set) => ({
   availableResources: null,
 
   fetchAgents: async () => {
+    set({ loading: true });
     try {
-      set({ loading: true });
-      const data = await agentApiRequest<UserAgentItem[] | { items: UserAgentItem[] }>('/v1/agents');
-      const items = Array.isArray(data) ? data : data.items;
-      set({ agents: items, loading: false });
-    } catch (e) {
-      console.error('Failed to fetch agents:', e);
+      const data = await request<UserAgentItem[] | { items: UserAgentItem[] }>('/v1/agents');
+      set({ agents: Array.isArray(data) ? data : data.items });
+    } catch (error) {
+      console.error('Failed to fetch agents:', error);
+    } finally {
       set({ loading: false });
     }
   },
 
   fetchAvailableResources: async () => {
     try {
-      const data = await agentApiRequest<AvailableResources>('/v1/agents/available-resources');
-      set({ availableResources: data });
-    } catch (e) {
-      console.error('Failed to fetch available resources:', e);
+      set({ availableResources: await request<AvailableResources>('/v1/agents/available-resources') });
+    } catch (error) {
+      console.error('Failed to fetch available resources:', error);
     }
   },
 
   createAgent: async (data) => {
-    const agent = await agentApiRequest<UserAgentItem>('/v1/agents', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    const agent = await request<UserAgentItem>('/v1/agents', { method: 'POST', body: JSON.stringify(data) });
     set((state) => ({ agents: [...state.agents, agent] }));
     return agent;
   },
 
   updateAgent: async (agentId, data) => {
-    const agent = await agentApiRequest<UserAgentItem>(`/v1/agents/${agentId}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    const agent = await request<UserAgentItem>(`/v1/agents/${agentId}`, { method: 'PUT', body: JSON.stringify(data) });
     set((state) => ({
-      agents: state.agents.map((a) => (a.agent_id === agentId ? agent : a)),
+      agents: state.agents.map((item) => item.agent_id === agentId ? agent : item),
       currentAgent: state.currentAgent?.agent_id === agentId ? agent : state.currentAgent,
     }));
     return agent;
   },
 
   deleteAgent: async (agentId) => {
-    await agentApiRequest<void>(`/v1/agents/${agentId}`, { method: 'DELETE' });
+    await request<void>(`/v1/agents/${agentId}`, { method: 'DELETE' });
     set((state) => ({
-      agents: state.agents.filter((a) => a.agent_id !== agentId),
+      agents: state.agents.filter((item) => item.agent_id !== agentId),
       currentAgent: state.currentAgent?.agent_id === agentId ? null : state.currentAgent,
     }));
   },
 
-  setCurrentAgent: (agent) => set({ currentAgent: agent }),
+  setCurrentAgent: (currentAgent) => set({ currentAgent }),
 }));

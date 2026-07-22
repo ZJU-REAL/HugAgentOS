@@ -1,4 +1,4 @@
-"""Selftest: UserFolderService — key-path verification mirroring TeamFolderService.
+"""Selftest: UserFolderService key-path verification.
 
 How to run: PYTHONPATH=src/backend python -m tests.user_folder_service_selftest
 or run automatically as part of make selftest.
@@ -13,9 +13,6 @@ from pathlib import Path
 
 def main() -> int:
     try:
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import sessionmaker
-
         from core.db.engine import Base
         from core.db.models import Artifact, UserFolder, UserShadow
         from core.services.user_folder_service import (
@@ -23,6 +20,8 @@ def main() -> int:
             UserFolderService,
             _sanitize_name,
         )
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
     except ModuleNotFoundError as e:
         print(f"user_folder_service_selftest: SKIP (missing dependency: {e})")
         return 0
@@ -117,29 +116,33 @@ def main() -> int:
 
             # ── cascade soft delete ──
             # attach an artifact under f1
-            db.add(Artifact(
-                artifact_id="a1",
-                user_id=uid,
-                user_folder_id=f1,
-                type="document",
-                title="t",
-                filename="t.txt",
-                size_bytes=1,
-                mime_type="text/plain",
-                storage_key="k",
-            ))
+            db.add(
+                Artifact(
+                    artifact_id="a1",
+                    user_id=uid,
+                    user_folder_id=f1,
+                    type="document",
+                    title="t",
+                    filename="t.txt",
+                    size_bytes=1,
+                    mime_type="text/plain",
+                    storage_key="k",
+                )
+            )
             # also attach one under f1's child (already moved to f3)
-            db.add(Artifact(
-                artifact_id="a2",
-                user_id=uid,
-                user_folder_id=f2,  # f2 already moved under f3
-                type="document",
-                title="t2",
-                filename="t2.txt",
-                size_bytes=1,
-                mime_type="text/plain",
-                storage_key="k2",
-            ))
+            db.add(
+                Artifact(
+                    artifact_id="a2",
+                    user_id=uid,
+                    user_folder_id=f2,  # f2 already moved under f3
+                    type="document",
+                    title="t2",
+                    filename="t2.txt",
+                    size_bytes=1,
+                    mime_type="text/plain",
+                    storage_key="k2",
+                )
+            )
             db.commit()
 
             cnt_f1 = svc.count_affected_artifacts(f1, uid)

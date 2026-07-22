@@ -389,6 +389,44 @@ def is_removed_builtin_mcp_server(
     return server_id in builtin_ids and server_id not in PORTS
 
 
+def prune_removed_builtin_mcp_servers(db) -> List[str]:
+    """Delete stale global built-ins whose runtime is absent in this edition.
+
+    CE physically removes commercial MCP packages and port registrations. An
+    upgraded database can still carry rows seeded by an older/full build; keep
+    the persisted catalog aligned with the packaged runtime instead of merely
+    hiding those rows at read time. Plugin-owned and user-owned MCP rows are
+    never touched.
+    """
+    from mcp_servers._ports import PORTS
+
+    removed_ids = {
+        str(spec["server_id"])
+        for spec in BUILTIN_MCP_SERVERS
+        if str(spec["server_id"]) not in PORTS
+    }
+    if not removed_ids:
+        return []
+
+    rows = (
+        db.query(AdminMcpServer)
+        .filter(
+            AdminMcpServer.server_id.in_(removed_ids),
+            AdminMcpServer.owner_user_id.is_(None),
+            AdminMcpServer.source_plugin.is_(None),
+        )
+        .all()
+    )
+    pruned = sorted(row.server_id for row in rows)
+    if not pruned:
+        return []
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    McpServerConfigService.get_instance().invalidate_cache()
+    return pruned
+
+
 def seed_builtin_mcp_servers_if_empty(db) -> List[str]:
     """Seed the built-in global MCP catalog when it is entirely absent.
 

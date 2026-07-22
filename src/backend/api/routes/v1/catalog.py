@@ -12,31 +12,31 @@ from core.db.engine import get_db
 from core.db.repository import KBRepository
 from core.infra.exceptions import BadRequestError
 from core.infra.responses import success_response
-from core.kb.dify_kb import is_dify_enabled, list_datasets
+from core.kb.external_provider import is_enabled, list_collections
 from core.services import CatalogService
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-# ── Dify dataset list cache (avoids 3s timeout on every page load) ──
-_dify_cache_lock = Lock()
-_dify_cache: Optional[tuple] = None  # (expires_at, items)
-_DIFY_CACHE_TTL = 30.0
+# ── External knowledge collection cache ──
+_external_cache_lock = Lock()
+_external_cache: Optional[tuple] = None  # (expires_at, items)
+_EXTERNAL_CACHE_TTL = 30.0
 
 
 def _list_datasets_cached() -> List[Dict[str, Any]]:
-    """Return Dify datasets with 30s in-memory cache."""
-    global _dify_cache
+    """Return external collections with a short in-memory cache."""
+    global _external_cache
     now = monotonic()
-    with _dify_cache_lock:
-        if _dify_cache is not None:
-            expires_at, items = _dify_cache
+    with _external_cache_lock:
+        if _external_cache is not None:
+            expires_at, items = _external_cache
             if now < expires_at:
                 return items
 
-    items = list_datasets(page=1, limit=100)
-    with _dify_cache_lock:
-        _dify_cache = (now + _DIFY_CACHE_TTL, items)
+    items = list_collections(page=1, limit=100)
+    with _external_cache_lock:
+        _external_cache = (now + _EXTERNAL_CACHE_TTL, items)
     return items
 
 
@@ -309,17 +309,17 @@ async def get_catalog_items(
 
     is_ce = settings.edition.edition == "ce"
 
-    # ── Public KB (Dify; EE only) ─────────────────────────────────────────────
+    # ── Externally managed public knowledge collections ───────────────────────
     public_kb_items: List[Dict[str, Any]] = []
-    if not is_ce and is_dify_enabled():
+    if not is_ce and is_enabled():
         try:
-            dify_items = _list_datasets_cached()
+            external_items = _list_datasets_cached()
             # Permission assignment: narrow to datasets visible to the current user (public + granted scoped; defaults to public when unset).
             from core.auth.kb_permissions import get_dataset_levels
 
-            ds_ids = [str(it.get("id", "")).strip() for it in dify_items if it.get("id")]
+            ds_ids = [str(item.get("id", "")).strip() for item in external_items if item.get("id")]
             ds_levels = get_dataset_levels(db, user.user_id, ds_ids)
-            for item in dify_items:
+            for item in external_items:
                 ds_id = str(item.get("id", "")).strip()
                 level = ds_levels.get(ds_id)
                 if not level:
@@ -329,7 +329,7 @@ async def get_catalog_items(
                 item["access_level"] = level
                 public_kb_items.append(item)
         except Exception as exc:
-            logger.warning("Failed to load Dify KB datasets: %s", exc)
+            logger.warning("Failed to load external knowledge collections: %s", exc)
 
     # ── Private KB (local Milvus) ─────────────────────────────────────────────
     try:

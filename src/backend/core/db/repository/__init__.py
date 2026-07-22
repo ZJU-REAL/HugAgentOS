@@ -1,33 +1,22 @@
-"""Data access layer — Repository pattern.
+"""Community-edition repository exports."""
 
-Repositories are organised into domain submodules; this package re-exports
-every public class so existing imports (``from core.db.repository import
-XxxRepository``) keep working.
-"""
-
-from core.db.repository.user import UserRepository, LocalUserRepository, DingTalkConnectionRepository, LarkConnectionRepository, EmailConnectionRepository
-from core.db.repository.chat import ChatSessionRepository, ChatMessageRepository
-from core.db.repository.catalog import CatalogRepository
-from core.db.repository.kb import KBRepository, KBGrantRepository
-from core.db.repository.artifact import ArtifactRepository, ROOT_FOLDER_SENTINEL
-from core.db.repository.audit import AuditLogRepository
 from core.db.repository.agent import UserAgentRepository
-from core.db.repository.team import TeamRepository, InviteCodeRepository
-from core.db.repository.role import RoleRepository
+from core.db.repository.artifact import ROOT_FOLDER_SENTINEL, ArtifactRepository
+from core.db.repository.audit import AuditLogRepository
+from core.db.repository.catalog import CatalogRepository
 from core.db.repository.channel import ChannelConnectionRepository
-from core.db.repository.site import SiteRepository
+from core.db.repository.chat import ChatMessageRepository, ChatSessionRepository
+from core.db.repository.kb import KBRepository
 from core.db.repository.ontology import OntologyRepository
+from core.db.repository.site import SiteRepository
+from core.db.repository.user import (
+    DingTalkConnectionRepository,
+    EmailConnectionRepository,
+    LarkConnectionRepository,
+    LocalUserRepository,
+    UserRepository,
+)
 
 __all__ = [
-    "UserRepository", "LocalUserRepository", "DingTalkConnectionRepository",
-    "LarkConnectionRepository", "EmailConnectionRepository",
-    "ChatSessionRepository", "ChatMessageRepository",
-    "CatalogRepository", "KBRepository", "KBGrantRepository",
-    "ArtifactRepository", "ROOT_FOLDER_SENTINEL",
-    "AuditLogRepository", "UserAgentRepository",
-    "TeamRepository", "InviteCodeRepository",
-    "RoleRepository",
-    "ChannelConnectionRepository",
-    "SiteRepository",
-    "OntologyRepository",
+    name for name in globals() if name.endswith("Repository") or name == "ROOT_FOLDER_SENTINEL"
 ]

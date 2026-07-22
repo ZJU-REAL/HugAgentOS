@@ -225,7 +225,7 @@ Streaming chats are not tied to the HTTP connection lifecycle: `chat_run_executo
 
 ### One codebase, two editions
 
-The commercial main repository carries the full code; the Community Edition is derived by `scripts/build_ce.py` according to `ce/manifest.yaml` (exclude EE files + brand-neutralizing text transforms + overlay). Three runtime seams: the router registry `api/routes/v1/__init__.py` (EE routers carry license feature bits), the table-creation boundary `core/db/edition_tables.py` (CE skips 18 EE-only tables), and the license facade `core/licensing/manager.py` (all feature bits are hard-`False` under CE). See [Editions](../editions/overview.md).
+The commercial main repository carries the full code; the Community Edition is derived by `scripts/build_ce.py` according to `ce/manifest.yaml` (exclude `edition_ee` implementations + text transforms + CE overlays). Runtime boundaries include the router registry `api/routes/v1/__init__.py`, the table-creation boundary `core/db/edition_tables.py` (CE never registers the 20 EE-only tables), EE's `edition_ee/licensing/` package versus CE's fixed edition middleware, and policy seams such as site visibility. See [Editions](../editions/overview.md).
 
 ## Related Source
 
@@ -240,5 +240,5 @@ The commercial main repository carries the full code; the Community Edition is d
 | Capability catalog | `src/backend/core/config/catalog.json`, `catalog.py` |
 | Response envelope | `src/backend/core/infra/responses.py` |
 | Prompt assembly | `src/backend/prompts/prompt_runtime.py` |
-| CE/EE seams | `src/backend/api/routes/v1/__init__.py`, `src/backend/core/db/edition_tables.py`, `src/backend/core/licensing/` |
+| CE/EE seams | `src/backend/api/routes/v1/__init__.py`, `src/backend/core/db/edition_tables.py`, `src/backend/api/middleware/edition.py`, `src/backend/edition_ee/licensing/` |
 | Container orchestration | `docker-compose.yml` |

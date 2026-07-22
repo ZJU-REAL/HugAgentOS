@@ -7,27 +7,24 @@ hosting lives in ``api/routes/sites_serve.py`` (GET /site/{slug}/…).
 
 from typing import Optional
 
+from core.auth.backend import UserContext, get_current_user
+from core.db.engine import get_db
+from core.infra.responses import paginated_response, success_response
+from core.services.site_access_policy import (
+    SiteUpdateScopeFields,
+    serialize_site_scope,
+    site_scope_ref,
+)
+from core.services.site_service import SiteService
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from core.auth.backend import UserContext, get_current_user
-from core.db.engine import get_db
-from core.infra.responses import paginated_response, success_response
-from core.services.site_service import SiteService
-
 router = APIRouter(prefix="/v1/sites", tags=["Sites"])
 
 
-class UpdateSiteRequest(BaseModel):
+class UpdateSiteRequest(SiteUpdateScopeFields):
     title: Optional[str] = Field(None, description="站点标题", max_length=200)
-    visibility: Optional[str] = Field(
-        None, description="可见性：public / private / team",
-        pattern="^(public|private|team)$",
-    )
-    team_id: Optional[str] = Field(
-        None, description="visibility=team 时的授权团队", max_length=64
-    )
     slug: Optional[str] = Field(None, description="访问地址 slug", max_length=64)
     description: Optional[str] = Field(None, description="站点描述", max_length=2000)
 
@@ -43,8 +40,7 @@ def _site_to_dict(site) -> dict:
         "url": f"/site/{site.slug}/",
         "title": site.title,
         "description": site.description,
-        "visibility": site.visibility,
-        "team_id": site.team_id,
+        **serialize_site_scope(site),
         "entry_file": site.entry_file,
         "current_version": site.current_version,
         "file_count": site.file_count,
@@ -104,7 +100,7 @@ async def update_site(
         visibility=body.visibility,
         slug=body.slug,
         description=body.description,
-        team_id=body.team_id,
+        scope_id=site_scope_ref(body),
     )
     return success_response(data=_site_to_dict(site))
 
@@ -178,17 +174,19 @@ async def list_site_kv(
     service = SiteService(db)
     site = service.get_owned(site_id, user.user_id)
     rows = service.repo.kv_list(site.site_id)
-    return success_response(data={
-        "items": [
-            {
-                "key": r.k,
-                "value": r.v,
-                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-            }
-            for r in rows
-        ],
-        "total": service.repo.kv_count(site.site_id),
-    })
+    return success_response(
+        data={
+            "items": [
+                {
+                    "key": r.k,
+                    "value": r.v,
+                    "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                }
+                for r in rows
+            ],
+            "total": service.repo.kv_count(site.site_id),
+        }
+    )
 
 
 @router.delete("/{site_id}/kv/{key}", summary="删除站点 KV 键")

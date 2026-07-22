@@ -1,17 +1,15 @@
 """Personal folder (UserFolder) business logic.
 
-Mirrors TeamFolderService's capabilities, acting only on the "My Space" personal
-file hierarchy:
+Manages only the "My Space" personal file hierarchy:
 - depth limit (MAX_FOLDER_DEPTH)
 - same-name check among siblings (with soft-delete fallback)
 - cycle detection on move
 - cascading soft delete (itself + descendant folders + associated personal artifacts)
 - audit persistence
 
-Note: a personal artifact's ownership is determined by user_id + user_folder_id;
-team_id / team_folder_id are both NULL. This service does not handle
-"personal ↔ team" migration — that remains the job of the existing team_files
-routes.
+Personal artifact ownership is determined by ``user_id`` and
+``user_folder_id``. Edition-specific ownership transitions are handled outside
+this shared service.
 """
 
 from __future__ import annotations
@@ -22,11 +20,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
-
 from core.db.models import Artifact, UserFolder
 from core.db.repository import ArtifactRepository, AuditLogRepository
+from core.services.artifact_edition import is_personal_artifact, personal_artifact_create_fields
 from core.storage import get_storage
+from sqlalchemy.orm import Session
 
 MAX_FOLDER_DEPTH = 8
 
@@ -151,9 +149,11 @@ class UserFolderService:
             self.db.query(UserFolder)
             .filter(
                 UserFolder.user_id == user_id,
-                UserFolder.parent_folder_id.is_(parent_folder_id)
-                if parent_folder_id is None
-                else UserFolder.parent_folder_id == parent_folder_id,
+                (
+                    UserFolder.parent_folder_id.is_(parent_folder_id)
+                    if parent_folder_id is None
+                    else UserFolder.parent_folder_id == parent_folder_id
+                ),
                 UserFolder.name == cleaned,
                 UserFolder.deleted_at.is_(None),
             )
@@ -172,14 +172,16 @@ class UserFolderService:
         self.db.add(folder)
         self.db.commit()
 
-        self.audit.create({
-            "user_id": actor,
-            "action": "user_folder.create",
-            "resource_type": "user_folder",
-            "resource_id": folder_id,
-            "details": {"user_id": user_id, "parent": parent_folder_id, "name": cleaned},
-            "status": "success",
-        })
+        self.audit.create(
+            {
+                "user_id": actor,
+                "action": "user_folder.create",
+                "resource_type": "user_folder",
+                "resource_id": folder_id,
+                "details": {"user_id": user_id, "parent": parent_folder_id, "name": cleaned},
+                "status": "success",
+            }
+        )
         return FolderResult(True, "文件夹已创建", folder_id=folder_id)
 
     def rename_folder(self, folder_id: str, name: str, actor: str) -> FolderResult:
@@ -197,9 +199,11 @@ class UserFolderService:
             self.db.query(UserFolder)
             .filter(
                 UserFolder.user_id == folder.user_id,
-                UserFolder.parent_folder_id.is_(folder.parent_folder_id)
-                if folder.parent_folder_id is None
-                else UserFolder.parent_folder_id == folder.parent_folder_id,
+                (
+                    UserFolder.parent_folder_id.is_(folder.parent_folder_id)
+                    if folder.parent_folder_id is None
+                    else UserFolder.parent_folder_id == folder.parent_folder_id
+                ),
                 UserFolder.name == cleaned,
                 UserFolder.deleted_at.is_(None),
                 UserFolder.folder_id != folder_id,
@@ -213,14 +217,16 @@ class UserFolderService:
         folder.updated_at = datetime.utcnow()
         self.db.commit()
 
-        self.audit.create({
-            "user_id": actor,
-            "action": "user_folder.rename",
-            "resource_type": "user_folder",
-            "resource_id": folder_id,
-            "details": {"name": cleaned},
-            "status": "success",
-        })
+        self.audit.create(
+            {
+                "user_id": actor,
+                "action": "user_folder.rename",
+                "resource_type": "user_folder",
+                "resource_id": folder_id,
+                "details": {"name": cleaned},
+                "status": "success",
+            }
+        )
         return FolderResult(True, "已重命名", folder_id=folder_id)
 
     def move_folder(
@@ -256,9 +262,11 @@ class UserFolderService:
             self.db.query(UserFolder)
             .filter(
                 UserFolder.user_id == folder.user_id,
-                UserFolder.parent_folder_id.is_(new_parent_id)
-                if new_parent_id is None
-                else UserFolder.parent_folder_id == new_parent_id,
+                (
+                    UserFolder.parent_folder_id.is_(new_parent_id)
+                    if new_parent_id is None
+                    else UserFolder.parent_folder_id == new_parent_id
+                ),
                 UserFolder.name == folder.name,
                 UserFolder.deleted_at.is_(None),
                 UserFolder.folder_id != folder_id,
@@ -272,14 +280,16 @@ class UserFolderService:
         folder.updated_at = datetime.utcnow()
         self.db.commit()
 
-        self.audit.create({
-            "user_id": actor,
-            "action": "user_folder.move",
-            "resource_type": "user_folder",
-            "resource_id": folder_id,
-            "details": {"new_parent_id": new_parent_id},
-            "status": "success",
-        })
+        self.audit.create(
+            {
+                "user_id": actor,
+                "action": "user_folder.move",
+                "resource_type": "user_folder",
+                "resource_id": folder_id,
+                "details": {"new_parent_id": new_parent_id},
+                "status": "success",
+            }
+        )
         return FolderResult(True, "已移动", folder_id=folder_id)
 
     def _collect_descendants(self, folder_id: str) -> List[str]:
@@ -326,17 +336,19 @@ class UserFolderService:
 
         self.db.commit()
 
-        self.audit.create({
-            "user_id": actor,
-            "action": "user_folder.delete",
-            "resource_type": "user_folder",
-            "resource_id": folder_id,
-            "details": {
-                "cascaded_folder_ids": ids_to_delete,
-                "artifacts_affected": int(affected or 0),
-            },
-            "status": "success",
-        })
+        self.audit.create(
+            {
+                "user_id": actor,
+                "action": "user_folder.delete",
+                "resource_type": "user_folder",
+                "resource_id": folder_id,
+                "details": {
+                    "cascaded_folder_ids": ids_to_delete,
+                    "artifacts_affected": int(affected or 0),
+                },
+                "status": "success",
+            }
+        )
         return FolderResult(True, "文件夹已删除", folder_id=folder_id), int(affected or 0)
 
     def count_affected_artifacts(self, folder_id: str, user_id: str) -> int:
@@ -366,8 +378,7 @@ class UserFolderService:
         Validation:
         - the artifact exists and belongs to the actor
         - the target folder (if any) belongs to the actor
-        - the artifact must be a personal file (team_id is NULL). A team file must
-          first be transferred back to personal via the team API.
+        - the artifact must be a personal file.
         """
         artifact = (
             self.db.query(Artifact)
@@ -376,8 +387,8 @@ class UserFolderService:
         )
         if artifact is None or artifact.user_id != actor:
             return FolderResult(False, "文件不存在")
-        if artifact.team_id is not None:
-            return FolderResult(False, "团队文件请通过团队 API 移动")
+        if not is_personal_artifact(artifact):
+            return FolderResult(False, "非个人文件不能在个人空间中移动")
 
         if target_folder_id is not None:
             target = self.get(target_folder_id)
@@ -388,14 +399,16 @@ class UserFolderService:
         artifact.updated_at = datetime.utcnow()
         self.db.commit()
 
-        self.audit.create({
-            "user_id": actor,
-            "action": "user_folder.move_artifact",
-            "resource_type": "artifact",
-            "resource_id": artifact_id,
-            "details": {"target_folder_id": target_folder_id},
-            "status": "success",
-        })
+        self.audit.create(
+            {
+                "user_id": actor,
+                "action": "user_folder.move_artifact",
+                "resource_type": "artifact",
+                "resource_id": artifact_id,
+                "details": {"target_folder_id": target_folder_id},
+                "status": "success",
+            }
+        )
         return FolderResult(True, "已移动")
 
     def copy_artifact(
@@ -410,7 +423,7 @@ class UserFolderService:
         field; source/storage untouched); copy creates a separate new artifact
         record + duplicates the storage object (``download_bytes`` from the old key
         → ``upload_bytes`` to a new key), leaving the source file intact. Same
-        validation as move: exists, belongs to the actor, not a team file, target
+        validation as move: exists, belongs to the actor, is personal, target
         folder belongs to the actor.
         """
         artifact = (
@@ -420,8 +433,8 @@ class UserFolderService:
         )
         if artifact is None or artifact.user_id != actor:
             return FolderResult(False, "文件不存在")
-        if artifact.team_id is not None:
-            return FolderResult(False, "团队文件请通过团队 API 复制")
+        if not is_personal_artifact(artifact):
+            return FolderResult(False, "非个人文件不能复制到个人空间")
 
         if target_folder_id is not None:
             target = self.get(target_folder_id)
@@ -435,33 +448,39 @@ class UserFolderService:
         try:
             content = storage.download_bytes(artifact.storage_key)
             new_url = storage.upload_bytes(content, new_key)
-        except Exception as exc:  # noqa: BLE001 — leave no half-written record when storage I/O fails
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — leave no half-written record when storage I/O fails
             return FolderResult(False, f"复制失败：存储对象读写出错（{exc}）")
 
         extra = dict(artifact.extra_data or {})
         extra.update({"source": "copy_personal", "copied_from": artifact.artifact_id})
-        ArtifactRepository(self.db).create({
-            "artifact_id": new_id,
-            "chat_id": None,
-            "user_id": actor,
-            "user_folder_id": target_folder_id,
-            "team_id": None,
-            "type": artifact.type,
-            "title": artifact.title,
-            "filename": artifact.filename,
-            "size_bytes": artifact.size_bytes,
-            "mime_type": artifact.mime_type,
-            "storage_key": new_key,
-            "storage_url": new_url,
-            "extra_data": extra,
-        })
+        ArtifactRepository(self.db).create(
+            {
+                "artifact_id": new_id,
+                "chat_id": None,
+                "user_id": actor,
+                "user_folder_id": target_folder_id,
+                **personal_artifact_create_fields(),
+                "type": artifact.type,
+                "title": artifact.title,
+                "filename": artifact.filename,
+                "size_bytes": artifact.size_bytes,
+                "mime_type": artifact.mime_type,
+                "storage_key": new_key,
+                "storage_url": new_url,
+                "extra_data": extra,
+            }
+        )
 
-        self.audit.create({
-            "user_id": actor,
-            "action": "user_folder.copy_artifact",
-            "resource_type": "artifact",
-            "resource_id": new_id,
-            "details": {"target_folder_id": target_folder_id, "copied_from": artifact_id},
-            "status": "success",
-        })
+        self.audit.create(
+            {
+                "user_id": actor,
+                "action": "user_folder.copy_artifact",
+                "resource_type": "artifact",
+                "resource_id": new_id,
+                "details": {"target_folder_id": target_folder_id, "copied_from": artifact_id},
+                "status": "success",
+            }
+        )
         return FolderResult(True, "已复制", artifact_id=new_id)

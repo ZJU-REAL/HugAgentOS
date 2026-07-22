@@ -28,6 +28,7 @@ import { MySpaceBodyContent } from './renderers/MySpaceRenderer';
 import { renderInternetSearchInline } from './renderers/SearchRenderer';
 import { coerceOutput, computeEffectiveStatus } from './renderers/utils';
 import { t } from '../../i18n';
+import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
 
 /**
  * Returns a `{ prefix, value, count }` label descriptor for the header row.
@@ -42,6 +43,8 @@ function getRowLabel(
 
   try {
     const out = parsed as any;
+    const editionLabel = getEditionToolRowLabel(tool);
+    if (editionLabel) return editionLabel;
 
     switch (tool.name) {
       case 'internet_search': {
@@ -100,14 +103,6 @@ function getRowLabel(
       }
       case 'list_favorite_chats': return { prefix: t('获取收藏会话'), value: '' };
       case 'get_chat_messages': return { prefix: t('读取会话记录'), value: '' };
-      case 'list_team_files': {
-        const tid = (tool.input as any)?.team_id || '';
-        return { prefix: tid ? t('浏览团队文件：') : t('浏览团队文件夹'), value: tid };
-      }
-      case 'stage_team_file': {
-        const aid = (tool.input as any)?.artifact_id || '';
-        return { prefix: t('导入团队文件：'), value: aid };
-      }
       case 'get_chain_information': return { prefix: t('产业链分析'), value: '' };
       case 'get_company_base_info': return { prefix: t('企业基本信息'), value: '' };
       case 'get_company_business_analysis': return { prefix: t('企业经营分析'), value: '' };
@@ -193,8 +188,7 @@ function StepIcon({ name }: { name: string }) {
     get_agents: RobotOutlined,
     list_myspace_files: FolderOutlined,
     stage_myspace_file: FolderOutlined,
-    list_team_files: FolderOutlined,
-    stage_team_file: FolderOutlined,
+    ...EDITION_STEP_ICONS,
     sandbox_put_artifact: FolderOutlined,
     sandbox_get_artifact: FolderOutlined,
     list_favorite_chats: FolderOutlined,

@@ -1,16 +1,16 @@
 """Knowledge base business logic."""
 
-from typing import Optional, Dict, Any, Tuple
-from datetime import datetime
 import os
 import uuid
-from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Any, Dict, Optional, Tuple
 
-from core.db.repository import KBRepository, AuditLogRepository, ArtifactRepository
-from core.db.models import KBDocument, KBChunk, UserShadow
-from core.storage import get_storage
 from core.content.kb_processing import vectorise_document_background
-
+from core.db.models import KBChunk, KBDocument, UserShadow
+from core.db.repository import ArtifactRepository, AuditLogRepository, KBRepository
+from core.services.artifact_edition import can_access_artifact
+from core.storage import get_storage
+from sqlalchemy.orm import Session
 
 # Fixed owner for admin-managed public knowledge bases. Public KB spaces are owned
 # by this synthetic system account so that admin endpoints can reuse the ownership-
@@ -61,6 +61,7 @@ class KBService:
         if not space:
             return False
         from core.auth.kb_permissions import has_kb_permission, resolve_local_kb_level
+
         return has_kb_permission(resolve_local_kb_level(self.db, user_id, space.kb_id), required)
 
     def _normalize_user_settings(self, user: Optional[UserShadow]) -> Dict[str, Any]:
@@ -76,9 +77,9 @@ class KBService:
         reuse the per-owner KBService methods. The row is created lazily on first use
         (no Alembic migration needed) to satisfy the KBSpace.user_id foreign key.
         """
-        existing = self.db.query(UserShadow).filter(
-            UserShadow.user_id == SYSTEM_KB_OWNER_ID
-        ).first()
+        existing = (
+            self.db.query(UserShadow).filter(UserShadow.user_id == SYSTEM_KB_OWNER_ID).first()
+        )
         if existing:
             return SYSTEM_KB_OWNER_ID
         owner = UserShadow(
@@ -129,7 +130,9 @@ class KBService:
             .all()
         )
 
-    def _find_managed_document_by_artifact(self, kb_id: str, artifact_id: str) -> Optional[KBDocument]:
+    def _find_managed_document_by_artifact(
+        self, kb_id: str, artifact_id: str
+    ) -> Optional[KBDocument]:
         for document in self._list_all_space_documents(kb_id):
             meta = document.extra_data if isinstance(document.extra_data, dict) else {}
             if meta.get("source_artifact_id") == artifact_id:
@@ -140,23 +143,27 @@ class KBService:
         space = self._get_system_managed_space(user_id)
         created = False
         if not space:
-            space = self.repo.create_space({
-                "kb_id": f"kb_{uuid.uuid4().hex[:16]}",
-                "user_id": user_id,
-                "name": MANAGED_SYNC_KB_NAME,
-                "description": MANAGED_SYNC_KB_DESCRIPTION,
-                "visibility": "private",
-                "chunk_method": "semantic",
-                "extra_data": dict(MANAGED_SYNC_KB_META),
-            })
+            space = self.repo.create_space(
+                {
+                    "kb_id": f"kb_{uuid.uuid4().hex[:16]}",
+                    "user_id": user_id,
+                    "name": MANAGED_SYNC_KB_NAME,
+                    "description": MANAGED_SYNC_KB_DESCRIPTION,
+                    "visibility": "private",
+                    "chunk_method": "semantic",
+                    "extra_data": dict(MANAGED_SYNC_KB_META),
+                }
+            )
             created = True
-            self.audit_repo.create({
-                "user_id": user_id,
-                "action": "kb.space.system_managed.created",
-                "resource_type": "kb_space",
-                "resource_id": space.kb_id,
-                "status": "success",
-            })
+            self.audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": "kb.space.system_managed.created",
+                    "resource_type": "kb_space",
+                    "resource_id": space.kb_id,
+                    "status": "success",
+                }
+            )
         else:
             space = self._ensure_managed_metadata(space)
 
@@ -165,7 +172,11 @@ class KBService:
     def get_my_space_sync_settings(self, user_id: str) -> Dict[str, Any]:
         user = self._get_user(user_id)
         settings = self._normalize_user_settings(user)
-        sync_settings = settings.get("my_space_sync_kb", {}) if isinstance(settings.get("my_space_sync_kb"), dict) else {}
+        sync_settings = (
+            settings.get("my_space_sync_kb", {})
+            if isinstance(settings.get("my_space_sync_kb"), dict)
+            else {}
+        )
         space, _ = self.ensure_my_space_sync_space(user_id)
         return {
             "enabled": bool(sync_settings.get("enabled", False)),
@@ -178,7 +189,11 @@ class KBService:
         if not user:
             return
         metadata = self._normalize_user_settings(user)
-        sync_settings = metadata.get("my_space_sync_kb", {}) if isinstance(metadata.get("my_space_sync_kb"), dict) else {}
+        sync_settings = (
+            metadata.get("my_space_sync_kb", {})
+            if isinstance(metadata.get("my_space_sync_kb"), dict)
+            else {}
+        )
         sync_settings["enabled"] = enabled
         sync_settings["updated_at"] = datetime.utcnow().isoformat()
         metadata["my_space_sync_kb"] = sync_settings
@@ -189,7 +204,9 @@ class KBService:
     def is_my_space_sync_enabled(self, user_id: str) -> bool:
         return bool(self.get_my_space_sync_settings(user_id).get("enabled"))
 
-    def sync_artifact_to_my_space_kb(self, artifact: Any, file_bytes: Optional[bytes] = None) -> Optional[Dict[str, Any]]:
+    def sync_artifact_to_my_space_kb(
+        self, artifact: Any, file_bytes: Optional[bytes] = None
+    ) -> Optional[Dict[str, Any]]:
         if not artifact or not artifact.user_id:
             return None
 
@@ -201,7 +218,8 @@ class KBService:
         if not (
             mime_type.startswith("image/")
             or mime_type.startswith("text/")
-            or mime_type in {
+            or mime_type
+            in {
                 "application/pdf",
                 "application/msword",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -225,23 +243,25 @@ class KBService:
                 "uploaded_at": existing.uploaded_at.isoformat() if existing.uploaded_at else "",
             }
 
-        document = self.repo.create_document({
-            "document_id": f"doc_{uuid.uuid4().hex[:16]}",
-            "kb_id": space.kb_id,
-            "title": artifact.title or artifact.filename,
-            "filename": artifact.filename,
-            "size_bytes": artifact.size_bytes,
-            "mime_type": mime_type,
-            "storage_key": artifact.storage_key,
-            "storage_url": artifact.storage_url,
-            "checksum": None,
-            "indexing_status": "processing",
-            "extra_data": {
-                "source": "my_space_sync",
-                "source_artifact_id": artifact.artifact_id,
-                "system_managed": True,
-            },
-        })
+        document = self.repo.create_document(
+            {
+                "document_id": f"doc_{uuid.uuid4().hex[:16]}",
+                "kb_id": space.kb_id,
+                "title": artifact.title or artifact.filename,
+                "filename": artifact.filename,
+                "size_bytes": artifact.size_bytes,
+                "mime_type": mime_type,
+                "storage_key": artifact.storage_key,
+                "storage_url": artifact.storage_url,
+                "checksum": None,
+                "indexing_status": "processing",
+                "extra_data": {
+                    "source": "my_space_sync",
+                    "source_artifact_id": artifact.artifact_id,
+                    "system_managed": True,
+                },
+            }
+        )
 
         space.document_count = (space.document_count or 0) + 1
         space.total_size_bytes = (space.total_size_bytes or 0) + max(artifact.size_bytes or 0, 0)
@@ -263,14 +283,16 @@ class KBService:
             indexing_config=None,
         )
 
-        self.audit_repo.create({
-            "user_id": user_id,
-            "action": "kb.document.synced_from_my_space",
-            "resource_type": "kb_document",
-            "resource_id": document.document_id,
-            "details": {"artifact_id": artifact.artifact_id, "kb_id": space.kb_id},
-            "status": "success",
-        })
+        self.audit_repo.create(
+            {
+                "user_id": user_id,
+                "action": "kb.document.synced_from_my_space",
+                "resource_type": "kb_document",
+                "resource_id": document.document_id,
+                "details": {"artifact_id": artifact.artifact_id, "kb_id": space.kb_id},
+                "status": "success",
+            }
+        )
 
         return {
             "document_id": document.document_id,
@@ -326,25 +348,29 @@ class KBService:
         """Delete a KB space (soft delete)."""
         space = self.repo.get_space(kb_id)
         if space and self._is_system_managed_space(space):
-            self.audit_repo.create({
-                "user_id": user_id,
-                "action": "kb.space.delete.failed",
-                "resource_type": "kb_space",
-                "resource_id": kb_id,
-                "status": "failed",
-                "details": {"reason": "system_managed"},
-            })
+            self.audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": "kb.space.delete.failed",
+                    "resource_type": "kb_space",
+                    "resource_id": kb_id,
+                    "status": "failed",
+                    "details": {"reason": "system_managed"},
+                }
+            )
             return False
         if not self._has_kb_level(space, user_id, "admin"):
             # Audit failed attempt
-            self.audit_repo.create({
-                "user_id": user_id,
-                "action": "kb.space.delete.failed",
-                "resource_type": "kb_space",
-                "resource_id": kb_id,
-                "status": "failed",
-                "details": {"reason": "not_found_or_unauthorized"}
-            })
+            self.audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": "kb.space.delete.failed",
+                    "resource_type": "kb_space",
+                    "resource_id": kb_id,
+                    "status": "failed",
+                    "details": {"reason": "not_found_or_unauthorized"},
+                }
+            )
             return False
 
         # Perform soft delete
@@ -352,13 +378,15 @@ class KBService:
         self.db.commit()
 
         # Audit log
-        self.audit_repo.create({
-            "user_id": user_id,
-            "action": "kb.space.deleted",
-            "resource_type": "kb_space",
-            "resource_id": kb_id,
-            "status": "success"
-        })
+        self.audit_repo.create(
+            {
+                "user_id": user_id,
+                "action": "kb.space.deleted",
+                "resource_type": "kb_space",
+                "resource_id": kb_id,
+                "status": "success",
+            }
+        )
 
         return True
 
@@ -372,14 +400,16 @@ class KBService:
         space = self.repo.get_space(document.kb_id)
         if not self._has_kb_level(space, user_id, "edit"):
             # Audit failed attempt
-            self.audit_repo.create({
-                "user_id": user_id,
-                "action": "kb.document.delete.failed",
-                "resource_type": "kb_document",
-                "resource_id": document_id,
-                "status": "failed",
-                "details": {"reason": "not_found_or_unauthorized"}
-            })
+            self.audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": "kb.document.delete.failed",
+                    "resource_type": "kb_document",
+                    "resource_id": document_id,
+                    "status": "failed",
+                    "details": {"reason": "not_found_or_unauthorized"},
+                }
+            )
             return False
 
         # Perform soft delete
@@ -392,14 +422,16 @@ class KBService:
         self.db.commit()
 
         # Audit log
-        self.audit_repo.create({
-            "user_id": user_id,
-            "action": "kb.document.deleted",
-            "resource_type": "kb_document",
-            "resource_id": document_id,
-            "details": {"kb_id": document.kb_id, "filename": document.filename},
-            "status": "success"
-        })
+        self.audit_repo.create(
+            {
+                "user_id": user_id,
+                "action": "kb.document.deleted",
+                "resource_type": "kb_document",
+                "resource_id": document_id,
+                "details": {"kb_id": document.kb_id, "filename": document.filename},
+                "status": "success",
+            }
+        )
 
         return True
 
@@ -411,7 +443,7 @@ class KBService:
         chunk_method: str = "semantic",
         metadata: Optional[Dict[str, Any]] = None,
         visibility: str = "private",
-        grant_team_ids: Optional[list] = None,
+        initial_grants: Optional[list[tuple[str, str]]] = None,
         granted_by: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a new KB space.
@@ -419,10 +451,9 @@ class KBService:
         ``visibility`` defaults to ``private`` so existing user-facing callers keep
         their behaviour; admin-managed public KBs pass ``visibility="public"``.
 
-        ``grant_team_ids``: teams granted visibility right after creating the KB (under the
-        default not-visible model, a public KB needs a grant before anyone can see it).
-        Creation and granting are unified in this single domain operation, avoiding each route
-        stitching a ``bulk_grant`` after create on its own and drifting apart.
+        ``initial_grants`` contains edition-owned principal grants applied atomically after
+        creation.  CE supplies an empty list; EE decides which organization principals inherit
+        visibility without leaking those contracts into this shared service.
         """
         space_data = {
             "kb_id": f"kb_{uuid.uuid4().hex[:16]}",
@@ -436,30 +467,39 @@ class KBService:
 
         space = self.repo.create_space(space_data)
 
-        # After creating the KB, grant team visibility as needed (team members inherit view; the creator, as owner, can always manage)
-        team_ids = [str(t).strip() for t in (grant_team_ids or []) if str(t).strip()]
-        if team_ids:
+        grants = [
+            (str(kind).strip(), str(principal_id).strip())
+            for kind, principal_id in (initial_grants or [])
+            if str(kind).strip() and str(principal_id).strip()
+        ]
+        if grants:
             from core.db.repository import KBGrantRepository
+
             KBGrantRepository(self.db).bulk_grant(
-                space.kb_id, "local", [("team", tid) for tid in team_ids], "view",
+                space.kb_id,
+                "local",
+                grants,
+                "view",
                 granted_by=granted_by or user_id,
             )
 
         # Audit log
-        self.audit_repo.create({
-            "user_id": user_id,
-            "action": "kb.space.created",
-            "resource_type": "kb_space",
-            "resource_id": space.kb_id,
-            "status": "success"
-        })
+        self.audit_repo.create(
+            {
+                "user_id": user_id,
+                "action": "kb.space.created",
+                "resource_type": "kb_space",
+                "resource_id": space.kb_id,
+                "status": "success",
+            }
+        )
 
         return {
             "kb_id": space.kb_id,
             "name": space.name,
             "description": space.description,
             "document_count": space.document_count,
-            "created_at": space.created_at.isoformat()
+            "created_at": space.created_at.isoformat(),
         }
 
     def update_space(
@@ -472,24 +512,28 @@ class KBService:
         """Update an existing KB space."""
         space = self.repo.get_space(kb_id)
         if space and self._is_system_managed_space(space):
-            self.audit_repo.create({
-                "user_id": user_id,
-                "action": "kb.space.update.failed",
-                "resource_type": "kb_space",
-                "resource_id": kb_id,
-                "status": "failed",
-                "details": {"reason": "system_managed"},
-            })
+            self.audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": "kb.space.update.failed",
+                    "resource_type": "kb_space",
+                    "resource_id": kb_id,
+                    "status": "failed",
+                    "details": {"reason": "system_managed"},
+                }
+            )
             return None
         if not self._has_kb_level(space, user_id, "admin"):
-            self.audit_repo.create({
-                "user_id": user_id,
-                "action": "kb.space.update.failed",
-                "resource_type": "kb_space",
-                "resource_id": kb_id,
-                "status": "failed",
-                "details": {"reason": "not_found_or_unauthorized"},
-            })
+            self.audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": "kb.space.update.failed",
+                    "resource_type": "kb_space",
+                    "resource_id": kb_id,
+                    "status": "failed",
+                    "details": {"reason": "not_found_or_unauthorized"},
+                }
+            )
             return None
 
         update_data: Dict[str, Any] = {}
@@ -502,13 +546,15 @@ class KBService:
         if not updated:
             return None
 
-        self.audit_repo.create({
-            "user_id": user_id,
-            "action": "kb.space.updated",
-            "resource_type": "kb_space",
-            "resource_id": kb_id,
-            "status": "success",
-        })
+        self.audit_repo.create(
+            {
+                "user_id": user_id,
+                "action": "kb.space.updated",
+                "resource_type": "kb_space",
+                "resource_id": kb_id,
+                "status": "success",
+            }
+        )
 
         return {
             "kb_id": updated.kb_id,
@@ -528,7 +574,7 @@ class KBService:
         size_bytes: int,
         mime_type: str,
         storage_key: str,
-        checksum: Optional[str] = None
+        checksum: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Upload a document to KB space."""
         # Check ownership
@@ -558,14 +604,16 @@ class KBService:
         self.db.commit()
 
         # Audit log
-        self.audit_repo.create({
-            "user_id": user_id,
-            "action": "kb.document.uploaded",
-            "resource_type": "kb_document",
-            "resource_id": document.document_id,
-            "details": {"kb_id": kb_id, "filename": filename},
-            "status": "success"
-        })
+        self.audit_repo.create(
+            {
+                "user_id": user_id,
+                "action": "kb.document.uploaded",
+                "resource_type": "kb_document",
+                "resource_id": document.document_id,
+                "details": {"kb_id": kb_id, "filename": filename},
+                "status": "success",
+            }
+        )
 
         return {
             "document_id": document.document_id,
@@ -573,20 +621,16 @@ class KBService:
             "title": document.title,
             "filename": document.filename,
             "size_bytes": document.size_bytes,
-            "uploaded_at": document.uploaded_at.isoformat()
+            "uploaded_at": document.uploaded_at.isoformat(),
         }
 
     def add_artifact_to_space(self, artifact_id: str, user_id: str, kb_id: str) -> Dict[str, Any]:
         """Create a KB document from an existing user artifact."""
-        from core.auth.permissions_iface import has_permission, resolve_artifact_access
-
         artifact_repo = ArtifactRepository(self.db)
         artifact = artifact_repo.get_by_id(artifact_id)
         if not artifact:
             raise ValueError("资源不存在或无权限")
-        # owner ∪ team composed-permission single point (owner always allowed; team view+ members can join a personal KB)
-        perm = resolve_artifact_access(self.db, user_id, artifact.user_id, artifact.team_id)
-        if not has_permission(perm, "view"):
+        if not can_access_artifact(self.db, user_id, artifact):
             raise ValueError("资源不存在或无权限")
 
         space = self.repo.get_space(kb_id)
@@ -634,14 +678,16 @@ class KBService:
 
         space_extra = space.extra_data if isinstance(space.extra_data, dict) else {}
 
-        self.audit_repo.create({
-            "user_id": user_id,
-            "action": "kb.document.added_from_my_space",
-            "resource_type": "kb_document",
-            "resource_id": document.document_id,
-            "details": {"kb_id": kb_id, "artifact_id": artifact_id},
-            "status": "success",
-        })
+        self.audit_repo.create(
+            {
+                "user_id": user_id,
+                "action": "kb.document.added_from_my_space",
+                "resource_type": "kb_document",
+                "resource_id": document.document_id,
+                "details": {"kb_id": kb_id, "artifact_id": artifact_id},
+                "status": "success",
+            }
+        )
 
         return {
             "document_id": document.document_id,

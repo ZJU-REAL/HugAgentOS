@@ -76,6 +76,11 @@ def apply_local_env(port: int) -> dict:
         "PLAYWRIGHT_BROWSERS_PATH": str(dd / "node" / "browsers"),
         "JX_FONT_DIR": str(dd / "fonts"),
         "MCP_HOST": "127.0.0.1",
+        # A local/desktop install is expected to be useful immediately after a
+        # zero-state boot.  Keep the three credential-free first-party plugins
+        # as the local-profile default even when the caller is plain
+        # ``hugagent serve`` rather than one of the installer wrappers.
+        "HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS": "1",
         "STORAGE_TYPE": "local",
         "STORAGE_PATH": str(dd / "storage"),
         "LOG_FILE_PATH": str(dd / "logs" / "backend.log"),
@@ -275,6 +280,8 @@ def mark_web_onboarding_complete(user_id: str) -> None:
 # scheduling, skill authoring/market, and conversational site-building. Others
 # (IM / email / low-code) need per-user credentials, so they're opt-in only.
 _DEFAULT_PLUGINS = ["automation", "skill-manager", "sites"]
+_DEFAULT_PLUGINS_MARKER = ".default-plugins-v1"
+_DEFAULT_PLUGIN_BOOTSTRAP_ENV = "HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS"
 
 
 def list_installable_plugins() -> list:
@@ -310,6 +317,37 @@ def install_plugins(slugs: list) -> list:
     finally:
         db.close()
     return done
+
+
+def ensure_default_plugins_once() -> bool:
+    """Install local-install defaults once without overriding later user choices.
+
+    The marker intentionally lives beside the local SQLite database instead of
+    being inferred from installed rows: after the first bootstrap, uninstalling
+    a default plugin is an explicit user choice and must survive future desktop
+    restarts and upgrades.  A failed or partial install leaves no marker, so the
+    next launch retries the complete default set.
+
+    Returns ``True`` when this call performed the first successful bootstrap.
+    """
+    marker = data_dir() / _DEFAULT_PLUGINS_MARKER
+    if marker.is_file():
+        # Plugin choices stay untouched after first bootstrap, while the bundled
+        # site template may still receive compatible fixes in desktop upgrades.
+        provision_site_template(verbose=False)
+        return False
+
+    installed = install_plugins(_DEFAULT_PLUGINS)
+    missing = [slug for slug in _DEFAULT_PLUGINS if slug not in installed]
+    if missing:
+        raise RuntimeError(f"默认插件安装不完整：{', '.join(missing)}")
+    if not provision_site_template(verbose=True):
+        raise RuntimeError("站点模板初始化失败")
+
+    temporary = marker.with_name(f"{marker.name}.{os.getpid()}.tmp")
+    temporary.write_text("\n".join(_DEFAULT_PLUGINS) + "\n", encoding="utf-8")
+    os.replace(temporary, marker)
+    return True
 
 
 def _select_plugins_interactively(available: list) -> list:
@@ -693,6 +731,15 @@ def _open_browser_when_ready(port: int) -> None:
 def cmd_serve(args) -> int:
     apply_local_env(args.port)
     _ensure_schema_and_seed()
+    if os.getenv(_DEFAULT_PLUGIN_BOOTSTRAP_ENV) == "1":
+        try:
+            if ensure_default_plugins_once():
+                print("✓ 默认插件已就绪：定时任务、技能管理、站点发布")
+        except Exception as exc:  # noqa: BLE001
+            # The desktop readiness endpoint must not go healthy with only a
+            # partial default-plugin set. No marker is written on failure, so
+            # the next installer-managed start will retry the full bootstrap.
+            raise RuntimeError(f"默认插件初始化失败，下次启动将重试：{exc}") from exc
     import uvicorn
     from api.app import app
 

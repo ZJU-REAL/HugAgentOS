@@ -105,7 +105,7 @@ ORM 定义在 `src/backend/core/db/models/knowledge.py`：
 
 ## Dify 外接知识库（商业版 EE）
 
-客户端封装在 `src/backend/core/kb/dify_kb.py`。启用判定 `is_dify_enabled()` 的优先级：
+商业版客户端位于 `src/backend/edition_ee/kb/dify.py`，共享路由通过 `core/kb/external_provider.py` 接缝调用。CE 派生树把该接缝替换为禁用实现，且不包含 Dify 客户端。启用判定 `is_dify_enabled()` 的优先级：
 
 1. DB 系统配置 `knowledge_base.provider == "dify"`（Config 管理台可改）；
 2. 环境变量 `KNOWLEDGE_BASE=dify`；
@@ -137,7 +137,8 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 |---|---|
 | `src/backend/core/kb/kb_parser.py` | 文档解析 + 父子分块（5 种 chunk_method） |
 | `src/backend/core/kb/kb_vector.py` | Milvus collection、embedding、混合检索、重排 |
-| `src/backend/core/kb/dify_kb.py` | Dify datasets 客户端与启用判定 |
+| `src/backend/edition_ee/kb/dify.py` | Dify datasets 客户端与启用判定（仅 EE） |
+| `src/backend/core/kb/external_provider.py` | 版本中立的外部知识库接缝；CE overlay 将其禁用 |
 | `src/backend/core/content/kb_processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
 | `src/backend/core/content/file_validation.py` | 上传文件校验（扩展名 + magic bytes） |
 | `src/backend/core/content/file_parser.py` | 通用文件解析器 |

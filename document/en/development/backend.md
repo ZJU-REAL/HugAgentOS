@@ -100,7 +100,7 @@ raise ResourceNotFoundError("chat_session", chat_id)
 raise BadRequestError("parameter 'name' must not be empty")
 ```
 
-The same applies to license 402s: the single source is `FeatureNotLicensed` (40201) / `SeatLimitExceeded` (40202) in `core/licensing/features.py`; routes and services must not hand-craft 402s. Error-code ranges are documented in [Error Codes](../api/error-codes.md).
+The same applies to license 402s: the single source is `FeatureNotLicensed` (40201) / `SeatLimitExceeded` (40202) in `edition_ee/licensing/features.py`; routes and services must not hand-craft 402s. Error-code ranges are documented in [Error Codes](../api/error-codes.md).
 
 ### Dependency injection
 
@@ -138,7 +138,7 @@ Steps for a new route:
 1. Create the route file under `api/routes/v1/` with `router = APIRouter(prefix="/v1/xxx", tags=["Xxx"])`;
 2. Decide the edition:
    - **CE capability** (self-contained for an individual) → append `("module_name", "router")` to `CE_ROUTERS`;
-   - **EE capability** (organization-scale) → append `("module_name", "router", "<feature>")` to `EE_ROUTERS`, with the feature taken from `core/licensing/features.py::Feature`; use `None` only when the endpoint must remain reachable with an invalid license (login / license-swap infrastructure), and document why;
+   - **EE capability** (organization-scale) → append `("module_name", "router", "<feature>")` to `edition_ee/routes/registry.py::EE_ROUTERS`, with the feature taken from `edition_ee/licensing/features.py::Feature`; use `None` only when the endpoint must remain reachable with an invalid license (login / license-swap infrastructure), and document why;
 3. For EE routes, also exclude the file in `ce/manifest.yaml` (`admin_*.py` / `config_*.py` are already covered by wildcard patterns);
 4. Table order is registration order; relative order within a prefix family is invariant (e.g. the public-read `config` must precede the `config_*` console routes).
 

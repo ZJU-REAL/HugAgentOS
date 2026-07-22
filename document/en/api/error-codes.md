@@ -1,8 +1,8 @@
 # Error Code Reference
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-22
 
-This document reflects what is actually implemented in code: business exception classes are defined in `src/backend/core/infra/exceptions.py` (the two license-related ones live in `src/backend/core/licensing/features.py`) and are converted into the [unified response envelope](overview.md#unified-response-envelope) by the global exception handler `src/backend/api/middleware/error_handler.py`. Only **implemented** error codes are listed here; unlisted positions within each range are reserved for future use.
+This document reflects what is actually implemented in code: business exception classes are defined in `src/backend/core/infra/exceptions.py` (the two EE license-related ones live in `src/backend/edition_ee/licensing/features.py`) and are converted into the [unified response envelope](overview.md#unified-response-envelope) by the global exception handler `src/backend/api/middleware/error_handler.py`. Only **implemented** error codes are listed here; unlisted positions within each range are reserved for future use.
 
 ## Error Response Shape
 
@@ -108,7 +108,7 @@ A mismatched `require_admin` / `require_config` token is even simpler: just `{"d
 
 ## Unlicensed Features (HTTP 402)
 
-EE routes are mounted with license feature guards per the registry in `api/routes/v1/__init__.py` (`core/licensing/deps.py` → `requires_feature`). When a feature is not licensed, `FeatureNotLicensed` is raised and rendered by `error_handler` as:
+EE routes are mounted with license feature guards per the registry in `edition_ee/routes/registry.py` (`edition_ee/licensing/deps.py` → `requires_feature`). When a feature is not licensed, `FeatureNotLicensed` is raised and rendered by `error_handler` as:
 
 ```json
 {
@@ -120,7 +120,7 @@ EE routes are mounted with license feature guards per the registry in `api/route
 }
 ```
 
-Design notes (`core/licensing/features.py`):
+Design notes (`edition_ee/licensing/features.py`):
 
 - `FeatureNotLicensed` is the **single source** of the 402 envelope; routes/services must never hand-roll `HTTPException(402)`.
 - 402 was chosen over 403 deliberately: the frontend treats 403 as session expiry and forces a logout, and a missing license must not log the user out.

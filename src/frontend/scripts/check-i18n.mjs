@@ -7,7 +7,7 @@
  *     否则英文界面静默回退中文。
  * 动态调用 t(变量)（DB 文案、后端 tag 等）不在检查范围。
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,16 +18,32 @@ const entryRe = /^\s*'((?:[^'\\]|\\.)*)'\s*:/;
 const keyOwner = new Map();
 const errors = [];
 
-for (const f of readdirSync(dictDir).filter((f) => f.endsWith('.ts') && f !== 'index.ts')) {
-  const lines = readFileSync(join(dictDir, f), 'utf-8').split('\n');
+const dictionaryFiles = readdirSync(dictDir)
+  .filter((f) => f.endsWith('.ts') && f !== 'index.ts')
+  .map((f) => ({ owner: f, path: join(dictDir, f) }));
+const editionDictionary = join(root, 'edition-ee', 'i18n.ts');
+if (existsSync(editionDictionary)) {
+  dictionaryFiles.push({ owner: 'edition-ee/i18n.ts', path: editionDictionary });
+}
+const editionDictionaryDir = join(root, 'edition-ee', 'i18n');
+if (existsSync(editionDictionaryDir)) {
+  dictionaryFiles.push(
+    ...readdirSync(editionDictionaryDir)
+      .filter((f) => f.endsWith('.ts') && f !== 'index.ts')
+      .map((f) => ({ owner: `edition-ee/i18n/${f}`, path: join(editionDictionaryDir, f) })),
+  );
+}
+
+for (const { owner, path } of dictionaryFiles) {
+  const lines = readFileSync(path, 'utf-8').split('\n');
   lines.forEach((ln, i) => {
     const m = entryRe.exec(ln);
     if (!m) return;
     const key = m[1].replace(/\\'/g, "'");
     if (keyOwner.has(key)) {
-      errors.push(`duplicate key '${key}' in ${f}:${i + 1} (already in ${keyOwner.get(key)})`);
+      errors.push(`duplicate key '${key}' in ${owner}:${i + 1} (already in ${keyOwner.get(key)})`);
     } else {
-      keyOwner.set(key, `${f}:${i + 1}`);
+      keyOwner.set(key, `${owner}:${i + 1}`);
     }
   });
 }

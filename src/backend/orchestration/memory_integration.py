@@ -37,8 +37,9 @@ async def launch_memory_retrieval(
     if not memory_enabled or not user_id:
         return None
 
-    effective_budget = (budget_ms if budget_ms is not None
-                        else settings.memory.retrieval_budget_ms) / 1000.0
+    effective_budget = (
+        budget_ms if budget_ms is not None else settings.memory.retrieval_budget_ms
+    ) / 1000.0
 
     async def _fetch() -> Optional[str]:
         try:
@@ -82,8 +83,9 @@ async def build_frozen_memory_block(
         try:
             profile_md = await profile.get(user_id, workspace_id)
         except Exception as exc:
-            logger.warning("[memory] profile fetch failed user=%s ws=%s: %s",
-                           user_id, workspace_id, exc)
+            logger.warning(
+                "[memory] profile fetch failed user=%s ws=%s: %s", user_id, workspace_id, exc
+            )
 
     # Fact layer (L2)
     fact_text = ""
@@ -96,7 +98,9 @@ async def build_frozen_memory_block(
             wait_budget_s = max(0.1, settings.memory.retrieval_budget_ms / 1000.0)
             fact_text = await asyncio.wait_for(memory_task, timeout=wait_budget_s) or ""
         except asyncio.TimeoutError:
-            logger.info("[memory] fact retrieval still running past wait window, skipping injection")
+            logger.info(
+                "[memory] fact retrieval still running past wait window, skipping injection"
+            )
             # The task finishes in the background and is released; not cancelled (the result can be used for the next round of log statistics)
         except asyncio.CancelledError:
             raise
@@ -128,7 +132,11 @@ async def build_frozen_memory_block(
     block = "\n".join(parts).strip()
     logger.info(
         "[memory] frozen block built user=%s ws=%s chars=%d profile=%d facts=%d",
-        user_id, workspace_id, len(block), len(profile_md or ""), len(fact_text or ""),
+        user_id,
+        workspace_id,
+        len(block),
+        len(profile_md or ""),
+        len(fact_text or ""),
     )
     return block
 
@@ -162,17 +170,10 @@ async def build_user_identity_block(user_id: str) -> str:
     def _query() -> tuple:
         from core.db.engine import SessionLocal
         from core.db.models import LocalUser, UserShadow
+
         with SessionLocal() as db:
-            row = (
-                db.query(UserShadow.username)
-                .filter(UserShadow.user_id == user_id)
-                .first()
-            )
-            nick = (
-                db.query(LocalUser.nickname)
-                .filter(LocalUser.user_id == user_id)
-                .first()
-            )
+            row = db.query(UserShadow.username).filter(UserShadow.user_id == user_id).first()
+            nick = db.query(LocalUser.nickname).filter(LocalUser.user_id == user_id).first()
             return (
                 (row[0] or "").strip() if row else "",
                 (nick[0] or "").strip() if nick else "",
@@ -192,7 +193,8 @@ async def build_user_identity_block(user_id: str) -> str:
     block = ""
     if lines:
         block = (
-            "## 当前用户\n" + "\n".join(lines)
+            "## 当前用户\n"
+            + "\n".join(lines)
             + "\n需要称呼用户时，用上述昵称（无昵称则用用户名）自然称呼。"
         )
     _identity_cache[user_id] = (now + _IDENTITY_CACHE_TTL_S, block)
@@ -215,23 +217,14 @@ async def inject_frozen_memory(
         return session_messages
     parts: list[str] = []
     if identity_block:
-        parts.append(
-            "<session_user_identity>\n"
-            f"{identity_block}\n"
-            "</session_user_identity>"
-        )
+        parts.append("<session_user_identity>\n" f"{identity_block}\n" "</session_user_identity>")
     if frozen_block:
-        parts.append(
-            "<session_memory_frozen>\n"
-            f"{frozen_block}\n"
-            "</session_memory_frozen>"
-        )
+        parts.append("<session_memory_frozen>\n" f"{frozen_block}\n" "</session_memory_frozen>")
     return [
         {
             "role": "user",
             "content": (
-                "\n\n".join(parts)
-                + "\n（以上为会话启动时系统注入的背景快照，本会话内不变，"
+                "\n\n".join(parts) + "\n（以上为会话启动时系统注入的背景快照，本会话内不变，"
                 "用作回答参考，请勿直接复述。）"
             ),
         },
@@ -264,9 +257,8 @@ def save_memories_background(
     - each extractor has its own 30s timeout
     - sanitize → write L1/L2/Session → audit
 
-    `scope_user_id` under team projects = ``f"team:{team_id}"``, so all team members' writes
-    go into the same mem0 user_id bucket, and reads pull from that bucket to achieve sharing.
-    ``user_id`` remains the real user, used for audit and metadata.author_user_id.
+    ``scope_user_id`` optionally selects an edition-owned shared memory bucket.
+    ``user_id`` remains the real user for audit metadata.
     """
     if not (write_enabled and full_response and user_id):
         return

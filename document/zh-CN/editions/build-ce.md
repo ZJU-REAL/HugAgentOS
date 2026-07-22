@@ -1,5 +1,5 @@
 # CE 构建管线
-> 最后更新：2026-07-02
+> 最后更新：2026-07-22
 
 社区版（CE）不是独立分支，而是由主仓（EE，唯一开发真源）经 `scripts/build_ce.py` **确定性派生**的子集树，输出到 `dist/ce/`。核心约束是**白名单铁律：EE 专属代码在 CE 树里物理不存在**——不是注释掉、不是 if 关掉，而是文件层面删除。整条管线的唯一输入是 `ce/manifest.yaml`。
 
@@ -25,7 +25,7 @@ manifest 按处理顺序分为以下几段：
 
 glob 模式（相对仓库根），命中即不拷贝。覆盖：
 
-- **后端 EE 模块**：SSO / 团队权限（`core/auth/sso.py`、`team_permissions.py` 等）、云存储（`core/storage/s3.py`、`oss.py`）、持久沙箱 provider（opensandbox / cube 全套）、记忆审计、技能蒸馏、license 验签实现 `core/licensing/_ee_verify.py`、EE service（team / sso_sync / distillation / sandbox_rebuild / security / cube_template_builder）；
+- **后端 EE 模块**：完整的 `edition_ee/**` 实现根（团队/RBAC、SSO、License 验签与闸门、EE ORM、Dify 集成），以及云存储（`core/storage/s3.py`、`oss.py`）、持久沙箱 provider、记忆审计、技能蒸馏等 EE 服务；
 - **EE 路由**：`api/routes/v1/admin_*.py`、`config_*.py`、`audit.py`、`auth.py`、`team_files.py`、`service_configs.py`、`data_sources.py`、`db_metadata.py`、`gateway_*.py`；
 - **行业 MCP**：`mcp_servers/query_database_mcp/**`、`ai_chain_information_mcp/**`；
 - **主仓 alembic 链整体**（`alembic/versions/**`，CE 用 overlay 的独立链，见下文）；
@@ -60,7 +60,7 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 
 ### 4. `split` — 文件内 user/admin 混合端点的 CE 子集断言
 
-`content.py` / `models.py` / `projects.py` 三个路由文件内同时含用户端点与管理端点，CE 取 overlay 中的 user 子集版本。**build_ce.py 在 overlay 步骤前断言这些文件在 overlay 中存在**——主仓全量版禁止漏进 CE，缺失即 fail。
+`manifest.split` 明确列出所有必须由 CE overlay 整文件替换的版本接缝。**build_ce.py 在 overlay 步骤前逐项断言替代文件存在**——源树全量实现禁止漏进 CE，缺失即 fail。
 
 ### 5. `overlay` — CE 专属整文件替换 / 新增
 
@@ -71,20 +71,28 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `README.md` / `README_CN.md` / `LICENSE` / `NOTICE` / `CONTRIBUTING.md` / `SECURITY.md` | CE 开源仓门面文件；默认 README 为英文，中文作为语言切换入口保留 |
 | `install.sh` | 面向个人无 Docker 模式的公开一键安装脚本 |
 | `.env.example` | CE 环境模板（`JX_EDITION=ce`，无内网 IP / 无品牌默认） |
-| `.hugagent-edition` | 仅在派生后出现的机器可读 `ce` 标识；让发布工具区分公开 CE checkout 与生成器异常缺失的 FULL checkout |
+| `.hugagent-edition` | 仅在派生后出现的机器可读 `ce` 标识；让发布工具区分派生 CE checkout 与生成器异常缺失的源代码 checkout |
 | `.github/workflows/desktop-release.yml` | 公开 CE 桌面发版 workflow，包含 release tag / 版本前置门禁 |
-| `src/backend/core/licensing/manager.py` | **CE stub**：`mode()` 恒 `"ce"`、`has()` 恒 False、不限席位，无任何验签实现体 |
-| `src/backend/core/auth/permissions_iface.py` | 权限接口层单租户 stub（接缝 C3）：自己的资源恒最高权限，团队权限恒 `none`（存量团队数据不因 stub 放行而对全员可读） |
+| `src/backend/api/routes/v1/__init__.py` | CE 路由注册表；`EE_ROUTERS` 恒为空 |
+| `src/backend/core/auth/permissions_iface.py` | 单租户 owner-only 权限接口；不导出团队权限函数 |
+| `src/backend/core/services/artifact_edition.py` | 个人空间 artifact 作用域接口；不暴露团队字段、权限或仓储方法 |
+| `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | 个人空间工具、VFS 与恢复接口；组织空间实现不进入 CE |
+| `src/backend/core/config/edition_display_names.py` | CE 工具展示名；不包含团队工具名称 |
 | `src/backend/core/memory/audit.py` | 记忆审计 no-op stub（同名接口、不落数据） |
 | `src/backend/alembic/versions/ce_0001_initial.py` | CE 独立迁移链基线（见下节） |
-| `src/backend/api/routes/v1/{content,models,projects}.py` | split 文件的 user 子集版本 |
+| `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | 去除管理端点与组织字段后的 CE API 契约 |
 | `src/backend/mcp_servers/_ports.py` | 8 个通用工具的端口表（EE 行业工具端口标注 reserved） |
 | `src/frontend/default.conf.template` | CE 前端 Nginx 模板，移除 `/gateway/**` 反代与 litellm upstream |
 | `src/frontend/src/main.tsx` | CE 入口：只挂主应用 / API 文档 / 分享预览，不挂 /admin、/config |
 | `src/frontend/src/updates.ts` | CE 版本说明数据 |
 | `.claude/skills/hugagent-{backend,frontend}-dev/…` | 项目开发 skill 的 CE 版 SKILL.md 与 references（剔除 admin 面板 / EE 路由注册等商业版段落） |
 
-> 路由注册表 `api/routes/v1/__init__.py` **不需要** overlay 副本：`iter_edition_routers` 对物理缺失的 EE 模块静默跳过，同一份文件两树共用。
+> License、Team/RBAC、EE ORM 与 Dify 的实现根均在 `edition_ee/**`，CE 不提供同名实现 stub；派生树内对 `edition_ee` 的 import 探测必须返回不存在。
+
+团队文件仓储、组织 MySpace 工具、VFS 与 artifact 恢复实现分别位于
+`edition_ee/db/artifact_repository.py` 和
+`edition_ee/services/{myspace_tools,myspace_vfs,artifact_recovery}.py`。
+共享模块只保留版本中性的调用接口，CE overlay 提供个人版实现，不保留商业字段或工具名。
 
 ### 6. `brand_scan` — 品牌门禁正则文件
 
@@ -93,13 +101,16 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 ## build_ce.py 步骤流水
 
 ```
-[1/7] 拷贝     git ls-files（cached + 未跟踪未忽略）为白名单，减 exclude 与默认忽略
+[1/7] 拷贝     git ls-files --cached 为白名单，减 exclude 与默认忽略
 [1/7] 改名     按 manifest.renames 执行可选路径迁移（当前配置为空）
 [2/7] 变换     manifest.transforms 整树文本替换（二进制免扫；其他产品线品牌字面量告警）
 [3/7] 裁剪     manifest.prunes 五个 pruner
 [4/7] overlay  先断言 split 文件在 overlay 中存在，再整树叠加（跳过 __pycache__/pyc）
+[4/7] 禁止产物 断言 EE 路径、表名、外键和运行时源码商业符号均为 0 命中；
+              测试目录只允许保存“不得出现”的负向契约断言
+[4/7] 二进制门禁 PNG/PDF/DOCX 必须匹配经人工/OCR 审阅后的 path + SHA-256 白名单
 [5/7] 品牌门禁 文本逐行正则 0 命中 + 全量文件「路径」扫描（含二进制资产文件名；
-              另有路径专用模式拦商业字体文件本体）；免扫的二进制数随结果上报
+              另有路径专用模式拦商业字体文件本体）
 [6/7] LICENSE 闸门  overlay LICENSE 仍是占位文本（含 NOTE TO MAINTAINERS 标记）时拒绝生成
 [7/7] 自检     --import-check / --pytest-check / --frontend-check（可选）
 [8/8] 清残留   自检留下的 __pycache__ / .pytest_cache / node_modules / dist / 再生 lock
@@ -107,24 +118,23 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 
 以 `git ls-files` 为拷贝清单意味着 `.env`、本地数据库等未跟踪 / 已忽略文件**天然不会进入 CE 树**。
 
-Windows 桌面服务载荷在两种仓库里遵守同一边界：FULL 仓中，`desktop/scripts/prepare-bundle.mjs`
+Windows 桌面服务载荷在两类 checkout 中遵守同一边界：源代码 checkout 中，`desktop/scripts/prepare-bundle.mjs`
 仍会找到并运行 `scripts/build_ce.py`；在有意移除生成器的公开 CE 仓中，它要求
 `.hugagent-edition` 内容为 `ce`，然后只暂存当前 checkout 的 Git tracked 文件。正式发布会拒绝脏
 checkout，因此该 fallback 不能把一个生成器异常缺失的任意仓库静默当成 CE 载荷。
 
 ## CE 数据库差异
 
-CE 不建 EE 专属表，由 `src/backend/core/db/edition_tables.py` 给出**单一真源**：
+CE 不注册、也不创建 EE 专属表。商业 ORM 类集中在 `src/backend/edition_ee/db/models/`，该目录在派生树中物理不存在；CE 的模型出口只导出 CE 映射，兼容属性由 CE model extension 提供，不注册商业列或表。
 
-- `EE_ONLY_TABLES`（18 张）：`teams`、`team_members`、`team_folders`、`invite_codes`、`roles`、`role_assignments`、`kb_grants`、`audit_logs`、`memory_audit`、`model_pricing`、`data_sources`、`ds_table_meta`、`ds_column_meta`、`ds_golden_sql`、`gateway_virtual_keys`、`sandbox_rebuilds`、`admin_skill_drafts`、`distillation_runs`。
-- `ce_create_all(bind)`：在**克隆 MetaData** 上过滤后建表——CE 表里指向 EE 表的跨边界 FK 约束（如 `projects → teams`，方案 D3「列保留、恒 NULL」）若原样下发，PostgreSQL 会因引用表不存在而失败，故在克隆上摘除约束（列保留），原 metadata 与 ORM 映射不受影响。集合里的表名必须真实存在于 metadata（函数内断言），防模型改名后漏更新、悄悄退化成全量建表。
+发布契约禁止 20 张表：`chat_session_user_states`、`teams`、`team_members`、`team_folders`、`invite_codes`、`roles`、`role_assignments`、`kb_grants`、`marketplace_visibility_grants`、`audit_logs`、`memory_audit`、`model_pricing`、`data_sources`、`ds_table_meta`、`ds_column_meta`、`ds_golden_sql`、`gateway_virtual_keys`、`sandbox_rebuilds`、`admin_skill_drafts`、`distillation_runs`。import 门禁会同时检查 CE metadata 中没有这些表、没有跨界外键；`projects`、`artifacts`、`user_agents`、`chat_sessions`、`marketplace_listing_states` 与 `sites` 也不得注册相应商业作用域列。
 
-两个建表入口共用该过滤：
+两个建表入口共用 CE-only metadata：
 
 1. `core/db/engine.py::init_db` 的 CE 分支（`JX_EDITION=ce` 时走 `ce_create_all`，SQLite 启动兜底）；
-2. CE overlay 迁移基线 `ce_0001_initial.py`——CE 走**独立 alembic 链**（不复用主仓 50+ 个历史迁移），基线即「按 `EE_ONLY_TABLES` 过滤后的 create_all」，方言感知（SQLite / PostgreSQL 通吃），与 init_db 同源同滤、两者幂等不冲突。后续 CE schema 演进在 `ce_0001` 链上追加常规迁移。
+2. CE overlay 迁移基线 `ce_0001_initial.py`——CE 走**独立 alembic 链**，直接从 CE-only metadata 建表，方言感知（SQLite / PostgreSQL 通吃），与 init_db 幂等不冲突。后续 CE schema 演进在 `ce_0001` 链上追加常规迁移。
 
-EE（含 internal / licensed 等全部 license 状态）始终全量建表，行为与历史一致。维护规则：**新增 EE 专属模型时同步把表名加进 `EE_ONLY_TABLES`**。
+EE 始终全量建表。维护规则：**新增 EE 专属模型必须放进 `edition_ee/db/models`，并把表名加入 CE 发布契约**。
 
 ## 产出验收
 
@@ -132,20 +142,21 @@ EE（含 internal / licensed 等全部 license 状态）始终全量建表，行
 
 | 闸门 | 标准 | 兑现处 |
 |---|---|---|
-| 路由零 EE 泄漏 | CE 树物理不含 EE 路由 / 模块；`--import-check` 下 `import api.app` 成功（缺失模块由注册表静默跳过）；`--pytest-check` 收集不报 EE import 错误 | exclude + `iter_edition_routers` |
-| 品牌门禁 | 文本 0 命中；全量路径扫描通过；新增二进制资产（免内容扫描）须人工复核 | `brand_scan()` |
+| 路由 / Schema 零 EE 泄漏 | CE 树物理不含 `edition_ee`；`EE_ROUTERS` 为空；OpenAPI 无组织路由、字段或文案；metadata 无禁止表、跨界外键与商业作用域列 | `--import-check` |
+| 运行时源码零商业符号 | 后端与前端运行时源码不得出现 Team/RBAC 的模型、作用域字段、权限或工具符号；测试目录仅保留负向断言 | `find_forbidden_artifacts()` + CE runtime contract |
+| 品牌 / 二进制门禁 | 文本 0 命中、全量路径扫描通过；PNG/PDF/DOCX 必须命中经人工/OCR 审阅的 path + SHA-256 白名单 | `brand_scan()` + `binary_allowlist_check()` |
 | LICENSE 闸门 | overlay LICENSE 非占位文本 | `license_placeholder_check()` |
-| split 断言 | 三个 split 文件的 CE 子集在 overlay 中存在 | `main()` overlay 前置检查 |
+| split 断言 | 每个声明的 CE split 替代文件都在 overlay 中存在 | `main()` overlay 前置检查 |
 | 前端可构建 | `--frontend-check`：npm install + vite build 通过 | `frontend_check()` |
 | 交付卫生 | 自检残留全部清除 | `cleanup_gate_artifacts()` |
 
 ## 日常维护要点
 
 - **新增 EE 路由**：在 `EE_ROUTERS` 注册（见 [后端开发指南](../development/backend.md)）+ `manifest.exclude` 加对应文件 glob（`admin_*.py` / `config_*.py` 已有通配）。
-- **新增 EE 表**：`EE_ONLY_TABLES` 加表名。
+- **新增 EE 表**：模型放进 `edition_ee/db/models`，表名加入 `contracts.forbidden_tables`。
 - **新增 EE 依赖 / compose 服务**：对应 prune 段补 drop 项。
-- **新增品牌资产**：确认 brand_scan 能在路径或文本层面拦住；二进制资产是内容扫描盲区，依赖路径模式 + 人工复核。
-- 改完跑一次 `python scripts/build_ce.py --allow-dirty --import-check --pytest-check` 验证。
+- **新增 PNG/PDF/DOCX**：先人工检查或 OCR 提取复核内容，再把相对路径与 SHA-256 加入 `ce/binary_allowlist.sha256`；哈希变化必须重新审阅。
+- 改完跑一次 `python scripts/build_ce.py --allow-dirty --import-check --pytest-check --frontend-check` 验证；正式发布不得使用 `--allow-dirty`，且未跟踪文件永不作为复制输入。
 
 ## 相关源码
 

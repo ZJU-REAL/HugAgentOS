@@ -10,7 +10,6 @@ from threading import Lock
 from time import monotonic
 from typing import Dict, List, Optional, Tuple
 
-
 # ---------------------------------------------------------------------------
 # Lightweight KB catalog — name + description only (no document lists).
 # Injected into system prompt per user's enabled_kbs, from cached data.
@@ -30,7 +29,7 @@ def invalidate_kb_lite_cache() -> None:
 def _build_kb_lite_section(enabled_kb_ids: Optional[List[str]]) -> str:
     """Build a minimal KB catalog (name + description) for system prompt injection.
 
-    Only uses cached Dify dataset list (no extra API calls) and fast DB queries.
+    Uses a cached external collection list plus fast local DB queries.
     Typical output: 3-10 lines, 300-800 chars.
     """
     if not enabled_kb_ids:
@@ -47,40 +46,47 @@ def _build_kb_lite_section(enabled_kb_ids: Optional[List[str]]) -> str:
                 return text
 
     import logging
+
     _log = logging.getLogger(__name__)
 
-    dify_ids = [kid for kid in enabled_kb_ids if not kid.startswith("kb_")]
+    external_ids = [kid for kid in enabled_kb_ids if not kid.startswith("kb_")]
     local_ids = [kid for kid in enabled_kb_ids if kid.startswith("kb_")]
 
     lines: List[str] = []
 
-    # ── Public datasets (Dify) — from cached list, no extra HTTP calls ────
-    if dify_ids:
+    # ── Externally managed shared collections — cached, no extra HTTP calls ──
+    if external_ids:
         try:
-            from core.kb.dify_kb import is_dify_enabled, list_datasets
-            if is_dify_enabled():
-                dify_set = set(dify_ids)
-                datasets = list_datasets(page=1, limit=100, timeout=(1, 2))
+            from core.kb.external_provider import is_enabled, list_collections
+
+            if is_enabled():
+                external_set = set(external_ids)
+                datasets = list_collections(page=1, limit=100, timeout=(1, 2))
                 for ds in datasets:
                     ds_id = str(ds.get("id", "")).strip()
-                    if ds_id and ds_id in dify_set:
+                    if ds_id and ds_id in external_set:
                         name = ds.get("name", ds_id)
                         desc = ds.get("description") or ds.get("desc") or ""
                         desc_part = f"：{desc[:120]}" if desc else ""
                         lines.append(f"- {name}（公有，dataset_id: `{ds_id}`）{desc_part}")
         except Exception as exc:
-            _log.debug("[kb_lite] Dify list failed: %s", exc)
+            _log.debug("[kb_lite] external collection list failed: %s", exc)
 
     # ── Private KBs — fast DB query ───────────────────────────────────────
     if local_ids:
         try:
             from core.db.engine import SessionLocal
             from core.db.models import KBSpace
+
             with SessionLocal() as db:
-                spaces = db.query(KBSpace).filter(
-                    KBSpace.kb_id.in_(local_ids),
-                    KBSpace.deleted_at.is_(None),
-                ).all()
+                spaces = (
+                    db.query(KBSpace)
+                    .filter(
+                        KBSpace.kb_id.in_(local_ids),
+                        KBSpace.deleted_at.is_(None),
+                    )
+                    .all()
+                )
                 for s in spaces:
                     desc_part = f"：{s.description[:120]}" if s.description else ""
                     lines.append(f"- {s.name}（私有，kb_id: `{s.kb_id}`）{desc_part}")
@@ -93,8 +99,7 @@ def _build_kb_lite_section(enabled_kb_ids: Optional[List[str]]) -> str:
     result = (
         "## 当前启用的知识库\n"
         "当用户提问涉及以下知识库名称或简介中的关键词时，应**主动**调用对应检索工具，无需等待用户显式要求。\n"
-        "调用 `list_datasets` 可获取更详细的文档列表。\n\n"
-        + "\n".join(lines)
+        "调用 `list_datasets` 可获取更详细的文档列表。\n\n" + "\n".join(lines)
     )
 
     with _kb_lite_cache_lock:

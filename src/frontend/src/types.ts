@@ -1,23 +1,33 @@
+import type {
+  EditionChatShareScope,
+  EditionProjectChatFields,
+  EditionProjectFields,
+  EditionProjectKind,
+  EditionResourceFields,
+} from './editionModelTypes';
+import type {
+  EditionMarketplaceFetcherFields,
+  EditionMarketplaceItemFields,
+} from './editionMarketplaceTypes';
+
+export type { MarketVisibilityValue } from './editionMarketplaceTypes';
+
 export type PanelKey = 'chat' | 'skills' | 'agents' | 'mcp' | 'kb' | 'docs' | 'app_center' | 'settings' | 'share_records' | 'my_space' | 'ability_center' | 'lab' | 'projects' | 'project_detail';
 
 // ─── Projects (Claude-style workspaces) ─────────────────────────────────────
 
-export type ProjectKind = 'personal' | 'team';
+export type ProjectKind = 'personal' | EditionProjectKind;
 export type ProjectPermission = 'admin' | 'edit' | 'view' | 'none';
 export type ProjectFileSource = 'upload' | 'reference';
 
-export interface ProjectItem {
+export interface ProjectItem extends EditionProjectFields {
   project_id: string;
   name: string;
   description: string;
   kind: ProjectKind;
   owner_user_id: string;
-  team_id: string | null;
-  team_name: string | null;
   /** user_folder.folder_id a personal project is linked to */
   linked_folder_id: string | null;
-  /** team_folder.folder_id a team project is linked to */
-  linked_team_folder_id: string | null;
   /** Linked folder name (for frontend display) */
   folder_name: string | null;
   instructions: string;
@@ -62,9 +72,9 @@ export interface ProjectFileItem {
   created_at: string | null;
 }
 
-export type ChatShareScope = 'private' | 'team_read' | 'team_edit';
+export type ChatShareScope = 'private' | EditionChatShareScope;
 
-export interface ProjectChatSummary {
+export interface ProjectChatSummary extends EditionProjectChatFields {
   chat_id: string;
   title: string;
   /** team-share scenario: from chat_session_user_states, independent per member. */
@@ -74,20 +84,6 @@ export interface ProjectChatSummary {
   last_message_at: string | null;
   updated_at: string | null;
   created_at: string | null;
-  /** Session creator's user_id. */
-  owner_user_id?: string;
-  /** Session creator's display name. */
-  owner_name?: string | null;
-  /** Session-level sharing switch (only effective in team projects with the project-level sharing switch ON). */
-  share_scope?: ChatShareScope;
-  /** Whether the current user is the session owner. */
-  is_owner?: boolean;
-}
-
-export interface TeamForProjectCreation {
-  team_id: string;
-  name: string;
-  role: 'owner' | 'admin';
 }
 
 export type CitationSourceType =
@@ -453,34 +449,7 @@ export interface MarketplaceSecretField {
   placeholder?: string;
 }
 
-// ── Marketplace visibility scope (shared by all three marketplaces: skills/plugins/sub-agents) ──
-export type MarketVisibilityValue = 'public' | 'scoped';
-
-export interface MarketVisibilityGrant {
-  principal_type: 'user' | 'team' | 'role';
-  principal_id: string;
-}
-
-export interface MarketVisibilityConfig {
-  visibility: MarketVisibilityValue;
-  grants: MarketVisibilityGrant[];
-}
-
-// Data source for the visibility-scope picker (/v1/admin/visibility/principals)
-export interface VisibilityPrincipals {
-  users: Array<{ user_id: string; username: string; real_name?: string }>;
-  teams: Array<{ team_id: string; name: string }>;
-  roles: Array<{ role_id: string; name: string }>;
-}
-
-// Visibility-scope config transport (admin-injected only; the three marketplaces share one dialog component)
-export interface VisibilityScopeFetchers {
-  getVisibility: (slug: string) => Promise<MarketVisibilityConfig>;
-  setVisibility: (slug: string, config: MarketVisibilityConfig) => Promise<void>;
-  loadPrincipals: () => Promise<VisibilityPrincipals>;
-}
-
-export interface MarketplaceSkill {
+export interface MarketplaceSkill extends EditionMarketplaceItemFields {
   slug: string;
   entry_name: string;
   display_name: string;
@@ -506,8 +475,6 @@ export interface MarketplaceSkill {
   deletable?: boolean;
   /** Whether listed on the skill marketplace (admin console can delist; delisted items are hidden from users). */
   market_enabled?: boolean;
-  /** Visibility scope: public = visible to everyone (default); scoped = visible only to authorized users/teams/roles. */
-  visibility?: MarketVisibilityValue;
   /** Built-in default skill (globally resident, always available to everyone): shown as "built-in" in the marketplace, no install flow. */
   builtin?: boolean;
 }
@@ -533,7 +500,7 @@ export interface PluginRequiredSecret {
 export type PluginConnectionType = 'dingtalk' | 'lark';
 
 // Built-in plugin package list item
-export interface PluginListItem {
+export interface PluginListItem extends EditionMarketplaceItemFields {
   slug: string;
   name: string;
   version: string;
@@ -545,7 +512,6 @@ export interface PluginListItem {
   source: string;
   installed?: boolean;
   market_enabled?: boolean;     // whether listed on the plugin marketplace (admin console can delist; delisted items are hidden from users)
-  visibility?: MarketVisibilityValue; // visibility scope: public = everyone (default); scoped = authorized principals only
   has_admin_config?: boolean;   // declares admin-level config (provider credentials), configured by the admin on the plugin detail page
 }
 
@@ -666,7 +632,7 @@ export interface InstalledPluginDetail {
 }
 
 // Injection interface decoupling the marketplace dialog from the concrete transport (user apiRequest / admin adminFetch).
-export interface MarketplaceFetchers {
+export interface MarketplaceFetchers extends EditionMarketplaceFetcherFields {
   loadList: () => Promise<MarketplaceListResult>;
   loadDetail: (slug: string) => Promise<MarketplaceSkillDetail>;
   install: (slug: string, secrets: Record<string, string>) => Promise<{ id: string; action?: string }>;
@@ -674,8 +640,6 @@ export interface MarketplaceFetchers {
   remove?: (slug: string) => Promise<void>;
   /** Optional: list/delist a marketplace skill (admin-injected only); delisted items are hidden from users. */
   setEnabled?: (slug: string, enabled: boolean) => Promise<void>;
-  /** Optional: visibility-scope config (admin-injected only); once configured, user-side display is filtered by user/team/role. */
-  visibility?: VisibilityScopeFetchers;
 }
 
 // A user's private skill's "apply to list on the skill marketplace" record (pending = under review / approved = listed / rejected).
@@ -712,7 +676,7 @@ export interface MarketplaceAgentBindings {
   kb_ids: string[];
 }
 
-export interface MarketplaceAgent {
+export interface MarketplaceAgent extends EditionMarketplaceItemFields {
   slug: string;
   name: string;
   avatar: string;
@@ -727,7 +691,6 @@ export interface MarketplaceAgent {
   installed?: boolean;
   deletable?: boolean;     // DB listing records are deletable; false for preloaded ones
   market_enabled?: boolean; // admin console can delist
-  visibility?: MarketVisibilityValue; // visibility scope: public = everyone (default); scoped = authorized principals only
   skill_count: number;
   mcp_count: number;
   plugin_count: number;
@@ -760,14 +723,12 @@ export interface AgentMarketInstallResult {
 }
 
 // Injection interface decoupling the marketplace dialog from the concrete transport (user / admin).
-export interface AgentMarketplaceFetchers {
+export interface AgentMarketplaceFetchers extends EditionMarketplaceFetcherFields {
   loadList: () => Promise<MarketplaceAgentListResult>;
   loadDetail: (slug: string) => Promise<MarketplaceAgentDetail>;
   install: (slug: string) => Promise<AgentMarketInstallResult>;
   remove?: (slug: string) => Promise<void>;
   setEnabled?: (slug: string, enabled: boolean) => Promise<void>;
-  /** Optional: visibility-scope config (admin-injected only); once configured, user-side display is filtered by user/team/role. */
-  visibility?: VisibilityScopeFetchers;
 }
 
 // A user-built sub-agent's "apply to list on the marketplace" record.
@@ -1048,7 +1009,7 @@ export interface AutomationNotification {
   read: boolean;
 }
 
-export interface ResourceItem {
+export interface ResourceItem extends EditionResourceFields {
   id: string;
   type: 'document' | 'image' | 'favorite';
   name: string;
@@ -1064,8 +1025,6 @@ export interface ResourceItem {
   content_preview?: string;
   created_at: string;
   // Folder membership (only meaningful for the assets type)
-  team_id?: string | null;
-  team_folder_id?: string | null;
   user_folder_id?: string | null;
 }
 

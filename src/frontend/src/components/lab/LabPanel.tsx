@@ -2,19 +2,13 @@ import { useState } from 'react';
 import { useAuthStore, useChatStore } from '../../stores';
 import { staggerStyle } from '../../utils/motionTokens';
 import { usePanelHeader } from '../../hooks/usePageConfig';
-import { SkillDistillPanel } from './SkillDistillPanel';
+import { EDITION_LAB_ITEMS, SkillDistillPanel } from '../../labEdition';
 import LoopPanel from '../loop/LoopPanel';
 import { SitesPanel } from '../sites';
 import { t } from '../../i18n';
 
 const LAB_ITEMS = [
-  {
-    id: 'skill_distill',
-    name: t('个人技能蒸馏'),
-    icon: '/home/new-icons/more.svg',
-    description: t('选择某个、某批或全部历史会话，提炼出可复用的个人专属技能，保存后仅自己可见可用'),
-    enabled: true,
-  },
+  ...EDITION_LAB_ITEMS,
   {
     id: 'autonomous_loop',
     name: t('自主循环'),

@@ -1,13 +1,12 @@
 """社区版初始迁移：建出 CE 全部基线表（不建 EE 专属表）。
 
-CE 走独立迁移链（不复用商业版的 52 个迁移）。基线以
-``core.db.models`` 的 SQLAlchemy 元数据为源、按
-``core.db.edition_tables.EE_ONLY_TABLES`` 过滤后 ``create_all``——
+CE 走独立迁移链（不复用商业版历史迁移）。基线直接使用派生树中
+``core.db.models`` 的 CE-only SQLAlchemy 元数据执行 ``create_all``——
 方言感知（SQLite/PostgreSQL 通吃），与 ``api.app`` 启动兜底
-``init_db`` 的 CE 分支同源同滤，不会冲突（两者都幂等）。
+``init_db`` 的 CE 分支同源，不会冲突（两者都幂等）。
 
-跨边界 FK 列（``team_id``/``team_folder_id``/``share_scope`` 等）按
-方案 D3 保留为 nullable，CE 恒 NULL——降低与主仓 models 包的分叉。
+共享个人资源表中仍需的跨版本 scope 列保留为 nullable，但团队表、
+外键和团队专属字段不会注册到 CE 元数据。
 
 后续 CE schema 演进在本链上追加常规 alembic 迁移。
 

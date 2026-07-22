@@ -11,29 +11,61 @@ import logging
 import os
 import re
 from pathlib import Path
-from shlex import quote as shell_escape  # re-export so providers can `from ._common import shell_escape`
+from shlex import (
+    quote as shell_escape,  # re-export so providers can `from ._common import shell_escape`
+)
 
 from core.config.settings import settings
 
 __all__ = [
-    "ALLOWED_EXTENSIONS", "INTERPRETER_CMD", "MAX_FILE_COUNT", "MAX_FILE_SIZE",
-    "MAX_OUTPUT_BYTES", "MAX_STDERR_BYTES", "MAX_TOTAL_FILE_SIZE",
-    "STDIN_FILE", "USER_ID_RE", "WORKSPACE",
-    "myspace_cache_dir", "team_cache_dir", "dws_cache_dir", "dws_home_dir",
+    "ALLOWED_EXTENSIONS",
+    "INTERPRETER_CMD",
+    "MAX_FILE_COUNT",
+    "MAX_FILE_SIZE",
+    "MAX_OUTPUT_BYTES",
+    "MAX_STDERR_BYTES",
+    "MAX_TOTAL_FILE_SIZE",
+    "STDIN_FILE",
+    "USER_ID_RE",
+    "WORKSPACE",
+    "myspace_cache_dir",
+    "dws_cache_dir",
+    "dws_home_dir",
     "dws_extra_envs",
-    "lark_cache_dir", "lark_home_dir", "lark_app_home_dir",
-    "email_cache_dir", "email_home_dir", "email_himalaya_config",
-    "yida_cache_dir", "yida_workspace_dir", "yida_shared_workspace_dir",
-    "safe_user_id", "shell_escape",
+    "lark_cache_dir",
+    "lark_home_dir",
+    "lark_app_home_dir",
+    "email_cache_dir",
+    "email_home_dir",
+    "email_himalaya_config",
+    "yida_cache_dir",
+    "yida_workspace_dir",
+    "yida_shared_workspace_dir",
+    "safe_user_id",
+    "shell_escape",
 ]
 
 logger = logging.getLogger(__name__)
 
 # Kept aligned with services/script_runner_service/server.py
 ALLOWED_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
-    ".csv", ".xlsx", ".xls", ".json", ".txt", ".pdf",
-    ".html", ".htm", ".docx", ".pptx", ".md",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".csv",
+    ".xlsx",
+    ".xls",
+    ".json",
+    ".txt",
+    ".pdf",
+    ".html",
+    ".htm",
+    ".docx",
+    ".pptx",
+    ".md",
 }
 MAX_FILE_SIZE = 10 * 1024 * 1024
 MAX_TOTAL_FILE_SIZE = 20 * 1024 * 1024
@@ -57,6 +89,7 @@ def safe_user_id(user_id: str | None) -> str:
     """Return the value unchanged if valid; return an empty string if invalid/empty.
     Uniform replacement for the scattered ``uid if uid and USER_ID_RE.match(uid) else ""`` idiom."""
     return user_id if user_id and USER_ID_RE.match(user_id) else ""
+
 
 INTERPRETER_CMD = {
     "python": "python3 -u",
@@ -260,13 +293,3 @@ def yida_shared_workspace_dir() -> Path:
     backend uid 1000; cross-uid writes need wide-open permissions).
     """
     return settings.storage.root / "yida_cache" / "__shared__" / "workspace"
-
-
-def team_cache_dir(team_id: str) -> Path:
-    """Backend-local team file cache directory (shared among members of the same team).
-
-    Bytes the agent reads via ``/myspace/<linked folder>/...`` in team projects try to
-    hit this cache first, then fall back to object storage; different members and
-    different chats of the same team share one cache, reducing S3/OSS egress traffic.
-    """
-    return settings.storage.root / "team_cache" / team_id

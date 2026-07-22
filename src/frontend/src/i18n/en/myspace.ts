@@ -14,13 +14,11 @@ export const MYSPACE_DICT: Record<string, string> = {
   '文件归属': 'File Scope',
   '类型筛选': 'Filter by type',
   '个人文件夹': 'Personal Folder',
-  '团队文件夹': 'Team Folder',
 
   // ── Folder operations ───────────────────────────────────────────────
   '重命名文件夹': 'Rename Folder',
   '新建文件夹': 'New Folder',
   '新建子文件夹': 'New Subfolder',
-  '新建团队文件夹': 'New Team Folder',
   '在此文件夹下新建子夹': 'New Subfolder Here',
   '删除文件夹"{name}"？': 'Delete folder "{name}"?',
   '删除文件夹「{name}」': 'Delete folder "{name}"',
@@ -45,13 +43,10 @@ export const MYSPACE_DICT: Record<string, string> = {
   '已上传': 'Uploaded',
   '建文件夹失败：': 'Failed to create folder: ',
   '上传完成：成功 {ok} 个，失败 {failed} 个': 'Upload complete: {ok} succeeded, {failed} failed',
-  '已上传 {n} 个文件到团队文件夹': '{n} file(s) uploaded to team folder',
-  '已上传到团队文件夹': 'Uploaded to team folder',
   '已创建': 'Created',
 
   // ── Upload ───────────────────────────────────────────────────────────
   '上传中 {done}/{total}': 'Uploading {done}/{total}',
-  '上传到团队': 'Upload to Team',
   '上传中…': 'Uploading…',
 
   // ── Source filter ────────────────────────────────────────────────────
@@ -64,12 +59,6 @@ export const MYSPACE_DICT: Record<string, string> = {
   '返回上级': 'Go Back',
   '管理成员权限': 'Manage Permissions',
   '仅可查看': 'View only',
-
-  // ── Team workspace hints ─────────────────────────────────────────────
-  '你还未加入任何团队': 'You have not joined any team yet',
-  '请在左侧选择一个团队或文件夹': 'Select a team or folder on the left',
-  '被邀请加入团队后，这里会显示团队共享的文件与文件夹。': 'After being invited to a team, shared files and folders will appear here.',
-  '选择后即可浏览、上传或管理团队文件资产。': 'Select one to browse, upload, or manage team file assets.',
 
   // ── Empty states ─────────────────────────────────────────────────────
   '当前文件夹暂无文件': 'No files in this folder',
@@ -118,17 +107,12 @@ export const MYSPACE_DICT: Record<string, string> = {
   '已选 {n} 项': '{n} selected',
   '移动到文件夹': 'Move to Folder',
   '复制到文件夹': 'Copy to Folder',
-  '移动到团队文件夹': 'Move to Team Folder',
-  '复制到团队文件夹': 'Copy to Team Folder',
   '复制失败': 'Copy failed',
-  '已复制 {n} 个文件到团队': 'Copied {n} file(s) to team',
-  '已复制到团队（{f} 个文件夹、{n} 个文件）': 'Copied to team ({f} folder(s), {n} file(s))',
   '确认删除 {n} 个文件': 'Delete {n} Files',
   '确定要删除选中的 {n} 个文件吗？此操作不可撤销。': 'Delete the {n} selected file(s)? This action cannot be undone.',
 
   // ── ImageGrid ────────────────────────────────────────────────────────
   '移至文件夹': 'Move to Folder',
-  '移至团队': 'Move to Team',
 
   // ── Notifications ────────────────────────────────────────────────────
   '暂无通知': 'No notifications',
@@ -143,23 +127,12 @@ export const MYSPACE_DICT: Record<string, string> = {
   '失败': 'Failed',
   '标为已读': 'Mark as Read',
 
-  // ── TeamScopeTree ────────────────────────────────────────────────────
   '文件范围': 'File Scope',
-  '共 {n} 个团队': '{n} Team(s)',
-
-  // ── TeamFolderBreadcrumb ─────────────────────────────────────────────
   '个人文件': 'Personal Files',
-
-  // ── MoveToTeamModal ──────────────────────────────────────────────────
-  '请选择目标团队或文件夹': 'Please select a target team or folder',
   '已移动': 'Moved',
-  '已移动 {n} 个文件到团队': '{n} file(s) moved to team',
   '成功 {moved} / {total}，部分失败': '{moved} / {total} succeeded, some failed',
   '移动失败': 'Failed to move',
   '移动到其他文件夹': 'Move to Another Folder',
-  '当前没有可写入的团队': 'No writable teams available',
-
-  // ── TeamPermissionsModal ─────────────────────────────────────────────
   '加载失败': 'Failed to load',
   '权限已更新': 'Permissions updated',
   '成员': 'Members',
@@ -214,7 +187,6 @@ export const MYSPACE_DICT: Record<string, string> = {
   '点击文件右侧的眼睛图标': 'Click the eye icon next to a file',
   '支持图片、PDF、Office 文档、Markdown、代码等多种格式预览': 'Supports images, PDF, Office documents, Markdown, code, and more',
   '下载原文件': 'Download original file',
-  '松开，上传到当前团队文件夹': 'Release to upload to the current team folder',
   '松开，上传到当前文件夹': 'Release to upload to the current folder',
   '松开，上传到本项目': 'Release to upload to this project',
 };

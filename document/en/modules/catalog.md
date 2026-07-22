@@ -72,7 +72,7 @@ On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the
 
 | Source | Condition | Marking |
 |---|---|---|
-| Dify external KB | `KNOWLEDGE_BASE=dify` with valid credentials (`core/kb/dify_kb.py::is_dify_enabled`); dataset list cached 60 s in-process | `visibility: public` (**Enterprise Edition (EE)**: external Dify KB integration) |
+| Dify external KB | `KNOWLEDGE_BASE=dify` with valid credentials (`edition_ee/kb/dify.py::is_dify_enabled`); dataset list cached in-process | `visibility: public` (**Enterprise Edition (EE)**: the adapter is absent from CE) |
 | Public self-hosted KB | created in the admin "KB management" console (local Milvus); visible to all users, read-only on the frontend | `visibility: public` |
 | Private user KB | the current user's local KB spaces | `visibility: private` |
 
@@ -123,6 +123,6 @@ State is centralized in `src/frontend/src/stores/catalogStore.ts`; local default
 | User self-service capabilities | `src/backend/api/routes/v1/me_capabilities.py` |
 | MCP server config (DB) | `src/backend/core/services/mcp_service.py`, `api/routes/v1/admin_mcp_servers.py` |
 | Skill management | `src/backend/api/routes/v1/admin_skills.py`, `core/agent_skills/` |
-| Dify KB injection | `src/backend/core/kb/dify_kb.py` |
+| Dify KB injection (EE) | `src/backend/edition_ee/kb/dify.py`, via the shared `core/kb/external_provider.py` seam |
 | Frontend Capability Center | `src/frontend/src/components/catalog/`, `stores/catalogStore.ts` |
 | Factory consumption | `src/backend/core/llm/agent_factory.py::_effective_mcp_server_keys` |

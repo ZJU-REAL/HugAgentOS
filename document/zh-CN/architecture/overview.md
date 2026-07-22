@@ -214,7 +214,7 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ### CE/EE 同源双形态
 
-商业版主仓即全量代码；社区版由 `scripts/build_ce.py` 按 `ce/manifest.yaml` 派生（排除 EE 文件 + 文本品牌中性化 + overlay 覆盖）。运行时三道接缝：路由注册表 `api/routes/v1/__init__.py`（EE 路由带 license 能力位）、建表边界 `core/db/edition_tables.py`（CE 不建 18 张 EE 专属表）、license 门面 `core/licensing/manager.py`（CE 下全部能力位恒 False）。详见 [版本与授权](../editions/overview.md)。
+商业版主仓即全量代码；社区版由 `scripts/build_ce.py` 按 `ce/manifest.yaml` 派生（排除 `edition_ee` 实现 + 文本变换 + CE overlay）。运行时边界包括路由注册表 `api/routes/v1/__init__.py`、建表边界 `core/db/edition_tables.py`（CE 不注册 20 张 EE 专属表）、EE 的 `edition_ee/licensing/` 与 CE 固定版本中间件，以及站点可见性等版本策略缝隙。详见 [版本与授权](../editions/overview.md)。
 
 ## 相关源码
 
@@ -229,5 +229,5 @@ RAG 则提供支撑决策所需的文档与证据。
 | 能力目录 | `src/backend/core/config/catalog.json`、`catalog.py` |
 | 响应信封 | `src/backend/core/infra/responses.py` |
 | 提示词装配 | `src/backend/prompts/prompt_runtime.py` |
-| CE/EE 接缝 | `src/backend/api/routes/v1/__init__.py`、`src/backend/core/db/edition_tables.py`、`src/backend/core/licensing/` |
+| CE/EE 接缝 | `src/backend/api/routes/v1/__init__.py`、`src/backend/core/db/edition_tables.py`、`src/backend/api/middleware/edition.py`、`src/backend/edition_ee/licensing/` |
 | 容器编排 | `docker-compose.yml` |

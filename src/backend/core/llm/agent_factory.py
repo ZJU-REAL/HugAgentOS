@@ -125,7 +125,7 @@ def _effective_mcp_server_keys(
             allow &= spec_set
 
     # Note: empty enabled_kb_ids [] means no KBs selected in frontend (e.g. catalog
-    # KB list was empty due to Dify being unreachable). We do NOT remove the tool
+    # KB list was empty because an external provider was unreachable). We do NOT remove the tool
     # in this case — the MCP impl will auto-resolve available KBs at call time.
 
     # "Database query" umbrella expansion: when the user/catalog selects the
@@ -177,7 +177,7 @@ def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> 
 
 
 def _filter_kb_ids_for_user(kb_ids: list[str], user_id: Optional[str]) -> list[str]:
-    """Strip out KB ids the current user has no access to (local KBs + Dify datasets), preventing unauthorized ids passed in from the frontend.
+    """Strip out KB ids the current user has no access to (local + external collections), preventing unauthorized ids passed in from the frontend.
 
     Single source of truth ``core.auth.kb_permissions``: public KBs are visible
     to everyone, private KBs to their owner, and scoped-visibility KBs per
@@ -259,9 +259,11 @@ def _inject_runtime_headers(
     if not enabled_servers:
         return enabled_servers
 
+    from core.kb.external_provider import runtime_request_context
+
     normalized = [str(x).strip() for x in (enabled_kb_ids or []) if str(x).strip()]
-    dify_ids = [x for x in normalized if not x.startswith("kb_")]
     local_ids = [x for x in normalized if x.startswith("kb_")]
+    external_headers, external_env = runtime_request_context(normalized)
     origin = channel_origin or {}
 
     ctx_headers = {
@@ -273,17 +275,17 @@ def _inject_runtime_headers(
         "X-Chat-Id": chat_id or "",
         "X-Channel-Id": origin.get("channel_id") or "",
         "X-Conversation-Id": origin.get("conversation_id") or "",
-        "X-Allowed-Dataset-Ids": ",".join(dify_ids),
         "X-Allowed-Kb-Ids": ",".join(local_ids),
         "X-Reranker-Enabled": "true" if reranker_enabled else "false",
     }
+    ctx_headers.update(external_headers)
     ctx_env = {
         "CURRENT_USER_ID": current_user_id or "",
         "CURRENT_CHAT_ID": chat_id or "",
-        "DIFY_ALLOWED_DATASET_IDS": ",".join(dify_ids),
         "LOCAL_KB_ALLOWED_IDS": ",".join(local_ids),
         "RERANKER_ENABLED": "true" if reranker_enabled else "false",
     }
+    ctx_env.update(external_env)
 
     out: dict = {}
     for key, cfg in enabled_servers.items():

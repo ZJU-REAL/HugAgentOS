@@ -211,12 +211,7 @@ async def create_kb_space(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """创建知识库空间，归属当前登录用户。
-
-    visibility=private 需 ``can_create_private_kb``（仅本人可见）；visibility=public 需
-    ``can_create_public_kb``——公有库默认对所有人不可见，创建后**自动授权给创建者所属的
-    所有团队（view）**，即对其团队可见；之后可在「用户管理 / 团队管理」继续调整授权。
-    """
+    """创建归属当前登录用户的知识库空间；可见性规则由当前版本决定。"""
     visibility = (request.visibility or "private").strip()
     if visibility not in ("private", "public"):
         raise BadRequestError(
@@ -242,12 +237,9 @@ async def create_kb_space(
     if request.indexing_config:
         metadata["indexing_config"] = request.indexing_config.model_dump()
 
-    # Public KB -> automatically grant visibility to the creator's teams (members inherit view); private KB is owner-only.
-    grant_team_ids: list[str] = []
-    if visibility == "public":
-        from core.auth.kb_permissions import _user_team_ids
+    from core.services.kb_edition import initial_visibility_grants
 
-        grant_team_ids = sorted(_user_team_ids(db, user.user_id))
+    initial_grants = initial_visibility_grants(db, user.user_id, visibility)
 
     space = kb_service.create_space(
         user_id=user.user_id,
@@ -256,7 +248,7 @@ async def create_kb_space(
         chunk_method=request.chunk_method or "semantic",
         metadata=metadata,
         visibility=visibility,
-        grant_team_ids=grant_team_ids,
+        initial_grants=initial_grants,
         granted_by=user.user_id,
     )
     return created_response(data=space, message="Knowledge base space created successfully")
@@ -408,24 +400,23 @@ async def upload_document(
 
 @router.get("/{kb_id}/documents", summary="获取知识库文档列表")
 async def list_documents(
-    kb_id: str = Path(..., description="KB space ID or Dify dataset ID"),
+    kb_id: str = Path(..., description="Local or external knowledge collection ID"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """分页获取指定知识库空间下的文档列表。仅空间所有者可查看本地知识库；当 kb_id 不是本地空间且启用了 Dify 时，回退到 Dify 数据集获取文档列表。"""
+    """分页获取知识库文档；非本地 ID 交由当前版本的外部知识提供方处理。"""
     from core.db.repository import KBRepository
 
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
 
     if not kb_space:
-        from core.kb.dify_kb import is_dify_enabled
-        from core.kb.dify_kb import list_documents as dify_list_docs
+        from core.kb.external_provider import is_enabled, list_documents
 
-        if is_dify_enabled():
-            result = dify_list_docs(kb_id, page=page, limit=page_size)
+        if is_enabled():
+            result = list_documents(kb_id, page=page, limit=page_size)
             return paginated_response(
                 items=result.get("items", []),
                 page=result.get("page", page),
@@ -467,23 +458,22 @@ async def list_documents(
 
 @router.get("/{kb_id}/documents/{document_id}", summary="获取知识库文档详情")
 async def get_document_detail(
-    kb_id: str = Path(..., description="KB space ID or Dify dataset ID"),
+    kb_id: str = Path(..., description="Local or external knowledge collection ID"),
     document_id: str = Path(..., description="Document ID"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """获取指定文档的详情，包括标题、文件名、类型及拼接后的全文内容（按分块顺序合并）。仅空间所有者可查看本地知识库；当 kb_id 不是本地空间且启用了 Dify 时，回退到 Dify 获取文档详情。"""
+    """获取文档详情；非本地 ID 交由当前版本的外部知识提供方处理。"""
     from core.db.repository import KBRepository
 
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
 
     if not kb_space:
-        from core.kb.dify_kb import get_document_detail as dify_get_document_detail
-        from core.kb.dify_kb import is_dify_enabled
+        from core.kb.external_provider import get_document_detail, is_enabled
 
-        if is_dify_enabled():
-            detail = dify_get_document_detail(kb_id, document_id)
+        if is_enabled():
+            detail = get_document_detail(kb_id, document_id)
             return success_response(data=detail, message="Document detail retrieved successfully")
         raise ResourceNotFoundError(resource_type="kb_space", resource_id=kb_id)
 

@@ -106,7 +106,7 @@ The `/v1/admin/kb/*` admin routes live in `src/backend/api/routes/v1/admin_kb.py
 
 ## External Dify knowledge bases (Enterprise Edition, EE)
 
-The client wrapper is `src/backend/core/kb/dify_kb.py`. The `is_dify_enabled()` decision has three priority levels:
+The EE-only client is `src/backend/edition_ee/kb/dify.py`; shared routes call it through `core/kb/external_provider.py`. The derived CE tree replaces that seam with a disabled implementation and contains no Dify client. The `is_dify_enabled()` decision has three priority levels:
 
 1. DB system config `knowledge_base.provider == "dify"` (editable in the Config console);
 2. Environment variable `KNOWLEDGE_BASE=dify`;
@@ -138,7 +138,8 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 |---|---|
 | `src/backend/core/kb/kb_parser.py` | Document parsing + parent-child chunking (5 chunk methods) |
 | `src/backend/core/kb/kb_vector.py` | Milvus collection, embedding, hybrid search, reranking |
-| `src/backend/core/kb/dify_kb.py` | Dify datasets client and enablement logic |
+| `src/backend/edition_ee/kb/dify.py` | Dify datasets client and enablement logic (EE only) |
+| `src/backend/core/kb/external_provider.py` | Edition-neutral external-provider seam; disabled by the CE overlay |
 | `src/backend/core/content/kb_processing.py` | Background vectorization, LLM keyword / question enrichment |
 | `src/backend/core/content/file_validation.py` | Upload validation (extension + magic bytes) |
 | `src/backend/core/content/file_parser.py` | General-purpose file parser |

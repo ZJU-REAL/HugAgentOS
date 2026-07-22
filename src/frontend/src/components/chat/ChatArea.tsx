@@ -33,6 +33,7 @@ import { FileConfirmBar } from './FileConfirmBar';
 import { DesignPickerCard } from './DesignPickerCard';
 import { ChatShareBanner } from './ChatShareBanner';
 import { getChatDetail } from '../../api';
+import { chatAccessLevel } from '../../chatEdition';
 import { BatchProgressPanel } from '../batch';
 import { ContentErrorBoundary } from '../common';
 
@@ -104,7 +105,7 @@ export function ChatArea({
   const [shareExpiryModalOpen, setShareExpiryModalOpen] = useState(false);
   const [creatingShare, setCreatingShare] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  // Shared-session access level: disable the input box when team_read. null = not attached to a project / no sharing.
+  // Shared-session access level: read-only sessions disable the input box.
   const [shareAccessLevel, setShareAccessLevel] = useState<'admin' | 'edit' | 'read' | null>(null);
   const pendingToastTimerRef = useRef<number | null>(null);
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
@@ -162,7 +163,7 @@ export function ChatArea({
     void (async () => {
       try {
         const d = await getChatDetail(currentChatId);
-        if (!aborted) setShareAccessLevel(d.access_level);
+        if (!aborted) setShareAccessLevel(chatAccessLevel(d));
       } catch {
         if (!aborted) setShareAccessLevel(null);
       }

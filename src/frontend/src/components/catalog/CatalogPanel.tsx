@@ -176,7 +176,7 @@ function filterDisplayTags(tags?: string[]): string[] {
   if (!Array.isArray(tags)) return [];
   return tags.filter((tag) => {
     if (!tag || typeof tag !== 'string') return false;
-    // Hide Dify provider paths like "langgenius/openai_api_compatible/..."
+    // Hide provider-internal paths such as "vendor/protocol/...".
     if (tag.includes('/')) return false;
     // Hide technical quality flags
     if (tag === 'high_quality' || tag === 'economy') return false;
@@ -307,7 +307,7 @@ export function CatalogPanel() {
   } = useChunkChildrenExpander<KBChunkChild>(fetchChunkChildren);
 
   // Whether editing chunk tags/questions is allowed: decided by the authorization capability bit editable (true for owners / authorized admins;
-  // ordinary public libraries and Dify libraries have editable=false, preview-only). No longer using is_public as a blanket rule — otherwise
+  // ordinary public and externally managed libraries have editable=false, preview-only). No longer using is_public as a blanket rule — otherwise
   // a shared library the user is authorized to manage would also be wrongly treated as read-only.
   const canEditChunks = !!selectedItem && !!selectedItem.editable;
 

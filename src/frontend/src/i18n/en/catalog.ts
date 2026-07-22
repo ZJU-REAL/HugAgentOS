@@ -315,7 +315,6 @@ export const CATALOG_DICT: Record<string, string> = {
   '文件夹': 'Folder',
   '云端': 'Cloud',
   '加密': 'Encryption',
-  '团队': 'Team',
   '位置': 'Location',
   '清单': 'Checklist',
   '翻译': 'Translation',
@@ -404,8 +403,6 @@ export const CATALOG_DICT: Record<string, string> = {
     'When enabled, the user can install built-in plugins and import Claude Code / Codex plugin packages.',
   '开放后，用户可自建子智能体，并从子智能体市场安装、申请上架。':
     'When enabled, the user can build their own sub-agents and install or submit them from the sub-agent marketplace.',
-  '团队成员默认是否可自建子智能体、从子智能体市场安装与申请上架。':
-    'Whether team members can, by default, build sub-agents and install or submit them from the sub-agent marketplace.',
   '加载插件配置失败': 'Failed to load plugin config',
   '加载插件详情失败': 'Failed to load plugin details',
   '插件详情：{name}': 'Plugin details: {name}',
@@ -437,16 +434,10 @@ export const CATALOG_DICT: Record<string, string> = {
   '所有人可见，点击设置可见范围': 'Visible to everyone — click to set visibility scope',
   '指定范围可见，点击调整': 'Visible to selected scope — click to adjust',
   '（默认）市场中全员可浏览、可安装': '(Default) Everyone can browse and install in the marketplace',
-  '仅所选角色 / 团队 / 人员可见，命中任意一项即可':
-    'Only visible to the selected roles / teams / users; matching any one is enough',
   '按角色': 'By role',
-  '按团队': 'By team',
   '按人员': 'By user',
   '选择角色（可多选）': 'Select roles (multiple)',
-  '选择团队（可多选）': 'Select teams (multiple)',
   '搜索并选择人员（可多选）': 'Search and select users (multiple)',
-  '指定范围可见时，请至少选择一个角色、团队或人员':
-    'When restricting visibility, select at least one role, team, or user',
   '已设为所有人可见': 'Now visible to everyone',
   '已设为指定范围可见（{n} 条授权）': 'Now visible to selected scope ({n} grants)',
   '加载可见范围失败': 'Failed to load visibility scope',

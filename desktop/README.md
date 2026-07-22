@@ -113,7 +113,7 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 
 > Windows 和 macOS overlay 的 `beforeBuildCommand` 会运行 `scripts/prepare-bundle.mjs`：构建
 > 桌面前端、准备 CE 服务树、构建 CE 登录前端，并删除构建期 `node_modules` 后再交给 Tauri
-> 打包。FULL 主仓存在
+> 打包。源代码仓存在
 > `scripts/build_ce.py` 时，脚本正常运行生成器并执行开源边界门禁；公开 CE 仓不含生成器，脚本会先
 > 校验根目录 `.hugagent-edition` 为 `ce`，再只复制当前已派生 checkout 中的 Git tracked 文件。
 > Linux 仍只构建桌面前端，不携带 Windows 本机服务载荷；dev 模式从仓库内
@@ -143,7 +143,7 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 | `resources/server-bootstrap/install-local-server.ps1` | Windows 用户目录内创建 Python 环境并安装随包 CE 服务 |
 | `resources/server-bootstrap/install-local-server.sh` | macOS 应用数据目录内准备独立 Python 运行时并安装随包 CE 服务 |
 | `scripts/prepare-bundle.mjs` | 发行构建前生成同版本 CE 服务资源和 `desktop-bundle.json` |
-| `scripts/ce-payload.mjs` | 在公开 CE 仓校验版本标识并只暂存 tracked tree，FULL 仓仍走生成器 |
+| `scripts/ce-payload.mjs` | 在派生 CE 仓校验版本标识并只暂存 tracked tree，源代码仓仍走生成器 |
 | `scripts/validate-release-version.mjs` | CI 三平台矩阵启动前校验桌面版本文件与 release tag |
 | `src-tauri/capabilities/default.json` | 插件权限（opener / deep-link / notification / global-shortcut / updater） |
 

@@ -1,5 +1,6 @@
 import type { PanelKey } from '../types';
 import { t } from '../i18n';
+import { EDITION_TOOL_NAME_OVERRIDES } from '../toolEdition';
 
 export type CatalogKind = Exclude<PanelKey, 'chat' | 'docs' | 'app_center' | 'share_records' | 'settings'>;
 
@@ -60,8 +61,7 @@ export const TOOL_NAME_OVERRIDES: Record<string, string> = {
   stage_myspace_file: t('导入文件到工作区'),
   list_favorite_chats: t('浏览收藏会话'),
   get_chat_messages: t('读取会话记录'),
-  list_team_files: t('浏览团队文件夹'),
-  stage_team_file: t('导入团队文件到工作区'),
+  ...EDITION_TOOL_NAME_OVERRIDES,
 };
 
 export const TOPIC_TAG_COLORS: Record<string, string> = {

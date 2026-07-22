@@ -33,9 +33,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
-
 from core.agent_skills.binary_files import is_binary_value
 from core.agent_skills.cache_refresh import refresh_skill_caches
 from core.agent_skills.deps_detector import detect_dependencies
@@ -44,6 +41,7 @@ from core.config.catalog_resolver import invalidate_capability_cache
 from core.db.models import (
     AdminMcpServer,
     AdminSkill,
+    ContentBlock,
     InstalledPlugin,
     PluginMarketPackage,
     PluginMarketSkillExclusion,
@@ -62,6 +60,8 @@ from core.services.plugin_importer import (
     _rewrite_path_vars,
     normalize_plugin_dir,
 )
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,17 @@ PLUGIN_BUNDLES_DIR = Path(__file__).resolve().parents[2] / "plugin_bundles"
 PLUGIN_SOURCE_DIRS = (PLUGIN_BUNDLES_DIR / "default", PLUGIN_BUNDLES_DIR / "marketplace")
 
 MAX_ZIP_BYTES = 50 * 1024 * 1024  # pre-extraction cap for uploaded/imported plugin zips
+
+# Credential-free plugins that form the CE out-of-box experience.  Desktop and
+# no-Docker installs bootstrap the same slugs from ``cli.py`` before the API
+# starts; CE Compose uses the DB-backed marker below because its database volume
+# outlives backend container rebuilds.
+DEFAULT_BOOTSTRAP_PLUGIN_SLUGS: Tuple[str, ...] = (
+    "automation",
+    "skill-manager",
+    "sites",
+)
+DEFAULT_BOOTSTRAP_MARKER_ID = "default_plugins_bootstrap_v1"
 
 
 def _iter_plugin_dirs():
@@ -99,6 +110,7 @@ def _resolve_plugin_dir(slug: str) -> Optional[Path]:
 
 # ── id generation (namespaced) ───────────────────────────────────────────────
 
+
 def _make_plugin_install_id(slug: str, owner_user_id: Optional[str]) -> str:
     return f"{slug}@{owner_user_id or 'global'}"
 
@@ -111,7 +123,9 @@ def _sanitize_id(value: str, maxlen: int) -> str:
 def _make_skill_id(slug: str, skill_name: str, owner_user_id: Optional[str]) -> str:
     """Namespaced skill id: {slug}-{skill} (+ user fingerprint). Constrained by _ID_RE (<=63)."""
     base = _sanitize_id(f"{slug}-{skill_name}", 50)
-    return compute_install_id(base, owner_user_id)  # appends -<6-char fingerprint> when owner is non-empty
+    return compute_install_id(
+        base, owner_user_id
+    )  # appends -<6-char fingerprint> when owner is non-empty
 
 
 def _make_server_id(slug: str, server_name: str, owner_user_id: Optional[str]) -> str:
@@ -120,6 +134,7 @@ def _make_server_id(slug: str, server_name: str, owner_user_id: Optional[str]) -
 
 
 # ── Rewriting inter-skill relative references ────────────────────────────────
+
 
 def _rewrite_sibling_refs(text: str, sibling_ids: Dict[str, str]) -> str:
     """Rewrite inter-skill relative references ``../<sibling skill name>`` into ``../<sibling skill_id>``.
@@ -155,6 +170,7 @@ def _rewrite_sibling_refs(text: str, sibling_ids: Dict[str, str]) -> str:
 
 # ── Persistence: single component ────────────────────────────────────────────
 
+
 def _apply_skill(
     db: Session,
     sk: NormalizedSkill,
@@ -174,7 +190,9 @@ def _apply_skill(
     content = _rewrite_path_vars(sk.skill_content, skill_sandbox_dir=sandbox_dir)
     extra_files: Dict[str, str] = {}
     for k, v in sk.extra_files.items():
-        extra_files[k] = v if is_binary_value(v) else _rewrite_path_vars(str(v), skill_sandbox_dir=sandbox_dir)
+        extra_files[k] = (
+            v if is_binary_value(v) else _rewrite_path_vars(str(v), skill_sandbox_dir=sandbox_dir)
+        )
 
     # Inter-skill relative-reference rewrite: ../<sibling skill name> → ../<sibling skill_id> (body + text attachments)
     if sibling_ids:
@@ -200,9 +218,7 @@ def _apply_skill(
     except Exception as exc:  # noqa: BLE001
         raise BadRequestError(message=f"技能 {sk.name!r} 的 SKILL.md 不合法：{exc}")
 
-    deps = detect_dependencies(
-        {fn: c for fn, c in extra_files.items() if not is_binary_value(c)}
-    )
+    deps = detect_dependencies({fn: c for fn, c in extra_files.items() if not is_binary_value(c)})
     ensure_ontology_build_valid(
         db,
         asset_type="skill",
@@ -298,6 +314,7 @@ def _apply_mcp(
 
 # ── Persistence: whole plugin ────────────────────────────────────────────────
 
+
 def _apply_normalized(
     db: Session,
     np: NormalizedPlugin,
@@ -329,8 +346,12 @@ def _apply_normalized(
 
     for sk in install_skills:
         sid = _apply_skill(
-            db, sk, slug=np.slug, owner_user_id=owner_user_id,
-            secrets=secrets, required_secrets=np.required_secrets,
+            db,
+            sk,
+            slug=np.slug,
+            owner_user_id=owner_user_id,
+            secrets=secrets,
+            required_secrets=np.required_secrets,
             enabled=(sk.name in de_skills) or not de_skills,
             sibling_ids=sibling_ids,
         )
@@ -339,13 +360,22 @@ def _apply_normalized(
 
     for mc in np.mcp:
         sid = _apply_mcp(
-            db, mc, slug=np.slug, owner_user_id=owner_user_id,
+            db,
+            mc,
+            slug=np.slug,
+            owner_user_id=owner_user_id,
             enabled=(mc.name in de_mcp),
         )
         server_ids.append(sid)
         if mc.needs_runtime:
-            adapted.append({"type": "mcp", "id": sid, "name": mc.name,
-                            "note": mc.note or "stdio MCP 已装上但禁用，需运行时"})
+            adapted.append(
+                {
+                    "type": "mcp",
+                    "id": sid,
+                    "name": mc.name,
+                    "note": mc.note or "stdio MCP 已装上但禁用，需运行时",
+                }
+            )
         else:
             imported.append({"type": "mcp", "id": sid, "name": mc.name})
 
@@ -355,9 +385,16 @@ def _apply_normalized(
     now = datetime.utcnow()
     existing = db.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).first()
     fields = dict(
-        slug=np.slug, name=np.name, version=np.version, description=np.description,
-        category=np.category, icon=np.icon, owner_user_id=owner_user_id,
-        source=source, component_ids=component_ids, import_report=import_report,
+        slug=np.slug,
+        name=np.name,
+        version=np.version,
+        description=np.description,
+        category=np.category,
+        icon=np.icon,
+        owner_user_id=owner_user_id,
+        source=source,
+        component_ids=component_ids,
+        import_report=import_report,
         updated_at=now,
     )
     if existing is not None:
@@ -367,15 +404,22 @@ def _apply_normalized(
             flag_modified(existing, col)
         action = "updated"
     else:
-        db.add(InstalledPlugin(install_id=install_id, created_at=now, created_by=created_by, **fields))
+        db.add(
+            InstalledPlugin(install_id=install_id, created_at=now, created_by=created_by, **fields)
+        )
         action = "installed"
 
     db.commit()
     _refresh_after_change(owner_user_id)
     logger.info(
         "plugin_%s: slug=%s kind=%s owner=%s skills=%d mcp=%d dropped=%d",
-        action, np.slug, np.kind, owner_user_id or "global",
-        len(skill_ids), len(server_ids), len(np.dropped),
+        action,
+        np.slug,
+        np.kind,
+        owner_user_id or "global",
+        len(skill_ids),
+        len(server_ids),
+        len(np.dropped),
     )
     return {
         "install_id": install_id,
@@ -402,6 +446,7 @@ def _refresh_after_change(owner_user_id: Optional[str]) -> None:
         logger.debug("invalidate_capability_cache failed: %s", exc)
     try:
         from core.services.mcp_service import McpServerConfigService
+
         McpServerConfigService.get_instance().invalidate_cache()
     except Exception as exc:  # noqa: BLE001
         logger.debug("mcp cache invalidate failed: %s", exc)
@@ -442,9 +487,11 @@ def builtin_plugin_component_ids() -> Tuple[set, set]:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+
 def _scan_native_manifest(plugin_dir: Path) -> Optional[Dict[str, Any]]:
     """Lightweight read of a builtin plugin bundle's display metadata (no full normalize)."""
     import json
+
     mp = plugin_dir / "plugin.json"
     if not mp.is_file():
         return None
@@ -457,7 +504,8 @@ def _scan_native_manifest(plugin_dir: Path) -> Optional[Dict[str, Any]]:
     skills_root = plugin_dir / "skills"
     skills_count = (
         sum(1 for c in skills_root.iterdir() if c.is_dir() and (c / "SKILL.md").is_file())
-        if skills_root.is_dir() else 0
+        if skills_root.is_dir()
+        else 0
     )
     return {
         "slug": _sanitize_id(str(m.get("name")), 100),
@@ -510,11 +558,14 @@ def list_plugins(
 
     # Annotate installed status
     if items:
-        install_ids = {it["slug"]: _make_plugin_install_id(it["slug"], owner_user_id) for it in items}
+        install_ids = {
+            it["slug"]: _make_plugin_install_id(it["slug"], owner_user_id) for it in items
+        }
         present = {
-            row[0] for row in db.query(InstalledPlugin.install_id).filter(
-                InstalledPlugin.install_id.in_(list(install_ids.values()))
-            ).all()
+            row[0]
+            for row in db.query(InstalledPlugin.install_id)
+            .filter(InstalledPlugin.install_id.in_(list(install_ids.values())))
+            .all()
         }
         for it in items:
             it["installed"] = install_ids[it["slug"]] in present
@@ -524,9 +575,14 @@ def list_plugins(
     # annotations. For user-side callers owner_user_id is the current browsing
     # user, reused directly as the viewer.
     from core.services import marketplace_listing as ml
+
     items = ml.annotate_and_filter(
-        db, ml.KIND_PLUGIN, items, id_key="slug",
-        include_disabled=include_disabled, viewer_user_id=owner_user_id,
+        db,
+        ml.KIND_PLUGIN,
+        items,
+        id_key="slug",
+        include_disabled=include_disabled,
+        viewer_user_id=owner_user_id,
     )
     return items
 
@@ -536,6 +592,7 @@ def set_plugin_market_enabled(
 ) -> Dict[str, Any]:
     """Publish/unpublish a marketplace plugin (controls display in the plugin marketplace; does not affect installed instances)."""
     from core.services import marketplace_listing as ml
+
     res = ml.set_listing_enabled(db, ml.KIND_PLUGIN, slug, enabled, updated_by=updated_by)
     logger.info("plugin_market_listing: slug=%s enabled=%s", slug, enabled)
     return res
@@ -558,10 +615,12 @@ def list_installed(
     if owner_user_id is None:
         q = q.filter(InstalledPlugin.owner_user_id.is_(None))
     elif include_global:
-        q = q.filter(or_(
-            InstalledPlugin.owner_user_id == owner_user_id,
-            InstalledPlugin.owner_user_id.is_(None),
-        ))
+        q = q.filter(
+            or_(
+                InstalledPlugin.owner_user_id == owner_user_id,
+                InstalledPlugin.owner_user_id.is_(None),
+            )
+        )
     else:
         q = q.filter(InstalledPlugin.owner_user_id == owner_user_id)
     rows = q.order_by(InstalledPlugin.created_at.desc()).all()
@@ -573,10 +632,7 @@ def list_installed(
     # the list).
     if owner_user_id is not None and include_global:
         global_slugs = {r.slug for r in rows if r.owner_user_id is None}
-        rows = [
-            r for r in rows
-            if r.owner_user_id is None or r.slug not in global_slugs
-        ]
+        rows = [r for r in rows if r.owner_user_id is None or r.slug not in global_slugs]
     # Enabled state:
     # - user view (owner_user_id non-empty): determined by the user's
     #   "effectively enabled" set (including per-user overrides), so the user's
@@ -584,6 +640,7 @@ def list_installed(
     # - admin view (owner_user_id empty): determined by components' global is_enabled.
     if owner_user_id is not None:
         from core.config.catalog_resolver import resolve_all_runtime_enabled
+
         eff_skills, _eff_agents, eff_mcps = resolve_all_runtime_enabled(db, owner_user_id)
         enabled_skills = set(eff_skills or [])
         enabled_mcps = set(eff_mcps or [])
@@ -594,22 +651,35 @@ def list_installed(
             cids = r.component_ids or {}
             all_skill_ids.update(cids.get("skills") or [])
             all_mcp_ids.update(cids.get("mcp") or [])
-        enabled_skills = {
-            row[0] for row in db.query(AdminSkill.skill_id).filter(
-                AdminSkill.skill_id.in_(all_skill_ids), AdminSkill.is_enabled.is_(True)
-            ).all()
-        } if all_skill_ids else set()
-        enabled_mcps = {
-            row[0] for row in db.query(AdminMcpServer.server_id).filter(
-                AdminMcpServer.server_id.in_(all_mcp_ids), AdminMcpServer.is_enabled.is_(True)
-            ).all()
-        } if all_mcp_ids else set()
+        enabled_skills = (
+            {
+                row[0]
+                for row in db.query(AdminSkill.skill_id)
+                .filter(AdminSkill.skill_id.in_(all_skill_ids), AdminSkill.is_enabled.is_(True))
+                .all()
+            }
+            if all_skill_ids
+            else set()
+        )
+        enabled_mcps = (
+            {
+                row[0]
+                for row in db.query(AdminMcpServer.server_id)
+                .filter(
+                    AdminMcpServer.server_id.in_(all_mcp_ids), AdminMcpServer.is_enabled.is_(True)
+                )
+                .all()
+            }
+            if all_mcp_ids
+            else set()
+        )
 
     out: List[Dict[str, Any]] = []
     for r in rows:
         cids = r.component_ids or {}
-        enabled = any(s in enabled_skills for s in (cids.get("skills") or [])) or \
-                  any(m in enabled_mcps for m in (cids.get("mcp") or []))
+        enabled = any(s in enabled_skills for s in (cids.get("skills") or [])) or any(
+            m in enabled_mcps for m in (cids.get("mcp") or [])
+        )
         out.append(_installed_to_dict(r, enabled=enabled))
     return out
 
@@ -659,6 +729,7 @@ def get_installed_detail(
     eff_mcps: Optional[set] = None
     if owner_user_id is not None:
         from core.config.catalog_resolver import resolve_all_runtime_enabled
+
         es, _ea, em = resolve_all_runtime_enabled(db, owner_user_id)
         eff_skills, eff_mcps = set(es or []), set(em or [])
 
@@ -668,38 +739,48 @@ def get_installed_detail(
             extra = s.extra_files or {}
             # secrets.json is not shown as an ordinary file
             files = sorted(k for k in extra.keys() if k != "secrets.json")
-            sk_enabled = (s.skill_id in eff_skills) if eff_skills is not None else bool(s.is_enabled)
-            skills_out.append({
-                "skill_id": s.skill_id,
-                "name": s.display_name or s.skill_id,
-                "description": s.description or "",
-                "version": s.version or "",
-                "tags": list(s.tags or []),
-                "enabled": sk_enabled,
-                "instructions": _strip_frontmatter(s.skill_content),
-                "files": files,
-                "has_secrets": "secrets.json" in extra,
-            })
+            sk_enabled = (
+                (s.skill_id in eff_skills) if eff_skills is not None else bool(s.is_enabled)
+            )
+            skills_out.append(
+                {
+                    "skill_id": s.skill_id,
+                    "name": s.display_name or s.skill_id,
+                    "description": s.description or "",
+                    "version": s.version or "",
+                    "tags": list(s.tags or []),
+                    "enabled": sk_enabled,
+                    "instructions": _strip_frontmatter(s.skill_content),
+                    "files": files,
+                    "has_secrets": "secrets.json" in extra,
+                }
+            )
 
     mcp_out: List[Dict[str, Any]] = []
     if server_ids:
         for m in db.query(AdminMcpServer).filter(AdminMcpServer.server_id.in_(server_ids)).all():
             raw_tools = m.tools_json or []
             tools = [
-                {"name": str(tdef.get("name") or ""), "description": str(tdef.get("description") or "")}
-                for tdef in raw_tools if isinstance(tdef, dict)
+                {
+                    "name": str(tdef.get("name") or ""),
+                    "description": str(tdef.get("description") or ""),
+                }
+                for tdef in raw_tools
+                if isinstance(tdef, dict)
             ]
             mc_enabled = (m.server_id in eff_mcps) if eff_mcps is not None else bool(m.is_enabled)
-            mcp_out.append({
-                "server_id": m.server_id,
-                "name": m.display_name or m.server_id,
-                "description": m.description or "",
-                "transport": m.transport,
-                "url": m.url,
-                "enabled": mc_enabled,
-                "needs_runtime": m.transport == "stdio",
-                "tools": tools,
-            })
+            mcp_out.append(
+                {
+                    "server_id": m.server_id,
+                    "name": m.display_name or m.server_id,
+                    "description": m.description or "",
+                    "transport": m.transport,
+                    "url": m.url,
+                    "enabled": mc_enabled,
+                    "needs_runtime": m.transport == "stdio",
+                    "tools": tools,
+                }
+            )
 
     return {
         "install_id": row.install_id,
@@ -727,6 +808,7 @@ def get_installed_detail(
 # field keys the plugin declared (prevents privilege escalation into writing
 # arbitrary system config).
 
+
 def _admin_config_for_slug(slug: str) -> Optional[Dict[str, Any]]:
     """Locate the plugin bundle by slug and read its admin_config declaration; None if absent."""
     plugin_dir = _resolve_plugin_dir(slug)
@@ -750,6 +832,7 @@ def _connection_for_slug(slug: str) -> Optional[str]:
         return None
     try:
         import json
+
         m = json.loads((plugin_dir / "plugin.json").read_text(encoding="utf-8"))
         conn = m.get("connection")
         return str(conn).strip() if conn else None
@@ -764,6 +847,7 @@ def _has_admin_config_for_slug(slug: str) -> bool:
         return False
     try:
         import json
+
         m = json.loads((plugin_dir / "plugin.json").read_text(encoding="utf-8"))
         ac = m.get("admin_config")
         return isinstance(ac, dict) and bool(ac.get("fields"))
@@ -782,7 +866,9 @@ def _admin_config_configured(mode: str, sets: List[bool]) -> bool:
     return any(sets) if mode == "any" else all(sets)
 
 
-def _admin_config_view(admin_config: Optional[Dict[str, Any]], *, with_values: bool) -> Optional[Dict[str, Any]]:
+def _admin_config_view(
+    admin_config: Optional[Dict[str, Any]], *, with_values: bool
+) -> Optional[Dict[str, Any]]:
     """Compute the current admin_config state.
 
     with_values=False (user side, read-only): returns only is_set +
@@ -802,10 +888,15 @@ def _admin_config_view(admin_config: Optional[Dict[str, Any]], *, with_values: b
         raw = svc.get(f["key"])
         s = _is_set(raw)
         sets.append(s)
-        item = {"key": f["key"], "label": f["label"], "secret": f["secret"],
-                "description": f["description"], "is_set": s}
+        item = {
+            "key": f["key"],
+            "label": f["label"],
+            "secret": f["secret"],
+            "description": f["description"],
+            "is_set": s,
+        }
         if with_values:
-            item["value"] = (("****" if s else "") if f["secret"] else (raw or ""))
+            item["value"] = ("****" if s else "") if f["secret"] else (raw or "")
         fields.append(item)
     mode = admin_config.get("mode") or "all"
     return {
@@ -885,7 +976,7 @@ def get_plugin_detail(slug: str, db: Optional[Session] = None) -> Dict[str, Any]
 def exclude_market_skill(
     db: Session, slug: str, skill_name: str, *, created_by: Optional[str] = None
 ) -> Dict[str, Any]:
-    """"Remove" a skill from a marketplace plugin: record one exclusion (idempotent).
+    """ "Remove" a skill from a marketplace plugin: record one exclusion (idempotent).
 
     Validates the skill actually belongs to this plugin (guards against
     typos); afterwards the marketplace list/detail/install no longer include
@@ -912,6 +1003,7 @@ def exclude_market_skill(
 def _skill_component_preview(sk: NormalizedSkill) -> Dict[str, Any]:
     """Preview component for a not-yet-installed builtin/external skill: includes body instructions + file list for pre-install inspection."""
     from core.agent_skills.registry import _split_frontmatter
+
     desc = ""
     tags: List[str] = []
     try:
@@ -929,14 +1021,16 @@ def _skill_component_preview(sk: NormalizedSkill) -> Dict[str, Any]:
         "description": desc,
         "version": "",
         "tags": tags,
-        "enabled": True,           # enabled by default after install (preview semantics)
+        "enabled": True,  # enabled by default after install (preview semantics)
         "instructions": _strip_frontmatter(sk.skill_content),
         "files": files,
         "has_secrets": False,
     }
 
 
-def _normalized_to_detail(np: NormalizedPlugin, *, excluded: Optional[set] = None) -> Dict[str, Any]:
+def _normalized_to_detail(
+    np: NormalizedPlugin, *, excluded: Optional[set] = None
+) -> Dict[str, Any]:
     excluded = excluded or set()
     return {
         "slug": np.slug,
@@ -952,9 +1046,14 @@ def _normalized_to_detail(np: NormalizedPlugin, *, excluded: Optional[set] = Non
         "skills": [_skill_component_preview(s) for s in np.skills if s.name not in excluded],
         "mcp": [
             {
-                "server_id": m.name, "name": m.name, "description": m.description,
-                "transport": m.transport, "url": m.url, "enabled": not m.needs_runtime,
-                "needs_runtime": m.needs_runtime, "note": m.note,
+                "server_id": m.name,
+                "name": m.name,
+                "description": m.description,
+                "transport": m.transport,
+                "url": m.url,
+                "enabled": not m.needs_runtime,
+                "needs_runtime": m.needs_runtime,
+                "note": m.note,
                 "tools": list(getattr(m, "tools", None) or []),
             }
             for m in np.mcp
@@ -976,18 +1075,64 @@ def install_plugin(
     if plugin_dir is not None:
         np = normalize_plugin_dir(plugin_dir)
         return _apply_normalized(
-            db, np, owner_user_id=owner_user_id, secrets=secrets or {},
-            source="builtin", created_by=created_by,
+            db,
+            np,
+            owner_user_id=owner_user_id,
+            secrets=secrets or {},
+            source="builtin",
+            created_by=created_by,
         )
     # DB-published marketplace package: extract the original zip and go through the same path as import
     row = _market_row(db, slug)
     if row is not None:
         with _extract_plugin_zip(base64.b64decode(row.package_b64)) as plugin_root:
             return import_plugin(
-                db, plugin_root, owner_user_id=owner_user_id,
-                secrets=secrets or {}, created_by=created_by,
+                db,
+                plugin_root,
+                owner_user_id=owner_user_id,
+                secrets=secrets or {},
+                created_by=created_by,
             )
     raise ResourceNotFoundError("plugin", slug)
+
+
+def ensure_default_plugins_bootstrapped(db: Session) -> bool:
+    """Install the CE default plugin set exactly once for a persistent DB.
+
+    The marker is deliberately independent from the current installation rows:
+    after the first successful bootstrap, uninstalling a default plugin is a
+    user choice and must survive backend/container restarts. A partial failure
+    writes no marker, so the next startup idempotently retries the complete set.
+
+    Returns ``True`` only when this call completes the first bootstrap.
+    """
+    marker = db.query(ContentBlock).filter(ContentBlock.id == DEFAULT_BOOTSTRAP_MARKER_ID).first()
+    if marker is not None:
+        return False
+
+    installed: List[str] = []
+    try:
+        for slug in DEFAULT_BOOTSTRAP_PLUGIN_SLUGS:
+            install_plugin(
+                db,
+                slug,
+                owner_user_id=None,
+                created_by="system_bootstrap",
+            )
+            installed.append(slug)
+    except Exception:
+        db.rollback()
+        raise
+
+    db.add(
+        ContentBlock(
+            id=DEFAULT_BOOTSTRAP_MARKER_ID,
+            payload={"version": 1, "plugins": installed},
+            updated_by="system_bootstrap",
+        )
+    )
+    db.commit()
+    return True
 
 
 def import_plugin(
@@ -1002,13 +1147,18 @@ def import_plugin(
     np = normalize_plugin_dir(plugin_dir)
     source = {"claude": "imported_claude", "codex": "imported_codex"}.get(np.kind, "builtin")
     return _apply_normalized(
-        db, np, owner_user_id=owner_user_id, secrets=secrets or {},
-        source=source, created_by=created_by,
+        db,
+        np,
+        owner_user_id=owner_user_id,
+        secrets=secrets or {},
+        source=source,
+        created_by=created_by,
     )
 
 
 def _locate_plugin_root(extract_dir: Path) -> Path:
     """Locate the plugin root in the extraction dir: prefer the directory containing a manifest; zips often wrap an extra directory level."""
+
     def _has_manifest(d: Path) -> bool:
         return (
             (d / "plugin.json").is_file()
@@ -1024,7 +1174,9 @@ def _locate_plugin_root(extract_dir: Path) -> Path:
     for d in sorted(extract_dir.rglob("*")):
         if d.is_dir() and _has_manifest(d):
             return d
-    raise BadRequestError(message="zip 内未找到插件清单（plugin.json / .claude-plugin / .codex-plugin）")
+    raise BadRequestError(
+        message="zip 内未找到插件清单（plugin.json / .claude-plugin / .codex-plugin）"
+    )
 
 
 @contextmanager
@@ -1060,12 +1212,16 @@ def import_plugin_from_zip(
     """Import a plugin from uploaded zip bytes (extract → locate root → import_plugin). Shared by user and admin uploads."""
     with _extract_plugin_zip(raw) as plugin_root:
         return import_plugin(
-            db, plugin_root, owner_user_id=owner_user_id,
-            secrets=secrets, created_by=created_by,
+            db,
+            plugin_root,
+            owner_user_id=owner_user_id,
+            secrets=secrets,
+            created_by=created_by,
         )
 
 
 # ── Plugin marketplace DB publishing (admin upload → persisted as an installable source; not installed, not globally in effect) ──────────
+
 
 def _market_row(db: Session, slug: str) -> Optional[PluginMarketPackage]:
     if not slug:
@@ -1098,16 +1254,25 @@ def publish_plugin_zip_to_market(
     explicitly installed by admins/users; re-uploading the same slug updates it.
     """
     with _extract_plugin_zip(raw) as plugin_root:
-        np = normalize_plugin_dir(plugin_root)   # parse/validate; invalid input raises immediately, nothing persisted
+        np = normalize_plugin_dir(
+            plugin_root
+        )  # parse/validate; invalid input raises immediately, nothing persisted
     package_b64 = base64.b64encode(raw).decode("ascii")
     has_admin_config = bool(np.admin_config and (np.admin_config.get("fields")))
     now = datetime.utcnow()
     existing = _market_row(db, np.slug)
     fields = dict(
-        name=np.name, version=np.version, description=np.description or "",
-        category=np.category or "", icon=np.icon, kind=np.kind,
-        skills_count=len(np.skills), required_secrets=list(np.required_secrets or []),
-        has_admin_config=has_admin_config, package_b64=package_b64, updated_at=now,
+        name=np.name,
+        version=np.version,
+        description=np.description or "",
+        category=np.category or "",
+        icon=np.icon,
+        kind=np.kind,
+        skills_count=len(np.skills),
+        required_secrets=list(np.required_secrets or []),
+        has_admin_config=has_admin_config,
+        package_b64=package_b64,
+        updated_at=now,
     )
     if existing is not None:
         for key, val in fields.items():
@@ -1118,7 +1283,9 @@ def publish_plugin_zip_to_market(
         db.add(PluginMarketPackage(slug=np.slug, created_at=now, created_by=created_by, **fields))
         action = "published"
     db.commit()
-    logger.info("plugin_market_%s: slug=%s kind=%s skills=%d", action, np.slug, np.kind, len(np.skills))
+    logger.info(
+        "plugin_market_%s: slug=%s kind=%s skills=%d", action, np.slug, np.kind, len(np.skills)
+    )
     return {
         "slug": np.slug,
         "name": np.name,
@@ -1140,7 +1307,9 @@ def delete_market_package(db: Session, slug: str) -> Dict[str, Any]:
     return {"slug": slug, "deleted": True}
 
 
-def uninstall_plugin(db: Session, install_id: str, *, owner_user_id: Optional[str]) -> Dict[str, Any]:
+def uninstall_plugin(
+    db: Session, install_id: str, *, owner_user_id: Optional[str]
+) -> Dict[str, Any]:
     """Uninstall a plugin: precisely reverse-delete skills/MCP by source_plugin + owner, then delete the installation record."""
     row = db.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).first()
     if row is None:
@@ -1158,12 +1327,16 @@ def uninstall_plugin(db: Session, install_id: str, *, owner_user_id: Optional[st
             else model.owner_user_id.is_(None)
         )
 
-    n_sk = db.query(AdminSkill).filter(
-        AdminSkill.source_plugin == slug, _owner_filter(AdminSkill)
-    ).delete(synchronize_session=False)
-    n_mcp = db.query(AdminMcpServer).filter(
-        AdminMcpServer.source_plugin == slug, _owner_filter(AdminMcpServer)
-    ).delete(synchronize_session=False)
+    n_sk = (
+        db.query(AdminSkill)
+        .filter(AdminSkill.source_plugin == slug, _owner_filter(AdminSkill))
+        .delete(synchronize_session=False)
+    )
+    n_mcp = (
+        db.query(AdminMcpServer)
+        .filter(AdminMcpServer.source_plugin == slug, _owner_filter(AdminMcpServer))
+        .delete(synchronize_session=False)
+    )
 
     db.delete(row)
     db.commit()
@@ -1248,7 +1421,12 @@ def set_plugin_component_enabled(
         effective = srv.is_enabled
     db.commit()
     _refresh_after_change(owner_user_id)
-    return {"install_id": install_id, "kind": kind, "component_id": component_id, "enabled": effective}
+    return {
+        "install_id": install_id,
+        "kind": kind,
+        "component_id": component_id,
+        "enabled": effective,
+    }
 
 
 def set_plugin_enabled_for_user(
@@ -1271,6 +1449,7 @@ def set_plugin_enabled_for_user(
         raise BadRequestError(message="无权操作该插件")
 
     from core.services.catalog_service import CatalogService
+
     svc = CatalogService(db)
     cids = row.component_ids or {}
     for sid in cids.get("skills") or []:

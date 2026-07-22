@@ -1,6 +1,6 @@
 # No-Docker Quick Install (Single Machine)
 
-> Last updated: July 21, 2026 ｜ [简体中文](../../zh-CN/deployment/quick-install.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: July 23, 2026 ｜ [简体中文](../../zh-CN/deployment/quick-install.md) ｜ Back to [Deployment Guide](README.md)
 
 The simplest way to deploy, aimed at **personal single-machine trials** and **development experience**: one command installs everything, a terminal wizard sets the admin account and configures the model, then a single process starts the server and opens the browser. Zero **Docker, PostgreSQL, and Redis**.
 
@@ -62,7 +62,13 @@ The chat model is assigned to all 7 chat roles at once. Two more model types can
 
 > HugAgentOS has 9 model roles: 7 chat roles (main agent / summarizer / follow-up / memory / chart / planning / code execution — all share the chat model above) + embedding + reranker. Onboard covers all three types; after logging in you can also assign a different model per role under Settings → System → Model Services.
 
-**Step 3 · Plugins** — pick which built-in plugins to install (comma-separated indices / `all` / `none`; Enter installs the ★ recommended set). Recommended: `automation` (scheduled tasks), `skill-manager` (skill authoring), `sites` (conversational site-building). Installing `sites` also provisions the React site-building template. You can add or remove plugins from the plugin market later.
+**Step 3 · Plugin initialization** — a fresh installation automatically
+installs and enables `automation` (scheduled tasks), `skill-manager` (skill
+management), and `sites` (conversational site-building). Users don't need to
+install them from the plugin marketplace after signing in. Installing `sites`
+also provisions the React site-building template. After the first bootstrap,
+users can still disable or uninstall these plugins; later restarts don't
+restore a plugin that a user deliberately removed.
 
 **Step 4 (optional) · File parser** — parsing uploaded PDFs / scanned documents needs an external parser service (MinerU-compatible); enter its API URL to enable it (written to `file_parser.api_url`), or press Enter to skip. Excel / CSV / PPTX / text parse in-process and need none of this.
 
@@ -132,7 +138,11 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 - **Self-built vector knowledge base**: backed by embedded **Milvus Lite** (a single file, no server), **dense-only** retrieval; requires configuring an embedding model during onboarding. For stronger hybrid retrieval, point `MILVUS_URL` at a real Milvus server (switches back automatically).
 - **L2 vector memory**: the installer includes mem0 and Milvus Lite and enables the memory runtime by default. Persistent memory and automatic writes default to on after an active embedding provider is assigned; without one, both the frontend and backend prevent enabling memory.
 
-- **Automation / skill-authoring / site-building plugin capabilities**: `automation` / `skill-manager` / `sites` are **plugins** — install them with one keystroke in onboard Step 3 (or add/remove them later from the plugin market); once installed their MCP is auto-reachable locally (`http://mcp:*` hostnames are rewritten to `127.0.0.1`).
+- **Automation / skill-authoring / site-building plugin capabilities**:
+  `automation`, `skill-manager`, and `sites` are installed and enabled by
+  default on a fresh installation. Users don't need to visit the plugin
+  marketplace. Startup verifies their MCP tool lists, and local MCP addresses
+  use `127.0.0.1`.
 
 **Needs extra conditions**
 - **React project build for conversational site-building**: supported once the `sites` plugin is installed — onboard provisions the React template into `~/.hugagent/site-template/` and runs `npm install` on first build. **Requires host Node.js ≥ 20 + npm**; without it only hand-written static sites are possible. The build chain's `/workspace` paths are parameterized to the local workspace (static sites match the Docker form).

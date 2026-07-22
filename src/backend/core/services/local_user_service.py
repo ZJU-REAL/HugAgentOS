@@ -49,33 +49,19 @@ def ce_onboarding_required(metadata: Optional[Dict[str, Any]]) -> bool:
     return bool(meta.get("onboarding_required")) and completed_version < CE_ONBOARDING_VERSION
 
 
-from core.auth.password import hash_password, verify_password
-
-# Seam S1: invite codes / team brief list belong to EE — the CE derived tree physically
-# lacks these two modules; when missing, this service degrades automatically: open
-# registration (no registration code), teams always empty. EE behavior unchanged.
-try:
-    from core.auth.invite import claim_code, validate_code
-except ModuleNotFoundError:
-    claim_code = None
-    validate_code = None
-try:
-    from core.services.team_service import list_user_teams_brief
-except ModuleNotFoundError:
-
-    def list_user_teams_brief(db, user_id):
-        return []
-
-
-from core.config.settings import settings
-from core.db.models import LocalUser, TeamMember, UserShadow
-from core.db.repository import (
-    AuditLogRepository,
-    InviteCodeRepository,
-    LocalUserRepository,
-    TeamRepository,
-    UserRepository,
+from core.auth.account_policy import (
+    add_account_to_scope,
+    add_invited_account_to_scope,
+    claim_registration_credential,
+    list_account_scopes,
+    registration_credential_id,
+    validate_account_scope,
+    validate_registration_credential,
 )
+from core.auth.password import hash_password, verify_password
+from core.config.settings import settings
+from core.db.models import LocalUser, UserShadow
+from core.db.repository import AuditLogRepository, LocalUserRepository, UserRepository
 
 
 @dataclass
@@ -101,8 +87,6 @@ class LocalUserService:
         self.db = db
         self.user_repo = UserRepository(db)
         self.local_repo = LocalUserRepository(db)
-        self.team_repo = TeamRepository(db)
-        self.invite_repo = InviteCodeRepository(db)
         self.audit_repo = AuditLogRepository(db)
 
     # ── Registration ───────────────────────────────────────────
@@ -144,20 +128,16 @@ class LocalUserService:
         if self.db.query(UserShadow).filter(UserShadow.email == email).first() is not None:
             return RegisterResult(False, "邮箱已被使用")
 
-        # License seat cap (M4): internal deployments / unlimited seats always pass (counting and copy in licensing/seats.py)
-        from core.licensing.seats import seat_block_reason
+        from core.auth.account_policy import account_capacity_block_reason
 
-        seat_block = seat_block_reason(self.db)
+        seat_block = account_capacity_block_reason(self.db)
         if seat_block:
             return RegisterResult(False, seat_block)
 
         # First only validate the registration code (no state change); consume it after the user is successfully created
-        if validate_code is not None:
-            ok, reason, invite = validate_code(self.db, code)
-            if not ok:
-                return RegisterResult(False, reason or "注册码无效")
-        else:
-            invite = None
+        ok, reason, invite = validate_registration_credential(self.db, code)
+        if not ok:
+            return RegisterResult(False, reason or "注册码无效")
 
         user_id = f"user_{uuid.uuid4().hex[:16]}"
         try:
@@ -183,28 +163,18 @@ class LocalUserService:
                     "real_name": (real_name or "").strip() or None,
                     "phone": (phone or "").strip() or None,
                     "status": "active",
-                    "invited_by_code": invite.code if invite else None,
+                    "invited_by_code": registration_credential_id(invite),
                     "password_updated_at": datetime.utcnow(),
                 }
             )
 
-            # Pre-bind team
-            if invite and invite.preset_team_id:
-                team = self.team_repo.get(invite.preset_team_id)
-                if team is not None:
-                    tm = TeamMember(
-                        team_id=invite.preset_team_id,
-                        user_id=user_id,
-                        role=invite.preset_role or "member",
-                    )
-                    self.db.add(tm)
+            add_invited_account_to_scope(self.db, invite, user_id)
 
             # The shadow is now persisted; atomically consume the registration code (conditional UPDATE ensures concurrency safety)
-            if claim_code is not None:
-                claimed_ok, claim_reason, _ = claim_code(self.db, code, user_id)
-                if not claimed_ok:
-                    self.db.rollback()
-                    return RegisterResult(False, claim_reason or "注册码已被使用")
+            claimed_ok, claim_reason = claim_registration_credential(self.db, code, user_id)
+            if not claimed_ok:
+                self.db.rollback()
+                return RegisterResult(False, claim_reason or "注册码已被使用")
 
             # Audit
             self.audit_repo.create(
@@ -213,7 +183,7 @@ class LocalUserService:
                     "action": "user.register_local",
                     "resource_type": "user",
                     "resource_id": user_id,
-                    "details": {"invite_code": invite.code if invite else None},
+                    "details": {"invite_code": registration_credential_id(invite)},
                     "status": "success",
                 }
             )
@@ -241,21 +211,21 @@ class LocalUserService:
         real_name: Optional[str] = None,
         phone: Optional[str] = None,
         status: str = "active",
-        team_id: Optional[str] = None,
-        team_role: str = "member",
+        scope_id: Optional[str] = None,
+        scope_role: str = "member",
         actor: Optional[str] = None,
     ) -> RegisterResult:
-        """Create a local account directly from the Config console — no registration code, optional direct team binding.
+        """Create a local account directly from the Config console.
 
         Differences from :meth:`register`: no registration code required, email optional,
-        initial status can be specified, team can be bound explicitly.
+        initial status can be specified, and edition-specific scope binding is optional.
         """
         username = (username or "").strip()
         nickname = (nickname or "").strip() or username
         email = (email or "").strip().lower() or None
         password = password or ""
         status = (status or "active").strip()
-        team_role = (team_role or "member").strip() or "member"
+        scope_role = (scope_role or "member").strip() or "member"
 
         if not username:
             return RegisterResult(False, "账号不能为空")
@@ -280,15 +250,12 @@ class LocalUserService:
         ):
             return RegisterResult(False, "邮箱已被使用")
 
-        # Target team existence check (only when provided)
-        if team_id:
-            if self.team_repo.get(team_id) is None:
-                return RegisterResult(False, "目标团队不存在")
+        if not validate_account_scope(self.db, scope_id):
+            return RegisterResult(False, "目标范围不存在")
 
-        # License seat cap: internal deployments / unlimited seats always pass
-        from core.licensing.seats import seat_block_reason
+        from core.auth.account_policy import account_capacity_block_reason
 
-        seat_block = seat_block_reason(self.db)
+        seat_block = account_capacity_block_reason(self.db)
         if seat_block:
             return RegisterResult(False, seat_block)
 
@@ -319,8 +286,7 @@ class LocalUserService:
                 }
             )
 
-            if team_id:
-                self.db.add(TeamMember(team_id=team_id, user_id=user_id, role=team_role))
+            add_account_to_scope(self.db, scope_id, user_id, scope_role)
 
             self.audit_repo.create(
                 {
@@ -330,8 +296,8 @@ class LocalUserService:
                     "resource_id": user_id,
                     "details": {
                         "created_by": actor or "config_admin",
-                        "team_id": team_id,
-                        "team_role": team_role if team_id else None,
+                        "scope_id": scope_id,
+                        "scope_role": scope_role if scope_id else None,
                     },
                     "status": "success",
                 }
@@ -392,13 +358,11 @@ class LocalUserService:
         if existing is not None:
             return existing, False
 
-        # License seat cap (M4): blocks new creation only; internal deployments / unlimited seats always pass
-        from core.licensing import SeatLimitExceeded
-        from core.licensing.seats import seat_block_reason
+        from core.auth.account_policy import AccountCapacityExceeded, account_capacity_block_reason
 
-        block = seat_block_reason(self.db)
+        block = account_capacity_block_reason(self.db)
         if block:
-            raise SeatLimitExceeded(block)
+            raise AccountCapacityExceeded(block)
 
         final_username = self._unique_username((username or external_id).strip() or external_id)
         user_id = f"user_{uuid.uuid4().hex[:16]}"
@@ -514,7 +478,7 @@ class LocalUserService:
             "auth_source": "local",
             "must_change_password": bool(meta.get("must_change_password")),
             "onboarding_required": ce_onboarding_required(meta),
-            "teams": list_user_teams_brief(self.db, user_id),
+            "teams": list_account_scopes(self.db, user_id),
         }
 
     # ── Profile update ─────────────────────────────────────────

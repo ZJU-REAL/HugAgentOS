@@ -1,8 +1,6 @@
 """Projects (Claude-style 工作空间) API — CE 子集（split：§5.2）.
 
-社区版为单租户：只有个人项目（项目 ↔ user_folders 强挂钩）。
-团队项目（kind=team、/teams 目标列表、team_folders 挂钩）属商业版
-多租户能力，不在社区版提供。
+社区版为单租户，只提供与个人文件夹绑定的个人项目。
 
 端点：
 
@@ -24,10 +22,6 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-
 from core.auth.backend import UserContext, get_current_user
 from core.auth.permissions_iface import ProjectAccess, require_project_access
 from core.db.engine import get_db
@@ -35,6 +29,9 @@ from core.db.models import Artifact
 from core.infra.responses import created_response, paginated_response, success_response
 from core.services.project_file_service import ProjectFileService
 from core.services.project_service import ProjectService
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
 
@@ -206,12 +203,14 @@ async def list_project_files(
     """列出项目文件（递归遍历挂钩文件夹子树），附带容量已用 / 上限。"""
     pf_svc = ProjectFileService(db)
     items = pf_svc.list_files(access.project)
-    return success_response(data={
-        "items": items,
-        "total": len(items),
-        "capacity_used": pf_svc.capacity_used(access.project),
-        "capacity_limit": pf_svc.capacity_limit(),
-    })
+    return success_response(
+        data={
+            "items": items,
+            "total": len(items),
+            "capacity_used": pf_svc.capacity_used(access.project),
+            "capacity_limit": pf_svc.capacity_limit(),
+        }
+    )
 
 
 @router.post("/{project_id}/files/upload", summary="直传文件到项目（写入挂钩文件夹）")

@@ -1,6 +1,6 @@
 # Backend Architecture
 
-> Last updated: 2026-07-19
+> Last updated: 2026-07-22
 
 The backend lives in `src/backend/` and is a cleanly layered FastAPI monolith: the API layer handles only protocol and auth, the orchestration layer turns each chat into a resumable streaming Run, `core/` holds all domain logic, and MCP tools plus the script-execution sidecar run as independent processes. This page walks the stack top-down.
 
@@ -8,7 +8,8 @@ The backend lives in `src/backend/` and is a cleanly layered FastAPI monolith: t
 
 ```
 src/backend/
-├── api/             # FastAPI app, middleware, 74 v1 route files
+├── api/             # FastAPI app, middleware, and CE routes
+├── edition_ee/      # EE routes, License, Team/RBAC, ORM, Dify, and service implementations
 ├── orchestration/   # Chat orchestration: Run executor, workflow, strategy, citations, schedulers
 ├── core/            # Domain core: 17 submodules (auth/llm/db/ontology/services/...)
 ├── mcp_servers/     # 10 standalone MCP servers (streamable-http processes)
@@ -133,10 +134,10 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 |---|---|
 | `core/chat` | Workflow context assembly (`context.py`), SSE tool-log event construction (`tool_log.py`) |
 | `core/content` | Attachment parsing (`file_parser.py`), KB document chunking/keywords/vectorization (`kb_processing.py`), upload validation (`file_validation.py`), artifact reading and summaries (`artifact_reader/refs/summary.py`), content-block import/export (`content_blocks.py`), `svg_fit.py` |
-| `core/kb` | Private-KB parsing and parent-child chunking (`kb_parser.py`), Milvus vector store (`kb_vector.py`), Dify external-KB client (`dify_kb.py`; external KB integration is an Enterprise Edition (EE) add-on) |
+| `core/kb` / `edition_ee/kb` | Shared private-KB parsing and Milvus vector storage stay in `core/kb`; the Dify client and external retrieval adapter live only in `edition_ee/kb` (EE) |
 | `core/artifacts` | Artifact store `store.py`: local / OSS dual mode |
 | `core/infra` | Unified responses (`responses.py`), exceptions (`exceptions.py`), structured logging (`logging.py`), rate limiting (`rate_limit.py`), Redis singleton (`redis.py`), metrics (`metrics.py`), background-task registry (`runtime_state.py`), data masking (`data_masking.py`), distillation budget gates (`distillation_budget.py`, Enterprise Edition, EE) |
-| `core/licensing` | License facade `manager.py` (GitLab-style offline model: signed file + in-process verification), feature enum `features.py`, FastAPI guard dependency `deps.py`, seat counting `seats.py`; the verification implementation `_ee_verify.py` (Enterprise Edition, EE — replaced by a hard-`False` stub in the CE tree) |
+| `edition_ee/licensing` | Feature enums, signature verification, clock guard, seat policy, middleware, and the manager all exist only in EE; the CE tree has no License package and gets a fixed edition probe from its `api/middleware/edition.py` overlay |
 | `core/storage` | Storage protocol `protocol.py` + factory `factory.py`; `local.py` (CE), `s3.py` / `oss.py` (Enterprise Edition, EE) |
 
 ## orchestration/ — the orchestration layer
@@ -167,9 +168,11 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 
 ### The router registry (CE/EE seam C1)
 
-`api/routes/v1/__init__.py` is the registry shared by both editions: `CE_ROUTERS` (39 entries) register unconditionally; `EE_ROUTERS` (32 entries) each carry a license feature bit enforced by `core/licensing/deps.py` as the second line of defense (the first being that the CE derived tree physically deletes those files). Three entries — `config_verify` / `config_license` / `auth` — are explicitly exempt so that an expired license can still be replaced.
+The full repository composes `CE_ROUTERS` in `api/routes/v1/__init__.py` with `EE_ROUTERS` in `edition_ee/routes/registry.py` (currently 36 entries each). EE entries carry a License feature bit enforced by `edition_ee/licensing/deps.py` as the second line of defense (the first is physical removal of EE files from the CE tree); the CE overlay fixes `EE_ROUTERS` to empty. Three entries — `config_verify` / `config_license` / `auth` — are explicitly exempt so login and license replacement remain reachable after expiry.
 
-### Route file groups (74 files under v1)
+### Route file groups
+
+CE routes live under `api/routes/v1/`; physically split commercial routes live under `edition_ee/routes/`, while remaining historical admin routes are mounted only by the EE registry and its feature guards.
 
 | Group | Files |
 |---|---|
@@ -197,7 +200,7 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 2. **orchestration does orchestration only**: it chains domain services into streaming workflows and never touches the ORM directly;
 3. **core/services is the only business entrance**: routes must not bypass the service layer to query `core/db/models` (a handful of read-only fast paths excepted);
 4. **Process boundaries are failure boundaries**: MCP, script-runner, and sandboxes all run as separate processes/containers and interact with the backend only through protocol layers;
-5. **CE/EE seams stay concentrated**: the router registry, `edition_tables`, `permissions_iface`, and the licensing facade are the four choke points — business code carries no scattered `if edition` branches.
+5. **CE/EE seams stay concentrated**: the router registry, `edition_tables`, `permissions_iface`, and edition middleware are the choke points; commercial implementations move under `edition_ee` instead of scattering `if edition` branches through business code.
 
 ## Related Source
 
@@ -210,6 +213,6 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 | Capability catalog | `src/backend/core/config/catalog.py` |
 | Sandbox protocol | `src/backend/core/sandbox/protocol.py` |
 | Memory pipeline | `src/backend/core/memory/pipeline.py` |
-| License facade | `src/backend/core/licensing/manager.py` |
+| EE License implementation / CE edition middleware | `src/backend/edition_ee/licensing/`, `src/backend/api/middleware/edition.py` |
 | Skill engine | `src/backend/core/agent_skills/loader.py` |
 | MCP port table | `src/backend/mcp_servers/_ports.py` |

@@ -49,7 +49,6 @@ export const STORES_DICT: Record<string, string> = {
   '浏览我的空间': 'Browse My Space',
   '导入文件到工作区': 'Import File to Workspace',
   '浏览收藏会话': 'Browse Favorite Chats',
-  '导入团队文件到工作区': 'Import Team File to Workspace',
 
   // roles — display labels
   '仅可读': 'Read Only',
@@ -61,11 +60,6 @@ export const STORES_DICT: Record<string, string> = {
   // export
   '（该对话暂无消息）': '(No messages in this chat)',
   '助手': 'Assistant',
-
-  // apiError
-  '该功能未在当前 license 中授权': 'This feature is not authorized under the current license',
-  '（请联系管理员在 系统配置 → License 中激活或更新 license）':
-    ' (Please contact your administrator to activate or update the license in System Settings → License)',
 
   // fileParser
 

@@ -1,6 +1,6 @@
 # Docker Compose Deployment
 
-> Last updated: 2026-07-19 ｜ [简体中文](../../zh-CN/deployment/docker-compose.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: July 23, 2026 ｜ [简体中文](../../zh-CN/deployment/docker-compose.md) ｜ Back to [Deployment Guide](README.md)
 
 > **When to use**: the **standard deployment form** for teams / production — multi-user, full features. For a personal single-machine trial, the lighter [No-Docker Quick Install](quick-install.md) is available.
 
@@ -15,10 +15,17 @@ All HugAgentOS services are orchestrated by a single `docker-compose.yml` at the
 | `postgres` | hugagent-postgres | `postgres:15-alpine` | `${POSTGRES_HOST_PORT:-5432}:5432` | Primary relational DB (business data, content_blocks, usage logs) |
 | `redis` | hugagent-redis | `redis:7-alpine` | `${REDIS_HOST_PORT:-6380}:6379` | Session store, streaming follower (Redis Streams), rate limiting |
 | `backend` | hugagent-backend | `docker/Dockerfile` (target `production`) | `${BACKEND_HOST_PORT:-3001}:${BACKEND_PORT:-3001}` | FastAPI app; runs alembic migrations automatically at startup |
-| `mcp` | hugagent-mcp | `docker/Dockerfile.mcp` | none exposed | 10 MCP servers listening on streamable-http ports `9100–9108` and `9112`; the backend calls them at `http://mcp:91XX/mcp/` |
+| `mcp` | hugagent-mcp | `docker/Dockerfile.mcp` | none exposed | CE starts 9 general MCP servers; EE also starts commercial MCP servers such as database query. The backend calls them at `http://mcp:91XX/mcp/` |
 | `frontend` | hugagent-frontend | `src/frontend/Dockerfile` | `${FRONTEND_PORT:-3002}:80` | nginx serving the frontend static bundle + `/api` reverse proxy to the backend |
 
 `BACKEND_PORT` is the container-internal listen port used by nginx, MCP, and the health check, and should normally remain `3001`. If host ports are occupied, adjust only `BACKEND_HOST_PORT`, `POSTGRES_HOST_PORT`, or `REDIS_HOST_PORT`; do not change the container-internal ports. For example, publish the backend on `13003` while keeping its internal port at `3001`.
+
+On the first startup with an empty database, CE globally installs and enables
+the `automation`, `skill-manager`, and `sites` plugins. Every user can use them
+without installing them separately from the plugin marketplace. The CE
+capability page, runtime catalog, MCP port registry, and MCP image don't contain
+the database-query tool. That capability exists only in deployments marked as
+Enterprise Edition (EE).
 
 ### Sandbox sidecars (pick one profile; mutually exclusive)
 

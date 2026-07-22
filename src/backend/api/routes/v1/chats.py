@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 import anyio
 from api.schemas import AttachmentItem, ChatRequest, ChatResponse
 from core.auth.backend import UserContext, get_current_user
-from core.auth.permissions_iface import can_delete_session, can_modify_share_scope
+from core.auth.permissions_iface import can_delete_session
 from core.chat.context import build_effective_user_message as _build_effective_user_message
 from core.chat.context import (
     build_runtime_context,
@@ -92,13 +92,7 @@ class UpdateChatRequest(BaseModel):
 
 
 def _session_to_dict(s) -> dict:
-    """Convert a ChatSession ORM object to API response dict.
-
-    Legacy callers keep seeing the old fields. The new fields (share_scope/
-    owner_user_id/is_owner/access_level/per-user pin&favorite) are assembled by
-    :func:`_session_view_for_user`, so old call sites never receive incorrect
-    pin/favorite values.
-    """
+    """Convert a ChatSession ORM object to the edition-neutral API response."""
     return {
         "chat_id": s.chat_id,
         "title": s.title,
@@ -108,49 +102,17 @@ def _session_to_dict(s) -> dict:
         "favorite": s.favorite,
         # Project attachment (if any) — the frontend uses this to bind the chat back to the project and auto-attaches project_id when sending new messages
         "project_id": s.project_id,
-        "share_scope": getattr(s, "share_scope", "private") or "private",
         "metadata": s.extra_data or {},
         "created_at": s.created_at.isoformat(),
         "updated_at": s.updated_at.isoformat(),
     }
 
 
-def _is_team_share_session(db: Session, s) -> bool:
-    """Whether the session is attached to a team project (sessions inside a team project render with shared semantics by default)."""
-    if not getattr(s, "project_id", None):
-        return False
-    from core.db.models import Project
-
-    p = (
-        db.query(Project)
-        .filter(Project.project_id == s.project_id, Project.deleted_at.is_(None))
-        .first()
-    )
-    return bool(p and p.kind == "team")
-
-
 def _session_view_for_user(db: Session, s, user_id: str, level: str) -> dict:
-    """Session view rendered for this specific user: under team-share, pin/favorite come from the per-user table."""
-    base = _session_to_dict(s)
-    team_share = _is_team_share_session(db, s)
-    if team_share:
-        from core.db.models import ChatSessionUserState
+    """Render a session for the current user, then let the edition extend it."""
+    from core.services.chat_edition import extend_session_view
 
-        state = (
-            db.query(ChatSessionUserState)
-            .filter(
-                ChatSessionUserState.chat_id == s.chat_id,
-                ChatSessionUserState.user_id == user_id,
-            )
-            .first()
-        )
-        base["pinned"] = bool(state.pinned) if state is not None else False
-        base["favorite"] = bool(state.favorite) if state is not None else False
-    base["owner_user_id"] = s.user_id
-    base["is_owner"] = s.user_id == user_id
-    base["access_level"] = level
-    base["is_team_project"] = team_share
-    return base
+    return extend_session_view(db, s, user_id, level, _session_to_dict(s))
 
 
 def _message_to_dict(m) -> dict:
@@ -326,13 +288,7 @@ async def list_pending_confirms(
 async def get_chat(
     chat_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """获取会话详情。
-
-    - 会话 owner 永远可读。
-    - 团队项目里 ``share_scope ∈ {team_read, team_edit}`` 且项目开关 ON 时，
-      项目成员也可读，响应里携带 ``access_level`` / ``share_scope`` /
-      ``is_owner``，前端据此渲染只读 banner 等。
-    """
+    """获取当前用户有权读取的会话详情。"""
     chat_service = ChatService(db)
 
     pair = chat_service.get_session_with_access(chat_id, str(user.user_id))
@@ -353,14 +309,7 @@ async def update_chat(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """更新会话元信息。共享场景下权限矩阵：
-
-    - **title**：``admin`` 或 ``edit`` 都可改。
-    - **pinned / favorite**：team-share 会话写 ``chat_session_user_states``（per-user 独立）；
-      非共享会话写老字段 ``ChatSession.pinned/favorite``。
-    - **metadata**：仅 owner（``admin`` 级）可改 —— 业务上 metadata 可能含会话级
-      设置，不放给协作成员。
-    """
+    """更新当前用户有权修改的会话元信息。"""
     chat_service = ChatService(db)
     user_id = str(user.user_id)
 
@@ -383,18 +332,18 @@ async def update_chat(
             raise HTTPException(status_code=403, detail="会话元数据仅创建者可改")
         metadata_change = request.metadata
 
-    # pinned / favorite: take different paths depending on team-share or not
-    team_share = _is_team_share_session(db, session)
-    if (request.pinned is not None or request.favorite is not None) and team_share:
-        from core.services.project_service import ProjectService
+    from core.services.chat_edition import update_member_state
 
-        ProjectService(db).upsert_chat_user_state(
-            chat_id,
+    member_state_updated = False
+    if request.pinned is not None or request.favorite is not None:
+        member_state_updated = update_member_state(
+            db,
+            session,
             user_id,
             pinned=request.pinned,
             favorite=request.favorite,
         )
-        # Under team-share, no longer write ChatSession.pinned/favorite
+    if member_state_updated:
         pin_change = None
         fav_change = None
     else:
@@ -432,8 +381,7 @@ async def update_chat(
 async def delete_chat(
     chat_id: str, user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """软删会话。会话 owner 永远可删；团队项目 admin（在项目开关 ON 时）也可
-    删共享会话；普通成员即便是 ``team_edit`` 也不能删。"""
+    """软删当前用户有权管理的会话。"""
     chat_service = ChatService(db)
     user_id = str(user.user_id)
 
@@ -458,7 +406,7 @@ async def list_messages(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """获取会话消息列表。共享会话（含 team_read）成员可读；非成员 404。"""
+    """获取当前用户有权读取的会话消息列表；无权访问时返回 404。"""
     chat_service = ChatService(db)
     user_id = str(user.user_id)
 
@@ -474,61 +422,6 @@ async def list_messages(
         page_size=page_size,
         total_items=total,
         message="Messages retrieved successfully",
-    )
-
-
-# ── Share scope ──────────────────────────────────────────────────────────
-
-
-class UpdateShareScopeBody(BaseModel):
-    share_scope: str = Field(..., description="'private' | 'team_read' | 'team_edit'")
-
-
-@router.post("/{chat_id}/share", summary="设置/取消会话在团队项目内的共享范围")
-async def update_share_scope(
-    chat_id: str,
-    body: UpdateShareScopeBody,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """会话级共享开关。仅会话 owner 可改；必须挂在团队项目下。"""
-    chat_service = ChatService(db)
-    user_id = str(user.user_id)
-
-    if body.share_scope not in ("private", "team_read", "team_edit"):
-        raise HTTPException(status_code=400, detail="share_scope 取值非法")
-
-    session = chat_service.session_repo.get_by_id(chat_id)
-    if session is None:
-        raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
-
-    if not can_modify_share_scope(db, user_id, session):
-        raise HTTPException(status_code=403, detail="仅会话创建者可调整共享范围")
-
-    # A shared state requires the session to be attached to a team project; private needs no project-type check (users may revoke sharing at any time)
-    if body.share_scope != "private":
-        if not session.project_id:
-            raise HTTPException(status_code=400, detail="会话未挂载到项目，无法共享")
-        from core.db.models import Project
-
-        project = (
-            db.query(Project)
-            .filter(Project.project_id == session.project_id, Project.deleted_at.is_(None))
-            .first()
-        )
-        if project is None or project.kind != "team":
-            raise HTTPException(status_code=400, detail="仅团队项目内的会话可共享")
-
-    chat_service.update_session_fields(
-        chat_id, {"share_scope": body.share_scope}, actor_user_id=user_id
-    )
-    pair = chat_service.get_session_with_access(chat_id, user_id)
-    if pair is None:
-        raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
-    s2, level2 = pair
-    return success_response(
-        data=_session_view_for_user(db, s2, user_id, level2),
-        message="共享范围已更新",
     )
 
 
@@ -856,96 +749,50 @@ def _build_ctx(
 
     # When chat_mode is not explicitly given, default to "thinking: medium"
     resolved_chat_mode = request.chat_mode or "medium"
-    # Project metadata (if any): name + instructions + linked folder name + file listing, injected into the system prompt.
-    # A project is now essentially a view over a MySpace folder; the agent's access domain ≈ that folder's subtree.
+    # Project metadata is edition-owned; the shared chat path consumes only the
+    # returned context map and never imports organization models.
     project_id = getattr(request, "project_id", None)
-    project_name: Optional[str] = None
-    project_instructions: Optional[str] = None
-    project_folder_name: Optional[str] = None
-    project_folder_kind: Optional[str] = None  # 'personal' | 'team'
-    project_folder_id: Optional[str] = None  # linked_folder_id / linked_team_folder_id
-    project_team_id: Optional[str] = (
-        None  # Set only for team kind; lets agent file tools resolve via TeamFolder
-    )
-    project_files: Optional[List[Dict[str, Any]]] = None
+    project_ctx: Dict[str, Any] = {
+        "project_id": project_id,
+        "project_name": None,
+        "project_instructions": None,
+        "project_folder_name": None,
+        "project_folder_kind": None,
+        "project_folder_id": None,
+        "project_files": None,
+    }
     if project_id:
         try:
             from core.db.engine import SessionLocal as _Sess
-            from core.db.models import Project as _Project
-            from core.db.models import TeamFolder as _TF
-            from core.db.models import UserFolder as _UF
-            from core.services.project_file_service import ProjectFileService as _PFS
+            from core.services.project_scope import build_project_ctx
 
             with _Sess() as _db:
-                _p = (
-                    _db.query(_Project)
-                    .filter(
-                        _Project.project_id == project_id,
-                        _Project.deleted_at.is_(None),
-                    )
-                    .first()
-                )
-                if _p is not None:
-                    project_name = _p.name
-                    project_instructions = (_p.instructions or "").strip() or None
-                    # Project-level memory switches fully override the user-level ones: inside a project only the project's own settings apply;
-                    # when absent (old projects / never explicitly turned off) they default to True.
-                    _proj_extra = _p.extra_data or {}
-                    memory_enabled = bool(_proj_extra.get("memory_enabled", True))
-                    memory_write_enabled = bool(_proj_extra.get("memory_write_enabled", True))
-                    if _p.kind == "personal" and _p.linked_folder_id:
-                        row = (
-                            _db.query(_UF.name).filter(_UF.folder_id == _p.linked_folder_id).first()
-                        )
-                        project_folder_name = row[0] if row else None
-                        project_folder_kind = "personal"
-                        project_folder_id = _p.linked_folder_id
-                    elif _p.kind == "team" and _p.linked_team_folder_id:
-                        row = (
-                            _db.query(_TF.name)
-                            .filter(_TF.folder_id == _p.linked_team_folder_id)
-                            .first()
-                        )
-                        project_folder_name = row[0] if row else None
-                        project_folder_kind = "team"
-                        project_folder_id = _p.linked_team_folder_id
-                        project_team_id = _p.team_id
-                    # File listing: reuse the service's existing expansion of the linked folder subtree
-                    try:
-                        project_files = _PFS(_db).list_files(_p)
-                    except Exception:
-                        logger.warning(
-                            "[chat] project file list failed for %s", project_id, exc_info=True
-                        )
-                        project_files = []
+                resolved_project_ctx = build_project_ctx(_db, project_id)
+                if resolved_project_ctx:
+                    project_ctx.update(resolved_project_ctx)
+                    memory_enabled = bool(project_ctx.pop("_memory_enabled", True))
+                    memory_write_enabled = bool(project_ctx.pop("_memory_write_enabled", True))
         except Exception:
             logger.warning("[chat] project ctx lookup failed for %s", project_id, exc_info=True)
 
-    # Project mode → mem0 isolates memories in a dedicated workspace namespace (avoids polluting the default space)
     workspace_id_value = f"project:{project_id}" if project_id else "default"
-    # In team projects, use "team:<tid>" as the mem0 user_id so all team members' reads/writes share one bucket;
-    # personal projects and the default space keep the real user_id (private to the user). The real author goes into
-    # metadata author_user_id, and audit still records the real user_id.
-    memory_scope_user_id_value = (
-        f"team:{project_team_id}" if project_folder_kind == "team" and project_team_id else None
-    )
+    memory_scope_user_id_value = project_ctx.pop("memory_scope_user_id", None)
 
-    from core.services.ontology_service import disabled_ontology_runtime
+    from core.services.ontology_service import (
+        build_ontology_runtime_for_preference,
+        disabled_ontology_runtime,
+    )
 
     ontology_runtime: Dict[str, Any] = disabled_ontology_runtime()
     if ontology_enabled:
         try:
-            from core.services.ontology_service import OntologyService
-
             with SessionLocal() as _ontology_db:
-                ontology_runtime = OntologyService(_ontology_db).build_runtime(
+                ontology_enabled, ontology_runtime = build_ontology_runtime_for_preference(
+                    enabled=True,
                     task=request.message,
+                    db=_ontology_db,
                     pack_ids=ontology_pack_ids or None,
                 )
-                if not ontology_runtime.get("enabled"):
-                    raise ServiceUnavailableError(
-                        "本体校验已开启，但当前没有可用的已激活 Domain Pack"
-                    )
         except Exception as exc:  # noqa: BLE001
             logger.exception("[ontology] failed to build runtime policy")
             raise ServiceUnavailableError(
@@ -990,15 +837,7 @@ def _build_ctx(
         "plan_chat": request.plan_chat,
         "batch_chat": request.batch_chat,
         "disable_batch_plan": request.disable_batch_plan,
-        # ── Project mode ──
-        "project_id": project_id,
-        "project_name": project_name,
-        "project_instructions": project_instructions,
-        "project_folder_name": project_folder_name,
-        "project_folder_kind": project_folder_kind,
-        "project_folder_id": project_folder_id,
-        "project_team_id": project_team_id,
-        "project_files": project_files,
+        **project_ctx,
     }
     return ctx
 
@@ -1023,12 +862,12 @@ def _ensure_chat_session(
         extra_data["plan_chat"] = True
     if batch_chat:
         extra_data["batch_chat"] = True
-    # Prefer resolving in the shared context first (covers team_edit members sending messages into someone else's shared session)
+    # Prefer the edition-aware access resolver before creating a session.
     pair = chat_service.get_session_with_access(chat_id, user_id)
     if pair is not None:
         session, level = pair
         if level not in ("admin", "edit"):
-            # Read-only levels such as team_read are not allowed to write
+            # Read-only access levels are not allowed to write.
             raise HTTPException(status_code=403, detail="只读共享会话不可写入消息")
         if level != "admin":
             # Non-owner member: reuse the session, but never modify the metadata / project_id set by the owner
@@ -1637,8 +1476,8 @@ async def _stream_sse_response(
                     # Build a ProjectScope from the workflow context and pass it explicitly.
                     # This is the core fix for the personal MySpace root leak in trace 9d218075…:
                     # workflow.py's finally block has already cleared the internal scope by this
-                    # point, so without passing it explicitly _persist_artifacts gets no team info
-                    # and would file team AI output as personal-chat output into an orphan row
+                    # point, so it must be passed explicitly to keep generated output
+                    # inside the project-owned file scope.
                     # with user_folder_id=NULL.
                     _stream_scope = project_scope_from_context(context)
                     _persist_artifacts(

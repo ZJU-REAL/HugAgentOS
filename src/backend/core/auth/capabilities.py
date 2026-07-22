@@ -1,4 +1,4 @@
-"""Capability-flag resolution: personal explicit → team default → system default.
+"""Capability-flag resolution with edition-provided default layers.
 
 The system has 6 user capability flags (consistent with the Config admin
 console "User Management" / "Team Management"):
@@ -28,14 +28,13 @@ All read/authorization points (``api/routes/v1/auth.py`` serialization, the
 various ``_require_*`` gates, ``config_users`` display) go through here
 uniformly, so bare metadata reads cannot bypass team defaults.
 
-Under CE (no teams), ``team_default_permissions_for_user`` returns ``{}``
-and resolution degrades to "personal → system default", i.e. exactly the
-same as before this feature was introduced.
+CE supplies no organization-scoped layers, so resolution is simply personal
+explicit values followed by system defaults.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from core.config.settings import settings
 from sqlalchemy.orm import Session
@@ -96,75 +95,6 @@ def page_admin_flags(
     """
     is_super = (meta or {}).get("role") == "super_admin"
     return {flag: bool(is_super or caps.get(flag)) for flag in PAGE_ADMIN_FLAGS}
-
-
-def normalize_team_permissions(payload: Any) -> Dict[str, Any]:
-    """Normalize team default permissions: keep only the 6 valid keys, coerce types, drop the rest.
-
-    The returned dict contains only flags the team **explicitly imposes**
-    (PUT full-replacement semantics):
-
-    - The 5 boolean flags: values coerced to ``bool``; missing key = the
-      team does not impose that flag.
-    - ``allowed_apps``: ``list`` → deduplicated list of strings (empty list
-      = restricted to "none"); missing key = the team does not restrict app
-      visibility.
-    """
-    if not isinstance(payload, dict):
-        return {}
-    out: Dict[str, Any] = {}
-    for key in BOOL_CAPABILITY_DEFAULTS:
-        if key in payload and payload[key] is not None:
-            out[key] = bool(payload[key])
-    raw_apps = payload.get("allowed_apps")
-    if isinstance(raw_apps, list):
-        out["allowed_apps"] = list(dict.fromkeys(str(x) for x in raw_apps))
-    return out
-
-
-def merge_team_permissions(raw_perms_list: Any) -> Dict[str, Any]:
-    """Merge multiple teams' default permissions (union / most permissive across teams).
-
-    The argument is an iterable of the raw ``default_permissions`` values of
-    each team. Only flags explicitly imposed by at least one team are
-    produced: boolean flags are "True if any team is True";
-    ``allowed_apps`` is the union of the teams' whitelists.
-    """
-    merged: Dict[str, Any] = {}
-    merged_apps: Optional[List[str]] = None
-    for raw in raw_perms_list:
-        perms = normalize_team_permissions(raw)
-        for key in BOOL_CAPABILITY_DEFAULTS:
-            if key in perms:
-                merged[key] = bool(merged.get(key, False)) or bool(perms[key])
-        if "allowed_apps" in perms:
-            merged_apps = list(dict.fromkeys((merged_apps or []) + perms["allowed_apps"]))
-    if merged_apps is not None:
-        merged["allowed_apps"] = merged_apps
-    return merged
-
-
-def team_default_permissions_for_user(db: Session, user_id: str) -> Dict[str, Any]:
-    """Aggregate the default permissions of all teams the user belongs to (union / most permissive).
-
-    No teams / CE / query exception → return ``{}`` (resolution degrades to
-    "personal → system default").
-    """
-    try:
-        # CE's PostgreSQL baseline intentionally omits the team tables while
-        # keeping this shared module importable.  Isolate the optional lookup
-        # in a SAVEPOINT: catching an undefined-table error without rolling it
-        # back leaves PostgreSQL's outer transaction aborted, breaking the
-        # caller's next otherwise-valid query.
-        with db.begin_nested():
-            from core.db.repository import TeamRepository
-
-            rows = TeamRepository(db).list_for_user(user_id)
-    except Exception:  # noqa: BLE001 — CE has no team table / any exception degrades safely
-        return {}
-    return merge_team_permissions(
-        getattr(team, "default_permissions", None) for team, _role in rows
-    )
 
 
 def resolve_capabilities(
@@ -236,12 +166,11 @@ def user_has_capability(db: Session, user_id: str, flag: str) -> bool:
     meta = shadow.extra_data if isinstance(shadow.extra_data, dict) else {}
     if meta.get("role") == "super_admin":
         return True
-    from core.auth.role_permissions import role_permissions_for_user
+    from core.auth.edition_capabilities import default_capability_layers_for_user
 
     caps = resolve_capabilities(
         meta,
-        role_permissions_for_user(db, user_id),
-        team_default_permissions_for_user(db, user_id),
+        *default_capability_layers_for_user(db, user_id),
     )
     return bool(caps.get(flag))
 
@@ -255,14 +184,12 @@ def resolve_user_capabilities(db: Session, user_id: str) -> Dict[str, Any]:
     chain is "personal → role → team → system" (both role and team degrade
     defensively to ``{}``).
     """
-    from core.auth.role_permissions import role_permissions_for_user
+    from core.auth.edition_capabilities import default_capability_layers_for_user
     from core.db.models import UserShadow
 
     shadow = db.query(UserShadow).filter(UserShadow.user_id == user_id).first()
     meta = dict(shadow.extra_data) if (shadow and isinstance(shadow.extra_data, dict)) else {}
-    role_defaults = role_permissions_for_user(db, user_id)
-    team_defaults = team_default_permissions_for_user(db, user_id)
-    caps = resolve_capabilities(meta, role_defaults, team_defaults)
+    caps = resolve_capabilities(meta, *default_capability_layers_for_user(db, user_id))
     if settings.edition.edition == "ce":
         caps["can_create_public_kb"] = False
     return caps

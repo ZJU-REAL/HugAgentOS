@@ -1,14 +1,13 @@
 """User-related business logic."""
 
-from typing import Optional, Dict, Any
-from datetime import datetime
 import uuid
-from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Any, Dict, Optional
 
-from core.db.repository import UserRepository, AuditLogRepository
+from core.auth.account_policy import AccountCapacityExceeded, account_capacity_block_reason
 from core.db.models import UserShadow
-from core.licensing import SeatLimitExceeded
-from core.licensing.seats import seat_block_reason
+from core.db.repository import AuditLogRepository, UserRepository
+from sqlalchemy.orm import Session
 
 
 class UserService:
@@ -24,7 +23,7 @@ class UserService:
         user_center_id: str,
         username: str,
         email: Optional[str] = None,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
     ) -> UserShadow:
         """
         Lazy load user shadow from user center.
@@ -43,21 +42,16 @@ class UserService:
             # Note: avatar_url is only updated when SSO returns a non-empty value——
             # the user may have set their own avatar in SettingsModal, and SSO returns
             # None in most scenarios; we must not overwrite the user's custom avatar with None.
-            update_data = {
-                "username": username,
-                "email": email,
-                "last_sync_at": datetime.utcnow()
-            }
+            update_data = {"username": username, "email": email, "last_sync_at": datetime.utcnow()}
             if avatar_url:
                 update_data["avatar_url"] = avatar_url
             return self.repo.update(user.user_id, update_data)
         else:
-            # License seat cap (M4): SSO/external-auth auto account creation is also
-            # subject to the seat constraint—— only "new creation" is blocked; existing
-            # users' logins are unaffected. The domain exception is rendered as 402 by error_handler.
-            block_reason = seat_block_reason(self.db)
+            # Edition policy may cap account creation. Existing users are never
+            # blocked by this admission check.
+            block_reason = account_capacity_block_reason(self.db)
             if block_reason:
-                raise SeatLimitExceeded(block_reason)
+                raise AccountCapacityExceeded(block_reason)
 
             # Create new user shadow
             user_data = {
@@ -66,21 +60,22 @@ class UserService:
                 "username": username,
                 "email": email,
                 "avatar_url": avatar_url,
-                "last_sync_at": datetime.utcnow()
+                "last_sync_at": datetime.utcnow(),
             }
             user = self.repo.create(user_data)
 
             # Audit log
-            self.audit_repo.create({
-                "user_id": user.user_id,
-                "action": "user.created",
-                "resource_type": "user",
-                "resource_id": user.user_id,
-                "status": "success"
-            })
+            self.audit_repo.create(
+                {
+                    "user_id": user.user_id,
+                    "action": "user.created",
+                    "resource_type": "user",
+                    "resource_id": user.user_id,
+                    "status": "success",
+                }
+            )
 
             return user
-
 
     def get_user_settings(self, user_id: str) -> Dict[str, Any]:
         """Read preferences and apply effective memory capability defaults."""

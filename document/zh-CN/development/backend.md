@@ -100,7 +100,7 @@ raise ResourceNotFoundError("chat_session", chat_id)
 raise BadRequestError("参数 name 不能为空")
 ```
 
-license 相关 402 同理：唯一来源是 `core/licensing/features.py` 的 `FeatureNotLicensed`（40201）/ `SeatLimitExceeded`（40202），路由 / 服务层不要再手搓 402。错误码分段见 [错误码参考](../api/error-codes.md)。
+License 相关 402 同理：唯一来源是 `edition_ee/licensing/features.py` 的 `FeatureNotLicensed`（40201）/ `SeatLimitExceeded`（40202），路由 / 服务层不要再手搓 402。错误码分段见 [错误码参考](../api/error-codes.md)。
 
 ### 依赖注入
 
@@ -138,7 +138,7 @@ EE_ROUTERS: tuple[tuple[str, str, str | None], ...] = (
 1. 在 `api/routes/v1/` 新建路由文件，`router = APIRouter(prefix="/v1/xxx", tags=["Xxx"])`；
 2. 判断归属：
    - **CE 能力**（个人自洽）→ 在 `CE_ROUTERS` 追加 `("模块名", "router")`；
-   - **EE 能力**（组织规模化）→ 在 `EE_ROUTERS` 追加 `("模块名", "router", "<feature>")`，feature 取 `core/licensing/features.py::Feature` 的值；仅当端点在 license 失效时也必须可达（登录、换 license 类基础设施）才用 `None` 豁免，并写明理由；
+   - **EE 能力**（组织规模化）→ 在 `edition_ee/routes/registry.py::EE_ROUTERS` 追加 `("模块名", "router", "<feature>")`，feature 取 `edition_ee/licensing/features.py::Feature` 的值；仅当端点在 License 失效时也必须可达（登录、换 License 类基础设施）才用 `None` 豁免，并写明理由；
 3. EE 路由还要在 `ce/manifest.yaml` 的 `exclude` 中排除该文件（`admin_*.py` / `config_*.py` 已有通配模式覆盖）；
 4. 注意表内顺序即注册顺序，同前缀族的先后关系不可变（例：`config` 公开读必须先于 `config_*` 管理台）。
 

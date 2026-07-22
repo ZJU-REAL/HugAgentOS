@@ -1,51 +1,39 @@
 import { create } from 'zustand';
+
 import type {
-  ResourceItem,
-  MySpaceTab,
   AutomationNotification,
   AutomationTask,
+  MySpaceTab,
   PersonalFolderNode,
+  ResourceItem,
 } from '../types';
-import type {
-  FileScope,
-  MyTeamItem,
-  TeamFolderNode,
-} from '../types/teamFiles';
-import { scopeCacheKey } from '../types/teamFiles';
 import {
-  getArtifacts,
-  getFavoriteChats,
-  deleteArtifact,
-  updateSession,
-  getAutomationNotifications,
-  markNotificationsRead,
-  deleteNotifications,
-  listSidebarAutomations,
-  listMyTeamsWithPermissions,
-  listTeamFolderTree,
-  listTeamFiles,
-  uploadTeamFile,
-  deleteTeamFile,
-  moveTeamFile,
-  moveArtifactToTeam,
-  copyArtifactToTeam,
-  copyFolderToTeam,
-  uploadFile,
-  listPersonalFolderTree,
-  createPersonalFolder,
-  renamePersonalFolder,
-  deletePersonalFolder,
-  moveArtifactToPersonalFolder,
   copyArtifactToPersonalFolder,
+  createPersonalFolder,
+  deleteArtifact,
+  deleteNotifications,
+  deletePersonalFolder,
+  getArtifacts,
+  getAutomationNotifications,
+  getFavoriteChats,
+  listPersonalFolderTree,
+  listSidebarAutomations,
+  markNotificationsRead,
+  moveArtifactToPersonalFolder,
+  renamePersonalFolder,
+  updateSession,
+  uploadFile,
 } from '../api';
+import { t } from '../i18n';
 import { ROOT_FOLDER_SENTINEL } from '../utils/constants';
 import { childrenOfFolder, findFolderById } from '../utils/folderTree';
 import { useAutomationChatStore } from './automationChatStore';
-import { t } from '../i18n';
 
 export type AssetFilter = 'document' | 'image';
 type SourceFilter = 'all' | 'user_upload' | 'ai_generated';
+type PersonalScope = { kind: 'personal'; folderId: string | null };
 
+const PAGE_SIZE = 20;
 const AUTOMATION_FAVORITE_CHAT_PREFIX = 'automation:';
 const AUTOMATION_FAVORITE_ITEM_PREFIX = 'favorite-automation:';
 
@@ -54,7 +42,8 @@ function isAutomationFavoriteChatId(chatId: string): boolean {
 }
 
 function isAutomationFavoriteItem(item: ResourceItem): boolean {
-  return typeof item.source_chat_id === 'string' && isAutomationFavoriteChatId(item.source_chat_id);
+  return typeof item.source_chat_id === 'string'
+    && isAutomationFavoriteChatId(item.source_chat_id);
 }
 
 function toTime(value?: string): number {
@@ -63,7 +52,7 @@ function toTime(value?: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function getAutomationTaskTitle(task: AutomationTask): string {
+function taskTitle(task: AutomationTask): string {
   const promptTitle = task.prompt?.trim();
   return task.name?.trim()
     || task.plan_title?.trim()
@@ -71,72 +60,65 @@ function getAutomationTaskTitle(task: AutomationTask): string {
     || t('自动化任务');
 }
 
-function getAutomationTaskPreview(task: AutomationTask): string {
-  const description = task.description?.trim();
-  const prompt = task.prompt?.trim();
-  if (description) return description;
-  if (prompt) return prompt;
-  if (task.plan_title?.trim()) return task.plan_title.trim();
-  return t('已执行 {n} 次', { n: task.run_count });
+function taskPreview(task: AutomationTask): string {
+  return task.description?.trim()
+    || task.prompt?.trim()
+    || task.plan_title?.trim()
+    || t('已执行 {n} 次', { n: task.run_count });
 }
 
-function matchesAutomationFavoriteKeyword(item: ResourceItem, keyword?: string): boolean {
-  if (!keyword) return true;
-  const q = keyword.trim().toLowerCase();
-  if (!q) return true;
+function matchesKeyword(item: ResourceItem, keyword?: string): boolean {
+  const query = keyword?.trim().toLowerCase();
+  if (!query) return true;
   return [item.name, item.source_chat_title, item.content_preview]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .some((value) => value.toLowerCase().includes(q));
+    .some((value) => value.toLowerCase().includes(query));
 }
 
-function dedupeAndSortFavorites(items: ResourceItem[]): ResourceItem[] {
+function dedupeAndSort(items: ResourceItem[]): ResourceItem[] {
   const deduped = new Map<string, ResourceItem>();
   items.forEach((item) => deduped.set(item.id, item));
   return Array.from(deduped.values()).sort(
-    (a, b) => toTime(b.created_at) - toTime(a.created_at),
+    (left, right) => toTime(right.created_at) - toTime(left.created_at),
   );
 }
 
-async function loadAutomationFavoriteItems(keyword?: string): Promise<ResourceItem[]> {
+async function loadAutomationFavorites(keyword?: string): Promise<ResourceItem[]> {
   const automationStore = useAutomationChatStore.getState();
-  const favoriteTaskIds = Object.entries(automationStore.sidebarPrefs)
-    .filter(([, pref]) => pref.favorite)
+  const favoriteIds = Object.entries(automationStore.sidebarPrefs)
+    .filter(([, preference]) => preference.favorite)
     .map(([taskId]) => taskId);
-
-  if (favoriteTaskIds.length === 0) {
-    return [];
-  }
+  if (favoriteIds.length === 0) return [];
 
   let tasksById = new Map(
     automationStore.sidebarTasks.map((task) => [task.task_id, task] as const),
   );
-
-  if (favoriteTaskIds.some((taskId) => !tasksById.has(taskId))) {
+  if (favoriteIds.some((taskId) => !tasksById.has(taskId))) {
     try {
       const remoteTasks = await listSidebarAutomations();
-      useAutomationChatStore.getState().setSidebarTasks(remoteTasks);
+      automationStore.setSidebarTasks(remoteTasks);
       tasksById = new Map(remoteTasks.map((task) => [task.task_id, task] as const));
     } catch (error) {
       console.error('Failed to load automation sidebar tasks for favorites:', error);
     }
   }
 
-  return favoriteTaskIds
+  return favoriteIds
     .map((taskId) => tasksById.get(taskId))
     .filter((task): task is AutomationTask => !!task)
     .map((task) => {
-      const title = getAutomationTaskTitle(task);
+      const title = taskTitle(task);
       return {
         id: `${AUTOMATION_FAVORITE_ITEM_PREFIX}${task.task_id}`,
         type: 'favorite' as const,
         name: title,
         source_chat_id: `${AUTOMATION_FAVORITE_CHAT_PREFIX}${task.task_id}`,
         source_chat_title: title,
-        content_preview: getAutomationTaskPreview(task),
+        content_preview: taskPreview(task),
         created_at: task.last_run_at || task.updated_at || task.created_at,
       };
     })
-    .filter((item) => matchesAutomationFavoriteKeyword(item, keyword));
+    .filter((item) => matchesKeyword(item, keyword));
 }
 
 interface MySpaceState {
@@ -153,17 +135,9 @@ interface MySpaceState {
   favPage: number;
   favTotal: number;
   favHasMore: boolean;
-  // ── Team folders (new) ──
-  /** File-assets inner sub-Tab: personal files / team folders */
-  assetScope: 'personal' | 'team';
-  selectedScope: FileScope;
-  myTeams: MyTeamItem[];
-  folderTreesByTeam: Record<string, TeamFolderNode[]>;
-  // ── Personal folders ──
+  selectedScope: PersonalScope;
   personalFolderTree: PersonalFolderNode[];
-  /** Direct child folders (used to render the list under the current personalFolderId) */
   personalChildFolders: PersonalFolderNode[];
-  // Notifications
   notifications: AutomationNotification[];
   notifLoading: boolean;
   notifUnreadCount: number;
@@ -178,20 +152,6 @@ interface MySpaceState {
   unfavoriteChat: (chatId: string) => Promise<void>;
   removeFavorite: (chatId: string) => void;
   loadMore: () => Promise<void>;
-  // ── Team folder actions ──
-  setAssetScope: (scope: 'personal' | 'team') => void;
-  loadMyTeams: () => Promise<void>;
-  loadTeamFolderTree: (teamId: string) => Promise<void>;
-  setScope: (scope: FileScope) => void;
-  fetchScopedFiles: (reset?: boolean) => Promise<void>;
-  uploadToCurrentScope: (file: File) => Promise<void>;
-  deleteCurrentScopeFile: (id: string) => Promise<void>;
-  movePersonalToTeam: (artifactIds: string[], teamId: string, folderId: string | null) => Promise<number>;
-  copyPersonalToTeam: (artifactIds: string[], teamId: string, folderId: string | null) => Promise<number>;
-  copyFolderToTeam: (personalFolderId: string, teamId: string, folderId: string | null) => Promise<{ folders: number; files: number }>;
-  moveWithinTeam: (artifactId: string, targetFolderId: string | null) => Promise<void>;
-  getCurrentPermission: () => 'view' | 'edit' | 'admin' | 'personal';
-  // ── Personal folder actions ──
   loadPersonalFolderTree: () => Promise<void>;
   enterPersonalFolder: (folderId: string | null) => Promise<void>;
   createPersonalFolderAction: (name: string, parentFolderId: string | null) => Promise<string | null>;
@@ -200,7 +160,6 @@ interface MySpaceState {
   moveArtifactsToPersonalFolderAction: (artifactIds: string[], folderId: string | null) => Promise<number>;
   copyArtifactsToPersonalFolderAction: (artifactIds: string[], folderId: string | null) => Promise<number>;
   uploadPersonalFile: (file: File) => Promise<void>;
-  // Notification actions
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
@@ -210,10 +169,8 @@ interface MySpaceState {
   toggleNotifSelected: (id: string) => void;
   toggleNotifSelectAll: () => void;
   clearNotifSelection: () => void;
-  setNotifUnreadCount: (n: number) => void;
+  setNotifUnreadCount: (count: number) => void;
 }
-
-const PAGE_SIZE = 20;
 
 export const useMySpaceStore = create<MySpaceState>((set, get) => ({
   resources: [],
@@ -229,325 +186,131 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
   favPage: 1,
   favTotal: 0,
   favHasMore: false,
-  assetScope: 'personal',
   selectedScope: { kind: 'personal', folderId: null },
-  myTeams: [],
-  folderTreesByTeam: {},
   personalFolderTree: [],
   personalChildFolders: [],
   notifications: [],
   notifLoading: false,
   notifUnreadCount: 0,
   notifSelectedIds: new Set<string>(),
+
   setTab: (tab) => {
-    const prev = get().tab;
+    const previous = get().tab;
     set({ tab, page: 1, favPage: 1, resources: [], favorites: [], hasMore: false, favHasMore: false });
-    if (prev === 'notifications' && tab !== 'notifications') {
+    if (previous === 'notifications' && tab !== 'notifications') {
       set({ notifSelectedIds: new Set<string>() });
     }
-    const { fetchResources, fetchFavorites, fetchNotifications } = get();
-    if (tab === 'favorites') {
-      void fetchFavorites(true);
-    } else if (tab === 'assets') {
-      void fetchResources(true);
-    } else if (tab === 'notifications') {
-      void fetchNotifications();
-    }
+    if (tab === 'favorites') void get().fetchFavorites(true);
+    if (tab === 'assets') void get().fetchResources(true);
+    if (tab === 'notifications') void get().fetchNotifications();
   },
-
-  setSearchKeyword: (keyword) => set({ searchKeyword: keyword }),
-
-  setAssetFilter: (value) => {
-    if (get().assetFilter === value) return;
-    set({ assetFilter: value, page: 1, resources: [], hasMore: false });
+  setSearchKeyword: (searchKeyword) => set({ searchKeyword }),
+  setAssetFilter: (assetFilter) => {
+    if (get().assetFilter === assetFilter) return;
+    set({ assetFilter, page: 1, resources: [], hasMore: false });
     void get().fetchResources(true);
   },
-
-  setSourceFilter: (value) => {
-    if (get().sourceFilter === value) return;
-    set({ sourceFilter: value, page: 1, resources: [], hasMore: false });
+  setSourceFilter: (sourceFilter) => {
+    if (get().sourceFilter === sourceFilter) return;
+    set({ sourceFilter, page: 1, resources: [], hasMore: false });
     void get().fetchResources(true);
   },
 
   fetchResources: async (reset = false) => {
-    // Uniformly use the scope-aware version
-    await get().fetchScopedFiles(reset);
-  },
-
-  fetchScopedFiles: async (reset = false) => {
     const { selectedScope, searchKeyword, page, resources, assetFilter, sourceFilter } = get();
     const currentPage = reset ? 1 : page;
     set({ loading: true });
     try {
-      if (selectedScope.kind === 'personal') {
-        const folderId = selectedScope.folderId ?? null;
-        const res = await getArtifacts({
-          type: assetFilter,
-          source_kind: sourceFilter === 'all' ? undefined : sourceFilter,
-          keyword: searchKeyword || undefined,
-          scope: 'personal',
-          folder_id: folderId ?? ROOT_FOLDER_SENTINEL,
-          page: currentPage,
-          page_size: PAGE_SIZE,
-        });
-        const items = res.items || [];
-        set({
-          resources: reset ? items : [...resources, ...items],
-          total: res.total,
-          page: currentPage,
-          hasMore: res.has_more,
-          loading: false,
-        });
-      } else {
-        const res = await listTeamFiles({
-          teamId: selectedScope.teamId,
-          folderId: selectedScope.folderId,
-          type: assetFilter,
-          keyword: searchKeyword || undefined,
-          page: currentPage,
-          page_size: PAGE_SIZE,
-        });
-        const items = res.items || [];
-        set({
-          resources: reset ? items : [...resources, ...items],
-          total: res.total,
-          page: currentPage,
-          hasMore: res.has_more,
-          loading: false,
-        });
-      }
-    } catch (e) {
-      console.error('Failed to fetch files for scope:', e);
+      const result = await getArtifacts({
+        type: assetFilter,
+        source_kind: sourceFilter === 'all' ? undefined : sourceFilter,
+        keyword: searchKeyword || undefined,
+        scope: 'personal',
+        folder_id: selectedScope.folderId ?? ROOT_FOLDER_SENTINEL,
+        page: currentPage,
+        page_size: PAGE_SIZE,
+      });
+      const items = result.items || [];
+      set({
+        resources: reset ? items : [...resources, ...items],
+        total: result.total,
+        page: currentPage,
+        hasMore: result.has_more,
+        loading: false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch personal files:', error);
       set({ loading: false });
     }
   },
 
-  loadMyTeams: async () => {
-    try {
-      const teams = await listMyTeamsWithPermissions();
-      set({ myTeams: teams });
-    } catch (e) {
-      console.error('Failed to load my teams:', e);
-    }
-  },
-
-  loadTeamFolderTree: async (teamId: string) => {
-    try {
-      const tree = await listTeamFolderTree(teamId);
-      set((s) => ({ folderTreesByTeam: { ...s.folderTreesByTeam, [teamId]: tree } }));
-    } catch (e) {
-      console.error('Failed to load team folder tree:', e);
-    }
-  },
-
-  setScope: (scope: FileScope) => {
-    if (scopeCacheKey(get().selectedScope) === scopeCacheKey(scope)) return;
-    set({ selectedScope: scope, resources: [], page: 1, hasMore: false });
-    void get().fetchScopedFiles(true);
-  },
-
-  setAssetScope: (scope: 'personal' | 'team') => {
-    if (get().assetScope === scope) return;
-    if (scope === 'personal') {
-      set({
-        assetScope: 'personal',
-        selectedScope: { kind: 'personal', folderId: null },
-        resources: [],
-        page: 1,
-        hasMore: false,
-      });
-      void get().loadPersonalFolderTree();
-    } else {
-      // Enter team: if the current selectedScope is already a team, keep it; otherwise default back to the team list (no selection)
-      const current = get().selectedScope;
-      const next: FileScope = current.kind === 'team' ? current : { kind: 'team', teamId: '', folderId: null };
-      set({ assetScope: 'team', selectedScope: next, resources: [], page: 1, hasMore: false });
-      // Fetch the teams list for left-side rendering
-      void get().loadMyTeams();
-    }
-    if (scope === 'personal' || (scope === 'team' && get().selectedScope.kind === 'team' && (get().selectedScope as any).teamId)) {
-      void get().fetchScopedFiles(true);
-    }
-  },
-
-  uploadToCurrentScope: async (file: File) => {
-    const { selectedScope } = get();
-    if (selectedScope.kind !== 'team') {
-      throw new Error(t('当前作用域不支持上传'));
-    }
-    await uploadTeamFile(selectedScope.teamId, selectedScope.folderId, file);
-    await get().fetchScopedFiles(true);
-  },
-
-  deleteCurrentScopeFile: async (id: string) => {
-    const { selectedScope } = get();
-    if (selectedScope.kind === 'personal') {
-      await deleteArtifact(id);
-    } else {
-      await deleteTeamFile(selectedScope.teamId, id);
-    }
-    set((state) => ({
-      resources: state.resources.filter((r) => r.id !== id),
-      total: Math.max(0, state.total - 1),
-    }));
-  },
-
-  movePersonalToTeam: async (artifactIds, teamId, folderId) => {
-    const results = await Promise.allSettled(
-      artifactIds.map((id) => moveArtifactToTeam(id, teamId, folderId)),
-    );
-    const moved = results.filter((r) => r.status === 'fulfilled').length;
-    results.forEach((r, idx) => {
-      if (r.status === 'rejected') {
-        console.error('move_to_team failed for', artifactIds[idx], r.reason);
-      }
-    });
-    if (moved > 0) {
-      await get().fetchScopedFiles(true);
-    }
-    return moved;
-  },
-
-  copyPersonalToTeam: async (artifactIds, teamId, folderId) => {
-    const results = await Promise.allSettled(
-      artifactIds.map((id) => copyArtifactToTeam(id, teamId, folderId)),
-    );
-    const copied = results.filter((r) => r.status === 'fulfilled').length;
-    results.forEach((r, idx) => {
-      if (r.status === 'rejected') {
-        console.error('copy_to_team failed for', artifactIds[idx], r.reason);
-      }
-    });
-    // Copy is non-destructive; the personal list is unchanged, no need to refresh the current scope
-    return copied;
-  },
-
-  copyFolderToTeam: async (personalFolderId, teamId, folderId) => {
-    return copyFolderToTeam(personalFolderId, teamId, folderId);
-  },
-
-  moveWithinTeam: async (artifactId, targetFolderId) => {
-    const { selectedScope } = get();
-    if (selectedScope.kind !== 'team') return;
-    await moveTeamFile(selectedScope.teamId, artifactId, targetFolderId);
-    await get().fetchScopedFiles(true);
-  },
-
-  getCurrentPermission: () => {
-    const { selectedScope, myTeams } = get();
-    if (selectedScope.kind === 'personal') return 'personal';
-    const found = myTeams.find((t) => t.team_id === selectedScope.teamId);
-    if (!found) return 'view';
-    return found.resolved === 'none' ? 'view' : found.resolved;
-  },
-
-  // ── Personal folder actions ──────────────────────────────────────
   loadPersonalFolderTree: async () => {
     try {
       const tree = await listPersonalFolderTree();
       set({ personalFolderTree: tree });
-      // Recompute child folders based on the current folderId
-      const { selectedScope } = get();
-      if (selectedScope.kind === 'personal') {
-        set({ personalChildFolders: childrenOfFolder(tree, selectedScope.folderId ?? null) });
-      }
-    } catch (e) {
-      console.error('Failed to load personal folder tree:', e);
+      set({ personalChildFolders: childrenOfFolder(tree, get().selectedScope.folderId) });
+    } catch (error) {
+      console.error('Failed to load personal folder tree:', error);
     }
   },
 
-  enterPersonalFolder: async (folderId: string | null) => {
-    const { selectedScope, personalFolderTree } = get();
-    if (selectedScope.kind === 'personal' && (selectedScope.folderId ?? null) === folderId) {
-      return;
-    }
+  enterPersonalFolder: async (folderId) => {
+    if (get().selectedScope.folderId === folderId) return;
     set({
       selectedScope: { kind: 'personal', folderId },
-      personalChildFolders: childrenOfFolder(personalFolderTree, folderId),
+      personalChildFolders: childrenOfFolder(get().personalFolderTree, folderId),
       resources: [],
       page: 1,
       hasMore: false,
     });
-    await get().fetchScopedFiles(true);
+    await get().fetchResources(true);
   },
 
   createPersonalFolderAction: async (name, parentFolderId) => {
-    try {
-      const res = await createPersonalFolder(name, parentFolderId);
-      // Refresh the tree + child folders at the current level
-      await get().loadPersonalFolderTree();
-      return res.folder_id;
-    } catch (e) {
-      console.error('Failed to create personal folder:', e);
-      throw e;
-    }
+    const result = await createPersonalFolder(name, parentFolderId);
+    await get().loadPersonalFolderTree();
+    return result.folder_id;
   },
-
   renamePersonalFolderAction: async (folderId, name) => {
     await renamePersonalFolder(folderId, name);
     await get().loadPersonalFolderTree();
   },
-
   deletePersonalFolderAction: async (folderId) => {
-    const res = await deletePersonalFolder(folderId);
-    // Before refreshing the tree, use the old tree to determine whether we are currently on a deleted branch; reload after deletion.
+    const result = await deletePersonalFolder(folderId);
     const { selectedScope, personalFolderTree } = get();
     let onDeletedPath = false;
-    if (selectedScope.kind === 'personal' && selectedScope.folderId) {
-      let cur: string | null = selectedScope.folderId;
-      while (cur) {
-        if (cur === folderId) { onDeletedPath = true; break; }
-        const node: PersonalFolderNode | null = findFolderById(personalFolderTree, cur);
-        cur = node?.parent_folder_id ?? null;
+    let current = selectedScope.folderId;
+    while (current) {
+      if (current === folderId) {
+        onDeletedPath = true;
+        break;
       }
+      current = findFolderById(personalFolderTree, current)?.parent_folder_id ?? null;
     }
     await get().loadPersonalFolderTree();
-    if (onDeletedPath) {
-      await get().enterPersonalFolder(null);
-    } else if (selectedScope.kind === 'personal') {
-      await get().fetchScopedFiles(true);
-    }
-    return res.artifacts_affected;
+    if (onDeletedPath) await get().enterPersonalFolder(null);
+    else await get().fetchResources(true);
+    return result.artifacts_affected;
   },
-
   moveArtifactsToPersonalFolderAction: async (artifactIds, folderId) => {
     const results = await Promise.allSettled(
-      artifactIds.map((id) => moveArtifactToPersonalFolder(id, folderId)),
+      artifactIds.map((artifactId) => moveArtifactToPersonalFolder(artifactId, folderId)),
     );
-    const moved = results.filter((r) => r.status === 'fulfilled').length;
-    results.forEach((r, idx) => {
-      if (r.status === 'rejected') {
-        console.error('move_to_personal_folder failed for', artifactIds[idx], r.reason);
-      }
-    });
-    if (moved > 0) {
-      await get().fetchScopedFiles(true);
-    }
+    const moved = results.filter((result) => result.status === 'fulfilled').length;
+    if (moved > 0) await get().fetchResources(true);
     return moved;
   },
-
   copyArtifactsToPersonalFolderAction: async (artifactIds, folderId) => {
     const results = await Promise.allSettled(
-      artifactIds.map((id) => copyArtifactToPersonalFolder(id, folderId)),
+      artifactIds.map((artifactId) => copyArtifactToPersonalFolder(artifactId, folderId)),
     );
-    const copied = results.filter((r) => r.status === 'fulfilled').length;
-    results.forEach((r, idx) => {
-      if (r.status === 'rejected') {
-        console.error('copy_to_personal_folder failed for', artifactIds[idx], r.reason);
-      }
-    });
-    // The copy lands in the current view (a new copy in the same space), so the current scope must be refreshed
-    if (copied > 0) {
-      await get().fetchScopedFiles(true);
-    }
+    const copied = results.filter((result) => result.status === 'fulfilled').length;
+    if (copied > 0) await get().fetchResources(true);
     return copied;
   },
-
   uploadPersonalFile: async (file) => {
-    const { selectedScope } = get();
-    const folderId = selectedScope.kind === 'personal' ? (selectedScope.folderId ?? null) : null;
-    await uploadFile(file, undefined, folderId);
-    await get().fetchScopedFiles(true);
+    await uploadFile(file, undefined, get().selectedScope.folderId);
+    await get().fetchResources(true);
   },
 
   fetchFavorites: async (reset = false) => {
@@ -555,208 +318,152 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
     const currentPage = reset ? 1 : favPage;
     set({ loading: true });
     try {
-      const [res, automationItems] = await Promise.all([
-        getFavoriteChats({
-          keyword: searchKeyword || undefined,
-          page: currentPage,
-          page_size: PAGE_SIZE,
-        }),
-        loadAutomationFavoriteItems(searchKeyword || undefined),
+      const [result, automationItems] = await Promise.all([
+        getFavoriteChats({ keyword: searchKeyword || undefined, page: currentPage, page_size: PAGE_SIZE }),
+        loadAutomationFavorites(searchKeyword || undefined),
       ]);
-      const items = res.items || [];
-      const existingBackendItems = reset
-        ? []
-        : favorites.filter((item) => !isAutomationFavoriteItem(item));
+      const existing = reset ? [] : favorites.filter((item) => !isAutomationFavoriteItem(item));
       set({
-        favorites: dedupeAndSortFavorites([...automationItems, ...existingBackendItems, ...items]),
-        favTotal: res.total + automationItems.length,
+        favorites: dedupeAndSort([...automationItems, ...existing, ...(result.items || [])]),
+        favTotal: result.total + automationItems.length,
         favPage: currentPage,
-        favHasMore: res.has_more,
+        favHasMore: result.has_more,
         loading: false,
       });
-    } catch (e) {
-      console.error('Failed to fetch favorites:', e);
+    } catch (error) {
+      console.error('Failed to fetch favorites:', error);
       set({ loading: false });
     }
   },
-
   deleteResource: async (id) => {
     try {
-      const { selectedScope } = get();
-      if (selectedScope.kind === 'team') {
-        await deleteTeamFile(selectedScope.teamId, id);
-      } else {
-        await deleteArtifact(id);
-      }
+      await deleteArtifact(id);
       set((state) => ({
-        resources: state.resources.filter((r) => r.id !== id),
+        resources: state.resources.filter((resource) => resource.id !== id),
         total: Math.max(0, state.total - 1),
       }));
-    } catch (e) {
-      console.error('Failed to delete artifact:', e);
+    } catch (error) {
+      console.error('Failed to delete artifact:', error);
     }
   },
-
   unfavoriteChat: async (chatId) => {
-    try {
-      if (isAutomationFavoriteChatId(chatId)) {
-        const taskId = chatId.slice(AUTOMATION_FAVORITE_CHAT_PREFIX.length);
-        useAutomationChatStore.getState().setSidebarFavorite(taskId, false);
-        return;
-      }
-      await updateSession(chatId, { favorite: false });
-    } catch (e) {
-      console.error('Failed to unfavorite chat:', e);
-      throw e;
+    if (isAutomationFavoriteChatId(chatId)) {
+      useAutomationChatStore.getState().setSidebarFavorite(
+        chatId.slice(AUTOMATION_FAVORITE_CHAT_PREFIX.length),
+        false,
+      );
+      return;
     }
+    await updateSession(chatId, { favorite: false });
   },
-
-  removeFavorite: (chatId) => {
-    set((state) => {
-      const exists = state.favorites.some((item) => item.source_chat_id === chatId);
-      return {
-        favorites: state.favorites.filter((item) => item.source_chat_id !== chatId),
-        favTotal: exists ? Math.max(0, state.favTotal - 1) : state.favTotal,
-      };
-    });
-  },
-
+  removeFavorite: (chatId) => set((state) => {
+    const exists = state.favorites.some((item) => item.source_chat_id === chatId);
+    return {
+      favorites: state.favorites.filter((item) => item.source_chat_id !== chatId),
+      favTotal: exists ? Math.max(0, state.favTotal - 1) : state.favTotal,
+    };
+  }),
   loadMore: async () => {
-    const { tab, page, hasMore, favPage, favHasMore, loading, fetchResources, fetchFavorites } = get();
-    if (loading) return; // prevent concurrent fetches from rapid scroll
-    if (tab === 'favorites') {
-      if (!favHasMore) return;
-      set({ favPage: favPage + 1 });
-      await fetchFavorites();
-    } else if (tab === 'assets') {
-      if (!hasMore) return;
-      set({ page: page + 1 });
-      await fetchResources();
+    const state = get();
+    if (state.loading) return;
+    if (state.tab === 'favorites' && state.favHasMore) {
+      set({ favPage: state.favPage + 1 });
+      await state.fetchFavorites();
+    } else if (state.tab === 'assets' && state.hasMore) {
+      set({ page: state.page + 1 });
+      await state.fetchResources();
     }
   },
-
-  // ── Notification actions ──────────────────────────────────────
 
   fetchNotifications: async () => {
     set({ notifLoading: true });
     try {
       const notifications = await getAutomationNotifications();
-      const unread = notifications.filter((n) => !n.read).length;
-      set({ notifications, notifUnreadCount: unread, notifLoading: false });
-    } catch (e) {
-      console.error('Failed to fetch notifications:', e);
+      set({
+        notifications,
+        notifUnreadCount: notifications.filter((item) => !item.read).length,
+        notifLoading: false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
       set({ notifLoading: false });
     }
   },
-
-  markNotificationRead: async (id: string) => {
-    try {
-      await markNotificationsRead([id]);
-      set((s) => {
-        const updated = s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n));
-        return { notifications: updated, notifUnreadCount: updated.filter((n) => !n.read).length };
-      });
-    } catch (e) {
-      console.error('Failed to mark notification read:', e);
-    }
+  markNotificationRead: async (id) => {
+    await markNotificationsRead([id]);
+    set((state) => {
+      const notifications = state.notifications.map((item) => (
+        item.id === id ? { ...item, read: true } : item
+      ));
+      return { notifications, notifUnreadCount: notifications.filter((item) => !item.read).length };
+    });
   },
-
   markAllNotificationsRead: async () => {
-    const { notifications } = get();
-    const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
-    if (unreadIds.length === 0) return;
-    try {
-      await markNotificationsRead(unreadIds);
-      set((s) => ({
-        notifications: s.notifications.map((n) => ({ ...n, read: true })),
-        notifUnreadCount: 0,
-      }));
-    } catch (e) {
-      console.error('Failed to mark all notifications read:', e);
-    }
+    const ids = get().notifications.filter((item) => !item.read).map((item) => item.id);
+    if (ids.length === 0) return;
+    await markNotificationsRead(ids);
+    set((state) => ({
+      notifications: state.notifications.map((item) => ({ ...item, read: true })),
+      notifUnreadCount: 0,
+    }));
   },
-
   markSelectedNotificationsRead: async () => {
     const { notifSelectedIds, notifications } = get();
     const ids = notifications
-      .filter((n) => notifSelectedIds.has(n.id) && !n.read)
-      .map((n) => n.id);
+      .filter((item) => notifSelectedIds.has(item.id) && !item.read)
+      .map((item) => item.id);
     if (ids.length === 0) return;
-    try {
-      await markNotificationsRead(ids);
-      const idsSet = new Set(ids);
-      set((s) => {
-        const updated = s.notifications.map((n) =>
-          idsSet.has(n.id) ? { ...n, read: true } : n,
-        );
-        return {
-          notifications: updated,
-          notifUnreadCount: updated.filter((n) => !n.read).length,
-          notifSelectedIds: new Set<string>(),
-        };
-      });
-    } catch (e) {
-      console.error('Failed to mark selected notifications read:', e);
-    }
+    await markNotificationsRead(ids);
+    const selected = new Set(ids);
+    set((state) => {
+      const updated = state.notifications.map((item) => (
+        selected.has(item.id) ? { ...item, read: true } : item
+      ));
+      return {
+        notifications: updated,
+        notifUnreadCount: updated.filter((item) => !item.read).length,
+        notifSelectedIds: new Set<string>(),
+      };
+    });
   },
-
-  deleteNotification: async (id: string) => {
-    try {
-      await deleteNotifications([id]);
-      set((s) => {
-        const updated = s.notifications.filter((n) => n.id !== id);
-        const sel = new Set(s.notifSelectedIds);
-        sel.delete(id);
-        return {
-          notifications: updated,
-          notifUnreadCount: updated.filter((n) => !n.read).length,
-          notifSelectedIds: sel,
-        };
-      });
-    } catch (e) {
-      console.error('Failed to delete notification:', e);
-    }
+  deleteNotification: async (id) => {
+    await deleteNotifications([id]);
+    set((state) => {
+      const notifications = state.notifications.filter((item) => item.id !== id);
+      const selected = new Set(state.notifSelectedIds);
+      selected.delete(id);
+      return {
+        notifications,
+        notifUnreadCount: notifications.filter((item) => !item.read).length,
+        notifSelectedIds: selected,
+      };
+    });
   },
-
   deleteSelectedNotifications: async () => {
-    const { notifSelectedIds } = get();
-    const ids = Array.from(notifSelectedIds);
+    const ids = Array.from(get().notifSelectedIds);
     if (ids.length === 0) return;
-    try {
-      await deleteNotifications(ids);
-      set((s) => {
-        const updated = s.notifications.filter((n) => !notifSelectedIds.has(n.id));
-        return {
-          notifications: updated,
-          notifUnreadCount: updated.filter((n) => !n.read).length,
-          notifSelectedIds: new Set<string>(),
-        };
-      });
-    } catch (e) {
-      console.error('Failed to delete selected notifications:', e);
-    }
-  },
-
-  toggleNotifSelected: (id: string) => {
-    set((s) => {
-      const next = new Set(s.notifSelectedIds);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return { notifSelectedIds: next };
+    await deleteNotifications(ids);
+    const selected = new Set(ids);
+    set((state) => {
+      const notifications = state.notifications.filter((item) => !selected.has(item.id));
+      return {
+        notifications,
+        notifUnreadCount: notifications.filter((item) => !item.read).length,
+        notifSelectedIds: new Set<string>(),
+      };
     });
   },
-
-  toggleNotifSelectAll: () => {
-    set((s) => {
-      const allIds = s.notifications.map((n) => n.id);
-      const allSelected = allIds.length > 0 && allIds.every((id) => s.notifSelectedIds.has(id));
-      return { notifSelectedIds: allSelected ? new Set<string>() : new Set(allIds) };
-    });
-  },
-
-  clearNotifSelection: () => {
-    if (get().notifSelectedIds.size === 0) return;
-    set({ notifSelectedIds: new Set<string>() });
-  },
-
-  setNotifUnreadCount: (n: number) => set({ notifUnreadCount: n }),
+  toggleNotifSelected: (id) => set((state) => {
+    const selected = new Set(state.notifSelectedIds);
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+    return { notifSelectedIds: selected };
+  }),
+  toggleNotifSelectAll: () => set((state) => {
+    const ids = state.notifications.map((item) => item.id);
+    const allSelected = ids.length > 0 && ids.every((id) => state.notifSelectedIds.has(id));
+    return { notifSelectedIds: allSelected ? new Set<string>() : new Set(ids) };
+  }),
+  clearNotifSelection: () => set({ notifSelectedIds: new Set<string>() }),
+  setNotifUnreadCount: (notifUnreadCount) => set({ notifUnreadCount }),
 }));

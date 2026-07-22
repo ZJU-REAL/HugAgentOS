@@ -7,7 +7,7 @@ import {
   ApiOutlined, AppstoreOutlined, CheckOutlined, CloseOutlined, DatabaseOutlined,
   DeploymentUnitOutlined, EditOutlined, ExclamationCircleFilled, FileTextOutlined,
   KeyOutlined, LinkOutlined, LockOutlined, LogoutOutlined, MessageOutlined, RobotOutlined,
-  TeamOutlined, UserOutlined,
+  UserOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
@@ -24,7 +24,11 @@ import {
   updateMyProfile,
   uploadMyAvatar,
 } from '../../api';
-import { TeamsSection } from './TeamsSection';
+import {
+  EDITION_SETTINGS_SECTIONS,
+  EditionProfileMemberships,
+  EditionSettingsContent,
+} from '../../settingsEdition';
 import { ApiKeyPanel } from './ApiKeyPanel';
 import { ChannelBotsPanel } from './ChannelBotsPanel';
 import { SystemModelPanel } from './SystemModelPanel';
@@ -33,7 +37,6 @@ import { MyLogsPanel } from './MyLogsPanel';
 import { PasswordManagementPanel } from './PasswordManagementPanel';
 import { FactsList } from '../memory/FactsList';
 import { OntologyManager } from '../ontology';
-import { roleLabel } from '../../utils/roles';
 import { getLang, setLang, t, type Lang } from '../../i18n';
 
 interface SectionDef {
@@ -48,7 +51,6 @@ const SETTINGS_SECTIONS: SectionDef[] = [
   { id: 'memory', label: t('记忆设置'), icon: <DatabaseOutlined /> },
   { id: 'ontology', label: t('本体校验'), icon: <SafetyCertificateOutlined /> },
   { id: 'enabled', label: t('已启用清单'), icon: <AppstoreOutlined /> },
-  { id: 'teams', label: t('团队管理'), icon: <TeamOutlined /> },
 ];
 
 const API_KEY_SECTION: SectionDef = { id: 'apikey', label: 'API-Key', icon: <KeyOutlined /> };
@@ -119,7 +121,7 @@ export default function SettingsPage() {
   const { authUser, doLogout, setAvatarUrl, setAuthUser, loggingOut } = useAuthStore();
   const apiKeyEnabled = authUser?.can_use_api_key === true;
   const channelBotEnabled = authUser?.can_create_channel_bot === true;
-  // Team management is a multi-tenancy capability bit (the whole section is hidden under CE / unlicensed license)
+  // Organization management is exposed only when the edition capability is active.
   const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenancy : true));
   // CE personal system settings: shown only in the community edition (EE uses the /config system console), and only when the backend probe permits it —
   // model service / service config; "My logs" is the user's own data, visible to all logged-in users under CE.
@@ -141,7 +143,9 @@ export default function SettingsPage() {
   }, [isCE, authUser?.user_id]);
   // Only show a section in the settings center when the admin has enabled the corresponding capability bit
   const sections = useMemo<SectionDef[]>(() => {
-    let base = multiTenancy ? SETTINGS_SECTIONS : SETTINGS_SECTIONS.filter((s) => s.id !== 'teams');
+    let base = multiTenancy
+      ? [...SETTINGS_SECTIONS, ...EDITION_SETTINGS_SECTIONS]
+      : SETTINGS_SECTIONS;
     if (isCE && ontologyGovernanceAccess) {
       base = base.map((section) => (
         section.id === 'ontology' ? { ...section, label: t('本体治理') } : section
@@ -579,28 +583,15 @@ export default function SettingsPage() {
                   ID: {authUser.username}
                 </span>
               )}
-              {(authUser?.department || (authUser?.teams && authUser.teams.length > 0)) && (
+              {authUser?.department && (
                 <div className="jx-settings-userTeams">
-                  {authUser?.department && (
-                    <Tag color="geekblue" icon={<LinkOutlined />} style={{ marginInlineEnd: 4 }}>
-                      {authUser.department}
-                    </Tag>
-                  )}
-                  {authUser?.teams?.map((t) => {
-                    const isSso = t.source === 'sso_auto';
-                    if (isSso && t.name === authUser?.department) return null;
-                    return (
-                      <Tag
-                        key={t.team_id}
-                        color={isSso ? 'cyan' : 'blue'}
-                        icon={isSso ? <LinkOutlined /> : <TeamOutlined />}
-                      >
-                        {t.name} · {roleLabel(t.role)}
-                      </Tag>
-                    );
-                  })}
+                  <Tag color="geekblue" icon={<LinkOutlined />} style={{ marginInlineEnd: 4 }}>
+                    {authUser.department}
+                  </Tag>
+                  <EditionProfileMemberships authUser={authUser} />
                 </div>
               )}
+              {!authUser?.department && <EditionProfileMemberships authUser={authUser} />}
             </div>
           </div>
         </div>
@@ -821,15 +812,7 @@ export default function SettingsPage() {
         </section>
         )}
 
-        {/* ── Team management (multi-tenancy capability bit; hidden under CE / unlicensed) ──── */}
-        {multiTenancy && activeSection === 'teams' && (
-          <section id="section-teams" className="jx-settings-section">
-          <h3 className="jx-settings-section-title">{t('团队管理')}</h3>
-          <div className="jx-settings-card jx-settings-card--padded">
-            <TeamsSection />
-          </div>
-          </section>
-        )}
+        <EditionSettingsContent activeSection={activeSection} enabled={multiTenancy} />
 
         {/* ── API-Key (shown only when the admin has enabled it) ─────────────────── */}
         {apiKeyEnabled && activeSection === 'apikey' && (

@@ -14,11 +14,15 @@ from threading import Lock
 from time import monotonic
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
-
 from core.config.catalog import get_catalog
 from core.config.catalog_common import _item
-from core.config.catalog_loader import DB_HIDDEN_SERVERS, skill_body_from_raw
+from core.config.catalog_loader import (
+    DB_HIDDEN_SERVERS,
+    DB_UMBRELLA_ID,
+    _database_query_capability_available,
+    skill_body_from_raw,
+)
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +36,6 @@ _DEFAULT_MCP_ICONS: Dict[str, str] = {
     "report_export_mcp": "/home/mcp/报告.svg",
     "web_fetch": "/home/mcp/来源.svg",
 }
-_DATABASE_QUERY_ID = "database_query"
 _DATABASE_QUERY_ENABLED_CONFIG = "database_query.capability_enabled"
 _RUNTIME_DB_CACHE_TTL = 30.0
 _runtime_db_cache: Dict[bool, tuple[float, bool, List[Dict[str, Any]], List[Dict[str, Any]]]] = {}
@@ -165,7 +168,7 @@ def _apply_database_query_state(catalog: Dict[str, Any], db: Session) -> None:
 
 def _set_database_query_state(catalog: Dict[str, Any], enabled: bool) -> None:
     for item in catalog.get("mcp") or []:
-        if not isinstance(item, dict) or item.get("id") != _DATABASE_QUERY_ID:
+        if not isinstance(item, dict) or item.get("id") != DB_UMBRELLA_ID:
             continue
         item["enabled"] = enabled
         return
@@ -237,6 +240,17 @@ def get_runtime_catalog(
     for key in ("skills", "agents", "mcp", "kb"):
         if not isinstance(catalog.get(key), list):
             catalog[key] = []
+
+    # A deployment can retain old catalog data or an in-process cache from a
+    # build that shipped database-query support.  The edition's runnable MCP
+    # registry is authoritative: never surface the synthetic umbrella when its
+    # implementation is absent.
+    if not _database_query_capability_available():
+        catalog["mcp"] = [
+            item
+            for item in catalog["mcp"]
+            if not isinstance(item, dict) or item.get("id") != DB_UMBRELLA_ID
+        ]
 
     try:
         db_query_enabled, db_skills, db_mcps = _public_db_overlay(

@@ -9,6 +9,7 @@ import { deleteChatShare, listChatShares, listSites, restoreChatShare, revokeCha
 import { useAuthStore, useCatalogStore, useChatStore } from '../../stores';
 import { userScopedKey } from '../../storage';
 import { formatDateTime } from '../../utils/date';
+import { getSiteVisibilityTag } from '../../editionSiteVisibility';
 import '../../styles/sites.css';
 
 const SHARE_RECORDS_CACHE_KEY = 'hugagent_share_records_cache';
@@ -28,13 +29,12 @@ function SiteShareSection() {
       <div className="jx-shareSitesTitle">{t('已发布站点')}（{sites.length}）</div>
       {sites.map((site) => {
         const fullUrl = `${window.location.origin}${site.url}`;
+        const visibilityTag = getSiteVisibilityTag(site.visibility);
         return (
           <div key={site.site_id} className="jx-shareSiteRow">
             <span className="jx-shareSiteName">{site.title}</span>
             <a className="jx-shareSiteUrl" href={site.url} target="_blank" rel="noopener noreferrer">{fullUrl}</a>
-            <Tag color={site.visibility === 'public' ? 'blue' : site.visibility === 'team' ? 'geekblue' : undefined}>
-              {site.visibility === 'public' ? t('公开') : site.visibility === 'team' ? t('团队') : t('私密')}
-            </Tag>
+            <Tag color={visibilityTag.color}>{visibilityTag.label}</Tag>
             <span className="jx-shareSiteViews"><EyeOutlined /> {site.view_count}</span>
             <CopyButton text={fullUrl} size="small" />
           </div>

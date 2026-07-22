@@ -8,18 +8,17 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy.orm import Session
-
 from core.artifacts.store import get_artifact
 from core.auth.backend import UserContext, require_auth
-from core.auth.permissions_iface import resolve_artifact_access
 from core.content.office import find_libreoffice_binary
 from core.db.engine import get_db
 from core.db.repository import AuditLogRepository
 from core.infra.exceptions import StorageError
+from core.services.artifact_edition import artifact_access_metadata, can_access_artifact_metadata
 from core.storage import get_storage
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +32,13 @@ WORD_MIME_MARKERS = ("wordprocessingml", "msword")
 def _load_artifact_item(file_id: str, db: Session) -> dict[str, Any]:
     """Resolve an artifact from DB first, then local store.
 
-    DB is authoritative — it reflects moves between personal ↔ team folders,
-    which rewrite ``storage_key``. The local index is only used as a fallback
-    for tool-generated artifacts that never hit the DB.
+    DB is authoritative because edition-specific moves can rewrite
+    ``storage_key``. The local index is only used as a fallback for
+    tool-generated artifacts that never hit the DB.
     """
     from core.db.models import Artifact as ArtifactModel
 
-    artifact_obj = db.query(ArtifactModel).filter(
-        ArtifactModel.artifact_id == file_id
-    ).first()
+    artifact_obj = db.query(ArtifactModel).filter(ArtifactModel.artifact_id == file_id).first()
     if artifact_obj is not None:
         return {
             "path": None,
@@ -51,8 +48,7 @@ def _load_artifact_item(file_id: str, db: Session) -> dict[str, Any]:
             "storage_key": artifact_obj.storage_key,
             "metadata": {
                 "from_database": True,
-                "user_id": artifact_obj.user_id,
-                "team_id": artifact_obj.team_id,
+                **artifact_access_metadata(artifact_obj),
             },
         }
 
@@ -75,14 +71,16 @@ def _record_audit(
     if not user:
         return
     try:
-        AuditLogRepository(db).create({
-            "user_id": user.user_id,
-            "action": action,
-            "resource_type": "artifact",
-            "resource_id": file_id,
-            "status": status,
-            "details": details or {},
-        })
+        AuditLogRepository(db).create(
+            {
+                "user_id": user.user_id,
+                "action": action,
+                "resource_type": "artifact",
+                "resource_id": file_id,
+                "status": status,
+                "details": details or {},
+            }
+        )
     except Exception as exc:
         logger.warning("Failed to create audit log for %s: %s", action, exc)
 
@@ -96,19 +94,10 @@ def _authorize_access(
     denied_action: str,
 ) -> None:
     metadata = item.get("metadata") or {}
-    owner_id = metadata.get("user_id")
-    team_id = metadata.get("team_id")
     if not user:
         return
-
-    if owner_id or team_id:
-        # The owner ∪ team combined-permission single point is in permissions_iface (the
-        # owner can always access their own files — including team_id-tagged files in
-        # CE / left-team scenarios; team members with view+ can access)
-        if resolve_artifact_access(db, str(user.user_id), owner_id, team_id) != "none":
-            return
-    else:
-        return  # legacy data: old files without owner/team metadata remain allowed
+    if can_access_artifact_metadata(db, str(user.user_id), metadata):
+        return
 
     _record_audit(
         user=user,
@@ -179,7 +168,9 @@ def _is_powerpoint_file(item: dict[str, Any]) -> bool:
     name = str(item.get("name", ""))
     mime_type = str(item.get("mime_type", "")).lower()
     ext = Path(name).suffix.lower()
-    return ext in POWERPOINT_EXTENSIONS or any(marker in mime_type for marker in POWERPOINT_MIME_MARKERS)
+    return ext in POWERPOINT_EXTENSIONS or any(
+        marker in mime_type for marker in POWERPOINT_MIME_MARKERS
+    )
 
 
 def _is_word_file(item: dict[str, Any]) -> bool:
@@ -270,7 +261,9 @@ async def download_file(
     file_id: str,
     background_tasks: BackgroundTasks,
     mode: str = Query("direct", description="Download mode: direct or presigned"),
-    inline: bool = Query(False, description="If true, serve for inline display (Content-Disposition: inline)"),
+    inline: bool = Query(
+        False, description="If true, serve for inline display (Content-Disposition: inline)"
+    ),
     user: Optional[UserContext] = Depends(require_auth(required=False)),
     db: Session = Depends(get_db),
 ):
@@ -351,20 +344,24 @@ async def download_file(
 
             except StorageError as exc:
                 logger.error("Failed to generate presigned URL: %s", exc)
-                return JSONResponse({
+                return JSONResponse(
+                    {
+                        "url": f"/files/{file_id}",
+                        "expires_in": 900,
+                        "filename": str(item.get("name", file_id)),
+                        "note": "Failed to generate presigned URL, using direct download URL",
+                    }
+                )
+        else:
+            # Local artifact, return direct download URL
+            return JSONResponse(
+                {
                     "url": f"/files/{file_id}",
                     "expires_in": 900,
                     "filename": str(item.get("name", file_id)),
-                    "note": "Failed to generate presigned URL, using direct download URL"
-                })
-        else:
-            # Local artifact, return direct download URL
-            return JSONResponse({
-                "url": f"/files/{file_id}",
-                "expires_in": 900,
-                "filename": str(item.get("name", file_id)),
-                "note": "Local artifact, using direct download URL"
-            })
+                    "note": "Local artifact, using direct download URL",
+                }
+            )
     else:
         return _build_direct_download_response(
             item=item,

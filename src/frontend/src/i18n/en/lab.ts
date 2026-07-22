@@ -1,25 +1,13 @@
 /** 英文字典（lab 域）：key 为中文原文，value 为英文译文。 */
 export const LAB_DICT: Record<string, string> = {
   '本体治理标签': 'Ontology governance tags',
-  // ── 团队子智能体 ───────────────────────────────────────────────────────────
   '个人': 'Personal',
   '个人子智能体': 'Personal Sub-agent',
-  '团队子智能体': 'Team Sub-agent',
-  '团队共享': 'Team Shared',
   '个人子智能体仅自己可见可用。': 'A personal sub-agent is visible and usable only by you.',
-  '团队子智能体对该团队全体成员可见可用，由团队 owner/admin 管理。':
-    'A team sub-agent is visible and usable by all team members, and managed by the team owner/admin.',
-  '请选择要归属的团队': 'Please select a team',
-  '选择要归属的团队': 'Select a team',
-  '（你不是任何团队的 owner/admin，暂不能创建团队子智能体）':
-    ' (You are not an owner/admin of any team, so you cannot create team sub-agents yet)',
-  '选择某个、某批或全部历史会话，提炼出可复用的个人专属技能，保存后仅自己可见可用': 'Distill one, several, or all past chats into a reusable personal skill. Saved skills are visible and usable only by you.',
   // ── Status labels ──────────────────────────────────────────────
   '已暂停': 'Paused',
   '已停用': 'Disabled',
   '已过期': 'Expired',
-  '排队中': 'Queued',
-  '蒸馏中': 'Distilling',
 
   // ── Common actions ─────────────────────────────────────────────
   '编辑': 'Edit',
@@ -133,40 +121,10 @@ export const LAB_DICT: Record<string, string> = {
   '每{day} {t} 执行': 'Every {day} at {t}',
 
   // ── SkillDistillPanel ─────────────────────────────────────────
-  '删除失败：{msg}': 'Delete failed: {msg}',
-  '保存失败：{msg}': 'Save failed: {msg}',
-  '已保存为我的技能': 'Saved as My Skill',
-  '部分语料': 'Partial corpus',
-  '已保存：{id}': 'Saved: {id}',
-  '个人技能蒸馏': 'Personal Skill Distillation',
   '自主循环': 'Autonomous Loop',
   '让智能体自我推进的长时运行任务：按可验证目标（环境验证）反复迭代、自我修正，达标或触预算即停': 'Long-running tasks where the agent self-advances: iterating against a verifiable goal (environment verification), self-correcting, and stopping on success or budget exhaustion',
-  '从你的历史会话中提炼可复用的个人技能，保存后仅自己可见可用': 'Extract reusable personal skills from your chat history. Saved skills are visible only to you.',
-  '新建蒸馏': 'New Distillation',
-  '还没有蒸馏作业，点击右上角「新建蒸馏」开始': 'No distillation jobs yet. Click "New Distillation" to get started.',
-  '蒸馏产物': 'Distillation Output',
-  '保存后立即启用': 'Enable immediately after saving',
-  '保存为我的技能': 'Save as My Skill',
-  'SKILL.md 内容（可在保存前直接编辑）': 'SKILL.md content (editable before saving)',
-  '可复用度 {pct}%': 'Reusability {pct}%',
-  '删除该作业记录？': 'Delete this job record?',
-  '预览并保存': 'Preview & Save',
-  '查看产物': 'View Output',
 
   // ── SkillDistillCreateModal ───────────────────────────────────
-  '会话列表加载失败：{msg}': 'Failed to load session list: {msg}',
-  '请至少选择一个会话': 'Please select at least one chat',
-  '蒸馏作业已创建，正在后台执行': 'Distillation job created, running in background',
-  '新建个人技能蒸馏': 'New Personal Skill Distillation',
-  '开始蒸馏': 'Start Distillation',
-  '会话范围': 'Chat Scope',
-  '选择会话': 'Select Chats',
-  '全部会话（近期优先，最多 100 个）': 'All chats (recent first, up to 100)',
-  '全选当前列表': 'Select all on this page',
-  '已选 {n} 个': '{n} selected',
-  '暂无历史会话': 'No chat history',
-  '蒸馏侧重（可选）': 'Distillation focus (optional)',
-  '例如：侧重提炼我做产业链分析报告的套路': 'e.g.: Focus on extracting my workflow for industry chain analysis reports',
 
   // ── LabPanel ──────────────────────────────────────────────────
   'AI 能力实验性应用': 'Experimental AI Features',

@@ -69,7 +69,10 @@ pub fn start(app: AppHandle, port: u16, token: Arc<RwLock<Option<String>>>, http
                 }
 
                 let status = it.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                let name = it.get("task_name").and_then(|v| v.as_str()).unwrap_or("任务");
+                let name = it
+                    .get("task_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("任务");
                 let summary = it.get("summary").and_then(|v| v.as_str()).unwrap_or("");
 
                 let title = if status == "failed" {
@@ -83,7 +86,12 @@ pub fn start(app: AppHandle, port: u16, token: Arc<RwLock<Option<String>>>, http
                     format!("{}：{}", name, summary)
                 };
 
-                let _ = app.notification().builder().title(title).body(body_text).show();
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title(title)
+                    .body(body_text)
+                    .show();
             }
 
             if seen.len() > SEEN_CAP {

@@ -2,18 +2,27 @@
 
 from datetime import datetime
 
+from core.db.engine import Base
+from core.db.models.site_scope import SiteScopeMixin, site_scope_table_args
 from sqlalchemy import (
-    Column, String, Integer, BigInteger, Text, TIMESTAMP,
-    ForeignKey, CheckConstraint, Index, JSON, PrimaryKeyConstraint,
+    JSON,
+    TIMESTAMP,
+    BigInteger,
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    PrimaryKeyConstraint,
+    String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-
-from core.db.engine import Base
 
 JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 
-class Site(Base):
+class Site(SiteScopeMixin, Base):
     """User site — a static website generated in chat, files stored under ``sites/<site_id>/v<version>/``.
 
     slug is globally unique (hosting URL is ``/site/<slug>/``); on soft delete the
@@ -36,12 +45,6 @@ class Site(Base):
         ForeignKey("chat_sessions.chat_id", ondelete="SET NULL"),
         nullable=True,
     )
-    # Authorization scope when visibility=team: members of this team can access
-    team_id = Column(
-        String(64),
-        ForeignKey("teams.team_id", ondelete="SET NULL"),
-        nullable=True,
-    )
     # The source-code project (personal project) this site corresponds to. Non-null → the
     # site can be "re-edited": building/editing both happen inside this project folder, and
     # publish_site takes files from the project folder. Old sites are empty (source only in
@@ -54,8 +57,6 @@ class Site(Base):
     )
     title = Column(String(200), nullable=False)
     description = Column(Text)
-    # public=anyone with the link; private=owner only; team=members of team_id (all validated via session cookie)
-    visibility = Column(String(16), nullable=False, default="public")
     entry_file = Column(String(200), nullable=False, default="index.html")
     current_version = Column(Integer, nullable=False, default=1)
     file_count = Column(Integer, nullable=False, default=0)
@@ -64,18 +65,13 @@ class Site(Base):
     view_count = Column(BigInteger, nullable=False, default=0)
     extra_data = Column("metadata", JSONType, default={})
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
-    updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at = Column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
-        CheckConstraint(
-            "visibility IN ('public', 'private', 'team')", name="sites_visibility_check"
-        ),
+        *site_scope_table_args(),
         CheckConstraint("current_version >= 1", name="sites_version_check"),
         Index("idx_sites_user_id", "user_id"),
-        Index("idx_sites_team_id", "team_id"),
         Index("idx_sites_project_id", "project_id"),
         Index("idx_sites_updated_at", "updated_at"),
     )
@@ -86,14 +82,10 @@ class SiteKV(Base):
 
     __tablename__ = "site_kv"
 
-    site_id = Column(
-        String(64), ForeignKey("sites.site_id", ondelete="CASCADE"), nullable=False
-    )
+    site_id = Column(String(64), ForeignKey("sites.site_id", ondelete="CASCADE"), nullable=False)
     k = Column(String(64), nullable=False)
     v = Column(Text, nullable=False)
-    updated_at = Column(
-        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (PrimaryKeyConstraint("site_id", "k"),)
 
@@ -104,14 +96,10 @@ class SiteSubmission(Base):
     __tablename__ = "site_submissions"
 
     id = Column(String(64), primary_key=True)
-    site_id = Column(
-        String(64), ForeignKey("sites.site_id", ondelete="CASCADE"), nullable=False
-    )
+    site_id = Column(String(64), ForeignKey("sites.site_id", ondelete="CASCADE"), nullable=False)
     form_key = Column(String(64), nullable=False)
     payload = Column(JSONType, nullable=False)
     client_ip = Column(String(45))
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
 
-    __table_args__ = (
-        Index("idx_site_submissions_site_created", "site_id", "created_at"),
-    )
+    __table_args__ = (Index("idx_site_submissions_site_created", "site_id", "created_at"),)

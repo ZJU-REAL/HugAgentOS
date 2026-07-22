@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { message } from 'antd';
 import { checkSession, desktopHandoff, exchangeSsoCredential, getSsoAuthorizeUrl, logout, onUnauthorized, type AuthUser } from '../api';
-import { LicenseError } from '../utils/apiError';
+import { isEditionAccessError } from '../editionAccessError';
 import { useChatStore } from './chatStore';
 import { useAutomationChatStore } from './automationChatStore';
 
@@ -292,11 +292,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             set({ authUser: null, authChecking: false });
             return;
           }
-          if (error instanceof LicenseError) {
-            // SSO unauthorized (license invalid in remote mode): first try to restore
+          if (isEditionAccessError(error)) {
+            // Edition access was rejected in remote mode: first try to restore
             // an existing session — an already-logged-in user re-entering with a stale
             // ?ticket= must not be falsely logged out; with no session, state the
-            // reason and stay on the current page (redirecting to login would just 402 again).
+            // reason and stay on the current page instead of starting another login loop.
             try {
               const user = await checkSession();
               set({ authUser: user, authChecking: false, wasAuthed: true });
@@ -317,8 +317,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ authUser: user, authChecking: false, wasAuthed: true });
       } catch (error) {
         set({ authUser: null, authChecking: false });
-        if (error instanceof LicenseError) {
-          // Must never be treated as an expired session with a login redirect — that traps us in a "login -> 402 -> login" loop
+        if (isEditionAccessError(error)) {
+          // Edition access failures are not expired sessions and must not trigger a login loop.
           message.error(error.message, 10);
           return;
         }

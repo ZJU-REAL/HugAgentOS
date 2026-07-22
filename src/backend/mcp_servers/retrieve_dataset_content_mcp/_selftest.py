@@ -17,8 +17,6 @@ def _fail(msg: str) -> None:
 
 def main() -> None:
     os.environ.setdefault("TAVILY_API_KEY", "DUMMY")
-    os.environ.setdefault("DIFY_API_KEY", "DUMMY")
-    os.environ.setdefault("DIFY_URL", "http://localhost")
 
     try:
         importlib.import_module("mcp_servers.retrieve_dataset_content_mcp.server")

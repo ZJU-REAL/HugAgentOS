@@ -97,7 +97,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 ## 团队文件夹与团队文件（商业版 EE）
 
-用户侧路由 `src/backend/api/routes/v1/team_files.py`，挂 `multi_tenancy` 能力位（EE 路由表）；管理台对应 `/v1/config/teams/*`（`config_teams.py`）。
+用户侧路由 `src/backend/edition_ee/routes/team_files.py`，挂 `multi_tenancy` 能力位（EE 路由表）；管理台对应 `/v1/config/teams/*`（`edition_ee/routes/config_teams.py`）。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -109,7 +109,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | POST | `/v1/artifacts/{artifact_id}/move-to-team` | 个人文件转团队文件 |
 | GET / PUT | `/v1/teams/{team_id}/members/permissions`、`.../{user_id}/permission` | 成员文件权限查看 / 调整 |
 
-权限模型：`TeamMember.role`（owner/admin/member）+ `file_permission`（viewer/editor，仅对 member 生效），鉴权封装在 `core/auth/team_permissions.py`。团队文件在沙箱侧有独立共享缓存 `team_cache_dir(team_id)`，同团队成员复用一份镜像。
+权限模型：`TeamMember.role`（owner/admin/member）+ `file_permission`（viewer/editor，仅对 member 生效），鉴权封装在 EE 专属的 `edition_ee/auth/team_permissions.py`。团队文件在沙箱侧有独立共享缓存 `team_cache_dir(team_id)`，同团队成员复用一份镜像。
 
 ## 文件如何进入对话上下文
 
@@ -128,10 +128,11 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | `src/backend/core/services/project_scope.py` | `ProjectScope`（沙箱路径作用域） |
 | `src/backend/api/routes/v1/myspace_folders.py` | 个人文件夹 API |
 | `src/backend/api/routes/v1/artifacts.py` | 资产列表 / 会话收藏 / 加入知识库 |
-| `src/backend/api/routes/v1/team_files.py` | 团队文件夹与文件 API（商业版 EE） |
+| `src/backend/edition_ee/routes/team_files.py` | 团队文件夹与文件 API（商业版 EE） |
 | `src/backend/api/routes/v1/file_upload.py` | 文件上传（可指定文件夹） |
 | `src/backend/core/db/models/project.py` | `Project` / `ProjectFavorite` ORM |
-| `src/backend/core/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` / `UserFolder` ORM |
+| `src/backend/core/db/models/identity.py` | `UserFolder` 等共享身份 ORM |
+| `src/backend/edition_ee/db/models/identity.py` | `Team` / `TeamMember` / `TeamFolder` ORM（仅 EE） |
 | `src/backend/core/db/models/artifact.py` | `Artifact` ORM |
 | `src/backend/core/llm/hooks.py` | 附件上下文注入（`_build_file_context` 等） |
 | `src/backend/core/llm/agent_factory.py` | 项目 section 注入 system prompt |

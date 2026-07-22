@@ -1,10 +1,10 @@
+# PAUSED: public CE releases stay disabled until the repository-history exposure
+# review is closed and a maintainer deliberately removes this workflow guard.
 # Build and publish the HugAgentOS Tauri desktop client from the public CE tree.
 #
 # This workflow belongs to the CE overlay because the main repository excludes
 # `.github/**` during derivation. Windows and macOS stage the already-derived
-# tracked CE checkout as their local-server payload; the private FULL checkout
-# continues to generate that payload with scripts/build_ce.py before it reaches
-# this tree.
+# tracked CE checkout as their local-server payload.
 #
 # Required repository secrets:
 #   TAURI_SIGNING_PRIVATE_KEY
@@ -34,6 +34,7 @@ concurrency:
 
 jobs:
   validate-release:
+    if: ${{ false }} # Security hold: CE release publication is intentionally paused.
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.desktop_version.outputs.version }}

@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-
 _SKILLS_ROOT = Path(__file__).resolve().parent.parent / "skill_bundles"
 _ID_RE = re.compile(r"^[a-z0-9_-]{1,63}$")
 
@@ -23,6 +22,7 @@ _ID_RE = re.compile(r"^[a-z0-9_-]{1,63}$")
 @dataclass(frozen=True)
 class AgentSkillMetadata:
     """Lightweight skill metadata (no instructions loaded)."""
+
     id: str
     name: str
     description: str
@@ -36,6 +36,7 @@ class AgentSkillMetadata:
 @dataclass(frozen=True)
 class AgentSkillSpec:
     """Full skill spec with instructions."""
+
     id: str
     name: str
     description: str
@@ -46,10 +47,12 @@ class AgentSkillSpec:
     tags: List[str] = field(default_factory=list)
     allowed_tools: List[str] = field(default_factory=list)  # Tool filtering support
     mcp_server_ids: List[str] = field(default_factory=list)
-    extra_files: List[str] = field(default_factory=list)    # Available resource file names
-    base_dir: str = ""                                      # Materialized directory path (for {baseDir} substitution)
+    extra_files: List[str] = field(default_factory=list)  # Available resource file names
+    base_dir: str = ""  # Materialized directory path (for {baseDir} substitution)
     examples: List[Dict[str, Any]] = field(default_factory=list)
-    executable_scripts: List[Dict[str, Any]] = field(default_factory=list)  # Scripts declared in _scripts.json
+    executable_scripts: List[Dict[str, Any]] = field(
+        default_factory=list
+    )  # Scripts declared in _scripts.json
     skill_path: str = ""
 
 
@@ -65,7 +68,10 @@ def _require_id(value: str) -> str:
 
 
 def _split_frontmatter(raw: str) -> Tuple[Dict[str, str], str]:
-    text = raw or ""
+    # ZIP uploads are commonly created on Windows, where Markdown files use
+    # CRLF line endings.  Normalize all newline styles before matching the
+    # frontmatter delimiters so a valid ``---`` header is platform-agnostic.
+    text = (raw or "").replace("\r\n", "\n").replace("\r", "\n")
     if not text.startswith("---\n"):
         raise SkillSpecError("SKILL.md missing YAML frontmatter")
 
@@ -368,16 +374,18 @@ def parse_scripts_json(raw: str) -> List[Dict[str, Any]]:
             raise SkillSpecError(f"_scripts.json[{idx}] 必须是对象")
         if "name" not in item:
             raise SkillSpecError(f"_scripts.json[{idx}] 缺少 name 字段")
-        scripts.append({
-            "name": item["name"],
-            "description": item.get("description", ""),
-            "language": item.get("language", "python"),
-            "timeout": min(int(item.get("timeout", 30)), 120),
-            "params_schema": item.get("params_schema"),
-            # "stdin_json" (default): params sent via stdin as JSON
-            # "cli_args": params converted to CLI arguments (_args)
-            "input_mode": item.get("input_mode", "stdin_json"),
-        })
+        scripts.append(
+            {
+                "name": item["name"],
+                "description": item.get("description", ""),
+                "language": item.get("language", "python"),
+                "timeout": min(int(item.get("timeout", 30)), 120),
+                "params_schema": item.get("params_schema"),
+                # "stdin_json" (default): params sent via stdin as JSON
+                # "cli_args": params converted to CLI arguments (_args)
+                "input_mode": item.get("input_mode", "stdin_json"),
+            }
+        )
     return scripts
 
 

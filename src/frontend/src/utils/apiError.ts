@@ -1,9 +1,7 @@
 /**
  * Single source of truth for reading API errors—— shared by api.ts and adminApi.ts,
- * avoiding the "nested detail extraction + 402 guidance text" being copied in two places and drifting apart.
+ * avoiding nested error-envelope extraction being copied in two places and drifting apart.
  */
-import { t } from '../i18n';
-
 type JsonObject = Record<string, unknown>;
 
 export interface OntologyToolDetail {
@@ -46,15 +44,6 @@ export interface OntologyBuildValidationReport {
 export interface OntologyBuildFailure {
   message: string;
   report: OntologyBuildValidationReport;
-}
-
-/** License feature flag not authorized (HTTP 402, see backend core/licensing).
- * Identified by type rather than a message substring—— rewording/internationalizing the message will not break the 402 detection. */
-export class LicenseError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'LicenseError';
-  }
 }
 
 /** HTTP 错误的结构化载体。保留后端完整响应，界面可展示校验报告等详细信息。 */
@@ -224,11 +213,4 @@ export function readErrorMessage(payload: unknown, fallback: string): string {
     if (topLevelIssue) return topLevelIssue;
   }
   return fallback;
-}
-
-
-/** 402 = license feature flag not authorized (deliberately avoiding the logout semantics of 401/403). */
-export function licenseErrorMessage(payload: unknown): string {
-  const msg = readErrorMessage(payload, t('该功能未在当前 license 中授权'));
-  return `${msg}${t('（请联系管理员在 系统配置 → License 中激活或更新 license）')}`;
 }

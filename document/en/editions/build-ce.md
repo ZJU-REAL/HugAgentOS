@@ -1,5 +1,5 @@
 # CE Build Pipeline
-> Last updated: 2026-07-02
+> Last updated: 2026-07-22
 
 The Community Edition (CE) is not a separate branch. It is a subset tree **deterministically derived** from the main repo (EE, the single development source of truth) by `scripts/build_ce.py`, written to `dist/ce/`. The core constraint is the **whitelist iron rule: EE-only code is physically absent from the CE tree** — not commented out, not flag-disabled, but removed at the file level. The pipeline's only input is `ce/manifest.yaml`.
 
@@ -25,7 +25,7 @@ The manifest has the following sections, in processing order:
 
 Glob patterns (relative to the repo root); a match means the file is never copied. Covers:
 
-- **Backend EE modules**: SSO / team permissions (`core/auth/sso.py`, `team_permissions.py`, …), cloud storage (`core/storage/s3.py`, `oss.py`), persistent sandbox providers (the whole opensandbox / cube set), memory audit, skill distillation, the license verification implementation `core/licensing/_ee_verify.py`, EE services (team / sso_sync / distillation / sandbox_rebuild / security / cube_template_builder);
+- **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/storage/s3.py`, `oss.py`), persistent sandbox providers, memory audit, skill distillation, and other EE services;
 - **EE routes**: `api/routes/v1/admin_*.py`, `config_*.py`, `audit.py`, `auth.py`, `team_files.py`, `service_configs.py`, `data_sources.py`, `db_metadata.py`, `gateway_*.py`;
 - **Industry MCP servers**: `mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
 - **The entire main-repo alembic chain** (`alembic/versions/**` — CE uses an independent chain from the overlay, see below);
@@ -60,7 +60,7 @@ Content edits that plain text substitution cannot express, implemented in `build
 
 ### 4. `split` — assertion for files mixing user + admin endpoints
 
-The three route files `content.py` / `models.py` / `projects.py` contain both user and admin endpoints; CE takes user-subset versions from the overlay. **build_ce.py asserts before the overlay step that these files exist in the overlay** — the main repo's full versions must never leak into CE; a missing file fails the build.
+`manifest.split` explicitly lists every edition seam that CE must replace as a whole file. **build_ce.py asserts each replacement exists before applying the overlay** — a full source-tree implementation must never leak into CE; a missing replacement fails the build.
 
 ### 5. `overlay` — whole-file CE replacements / additions
 
@@ -71,20 +71,29 @@ The three route files `content.py` / `models.py` / `projects.py` contain both us
 | `README.md` / `README_CN.md` / `LICENSE` / `NOTICE` / `CONTRIBUTING.md` / `SECURITY.md` | CE open-source repo front matter; English is the default README and Chinese remains available as a language alternative |
 | `install.sh` | Public one-command installer for the personal no-Docker profile |
 | `.env.example` | CE environment template (`JX_EDITION=ce`, no intranet IPs / brand defaults) |
-| `.hugagent-edition` | Machine-readable `ce` marker used only after derivation; it lets release tooling distinguish a public CE checkout from a FULL checkout whose generator is unexpectedly missing |
+| `.hugagent-edition` | Machine-readable `ce` marker used only after derivation; it lets release tooling distinguish a derived CE checkout from a source checkout whose generator is unexpectedly missing |
 | `.github/workflows/desktop-release.yml` | Public CE desktop release workflow, including the release-tag/version preflight gate |
-| `src/backend/core/licensing/manager.py` | **CE stub**: `mode()` always `"ce"`, `has()` always False, unlimited seats, no verification logic at all |
-| `src/backend/core/auth/permissions_iface.py` | Single-tenant permission-interface stub (seam C3): your own resources are always full-permission; team permission is always `none` (legacy team data migrated from EE must not become world-readable through a permissive stub) |
+| `src/backend/api/routes/v1/__init__.py` | CE route registry; `EE_ROUTERS` is always empty |
+| `src/backend/core/auth/permissions_iface.py` | Owner-only single-tenant authorization interface with no team permission exports |
+| `src/backend/core/services/artifact_edition.py` | Personal artifact-scope interface with no team fields, permissions, or repository methods |
+| `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | Personal MySpace tool, VFS, and recovery interfaces; organization implementations do not enter CE |
+| `src/backend/core/config/edition_display_names.py` | CE tool display names with no team-tool names |
 | `src/backend/core/memory/audit.py` | Memory-audit no-op stub (same interface, writes nothing) |
 | `src/backend/alembic/versions/ce_0001_initial.py` | CE independent migration-chain baseline (next section) |
-| `src/backend/api/routes/v1/{content,models,projects}.py` | User-subset versions of the split files |
+| `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | CE API contracts with administration endpoints and organization fields removed |
 | `src/backend/mcp_servers/_ports.py` | Port table for the 8 general tools (EE industry-tool ports marked reserved) |
 | `src/frontend/default.conf.template` | CE frontend Nginx template with `/gateway/**` proxying and the litellm upstream removed |
 | `src/frontend/src/main.tsx` | CE entry: mounts only the main app / API docs / share preview — no /admin, no /config |
 | `src/frontend/src/updates.ts` | CE release-notes data |
 | `.claude/skills/hugagent-{backend,frontend}-dev/…` | CE versions of the project dev skills' SKILL.md and references (admin-console / EE router-registration sections stripped) |
 
-> The router registry `api/routes/v1/__init__.py` needs **no** overlay copy: `iter_edition_routers` silently skips EE modules that are physically absent, so the same file is shared by both trees.
+> License, Team/RBAC, EE ORM, and Dify implementations all live under `edition_ee/**`. CE supplies no same-name implementation stubs; module discovery for `edition_ee` must report that it is absent.
+
+The team-file repository, organization MySpace tools, VFS, and artifact recovery
+implementations live in `edition_ee/db/artifact_repository.py` and
+`edition_ee/services/{myspace_tools,myspace_vfs,artifact_recovery}.py`.
+Shared modules expose only edition-neutral call interfaces. CE overlays implement the
+personal profile without retaining commercial fields or tool names.
 
 ### 6. `brand_scan` — the brand-gate regex file
 
@@ -93,7 +102,7 @@ The three route files `content.py` / `models.py` / `projects.py` contain both us
 ## build_ce.py step pipeline
 
 ```
-[1/7] Copy      git ls-files (cached + untracked-unignored) as the whitelist, minus exclude
+[1/7] Copy      git ls-files --cached as the whitelist, minus exclude
                 and default ignores
 [1/7] Rename    apply optional path migrations from manifest.renames (currently empty)
 [2/7] Transform manifest.transforms tree-wide text rewrites (binaries skipped; source-code
@@ -101,9 +110,11 @@ The three route files `content.py` / `models.py` / `projects.py` contain both us
 [3/7] Prune     the five pruners in manifest.prunes
 [4/7] Overlay   first assert the split files exist in the overlay, then layer the whole tree
                 (skipping __pycache__/pyc)
+[4/7] Forbidden assert zero EE paths, table names, foreign keys, and commercial runtime-source
+                symbols; test directories may retain only the negative contract assertions
+[4/7] Binary gate every PNG/PDF/DOCX must match a manually/OCR-reviewed path + SHA-256 allowlist
 [5/7] Brand gate line-by-line text regex must hit zero + a full file-PATH scan (covers binary
-                asset filenames; an extra path-only pattern blocks commercial font files);
-                the count of unscannable binaries is reported with the result
+                asset filenames; an extra path-only pattern blocks commercial font files)
 [6/7] LICENSE gate refuse to generate while the overlay LICENSE is still placeholder text
                 (contains the NOTE TO MAINTAINERS marker)
 [7/7] Self-checks --import-check / --pytest-check / --frontend-check (optional)
@@ -113,21 +124,20 @@ The three route files `content.py` / `models.py` / `projects.py` contain both us
 
 Using `git ls-files` as the copy list means `.env`, local databases, and other untracked/ignored files **can never enter the CE tree**.
 
-The Windows desktop payload follows the same boundary in both repositories. In FULL, `desktop/scripts/prepare-bundle.mjs` finds and runs `scripts/build_ce.py` as before. In the public CE repository, where the generator is intentionally absent, it requires `.hugagent-edition` to contain `ce` and stages only the current checkout's tracked files. Release builds reject a dirty checkout. This fallback cannot silently turn an arbitrary repository into a CE payload.
+The Windows desktop payload follows the same boundary in both checkout types. In the source checkout, `desktop/scripts/prepare-bundle.mjs` finds and runs `scripts/build_ce.py`. In a derived CE checkout, where the generator is intentionally absent, it requires `.hugagent-edition` to contain `ce` and stages only the current checkout's tracked files. Release builds reject a dirty checkout. This fallback cannot silently turn an arbitrary repository into a CE payload.
 
 ## CE database differences
 
-CE does not create EE-only tables; the single source of truth is `src/backend/core/db/edition_tables.py`:
+CE does not register or create EE-only tables. Enterprise ORM classes live under `src/backend/edition_ee/db/models/`, and that package is physically absent from the derived tree. The CE model export contains only CE mappings; compatibility attributes come from CE model extensions and do not register commercial columns or tables.
 
-- `EE_ONLY_TABLES` (18 tables): `teams`, `team_members`, `team_folders`, `invite_codes`, `roles`, `role_assignments`, `kb_grants`, `audit_logs`, `memory_audit`, `model_pricing`, `data_sources`, `ds_table_meta`, `ds_column_meta`, `ds_golden_sql`, `gateway_virtual_keys`, `sandbox_rebuilds`, `admin_skill_drafts`, `distillation_runs`.
-- `ce_create_all(bind)`: creates tables on a **cloned MetaData** after filtering — CE tables carry cross-boundary FK constraints into EE tables (e.g. `projects → teams`; design decision D3 "keep the column, always NULL"); shipped as-is they would fail on PostgreSQL because the referenced tables do not exist, so the constraints are stripped on the clone (columns kept) while the original metadata and ORM mappings stay untouched. Every name in the set must actually exist in metadata (asserted in the function) so a renamed model cannot silently degrade the filter into a full create_all.
+The release contract checks 20 forbidden table names: `chat_session_user_states`, `teams`, `team_members`, `team_folders`, `invite_codes`, `roles`, `role_assignments`, `kb_grants`, `marketplace_visibility_grants`, `audit_logs`, `memory_audit`, `model_pricing`, `data_sources`, `ds_table_meta`, `ds_column_meta`, `ds_golden_sql`, `gateway_virtual_keys`, `sandbox_rebuilds`, `admin_skill_drafts`, and `distillation_runs`. The import gate fails if any is registered in CE metadata or referenced by a CE foreign key. It also rejects the corresponding commercial-scope columns on `projects`, `artifacts`, `user_agents`, `chat_sessions`, `marketplace_listing_states`, and `sites`.
 
-Two table-creation entry points share this filter:
+Two table-creation entry points use the CE-only metadata:
 
 1. The CE branch of `core/db/engine.py::init_db` (when `JX_EDITION=ce`, startup fallback uses `ce_create_all`);
-2. The CE overlay migration baseline `ce_0001_initial.py` — CE runs an **independent alembic chain** (it does not replay the main repo's 50+ historical migrations); the baseline is "create_all filtered by `EE_ONLY_TABLES`", dialect-aware (SQLite and PostgreSQL), same source and same filter as init_db, both idempotent and non-conflicting. Subsequent CE schema evolution adds regular migrations on the `ce_0001` chain.
+2. The CE overlay migration baseline `ce_0001_initial.py` — CE runs an **independent alembic chain** and creates directly from CE-only metadata, dialect-aware (SQLite and PostgreSQL), idempotent with `init_db`. Subsequent CE schema evolution adds regular migrations on the `ce_0001` chain.
 
-EE (including internal / licensed and every other license state) always creates the full schema, identical to historical behavior. Maintenance rule: **when adding an EE-only model, add its table name to `EE_ONLY_TABLES`**.
+EE always creates the full schema. Maintenance rule: **new EE mappings belong under `edition_ee/db/models`, and their table names must be added to the CE release contract**.
 
 ## Release acceptance
 
@@ -135,20 +145,21 @@ A qualifying release build must pass all of:
 
 | Gate | Criterion | Enforced by |
 |---|---|---|
-| Zero EE route leakage | the CE tree physically lacks EE routes/modules; `import api.app` succeeds under `--import-check` (missing modules skipped by the registry); `--pytest-check` collection reports no EE import errors | exclude + `iter_edition_routers` |
-| Brand gate | zero text hits; full path scan passes; new binary assets (content-scan blind spot) require manual review | `brand_scan()` |
+| Zero EE route/schema leakage | the CE tree physically lacks `edition_ee`; `EE_ROUTERS` is empty; organization routes, fields, and wording are absent from OpenAPI; forbidden tables, foreign keys, and commercial-scope columns are absent from metadata | `--import-check` |
+| Zero commercial runtime symbols | backend and frontend runtime sources contain no Team/RBAC model, scope-field, permission, or tool symbols; tests retain only negative assertions | `find_forbidden_artifacts()` + CE runtime contract |
+| Brand / binary gate | zero text hits and a clean full-path scan; every PNG/PDF/DOCX matches a manually/OCR-reviewed path + SHA-256 allowlist | `brand_scan()` + `binary_allowlist_check()` |
 | LICENSE gate | the overlay LICENSE is not placeholder text | `license_placeholder_check()` |
-| Split assertion | the CE subsets of the three split files exist in the overlay | pre-overlay check in `main()` |
+| Split assertion | every declared CE split replacement exists in the overlay | pre-overlay check in `main()` |
 | Frontend buildability | `--frontend-check`: npm install + vite build succeed | `frontend_check()` |
 | Delivery hygiene | all self-check residue removed | `cleanup_gate_artifacts()` |
 
 ## Day-to-day maintenance
 
 - **New EE route**: register in `EE_ROUTERS` (see [Backend Development Guide](../development/backend.md)) + add the file glob to `manifest.exclude` (`admin_*.py` / `config_*.py` are already covered by wildcards).
-- **New EE table**: add the name to `EE_ONLY_TABLES`.
+- **New EE table**: define it under `edition_ee/db/models` and add the name to `contracts.forbidden_tables`.
 - **New EE dependency / compose service**: add a drop entry to the relevant prune section.
-- **New branded asset**: confirm brand_scan can intercept it at the path or text level; binaries are a content-scan blind spot and rely on path patterns + manual review.
-- After changes, run `python scripts/build_ce.py --allow-dirty --import-check --pytest-check` to validate.
+- **New PNG/PDF/DOCX**: manually inspect or OCR-review its content, then add its relative path and SHA-256 to `ce/binary_allowlist.sha256`; any hash change requires a fresh review.
+- After changes, run `python scripts/build_ce.py --allow-dirty --import-check --pytest-check --frontend-check`. Release builds must not use `--allow-dirty`, and untracked files are never copy inputs.
 
 ## Related source
 

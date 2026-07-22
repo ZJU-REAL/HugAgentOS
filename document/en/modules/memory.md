@@ -84,7 +84,7 @@ Rules are runtime-extensible: the DB table `memory_sanitizer_rules` (ORM: `core/
 - Failures never propagate (auditing never blocks the hot path);
 - Toggle: `MEMORY_AUDIT_ENABLED` (default `true`).
 
-Per the [edition comparison](../editions/overview.md), memory auditing is a commercial feature flag (`core/licensing/features.py::Feature.MEMORY_AUDIT`). The audit query endpoint is `GET /v1/memories/audit` (filterable by action / layer).
+Per the [edition comparison](../editions/overview.md), memory auditing is a commercial feature flag (`edition_ee/licensing/features.py::Feature.MEMORY_AUDIT`). The audit query endpoint is `GET /v1/memories/audit` (filterable by action / layer).
 
 ## Memory management API
 
@@ -196,7 +196,8 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/orchestration/memory_integration.py` | Retrieval launch, frozen-block assembly and injection, save delegation |
 | `src/backend/orchestration/workflow.py` | Main orchestration: memory hook wiring |
 | `src/backend/api/routes/v1/memories.py` | `/v1/memories` management API |
-| `src/backend/core/db/models/memory.py` | `MemoryAudit` / `MemorySanitizerRule` ORM |
+| `src/backend/core/db/models/memory.py` | Shared `MemorySanitizerRule` ORM |
+| `src/backend/edition_ee/db/models/memory.py` | `MemoryAudit` ORM (EE only) |
 | `src/frontend/src/components/settings/SettingsModal.tsx` | Memory settings + layered memory modal |
 | `src/frontend/src/components/memory/FactsList.tsx` | L2 fact list component |
 | `docker-compose.yml` (`mem0` profile) | Milvus / etcd / MinIO / Neo4j |

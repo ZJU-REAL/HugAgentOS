@@ -11,7 +11,6 @@ Covers the pieces that are new or SQLite-risky (see
 """
 
 import asyncio
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -54,14 +53,14 @@ async def test_memory_redis_uses_fakeredis_and_blocks_on_xread(monkeypatch):
 
 
 def test_bigint_pk_autoincrements_on_sqlite(db_session):
-    """AuditLog.log_id (BigIntPK) must autoincrement under SQLite, not stay NULL."""
-    from core.db.models import AuditLog
+    """A CE-safe BigIntPK must autoincrement under SQLite, not stay NULL."""
+    from core.db.models import MemorySanitizerRule
 
-    row = AuditLog(action="unit.test")
+    row = MemorySanitizerRule(rule_type="classified", pattern="unit-test")
     db_session.add(row)
     db_session.commit()
     db_session.refresh(row)
-    assert row.log_id is not None and row.log_id >= 1
+    assert row.id is not None and row.id >= 1
 
 
 # ── Built-in MCP catalog seed ────────────────────────────────────────────────
@@ -226,25 +225,14 @@ def test_ce_web_onboarding_requires_main_model_and_clears_checkpoint(db_session,
     assert shadow.extra_data["onboarding_completed_version"] == 1
 
 
-def test_ce_optional_permission_layers_use_savepoints():
-    from core.auth.capabilities import team_default_permissions_for_user
-    from core.auth.role_permissions import role_permissions_for_user
+def test_ce_has_no_optional_organization_permission_layers():
+    import importlib.util
 
-    class MissingOptionalTablesSession:
-        def __init__(self):
-            self.savepoints = 0
+    from core.auth.edition_capabilities import default_capability_layers_for_user
 
-        def begin_nested(self):
-            self.savepoints += 1
-            return nullcontext()
-
-        def query(self, *_args, **_kwargs):
-            raise RuntimeError("optional CE table is absent")
-
-    db = MissingOptionalTablesSession()
-    assert role_permissions_for_user(db, "user_ce_admin") == {}
-    assert team_default_permissions_for_user(db, "user_ce_admin") == {}
-    assert db.savepoints == 2
+    assert importlib.util.find_spec("core.auth.role_permissions") is None
+    assert importlib.util.find_spec("core.auth.team_permissions") is None
+    assert default_capability_layers_for_user(None, "user_ce_admin") == ()
 
 
 def test_ce_branding_repairs_persistent_page_config(db_session, monkeypatch):

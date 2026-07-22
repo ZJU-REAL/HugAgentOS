@@ -155,7 +155,7 @@ export default function App() {
     void fetchCapabilities();
   }, [fetchCapabilities, authChecking, authUserId]);
 
-  // Fetch edition / license capability bits at startup (CE hides EE entries such as Teams)
+  // Fetch edition capabilities at startup; CE has no extension entries.
   const fetchEdition = useEditionStore((s) => s.fetchEdition);
   useEffect(() => {
     void fetchEdition();

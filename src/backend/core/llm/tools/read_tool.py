@@ -19,7 +19,6 @@ import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit
-
 from core.services.project_scope import ProjectScope
 
 from . import myspace_vfs as _ms
@@ -33,6 +32,7 @@ from ._paths import (
     validate_workspace_path,
 )
 from ._state import ReadEntry, ReadStateTracker
+from .edition_artifact_recovery import recover_organization_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,9 @@ def _is_binary(blob: bytes) -> bool:
 
 
 def _format_with_line_numbers(
-    text: str, start_line: int, end_line: int,
+    text: str,
+    start_line: int,
+    end_line: int,
 ) -> str:
     """``cat -n`` style line numbers: ``     1\\tcontent``."""
     lines = text.splitlines()
@@ -70,13 +72,9 @@ def _fallback_recover_from_artifact(
     scope: Optional[ProjectScope],
 ) -> Optional[bytes]:
     """If the file is missing from the sandbox, try recovering it from the
-    artifact storage. Two scopes with different strategies:
-
-    - **personal** (default / personal project): same-named artifact with the same
-      chat and same user.
-    - **team** (team-project scope): drop the user_id filter and look up a
-      same-named artifact by ``team_id`` + the folder subtree bound to that
-      project. Visible across members.
+    artifact storage. Edition-specific project scopes are handled by their own
+    implementation; the shared fallback is restricted to the current user and
+    chat.
 
     Returns the recovered bytes on hit, ``None`` otherwise.
     """
@@ -84,70 +82,18 @@ def _fallback_recover_from_artifact(
     if not fname:
         return None
 
+    handled, data = recover_organization_artifact(file_path=file_path, scope=scope)
+    if handled:
+        return data
+
+    if not chat_id or not user_id:
+        return None
     try:
         from core.db.engine import SessionLocal
         from core.db.models import Artifact
         from core.storage import get_storage
     except Exception as exc:
         logger.warning("[read.fallback] deps unavailable: %s", exc)
-        return None
-
-    # Team scope first: when scope exists and kind=="team", use the cross-member team query
-    if scope is not None and scope.is_team:
-        team_id = scope.team_id
-        root_folder_id = scope.root_folder_id
-        if not team_id or not root_folder_id:
-            logger.info(
-                "[read.fallback] team scope missing team_id/folder_id name=%s",
-                fname,
-            )
-            return None
-        db = SessionLocal()
-        try:
-            allowed = _ms.team_subtree_folder_ids(db, team_id, root_folder_id)
-            if not allowed:
-                logger.info(
-                    "[read.fallback] team subtree empty team=%s root=%s",
-                    team_id, root_folder_id,
-                )
-                return None
-            row = (
-                db.query(Artifact)
-                .filter(
-                    Artifact.team_id == team_id,
-                    Artifact.team_folder_id.in_(allowed),
-                    Artifact.filename == fname,
-                    Artifact.deleted_at.is_(None),
-                )
-                .order_by(Artifact.created_at.desc())
-                .first()
-            )
-            if row is None:
-                logger.info(
-                    "[read.fallback] no team artifact match team=%s root=%s name=%s",
-                    team_id, root_folder_id, fname,
-                )
-                return None
-            storage_key = str(row.storage_key)
-            artifact_id = row.artifact_id
-        finally:
-            db.close()
-        try:
-            data = get_storage().download_bytes(storage_key)
-            logger.info(
-                "[read.fallback] recovered %s from team artifact %s (%d bytes)",
-                file_path, artifact_id, len(data),
-            )
-            return data
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "[read.fallback] download_bytes failed (team) key=%s: %s",
-                storage_key, exc,
-            )
-            return None
-
-    # Personal scope / no scope: keep the original behavior
-    if not chat_id or not user_id:
         return None
     db = SessionLocal()
     try:
@@ -165,20 +111,25 @@ def _fallback_recover_from_artifact(
         if row is None:
             logger.info(
                 "[read.fallback] no artifact match chat=%s user=%s name=%s",
-                chat_id, user_id, fname,
+                chat_id,
+                user_id,
+                fname,
             )
             return None
         try:
             data = get_storage().download_bytes(str(row.storage_key))
             logger.info(
                 "[read.fallback] recovered %s from artifact %s (%d bytes)",
-                file_path, row.artifact_id, len(data),
+                file_path,
+                row.artifact_id,
+                len(data),
             )
             return data
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "[read.fallback] download_bytes failed for storage_key=%s: %s",
-                row.storage_key, exc,
+                row.storage_key,
+                exc,
             )
             return None
     finally:
@@ -209,11 +160,9 @@ def register_read(
         offset: int = 0,
         limit: int = 0,
     ) -> "ToolResponse":  # type: ignore[name-defined]
-        from core.sandbox import (
-            SandboxConnectError as _SCE,
-            SandboxError as _SE,
-            get_sandbox_provider as _get_provider,
-        )
+        from core.sandbox import SandboxConnectError as _SCE
+        from core.sandbox import SandboxError as _SE
+        from core.sandbox import get_sandbox_provider as _get_provider
 
         path_err = validate_workspace_path(file_path)
         if path_err:
@@ -238,7 +187,11 @@ def register_read(
             # mirror cache)
             try:
                 data = await _ms.materialize_into_sandbox(
-                    provider, _sess, user_id, file_path, scope=scope,
+                    provider,
+                    _sess,
+                    user_id,
+                    file_path,
+                    scope=scope,
                 )
             except Exception as mexc:  # noqa: BLE001
                 logger.warning("[read] myspace 懒加载失败 %s: %s", file_path, mexc)
@@ -256,7 +209,8 @@ def register_read(
                     except (_SE, _SCE) as put_exc:
                         logger.warning(
                             "[read.fallback] put_file %s failed (continuing): %s",
-                            physical, put_exc,
+                            physical,
+                            put_exc,
                         )
             if data is None:
                 return resp_json({"error": f"读取失败: {exc}"})
@@ -275,38 +229,43 @@ def register_read(
                     fid = _ms.resolve_file_id(user_id, file_path, scope=scope)
                     if fid:
                         from core.content.artifact_reader import fetch_parsed_text
+
                         pt = fetch_parsed_text(fid, user_id)
                         if pt:
                             parsed_text = pt
                 except Exception as pexc:  # noqa: BLE001
                     logger.warning("[read] 解析文本回退失败 %s: %s", file_path, pexc)
             if parsed_text is None:
-                return resp_json({
-                    "type": "binary",
-                    "file_path": file_path,
-                    "physical_path": physical,
-                    "size": len(content_bytes),
-                    "hint": (
-                        "文件是二进制（如 docx/xlsx/pdf/图片），且不在「我的空间」"
-                        "或无法解析。如需让用户下载，使用 sandbox_get_artifact"
-                        "(src_path)；如需在沙盒内处理，用 bash 调用命令行工具。"
-                    ),
-                })
+                return resp_json(
+                    {
+                        "type": "binary",
+                        "file_path": file_path,
+                        "physical_path": physical,
+                        "size": len(content_bytes),
+                        "hint": (
+                            "文件是二进制（如 docx/xlsx/pdf/图片），且不在「我的空间」"
+                            "或无法解析。如需让用户下载，使用 sandbox_get_artifact"
+                            "(src_path)；如需在沙盒内处理，用 bash 调用命令行工具。"
+                        ),
+                    }
+                )
             # Continue the paginated rendering with the parsed text instead of the raw bytes
             content_bytes = parsed_text.encode("utf-8")
             parsed_fallback = True
 
         if len(content_bytes) > MAX_TEXT_BYTES:
-            return resp_json({
-                "type": "too_large",
-                "file_path": file_path,
-                "physical_path": physical,
-                "size": len(content_bytes),
-                "hint": (
-                    f"文件超过 {MAX_TEXT_BYTES} 字节，请用 bash 的 head/tail/sed"
-                    "切片，或用 offset/limit 参数分段读取。"
-                ),
-            })
+            return resp_json(
+                {
+                    "type": "too_large",
+                    "file_path": file_path,
+                    "physical_path": physical,
+                    "size": len(content_bytes),
+                    "hint": (
+                        f"文件超过 {MAX_TEXT_BYTES} 字节，请用 bash 的 head/tail/sed"
+                        "切片，或用 offset/limit 参数分段读取。"
+                    ),
+                }
+            )
 
         try:
             text = content_bytes.decode("utf-8")
@@ -332,7 +291,7 @@ def register_read(
 
         # Slice and render into a line-numbered string
         # Note _format_with_line_numbers expects the substring starting at line `start`
-        selected = "\n".join(all_lines[start - 1:end])
+        selected = "\n".join(all_lines[start - 1 : end])
         numbered = _format_with_line_numbers(selected, start, end)
 
         truncated = end < total_lines
@@ -394,7 +353,7 @@ def register_read(
         if truncated:
             payload["hint"] = (
                 f"已截断（显示 {start}-{end}/{total_lines} 行）。"
-                f"继续读后续：Read(file_path=\"{file_path}\", offset={end + 1})"
+                f'继续读后续：Read(file_path="{file_path}", offset={end + 1})'
             )
         if recovered_from_artifact:
             payload["recovered_from_artifact"] = True
@@ -405,8 +364,7 @@ def register_read(
         return resp_json(payload)
 
     Read.__doc__ = (
-        "读取文本文件，返回带行号的内容（``cat -n`` 风格）。\n\n"
-        + PATH_POLICY_DOC + "\n\n"
+        "读取文本文件，返回带行号的内容（``cat -n`` 风格）。\n\n" + PATH_POLICY_DOC + "\n\n"
         "本工具说明：\n"
         "- 默认读沙盒里的文件（``/workspace/...``）。\n"
         "- 当用户提到他「我的空间」里的文件时，可直接读 ``/myspace/...``：\n"

@@ -1,39 +1,14 @@
-"""Data access layer — user agent repositories.
+"""Community repository for personal and administrator sub-agents."""
 
-Split out of the former monolithic ``core/db/repository.py``. The package
-``__init__`` re-exports every repository class, so ``from core.db.repository
-import XxxRepository`` keeps working unchanged.
-"""
-
-import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import sqlalchemy as sa
-from core.config.settings import settings
-from core.db.models import (
-    Artifact,
-    AuditLog,
-    CatalogOverride,
-    ChatMessage,
-    ChatSession,
-    InviteCode,
-    KBDocument,
-    KBSpace,
-    LocalUser,
-    Team,
-    TeamFolder,
-    TeamMember,
-    UserAgent,
-    UserShadow,
-)
-from sqlalchemy import and_, desc, func, or_, select
+from core.db.models import UserAgent
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 
 class UserAgentRepository:
-    """Repository for user agent (sub-agent) operations."""
-
     def __init__(self, db: Session):
         self.db = db
 
@@ -41,67 +16,33 @@ class UserAgentRepository:
         return self.db.query(UserAgent).filter(UserAgent.agent_id == agent_id).first()
 
     def list_for_user(self, user_id: str) -> List[UserAgent]:
-        """Return all agents visible to a user: enabled admin agents + user's own agents
-        + team agents — every member sees *enabled* team agents; team owner/admin also
-        see *disabled* ones (so they can re-enable them; there is no separate admin view)."""
-        visibility_filters = [
-            and_(UserAgent.owner_type == "admin", UserAgent.is_enabled == True),
-            and_(UserAgent.owner_type == "user", UserAgent.user_id == user_id),
-        ]
-        if settings.edition.is_ee:
-            member_team_ids = self.db.query(TeamMember.team_id).filter(
-                TeamMember.user_id == user_id
-            )
-            manager_team_ids = self.db.query(TeamMember.team_id).filter(
-                TeamMember.user_id == user_id,
-                TeamMember.role.in_(("owner", "admin")),
-            )
-            visibility_filters.extend(
-                [
-                    and_(
-                        UserAgent.owner_type == "team",
-                        UserAgent.is_enabled == True,
-                        UserAgent.team_id.in_(member_team_ids),
-                    ),
-                    and_(
-                        UserAgent.owner_type == "team",
-                        UserAgent.team_id.in_(manager_team_ids),
-                    ),
-                ]
-            )
         return (
             self.db.query(UserAgent)
-            .filter(or_(*visibility_filters))
+            .filter(
+                or_(
+                    and_(UserAgent.owner_type == "admin", UserAgent.is_enabled.is_(True)),
+                    and_(UserAgent.owner_type == "user", UserAgent.user_id == user_id),
+                )
+            )
             .order_by(UserAgent.owner_type.desc(), UserAgent.sort_order, UserAgent.created_at)
             .all()
         )
 
     def list_admin(self) -> List[UserAgent]:
-        """Return all admin-owned agents."""
-        return self.db.query(UserAgent).filter(
-            UserAgent.owner_type == "admin"
-        ).order_by(UserAgent.sort_order, UserAgent.created_at).all()
+        return (
+            self.db.query(UserAgent)
+            .filter(UserAgent.owner_type == "admin")
+            .order_by(UserAgent.sort_order, UserAgent.created_at)
+            .all()
+        )
 
     def count_user_agents(self, user_id: str) -> int:
-        """Count agents owned by a specific user."""
-        return self.db.query(func.count(UserAgent.agent_id)).filter(
-            UserAgent.owner_type == "user",
-            UserAgent.user_id == user_id,
-        ).scalar() or 0
-
-    def count_team_agents(self, team_id: str) -> int:
-        """Count agents belonging to a specific team."""
-        return self.db.query(func.count(UserAgent.agent_id)).filter(
-            UserAgent.owner_type == "team",
-            UserAgent.team_id == team_id,
-        ).scalar() or 0
-
-    def list_for_team(self, team_id: str) -> List[UserAgent]:
-        """Return all agents of a team (enabled + disabled), for managers."""
-        return self.db.query(UserAgent).filter(
-            UserAgent.owner_type == "team",
-            UserAgent.team_id == team_id,
-        ).order_by(UserAgent.sort_order, UserAgent.created_at).all()
+        return (
+            self.db.query(func.count(UserAgent.agent_id))
+            .filter(UserAgent.owner_type == "user", UserAgent.user_id == user_id)
+            .scalar()
+            or 0
+        )
 
     def create(self, data: Dict[str, Any]) -> UserAgent:
         agent = UserAgent(**data)
@@ -128,3 +69,6 @@ class UserAgentRepository:
         self.db.delete(agent)
         self.db.commit()
         return True
+
+
+__all__ = ["UserAgentRepository"]

@@ -26,20 +26,23 @@ import tarfile
 import uuid
 from typing import List, Optional, Tuple
 
+from core.infra.responses import success_response
+from core.services.artifact_edition import personal_artifact_predicates
+from core.services.site_access_policy import SitePublishScopeFields, site_scope_ref
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
-
-from core.infra.responses import success_response
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/internal/sites", tags=["internal-sites"])
 
-MAX_PACK_BYTES = 40 * 1024 * 1024  # tar archive cap (a separate 30MB total quota applies after unpacking)
-_UNPACK_MAX_FILES = 400            # unpack fuse (service layer caps at 300; slightly looser here)
+MAX_PACK_BYTES = (
+    40 * 1024 * 1024
+)  # tar archive cap (a separate 30MB total quota applies after unpacking)
+_UNPACK_MAX_FILES = 400  # unpack fuse (service layer caps at 300; slightly looser here)
 
 
-class PublishBody(BaseModel):
+class PublishBody(SitePublishScopeFields):
     src_dir: str = Field(
         "",
         description=(
@@ -58,11 +61,9 @@ class PublishBody(BaseModel):
     title: str = ""
     slug: str = ""
     site_id: str = ""
-    visibility: str = "public"
     description: str = ""
-    team_id: str = ""
-    user_id: str = ""   # parsed by the MCP side from X-Current-User-Id
-    chat_id: str = ""   # parsed by the MCP side from X-Conversation-Id (sandbox session key)
+    user_id: str = ""  # parsed by the MCP side from X-Current-User-Id
+    chat_id: str = ""  # parsed by the MCP side from X-Conversation-Id (sandbox session key)
 
 
 def _check_internal_token(token: Optional[str]) -> None:
@@ -96,11 +97,7 @@ def _resolve_project_context(chat_id: str, user_id: str):
         from core.db.models import ChatSession, Project, UserFolder
 
         with SessionLocal() as db:
-            sess = (
-                db.query(ChatSession.project_id)
-                .filter(ChatSession.chat_id == chat_id)
-                .first()
-            )
+            sess = db.query(ChatSession.project_id).filter(ChatSession.chat_id == chat_id).first()
             project_id = sess[0] if sess else None
             if not project_id:
                 return None, None
@@ -122,7 +119,9 @@ def _resolve_project_context(chat_id: str, user_id: str):
             if not folder_name:
                 return None, None
             return project_id, f"/workspace/myspace/{user_id}/{folder_name}"
-    except Exception:  # noqa: BLE001 — on resolve failure, treat as no bound project and take the legacy path
+    except (
+        Exception
+    ):  # noqa: BLE001 — on resolve failure, treat as no bound project and take the legacy path
         logger.warning("[internal-sites] project context resolve failed", exc_info=True)
         return None, None
 
@@ -195,7 +194,7 @@ def _mirror_files_to_project_folder(
                 now = _dt.utcnow()
                 db.query(Artifact).filter(
                     Artifact.user_id == user_id,
-                    Artifact.team_id.is_(None),
+                    *personal_artifact_predicates(Artifact),
                     Artifact.user_folder_id.in_(subtree_ids),
                     Artifact.deleted_at.is_(None),
                 ).update({Artifact.deleted_at: now}, synchronize_session=False)
@@ -215,7 +214,8 @@ def _mirror_files_to_project_folder(
                     pfs.upload(proj, user_id, content, rel_path, mime or "text/plain")
                 except Exception:  # noqa: BLE001 — one file failing does not affect the rest
                     logger.warning(
-                        "[internal-sites] mirror file to project failed: %s", rel_path,
+                        "[internal-sites] mirror file to project failed: %s",
+                        rel_path,
                         exc_info=True,
                     )
     except Exception:  # noqa: BLE001
@@ -255,12 +255,16 @@ def _ensure_project_for_site(site_id: str, user_id: str, title: str) -> Optional
             # Otherwise create a new personal project named after the site title (create_personal creates a same-named folder)
             name = (title or site.title or "站点").strip()[:200] or "站点"
             proj = ProjectService(db).create_personal(
-                user_id, name=name, description="对话建站源码工程（发布后可继续编辑）",
+                user_id,
+                name=name,
+                description="对话建站源码工程（发布后可继续编辑）",
             )
             site.project_id = proj.project_id
             db.commit()
             return proj.project_id
-    except Exception:  # noqa: BLE001 — project creation failure does not affect an already-successful publish
+    except (
+        Exception
+    ):  # noqa: BLE001 — project creation failure does not affect an already-successful publish
         logger.warning("[internal-sites] ensure project for site failed", exc_info=True)
         return None
 
@@ -285,7 +289,7 @@ def _project_root_has_package_json(project_id: str, user_id: str) -> bool:
                 db.query(Artifact.artifact_id)
                 .filter(
                     Artifact.user_id == user_id,
-                    Artifact.team_id.is_(None),
+                    *personal_artifact_predicates(Artifact),
                     Artifact.user_folder_id == proj.linked_folder_id,
                     Artifact.filename == "package.json",
                     Artifact.deleted_at.is_(None),
@@ -307,11 +311,9 @@ async def _pack_and_fetch_dir(
 ) -> Tuple[Optional[List[Tuple[str, bytes]]], Optional[str]]:
     """tar the directory inside the sandbox → fetch it back → safely unpack. Returns exactly one of (files, error)."""
     from core.llm.tools._common import sandbox_exec_bash, shell_quote
-    from core.sandbox import (
-        SandboxConnectError as _SandboxConnectError,
-        SandboxError as _SandboxError,
-        get_sandbox_provider as _get_provider,
-    )
+    from core.sandbox import SandboxConnectError as _SandboxConnectError
+    from core.sandbox import SandboxError as _SandboxError
+    from core.sandbox import get_sandbox_provider as _get_provider
 
     excludes = (".git", "node_modules", "__pycache__") + tuple(extra_excludes)
     exclude_args = " ".join(f"--exclude={shell_quote(e)}" for e in excludes)
@@ -422,11 +424,15 @@ async def publish(
         if source_dir == src:
             # source dir == output dir = the caller is publishing source as the build output —
             # error out explicitly; silently degrading would publish unbuilt source as the live site (the page is simply broken).
-            return success_response(data={"error": (
-                "src_dir 与 source_dir 不能是同一个目录：src_dir 必须指向构建产物"
-                "（先 npm run build，产物在 /workspace/.site-dist/ 下，见 init 脚本输出），"
-                "source_dir 指向源码工程目录。请构建后带两个不同的目录重试。"
-            )})
+            return success_response(
+                data={
+                    "error": (
+                        "src_dir 与 source_dir 不能是同一个目录：src_dir 必须指向构建产物"
+                        "（先 npm run build，产物在 /workspace/.site-dist/ 下，见 init 脚本输出），"
+                        "source_dir 指向源码工程目录。请构建后带两个不同的目录重试。"
+                    )
+                }
+            )
 
     # Target site: explicit site_id > the project's already-associated live site (edit / new version) > create new
     target_site_id = (body.site_id or "").strip()
@@ -450,7 +456,9 @@ async def publish(
         (files, err), (src_files, src_err) = await asyncio.gather(
             _pack_and_fetch_dir(src, _sess, user_id),
             _pack_and_fetch_dir(
-                source_dir, _sess, user_id,
+                source_dir,
+                _sess,
+                user_id,
                 extra_excludes=("dist", ".vite", "*.log"),
             ),
         )
@@ -465,11 +473,15 @@ async def publish(
     # session forgot to pass src_dir and src fell back to the project folder) — the published
     # live page would simply be broken (index.html referencing /src/main.jsx).
     if not source_dir and SiteService.looks_like_source_tree(p for p, _ in files):
-        return success_response(data={"error": (
-            f"目录 {src} 是一个未构建的源码工程（含 package.json/src/），"
-            "不能直接发布。请先在工程目录 npm run build，再调用 "
-            "publish_site(src_dir='<构建产物目录>', source_dir='<源码工程目录>')。"
-        )})
+        return success_response(
+            data={
+                "error": (
+                    f"目录 {src} 是一个未构建的源码工程（含 package.json/src/），"
+                    "不能直接发布。请先在工程目录 npm run build，再调用 "
+                    "publish_site(src_dir='<构建产物目录>', source_dir='<源码工程目录>')。"
+                )
+            }
+        )
 
     db = SessionLocal()
     try:
@@ -482,7 +494,7 @@ async def publish(
             chat_id=body.chat_id or None,
             visibility=body.visibility,
             description=body.description,
-            team_id=(body.team_id or None),
+            scope_id=site_scope_ref(body),
             build_info=(
                 {"kind": "build", "published_from": src, "source_dir": source_dir}
                 if source_dir
@@ -508,15 +520,11 @@ async def publish(
         if effective_project_id:
             if source_dir:
                 if src_files:
-                    _mirror_files_to_project_folder(
-                        effective_project_id, user_id, src_files
-                    )
+                    _mirror_files_to_project_folder(effective_project_id, user_id, src_files)
                     mirrored_from = source_dir
                 else:
                     mirror_note = f"（注意：源码目录打包失败，未镜像进项目：{src_err}）"
-                    logger.warning(
-                        "[internal-sites] source mirror failed: %s", src_err
-                    )
+                    logger.warning("[internal-sites] source mirror failed: %s", src_err)
             elif _project_root_has_package_json(effective_project_id, user_id):
                 # Build-style project + no source_dir passed: never mirror (replace semantics
                 # would wipe out the project's source workspace with the published content).

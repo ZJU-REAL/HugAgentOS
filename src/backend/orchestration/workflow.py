@@ -31,6 +31,7 @@ from core.ontology.validator import (
     requires_output_review,
 )
 from core.services.ontology_service import resolve_runtime_asset_tags
+from core.services.project_scope import edition_project_context_keys
 from orchestration.citations import extract_citations_with_offset
 from orchestration.streaming import StreamingAgent
 
@@ -42,9 +43,8 @@ _PROJECT_CTX_KEYS = (
     "project_folder_name",
     "project_folder_kind",
     "project_folder_id",
-    "project_team_id",  # only set for team kind; passed by agent_factory to the MySpace tools for the TeamFolder path
     "project_files",
-)
+) + edition_project_context_keys()
 
 
 def _extract_project_ctx(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:

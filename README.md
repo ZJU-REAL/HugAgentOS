@@ -16,6 +16,10 @@
 </p>
 
 <p align="center">
+  <img src="./assets/poster.png" alt="HugAgentOS capability overview poster" width="100%" />
+</p>
+
+<p align="center">
   <a href="./README.md">English</a> ·
   <a href="./README_CN.md">简体中文</a>
 </p>
