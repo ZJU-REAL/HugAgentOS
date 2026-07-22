@@ -248,26 +248,27 @@ fn html_escape(s: &str) -> String {
 
 // ── 一体化桌面标题栏 ───────────────────────────────────────────────────────
 //
-// 主窗口关闭系统 decorations，避免「系统标题栏 + 原生菜单栏」占两行。这里把产品名、
+// 主窗口关闭系统 decorations，避免「系统标题栏 + 原生菜单栏」占两行。这里把产品图标、
 // 文件/编辑/视图/帮助和窗口控制放进同一行。全部动作走导航哨兵，由 lib.rs 拦截执行，
 // 不依赖远程源下不稳定的 Tauri IPC。
 
 const TITLEBAR_HEIGHT: u8 = 36;
 const TB_OFFSET_SPA: &str =
-    "body{box-sizing:border-box!important;padding-top:36px!important}.jx-appLoading{height:100%!important}";
-const TB_OFFSET_PAGE: &str = "body{box-sizing:border-box!important;padding-top:36px!important}";
+    ":root{--hugagent-desktop-titlebar-height:36px}body{box-sizing:border-box!important;padding-top:36px!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+const TB_OFFSET_PAGE: &str =
+    ":root{--hugagent-desktop-titlebar-height:36px}body{box-sizing:border-box!important;padding-top:36px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
 const MAC_TITLEBAR_HEIGHT: u8 = 38;
 const MAC_OFFSET_SPA: &str =
-    "body{box-sizing:border-box!important;padding-top:38px!important}.jx-appLoading{height:100%!important}";
-const MAC_OFFSET_PAGE: &str = "body{box-sizing:border-box!important;padding-top:38px!important}";
+    ":root{--hugagent-desktop-titlebar-height:38px}body{box-sizing:border-box!important;padding-top:38px!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+const MAC_OFFSET_PAGE: &str =
+    ":root{--hugagent-desktop-titlebar-height:38px}body{box-sizing:border-box!important;padding-top:38px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
 const TB_CSS: &str = r##"
 #hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:36px;z-index:2147483647;display:flex;align-items:center;background:#F7F8FA;border-bottom:1px solid #E5E9EF;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#30343B}
 #hugagent-titlebar *{box-sizing:border-box}
-#hugagent-titlebar .tb-left{display:flex;align-items:center;height:100%;min-width:0;padding-left:10px}
-#hugagent-titlebar .tb-logo{width:17px;height:17px;border-radius:4px;margin-right:7px;object-fit:cover}
-#hugagent-titlebar .tb-name{font-size:12.5px;font-weight:650;white-space:nowrap;margin-right:5px;-webkit-user-select:none;user-select:none}
+#hugagent-titlebar .tb-left{display:flex;align-items:center;height:100%;min-width:0;padding-left:8px}
+#hugagent-titlebar .tb-logo{width:17px;height:17px;border-radius:4px;margin-right:5px;object-fit:cover}
 #hugagent-titlebar .tb-spacer{flex:1;height:100%;min-width:30px}
 #hugagent-titlebar .tb-menu{display:flex;align-items:stretch;height:100%}
 #hugagent-titlebar .tb-menuGroup{position:relative;height:100%;display:flex;align-items:stretch}
@@ -381,13 +382,12 @@ fn titlebar_block(offset_css: &str) -> String {
     format!(
         "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
 <header id=\"hugagent-titlebar\" data-height=\"{height}\">\
-<div class=\"tb-left\"><img class=\"tb-logo\" src=\"{logo}\" alt=\"\" onerror=\"this.style.display='none'\"/><span class=\"tb-name\">{name}</span>{menu}</div>\
+<div class=\"tb-left\"><img class=\"tb-logo\" src=\"{logo}\" alt=\"\" onerror=\"this.style.display='none'\"/>{menu}</div>\
 <div class=\"tb-spacer\"></div>{controls}</header><script>{script}</script>",
         css = TB_CSS,
         offset = offset_css,
         height = TITLEBAR_HEIGHT,
         logo = brand::LOGIN_LOGO_URL,
-        name = brand::NAME,
         menu = TB_MENU,
         controls = TB_CONTROLS,
         script = TB_JS,
@@ -820,9 +820,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn windows_titlebar_keeps_product_and_four_menus_on_one_row() {
+    fn windows_titlebar_keeps_icon_and_four_menus_on_one_row() {
         let block = titlebar_block(TB_OFFSET_SPA);
-        assert!(block.contains("tb-name"));
+        assert!(block.contains("tb-logo"));
+        assert!(!block.contains("tb-name"));
+        assert!(!block.contains(&format!(">{}<", brand::NAME)));
         for label in ["文件", "编辑", "视图", "帮助"] {
             assert!(block.contains(label));
         }
@@ -843,6 +845,27 @@ mod tests {
         assert!(!block.contains("data-win=\"minimize\""));
         assert!(!block.contains("data-win=\"close\""));
         assert!(!block.contains("tb-menuLabel"));
+    }
+
+    #[test]
+    fn desktop_titlebar_offsets_fixed_feedback_overlays() {
+        for block in [
+            titlebar_block(TB_OFFSET_SPA),
+            titlebar_block(TB_OFFSET_PAGE),
+            mac_titlebar_block(MAC_OFFSET_SPA),
+            mac_titlebar_block(MAC_OFFSET_PAGE),
+        ] {
+            assert!(block.contains(
+                ".ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}"
+            ));
+            assert!(block.contains(
+                ".ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight"
+            ));
+        }
+        assert!(titlebar_block(TB_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:36px"));
+        assert!(
+            mac_titlebar_block(MAC_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:38px")
+        );
     }
 
     #[test]

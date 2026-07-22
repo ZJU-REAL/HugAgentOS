@@ -51,3 +51,12 @@
 
   hugagent_install_mode_done:
 !macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  ; 本机模式把 venv、CE 源码、SQLite/上传文件、Node 工具与日志统一放在
+  ; app_local_data_dir/local-server。卸载前只结束该目录下、且 PID 与记录
+  ; 匹配的进程，避免陈旧 PID 误杀其它 Python；随后清理整套托管数据。
+  nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$root=[IO.Path]::GetFullPath('$LOCALAPPDATA\com.hugagent.desktop\local-server').TrimEnd('\'); $$pidFile=Join-Path $$root 'server.pid'; if(Test-Path -LiteralPath $$pidFile){ $$pidText=(Get-Content -LiteralPath $$pidFile -Raw).Trim(); if($$pidText -match '^\d+$$'){ $$p=Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $$pidText) -ErrorAction SilentlyContinue; if($$p -and $$p.ExecutablePath -and [IO.Path]::GetFullPath($$p.ExecutablePath).StartsWith($$root + '\',[StringComparison]::OrdinalIgnoreCase)){ & taskkill.exe /PID $$pidText /T /F | Out-Null } } }"`
+  Sleep 500
+  RMDir /r "$LOCALAPPDATA\com.hugagent.desktop\local-server"
+!macroend

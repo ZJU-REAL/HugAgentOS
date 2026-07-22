@@ -56,6 +56,7 @@ pub struct LocalServerManager {
     status: RwLock<LocalServerStatus>,
     child: Mutex<Option<Child>>,
     install_running: AtomicBool,
+    shutting_down: AtomicBool,
 }
 
 impl LocalServerManager {
@@ -77,6 +78,7 @@ impl LocalServerManager {
             status: RwLock::new(initial_status),
             child: Mutex::new(None),
             install_running: AtomicBool::new(false),
+            shutting_down: AtomicBool::new(false),
         })
     }
 
@@ -241,6 +243,9 @@ impl LocalServerManager {
 
     /// 后台启动已安装的本机服务；重复调用是幂等的。
     pub fn start_in_background(self: &Arc<Self>) {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return;
+        }
         let manager = self.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(error) = manager.start_server().await {
@@ -250,6 +255,9 @@ impl LocalServerManager {
     }
 
     async fn start_server(self: &Arc<Self>) -> Result<(), String> {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return Err("桌面端正在退出，不再启动本机服务".to_string());
+        }
         if self.is_ready().await {
             self.update("ready", 100, "本机服务已就绪").await;
             return Ok(());
@@ -276,6 +284,9 @@ impl LocalServerManager {
             };
 
             if !already_running {
+                if self.shutting_down.load(Ordering::SeqCst) {
+                    return Err("桌面端正在退出，不再启动本机服务".to_string());
+                }
                 std::fs::create_dir_all(self.root.join("logs"))
                     .map_err(|e| format!("创建日志目录失败：{e}"))?;
                 let stdout = open_log(&self.log_path())?;
@@ -294,6 +305,7 @@ impl LocalServerManager {
                     .arg("--no-browser")
                     .current_dir(self.source_dir())
                     .env("HUGAGENT_HOME", self.data_dir())
+                    .env("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1")
                     .env(
                         "FRONTEND_DIST_DIR",
                         self.source_dir().join("src").join("frontend").join("dist"),
@@ -376,6 +388,9 @@ impl LocalServerManager {
 
     /// 从桌面安装包携带的 CE 派生树安装或升级本机服务。
     pub fn install_in_background(self: &Arc<Self>) -> bool {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return false;
+        }
         if self
             .install_running
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -397,6 +412,9 @@ impl LocalServerManager {
 
     /// 用户点击「一键安装并启动」时，已安装同版本则只启动，否则执行安装/升级。
     pub fn prepare_in_background(self: &Arc<Self>) -> bool {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return false;
+        }
         if self.needs_install() {
             self.install_in_background()
         } else {
@@ -406,6 +424,9 @@ impl LocalServerManager {
     }
 
     async fn run_install(self: &Arc<Self>) -> Result<(), String> {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return Err("桌面端正在退出，已取消本机服务安装".to_string());
+        }
         if !cfg!(any(target_os = "windows", target_os = "macos")) {
             return Err("当前版本暂不支持在此系统一键部署本机服务".to_string());
         }
@@ -549,10 +570,27 @@ impl LocalServerManager {
     fn stop_server(&self) -> Result<(), String> {
         if let Ok(mut guard) = self.child.lock() {
             if let Some(child) = guard.as_mut() {
+                let running = child
+                    .try_wait()
+                    .map_err(|error| format!("检查本机服务进程失败：{error}"))?
+                    .is_none();
                 #[cfg(target_os = "windows")]
-                stop_server_process(child.id(), &self.executable(), false)?;
+                if running {
+                    // This PID comes from the live Child handle owned by this
+                    // manager, so killing its process tree cannot target a stale
+                    // reused PID. Fall back to Child::kill if taskkill fails.
+                    if let Err(tree_error) = stop_process_tree(child.id()) {
+                        child.kill().map_err(|kill_error| {
+                            format!(
+                                "结束本机服务进程树失败（{tree_error}），备用回收也失败：{kill_error}"
+                            )
+                        })?;
+                    }
+                }
                 #[cfg(not(target_os = "windows"))]
-                let _ = child.kill();
+                if running {
+                    let _ = child.kill();
+                }
                 let _ = child.wait();
                 let _ = std::fs::remove_file(self.pid_path());
                 *guard = None;
@@ -562,6 +600,13 @@ impl LocalServerManager {
         stop_recorded_server(&self.pid_path(), &self.executable(), &self.root)?;
         let _ = std::fs::remove_file(self.pid_path());
         Ok(())
+    }
+
+    /// Stop the managed Python service and permanently block respawn in this
+    /// desktop process. A newly launched desktop process creates a fresh manager.
+    pub fn shutdown(&self) -> Result<(), String> {
+        self.shutting_down.store(true, Ordering::SeqCst);
+        self.stop_server()
     }
 }
 
@@ -581,7 +626,7 @@ fn powershell_compatible_path(path: &Path) -> OsString {
 
 impl Drop for LocalServerManager {
     fn drop(&mut self) {
-        let _ = self.stop_server();
+        let _ = self.shutdown();
     }
 }
 
@@ -606,8 +651,8 @@ fn hide_console(_command: &mut Command) {}
 #[cfg(target_os = "windows")]
 fn stop_recorded_server(
     pid_path: &Path,
-    expected_executable: &Path,
-    _install_root: &Path,
+    _expected_executable: &Path,
+    install_root: &Path,
 ) -> Result<(), String> {
     let Ok(raw_pid) = std::fs::read_to_string(pid_path) else {
         return Ok(());
@@ -618,19 +663,34 @@ fn stop_recorded_server(
         .map_err(|_| "本机服务 PID 文件已损坏".to_string())?;
     // PID 文件可能来自上次异常退出；若该 PID 已被别的程序复用，只清理陈旧
     // 记录，不结束无关进程，也不阻断本次重新安装/启动。
-    stop_server_process(pid, expected_executable, true)
+    stop_recorded_process_tree(pid, install_root)
 }
 
 #[cfg(target_os = "windows")]
-fn stop_server_process(
-    pid: u32,
-    expected_executable: &Path,
-    allow_stale_pid: bool,
-) -> Result<(), String> {
+fn stop_process_tree(pid: u32) -> Result<(), String> {
+    let mut command = Command::new("taskkill.exe");
+    command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+    hide_console(&mut command);
+    let status = command
+        .status()
+        .map_err(|error| format!("无法回收本机服务进程树：{error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "回收本机服务进程树失败（退出码 {:?}）",
+            status.code()
+        ))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn stop_recorded_process_tree(pid: u32, install_root: &Path) -> Result<(), String> {
     let script = format!(
         "$p=Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}'; \
          if (-not $p) {{ exit 0 }}; \
-         if ($p.ExecutablePath -ne $env:HUGAGENT_EXPECTED_EXE) {{ exit 3 }}; \
+         $root=[IO.Path]::GetFullPath($env:HUGAGENT_INSTALL_ROOT).TrimEnd('\\'); \
+         if (-not $p.ExecutablePath -or -not [IO.Path]::GetFullPath($p.ExecutablePath).StartsWith($root + '\\',[StringComparison]::OrdinalIgnoreCase)) {{ exit 3 }}; \
          & taskkill.exe /PID {pid} /T /F | Out-Null; exit $LASTEXITCODE"
     );
     let mut command = Command::new("powershell.exe");
@@ -642,15 +702,14 @@ fn stop_server_process(
             "-Command",
             &script,
         ])
-        .env("HUGAGENT_EXPECTED_EXE", expected_executable);
+        .env("HUGAGENT_INSTALL_ROOT", install_root);
     hide_console(&mut command);
     let status = command
         .status()
         .map_err(|error| format!("无法回收上次本机服务进程：{error}"))?;
     match status.code() {
         Some(0) => Ok(()),
-        Some(3) if allow_stale_pid => Ok(()),
-        Some(3) => Err("检测到 PID 已被其他程序复用；为避免误杀，未自动结束该进程".to_string()),
+        Some(3) => Ok(()),
         code => Err(format!("回收上次本机服务进程失败（退出码 {code:?}）")),
     }
 }
@@ -794,6 +853,25 @@ mod tests {
 
         std::fs::write(manager.bundle_dir.join("desktop-bundle.json"), "new\n").unwrap();
         assert!(manager.needs_install());
+    }
+
+    #[test]
+    fn shutdown_prevents_the_local_service_from_restarting() {
+        let manager = manager("shutdown");
+
+        manager.shutdown().unwrap();
+
+        assert!(!manager.prepare_in_background());
+        assert!(manager.shutting_down.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn windows_uninstaller_stops_and_removes_the_managed_local_server() {
+        let hooks = include_str!("../installer-hooks.nsh");
+
+        assert!(hooks.contains("NSIS_HOOK_PREUNINSTALL"));
+        assert!(hooks.contains("taskkill.exe /PID"));
+        assert!(hooks.contains("RMDir /r \"$LOCALAPPDATA\\com.hugagent.desktop\\local-server\""));
     }
 
     #[test]
