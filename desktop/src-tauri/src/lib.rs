@@ -111,6 +111,7 @@ pub(crate) struct Shared {
     pub(crate) http: reqwest::Client,
     pub(crate) port: u16,
     pub(crate) config_dir: std::path::PathBuf,
+    pub(crate) local_server: Arc<local_server::LocalServerManager>,
 }
 
 impl Shared {
@@ -345,6 +346,7 @@ pub fn run() {
                 http: http.clone(),
                 port,
                 config_dir: config_dir.clone(),
+                local_server: local_server.clone(),
             });
 
             // 运行时 deep-link 回调（macOS / 已运行实例）。
@@ -391,6 +393,19 @@ pub fn run() {
         .expect("运行 Tauri 应用失败");
 
     app.run(|_app_handle, _event| {
+        // Tauri may tear down the async runtime before managed-state Drop runs.
+        // Stop the Python process synchronously while the AppHandle and PID
+        // metadata are still available; repeated exit events are idempotent.
+        if matches!(
+            _event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            let local_server = _app_handle.state::<Shared>().local_server.clone();
+            if let Err(error) = local_server.shutdown() {
+                eprintln!("[local-server] 退出时停止本机服务失败: {error}");
+            }
+        }
+
         // 主窗口被红色关闭按钮隐藏后，点击 Dock 图标应立即恢复，而不是只激活一个
         // 没有可见窗口的后台进程。
         #[cfg(target_os = "macos")]
