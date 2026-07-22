@@ -1,5 +1,6 @@
 """Local one-command profile memory defaults."""
 
+import io
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -116,6 +117,39 @@ def test_desktop_local_server_bootstraps_default_plugins():
     )
 
     assert '.env("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1")' in launcher
+
+
+def test_desktop_local_server_forces_utf8_python_stdio():
+    repo_root = Path(__file__).resolve().parents[3]
+    launcher = (repo_root / "desktop" / "src-tauri" / "src" / "local_server.rs").read_text(
+        encoding="utf-8"
+    )
+
+    assert '.env("PYTHONUTF8", "1")' in launcher
+    assert '.env("PYTHONIOENCODING", "utf-8")' in launcher
+
+
+def test_status_output_does_not_fail_on_gbk_redirect(monkeypatch):
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="gbk", errors="strict")
+    monkeypatch.setattr(cli.sys, "stdout", stream)
+
+    cli._status("  ✓ 已安装插件：sites")
+    stream.flush()
+
+    assert "已安装插件：sites" in raw.getvalue().decode("gbk")
+
+
+def test_cli_reconfigures_redirected_gbk_stream_to_utf8(monkeypatch):
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="gbk", errors="strict")
+    monkeypatch.setattr(cli.sys, "stdout", stream)
+
+    cli._configure_standard_streams()
+    cli._status("✓ 默认插件已就绪")
+    stream.flush()
+
+    assert raw.getvalue().decode("utf-8") == "✓ 默认插件已就绪\n"
 
 
 @pytest.mark.parametrize(

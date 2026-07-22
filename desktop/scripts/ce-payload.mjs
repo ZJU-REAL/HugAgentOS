@@ -43,21 +43,39 @@ export function assertDerivedCeRepository(repoRoot) {
 }
 
 export function assertCleanRepository(repoRoot) {
-  // Release payloads require a genuinely clean checkout: staged, unstaged, and
-  // non-ignored untracked files all block staging. This is deliberately stricter
-  // than a content-only diff because release inputs must be auditable from HEAD.
-  const result = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], {
+  // Tauri may touch Cargo.toml while inspecting dependencies. On Windows with
+  // CRLF conversion, `git status` can report a stat-only rewrite as modified
+  // even when the normalized content is identical to HEAD. Compare tracked
+  // content directly, then audit non-ignored untracked paths separately.
+  const tracked = spawnSync("git", ["diff", "--quiet", "HEAD", "--"], {
     cwd: repoRoot,
     encoding: "utf8",
     shell: false,
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
+  if (tracked.error) throw tracked.error;
+  if (tracked.status === 1) {
     throw new Error(
-      `git status --porcelain failed with exit code ${result.status}`,
+      "Desktop release payloads must be built from a clean Git checkout",
     );
   }
-  if (result.stdout.trim()) {
+  if (tracked.status !== 0) {
+    throw new Error(
+      `git diff --quiet HEAD -- failed with exit code ${tracked.status}`,
+    );
+  }
+
+  const untracked = spawnSync(
+    "git",
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+    { cwd: repoRoot, encoding: "utf8", shell: false },
+  );
+  if (untracked.error) throw untracked.error;
+  if (untracked.status !== 0) {
+    throw new Error(
+      `git ls-files --others --exclude-standard failed with exit code ${untracked.status}`,
+    );
+  }
+  if (untracked.stdout.length > 0) {
     throw new Error(
       "Desktop release payloads must be built from a clean Git checkout",
     );

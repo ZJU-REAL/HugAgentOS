@@ -27,6 +27,36 @@ import time
 from pathlib import Path
 from typing import Optional
 
+
+def _configure_standard_streams() -> None:
+    """Keep redirected desktop logs UTF-8 and tolerant of status symbols."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (LookupError, OSError, ValueError):
+            try:
+                reconfigure(errors="replace")
+            except (LookupError, OSError, ValueError):
+                pass
+
+
+def _status(message: str, *, file=None, **kwargs) -> None:
+    """Print CLI status without letting a legacy code page break startup."""
+    stream = file or sys.stdout
+    try:
+        print(message, file=stream, **kwargs)
+    except UnicodeEncodeError:
+        encoding = getattr(stream, "encoding", None) or "ascii"
+        try:
+            safe_message = message.encode(encoding, errors="replace").decode(encoding)
+        except LookupError:
+            safe_message = message.encode("ascii", errors="replace").decode("ascii")
+        print(safe_message, file=stream, **kwargs)
+
+
 # ── Data dir & environment ────────────────────────────────────────────────────
 
 
@@ -310,10 +340,11 @@ def install_plugins(slugs: list) -> list:
         for slug in slugs:
             try:
                 plugin_service.install_plugin(db, slug, owner_user_id=None, created_by="onboard")
-                done.append(slug)
-                print(f"  ✓ 已安装插件：{slug}")
             except Exception as exc:  # noqa: BLE001
-                print(f"  ! 插件 {slug} 安装失败：{exc}", file=sys.stderr)
+                _status(f"  ! 插件 {slug} 安装失败：{exc}", file=sys.stderr)
+            else:
+                done.append(slug)
+                _status(f"  ✓ 已安装插件：{slug}")
     finally:
         db.close()
     return done
@@ -456,7 +487,7 @@ def provision_site_template(verbose: bool = False) -> bool:
     home = Path(os.environ.get("SITE_TEMPLATE_HOME", str(data_dir() / "site-template")))
     if src is None:
         if verbose:
-            print("  ! 未找到站点模板（docker/site-template/），React 建站不可用")
+            _status("  ! 未找到站点模板（docker/site-template/），React 建站不可用")
         return False
     try:
         # Lay down the react-vite template WITHOUT node_modules (init script runs
@@ -472,20 +503,20 @@ def provision_site_template(verbose: bool = False) -> bool:
             )
         shutil.copy2(src / "init-react-site.sh", home / "init-react-site.sh")
         os.chmod(home / "init-react-site.sh", 0o755)
-        if verbose:
-            tools = _probe_host_tools()
-            if tools["node"] and tools["npm"]:
-                print(f"  ✓ React 建站模板已就绪：{home}")
-            else:
-                print(
-                    f"  ✓ React 建站模板已铺入：{home}"
-                    "（缺 Node/npm，装 Node ≥ 20 后首次建站会自动装依赖）"
-                )
-        return True
     except Exception as exc:  # noqa: BLE001
         if verbose:
-            print(f"  ! 站点模板铺入失败：{exc}", file=sys.stderr)
+            _status(f"  ! 站点模板铺入失败：{exc}", file=sys.stderr)
         return False
+    if verbose:
+        tools = _probe_host_tools()
+        if tools["node"] and tools["npm"]:
+            _status(f"  ✓ React 建站模板已就绪：{home}")
+        else:
+            _status(
+                f"  ✓ React 建站模板已铺入：{home}"
+                "（缺 Node/npm，装 Node ≥ 20 后首次建站会自动装依赖）"
+            )
+    return True
 
 
 # ── Host tool capability probe ────────────────────────────────────────────────
@@ -733,13 +764,14 @@ def cmd_serve(args) -> int:
     _ensure_schema_and_seed()
     if os.getenv(_DEFAULT_PLUGIN_BOOTSTRAP_ENV) == "1":
         try:
-            if ensure_default_plugins_once():
-                print("✓ 默认插件已就绪：定时任务、技能管理、站点发布")
+            bootstrapped = ensure_default_plugins_once()
         except Exception as exc:  # noqa: BLE001
             # The desktop readiness endpoint must not go healthy with only a
             # partial default-plugin set. No marker is written on failure, so
             # the next installer-managed start will retry the full bootstrap.
             raise RuntimeError(f"默认插件初始化失败，下次启动将重试：{exc}") from exc
+        if bootstrapped:
+            _status("✓ 默认插件已就绪：定时任务、技能管理、站点发布")
     import uvicorn
     from api.app import app
 
@@ -883,6 +915,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list] = None) -> int:
+    _configure_standard_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
