@@ -1,13 +1,14 @@
 {
   "name": "hugagent-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "HugAgentOS 桌面客户端（远程连接 + Windows/macOS 无 Docker 本机服务）",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
-    "test:scripts": "node --test scripts/*.test.mjs"
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "version:desktop": "node scripts/set-desktop-version.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

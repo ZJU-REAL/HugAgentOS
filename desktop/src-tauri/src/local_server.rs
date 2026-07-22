@@ -80,6 +80,16 @@ impl LocalServerManager {
         })
     }
 
+    #[cfg(target_os = "macos")]
+    fn source_dir(&self) -> PathBuf {
+        let current = self.root.join("current");
+        if current.is_dir() {
+            return current.join("source");
+        }
+        self.root.join("source")
+    }
+
+    #[cfg(not(target_os = "macos"))]
     fn source_dir(&self) -> PathBuf {
         self.root.join("source")
     }
@@ -105,13 +115,33 @@ impl LocalServerManager {
         self.root.join("venv").join("Scripts").join("hugagent.exe")
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    fn executable(&self) -> PathBuf {
+        let current = self.root.join("current");
+        if current.is_dir() {
+            return current.join("venv").join("bin").join("hugagent");
+        }
+        self.root.join("venv").join("bin").join("hugagent")
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     fn executable(&self) -> PathBuf {
         self.root.join("venv").join("bin").join("hugagent")
     }
 
+    fn installed_manifest_path(&self) -> PathBuf {
+        #[cfg(target_os = "macos")]
+        {
+            let current = self.root.join("current");
+            if current.is_dir() {
+                return current.join("desktop-bundle.json");
+            }
+        }
+        self.root.join("installed-bundle.json")
+    }
+
     pub fn is_installed(&self) -> bool {
-        self.executable().is_file() && self.root.join("installed-bundle.json").is_file()
+        self.executable().is_file() && self.installed_manifest_path().is_file()
     }
 
     pub fn needs_install(&self) -> bool {
@@ -119,7 +149,7 @@ impl LocalServerManager {
             return true;
         }
         let bundled = std::fs::read_to_string(self.bundle_dir.join("desktop-bundle.json"));
-        let installed = std::fs::read_to_string(self.root.join("installed-bundle.json"));
+        let installed = std::fs::read_to_string(self.installed_manifest_path());
         match (bundled, installed) {
             (Ok(a), Ok(b)) => a.trim() != b.trim(),
             _ => true,
@@ -468,13 +498,38 @@ impl LocalServerManager {
                 .map_err(|e| format!("等待安装器退出失败：{e}"))?;
             let _ = tokio::join!(out_task, err_task);
             if !exit.success() {
-                return Err(format!("依赖安装未完成（退出码 {:?}）", exit.code()));
+                let error = format!("依赖安装未完成（退出码 {:?}）", exit.code());
+                if self.is_installed() {
+                    self.append_log("新版本安装失败，正在恢复原有本机服务…")
+                        .await;
+                    if let Err(restart_error) = self.start_server().await {
+                        self.append_log(format!("原有本机服务恢复失败：{restart_error}"))
+                            .await;
+                    }
+                }
+                return Err(error);
             }
         }
 
         self.update("starting", 92, "依赖安装完成，正在启动服务…")
             .await;
-        self.start_server().await
+        match self.start_server().await {
+            Ok(()) => Ok(()),
+            Err(start_error) => {
+                #[cfg(target_os = "macos")]
+                if restore_previous_release(&self.root)? {
+                    self.append_log(format!("新版本启动失败，已回滚原有版本：{start_error}"))
+                        .await;
+                    self.start_server().await.map_err(|rollback_error| {
+                        format!(
+                            "新版本启动失败（{start_error}），回滚后原有版本也无法启动（{rollback_error}）"
+                        )
+                    })?;
+                    return Err(format!("新版本启动失败，已自动恢复原有版本：{start_error}"));
+                }
+                Err(start_error)
+            }
+        }
     }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -503,7 +558,7 @@ impl LocalServerManager {
                 return Ok(());
             }
         }
-        stop_recorded_server(&self.pid_path(), &self.executable())?;
+        stop_recorded_server(&self.pid_path(), &self.executable(), &self.root)?;
         let _ = std::fs::remove_file(self.pid_path());
         Ok(())
     }
@@ -548,7 +603,11 @@ fn hide_console(command: &mut Command) {
 fn hide_console(_command: &mut Command) {}
 
 #[cfg(target_os = "windows")]
-fn stop_recorded_server(pid_path: &Path, expected_executable: &Path) -> Result<(), String> {
+fn stop_recorded_server(
+    pid_path: &Path,
+    expected_executable: &Path,
+    _install_root: &Path,
+) -> Result<(), String> {
     let Ok(raw_pid) = std::fs::read_to_string(pid_path) else {
         return Ok(());
     };
@@ -595,10 +654,94 @@ fn stop_server_process(
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-fn stop_recorded_server(pid_path: &Path, _expected_executable: &Path) -> Result<(), String> {
+#[cfg(target_os = "macos")]
+fn stop_recorded_server(
+    pid_path: &Path,
+    _expected_executable: &Path,
+    install_root: &Path,
+) -> Result<(), String> {
+    let Ok(raw_pid) = std::fs::read_to_string(pid_path) else {
+        return Ok(());
+    };
+    let Ok(pid) = raw_pid.trim().parse::<u32>() else {
+        return Ok(());
+    };
+    let output = Command::new("/bin/ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .map_err(|error| format!("无法检查上次本机服务进程：{error}"))?;
+    if !output.status.success() {
+        return Ok(());
+    }
+    let command_line = String::from_utf8_lossy(&output.stdout);
+    if !mac_server_command_matches(&command_line, install_root) {
+        return Ok(());
+    }
+
+    let pid_text = pid.to_string();
+    let _ = Command::new("/bin/kill")
+        .args(["-TERM", &pid_text])
+        .status();
+    for _ in 0..20 {
+        if !mac_process_exists(&pid_text) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", &pid_text])
+        .status();
+    if mac_process_exists(&pid_text) {
+        return Err("无法结束上次遗留的本机服务进程".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_exists(pid: &str) -> bool {
+    Command::new("/bin/kill")
+        .args(["-0", pid])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn mac_server_command_matches(command_line: &str, install_root: &Path) -> bool {
+    let root = install_root.to_string_lossy();
+    command_line.contains(root.as_ref())
+        && command_line.contains("hugagent")
+        && command_line.contains(" serve")
+        && command_line.contains(&format!("--port {LOCAL_SERVER_PORT}"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn stop_recorded_server(
+    pid_path: &Path,
+    _expected_executable: &Path,
+    _install_root: &Path,
+) -> Result<(), String> {
     let _ = std::fs::remove_file(pid_path);
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn restore_previous_release(root: &Path) -> Result<bool, String> {
+    let previous = root.join("current.previous");
+    if !previous.is_symlink() {
+        return Ok(false);
+    }
+    let current = root.join("current");
+    let failed_release = std::fs::read_link(&current).ok();
+    std::fs::rename(&previous, &current)
+        .map_err(|error| format!("恢复原有本机服务版本失败：{error}"))?;
+    if let Some(failed_release) = failed_release {
+        let releases = root.join("releases");
+        if failed_release.starts_with(&releases) {
+            let _ = std::fs::remove_dir_all(failed_release);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(target_os = "windows")]
@@ -660,6 +803,43 @@ mod tests {
         std::fs::write(&log, "one\ntwo\nthree\n").unwrap();
 
         assert_eq!(tail_file(&log, 2), vec!["two", "three"]);
+    }
+
+    #[test]
+    fn mac_stale_process_match_is_scoped_to_this_install_and_port() {
+        let root = Path::new("/Users/test/Library/Application Support/HugAgentOS/local-server");
+        assert!(mac_server_command_matches(
+            "/Users/test/Library/Application Support/HugAgentOS/local-server/releases/abc/venv/bin/python /Users/test/Library/Application Support/HugAgentOS/local-server/current/venv/bin/hugagent serve --host 127.0.0.1 --port 32101",
+            root,
+        ));
+        assert!(!mac_server_command_matches(
+            "/tmp/hugagent serve --host 127.0.0.1 --port 32101",
+            root,
+        ));
+        assert!(!mac_server_command_matches(
+            "/Users/test/Library/Application Support/HugAgentOS/local-server/current/venv/bin/hugagent serve --port 32102",
+            root,
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_release_can_atomically_restore_previous_pointer() {
+        use std::os::unix::fs::symlink;
+
+        let manager = manager("rollback");
+        let root = &manager.root;
+        let old = root.join("releases").join("old");
+        let new = root.join("releases").join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        symlink(&new, root.join("current")).unwrap();
+        symlink(&old, root.join("current.previous")).unwrap();
+
+        assert!(restore_previous_release(root).unwrap());
+        assert_eq!(std::fs::read_link(root.join("current")).unwrap(), old);
+        assert!(!root.join("current.previous").exists());
+        assert!(!new.exists());
     }
 
     #[cfg(target_os = "windows")]

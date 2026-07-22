@@ -82,5 +82,40 @@ jobs:
         working-directory: desktop
         run: node scripts/prepare-bundle.mjs
 
+      - name: Install pinned uv for macOS dependency validation
+        if: matrix.os == 'macos-latest'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.30"
+          enable-cache: false
+
+      - name: Validate macOS bootstrap on the native shell
+        if: matrix.os == 'macos-latest'
+        working-directory: desktop
+        run: npm run test:scripts
+
+      - name: Resolve macOS 12 compatible local-server dependencies
+        if: matrix.os == 'macos-latest'
+        working-directory: desktop
+        run: |
+          uv --system-certs pip install \
+            --dry-run \
+            --target "$RUNNER_TEMP/hugagent-deps-arm64" \
+            --python-version 3.11 \
+            --python-platform aarch64-apple-darwin \
+            --requirements generated/server-ce/requirements.txt \
+            --requirements generated/server-ce/docker/requirements-script-runner.txt \
+            --overrides resources/server-bootstrap/requirements-macos-overrides.txt \
+            --only-binary pikepdf
+          uv --system-certs pip install \
+            --dry-run \
+            --target "$RUNNER_TEMP/hugagent-deps-x86_64" \
+            --python-version 3.11 \
+            --python-platform x86_64-apple-darwin \
+            --requirements generated/server-ce/requirements.txt \
+            --requirements generated/server-ce/docker/requirements-script-runner.txt \
+            --overrides resources/server-bootstrap/requirements-macos-overrides.txt \
+            --only-binary pikepdf
+
       - name: Run desktop Rust tests
         run: cargo test --manifest-path desktop/src-tauri/Cargo.toml

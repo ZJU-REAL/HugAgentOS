@@ -1,0 +1,4 @@
+# pikepdf 9+ only publishes Apple Silicon wheels for macOS 14+ (and current
+# Intel wheels require newer macOS). The desktop client supports macOS 12+, so
+# keep the last release that ships Python 3.11 wheels for both Mac architectures.
+pikepdf==8.15.1

@@ -11,9 +11,10 @@
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 #
 # To cut a release:
-#   1. Keep desktop/package.json, desktop/src-tauri/Cargo.toml, and
-#      desktop/src-tauri/tauri.conf.json on the same version.
-#   2. Push or dispatch exactly `desktop-vX.Y.Z` for that version.
+#   1. Run `npm --prefix desktop run version:desktop -- X.Y.Z` and commit the
+#      synchronized version files.
+#   2. Push `desktop-vX.Y.Z`, or manually dispatch this workflow from that commit;
+#      manual runs derive the release tag from the committed desktop version.
 #   3. Review the draft release after every platform succeeds, then publish it.
 
 name: Desktop Release
@@ -23,21 +24,20 @@ on:
     tags:
       - "desktop-v*"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag; must match the desktop version (for example, desktop-v0.2.1)"
-        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: desktop-release-${{ github.event.inputs.tag || github.ref_name }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   validate-release:
     runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.desktop_version.outputs.version }}
+      release_tag: ${{ steps.desktop_version.outputs.release_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,8 +52,9 @@ jobs:
         run: npm run test:scripts
 
       - name: Validate release tag and desktop versions
+        id: desktop_version
         env:
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: node desktop/scripts/validate-release-version.mjs "$RELEASE_TAG"
 
   build:
@@ -138,7 +139,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
         with:
           projectPath: desktop
-          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          tagName: ${{ needs.validate-release.outputs.release_tag }}
           releaseName: "HugAgentOS Desktop __VERSION__"
           releaseBody: "Download the installer for your platform below. See the docs for setup."
           releaseDraft: true
