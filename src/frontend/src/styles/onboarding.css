@@ -3,18 +3,19 @@
   width:100%;
   height:100%;
   min-height:0;
-  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
   color:var(--color-text);
   background:#fff;
 }
 
 .jx-firstRun-topbar{
-  position:absolute;
-  top:0;
-  right:0;
-  left:0;
+  position:relative;
   z-index:2;
+  width:100%;
   height:72px;
+  flex:0 0 72px;
   padding:0 max(32px,calc((100vw - 1200px) / 2));
   display:flex;
   align-items:center;
@@ -49,9 +50,10 @@
 
 .jx-firstRun-shell{
   width:min(1200px,calc(100% - 48px));
-  height:calc(100vh - 72px);
+  height:auto;
+  flex:1 1 auto;
   min-height:0;
-  margin:72px auto 0;
+  margin:0 auto;
   display:grid;
   grid-template-columns:248px minmax(0,1fr);
   grid-template-rows:minmax(0,1fr);
@@ -160,13 +162,14 @@
 .jx-firstRun-card{
   min-width:0;
   min-height:0;
-  padding:64px clamp(48px,7vw,96px) 32px;
+  padding:clamp(32px,6vh,64px) clamp(48px,7vw,96px) 24px;
   display:grid;
-  grid-template-rows:auto minmax(0,1fr) auto;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
   overflow:hidden;
 }
 .jx-firstRun-cardHeader,
 .jx-firstRun-cardBody,
+.jx-firstRun-submitError,
 .jx-firstRun-actions{
   width:min(680px,100%);
   margin-right:auto;
@@ -220,6 +223,11 @@
   align-items:center;
   justify-content:space-between;
   border-top:1px solid #ececec;
+}
+.jx-firstRun-submitError{
+  margin-bottom:12px;
+  max-height:128px;
+  overflow:auto;
 }
 .jx-firstRun-actions .ant-btn-lg{
   min-width:88px;
@@ -487,7 +495,7 @@
 }
 
 @media (max-width:900px){
-  .jx-firstRun-root{min-height:0}
+  .jx-firstRun-root{min-height:0;overflow:auto}
   .jx-firstRun-topbar{
     position:relative;
     height:66px;
@@ -497,6 +505,7 @@
     width:100%;
     height:auto;
     min-height:calc(100% - 66px);
+    flex:none;
     margin:0;
     grid-template-columns:1fr;
   }
@@ -514,6 +523,17 @@
   .jx-firstRun-stepIndex{width:30px;height:30px}
   .jx-firstRun-card{min-height:600px;padding:44px 28px 24px}
   .jx-firstRun-cardBody{padding-top:34px}
+}
+
+@media (max-height:760px) and (min-width:901px){
+  .jx-firstRun-rail{padding-top:30px;padding-bottom:22px}
+  .jx-firstRun-railIntro{margin-bottom:22px}
+  .jx-firstRun-railFooter{bottom:22px}
+  .jx-firstRun-card{padding-top:24px;padding-bottom:16px}
+  .jx-firstRun-kicker{margin-bottom:8px}
+  .jx-firstRun-cardHeader h1.ant-typography{margin-bottom:6px;font-size:28px}
+  .jx-firstRun-cardBody{padding-top:20px;padding-bottom:16px}
+  .jx-firstRun-actions{padding-top:12px}
 }
 
 @media (max-width:620px){

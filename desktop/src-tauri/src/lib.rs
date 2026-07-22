@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
@@ -153,7 +154,7 @@ async fn logout_desktop(app: tauri::AppHandle) {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         // single-instance：第二次被 deep-link 拉起时，把 URL 转交给已运行实例。
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             for arg in argv.iter() {
@@ -187,10 +188,8 @@ pub fn run() {
         // 原生菜单栏事件分发（文件/编辑/视图/帮助）。
         .on_menu_event(menu::handle)
         .invoke_handler(tauri::generate_handler![open_login, logout_desktop])
-        // 关闭主窗口时不直接退出：首次弹出**自定义确认窗**（带「记住我的选择」勾选框）
-        // 问「最小化到托盘」还是「退出」。只有勾选后才记住，之后关闭直接执行、不再弹。
-        // 可在托盘「关闭时重新询问」重置。（自定义窗而非原生对话框，是因为原生对话框
-        // 不支持勾选框。）
+        // macOS 遵循平台习惯：红色关闭按钮只隐藏主窗口并继续驻留后台，退出由系统
+        // 菜单或托盘显式执行。其他平台首次关闭时仍弹出自定义确认窗，可记住后续行为。
         .on_window_event(|window, event| {
             // RDP/ToDesk 调整分辨率、或把窗口移到不同 DPI 的显示器时重新计算 zoom。
             // `set_zoom` 不改变外窗尺寸，因此处理 Resized 不会形成窗口 resize 循环。
@@ -207,18 +206,28 @@ pub fn run() {
                     return;
                 }
                 api.prevent_close();
-                let app = window.app_handle().clone();
-                let config_dir = app.state::<Shared>().config_dir.clone();
 
-                // 已记住选择 → 直接执行，不弹确认窗。
-                match prefs::load_close_action(&config_dir) {
-                    Some(prefs::CloseAction::Minimize) => {
-                        let _ = window.hide();
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = window.hide();
+                    return;
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let app = window.app_handle().clone();
+                    let config_dir = app.state::<Shared>().config_dir.clone();
+
+                    // 已记住选择 → 直接执行，不弹确认窗。
+                    match prefs::load_close_action(&config_dir) {
+                        Some(prefs::CloseAction::Minimize) => {
+                            let _ = window.hide();
+                        }
+                        Some(prefs::CloseAction::Exit) => {
+                            app.exit(0);
+                        }
+                        None => open_close_confirm(&app),
                     }
-                    Some(prefs::CloseAction::Exit) => {
-                        app.exit(0);
-                    }
-                    None => open_close_confirm(&app),
                 }
             }
         })
@@ -378,8 +387,23 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("运行 Tauri 应用失败");
+
+    app.run(|_app_handle, _event| {
+        // 主窗口被红色关闭按钮隐藏后，点击 Dock 图标应立即恢复，而不是只激活一个
+        // 没有可见窗口的后台进程。
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } = _event
+        {
+            if !has_visible_windows {
+                show_main_window(_app_handle);
+            }
+        }
+    });
 }
 
 /// 显示并聚焦主窗口（从托盘恢复 / 单实例再次拉起 / deep-link 回跳时用）。
@@ -502,6 +526,8 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 fn open_close_confirm(app: &tauri::AppHandle) {
     // 已经开着就聚焦，别重复弹。
     if let Some(w) = app.get_webview_window("close-confirm") {
+        let _ = w.center();
+        let _ = w.show();
         let _ = w.set_focus();
         return;
     }
@@ -522,7 +548,18 @@ fn open_close_confirm(app: &tauri::AppHandle) {
         .always_on_top(true)
         .skip_taskbar(true)
         .center()
-        .focused(true)
+        // WebView2 first paints an empty native surface and only then loads the
+        // confirmation HTML. Keep it hidden until the final page-load event so
+        // Windows never exposes that white frame.
+        .visible(false)
+        .focused(false)
+        .on_page_load(|window, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                let _ = window.center();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        })
         .on_navigation(move |u| {
             // 只拦哨兵；确认页自身的加载 / 其它放行。
             if !(matches!(u.scheme(), "http" | "https")
@@ -555,7 +592,9 @@ fn open_close_confirm(app: &tauri::AppHandle) {
                     );
                 }
                 if let Some(cw) = app2.get_webview_window("close-confirm") {
-                    let _ = cw.close();
+                    // Reuse the fully-loaded WebView next time. Rebuilding it is
+                    // both slower and the main source of close-dialog flicker.
+                    let _ = cw.hide();
                 }
                 if exit {
                     app2.exit(0);

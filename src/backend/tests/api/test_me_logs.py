@@ -13,7 +13,7 @@ import pytest
 from fastapi import HTTPException
 
 from core.auth.backend import UserContext
-from core.db.models import ChatMessage, ChatSession, SubAgentCallLog, ToolCallLog
+from core.db.models import ChatMessage, ChatSession, SkillCallLog, SubAgentCallLog, ToolCallLog
 
 
 def _ctx(user_id: str) -> UserContext:
@@ -39,6 +39,14 @@ def seeded(db_session):
             ToolCallLog(id="t_sub", user_id="alice", tool_name="read_file",
                         status="success", source="subagent",
                         subagent_log_id="sa_child", created_at=now),
+            SkillCallLog(id="sk_alice", user_id="alice", skill_id="reports",
+                         skill_name="报告生成", invocation_type="run_script",
+                         script_args={"format": "docx"}, script_stdout="done",
+                         status="success", source="subagent",
+                         subagent_log_id="sa_child", created_at=now),
+            SkillCallLog(id="sk_bob", user_id="bob", skill_id="private",
+                         skill_name="他人技能", invocation_type="view",
+                         status="success", source="main_agent", created_at=now),
             ChatSession(chat_id="c1", user_id="alice", title="会话一"),
             ChatSession(chat_id="c2", user_id="bob", title="别人的"),
             ChatMessage(message_id="m1", chat_id="c1", role="assistant", content="", model="deepseek",
@@ -84,6 +92,18 @@ def test_tool_log_detail_owner_ok_foreign_404(db_session, seeded):
     assert exc.value.status_code == 404
 
 
+def test_skill_log_detail_owner_ok_foreign_404(db_session, seeded):
+    from api.routes.v1.me_logs import get_my_skill_log
+
+    resp = get_my_skill_log("sk_alice", user=_ctx("alice"), db=db_session)
+    assert resp["data"]["skill_id"] == "reports"
+    assert resp["data"]["script_args"] == {"format": "docx"}
+
+    with pytest.raises(HTTPException) as exc:
+        get_my_skill_log("sk_bob", user=_ctx("alice"), db=db_session)
+    assert exc.value.status_code == 404
+
+
 # ── Subagent detail: subtree aggregation ────────────────────────────────────────────────
 
 
@@ -94,6 +114,7 @@ def test_subagent_detail_includes_subtree(db_session, seeded):
     data = resp["data"]
     assert [s["id"] for s in data["child_steps"]] == ["sa_child"]
     assert [t["id"] for t in data["tool_calls"]] == ["t_sub"]
+    assert [s["id"] for s in data["skill_calls"]] == ["sk_alice"]
 
     with pytest.raises(HTTPException) as exc:
         get_my_subagent_log("sa_root", user=_ctx("bob"), db=db_session)

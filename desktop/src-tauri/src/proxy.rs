@@ -359,7 +359,7 @@ bar.addEventListener('dblclick',function(event){if(isControl(event.target))retur
 // we only reserve a compact draggable title region for the traffic lights; a
 // second branded toolbar would duplicate the native chrome and waste space.
 const MAC_TB_CSS: &str = r##"
-#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:38px;z-index:2147483647;background:rgba(250,250,248,.78);border-bottom:1px solid rgba(28,28,28,.075);backdrop-filter:saturate(160%) blur(18px);-webkit-backdrop-filter:saturate(160%) blur(18px);-webkit-user-select:none;user-select:none}
+#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:38px;z-index:2147483647;background:transparent;border:0;box-shadow:none;-webkit-user-select:none;user-select:none}
 #hugagent-mac-titlebar *{box-sizing:border-box}
 "##;
 
@@ -534,64 +534,75 @@ const SETUP_HTML: &str = r##"<!doctype html>
 <style>
   :root{
     color-scheme:light;
-    --accent:#0A66FF;--accent-hover:#005BE6;--accent-active:#0052CC;
+    --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;
     --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
-    --line:rgba(60,60,67,.16);--ok:#248A3D;--danger:#D70015;
+    --line:rgba(60,60,67,.14);--surface:rgba(255,255,255,.72);
+    --ok:#248A3D;--danger:#D70015;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
-    color:var(--text);background:#FAFAF8;display:flex;align-items:center;justify-content:center;
-    padding:28px;-webkit-user-select:none;user-select:none}
-  .setup{width:min(520px,100%);text-align:center;padding:24px 34px 28px}
-  .logo{display:block;width:64px;height:64px;margin:0 auto 20px;border-radius:16px;
-    box-shadow:0 8px 24px rgba(0,0,0,.1)}
-  .edition{display:inline-flex;align-items:center;height:24px;padding:0 10px;margin-bottom:14px;
-    border:1px solid var(--line);border-radius:999px;color:var(--secondary);background:rgba(255,255,255,.72);
-    font-size:11px;font-weight:600;letter-spacing:.02em}
-  h1{margin:0;font-size:28px;line-height:1.2;font-weight:650;letter-spacing:-.035em}
-  .lead{max-width:430px;margin:12px auto 0;color:var(--secondary);font-size:14px;line-height:1.65}
-  .actions{width:min(360px,100%);margin:28px auto 0}
-  .button{width:100%;height:46px;border:0;border-radius:11px;padding:0 18px;font:600 14px/1 inherit;
-    cursor:pointer;transition:background .14s ease,transform .08s ease,opacity .14s ease}
-  .button.primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-  .button.primary:hover{background:var(--accent-hover)}.button.primary:active{background:var(--accent-active);transform:scale(.99)}
+    color:var(--text);background:#F5F5F7;display:flex;align-items:center;justify-content:center;
+    min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
+  .setup{width:min(540px,100%);text-align:center;padding:20px 34px 30px}
+  .logo{display:block;width:68px;height:68px;margin:0 auto 17px;border-radius:17px;
+    box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)}
+  .product{margin:0 0 11px;color:var(--secondary);font-size:12px;font-weight:600;letter-spacing:.012em}
+  .product span{margin-left:5px;color:var(--tertiary);font-weight:500}
+  h1{margin:0;font-size:30px;line-height:1.16;font-weight:650;letter-spacing:-.028em;font-optical-sizing:auto}
+  .lead{max-width:420px;margin:11px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
+  .actions{width:min(350px,100%);margin:26px auto 0}
+  .button{width:100%;height:46px;border:0;border-radius:12px;padding:0 18px;font:600 14px/1 inherit;
+    cursor:pointer;transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
+  .button.primary{background:var(--accent);color:#fff;
+    box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px rgba(0,122,255,.16)}
+  @media(hover:hover){.button.primary:hover{background:var(--accent-hover)}}
+  .button.primary:active{background:var(--accent-active);transform:scale(.97)}
   .button:disabled{opacity:.5;cursor:default;transform:none}
-  .link-button{margin-top:13px;padding:6px 10px;border:0;background:transparent;color:var(--accent);
-    font:500 13px/1.2 inherit;cursor:pointer;border-radius:7px}
-  .link-button:hover{background:rgba(10,102,255,.07)}
-  .promise{display:flex;justify-content:center;gap:8px;margin:18px 0 0;color:var(--tertiary);font-size:12px}
-  .promise span+span::before{content:"·";margin-right:8px;color:#C7C7CC}
-  .progress-wrap{display:none;margin-top:28px;padding-top:24px;border-top:1px solid var(--line);text-align:left}
+  .button:focus-visible,.link-button:focus-visible,.connection button:focus-visible,summary:focus-visible{
+    outline:3px solid rgba(0,122,255,.28);outline-offset:3px}
+  .link-button{margin-top:11px;padding:7px 10px;border:0;background:transparent;color:var(--accent);
+    font:500 13px/1.2 inherit;cursor:pointer;border-radius:8px;transition:background 100ms ease-out,transform 100ms ease-out}
+  @media(hover:hover){.link-button:hover{background:rgba(0,122,255,.075)}}
+  .link-button:active{background:rgba(0,122,255,.11);transform:scale(.97)}
+  .privacy-note{margin:16px 0 0;color:var(--tertiary);font-size:12px;line-height:1.5}
+  .progress-wrap{display:none;width:min(410px,100%);margin:24px auto 0;padding:18px;text-align:left;
+    border:0;border-radius:16px;background:var(--surface);backdrop-filter:blur(18px) saturate(145%);
+    -webkit-backdrop-filter:blur(18px) saturate(145%);box-shadow:0 1px 1px rgba(0,0,0,.05),0 12px 34px rgba(0,0,0,.07);
+    animation:materialize 260ms cubic-bezier(.2,.8,.2,1) both}
+  @keyframes materialize{from{opacity:0;transform:scale(.985) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
   .progress-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;font-size:13px}
   .message{color:var(--secondary)}.percent{color:var(--accent);font-variant-numeric:tabular-nums}
-  .progress{height:6px;border-radius:999px;background:#E5E5EA;overflow:hidden}
-  .bar{height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width .28s ease}
+  .progress{height:5px;border-radius:999px;background:rgba(118,118,128,.16);overflow:hidden}
+  .bar{height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width 280ms ease-out}
   .error{display:none;margin-top:12px;padding:10px 12px;border-radius:9px;background:#FFF1F0;color:var(--danger);
     font-size:12.5px;line-height:1.5}.ready{color:var(--ok);font-weight:600}
-  details{margin-top:12px;color:var(--secondary);font-size:12px}summary{width:max-content;cursor:pointer;outline:none}
-  .log{height:116px;margin:9px 0 0;padding:11px 12px;overflow:auto;border:1px solid var(--line);
-    border-radius:9px;background:#F2F2F4;color:#48484A;font:11px/1.55 "SFMono-Regular",Consolas,monospace;
+  details{margin-top:13px;color:var(--secondary);font-size:12px}summary{width:max-content;cursor:pointer;outline:none}
+  .log{height:116px;margin:9px 0 0;padding:11px 12px;overflow:auto;border:0;
+    border-radius:10px;background:rgba(118,118,128,.09);color:#48484A;font:11px/1.55 "SFMono-Regular",Consolas,monospace;
     white-space:pre-wrap;word-break:break-all;-webkit-user-select:text;user-select:text}
   .ready-actions{display:none;margin-top:16px}
-  .connection{margin-top:26px;color:var(--tertiary);font-size:11px;line-height:1.5;
+  .connection{margin-top:22px;color:var(--tertiary);font-size:11px;line-height:1.5;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .connection button{padding:2px 4px;border:0;background:transparent;color:var(--secondary);font:inherit;cursor:pointer}
-  body.platform-macos{background:linear-gradient(180deg,#FBFBFA 0%,#F4F4F2 100%)}
-  body.platform-macos .setup{margin-top:-18px}
-  @media(max-width:620px){body{padding:18px}.setup{padding:18px 12px 24px}h1{font-size:25px}.promise{flex-wrap:wrap}}
+  .connection button{padding:3px 5px;border:0;border-radius:6px;background:transparent;color:var(--secondary);font:inherit;cursor:pointer}
+  body.platform-macos .setup{margin-top:-10px}
+  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:27px}}
+  @media(max-height:650px){body{align-items:flex-start}.setup{padding-top:20px}}
+  @media(prefers-reduced-motion:reduce){.button,.link-button,.bar{transition:none}.progress-wrap{animation:none}}
+  @media(prefers-reduced-transparency:reduce){.progress-wrap{background:#FFF;backdrop-filter:none;-webkit-backdrop-filter:none}}
+  @media(prefers-contrast:more){.progress-wrap{background:#FFF;box-shadow:0 0 0 1px rgba(0,0,0,.55)}.lead,.privacy-note,.connection,.message{color:#3A3A3C}}
 </style>
 </head>
 <body class="platform-__PLATFORM__">
   <main class="setup">
     <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" />
-    <span class="edition">社区版 CE</span>
+    <p class="product">HugAgentOS <span>社区版</span></p>
     <h1 id="title">在这台电脑上开始使用</h1>
     <p class="lead" id="lead">自动准备运行环境并启动本机服务。完成后即可直接进入 HugAgentOS，无需 Docker，也无需手动配置。</p>
     <section class="actions" aria-label="初始化操作">
       <button class="button primary" id="install" type="button" onclick="installLocal()">从零开始安装</button>
       <button class="link-button" id="connect" type="button" onclick="connectServer()">连接已有服务器</button>
-      <p class="promise"><span>单用户运行</span><span>数据保存在本机</span><span>可随时切换服务器</span></p>
+      <p class="privacy-note">运行环境与数据仅保存在这台电脑上</p>
     </section>
     <section class="progress-wrap" id="progressWrap" aria-live="polite">
       <div class="progress-head"><span class="message" id="message">准备安装…</span><span class="percent" id="percent">0%</span></div>
@@ -629,7 +640,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
     var button=document.getElementById('install');
     button.disabled=true;button.textContent='正在开始…';
     document.getElementById('connect').style.display='none';
-    document.querySelector('.promise').style.display='none';
+    document.querySelector('.privacy-note').style.display='none';
     document.getElementById('progressWrap').style.display = 'block';
     document.getElementById('message').textContent='正在准备本机服务…';
     document.getElementById('error').style.display='none';
@@ -824,6 +835,9 @@ mod tests {
         let block = mac_titlebar_block(MAC_OFFSET_SPA);
         assert!(block.contains("hugagent-mac-titlebar"));
         assert!(block.contains("height:38px"));
+        assert!(block.contains("background:transparent"));
+        assert!(!block.contains("border-bottom"));
+        assert!(!block.contains("backdrop-filter"));
         assert!(!block.contains("data-act="));
         assert!(!block.contains("mac-toolButton"));
         assert!(!block.contains("data-win=\"minimize\""));
@@ -843,6 +857,11 @@ mod tests {
         assert!(SETUP_HTML.contains("在这台 Mac 上开始使用"));
         assert_eq!(SETUP_HTML.matches("id=\"install\"").count(), 1);
         assert!(!SETUP_HTML.contains("class=\"choices\""));
+        assert!(!SETUP_HTML.contains("border-top:1px solid"));
+        assert!(SETUP_HTML.contains("transform:scale(.97)"));
+        assert!(SETUP_HTML.contains("prefers-reduced-motion:reduce"));
+        assert!(SETUP_HTML.contains("prefers-reduced-transparency:reduce"));
+        assert!(SETUP_HTML.contains("prefers-contrast:more"));
     }
 
     #[test]

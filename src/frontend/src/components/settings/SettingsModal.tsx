@@ -126,6 +126,7 @@ export default function SettingsPage() {
   const isCE = useEditionStore((s) => (s.loaded ? s.edition === 'ce' : false));
   const [sysAccess, setSysAccess] = useState(false);
   const [ontologyGovernanceAccess, setOntologyGovernanceAccess] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   useEffect(() => {
     if (!isCE) { setSysAccess(false); return; }
     getMySystemAccess()
@@ -883,17 +884,7 @@ export default function SettingsPage() {
         {activeSection === 'profile' && <Button
           className="jx-settings-logoutBtn"
           icon={<LogoutOutlined />}
-          onClick={() => {
-            Modal.confirm({
-              title: t('确认退出登录？'),
-              icon: <ExclamationCircleFilled style={{ color: '#F8AB42' }} />,
-              content: t('退出登录不会丢失任何数据，你仍可以登录此账号。'),
-              okText: t('退出登录'),
-              cancelText: t('取消'),
-              okButtonProps: { danger: true },
-              onOk: () => void doLogout(),
-            });
-          }}
+          onClick={() => setLogoutConfirmOpen(true)}
           block
         >
           {t('退出登录')}
@@ -902,6 +893,21 @@ export default function SettingsPage() {
         </AnimatePresence>
       </div>
       </div>
+
+      <Modal
+        title={<span><ExclamationCircleFilled style={{ color: '#F8AB42', marginRight: 8 }} />{t('确认退出登录？')}</span>}
+        open={logoutConfirmOpen}
+        okText={t('退出登录')}
+        cancelText={t('取消')}
+        okButtonProps={{ danger: true }}
+        confirmLoading={loggingOut}
+        maskClosable={!loggingOut}
+        closable={!loggingOut}
+        onCancel={() => setLogoutConfirmOpen(false)}
+        onOk={() => void doLogout()}
+      >
+        {t('退出登录不会丢失任何数据，你仍可以登录此账号。')}
+      </Modal>
 
       <Modal
         title={t('修改密码')}
@@ -917,15 +923,10 @@ export default function SettingsPage() {
 
       {/* Logout full-screen overlay: runs in parallel with the hard redirect, covering the intermediate frames after clearForLogout */}
       {loggingOut && (
-        <motion.div
-          className="jx-settings-logoutMask"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.2, ease: EASE.standard }}
-        >
+        <div className="jx-settings-logoutMask">
           <Spin size="large" />
           <span>{t('正在退出…')}</span>
-        </motion.div>
+        </div>
       )}
 
       {/* Memory view modal */}

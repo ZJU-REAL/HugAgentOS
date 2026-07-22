@@ -37,6 +37,48 @@ def test_local_safe_path_exposes_venv_and_office_skill_shims(monkeypatch, tmp_pa
         assert str(skills_root / skill_id / "scripts") in entries
 
 
+def test_python_execution_uses_the_running_virtualenv():
+    assert server.INTERPRETERS["python"] == [sys.executable, "-u"]
+
+
+def test_windows_installer_provisions_native_git_bash():
+    repo_root = Path(__file__).resolve().parents[3]
+    installer = (
+        repo_root / "desktop" / "resources" / "server-bootstrap" / "install-local-server.ps1"
+    ).read_text(encoding="utf-8-sig")
+
+    assert "Git.Git" in installer
+    assert "bash-executable.txt" in installer
+    assert '"node-executable.txt", "bash-executable.txt"' in (
+        repo_root / "desktop" / "src-tauri" / "src" / "local_server.rs"
+    ).read_text(encoding="utf-8")
+
+
+def test_windows_workspace_rewrite_treats_backslashes_literally():
+    workspace = r"C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server\data\workspace"
+
+    rewritten = server._rewrite_workspace_refs(
+        'open("/workspace/myspace/report.txt")', workspace
+    )
+
+    assert rewritten == (
+        'open("C:\\Users\\Aaron\\AppData\\Local\\com.hugagent.desktop\\local-server'
+        '\\data\\workspace/myspace/report.txt")'
+    )
+    assert server._rewrite_workspace_refs(
+        rf"{workspace}/myspace/report.txt", workspace
+    ) == rf"{workspace}/myspace/report.txt"
+
+
+def test_windows_git_bash_receives_msys_workspace_path():
+    workspace = r"C:\Users\Aaron\AppData\Local\com.hugagent.desktop\local-server\data\workspace"
+
+    assert server._execution_workspace_root("bash", workspace, "nt") == (
+        "/c/Users/Aaron/AppData/Local/com.hugagent.desktop/local-server/data/workspace"
+    )
+    assert server._execution_workspace_root("python", workspace, "nt") == workspace
+
+
 def test_timeout_kills_the_whole_process_group(monkeypatch, tmp_path):
     """A timed-out bash tree must not leave document-tool descendants alive."""
     monkeypatch.setenv("DEPLOY_PROFILE", "local")

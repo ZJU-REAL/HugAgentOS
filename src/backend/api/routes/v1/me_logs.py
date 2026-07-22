@@ -230,7 +230,7 @@ def list_my_subagent_logs(
     return paginated_response(items=items, page=page, page_size=page_size, total_items=total)
 
 
-def _collect_subagent_subtree_ids(db: Session, root_id: str) -> List[str]:
+def _collect_subagent_subtree_ids(db: Session, root_id: str, user_id: str) -> List[str]:
     """BFS over parent_subagent_log_id (actual depth ≤ 2, no CTE needed)."""
     all_ids = [root_id]
     frontier = [root_id]
@@ -238,6 +238,7 @@ def _collect_subagent_subtree_ids(db: Session, root_id: str) -> List[str]:
         rows = (
             db.query(SubAgentCallLog.id)
             .filter(SubAgentCallLog.parent_subagent_log_id.in_(frontier))
+            .filter(SubAgentCallLog.user_id == user_id)
             .all()
         )
         next_ids = [r.id for r in rows]
@@ -262,15 +263,17 @@ def get_my_subagent_log(
     child_steps = (
         db.query(SubAgentCallLog)
         .filter(SubAgentCallLog.parent_subagent_log_id == log_id)
+        .filter(SubAgentCallLog.user_id == user.user_id)
         .order_by(SubAgentCallLog.step_index)
         .all()
     )
     detail["child_steps"] = [_serialize(s) for s in child_steps]
 
-    subtree_ids = _collect_subagent_subtree_ids(db, log_id)
+    subtree_ids = _collect_subagent_subtree_ids(db, log_id, user.user_id)
     tool_logs = (
         db.query(ToolCallLog)
         .filter(ToolCallLog.subagent_log_id.in_(subtree_ids))
+        .filter(ToolCallLog.user_id == user.user_id)
         .order_by(ToolCallLog.created_at)
         .all()
     )
@@ -279,6 +282,7 @@ def get_my_subagent_log(
     skill_logs = (
         db.query(SkillCallLog)
         .filter(SkillCallLog.subagent_log_id.in_(subtree_ids))
+        .filter(SkillCallLog.user_id == user.user_id)
         .order_by(SkillCallLog.created_at)
         .all()
     )

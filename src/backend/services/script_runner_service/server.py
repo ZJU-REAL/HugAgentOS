@@ -13,9 +13,9 @@ import logging
 import mimetypes
 import os
 import re
-import resource
 import signal
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -24,6 +24,11 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+try:
+    import resource
+except ImportError:  # Windows does not provide the POSIX resource module.
+    resource = None  # type: ignore[assignment]
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("script-runner")
@@ -47,16 +52,74 @@ MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
 # once here (invariant: WORKSPACE_ROOT is read from env at import). None in Docker,
 # where the roots are equal and no rewrite is needed. Match /workspace only at a
 # path boundary so an unrelated substring like /workspaces is left alone.
-_WS_REWRITE = (
-    (re.compile(r'/workspace(?=/|$|["\'\s:;)&|])'), WORKSPACE_ROOT.rstrip("/"))
-    if WORKSPACE_ROOT != "/workspace"
-    else None
-)
+_WS_PATH_RE = re.compile(r'(?<![A-Za-z0-9_.\\/-])/workspace(?=/|$|["\'\s:;)&|])')
+
+
+def _rewrite_workspace_refs(value: str, workspace_root: str = WORKSPACE_ROOT) -> str:
+    """Map canonical workspace references without treating ``\\`` as regex escapes."""
+    if not isinstance(value, str) or workspace_root == "/workspace":
+        return value
+    replacement = workspace_root.rstrip("/\\")
+    return _WS_PATH_RE.sub(lambda _match: replacement, value)
+
+
+def _execution_workspace_root(
+    language: str,
+    workspace_root: str = WORKSPACE_ROOT,
+    platform: str = os.name,
+) -> str:
+    """Return the path syntax understood by the selected host interpreter."""
+    if language != "bash" or platform != "nt":
+        return workspace_root
+    match = re.match(r"^([A-Za-z]):[\\/](.*)$", workspace_root)
+    if not match:
+        return workspace_root.replace("\\", "/")
+    drive, rest = match.groups()
+    return f"/{drive.lower()}/{rest.replace(chr(92), '/')}"
+
+
+def _rewrite_execution_paths(value: str, language: str) -> str:
+    target_root = _execution_workspace_root(language)
+    if target_root != WORKSPACE_ROOT:
+        # File tools may already have expanded /workspace to the native root.
+        value = value.replace(WORKSPACE_ROOT, target_root)
+    return _rewrite_workspace_refs(value, target_root)
+
+
+def _resolve_bash_executable() -> Optional[str]:
+    """Find a native Bash, excluding Windows' WSL launcher stubs."""
+    configured = os.getenv("SCRIPT_RUNNER_BASH", "").strip()
+    candidates = [configured, shutil.which("bash") or ""]
+    if os.name == "nt":
+        for root in (
+            os.getenv("ProgramFiles", ""),
+            os.getenv("ProgramFiles(x86)", ""),
+            str(Path(os.getenv("LOCALAPPDATA", "")) / "Programs"),
+        ):
+            if root:
+                candidates.append(str(Path(root) / "Git" / "bin" / "bash.exe"))
+
+    for candidate in candidates:
+        if not candidate or not Path(candidate).is_file():
+            continue
+        normalized = candidate.replace("/", "\\").casefold()
+        if os.name == "nt" and (
+            "\\windows\\system32\\bash.exe" in normalized
+            or "\\microsoft\\windowsapps\\bash.exe" in normalized
+        ):
+            continue
+        return candidate
+    return None
+
+
+_BASH_EXECUTABLE = _resolve_bash_executable()
 
 INTERPRETERS = {
-    "python": ["python3", "-u"],
-    "bash": ["bash"],
-    "javascript": ["node"],
+    # Use the running venv on local Windows/macOS/Linux installations.  A bare
+    # ``python3`` is not installed on a standard Windows machine.
+    "python": [sys.executable, "-u"],
+    "bash": [_BASH_EXECUTABLE or "hugagent-git-bash-not-installed"],
+    "javascript": [shutil.which("node") or "node"],
 }
 
 # ── Generated-file capture ──
@@ -84,13 +147,14 @@ ALLOWED_EXTENSIONS = {
 }
 
 # Clean environment variables — leak no sensitive information
+_TEMP_ROOT = tempfile.gettempdir()
 SAFE_ENV = {
-    "PATH": "/usr/local/bin:/usr/bin:/bin",
-    "HOME": "/tmp",
-    "TMPDIR": "/tmp",
-    "XDG_CACHE_HOME": "/tmp/.cache",
-    "FONTCONFIG_PATH": "/etc/fonts",
-    "FONTCONFIG_FILE": "/etc/fonts/fonts.conf",
+    "PATH": "" if os.name == "nt" else "/usr/local/bin:/usr/bin:/bin",
+    "HOME": os.getenv("USERPROFILE", _TEMP_ROOT) if os.name == "nt" else "/tmp",
+    "TMPDIR": _TEMP_ROOT,
+    "TEMP": _TEMP_ROOT,
+    "TMP": _TEMP_ROOT,
+    "XDG_CACHE_HOME": str(Path(_TEMP_ROOT) / ".cache"),
     "LANG": "en_US.UTF-8",
     "PYTHONIOENCODING": "utf-8",
     "MPLBACKEND": "Agg",  # matplotlib non-interactive backend
@@ -100,6 +164,19 @@ SAFE_ENV = {
     "DOTNET_NOLOGO": "1",  # suppress dotnet startup banner
     "DOTNET_EnableDiagnostics": "0",  # stop dotnet from creating diagnostic pipes/core dump files
 }
+if os.name != "nt":
+    SAFE_ENV.update(
+        {
+            "FONTCONFIG_PATH": "/etc/fonts",
+            "FONTCONFIG_FILE": "/etc/fonts/fonts.conf",
+        }
+    )
+else:
+    # These variables are required by CreateProcess and common Windows CLIs.
+    for _key in ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"):
+        _val = os.getenv(_key)
+        if _val:
+            SAFE_ENV[_key] = _val
 for _key in ("NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH", "JX_FONT_DIR"):
     _val = os.getenv(_key)
     if _val:
@@ -124,7 +201,30 @@ def _local_safe_path_entries() -> list[str]:
             str(Path(skills_root) / skill_id / "scripts") for skill_id in _LOCAL_SKILL_CLI_IDS
         )
 
-    for binary in ("node", "npm", "npx"):
+    if os.name == "nt":
+        system_root = os.getenv("SYSTEMROOT") or os.getenv("WINDIR")
+        if system_root:
+            entries.extend(
+                [
+                    str(Path(system_root)),
+                    str(Path(system_root) / "System32"),
+                    str(Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0"),
+                ]
+            )
+        if _BASH_EXECUTABLE:
+            git_bin = Path(_BASH_EXECUTABLE).parent
+            entries.extend(
+                [
+                    str(git_bin),
+                    str(git_bin.parent / "usr" / "bin"),
+                    str(git_bin.parent / "cmd"),
+                ]
+            )
+
+    binaries = ("node", "npm", "npx")
+    if os.name != "nt":
+        binaries += ("bash",)
+    for binary in binaries:
         path = shutil.which(binary)
         if path:
             entries.append(os.path.dirname(path))
@@ -150,12 +250,14 @@ if os.getenv("DEPLOY_PROFILE") == "local":
             SAFE_ENV[_k] = _v
     _extra_path = _local_safe_path_entries()
     if _extra_path:
-        SAFE_ENV["PATH"] = os.pathsep.join(_extra_path + [SAFE_ENV["PATH"]])
+        SAFE_ENV["PATH"] = os.pathsep.join(
+            _extra_path + ([SAFE_ENV["PATH"]] if SAFE_ENV["PATH"] else [])
+        )
     # npm/vite need a writable HOME for cache/config; keep the real one locally.
-    SAFE_ENV["HOME"] = os.getenv("HOME", "/tmp")
+    SAFE_ENV["HOME"] = os.getenv("HOME") or os.getenv("USERPROFILE") or _TEMP_ROOT
 
 # Pre-create fontconfig cache dir once (avoids per-request mkdir)
-Path("/tmp/.cache/fontconfig").mkdir(parents=True, exist_ok=True)
+Path(SAFE_ENV["XDG_CACHE_HOME"], "fontconfig").mkdir(parents=True, exist_ok=True)
 
 
 class ExecuteRequest(BaseModel):
@@ -355,15 +457,17 @@ async def execute(req: ExecuteRequest):
 
     # Local profile: the model writes container-canonical /workspace/... paths (from
     # the system prompt, skills, and plugin scripts). Alias them to the real root so
-    # bash/python that touch /workspace resolve. _WS_REWRITE is None in Docker.
-    if _WS_REWRITE is not None:
-        _re, _repl = _WS_REWRITE
-        _canon = lambda s: _re.sub(_repl, s) if isinstance(s, str) else s
-        req.script_content = _canon(req.script_content)
+    # bash/python that touch /workspace resolve.  A callable replacement is
+    # essential on Windows because ``C:\\Users`` contains regex escape syntax.
+    if WORKSPACE_ROOT != "/workspace":
+        req.script_content = _rewrite_execution_paths(req.script_content, req.language)
         if isinstance(req.params, dict) and req.params:
             _args = req.params.get("_args")
             if isinstance(_args, list):
-                req.params["_args"] = [_canon(a) if isinstance(a, str) else a for a in _args]
+                req.params["_args"] = [
+                    _rewrite_execution_paths(a, req.language) if isinstance(a, str) else a
+                    for a in _args
+                ]
 
     # ── Filename safety validation (prevent path traversal) ──
     _validate_filename(req.script_name)
@@ -500,7 +604,20 @@ async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str
     def _set_limits():
         # Keep the post-fork callback minimal: non-async-safe Python work in a
         # multi-threaded server's preexec_fn can deadlock before exec().
-        resource.setrlimit(resource.RLIMIT_NPROC, (nproc_limit, nproc_limit))
+        if resource is not None and nproc_limit is not None:
+            resource.setrlimit(resource.RLIMIT_NPROC, (nproc_limit, nproc_limit))
+
+    if os.name == "nt":
+        spawn_options: Dict[str, Any] = {
+            "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP,
+        }
+    else:
+        spawn_options = {
+            # Host-local quick installs intentionally pass no preexec_fn at all.
+            "preexec_fn": _set_limits if nproc_limit is not None else None,
+            # Give every execution its own process group for descendant cleanup.
+            "start_new_session": True,
+        }
 
     proc: Optional[asyncio.subprocess.Process] = None
     # Do not expose PIPE file descriptors to document-tool descendants.  Some
@@ -523,14 +640,7 @@ async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str
                 stderr=stderr_file,
                 cwd=cwd,
                 env=SAFE_ENV,
-                # Host-local quick installs intentionally pass no preexec_fn at all.
-                # Apart from avoiding the UID-wide limit, this also avoids a
-                # post-fork Python callback in the multi-threaded backend process.
-                preexec_fn=_set_limits if nproc_limit is not None else None,
-                # Give every execution its own process group.  A document skill may
-                # fan out through bash -> Python/Node/LibreOffice; killing only bash
-                # on timeout otherwise leaves those descendants running forever.
-                start_new_session=True,
+                **spawn_options,
             )
             await asyncio.wait_for(_wait_for_process_exit(proc), timeout=timeout)
             exit_code = proc.returncode or 0
@@ -558,7 +668,15 @@ async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str
         except Exception as e:
             await _terminate_process_group(proc)
             logger.exception("subprocess execution failed")
-            return {"stdout": "", "stderr": str(e), "exit_code": -1}
+            detail = str(e)
+            if (
+                isinstance(e, FileNotFoundError)
+                and os.name == "nt"
+                and cmd
+                and Path(str(cmd[0])).stem.lower() in {"bash", "hugagent-git-bash-not-installed"}
+            ):
+                detail = "Windows 本机未找到 Bash；请安装 Git for Windows 后重启桌面客户端"
+            return {"stdout": "", "stderr": detail, "exit_code": -1}
 
 
 def _subprocess_nproc_limit(cmd: list) -> Optional[int]:
@@ -573,6 +691,8 @@ def _subprocess_nproc_limit(cmd: list) -> Optional[int]:
     UID namespace plus a cgroup ``pids_limit``, so retain the defence in depth
     there and skip only the unsafe host-local limit.
     """
+    if resource is None or os.name == "nt":
+        return None
     if os.getenv("DEPLOY_PROFILE", "").strip().lower() == "local":
         return None
 
@@ -589,6 +709,36 @@ async def _terminate_process_group(
 ) -> None:
     """Kill and reap one execution process together with all descendants."""
     if proc is None:
+        return
+    if os.name == "nt":
+        # Once the leader has exited Windows may immediately recycle its PID;
+        # taskkill on that stale PID could target an unrelated process. Timeout
+        # and cancellation reach this branch while the leader is still alive.
+        if proc.returncode is not None:
+            return
+        try:
+            await asyncio.to_thread(
+                subprocess.run,
+                ["taskkill.exe", "/PID", str(proc.pid), "/T", "/F"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, OSError):
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+        if proc.returncode is None:
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                await proc.wait()
         return
     try:
         os.killpg(proc.pid, signal.SIGKILL)

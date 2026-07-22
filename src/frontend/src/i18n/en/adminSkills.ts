@@ -259,6 +259,7 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   'rebuild 已触发，状态会自动刷新': 'Rebuild triggered; status will refresh automatically',
   '触发失败：{msg}': 'Trigger failed: {msg}',
   '加载日志失败：{msg}': 'Failed to load log: {msg}',
+  '加载日志详情失败：{msg}': 'Failed to load log details: {msg}',
   '有依赖待应用 — 当前 hash {hash}，已应用 {applied}': 'Dependencies pending — current hash {hash}, applied {applied}',
   '沙盒依赖已与启用技能保持同步': 'Sandbox dependencies are in sync with enabled skills',
   '正在 rebuild：{targets}（{status}）': 'Rebuilding: {targets} ({status})',

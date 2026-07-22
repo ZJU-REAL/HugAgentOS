@@ -199,7 +199,10 @@ def register_write(
 
         # ── Create parent directory (inside the sandbox) ─────────────────
         pd = parent_dir(physical)
-        if pd and pd != "/workspace":
+        # The host-local script runner implements parent creation inside its
+        # native put_file endpoint.  Asking it to run POSIX ``mkdir -p`` first
+        # breaks standard Windows installations before the actual write starts.
+        if pd and pd != "/workspace" and provider.name != "script_runner":
             mk_exit, _, mk_err = await sandbox_exec_bash(
                 f"mkdir -p {shell_quote(pd)}",
                 chat_id=_sess, timeout=10,

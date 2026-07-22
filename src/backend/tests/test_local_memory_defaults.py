@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import cli
+import pytest
 
 
 def test_local_profile_enables_memory_runtime_by_default(tmp_path, monkeypatch):
@@ -29,3 +30,20 @@ def test_ce_installer_pins_compatible_milvus_lite_stack():
     assert '"protobuf<7"' in installer
     assert "pymilvus>=2.5.0,<2.6.0" in requirements
     assert "pymilvus[milvus-lite]>=2.5.0" not in installer
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "desktop/resources/server-bootstrap/install-local-server.ps1",
+        "desktop/resources/server-bootstrap/install-local-server.sh",
+    ],
+)
+def test_desktop_installer_includes_persistent_memory_runtime(relative_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    installer = (repo_root / relative_path).read_text(encoding="utf-8-sig")
+
+    assert "requirements-mem0.txt" in installer
+    assert "protobuf<7" in installer
+    assert "pymilvus==2.5.18" in installer
+    assert "milvus-lite==3.1.0" in installer
