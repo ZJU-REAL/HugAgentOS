@@ -25,6 +25,17 @@ from core.db.engine import get_db
 from core.db.models import AdminMcpServer, AdminSkill
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
+from core.services.mcp_management_service import probe_mcp_connectivity, refresh_mcp_caches
+from core.services.skill_management_service import (
+    build_skill_content,
+    extract_instructions,
+    extract_mcp_server_ids,
+    parse_and_upsert_skill_zip,
+    refresh_skill_caches,
+    resolve_mcp_bindings,
+    resolve_ontology_workflows,
+    validate_skill_file_path,
+)
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -97,16 +108,14 @@ async def create_my_mcp_server(
         created_by=str(user.user_id),
     )
 
-    from api.routes.v1.admin_mcp_servers import _probe_connectivity, _refresh_caches
-
-    ok, err = await _probe_connectivity(row, db)
+    ok, err = await probe_mcp_connectivity(row, db)
     if not ok:
         raise BadRequestError(message=f"MCP 连接失败，无法添加：{err}")
 
     db.add(row)
     db.commit()
     db.refresh(row)
-    _refresh_caches()
+    refresh_mcp_caches()
 
     return created_response(
         data={
@@ -140,9 +149,7 @@ async def delete_my_mcp_server(
     db.delete(row)
     db.commit()
 
-    from api.routes.v1.admin_mcp_servers import _refresh_caches
-
-    _refresh_caches()
+    refresh_mcp_caches()
     return success_response(data={"server_id": server_id, "deleted": True})
 
 
@@ -170,8 +177,6 @@ async def upload_my_skill(
         raise BadRequestError(
             message=f"技能包过大（上限 {USER_SKILL_MAX_BYTES // (1024 * 1024)}MB）"
         )
-
-    from api.routes.v1.admin_skills import parse_and_upsert_skill_zip
 
     result = parse_and_upsert_skill_zip(db, data, owner_user_id=str(user.user_id))
     result["owner"] = "self"
@@ -219,14 +224,6 @@ async def create_my_skill(
     """
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
-    from api.routes.v1.admin_skills import (
-        _build_skill_content,
-        _extract_mcp_server_ids,
-        _refresh_caches,
-        _resolve_mcp_bindings,
-        _resolve_ontology_workflows,
-    )
-
     skill_id = body.name
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
     if existing is not None and existing.owner_user_id != str(user.user_id):
@@ -239,8 +236,8 @@ async def create_my_skill(
     # Preserve the version of a zip-uploaded skill. MCP-derived tools are rebuilt from the
     # selected servers, while unrelated tool declarations from an imported skill remain intact.
     version = (existing.version if existing else None) or "1.0.0"
-    existing_mcp_ids = _extract_mcp_server_ids(existing.skill_content if existing else "")
-    _, existing_mcp_tools = _resolve_mcp_bindings(
+    existing_mcp_ids = extract_mcp_server_ids(existing.skill_content if existing else "")
+    _, existing_mcp_tools = resolve_mcp_bindings(
         db,
         existing_mcp_ids,
         owner_user_id=str(user.user_id),
@@ -250,7 +247,7 @@ async def create_my_skill(
         mcp_server_ids = existing_mcp_ids
         allowed_tools = list((existing.allowed_tools if existing else None) or [])
     else:
-        mcp_server_ids, mcp_tool_names = _resolve_mcp_bindings(
+        mcp_server_ids, mcp_tool_names = resolve_mcp_bindings(
             db,
             body.mcp_server_ids,
             owner_user_id=str(user.user_id),
@@ -261,8 +258,8 @@ async def create_my_skill(
             if tool not in set(existing_mcp_tools)
         ]
         allowed_tools = list(dict.fromkeys([*additional_tools, *mcp_tool_names]))
-    ontology_workflows = _resolve_ontology_workflows(db, body.tags)
-    content = _build_skill_content(
+    ontology_workflows = resolve_ontology_workflows(db, body.tags)
+    content = build_skill_content(
         skill_id=skill_id,
         display_name=body.display_name,
         description=body.description,
@@ -317,7 +314,7 @@ async def create_my_skill(
         from core.services.skill_icon_service import set_skill_icon
 
         set_skill_icon(db, skill_id, body.icon)
-    _refresh_caches()
+    refresh_skill_caches()
     return created_response(
         data={
             "id": skill_id,
@@ -359,7 +356,6 @@ async def get_my_skill(
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
     row = _get_own_skill(db, str(user.user_id), skill_id)
 
-    from api.routes.v1.admin_skills import _extract_instructions, _extract_mcp_server_ids
     from core.agent_skills.binary_files import is_binary_value
     from core.services.skill_icon_service import get_skill_icon
 
@@ -376,9 +372,9 @@ async def get_my_skill(
             "id": row.skill_id,
             "display_name": row.display_name or row.skill_id,
             "description": row.description or "",
-            "instructions": _extract_instructions(row.skill_content),
+            "instructions": extract_instructions(row.skill_content),
             "tags": list(row.tags or []),
-            "mcp_server_ids": _extract_mcp_server_ids(row.skill_content),
+            "mcp_server_ids": extract_mcp_server_ids(row.skill_content),
             "allowed_tools": list(row.allowed_tools or []),
             "user_intro": row.user_intro,
             "icon": get_skill_icon(db, row.skill_id),
@@ -431,9 +427,7 @@ async def save_my_skill_file(
     """
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
-    from api.routes.v1.admin_skills import _refresh_caches, _validate_skill_file_path
-
-    filename = _validate_skill_file_path(filename)
+    filename = validate_skill_file_path(filename)
     if filename == "SKILL.md":
         raise BadRequestError(message="SKILL.md 请在「编辑技能」表单中修改")
     if len(body.content.encode("utf-8")) > USER_SKILL_FILE_MAX_BYTES:
@@ -447,7 +441,7 @@ async def save_my_skill_file(
     row.updated_at = datetime.utcnow()
     flag_modified(row, "extra_files")
     db.commit()
-    _refresh_caches()
+    refresh_skill_caches()
     return success_response(data={"filename": filename, "message": "File saved"})
 
 
@@ -470,9 +464,7 @@ async def delete_my_skill_file(
     flag_modified(row, "extra_files")
     db.commit()
 
-    from api.routes.v1.admin_skills import _refresh_caches
-
-    _refresh_caches()
+    refresh_skill_caches()
     return success_response(data={"filename": filename, "message": "File deleted"})
 
 
@@ -487,10 +479,9 @@ async def upload_my_skill_file(
     """以 multipart 上传单个文件到自己的私有技能，二进制按 base64 标记安全存储。"""
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
-    from api.routes.v1.admin_skills import _refresh_caches, _validate_skill_file_path
     from core.agent_skills.binary_files import encode_upload
 
-    filename = _validate_skill_file_path(path or file.filename or "")
+    filename = validate_skill_file_path(path or file.filename or "")
     if filename == "SKILL.md":
         raise BadRequestError(message="SKILL.md 请在「编辑技能」表单中修改")
     raw = await file.read()
@@ -505,7 +496,7 @@ async def upload_my_skill_file(
     row.updated_at = datetime.utcnow()
     flag_modified(row, "extra_files")
     db.commit()
-    _refresh_caches()
+    refresh_skill_caches()
     return success_response(
         data={"filename": filename, "size": len(raw), "message": "File uploaded"}
     )
@@ -557,11 +548,10 @@ async def delete_my_skill(
     db.delete(row)
     db.commit()
 
-    from api.routes.v1.admin_skills import _refresh_caches
     from core.services.skill_icon_service import delete_skill_icon
 
     delete_skill_icon(db, skill_id)
-    _refresh_caches()
+    refresh_skill_caches()
     return success_response(data={"skill_id": skill_id, "deleted": True})
 
 
@@ -586,9 +576,8 @@ async def set_my_skill_icon(
     if not row:
         raise ResourceNotFoundError("skill", skill_id)
 
-    from api.routes.v1.admin_skills import _refresh_caches
     from core.services.skill_icon_service import set_skill_icon
 
     icon = set_skill_icon(db, skill_id, body.icon)
-    _refresh_caches()
+    refresh_skill_caches()
     return success_response(data={"id": skill_id, "icon": icon})

@@ -1,5 +1,6 @@
 # CE 构建管线
-> 最后更新：2026-07-22
+
+> 最后更新：2026-07-23
 
 社区版（CE）不是独立分支，而是由主仓（EE，唯一开发真源）经 `scripts/build_ce.py` **确定性派生**的子集树，输出到 `dist/ce/`。核心约束是**白名单铁律：EE 专属代码在 CE 树里物理不存在**——不是注释掉、不是 if 关掉，而是文件层面删除。整条管线的唯一输入是 `ce/manifest.yaml`。
 
@@ -9,7 +10,7 @@
 pip install pyyaml                                  # 生成器唯一三方依赖
 python scripts/build_ce.py                          # 生成 + 品牌门禁 + LICENSE 闸门
 python scripts/build_ce.py --import-check           # + 在 CE 树上 import api.app 自检
-python scripts/build_ce.py --pytest-check           # + pytest --collect-only 自检
+python scripts/build_ce.py --pytest-check           # + 可执行 CE 发布回归测试
 python scripts/build_ce.py --frontend-check         # + npm install && build 自检（需网络）
 python scripts/build_ce.py --allow-dirty            # 开发期：工作树有未提交改动也生成
 python scripts/build_ce.py --allow-placeholder-license  # 开发期：LICENSE 占位文本放行
@@ -54,7 +55,7 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `catalog_json` | `core/config/catalog.json` | 去掉 EE MCP 种子（`database_query`、`query_database`、`ai_chain_information_mcp`） |
 | `package_json` | `src/frontend/package.json` | 改名 `hugagent-ui`；删商业 License 预设 `@univerjs/preset-sheets-advanced` 与死依赖 `pptxgenjs`；固定 `@univerjs/icons=1.1.1`，避免无主仓 lockfile 时与 Univer 0.19 发生导出契约不兼容 |
 | `requirements` | `requirements.txt` | 删云存储 / 持久沙箱依赖（boto3 / oss2 / opensandbox）；neo4j / mem0ai 移入独立档 `requirements-mem0.txt`（无 Docker 一键安装器会默认安装该档） |
-| `docker_compose` | `docker-compose.yml` | 删 opensandbox / litellm 服务及 depends_on；`script-runner` 摘掉 profile 转默认启动；整树摘除被排除组件的 env 注入（`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` 前缀） |
+| `docker_compose` | `docker-compose.yml` | 删 opensandbox / litellm 服务及 depends_on；`script-runner` 摘掉 profile 转默认启动；整树摘除被排除组件的 env 注入（`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` 前缀）；把后端版本、认证与 SSO 默认值固定为 CE 本地会话模式，前端构建默认固定为 CE |
 | `frontend_lock` | `package-lock.json` + 前端 Dockerfile | 删 lock（与裁剪后的 package.json 必然失同步）、`npm ci` 改 `npm install` |
 | `repository_resources` | 内置商业字体的构建与源码引用 | 从 CE Dockerfile 删除字体复制/安装段，并清除后端的仓库字体目录回退引用；生成后由禁止产物门禁再次检查 |
 
@@ -79,7 +80,9 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | 个人空间工具、VFS 与恢复接口；组织空间实现不进入 CE |
 | `src/backend/core/config/edition_display_names.py` | CE 工具展示名；不包含团队工具名称 |
 | `src/backend/core/memory/audit.py` | 记忆审计 no-op stub（同名接口、不落数据） |
-| `src/backend/alembic/versions/ce_0001_initial.py` | CE 独立迁移链基线（见下节） |
+| `src/backend/alembic/versions/ce_000{1,2}_*.py` | CE 独立迁移链基线与幂等 Schema 升级（见下节） |
+| `src/backend/core/services/edition_startup.py` | CE 启动接缝；为 EE 数据源恢复、蒸馏调度提供 no-op 实现，避免导入已裁除模块 |
+| `src/backend/tests/ce_release/` | 可执行 CE 发布回归套件，覆盖登录、私有技能/MCP、数据库升级及启动/Compose 契约 |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | 去除管理端点与组织字段后的 CE API 契约 |
 | `src/backend/mcp_servers/_ports.py` | 8 个通用工具的端口表（EE 行业工具端口标注 reserved） |
 | `src/frontend/default.conf.template` | CE 前端 Nginx 模板，移除 `/gateway/**` 反代与 litellm upstream |
@@ -113,15 +116,17 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
               另有路径专用模式拦商业字体文件本体）
 [6/7] LICENSE 闸门  overlay LICENSE 仍是占位文本（含 NOTE TO MAINTAINERS 标记）时拒绝生成
 [7/7] 自检     --import-check / --pytest-check / --frontend-check（可选）
-[8/8] 清残留   自检留下的 __pycache__ / .pytest_cache / node_modules / dist / 再生 lock
+[8/8] 清残留   自检留下的 __pycache__ / .pytest_cache / ce_selfcheck.db / node_modules / dist / 再生 lock
 ```
 
 以 `git ls-files` 为拷贝清单意味着 `.env`、本地数据库等未跟踪 / 已忽略文件**天然不会进入 CE 树**。
 
-Windows 桌面服务载荷在两类 checkout 中遵守同一边界：源代码 checkout 中，`desktop/scripts/prepare-bundle.mjs`
-仍会找到并运行 `scripts/build_ce.py`；在有意移除生成器的公开 CE 仓中，它要求
+Windows 和 macOS 桌面服务载荷在两类 checkout 中遵守同一边界：源代码 checkout 中，
+`desktop/scripts/prepare-bundle.mjs` 仍会找到并运行 `scripts/build_ce.py`；在有意移除生成器的公开 CE 仓中，它要求
 `.hugagent-edition` 内容为 `ce`，然后只暂存当前 checkout 的 Git tracked 文件。正式发布会拒绝脏
-checkout，因此该 fallback 不能把一个生成器异常缺失的任意仓库静默当成 CE 载荷。
+checkout，因此该 fallback 不能把一个生成器异常缺失的任意仓库静默当成 CE 载荷。边界检查和前端
+构建完成后，脚本把派生树压成单个 `server-ce.zip` 再交给平台安装包，避免安装和卸载阶段处理数千个
+散文件。
 
 ## CE 数据库差异
 
@@ -129,10 +134,14 @@ CE 不注册、也不创建 EE 专属表。商业 ORM 类集中在 `src/backend/
 
 发布契约禁止 20 张表：`chat_session_user_states`、`teams`、`team_members`、`team_folders`、`invite_codes`、`roles`、`role_assignments`、`kb_grants`、`marketplace_visibility_grants`、`audit_logs`、`memory_audit`、`model_pricing`、`data_sources`、`ds_table_meta`、`ds_column_meta`、`ds_golden_sql`、`gateway_virtual_keys`、`sandbox_rebuilds`、`admin_skill_drafts`、`distillation_runs`。import 门禁会同时检查 CE metadata 中没有这些表、没有跨界外键；`projects`、`artifacts`、`user_agents`、`chat_sessions`、`marketplace_listing_states` 与 `sites` 也不得注册相应商业作用域列。
 
-两个建表入口共用 CE-only metadata：
+CE 的所有建表和升级入口共用 CE-only metadata：
 
-1. `core/db/engine.py::init_db` 的 CE 分支（`JX_EDITION=ce` 时走 `ce_create_all`，SQLite 启动兜底）；
-2. CE overlay 迁移基线 `ce_0001_initial.py`——CE 走**独立 alembic 链**，直接从 CE-only metadata 建表，方言感知（SQLite / PostgreSQL 通吃），与 init_db 幂等不冲突。后续 CE schema 演进在 `ce_0001` 链上追加常规迁移。
+1. `ce_0001_initial.py` 是不可回写的历史基线；新安装从 CE-only metadata 建表，方言感知（SQLite / PostgreSQL 通吃）。
+2. `ce_0002_reconcile_schema.py` 对早期 CE 基线可能缺少的表、列和索引执行幂等补齐。已存在对象保持不变，重复执行安全；不允许通过删除或重建用户表来“追平”结构。
+3. `core/db/engine.py::init_db` 的 CE 分支在 SQLite/no-Docker 启动时执行同一个 reconciler，覆盖没有运行 Alembic 的桌面升级路径。
+4. Docker/PostgreSQL 先运行 Alembic，再由入口脚本防御性执行一次 `init_db`；这样历史数据库和新数据库最终收敛到相同 CE Schema。
+
+以后每次共享 CE 模型发生结构变化，都必须追加新的 `ce_000N` 迁移，并保持 reconciler 可重复执行；禁止只修改 `ce_0001` 或依赖 `create_all()` 给已有表补列，因为 SQLAlchemy 不会修改已存在表。
 
 EE 始终全量建表。维护规则：**新增 EE 专属模型必须放进 `edition_ee/db/models`，并把表名加入 CE 发布契约**。
 
@@ -147,6 +156,7 @@ EE 始终全量建表。维护规则：**新增 EE 专属模型必须放进 `edi
 | 品牌 / 二进制门禁 | 文本 0 命中、全量路径扫描通过；PNG/PDF/DOCX 必须命中经人工/OCR 审阅的 path + SHA-256 白名单 | `brand_scan()` + `binary_allowlist_check()` |
 | LICENSE 闸门 | overlay LICENSE 非占位文本 | `license_placeholder_check()` |
 | split 断言 | 每个声明的 CE split 替代文件都在 overlay 中存在 | `main()` overlay 前置检查 |
+| CE 核心流程可执行 | `--pytest-check`：实际调用 admin/admin 登录与 ticket 兑换，创建私有技能/MCP，升级旧 SQLite Schema，并检查 CE 启动与 Compose 默认值 | `pytest_check()` + `tests/ce_release/` |
 | 前端可构建 | `--frontend-check`：npm install + vite build 通过 | `frontend_check()` |
 | 交付卫生 | 自检残留全部清除 | `cleanup_gate_artifacts()` |
 
@@ -169,8 +179,10 @@ EE 始终全量建表。维护规则：**新增 EE 专属模型必须放进 `edi
 | 派生树版本标识 | `ce/overlay/.hugagent-edition` |
 | 公开桌面发版 workflow | `ce/overlay/.github/workflows/desktop-release.yml` |
 | CE/EE 建表边界 | `src/backend/core/db/edition_tables.py` |
+| 幂等 Schema 升级器 | `src/backend/core/db/schema_reconcile.py` |
 | 启动建表 CE 分支 | `src/backend/core/db/engine.py::init_db` |
-| CE 迁移基线 | `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` |
+| CE 独立迁移链 | `ce/overlay/src/backend/alembic/versions/ce_000{1,2}_*.py` |
+| CE 发布回归套件 | `ce/overlay/src/backend/tests/ce_release/` |
 | 路由注册表 | `src/backend/api/routes/v1/__init__.py` |
 
 相关阅读：[社区版与商业版总览](overview.md) · [License 机制](license.md)

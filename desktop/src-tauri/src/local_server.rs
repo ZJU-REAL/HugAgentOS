@@ -50,7 +50,8 @@ impl Default for LocalServerStatus {
 
 pub struct LocalServerManager {
     root: PathBuf,
-    bundle_dir: PathBuf,
+    bundle_archive: PathBuf,
+    bundle_manifest: PathBuf,
     installer_script: PathBuf,
     http: reqwest::Client,
     status: RwLock<LocalServerStatus>,
@@ -62,7 +63,8 @@ pub struct LocalServerManager {
 impl LocalServerManager {
     pub fn new(
         root: PathBuf,
-        bundle_dir: PathBuf,
+        bundle_archive: PathBuf,
+        bundle_manifest: PathBuf,
         installer_script: PathBuf,
         http: reqwest::Client,
     ) -> Arc<Self> {
@@ -72,7 +74,8 @@ impl LocalServerManager {
         };
         Arc::new(Self {
             root,
-            bundle_dir,
+            bundle_archive,
+            bundle_manifest,
             installer_script,
             http,
             status: RwLock::new(initial_status),
@@ -93,11 +96,25 @@ impl LocalServerManager {
 
     #[cfg(not(target_os = "macos"))]
     fn source_dir(&self) -> PathBuf {
-        self.root.join("source")
+        self.runtime_dir().join("source")
     }
 
     fn data_dir(&self) -> PathBuf {
         self.root.join("data")
+    }
+
+    #[cfg(target_os = "windows")]
+    fn runtime_dir(&self) -> PathBuf {
+        self.root.join("runtime")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn runtime_dir(&self) -> PathBuf {
+        self.root.clone()
+    }
+
+    fn node_runtime_dir(&self) -> PathBuf {
+        self.runtime_dir().join("node")
     }
 
     fn log_path(&self) -> PathBuf {
@@ -114,7 +131,10 @@ impl LocalServerManager {
 
     #[cfg(target_os = "windows")]
     fn executable(&self) -> PathBuf {
-        self.root.join("venv").join("Scripts").join("hugagent.exe")
+        self.runtime_dir()
+            .join("venv")
+            .join("Scripts")
+            .join("hugagent.exe")
     }
 
     #[cfg(target_os = "macos")]
@@ -139,7 +159,7 @@ impl LocalServerManager {
                 return current.join("desktop-bundle.json");
             }
         }
-        self.root.join("installed-bundle.json")
+        self.runtime_dir().join("installed-bundle.json")
     }
 
     pub fn is_installed(&self) -> bool {
@@ -150,7 +170,7 @@ impl LocalServerManager {
         if !self.is_installed() {
             return true;
         }
-        let bundled = std::fs::read_to_string(self.bundle_dir.join("desktop-bundle.json"));
+        let bundled = std::fs::read_to_string(&self.bundle_manifest);
         let installed = std::fs::read_to_string(self.installed_manifest_path());
         match (bundled, installed) {
             (Ok(a), Ok(b)) => a.trim() != b.trim(),
@@ -312,6 +332,11 @@ impl LocalServerManager {
                         "FRONTEND_DIST_DIR",
                         self.source_dir().join("src").join("frontend").join("dist"),
                     )
+                    .env("NODE_PATH", self.node_runtime_dir().join("node_modules"))
+                    .env(
+                        "PLAYWRIGHT_BROWSERS_PATH",
+                        self.node_runtime_dir().join("browsers"),
+                    )
                     .stdin(Stdio::null())
                     .stdout(Stdio::from(stdout))
                     .stderr(Stdio::from(stderr));
@@ -372,7 +397,7 @@ impl LocalServerManager {
     fn apply_tool_path(&self, command: &mut Command) {
         let mut paths = Vec::new();
         for filename in ["node-executable.txt", "bash-executable.txt"] {
-            let Ok(executable) = std::fs::read_to_string(self.root.join(filename)) else {
+            let Ok(executable) = std::fs::read_to_string(self.runtime_dir().join(filename)) else {
                 continue;
             };
             let executable = PathBuf::from(executable.trim());
@@ -432,7 +457,7 @@ impl LocalServerManager {
         if !cfg!(any(target_os = "windows", target_os = "macos")) {
             return Err("当前版本暂不支持在此系统一键部署本机服务".to_string());
         }
-        if !self.bundle_dir.join("pyproject.toml").is_file() {
+        if !self.bundle_archive.is_file() || !self.bundle_manifest.is_file() {
             return Err("安装包未携带本机服务资源，请重新下载完整安装包".to_string());
         }
         if !self.installer_script.is_file() {
@@ -469,8 +494,10 @@ impl LocalServerManager {
                 ])
                 .arg("-File")
                 .arg(powershell_compatible_path(&self.installer_script))
-                .arg("-BundleDir")
-                .arg(powershell_compatible_path(&self.bundle_dir))
+                .arg("-BundleArchive")
+                .arg(powershell_compatible_path(&self.bundle_archive))
+                .arg("-BundleManifest")
+                .arg(powershell_compatible_path(&self.bundle_manifest))
                 .arg("-InstallRoot")
                 .arg(powershell_compatible_path(&self.root))
                 .stdin(Stdio::null())
@@ -486,8 +513,10 @@ impl LocalServerManager {
             #[cfg(target_os = "macos")]
             command
                 .arg(&self.installer_script)
-                .arg("--bundle-dir")
-                .arg(&self.bundle_dir)
+                .arg("--bundle-archive")
+                .arg(&self.bundle_archive)
+                .arg("--bundle-manifest")
+                .arg(&self.bundle_manifest)
                 .arg("--install-root")
                 .arg(&self.root)
                 .stdin(Stdio::null())
@@ -800,10 +829,39 @@ fn restore_previous_release(root: &Path) -> Result<bool, String> {
     if let Some(failed_release) = failed_release {
         let releases = root.join("releases");
         if failed_release.starts_with(&releases) {
+            #[cfg(target_os = "macos")]
+            detach_macos_tree_cleanup(&failed_release);
+            #[cfg(not(target_os = "macos"))]
             let _ = std::fs::remove_dir_all(failed_release);
         }
     }
     Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+fn detach_macos_tree_cleanup(path: &Path) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let leaf = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("release");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or_default();
+    let trash = parent.join(format!(".{leaf}.cleanup-{}-{nonce}", std::process::id()));
+    if std::fs::rename(path, &trash).is_err() {
+        return;
+    }
+    let _ = Command::new("/bin/rm")
+        .args(["-rf", "--"])
+        .arg(trash)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
 }
 
 #[cfg(target_os = "windows")]
@@ -834,12 +892,20 @@ mod tests {
             std::process::id()
         ));
         let root = base.join("installed");
-        let bundle = base.join("bundle");
+        let bundle_archive = base.join("server-ce.zip");
+        let bundle_manifest = base.join("server-ce-manifest.json");
         let script = base.join("install.ps1");
         let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(&bundle_archive, "test archive").unwrap();
         std::fs::write(&script, "# test").unwrap();
-        LocalServerManager::new(root, bundle, script, reqwest::Client::new())
+        LocalServerManager::new(
+            root,
+            bundle_archive,
+            bundle_manifest,
+            script,
+            reqwest::Client::new(),
+        )
     }
 
     #[test]
@@ -847,13 +913,13 @@ mod tests {
         let manager = manager("manifest");
         std::fs::create_dir_all(manager.executable().parent().unwrap()).unwrap();
         std::fs::write(manager.executable(), "test").unwrap();
-        std::fs::write(manager.root.join("installed-bundle.json"), "same\n").unwrap();
-        std::fs::write(manager.bundle_dir.join("desktop-bundle.json"), "same\n").unwrap();
+        std::fs::write(manager.installed_manifest_path(), "same\n").unwrap();
+        std::fs::write(&manager.bundle_manifest, "same\n").unwrap();
 
         assert!(manager.is_installed());
         assert!(!manager.needs_install());
 
-        std::fs::write(manager.bundle_dir.join("desktop-bundle.json"), "new\n").unwrap();
+        std::fs::write(&manager.bundle_manifest, "new\n").unwrap();
         assert!(manager.needs_install());
     }
 
@@ -868,12 +934,37 @@ mod tests {
     }
 
     #[test]
-    fn windows_uninstaller_stops_and_removes_the_managed_local_server() {
+    fn windows_uninstaller_stops_and_detaches_managed_runtime_cleanup() {
         let hooks = include_str!("../installer-hooks.nsh");
 
         assert!(hooks.contains("NSIS_HOOK_PREUNINSTALL"));
         assert!(hooks.contains("taskkill.exe /PID"));
-        assert!(hooks.contains("RMDir /r \"$LOCALAPPDATA\\com.hugagent.desktop\\local-server\""));
+        assert!(hooks.contains("HUGAGENT_DELETE_DATA"));
+        assert!(hooks.contains("MB_DEFBUTTON2"));
+        assert!(hooks.contains("GetTempFileName"));
+        assert!(hooks.contains("ExecShell"));
+        assert!(!hooks.contains("RMDir /r"));
+    }
+
+    #[test]
+    fn desktop_installers_embed_one_ce_archive_and_separate_windows_runtime() {
+        let windows_config = include_str!("../tauri.windows.conf.json");
+        let macos_config = include_str!("../tauri.macos.conf.json");
+        let linux_config = include_str!("../tauri.linux.conf.json");
+        let windows_installer =
+            include_str!("../../resources/server-bootstrap/install-local-server.ps1");
+
+        for config in [windows_config, macos_config] {
+            assert!(config.contains("server-ce.zip"));
+            assert!(config.contains("server-ce-manifest.json"));
+            assert!(!config.contains("\"../generated/server-ce\": \"server-ce\""));
+        }
+        assert!(!linux_config.contains("server-ce"));
+        assert!(windows_installer.contains("System.IO.Compression.ZipFile"));
+        assert!(windows_installer.contains("Join-Path $InstallRoot \"runtime\""));
+        assert!(windows_installer.contains("Join-Path $RuntimeRoot \"node\""));
+        assert!(windows_installer.contains("Start-DetachedDirectoryCleanup"));
+        assert!(!windows_installer.contains("Remove-Item -Path $VenvDir -Recurse"));
     }
 
     #[test]

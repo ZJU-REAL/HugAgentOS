@@ -9,11 +9,13 @@ import { readDesktopVersion } from "./desktop-version.mjs";
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(desktopDir, "..");
 const generatedRoot = join(desktopDir, "generated", "server-ce");
+const generatedArchive = join(desktopDir, "generated", "server-ce.zip");
 const npmCommand =
   process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "npm";
 const npmPrefix =
   process.platform === "win32" ? ["/d", "/s", "/c", "npm.cmd"] : [];
 const desktopVersion = readDesktopVersion(desktopDir);
+const python = findPython();
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -63,7 +65,6 @@ const ceBuilder = join(repoRoot, "scripts", "build_ce.py");
 const requireClean =
   Boolean(process.env.CI) || process.env.HUGAGENT_RELEASE_BUILD === "1";
 if (existsSync(ceBuilder)) {
-  const python = findPython();
   const ceArgs = [...python.prefix, ceBuilder, "--out", generatedRoot];
   if (!requireClean) ceArgs.push("--allow-dirty");
 
@@ -137,4 +138,24 @@ writeFileSync(
   "utf8",
 );
 
-console.log(`[desktop] Local server payload ready: ${generatedRoot}`);
+console.log("[desktop] Compressing the CE server payload into one resource");
+rmSync(generatedArchive, { force: true });
+run(
+  python.command,
+  [
+    ...python.prefix,
+    join(desktopDir, "scripts", "create-ce-archive.py"),
+    "--source",
+    generatedRoot,
+    "--output",
+    generatedArchive,
+  ],
+  {
+    env: {
+      PYTHONUTF8: "1",
+      PYTHONIOENCODING: "utf-8",
+    },
+  },
+);
+
+console.log(`[desktop] Local server payload ready: ${generatedArchive}`);

@@ -30,6 +30,11 @@ else
     sleep "${SLEEP_SECONDS}"
   done
   echo "[entrypoint] Migrations applied successfully."
+  if [ "${JX_EDITION:-ee}" = "ce" ]; then
+    echo "[entrypoint] Reconciling the CE schema against the current metadata..."
+    python -c "from core.db.engine import init_db; init_db()"
+    echo "[entrypoint] CE schema reconciliation completed."
+  fi
 fi
 
 echo "[entrypoint] Starting API server..."

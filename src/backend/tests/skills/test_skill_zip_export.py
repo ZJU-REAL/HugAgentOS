@@ -6,14 +6,18 @@ import io
 import zipfile
 
 import pytest
-from fastapi import HTTPException
-
-from core.agent_skills.binary_files import decode_binary, encode_binary, encode_upload, is_binary_value
+from core.agent_skills.binary_files import (
+    decode_binary,
+    encode_binary,
+    encode_upload,
+    is_binary_value,
+)
 from core.services.marketplace_service import (
     build_skill_zip,
     build_skill_zip_from_dir,
     parse_skill_zip,
 )
+from fastapi import HTTPException
 
 SKILL_MD = """---
 name: demo-skill
@@ -91,10 +95,10 @@ def test_encode_upload_text_and_binary():
 
 
 def test_validate_skill_file_path():
-    from api.routes.v1.admin_skills import _validate_skill_file_path
+    from core.services.skill_management_service import validate_skill_file_path
 
-    assert _validate_skill_file_path("scripts/run.py") == "scripts/run.py"
-    assert _validate_skill_file_path("/config.json") == "config.json"
+    assert validate_skill_file_path("scripts/run.py") == "scripts/run.py"
+    assert validate_skill_file_path("/config.json") == "config.json"
     for bad in ("../evil.py", "a/../../b", "a\\b", "", "a//b", "."):
         with pytest.raises(HTTPException):
-            _validate_skill_file_path(bad)
+            validate_skill_file_path(bad)

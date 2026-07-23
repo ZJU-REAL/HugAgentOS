@@ -7,7 +7,8 @@
     "targets": ["app", "dmg"],
     "resources": {
       "../resources/server-bootstrap": "server-bootstrap",
-      "../generated/server-ce": "server-ce"
+      "../generated/server-ce.zip": "server-ce.zip",
+      "../generated/server-ce/desktop-bundle.json": "server-ce-manifest.json"
     },
     "macOS": {
       "minimumSystemVersion": "12.0"

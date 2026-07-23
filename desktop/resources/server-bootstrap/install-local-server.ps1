@@ -1,6 +1,8 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
-    [string]$BundleDir,
+    [string]$BundleArchive,
+    [Parameter(Mandatory = $true)]
+    [string]$BundleManifest,
     [Parameter(Mandatory = $true)]
     [string]$InstallRoot
 )
@@ -24,6 +26,43 @@ function Invoke-Checked {
     & $Executable @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "$FailureMessage (exit code $LASTEXITCODE)"
+    }
+}
+
+function Move-DirectoryToCleanup {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $Parent = Split-Path -Parent $Path
+    $Leaf = Split-Path -Leaf $Path
+    $Trash = Join-Path $Parent ".$Leaf.cleanup-$([Guid]::NewGuid().ToString('N'))"
+    try {
+        [System.IO.Directory]::Move($Path, $Trash)
+    }
+    catch {
+        throw "Unable to detach the old runtime directory '$Path': $($_.Exception.Message)"
+    }
+    return $Trash
+}
+
+function Start-DetachedDirectoryCleanup {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $Process = [System.Diagnostics.ProcessStartInfo]::new()
+    $Process.FileName = $env:ComSpec
+    $Process.Arguments = '/d /q /c rd /s /q "{0}"' -f $Path
+    $Process.UseShellExecute = $false
+    $Process.CreateNoWindow = $true
+    $Process.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    [System.Diagnostics.Process]::Start($Process) | Out-Null
+}
+
+function Start-FastDirectoryCleanup {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $Trash = Move-DirectoryToCleanup $Path
+    if ($Trash) {
+        Start-DetachedDirectoryCleanup $Trash
     }
 }
 
@@ -133,28 +172,54 @@ function Resolve-Bash {
     return $null
 }
 
-if (-not (Test-Path (Join-Path $BundleDir "pyproject.toml"))) {
-    throw "The desktop package doesn't contain a valid CE server payload."
+if (-not (Test-Path -LiteralPath $BundleArchive -PathType Leaf)) {
+    throw "The desktop package doesn't contain the CE server archive."
 }
-if (-not (Test-Path (Join-Path $BundleDir "src\frontend\dist\index.html"))) {
-    throw "The bundled CE web application is missing."
-}
-$MemoryRequirements = Join-Path $BundleDir "requirements-mem0.txt"
-if (-not (Test-Path $MemoryRequirements)) {
-    throw "The desktop package doesn't contain the persistent-memory dependencies."
+if (-not (Test-Path -LiteralPath $BundleManifest -PathType Leaf)) {
+    throw "The desktop package doesn't contain the CE server manifest."
 }
 
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
-$SourceDir = Join-Path $InstallRoot "source"
-$VenvDir = Join-Path $InstallRoot "venv"
-$InstalledManifest = Join-Path $InstallRoot "installed-bundle.json"
+$RuntimeRoot = Join-Path $InstallRoot "runtime"
+$SourceDir = Join-Path $RuntimeRoot "source"
+$VenvDir = Join-Path $RuntimeRoot "venv"
+$NodeDataDir = Join-Path $RuntimeRoot "node"
+$InstalledManifest = Join-Path $RuntimeRoot "installed-bundle.json"
+New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
 
-Write-ProgressLine 5 "正在复制同版本服务端资源…"
-New-Item -ItemType Directory -Path $SourceDir -Force | Out-Null
-& robocopy.exe $BundleDir $SourceDir /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NP
-$RobocopyCode = $LASTEXITCODE
-if ($RobocopyCode -gt 7) {
-    throw "Unable to copy the server payload (robocopy exit code $RobocopyCode)."
+Write-ProgressLine 5 "正在解压同版本服务端资源…"
+$StagedSource = Join-Path $RuntimeRoot "source.next-$([Guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $StagedSource -Force | Out-Null
+$PreviousSource = $null
+try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($BundleArchive, $StagedSource)
+    if (-not (Test-Path -LiteralPath (Join-Path $StagedSource "pyproject.toml") -PathType Leaf)) {
+        throw "The extracted CE server payload is invalid."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $StagedSource "src\frontend\dist\index.html") -PathType Leaf)) {
+        throw "The bundled CE web application is missing."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $StagedSource "requirements-mem0.txt") -PathType Leaf)) {
+        throw "The desktop package doesn't contain the persistent-memory dependencies."
+    }
+    if (Test-Path -LiteralPath $SourceDir) {
+        $PreviousSource = Move-DirectoryToCleanup $SourceDir
+    }
+    [System.IO.Directory]::Move($StagedSource, $SourceDir)
+    if ($PreviousSource) {
+        Start-DetachedDirectoryCleanup $PreviousSource
+    }
+}
+catch {
+    if ($PreviousSource -and -not (Test-Path -LiteralPath $SourceDir)) {
+        [System.IO.Directory]::Move($PreviousSource, $SourceDir)
+        $PreviousSource = $null
+    }
+    if (Test-Path -LiteralPath $StagedSource) {
+        Start-FastDirectoryCleanup $StagedSource
+    }
+    throw
 }
 
 Write-ProgressLine 12 "正在检查 Python 运行环境…"
@@ -189,7 +254,7 @@ if (Test-Path $VenvPython) {
 if ($RebuildVenv) {
     Write-ProgressLine 24 "正在创建独立 Python 环境…"
     if (Test-Path $VenvDir) {
-        Remove-Item -Path $VenvDir -Recurse -Force
+        Start-FastDirectoryCleanup $VenvDir
     }
     $VenvArguments = @($Python.Prefix) + @("-m", "venv", $VenvDir)
     Invoke-Checked $Python.Executable $VenvArguments "Unable to create the Python virtual environment"
@@ -218,7 +283,7 @@ Invoke-Checked $VenvPython @(
 ) "Unable to install the local tool dependencies"
 
 Write-ProgressLine 75 "正在准备本机 Bash 脚本能力…"
-$BashExecutableFile = Join-Path $InstallRoot "bash-executable.txt"
+$BashExecutableFile = Join-Path $RuntimeRoot "bash-executable.txt"
 $Bash = Resolve-Bash
 if (-not $Bash) {
     $Winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
@@ -247,7 +312,7 @@ elseif (Test-Path $BashExecutableFile) {
 }
 
 Write-ProgressLine 78 "正在准备可选的 Node.js 文档能力…"
-$NodeExecutableFile = Join-Path $InstallRoot "node-executable.txt"
+$NodeExecutableFile = Join-Path $RuntimeRoot "node-executable.txt"
 $Node = Resolve-Node
 if (-not $Node) {
     $Winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
@@ -284,7 +349,6 @@ if ($Node) {
     }
     if (Test-Path $Npm) {
         try {
-            $NodeDataDir = Join-Path $InstallRoot "data\node"
             $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
             Invoke-Checked $Npm @(
                 "install", "--silent", "--no-audit", "--no-fund", "--no-package-lock",
@@ -320,6 +384,26 @@ $HugAgentOSCommand = Join-Path $VenvDir "Scripts\hugagent.exe"
 if (-not (Test-Path $HugAgentOSCommand)) {
     throw "The HugAgentOS service command wasn't installed correctly."
 }
-Copy-Item (Join-Path $BundleDir "desktop-bundle.json") $InstalledManifest -Force
+Copy-Item $BundleManifest $InstalledManifest -Force
+
+# Version 0.2.2 and earlier mixed disposable runtime files into InstallRoot and
+# put optional Node packages under data. The new runtime is live now, so detach
+# those legacy trees and let native rd remove them without blocking startup.
+foreach ($LegacyDirectory in @(
+    (Join-Path $InstallRoot "source"),
+    (Join-Path $InstallRoot "venv"),
+    (Join-Path $InstallRoot "data\node")
+)) {
+    if (Test-Path -LiteralPath $LegacyDirectory) {
+        Start-FastDirectoryCleanup $LegacyDirectory
+    }
+}
+foreach ($LegacyFile in @(
+    (Join-Path $InstallRoot "installed-bundle.json"),
+    (Join-Path $InstallRoot "node-executable.txt"),
+    (Join-Path $InstallRoot "bash-executable.txt")
+)) {
+    Remove-Item -LiteralPath $LegacyFile -Force -ErrorAction SilentlyContinue
+}
 Write-ProgressLine 90 "本机服务安装完成，正在启动…"
 Write-Output "Local server installed at $InstallRoot"

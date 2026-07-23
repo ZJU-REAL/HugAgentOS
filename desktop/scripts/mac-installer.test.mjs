@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,11 +23,41 @@ const installer = join(
   "server-bootstrap",
   "install-local-server.sh",
 );
+const archiveBuilder = join(desktopDir, "scripts", "create-ce-archive.py");
 
 function writeExecutable(path, contents) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, contents, "utf8");
   chmodSync(path, 0o755);
+}
+
+function buildBundleArchive(bundle, fixture) {
+  const archive = join(fixture, "server-ce.zip");
+  const manifest = join(fixture, "server-ce-manifest.json");
+  copyFileSync(join(bundle, "desktop-bundle.json"), manifest);
+  let result;
+  for (const python of ["python3", "python"]) {
+    result = spawnSync(
+      python,
+      [archiveBuilder, "--source", bundle, "--output", archive],
+      { encoding: "utf8" },
+    );
+    if (!result.error) break;
+  }
+  assert.equal(result?.status, 0, result?.stderr || result?.error?.message);
+  return { archive, manifest };
+}
+
+function installerArguments(paths, installRoot) {
+  return [
+    installer,
+    "--bundle-archive",
+    paths.archive,
+    "--bundle-manifest",
+    paths.manifest,
+    "--install-root",
+    installRoot,
+  ];
 }
 
 test("macOS bootstrap completes a clean CE install with an isolated runtime", () => {
@@ -44,6 +75,7 @@ test("macOS bootstrap completes a clean CE install with an isolated runtime", ()
     writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
     writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "ok");
     writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"test"}\n');
+    let bundlePaths = buildBundleArchive(bundle, fixture);
 
     writeExecutable(
       join(installRoot, "tools", "uv"),
@@ -78,13 +110,7 @@ fi
 
     const result = spawnSync(
       "/bin/bash",
-      [
-        installer,
-        "--bundle-dir",
-        bundle,
-        "--install-root",
-        installRoot,
-      ],
+      installerArguments(bundlePaths, installRoot),
       {
         encoding: "utf8",
         env: {
@@ -135,15 +161,10 @@ fi
       join(bundle, "desktop-bundle.json"),
       '{"desktop_version":"updated"}\n',
     );
+    bundlePaths = buildBundleArchive(bundle, fixture);
     const update = spawnSync(
       "/bin/bash",
-      [
-        installer,
-        "--bundle-dir",
-        bundle,
-        "--install-root",
-        installRoot,
-      ],
+      installerArguments(bundlePaths, installRoot),
       {
         encoding: "utf8",
         env: {
@@ -189,15 +210,10 @@ fi
       join(bundle, "desktop-bundle.json"),
       '{"desktop_version":"third"}\n',
     );
+    bundlePaths = buildBundleArchive(bundle, fixture);
     const third = spawnSync(
       "/bin/bash",
-      [
-        installer,
-        "--bundle-dir",
-        bundle,
-        "--install-root",
-        installRoot,
-      ],
+      installerArguments(bundlePaths, installRoot),
       {
         encoding: "utf8",
         env: {
@@ -208,7 +224,12 @@ fi
       },
     );
     assert.equal(third.status, 0, third.stderr || third.stdout);
-    assert.equal(readdirSync(join(installRoot, "releases")).length, 2);
+    assert.equal(
+      readdirSync(join(installRoot, "releases")).filter(
+        (name) => !name.startsWith("."),
+      ).length,
+      2,
+    );
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
@@ -229,6 +250,7 @@ test("macOS bootstrap leaves the previous release untouched after dependency fai
     writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
     writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "new");
     writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"new"}\n');
+    const bundlePaths = buildBundleArchive(bundle, fixture);
 
     mkdirSync(join(installRoot, "source"), { recursive: true });
     writeFileSync(join(installRoot, "source", "version.txt"), "old");
@@ -253,13 +275,7 @@ fi
 
     const result = spawnSync(
       "/bin/bash",
-      [
-        installer,
-        "--bundle-dir",
-        bundle,
-        "--install-root",
-        installRoot,
-      ],
+      installerArguments(bundlePaths, installRoot),
       {
         encoding: "utf8",
         env: {
@@ -304,16 +320,11 @@ test("macOS bootstrap stops before copying when free space is insufficient", () 
     writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
     writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "ok");
     writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"test"}\n');
+    const bundlePaths = buildBundleArchive(bundle, fixture);
 
     const result = spawnSync(
       "/bin/bash",
-      [
-        installer,
-        "--bundle-dir",
-        bundle,
-        "--install-root",
-        installRoot,
-      ],
+      installerArguments(bundlePaths, installRoot),
       {
         encoding: "utf8",
         env: { ...process.env, HUGAGENT_MIN_FREE_KB: "999999999999" },

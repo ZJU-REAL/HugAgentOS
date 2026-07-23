@@ -1,5 +1,6 @@
 # CE Build Pipeline
-> Last updated: 2026-07-22
+
+> Last updated: 2026-07-23
 
 The Community Edition (CE) is not a separate branch. It is a subset tree **deterministically derived** from the main repo (EE, the single development source of truth) by `scripts/build_ce.py`, written to `dist/ce/`. The core constraint is the **whitelist iron rule: EE-only code is physically absent from the CE tree** — not commented out, not flag-disabled, but removed at the file level. The pipeline's only input is `ce/manifest.yaml`.
 
@@ -9,7 +10,7 @@ The Community Edition (CE) is not a separate branch. It is a subset tree **deter
 pip install pyyaml                                  # the generator's only third-party dependency
 python scripts/build_ce.py                          # generate + brand gate + LICENSE gate
 python scripts/build_ce.py --import-check           # + import api.app self-check inside the CE tree
-python scripts/build_ce.py --pytest-check           # + pytest --collect-only self-check
+python scripts/build_ce.py --pytest-check           # + executable CE release regressions
 python scripts/build_ce.py --frontend-check         # + npm install && build self-check (needs network)
 python scripts/build_ce.py --allow-dirty            # dev only: generate with uncommitted changes
 python scripts/build_ce.py --allow-placeholder-license  # dev only: pass with a placeholder LICENSE
@@ -54,7 +55,7 @@ Content edits that plain text substitution cannot express, implemented in `build
 | `catalog_json` | `core/config/catalog.json` | drops the EE MCP seeds (`database_query`, `query_database`, `ai_chain_information_mcp`) |
 | `package_json` | `src/frontend/package.json` | renames to `hugagent-ui`; drops the commercially licensed `@univerjs/preset-sheets-advanced` and dead dependency `pptxgenjs`; pins `@univerjs/icons=1.1.1` to preserve the Univer 0.19 export contract when the main-repo lockfile is absent |
 | `requirements` | `requirements.txt` | drops cloud storage / persistent-sandbox deps (boto3 / oss2 / opensandbox); moves neo4j / mem0ai into the separate `requirements-mem0.txt` (installed by default by the no-Docker installer) |
-| `docker_compose` | `docker-compose.yml` | removes the opensandbox / litellm services and their depends_on; un-profiles `script-runner` so it starts by default; strips env injections of excluded components tree-wide (`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` prefixes) |
+| `docker_compose` | `docker-compose.yml` | removes the opensandbox / litellm services and their depends_on; un-profiles `script-runner` so it starts by default; strips env injections of excluded components tree-wide (`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` prefixes); pins backend edition, authentication, and SSO defaults to CE local-session mode and pins the frontend build default to CE |
 | `frontend_lock` | `package-lock.json` + frontend Dockerfile | deletes the lock (inevitably out of sync with the pruned package.json) and rewrites `npm ci` to `npm install` |
 | `repository_resources` | build and source references to bundled commercial fonts | removes the font-copy/install stanzas from CE Dockerfiles and the backend fallback to the repository font directory; a forbidden-artifact gate verifies the generated tree again |
 
@@ -79,7 +80,9 @@ Content edits that plain text substitution cannot express, implemented in `build
 | `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | Personal MySpace tool, VFS, and recovery interfaces; organization implementations do not enter CE |
 | `src/backend/core/config/edition_display_names.py` | CE tool display names with no team-tool names |
 | `src/backend/core/memory/audit.py` | Memory-audit no-op stub (same interface, writes nothing) |
-| `src/backend/alembic/versions/ce_0001_initial.py` | CE independent migration-chain baseline (next section) |
+| `src/backend/alembic/versions/ce_000{1,2}_*.py` | CE independent migration-chain baseline and idempotent schema upgrade (next section) |
+| `src/backend/core/services/edition_startup.py` | CE startup seam with no-op implementations for EE data-source recovery and distillation scheduling, so pruned modules are never imported |
+| `src/backend/tests/ce_release/` | Executable CE release regressions for login, private skills/MCP, database upgrades, startup, and Compose contracts |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | CE API contracts with administration endpoints and organization fields removed |
 | `src/backend/mcp_servers/_ports.py` | Port table for the 8 general tools (EE industry-tool ports marked reserved) |
 | `src/frontend/default.conf.template` | CE frontend Nginx template with `/gateway/**` proxying and the litellm upstream removed |
@@ -118,13 +121,21 @@ personal profile without retaining commercial fields or tool names.
 [6/7] LICENSE gate refuse to generate while the overlay LICENSE is still placeholder text
                 (contains the NOTE TO MAINTAINERS marker)
 [7/7] Self-checks --import-check / --pytest-check / --frontend-check (optional)
-[8/8] Cleanup   residues left by the self-checks: __pycache__ / .pytest_cache / node_modules /
-                dist / regenerated lock
+[8/8] Cleanup   residues left by the self-checks: __pycache__ / .pytest_cache /
+                ce_selfcheck.db / node_modules / dist / regenerated lock
 ```
 
 Using `git ls-files` as the copy list means `.env`, local databases, and other untracked/ignored files **can never enter the CE tree**.
 
-The Windows desktop payload follows the same boundary in both checkout types. In the source checkout, `desktop/scripts/prepare-bundle.mjs` finds and runs `scripts/build_ce.py`. In a derived CE checkout, where the generator is intentionally absent, it requires `.hugagent-edition` to contain `ce` and stages only the current checkout's tracked files. Release builds reject a dirty checkout. This fallback cannot silently turn an arbitrary repository into a CE payload.
+The Windows and macOS desktop payloads follow the same boundary in both checkout
+types. In the source checkout, `desktop/scripts/prepare-bundle.mjs` finds and runs
+`scripts/build_ce.py`. In a derived CE checkout, where the generator is intentionally
+absent, it requires `.hugagent-edition` to contain `ce` and stages only the current
+checkout's tracked files. Release builds reject a dirty checkout. This fallback cannot
+silently turn an arbitrary repository into a CE payload. After the boundary checks and
+frontend build finish, the script compresses the derived tree into one `server-ce.zip`
+resource so platform installers don't process thousands of loose files during install
+and removal.
 
 ## CE database differences
 
@@ -132,10 +143,14 @@ CE does not register or create EE-only tables. Enterprise ORM classes live under
 
 The release contract checks 20 forbidden table names: `chat_session_user_states`, `teams`, `team_members`, `team_folders`, `invite_codes`, `roles`, `role_assignments`, `kb_grants`, `marketplace_visibility_grants`, `audit_logs`, `memory_audit`, `model_pricing`, `data_sources`, `ds_table_meta`, `ds_column_meta`, `ds_golden_sql`, `gateway_virtual_keys`, `sandbox_rebuilds`, `admin_skill_drafts`, and `distillation_runs`. The import gate fails if any is registered in CE metadata or referenced by a CE foreign key. It also rejects the corresponding commercial-scope columns on `projects`, `artifacts`, `user_agents`, `chat_sessions`, `marketplace_listing_states`, and `sites`.
 
-Two table-creation entry points use the CE-only metadata:
+All CE schema-creation and upgrade paths use the CE-only metadata:
 
-1. The CE branch of `core/db/engine.py::init_db` (when `JX_EDITION=ce`, startup fallback uses `ce_create_all`);
-2. The CE overlay migration baseline `ce_0001_initial.py` — CE runs an **independent alembic chain** and creates directly from CE-only metadata, dialect-aware (SQLite and PostgreSQL), idempotent with `init_db`. Subsequent CE schema evolution adds regular migrations on the `ce_0001` chain.
+1. `ce_0001_initial.py` is the immutable historical baseline. New installations create tables from CE-only metadata with SQLite and PostgreSQL dialect support.
+2. `ce_0002_reconcile_schema.py` idempotently adds tables, columns, and indexes that may be absent from early CE baselines. Existing objects remain unchanged, repeated execution is safe, and user tables are never dropped or rebuilt to catch up.
+3. The CE branch of `core/db/engine.py::init_db` runs the same reconciler for SQLite/no-Docker startup, covering desktop upgrades that do not run Alembic.
+4. Docker/PostgreSQL runs Alembic first, then the entrypoint defensively invokes `init_db`, so historical and fresh databases converge on the same CE schema.
+
+Every future shared CE model change must append a new `ce_000N` migration and keep reconciliation repeatable. Do not update only `ce_0001` or rely on `create_all()` to add columns to existing tables: SQLAlchemy does not alter an existing table that way.
 
 EE always creates the full schema. Maintenance rule: **new EE mappings belong under `edition_ee/db/models`, and their table names must be added to the CE release contract**.
 
@@ -150,6 +165,7 @@ A qualifying release build must pass all of:
 | Brand / binary gate | zero text hits and a clean full-path scan; every PNG/PDF/DOCX matches a manually/OCR-reviewed path + SHA-256 allowlist | `brand_scan()` + `binary_allowlist_check()` |
 | LICENSE gate | the overlay LICENSE is not placeholder text | `license_placeholder_check()` |
 | Split assertion | every declared CE split replacement exists in the overlay | pre-overlay check in `main()` |
+| Executable CE core flows | `--pytest-check`: performs admin/admin login and ticket exchange, creates a private skill/MCP server, upgrades a legacy SQLite schema, and verifies CE startup and Compose defaults | `pytest_check()` + `tests/ce_release/` |
 | Frontend buildability | `--frontend-check`: npm install + vite build succeed | `frontend_check()` |
 | Delivery hygiene | all self-check residue removed | `cleanup_gate_artifacts()` |
 
@@ -172,8 +188,10 @@ A qualifying release build must pass all of:
 | Derived-tree edition marker | `ce/overlay/.hugagent-edition` |
 | Public desktop release workflow | `ce/overlay/.github/workflows/desktop-release.yml` |
 | CE/EE table boundary | `src/backend/core/db/edition_tables.py` |
+| Idempotent schema reconciler | `src/backend/core/db/schema_reconcile.py` |
 | Startup table-creation CE branch | `src/backend/core/db/engine.py::init_db` |
-| CE migration baseline | `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` |
+| CE independent migration chain | `ce/overlay/src/backend/alembic/versions/ce_000{1,2}_*.py` |
+| CE release regressions | `ce/overlay/src/backend/tests/ce_release/` |
 | Router registry | `src/backend/api/routes/v1/__init__.py` |
 
 See also: [Community vs. Enterprise Edition](overview.md) · [License Mechanism](license.md)

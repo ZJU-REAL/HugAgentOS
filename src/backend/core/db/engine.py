@@ -2,12 +2,12 @@
 
 import logging
 from typing import Generator
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import NullPool
 
 from core.config.settings import settings
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ def _resolve_database_url() -> str:
             )
             return fallback
     return url
+
 
 # Database URL from environment variable
 DATABASE_URL = _resolve_database_url()
@@ -47,10 +48,7 @@ else:
     engine_kwargs["pool_timeout"] = settings.db.pool_timeout
 
 # Create engine
-engine = create_engine(
-    DATABASE_URL,
-    **engine_kwargs
-)
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -76,11 +74,15 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db():
-    """Initialize database (create all tables; CE does not create EE-only tables)."""
+    """Initialize or reconcile the database schema for the active edition."""
     if settings.edition.edition == "ce":
-        from core.db.edition_tables import ce_create_all
-        ce_create_all(engine)
+        from core.db.edition_tables import ce_reconcile_schema
+
+        report = ce_reconcile_schema(engine)
+        if any(report.values()):
+            logger.info("CE database schema reconciled: %s", report)
         return
     # Import models so SQLAlchemy metadata is populated before create_all().
     from core.db import models  # noqa: F401
+
     Base.metadata.create_all(bind=engine)

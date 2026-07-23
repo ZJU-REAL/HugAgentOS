@@ -2,15 +2,20 @@
 
 set -euo pipefail
 
-BundleDir=""
+BundleArchive=""
+BundleManifest=""
 InstallRoot=""
 ScriptDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 MacOverrides="$ScriptDir/requirements-macos-overrides.txt"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --bundle-dir)
-      BundleDir="${2:-}"
+    --bundle-archive)
+      BundleArchive="${2:-}"
+      shift 2
+      ;;
+    --bundle-manifest)
+      BundleManifest="${2:-}"
       shift 2
       ;;
     --install-root)
@@ -28,20 +33,16 @@ progress() {
   printf 'HUGAGENT_PROGRESS|%s|%s\n' "$1" "$2"
 }
 
-if [[ -z "$BundleDir" || -z "$InstallRoot" ]]; then
-  echo "Both --bundle-dir and --install-root are required." >&2
+if [[ -z "$BundleArchive" || -z "$BundleManifest" || -z "$InstallRoot" ]]; then
+  echo "--bundle-archive, --bundle-manifest, and --install-root are required." >&2
   exit 2
 fi
-if [[ ! -f "$BundleDir/pyproject.toml" ]]; then
-  echo "The desktop package doesn't contain a valid CE server payload." >&2
+if [[ ! -f "$BundleArchive" ]]; then
+  echo "The desktop package doesn't contain the CE server archive." >&2
   exit 3
 fi
-if [[ ! -f "$BundleDir/src/frontend/dist/index.html" ]]; then
-  echo "The bundled CE web application is missing." >&2
-  exit 3
-fi
-if [[ ! -f "$BundleDir/requirements-mem0.txt" ]]; then
-  echo "The desktop package doesn't contain the persistent-memory dependencies." >&2
+if [[ ! -f "$BundleManifest" ]]; then
+  echo "The desktop package doesn't contain the CE server manifest." >&2
   exit 3
 fi
 if [[ ! -f "$MacOverrides" ]]; then
@@ -60,11 +61,29 @@ CandidateDir=""
 CandidateCommitted=0
 ObsoleteRelease=""
 
+fast_remove_tree() {
+  local Target="$1"
+  if [[ ! -d "$Target" ]]; then
+    return 0
+  fi
+  local Parent
+  local Leaf
+  local Trash
+  Parent="$(dirname -- "$Target")"
+  Leaf="$(basename -- "$Target")"
+  Trash="$Parent/.${Leaf}.cleanup.$$.$RANDOM"
+  if /bin/mv -- "$Target" "$Trash"; then
+    /usr/bin/nohup /bin/rm -rf -- "$Trash" >/dev/null 2>&1 &
+  else
+    return 1
+  fi
+}
+
 cleanup_candidate() {
   ExitCode=$?
   trap - EXIT
   if [[ "$CandidateCommitted" -eq 0 && -n "$CandidateDir" && -d "$CandidateDir" ]]; then
-    /bin/rm -rf -- "$CandidateDir"
+    fast_remove_tree "$CandidateDir" || true
   fi
   /bin/rm -f -- "$CurrentNext"
   exit "$ExitCode"
@@ -96,7 +115,7 @@ mkdir -p "$InstallRoot" "$ReleasesDir"
 
 progress 3 "正在检查安装空间…"
 AvailableKb="$(/bin/df -Pk "$InstallRoot" | /usr/bin/awk 'NR == 2 { print $4 }')"
-BundleKb="$(/usr/bin/du -sk "$BundleDir" | /usr/bin/awk '{ print $1 }')"
+BundleKb="$(/usr/bin/du -k "$BundleArchive" | /usr/bin/awk '{ print $1 }')"
 MinimumFreeKb="${HUGAGENT_MIN_FREE_KB:-4194304}"
 if [[ ! "$AvailableKb" =~ ^[0-9]+$ || ! "$BundleKb" =~ ^[0-9]+$ || ! "$MinimumFreeKb" =~ ^[0-9]+$ ]]; then
   echo "The installer couldn't determine available disk space." >&2
@@ -110,18 +129,33 @@ if (( AvailableKb < RequiredKb )); then
   exit 4
 fi
 
-BundleHash="$(/usr/bin/shasum -a 256 "$BundleDir/desktop-bundle.json" | /usr/bin/awk '{ print $1 }')"
+BundleHash="$(/usr/bin/shasum -a 256 "$BundleManifest" | /usr/bin/awk '{ print $1 }')"
 CandidateDir="$(/usr/bin/mktemp -d "$ReleasesDir/${BundleHash}.XXXXXX")"
 SourceDir="$CandidateDir/source"
 VenvDir="$CandidateDir/venv"
 VenvPython="$VenvDir/bin/python"
 
-progress 5 "正在复制同版本服务端资源…"
+progress 5 "正在解压同版本服务端资源…"
 mkdir -p "$SourceDir"
 if [[ -x /usr/bin/ditto ]]; then
-  /usr/bin/ditto "$BundleDir" "$SourceDir"
+  /usr/bin/ditto -x -k "$BundleArchive" "$SourceDir"
+elif [[ -x /usr/bin/unzip ]]; then
+  /usr/bin/unzip -q "$BundleArchive" -d "$SourceDir"
 else
-  /bin/cp -R "$BundleDir/." "$SourceDir/"
+  echo "The system doesn't provide a ZIP extractor." >&2
+  exit 3
+fi
+if [[ ! -f "$SourceDir/pyproject.toml" ]]; then
+  echo "The extracted CE server payload is invalid." >&2
+  exit 3
+fi
+if [[ ! -f "$SourceDir/src/frontend/dist/index.html" ]]; then
+  echo "The bundled CE web application is missing." >&2
+  exit 3
+fi
+if [[ ! -f "$SourceDir/requirements-mem0.txt" ]]; then
+  echo "The desktop package doesn't contain the persistent-memory dependencies." >&2
+  exit 3
 fi
 
 progress 12 "正在准备独立运行环境…"
@@ -221,7 +255,7 @@ if [[ -n "$NodeExecutable" ]]; then
     NpmExecutable="$(command -v npm 2>/dev/null || true)"
   fi
   if [[ -n "$NpmExecutable" && -x "$NpmExecutable" ]]; then
-    NodeDataDir="$InstallRoot/data/node"
+    NodeDataDir="$InstallRoot/node"
     export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
     if "$NpmExecutable" install --silent --no-audit --no-fund --no-package-lock \
       --prefix "$NodeDataDir" pptxgenjs playwright; then
@@ -252,7 +286,7 @@ if ! "$VenvDir/bin/hugagent" --help >/dev/null; then
   exit 5
 fi
 
-/bin/cp "$BundleDir/desktop-bundle.json" "$CandidateDir/desktop-bundle.json"
+/bin/cp "$BundleManifest" "$CandidateDir/desktop-bundle.json"
 
 progress 88 "正在安全切换到新版本…"
 if [[ -L "$PreviousLink" ]]; then
@@ -281,7 +315,10 @@ if ! /bin/mv -fh "$CurrentNext" "$CurrentLink" 2>/dev/null; then
 fi
 CandidateCommitted=1
 if [[ -n "$ObsoleteRelease" && "$ObsoleteRelease" != "$CandidateDir" ]]; then
-  /bin/rm -rf -- "$ObsoleteRelease" || true
+  fast_remove_tree "$ObsoleteRelease" || true
+fi
+if [[ -d "$InstallRoot/data/node" ]]; then
+  fast_remove_tree "$InstallRoot/data/node" || true
 fi
 
 progress 90 "本机服务安装完成，正在启动…"

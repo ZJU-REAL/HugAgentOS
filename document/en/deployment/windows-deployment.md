@@ -1,6 +1,6 @@
 # Windows installation and deployment
 
-> Last updated: July 21, 2026 ｜ [简体中文](../../zh-CN/deployment/windows-deployment.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: July 23, 2026 ｜ [简体中文](../../zh-CN/deployment/windows-deployment.md) ｜ Back to [Deployment Guide](README.md)
 
 Windows users can run a Docker-free, desktop-managed local service or deploy the
 team service through Docker Desktop and WSL2. The local option is for personal use;
@@ -9,9 +9,10 @@ the Compose option is for collaboration and production.
 ## Install a local service with the desktop client
 
 Personal users on Windows x86_64 can use the NSIS desktop installer. The package
-contains a matching CE server payload that has passed the Community Edition boundary
-checks. On first launch, it creates an isolated Python environment in the current
-user's profile. Docker Desktop, WSL2, PostgreSQL, and Redis aren't required.
+contains a single-file CE server archive that has passed the Community Edition
+boundary checks. On first launch, it extracts the payload and creates an isolated
+Python environment in the current user's profile. Docker Desktop, WSL2, PostgreSQL,
+and Redis aren't required.
 
 ### Prerequisites
 
@@ -32,7 +33,7 @@ Complete these steps for a personal local installation:
 
 1. Run the HugAgentOS NSIS `.exe` installer.
 2. Select **Yes** when asked whether to install the Docker-free local service.
-3. Launch the desktop client and wait for resource copy, dependency installation,
+3. Launch the desktop client and wait for resource extraction, dependency installation,
    and the health check to finish on the service setup page.
 4. Sign in with the generated `admin` / `admin` account, then change the password
    when prompted.
@@ -52,18 +53,23 @@ The runtime and data live under this directory:
 
 ```text
 %LOCALAPPDATA%\com.hugagent.desktop\local-server\
-  data\                 SQLite, storage, workspace, and logs
-  source\               CE server payload matching the desktop version
-  venv\                 Isolated Python environment
-  logs\                  Installer and server runtime logs
-  server.pid             PID marker used to safely adopt/stop a process after a crash
-  installed-bundle.json Installed-version marker
+  data\                    SQLite, storage, workspace, and persistent logs
+  runtime\
+    source\                CE server payload matching the desktop version
+    venv\                  Isolated Python environment
+    node\                  Re-creatable Node tools and browser runtime
+    installed-bundle.json Installed-version marker
+  logs\                    Desktop installer and service-manager logs
+  server.pid               PID marker used to safely adopt/stop a process after a crash
 ```
 
 When a desktop update contains a new service payload, the client upgrades `source`
-and Python dependencies while preserving `data`. Uninstalling the desktop app also
-preserves this directory to prevent accidental data loss. Delete it manually only
-when you no longer need the local data.
+and Python dependencies while preserving `data`. An interactive uninstall asks whether
+to delete local-service data and defaults to **No**. Select **No** to preserve accounts,
+conversations, uploads, and workspaces, or select **Yes** to remove them. Silent updates
+always preserve data. The uninstaller stops the service, atomically renames the
+directories selected for deletion, and lets a hidden system process clean them in the
+background. The uninstall UI doesn't wait for every Python and Node file to be removed.
 
 Use **File → Set server address…** to switch to a team server. Use
 **File → Local service…** to reinstall, start, or switch back to the local service.

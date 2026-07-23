@@ -718,9 +718,9 @@ async def _startup_recover_datasource_sidecars():
 
     async def _recover() -> None:
         try:
-            from core.services.datasource_service import recover_sidecars
+            from core.services.edition_startup import recover_datasource_sidecars
 
-            result = await recover_sidecars()
+            result = await recover_datasource_sidecars()
             failures = [
                 state.get("error", "unknown error")
                 for key in ("dbhub", "es")
@@ -970,10 +970,12 @@ _idle_reaper_task = None
 async def _startup_distillation_scheduler():
     """Start the daily skill-distillation cron scheduler."""
     try:
-        from orchestration.schedulers.distillation_cron_scheduler import DistillationCronScheduler
+        from core.services.edition_startup import create_distillation_scheduler
 
         global _distillation_scheduler
-        _distillation_scheduler = DistillationCronScheduler()
+        _distillation_scheduler = create_distillation_scheduler()
+        if _distillation_scheduler is None:
+            return
         await _distillation_scheduler.start()
         from core.infra import runtime_state
 
@@ -985,9 +987,9 @@ async def _startup_distillation_scheduler():
 async def _startup_recover_persona_distill_jobs():
     """After a process restart, set orphan persona distillation jobs (queued/running) to failed."""
     try:
-        from core.services.persona_distillation_service import recover_orphan_jobs
+        from core.services.edition_startup import recover_persona_distill_jobs
 
-        n = recover_orphan_jobs()
+        n = recover_persona_distill_jobs()
         if n:
             logger.info("[startup] persona distill: marked %d orphan job(s) as failed", n)
     except Exception as exc:

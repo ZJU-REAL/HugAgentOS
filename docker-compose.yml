@@ -59,14 +59,14 @@ services:
     logging: *id001
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      JX_EDITION: ${JX_EDITION:-ee}
+      JX_EDITION: ${JX_EDITION:-ce}
       BRAND_PRODUCT_NAME: ${BRAND_PRODUCT_NAME:-HugAgentOS}
       BRAND_ORG_NAME: ${BRAND_ORG_NAME:-}
       BRAND_POWERED_BY: ${BRAND_POWERED_BY:-true}
       DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent
       ENV: ${ENV:-dev}
       PORT: ${BACKEND_PORT:-3001}
-      AUTH_MODE: ${AUTH_MODE:-mock}
+      AUTH_MODE: ${AUTH_MODE:-session}
       AUTH_API_URL: ${AUTH_API_URL:-}
       AUTH_API_TIMEOUT: ${AUTH_API_TIMEOUT:-5}
       AUTH_RETRY_COUNT: ${AUTH_RETRY_COUNT:-2}
@@ -80,8 +80,8 @@ services:
       SESSION_COOKIE_HTTPONLY: ${SESSION_COOKIE_HTTPONLY:-true}
       SESSION_COOKIE_SAMESITE: ${SESSION_COOKIE_SAMESITE:-lax}
       SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN:-}
-      SSO_LOGIN_MODE: ${SSO_LOGIN_MODE:-mock}
-      SSO_EXCHANGE_MODE: ${SSO_EXCHANGE_MODE:-mock}
+      SSO_LOGIN_MODE: ${SSO_LOGIN_MODE:-local}
+      SSO_EXCHANGE_MODE: ${SSO_EXCHANGE_MODE:-local}
       SSO_MOCK_ENABLED: ${SSO_MOCK_ENABLED:-false}
       SSO_TICKET_EXCHANGE_URL: ${SSO_TICKET_EXCHANGE_URL:-}
       SSO_LOGIN_URL: ${SSO_LOGIN_URL:-}
@@ -342,7 +342,7 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
         SSO_LOGIN_URL: ${SSO_LOGIN_URL:-}
-        VITE_EDITION: ${VITE_EDITION:-ee}
+        VITE_EDITION: ${VITE_EDITION:-ce}
         VITE_DEFAULT_LANGUAGE: ${VITE_DEFAULT_LANGUAGE:-zh-CN}
         VITE_UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-50}
     container_name: hugagent-frontend

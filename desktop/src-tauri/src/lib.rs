@@ -282,7 +282,8 @@ pub fn run() {
             };
             let local_server = local_server::LocalServerManager::new(
                 local_data_dir.join("local-server"),
-                resource_dir.join("server-ce"),
+                resource_dir.join("server-ce.zip"),
+                resource_dir.join("server-ce-manifest.json"),
                 resource_dir.join("server-bootstrap").join(installer_name),
                 http.clone(),
             );
