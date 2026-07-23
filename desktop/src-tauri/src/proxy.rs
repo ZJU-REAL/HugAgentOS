@@ -266,8 +266,11 @@ const TB_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:36px}body{box-sizing:border-box!important;padding-top:36px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
 const MAC_TITLEBAR_HEIGHT: u8 = 38;
+// The left half of the macOS safe area reuses the sidebar's first translucent
+// blue gradient stop over its #F5F6F7 base.  The traffic lights therefore sit
+// on a true visual continuation of the sidebar instead of a detached grey bar.
 const MAC_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:38px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:38px!important;background:linear-gradient(90deg,#F5F6F7 0 var(--hugagent-desktop-sidebar-width),#FFFFFF var(--hugagent-desktop-sidebar-width) 100%)!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:38px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:38px!important;background:linear-gradient(90deg,rgba(203,223,255,.38) 0 var(--hugagent-desktop-sidebar-width),#FFFFFF var(--hugagent-desktop-sidebar-width) 100%),#F5F6F7!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const MAC_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:38px}body{box-sizing:border-box!important;padding-top:38px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
@@ -867,7 +870,8 @@ mod tests {
         assert!(!block.contains("data-win=\"close\""));
         assert!(!block.contains("tb-menuLabel"));
         assert!(block.contains("--hugagent-desktop-sidebar-width"));
-        assert!(block.contains("linear-gradient(90deg,#F5F6F7"));
+        assert!(block.contains("linear-gradient(90deg,rgba(203,223,255,.38)"));
+        assert!(block.contains("#F5F6F7!important"));
         assert!(block.contains("ResizeObserver"));
     }
 
