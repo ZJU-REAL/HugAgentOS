@@ -345,6 +345,27 @@ operators, users, and contributors, and you can read it offline.
 
 Start from [document/README.md](./document/README.md) to browse every guide.
 
+## Roadmap
+
+Future Community Edition development will focus on a connected workspace,
+efficient model orchestration, and a broader extension ecosystem.
+
+1. **Cloud/local switching and cross-client continuity.** Enable seamless
+   switching between cloud-hosted and local runtimes. A single server
+   deployment will connect supported clients and synchronize conversations,
+   agents, skills, files, and task state so work can move between interfaces
+   without losing context.
+2. **Adaptive model routing with Mixture of Agents (MoA).** Select, switch, or
+   combine models based on task complexity, modality, latency, and cost. Simple
+   tasks can use lightweight models, while demanding tasks can escalate to
+   stronger or specialized models, maintaining quality while reducing
+   unnecessary token usage.
+3. **A richer extensibility ecosystem.** Expand the catalog of built-in and
+   community agents, skills, MCP servers and tools, and plugins. Improve the
+   supporting workflows for discovery, installation, updates, compatibility,
+   quality review, and security review so reusable capabilities are easier to
+   build and share.
+
 ## Contributing
 
 We welcome bug reports, feature proposals, documentation improvements, and
