@@ -106,6 +106,12 @@ def apply_local_env(port: int) -> dict:
         "PLAYWRIGHT_BROWSERS_PATH": str(dd / "node" / "browsers"),
         "JX_FONT_DIR": str(dd / "fonts"),
         "MCP_HOST": "127.0.0.1",
+        # Internal MCP callbacks (site publish / batch runner) execute in child
+        # processes in the local profile.  Point them back at this exact
+        # uvicorn instance instead of letting them fall back to the compose
+        # default port (3001).  The desktop-managed server listens on 32101.
+        "BACKEND_INTERNAL_URL": f"http://127.0.0.1:{port}",
+        "BACKEND_PORT": str(port),
         # A local/desktop install is expected to be useful immediately after a
         # zero-state boot.  Keep the three credential-free first-party plugins
         # as the local-profile default even when the caller is plain

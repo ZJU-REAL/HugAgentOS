@@ -367,3 +367,12 @@ def test_ce_site_publish_tool_has_no_organization_parameter():
     from mcp_servers.site_publish_mcp.server import publish_site
 
     assert "team_id" not in inspect.signature(publish_site).parameters
+
+
+def test_ce_registers_native_api_key_routes():
+    from api.app import app
+
+    paths = app.openapi()["paths"]
+    assert {"get", "post"} <= set(paths["/v1/me/api-keys"])
+    assert "get" in paths["/v1/me/api-keys/{key_id}/reveal"]
+    assert {"patch", "delete"} <= set(paths["/v1/me/api-keys/{key_id}"])
