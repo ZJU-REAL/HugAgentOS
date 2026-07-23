@@ -13,8 +13,9 @@ import logging
 import mimetypes
 import os
 import re
-import signal
+import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -63,6 +64,62 @@ def _rewrite_workspace_refs(value: str, workspace_root: str = WORKSPACE_ROOT) ->
     return _WS_PATH_RE.sub(lambda _match: replacement, value)
 
 
+def _bash_quote_state(value: str, end: int) -> Optional[str]:
+    """Return the shell quote containing ``value[end]`` (single/double/None).
+
+    The local desktop workspace commonly lives below macOS ``Application
+    Support``.  A blind ``/workspace`` replacement therefore turns a valid
+    unquoted command into several shell words.  We only need enough shell
+    awareness to preserve existing quotes and safely quote unquoted path
+    prefixes; Bash remains responsible for parsing the full script.
+    """
+    state: Optional[str] = None
+    escaped = False
+    for char in value[:end]:
+        if state == "single":
+            if char == "'":
+                state = None
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+        elif state == "double":
+            if char == '"':
+                state = None
+        elif char == "'":
+            state = "single"
+        elif char == '"':
+            state = "double"
+    return state
+
+
+def _rewrite_bash_workspace_refs(value: str, workspace_root: str) -> str:
+    """Map canonical workspace paths without breaking paths that contain spaces."""
+    if not isinstance(value, str) or workspace_root == "/workspace":
+        return value
+    replacement = workspace_root.rstrip("/\\")
+
+    def _replace(match: re.Match[str]) -> str:
+        quote_state = _bash_quote_state(value, match.start())
+        if quote_state == "single":
+            return replacement.replace("'", "'\"'\"'")
+        if quote_state == "double":
+            return (
+                replacement.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("$", "\\$")
+                .replace("`", "\\`")
+            )
+        # Quoting only the rewritten prefix is valid shell concatenation:
+        # '/Users/.../workspace'/site resolves as one path while the suffix
+        # remains visible to the boundary-matching regex.
+        return shlex.quote(replacement)
+
+    return _WS_PATH_RE.sub(_replace, value)
+
+
 def _execution_workspace_root(
     language: str,
     workspace_root: str = WORKSPACE_ROOT,
@@ -83,6 +140,8 @@ def _rewrite_execution_paths(value: str, language: str) -> str:
     if target_root != WORKSPACE_ROOT:
         # File tools may already have expanded /workspace to the native root.
         value = value.replace(WORKSPACE_ROOT, target_root)
+    if language == "bash":
+        return _rewrite_bash_workspace_refs(value, target_root)
     return _rewrite_workspace_refs(value, target_root)
 
 
