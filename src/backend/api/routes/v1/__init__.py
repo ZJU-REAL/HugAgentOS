@@ -34,6 +34,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("internal_batch", "router"),
     ("internal_sites", "router"),
     ("projects", "router"),
+    ("api_keys", "router"),
     ("me_capabilities", "router"),
     ("marketplace", "router"),
     ("agent_marketplace", "router"),

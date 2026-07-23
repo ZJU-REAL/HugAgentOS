@@ -13,11 +13,15 @@ def test_local_profile_enables_memory_runtime_by_default(tmp_path, monkeypatch):
     monkeypatch.setenv("HUGAGENT_HOME", str(tmp_path / "hugagent-home"))
     monkeypatch.delenv("MEM0_ENABLED", raising=False)
     monkeypatch.delenv("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", raising=False)
+    monkeypatch.delenv("BACKEND_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
 
     defaults = cli.apply_local_env(port=18000)
 
     assert defaults["MEM0_ENABLED"] == "true"
     assert defaults["HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS"] == "1"
+    assert defaults["BACKEND_INTERNAL_URL"] == "http://127.0.0.1:18000"
+    assert defaults["BACKEND_PORT"] == "18000"
     assert os.environ["HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS"] == "1"
 
 

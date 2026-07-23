@@ -12,7 +12,9 @@ def _backend_url() -> str:
     explicit = os.environ.get("BACKEND_INTERNAL_URL", "").strip()
     if explicit:
         return explicit.rstrip("/")
-    port = (os.environ.get("BACKEND_PORT") or "3001").strip() or "3001"
+    # Desktop/local mode has no nginx or compose service name.  Its MCP child
+    # inherits the backend listener through PORT (32101 by default).
+    port = (os.environ.get("BACKEND_PORT") or os.environ.get("PORT") or "3001").strip() or "3001"
     return f"http://127.0.0.1:{port}"
 
 

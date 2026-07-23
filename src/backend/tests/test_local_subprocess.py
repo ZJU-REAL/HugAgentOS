@@ -17,6 +17,16 @@ def test_child_env_binds_local_mcp_to_loopback(monkeypatch):
     assert env["MCP_BIND_HOST"] == "127.0.0.1"
 
 
+def test_site_publish_callback_uses_local_listener_port(monkeypatch):
+    from mcp_servers.site_publish_mcp import impl
+
+    monkeypatch.delenv("BACKEND_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    monkeypatch.setenv("PORT", "32101")
+
+    assert impl._backend_url() == "http://127.0.0.1:32101"
+
+
 def test_streamable_http_bind_host_defaults_to_compose_and_supports_local(monkeypatch):
     monkeypatch.delenv("MCP_BIND_HOST", raising=False)
     assert _serve._streamable_http_bind_host() == "0.0.0.0"

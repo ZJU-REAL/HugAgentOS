@@ -50,6 +50,50 @@ def test_ce_login_ticket_exchange_and_session_check(initialized_ce_database):
         assert session.json()["data"]["username"] == "admin"
 
 
+def test_ce_api_key_crud_is_reachable_from_personal_settings(initialized_ce_database):
+    from api.app import app
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/login",
+            data={"username": "admin", "password": "admin", "redirect": "/"},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303, login.text
+        ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
+        exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
+        assert exchange.status_code == 200, exchange.text
+
+        empty_or_existing = client.get("/v1/me/api-keys")
+        assert empty_or_existing.status_code == 200, empty_or_existing.text
+
+        created = client.post(
+            "/v1/me/api-keys",
+            json={
+                "name": "desktop-test",
+                "expires_in_days": 30,
+                # The shared frontend always sends this field. CE intentionally
+                # ignores it because it has no enterprise model gateway.
+                "for_gateway": False,
+            },
+        )
+        assert created.status_code == 201, created.text
+        created_data = created.json()["data"]
+        key_id = created_data["id"]
+        assert created_data["api_key"].startswith("sk-jx-")
+
+        revealed = client.get(f"/v1/me/api-keys/{key_id}/reveal")
+        assert revealed.status_code == 200, revealed.text
+        assert revealed.json()["data"]["api_key"] == created_data["api_key"]
+
+        disabled = client.patch(f"/v1/me/api-keys/{key_id}", json={"enabled": False})
+        assert disabled.status_code == 200, disabled.text
+        assert disabled.json()["data"]["enabled"] is False
+
+        revoked = client.delete(f"/v1/me/api-keys/{key_id}")
+        assert revoked.status_code == 200, revoked.text
+
+
 def test_ce_registers_all_local_auth_routes():
     from api.app import app
 

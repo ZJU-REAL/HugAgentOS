@@ -66,9 +66,16 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
         .route("/__desktop/setup/install", post(start_local_install))
         .route("/api", any(proxy_handler))
         .route("/api/*rest", any(proxy_handler))
-        // 后端提供的上传资产（页面配置 logo/favicon、操作手册 PDF 等）也在后端、不在前端
-        // dist 里——必须像 nginx 一样转发到后端，否则桌面端这些图片/文件 404 → 图裂。
-        // 前端 dist 下没有 /docs 目录，转发不会抢占前端静态资源。
+        // nginx-free desktop mode still needs the backend-owned public paths:
+        // generated artifacts (/files) and hosted sites (/site).  Without
+        // these routes, links returned by the agent fall through to the SPA
+        // index instead of reaching FastAPI.
+        .route("/files", any(proxy_handler))
+        .route("/files/*rest", any(proxy_handler))
+        .route("/site", any(proxy_handler))
+        .route("/site/*rest", any(proxy_handler))
+        // Page-config assets and manuals also live on the backend, not in the
+        // frontend dist.  Forward them with the same streaming proxy.
         .route("/docs/*rest", any(proxy_handler))
         .route_service("/", ServeFile::new(&spa_index))
         .fallback_service(serve_dir)
@@ -260,7 +267,7 @@ const TB_OFFSET_PAGE: &str =
 
 const MAC_TITLEBAR_HEIGHT: u8 = 38;
 const MAC_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:38px}body{box-sizing:border-box!important;padding-top:38px!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:38px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:38px!important;background:linear-gradient(90deg,#F5F6F7 0 var(--hugagent-desktop-sidebar-width),#FFFFFF var(--hugagent-desktop-sidebar-width) 100%)!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const MAC_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:38px}body{box-sizing:border-box!important;padding-top:38px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
@@ -369,6 +376,20 @@ var bar=document.getElementById('hugagent-mac-titlebar');if(!bar)return;
 if(new URLSearchParams(location.search).get('quickask')==='1'){
   bar.remove();var style=document.getElementById('hugagent-titlebar-style');if(style)style.remove();return;
 }
+var observedSidebar=null;
+var sidebarResizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(syncSidebarWidth):null;
+function syncSidebarWidth(){
+  var sidebar=document.querySelector('.jx-sider,.jx-appLoading-sidebar');
+  if(sidebarResizeObserver&&sidebar&&sidebar!==observedSidebar){
+    if(observedSidebar)sidebarResizeObserver.unobserve(observedSidebar);
+    observedSidebar=sidebar;sidebarResizeObserver.observe(sidebar);
+  }
+  var width=sidebar?Math.max(0,Math.round(sidebar.getBoundingClientRect().width)):0;
+  document.documentElement.style.setProperty('--hugagent-desktop-sidebar-width',width+'px');
+}
+syncSidebarWidth();
+new MutationObserver(syncSidebarWidth).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
+window.addEventListener('resize',syncSidebarWidth);
 bar.addEventListener('mousedown',function(event){
   if(event.button!==0)return;
   window.location.href='/__desktop/win?action=drag';
@@ -845,6 +866,9 @@ mod tests {
         assert!(!block.contains("data-win=\"minimize\""));
         assert!(!block.contains("data-win=\"close\""));
         assert!(!block.contains("tb-menuLabel"));
+        assert!(block.contains("--hugagent-desktop-sidebar-width"));
+        assert!(block.contains("linear-gradient(90deg,#F5F6F7"));
+        assert!(block.contains("ResizeObserver"));
     }
 
     #[test]
