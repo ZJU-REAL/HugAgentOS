@@ -1,5 +1,7 @@
 """Local/desktop sidecar startup contracts."""
 
+import io
+import tarfile
 from types import SimpleNamespace
 
 import pytest
@@ -25,6 +27,45 @@ def test_site_publish_callback_uses_local_listener_port(monkeypatch):
     monkeypatch.setenv("PORT", "32101")
 
     assert impl._backend_url() == "http://127.0.0.1:32101"
+
+
+@pytest.mark.asyncio
+async def test_local_site_pack_uses_macos_portable_size_probe(monkeypatch):
+    import core.sandbox as sandbox
+    from api.routes.v1 import internal_sites
+    from core.llm.tools import _common
+
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w:gz") as tf:
+        content = b"<h1>desktop site</h1>"
+        info = tarfile.TarInfo("./index.html")
+        info.size = len(content)
+        tf.addfile(info, io.BytesIO(content))
+
+    commands = []
+
+    async def fake_exec(command, *, chat_id, timeout=30):
+        commands.append(command)
+        if command.startswith("rm -f "):
+            return 0, "", ""
+        return 0, f"  {len(archive.getvalue())}\n", ""
+
+    class FakeProvider:
+        async def get_file(self, session_id, path, user_id=None):
+            return archive.getvalue()
+
+    monkeypatch.setattr(_common, "sandbox_exec_bash", fake_exec)
+    monkeypatch.setattr(sandbox, "get_sandbox_provider", lambda: FakeProvider())
+
+    files, error = await internal_sites._pack_and_fetch_dir(
+        "/workspace/site with spaces", "chat-local", "user-local"
+    )
+
+    assert error is None
+    assert files == [("index.html", b"<h1>desktop site</h1>")]
+    assert "wc -c <" in commands[0]
+    assert "du -b" not in commands[0]
+    assert "'/workspace/site with spaces'" in commands[0]
 
 
 def test_streamable_http_bind_host_defaults_to_compose_and_supports_local(monkeypatch):

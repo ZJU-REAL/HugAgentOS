@@ -369,6 +369,16 @@ def test_ce_site_publish_tool_has_no_organization_parameter():
     assert "team_id" not in inspect.signature(publish_site).parameters
 
 
+def test_ce_site_publish_callback_uses_desktop_listener(monkeypatch):
+    from mcp_servers.site_publish_mcp import impl
+
+    monkeypatch.delenv("BACKEND_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    monkeypatch.setenv("PORT", "32101")
+
+    assert impl._backend_url() == "http://127.0.0.1:32101"
+
+
 def test_ce_registers_native_api_key_routes():
     from api.app import app
 

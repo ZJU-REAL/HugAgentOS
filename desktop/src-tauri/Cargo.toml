@@ -1,6 +1,6 @@
 [package]
 name = "hugagent-desktop"
-version = "0.2.2"
+version = "0.2.3"
 description = "HugAgentOS桌面客户端"
 edition = "2021"
 rust-version = "1.77"

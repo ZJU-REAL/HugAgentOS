@@ -321,7 +321,10 @@ async def _pack_and_fetch_dir(
     tar_cmd = (
         f"cd {shell_quote(src)} && "
         f"tar {exclude_args} -czf {shell_quote(pack)} . && "
-        f"du -b {shell_quote(pack)} | cut -f1"
+        # ``du -b`` is a GNU extension and is unavailable on macOS/BSD.  The
+        # local desktop profile runs this command on the host, so use POSIX
+        # ``wc -c`` and strip its padding when parsing below.
+        f"wc -c < {shell_quote(pack)}"
     )
     exit_code, stdout, stderr = await sandbox_exec_bash(tar_cmd, chat_id=_sess, timeout=60)
     if exit_code != 0:

@@ -1,6 +1,6 @@
 {
   "name": "hugagent-desktop",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "HugAgentOS 桌面客户端（远程连接 + Windows/macOS 无 Docker 本机服务）",
   "scripts": {

@@ -503,14 +503,23 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch):
     the bash/python it executes, so model-written /workspace paths resolve locally."""
     import services.script_runner_service.server as srv
 
-    monkeypatch.setattr(srv, "WORKSPACE_ROOT", "/home/u/.hugagent/workspace")
-    assert srv._canon_ws("/workspace") == "/home/u/.hugagent/workspace"
-    assert srv._canon_ws("/workspace/a.txt") == "/home/u/.hugagent/workspace/a.txt"
+    local_root = "/Users/test/Library/Application Support/HugAgentOS/workspace"
+    monkeypatch.setattr(srv, "WORKSPACE_ROOT", local_root)
+    assert srv._canon_ws("/workspace") == local_root
+    assert srv._canon_ws("/workspace/a.txt") == f"{local_root}/a.txt"
     assert srv._canon_ws("/workspaces/x") == "/workspaces/x"
 
-    # The bash-command regex rewrites path-boundary /workspace but not /workspaces.
-    ws_re = __import__("re").compile(r'/workspace(?=/|$|["\'\s:;)&|])')
-    out = ws_re.sub(
-        "/home/u/.hugagent/workspace", "cd /workspace && npm run build; echo /workspaces"
+    # Existing quotes remain intact, while an unquoted canonical path gains a
+    # safely quoted prefix when the macOS Application Support mapping adds
+    # spaces. /workspaces is only a lookalike and must remain untouched.
+    out = srv._rewrite_bash_workspace_refs(
+        "cd '/workspace/site' && tar -czf '/workspace/site.tgz' .; echo /workspaces",
+        local_root,
     )
-    assert out == "cd /home/u/.hugagent/workspace && npm run build; echo /workspaces"
+    assert out == (
+        f"cd '{local_root}/site' && tar -czf '{local_root}/site.tgz' .; echo /workspaces"
+    )
+    assert srv._rewrite_bash_workspace_refs(
+        "cd /workspace/site && tar -czf /workspace/site.tgz .",
+        local_root,
+    ) == (f"cd '{local_root}'/site && tar -czf '{local_root}'/site.tgz .")
