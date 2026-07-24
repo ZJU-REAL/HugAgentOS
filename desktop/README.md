@@ -256,8 +256,9 @@ npm run build
   Node.js 20+ 缺失时也会尝试通过 `winget` 补齐；这一步失败不阻断核心服务，但 React 建站和高级
   PDF 渲染会保持降级状态。
 - macOS 本机服务首次安装会在应用数据目录下载独立的 `uv` 和 Python 3.11，不修改系统 Python
-  或 shell 配置。安装仍需联网下载 Python wheels；Node.js 20+ 仅影响可选的建站和高级文档能力，
-  缺失时不阻断核心服务启动。
+  或 shell 配置。账号、对话、上传文件和工作区统一写入 `~/.hugagent`，与命令行一键安装使用
+  同一数据路径，也避免 `Application Support` 中的空格影响本机命令。安装仍需联网下载 Python
+  wheels；Node.js 20+ 仅影响可选的建站和高级文档能力，缺失时不阻断核心服务启动。
 - 安装包只携带一个 `server-ce.zip`，首次安装或版本升级时才解压。Windows 把可删除的
   `source`、`venv` 和 `node` 放在
   `%LOCALAPPDATA%\com.hugagent.desktop\local-server\runtime`，把账号、对话、上传文件和工作区放在
@@ -265,11 +266,13 @@ npm run build
   `data`。选择“是”时，卸载器先停止本机服务，把目录原子改名，再让隐藏的系统进程在后台清理，
   卸载界面不等待逐文件
   删除。软件分发系统可向卸载器传入 `/HUGAGENT_DELETE_DATA` 明确请求删除数据。
-- macOS 的持久数据位于
-  `~/Library/Application Support/com.hugagent.desktop/local-server/data`；源码、venv、Node 依赖和
-  版本目录与它分开。DMG 中同样只携带一个 `server-ce.zip`，旧运行版本会先原子移走再后台删除。
-  macOS 把 App 拖入废纸篓不会执行卸载钩子，因此默认不会删除 Application Support 下的数据或
-  运行环境；确认不再需要后可手动删除 `local-server`。
+- macOS 的持久数据位于 `~/.hugagent`；源码、venv、Node 依赖和版本目录仍位于
+  `~/Library/Application Support/com.hugagent.desktop/local-server`。从旧版升级时，如果
+  `~/.hugagent` 不存在或为空，客户端会把旧 `local-server/data` 原子迁入该目录；如果目录已有
+  命令行版数据，则直接沿用并保留旧目录作为备份，不覆盖任何文件。DMG 中同样只携带一个
+  `server-ce.zip`，旧运行版本会先原子移走再后台删除。macOS 把 App 拖入废纸篓不会执行卸载钩子，
+  因此默认不会删除 `~/.hugagent` 或 Application Support 下的运行环境；确认不再需要后可分别
+  手动删除。
 - Linux 当前是远程服务器瘦客户端，不携带 CE 服务载荷，也不创建 `local-server`，因此没有大量本机
   服务文件的卸载清理问题。
 - Linux 托盘依赖 libayatana-appindicator；Wayland 下全局快捷键（Ctrl+Shift+Space）兼容性因桌面

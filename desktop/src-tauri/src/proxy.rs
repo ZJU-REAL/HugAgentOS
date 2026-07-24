@@ -265,14 +265,17 @@ const TB_OFFSET_SPA: &str =
 const TB_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:36px}body{box-sizing:border-box!important;padding-top:36px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
-const MAC_TITLEBAR_HEIGHT: u8 = 38;
+// The traffic lights start at y=13 and occupy about 14px. A 28px overlay keeps
+// their hit area clear without stacking a second, visibly empty toolbar above
+// the application's own brand row.
+const MAC_TITLEBAR_HEIGHT: u8 = 28;
 // The left half of the macOS safe area reuses the sidebar's first translucent
 // blue gradient stop over its #F5F6F7 base.  The traffic lights therefore sit
 // on a true visual continuation of the sidebar instead of a detached grey bar.
 const MAC_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:38px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:38px!important;background:linear-gradient(90deg,rgba(203,223,255,.38) 0 var(--hugagent-desktop-sidebar-width),#FFFFFF var(--hugagent-desktop-sidebar-width) 100%),#F5F6F7!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:28px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:28px!important;background:linear-gradient(90deg,rgba(203,223,255,.38) 0 var(--hugagent-desktop-sidebar-width),#FFFFFF var(--hugagent-desktop-sidebar-width) 100%),#F5F6F7!important}.jx-brandRow,.jx-miniRail{padding-top:0!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const MAC_OFFSET_PAGE: &str =
-    ":root{--hugagent-desktop-titlebar-height:38px}body{box-sizing:border-box!important;padding-top:38px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:28px}body{box-sizing:border-box!important;padding-top:28px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
 const TB_CSS: &str = r##"
 #hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:36px;z-index:2147483647;display:flex;align-items:center;background:#F7F8FA;border-bottom:1px solid #E5E9EF;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#30343B}
@@ -370,7 +373,7 @@ bar.addEventListener('dblclick',function(event){if(isControl(event.target))retur
 // we only reserve a compact draggable title region for the traffic lights; a
 // second branded toolbar would duplicate the native chrome and waste space.
 const MAC_TB_CSS: &str = r##"
-#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:38px;z-index:2147483647;background:transparent;border:0;box-shadow:none;-webkit-user-select:none;user-select:none}
+#hugagent-mac-titlebar{position:fixed;inset:0 0 auto 0;height:28px;z-index:2147483647;background:transparent;border:0;box-shadow:none;-webkit-user-select:none;user-select:none}
 #hugagent-mac-titlebar *{box-sizing:border-box}
 "##;
 
@@ -860,7 +863,7 @@ mod tests {
     fn mac_titlebar_is_a_compact_drag_region_without_duplicate_actions() {
         let block = mac_titlebar_block(MAC_OFFSET_SPA);
         assert!(block.contains("hugagent-mac-titlebar"));
-        assert!(block.contains("height:38px"));
+        assert!(block.contains("height:28px"));
         assert!(block.contains("background:transparent"));
         assert!(!block.contains("border-bottom"));
         assert!(!block.contains("backdrop-filter"));
@@ -872,6 +875,7 @@ mod tests {
         assert!(block.contains("--hugagent-desktop-sidebar-width"));
         assert!(block.contains("linear-gradient(90deg,rgba(203,223,255,.38)"));
         assert!(block.contains("#F5F6F7!important"));
+        assert!(block.contains(".jx-brandRow,.jx-miniRail{padding-top:0!important}"));
         assert!(block.contains("ResizeObserver"));
     }
 
@@ -892,7 +896,7 @@ mod tests {
         }
         assert!(titlebar_block(TB_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:36px"));
         assert!(
-            mac_titlebar_block(MAC_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:38px")
+            mac_titlebar_block(MAC_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:28px")
         );
     }
 

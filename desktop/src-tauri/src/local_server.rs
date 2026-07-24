@@ -2,7 +2,8 @@
 //!
 //! Windows 与 macOS 安装包携带同版本 CE 派生树。这里负责调用平台引导脚本创建
 //! 独立 Python 环境、启动 `hugagent serve`、轮询健康状态，并在桌面进程退出时
-//! 回收子进程。业务数据和 Python 环境都在应用本地数据目录，不写安装目录。
+//! 回收子进程。Python 运行环境位于应用本地数据目录；macOS 业务数据统一放在
+//! ``~/.hugagent``，避免工作区路径中的空格传入命令行工具。
 
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -20,6 +21,73 @@ use tokio::sync::RwLock;
 pub const LOCAL_SERVER_PORT: u16 = 32101;
 pub const LOCAL_SERVER_BASE: &str = "http://127.0.0.1:32101";
 const MAX_LOG_LINES: usize = 80;
+
+/// Resolve the business-data directory independently from the managed runtime.
+///
+/// The Tauri application-data root is still the right place for the bundled
+/// Python/runtime payload. On macOS it contains ``Application Support``, though,
+/// which is a poor workspace path for model-generated shell commands. Keep only
+/// the runtime there and use the same ``~/.hugagent`` data root as the standalone
+/// local installer. Existing desktop data is moved on first launch when that can
+/// be done without overwriting an existing standalone installation.
+pub fn resolve_local_server_data_dir(runtime_root: &Path, home_dir: Option<&Path>) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        let legacy = runtime_root.join("data");
+        let Some(home_dir) = home_dir else {
+            return legacy;
+        };
+        let preferred = home_dir.join(".hugagent");
+        if let Err(error) = migrate_legacy_data_dir(&legacy, &preferred) {
+            eprintln!("[local-server] 迁移 macOS 数据目录失败，继续使用旧目录：{error}");
+            return legacy;
+        }
+        preferred
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = home_dir;
+        runtime_root.join("data")
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn migrate_legacy_data_dir(legacy: &Path, preferred: &Path) -> Result<(), String> {
+    if !legacy.exists() || legacy == preferred {
+        return Ok(());
+    }
+    let parent = preferred
+        .parent()
+        .ok_or_else(|| format!("目标目录没有父目录：{}", preferred.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("创建 {} 失败：{error}", parent.display()))?;
+
+    if preferred.exists() {
+        let is_empty = preferred
+            .read_dir()
+            .map_err(|error| format!("读取 {} 失败：{error}", preferred.display()))?
+            .next()
+            .is_none();
+        if !is_empty {
+            eprintln!(
+                "[local-server] {} 已有数据，将其作为统一数据目录；旧目录 {} 保留为备份",
+                preferred.display(),
+                legacy.display()
+            );
+            return Ok(());
+        }
+        std::fs::remove_dir(preferred)
+            .map_err(|error| format!("移除空目录 {} 失败：{error}", preferred.display()))?;
+    }
+
+    std::fs::rename(legacy, preferred).map_err(|error| {
+        format!(
+            "无法把 {} 移到 {}：{error}",
+            legacy.display(),
+            preferred.display()
+        )
+    })
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct LocalServerStatus {
@@ -50,6 +118,7 @@ impl Default for LocalServerStatus {
 
 pub struct LocalServerManager {
     root: PathBuf,
+    data_root: PathBuf,
     bundle_archive: PathBuf,
     bundle_manifest: PathBuf,
     installer_script: PathBuf,
@@ -63,6 +132,7 @@ pub struct LocalServerManager {
 impl LocalServerManager {
     pub fn new(
         root: PathBuf,
+        data_root: PathBuf,
         bundle_archive: PathBuf,
         bundle_manifest: PathBuf,
         installer_script: PathBuf,
@@ -74,6 +144,7 @@ impl LocalServerManager {
         };
         Arc::new(Self {
             root,
+            data_root,
             bundle_archive,
             bundle_manifest,
             installer_script,
@@ -100,7 +171,7 @@ impl LocalServerManager {
     }
 
     fn data_dir(&self) -> PathBuf {
-        self.root.join("data")
+        self.data_root.clone()
     }
 
     #[cfg(target_os = "windows")]
@@ -901,6 +972,7 @@ mod tests {
         std::fs::write(&script, "# test").unwrap();
         LocalServerManager::new(
             root,
+            base.join("data"),
             bundle_archive,
             bundle_manifest,
             script,
@@ -975,6 +1047,55 @@ mod tests {
         std::fs::write(&log, "one\ntwo\nthree\n").unwrap();
 
         assert_eq!(tail_file(&log, 2), vec!["two", "three"]);
+    }
+
+    #[test]
+    fn legacy_macos_data_moves_to_dot_hugagent_without_copying() {
+        let base = std::env::temp_dir().join(format!(
+            "hugagent-desktop-data-migration-{}",
+            std::process::id()
+        ));
+        let legacy = base
+            .join("Library")
+            .join("Application Support")
+            .join("data");
+        let preferred = base.join("home").join(".hugagent");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(legacy.join("workspace").join("site")).unwrap();
+        std::fs::write(legacy.join("data.db"), "desktop data").unwrap();
+
+        migrate_legacy_data_dir(&legacy, &preferred).unwrap();
+
+        assert!(!legacy.exists());
+        assert_eq!(
+            std::fs::read_to_string(preferred.join("data.db")).unwrap(),
+            "desktop data"
+        );
+        assert!(preferred.join("workspace").join("site").is_dir());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn existing_dot_hugagent_wins_without_overwriting_or_deleting_legacy_data() {
+        let base = std::env::temp_dir().join(format!(
+            "hugagent-desktop-data-conflict-{}",
+            std::process::id()
+        ));
+        let legacy = base.join("legacy");
+        let preferred = base.join("home").join(".hugagent");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&preferred).unwrap();
+        std::fs::write(legacy.join("data.db"), "desktop data").unwrap();
+        std::fs::write(preferred.join("data.db"), "standalone data").unwrap();
+
+        migrate_legacy_data_dir(&legacy, &preferred).unwrap();
+        assert!(legacy.join("data.db").is_file());
+        assert_eq!(
+            std::fs::read_to_string(preferred.join("data.db")).unwrap(),
+            "standalone data"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
