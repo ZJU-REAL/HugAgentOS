@@ -95,11 +95,12 @@ def _bash_quote_state(value: str, end: int) -> Optional[str]:
     return state
 
 
-def _rewrite_bash_workspace_refs(value: str, workspace_root: str) -> str:
-    """Map canonical workspace paths without breaking paths that contain spaces."""
-    if not isinstance(value, str) or workspace_root == "/workspace":
-        return value
-    replacement = workspace_root.rstrip("/\\")
+def _quote_bash_path_refs(
+    value: str,
+    pattern: re.Pattern[str],
+    replacement: str,
+) -> str:
+    """Replace path prefixes while preserving or adding shell-safe quoting."""
 
     def _replace(match: re.Match[str]) -> str:
         quote_state = _bash_quote_state(value, match.start())
@@ -117,7 +118,26 @@ def _rewrite_bash_workspace_refs(value: str, workspace_root: str) -> str:
         # remains visible to the boundary-matching regex.
         return shlex.quote(replacement)
 
-    return _WS_PATH_RE.sub(_replace, value)
+    return pattern.sub(_replace, value)
+
+
+def _rewrite_bash_workspace_refs(value: str, workspace_root: str) -> str:
+    """Map canonical and expanded workspace paths without breaking spaces.
+
+    File tools return both the logical ``/workspace/...`` path and the expanded
+    host path.  A later Bash call may therefore contain either spelling.  Quote
+    the expanded spelling first, then map the canonical spelling, so both stay
+    one shell word when the local data directory contains spaces.
+    """
+    if not isinstance(value, str) or workspace_root == "/workspace":
+        return value
+    replacement = workspace_root.rstrip("/\\")
+    expanded_re = re.compile(
+        rf"(?<![A-Za-z0-9_.\\/\-]){re.escape(replacement)}"
+        r"(?=/|$|[\"'\s:;)&|])"
+    )
+    value = _quote_bash_path_refs(value, expanded_re, replacement)
+    return _quote_bash_path_refs(value, _WS_PATH_RE, replacement)
 
 
 def _execution_workspace_root(

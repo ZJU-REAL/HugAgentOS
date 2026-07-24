@@ -275,13 +275,20 @@ pub fn run() {
                 .path()
                 .app_local_data_dir()
                 .unwrap_or_else(|_| config_dir.clone());
+            let local_server_root = local_data_dir.join("local-server");
+            let home_dir = app.path().home_dir().ok();
+            let local_server_data_dir = local_server::resolve_local_server_data_dir(
+                &local_server_root,
+                home_dir.as_deref(),
+            );
             let installer_name = if cfg!(target_os = "macos") {
                 "install-local-server.sh"
             } else {
                 "install-local-server.ps1"
             };
             let local_server = local_server::LocalServerManager::new(
-                local_data_dir.join("local-server"),
+                local_server_root,
+                local_server_data_dir,
                 resource_dir.join("server-ce.zip"),
                 resource_dir.join("server-ce-manifest.json"),
                 resource_dir.join("server-bootstrap").join(installer_name),

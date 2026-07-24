@@ -523,3 +523,15 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch):
         "cd /workspace/site && tar -czf /workspace/site.tgz .",
         local_root,
     ) == (f"cd '{local_root}'/site && tar -czf '{local_root}'/site.tgz .")
+    # File tools also return the expanded physical_path.  If the model feeds it
+    # into Bash verbatim, protect it exactly like the canonical /workspace form.
+    assert srv._rewrite_bash_workspace_refs(
+        f"ls {local_root}/site && test -f {local_root}/site/index.html",
+        local_root,
+    ) == (
+        f"ls '{local_root}'/site && test -f '{local_root}'/site/index.html"
+    )
+    assert srv._rewrite_bash_workspace_refs(
+        f"ls '{local_root}/site'",
+        local_root,
+    ) == f"ls '{local_root}/site'"
