@@ -468,6 +468,38 @@ def test_kb_milvus_lite_dense_only(tmp_path, monkeypatch):
     assert len(hits) == 1 and hits[0]["content"] == "机器学习"
 
 
+# ── Loopback proxy bypass (desktop/local internal calls must not hit env proxies) ─
+
+
+def test_local_env_merges_loopback_hosts_into_no_proxy(monkeypatch):
+    """A system proxy (http_proxy/all_proxy) must never intercept the local
+    profile's 127.0.0.1 service mesh — httpx honours those vars and a desktop
+    proxy (e.g. Clash) answers loopback targets with 502, breaking sidecar
+    readiness and site publishing. Existing NO_PROXY entries must survive."""
+    import cli
+
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:7897")
+    monkeypatch.setenv("NO_PROXY", "internal.corp")
+    monkeypatch.delenv("no_proxy", raising=False)
+
+    cli.ensure_loopback_proxy_bypass()
+
+    import os
+
+    for var in ("NO_PROXY", "no_proxy"):
+        entries = os.environ[var].split(",")
+        assert "internal.corp" in entries
+        assert "127.0.0.1" in entries
+        assert "localhost" in entries
+        assert "::1" in entries
+    # The proxy itself stays configured — external model/API calls may need it.
+    assert os.environ["http_proxy"] == "http://127.0.0.1:7897"
+
+    # Idempotent: a second call must not duplicate entries.
+    cli.ensure_loopback_proxy_bypass()
+    assert os.environ["NO_PROXY"].split(",").count("127.0.0.1") == 1
+
+
 # ── /workspace alias (site-building + skills work when WORKSPACE != /workspace) ─
 
 

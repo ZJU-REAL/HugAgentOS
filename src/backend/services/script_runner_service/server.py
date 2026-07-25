@@ -480,6 +480,14 @@ async def put_file(req: PutFileRequest):
     return {"ok": True, "size": len(content)}
 
 
+# /get_file serves both sandbox_get_artifact (small outputs) and the internal
+# site-publish flow, whose tar pack is allowed up to 40MB (internal_sites
+# MAX_PACK_BYTES) — a fetch cap below that makes larger site publishes fail
+# after a successful in-sandbox tar. Keep a generous ceiling here; callers
+# enforce their own tighter budgets.
+MAX_FETCH_FILE_SIZE = 64 * 1024 * 1024
+
+
 @app.post("/get_file", response_model=GetFileResponse)
 async def get_file(req: GetFileRequest):
     """Read a file from the sandbox and return it base64-encoded. Used by sandbox_get_artifact to register outputs as artifacts."""
@@ -487,8 +495,8 @@ async def get_file(req: GetFileRequest):
     if not p.is_file():
         raise HTTPException(404, f"文件不存在: {req.path}")
     data = p.read_bytes()
-    if len(data) > MAX_FILE_SIZE:
-        raise HTTPException(413, f"文件过大: {len(data)} > {MAX_FILE_SIZE}")
+    if len(data) > MAX_FETCH_FILE_SIZE:
+        raise HTTPException(413, f"文件过大: {len(data)} > {MAX_FETCH_FILE_SIZE}")
     return GetFileResponse(
         content_b64=base64.b64encode(data).decode("ascii"),
         size=len(data),

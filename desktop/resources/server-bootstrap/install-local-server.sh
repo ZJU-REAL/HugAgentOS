@@ -235,10 +235,23 @@ uv_run pip install --python "$VenvPython" \
 progress 78 "正在检查可选的 Node.js 文档能力…"
 NodeExecutable=""
 if [[ "${HUGAGENT_SKIP_OPTIONAL_NODE:-0}" != "1" ]]; then
-  for Candidate in \
-    "$(command -v node 2>/dev/null || true)" \
-    "/opt/homebrew/bin/node" \
-    "/usr/local/bin/node"; do
+  # The desktop app launches this script with the minimal GUI PATH, so `command -v`
+  # misses most user installs. Probe the common per-user install locations too
+  # (plain binary drops, Homebrew both arches, nvm/fnm/mise/volta version trees).
+  NodeCandidates=(
+    "$(command -v node 2>/dev/null || true)"
+    "$HOME/.local/bin/node"
+    "/opt/homebrew/bin/node"
+    "/usr/local/bin/node"
+    "$HOME/.volta/bin/node"
+  )
+  for VersionedNode in \
+    "$HOME/.nvm/versions/node"/*/bin/node \
+    "$HOME/.local/share/fnm/node-versions"/*/installation/bin/node \
+    "$HOME/.local/share/mise/installs/node"/*/bin/node; do
+    [[ -x "$VersionedNode" ]] && NodeCandidates+=("$VersionedNode")
+  done
+  for Candidate in "${NodeCandidates[@]}"; do
     if [[ -n "$Candidate" && -x "$Candidate" ]] \
       && [[ "$("$Candidate" -p 'Number(process.versions.node.split(".")[0]) >= 20 ? "ok" : "old"' 2>/dev/null)" == "ok" ]]; then
       NodeExecutable="$Candidate"

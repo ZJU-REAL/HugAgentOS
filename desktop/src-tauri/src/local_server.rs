@@ -1032,6 +1032,14 @@ mod tests {
             assert!(!config.contains("\"../generated/server-ce\": \"server-ce\""));
         }
         assert!(!linux_config.contains("server-ce"));
+        // The macOS installer runs with the minimal GUI PATH, so optional Node
+        // detection must probe common per-user install locations instead of
+        // relying on `command -v` alone (else site building silently degrades).
+        let macos_installer =
+            include_str!("../../resources/server-bootstrap/install-local-server.sh");
+        assert!(macos_installer.contains(".local/bin/node"));
+        assert!(macos_installer.contains(".nvm/versions/node"));
+        assert!(macos_installer.contains(".volta/bin/node"));
         assert!(windows_installer.contains("System.IO.Compression.ZipFile"));
         assert!(windows_installer.contains("Join-Path $InstallRoot \"runtime\""));
         assert!(windows_installer.contains("Join-Path $RuntimeRoot \"node\""));
