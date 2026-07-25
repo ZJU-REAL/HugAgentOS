@@ -535,19 +535,18 @@ async def _run_workflow(
                     }
                 )
 
-            elif chunk_type == "plan_redirect":
-                # The main agent called enter_plan_mode to switch into plan mode —
-                # workflow.py has already broken out of the current agent loop.
-                # Forward the to-be-planned task to the frontend, which drives the
-                # existing plan-mode pipeline (generate plan → preview card → user
-                # confirms → execute). Same human-in-the-loop gate as
-                # batch_confirm: the agent does not continue on its own; the user
-                # confirms on the plan card.
+            elif chunk_type == "plan_update":
+                # The main agent updated its lightweight plan checklist via the
+                # update_plan tool. Forward full-state to the frontend, which
+                # renders it as a plan bar above the chat input (not in the
+                # message flow). The agent keeps executing in the same turn —
+                # no approval gate, no loop abort.
                 await _emit(
                     {
-                        "type": "plan_redirect",
+                        "type": "plan_update",
                         "chat_id": chat_id,
-                        "task_description": chunk.get("task_description", ""),
+                        "title": chunk.get("title", ""),
+                        "steps": chunk.get("steps", []),
                     }
                 )
 

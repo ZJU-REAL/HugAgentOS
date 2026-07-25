@@ -383,9 +383,22 @@ async def get_main_capabilities(
     cfg = ModelConfigService.get_instance().resolve("main_agent")
     supports = bool((cfg.extra if cfg else {}).get("supports_reasoning_effort"))
     switch_enabled = bool(user and user_can_switch_model(db, user.user_id))
+    # Real context window (tokens) of the main chat model, so the frontend
+    # context-usage gauge reflects the model's true window instead of a guess.
+    # 0 when unconfigured — the frontend falls back to a heuristic/default.
+    main_context_length = int(cfg.context_length) if cfg and cfg.context_length else 0
+    # Tokens the backend reserves for the system prompt + skill/tool descriptions
+    # (ContextBudget.system_prompt_reserve). Surfaced so the gauge can count the
+    # (client-invisible) system prompt toward context usage rather than a placeholder.
+    from core.llm.context_manager import ContextBudget
+    system_prompt_tokens = ContextBudget.system_prompt_reserve
     return success_response(
         data={
-            "main_agent": {"supports_reasoning_effort": supports},
+            "main_agent": {
+                "supports_reasoning_effort": supports,
+                "context_length": main_context_length,
+                "system_prompt_tokens": system_prompt_tokens,
+            },
             "user_model_switch": {
                 "enabled": switch_enabled,
                 "models": list_user_selectable_models(db) if switch_enabled else [],

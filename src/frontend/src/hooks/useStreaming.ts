@@ -172,6 +172,8 @@ export function useStreaming(
     addSendingChatId(streamChatId);
     // New send round: clear any leftover "pending confirm" queue from the previous round
     useUIStore.getState().clearPendingConfirm(streamChatId);
+    // …and the previous round's settled plan bar (a new turn starts a fresh plan, if any)
+    useChatStore.getState().setPlanProgress(streamChatId, null);
     if (!directMessage) setInput('');
     if (quotedFollowUp) setQuotedFollowUp(null);
     if (currentSkill) setActiveSkill(null);
@@ -323,18 +325,6 @@ export function useStreaming(
       addBackendSessionId(currentChatId);
       addLoadedMsgId(currentChatId);
 
-      if (outcome.pendingPlanRedirect) {
-        // Main agent hands off to plan mode: this turn (including the enter_plan_mode tool card)
-        // is already persisted; now start the existing plan-mode pipeline with the to-be-planned
-        // task. Deferred via setTimeout(0) — let this send's finally clear the sending state first
-        // to avoid racing sendPlanMode's addSendingChatId; suppressUserEcho reuses the full flow
-        // without inserting another user bubble (the original request is the task).
-        const _planTask = outcome.pendingPlanRedirect;
-        setTimeout(() => {
-          useChatStore.getState().setPlanMode(true);
-          void sendPlanMode(effectiveApiUrl, abortControllersRef, fileUploadMap, generateSummary, _planTask, { suppressUserEcho: true });
-        }, 0);
-      } else {
       setTimeout(() => generateSummary(currentChatId), 500);
       setTimeout(() => generateClassification(currentChatId), 800);
 
@@ -397,7 +387,6 @@ export function useStreaming(
             }
           }
         })();
-      }
       }
     } catch (e: any) {
       // Plan F short-term fix: every error path must flag the placeholder's isStreaming false;

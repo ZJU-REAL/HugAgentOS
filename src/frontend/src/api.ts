@@ -245,6 +245,10 @@ export interface ModelCapabilities {
   user_model_switch_enabled: boolean;
   /** Active chat models selectable on the user side; excludes sensitive info like URL / API Key. */
   user_selectable_models: UserSelectableModel[];
+  /** Real context window (tokens) of the main chat model; 0/undefined when unconfigured. */
+  main_context_length?: number;
+  /** Tokens the backend reserves for the system prompt + skill/tool descriptions. */
+  system_prompt_tokens?: number;
 }
 
 export interface UserSelectableModel {
@@ -254,6 +258,8 @@ export interface UserSelectableModel {
   provider: string;
   is_default: boolean;
   supports_reasoning_effort: boolean;
+  /** Real context window (tokens) for this model; 0/undefined when the admin hasn't configured it. */
+  context_length?: number;
 }
 
 export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
@@ -263,7 +269,7 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
   const switchInfo = (data?.user_model_switch as JsonObject | undefined) || {};
   const modelsRaw = Array.isArray(switchInfo.models) ? switchInfo.models : [];
   const models: UserSelectableModel[] = modelsRaw
-    .map((item) => {
+    .map((item): UserSelectableModel | null => {
       const row = item as JsonObject;
       const providerId = typeof row.provider_id === 'string' ? row.provider_id : '';
       const displayName = typeof row.display_name === 'string' ? row.display_name : '';
@@ -276,6 +282,7 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
         provider: typeof row.provider === 'string' ? row.provider : 'openai_compatible',
         is_default: !!row.is_default,
         supports_reasoning_effort: !!row.supports_reasoning_effort,
+        context_length: typeof row.context_length === 'number' ? row.context_length : 0,
       };
     })
     .filter((item): item is UserSelectableModel => item !== null);
@@ -283,6 +290,8 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
     supports_reasoning_effort: !!main.supports_reasoning_effort,
     user_model_switch_enabled: !!switchInfo.enabled,
     user_selectable_models: models,
+    main_context_length: typeof main.context_length === 'number' ? main.context_length : 0,
+    system_prompt_tokens: typeof main.system_prompt_tokens === 'number' ? main.system_prompt_tokens : 0,
   };
 }
 

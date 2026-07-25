@@ -19,6 +19,7 @@ import type { InstalledPluginItem } from '../../types';
 import { AgentMentionPopup, useAgentMention } from '../agent';
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
+import { ContextGauge } from './ContextGauge';
 import { t } from '../../i18n';
 
 interface InputAreaProps {
@@ -855,6 +856,9 @@ export function InputArea({
               </Dropdown>
             );
           })()}
+
+          {/* Context-usage ring: estimated context-window occupancy for the current conversation */}
+          <ContextGauge />
 
           {(() => {
             // Mode entries (plan / batch), shared by the main menu and the project-page

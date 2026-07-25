@@ -6,7 +6,7 @@ import {
   AppstoreAddOutlined, UploadOutlined, ApiOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { useCatalogStore, useAuthStore, usePluginStore } from '../../stores';
+import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore } from '../../stores';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
@@ -57,6 +57,8 @@ export function PluginsPage({ onDetailChange }: PluginsPageProps) {
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
   const { manageQuery, setManageQuery, panelEntryNonce } = useCatalogStore();
   const canImportPlugin = useAuthStore((s) => s.authUser?.can_import_plugin === true);
+  // CE 无用户/管理员体系，全局安装的默认插件不标「管理员」
+  const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
     title: '插件库',
     subtitle: '插件把成套的技能与 MCP 工具打包成一个整体，安装后即可整组启用。',
@@ -351,7 +353,7 @@ export function PluginsPage({ onDetailChange }: PluginsPageProps) {
           <span className="jx-mcp-version" style={{ marginLeft: 4 }}>v{d.version}</span>
           {srcLabel && <Tag color="purple" style={{ marginLeft: 6 }}>{srcLabel}</Tag>}
           <div style={{ flex: 1 }} />
-          {d.is_global && <Tag color="gold" style={{ marginRight: 8 }}>{t('管理员')}</Tag>}
+          {!isCE && d.is_global && <Tag color="gold" style={{ marginRight: 8 }}>{t('管理员')}</Tag>}
           <span className="jx-mcp-enableLabel">{t('启用')}</span>
           <Switch
             checked={d.skills.some((s) => s.enabled) || d.mcp.some((m) => m.enabled)}
@@ -530,7 +532,7 @@ export function PluginsPage({ onDetailChange }: PluginsPageProps) {
                   <PluginIcon />
                   <div className="jx-mcp-cardNameGroup">
                     <span className="jx-mcp-cardName">{p.name}</span>
-                    {p.is_global && <Tag color="gold">{t('管理员')}</Tag>}
+                    {!isCE && p.is_global && <Tag color="gold">{t('管理员')}</Tag>}
                     {sourceLabel(p.source) && <Tag color="purple">{sourceLabel(p.source)}</Tag>}
                   </div>
                   {/* Users can enable/disable for themselves (global plugins are also a personal switch, not affecting each other);

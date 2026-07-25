@@ -2,13 +2,14 @@ import {
   Button, Input,
 } from 'antd';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 
 import {
   BulbOutlined, BulbFilled,
   DownOutlined,
+  CheckCircleFilled,
   CopyOutlined, CheckOutlined,
   LikeOutlined, DislikeOutlined, LikeFilled, DislikeFilled,
   ExportOutlined, ShareAltOutlined, RedoOutlined,
@@ -29,7 +30,8 @@ import { ArtifactCardList } from './ArtifactCardList';
 import { CitationMarkdownBlock } from '../citation';
 import { FileAttachmentCard } from '../file';
 import { useChatStore, useUIStore } from '../../stores';
-import { authFetch } from '../../api';
+import { authFetch, updatePlanApi } from '../../api';
+import { markPlanDecision } from '../../hooks/usePlanMode';
 import type { ChatMessage, CitationItem } from '../../types';
 import { FRESH_ENTER_WINDOW_MS } from '../../utils/motionTokens';
 import { t } from '../../i18n';
@@ -135,6 +137,22 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
   const shareSelected = selectedShareMessageTs.has(m.ts);
   const isEditing = editingMessageTs === m.ts;
   const isDisliking = dislikingTs === m.ts;
+
+  // ── Plan preview approval (buttons on the plan card footer) ──
+  const onPlanConfirm = useCallback(() => {
+    // Send the literal confirm phrase (not translated) — sendPlanMode's
+    // isConfirm regex matches on it; ensure plan-mode routing is on in case
+    // the toggle was flipped off after generation.
+    useChatStore.getState().setPlanMode(true);
+    send('确认执行');
+  }, [send]);
+
+  const onPlanDiscard = useCallback((planId: string) => {
+    markPlanDecision(currentChatId, planId, 'cancelled');
+    const { currentPlanId, setCurrentPlanId } = useChatStore.getState();
+    if (currentPlanId === planId) setCurrentPlanId(null);
+    updatePlanApi(planId, { status: 'cancelled' }).catch(() => { /* best-effort; the card is already marked */ });
+  }, [currentChatId]);
   // Enter-animation gating: only "newly appended" messages play the enter animation (decided once at mount time and fixed),
   // old messages loaded from history / flushed in on session switch don't play — Bug B2 fix.
   const [isFresh] = useState(() => Date.now() - m.ts < FRESH_ENTER_WINDOW_MS);
@@ -787,18 +805,61 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                 }
 
                 if (seg.type === 'plan' && seg.planData) {
+                  const planData = seg.planData;
+                  // Preview approval footer: confirm/discard buttons until a
+                  // decision is made (typed "确认执行" still works as fallback —
+                  // sendPlanMode marks the decision on that path too).
+                  let previewFooter: ReactNode | undefined;
+                  if (planData.mode === 'preview') {
+                    if (planData.decided === 'confirmed') {
+                      previewFooter = (
+                        <div className="jx-plan-footerTip jx-plan-footerTip--decided">
+                          <CheckCircleFilled style={{ color: 'var(--color-success)' }} /> {t('已确认，开始执行')}
+                        </div>
+                      );
+                    } else if (planData.decided === 'cancelled') {
+                      previewFooter = (
+                        <div className="jx-plan-footerTip jx-plan-footerTip--decided">
+                          {t('已放弃此计划。可继续描述需求，重新生成计划。')}
+                        </div>
+                      );
+                    } else if (planData.planId) {
+                      previewFooter = (
+                        <div className="jx-plan-approve">
+                          <span className="jx-plan-approveHint">{t('确认后将按步骤执行此计划；也可回复文字修改需求。')}</span>
+                          <div className="jx-plan-approveBtns">
+                            <button
+                              type="button"
+                              className="jx-plan-approveBtn jx-plan-approveBtn--ghost"
+                              onClick={() => onPlanDiscard(planData.planId!)}
+                            >
+                              {t('放弃')}
+                            </button>
+                            <button
+                              type="button"
+                              className="jx-plan-approveBtn jx-plan-approveBtn--primary"
+                              onClick={() => onPlanConfirm()}
+                            >
+                              {t('确认执行')}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                  }
                   return (
                     <PlanCard
                       key={segKey}
-                      mode={seg.planData.mode}
-                      title={seg.planData.title}
-                      description={seg.planData.description}
-                      steps={seg.planData.steps}
-                      completedSteps={seg.planData.completedSteps}
-                      totalSteps={seg.planData.totalSteps}
-                      resultText={seg.planData.resultText}
+                      mode={planData.mode}
+                      title={planData.title}
+                      description={planData.description}
+                      steps={planData.steps}
+                      completedSteps={planData.completedSteps}
+                      totalSteps={planData.totalSteps}
+                      resultText={planData.resultText}
                       isStreaming={m.isStreaming}
-                      agentNameMap={seg.planData.agentNameMap}
+                      agentNameMap={planData.agentNameMap}
+                      previewFooter={previewFooter}
                     />
                   );
                 }

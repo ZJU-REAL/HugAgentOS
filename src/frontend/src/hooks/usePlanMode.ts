@@ -5,7 +5,31 @@ import { parseSpaceFileContent } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { useChatStore, useCatalogStore, useFileStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
-import type { ChatItem, ChatMessage, MessageSegment, ToolCall } from '../types';
+import type { ChatItem, ChatMessage, MessageSegment, PlanProgressState, ToolCall } from '../types';
+
+/** Mark the approval decision on the newest preview plan segment carrying planId
+ *  (hides the confirm/discard buttons on the card afterwards). */
+export function markPlanDecision(chatId: string, planId: string, decision: 'confirmed' | 'cancelled') {
+  useChatStore.getState().updateStore((prev) => {
+    const c = prev.chats[chatId];
+    if (!c) return { chats: prev.chats, order: prev.order };
+    const msgs = [...(c.messages || [])];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== 'assistant' || !m.segments) continue;
+      const segIdx = m.segments.findIndex(
+        (s) => s.type === 'plan' && s.planData?.mode === 'preview' && s.planData.planId === planId,
+      );
+      if (segIdx < 0) continue;
+      const segments = [...m.segments];
+      const seg = segments[segIdx];
+      segments[segIdx] = { ...seg, planData: { ...seg.planData!, decided: decision } };
+      msgs[i] = { ...m, segments };
+      return { chats: { ...prev.chats, [chatId]: { ...c, messages: msgs } }, order: prev.order };
+    }
+    return { chats: prev.chats, order: prev.order };
+  });
+}
 
 /**
  * Shared SSE consumer for plan execute streams (used by both first-time
@@ -79,6 +103,21 @@ export async function processPlanExecuteStream(
     const content = resultText || '';
     if (resultText) segments.push({ type: 'text', content });
     appendAssistant(content, streaming, [...toolCalls], [...segments]);
+    // Mirror execution progress into the plan bar above the input
+    const barSteps: PlanProgressState['steps'] = (planData?.steps || []).map(s => ({
+      title: s.title,
+      status: s.status === 'running' ? 'in_progress'
+        : s.status === 'success' ? 'completed'
+        : s.status === 'failed' ? 'failed'
+        : 'pending',
+    }));
+    useChatStore.getState().setPlanProgress(chatId, {
+      source: 'plan_mode',
+      title: planTitle || '',
+      steps: barSteps,
+      done: mode === 'complete',
+      updatedAt: Date.now(),
+    });
   };
 
   updatePlanCard(true);
@@ -354,6 +393,8 @@ export async function sendPlanMode(
 
   const streamChatId = currentChatId;
   addSendingChatId(streamChatId);
+  // New round: clear the previous round's settled plan bar
+  useChatStore.getState().setPlanProgress(streamChatId, null);
   if (!directMessage) setInput('');
 
   type Attachment = { name: string; content: string; mime_type: string; file_id: string; download_url: string };
@@ -428,6 +469,7 @@ export async function sendPlanMode(
   try {
     if (isConfirm && effectivePlanId) {
       // Phase 2: Execute confirmed plan
+      markPlanDecision(currentChatId, effectivePlanId, 'confirmed');
       await updatePlanApi(effectivePlanId, { status: 'approved' });
       const execResp = await executePlanStream(effectivePlanId, abortController.signal, enabledMcpIds, enabledSkillIds, enabledKbIds, currentChatId, historyMessages, undefined, projectId);
       if (!execResp.ok) throw new Error(t('计划执行请求失败: {status}', { status: execResp.status }));

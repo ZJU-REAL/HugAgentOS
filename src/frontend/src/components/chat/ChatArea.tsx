@@ -29,6 +29,7 @@ function buildShortcutUrl(base: string, token?: string | null): string {
 }
 import { MessageBubble } from './MessageBubble';
 import { InputArea } from './InputArea';
+import { PlanProgressStrip } from './PlanProgressStrip';
 import { FileConfirmBar } from './FileConfirmBar';
 import { DesignPickerCard } from './DesignPickerCard';
 import { ChatShareBanner } from './ChatShareBanner';
@@ -525,6 +526,7 @@ export function ChatArea({
         )}
       </AnimatePresence>
       <div className="jx-chatFooter">
+        <PlanProgressStrip chatId={currentChatId} />
         <FileConfirmBar />
         <DesignPickerCard />
         {shareAccessLevel === 'read' ? (

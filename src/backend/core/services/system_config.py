@@ -462,7 +462,7 @@ def code_capability_enabled() -> bool:
 
 
 def auto_plan_entry_enabled() -> bool:
-    """Master switch for the main agent auto-entering plan mode (the enter_plan_mode tool).
+    """Master switch for the main agent's in-conversation plan tracker (the update_plan tool).
 
     Control source = the Config console "System config" DB value ``chat.auto_plan_entry_enable``,
     defaulting to "true" (enabled by default). Ops can set it to false to disable the capability, ≤30s, no restart.

@@ -1,9 +1,11 @@
 export { ChatArea } from './ChatArea';
 export { MessageBubble } from './MessageBubble';
 export { InputArea } from './InputArea';
+export { ContextGauge } from './ContextGauge';
 export { FileConfirmBar } from './FileConfirmBar';
 export { DesignPickerCard } from './DesignPickerCard';
 export { PromptHubPanel } from './PromptHubPanel';
 export { PlanCard } from './PlanCard';
+export { PlanProgressStrip } from './PlanProgressStrip';
 export { OntologyRevisionPanel } from './OntologyRevisionPanel';
 export { OntologyReviewTrigger } from './OntologyReviewTrigger';

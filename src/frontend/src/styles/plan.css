@@ -452,3 +452,157 @@
   font-weight:500;
   color:var(--color-success);
 }
+
+/* ═══════════════════════════════════════════
+   Plan bar (PlanProgressStrip) — slim progress
+   strip pinned above the chat input.
+   ═══════════════════════════════════════════ */
+.jx-planStrip{
+  margin:0 0 8px;
+  background:#fff;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  box-shadow:0 1px 4px rgba(38,38,38,.04);
+  overflow:hidden;
+}
+
+/* Collapsed row: 40px tap target, whole row toggles expand */
+.jx-planStrip-header{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:100%;
+  height:40px;
+  padding:0 12px;
+  border:none;
+  background:none;
+  font-family:var(--font-family);
+  cursor:pointer;
+  text-align:left;
+}
+.jx-planStrip-header:hover{ background:var(--color-bg-gray); }
+.jx-planStrip-header:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:-2px;
+  border-radius:var(--radius-md);
+}
+
+.jx-planStrip-ring{ flex:none; }
+.jx-planStrip-doneIcon{ flex:none; font-size:16px; color:var(--color-success); }
+.jx-planStrip-doneIcon--fail{ color:var(--color-error); }
+
+.jx-planStrip-title{
+  flex:none;
+  max-width:40%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+  font-weight:600;
+  color:var(--color-text);
+}
+.jx-planStrip-sep{ flex:none; color:var(--color-text-placeholder); }
+.jx-planStrip-current{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+  color:var(--color-text-secondary);
+}
+.jx-planStrip-count{
+  flex:none;
+  margin-left:auto;
+  font-family:var(--font-family-number);
+  font-size:12px;
+  color:var(--color-text-tertiary);
+  font-variant-numeric:tabular-nums;
+}
+.jx-planStrip-chevron{
+  flex:none;
+  display:inline-flex;
+  font-size:10px;
+  color:var(--color-text-tertiary);
+}
+
+/* Expanded checklist */
+.jx-planStrip-steps{
+  list-style:none;
+  margin:0;
+  padding:4px 12px 10px;
+  max-height:220px;
+  overflow-y:auto;
+  border-top:1px solid var(--color-fill-hover);
+}
+.jx-planStrip-step{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:28px;
+  font-size:13px;
+}
+.jx-planStrip-stepTitle{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--color-text-secondary);
+}
+.jx-planStrip-step--completed .jx-planStrip-stepTitle{ color:var(--color-text-tertiary); }
+.jx-planStrip-step--in_progress .jx-planStrip-stepTitle{ color:var(--color-text); font-weight:500; }
+
+.jx-planStrip-stepIcon{ flex:none; font-size:13px; width:14px; text-align:center; }
+.jx-planStrip-stepIcon--done{ color:var(--color-success); }
+.jx-planStrip-stepIcon--fail{ color:var(--color-error); }
+.jx-planStrip-stepIcon--running{ color:var(--color-primary); }
+.jx-planStrip-stepIcon--pending{
+  display:inline-block;
+  width:8px;
+  height:8px;
+  margin:0 3px;
+  border:1.5px solid var(--color-fill);
+  border-radius:50%;
+}
+
+/* ── Plan preview approval footer (buttons on PlanCard) ── */
+.jx-plan-approve{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+}
+.jx-plan-approveHint{
+  flex:1;
+  min-width:180px;
+  font-size:12.5px;
+  color:var(--color-text-tertiary);
+}
+.jx-plan-approveBtns{ display:flex; gap:8px; }
+.jx-plan-approveBtn{
+  height:32px;
+  padding:0 16px;
+  border-radius:var(--radius-sm);
+  font-family:var(--font-family);
+  font-size:13px;
+  font-weight:500;
+  cursor:pointer;
+  transition:background .15s ease,border-color .15s ease,color .15s ease;
+}
+.jx-plan-approveBtn--primary{
+  border:none;
+  background:var(--color-primary);
+  color:#fff;
+}
+.jx-plan-approveBtn--primary:hover{ background:var(--color-primary-hover); }
+.jx-plan-approveBtn--primary:active{ background:var(--color-primary-active); }
+.jx-plan-approveBtn--ghost{
+  border:1px solid var(--color-border);
+  background:#fff;
+  color:var(--color-text-secondary);
+}
+.jx-plan-approveBtn--ghost:hover{ border-color:var(--color-fill); background:var(--color-bg-gray); }
+.jx-plan-footerTip--decided{
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
