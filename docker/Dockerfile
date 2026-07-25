@@ -63,8 +63,9 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
 # dws（DingTalk Workspace CLI）—— 后端以子进程跑 per-user 设备流 OAuth 登录
 # （进程稳定存活，不受沙箱杀后台进程影响；每用户独立 HOME 隔离）。单 Go 二进制。
 ARG DWS_VERSION=v1.0.37
+ARG TARGETARCH
 RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
-        "https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/releases/download/${DWS_VERSION}/dws-linux-amd64.tar.gz" \
+        "https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/releases/download/${DWS_VERSION}/dws-linux-${TARGETARCH:-amd64}.tar.gz" \
         -o /tmp/dws.tar.gz; then \
       tar -xzf /tmp/dws.tar.gz -C /usr/local/bin dws && \
       chmod +x /usr/local/bin/dws && dws --version; \
@@ -78,7 +79,7 @@ RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout
 # ——沙箱镜像才用 npm 全局装。凭据落 $STORAGE/lark_cache/{uid}/，bind-mount 进沙盒。
 ARG LARK_CLI_VERSION=1.0.34
 RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
-        "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/lark-cli-${LARK_CLI_VERSION}-linux-amd64.tar.gz" \
+        "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/lark-cli-${LARK_CLI_VERSION}-linux-${TARGETARCH:-amd64}.tar.gz" \
         -o /tmp/lark-cli.tar.gz; then \
       tar -xzf /tmp/lark-cli.tar.gz -C /tmp && \
       find /tmp -maxdepth 2 -name lark-cli -type f -exec mv {} /usr/local/bin/lark-cli \; && \
@@ -91,8 +92,9 @@ RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout
 # （himalaya folder list）。静态二进制（musl，static-pie），无运行时依赖。凭据是用户
 # 自填的 config.toml，落 $STORAGE/email_cache/{uid}/，bind-mount 进沙盒。
 ARG HIMALAYA_VERSION=1.2.0
-RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
-        "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
+RUN HIMALAYA_ARCH="$([ "${TARGETARCH:-amd64}" = "arm64" ] && echo aarch64 || echo x86_64)" && \
+    if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
+        "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.${HIMALAYA_ARCH}-linux.tgz" \
         -o /tmp/himalaya.tgz; then \
       tar -xzf /tmp/himalaya.tgz -C /usr/local/bin himalaya && \
       chmod +x /usr/local/bin/himalaya && himalaya --version; \

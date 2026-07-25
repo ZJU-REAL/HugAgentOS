@@ -24,6 +24,7 @@ ENV PIP_DEFAULT_TIMEOUT=180 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install backend deps + the few office/chart deps the MCP servers still use.

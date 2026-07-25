@@ -82,8 +82,10 @@ RUN npm install -g openyida@2026.7.12-1
 # himalaya（电子邮箱 CLI）——email 插件的 email 技能靠它运行（Bash(himalaya *)）。
 # 静态二进制，无运行时依赖。凭据是用户自填的 config.toml，不烤进镜像。
 ARG HIMALAYA_VERSION=1.2.0
-RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
-        "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.x86_64-linux.tgz" \
+ARG TARGETARCH
+RUN HIMALAYA_ARCH="$([ "${TARGETARCH:-amd64}" = "arm64" ] && echo aarch64 || echo x86_64)" && \
+    if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
+        "https://github.com/pimalaya/himalaya/releases/download/v${HIMALAYA_VERSION}/himalaya.${HIMALAYA_ARCH}-linux.tgz" \
         -o /tmp/himalaya.tgz; then \
       tar -xzf /tmp/himalaya.tgz -C /usr/local/bin himalaya && \
       chmod +x /usr/local/bin/himalaya && himalaya --version; \
