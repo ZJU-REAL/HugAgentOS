@@ -608,7 +608,6 @@ export function InputArea({
         />
 
         <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }}
-          accept=".pdf,.docx,.doc,.wps,.txt,.xlsx,.xls,.csv"
           onChange={(e) => handleFileSelect(e, fileInputRef)} />
         <input ref={imageInputRef} type="file" multiple style={{ display: 'none' }}
           accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml"
