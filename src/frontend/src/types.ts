@@ -299,6 +299,8 @@ export interface MessageSegment {
   planData?: {         // used for 'plan' type
     mode: 'preview' | 'executing' | 'complete';
     planId?: string;   // associated plan_id — used to restore the "pending-confirmation plan" from history messages after refresh
+    /** Approval decision made on the preview card (hides the confirm/discard buttons afterwards) */
+    decided?: 'confirmed' | 'cancelled';
     title: string;
     description?: string;
     steps: Array<{
@@ -318,6 +320,21 @@ export interface MessageSegment {
     resultText?: string;
     agentNameMap?: Record<string, string>;
   };
+}
+
+/** Live plan/progress state rendered by the plan bar above the chat input.
+ *  Two sources: the main agent's update_plan tool (source='agent', per-turn
+ *  checklist) and the manual plan-mode execution pipeline (source='plan_mode'). */
+export interface PlanProgressState {
+  source: 'agent' | 'plan_mode';
+  title: string;
+  steps: Array<{
+    title: string;
+    status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  }>;
+  /** Set when the producing stream has ended (bar shows a settled state until the next send) */
+  done?: boolean;
+  updatedAt: number;
 }
 
 export interface ChatMessage {

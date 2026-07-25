@@ -1037,6 +1037,11 @@ async def astream_execute_plan(
                     step_text = re.sub(
                         r"<think>.*?</think>", "", step_text, flags=re.DOTALL
                     ).strip()
+                    # Orphan closing tag (server pre-fills the opening <think>, so the
+                    # completion starts with bare reasoning): everything before the
+                    # last </think> is reasoning, keep only the answer after it.
+                    if "</think>" in step_text:
+                        step_text = step_text.rsplit("</think>", 1)[-1].strip()
 
                     from core.ontology.validator import requires_output_review
 

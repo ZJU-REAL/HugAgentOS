@@ -402,7 +402,7 @@ async def create_agent_executor(
     # top_level_chat: whether this construction is a "top-level interactive main
     # conversation capable of hosting plan mode" — astream_chat_workflow passes
     # True explicitly after determining (has chat_id, not
-    # channel/automation/batch/plan_chat). The enter_plan_mode tool is
+    # channel/automation/batch/plan_chat). The update_plan tool is
     # registered ONLY on this positive signal. All derived/non-interactive paths
     # (plan generation, plan-execute steps, subagents, batch, autonomous loop,
     # channels, non-streaming…) default to False → they naturally never get the
@@ -1093,34 +1093,36 @@ async def create_agent_executor(
                 len(visible_subagents),
             )
 
-        # ── Register enter_plan_mode tool (top-level interactive main conversations only, positive opt-in) ──
-        # Lets the main agent proactively switch into plan mode when it judges a
-        # task complex enough (generate plan → user confirms → execute).
+        # ── Register update_plan tool (top-level interactive main conversations only, positive opt-in) ──
+        # Codex-style lightweight plan tracker: for complex tasks the main
+        # agent maintains a step checklist and keeps executing in the same
+        # turn (no redirect, no approval gate); the frontend renders it as a
+        # plan bar above the chat input. This replaced the old
+        # enter_plan_mode redirect for model-initiated planning.
         # Recognizes ONLY the single positive signal top_level_chat (passed in
         # by astream_chat_workflow after it determines this is an interactive
         # main conversation) — not a negative exclusion list of "not batch and
         # not plan_mode and not …". A negative list leaks the tool with every
         # derived context it misses (historically, plan-execute steps,
-        # plan-generation disable_tools, and channel runs all leaked this way,
-        # producing "plan within plan" nesting); a positive opt-in has one
-        # single source of truth, and all derived/non-interactive constructions
-        # get nothing by default. The DB switch auto_plan_entry_enabled (which
-        # itself returns False on config-layer errors) can turn this off
-        # entirely.
+        # plan-generation disable_tools, and channel runs all leaked this way);
+        # a positive opt-in has one single source of truth, and all
+        # derived/non-interactive constructions get nothing by default. The DB
+        # switch auto_plan_entry_enabled (which itself returns False on
+        # config-layer errors) can turn this off entirely.
         from core.services.system_config import auto_plan_entry_enabled
 
         if top_level_chat and auto_plan_entry_enabled():
-            from core.llm.plan_entry_tool import (
-                build_enter_plan_prompt_section,
-                register_enter_plan_tool,
+            from core.llm.plan_update_tool import (
+                build_plan_update_prompt_section,
+                register_plan_update_tool,
             )
 
-            register_enter_plan_tool(toolkit)
-            _ep_section = build_enter_plan_prompt_section()
-            if _ep_section:
-                system_prompt = system_prompt + "\n\n" + _ep_section
+            register_plan_update_tool(toolkit)
+            _pu_section = build_plan_update_prompt_section()
+            if _pu_section:
+                system_prompt = system_prompt + "\n\n" + _pu_section
             _log.info(
-                "[factory] +%s enter_plan_mode tool registered (chat_id=%s)",
+                "[factory] +%s update_plan tool registered (chat_id=%s)",
                 _elapsed(),
                 chat_id,
             )

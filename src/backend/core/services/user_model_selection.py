@@ -119,6 +119,10 @@ def list_user_selectable_models(db: Session) -> list[dict]:
             "supports_reasoning_effort": bool(
                 (row.extra_config or {}).get("supports_reasoning_effort")
             ),
+            # Real context window (tokens) so the frontend can show accurate
+            # context-usage instead of guessing from the model name. May be 0 /
+            # missing when an admin has not filled it in — the caller falls back.
+            "context_length": int((row.extra_config or {}).get("context_length") or 0),
         }
         for row in rows
     ]

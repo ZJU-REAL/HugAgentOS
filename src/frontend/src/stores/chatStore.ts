@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatItem, ChatMessage, ChatStore as ChatStoreData } from '../types';
+import type { ChatItem, ChatMessage, ChatStore as ChatStoreData, PlanProgressState } from '../types';
 import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
@@ -151,6 +151,9 @@ interface ChatState {
    *  backend compacted earlier context; it notifies once on this turn's first frame. The UI shows
    *  a dismissible banner (not persisted). */
   compactionNotices: Record<string, boolean>;
+  /** chatId → live plan/progress shown by the plan bar above the input (transient, not persisted).
+   *  Fed by the agent's update_plan tool (plan_update SSE) and by manual plan-mode execution. */
+  planProgress: Record<string, PlanProgressState | null>;
 
   // ── Actions ──
   setStore: (store: ChatStoreData) => void;
@@ -199,6 +202,8 @@ interface ChatState {
    *  chat panel also turns off autonomous-loop mode. Called by App on panel changes. */
   syncComposerForPanel: (panel: string) => void;
   setCurrentPlanId: (id: string | null) => void;
+  /** Update/clear the plan bar state for a chat (null clears it) */
+  setPlanProgress: (chatId: string, p: PlanProgressState | null) => void;
   /** Enter plan / batch-execution mode (shared by the composer "+" menu and the app center).
    *  Plan and batch are mutually exclusive.
    *  - `opts.inPlace` (composer "+" menu): always switch the **current chat** to that mode in
@@ -292,6 +297,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sessionLoadEpoch: 0,
   activeRuns: {},
   compactionNotices: {},
+  planProgress: {},
 
   setStore: (store) => {
     set({ store, storeRef: store });
@@ -432,6 +438,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
   setCurrentPlanId: (id) => set({ currentPlanId: id }),
+  setPlanProgress: (chatId, p) => set((s) => ({
+    planProgress: { ...s.planProgress, [chatId]: p },
+  })),
   setEditingMessageTs: (ts) => set({ editingMessageTs: ts }),
   bumpSessionLoadEpoch: () => set((s) => ({ sessionLoadEpoch: s.sessionLoadEpoch + 1 })),
   setActiveRun: (chatId, info) => set((s) => ({

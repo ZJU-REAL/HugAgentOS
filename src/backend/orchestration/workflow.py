@@ -623,6 +623,7 @@ from orchestration.tool_payloads import (  # noqa: E402
     _build_view_text_file_payload,
     _tool_args_ready,
 )
+from core.llm.plan_update_tool import parse_plan_update_args  # noqa: E402
 
 # Process-level persistent references: after each streaming run,
 # (streaming_agent, mcp_clients) is pushed in so HTTP transport MCP clients
@@ -1943,12 +1944,11 @@ async def astream_chat_workflow(
             channel_origin=context.get("channel_origin"),
             automation_run=bool(context.get("automation_run")),
             ontology_runtime=context.get("ontology_runtime"),
-            # The single positive source of truth for enter_plan_mode: enabled
+            # The single positive source of truth for update_plan: enabled
             # only for "interactive main chats that can host plan mode" — has
             # a chat_id, not a channel bot, not automation, not plan_chat, not
-            # batch. Channels/automation have no UI for the user to confirm a
-            # plan; plan_chat/batch have their own orchestration and must not
-            # nest plan mode.
+            # batch. Channels/automation have no plan-bar UI; plan_chat/batch
+            # have their own orchestration and must not nest plan tracking.
             top_level_chat=(
                 bool(context.get("chat_id"))
                 and not context.get("channel_origin")
@@ -2072,10 +2072,6 @@ async def astream_chat_workflow(
         skill_id_by_tool_id: Dict[str, str] = {}
         # tool_id → tool_args, used at the tool_result stage to recover view_text_file's file_path/ranges
         view_text_file_args: Dict[str, Dict[str, Any]] = {}
-        # enter_plan_mode tool arguments (stashed at the tool_call stage; at
-        # the tool_result stage they drive the plan_redirect event + aborting
-        # this turn) — isomorphic to batch_plan's human-in-the-loop gate.
-        enter_plan_args: Dict[str, Any] = {}
 
         # Project scope is no longer passed via ContextVar — see the comment at
         # the same spot in _astream_subagent_direct above. All scope-dependent
@@ -2105,6 +2101,19 @@ async def astream_chat_workflow(
                     tool_name = payload.get("name", "unknown")
                     tool_id = payload.get("id", "")
                     tool_args = payload.get("args", {})
+
+                    # update_plan: lightweight plan tracker — emit a plan_update
+                    # event (drives the plan bar above the chat input) instead
+                    # of a tool card in the message flow. Handled before the
+                    # displayed_tools dedupe so late-arriving streamed args
+                    # still produce the event; re-emissions are idempotent for
+                    # the frontend (full-state replace). The agent loop
+                    # continues normally — no redirect, no turn abort.
+                    if tool_name == "update_plan":
+                        _pu = parse_plan_update_args(tool_args)
+                        if _pu:
+                            yield {"type": "plan_update", **_pu}
+                        continue
 
                     # In streaming mode, the first chunk for a tool_call may
                     # arrive with empty args.  For view_text_file we need args
@@ -2157,13 +2166,6 @@ async def astream_chat_workflow(
                         }
                     )
 
-                    # enter_plan_mode: stash the arguments (in streaming, args
-                    # may arrive across frames — take the one carrying
-                    # task_description); the tool_result stage uses them to
-                    # emit plan_redirect.
-                    if tool_name == "enter_plan_mode" and safe_args.get("task_description"):
-                        enter_plan_args = safe_args
-
                     # Resolve sub-agent name for call_subagent tool card
                     _tc_sa_name = ""
                     if tool_name == "call_subagent" and _visible_subagents:
@@ -2192,6 +2194,11 @@ async def astream_chat_workflow(
                 elif event_type == "tool_result":
                     tool_name = payload.get("name", "unknown")
                     tool_id = payload.get("id", "")
+                    # update_plan results carry no user-facing content (the
+                    # plan_update event was already emitted at tool_call time);
+                    # skip the tool card entirely.
+                    if tool_name == "update_plan":
+                        continue
                     # Also override tool_name for skill load results
                     is_skill_result = (tool_id and tool_id in skill_load_ids) or (
                         tool_name == "view_text_file"
@@ -2271,36 +2278,6 @@ async def astream_chat_workflow(
                         "citations": cit_dicts,
                         **({"subagent_name": _tr_sa_name} if _tr_sa_name else {}),
                     }
-
-                    # ── enter_plan_mode: switch into plan mode (human-in-the-loop gate, same as batch_plan) ──
-                    # The main agent decides the task is complex → calls
-                    # enter_plan_mode. Here we emit a plan_redirect event
-                    # (carrying task_description) and **abort this turn**: the
-                    # frontend uses it to drive the existing plan-mode pipeline
-                    # (generate plan → preview card → user confirmation →
-                    # execute). The agent does not continue executing on its
-                    # own, consistent with the safety semantics of "user
-                    # approval required before generating a plan".
-                    # The source of truth for tool availability is
-                    # agent_factory (not registered for automation/batch/plan
-                    # execution etc.); the automation_run check here is purely
-                    # a defensive fallback — same as the adjacent batch_plan
-                    # block's "mostly defensive". Note that batch_plan's
-                    # `_stream_unattended` cannot be reused: it includes
-                    # disable_batch_plan (default True for ordinary chats,
-                    # which merely lack the batch UI) and would misclassify an
-                    # interactive chat as unattended.
-                    if (
-                        tool_name == "enter_plan_mode"
-                        and not context.get("automation_run")
-                        and enter_plan_args.get("task_description")
-                    ):
-                        yield {
-                            "type": "plan_redirect",
-                            "task_description": str(enter_plan_args.get("task_description", "")),
-                        }
-                        # Abort the agent loop — the tool description already tells the LLM to hand over control; this enforces it.
-                        break
 
                     # ── Batch execution: pause flow on batch_plan success ──
                     # When the LLM calls the batch_plan MCP tool we treat its

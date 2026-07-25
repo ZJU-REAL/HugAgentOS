@@ -436,6 +436,8 @@ export const SETTINGS_DICT: Record<string, string> = {
   '接入 OpenAI 兼容或各厂商模型端点；保存时会做连通性校验。对话能力至少需要一个 chat 供应商并指派 main_agent 角色。':
     'Connect OpenAI-compatible or vendor model endpoints; connectivity is verified on save. Chat requires at least one chat provider assigned to the main_agent role.',
   '模型供应商已更新': 'Model provider updated',
+  '支持多档思考强度（reasoning_effort）': 'Supports multi-level reasoning effort',
+  '开启后，前端「思考强度」选项里会出现「思考·高 / 思考·超高」两档，并通过 chat_template_kwargs.reasoning_effort 传给上游。需要上游模型本身认 reasoning_effort 字段（如 Qwen3 多档、GPT-OSS、Claude thinking 等），否则可能 4xx。普通 DeepSeek/Qwen 关闭即可。': 'When enabled, the "Thinking Intensity" selector will show "High / Ultra" levels, passed as chat_template_kwargs.reasoning_effort upstream. Requires the upstream model to support the reasoning_effort field (e.g. Qwen3 multi-level, GPT-OSS, Claude thinking). May result in 4xx for other models. Keep disabled for standard DeepSeek/Qwen.',
   '模型供应商已添加并通过连通性校验': 'Model provider added and connectivity verified',
   '连通性正常（{ms}ms）': 'Connectivity OK ({ms}ms)',
   '连通性失败：{msg}': 'Connectivity failed: {msg}',

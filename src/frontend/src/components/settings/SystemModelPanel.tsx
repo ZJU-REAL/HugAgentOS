@@ -97,6 +97,7 @@ export function SystemModelPanel() {
       model_name: p.model_name,
       is_active: p.is_active,
       context_length: (p.extra_config?.context_length as number | undefined) ?? undefined,
+      supports_reasoning_effort: Boolean(p.extra_config?.supports_reasoning_effort),
     });
     setEditorOpen(true);
   };
@@ -106,6 +107,12 @@ export function SystemModelPanel() {
     const extra: Record<string, unknown> = { ...(editing?.extra_config ?? {}) };
     if (values.context_length) extra.context_length = Number(values.context_length);
     else delete extra.context_length;
+    // 仅 chat 类型有效；未勾选时删除该键，避免残留在非 chat 供应商上
+    if (values.provider_type === 'chat' && values.supports_reasoning_effort) {
+      extra.supports_reasoning_effort = true;
+    } else {
+      delete extra.supports_reasoning_effort;
+    }
     const payload: Partial<ModelProviderInput> = {
       display_name: values.display_name,
       provider: values.provider,
@@ -348,6 +355,18 @@ export function SystemModelPanel() {
               <Switch />
             </Form.Item>
           </Space.Compact>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
+            {({ getFieldValue }) => getFieldValue('provider_type') === 'chat' && (
+              <Form.Item
+                label={t('支持多档思考强度（reasoning_effort）')}
+                name="supports_reasoning_effort"
+                valuePropName="checked"
+                tooltip={t('开启后，前端「思考强度」选项里会出现「思考·高 / 思考·超高」两档，并通过 chat_template_kwargs.reasoning_effort 传给上游。需要上游模型本身认 reasoning_effort 字段（如 Qwen3 多档、GPT-OSS、Claude thinking 等），否则可能 4xx。普通 DeepSeek/Qwen 关闭即可。')}
+              >
+                <Switch />
+              </Form.Item>
+            )}
+          </Form.Item>
         </Form>
       </Modal>
     </div>

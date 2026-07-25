@@ -842,6 +842,124 @@ a.jx-fileCard--link:hover{
   text-overflow:ellipsis;
 }
 
+/* ── Context-usage ring (beside the model selector) ── */
+.jx-ctxGauge{
+  position:relative;
+  width:24px;
+  height:24px;
+  padding:0;
+  border:none;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:default;
+  flex-shrink:0;
+}
+.jx-ctxGauge-ring{
+  display:block;
+  transform:rotate(-90deg); /* start the arc at 12 o'clock */
+}
+.jx-ctxGauge-track{ stroke:#E9ECF1; }
+.jx-ctxGauge-fill{
+  stroke:var(--color-success, #02B589);
+  transition:stroke-dasharray .35s ease, stroke .25s ease;
+}
+.jx-ctxGauge[data-level="warn"] .jx-ctxGauge-fill{ stroke:var(--color-warning, #F8AB42); }
+.jx-ctxGauge[data-level="high"] .jx-ctxGauge-fill{ stroke:var(--color-error, #FC5D5D); }
+
+/* ── Context-usage hover breakdown ── */
+.jx-ctxPop{
+  width:250px;
+  font-size:13px;
+  color:var(--color-text-secondary, #4D4D4D);
+}
+.jx-ctxPop-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+.jx-ctxPop-title{
+  font-size:13px;
+  font-weight:600;
+  color:var(--color-text, #262626);
+}
+.jx-ctxPop-model{
+  font-size:12px;
+  color:var(--color-text-tertiary, #808080);
+  max-width:132px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-ctxPop-summary{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  margin-bottom:10px;
+}
+.jx-ctxPop-big{
+  font-size:22px;
+  font-weight:700;
+  line-height:1;
+  color:var(--color-success, #02B589);
+  font-variant-numeric:tabular-nums;
+}
+.jx-ctxPop-big[data-level="warn"]{ color:var(--color-warning, #F8AB42); }
+.jx-ctxPop-big[data-level="high"]{ color:var(--color-error, #FC5D5D); }
+.jx-ctxPop-frac{
+  font-size:12px;
+  color:var(--color-text-tertiary, #808080);
+  font-variant-numeric:tabular-nums;
+}
+.jx-ctxPop-bar{
+  display:flex;
+  height:8px;
+  border-radius:999px;
+  overflow:hidden;
+  background:#EEF1F5;
+  margin-bottom:12px;
+}
+.jx-ctxPop-seg{ height:100%; }
+.jx-ctxPop-rows{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+.jx-ctxPop-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.jx-ctxPop-dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  flex-shrink:0;
+}
+.jx-ctxPop-label{
+  flex:1;
+  color:var(--color-text-secondary, #4D4D4D);
+}
+.jx-ctxPop-val{
+  font-variant-numeric:tabular-nums;
+  color:var(--color-text, #262626);
+  font-weight:500;
+}
+.jx-ctxPop-share{
+  width:38px;
+  text-align:right;
+  color:var(--color-text-tertiary, #808080);
+  font-variant-numeric:tabular-nums;
+}
+.jx-ctxPop-note{
+  margin-top:10px;
+  font-size:11px;
+  color:var(--color-text-placeholder, #B3B3B3);
+}
+
 /* ── 项目选择下拉（工具栏，提示词中心右侧）── */
 .jx-projectDropBtn{
   min-height:30px;

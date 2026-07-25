@@ -144,8 +144,6 @@ export interface ChatStreamOutcome {
   metaMessageId?: string;
   /** Follow-up questions delivered directly within the stream */
   metaFollowUps: string[];
-  /** The to-be-planned task from an enter_plan_mode redirect (consumed only by the send path) */
-  pendingPlanRedirect: string | null;
   /** Stream aborted by the user (AbortError) — the bubble has already wound down normally */
   aborted: boolean;
 }
@@ -178,7 +176,6 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   let metaWorkspaceFiles: string[] | null = null;
   let parseBuffer = '';
   let toolPending = false;
-  let pendingPlanRedirect: string | null = null;
   let ontologySidebarAutoOpened = false;
 
   const ensureOntologyGovernance = (eventObj?: Record<string, unknown>) => {
@@ -794,14 +791,40 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           return;
         }
 
-        if (eventType === 'plan_redirect') {
-          // The main agent judged the task complex and called enter_plan_mode → the backend
-          // aborts this turn and sends the to-be-planned task. Only record the task text and
-          // switch into plan mode after this stream ends cleanly, to avoid starting a second
-          // request mid-stream-processing.
-          const _task = typeof eventObj.task_description === 'string'
-            ? eventObj.task_description.trim() : '';
-          if (_task) pendingPlanRedirect = _task;
+        if (eventType === 'plan_update') {
+          // The main agent updated its lightweight plan checklist (update_plan tool).
+          // Full-state replace of the plan bar above the input; the agent keeps
+          // executing in this same turn, so nothing changes in the message flow.
+          //
+          // update_plan suppresses its tool_call/tool_result events (no tool card),
+          // so the <think> stripper's usual "re-arm after tool result" never fires
+          // here — re-arm it now, or the next model iteration's opener-less
+          // reasoning (hybrid models omit <think> after tools) leaks into body text.
+          if (enableThinking && !structuredReasoning) {
+            if (parseBuffer) {
+              appendTextSeg(parseBuffer);
+              parseBuffer = '';
+            }
+            thinkingPhaseActive = true;
+          }
+          const rawSteps = Array.isArray(eventObj.steps) ? eventObj.steps : [];
+          const steps = rawSteps
+            .map((s) => {
+              const o = s as Record<string, unknown>;
+              const title = typeof o?.title === 'string' ? o.title.trim() : '';
+              const status = o?.status === 'in_progress' || o?.status === 'completed'
+                ? o.status : 'pending';
+              return title ? { title, status: status as 'pending' | 'in_progress' | 'completed' } : null;
+            })
+            .filter((s): s is { title: string; status: 'pending' | 'in_progress' | 'completed' } => !!s);
+          if (steps.length > 0) {
+            useChatStore.getState().setPlanProgress(chatId, {
+              source: 'agent',
+              title: typeof eventObj.title === 'string' ? eventObj.title : '',
+              steps,
+              updatedAt: Date.now(),
+            });
+          }
           return;
         }
 
@@ -1129,7 +1152,16 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     return { chats: { ...prev.chats, [chatId]: nextChat }, order: [chatId, ...(prev.order || []).filter((x) => x !== chatId)] };
   });
 
+  // Settle the plan bar: if this turn produced an agent plan, mark it done so
+  // the bar renders as settled (it clears on the next send).
+  {
+    const _pp = useChatStore.getState().planProgress[chatId];
+    if (_pp && _pp.source === 'agent' && !_pp.done) {
+      useChatStore.getState().setPlanProgress(chatId, { ..._pp, done: true, updatedAt: Date.now() });
+    }
+  }
+
   if (thrown) throw thrown;
 
-  return { full, placeholderTs, metaMessageId, metaFollowUps, pendingPlanRedirect, aborted };
+  return { full, placeholderTs, metaMessageId, metaFollowUps, aborted };
 }
