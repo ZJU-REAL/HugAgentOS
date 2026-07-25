@@ -64,6 +64,26 @@ def data_dir() -> Path:
     return Path(os.getenv("HUGAGENT_HOME", str(Path.home() / ".hugagent"))).expanduser()
 
 
+def ensure_loopback_proxy_bypass() -> None:
+    """Keep loopback traffic off any HTTP(S)/SOCKS proxy from the environment.
+
+    The local profile is a mesh of 127.0.0.1 services (backend ↔ MCP sidecars ↔
+    script_runner ↔ internal publish/batch callbacks) all speaking httpx, which
+    honours ``http_proxy``/``https_proxy``/``all_proxy``. A system proxy (e.g.
+    Clash on macOS) usually rejects loopback targets with 502, which kills
+    startup readiness and site publishing. Merge loopback hosts into NO_PROXY
+    instead of deleting the proxy vars — model/API calls may legitimately need
+    the proxy to reach external endpoints.
+    """
+    loopback_hosts = ("127.0.0.1", "localhost", "::1")
+    current = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    entries = [entry.strip() for entry in current.split(",") if entry.strip()]
+    entries.extend(host for host in loopback_hosts if host not in entries)
+    merged = ",".join(entries)
+    os.environ["NO_PROXY"] = merged
+    os.environ["no_proxy"] = merged
+
+
 def _resolve_frontend_dist() -> Optional[str]:
     """Locate the built frontend for StaticFiles hosting."""
     env = os.getenv("FRONTEND_DIST_DIR", "").strip()
@@ -77,6 +97,7 @@ def _resolve_frontend_dist() -> Optional[str]:
 
 def apply_local_env(port: int) -> dict:
     """Populate the local-profile env (idempotent; real env wins) + data dirs."""
+    ensure_loopback_proxy_bypass()
     dd = data_dir()
     for sub in ("", "storage", "workspace", "logs", "node", "node/browsers", "fonts"):
         (dd / sub).mkdir(parents=True, exist_ok=True)
