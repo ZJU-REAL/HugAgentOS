@@ -1,8 +1,8 @@
 !include "FileFunc.nsh"
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; SSH / 企业软件分发可显式指定首装模式；未传参数时仍沿用交互选择。
-  ; 自动更新不会携带这两个参数，因此不会覆盖用户已有配置。
+  ; SSH / 企业软件分发可显式指定首装模式；普通交互安装不弹任何窗口——
+  ; 运行模式在应用首启的初始化页选择。自动更新不携带这两个参数，不会覆盖用户配置。
   ${GetParameters} $R0
   ClearErrors
   ${GetOptions} $R0 "/HUGAGENT_LOCAL" $R1
@@ -18,35 +18,10 @@
   Goto hugagent_install_mode_write
 
   hugagent_install_mode_check_silent:
-  ; Tauri 的 NSIS 自动更新使用 /P（passive）或 /S（silent），不能再次弹首装选择。
-  IfSilent hugagent_install_mode_done
-  ClearErrors
-  ${GetOptions} $R0 "/P" $R1
-  IfErrors hugagent_install_mode_check_long_passive hugagent_install_mode_done
-
-  hugagent_install_mode_check_long_passive:
-  ClearErrors
-  ${GetOptions} $R0 "/passive" $R1
-  IfErrors hugagent_install_mode_interactive hugagent_install_mode_done
-
-  hugagent_install_mode_interactive:
-  ; 已选择过部署方式时保持原值，升级安装不覆盖用户配置。
-  ; 三选一（NSIS 弹窗只有是/否，用两级弹窗实现）：
-  ;   本机+云端（dual）/ 仅本机（local）/ 仅云端（remote）。
-  ; 仅本机 → 首启直接进本机安装；dual / remote 还需要服务器地址，首启进
-  ; 初始化页（模式已按此预选，只需填地址）。
-  IfFileExists "$APPDATA\com.hugagent.desktop\install-mode" hugagent_install_mode_done
-  MessageBox MB_YESNO|MB_ICONQUESTION "请选择运行模式：$\r$\n$\r$\n【是】本机 + 云端（混合模式，推荐）：本地文件夹项目在本机执行，同时使用云端账号与协同能力。$\r$\n$\r$\n【否】其他模式（仅本机 / 仅云端）…" IDNO hugagent_install_mode_ask_local
-  StrCpy $R2 "dual"
-  Goto hugagent_install_mode_write
-
-  hugagent_install_mode_ask_local:
-  MessageBox MB_YESNO|MB_ICONQUESTION "是否使用「仅本机」模式？$\r$\n$\r$\n【是】仅本机：无需服务器，首次启动会联网下载运行环境。$\r$\n$\r$\n【否】仅云端：连接已有服务器使用。" IDNO hugagent_install_mode_remote
-  StrCpy $R2 "local"
-  Goto hugagent_install_mode_write
-
-  hugagent_install_mode_remote:
-  StrCpy $R2 "remote"
+  ; 安装器不做任何交互弹窗——运行模式在应用首启的初始化页里选（本机 / 云端 /
+  ; 本机+云端三选一）。这里只处理软件分发系统显式传入的 /HUGAGENT_LOCAL、
+  ; /HUGAGENT_REMOTE 参数；未传参数时什么都不写，首启必出初始化页。
+  Goto hugagent_install_mode_done
 
   hugagent_install_mode_write:
   CreateDirectory "$APPDATA\com.hugagent.desktop"
