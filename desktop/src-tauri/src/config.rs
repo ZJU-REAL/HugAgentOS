@@ -189,8 +189,10 @@ pub fn save_server_base(config_dir: &Path, server_base: &str) -> Result<(), Stri
     save(config_dir, &cfg)
 }
 
-/// 客户端是否已完成初始化选型。首启（无 server.json）时展示运行模式选择页；
-/// 由环境变量强制服务器地址时视作已配置，直接跳过选择页。
+/// 客户端是否已完成初始化选型。必须在 server.json 里**显式选过**运行形态，且
+/// 云端 / 双模式还要有云端地址——安装器预选（只写形态）与旧版遗留配置（只有
+/// deployment_mode）都不算已完成，首启会补一次初始化页（模式 / 地址已预填，
+/// 确认后不再询问）。由环境变量强制服务器地址时视作已配置，直接跳过选择页。
 pub fn is_provisioned(config_dir: &Path) -> bool {
     if std::env::var("HUGAGENT_SERVER_BASE")
         .map(|v| !v.trim().is_empty())
@@ -198,7 +200,18 @@ pub fn is_provisioned(config_dir: &Path) -> bool {
     {
         return true;
     }
-    config_dir.join("server.json").is_file()
+    if !config_dir.join("server.json").is_file() {
+        return false;
+    }
+    let cfg = load(config_dir);
+    match cfg.provision_mode {
+        None => false,
+        Some(ProvisionMode::LocalOnly) => true,
+        // 云端 / 双模式：没有云端地址就还没配完（安装器预选即此状态）。
+        // 只认 provision() 显式记下的 cloud_server_base——server_base 有编译期
+        // 默认值，用它判断会把「预选了云端但还没填地址」误判成已配置。
+        Some(_) => !cfg.cloud_server_base.trim().is_empty(),
+    }
 }
 
 /// 初始化选型落盘：写入运行形态 + 记住云端地址，并按形态设定初始运行目标。
@@ -236,14 +249,6 @@ pub fn provision(
     save(config_dir, &cfg)
 }
 
-/// 切换为客户端托管的本机服务。端口固定，便于桌面壳重启后恢复连接。
-pub fn save_local_server(config_dir: &Path, server_base: &str) -> Result<(), String> {
-    let mut cfg = load(config_dir);
-    cfg.deployment_mode = DeploymentMode::Local;
-    cfg.server_base = server_base.trim().trim_end_matches('/').to_string();
-    save(config_dir, &cfg)
-}
-
 fn save(config_dir: &Path, cfg: &AppConfig) -> Result<(), String> {
     let path = config_dir.join("server.json");
     let text = serde_json::to_string_pretty(cfg).map_err(|e| format!("序列化失败: {e}"))?;
@@ -253,13 +258,24 @@ fn save(config_dir: &Path, cfg: &AppConfig) -> Result<(), String> {
 
 /// NSIS 交互安装写入的一次性选择。`install-mode` 由安装器保留，用于避免升级时
 /// 重复询问；应用只消费 `.pending`，因此用户日后在菜单切换模式不会被旧选择覆盖。
-pub fn pending_installer_mode(config_dir: &Path) -> Option<DeploymentMode> {
+/// 值即运行形态：`local`（仅本机）/ `remote`（仅云端）/ `dual`（本机+云端）。
+pub fn pending_installer_mode(config_dir: &Path) -> Option<ProvisionMode> {
     let value = std::fs::read_to_string(config_dir.join("install-mode.pending")).ok()?;
     match value.trim().to_ascii_lowercase().as_str() {
-        "local" => Some(DeploymentMode::Local),
-        "remote" => Some(DeploymentMode::Remote),
+        "local" => Some(ProvisionMode::LocalOnly),
+        "remote" => Some(ProvisionMode::CloudOnly),
+        "dual" => Some(ProvisionMode::Dual),
         _ => None,
     }
+}
+
+/// 安装器选择的「预选」落盘：只记运行形态，不写地址。云端 / 双模式还差服务器
+/// 地址，`is_provisioned` 因此仍为 false —— 首启初始化页会按此预选，用户只需
+/// 补地址；仅本机不需要地址，直接走完整 `provision`（不经这里）。
+pub fn preselect_provision_mode(config_dir: &Path, mode: ProvisionMode) -> Result<(), String> {
+    let mut cfg = load(config_dir);
+    cfg.provision_mode = Some(mode);
+    save(config_dir, &cfg)
 }
 
 pub fn clear_pending_installer_mode(config_dir: &Path) -> Result<(), String> {
@@ -302,7 +318,7 @@ mod tests {
     #[test]
     fn switching_modes_is_persisted() {
         let dir = temp_dir("modes");
-        save_local_server(&dir, "http://127.0.0.1:32101/").unwrap();
+        provision(&dir, ProvisionMode::LocalOnly, "http://127.0.0.1:32101/", "").unwrap();
         let local = load(&dir);
         assert!(local.uses_local_server());
         assert_eq!(local.server_base, "http://127.0.0.1:32101");
@@ -389,8 +405,42 @@ mod tests {
     fn pending_installer_choice_is_one_time() {
         let dir = temp_dir("installer-choice");
         std::fs::write(dir.join("install-mode.pending"), "local").unwrap();
-        assert_eq!(pending_installer_mode(&dir), Some(DeploymentMode::Local));
+        assert_eq!(pending_installer_mode(&dir), Some(ProvisionMode::LocalOnly));
         clear_pending_installer_mode(&dir).unwrap();
         assert_eq!(pending_installer_mode(&dir), None);
+
+        std::fs::write(dir.join("install-mode.pending"), "dual").unwrap();
+        assert_eq!(pending_installer_mode(&dir), Some(ProvisionMode::Dual));
+        std::fs::write(dir.join("install-mode.pending"), "remote").unwrap();
+        assert_eq!(pending_installer_mode(&dir), Some(ProvisionMode::CloudOnly));
+    }
+
+    #[test]
+    fn legacy_server_json_requires_reprovision() {
+        // 旧版遗留配置只有 deployment_mode：升级后要补一次初始化页（预填确认）。
+        let dir = temp_dir("legacy-reprovision");
+        std::fs::write(
+            dir.join("server.json"),
+            r#"{"deployment_mode":"local","server_base":"http://127.0.0.1:32101"}"#,
+        )
+        .unwrap();
+        assert!(!is_provisioned(&dir));
+    }
+
+    #[test]
+    fn preselected_cloud_mode_waits_for_address() {
+        // 安装器预选云端/双模式：形态已定但地址未填 → 仍未完成初始化；
+        // 初始化页补完地址（provision）后才算配好。
+        let dir = temp_dir("preselect-dual");
+        preselect_provision_mode(&dir, ProvisionMode::Dual).unwrap();
+        assert!(!is_provisioned(&dir));
+        provision(
+            &dir,
+            ProvisionMode::Dual,
+            "http://127.0.0.1:32101",
+            "https://team.example.test",
+        )
+        .unwrap();
+        assert!(is_provisioned(&dir));
     }
 }
