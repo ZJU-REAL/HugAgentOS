@@ -176,8 +176,23 @@ def register_read(
 
         provider = _get_provider()
         recovered_from_artifact = False
+        # Local desktop mode: read the real host file directly (no My Space /
+        # artifact fallback locally); the value flows into the normal downstream.
+        from core.config.local_mode import local_mode_enabled as _local_on
+
+        _local_read: Optional[bytes] = None
+        if _local_on():
+            try:
+                with open(physical, "rb") as _f:
+                    _local_read = _f.read()
+            except OSError as exc:
+                return resp_json({"error": f"读取文件失败: {exc}"})
         try:
-            content_bytes = await provider.get_file(_sess, physical, user_id=user_id)
+            content_bytes = (
+                _local_read
+                if _local_read is not None
+                else await provider.get_file(_sess, physical, user_id=user_id)
+            )
         except _SCE as exc:
             return resp_json({"error": f"沙盒连接失败: {exc}"})
         except _SE as exc:

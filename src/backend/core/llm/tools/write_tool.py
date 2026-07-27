@@ -214,9 +214,34 @@ def register_write(
 
         # ── Write into the sandbox ─────────────────────────────────────
         new_bytes = content.encode("utf-8")
+        # Local-mode write-back snapshot (ticket #08): back up the real file
+        # before overwriting it, so the user can roll back. No-op on cloud/web.
         try:
-            await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
+            from core.services.local_snapshot_service import maybe_snapshot_local
+
+            maybe_snapshot_local(physical)
+        except Exception:
+            pass
+        try:
+            from core.config.local_mode import local_mode_enabled as _local_on
+
+            if _local_on():
+                # Local desktop mode: the backend runs on the host, so write the
+                # real file directly. This reaches the user's actual folders
+                # (incl. real paths outside the sandbox workspace root), which the
+                # sidecar put_file refuses.
+                import os as _os
+
+                parent = _os.path.dirname(physical)
+                if parent:
+                    _os.makedirs(parent, exist_ok=True)
+                with open(physical, "wb") as _f:
+                    _f.write(new_bytes)
+            else:
+                await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
         except (_SE, _SCE) as exc:
+            return resp_json({"error": f"写入失败: {exc}"})
+        except OSError as exc:
             return resp_json({"error": f"写入失败: {exc}"})
 
         # ── Update state (keyed by logical path so the model can Read/Edit with the same path next time) ──

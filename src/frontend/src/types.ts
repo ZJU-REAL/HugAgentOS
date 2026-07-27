@@ -407,6 +407,9 @@ export interface ChatItem {
   automationTaskId?: string;
   /** Whether this is an automation-generated chat (virtual sidebar entry) */
   automationRun?: boolean;
+  /** 混合架构（桌面双模式）：该对话的运行位置。'local' = 在本机执行面运行、
+   *  会话保存在本机；未设置 = 云端。绑定项目的对话跟随项目归属，此字段不生效。 */
+  runTarget?: 'local';
   /** Which project this chat is mounted under (Claude-style workspaces).
    *  When present, sending a message automatically attaches project_id so the backend
    *  injects the project instructions / folder scope into ctx. */
@@ -1093,6 +1096,8 @@ export interface Plan {
 /* ───── Config platform types ───── */
 
 export interface UsageLogEntry {
+  /** 混合架构：该行来自云端还是本机执行面（桌面双模式合并视图）。 */
+  origin?: 'cloud' | 'local';
   message_id: string;
   chat_id: string;
   user_id: string;

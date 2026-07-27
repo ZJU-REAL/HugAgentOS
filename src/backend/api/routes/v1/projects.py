@@ -20,16 +20,21 @@
 
 from __future__ import annotations
 
+import mimetypes
+import os
 from typing import Literal, Optional
+from urllib.parse import quote
 
 from core.auth.backend import UserContext, get_current_user
 from core.auth.permissions_iface import ProjectAccess, require_project_access
+from core.config.local_mode import local_mode_enabled
 from core.db.engine import get_db
 from core.db.models import Artifact
 from core.infra.responses import created_response, paginated_response, success_response
 from core.services.project_file_service import ProjectFileService
 from core.services.project_service import ProjectService
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -42,9 +47,12 @@ router = APIRouter(prefix="/v1/projects", tags=["projects"])
 class CreateProjectBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     description: Optional[str] = Field(None, max_length=2000)
-    kind: Literal["personal"] = "personal"
+    kind: Literal["personal", "local"] = "personal"
     # 可选：复用已有文件夹挂钩；不传则后端在根目录新建同名文件夹
     linked_folder_id: Optional[str] = None
+    # kind=local（桌面本地模式）：绑定的本机真实文件夹绝对路径 + 机器标识
+    local_path: Optional[str] = None
+    local_machine: Optional[str] = None
 
 
 class UpdateProjectBody(BaseModel):
@@ -88,15 +96,31 @@ async def create_project(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """创建个人项目。可指定已有挂钩文件夹，否则后端在根目录新建同名文件夹。"""
+    """创建个人项目（云端）或本地文件夹项目（桌面本地模式）。
+
+    kind=local 只在桌面本地部署可用，由本地部署门控保证云端不会创建本地项目。
+    """
     svc = ProjectService(db)
     user_id = str(user.user_id)
-    project = svc.create_personal(
-        user_id,
-        body.name,
-        body.description,
-        linked_folder_id=body.linked_folder_id,
-    )
+    if body.kind == "local":
+        if not local_mode_enabled():
+            raise HTTPException(status_code=403, detail="本地项目仅在桌面本地模式下可用")
+        if not body.local_path:
+            raise HTTPException(status_code=400, detail="本地项目必须指定文件夹路径")
+        project = svc.create_local(
+            user_id,
+            body.name,
+            body.local_path,
+            description=body.description,
+            machine=body.local_machine,
+        )
+    else:
+        project = svc.create_personal(
+            user_id,
+            body.name,
+            body.description,
+            linked_folder_id=body.linked_folder_id,
+        )
     return created_response(data=svc.get(project.project_id, user_id))
 
 
@@ -200,7 +224,37 @@ async def list_project_files(
     access: ProjectAccess = Depends(require_project_access("view")),
     db: Session = Depends(get_db),
 ):
-    """列出项目文件（递归遍历挂钩文件夹子树），附带容量已用 / 上限。"""
+    """列出项目文件。本地项目遍历本机真实文件夹；云端项目遍历挂钩文件夹子树。"""
+    if access.project.kind == "local":
+        from core.sandbox.local_mount import list_local_files
+
+        local = (access.project.extra_data or {}).get("local") or {}
+        raw = list_local_files(local.get("path") or "")
+        pid = access.project.project_id
+        # 对齐云端项目文件的条目形态（ProjectFileItem），download_url 指向本地文件
+        # 原始内容端点，前端预览/下载直接可用；artifact_id 复用相对路径（本地文件
+        # 没有 artifact，删除入口在前端对本地项目隐藏）。
+        items = []
+        for f in raw:
+            rel = f["path"]
+            mime = mimetypes.guess_type(f["name"])[0] or "application/octet-stream"
+            items.append(
+                {
+                    "id": rel,
+                    "artifact_id": rel,
+                    "name": rel,
+                    "title": f["name"],
+                    "mime_type": mime,
+                    "size_bytes": f["size"],
+                    "download_url": f"/v1/projects/{pid}/local-files/raw?path={quote(rel)}",
+                    "type": "image" if mime.startswith("image/") else "document",
+                    "folder_path": rel.rsplit("/", 1)[0] if "/" in rel else "",
+                    "created_at": f.get("mtime"),
+                }
+            )
+        return success_response(
+            data={"items": items, "total": len(items), "local_path": local.get("path")}
+        )
     pf_svc = ProjectFileService(db)
     items = pf_svc.list_files(access.project)
     return success_response(
@@ -211,6 +265,31 @@ async def list_project_files(
             "capacity_limit": pf_svc.capacity_limit(),
         }
     )
+
+
+@router.get("/{project_id}/local-files/raw", summary="读取本地项目文件原始内容（预览 / 下载）")
+async def get_local_project_file(
+    path: str = Query(..., description="项目根目录下的相对路径（POSIX 分隔符）"),
+    access: ProjectAccess = Depends(require_project_access("view")),
+):
+    """流式返回本地项目文件夹内某个文件的原始内容（inline，供前端预览与下载）。
+
+    仅本地项目 + 桌面本地模式可用；路径经 realpath 归一后必须仍落在项目根目录内，
+    杜绝 ``..`` / 符号链接越界读取。
+    """
+    if access.project.kind != "local" or not local_mode_enabled():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    local = (access.project.extra_data or {}).get("local") or {}
+    root = os.path.realpath(os.path.expanduser((local.get("path") or "").strip()))
+    if not root or not os.path.isdir(root):
+        raise HTTPException(status_code=404, detail="本地项目文件夹不存在或不可访问")
+    full = os.path.realpath(os.path.join(root, path))
+    if full != root and not full.startswith(root + os.sep):
+        raise HTTPException(status_code=403, detail="路径越界")
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    mime = mimetypes.guess_type(full)[0] or "application/octet-stream"
+    return FileResponse(full, media_type=mime)
 
 
 @router.post("/{project_id}/files/upload", summary="直传文件到项目（写入挂钩文件夹）")

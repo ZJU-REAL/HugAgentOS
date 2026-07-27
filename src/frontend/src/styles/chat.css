@@ -736,6 +736,14 @@ a.jx-fileCard--link:hover{
 .jx-composerBar > *{
   pointer-events:auto;
 }
+/* 窄容器（项目页 composer）防溢出：长文本下拉可收缩省略，附件/发送钮永不被顶出框外 */
+.jx-composerBar{ min-width:0; }
+.jx-composerBar .jx-modelDropBtn,
+.jx-composerBar .jx-projectDropBtn{ flex-shrink:1; min-width:0; overflow:hidden; }
+.jx-composerBar .jx-modelDropText,
+.jx-composerBar .jx-projectDropName{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* attach 前弹性间隔：attach+send 恒靠右、优先保住不被挤出 */
+.jx-composerBar .jx-attachBtn{ margin-left:auto; }
 
 /* ── Mode dropdown button (left side) ── */
 .jx-modeDropBtn{
@@ -3690,3 +3698,75 @@ textarea.jx-composer{
   background: var(--bg);
   font-size: 13px;
 }
+
+/* ── Run-target switcher（混合架构：对话框上方的 云端/本机 胶囊）──────────── */
+.jx-runTargetRow { display: flex; justify-content: flex-start; padding: 0 4px; }
+.jx-runTargetRow .jx-deploySwitcher { margin: 0 0 6px; justify-content: flex-start; }
+/* 胶囊在对话框上方：菜单向上弹，避免遮住输入框 */
+.jx-runTargetRow .jx-deploySwitcherMenu { top: auto; bottom: calc(100% + 6px); left: 0; transform: none; }
+.jx-deploySwitcherItem:disabled { opacity: .55; cursor: not-allowed; }
+.jx-deploySwitcher { display: flex; justify-content: center; position: relative; margin: 2px 0 8px; }
+.jx-deploySwitcherPill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--color-border, #e5e6eb);
+  background: var(--color-fill-bg, #f7f8fa);
+  color: var(--color-text, #1d2129);
+  font-size: 13px; cursor: pointer; line-height: 1; transition: background .15s;
+}
+.jx-deploySwitcherPill:hover { background: var(--color-bg-gray, #eef0f3); }
+.jx-deploySwitcherIcon { font-size: 13px; display: inline-flex; color: var(--color-text-secondary, #4e5969); }
+.jx-deploySwitcherLabel { font-weight: 500; }
+.jx-deploySwitcherMenu {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  min-width: 288px; z-index: 50; padding: 6px;
+  background: var(--color-bg-white, #fff);
+  border: 1px solid var(--color-border, #e5e6eb);
+  border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.14);
+}
+.jx-deploySwitcherGroup {
+  padding: 6px 10px 2px; font-size: 12px; color: var(--color-text-tertiary, #86909c);
+}
+.jx-deploySwitcherItem {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%;
+  padding: 8px 10px; border: 0; background: transparent; border-radius: 8px;
+  cursor: pointer; text-align: left; color: var(--color-text, #1d2129);
+}
+.jx-deploySwitcherItem:hover { background: var(--color-fill-bg, #f2f3f5); }
+.jx-deploySwitcherItemIcon { font-size: 16px; line-height: 1.2; margin-top: 2px; color: var(--color-text-secondary, #4e5969); }
+.jx-deploySwitcherItemBody { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.jx-deploySwitcherItemTitle { font-size: 14px; font-weight: 500; }
+.jx-deploySwitcherItemDesc { font-size: 12px; color: var(--color-text-secondary, #86909c); }
+.jx-deploySwitcherCheck { align-self: center; }
+.jx-deploySwitcherDivider { height: 1px; margin: 6px 8px; background: var(--color-border, #e5e6eb); }
+.jx-deploySwitcherItem--action .jx-deploySwitcherItemIcon { color: var(--color-primary, #165dff); font-weight: 700; }
+.jx-deploySwitcherFooter { width: 100%; padding: 8px 10px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; text-align: left; font-size: 13px; color: var(--color-text-secondary, #4e5969); }
+.jx-deploySwitcherFooter:hover { background: var(--color-fill-bg, #f2f3f5); }
+
+/* Local permissions modal (ticket #06) */
+.jx-localPermOverlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+.jx-localPermModal { width: 520px; max-width: 92vw; max-height: 82vh; overflow: auto; background: var(--color-bg-white, #fff); color: var(--color-text, #1d2129); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }
+.jx-localPermHead { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; font-size: 16px; font-weight: 600; border-bottom: 1px solid var(--color-border, #e5e6eb); }
+.jx-localPermClose { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--color-text-tertiary, #86909c); }
+.jx-localPermSection { padding: 14px 18px; border-bottom: 1px solid var(--color-border, #f0f1f3); }
+.jx-localPermSectionTitle { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.jx-localPermHint { font-size: 12px; color: var(--color-text-secondary, #86909c); margin-bottom: 10px; }
+.jx-localPermEmpty { font-size: 13px; color: var(--color-text-tertiary, #86909c); padding: 6px 0; }
+.jx-localPermRow { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.jx-localPermPath { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jx-localPermMode { font-size: 12px; color: var(--color-text-secondary, #86909c); }
+.jx-localPermRemove { border: 0; background: transparent; color: var(--color-error, #f53f3f); cursor: pointer; font-size: 12px; }
+.jx-localPermAdd { margin-top: 8px; border: 1px dashed var(--color-border, #c9cdd4); background: transparent; color: var(--color-primary, #165dff); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+.jx-localPermPolicyRow { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; }
+.jx-localPermPolicyLabel { font-size: 13px; }
+.jx-localPermSelect { font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--color-border, #c9cdd4); background: var(--color-bg-white, #fff); color: var(--color-text, #1d2129); }
+/* 项目框旁的本机操作权限档胶囊（桌面壳本机模式） */
+.jx-approvalPillBtn .jx-approvalPillIcon { font-size: 13px; line-height: 1; flex-shrink: 0; }
+.jx-approvalMenu .ant-dropdown-menu { min-width: 248px; }
+.jx-approvalMenu .ant-dropdown-menu-item-group-title { font-size: 12px; color: rgba(15,23,42,.45); padding: 6px 12px 2px; }
+.jx-approvalDetailEntry { font-size: 13px; color: rgba(15,23,42,.62); }
+.jx-cloudPrompt { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border, #e5e6eb); background: var(--color-fill-bg, #f7f8fa); font-size: 13px; }
+.jx-cloudPromptText { color: var(--color-text-secondary, #4e5969); }
+.jx-cloudPromptYes, .jx-cloudPromptNo { border: 0; border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
+.jx-cloudPromptYes { background: var(--color-primary, #165dff); color: #fff; }
+.jx-cloudPromptNo { background: transparent; color: var(--color-text, #1d2129); border: 1px solid var(--color-border, #c9cdd4); }

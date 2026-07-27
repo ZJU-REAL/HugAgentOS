@@ -4,6 +4,7 @@ import {
   CaretRightOutlined,
   DeleteOutlined,
   EditOutlined,
+  ExportOutlined,
   EyeOutlined,
   FileTextOutlined,
   FolderAddOutlined,
@@ -314,6 +315,11 @@ function FilesCard() {
   const uploadProgress = useProjectStore((s) => s.uploadProgress);
 
   const canEdit = project?.permission === 'admin' || project?.permission === 'edit';
+  // 本地文件夹项目：文件即本机真实文件，增删在访达/文件管理器里做——隐藏上传、
+  // 删除与容量条，改为提供「在访达中打开」入口（项目文件卡片头部，+ 号位置旁）。
+  const isLocal = (project as { kind?: string } | null)?.kind === 'local';
+  const localPath = (project as { local_path?: string } | null)?.local_path || '';
+  const canUpload = canEdit && !isLocal;
   const pct = capacityLimit > 0 ? Math.min(100, Math.round((capacityUsed / capacityLimit) * 100)) : 0;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -373,7 +379,7 @@ function FilesCard() {
 
   // ── Drag-and-drop upload (disabled without edit permission; overlay mounts only while dragging, so it does not swallow row clicks) ──
   const { dragActive, dropZoneProps } = useFileDropZone(
-    canEdit,
+    canUpload,
     (dropped) => runUpload(Array.from(dropped), 'file'),
   );
 
@@ -421,35 +427,54 @@ function FilesCard() {
         <div className="jx-projectRail-cardTitle">
           {t('项目文件')}{folderTag}
         </div>
-        {canEdit && (
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                {
-                  key: 'upload-file',
-                  icon: <FileTextOutlined />,
-                  label: t('上传文件'),
-                  onClick: () => fileInputRef.current?.click(),
-                },
-                {
-                  key: 'upload-folder',
-                  icon: <FolderAddOutlined />,
-                  label: t('上传文件夹'),
-                  onClick: () => folderInputRef.current?.click(),
-                },
-              ],
-            }}
-          >
-            <Button type="text" icon={<PlusOutlined />} size="small" title={t('添加文件 / 文件夹')} />
-          </Dropdown>
-        )}
+        <div className="jx-projectRail-cardHeaderRight">
+          {isLocal && localPath && (
+            <Button
+              type="text"
+              size="small"
+              icon={<ExportOutlined />}
+              title={t('在访达 / 文件管理器中打开项目文件夹：{path}', { path: localPath })}
+              onClick={() => {
+                window.location.href = '/__desktop/open-path?path=' + encodeURIComponent(localPath);
+              }}
+            />
+          )}
+          {canUpload && (
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  {
+                    key: 'upload-file',
+                    icon: <FileTextOutlined />,
+                    label: t('上传文件'),
+                    onClick: () => fileInputRef.current?.click(),
+                  },
+                  {
+                    key: 'upload-folder',
+                    icon: <FolderAddOutlined />,
+                    label: t('上传文件夹'),
+                    onClick: () => folderInputRef.current?.click(),
+                  },
+                ],
+              }}
+            >
+              <Button type="text" icon={<PlusOutlined />} size="small" title={t('添加文件 / 文件夹')} />
+            </Dropdown>
+          )}
+        </div>
       </div>
 
-      <Progress percent={pct} size="small" showInfo={false} strokeColor="#126DFF" />
-      <div className="jx-projectRail-cardSub">
-        {t('已用 {used} / {limit}', { used: fmtBytes(capacityUsed), limit: fmtBytes(capacityLimit || 0) })}
-      </div>
+      {isLocal ? (
+        <div className="jx-projectRail-cardSub" title={localPath}>{localPath}</div>
+      ) : (
+        <>
+          <Progress percent={pct} size="small" showInfo={false} strokeColor="#126DFF" />
+          <div className="jx-projectRail-cardSub">
+            {t('已用 {used} / {limit}', { used: fmtBytes(capacityUsed), limit: fmtBytes(capacityLimit || 0) })}
+          </div>
+        </>
+      )}
 
       {/* Thin progress bar for batch upload (spring-follows, fades out with delay on completion; the n/N label sits to the right of the bar) */}
       <UploadProgressBar progress={uploadProgress} />
@@ -482,7 +507,7 @@ function FilesCard() {
                         key={f.id}
                         file={f}
                         indent
-                        canEdit={canEdit}
+                        canEdit={canUpload}
                         onPreview={() => setPreviewFile(f)}
                         onDelete={() => doDelete(f)}
                       />
@@ -497,7 +522,7 @@ function FilesCard() {
               key={f.id}
               file={f}
               indent={false}
-              canEdit={canEdit}
+              canEdit={canUpload}
               onPreview={() => setPreviewFile(f)}
               onDelete={() => doDelete(f)}
             />
@@ -540,7 +565,7 @@ function FilesCard() {
 
       {/* Drag-and-drop upload highlight layer (shared component, mounts only while dragging) */}
       <DropOverlay
-        active={dragActive && canEdit}
+        active={dragActive && canUpload}
         className="jx-projectRail-dropOverlay"
         iconSize={20}
         hint={t('松开，上传到本项目')}

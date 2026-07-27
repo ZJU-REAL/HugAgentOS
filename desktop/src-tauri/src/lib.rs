@@ -11,6 +11,7 @@
 mod auth;
 mod brand;
 mod config;
+mod hybrid;
 mod local_server;
 mod menu;
 mod notify;
@@ -112,6 +113,11 @@ pub(crate) struct Shared {
     pub(crate) port: u16,
     pub(crate) config_dir: std::path::PathBuf,
     pub(crate) local_server: Arc<local_server::LocalServerManager>,
+    /// 混合架构（Dual）：会话 cookie 名 + 桥接秘密 + 已编码的云端用户（供反代注入）。
+    pub(crate) cookie_name: String,
+    pub(crate) hybrid_local: bool,
+    pub(crate) bridge_secret: String,
+    pub(crate) bridge_user: Arc<RwLock<Option<String>>>,
 }
 
 impl Shared {
@@ -281,10 +287,14 @@ pub fn run() {
                 &local_server_root,
                 home_dir.as_deref(),
             );
-            let installer_name = if cfg!(target_os = "macos") {
-                "install-local-server.sh"
-            } else {
+            // macOS + Linux use the shell installer; Windows uses PowerShell.
+            // (Linux local-server payload itself — bundling + a Linux-verified
+            //  install path with correct uv checksums — still needs a Linux
+            //  build machine; ticket #12. This just picks the right script.)
+            let installer_name = if cfg!(target_os = "windows") {
                 "install-local-server.ps1"
+            } else {
+                "install-local-server.sh"
             };
             let local_server = local_server::LocalServerManager::new(
                 local_server_root,
@@ -295,9 +305,18 @@ pub fn run() {
                 http.clone(),
             );
 
+            // 混合架构（Dual）：桥接秘密注入本机服务进程；本机作为「本地项目执行面」
+            // 在云端为主的同时常驻。云端/本机单一形态不受影响。
+            let hybrid_local = cfg.provision_mode() == config::ProvisionMode::Dual;
+            let bridge_secret = hybrid::load_or_create_bridge_secret(&config_dir);
+            if hybrid_local {
+                local_server.set_bridge_secret(bridge_secret.clone());
+            }
+
             // 本机模式下，安装包版本变化会自动升级服务资源；已安装且同版本则直接
             // 拉起服务。安装/启动都在后台进行，主窗口显示可观察、可重试的进度页。
-            if cfg.uses_local_server() {
+            // Dual 同样确保本机服务安装并常驻（后台，不阻塞云端使用）。
+            if cfg.uses_local_server() || hybrid_local {
                 if local_server.needs_install() {
                     local_server.install_in_background();
                 } else if !tauri::async_runtime::block_on(local_server.is_ready()) {
@@ -332,6 +351,22 @@ pub fn run() {
                 }
             }
             let token = Arc::new(RwLock::new(token0.clone()));
+            let bridge_user: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+            // 启动即持有有效云端会话（Dual）：立刻建立桥接身份 + 下发模型配置。
+            if hybrid_local {
+                if let Some(t) = token0.clone() {
+                    hybrid::on_cloud_login(
+                        http.clone(),
+                        cfg.server_base_trimmed().to_string(),
+                        cfg.cookie_name.clone(),
+                        t,
+                        bridge_user.clone(),
+                        bridge_secret.clone(),
+                        local_server.clone(),
+                    );
+                }
+            }
 
             let web_dir = resolve_web_dir(app);
 
@@ -343,6 +378,12 @@ pub fn run() {
                 token: token.clone(),
                 local_server: local_server.clone(),
                 active_local: cfg.uses_local_server(),
+                provision_mode: cfg.provision_mode(),
+                cloud_server_base: cfg.cloud_base(),
+                local_base: local_server::LOCAL_SERVER_BASE.to_string(),
+                hybrid_local,
+                bridge_secret: bridge_secret.clone(),
+                bridge_user: bridge_user.clone(),
             };
             let port = tauri::async_runtime::block_on(proxy::serve(pstate, web_dir))
                 .expect("启动本地反代失败");
@@ -355,6 +396,10 @@ pub fn run() {
                 port,
                 config_dir: config_dir.clone(),
                 local_server: local_server.clone(),
+                cookie_name: cfg.cookie_name.clone(),
+                hybrid_local,
+                bridge_secret,
+                bridge_user,
             });
 
             // 运行时 deep-link 回调（macOS / 已运行实例）。
@@ -374,7 +419,10 @@ pub fn run() {
 
             // 初始窗口：有 token 进首页，没有则进登录卡片「初始态」（不自动开浏览器，
             // 等用户点「开始使用」再拉起）。退出登录同样回到这张卡片，避免白屏。
-            let start = if !backend_ready {
+            let start = if !config::is_provisioned(&config_dir) {
+                // 首启：先让用户选运行模式（本机 / 云端 / 双模式），云端形态在此填地址。
+                format!("http://127.0.0.1:{}/__desktop/init", port)
+            } else if !backend_ready {
                 format!("http://127.0.0.1:{}/__desktop/setup", port)
             } else if token0.is_some() {
                 format!("http://127.0.0.1:{}/", port)
@@ -770,6 +818,12 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                     let app2 = app_for_nav.clone();
                     tauri::async_runtime::spawn(async move {
                         let dir = app2.state::<Shared>().config_dir.clone();
+                        // 双模式恒为云端为主：本机只是执行面，不允许把登录/会话目标
+                        // 整体切到本机（config::load 也会把这种遗留状态归一化回云端）。
+                        if config::load(&dir).provision_mode() == config::ProvisionMode::Dual {
+                            eprintln!("[config] 双模式下忽略 activate-local（云端为主）");
+                            return;
+                        }
                         if let Err(error) =
                             config::save_local_server(&dir, local_server::LOCAL_SERVER_BASE)
                         {
@@ -777,6 +831,111 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                             return;
                         }
                         app2.restart();
+                    });
+                    return false;
+                }
+                // 双模式下切到云端：复用初始化时记住的云端地址，不再弹「选服务器」页。
+                if path == "/__desktop/activate-cloud" {
+                    let app2 = app_for_nav.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let dir = app2.state::<Shared>().config_dir.clone();
+                        let base = config::load(&dir).cloud_base();
+                        if base.trim().is_empty() {
+                            // 没有记住的地址（异常态）：退回到「设置服务器地址」页手动填。
+                            open_server_config(&app2);
+                            return;
+                        }
+                        if let Err(error) = config::save_server_base(&dir, &base) {
+                            eprintln!("[config] 切换云端服务失败: {error}");
+                            return;
+                        }
+                        app2.restart();
+                    });
+                    return false;
+                }
+                // 初始化选型：写入运行模式 + 云端地址并重启。本机 / 双模式重启后由启动
+                // 流程自动安装本机服务；云端模式重启后直接连所填服务器。
+                if path == "/__desktop/provision" {
+                    let mode = u
+                        .query_pairs()
+                        .find_map(|(key, value)| (key == "mode").then(|| value.into_owned()))
+                        .unwrap_or_default();
+                    let base = u
+                        .query_pairs()
+                        .find_map(|(key, value)| (key == "base").then(|| value.into_owned()))
+                        .unwrap_or_default();
+                    let provision = match mode.as_str() {
+                        "local" => Some(config::ProvisionMode::LocalOnly),
+                        "cloud" => Some(config::ProvisionMode::CloudOnly),
+                        "dual" => Some(config::ProvisionMode::Dual),
+                        _ => None,
+                    };
+                    let app2 = app_for_nav.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let Some(provision) = provision else {
+                            eprintln!("[config] 初始化收到未知运行模式: {mode}");
+                            return;
+                        };
+                        let dir = app2.state::<Shared>().config_dir.clone();
+                        if let Err(error) = config::provision(
+                            &dir,
+                            provision,
+                            local_server::LOCAL_SERVER_BASE,
+                            &base,
+                        ) {
+                            eprintln!("[config] 保存初始化选型失败: {error}");
+                            return;
+                        }
+                        app2.restart();
+                    });
+                    return false;
+                }
+                // 在访达/资源管理器中打开一个本机路径（本地项目文件夹）。
+                if path == "/__desktop/open-path" {
+                    if let Some(p) = u
+                        .query_pairs()
+                        .find_map(|(key, value)| (key == "path").then(|| value.into_owned()))
+                    {
+                        if !p.trim().is_empty() {
+                            let _ = app_for_nav.opener().open_path(p, None::<String>);
+                        }
+                    }
+                    return false;
+                }
+                // 本地文件夹项目（ticket #03）：原生选目录 → 把路径回抛给前端，由前端
+                // 调 POST /v1/projects kind=local 建项目。走导航哨兵，不依赖 Tauri IPC。
+                if path == "/__desktop/pick-local-folder" {
+                    let app2 = app_for_nav.clone();
+                    app_for_nav.dialog().file().pick_folder(move |picked| {
+                        let Some(folder) = picked else { return };
+                        let path_str = match folder.into_path() {
+                            Ok(p) => p.to_string_lossy().to_string(),
+                            Err(_) => return,
+                        };
+                        if let Some(win) = app2.get_webview_window("main") {
+                            let esc = path_str.replace('\\', "\\\\").replace('\'', "\\'");
+                            let _ = win.eval(&format!(
+                                "window.dispatchEvent(new CustomEvent('hugagent:local-folder',{{detail:'{esc}'}}));"
+                            ));
+                        }
+                    });
+                    return false;
+                }
+                // 授权一个本地目录（ticket #06）：原生选目录 → 回抛给前端登记 grant。
+                if path == "/__desktop/pick-grant-folder" {
+                    let app2 = app_for_nav.clone();
+                    app_for_nav.dialog().file().pick_folder(move |picked| {
+                        let Some(folder) = picked else { return };
+                        let path_str = match folder.into_path() {
+                            Ok(p) => p.to_string_lossy().to_string(),
+                            Err(_) => return,
+                        };
+                        if let Some(win) = app2.get_webview_window("main") {
+                            let esc = path_str.replace('\\', "\\\\").replace('\'', "\\'");
+                            let _ = win.eval(&format!(
+                                "window.dispatchEvent(new CustomEvent('hugagent:grant-folder',{{detail:'{esc}'}}));"
+                            ));
+                        }
                     });
                     return false;
                 }
@@ -837,6 +996,18 @@ fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
             Ok(tok) => {
                 *shared.token.write().await = Some(tok.clone());
                 auth::save_token(&shared.config_dir, Some(&tok));
+                // 混合架构（Dual）：登录成功即更新桥接身份并下发云端模型配置到本机。
+                if shared.hybrid_local {
+                    hybrid::on_cloud_login(
+                        shared.http.clone(),
+                        shared.server_base.trim_end_matches('/').to_string(),
+                        shared.cookie_name.clone(),
+                        tok.clone(),
+                        shared.bridge_user.clone(),
+                        shared.bridge_secret.clone(),
+                        shared.local_server.clone(),
+                    );
+                }
                 let home = shared.home_url();
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.eval(format!("window.location.replace('{}')", home));

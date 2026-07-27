@@ -36,7 +36,9 @@ def resolve_project_permission(
 ) -> ProjectPermissionLevel:
     if project is None or project.deleted_at is not None:
         return "none"
-    if project.kind == "personal":
+    # Personal (myspace-folder) and local (desktop host-folder) projects are both
+    # single-owner in CE; the owner is admin.
+    if project.kind in ("personal", "local"):
         return "admin" if project.owner_user_id == user_id else "none"
     # Non-personal legacy data is never visible in CE.
     return "none"

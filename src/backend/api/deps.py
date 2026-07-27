@@ -49,6 +49,17 @@ def _require_token_or_flag(
         if user_id and _user_has_meta_flag(db, user_id, meta_flag):
             _audit_grant(db, request, granted_action, user_id=user_id, via="session")
             return
+        # ②b 桌面桥接（混合架构）：桌面壳孵化的本机后端上，壳注入的云端身份携带
+        # 对应管理能力标志时放行——config 控制台在桌面双模式下可读本机数据。
+        # 云端部署不设桥接 env，此分支恒短路（零行为变化）。
+        from core.auth.desktop_bridge import resolve_bridge_user
+
+        bridge_user = resolve_bridge_user(request, db)
+        if bridge_user is not None and _user_has_meta_flag(db, bridge_user.user_id, meta_flag):
+            _audit_grant(
+                db, request, granted_action, user_id=bridge_user.user_id, via="desktop_bridge"
+            )
+            return
         # ③ Token not configured at all and no session grant → report explicitly that it is not configured
         if not token and not user_id:
             raise HTTPException(

@@ -38,6 +38,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
         let file = SubmenuBuilder::new(app, "文件")
             .text("new_chat", "新建对话")
+            .text("run_mode", "运行模式…")
             .text("local_server", "本机服务…")
             .separator()
             .close_window()
@@ -75,6 +76,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     {
         let file = SubmenuBuilder::new(app, "文件")
             .text("new_chat", "新建对话")
+            .text("run_mode", "运行模式…")
             .text("server_config", "设置服务器地址…")
             .text("local_server", "本机服务…")
             .separator()
@@ -134,6 +136,19 @@ pub fn dispatch(app: &AppHandle, id: &str) {
             }
         }
         "server_config" => crate::open_server_config(app),
+        // 运行模式选择页（本机 / 云端 / 双模式）——初始化选型的再次入口。
+        "run_mode" => {
+            if let Some(w) = app.get_webview_window("main") {
+                let port = app.state::<Shared>().port;
+                let _ = w.eval(format!(
+                    "window.location.replace('http://127.0.0.1:{}/__desktop/init?manage=1')",
+                    port
+                ));
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }
         "local_server" => {
             if let Some(w) = app.get_webview_window("main") {
                 let port = app.state::<Shared>().port;

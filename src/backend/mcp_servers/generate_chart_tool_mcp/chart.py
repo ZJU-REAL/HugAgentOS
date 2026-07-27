@@ -35,38 +35,68 @@ load_dotenv()
 
 # 方正中文字体目录解析（与源码位置解耦）：
 #   1. JX_FONT_DIR 环境变量覆盖
-# 模板里再用 os.path.isdir 兜底，目录缺失时 matplotlib 自动退回系统 CJK 字体。
+# 目录必须真的装有字体文件才算命中：桌面本地模式会预创建空的 ~/.hugagent/fonts，
+# 若空目录也算命中会挡住后面的候选，最终中文全部渲染成方块。
+_FONT_EXTS = (".ttf", ".ttc", ".otf")
+
+
+def _dir_has_fonts(path: str) -> bool:
+    try:
+        return any(f.lower().endswith(_FONT_EXTS) for f in os.listdir(path))
+    except OSError:
+        return False
+
+
 def _resolve_font_dir() -> str:
     candidates = [
         os.getenv("JX_FONT_DIR", ""),
         "/usr/share/fonts/truetype/fangzheng",
     ]
     for c in candidates:
-        if c and os.path.isdir(c):
+        if c and os.path.isdir(c) and _dir_has_fonts(c):
             return c
     return "/usr/share/fonts/truetype/fangzheng"
 
 
 _FONT_DIR = _resolve_font_dir()
 
-# 字体头部模板：在 LLM 代码执行前注入，注册中文字体并设置 rcParams
+# 字体头部模板：在 LLM 代码执行前注入，注册中文字体并设置 rcParams。
+# 字体目录无货时兜底注册宿主系统自带的 CJK 字体（桌面本地模式跑在裸机上，
+# 容器字体路径不存在；macOS 的系统中文字体是 .ttc，matplotlib>=3.7 可直接 addfont）。
 _FONT_HEADER_TEMPLATE = """\
 import matplotlib.font_manager as _jx_fm
 import matplotlib as _jx_mpl
 import os as _jx_os
 _jx_font_dir = {font_dir!r}
+_jx_paths = []
+if _jx_os.path.isdir(_jx_font_dir):
+    for _jx_f in sorted(_jx_os.listdir(_jx_font_dir)):
+        if _jx_f.lower().endswith(('.ttf', '.ttc', '.otf')):
+            _jx_paths.append(_jx_os.path.join(_jx_font_dir, _jx_f))
+if not _jx_paths:
+    _jx_paths = [_jx_p for _jx_p in (
+        '/System/Library/Fonts/PingFang.ttc',
+        '/System/Library/Fonts/Hiragino Sans GB.ttc',
+        '/System/Library/Fonts/STHeiti Medium.ttc',
+        '/Library/Fonts/Arial Unicode.ttf',
+        '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+        'C:\\\\Windows\\\\Fonts\\\\msyh.ttc',
+        'C:\\\\Windows\\\\Fonts\\\\simhei.ttf',
+    ) if _jx_os.path.exists(_jx_p)]
+_jx_seen = {{_jx_prop.fname for _jx_prop in _jx_fm.fontManager.ttflist}}
 _jx_added = []
-for _jx_f in (_jx_os.listdir(_jx_font_dir) if _jx_os.path.isdir(_jx_font_dir) else []):
-    if _jx_f.lower().endswith('.ttf'):
-        try:
-            _jx_fp = _jx_os.path.join(_jx_font_dir, _jx_f)
+for _jx_fp in _jx_paths:
+    try:
+        if _jx_fp not in _jx_seen:
             _jx_fm.fontManager.addfont(_jx_fp)
-            _jx_added.append(_jx_fm.FontProperties(fname=_jx_fp).get_name())
-        except Exception:
-            pass
-_jx_mpl.rcParams['font.sans-serif'] = _jx_added + ['WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'SimHei', 'DejaVu Sans']
+        _jx_name = _jx_fm.FontProperties(fname=_jx_fp).get_name()
+        if _jx_name not in _jx_added:
+            _jx_added.append(_jx_name)
+    except Exception:
+        pass
+_jx_mpl.rcParams['font.sans-serif'] = _jx_added + ['WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'SimHei', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans']
 _jx_mpl.rcParams['axes.unicode_minus'] = False
-del _jx_fm, _jx_mpl, _jx_os, _jx_font_dir, _jx_added
+del _jx_fm, _jx_mpl, _jx_os, _jx_font_dir, _jx_paths, _jx_seen, _jx_added
 """
 
 # 保存指令模板：在 LLM 代码末尾注入，捕获 savefig 错误并打印

@@ -9,7 +9,7 @@ import {
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { ResourceItem } from '../../types';
-import { getApiUrl, authFetch } from '../../api';
+import { getApiUrl, authFetch, maybeLocalizeUrl } from '../../api';
 import { mdToHtml } from '../../utils/markdown';
 import { getFileIconSrc } from '../../utils/fileIcon';
 import { recomputeSheetRefs } from '../../utils/xlsxRange';
@@ -85,7 +85,9 @@ function detectKind(item: ResourceItem): ViewKind {
 function buildRawUrl(item: ResourceItem, inline = false): string {
   const base = item.download_url || (item.file_id ? `/files/${item.file_id}` : '');
   if (!base) return '';
-  const url = `${getApiUrl()}${base}`;
+  // 混合路由：本地项目文件的 raw 链接可能被用作 <img>/<iframe> src（无法带请求头），
+  // 归属本机时追加 hg_target=local 让反代按 query 路由。
+  const url = maybeLocalizeUrl(`${getApiUrl()}${base}`);
   if (!inline) return url;
   return url.includes('?') ? `${url}&inline=true` : `${url}?inline=true`;
 }

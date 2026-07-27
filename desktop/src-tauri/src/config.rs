@@ -20,11 +20,37 @@ pub enum DeploymentMode {
     Remote,
 }
 
+/// 初始化时选定的「运行形态」（provisioning），决定客户端提供哪些能力：
+///   - `LocalOnly` 本机模式：只跑本机服务，没有「我的空间」，无云端切换。
+///   - `CloudOnly` 云端模式：只连云端服务器，有「我的空间」，无本机切换。
+///   - `Dual`     双模式：本机 + 云端都可用，对话框里出现「本机/云端」切换。
+///
+/// 与 [`DeploymentMode`] 的区别：`DeploymentMode` 是**当前正在使用**的目标（双模式下
+/// 可运行时切换），`ProvisionMode` 是初始化一次性选定的**能力集合**，之后基本不变。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProvisionMode {
+    LocalOnly,
+    #[default]
+    CloudOnly,
+    Dual,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     /// 服务部署形态。旧版 server.json 没有该字段时保持远程瘦客户端行为。
     #[serde(default)]
     pub deployment_mode: DeploymentMode,
+
+    /// 初始化选定的运行形态（本机 / 云端 / 双模式）。旧版 server.json 没有该字段，
+    /// 此时按 `deployment_mode` 反推（Local→LocalOnly，Remote→CloudOnly）。
+    #[serde(default)]
+    pub provision_mode: Option<ProvisionMode>,
+
+    /// 记住的云端服务器地址。双模式下运行时切到云端复用它，避免每次都再问一遍
+    /// （这正是「点云端又要选服务器」问题的根因）。云端/双模式初始化时写入。
+    #[serde(default)]
+    pub cloud_server_base: String,
 
     /// 后端根地址，例如 `https://agent.example.gov.cn`（不带尾斜杠也可）。
     /// 本地反代把 `/api/*` 转发到这里，跳转登录开 `<server_base>/?desktop=1`。
@@ -52,6 +78,8 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             deployment_mode: DeploymentMode::Remote,
+            provision_mode: None,
+            cloud_server_base: String::new(),
             server_base: default_server_base(),
             cookie_name: default_cookie_name(),
             insecure_tls: false,
@@ -66,6 +94,31 @@ impl AppConfig {
 
     pub fn uses_local_server(&self) -> bool {
         self.deployment_mode == DeploymentMode::Local
+    }
+
+    /// 当前运行形态。旧配置（无 `provision_mode`）按 `deployment_mode` 反推，
+    /// 保证升级用户的既有单机 / 远程客户端行为不变。
+    pub fn provision_mode(&self) -> ProvisionMode {
+        self.provision_mode.clone().unwrap_or_else(|| match self.deployment_mode {
+            DeploymentMode::Local => ProvisionMode::LocalOnly,
+            DeploymentMode::Remote => ProvisionMode::CloudOnly,
+        })
+    }
+
+    /// 记住的云端地址：优先用显式存下的 `cloud_server_base`；为空时，若当前就在远程
+    /// 目标上则退回 `server_base`，再不行用编译期默认地址。双模式切云端时用它。
+    pub fn cloud_base(&self) -> String {
+        let remembered = self.cloud_server_base.trim().trim_end_matches('/');
+        if !remembered.is_empty() {
+            return remembered.to_string();
+        }
+        if self.deployment_mode == DeploymentMode::Remote {
+            let base = self.server_base_trimmed();
+            if !base.is_empty() {
+                return base.to_string();
+            }
+        }
+        DEFAULT_SERVER_BASE.trim().trim_end_matches('/').to_string()
     }
 
     /// 桌面整包更新源与业务服务地址解耦：远程模式默认跟随当前服务器；本机模式
@@ -108,6 +161,19 @@ pub fn load(config_dir: &Path) -> AppConfig {
         }
     }
 
+    // 混合架构（Dual）恒为云端为主：登录/会话必须指向云端身份。历史版本的双模式
+    // 曾默认落在本机（或经 activate-local 整体切过去），遗留 server.json 会把登录
+    // 页指到本机端。启动时归一化回云端目标；本机后端只作为混合路由的执行面。
+    if cfg.provision_mode() == ProvisionMode::Dual
+        && cfg.deployment_mode == DeploymentMode::Local
+    {
+        let cloud = cfg.cloud_base();
+        if !cloud.trim().is_empty() {
+            cfg.deployment_mode = DeploymentMode::Remote;
+            cfg.server_base = cloud;
+        }
+    }
+
     cfg
 }
 
@@ -116,7 +182,57 @@ pub fn load(config_dir: &Path) -> AppConfig {
 pub fn save_server_base(config_dir: &Path, server_base: &str) -> Result<(), String> {
     let mut cfg = load(config_dir);
     cfg.deployment_mode = DeploymentMode::Remote;
-    cfg.server_base = server_base.trim().trim_end_matches('/').to_string();
+    let base = server_base.trim().trim_end_matches('/').to_string();
+    // 每次连云端都记住地址：双模式下运行时切回云端就不必再问服务器。
+    cfg.cloud_server_base = base.clone();
+    cfg.server_base = base;
+    save(config_dir, &cfg)
+}
+
+/// 客户端是否已完成初始化选型。首启（无 server.json）时展示运行模式选择页；
+/// 由环境变量强制服务器地址时视作已配置，直接跳过选择页。
+pub fn is_provisioned(config_dir: &Path) -> bool {
+    if std::env::var("HUGAGENT_SERVER_BASE")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    config_dir.join("server.json").is_file()
+}
+
+/// 初始化选型落盘：写入运行形态 + 记住云端地址，并按形态设定初始运行目标。
+/// 双模式默认落在**本机**（初始化会顺带装好本机环境），云端随时可切且不再追问地址。
+pub fn provision(
+    config_dir: &Path,
+    mode: ProvisionMode,
+    local_base: &str,
+    cloud_base: &str,
+) -> Result<(), String> {
+    let mut cfg = load(config_dir);
+    let cloud = cloud_base.trim().trim_end_matches('/').to_string();
+    if !cloud.is_empty() {
+        cfg.cloud_server_base = cloud.clone();
+    }
+    match mode {
+        ProvisionMode::LocalOnly => {
+            cfg.deployment_mode = DeploymentMode::Local;
+            cfg.server_base = local_base.trim().trim_end_matches('/').to_string();
+        }
+        ProvisionMode::CloudOnly => {
+            cfg.deployment_mode = DeploymentMode::Remote;
+            cfg.server_base = cfg.cloud_server_base.clone();
+        }
+        ProvisionMode::Dual => {
+            // 云端为主（混合架构）：默认登录**云端身份**——我的空间、云端会话都在云端。
+            // 本机后端作为「本地项目的执行面」常驻/按需接入（见 HYBRID_MODE_DESIGN.md），
+            // 不再默认把本机当作用户体系。云端地址已记住。
+            let _ = local_base; // 本机基址在混合路由里单独使用，不作为默认目标
+            cfg.deployment_mode = DeploymentMode::Remote;
+            cfg.server_base = cfg.cloud_server_base.clone();
+        }
+    }
+    cfg.provision_mode = Some(mode);
     save(config_dir, &cfg)
 }
 
@@ -195,6 +311,78 @@ mod tests {
         let remote = load(&dir);
         assert!(!remote.uses_local_server());
         assert_eq!(remote.server_base, "https://example.test");
+    }
+
+    #[test]
+    fn dual_mode_normalizes_stale_local_target_back_to_cloud() {
+        // 历史双模式默认落本机的遗留 server.json：登录目标必须归一化回云端。
+        let dir = temp_dir("dual-normalize");
+        std::fs::write(
+            dir.join("server.json"),
+            r#"{"deployment_mode":"local","provision_mode":"dual",
+                "cloud_server_base":"https://cloud.example.test",
+                "server_base":"http://127.0.0.1:32101"}"#,
+        )
+        .unwrap();
+
+        let cfg = load(&dir);
+        assert_eq!(cfg.deployment_mode, DeploymentMode::Remote);
+        assert_eq!(cfg.server_base, "https://cloud.example.test");
+        assert_eq!(cfg.provision_mode(), ProvisionMode::Dual);
+    }
+
+    #[test]
+    fn legacy_config_infers_provision_mode_from_deployment() {
+        let dir = temp_dir("legacy-provision");
+        std::fs::write(
+            dir.join("server.json"),
+            r#"{"deployment_mode":"local","server_base":"http://127.0.0.1:32101"}"#,
+        )
+        .unwrap();
+        assert_eq!(load(&dir).provision_mode(), ProvisionMode::LocalOnly);
+
+        std::fs::write(
+            dir.join("server.json"),
+            r#"{"server_base":"https://example.test"}"#,
+        )
+        .unwrap();
+        assert_eq!(load(&dir).provision_mode(), ProvisionMode::CloudOnly);
+    }
+
+    #[test]
+    fn provision_dual_is_cloud_primary_but_remembers_cloud() {
+        let dir = temp_dir("provision-dual");
+        provision(
+            &dir,
+            ProvisionMode::Dual,
+            "http://127.0.0.1:32101",
+            "https://team.example.test/",
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        assert_eq!(cfg.provision_mode(), ProvisionMode::Dual);
+        // 云端为主：默认落在云端身份，不默认用本机用户体系。
+        assert!(!cfg.uses_local_server());
+        assert_eq!(cfg.server_base, "https://team.example.test");
+        assert_eq!(cfg.cloud_base(), "https://team.example.test");
+    }
+
+    #[test]
+    fn provision_cloud_only_uses_given_address() {
+        let dir = temp_dir("provision-cloud");
+        provision(&dir, ProvisionMode::CloudOnly, "http://127.0.0.1:32101", "https://c.example.test").unwrap();
+        let cfg = load(&dir);
+        assert_eq!(cfg.provision_mode(), ProvisionMode::CloudOnly);
+        assert!(!cfg.uses_local_server());
+        assert_eq!(cfg.server_base, "https://c.example.test");
+    }
+
+    #[test]
+    fn unprovisioned_dir_is_detected() {
+        let dir = temp_dir("unprovisioned");
+        assert!(!is_provisioned(&dir));
+        provision(&dir, ProvisionMode::LocalOnly, "http://127.0.0.1:32101", "").unwrap();
+        assert!(is_provisioned(&dir));
     }
 
     #[test]

@@ -143,17 +143,17 @@ export function MyLogsPanel() {
 
   useEffect(() => { void reload(kind, page); }, [kind, page, reload]);
 
-  const openDetail = async (targetKind: DetailKind, logId: string) => {
+  const openDetail = async (targetKind: DetailKind, logId: string, origin?: 'cloud' | 'local') => {
     setDetailKind(targetKind);
     setDetail(null);
     setDetailLoading(true);
     try {
       if (targetKind === 'tools') {
-        setDetail({ kind: targetKind, data: await getMyToolLog(logId) });
+        setDetail({ kind: targetKind, data: await getMyToolLog(logId, origin) });
       } else if (targetKind === 'skills') {
-        setDetail({ kind: targetKind, data: await getMySkillLog(logId) });
+        setDetail({ kind: targetKind, data: await getMySkillLog(logId, origin) });
       } else {
-        setDetail({ kind: targetKind, data: await getMySubagentLog(logId) });
+        setDetail({ kind: targetKind, data: await getMySubagentLog(logId, origin) });
       }
     } catch (error) {
       message.error(t('加载日志详情失败：{msg}', { msg: (error as Error).message }));
@@ -169,6 +169,12 @@ export function MyLogsPanel() {
       render: (value: string | null) => <Text style={{ fontSize: 12 }}>{fmtTime(value)}</Text>,
     },
     {
+      // 混合架构：该条记录产生于云端还是本机执行面（桌面双模式合并视图）
+      title: t('运行端'), dataIndex: 'origin', width: 78,
+      render: (value: string | undefined) =>
+        value === 'local' ? <Tag color="green">{t('本机')}</Tag> : <Tag color="blue">{t('云端')}</Tag>,
+    },
+    {
       title: t('会话'), dataIndex: 'session_title', ellipsis: true,
       render: (value: string | null) => value || '—',
     },
@@ -181,7 +187,11 @@ export function MyLogsPanel() {
     fixed: 'right' as const,
     render: (_value: unknown, record: LogRow) => (
       'id' in record && (
-        <Button type="link" size="small" onClick={() => void openDetail(targetKind, record.id)}>
+        <Button
+          type="link"
+          size="small"
+          onClick={() => void openDetail(targetKind, record.id, (record as { origin?: 'cloud' | 'local' }).origin)}
+        >
           {t('详情')}
         </Button>
       )
@@ -460,8 +470,9 @@ export function MyLogsPanel() {
       {kind === 'usage' && summary.length > 0 && (
         <div className="jx-sysPanel-usageSummary">
           {summary.map((item) => (
-            <Tag key={item.group_key}>
-              {item.group_key}: {item.total_tokens.toLocaleString()} tokens /{' '}
+            <Tag key={`${item.origin ?? 'cloud'}-${item.group_key}`} color={item.origin === 'local' ? 'green' : undefined}>
+              {item.group_key}
+              {item.origin === 'local' ? `（${t('本机')}）` : ''}: {item.total_tokens.toLocaleString()} tokens /{' '}
               {item.total_requests} {t('次')}
             </Tag>
           ))}

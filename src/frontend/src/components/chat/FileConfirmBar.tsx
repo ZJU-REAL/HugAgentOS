@@ -18,6 +18,8 @@ const OP_LABEL: Record<string, string> = {
   cron_create: t('创建定时任务'),
   cron_update: t('修改定时任务'),
   cron_delete: t('删除定时任务'),
+  // Local-mode (desktop) command execution on the real host (kind === 'local_cmd')
+  local_exec: t('在本机执行'),
 };
 
 /**
@@ -48,8 +50,9 @@ export function FileConfirmBar() {
   const info = queue && queue.length ? queue[0] : undefined;
   const remaining = info ? queue.length - 1 : 0;
   const isAuto = info?.kind === 'automation';
-  // automation is located by summary (message), myspace by logical path.
-  const detail = info ? (isAuto ? info.message || '' : info.logicalPath) : '';
+  const isLocalCmd = info?.kind === 'local_cmd';
+  // automation / local_cmd are located by summary (message), myspace by logical path.
+  const detail = info ? (isAuto || isLocalCmd ? info.message || info.logicalPath : info.logicalPath) : '';
 
   const decide = async (decision: FileConfirmDecision) => {
     if (busy || !info) return;
@@ -117,7 +120,13 @@ export function FileConfirmBar() {
           <div
             className="jx-confirmBar"
             role="alertdialog"
-            aria-label={isAuto ? t('定时任务操作确认') : t('我的空间写操作确认')}
+            aria-label={
+              isAuto
+                ? t('定时任务操作确认')
+                : isLocalCmd
+                  ? t('本机执行操作确认')
+                  : t('我的空间写操作确认')
+            }
           >
             <span className="jx-confirmBar-icon" aria-hidden="true">
               <SafetyCertificateFilled />
@@ -134,7 +143,9 @@ export function FileConfirmBar() {
                 <div className="jx-confirmBar-title">
                   {isAuto
                     ? t('需要你确认一项定时任务操作')
-                    : t('需要你确认一项「我的空间」写操作')}
+                    : isLocalCmd
+                      ? t('需要你确认一项本机执行操作')
+                      : t('需要你确认一项「我的空间」写操作')}
                   {remaining > 0 && (
                     <span className="jx-confirmBar-count">
                       {t('（还有 {n} 项排队，逐个确认）', { n: remaining })}
@@ -150,7 +161,9 @@ export function FileConfirmBar() {
                 <div className="jx-confirmBar-hint">
                   {isAuto
                     ? t('该操作会更改你的定时任务安排。确认后助手会在本对话里直接继续完成任务。')
-                    : t('该操作会修改你的个人网盘（跨会话永久保存）。确认后助手会在本对话里直接继续完成任务。')}
+                    : isLocalCmd
+                      ? t('该操作会在你的电脑上直接执行命令，可能修改或删除本机文件。确认后助手会在本对话里直接继续完成任务。')
+                      : t('该操作会修改你的个人网盘（跨会话永久保存）。确认后助手会在本对话里直接继续完成任务。')}
                 </div>
               </motion.div>
             </AnimatePresence>

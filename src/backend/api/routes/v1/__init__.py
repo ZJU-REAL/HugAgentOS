@@ -44,6 +44,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("meta", "router"),
     ("sites", "router"),
     ("desktop", "router"),
+    ("local", "router"),
 )
 
 EE_ROUTERS: tuple = ()

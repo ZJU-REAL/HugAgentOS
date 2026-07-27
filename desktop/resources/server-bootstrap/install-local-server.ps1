@@ -277,9 +277,13 @@ Invoke-Checked $VenvPython @(
 ) "Unable to install the persistent-memory dependencies"
 
 Write-ProgressLine 70 "正在安装本机脚本与文档处理能力…"
+# requirements-mcp.txt 必须显式列入：图表/报告 MCP（matplotlib、python-docx）在
+# 容器部署里装在独立 mcp 镜像，本机模式与 script-runner 共用同一 venv——不能
+# 依赖 script-runner 清单恰好覆盖它。
 Invoke-Checked $VenvPython @(
     "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary",
-    "-r", (Join-Path $SourceDir "docker\requirements-script-runner.txt")
+    "-r", (Join-Path $SourceDir "docker\requirements-script-runner.txt"),
+    "-r", (Join-Path $SourceDir "docker\requirements-mcp.txt")
 ) "Unable to install the local tool dependencies"
 
 Write-ProgressLine 75 "正在准备本机 Bash 脚本能力…"

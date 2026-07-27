@@ -13,6 +13,20 @@ from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 
+def _slugify(name: str) -> str:
+    """Lowercase, ASCII-safe, hyphen-joined slug for the local sandbox mount name."""
+    out = []
+    for ch in (name or "").strip().lower():
+        if ch.isalnum() and ord(ch) < 128:
+            out.append(ch)
+        elif ch in (" ", "-", "_", "."):
+            out.append("-")
+    slug = "".join(out).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "project"
+
+
 def _next_available_folder_name(base: str, existing: List) -> str:
     base = (base or "").strip() or "新项目"
     used = {row[0] for row in existing or []}
@@ -33,11 +47,16 @@ def _summary(
     chat_count: int,
 ) -> Dict[str, Any]:
     extra = project.extra_data or {}
+    local = extra.get("local") or {}
     return {
         "project_id": project.project_id,
         "name": project.name,
         "description": project.description or "",
-        "kind": "personal",
+        "kind": project.kind,
+        "is_local": project.kind == "local",
+        "local_path": local.get("path"),
+        "local_slug": local.get("slug"),
+        "local_machine": local.get("machine"),
         "owner_user_id": project.owner_user_id,
         "linked_folder_id": project.linked_folder_id,
         "folder_name": folder_name,
@@ -110,7 +129,7 @@ class ProjectService:
         page_size: int = 30,
     ) -> Tuple[List[Dict[str, Any]], int]:
         query = self.db.query(Project).filter(
-            Project.kind == "personal",
+            Project.kind.in_(["personal", "local"]),
             Project.owner_user_id == user_id,
             Project.deleted_at.is_(None),
         )
@@ -269,11 +288,70 @@ class ProjectService:
             self.db.query(Project)
             .filter(
                 Project.project_id == project_id,
-                Project.kind == "personal",
+                Project.kind.in_(["personal", "local"]),
                 Project.deleted_at.is_(None),
             )
             .first()
         )
+
+    def create_local(
+        self,
+        user_id: str,
+        name: str,
+        local_path: str,
+        *,
+        description: Optional[str] = None,
+        machine: Optional[str] = None,
+    ) -> Project:
+        """Create a desktop **local** project bound to a real host folder.
+
+        The host path + machine + workspace slug live in ``extra_data['local']``
+        so no schema migration is needed (cloud/web schema is untouched). The
+        folder itself is never created or deleted by this service — the desktop
+        shell authorizes it and it already exists on disk.
+        """
+        clean = (name or "").strip()
+        if not clean:
+            raise HTTPException(status_code=400, detail="项目名不能为空")
+        if len(clean) > 120:
+            raise HTTPException(status_code=400, detail="项目名过长（≤120 字）")
+        path = (local_path or "").strip()
+        if not path:
+            raise HTTPException(status_code=400, detail="本地项目必须指定文件夹路径")
+        duplicate = (
+            self.db.query(Project.project_id)
+            .filter(
+                Project.kind == "local",
+                Project.owner_user_id == user_id,
+                Project.name == clean,
+                Project.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if duplicate:
+            raise HTTPException(status_code=400, detail="同名本地项目已存在")
+        now = datetime.utcnow()
+        project_id = f"prj_{uuid.uuid4().hex[:16]}"
+        # slug: stable, filesystem-safe, unique per project — used as the sandbox
+        # ``local/<slug>`` mount name (ticket #04).
+        slug = f"{_slugify(clean)}-{project_id[-6:]}"
+        project = Project(
+            project_id=project_id,
+            name=clean,
+            description=(description or "").strip() or None,
+            kind="local",
+            owner_user_id=user_id,
+            linked_folder_id=None,
+            extra_data={"local": {"path": path, "slug": slug, "machine": machine}},
+            pinned=False,
+            created_at=now,
+            updated_at=now,
+            last_activity_at=now,
+        )
+        self.db.add(project)
+        self.db.commit()
+        self.db.refresh(project)
+        return project
 
     def get(self, project_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         project = self.get_raw(project_id)

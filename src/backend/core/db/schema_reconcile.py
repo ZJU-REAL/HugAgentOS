@@ -26,6 +26,38 @@ def _connection(bind: Engine | Connection) -> Iterator[Connection]:
         yield connection
 
 
+def _patch_projects_kind_constraint_sqlite(connection: Connection) -> bool:
+    """Relax the legacy ``kind = 'personal'`` check to allow desktop ``local``.
+
+    SQLite bakes CHECK constraints into the table at creation and cannot ALTER
+    them, so a DB created before local-mode support keeps the old constraint and
+    rejects ``kind='local'`` inserts. Patch it in place via ``writable_schema``.
+    Idempotent and a no-op off SQLite or once already patched (the string simply
+    won't match), so it is safe to run on every startup / on every edition.
+    """
+    if connection.dialect.name != "sqlite":
+        return False
+    row = connection.exec_driver_sql(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'"
+    ).fetchone()
+    if not row or not row[0]:
+        return False
+    old_sql = row[0]
+    new_sql = old_sql.replace("CHECK (kind = 'personal')", "CHECK (kind IN ('personal', 'local'))")
+    if new_sql == old_sql:
+        return False
+    connection.exec_driver_sql("PRAGMA writable_schema=ON")
+    connection.exec_driver_sql(
+        "UPDATE sqlite_master SET sql=? WHERE type='table' AND name='projects'", (new_sql,)
+    )
+    # Bump the schema cookie so every (pooled) connection reloads the amended
+    # table definition — without this the edit is invisible to reused connections.
+    ver = connection.exec_driver_sql("PRAGMA schema_version").fetchone()[0]
+    connection.exec_driver_sql(f"PRAGMA schema_version = {int(ver) + 1}")
+    connection.exec_driver_sql("PRAGMA writable_schema=OFF")
+    return True
+
+
 def reconcile_metadata_schema(
     bind: Engine | Connection,
     metadata: MetaData,
@@ -41,13 +73,17 @@ def reconcile_metadata_schema(
     """
 
     defaults = dict(bootstrap_server_defaults or {})
-    report: dict[str, list[str]] = {"tables": [], "columns": [], "indexes": []}
+    report: dict[str, list[str]] = {"tables": [], "columns": [], "indexes": [], "constraints": []}
 
     with _connection(bind) as connection:
         before_tables = set(inspect(connection).get_table_names())
         metadata.create_all(bind=connection, checkfirst=True)
         after_tables = set(inspect(connection).get_table_names())
         report["tables"] = sorted(after_tables - before_tables)
+
+        # Legacy-constraint self-heal (idempotent, SQLite-only, no-op elsewhere).
+        if _patch_projects_kind_constraint_sqlite(connection):
+            report["constraints"].append("projects.ck_projects_kind_personal")
 
         for table_name, table in metadata.tables.items():
             if table_name not in after_tables:

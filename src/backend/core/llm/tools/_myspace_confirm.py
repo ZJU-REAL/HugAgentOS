@@ -63,11 +63,13 @@ logger = logging.getLogger(__name__)
 KIND_MYSPACE = "myspace"
 KIND_AUTOMATION = "automation"
 KIND_DESIGN_PICK = "design_pick"
+KIND_LOCAL_CMD = "local_cmd"  # desktop local-mode danger command (rm/system-write/…) confirm
 
 # op values (myspace writes)
 OP_WRITE = "write"
 OP_EDIT = "edit"
 OP_DELETE = "delete"
+OP_LOCAL_EXEC = "local_exec"
 OP_MOVE = "move"
 OP_MKDIR = "mkdir"
 
@@ -361,6 +363,10 @@ def _confirm_enabled(kind: str = KIND_MYSPACE) -> bool:
         from core.config.settings import settings as _s
         if kind == KIND_AUTOMATION:
             return bool(getattr(_s.sandbox, "automation_write_confirm", True))
+        if kind == KIND_LOCAL_CMD:
+            # Whether to confirm is already decided by the local policy gate
+            # (approval mode + danger disposition); reaching here means "confirm".
+            return True
         return bool(_s.sandbox.myspace_write_confirm)
     except Exception:  # noqa: BLE001 — on config errors, conservatively still require confirmation
         return True
@@ -387,6 +393,20 @@ def _intercept_message(kind: str, phase: str, op: str, logical_path: str, summar
             "timeout": (
                 f"等待用户确认该定时任务操作超时（{tgt}），已放弃未执行。"
                 f"请简短告知用户超时，让其重新发起。"
+            ),
+        }[phase]
+    if kind == KIND_LOCAL_CMD:
+        tgt = summary or logical_path
+        return {
+            "dedup": (
+                f"同一命令（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"
+            ),
+            "deny": (
+                f"用户拒绝了执行该命令（{tgt}）。不要重试，请向用户说明已取消，"
+                f"或澄清其真实意图后再操作。"
+            ),
+            "timeout": (
+                f"等待用户确认执行该命令超时（{tgt}），已放弃未执行。请简短告知用户超时。"
             ),
         }[phase]
     return {
