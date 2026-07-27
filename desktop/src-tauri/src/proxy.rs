@@ -42,7 +42,7 @@ pub struct ProxyState {
     pub cloud_server_base: String,
     /// 混合架构（Dual）：本机执行面地址（http://127.0.0.1:32101）。
     pub local_base: String,
-    /// 仅 Dual 为 true：启用按请求路由（X-HugAgentOS-Target: local → 本机）。
+    /// 仅 Dual 为 true：启用按请求路由（x-hugagent-target: local → 本机）。
     pub hybrid_local: bool,
     /// 桥接秘密：本机路由请求注入 `X-Desktop-Bridge` 证明来自壳。
     pub bridge_secret: String,
@@ -122,7 +122,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
 
     let path_q = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
 
-    // 混合架构（Dual）：前端给「本地项目」的请求打 X-HugAgentOS-Target: local，
+    // 混合架构（Dual）：前端给「本地项目」的请求打 x-hugagent-target: local，
     // 反代把它们转到本机执行面（127.0.0.1:32101），其余一律云端。单一形态不路由。
     // <img>/<iframe> 等 src 场景无法带请求头，等价支持 query 参数 ?hg_target=local。
     let to_local = state.hybrid_local

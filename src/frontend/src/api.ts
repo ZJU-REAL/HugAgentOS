@@ -121,12 +121,14 @@ export interface HealthResponse {
 export const getApiUrl = () => import.meta.env.VITE_API_BASE_URL || '/api';
 
 // ── Hybrid routing（桌面双模式：云端为主 + 本机执行本地项目）─────────────────
-// 桌面壳的 Rust 反代按请求头分流：带 `X-HugAgentOS-Target: local` → 本机执行面
+// 桌面壳的 Rust 反代按请求头分流：带 `x-hugagent-target: local` → 本机执行面
 // （127.0.0.1:32101），否则 → 云端。前端唯一的「本地」判定真源是项目
 // kind==='local'；聊天则继承其绑定项目。此处维护两个注册表（api.ts 内自洽，
 // 不引 store，避免模块环）。仅 provision_mode==='dual' 时生效；web 上恒为空。
 
-export const LOCAL_TARGET_HEADER = 'X-HugAgentOS-Target';
+// 头名必须用全小写技术标识：与桌面壳 Rust 反代匹配的小写常量（proxy.rs
+// TARGET_HEADER = x-hugagent-target）保持一致，品牌变换不改小写标识。
+export const LOCAL_TARGET_HEADER = 'x-hugagent-target';
 
 let _hybridDual = false;
 /** 由 deploymentModeStore.refresh() 在探测到桌面双模式后开启。 */

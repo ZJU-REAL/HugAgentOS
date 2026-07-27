@@ -42,7 +42,7 @@ export const useDeploymentModeStore = create<DeploymentModeState>((set, get) => 
         current_server_base?: string;
         local_server_base?: string;
       }) => {
-        // 混合路由开关：双模式下 api.ts 开始按项目/会话打 X-HugAgentOS-Target 头。
+        // 混合路由开关：双模式下 api.ts 开始按项目/会话打 x-hugagent-target 头。
         setHybridDual(s.provision_mode === 'dual');
         set({
           isDesktop: true,

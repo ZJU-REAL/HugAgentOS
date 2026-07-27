@@ -10,7 +10,7 @@ import { useProjectStore } from '../../stores/projectStore';
  * 混合架构（桌面双模式）：当前对话的「运行位置」选择器——云端 / 本机。
  *
  * 与旧版「重启切换整个后端」不同：这里**按对话**生效、不重启不登出。
- * 反代按 X-HugAgentOS-Target 头把该对话的请求路由到本机执行面（useStreaming
+ * 反代按 x-hugagent-target 头把该对话的请求路由到本机执行面（useStreaming
  * 读 chat.runTarget / 项目归属打头）。规则：
  *   - 仅双模式（provision_mode==='dual'）显示；纯本机 / 纯云端无需选择。
  *   - 绑定了项目的对话跟随项目归属（本地项目→本机，云端项目→云端），锁定。
