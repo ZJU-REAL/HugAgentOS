@@ -249,17 +249,23 @@ pub fn run() {
 
             let mut cfg = config::load(&config_dir);
 
-            // NSIS 交互安装可选择「同时安装本机服务」。选择通过一次性 pending
-            // 文件交给应用消费；自动更新不写 pending，用户日后的菜单切换也不会
-            // 被旧安装选择覆盖。该机制同时兼容已有 server.json 的旧版客户端升级。
+            // NSIS 交互安装的「运行模式三选一」通过一次性 pending 文件交给应用消费；
+            // 自动更新不写 pending，用户日后的菜单切换也不会被旧安装选择覆盖。
+            // 仅本机不需要地址 → 直接完成初始化；云端 / 双模式还差服务器地址 →
+            // 只预选形态（is_provisioned 仍为 false），首启初始化页按预选补地址。
             if let Some(installer_mode) = config::pending_installer_mode(&config_dir) {
                 match installer_mode {
-                    config::DeploymentMode::Local => {
-                        config::save_local_server(&config_dir, local_server::LOCAL_SERVER_BASE)
-                            .map_err(std::io::Error::other)?;
+                    config::ProvisionMode::LocalOnly => {
+                        config::provision(
+                            &config_dir,
+                            config::ProvisionMode::LocalOnly,
+                            local_server::LOCAL_SERVER_BASE,
+                            "",
+                        )
+                        .map_err(std::io::Error::other)?;
                     }
-                    config::DeploymentMode::Remote => {
-                        config::save_server_base(&config_dir, cfg.server_base_trimmed())
+                    other => {
+                        config::preselect_provision_mode(&config_dir, other)
                             .map_err(std::io::Error::other)?;
                     }
                 }
@@ -824,9 +830,14 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                             eprintln!("[config] 双模式下忽略 activate-local（云端为主）");
                             return;
                         }
-                        if let Err(error) =
-                            config::save_local_server(&dir, local_server::LOCAL_SERVER_BASE)
-                        {
+                        // 整体切到本机 = LocalOnly 形态：连 provision_mode 一起写全，
+                        // 重启后不会再被初始化页拦一道（云端地址仍被记住，可切回）。
+                        if let Err(error) = config::provision(
+                            &dir,
+                            config::ProvisionMode::LocalOnly,
+                            local_server::LOCAL_SERVER_BASE,
+                            "",
+                        ) {
                             eprintln!("[config] 切换本机服务失败: {error}");
                             return;
                         }
