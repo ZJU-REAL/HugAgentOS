@@ -273,17 +273,64 @@ if [[ -n "$NodeExecutable" ]]; then
   fi
   if [[ -n "$NpmExecutable" && -x "$NpmExecutable" ]]; then
     NodeDataDir="$InstallRoot/node"
-    export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-    if "$NpmExecutable" install --silent --no-audit --no-fund --no-package-lock \
-      --prefix "$NodeDataDir" pptxgenjs playwright; then
-      Playwright="$NodeDataDir/node_modules/.bin/playwright"
-      if [[ -x "$Playwright" ]]; then
-        export PLAYWRIGHT_BROWSERS_PATH="$NodeDataDir/browsers"
-        "$Playwright" install chromium \
-          || echo "Chromium download failed; advanced PDF rendering will use its fallback." >&2
-      fi
+    NodeToolsLog="$InstallRoot/node-tools-install.log"
+    NodeToolsLock="$InstallRoot/node-tools-install.lock"
+    # Playwright/Chromium 体量大（Chromium ~130MB），转入后台安装：核心服务不等它，
+    # 先装完先启动。后台任务自测网络——npm 官方源慢或不可达时切 npmmirror 镜像
+    # （含 Playwright 浏览器二进制）。进度与失败原因见 node-tools-install.log。
+    if [[ -f "$NodeToolsLock" ]] \
+      && kill -0 "$(cat "$NodeToolsLock" 2>/dev/null)" 2>/dev/null; then
+      echo "Optional document tools are already installing in the background." >&2
     else
-      echo "Optional Node.js tools couldn't be prepared; the core service will still start." >&2
+      (
+        set +e
+        trap - EXIT
+        echo "$BASHPID" > "$NodeToolsLock"
+        trap '/bin/rm -f -- "$NodeToolsLock"' EXIT
+        exec >>"$NodeToolsLog" 2>&1
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Preparing optional Node.js document tools (pptxgenjs + Playwright Chromium)."
+        UseMirror=0
+        ProbeStart=$SECONDS
+        if /usr/bin/curl --silent --fail --head --max-time 6 https://registry.npmjs.org/ >/dev/null 2>&1; then
+          if (( SECONDS - ProbeStart > 3 )); then
+            UseMirror=1
+          fi
+        else
+          UseMirror=1
+        fi
+        NpmArguments=(install --silent --no-audit --no-fund --no-package-lock \
+          --prefix "$NodeDataDir" pptxgenjs playwright)
+        if [[ "$UseMirror" == "1" ]]; then
+          echo "registry.npmjs.org is slow or unreachable; switching to npmmirror.com mirrors."
+          NpmArguments+=(--registry https://registry.npmmirror.com)
+        fi
+        export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+        if "$NpmExecutable" "${NpmArguments[@]}"; then
+          Playwright="$NodeDataDir/node_modules/.bin/playwright"
+          if [[ -x "$Playwright" ]]; then
+            unset PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+            export PLAYWRIGHT_BROWSERS_PATH="$NodeDataDir/browsers"
+            if [[ "$UseMirror" == "1" ]]; then
+              export PLAYWRIGHT_DOWNLOAD_HOST="https://cdn.npmmirror.com/binaries/playwright"
+            fi
+            if ! "$Playwright" install chromium; then
+              if [[ "$UseMirror" != "1" ]]; then
+                echo "Chromium download from the official host failed; retrying via npmmirror."
+                export PLAYWRIGHT_DOWNLOAD_HOST="https://cdn.npmmirror.com/binaries/playwright"
+                "$Playwright" install chromium \
+                  || echo "Chromium download failed; advanced PDF rendering will use its fallback."
+              else
+                echo "Chromium download failed; advanced PDF rendering will use its fallback."
+              fi
+            fi
+          fi
+        else
+          echo "Optional Node.js tools couldn't be prepared; the core service will still start."
+        fi
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Optional Node.js document tools finished."
+      ) &
+      disown 2>/dev/null || true
+      echo "Optional document tools are installing in the background; see $NodeToolsLog" >&2
     fi
   fi
 else
