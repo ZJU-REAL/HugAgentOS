@@ -71,9 +71,19 @@ async function resolveLoginUrl(serverUrl?: string | null): Promise<string> {
 }
 
 /** Whether we are in the desktop login bridging flow (system-browser side). */
+const DESKTOP_LOGIN_TTL_MS = 10 * 60 * 1000;
+
 function isDesktopLogin(): boolean {
   try {
-    return window.sessionStorage.getItem(DESKTOP_LOGIN_FLAG) === '1';
+    if (window.sessionStorage.getItem(DESKTOP_LOGIN_FLAG) === '1') return true;
+  } catch {
+    // ignore
+  }
+  // localStorage 兜底：外部 SSO 可能在新标签页回跳，sessionStorage（标签页级）
+  // 会丢失桌面登录意图；这里用带时效的 localStorage 标记跨标签页兜住。
+  try {
+    const at = Number(window.localStorage.getItem(DESKTOP_LOGIN_FLAG) || '0');
+    return at > 0 && Date.now() - at < DESKTOP_LOGIN_TTL_MS;
   } catch {
     return false;
   }
@@ -174,6 +184,11 @@ async function bridgeToDesktop(): Promise<boolean> {
     const ticket = await desktopHandoff();
     try {
       window.sessionStorage.removeItem(DESKTOP_LOGIN_FLAG);
+      try {
+        window.localStorage.removeItem(DESKTOP_LOGIN_FLAG);
+      } catch {
+        // ignore
+      }
     } catch {
       // ignore
     }
@@ -254,6 +269,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           window.sessionStorage.setItem(DESKTOP_LOGIN_FLAG, '1');
         } catch {
           // ignore (private mode etc.) — bridging degrades gracefully
+        }
+        try {
+          window.localStorage.setItem(DESKTOP_LOGIN_FLAG, String(Date.now()));
+        } catch {
+          // ignore
         }
         params.delete('desktop');
         const cleaned = params.toString();
