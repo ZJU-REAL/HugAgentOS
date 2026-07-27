@@ -9,14 +9,20 @@ import {
   type ServiceConfigItem,
 } from '../../api';
 import { t } from '../../i18n';
+import {
+  INTERNET_SEARCH_ENGINES,
+  isInternetSearchConfigVisible,
+} from '../../utils/internetSearchConfig';
 
 const { Text } = Typography;
 
 // Enum-type config items → dropdown options (everything else is a text/password input box)
 const ENUM_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   'internet_search.engine': [
-    { value: 'tavily', label: 'Tavily' },
-    { value: 'baidu', label: t('百度千帆') },
+    ...INTERNET_SEARCH_ENGINES.map((engine) => ({
+      value: engine.value,
+      label: t(engine.label),
+    })),
   ],
   'file_parser.parse_method': [
     { value: 'auto', label: 'auto' },
@@ -68,8 +74,19 @@ export function SystemServicePanel() {
   const valueOf = (item: ServiceConfigItem): string =>
     edited[item.config_key] ?? (item.config_value ?? '');
 
+  const visibleItems = (group: ServiceConfigGroup): ServiceConfigItem[] => {
+    if (group.group_key !== 'internet_search') return group.items;
+    const engineItem = group.items.find(
+      (item) => item.config_key === 'internet_search.engine',
+    );
+    const engine = engineItem ? valueOf(engineItem) : 'tavily';
+    return group.items.filter((item) => (
+      isInternetSearchConfigVisible(item.config_key, engine)
+    ));
+  };
+
   const handleSave = async (group: ServiceConfigGroup) => {
-    const items = group.items
+    const items = visibleItems(group)
       .filter((i) => i.config_key in edited)
       .map((i) => ({ key: i.config_key, value: edited[i.config_key] }));
     if (!items.length) {
@@ -137,7 +154,7 @@ export function SystemServicePanel() {
               </Button>
             </Space>
           </div>
-          {group.items.map((item) => (
+          {visibleItems(group).map((item) => (
             <div key={item.config_key} className="jx-sysPanel-row">
               <div className="jx-sysPanel-rowLabel">
                 <Text>{t(item.display_name)}</Text>

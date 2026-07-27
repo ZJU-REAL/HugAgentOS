@@ -72,7 +72,11 @@ restore a plugin that a user deliberately removed.
 
 **Step 4 (optional) · File parser** — parsing uploaded PDFs / scanned documents needs an external parser service (MinerU-compatible); enter its API URL to enable it (written to `file_parser.api_url`), or press Enter to skip. Excel / CSV / PPTX / text parse in-process and need none of this.
 
-**Step 5 (optional) · Internet search** — agent web search needs a search-engine key: choose `tavily` (default, get a key at [tavily.com](https://tavily.com)) or `baidu` (Qianfan AppBuilder) and enter the API key, or press Enter to skip. You can also configure it later under Settings → System → Service Config.
+**Step 5 (optional) · Internet search** — agent web search needs a search
+engine key. Select `tavily` (default), `baidu` (Qianfan AppBuilder), or
+`langsearch`, and enter the API key for the selected engine. Press Enter to
+skip this step. You can also configure it later under **Settings → System →
+Service Config**.
 
 At the end the wizard prints a **host-capability summary** (whether Node.js, pandoc, and LibreOffice are present, gating React site-building, Word conversion, and PPT/Word online previews), then starts the server and opens `http://127.0.0.1:3001/`.
 

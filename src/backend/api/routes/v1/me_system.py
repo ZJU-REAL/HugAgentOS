@@ -141,7 +141,10 @@ async def test_personal_config(
     group_key: str,
     _: str = Depends(require_system_settings),
 ):
-    """对白名单分组做一次实际连通性测试（互联网搜索测 Tavily/百度，文件解析/知识库做健康检查）。"""
+    """Test connectivity for an allowed service-config group.
+
+    Internet search tests only the API key that belongs to the selected engine.
+    """
     if group_key not in _personal_groups():
         raise HTTPException(status_code=404, detail=f"Unknown group: {group_key}")
     if group_key not in _TESTABLE_GROUPS:

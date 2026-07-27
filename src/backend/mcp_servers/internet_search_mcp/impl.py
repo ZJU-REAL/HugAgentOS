@@ -7,19 +7,21 @@ Keep it focused: one tool per folder.
 from __future__ import annotations
 
 import re
-from typing import Literal
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
-from tavily import TavilyClient
+
+if TYPE_CHECKING:
+    from tavily import TavilyClient
 
 # Import safe stream writer from common utilities
-import sys
-from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from _common import safe_stream_writer
-
 from core.config.runtime_env import get_runtime_value
 
 load_dotenv()
@@ -29,12 +31,15 @@ _tavily_client_key: str | None = None  # detect admin-panel rotations
 _HAS_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 BAIDU_SEARCH_URL = "https://qianfan.baidubce.com/v2/ai_search/web_search"
+LANGSEARCH_SEARCH_URL = "https://api.langsearch.com/v1/web-search"
 _httpx_client: httpx.Client | None = None
 
 
 def _get_tavily_client() -> TavilyClient:
     """Build the Tavily client lazily and rebuild on admin-panel key rotation."""
     global _tavily_client, _tavily_client_key
+    from tavily import TavilyClient
+
     key = (get_runtime_value("TAVILY_API_KEY") or "").strip()
     if not key:
         raise RuntimeError("TAVILY_API_KEY is missing")
@@ -83,11 +88,60 @@ def _normalize_baidu_response(data: dict, max_results: int) -> dict:
     raw_results = data.get("references") or []
     results = []
     for item in raw_results[:max_results]:
-        results.append({
-            "title": item.get("title", ""),
+        results.append(
+            {
+                "title": item.get("title", ""),
+                "url": item.get("url", ""),
+                "content": item.get("content", ""),
+            }
+        )
+    return {"results": results}
+
+
+def _langsearch_search(query: str, max_results: int = 5) -> dict:
+    """Call LangSearch Web Search API and return the shared result format."""
+    api_key = (get_runtime_value("LANGSEARCH_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("LANGSEARCH_API_KEY is missing")
+
+    count = min(max(max_results, 1), 10)
+    resp = _get_httpx_client().post(
+        LANGSEARCH_SEARCH_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "query": query,
+            "freshness": "noLimit",
+            "summary": True,
+            "count": count,
+        },
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("code") not in (200, "200"):
+        message = data.get("msg") or "unknown LangSearch API error"
+        raise RuntimeError(f"LangSearch API error: {message}")
+    return _normalize_langsearch_response(data, count)
+
+
+def _normalize_langsearch_response(data: dict, max_results: int) -> dict:
+    """Convert LangSearch ``data.webPages.value`` into shared search results."""
+    payload = data.get("data") or {}
+    web_pages = payload.get("webPages") or {}
+    raw_results = web_pages.get("value") or []
+    results = []
+    for item in raw_results[:max_results]:
+        result = {
+            "title": item.get("name", ""),
             "url": item.get("url", ""),
-            "content": item.get("content", ""),
-        })
+            "content": item.get("summary") or item.get("snippet", ""),
+        }
+        published_date = item.get("datePublished")
+        if published_date:
+            result["published_date"] = published_date
+        results.append(result)
     return {"results": results}
 
 
@@ -137,13 +191,23 @@ def internet_search(
 ):
     writer = safe_stream_writer()
     engine = _env_str("INTERNET_SEARCH_ENGINE", "tavily").lower()
-    writer(f"正在通过{'百度' if engine == 'baidu' else 'Tavily'}搜索{query}的结果...\n")
+    engine_labels = {
+        "baidu": "百度",
+        "langsearch": "LangSearch",
+        "tavily": "Tavily",
+    }
+    if engine not in engine_labels:
+        supported = ", ".join(sorted(engine_labels))
+        raise RuntimeError(f"Unsupported internet search engine: {engine}. Supported: {supported}")
+    writer(f"正在通过{engine_labels[engine]}搜索{query}的结果...\n")
 
     resolved_cn_only = _env_bool("INTERNET_SEARCH_CN_ONLY", True) if cn_only is None else cn_only
 
     if engine == "baidu":
         search_result = _baidu_search(query, max_results=max_results)
-    else:
+    elif engine == "langsearch":
+        search_result = _langsearch_search(query, max_results=max_results)
+    else:  # tavily
         search_result = _get_tavily_client().search(
             query,
             max_results=max_results,

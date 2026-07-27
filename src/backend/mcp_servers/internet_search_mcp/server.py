@@ -41,7 +41,7 @@ async def internet_search(
         cn_only: 是否仅返回中文结果（默认 true）。
 
     Returns:
-        dict: {"result": tavily_search_result}
+        dict: {"result": normalized_search_result}
 
     调用决策（何时使用我）:
     - **优先级**: 兜底（4-最低）。**仅当**内部知识库、私有知识库、产业链工具、

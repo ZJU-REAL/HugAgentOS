@@ -148,9 +148,10 @@ This reference is sourced from `.env.example` and `src/backend/core/config/setti
 | Variable | Default | Description | Edition |
 |---|---|---|---|
 | `MCP_HOST` | `mcp` (compose default) | MCP container hostname; set `127.0.0.1` for local debugging | CE |
-| `INTERNET_SEARCH_ENGINE` | `tavily` (compose default) | Internet search engine | CE |
-| `TAVILY_API_KEY` | (**required for internet search**) | Tavily Search API key | CE |
-| `BAIDU_API_KEY` | (empty) | Baidu search API key | CE |
+| `INTERNET_SEARCH_ENGINE` | `tavily` (compose default) | Internet search engine: `tavily` / `baidu` / `langsearch` | CE |
+| `TAVILY_API_KEY` | (empty) | Tavily Search API key; required when Tavily is selected | CE |
+| `BAIDU_API_KEY` | (empty) | Baidu search API key; required when Baidu is selected | CE |
+| `LANGSEARCH_API_KEY` | (empty) | LangSearch Web Search API key; required when LangSearch is selected | CE |
 | `INTERNET_SEARCH_CN_ONLY` / `INTERNET_SEARCH_CN_STRICT` / `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | (empty) | Regional / parameter tuning | CE |
 | `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | HTTP backend for the data-warehouse query tool | EE (industry tool) |
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | (empty) | Data-warehouse call parameters | EE |

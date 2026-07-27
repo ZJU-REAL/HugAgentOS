@@ -463,26 +463,32 @@ def configure_file_parser(
     )
 
 
-# ── Internet search (Tavily / Baidu key) ─────────────────────────────────────
+# ── Internet search (Tavily / Baidu / LangSearch key) ────────────────────────
 
 
 def configure_search_engine(engine: str, api_key: str) -> None:
     """Write the internet-search engine + key into system_configs.
 
     Same path as file parser: the DB is the single source of truth (env
-    TAVILY_API_KEY/BAIDU_API_KEY only as fallback); after writing, the MCP
-    subprocess picks up the new key via runtime_env. It can also be changed
-    later in the Web UI under Settings -> System Management.
+    TAVILY_API_KEY/BAIDU_API_KEY/LANGSEARCH_API_KEY only as fallback); after
+    writing, the MCP subprocess picks up the new key via runtime_env. It can
+    also be changed later in the Web UI under Settings -> System Management.
     """
     from core.services.system_config import SystemConfigService
 
     svc = SystemConfigService.get_instance()
     svc.get_all_configs()  # touch cache so seed rows exist before set()
-    key_field = "baidu_api_key" if engine == "baidu" else "tavily_api_key"
+    key_fields = {
+        "tavily": "tavily_api_key",
+        "baidu": "baidu_api_key",
+        "langsearch": "langsearch_api_key",
+    }
+    if engine not in key_fields:
+        raise ValueError(f"不支持的互联网搜索引擎: {engine}")
     svc.bulk_set(
         [
             {"key": "internet_search.engine", "value": engine},
-            {"key": f"internet_search.{key_field}", "value": api_key},
+            {"key": f"internet_search.{key_fields[engine]}", "value": api_key},
         ],
         updated_by="onboard",
     )
@@ -738,14 +744,14 @@ def cmd_onboard(args) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"! 文件解析配置失败：{exc}", file=sys.stderr)
 
-    # Step 5 — internet search (Tavily / Baidu key). Optional.
+    # Step 5 — internet search (Tavily / Baidu / LangSearch key). Optional.
     search_key = args.search_api_key
     search_engine = (args.search_engine or "tavily").strip().lower()
     if search_key is None and interactive:
         print("\n[可选] 配置互联网搜索（智能体联网检索用；直接回车跳过）")
-        print("  支持 tavily（默认，tavily.com 注册取 key）/ baidu（千帆 AppBuilder）。")
-        eng = _prompt("  搜索引擎 (tavily/baidu)", "tavily").strip().lower()
-        search_engine = eng if eng in ("tavily", "baidu") else "tavily"
+        print("  支持 tavily（默认）/ baidu（千帆 AppBuilder）/ langsearch。")
+        eng = _prompt("  搜索引擎 (tavily/baidu/langsearch)", "tavily").strip().lower()
+        search_engine = eng if eng in ("tavily", "baidu", "langsearch") else "tavily"
         search_key = _prompt("  API Key（留空跳过）", "")
     if search_key:
         try:
@@ -925,7 +931,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     po.add_argument("--file-parser-url", help="PDF/文档解析服务 API URL（可选）")
     po.add_argument(
-        "--search-engine", choices=["tavily", "baidu"], help="互联网搜索引擎（可选，默认 tavily）"
+        "--search-engine",
+        choices=["tavily", "baidu", "langsearch"],
+        help="互联网搜索引擎（可选，默认 tavily）",
     )
     po.add_argument("--search-api-key", help="互联网搜索 API Key（可选）")
     po.add_argument("--no-test", action="store_true", help="跳过模型连通性实测")

@@ -64,7 +64,14 @@ It is the only **per-request** server: for each chat request the backend injects
 
 ### internet_search — web search (CE)
 
-`internet_search(query, max_results, topic, search_depth, include_raw_content, cn_only)`: internet retrieval backed by Tavily-style engines (configured via `TAVILY_API_KEY` / `INTERNET_SEARCH_ENGINE`), supporting general / news / finance topics and several search depths. In the tool-selection policy it is positioned as the **fallback of last resort** — used only when internal KBs, the warehouse and industry tools come up empty.
+`internet_search(query, max_results, topic, search_depth, include_raw_content,
+cn_only)` selects Tavily, Baidu, or LangSearch through
+`INTERNET_SEARCH_ENGINE` and reads only the API key for the selected engine.
+All three providers return normalized `title / url / content` fields. Only
+Tavily natively supports `topic`, `search_depth`, and raw-page content.
+LangSearch maps its generated summary to `content`. The agent uses this tool
+only as a fallback when internal knowledge bases, the warehouse, and industry
+tools return no results.
 
 ### ai_chain_information_mcp — industry knowledge center (Enterprise EE)
 

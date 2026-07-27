@@ -70,7 +70,10 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 **第 4 步（可选）· 配置文件解析服务**——上传 PDF / 扫描件解析需要一个外部解析服务（MinerU 兼容），填入其 API URL 即可（写入 `file_parser.api_url`）；直接回车跳过。Excel / CSV / PPTX / 文本为进程内解析，无需此项。
 
-**第 5 步（可选）· 配置互联网搜索**——智能体联网检索需要一个搜索引擎密钥：选 `tavily`（默认，[tavily.com](https://tavily.com) 注册取 key）或 `baidu`（千帆 AppBuilder），填入 API Key；直接回车跳过。事后也可在网页「设置 → 系统管理 → 服务配置」里补配。
+**第 5 步（可选）· 配置互联网搜索**——智能体联网检索需要一个搜索引擎
+密钥。选择 `tavily`（默认）、`baidu`（千帆 AppBuilder）或 `langsearch`，
+然后填写所选引擎对应的 API Key；直接回车可跳过。事后也可在网页
+「设置 → 系统管理 → 服务配置」里补配。
 
 引导末尾会打印**本机能力概览**（Node.js / pandoc / LibreOffice 是否就绪，对应 React 建站 / Word 转换 / PPT 和 Word 在线预览），随后自动起服务并打开 `http://127.0.0.1:3001/`。
 
