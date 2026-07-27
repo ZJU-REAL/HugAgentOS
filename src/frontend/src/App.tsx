@@ -45,6 +45,7 @@ import { useChatInit, useChatActions, useStreaming, useDelayedFlag } from './hoo
 import { usePageConfig, usePageConfigAll, usePageConfigPolling } from './hooks/usePageConfig';
 import { usePageConfigStore } from './stores/pageConfigStore';
 import { useMySpaceStore } from './stores/mySpaceStore';
+import { useDeploymentModeStore } from './stores/deploymentModeStore';
 
 const { Header, Content } = Layout;
 
@@ -95,6 +96,13 @@ export default function App() {
   const { panel } = useCatalogStore();
   const setCatalogPanel = useCatalogStore((s) => s.setPanel);
   const setMySpaceTab = useMySpaceStore((s) => s.setTab);
+  const isDesktopShell = useDeploymentModeStore((s) => s.isDesktop);
+  const desktopProvisionMode = useDeploymentModeStore((s) => s.provisionMode);
+  const deploymentModeLoaded = useDeploymentModeStore((s) => s.loaded);
+  const refreshDeploymentMode = useDeploymentModeStore((s) => s.refresh);
+  useEffect(() => {
+    refreshDeploymentMode();
+  }, [refreshDeploymentMode]);
   const canvasOpen = useCanvasStore((s) => s.isOpen);
   const rightSidebarView = useCanvasStore((s) => s.activeView);
   const closeCanvas = useCanvasStore((s) => s.closeCanvas);
@@ -562,13 +570,20 @@ export default function App() {
     );
   }
 
+  // CE 首次配置向导（模型/搜索引擎等）只面向云端部署/Web 侧与桌面纯本机形态。
+  // 桌面双模式跳过：配置以云端为准并经身份桥下发本机，客户端无需再引导一遍。
   if (authUser.onboarding_required) {
-    return (
-      <FirstRunSetup
-        user={authUser}
-        onComplete={() => setAuthUser({ ...authUser, onboarding_required: false })}
-      />
-    );
+    if (!deploymentModeLoaded) {
+      return null; // 部署形态探测完成前不闪现向导（web 上探测瞬时完成）
+    }
+    if (!(isDesktopShell && desktopProvisionMode === 'dual')) {
+      return (
+        <FirstRunSetup
+          user={authUser}
+          onComplete={() => setAuthUser({ ...authUser, onboarding_required: false })}
+        />
+      );
+    }
   }
 
   return (
