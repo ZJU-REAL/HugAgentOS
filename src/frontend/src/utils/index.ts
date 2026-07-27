@@ -13,5 +13,13 @@ export {
 export { buildHistorySegments } from './segments';
 export { parseFileContent, uploadFileToOSS, normalizeArtifactOutput, extractArtifactOutputs, attachArtifactsToToolCalls } from './fileParser';
 export { formatDateTime } from './date';
+export {
+  INTERNET_SEARCH_ENGINES,
+  getInternetSearchEngineMeta,
+  isInternetSearchConfigVisible,
+  normalizeInternetSearchEngine,
+  type InternetSearchEngine,
+  type InternetSearchEngineMeta,
+} from './internetSearchConfig';
 
 export { getFileIconSrc, getFolderIconSrc } from './fileIcon';

@@ -85,7 +85,7 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "internet_search.engine",
         "tavily",
         "搜索引擎",
-        "互联网搜索引擎 (tavily / baidu)",
+        "互联网搜索引擎 (tavily / baidu / langsearch)",
         "internet_search",
         False,
     ),
@@ -102,6 +102,14 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         None,
         "百度搜索 API Key",
         "百度千帆 AppBuilder 搜索服务密钥",
+        "internet_search",
+        True,
+    ),
+    (
+        "internet_search.langsearch_api_key",
+        None,
+        "LangSearch API Key",
+        "LangSearch Web Search API 服务密钥",
         "internet_search",
         True,
     ),
@@ -237,6 +245,7 @@ _CONFIG_KEY_TO_ENV: dict[str, str] = {
     "internet_search.engine": "INTERNET_SEARCH_ENGINE",
     "internet_search.tavily_api_key": "TAVILY_API_KEY",
     "internet_search.baidu_api_key": "BAIDU_API_KEY",
+    "internet_search.langsearch_api_key": "LANGSEARCH_API_KEY",
     # Note: sandbox.code_capability_enable deliberately does **not** map to an env var —— the admin toggle is the sole
     # authority (plan B), explicitly seeded to "true", and env CODE_CAPABILITY_ENABLED is retired.
     **EDITION_CONFIG_KEY_TO_ENV,

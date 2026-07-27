@@ -64,7 +64,12 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 
 ### internet_search — 联网搜索（CE）
 
-`internet_search(query, max_results, topic, search_depth, include_raw_content, cn_only)`：基于 Tavily 等搜索引擎的互联网检索（`TAVILY_API_KEY` / `INTERNET_SEARCH_ENGINE` 配置），支持 general / news / finance 主题与多档检索深度。在工具调用决策上被定位为**兜底工具**——内部知识库、数仓、行业工具都无结果时才使用。
+`internet_search(query, max_results, topic, search_depth, include_raw_content,
+cn_only)`：通过 `INTERNET_SEARCH_ENGINE` 选择 Tavily、百度或 LangSearch，
+并且只读取所选引擎对应的 API Key。三种引擎的结果统一为
+`title / url / content`；`topic`、`search_depth` 和原始正文参数仅由 Tavily
+原生支持，LangSearch 会将搜索摘要映射到 `content`。该工具是兜底工具，
+仅在内部知识库、数仓和行业工具都没有结果时使用。
 
 ### ai_chain_information_mcp — 产业知识中心查询（商业版 EE）
 

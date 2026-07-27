@@ -148,9 +148,10 @@
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
 | `MCP_HOST` | `mcp`（compose 默认） | MCP 容器主机名；本地调试可设 `127.0.0.1` | CE |
-| `INTERNET_SEARCH_ENGINE` | `tavily`（compose 默认） | 联网搜索引擎选择 | CE |
-| `TAVILY_API_KEY` | （**联网搜索必填**） | Tavily Search API Key | CE |
-| `BAIDU_API_KEY` | （空） | 百度搜索 API Key | CE |
+| `INTERNET_SEARCH_ENGINE` | `tavily`（compose 默认） | 联网搜索引擎：`tavily` / `baidu` / `langsearch` | CE |
+| `TAVILY_API_KEY` | （空） | Tavily Search API Key；选择 Tavily 时必填 | CE |
+| `BAIDU_API_KEY` | （空） | 百度搜索 API Key；选择百度时必填 | CE |
+| `LANGSEARCH_API_KEY` | （空） | LangSearch Web Search API Key；选择 LangSearch 时必填 | CE |
 | `INTERNET_SEARCH_CN_ONLY` / `INTERNET_SEARCH_CN_STRICT` / `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | （空） | 搜索地域 / 参数微调 | CE |
 | `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | 数仓查询工具的 HTTP 后端 | EE（行业工具） |
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | （空） | 数仓查询调用参数 | EE |

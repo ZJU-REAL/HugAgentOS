@@ -49,6 +49,10 @@ import {
 import { getLang, setLang, t, type Lang } from '../../i18n';
 import { usePageConfig } from '../../hooks/usePageConfig';
 import { useAuthStore, useModelCapabilitiesStore, useSettingsStore } from '../../stores';
+import {
+  INTERNET_SEARCH_ENGINES,
+  getInternetSearchEngineMeta,
+} from '../../utils/internetSearchConfig';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -736,10 +740,11 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   );
 
   const renderInternet = () => {
-    const engine = serviceValues['internet_search.engine'] || 'tavily';
-    const keyName = engine === 'baidu'
-      ? 'internet_search.baidu_api_key'
-      : 'internet_search.tavily_api_key';
+    const engineMeta = getInternetSearchEngineMeta(
+      serviceValues['internet_search.engine'],
+    );
+    const engine = engineMeta.value;
+    const keyName = engineMeta.apiKeyConfigKey;
     const keyItem = internetGroup?.items.find((item) => item.config_key === keyName);
     return (
       <div className="jx-firstRun-form">
@@ -754,16 +759,16 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           <Select
             size="large"
             value={engine}
-            options={[
-              { value: 'tavily', label: 'Tavily' },
-              { value: 'baidu', label: t('百度千帆') },
-            ]}
+            options={INTERNET_SEARCH_ENGINES.map((item) => ({
+              value: item.value,
+              label: t(item.label),
+            }))}
             onChange={(value) => updateServiceValue('internet_search.engine', value)}
           />
         </label>
         <label className="jx-firstRun-field">
           <div className="jx-firstRun-labelRow">
-            <Text strong>{engine === 'baidu' ? t('百度搜索 API Key') : 'Tavily API Key'}</Text>
+            <Text strong>{t(engineMeta.apiKeyLabel)}</Text>
             {configuredSecret(keyItem?.config_value) && <Tag color="success">{t('已配置')}</Tag>}
           </div>
           <Input.Password
