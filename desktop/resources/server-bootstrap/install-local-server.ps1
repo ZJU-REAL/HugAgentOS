@@ -263,15 +263,43 @@ if ($RebuildVenv) {
 Write-ProgressLine 32 "正在更新 Python 安装工具…"
 Invoke-Checked $VenvPython @("-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip", "setuptools", "wheel") "Unable to prepare pip"
 
+# uv 并行下载 + 快速解析，同网络下比原生 pip 快数倍（macOS 引导已用 uv，这里对齐）。
+# uv 装不上或安装中途失败都自动回退 pip，不会因此阻塞整个安装。
+$VenvUv = Join-Path $VenvDir "Scripts\uv.exe"
+try {
+    & $VenvPython -m pip install --disable-pip-version-check --upgrade uv
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "uv couldn't be installed; dependency installs fall back to pip."
+    }
+}
+catch {
+    Write-Warning "uv couldn't be installed; dependency installs fall back to pip. $($_.Exception.Message)"
+}
+$env:UV_CACHE_DIR = Join-Path $RuntimeRoot "cache\uv"
+$env:UV_HTTP_RETRIES = "5"
+
+function Install-PythonPackages {
+    param([string[]]$InstallArguments, [string]$FailureMessage)
+    if (Test-Path $VenvUv) {
+        & $VenvUv pip install --python $VenvPython @InstallArguments
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        Write-Warning "uv install failed (exit code $LASTEXITCODE); retrying with pip."
+    }
+    Invoke-Checked $VenvPython (
+        @("-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary") + $InstallArguments
+    ) $FailureMessage
+}
+
 Write-ProgressLine 42 "正在安装服务端依赖，首次安装需要数分钟…"
-Invoke-Checked $VenvPython @(
-    "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary",
+Install-PythonPackages @(
     "-r", (Join-Path $SourceDir "requirements.txt")
 ) "Unable to install the server dependencies"
 
 Write-ProgressLine 58 "正在安装永久记忆运行环境…"
-Invoke-Checked $VenvPython @(
-    "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary", "--upgrade",
+Install-PythonPackages @(
+    "--upgrade",
     "-r", (Join-Path $SourceDir "requirements-mem0.txt"),
     "protobuf<7", "pymilvus==2.5.18", "milvus-lite==3.1.0"
 ) "Unable to install the persistent-memory dependencies"
@@ -280,8 +308,7 @@ Write-ProgressLine 70 "正在安装本机脚本与文档处理能力…"
 # requirements-mcp.txt 必须显式列入：图表/报告 MCP（matplotlib、python-docx）在
 # 容器部署里装在独立 mcp 镜像，本机模式与 script-runner 共用同一 venv——不能
 # 依赖 script-runner 清单恰好覆盖它。
-Invoke-Checked $VenvPython @(
-    "-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary",
+Install-PythonPackages @(
     "-r", (Join-Path $SourceDir "docker\requirements-script-runner.txt"),
     "-r", (Join-Path $SourceDir "docker\requirements-mcp.txt")
 ) "Unable to install the local tool dependencies"
@@ -352,23 +379,100 @@ if ($Node) {
         }
     }
     if (Test-Path $Npm) {
+        # Playwright/Chromium 体量大（Chromium ~130MB），转入后台安装：核心服务不等它，
+        # 先装完先启动。后台任务自测网络——npm 官方源慢或不可达时切 npmmirror 镜像
+        # （含 Playwright 浏览器二进制）。进度与失败原因见 runtime\node-tools-install.log。
+        $NodeToolsLog = Join-Path $RuntimeRoot "node-tools-install.log"
+        $NodeToolsScript = Join-Path $RuntimeRoot "install-node-tools.ps1"
+        $NodeToolsWorker = @'
+param([string]$Npm, [string]$NodeDataDir, [string]$LogFile)
+$ErrorActionPreference = "Continue"
+$ProgressPreference = "SilentlyContinue"
+
+function Log([string]$Message) {
+    $Line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
+    Add-Content -Path $LogFile -Value $Line -Encoding UTF8
+}
+
+$LockFile = "$LogFile.lock"
+if (Test-Path $LockFile) {
+    $OtherProcessId = Get-Content $LockFile -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($OtherProcessId -and (Get-Process -Id $OtherProcessId -ErrorAction SilentlyContinue)) {
+        exit 0
+    }
+}
+Set-Content -Path $LockFile -Value $PID -Encoding ASCII
+
+try {
+    Log "Preparing optional Node.js document tools (pptxgenjs + Playwright Chromium)."
+    $UseMirror = $false
+    $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        Invoke-WebRequest -Uri "https://registry.npmjs.org/" -Method Head -TimeoutSec 6 -UseBasicParsing | Out-Null
+        if ($Stopwatch.ElapsedMilliseconds -gt 3000) {
+            $UseMirror = $true
+        }
+    }
+    catch {
+        $UseMirror = $true
+    }
+    if ($UseMirror) {
+        Log "registry.npmjs.org is slow or unreachable; switching to npmmirror.com mirrors."
+    }
+
+    $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
+    $NpmArguments = @(
+        "install", "--silent", "--no-audit", "--no-fund", "--no-package-lock",
+        "--prefix", $NodeDataDir, "pptxgenjs", "playwright"
+    )
+    if ($UseMirror) {
+        $NpmArguments += @("--registry", "https://registry.npmmirror.com")
+    }
+    & $Npm @NpmArguments 2>&1 | ForEach-Object { Log "$_" }
+    if ($LASTEXITCODE -ne 0) {
+        Log "npm install failed (exit code $LASTEXITCODE); optional document tools stay unavailable for now."
+        exit 1
+    }
+
+    $Playwright = Join-Path $NodeDataDir "node_modules\.bin\playwright.cmd"
+    if (-not (Test-Path $Playwright)) {
+        Log "The playwright CLI wasn't found after npm install."
+        exit 1
+    }
+    Remove-Item Env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD -ErrorAction SilentlyContinue
+    $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $NodeDataDir "browsers"
+    if ($UseMirror) {
+        $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://cdn.npmmirror.com/binaries/playwright"
+    }
+    & $Playwright install chromium 2>&1 | ForEach-Object { Log "$_" }
+    if ($LASTEXITCODE -ne 0 -and -not $UseMirror) {
+        Log "Chromium download from the official host failed; retrying via npmmirror."
+        $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://cdn.npmmirror.com/binaries/playwright"
+        & $Playwright install chromium 2>&1 | ForEach-Object { Log "$_" }
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Log "Chromium download failed. Word, Excel, and PPT generation still work; advanced PDF rendering will use its fallback."
+        exit 1
+    }
+    Log "Optional Node.js document tools are ready."
+}
+finally {
+    Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
+}
+'@
         try {
-            $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
-            Invoke-Checked $Npm @(
-                "install", "--silent", "--no-audit", "--no-fund", "--no-package-lock",
-                "--prefix", $NodeDataDir, "pptxgenjs", "playwright"
-            ) "Unable to install the optional Node.js tool dependencies"
-            $Playwright = Join-Path $NodeDataDir "node_modules\.bin\playwright.cmd"
-            if (Test-Path $Playwright) {
-                $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $NodeDataDir "browsers"
-                & $Playwright install chromium
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Warning "Chromium download failed. Word, Excel, and PPT generation still work; advanced PDF rendering will use its fallback."
-                }
-            }
+            [System.IO.File]::WriteAllText(
+                $NodeToolsScript,
+                $NodeToolsWorker,
+                [System.Text.UTF8Encoding]::new($true)
+            )
+            $NodeToolsArguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Npm "{1}" -NodeDataDir "{2}" -LogFile "{3}"' -f `
+                $NodeToolsScript, $Npm, $NodeDataDir, $NodeToolsLog
+            Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -ArgumentList $NodeToolsArguments | Out-Null
+            Write-Output "Optional document tools (pptxgenjs + Playwright Chromium) are installing in the background; see $NodeToolsLog"
         }
         catch {
-            Write-Warning "Optional Node.js tools couldn't be prepared. The core service will still start. $($_.Exception.Message)"
+            Write-Warning "Optional Node.js tools couldn't be scheduled. The core service will still start. $($_.Exception.Message)"
         }
     }
     else {
@@ -380,8 +484,8 @@ elseif (Test-Path $NodeExecutableFile) {
 }
 
 Write-ProgressLine 86 "正在注册 HugAgentOS 本机服务…"
-Invoke-Checked $VenvPython @(
-    "-m", "pip", "install", "--disable-pip-version-check", "--no-deps", "--editable", $SourceDir
+Install-PythonPackages @(
+    "--no-deps", "--editable", $SourceDir
 ) "Unable to install the HugAgentOS command"
 
 $HugAgentOSCommand = Join-Path $VenvDir "Scripts\hugagent.exe"
