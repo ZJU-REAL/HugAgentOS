@@ -320,8 +320,8 @@ pub fn run() {
             }
 
             // 本机模式下，安装包版本变化会自动升级服务资源；已安装且同版本则直接
-            // 拉起服务。安装/启动都在后台进行，主窗口显示可观察、可重试的进度页。
-            // Dual 同样确保本机服务安装并常驻（后台，不阻塞云端使用）。
+            // 拉起服务。安装/启动任务在后台跑，但主窗口与本机模式一致地停在可观察、
+            // 可重试的进度页（Dual 也一样：本机执行面装好才进云端，见下方 start 路由）。
             if cfg.uses_local_server() || hybrid_local {
                 if local_server.needs_install() {
                     local_server.install_in_background();
@@ -330,8 +330,15 @@ pub fn run() {
                 }
             }
 
-            let backend_ready = if cfg.uses_local_server() {
+            // Dual 的本机就绪状态单独留一份：主后端（云端）可达性与本机执行面
+            // 就绪与否是两件事，start 路由两个都要看。
+            let local_ready_now = if cfg.uses_local_server() || hybrid_local {
                 tauri::async_runtime::block_on(local_server.is_ready())
+            } else {
+                true
+            };
+            let backend_ready = if cfg.uses_local_server() {
+                local_ready_now
             } else {
                 tauri::async_runtime::block_on(local_server::LocalServerManager::probe_base(
                     &http,
@@ -429,6 +436,9 @@ pub fn run() {
                 // 首启：先让用户选运行模式（本机 / 云端 / 双模式），云端形态在此填地址。
                 format!("http://127.0.0.1:{}/__desktop/init", port)
             } else if !backend_ready {
+                format!("http://127.0.0.1:{}/__desktop/setup", port)
+            } else if hybrid_local && !local_ready_now {
+                // Dual：本机执行面和本机模式一样在前台装完（进度页），就绪后自动回云端。
                 format!("http://127.0.0.1:{}/__desktop/setup", port)
             } else if token0.is_some() {
                 format!("http://127.0.0.1:{}/", port)
