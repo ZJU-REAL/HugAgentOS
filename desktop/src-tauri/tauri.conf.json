@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "HugAgentOS",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "identifier": "com.hugagent.desktop",
   "build": {
     "frontendDist": "../../src/frontend/dist",
@@ -18,7 +18,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
@@ -33,7 +35,10 @@
     "windows": {
       "nsis": {
         "installerHooks": "installer-hooks.nsh",
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "displayLanguageSelector": false
       }
     }
@@ -41,7 +46,9 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["hugagent"]
+        "schemes": [
+          "hugagent"
+        ]
       }
     },
     "updater": {
