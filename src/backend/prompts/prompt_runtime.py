@@ -196,6 +196,23 @@ _TOOLS_AND_SKILLS_NOTICE = (
     "处理请求时先匹配技能描述；没有匹配技能时，再直接调用最合适的 MCP 工具。"
 )
 
+# Authoritative override appended on the desktop LOCAL backend. "My Space" is a
+# cloud concept and does not exist locally; this cancels all the /myspace/ +
+# artifact-net-disk guidance from the base prompt so the model works on the
+# user's real local files instead.
+_LOCAL_MODE_OVERRIDE = (
+    "## 【本机模式 · 最高优先级，覆盖上文】\n"
+    "你现在运行在**用户本机电脑**上（桌面本地模式），沙盒就是用户电脑的**真实文件系统**。\n"
+    "**用真实的本机绝对路径直接读写/运行文件**（例如 `/Users/xxx/Desktop/a.txt`、"
+    "`/Users/xxx/project/main.py`）——`Read`/`Write`/`Edit`/`Glob`/`Grep`/`bash` 在本机模式下"
+    "**都接受并推荐使用真实路径**。当前本地项目关联的真实文件夹路径已在项目上下文里给出，直接在它下面操作。\n"
+    "**本机没有「我的空间」**（那是云端概念）：上文所有关于 `/myspace/`、`pin_to_workspace`、"
+    "`list_myspace_files`、`CreateFolder`/`Move`/`Delete` 我的空间、「存到我的空间/留档」的说明，"
+    "在本机模式下**一律不适用，请忽略**，也**不要**往 `/myspace/` 写。\n"
+    "- 交付产物：直接写进用户的真实文件夹即可，他在本机就能看到；不需要 pin 到我的空间。\n"
+    "- 越权目录与危险命令受本机权限策略约束，可能被拦截或需用户确认；改本机文件前系统会自动快照、可回滚。"
+)
+
 
 def build_subagent_system_prompt(
     user_agent: Any,
@@ -671,15 +688,40 @@ def build_system_prompt(config: PromptConfig, ctx: Dict[str, Any] | None = None)
     # ── Project mode (when mounted in a Claude-style workspace) ──
     project_id = ctx.get("project_id")
     if project_id:
-        proj_section = _build_project_section(
-            project_name=ctx.get("project_name") or "",
-            project_instructions=ctx.get("project_instructions") or "",
-            folder_name=ctx.get("project_folder_name") or "",
-            folder_kind=ctx.get("project_folder_kind") or "",
-            project_files=ctx.get("project_files") or [],
-        )
+        if ctx.get("project_is_local"):
+            # Desktop local project: real host folder, not a MySpace view (#05).
+            from prompts.project_section import _build_local_project_section
+
+            proj_section = _build_local_project_section(
+                project_name=ctx.get("project_name") or "",
+                project_instructions=ctx.get("project_instructions") or "",
+                local_path=ctx.get("project_local_path") or "",
+                local_slug=ctx.get("project_local_slug") or "",
+            )
+        else:
+            proj_section = _build_project_section(
+                project_name=ctx.get("project_name") or "",
+                project_instructions=ctx.get("project_instructions") or "",
+                folder_name=ctx.get("project_folder_name") or "",
+                folder_kind=ctx.get("project_folder_kind") or "",
+                project_files=ctx.get("project_files") or [],
+            )
         if proj_section:
             base = (base + "\n\n" + proj_section).strip()
+
+    # ── Local desktop mode override ──
+    # On the local backend there is no "My Space" (artifact net-disk) — it is a
+    # cloud/server concept. Append an authoritative override (last = strongest)
+    # so the model ignores all the /myspace/ + pin_to_workspace + folder-op
+    # guidance above and works directly in the local folder instead. Covers every
+    # local-mode chat, project-bound or not.
+    try:
+        from core.config.local_mode import local_mode_enabled
+
+        if local_mode_enabled():
+            base = (base + "\n\n" + _LOCAL_MODE_OVERRIDE).strip()
+    except Exception:
+        pass
 
     # Store template in cache (with placeholder instead of real time)
     template = base.replace(now, "{now}") if now in base else base

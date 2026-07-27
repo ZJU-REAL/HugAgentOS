@@ -233,6 +233,14 @@ async def get_current_user(
     """
     auth_mode = _auth_mode()
 
+    # ── 0. 桌面桥接（仅桌面壳孵化的本机后端启用；混合架构 P2）──
+    # 桌面壳注入的云端身份优先于本机自身的会话体系；未启用/未命中时零开销回落。
+    from core.auth.desktop_bridge import resolve_bridge_user
+
+    bridge_user = resolve_bridge_user(request, db)
+    if bridge_user is not None:
+        return bridge_user
+
     # ── 1. Try Cookie session first (works in all modes) ──
     session_user = await _resolve_session_user(request)
     if session_user is not None:

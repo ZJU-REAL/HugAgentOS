@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { t } from '../i18n';
-import { authFetch, checkSession, listActiveBatchPlans, getBatchPlan } from '../api';
+import { authFetch, checkSession, listActiveBatchPlans, getBatchPlan, chatTargetHeaders, isHybridDual, registerLocalChat, LOCAL_TARGET_HEADER } from '../api';
 import { nowId, saveCatalog } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { attachArtifactsToToolCalls } from '../utils/fileParser';
@@ -346,6 +346,21 @@ export function useChatInit() {
         if (!r.ok || cancelled) return;
         const payload = await r.json();
         const items: any[] = payload?.data?.items || [];
+        // 双模式：并入本机执行面上「本地项目」的会话（本机未就绪时静默跳过），
+        // 并登记 chat→local，后续消息/操作请求自动路由到本机。
+        if (isHybridDual()) {
+          try {
+            const lr = await authFetch(`${effectiveApiUrl}/v1/chats?page_size=100&exclude_automation=true`, {
+              headers: { [LOCAL_TARGET_HEADER]: 'local' },
+            });
+            if (lr.ok && !cancelled) {
+              const lp = await lr.json();
+              const localItems: any[] = lp?.data?.items || [];
+              localItems.forEach((it) => registerLocalChat(it.chat_id));
+              items.push(...localItems);
+            }
+          } catch { /* 本机执行面未就绪：仅展示云端会话 */ }
+        }
         const chats: Record<string, ChatItem> = {};
         const order: string[] = [];
 
@@ -436,7 +451,7 @@ export function useChatInit() {
             // until the next full refresh.
             let preloadComplete = false;
             try {
-              const mr = await authFetch(`${effectiveApiUrl}/v1/chats/${targetChatId}/messages?page=1&page_size=100`);
+              const mr = await authFetch(`${effectiveApiUrl}/v1/chats/${targetChatId}/messages?page=1&page_size=100`, { headers: { ...chatTargetHeaders(targetChatId) } });
               if (mr.ok && !cancelled) {
                 const mp = await mr.json();
                 const msgItems: any[] = mp?.data?.items || [];
@@ -609,7 +624,7 @@ export function useChatInit() {
         let pendingPlanId: string | null = null;
 
         while (true) {
-          const r = await authFetch(`${effectiveApiUrl}/v1/chats/${chatId}/messages?page=${page}&page_size=100`);
+          const r = await authFetch(`${effectiveApiUrl}/v1/chats/${chatId}/messages?page=${page}&page_size=100`, { headers: { ...chatTargetHeaders(chatId) } });
           if (cancelled) return;
           // A non-2xx page (401 blip, 502 during backend restart, 429…) must
           // NOT fall through to the store write below — that would persist an

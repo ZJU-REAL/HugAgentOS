@@ -89,9 +89,32 @@ def validate_workspace_path(path: str) -> Optional[str]:
         return err
     path = canonicalize_ws_path(path)
     if path == MYSPACE_LOGICAL or path.startswith(MYSPACE_LOGICAL + "/"):
+        # Desktop local mode has no "My Space" — reject /myspace/ and steer the
+        # model to the local workspace instead (cloud/web keeps /myspace/).
+        try:
+            from core.config.local_mode import local_mode_enabled
+
+            if local_mode_enabled():
+                return (
+                    "本机模式下没有「我的空间」（/myspace/）。请改用本地工作区路径："
+                    "本地项目文件放在 /workspace/local/<项目>/，临时文件放 /workspace/。"
+                )
+        except Exception:
+            pass
         return None
     if path == WORKSPACE_ROOT or path.startswith(WORKSPACE_ROOT + "/"):
         return None
+    # Local desktop mode: the sandbox IS the host filesystem, so accept real
+    # absolute host paths (e.g. /Users/alice/Desktop/x) directly — the agent
+    # works with real paths like a normal coding agent. Authorization is enforced
+    # by the execution policy gate + OS sandbox, not by this prefix check.
+    try:
+        from core.config.local_mode import local_mode_enabled
+
+        if local_mode_enabled() and path.startswith("/"):
+            return None
+    except Exception:
+        pass
     return (
         f"path 必须以 /myspace/ 或 /workspace/ 开头（持久文件用 /myspace/，"
         f"临时计算用 /workspace/scratch/）；got: {path}"

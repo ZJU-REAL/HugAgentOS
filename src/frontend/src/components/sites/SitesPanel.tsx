@@ -41,6 +41,7 @@ import {
 } from '../../editionSiteVisibility';
 import { useCatalogStore } from '../../stores';
 import { useChatStore } from '../../stores/chatStore';
+import { stablePublicOrigin } from '../../stores/deploymentModeStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { t } from '../../i18n';
 import '../../styles/sites.css';
@@ -140,13 +141,13 @@ function SiteManageModal({
       visibility: site.visibility,
       ...editionSiteFormValues(site),
     });
-    void getSiteDetail(site.site_id)
+    void getSiteDetail(site.site_id, site.origin)
       .then((d) => { setVersions([...d.versions].reverse()); setCurrentVersion(d.current_version); })
       .catch(() => {});
-    void listSiteSubmissions(site.site_id, 1, 50)
+    void listSiteSubmissions(site.site_id, 1, 50, site.origin)
       .then((r) => { setSubmissions(r.items); setSubmissionTotal(r.total); })
       .catch(() => {});
-    void listSiteKv(site.site_id).then((r) => setKvItems(r.items)).catch(() => {});
+    void listSiteKv(site.site_id, site.origin).then((r) => setKvItems(r.items)).catch(() => {});
   }, [site, form]);
 
   const handleSave = async () => {
@@ -158,7 +159,7 @@ function SiteManageModal({
         slug: values.slug !== site.slug ? values.slug : undefined,
         visibility: values.visibility,
         ...editionSiteUpdateFields(values.visibility, values),
-      });
+      }, site.origin);
       onChanged(updated);
       message.success(t('已保存'));
       onClose();
@@ -172,7 +173,7 @@ function SiteManageModal({
   const handleRollback = async (version: number) => {
     setRollingBack(version);
     try {
-      const updated = await rollbackSite(site.site_id, version);
+      const updated = await rollbackSite(site.site_id, version, site.origin);
       setCurrentVersion(updated.current_version);
       onChanged(updated);
       message.success(t('已回滚到版本') + ` v${version}`);
@@ -186,7 +187,7 @@ function SiteManageModal({
   const handleExport = async () => {
     setBusy(true);
     try {
-      const r = await exportSiteSubmissions(site.site_id);
+      const r = await exportSiteSubmissions(site.site_id, site.origin);
       message.success(t('已导出到「我的空间」：') + r.filename);
       window.open(r.download_url, '_blank', 'noopener,noreferrer');
     } catch (e) {
@@ -199,7 +200,7 @@ function SiteManageModal({
   const handleClearSubmissions = async () => {
     setBusy(true);
     try {
-      await clearSiteSubmissions(site.site_id);
+      await clearSiteSubmissions(site.site_id, site.origin);
       setSubmissions([]); setSubmissionTotal(0);
       message.success(t('表单数据已清空'));
     } catch (e) {
@@ -211,7 +212,7 @@ function SiteManageModal({
 
   const handleDeleteKv = async (key: string) => {
     try {
-      await deleteSiteKvKey(site.site_id, key);
+      await deleteSiteKvKey(site.site_id, key, site.origin);
       setKvItems((prev) => prev.filter((i) => i.key !== key));
     } catch (e) {
       message.error((e as Error).message);
@@ -220,7 +221,7 @@ function SiteManageModal({
 
   const handleClearKv = async () => {
     try {
-      await clearSiteKv(site.site_id);
+      await clearSiteKv(site.site_id, site.origin);
       setKvItems([]);
       message.success(t('KV 已清空'));
     } catch (e) {
@@ -282,7 +283,7 @@ function SiteManageModal({
                     { pattern: /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, message: t('格式不正确') },
                   ]}
                 >
-                  <Input addonBefore={`${window.location.origin}/site/`} addonAfter="/" />
+                  <Input addonBefore={`${stablePublicOrigin(site.origin)}/site/`} addonAfter="/" />
                 </Form.Item>
                 <Form.Item name="visibility" label={t('可见性')}>
                   <Select
@@ -421,7 +422,12 @@ export function SitesPanel({ onBack }: SitesPanelProps) {
     void reload();
   }, [reload]);
 
-  const siteFullUrl = (site: SiteItem) => `${window.location.origin}${site.url}`;
+  // 展示/复制的完整链接按站点归属选真实后端地址（本机站点直连 32101，不经反代，
+  // 也就无需 hg_target 路由标记；站内「打开」仍走相对路径经反代）。
+  const siteFullUrl = (site: SiteItem) => `${stablePublicOrigin(site.origin)}${site.url}`;
+  // 站内打开走反代：本机站点带路由标记，入口页免掉「云端 404 → 反代兜底重试」的一跳。
+  const siteInAppUrl = (site: SiteItem) =>
+    `${site.url}${site.origin === 'local' ? '?hg_target=local' : ''}`;
 
   const handleCopy = async (site: SiteItem) => {
     try {
@@ -434,7 +440,7 @@ export function SitesPanel({ onBack }: SitesPanelProps) {
 
   const handleDelete = async (site: SiteItem) => {
     try {
-      await deleteSite(site.site_id);
+      await deleteSite(site.site_id, site.origin);
       setSites((prev) => prev.filter((s) => s.site_id !== site.site_id));
       message.success(t('站点已删除'));
     } catch (e) {
@@ -490,7 +496,7 @@ export function SitesPanel({ onBack }: SitesPanelProps) {
                     <span className="jx-sites-cardTitle">{site.title}</span>
                     <VisibilityTag site={site} />
                   </div>
-                  <a className="jx-sites-cardUrl" href={site.url} target="_blank" rel="noopener noreferrer">
+                  <a className="jx-sites-cardUrl" href={siteInAppUrl(site)} target="_blank" rel="noopener noreferrer">
                     {siteFullUrl(site)}
                   </a>
                   <div className="jx-sites-cardMeta">
@@ -504,7 +510,7 @@ export function SitesPanel({ onBack }: SitesPanelProps) {
                     size="small"
                     type="primary"
                     ghost
-                    onClick={() => window.open(site.url, '_blank', 'noopener,noreferrer')}
+                    onClick={() => window.open(siteInAppUrl(site), '_blank', 'noopener,noreferrer')}
                   >
                     {t('打开')}
                   </Button>

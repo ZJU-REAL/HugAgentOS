@@ -239,6 +239,8 @@ interface ChatState {
    *  doesn't exist, making chat.projectId the single source of truth — the next message is sent
    *  with project_id automatically. */
   bindChatProject: (chatId: string, projectId: string, projectName: string) => void;
+  /** 混合架构：设置对话运行位置（'local' 本机 / undefined 云端）。仅未开聊的对话可改。 */
+  setChatRunTarget: (chatId: string, target: 'local' | undefined) => void;
   /** Unbind a chat from its project. */
   unbindChatProject: (chatId: string) => void;
 
@@ -496,6 +498,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Don't add to order proactively: a newly created empty chat doesn't enter the sidebar
       // history until its first message is sent (useStreaming writes it into order on send);
       // existing chats keep their original position.
+      order: store.order,
+    };
+    set({ store: next, storeRef: next });
+    saveChatStoreDebounced(get().currentUserId, next);
+  },
+
+  setChatRunTarget: (chatId, target) => {
+    const { store } = get();
+    const existing = store.chats[chatId];
+    const now = Date.now();
+    const base: ChatItem = existing ?? {
+      id: chatId,
+      title: t('新对话'),
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      favorite: false,
+      pinned: false,
+      businessTopic: '综合咨询',
+    };
+    const nextChat: ChatItem = { ...base, updatedAt: now };
+    if (target === 'local') nextChat.runTarget = 'local';
+    else delete nextChat.runTarget;
+    const next: ChatStoreData = {
+      chats: { ...store.chats, [chatId]: nextChat },
       order: store.order,
     };
     set({ store: next, storeRef: next });

@@ -8,7 +8,12 @@ class ProjectEditionFields:
 
 
 def project_edition_table_args() -> tuple:
-    return (CheckConstraint("kind = 'personal'", name="ck_projects_kind_personal"),)
+    # ``local`` = desktop local-mode project bound to a real host folder (kept in
+    # extra_data). Allowed alongside ``personal`` so CE/desktop can persist local
+    # projects; cloud/EE keeps its own constraint and is unaffected.
+    return (
+        CheckConstraint("kind IN ('personal', 'local')", name="ck_projects_kind_personal"),
+    )
 
 
 class ArtifactEditionFields:

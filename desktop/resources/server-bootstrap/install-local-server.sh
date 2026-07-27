@@ -227,8 +227,12 @@ uv_run pip install --python "$VenvPython" --upgrade \
   "milvus-lite==3.1.0"
 
 progress 70 "正在安装本机脚本与文档处理能力…"
+# requirements-mcp.txt 必须显式列入：图表/报告 MCP（matplotlib、python-docx）在
+# 容器部署里装在独立 mcp 镜像，本机模式与 script-runner 共用同一 venv——不能
+# 依赖 script-runner 清单恰好覆盖它。
 uv_run pip install --python "$VenvPython" \
   --requirements "$SourceDir/docker/requirements-script-runner.txt" \
+  --requirements "$SourceDir/docker/requirements-mcp.txt" \
   --overrides "$MacOverrides" \
   --only-binary pikepdf
 

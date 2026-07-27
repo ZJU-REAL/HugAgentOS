@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { message } from 'antd';
 import { t } from '../i18n';
-import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop } from '../api';
+import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { parseFileContent, parseSpaceFileContent, uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
@@ -271,9 +271,26 @@ export function useStreaming(
         ? modelCaps.selectedModelProviderId
         : null;
 
+      // 混合路由：项目挂载 ID 提前算好——既进请求体，也决定该对话走云端还是本机执行面。
+      const effectiveProjectId = (() => {
+        const chat = useChatStore.getState().store.chats[currentChatId];
+        const fromChat = (chat as { projectId?: string } | undefined)?.projectId;
+        if (fromChat) return fromChat;
+        return useProjectStore.getState().currentProjectId || undefined;
+      })();
+      // 本地项目对话，或用户在运行位置选择器选了「本机」的普通对话 → 本机执行面。
+      const runTargetLocal =
+        (useChatStore.getState().store.chats[currentChatId] as { runTarget?: string } | undefined)
+          ?.runTarget === 'local';
+      if (isLocalProject(effectiveProjectId) || runTargetLocal) registerLocalChat(currentChatId);
+
       const r = await authFetch(`${effectiveApiUrl}/v1/chats/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...projectTargetHeaders(effectiveProjectId),
+          ...chatTargetHeaders(currentChatId),
+        },
         body: JSON.stringify({
           chat_id: currentChatId,
           message: wireMsg,
@@ -305,13 +322,7 @@ export function useStreaming(
           // the user is on the "project details" panel (chat freshly minted, not yet written
           // back); after switching to another chat, chat.projectId is the sole source of truth,
           // preventing store residue from polluting ordinary conversations.
-          ...((() => {
-            const chat = useChatStore.getState().store.chats[currentChatId];
-            const fromChat = (chat as { projectId?: string } | undefined)?.projectId;
-            if (fromChat) return { project_id: fromChat };
-            const fromStore = useProjectStore.getState().currentProjectId;
-            return fromStore ? { project_id: fromStore } : {};
-          })()),
+          ...(effectiveProjectId ? { project_id: effectiveProjectId } : {}),
         }),
         signal: abortController.signal,
       });
@@ -550,7 +561,7 @@ export function useStreaming(
     if (activeRun?.runId) {
       const uid = useAuthStore.getState().authUser?.user_id;
       // fire-and-forget: a failed cancel call must not block the local abort
-      cancelChatRun(activeRun.runId, uid).catch(() => { /* noop — backend orphan recovery is the safety net */ });
+      cancelChatRun(activeRun.runId, uid, targetId).catch(() => { /* noop — backend orphan recovery is the safety net */ });
     }
     const controller = abortControllersRef.current.get(targetId);
     if (controller) {
@@ -675,7 +686,7 @@ export function useStreaming(
       const ac = new AbortController();
       abortControllersRef.current.set(chatId, ac);
       try {
-        const resp = await followChatRun(active.run_id, 0, ac.signal, uid);
+        const resp = await followChatRun(active.run_id, 0, ac.signal, uid, chatId);
         if (!resp.ok || !resp.body) return;
         if (active.kind === 'plan_execute' && active.plan_id) {
           await processPlanExecuteStream(resp, chatId, active.plan_id, {
@@ -729,7 +740,7 @@ export function useStreaming(
       const ac = new AbortController();
       abortControllersRef.current.set(chatId, ac);
       try {
-        const resp = await followChatRun(active.run_id, 0, ac.signal, uid);
+        const resp = await followChatRun(active.run_id, 0, ac.signal, uid, chatId);
         if (resp.ok && resp.body) await processLoopStream(resp, chatId, !!active.enable_thinking);
       } catch (e: any) {
         if (e?.name !== 'AbortError') { /* replay failure is silent — the final message arrives with the next refresh */ }
@@ -747,7 +758,7 @@ export function useStreaming(
     abortControllersRef.current.set(chatId, abortController);
 
     try {
-      const r = await followChatRun(active.run_id, active.last_event_offset || 0, abortController.signal, uid);
+      const r = await followChatRun(active.run_id, active.last_event_offset || 0, abortController.signal, uid, chatId);
       if (!r.ok || !r.body) return;
       await processRegenerateStream(r, chatId, undefined, !!active.enable_thinking);
     } catch (e: any) {

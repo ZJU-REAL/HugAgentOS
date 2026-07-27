@@ -6,19 +6,23 @@ import {
   FileImageOutlined, FileTextOutlined, CloudDownloadOutlined,
   AppstoreOutlined, FolderOutlined, FolderOpenOutlined, FolderAddOutlined, RobotOutlined,
   OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SwapOutlined, SyncOutlined,
+  LaptopOutlined,
 } from '@ant-design/icons';
 import { useChatStore, useFileStore, useUIStore, useModelCapabilitiesStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
+import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { UserAgentItem } from '../../stores/agentStore';
 import type { ChatMode } from '../../stores/chatStore';
 import { FileAttachmentCard, MySpaceImportModal } from '../file';
 import CreateProjectModal from '../projects/CreateProjectModal';
-import { getApiUrl } from '../../api';
+import { getApiUrl, createLocalProject } from '../../api';
 import type { InstalledPluginItem } from '../../types';
 import { AgentMentionPopup, useAgentMention } from '../agent';
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
+import LocalApprovalPill from './LocalApprovalPill';
+import DeploymentSwitcher from './DeploymentSwitcher';
 import { ContextGauge } from './ContextGauge';
 import { t } from '../../i18n';
 
@@ -246,6 +250,39 @@ export function InputArea({
     !isPlanChat && !isBatchChat && !projectComposer && loopCapEnabled !== false && labEnabled !== false;
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [mySpaceImportOpen, setMySpaceImportOpen] = useState(false);
+  // Module C: no My Space in local mode → hide "从我的空间导入".
+  const activeLocalMode = useDeploymentModeStore((s) => s.activeLocal);
+  const provisionMode = useDeploymentModeStore((s) => s.provisionMode);
+  const isDesktopShell = useDeploymentModeStore((s) => s.isDesktop);
+  // 混合架构：双模式=云端身份 + 本机执行面，本地项目能力在 dual 下同样可用。
+  const localCapable = activeLocalMode || provisionMode === 'dual';
+  const refreshDeploymentMode = useDeploymentModeStore((s) => s.refresh);
+  useEffect(() => {
+    refreshDeploymentMode();
+  }, [refreshDeploymentMode]);
+
+  // 项目下拉里的「新建本地项目」：跳壳的文件夹选择器（/__desktop/pick-local-folder），
+  // 壳选完把路径以 hugagent:local-folder 事件回抛到页面；这里建项目、刷新列表并
+  // 把当前对话直接绑定到新项目上（项目页 composer 不注册，避免双实例重复建）。
+  useEffect(() => {
+    if (projectComposer || !isDesktopShell || !localCapable) return;
+    const onFolder = (e: Event) => {
+      const path = (e as CustomEvent<string>).detail;
+      if (!path) return;
+      const name = path.split(/[/\\]/).filter(Boolean).pop() || '本地项目';
+      createLocalProject({ name, local_path: path })
+        .then((proj) => {
+          void useProjectStore.getState().fetchProjects();
+          const { currentChatId: chatId, bindChatProject: bind } = useChatStore.getState();
+          if (chatId) bind(chatId, proj.project_id, proj.name);
+        })
+        .catch((err) => {
+          alert('新建本地项目失败：' + (err?.message || err));
+        });
+    };
+    window.addEventListener('hugagent:local-folder', onFolder as EventListener);
+    return () => window.removeEventListener('hugagent:local-folder', onFolder as EventListener);
+  }, [projectComposer, isDesktopShell, localCapable]);
 
   // / slash candidates: installed plugins (first) + enabled skills (after), filtered by the
   // keyword typed after the slash. The same list is shared by keyboard Enter selection and
@@ -547,6 +584,8 @@ export function InputArea({
 
   return (
     <div className="jx-inputArea">
+      {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
+          本地项目在本机），不在项目内提供切换入口 */}
       <LoopPlanBar onContinue={continueLoop} />
       {hasAttachments && (
         <div className="jx-inputAttachments">
@@ -591,6 +630,12 @@ export function InputArea({
           <div className="jx-inputQuoteBadge">{t('追问引用')}</div>
           <div className="jx-inputQuoteText" title={quotedFollowUp.text}>{quotedFollowUp.text}</div>
           <button type="button" className="jx-inputQuoteRemove" onClick={() => setQuotedFollowUp(null)} aria-label={t('移除引用')}>×</button>
+        </div>
+      )}
+      {/* 运行位置（云端/本机）胶囊：对话框上方独立一行，仅桌面双模式渲染 */}
+      {!projectComposer && (
+        <div className="jx-runTargetRow">
+          <DeploymentSwitcher />
         </div>
       )}
       <div className={`jx-composerWrap${isPlanChat && planMode ? ' jx-composerWrap--plan' : ''}`}>
@@ -720,7 +765,9 @@ export function InputArea({
                     key: `proj-${p.project_id}`,
                     label: (
                       <div className="jx-projectOption">
-                        <FolderOutlined className="jx-projectOptionIcon" />
+                        {(p.kind as string) === 'local'
+                          ? <LaptopOutlined className="jx-projectOptionIcon" />
+                          : <FolderOutlined className="jx-projectOptionIcon" />}
                         <span className="jx-projectOptionName" title={p.name}>{p.name}</span>
                         {boundProjectId === p.project_id && <img src="/home/check.svg" alt="" className="jx-modeCheckIcon" />}
                       </div>
@@ -730,16 +777,53 @@ export function InputArea({
                 ],
               },
               { type: 'divider' as const },
-              {
-                key: 'proj-new',
-                label: (
-                  <div className="jx-projectOption">
-                    <FolderAddOutlined className="jx-projectOptionIcon" />
-                    <span className="jx-projectOptionName">{t('新建个人项目')}</span>
-                  </div>
-                ),
-                onClick: () => setProjectCreateModalOpen(true),
-              },
+              // 新建入口：桌面壳里区分「云端项目 / 本地项目」（本地项目=选电脑上的一个
+              // 文件夹作为项目）；网页端保持原来的「新建个人项目」。跨模式点击时沿用壳的
+              // 切换哨兵（activate-local / connect-server，会重启应用进入对应模式）。
+              ...(isDesktopShell
+                ? [
+                    {
+                      key: 'proj-new-cloud',
+                      label: (
+                        <div className="jx-projectOption">
+                          <FolderAddOutlined className="jx-projectOptionIcon" />
+                          <span className="jx-projectOptionName">{t('新建云端项目')}</span>
+                        </div>
+                      ),
+                      onClick: () => {
+                        if (activeLocalMode) window.location.href = '/__desktop/connect-server';
+                        else setProjectCreateModalOpen(true);
+                      },
+                    },
+                    {
+                      key: 'proj-new-local',
+                      label: (
+                        <div className="jx-projectOption">
+                          <LaptopOutlined className="jx-projectOptionIcon" />
+                          <span className="jx-projectOptionName">{t('新建本地项目')}</span>
+                        </div>
+                      ),
+                      onClick: () => {
+                        // 混合架构：本地能力可用（本机模式或双模式）→ 直接选文件夹；
+                        // 仅纯云端形态仍走 activate-local 切换。
+                        window.location.href = localCapable
+                          ? '/__desktop/pick-local-folder'
+                          : '/__desktop/activate-local';
+                      },
+                    },
+                  ]
+                : [
+                    {
+                      key: 'proj-new',
+                      label: (
+                        <div className="jx-projectOption">
+                          <FolderAddOutlined className="jx-projectOptionIcon" />
+                          <span className="jx-projectOptionName">{t('新建个人项目')}</span>
+                        </div>
+                      ),
+                      onClick: () => setProjectCreateModalOpen(true),
+                    },
+                  ]),
             ];
             return (
               <Dropdown
@@ -766,6 +850,8 @@ export function InputArea({
               </Dropdown>
             );
           })()}
+
+      {!projectComposer && <LocalApprovalPill />}
 
           {isPlanChat && (
             <motion.button
@@ -945,13 +1031,17 @@ export function InputArea({
                   }));
                 })(),
               },
-              { type: 'divider' as const },
-              {
-                key: 'myspace',
-                icon: <CloudDownloadOutlined />,
-                label: t('从我的空间导入'),
-                onClick: () => setMySpaceImportOpen(true),
-              },
+              ...(activeLocalMode
+                ? []
+                : [
+                    { type: 'divider' as const },
+                    {
+                      key: 'myspace',
+                      icon: <CloudDownloadOutlined />,
+                      label: t('从我的空间导入'),
+                      onClick: () => setMySpaceImportOpen(true),
+                    },
+                  ]),
             ];
             return (
               <>

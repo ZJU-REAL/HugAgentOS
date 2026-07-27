@@ -181,3 +181,43 @@ def _build_project_section(
     template = _get_project_mode_template()
     rendered = render_template(template, vars=vars_, strict=False)
     return _collapse_blanks(rendered)
+
+
+def _build_local_project_section(
+    *,
+    project_name: str,
+    project_instructions: str,
+    local_path: str,
+    local_slug: str,
+) -> str:
+    """Build the desktop **local-mode** project section (ticket #05).
+
+    Unlike the cloud project section (a view over a MySpace folder), a local
+    project is the user's real folder on their own computer. The agent works in
+    it directly — no upload — but must respect the authorization + confirmation
+    boundary enforced by the execution policy gate (ticket #07). Only injected
+    when ``project_is_local`` is set, so the cloud/web deployment never sees it.
+    """
+    name = (project_name or "").strip() or "(未命名项目)"
+    path = (local_path or "").strip().rstrip("/")
+    ex = path or "/Users/xxx/项目"
+    lines = [
+        "## 本地项目模式",
+        f"当前会话绑定本地项目「{name}」——它就是**用户本机电脑上的真实文件夹**"
+        + (f"：`{path}`" if path else "")
+        + "。",
+        f"**一律用这个真实绝对路径直接操作文件**（`Read`/`Write`/`Edit`/`Glob`/`Grep`/`bash` "
+        f"在本机模式都支持真实路径，读写会实时落到用户电脑上）：例如 "
+        f"`Read('{ex}/某文件')`、`Write('{ex}/新文件.txt', ...)`、`bash('ls -la {ex}')`、"
+        f"`bash('rm {ex}/某文件')`。**不要**去 `/workspace/local/...` 找（那只是内部映射，可能不存在）。",
+        "",
+        "**在这个真实文件夹里新建、修改、删除、运行文件即可，产物实时出现在用户电脑上——"
+        "不需要、也不要引导用户上传到「我的空间」。**",
+        "越出授权目录的操作与危险命令受本机权限策略约束（可能被拦截或需用户确认）；"
+        "改本机文件前系统会自动快照、可回滚。",
+    ]
+    section = "\n".join(lines)
+    instr = _render_instructions_block(project_instructions)
+    if instr and instr.strip():
+        section = section + "\n\n" + instr.strip()
+    return _collapse_blanks(section)

@@ -152,9 +152,18 @@ def register_edit(
 
         # ── invariant 3: unchanged externally ──────────────────────────
         provider = _get_provider()
+        from core.config.local_mode import local_mode_enabled as _local_on
+
+        _is_local = _local_on()
         try:
-            current_bytes = await provider.get_file(_sess, physical, user_id=user_id)
-        except (_SE, _SCE) as exc:
+            if _is_local:
+                # Local desktop mode: read the real host file directly (works for
+                # real paths outside the sandbox workspace, which put/get refuse).
+                with open(physical, "rb") as _f:
+                    current_bytes = _f.read()
+            else:
+                current_bytes = await provider.get_file(_sess, physical, user_id=user_id)
+        except (_SE, _SCE, OSError) as exc:
             return resp_json({"error": f"读取文件失败: {exc}"})
 
         current_sha = hashlib.sha256(current_bytes).hexdigest()
@@ -200,9 +209,25 @@ def register_edit(
 
         # ── Write back to sandbox + update state ───────────────────────
         new_bytes = new_text.encode("utf-8")
+        # Local-mode write-back snapshot (ticket #08): back up before overwriting.
         try:
-            await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
-        except (_SE, _SCE) as exc:
+            from core.services.local_snapshot_service import maybe_snapshot_local
+
+            maybe_snapshot_local(physical)
+        except Exception:
+            pass
+        try:
+            if _is_local:
+                import os as _os
+
+                parent = _os.path.dirname(physical)
+                if parent:
+                    _os.makedirs(parent, exist_ok=True)
+                with open(physical, "wb") as _f:
+                    _f.write(new_bytes)
+            else:
+                await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
+        except (_SE, _SCE, OSError) as exc:
             return resp_json({"error": f"写入失败: {exc}"})
 
         new_sha = hashlib.sha256(new_bytes).hexdigest()

@@ -120,6 +120,69 @@ export interface HealthResponse {
 
 export const getApiUrl = () => import.meta.env.VITE_API_BASE_URL || '/api';
 
+// ── Hybrid routing（桌面双模式：云端为主 + 本机执行本地项目）─────────────────
+// 桌面壳的 Rust 反代按请求头分流：带 `X-HugAgentOS-Target: local` → 本机执行面
+// （127.0.0.1:32101），否则 → 云端。前端唯一的「本地」判定真源是项目
+// kind==='local'；聊天则继承其绑定项目。此处维护两个注册表（api.ts 内自洽，
+// 不引 store，避免模块环）。仅 provision_mode==='dual' 时生效；web 上恒为空。
+
+export const LOCAL_TARGET_HEADER = 'X-HugAgentOS-Target';
+
+let _hybridDual = false;
+/** 由 deploymentModeStore.refresh() 在探测到桌面双模式后开启。 */
+export function setHybridDual(on: boolean) {
+  _hybridDual = on;
+}
+export function isHybridDual(): boolean {
+  return _hybridDual;
+}
+
+const _localProjects = new Set<string>();
+const _localChats = new Set<string>();
+
+export function registerLocalProject(projectId: string) {
+  if (projectId) _localProjects.add(projectId);
+}
+export function registerLocalChat(chatId: string) {
+  if (chatId) _localChats.add(chatId);
+}
+export function isLocalProject(projectId?: string | null): boolean {
+  return !!projectId && _localProjects.has(projectId);
+}
+export function isLocalChat(chatId?: string | null): boolean {
+  return !!chatId && _localChats.has(chatId);
+}
+
+function localHeader(): Record<string, string> {
+  return { [LOCAL_TARGET_HEADER]: 'local' };
+}
+/** 项目作用域请求的路由头：本地项目 → 本机；否则空对象（云端默认）。 */
+export function projectTargetHeaders(projectId?: string | null): Record<string, string> {
+  return _hybridDual && isLocalProject(projectId) ? localHeader() : {};
+}
+/** 聊天作用域请求的路由头：本地项目的聊天 → 本机。 */
+export function chatTargetHeaders(chatId?: string | null): Record<string, string> {
+  return _hybridDual && isLocalChat(chatId) ? localHeader() : {};
+}
+
+/** 从 API URL 推断混合路由头（authFetch 自动兜底：预览/下载等散点直连调用）。 */
+function inferTargetHeadersFromUrl(url: string): Record<string, string> {
+  if (!_hybridDual) return {};
+  const pm = url.match(/\/v1\/projects\/([^/?#]+)/);
+  if (pm && isLocalProject(decodeURIComponent(pm[1]))) return localHeader();
+  const cm = url.match(/\/v1\/chats\/([^/?#]+)/);
+  if (cm && isLocalChat(decodeURIComponent(cm[1]))) return localHeader();
+  return {};
+}
+
+/** <img>/<iframe>/<video> 等 src 场景无法带请求头：本地归属的 URL 追加
+ *  ?hg_target=local（Rust 反代等价识别）。非本地/非双模式原样返回。 */
+export function maybeLocalizeUrl(url: string): string {
+  if (!url || Object.keys(inferTargetHeadersFromUrl(url)).length === 0) return url;
+  if (url.includes('hg_target=local')) return url;
+  return url.includes('?') ? `${url}&hg_target=local` : `${url}?hg_target=local`;
+}
+
 function isApiEnvelope<T>(payload: unknown): payload is ApiEnvelope<T> {
   return !!payload && typeof payload === 'object' && 'code' in payload && 'data' in payload;
 }
@@ -212,13 +275,23 @@ function throwIfSessionExpired(status: number, payload: unknown): void {
   throw new Error('Session expired');
 }
 
-export async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiRequest<T>(
+  path: string,
+  options?: RequestInit,
+  target?: 'local',
+): Promise<T> {
   const url = `${getApiUrl()}${path}`;
   const response = await fetch(url, {
     ...options,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      // 混合路由：显式声明本地目标时打头（web / 非双模式下反代忽略该头）。
+      ...(target === 'local' ? localHeader() : {}),
+      // 兜底：与 authFetch 同源推断——路径含本地项目/本地会话 id 时自动打头，
+      // 否则 file-confirm / pending-confirm 等会话作用域请求会被误发云端，
+      // 云端无此会话而报「会话不存在或无权访问」。
+      ...inferTargetHeadersFromUrl(path),
       ...(options?.headers ?? {}),
     },
   });
@@ -322,13 +395,32 @@ export async function listSessions(page: number = 1, pageSize: number = 50): Pro
   const data = unwrapData<PaginatedData<JsonObject>>(wrapped);
   const items = Array.isArray(data.items) ? data.items.map((item) => toChatItem(item)) : [];
   const pagination = data.pagination;
+  const localItems = await listLocalSessions(page, pageSize);
   return {
-    items,
-    total: pagination?.total_items ?? items.length,
+    items: [...items, ...localItems],
+    total: (pagination?.total_items ?? items.length) + localItems.length,
     page: pagination?.page ?? page,
     page_size: pagination?.page_size ?? pageSize,
     has_more: Boolean(pagination?.has_next),
   };
+}
+
+/** 双模式：从本机执行面拉「本地项目的会话」，并登记 chat→local 路由。其余场景返回空。 */
+export async function listLocalSessions(page: number = 1, pageSize: number = 50): Promise<ChatItem[]> {
+  if (!isHybridDual()) return [];
+  try {
+    const wrapped = await apiRequest<unknown>(
+      `/v1/chats?page=${page}&page_size=${pageSize}`,
+      undefined,
+      'local',
+    );
+    const data = unwrapData<PaginatedData<JsonObject>>(wrapped);
+    const items = Array.isArray(data.items) ? data.items.map((item) => toChatItem(item)) : [];
+    items.forEach((it) => registerLocalChat(it.id));
+    return items;
+  } catch {
+    return []; // 本机服务未就绪：不阻塞云端会话列表
+  }
 }
 
 export interface SearchResultItem extends ChatItem {
@@ -356,25 +448,35 @@ export async function searchSessions(
 }
 
 export async function getSession(chatId: string): Promise<ChatItem> {
-  const wrapped = await apiRequest<unknown>(`/v1/chats/${chatId}`);
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${chatId}`,
+    undefined,
+    isLocalChat(chatId) ? 'local' : undefined,
+  );
   const data = unwrapData<JsonObject>(wrapped);
   return toChatItem(data);
 }
 
 export async function createSession(data: CreateSessionRequest): Promise<ChatItem> {
-  const wrapped = await apiRequest<unknown>('/v1/chats', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+  const projectId = (data as { project_id?: string }).project_id;
+  const local = isLocalProject(projectId);
+  const wrapped = await apiRequest<unknown>(
+    '/v1/chats',
+    { method: 'POST', body: JSON.stringify(data) },
+    local ? 'local' : undefined,
+  );
   const payload = unwrapData<JsonObject>(wrapped);
-  return toChatItem(payload);
+  const item = toChatItem(payload);
+  if (local) registerLocalChat(item.id);
+  return item;
 }
 
 export async function updateSession(chatId: string, data: UpdateSessionRequest): Promise<ChatItem> {
-  const wrapped = await apiRequest<unknown>(`/v1/chats/${chatId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  });
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${chatId}`,
+    { method: 'PATCH', body: JSON.stringify(data) },
+    isLocalChat(chatId) ? 'local' : undefined,
+  );
   const payload = unwrapData<JsonObject>(wrapped);
   return {
     id: chatId,
@@ -389,9 +491,11 @@ export async function updateSession(chatId: string, data: UpdateSessionRequest):
 }
 
 export async function deleteSession(chatId: string): Promise<void> {
-  await apiRequest(`/v1/chats/${chatId}`, {
-    method: 'DELETE',
-  });
+  await apiRequest(
+    `/v1/chats/${chatId}`,
+    { method: 'DELETE' },
+    isLocalChat(chatId) ? 'local' : undefined,
+  );
 }
 
 export type ChatDetail = {
@@ -406,12 +510,20 @@ export type ChatDetail = {
 
 /** Fetch chat detail, extended by the active edition's response contract. */
 export async function getChatDetail(chatId: string): Promise<ChatDetail> {
-  const wrapped = await apiRequest<unknown>(`/v1/chats/${encodeURIComponent(chatId)}`);
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${encodeURIComponent(chatId)}`,
+    undefined,
+    isLocalChat(chatId) ? 'local' : undefined,
+  );
   return unwrapData<ChatDetail>(wrapped);
 }
 
 export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
-  const wrapped = await apiRequest<unknown>(`/v1/chats/${chatId}/messages`);
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${chatId}/messages`,
+    undefined,
+    isLocalChat(chatId) ? 'local' : undefined,
+  );
   const data = unwrapData<PaginatedData<JsonObject>>(wrapped);
   const items = Array.isArray(data.items) ? data.items : [];
   return items.map((item) => ({
@@ -439,8 +551,13 @@ function buildQuery(params: Record<string, string | number | undefined | null>):
  * Cancel a running chat run. Truly kills the backend asyncio task.
  * `userId` is a fallback for non-cookie auth (mock/dev); production uses cookies.
  */
-export async function cancelChatRun(runId: string, userId?: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/chat-runs/${runId}/cancel${buildQuery({ user_id: userId })}`, { method: 'POST' });
+export async function cancelChatRun(runId: string, userId?: string, chatId?: string): Promise<void> {
+  // runId 无法反查归属，路径推断兜底失效——本机会话需显式传 chatId 打路由头，
+  // 否则取消请求落云端，本机任务杀不掉。
+  await apiRequest<unknown>(`/v1/chat-runs/${runId}/cancel${buildQuery({ user_id: userId })}`, {
+    method: 'POST',
+    headers: { ...chatTargetHeaders(chatId) },
+  });
 }
 
 /**
@@ -480,10 +597,11 @@ export async function followChatRun(
   fromOffset: number = 0,
   signal?: AbortSignal,
   userId?: string,
+  chatId?: string,
 ): Promise<Response> {
   const qs = buildQuery({ from: fromOffset, user_id: userId });
   const url = `${getApiUrl()}/v1/chats/stream/${encodeURIComponent(runId)}${qs || '?from=0'}`;
-  return authFetch(url, { method: 'GET', signal });
+  return authFetch(url, { method: 'GET', signal, headers: { ...chatTargetHeaders(chatId) } });
 }
 
 /**
@@ -496,7 +614,7 @@ export async function regenerateMessage(
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/chats/${chatId}/regenerate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
     body: JSON.stringify({ message_index: messageIndex }),
     signal,
   });
@@ -643,7 +761,7 @@ export async function editAndRegenerate(
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/chats/${chatId}/edit`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
     body: JSON.stringify({ message_index: messageIndex, new_content: newContent }),
     signal,
   });
@@ -1691,8 +1809,14 @@ export async function logout(): Promise<string | undefined> {
  * Use in App.tsx for direct fetch() calls that bypass apiRequest().
  */
 export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  // 混合路由兜底：按 URL 中的项目/聊天归属自动打本机头（调用方显式头优先）。
+  const inferred = inferTargetHeadersFromUrl(String(input));
+  const mergedInit: RequestInit | undefined =
+    Object.keys(inferred).length > 0
+      ? { ...init, headers: { ...inferred, ...(init?.headers ?? {}) } }
+      : init;
   return fetch(input, {
-    ...init,
+    ...mergedInit,
     credentials: 'include',
   }).then(async (response) => {
     if (response.status === 401 && _on401) {
@@ -2347,8 +2471,26 @@ export async function listProjects(opts: { q?: string; sort?: string; page?: num
   if (opts.page) params.set('page', String(opts.page));
   if (opts.pageSize) params.set('page_size', String(opts.pageSize));
   const qs = params.toString();
-  const wrapped = await apiRequest<unknown>(`/v1/projects${qs ? `?${qs}` : ''}`);
-  return unwrapData<ProjectListResponse>(wrapped);
+  const path = `/v1/projects${qs ? `?${qs}` : ''}`;
+  const wrapped = await apiRequest<unknown>(path);
+  const cloud = unwrapData<ProjectListResponse>(wrapped);
+  if (!isHybridDual()) return cloud;
+  // 双模式：云端项目 + 本机的本地文件夹项目合并为一张列表（本地项目登记路由表）。
+  // 本机服务未就绪/无本地项目时静默退回云端列表。
+  try {
+    const localWrapped = await apiRequest<unknown>(path, undefined, 'local');
+    const local = unwrapData<ProjectListResponse>(localWrapped);
+    const localItems = (local?.items || []).filter((p) => (p.kind as string) === 'local');
+    localItems.forEach((p) => registerLocalProject(p.project_id));
+    if (!localItems.length) return cloud;
+    const seen = new Set((cloud.items || []).map((p) => p.project_id));
+    return {
+      ...cloud,
+      items: [...(cloud.items || []), ...localItems.filter((p) => !seen.has(p.project_id))],
+    };
+  } catch {
+    return cloud;
+  }
 }
 
 export async function createProject(body: {
@@ -2364,8 +2506,86 @@ export async function createProject(body: {
   return unwrapData<ProjectDetail>(wrapped);
 }
 
+/**
+ * Create a desktop local-folder project (ticket #03). Only works inside the
+ * desktop local backend (the route is gated on DEPLOY_PROFILE=local); on the
+ * cloud/web deployment this returns 403 and is never invoked.
+ */
+export async function createLocalProject(body: {
+  name: string;
+  local_path: string;
+  local_machine?: string;
+  description?: string;
+}): Promise<ProjectDetail> {
+  const wrapped = await apiRequest<unknown>(
+    '/v1/projects',
+    { method: 'POST', body: JSON.stringify({ kind: 'local', ...body }) },
+    'local',
+  );
+  const detail = unwrapData<ProjectDetail>(wrapped);
+  registerLocalProject(detail.project_id);
+  return detail;
+}
+
+// ── Desktop local permissions (ticket #06) ────────────────────────────────
+export interface LocalGrant {
+  path: string;
+  mode: 'read' | 'readwrite';
+}
+export type LocalDisposition = 'block' | 'confirm' | 'allow';
+export interface LocalPolicy {
+  out_of_scope?: LocalDisposition;
+  delete?: LocalDisposition;
+  system_write?: LocalDisposition;
+  network?: LocalDisposition;
+  privilege?: LocalDisposition;
+}
+
+export async function listLocalGrants(): Promise<LocalGrant[]> {
+  const wrapped = await apiRequest<{ items: LocalGrant[] }>('/v1/local/grants', undefined, 'local');
+  return unwrapData<{ items: LocalGrant[] }>(wrapped).items || [];
+}
+export async function addLocalGrant(path: string, mode: 'read' | 'readwrite' = 'readwrite'): Promise<void> {
+  await apiRequest('/v1/local/grants', { method: 'POST', body: JSON.stringify({ path, mode }) }, 'local');
+}
+export async function removeLocalGrant(path: string): Promise<void> {
+  await apiRequest(`/v1/local/grants?path=${encodeURIComponent(path)}`, { method: 'DELETE' }, 'local');
+}
+export async function getLocalPolicy(): Promise<LocalPolicy> {
+  const wrapped = await apiRequest<LocalPolicy>('/v1/local/policy', undefined, 'local');
+  return unwrapData<LocalPolicy>(wrapped) || {};
+}
+export async function setLocalPolicy(policy: LocalPolicy): Promise<void> {
+  await apiRequest('/v1/local/policy', { method: 'PUT', body: JSON.stringify(policy) }, 'local');
+}
+
+export interface LocalSnapshotFile {
+  path: string;
+  count: number;
+}
+export type LocalApprovalMode = 'strict' | 'standard' | 'full';
+export async function getLocalApprovalMode(): Promise<LocalApprovalMode> {
+  const wrapped = await apiRequest<{ mode: LocalApprovalMode }>('/v1/local/approval-mode', undefined, 'local');
+  return unwrapData<{ mode: LocalApprovalMode }>(wrapped).mode || 'standard';
+}
+export async function setLocalApprovalMode(mode: LocalApprovalMode): Promise<void> {
+  await apiRequest('/v1/local/approval-mode', { method: 'PUT', body: JSON.stringify({ mode }) }, 'local');
+}
+
+export async function listLocalSnapshots(): Promise<LocalSnapshotFile[]> {
+  const wrapped = await apiRequest<{ items: LocalSnapshotFile[] }>('/v1/local/snapshots', undefined, 'local');
+  return unwrapData<{ items: LocalSnapshotFile[] }>(wrapped).items || [];
+}
+export async function rollbackLocalFile(path: string): Promise<void> {
+  await apiRequest('/v1/local/rollback', { method: 'POST', body: JSON.stringify({ path }) }, 'local');
+}
+
 export async function getProject(projectId: string): Promise<ProjectDetail> {
-  const wrapped = await apiRequest<unknown>(`/v1/projects/${encodeURIComponent(projectId)}`);
+  const wrapped = await apiRequest<unknown>(
+    `/v1/projects/${encodeURIComponent(projectId)}`,
+    undefined,
+    isLocalProject(projectId) ? 'local' : undefined,
+  );
   return unwrapData<ProjectDetail>(wrapped);
 }
 
@@ -2373,31 +2593,35 @@ export async function updateProject(
   projectId: string,
   patch: Partial<Pick<ProjectItem, 'name' | 'description' | 'instructions' | 'pinned' | 'icon_color' | 'memory_enabled' | 'memory_write_enabled'>>,
 ): Promise<ProjectDetail> {
-  const wrapped = await apiRequest<unknown>(`/v1/projects/${encodeURIComponent(projectId)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  });
+  const wrapped = await apiRequest<unknown>(
+    `/v1/projects/${encodeURIComponent(projectId)}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+    isLocalProject(projectId) ? 'local' : undefined,
+  );
   return unwrapData<ProjectDetail>(wrapped);
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+  await apiRequest<unknown>(
+    `/v1/projects/${encodeURIComponent(projectId)}`,
+    { method: 'DELETE' },
+    isLocalProject(projectId) ? 'local' : undefined,
+  );
 }
 
 export async function toggleProjectFavorite(projectId: string, on: boolean): Promise<void> {
   await apiRequest<unknown>(
     `/v1/projects/${encodeURIComponent(projectId)}/favorite`,
     { method: on ? 'POST' : 'DELETE' },
+    isLocalProject(projectId) ? 'local' : undefined,
   );
 }
 
 export async function updateProjectInstructions(projectId: string, instructions: string): Promise<ProjectDetail> {
   const wrapped = await apiRequest<unknown>(
     `/v1/projects/${encodeURIComponent(projectId)}/instructions`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({ instructions }),
-    },
+    { method: 'PATCH', body: JSON.stringify({ instructions }) },
+    isLocalProject(projectId) ? 'local' : undefined,
   );
   return unwrapData<ProjectDetail>(wrapped);
 }
@@ -2408,7 +2632,11 @@ export async function listProjectFiles(projectId: string): Promise<{
   capacity_used: number;
   capacity_limit: number;
 }> {
-  const wrapped = await apiRequest<unknown>(`/v1/projects/${encodeURIComponent(projectId)}/files`);
+  const wrapped = await apiRequest<unknown>(
+    `/v1/projects/${encodeURIComponent(projectId)}/files`,
+    undefined,
+    isLocalProject(projectId) ? 'local' : undefined,
+  );
   const data = unwrapData<{ items: ProjectFileItem[]; total: number; capacity_used: number; capacity_limit: number }>(wrapped);
   return {
     items: data?.items || [],
@@ -2431,6 +2659,7 @@ export async function uploadProjectFile(projectId: string, file: File): Promise<
   const resp = await fetch(url, {
     method: 'POST',
     credentials: 'include',
+    headers: { ...projectTargetHeaders(projectId) },
     body: form,
   });
   const payload = await resp.json().catch(() => ({}));
@@ -2445,6 +2674,7 @@ export async function removeProjectFile(projectId: string, artifactId: string): 
   await apiRequest<unknown>(
     `/v1/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(artifactId)}`,
     { method: 'DELETE' },
+    isLocalProject(projectId) ? 'local' : undefined,
   );
 }
 
@@ -2457,6 +2687,8 @@ export async function listProjectChats(
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), scope });
   const wrapped = await apiRequest<unknown>(
     `/v1/projects/${encodeURIComponent(projectId)}/chats?${params.toString()}`,
+    undefined,
+    isLocalProject(projectId) ? 'local' : undefined,
   );
   const data = unwrapData<{ items: ProjectChatSummary[]; pagination: { total_items: number } }>(wrapped);
   return { items: data?.items || [], total: data?.pagination?.total_items || 0 };
@@ -2879,6 +3111,8 @@ export async function cancelLoop(loopId: string): Promise<boolean> {
 // ── Sites (site hosting) ────────────────────────────────────────────────
 
 export interface SiteItem extends SiteEditionFields {
+  /** 混合架构：站点发布在云端还是本机执行面（桌面双模式合并视图）。 */
+  origin?: 'cloud' | 'local';
   site_id: string;
   slug: string;
   /** In-app relative access URL, of the form /site/<slug>/ */
@@ -2922,12 +3156,37 @@ function toSiteItem(raw: JsonObject): SiteItem {
   };
 }
 
+/** 站点管理操作的路由目标：本机发布的站点 → 本机执行面。 */
+function siteTarget(origin?: 'cloud' | 'local'): 'local' | undefined {
+  return origin === 'local' ? 'local' : undefined;
+}
+
 export async function listSites(page = 1, pageSize = 50): Promise<{ items: SiteItem[]; total: number }> {
   const wrapped = await apiRequest<unknown>(`/v1/sites?page=${page}&page_size=${pageSize}`);
   const data = unwrapData<JsonObject>(wrapped);
-  const items = Array.isArray(data.items) ? (data.items as JsonObject[]).map(toSiteItem) : [];
+  let items: SiteItem[] = Array.isArray(data.items)
+    ? (data.items as JsonObject[]).map((r) => ({ ...toSiteItem(r), origin: 'cloud' as const }))
+    : [];
   const pagination = (data.pagination ?? {}) as JsonObject;
-  return { items, total: Number(pagination.total_items ?? items.length) };
+  let total = Number(pagination.total_items ?? items.length);
+  // 双模式：并入本机发布的站点（本机执行的建站会话把站点落在本机库），
+  // 按更新时间倒序混排；本机未就绪时静默仅展示云端。
+  if (isHybridDual()) {
+    try {
+      const lw = await apiRequest<unknown>(
+        `/v1/sites?page=${page}&page_size=${pageSize}`, undefined, 'local',
+      );
+      const ld = unwrapData<JsonObject>(lw);
+      const localItems = Array.isArray(ld.items)
+        ? (ld.items as JsonObject[]).map((r) => ({ ...toSiteItem(r), origin: 'local' as const }))
+        : [];
+      const lp = (ld.pagination ?? {}) as JsonObject;
+      total += Number(lp.total_items ?? localItems.length);
+      items = [...items, ...localItems].sort((a, b) =>
+        String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')));
+    } catch { /* local backend not ready */ }
+  }
+  return { items, total };
 }
 
 export async function updateSite(
@@ -2938,16 +3197,17 @@ export async function updateSite(
     slug?: string;
     description?: string;
   } & SiteUpdateEditionFields,
+  origin?: 'cloud' | 'local',
 ): Promise<SiteItem> {
   const wrapped = await apiRequest<unknown>(`/v1/sites/${encodeURIComponent(siteId)}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
-  });
-  return toSiteItem(unwrapData<JsonObject>(wrapped));
+  }, siteTarget(origin));
+  return { ...toSiteItem(unwrapData<JsonObject>(wrapped)), origin };
 }
 
-export async function deleteSite(siteId: string): Promise<void> {
-  await apiRequest(`/v1/sites/${encodeURIComponent(siteId)}`, { method: 'DELETE' });
+export async function deleteSite(siteId: string, origin?: 'cloud' | 'local'): Promise<void> {
+  await apiRequest(`/v1/sites/${encodeURIComponent(siteId)}`, { method: 'DELETE' }, siteTarget(origin));
 }
 
 export interface SiteVersionItem {
@@ -2970,28 +3230,36 @@ export interface SiteKvItem {
   updated_at: string | null;
 }
 
-export async function getSiteDetail(siteId: string): Promise<SiteItem & { versions: SiteVersionItem[] }> {
-  const wrapped = await apiRequest<unknown>(`/v1/sites/${encodeURIComponent(siteId)}`);
+export async function getSiteDetail(
+  siteId: string, origin?: 'cloud' | 'local',
+): Promise<SiteItem & { versions: SiteVersionItem[] }> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/sites/${encodeURIComponent(siteId)}`, undefined, siteTarget(origin),
+  );
   const data = unwrapData<JsonObject>(wrapped);
   return {
     ...toSiteItem(data),
+    origin,
     versions: Array.isArray(data.versions) ? (data.versions as SiteVersionItem[]) : [],
   };
 }
 
-export async function rollbackSite(siteId: string, version: number): Promise<SiteItem> {
+export async function rollbackSite(
+  siteId: string, version: number, origin?: 'cloud' | 'local',
+): Promise<SiteItem> {
   const wrapped = await apiRequest<unknown>(`/v1/sites/${encodeURIComponent(siteId)}/rollback`, {
     method: 'POST',
     body: JSON.stringify({ version }),
-  });
-  return toSiteItem(unwrapData<JsonObject>(wrapped));
+  }, siteTarget(origin));
+  return { ...toSiteItem(unwrapData<JsonObject>(wrapped)), origin };
 }
 
 export async function listSiteSubmissions(
-  siteId: string, page = 1, pageSize = 50,
+  siteId: string, page = 1, pageSize = 50, origin?: 'cloud' | 'local',
 ): Promise<{ items: SiteSubmissionItem[]; total: number }> {
   const wrapped = await apiRequest<unknown>(
     `/v1/sites/${encodeURIComponent(siteId)}/submissions?page=${page}&page_size=${pageSize}`,
+    undefined, siteTarget(origin),
   );
   const data = unwrapData<JsonObject>(wrapped);
   const pagination = (data.pagination ?? {}) as JsonObject;
@@ -3002,24 +3270,33 @@ export async function listSiteSubmissions(
 }
 
 export async function exportSiteSubmissions(
-  siteId: string,
+  siteId: string, origin?: 'cloud' | 'local',
 ): Promise<{ artifact_id: string; filename: string; rows: number; download_url: string }> {
   const wrapped = await apiRequest<unknown>(
     `/v1/sites/${encodeURIComponent(siteId)}/submissions/export`,
-    { method: 'POST' },
+    { method: 'POST' }, siteTarget(origin),
   );
-  return unwrapData<{ artifact_id: string; filename: string; rows: number; download_url: string }>(wrapped);
+  const res = unwrapData<{ artifact_id: string; filename: string; rows: number; download_url: string }>(wrapped);
+  // 本机导出的产物在本机端，下载链接补路由标记（window.open 带不上请求头）。
+  if (origin === 'local' && res.download_url && !res.download_url.includes('hg_target=local')) {
+    res.download_url += res.download_url.includes('?') ? '&hg_target=local' : '?hg_target=local';
+  }
+  return res;
 }
 
-export async function clearSiteSubmissions(siteId: string): Promise<number> {
+export async function clearSiteSubmissions(siteId: string, origin?: 'cloud' | 'local'): Promise<number> {
   const wrapped = await apiRequest<unknown>(
-    `/v1/sites/${encodeURIComponent(siteId)}/submissions`, { method: 'DELETE' },
+    `/v1/sites/${encodeURIComponent(siteId)}/submissions`, { method: 'DELETE' }, siteTarget(origin),
   );
   return Number(unwrapData<JsonObject>(wrapped).cleared ?? 0);
 }
 
-export async function listSiteKv(siteId: string): Promise<{ items: SiteKvItem[]; total: number }> {
-  const wrapped = await apiRequest<unknown>(`/v1/sites/${encodeURIComponent(siteId)}/kv`);
+export async function listSiteKv(
+  siteId: string, origin?: 'cloud' | 'local',
+): Promise<{ items: SiteKvItem[]; total: number }> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/sites/${encodeURIComponent(siteId)}/kv`, undefined, siteTarget(origin),
+  );
   const data = unwrapData<JsonObject>(wrapped);
   return {
     items: Array.isArray(data.items) ? (data.items as SiteKvItem[]) : [],
@@ -3027,16 +3304,18 @@ export async function listSiteKv(siteId: string): Promise<{ items: SiteKvItem[];
   };
 }
 
-export async function deleteSiteKvKey(siteId: string, key: string): Promise<void> {
+export async function deleteSiteKvKey(
+  siteId: string, key: string, origin?: 'cloud' | 'local',
+): Promise<void> {
   await apiRequest(
     `/v1/sites/${encodeURIComponent(siteId)}/kv/${encodeURIComponent(key)}`,
-    { method: 'DELETE' },
+    { method: 'DELETE' }, siteTarget(origin),
   );
 }
 
-export async function clearSiteKv(siteId: string): Promise<number> {
+export async function clearSiteKv(siteId: string, origin?: 'cloud' | 'local'): Promise<number> {
   const wrapped = await apiRequest<unknown>(
-    `/v1/sites/${encodeURIComponent(siteId)}/kv`, { method: 'DELETE' },
+    `/v1/sites/${encodeURIComponent(siteId)}/kv`, { method: 'DELETE' }, siteTarget(origin),
   );
   return Number(unwrapData<JsonObject>(wrapped).cleared ?? 0);
 }
@@ -3259,6 +3538,8 @@ function logQueryString(q: MyLogQuery): string {
 }
 
 export interface MyToolLogItem {
+  /** 混合架构：该行来自云端还是本机执行面（桌面双模式合并视图）。 */
+  origin?: 'cloud' | 'local';
   id: string;
   trace_id?: string | null;
   chat_id?: string | null;
@@ -3284,6 +3565,8 @@ export interface MyToolLogItem {
 }
 
 export interface MySkillLogItem {
+  /** 混合架构：该行来自云端还是本机执行面（桌面双模式合并视图）。 */
+  origin?: 'cloud' | 'local';
   id: string;
   trace_id?: string | null;
   chat_id?: string | null;
@@ -3313,6 +3596,8 @@ export interface MySkillLogItem {
 }
 
 export interface MySubagentLogItem {
+  /** 混合架构：该行来自云端还是本机执行面（桌面双模式合并视图）。 */
+  origin?: 'cloud' | 'local';
   id: string;
   trace_id?: string | null;
   chat_id?: string | null;
@@ -3354,6 +3639,8 @@ export interface MySubagentLogDetail extends MySubagentLogItem {
 }
 
 export interface MyUsageItem {
+  /** 混合架构：该行来自云端还是本机执行面（桌面双模式合并视图）。 */
+  origin?: 'cloud' | 'local';
   message_id: string;
   chat_id: string;
   session_title?: string | null;
@@ -3366,6 +3653,8 @@ export interface MyUsageItem {
 }
 
 export interface MyUsageSummaryItem {
+  /** 混合架构：该行来自云端还是本机执行面（桌面双模式合并视图）。 */
+  origin?: 'cloud' | 'local';
   group_key: string;
   total_requests: number;
   prompt_tokens: number;
@@ -3374,17 +3663,68 @@ export interface MyUsageSummaryItem {
 }
 
 async function fetchLogPage<T>(path: string, q: MyLogQuery): Promise<MyLogPage<T>> {
-  const wrapped = await apiRequest<unknown>(`${path}?${logQueryString(q)}`);
-  const data = unwrapData<PaginatedData<T>>(wrapped);
-  return { items: data.items ?? [], pagination: data.pagination };
+  if (!isHybridDual()) {
+    const wrapped = await apiRequest<unknown>(`${path}?${logQueryString(q)}`);
+    const data = unwrapData<PaginatedData<T>>(wrapped);
+    return {
+      items: (data.items ?? []).map((it) => ({ ...it, origin: 'cloud' as const })),
+      pagination: data.pagination,
+    };
+  }
+  // 双模式合并分页：不能「云端第N页 + 本机第N页」直接拼——两个独立分页流拼出的
+  // 页边界互相错位，且当页 total 会随本机当页有无数据来回跳（55→38 的翻页 bug）。
+  // 正确做法：两端各取时间线前 page*size 条，全局按时间倒序归并后再切当前页窗口；
+  // total 恒为两端 total 之和。本机未就绪时静默仅展示云端。
+  const page = q.page ?? 1;
+  const size = q.pageSize ?? 20;
+  // 后端 page_size 上限 200（me_logs.py）：翻到 200 条之后的页仅能展示已取窗口，
+  // 个人日志查看器可接受，不再逐页补拉。
+  const windowSize = Math.min(page * size, 200);
+  const wq = logQueryString({ ...q, page: 1, pageSize: windowSize });
+  const [cloudRes, localRes] = await Promise.allSettled([
+    apiRequest<unknown>(`${path}?${wq}`),
+    apiRequest<unknown>(`${path}?${wq}`, undefined, 'local'),
+  ]);
+  if (cloudRes.status === 'rejected') throw cloudRes.reason;
+  const cloud = unwrapData<PaginatedData<T>>(cloudRes.value);
+  const cloudItems = (cloud.items ?? []).map((it) => ({ ...it, origin: 'cloud' as const }));
+  let localItems: Array<T & { origin: 'cloud' | 'local' }> = [];
+  let localTotal = 0;
+  if (localRes.status === 'fulfilled') {
+    const ld = unwrapData<PaginatedData<T>>(localRes.value);
+    localItems = (ld.items ?? []).map((it) => ({ ...it, origin: 'local' as const }));
+    localTotal = ld.pagination?.total_items ?? localItems.length;
+  }
+  const merged = [...cloudItems, ...localItems].sort((a, b) => {
+    const ta = String((a as { created_at?: string }).created_at ?? '');
+    const tb = String((b as { created_at?: string }).created_at ?? '');
+    return tb.localeCompare(ta);
+  });
+  const totalItems = (cloud.pagination?.total_items ?? cloudItems.length) + localTotal;
+  const totalPages = Math.max(1, Math.ceil(totalItems / size));
+  return {
+    items: merged.slice((page - 1) * size, page * size),
+    pagination: {
+      page,
+      page_size: size,
+      total_items: totalItems,
+      total_pages: totalPages,
+      has_previous: page > 1,
+      has_next: page < totalPages,
+    },
+  };
 }
 
 export function getMyToolLogs(q: MyLogQuery = {}): Promise<MyLogPage<MyToolLogItem>> {
   return fetchLogPage<MyToolLogItem>('/v1/me/logs/tools', q);
 }
 
-export async function getMyToolLog(logId: string): Promise<MyToolLogItem> {
-  const wrapped = await apiRequest<unknown>(`/v1/me/logs/tools/${encodeURIComponent(logId)}`);
+export async function getMyToolLog(logId: string, origin?: 'cloud' | 'local'): Promise<MyToolLogItem> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/me/logs/tools/${encodeURIComponent(logId)}`,
+    undefined,
+    origin === 'local' ? 'local' : undefined,
+  );
   return unwrapData<MyToolLogItem>(wrapped);
 }
 
@@ -3392,8 +3732,12 @@ export function getMySkillLogs(q: MyLogQuery = {}): Promise<MyLogPage<MySkillLog
   return fetchLogPage<MySkillLogItem>('/v1/me/logs/skills', q);
 }
 
-export async function getMySkillLog(logId: string): Promise<MySkillLogItem> {
-  const wrapped = await apiRequest<unknown>(`/v1/me/logs/skills/${encodeURIComponent(logId)}`);
+export async function getMySkillLog(logId: string, origin?: 'cloud' | 'local'): Promise<MySkillLogItem> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/me/logs/skills/${encodeURIComponent(logId)}`,
+    undefined,
+    origin === 'local' ? 'local' : undefined,
+  );
   return unwrapData<MySkillLogItem>(wrapped);
 }
 
@@ -3401,9 +3745,11 @@ export function getMySubagentLogs(q: MyLogQuery = {}): Promise<MyLogPage<MySubag
   return fetchLogPage<MySubagentLogItem>('/v1/me/logs/subagents', q);
 }
 
-export async function getMySubagentLog(logId: string): Promise<MySubagentLogDetail> {
+export async function getMySubagentLog(logId: string, origin?: 'cloud' | 'local'): Promise<MySubagentLogDetail> {
   const wrapped = await apiRequest<unknown>(
     `/v1/me/logs/subagents/${encodeURIComponent(logId)}`,
+    undefined,
+    origin === 'local' ? 'local' : undefined,
   );
   return unwrapData<MySubagentLogDetail>(wrapped);
 }
@@ -3417,5 +3763,18 @@ export async function getMyUsageSummary(
 ): Promise<MyUsageSummaryItem[]> {
   const wrapped = await apiRequest<unknown>(`/v1/me/logs/usage/summary?group_by=${groupBy}`);
   const data = unwrapData<MyUsageSummaryItem[]>(wrapped);
-  return Array.isArray(data) ? data : [];
+  const cloud = (Array.isArray(data) ? data : []).map((it) => ({ ...it, origin: 'cloud' as 'cloud' | 'local' }));
+  if (!isHybridDual()) return cloud;
+  try {
+    const lw = await apiRequest<unknown>(
+      `/v1/me/logs/usage/summary?group_by=${groupBy}`,
+      undefined,
+      'local',
+    );
+    const ld = unwrapData<MyUsageSummaryItem[]>(lw);
+    const local = (Array.isArray(ld) ? ld : []).map((it) => ({ ...it, origin: 'local' as 'cloud' | 'local' }));
+    return [...cloud, ...local];
+  } catch {
+    return cloud;
+  }
 }

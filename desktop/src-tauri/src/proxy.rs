@@ -23,6 +23,7 @@ use tokio::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::brand;
+use crate::config::ProvisionMode;
 use crate::local_server::{LocalServerManager, LocalServerStatus};
 
 #[derive(Clone)]
@@ -35,7 +36,25 @@ pub struct ProxyState {
     pub token: Arc<RwLock<Option<String>>>,
     pub local_server: Arc<LocalServerManager>,
     pub active_local: bool,
+    /// 初始化选定的运行形态（本机 / 云端 / 双模式）。前端据此决定是否展示切换。
+    pub provision_mode: ProvisionMode,
+    /// 记住的云端服务器地址，供初始化选择页预填。
+    pub cloud_server_base: String,
+    /// 混合架构（Dual）：本机执行面地址（http://127.0.0.1:32101）。
+    pub local_base: String,
+    /// 仅 Dual 为 true：启用按请求路由（X-HugAgentOS-Target: local → 本机）。
+    pub hybrid_local: bool,
+    /// 桥接秘密：本机路由请求注入 `X-Desktop-Bridge` 证明来自壳。
+    pub bridge_secret: String,
+    /// base64 编码的云端用户信息（登录后由 hybrid::on_cloud_login 填充）。
+    pub bridge_user: Arc<RwLock<Option<String>>>,
 }
+
+/// 前端标记「该请求属于本地项目」的头；反代读取后剥离，不透传给任何后端。
+pub const TARGET_HEADER: &str = "x-hugagent-target";
+/// 桥接头（注入本机路由请求；来自 WebView 的同名头一律剥离防伪造）。
+pub const BRIDGE_SECRET_HEADER: &str = "x-desktop-bridge";
+pub const BRIDGE_USER_HEADER: &str = "x-desktop-bridge-user";
 
 /// 在 127.0.0.1 随机端口起反代，返回实际端口。axum serve 在后台 task 常驻。
 pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> {
@@ -61,6 +80,7 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
         .route("/__desktop/login", get(login_page))
         .route("/__desktop/close-confirm", get(close_confirm_page))
         .route("/__desktop/server-config", get(server_config_page))
+        .route("/__desktop/init", get(init_page))
         .route("/__desktop/setup", get(setup_page))
         .route("/__desktop/setup/status", get(setup_status))
         .route("/__desktop/setup/install", post(start_local_install))
@@ -101,7 +121,22 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     let headers: HeaderMap = parts.headers;
 
     let path_q = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
-    let target = format!("{}{}", state.server_base, path_q);
+
+    // 混合架构（Dual）：前端给「本地项目」的请求打 X-HugAgentOS-Target: local，
+    // 反代把它们转到本机执行面（127.0.0.1:32101），其余一律云端。单一形态不路由。
+    // <img>/<iframe> 等 src 场景无法带请求头，等价支持 query 参数 ?hg_target=local。
+    let to_local = state.hybrid_local
+        && (headers
+            .get(TARGET_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.eq_ignore_ascii_case("local"))
+            .unwrap_or(false)
+            || uri
+                .query()
+                .map(|q| q.split('&').any(|kv| kv == "hg_target=local"))
+                .unwrap_or(false));
+    let base = if to_local { &state.local_base } else { &state.server_base };
+    let target = format!("{}{}", base, path_q);
 
     // 收齐请求体（上传等）。下游用 reqwest 重发。
     let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
@@ -109,36 +144,70 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
         Err(e) => return (StatusCode::BAD_REQUEST, format!("读取请求体失败: {e}")).into_response(),
     };
 
-    let mut rb = state.http.request(method, &target);
+    let bridge_user = state.bridge_user.read().await.clone();
+    let token = state.token.read().await.clone();
 
-    // 透传请求头，但剔除 hop-by-hop / 由我们重写的头。
-    // http 的 HeaderName 已规范化为小写，直接 match 即可，无需再 to_ascii_lowercase。
-    for (name, value) in headers.iter() {
-        match name.as_str() {
-            // host 让 reqwest 按目标地址重置；cookie 我们重新注入；
-            // accept-encoding 去掉以拿 identity（避免转发压缩流时还要解码）；
-            // content-length / connection 交给 reqwest / axum 自管。
-            "host" | "cookie" | "accept-encoding" | "content-length" | "connection" => continue,
-            _ => {
-                rb = rb.header(name, value);
+    let build_request = |use_local: bool| {
+        let base = if use_local { &state.local_base } else { &state.server_base };
+        let mut rb = state.http.request(method.clone(), format!("{}{}", base, path_q));
+
+        // 透传请求头，但剔除 hop-by-hop / 由我们重写的头。
+        // http 的 HeaderName 已规范化为小写，直接 match 即可，无需再 to_ascii_lowercase。
+        for (name, value) in headers.iter() {
+            match name.as_str() {
+                // host 让 reqwest 按目标地址重置；cookie 我们重新注入；
+                // accept-encoding 去掉以拿 identity（避免转发压缩流时还要解码）；
+                // content-length / connection 交给 reqwest / axum 自管。
+                "host" | "cookie" | "accept-encoding" | "content-length" | "connection" => continue,
+                // 路由标记不透传；桥接头只能由壳注入——WebView 带来的一律剥离（防伪造）。
+                TARGET_HEADER | BRIDGE_SECRET_HEADER | BRIDGE_USER_HEADER => continue,
+                _ => {
+                    rb = rb.header(name, value);
+                }
             }
         }
-    }
 
-    // 注入会话 cookie（已登录时）——这是整套桌面鉴权的关键一笔。
-    if let Some(tok) = state.token.read().await.clone() {
-        rb = rb.header(
-            reqwest::header::COOKIE,
-            format!("{}={}", state.cookie_name, tok),
-        );
-    }
+        if use_local {
+            // 本机路由：注入桥接秘密 + 云端身份（身份桥，见 hybrid.rs / desktop_bridge.py）。
+            // 不注入云端会话 cookie——本机后端不认它，身份完全由桥接头承载。
+            rb = rb.header(BRIDGE_SECRET_HEADER, &state.bridge_secret);
+            if let Some(user) = bridge_user.clone() {
+                rb = rb.header(BRIDGE_USER_HEADER, user);
+            }
+        } else if let Some(tok) = token.clone() {
+            // 云端路由：注入会话 cookie（已登录时）——这是整套桌面鉴权的关键一笔。
+            rb = rb.header(
+                reqwest::header::COOKIE,
+                format!("{}={}", state.cookie_name, tok),
+            );
+        }
 
-    if !body_bytes.is_empty() {
-        // body_bytes 已是 Bytes，直接交给 reqwest（避免再 to_vec 复制一份请求体）。
-        rb = rb.body(body_bytes);
-    }
+        if !body_bytes.is_empty() {
+            // body_bytes 是 Bytes，clone 仅增引用计数，不复制请求体。
+            rb = rb.body(body_bytes.clone());
+        }
+        rb
+    };
 
-    match rb.send().await {
+    let sent = match build_request(to_local).send().await {
+        Ok(upstream) => {
+            // 站点访问兜底：本机发布的站点只存在于本机库，而站点入口/子资源/表单
+            // （<a>/<img>/fetch 相对路径）都带不上路由标记——云端 404 时按同请求
+            // 重试本机，本机命中则用本机响应。云端命中/本机也 404 时行为不变。
+            let is_site = uri.path() == "/site" || uri.path().starts_with("/site/");
+            if state.hybrid_local && !to_local && is_site && upstream.status().as_u16() == 404 {
+                match build_request(true).send().await {
+                    Ok(local_resp) if local_resp.status().as_u16() != 404 => Ok(local_resp),
+                    _ => Ok(upstream),
+                }
+            } else {
+                Ok(upstream)
+            }
+        }
+        Err(e) => Err(e),
+    };
+
+    match sent {
         Ok(upstream) => {
             let status = upstream.status();
             let mut builder = Response::builder().status(status);
@@ -202,6 +271,57 @@ async fn setup_page(State(state): State<ProxyState>) -> Html<String> {
             if state.active_local { "true" } else { "false" },
         )
         .replace(
+            "__HYBRID_DUAL__",
+            if state.provision_mode == ProvisionMode::Dual {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .replace(
+            "__LOCAL_SUPPORTED__",
+            if cfg!(any(target_os = "windows", target_os = "macos")) {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .replace(
+            "__PLATFORM__",
+            if cfg!(target_os = "macos") {
+                "macos"
+            } else if cfg!(target_os = "windows") {
+                "windows"
+            } else {
+                "linux"
+            },
+        )
+        .replace("HugAgentOS", brand::NAME);
+    Html(inject_after_body(&html, &platform_titlebar_block(false)))
+}
+
+/// 初始化「运行模式选择」页（首启时展示）：下拉选本机 / 云端 / 双模式；选到含云端的
+/// 形态时展开服务器地址输入。提交整页导航到哨兵 `/__desktop/provision?mode=..&base=..`，
+/// 由主窗口的 Rust 导航守卫落盘并重启。`manage=1` 时是「稍后更改运行模式」入口。
+async fn init_page(State(state): State<ProxyState>) -> Html<String> {
+    let current_mode = match state.provision_mode {
+        ProvisionMode::LocalOnly => "local",
+        ProvisionMode::CloudOnly => "cloud",
+        ProvisionMode::Dual => "dual",
+    };
+    // 云端地址预填：优先记住的云端地址，其次当前后端地址（本机模式下为本地地址，
+    // 那种情况留空更合理——只有非本地地址才预填）。
+    let cloud_prefill = if !state.cloud_server_base.trim().is_empty() {
+        state.cloud_server_base.clone()
+    } else if !state.server_base.contains("127.0.0.1") {
+        state.server_base.clone()
+    } else {
+        String::new()
+    };
+    let html = INIT_HTML
+        .replace("__CURRENT_MODE__", current_mode)
+        .replace("__CLOUD_BASE__", &html_escape(cloud_prefill.trim()))
+        .replace(
             "__LOCAL_SUPPORTED__",
             if cfg!(any(target_os = "windows", target_os = "macos")) {
                 "true"
@@ -229,13 +349,19 @@ struct SetupStatus {
     service: LocalServerStatus,
     active_local: bool,
     current_server_base: String,
+    /// 本机后端基址（固定 127.0.0.1:32101）。前端为「本机站点」生成对外链接时用，
+    /// 避免把随启动变化的反代随机端口写进可分享的 URL。
+    local_server_base: String,
+    provision_mode: ProvisionMode,
 }
 
 async fn setup_status(State(state): State<ProxyState>) -> Json<SetupStatus> {
     Json(SetupStatus {
         service: state.local_server.snapshot().await,
         active_local: state.active_local,
-        current_server_base: state.server_base,
+        current_server_base: state.server_base.clone(),
+        local_server_base: state.local_base.clone(),
+        provision_mode: state.provision_mode.clone(),
     })
 }
 
@@ -301,6 +427,7 @@ const TB_CSS: &str = r##"
 const TB_MENU: &str = r##"<nav class="tb-menu" aria-label="应用菜单">
 <div class="tb-menuGroup"><button class="tb-menuLabel" type="button">文件</button><div class="tb-drop">
   <button class="tb-item" type="button" data-act="new_chat">新建对话</button>
+  <button class="tb-item" type="button" data-act="run_mode">运行模式…</button>
   <button class="tb-item" type="button" data-act="server_config">设置服务器地址…</button>
   <button class="tb-item" type="button" data-act="local_server">本机服务…</button>
   <div class="tb-sep"></div><button class="tb-item" type="button" data-win="quit">退出</button>
@@ -484,39 +611,31 @@ const LOGIN_HTML: &str = r##"<!doctype html>
     width:64px;height:64px;border-radius:16px;margin:0 auto 20px;display:block;
     box-shadow:0 8px 24px rgba(0,0,0,.1);
   }
-  .edition{display:inline-flex;height:24px;align-items:center;padding:0 10px;margin-bottom:14px;
-    border:1px solid rgba(60,60,67,.16);border-radius:999px;color:var(--text-2);background:rgba(255,255,255,.72);
-    font-size:11px;font-weight:600}
   h1{font-size:28px;line-height:1.2;font-weight:650;margin:0;letter-spacing:-.035em}
   .sub{font-size:14px;color:var(--text-2);margin:12px 0 28px;line-height:1.65}
   .btn{
-    width:100%;height:46px;border:none;border-radius:11px;cursor:pointer;
+    width:100%;height:46px;margin-top:28px;border:none;border-radius:11px;cursor:pointer;
     background:var(--primary);color:#fff;font-size:14px;font-weight:600;
     transition:background .14s ease,transform .08s ease;box-shadow:0 1px 2px rgba(0,0,0,.08);
   }
   .btn:hover{background:var(--primary-hover)}
   .btn:active{background:var(--primary-active);transform:scale(.99)}
-  .hint{margin-top:14px;font-size:12px;color:var(--text-3)}
   .links{margin-top:8px;font-size:13px}
   .links a{color:var(--primary);text-decoration:none;cursor:pointer;margin:0 8px}
   .links a:hover{text-decoration:underline}
   .spin{width:32px;height:32px;margin:8px auto 22px;border:3px solid #E5E5EA;
     border-top-color:var(--primary);border-radius:50%;animation:r .9s linear infinite}
   @keyframes r{to{transform:rotate(360deg)}}
-  .foot{margin-top:24px;font-size:11px;color:var(--text-3)}
   .hidden{display:none}
 </style>
 </head>
 <body>
   <div class="card">
     <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.display='none'"/>
-    <span class="edition">社区版 CE</span>
     <!-- 初始态：等待用户点击登录 -->
     <div id="idle">
       <h1>HugAgentOS</h1>
-      <p class="sub">登录后即可在桌面端继续使用。<br/>验证会在系统浏览器中安全完成。</p>
       <button class="btn" onclick="startLogin()">登录并继续</button>
-      <div class="hint">完成后会自动返回此窗口</div>
     </div>
     <!-- 等待态：浏览器已打开，等待回跳 -->
     <div id="waiting" class="hidden">
@@ -528,7 +647,6 @@ const LOGIN_HTML: &str = r##"<!doctype html>
         <a onclick="showIdle()">返回</a>
       </div>
     </div>
-    <div class="foot">HugAgentOS · 安全登录</div>
   </div>
   <script>
     function openBrowser(){
@@ -549,6 +667,127 @@ const LOGIN_HTML: &str = r##"<!doctype html>
     // 启动 / 会话过期由壳子自动拉起浏览器，并带 ?waiting=1 → 直接进等待态。
     if(new URLSearchParams(location.search).get('waiting')==='1'){ showWaiting(); }
   </script>
+</body>
+</html>"##;
+
+const INIT_HTML: &str = r##"<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>选择运行模式 · HugAgentOS</title>
+<style>
+  :root{
+    color-scheme:light;
+    --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;
+    --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
+    --line:rgba(60,60,67,.16);--surface:rgba(255,255,255,.72);--danger:#D70015;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
+    color:var(--text);background:#F5F5F7;display:flex;align-items:center;justify-content:center;
+    min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
+  .setup{width:min(540px,100%);text-align:center;padding:20px 34px 30px}
+  .logo{display:block;width:64px;height:64px;margin:0 auto 16px;border-radius:16px;
+    box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)}
+  .product{margin:0 0 10px;color:var(--secondary);font-size:12px;font-weight:600}
+  h1{margin:0;font-size:27px;line-height:1.16;font-weight:650;letter-spacing:-.028em}
+  .lead{max-width:430px;margin:10px auto 0;color:var(--secondary);font-size:13.5px;line-height:1.6}
+  .form{width:min(400px,100%);margin:24px auto 0;text-align:left}
+  label{display:block;font-size:13px;font-weight:600;margin:0 0 7px;color:var(--text)}
+  .select-wrap{position:relative}
+  select{width:100%;height:46px;padding:0 38px 0 14px;border:1px solid var(--line);border-radius:12px;
+    font-size:15px;color:var(--text);background:#fff;outline:none;appearance:none;-webkit-appearance:none;
+    cursor:pointer;transition:border-color .14s ease,box-shadow .14s ease}
+  select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,122,255,.16)}
+  .select-wrap::after{content:"";position:absolute;right:16px;top:50%;width:8px;height:8px;
+    border-right:1.6px solid var(--tertiary);border-bottom:1.6px solid var(--tertiary);
+    transform:translateY(-70%) rotate(45deg);pointer-events:none}
+  /* 云端地址栏始终占位、只切换可见性，切换模式时布局高度不变——不产生跳动。 */
+  .cloud-field{margin-top:18px;visibility:hidden}
+  .cloud-field.show{visibility:visible}
+  input[type=text]{width:100%;height:44px;padding:0 14px;border:1px solid var(--line);border-radius:11px;
+    font-size:14px;color:var(--text);background:#fff;outline:none;transition:border-color .14s ease,box-shadow .14s ease}
+  input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,122,255,.16)}
+  .err{color:var(--danger);font-size:12px;margin:8px 2px 0;min-height:16px}
+  .button{width:100%;height:46px;margin-top:22px;border:0;border-radius:12px;padding:0 18px;font:600 15px/1 inherit;
+    cursor:pointer;background:var(--accent);color:#fff;box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px rgba(0,122,255,.16);
+    transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
+  @media(hover:hover){.button:hover{background:var(--accent-hover)}}
+  .button:active{background:var(--accent-active);transform:scale(.98)}
+  .button:disabled{opacity:.5;cursor:default;transform:none}
+  select:focus-visible,input:focus-visible,.button:focus-visible{outline:3px solid rgba(0,122,255,.28);outline-offset:3px}
+  body.platform-macos .setup{margin-top:-8px}
+  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:25px}}
+  @media(prefers-reduced-motion:reduce){.button{transition:none}}
+</style>
+</head>
+<body class="platform-__PLATFORM__">
+  <main class="setup">
+    <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" />
+    <p class="product">HugAgentOS</p>
+    <h1 id="title">选择运行模式</h1>
+    <div class="form">
+      <label for="mode">运行模式</label>
+      <div class="select-wrap">
+        <select id="mode">
+          <option value="local">本机模式 · 只在本机运行</option>
+          <option value="cloud">云端模式 · 连接云端服务器</option>
+          <option value="dual">本机 + 云端 · 双模式</option>
+        </select>
+      </div>
+      <div class="cloud-field" id="cloudField">
+        <label for="base">云端服务器地址</label>
+        <input id="base" type="text" placeholder="https://agent.example.gov.cn" value="__CLOUD_BASE__" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="err" id="err"></div>
+      <button class="button" id="go" type="button" onclick="start()">开始使用</button>
+    </div>
+  </main>
+<script>
+  var currentMode = '__CURRENT_MODE__' || 'local';
+  var localSupported = __LOCAL_SUPPORTED__;
+  var modeEl = document.getElementById('mode');
+  var cloudField = document.getElementById('cloudField');
+  var errEl = document.getElementById('err');
+  function needsCloud(m){ return m === 'cloud' || m === 'dual'; }
+  function needsLocal(m){ return m === 'local' || m === 'dual'; }
+  function sync(){
+    var m = modeEl.value;
+    cloudField.classList.toggle('show', needsCloud(m));
+    errEl.textContent = '';
+    if(!localSupported && needsLocal(m)){
+      errEl.textContent = '当前系统的安装包暂不支持本机服务，请选择「云端模式」。';
+      document.getElementById('go').disabled = true;
+    } else {
+      document.getElementById('go').disabled = false;
+    }
+  }
+  function start(){
+    var m = modeEl.value;
+    var base = (document.getElementById('base').value || '').trim();
+    if(needsCloud(m)){
+      if(!/^https?:\/\//i.test(base)){
+        errEl.textContent = '请填写以 http:// 或 https:// 开头的云端服务器地址。';
+        document.getElementById('base').focus();
+        return;
+      }
+    }
+    if(!localSupported && needsLocal(m)){
+      errEl.textContent = '当前系统暂不支持本机服务，请选择「云端模式」。';
+      return;
+    }
+    document.getElementById('go').disabled = true;
+    // 整页导航到哨兵路径，由 Rust 导航守卫落盘并重启（不依赖 Tauri IPC）。
+    var url = '/__desktop/provision?mode=' + encodeURIComponent(m);
+    if(needsCloud(m)) url += '&base=' + encodeURIComponent(base);
+    window.location.href = url;
+  }
+  modeEl.value = ['local','cloud','dual'].indexOf(currentMode) >= 0 ? currentMode : 'local';
+  modeEl.addEventListener('change', sync);
+  sync();
+</script>
 </body>
 </html>"##;
 
@@ -575,7 +814,6 @@ const SETUP_HTML: &str = r##"<!doctype html>
   .logo{display:block;width:68px;height:68px;margin:0 auto 17px;border-radius:17px;
     box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)}
   .product{margin:0 0 11px;color:var(--secondary);font-size:12px;font-weight:600;letter-spacing:.012em}
-  .product span{margin-left:5px;color:var(--tertiary);font-weight:500}
   h1{margin:0;font-size:30px;line-height:1.16;font-weight:650;letter-spacing:-.028em;font-optical-sizing:auto}
   .lead{max-width:420px;margin:11px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
   .actions{width:min(350px,100%);margin:26px auto 0}
@@ -623,13 +861,10 @@ const SETUP_HTML: &str = r##"<!doctype html>
 <body class="platform-__PLATFORM__">
   <main class="setup">
     <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" />
-    <p class="product">HugAgentOS <span>社区版</span></p>
+    <p class="product">HugAgentOS</p>
     <h1 id="title">在这台电脑上开始使用</h1>
-    <p class="lead" id="lead">自动准备运行环境并启动本机服务。完成后即可直接进入 HugAgentOS，无需 Docker，也无需手动配置。</p>
     <section class="actions" aria-label="初始化操作">
       <button class="button primary" id="install" type="button" onclick="installLocal()">从零开始安装</button>
-      <button class="link-button" id="connect" type="button" onclick="connectServer()">连接已有服务器</button>
-      <p class="privacy-note">运行环境与数据仅保存在这台电脑上</p>
     </section>
     <section class="progress-wrap" id="progressWrap" aria-live="polite">
       <div class="progress-head"><span class="message" id="message">准备安装…</span><span class="percent" id="percent">0%</span></div>
@@ -640,11 +875,11 @@ const SETUP_HTML: &str = r##"<!doctype html>
         <button class="button primary" id="readyButton" type="button" onclick="finishReady()">进入 HugAgentOS</button>
       </div>
     </section>
-    <div class="connection">当前连接：__CURRENT_BASE__ <button type="button" onclick="retry()">重新检测</button></div>
   </main>
 <script>
   var manage = new URLSearchParams(location.search).get('manage') === '1';
   var activeLocal = __ACTIVE_LOCAL__;
+  var dual = __HYBRID_DUAL__;
   var localSupported = __LOCAL_SUPPORTED__;
   var installing = false;
   var pollTimer = null;
@@ -653,21 +888,17 @@ const SETUP_HTML: &str = r##"<!doctype html>
   }
   if(manage){
     document.getElementById('title').textContent='本机服务';
-    document.getElementById('lead').textContent='查看当前状态，重新安装本机服务，或切换到团队服务器。';
     document.getElementById('install').textContent='安装或修复本机服务';
   }
   function sentinel(path){ window.location.href = path; }
-  function connectServer(){ sentinel('/__desktop/connect-server'); }
-  function retry(){ sentinel('/__desktop/retry-server'); }
   function activateLocal(){ sentinel('/__desktop/activate-local'); }
-  function finishReady(){ if(activeLocal){location.replace('/');}else{activateLocal();} }
+  // 双模式恒为云端为主：本机服务装好后回到云端应用，绝不整体切换登录目标。
+  function finishReady(){ if(activeLocal||dual){location.replace('/');}else{activateLocal();} }
   async function installLocal(){
     if(!localSupported){showError('当前安装包暂不支持在此系统一键部署本机服务。');return;}
     installing = true;
     var button=document.getElementById('install');
     button.disabled=true;button.textContent='正在开始…';
-    document.getElementById('connect').style.display='none';
-    document.querySelector('.privacy-note').style.display='none';
     document.getElementById('progressWrap').style.display = 'block';
     document.getElementById('message').textContent='正在准备本机服务…';
     document.getElementById('error').style.display='none';
@@ -710,10 +941,14 @@ const SETUP_HTML: &str = r##"<!doctype html>
         document.getElementById('install').style.display='none';
         if(s.active_local && !manage){ setTimeout(function(){location.replace('/__desktop/login')},450);return; }
         if(!s.active_local && !manage){
+          if(dual){
+            document.getElementById('message').textContent='本机服务已就绪，正在返回…';
+            setTimeout(function(){location.replace('/')},450);return;
+          }
           document.getElementById('message').textContent='安装完成，正在切换到本机服务…';
           setTimeout(activateLocal,350);return;
         }
-        document.getElementById('readyButton').textContent=s.active_local?'返回应用':'切换到本机服务';
+        document.getElementById('readyButton').textContent=(s.active_local||dual)?'返回应用':'切换到本机服务';
         document.getElementById('readyActions').style.display='block';
         return;
       }
@@ -908,6 +1143,14 @@ mod tests {
     }
 
     #[test]
+    fn setup_dual_mode_never_switches_login_target_to_local() {
+        // 双模式云端为主：安装完成后回云端应用，不 activate-local。
+        assert!(SETUP_HTML.contains("var dual = __HYBRID_DUAL__;"));
+        assert!(SETUP_HTML.contains("if(activeLocal||dual){location.replace('/');}"));
+        assert!(SETUP_HTML.contains("本机服务已就绪，正在返回…"));
+    }
+
+    #[test]
     fn setup_mac_copy_and_single_primary_action_are_present() {
         assert!(SETUP_HTML.contains("在这台 Mac 上开始使用"));
         assert_eq!(SETUP_HTML.matches("id=\"install\"").count(), 1);
@@ -917,6 +1160,23 @@ mod tests {
         assert!(SETUP_HTML.contains("prefers-reduced-motion:reduce"));
         assert!(SETUP_HTML.contains("prefers-reduced-transparency:reduce"));
         assert!(SETUP_HTML.contains("prefers-contrast:more"));
+    }
+
+    #[test]
+    fn init_page_offers_three_modes_and_conditional_cloud_field() {
+        // 三种运行模式都在下拉里。
+        assert!(INIT_HTML.contains("value=\"local\""));
+        assert!(INIT_HTML.contains("value=\"cloud\""));
+        assert!(INIT_HTML.contains("value=\"dual\""));
+        // 云端地址输入 + 仅在含云端形态时展开。
+        assert!(INIT_HTML.contains("id=\"base\""));
+        assert!(INIT_HTML.contains("needsCloud"));
+        // 提交走初始化哨兵。
+        assert!(INIT_HTML.contains("/__desktop/provision?mode="));
+        // 占位符齐全，渲染时都会被替换。
+        assert!(INIT_HTML.contains("__CURRENT_MODE__"));
+        assert!(INIT_HTML.contains("__CLOUD_BASE__"));
+        assert!(INIT_HTML.contains("__LOCAL_SUPPORTED__"));
     }
 
     #[test]

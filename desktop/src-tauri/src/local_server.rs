@@ -127,6 +127,10 @@ pub struct LocalServerManager {
     child: Mutex<Option<Child>>,
     install_running: AtomicBool,
     shutting_down: AtomicBool,
+    /// 混合架构（P2 身份桥）：桌面壳生成的桥接秘密。设置后孵化本机后端时注入
+    /// `HUGAGENT_DESKTOP_BRIDGE_SECRET`（身份桥）与 `CONFIG_TOKEN`（壳持有本机
+    /// 实例的控制台令牌，用于云端模型配置下发 /v1/models/import）。
+    bridge_secret: std::sync::OnceLock<String>,
 }
 
 impl LocalServerManager {
@@ -153,7 +157,13 @@ impl LocalServerManager {
             child: Mutex::new(None),
             install_running: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
+            bridge_secret: std::sync::OnceLock::new(),
         })
+    }
+
+    /// 设置桥接秘密（进程内只设一次；重复设置忽略）。须在首次 start 之前调用。
+    pub fn set_bridge_secret(&self, secret: String) {
+        let _ = self.bridge_secret.set(secret);
     }
 
     #[cfg(target_os = "macos")]
@@ -412,6 +422,11 @@ impl LocalServerManager {
                     .stdout(Stdio::from(stdout))
                     .stderr(Stdio::from(stderr));
                 self.apply_tool_path(&mut command);
+                // 混合架构：把桥接秘密注入本机后端（身份桥 + 壳持有的本机控制台令牌）。
+                if let Some(secret) = self.bridge_secret.get() {
+                    command.env("HUGAGENT_DESKTOP_BRIDGE_SECRET", secret);
+                    command.env("CONFIG_TOKEN", secret);
+                }
                 hide_console(&mut command);
                 let child = command
                     .spawn()

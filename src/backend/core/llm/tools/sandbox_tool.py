@@ -218,6 +218,86 @@ def register_bash(
         if not cmd:
             return _resp_json({"error": "command 不能为空"})
 
+        # ── Local-mode execution policy gate (ticket #07) ─────────────────────
+        # Only in the desktop local host-subprocess sandbox; inert on cloud/web.
+        # deny → block outright; confirm/allow → run but audit. Full interactive
+        # HITL confirmation is layered on top later; the OS-level sandbox
+        # (tickets #09/#11/#12) is the real isolation boundary.
+        from core.config.local_mode import local_mode_enabled
+
+        if local_mode_enabled():
+            from core.sandbox.local_policy import evaluate_local_command
+
+            try:
+                from core.services.local_grant_service import grants_for_gate, policy_for_gate
+
+                _grants = grants_for_gate()
+                _policy = policy_for_gate()
+            except Exception:
+                from core.sandbox.local_policy import Policy as _Policy
+
+                _grants, _policy = [], _Policy()
+            verdict = evaluate_local_command(
+                cmd,
+                cwd="/workspace",
+                grants=_grants,
+                policy=_policy,
+                workspace_root="/workspace",
+                platform=("windows" if os.name == "nt" else "posix"),
+            )
+            logger.info(
+                "[local-policy] decision=%s reasons=%s cmd=%r",
+                verdict.decision,
+                verdict.reasons,
+                cmd[:200],
+            )
+            if verdict.decision == "deny":
+                return _resp_json(
+                    {
+                        "error": (
+                            "该命令被本地安全策略拦截（"
+                            + "、".join(verdict.reasons)
+                            + "）。如确需执行，请在「设置 → 本地权限」调整策略后重试。"
+                        ),
+                        "exit_code": -1,
+                        "blocked": True,
+                    }
+                )
+
+            # confirm → suspend the tool and pop an interactive confirmation bar
+            # (true Claude-Code-shaped HITL) before executing. Non-interactive
+            # runs (batch/sub-agent) skip the popup and just run + audit.
+            if verdict.decision == "confirm" and interactive:
+                from core.llm.tools._myspace_confirm import (
+                    KIND_LOCAL_CMD,
+                    OP_LOCAL_EXEC,
+                    gate as _confirm_gate,
+                )
+
+                _reasons = "、".join(verdict.reasons)
+                _blocked = await _confirm_gate(
+                    chat_id=chat_id,
+                    op=OP_LOCAL_EXEC,
+                    logical_path=cmd[:160],
+                    interactive=interactive,
+                    summary=("在本机执行：" + cmd[:200])
+                    + (f"（{_reasons}）" if _reasons else ""),
+                    kind=KIND_LOCAL_CMD,
+                )
+                if _blocked is not None:
+                    return _resp_json(_blocked)
+
+            # OS-level sandbox (tickets #09/#12): confine writes to the workspace
+            # + authorized folders. Opt-in (HUGAGENT_LOCAL_OS_SANDBOX=1); no-op
+            # otherwise, so it never breaks the default working setup.
+            from core.sandbox.os_sandbox import os_sandbox_enabled, wrap_command
+
+            if os_sandbox_enabled():
+                from core.sandbox._common import WORKSPACE as _real_ws
+
+                _write_paths = [_real_ws] + [g.path for g in _grants]
+                cmd = wrap_command(cmd, _write_paths)
+
         provider = _get_provider()
 
         effective_timeout = max(1, min(int(timeout or 60), 120))
