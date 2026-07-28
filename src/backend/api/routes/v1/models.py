@@ -289,6 +289,9 @@ async def _ping_openai_compat(
             "model": model_name,
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 5,
+            # Match the agent runtime, which always consumes chat models as an SSE stream.
+            # Some Responses-backed OpenAI-compatible gateways reject non-streaming probes.
+            "stream": True,
         }
     elif provider_type == "embedding":
         url = f"{base_url}/embeddings"
