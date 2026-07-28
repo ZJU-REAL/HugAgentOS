@@ -17,6 +17,8 @@ def build_thinking_event(chunk: dict, chat_id: str) -> Dict[str, Any]:
     yields it as SSE or pushes it via ``_emit``.
     """
     evt: Dict[str, Any] = {"type": "thinking", "chat_id": chat_id}
+    if chunk.get("structured_reasoning") is True:
+        evt["structured_reasoning"] = True
     if "delta" in chunk:
         evt["delta"] = chunk.get("delta", "")
     else:

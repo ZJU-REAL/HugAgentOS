@@ -50,6 +50,8 @@ class ProviderSpec:
     # OpenAI/Codex-style gateways expect reasoning_effort at the request root.
     # Generic compatible vendors keep using chat_template_kwargs only.
     reasoning_effort_top_level: bool = False
+    # Reasoning arrives separately as reasoning_content instead of being embedded in content.
+    structured_reasoning: bool = False
     fields: tuple[ProviderField, ...] = ()  # vendor-specific extra fields (stored in extra_config)
 
     @property
@@ -82,6 +84,7 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         supports_types=("chat", "embedding"),
         base_url_template="https://api.openai.com/v1",
         reasoning_effort_top_level=True,
+        structured_reasoning=True,
     ),
     "deepseek": ProviderSpec(
         id="deepseek", label="DeepSeek", engine="openai",

@@ -24,6 +24,7 @@ def test_openai_provider_is_exposed_to_dynamic_forms():
 
     assert spec.label == "OpenAI / Codex"
     assert spec.reasoning_effort_top_level is True
+    assert spec.structured_reasoning is True
     assert any(row["id"] == "openai" for row in to_frontend_schema())
 
 
@@ -35,6 +36,7 @@ def test_openai_provider_sends_top_level_reasoning_effort():
         "thinking": True,
         "reasoning_effort": "high",
     }
+    assert model.structured_reasoning is True
 
 
 def test_generic_compatible_provider_keeps_existing_reasoning_transport():
@@ -45,3 +47,4 @@ def test_generic_compatible_provider_keeps_existing_reasoning_transport():
         "thinking": True,
         "reasoning_effort": "high",
     }
+    assert model.structured_reasoning is False

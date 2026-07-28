@@ -113,6 +113,22 @@ class StreamingAgent:
         self._raw_text = ""
         self._emitted_answer = ""
         self._in_thinking = False
+        self._reasoning_protocol_emitted = False
+
+    def _take_reasoning_protocol(self) -> Optional[Dict[str, bool]]:
+        """Return the structured-reasoning marker once the active model is known.
+
+        DynamicModelMiddleware may replace ``agent.model`` at reply start, so this is
+        evaluated immediately before mapping the first AgentScope event rather than in
+        ``__init__``.
+        """
+        if self._reasoning_protocol_emitted:
+            return None
+        model = getattr(self.agent, "model", None)
+        if not bool(getattr(model, "structured_reasoning", False)):
+            return None
+        self._reasoning_protocol_emitted = True
+        return {"structured_reasoning": True}
 
     def get_usage(self) -> Dict[str, int]:
         total_prompt = sum(r.get("prompt_tokens", 0) for r in self._usage_records)
@@ -243,6 +259,9 @@ class StreamingAgent:
                     yield ("subagent_event", payload)
                     continue
                 # kind == "ev"
+                reasoning_protocol = self._take_reasoning_protocol()
+                if reasoning_protocol is not None:
+                    yield ("reasoning_protocol", reasoning_protocol)
                 async for out in self._map_event(payload):
                     if not _first_event_logged:
                         _ttfe = (time.monotonic() - _stream_start) * 1000

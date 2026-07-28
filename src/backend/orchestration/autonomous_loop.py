@@ -306,6 +306,9 @@ async def _run_worker_iteration(
                 text += payload
                 if emit and not hold_output:
                     await emit({"type": "content", "event": "ai_message", "delta": payload})
+            elif et == "reasoning_protocol":
+                if emit:
+                    await emit({"type": "thinking", **payload})
             elif et == "thinking_delta":
                 if emit:
                     await emit({"type": "thinking", "delta": payload})
