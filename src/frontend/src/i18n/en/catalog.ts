@@ -252,6 +252,9 @@ export const CATALOG_DICT: Record<string, string> = {
   '请输入 URL': 'Please enter a URL',
   '描述（可选）': 'Description (optional)',
   '简单说明这个工具的用途': 'Briefly describe what this tool does',
+  '请求头（可选）': 'Headers (optional)',
+  '每行一个：Key=Value。需要鉴权的服务在此填认证头，如 Authorization=Bearer xxx':
+    'One per line: Key=Value. For services requiring auth, put the auth header here, e.g. Authorization=Bearer xxx',
   '已添加': 'Added',
   '添加失败': 'Add failed',
 
