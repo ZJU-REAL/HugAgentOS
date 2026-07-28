@@ -339,7 +339,7 @@ impl LocalServerManager {
                     .map(str::to_owned)
             })
             .as_deref()
-            == Some("hugagent")
+            == Some(crate::brand::LOCAL_SERVICE_NAME)
     }
 
     /// 后台启动已安装的本机服务；重复调用是幂等的。
