@@ -927,6 +927,17 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           // event, not embedded in `content` as <think>...</think>.
           // Disable the embed-tag parser so subsequent content chunks
           // are not treated as buffered thinking.
+          if (eventObj.structured_reasoning === true) {
+            structuredReasoning = true;
+            if (parseBuffer) {
+              // An explicit protocol marker means content is always the answer body.
+              // This also repairs replay streams where the marker arrives after a
+              // buffered content frame.
+              appendTextSeg(parseBuffer);
+              parseBuffer = '';
+            }
+            thinkingPhaseActive = false;
+          }
           if (obj.delta) {
             structuredReasoning = true;
             if (thinkingPhaseActive && parseBuffer) {

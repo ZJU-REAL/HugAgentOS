@@ -86,6 +86,7 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
         context_size: int,
         extra_body: dict | None = None,
         azure: dict | None = None,
+        structured_reasoning: bool = False,
     ) -> None:
         super().__init__(
             credential=credential,
@@ -101,6 +102,9 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
         self._http_client = http_client
         self._extra_body = extra_body or {}
         self._azure = azure  # when {"api_version": ...} is non-empty, use AsyncAzureOpenAI
+        # The SSE layer uses this to distinguish structured reasoning_content from
+        # legacy models that embed reasoning in content as <think>...</think>.
+        self.structured_reasoning = structured_reasoning
 
     def _build_client(self):
         import openai
@@ -208,12 +212,17 @@ def _make_openai_compatible(
         azure = {"api_version": provider_extra.get("api_version", "")}
         actual_model = provider_extra.get("deployment") or model
 
-    extra_body = {
+    extra_body: dict[str, Any] = {
         "chat_template_kwargs": _build_chat_template_kwargs(
             disable_thinking=disable_thinking,
             reasoning_effort=reasoning_effort,
         )
     }
+    if spec.reasoning_effort_top_level and reasoning_effort is not None:
+        # OpenAI Responses-backed Chat Completions gateways expose reasoning
+        # only when the effort is sent at the request root. Keep the nested
+        # switch as well so OpenAI-compatible template controls still work.
+        extra_body["reasoning_effort"] = reasoning_effort
     parameters = OpenAIChatModel.Parameters(
         temperature=temperature,
         max_tokens=max_tokens,
@@ -230,6 +239,7 @@ def _make_openai_compatible(
         context_size=context_size,
         extra_body=extra_body,
         azure=azure,
+        structured_reasoning=spec.structured_reasoning,
     )
 
 

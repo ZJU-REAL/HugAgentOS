@@ -47,6 +47,11 @@ class ProviderSpec:
     # placeholders, or vendors without a fixed URL stay False.
     autofill_base_url: bool = False
     api_key_required: bool = True
+    # OpenAI/Codex-style gateways expect reasoning_effort at the request root.
+    # Generic compatible vendors keep using chat_template_kwargs only.
+    reasoning_effort_top_level: bool = False
+    # Reasoning arrives separately as reasoning_content instead of being embedded in content.
+    structured_reasoning: bool = False
     fields: tuple[ProviderField, ...] = ()  # vendor-specific extra fields (stored in extra_config)
 
     @property
@@ -73,6 +78,13 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         id="openai_compatible", label="OpenAI 兼容", engine="openai",
         supports_types=("chat", "embedding", "reranker"),
         base_url_template="https://api.openai.com/v1",
+    ),
+    "openai": ProviderSpec(
+        id="openai", label="OpenAI / Codex", engine="openai",
+        supports_types=("chat", "embedding"),
+        base_url_template="https://api.openai.com/v1",
+        reasoning_effort_top_level=True,
+        structured_reasoning=True,
     ),
     "deepseek": ProviderSpec(
         id="deepseek", label="DeepSeek", engine="openai",

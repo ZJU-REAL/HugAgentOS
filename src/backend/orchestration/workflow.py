@@ -1416,6 +1416,9 @@ async def _astream_subagent_direct(
                     full_response += payload
                     yield {"type": "content", "event": "ai_message", "delta": payload}
 
+                elif event_type == "reasoning_protocol":
+                    yield {"type": "thinking", **payload}
+
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
 
@@ -2099,6 +2102,9 @@ async def astream_chat_workflow(
                 if event_type == "text_delta":
                     full_response += payload
                     yield {"type": "content", "event": "ai_message", "delta": payload}
+
+                elif event_type == "reasoning_protocol":
+                    yield {"type": "thinking", **payload}
 
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
