@@ -60,11 +60,20 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
     const values = await form.validateFields();
     setAdding(true);
     try {
+      // Parse headers from key=value lines (auth header for protected remote MCPs)
+      const headers: Record<string, string> = {};
+      if (typeof values.headers_text === 'string') {
+        values.headers_text.split('\n').forEach((line: string) => {
+          const idx = line.indexOf('=');
+          if (idx > 0) headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+        });
+      }
       await createMyMcpServer({
         display_name: values.display_name,
         transport: values.transport,
         url: values.url,
         description: values.description || '',
+        headers,
       });
       message.success(t('已添加'));
       setAddOpen(false);
@@ -343,6 +352,13 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
           </Form.Item>
           <Form.Item name="description" label={t('描述（可选）')}>
             <Input.TextArea rows={2} maxLength={2000} placeholder={t('简单说明这个工具的用途')} />
+          </Form.Item>
+          <Form.Item
+            name="headers_text"
+            label={t('请求头（可选）')}
+            help={t('每行一个：Key=Value。需要鉴权的服务在此填认证头，如 Authorization=Bearer xxx')}
+          >
+            <Input.TextArea rows={2} placeholder="Authorization=Bearer xxx" />
           </Form.Item>
         </Form>
       </Modal>
