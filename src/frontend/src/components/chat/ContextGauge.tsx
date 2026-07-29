@@ -115,10 +115,16 @@ export function ContextGauge() {
   // explicitly selected / switching disabled) and the system-prompt reserve.
   const mainContextLength = useModelCapabilitiesStore((s) => s.capabilities.main_context_length || 0);
   const systemPromptTokens = useModelCapabilitiesStore((s) => s.capabilities.system_prompt_tokens || 0);
+  const attachmentPreviewChars = useModelCapabilitiesStore(
+    (s) => s.capabilities.attachment_preview_chars || 0,
+  );
 
-  const stagedBytes = useMemo(
-    () => uploadedFiles.reduce((sum, f) => sum + (f.size || 0), 0),
-    [uploadedFiles],
+  const stagedFiles = useMemo(
+    () => [
+      ...uploadedFiles.map((f) => ({ name: f.name, type: f.type, size: f.size })),
+      ...importedSpaceFiles.map((f) => ({ name: f.name, type: f.mime_type })),
+    ],
+    [uploadedFiles, importedSpaceFiles],
   );
 
   const window = useMemo(
@@ -129,11 +135,11 @@ export function ContextGauge() {
   const breakdown = useMemo(
     () => computeContextBreakdown(messages, {
       draft,
-      stagedBytes,
-      stagedFileCount: importedSpaceFiles.length,
+      stagedFiles,
+      attachmentPreviewChars,
       systemTokens: systemPromptTokens,
     }),
-    [messages, draft, stagedBytes, importedSpaceFiles.length, systemPromptTokens],
+    [messages, draft, stagedFiles, attachmentPreviewChars, systemPromptTokens],
   );
 
   const hasContent = (messages?.length || 0) > 0 || !!draft.trim() || uploadedFiles.length > 0 || importedSpaceFiles.length > 0;

@@ -394,6 +394,7 @@ async def get_main_capabilities(
     # (ContextBudget.system_prompt_reserve). Surfaced so the gauge can count the
     # (client-invisible) system prompt toward context usage rather than a placeholder.
     from core.llm.context_manager import ContextBudget
+    from core.content.artifact_reader import ATTACHMENT_PREVIEW_MAX_CHARS
     system_prompt_tokens = ContextBudget.system_prompt_reserve
     return success_response(
         data={
@@ -401,6 +402,7 @@ async def get_main_capabilities(
                 "supports_reasoning_effort": supports,
                 "context_length": main_context_length,
                 "system_prompt_tokens": system_prompt_tokens,
+                "attachment_preview_chars": ATTACHMENT_PREVIEW_MAX_CHARS,
             },
             "user_model_switch": {
                 "enabled": switch_enabled,

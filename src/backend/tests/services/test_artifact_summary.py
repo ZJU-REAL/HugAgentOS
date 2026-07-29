@@ -151,7 +151,7 @@ def test_build_summary_never_raises():
 
 # ── Summary hard cap ─────────────────────────────────────────────────────────
 
-# ── build_summary_from_text (the frontend-already-parsed path) ────────────
+# ── build_summary_from_text (the parsed-text cache path) ──────────────────
 
 def test_from_text_long_pdf_like_truncates_500():
     from core.content.artifact_summary import build_summary_from_text

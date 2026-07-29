@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   CloseOutlined, DownloadOutlined, ExpandOutlined, CompressOutlined, SaveOutlined,
-  CheckOutlined,
+  CheckOutlined, FileExclamationOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
 import { getFileIconSrc } from '../../utils/fileIcon';
-import { message, Modal } from 'antd';
+import { Button, message, Modal } from 'antd';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { CanvasArtifact } from '../../stores/canvasStore';
 import { UniverSpreadsheet } from './UniverSpreadsheet';
 import type { UniverSpreadsheetHandle } from './UniverSpreadsheet';
-import { overwriteFile } from '../../api';
+import { authFetch, overwriteFile } from '../../api';
+import {
+  PreviewFileTooLargeError,
+  exceedsPreviewLimit,
+  formatPreviewBytes,
+  getPreviewLimitBytes,
+  readLimitedBlob,
+  readLimitedText,
+} from '../../utils/filePreviewSafety';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -44,9 +52,18 @@ function formatSize(bytes?: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function previewErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof PreviewFileTooLargeError) {
+    return t('文件超过 {limit} 的安全预览上限，请下载后在本地打开', {
+      limit: formatPreviewBytes(error.limitBytes),
+    });
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 /* ── Renderers ── */
 
-function DocxRenderer({ url }: { url: string }) {
+function DocxRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,13 +99,14 @@ function DocxRenderer({ url }: { url: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const resp = await fetch(url);
+        const resp = await authFetch(url, { signal: controller.signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const blob = await resp.blob();
+        const blob = await readLimitedBlob(resp, maxBytes);
         const { renderAsync } = await import('docx-preview');
         if (cancelled || !containerRef.current) return;
         containerRef.current.innerHTML = '';
@@ -99,14 +117,17 @@ function DocxRenderer({ url }: { url: string }) {
           ignoreHeight: true,
         });
         enhanceDocxLayout(containerRef.current);
-      } catch (e: any) {
-        if (!cancelled) setError(e.message || t('文档预览失败'));
+      } catch (error: unknown) {
+        if (!cancelled) setError(previewErrorMessage(error, t('文档预览失败')));
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [enhanceDocxLayout, url]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [enhanceDocxLayout, maxBytes, url]);
 
   if (error) return <div className="jx-canvas-error">{error}</div>;
   return (
@@ -136,7 +157,7 @@ function PdfRenderer({ url }: { url: string }) {
   );
 }
 
-function PptRenderer({ url }: { url: string }) {
+function PptRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +165,7 @@ function PptRenderer({ url }: { url: string }) {
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
+    const controller = new AbortController();
 
     (async () => {
       try {
@@ -151,7 +173,7 @@ function PptRenderer({ url }: { url: string }) {
         setError(null);
         setPdfUrl(null);
 
-        const resp = await fetch(url);
+        const resp = await authFetch(url, { signal: controller.signal });
         if (!resp.ok) {
           let detail = `HTTP ${resp.status}`;
           try {
@@ -165,14 +187,14 @@ function PptRenderer({ url }: { url: string }) {
           throw new Error(detail);
         }
 
-        const blob = await resp.blob();
+        const blob = await readLimitedBlob(resp, maxBytes);
         objectUrl = URL.createObjectURL(blob);
         if (!cancelled) {
           setPdfUrl(objectUrl);
         }
-      } catch (e: any) {
+      } catch (error: unknown) {
         if (!cancelled) {
-          setError(e.message || t('PPT 预览失败'));
+          setError(previewErrorMessage(error, t('PPT 预览失败')));
         }
       } finally {
         if (!cancelled) {
@@ -183,11 +205,12 @@ function PptRenderer({ url }: { url: string }) {
 
     return () => {
       cancelled = true;
+      controller.abort();
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [url]);
+  }, [maxBytes, url]);
 
   if (error) return <div className="jx-canvas-error">{error}</div>;
   if (loading || !pdfUrl) return <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在渲染演示文稿…')}</span></div>;
@@ -209,28 +232,33 @@ function ImageRenderer({ url, name }: { url: string; name: string }) {
   );
 }
 
-function TextRenderer({ url }: { url: string }) {
+function TextRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       try {
         setLoading(true);
-        const resp = await fetch(url);
+        setError(null);
+        const resp = await authFetch(url, { signal: controller.signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const text = await resp.text();
+        const text = await readLimitedText(resp, maxBytes);
         if (!cancelled) setContent(text);
-      } catch (e: any) {
-        if (!cancelled) setError(e.message || t('文本加载失败'));
+      } catch (error: unknown) {
+        if (!cancelled) setError(previewErrorMessage(error, t('文本加载失败')));
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [url]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [maxBytes, url]);
 
   if (error) return <div className="jx-canvas-error">{error}</div>;
   if (loading) return <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在加载…')}</span></div>;
@@ -279,6 +307,32 @@ function UnknownRenderer({ name }: { name: string }) {
       <img src={getFileIconSrc(name)} width="48" height="48" alt="" aria-hidden="true" />
       <p>{t('暂不支持预览此文件格式')}</p>
       <p className="jx-canvas-unknown-hint">{name}</p>
+    </div>
+  );
+}
+
+function LargeFileRenderer({
+  artifact,
+  limitBytes,
+  onDownload,
+}: {
+  artifact: CanvasArtifact;
+  limitBytes: number;
+  onDownload: () => void;
+}) {
+  return (
+    <div className="jx-canvas-largeFile">
+      <FileExclamationOutlined className="jx-canvas-largeFileIcon" />
+      <p className="jx-canvas-largeFileTitle">{t('文件较大，已停止在线预览')}</p>
+      <p className="jx-canvas-largeFileHint">
+        {t('当前文件 {size}，超过此格式 {limit} 的安全预览上限。为避免页面卡顿，请下载后在本地打开。', {
+          size: formatPreviewBytes(artifact.size || 0),
+          limit: formatPreviewBytes(limitBytes),
+        })}
+      </p>
+      <Button type="primary" icon={<DownloadOutlined />} onClick={onDownload}>
+        {t('下载后打开')}
+      </Button>
     </div>
   );
 }
@@ -352,6 +406,9 @@ export function CanvasPanel() {
   const fileUrl = `${effectiveApiUrl}${artifact.url}`;
   const category = getFileCategory(artifact);
   const isXlsx = category === 'xlsx';
+  const previewLimitBytes = getPreviewLimitBytes(category);
+  const previewTooLarge = exceedsPreviewLimit(artifact.size, previewLimitBytes);
+  const maxPreviewBytes = previewLimitBytes ?? Number.MAX_SAFE_INTEGER;
 
   // For xlsx: lock the load URL so saves (which update artifact.url) don't reload Univer
   if (isXlsx && !xlsxLoadUrlRef.current) {
@@ -397,8 +454,8 @@ export function CanvasPanel() {
       setJustSaved(true);
       window.setTimeout(() => setJustSaved(false), 800);
       message.success(t('保存成功'));
-    } catch (e: any) {
-      message.error(e.message || t('保存失败'));
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : t('保存失败'));
     } finally {
       setSaving(false);
     }
@@ -420,20 +477,31 @@ export function CanvasPanel() {
   };
 
   const renderContent = () => {
+    if (previewTooLarge && previewLimitBytes !== null) {
+      return (
+        <LargeFileRenderer
+          artifact={artifact}
+          limitBytes={previewLimitBytes}
+          onDownload={() => { void handleDownload(); }}
+        />
+      );
+    }
     switch (category) {
-      case 'docx': return <DocxRenderer url={fileUrl} />;
+      case 'docx': return <DocxRenderer url={fileUrl} maxBytes={maxPreviewBytes} />;
       case 'xlsx':
         return (
           <UniverSpreadsheet
             ref={univerRef}
             url={xlsxLoadUrl}
+            fileName={artifact.name}
+            maxBytes={maxPreviewBytes}
             onDirty={setXlsxDirty}
           />
         );
       case 'pdf': return <PdfRenderer url={fileUrl} />;
-      case 'ppt': return <PptRenderer url={`${fileUrl}/preview?format=pdf`} />;
+      case 'ppt': return <PptRenderer url={`${fileUrl}/preview?format=pdf`} maxBytes={maxPreviewBytes} />;
       case 'image': return <ImageRenderer url={fileUrl} name={artifact.name} />;
-      case 'text': return <TextRenderer url={fileUrl} />;
+      case 'text': return <TextRenderer url={fileUrl} maxBytes={maxPreviewBytes} />;
       case 'html': return <HtmlRenderer url={fileUrl} version={`${openSeq}-${artifact.size ?? 0}`} />;
       default: return <UnknownRenderer name={artifact.name} />;
     }
@@ -462,7 +530,7 @@ export function CanvasPanel() {
           </div>
         </div>
         <div className="jx-canvas-header-actions">
-          {isXlsx && (
+          {isXlsx && !previewTooLarge && (
             <button
               className="jx-canvas-actionBtn jx-canvas-saveBtn"
               onClick={handleSave}

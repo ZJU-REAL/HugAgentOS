@@ -183,8 +183,8 @@ async def _ingest_attachments(
 ) -> List[Dict[str, Any]]:
     """Download inbound attachments → store as Artifacts (mirrors /v1/file/upload) → return uploaded_files items.
 
-    Each item's shape matches chats.py uploaded_files: {file_id, name, content, mime_type, download_url}.
-    content is the server-side parsed text (best-effort; left empty on failure, the agent can fall back to read_artifact).
+    Each item contains metadata only. Parsing is deferred to the shared
+    file-context/read_artifact path and cached on first use.
     """
     download = getattr(adapter, "download_resource", None)
     if download is None or not msg.attachments:
@@ -199,29 +199,19 @@ async def _ingest_attachments(
                 continue
             name = att.get("name") or "file.bin"
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            # parse_file involves blocking I/O (external parsing service / LibreOffice) → offload to the thread pool, don't block the event loop
-            parsed = await asyncio.to_thread(_safe_parse_file, content, name)
             art = store_bytes_as_artifact(
                 db, user_id=owner_id, content=content, filename=name, mime_type=mime,
-                chat_id=chat_id, source="channel_upload", parsed_text=parsed,
+                chat_id=chat_id, source="channel_upload",
                 extra={"channel_id": conn.channel_id},
             )
             out.append({
-                "file_id": art.artifact_id, "name": name, "content": parsed,
-                "mime_type": mime, "download_url": f"/files/{art.artifact_id}",
+                "file_id": art.artifact_id,
+                "name": name,
+                "mime_type": mime,
             })
         except Exception:  # noqa: BLE001
             logger.exception("[channels] 入站附件处理失败 key=%s", att.get("key"))
     return out
-
-
-def _safe_parse_file(content: bytes, name: str) -> str:
-    """Synchronous parsing (run in the thread pool); returns an empty string on failure, the agent can fall back to read_artifact."""
-    from core.content.file_parser import parse_file
-    try:
-        return parse_file(content, name) or ""
-    except Exception:  # noqa: BLE001
-        return ""
 
 
 async def _collect_reply(run_id: str):

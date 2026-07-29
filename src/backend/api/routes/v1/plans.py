@@ -33,10 +33,8 @@ class HistoryMessage(BaseModel):
 
 class PlanAttachment(BaseModel):
     name: str
-    content: str = ""
     mime_type: str = ""
-    file_id: str = ""
-    download_url: str = ""
+    file_id: str = Field(..., min_length=1)
 
 
 class GeneratePlanRequest(BaseModel):
@@ -224,7 +222,7 @@ async def generate_plan(
 
     uploaded_files = None
     if req.attachments:
-        uploaded_files = [a.model_dump() for a in req.attachments if a.content]
+        uploaded_files = [a.model_dump() for a in req.attachments if a.file_id]
 
     from orchestration import chat_run_executor
 

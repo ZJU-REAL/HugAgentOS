@@ -122,16 +122,14 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
     ) -> ToolResponse:
         """读取已上传文件的完整解析文本（按字符分页）。
 
-        ⚠️ 重要：每轮对话每个 file_id **累计最多读取 50000 字符**（与文件预览
-        预算一致）。超出后会被拒绝并要求改用更合适的工具。
+        ⚠️ 重要：每轮对话每个 file_id **累计最多读取 50000 字符**。超出后会
+        被拒绝；请缩小读取范围，或使用当前已启用的专用文件处理能力。
 
         **Excel/表格类文件优先级**：
-        1. **对每行批量执行同一任务** → 用 `batch_plan(file_ids=[...])`，
-           而**不是**用 read_artifact 把表读完再自己循环
-        2. **多 sheet 工作簿** → 先看返回的 `sheet_names`，再用 `sheet_name`
+        1. **多 sheet 工作簿** → 先看返回的 `sheet_names`，再用 `sheet_name`
            精准读单个 sheet（如 `read_artifact(file_id, sheet_name='2024Q3')`）
-        3. **抽查特定行/区域** → 用本工具，但请精准指定 offset/limit
-        4. **不要**为了"看清全表"反复翻页 —— 全表通常远超 50K 预算
+        2. **抽查特定行/区域** → 用本工具，但请精准指定 offset/limit
+        3. **不要**为了"看清全表"反复翻页 —— 全表通常远超 50K 预算
 
         **PPT/演示文稿**：
         1. **看整体大纲** → 不传 slide_index，返回所有页文本（按页分段）
@@ -160,7 +158,7 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
                   失败返回 {error: 原因}。
 
             ``budget_remaining`` 为 0 时下次调用会被拒绝；如果还需要更多内容，
-            改用 ``batch_plan`` 处理整张表。
+            请缩小范围，或使用当前已启用的专用文件处理能力。
         """
         import json as _json
 
@@ -251,10 +249,8 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
         lim = max(1, min(lim, _READ_ARTIFACT_MAX_LIMIT))
 
         # ── Per-turn cumulative budget guard ──────────────────────────────
-        # The budget mirrors the static file_context injection cap so the
-        # model can never read more (in one turn) than what would have been
-        # statically injected. Prevents context explosion when a curious
-        # model tries to traverse a huge spreadsheet sequentially.
+        # Bound cumulative tool output so repeated pagination cannot explode
+        # a single turn's context.
         state = get_artifact_read_state()
         already_read = state.get(fid, 0)
         budget_remaining = max(0, MAX_FILE_CONTENT_CHARS - already_read)
@@ -269,8 +265,8 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
             )
             if is_xlsx:
                 hint += (
-                    f" 如需对每行批量执行任务，请改用 batch_plan(file_ids=['{fid}'])"
-                    "，后端会读取全部行；不要继续用 read_artifact 翻完整张表。"
+                    " 如需处理整张表，请使用当前已启用的专用表格处理能力；"
+                    "不要继续用 read_artifact 翻完整张表。"
                 )
             else:
                 hint += " 如需更多内容，请缩小范围（精准 offset/limit）后再试。"
@@ -326,4 +322,3 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
 
     toolkit.register_tool_function(read_artifact, namesake_strategy="override")
     logger.info("[factory] Registered read_artifact tool (user=%s)", user_id)
-

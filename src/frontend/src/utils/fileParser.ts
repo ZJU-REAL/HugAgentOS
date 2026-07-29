@@ -1,66 +1,6 @@
 import { authFetch } from '../api';
 import { t } from '../i18n';
 
-const BINARY_EXTS = ['.pdf', '.doc', '.docx', '.wps', '.xlsx', '.xls', '.pptx', '.ppt'];
-const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico']);
-
-export async function parseFileContent(file: File, apiUrl: string): Promise<string> {
-  const ext = ('.' + (file.name.split('.').pop() ?? '')).toLowerCase();
-  // Images are sent to the model via file_id/download_url, no text extraction needed
-  if (IMAGE_EXTS.has(ext) || file.type.startsWith('image/')) return '';
-  if (BINARY_EXTS.includes(ext) && apiUrl) {
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const resp = await authFetch(`${apiUrl}/v1/file/parse`, {
-        method: 'POST',
-        body: form,
-      });
-      if (resp.ok) return (await resp.json()).content ?? '';
-    } catch (_) { /* 静默失败 */ }
-    return '';
-  }
-  return new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => resolve((e.target?.result as string) ?? '');
-    reader.onerror = () => resolve('');
-    reader.readAsText(file);
-  });
-}
-
-export async function parseSpaceFileContent(
-  downloadUrl: string,
-  filename: string,
-  mimeType: string,
-  apiUrl: string,
-): Promise<string> {
-  const ext = ('.' + (filename.split('.').pop() ?? '')).toLowerCase();
-  if (IMAGE_EXTS.has(ext) || mimeType.startsWith('image/')) return '';
-  if (!downloadUrl) return '';
-
-  try {
-    const fetchUrl = downloadUrl.startsWith('http') ? downloadUrl : `${apiUrl}${downloadUrl}`;
-    const resp = await authFetch(fetchUrl);
-    if (!resp.ok) return '';
-    const blob = await resp.blob();
-
-    if (BINARY_EXTS.includes(ext) && apiUrl) {
-      const form = new FormData();
-      form.append('file', blob, filename);
-      const parseResp = await authFetch(`${apiUrl}/v1/file/parse`, {
-        method: 'POST',
-        body: form,
-      });
-      if (parseResp.ok) return (await parseResp.json()).content ?? '';
-      return '';
-    }
-
-    return await blob.text();
-  } catch {
-    return '';
-  }
-}
-
 export async function uploadFileToOSS(
   file: File, apiUrl: string, chatId: string
 ): Promise<{ file_id: string; download_url: string }> {
@@ -77,7 +17,7 @@ export async function uploadFileToOSS(
       const data = await resp.json();
       return { file_id: data.file_id ?? '', download_url: data.download_url ?? '' };
     }
-  } catch (_) { /* 上传失败不阻断 */ }
+  } catch { /* 上传失败不阻断 */ }
   return { file_id: '', download_url: '' };
 }
 

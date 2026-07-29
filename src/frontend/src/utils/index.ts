@@ -11,7 +11,7 @@ export {
   coerceToolOutput, normalizeMaybeId,
 } from './citations';
 export { buildHistorySegments } from './segments';
-export { parseFileContent, uploadFileToOSS, normalizeArtifactOutput, extractArtifactOutputs, attachArtifactsToToolCalls } from './fileParser';
+export { uploadFileToOSS, normalizeArtifactOutput, extractArtifactOutputs, attachArtifactsToToolCalls } from './fileParser';
 export { formatDateTime } from './date';
 export {
   INTERNET_SEARCH_ENGINES,
@@ -23,3 +23,13 @@ export {
 } from './internetSearchConfig';
 
 export { getFileIconSrc, getFolderIconSrc } from './fileIcon';
+export {
+  PreviewFileTooLargeError,
+  exceedsPreviewLimit,
+  formatPreviewBytes,
+  getPreviewLimitBytes,
+  readLimitedArrayBuffer,
+  readLimitedBlob,
+  readLimitedText,
+  type PreviewKind,
+} from './filePreviewSafety';

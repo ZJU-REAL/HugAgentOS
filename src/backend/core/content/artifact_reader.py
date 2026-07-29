@@ -12,6 +12,11 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Maximum parsed-text preview injected automatically for a newly attached file.
+# Full content remains available through read_artifact and is never placed in
+# the request body by the frontend.
+ATTACHMENT_PREVIEW_MAX_CHARS = 5_000
+
 
 # Canonical source values stored in Artifact.extra_data["source"].
 SOURCE_USER_UPLOAD = "user_upload"
@@ -145,9 +150,24 @@ def fetch_parsed_text(
             return ""
 
         if parsed:
+            from core.content.artifact_summary import build_summary_from_text
+
             art.parsed_text = parsed
             art.parsed_at = datetime.utcnow()
             art.parse_error = None
+            if not art.summary:
+                try:
+                    art.summary = build_summary_from_text(
+                        parsed,
+                        filename,
+                        art.mime_type or "",
+                    )
+                except Exception as e:
+                    logger.debug(
+                        "artifact_reader: summary derivation failed for %s: %s",
+                        file_id,
+                        e,
+                    )
             db.commit()
         return parsed
 

@@ -3,7 +3,7 @@ import { message } from 'antd';
 import { t } from '../i18n';
 import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
-import { parseFileContent, parseSpaceFileContent, uploadFileToOSS } from '../utils/fileParser';
+import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
 import { useChatStore, useAuthStore, useCatalogStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
@@ -19,7 +19,7 @@ export function useStreaming(
   generateSummary: (chatId: string) => Promise<void>,
   generateClassification: (chatId: string) => Promise<void>,
 ) {
-  const fileUploadMap = useRef<Map<File, Promise<{ content: string; file_id: string; download_url: string }>>>(new Map());
+  const fileUploadMap = useRef<Map<File, Promise<{ file_id: string; download_url: string }>>>(new Map());
   /** AbortControllers keyed by chat id — allows multiple chats to stream in parallel
    *  (e.g. user starts chat A, switches to new chat B, sends while A is still running). */
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -86,16 +86,10 @@ export function useStreaming(
     for (const file of newFiles) {
       const { addUploadingFile, removeUploadingFile } = useFileStore.getState();
       addUploadingFile(file);
-      const promise = Promise.all([
-        parseFileContent(file, curApiUrl),
-        uploadFileToOSS(file, curApiUrl, curChatId),
-      ]).then(([content, { file_id, download_url }]) => {
-        if (!file_id) message.warning(t('文件"{name}"上传失败，发送后将无法下载', { name: file.name }));
-        return { content, file_id, download_url };
-      })
+      const promise = uploadFileToOSS(file, curApiUrl, curChatId)
+        .then(({ file_id, download_url }) => ({ file_id, download_url }))
         .catch(() => {
-          message.warning(t('文件"{name}"上传失败，发送后将无法下载', { name: file.name }));
-          return { content: '', file_id: '', download_url: '' };
+          return { file_id: '', download_url: '' };
         })
         .finally(() => { removeUploadingFile(file); });
       fileUploadMap.current.set(file, promise);
@@ -117,7 +111,7 @@ export function useStreaming(
     const { catalog } = useCatalogStore.getState();
     const { uploadedFiles, setUploadedFiles, setUploadingFiles, importedSpaceFiles, clearImportedSpaceFiles } = useFileStore.getState();
 
-    let msg = directMessage?.trim() || input.trim();
+    const msg = directMessage?.trim() || input.trim();
     if (!msg || sending) return;
     if (!effectiveApiUrl) {
       message.error(t('请先在设置中配置 API 地址。'));
@@ -174,6 +168,24 @@ export function useStreaming(
     useUIStore.getState().clearPendingConfirm(streamChatId);
     // …and the previous round's settled plan bar (a new turn starts a fresh plan, if any)
     useChatStore.getState().setPlanProgress(streamChatId, null);
+
+    type Attachment = { name: string; mime_type: string; file_id: string; download_url: string };
+    const attachments: Attachment[] = [];
+    const failedUploads: string[] = [];
+    for (const file of uploadedFiles) {
+      const promise = fileUploadMap.current.get(file);
+      const result = promise ? await promise : { file_id: '', download_url: '' };
+      if (!result.file_id) {
+        failedUploads.push(file.name);
+        continue;
+      }
+      attachments.push({ name: file.name, mime_type: file.type || '', file_id: result.file_id, download_url: result.download_url });
+    }
+    if (failedUploads.length > 0) {
+      message.error(t('文件上传失败，请移除后重试：{names}', { names: failedUploads.join('、') }));
+      removeSendingChatId(streamChatId);
+      return;
+    }
     if (!directMessage) setInput('');
     if (quotedFollowUp) setQuotedFollowUp(null);
     if (currentSkill) setActiveSkill(null);
@@ -183,21 +195,12 @@ export function useStreaming(
     if (useUIStore.getState().promptHubOpen) {
       useUIStore.getState().setPromptHubOpen(false);
     }
-
-    type Attachment = { name: string; content: string; mime_type: string; file_id: string; download_url: string };
-    const attachments: Attachment[] = [];
-    for (const file of uploadedFiles) {
-      const promise = fileUploadMap.current.get(file);
-      const result = promise ? await promise : { content: '', file_id: '', download_url: '' };
-      attachments.push({ name: file.name, content: result.content, mime_type: file.type || '', file_id: result.file_id, download_url: result.download_url });
-    }
-    const spaceResults = await Promise.all(
-      importedSpaceFiles.map(async (f) => ({
-        name: f.name,
-        content: await parseSpaceFileContent(f.download_url, f.name, f.mime_type, effectiveApiUrl ?? ''),
-        mime_type: f.mime_type, file_id: f.file_id, download_url: f.download_url,
-      })),
-    );
+    const spaceResults = importedSpaceFiles.map((f) => ({
+      name: f.name,
+      mime_type: f.mime_type,
+      file_id: f.file_id,
+      download_url: f.download_url,
+    }));
     attachments.push(...spaceResults);
     setUploadedFiles([]);
     setUploadingFiles(new Set());
@@ -297,7 +300,11 @@ export function useStreaming(
           model_name: 'qwen',
           ...(selectedModelProviderId ? { model_provider_id: selectedModelProviderId } : {}),
           chat_mode: chatMode,
-          attachments,
+          attachments: attachments.map(({ name, mime_type, file_id }) => ({
+            name,
+            mime_type,
+            file_id,
+          })),
           enabled_kbs: enabledKbIds,
           ...(quotedFollowUp ? {
             quoted_follow_up: {

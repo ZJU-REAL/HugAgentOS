@@ -1031,7 +1031,6 @@ def test_chat_context_treats_admin_disabled_pack_as_effective_opt_out(db_session
 
     session_factory = sessionmaker(bind=db_session.get_bind())
     monkeypatch.setattr(chat_routes, "SessionLocal", session_factory)
-    monkeypatch.setattr(chat_routes, "_backfill_artifact_cache", lambda *_args: None)
     monkeypatch.setattr(
         chat_routes,
         "_collect_historical_attachments",

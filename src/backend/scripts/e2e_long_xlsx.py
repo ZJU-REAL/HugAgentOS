@@ -141,13 +141,14 @@ def test_b_hook_block(file_id: str) -> Tuple[bool, str]:
     checks = [
         "总规模: 1114 行",
         "已展示:",
-        "batch_plan",
         "read_artifact",
         file_id,
     ]
     missing = [c for c in checks if c not in block]
     if missing:
         return False, f"missing: {missing}\n--- block ---\n{block[:500]}"
+    if "batch_plan" in block:
+        return False, "preview must not mention an optional tool that may be disabled"
     return True, f"block has all directives, total chars={len(block)}"
 
 
@@ -305,11 +306,11 @@ async def test_e_read_budget(file_id: str) -> Tuple[bool, str]:
         )
     if refused_at is None:
         return False, "no refusal triggered — guard didn't engage"
-    if "batch_plan" not in refusal_msg:
-        return False, f"refusal lacks batch_plan hint: {refusal_msg[:200]}"
+    if "batch_plan" in refusal_msg:
+        return False, f"refusal leaked optional-tool hint: {refusal_msg[:200]}"
     return True, (
         f"capped at {cumulative} chars after {refused_at - 1} successful pages; "
-        f"refused on page {refused_at} with batch_plan directive "
+        f"refused on page {refused_at} with a generic bounded-read directive "
         f"(file total_chars={total_chars})"
     )
 

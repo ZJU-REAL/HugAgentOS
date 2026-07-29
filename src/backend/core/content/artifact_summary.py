@@ -27,9 +27,8 @@ _MAX_SUMMARY_CHARS = 1000
 def build_summary_from_text(text: str, filename: str, mime_type: str = "") -> str:
     """Derive a summary from already-parsed text — no bytes-level re-parse.
 
-    Prefer this path over `build_summary(bytes, ...)` whenever the caller
-    already has the parsed text (e.g., the frontend parsed the file and
-    sent it as `attachment.content`, or `/v1/file/parse` was called).
+    Prefer this path over `build_summary(bytes, ...)` whenever the lazy
+    artifact reader already has parsed text and needs to cache a summary.
 
     For types with no meaningful text (images), returns a name+mime summary.
     """

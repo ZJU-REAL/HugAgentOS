@@ -1,6 +1,6 @@
 # Canvas & Artifacts
 
-> Last updated: 2026-06-11
+> Last updated: July 29, 2026
 
 Files produced during conversations (AI-generated reports, charts, spreadsheets, code-execution outputs) are unified in HugAgentOS under the **Artifact** abstraction: the backend provides persistent storage with a permission-checked download channel, while the frontend offers two viewing / editing surfaces (the data canvas and My Space), plus one-click public share links. This page covers the whole pipeline: how artifacts are produced, where they are stored, where to view them, how to edit them, and how to share them.
 
@@ -22,11 +22,43 @@ The data canvas is a slide-out panel on the right of the chat UI (`src/frontend/
 
 Panel state is managed by `stores/canvasStore.ts` (`openCanvas` / `closeCanvas` / `updateArtifact`; `openSeq` distinguishes "new file opened" from "same file refreshed after save").
 
+### Large-file preview protection
+
+Online preview limits are lower than upload limits because an Office archive can
+consume much more memory after it is decompressed into DOM or canvas objects.
+The canvas and the **Import from My Space** preview use these default safety
+limits:
+
+| File type | Online preview limit |
+|---|---:|
+| Text, Markdown, HTML, JSON, and CSV | 2 MB |
+| Excel | 8 MB |
+| Word and PowerPoint | 20 MB |
+| Images | 25 MB |
+| PDF | 30 MB |
+| Audio and video | Browser metadata streaming; JavaScript doesn't read the complete file |
+
+When a known file size exceeds its limit, the UI doesn't start the preview and
+keeps a download action available. If a response doesn't provide a reliable
+`Content-Length`, text, Word, PowerPoint, and Excel readers still count streamed
+bytes and cancel the response at the limit. Switching files or closing the
+preview also aborts in-flight requests.
+
+CSV and Excel previews in the import pane render only the first 200 rows and 50
+columns. The data canvas parses Excel files in a dedicated Web Worker and
+converts only populated cells instead of walking every empty coordinate in the
+declared sheet range. Online editing loads at most 100,000 populated cells with
+an effective range of at most 100,000 rows and 512 columns. Files beyond these
+limits show a local-download prompt while the main page remains responsive.
+
 ### Univer spreadsheet integration
 
 `components/canvas/UniverSpreadsheet.tsx` handles online xlsx editing:
 
-1. The file is parsed with SheetJS (the `xlsx` package) and converted into Univer's `IWorkbookData` format (multiple sheets; number / boolean / formula cells; merged ranges; formula references recomputed by `utils/xlsxRange.ts::recomputeSheetRefs`).
+1. A Web Worker parses the file with SheetJS (the `xlsx` package), walks only
+   populated cells, and converts them into Univer's sparse `IWorkbookData`
+   format with multiple sheets, number / boolean / formula cells, and merged
+   ranges.
 2. At runtime it dynamically `import('@univerjs/presets')` plus `@univerjs/preset-sheets-core` (with the zh-CN locale) to render the spreadsheet — **only the free core preset is actually loaded**.
 3. After editing, `exportXlsx()` produces a new xlsx File which `CanvasPanel` writes back to the same `file_id` via `api.ts::overwriteFile`; a dirty flag drives the Save button.
 

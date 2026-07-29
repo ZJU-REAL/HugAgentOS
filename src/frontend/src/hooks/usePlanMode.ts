@@ -1,7 +1,6 @@
 import { message } from 'antd';
 import { t } from '../i18n';
 import { generatePlanStream, updatePlanApi, executePlanStream, getPlanApi } from '../api';
-import { parseSpaceFileContent } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { useChatStore, useCatalogStore, useFileStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
@@ -351,7 +350,7 @@ export function buildPlanSegmentData(planData: Record<string, unknown>): Message
 export async function sendPlanMode(
   effectiveApiUrl: string,
   abortControllersRef: React.MutableRefObject<Map<string, AbortController>>,
-  fileUploadMap: React.MutableRefObject<Map<File, Promise<{ content: string; file_id: string; download_url: string }>>>,
+  fileUploadMap: React.MutableRefObject<Map<File, Promise<{ file_id: string; download_url: string }>>>,
   generateSummary: (chatId: string) => Promise<void>,
   directMessage?: string,
   // suppressUserEcho: when the main agent automatically switches into plan mode it reuses this flow,
@@ -395,22 +394,31 @@ export async function sendPlanMode(
   addSendingChatId(streamChatId);
   // New round: clear the previous round's settled plan bar
   useChatStore.getState().setPlanProgress(streamChatId, null);
-  if (!directMessage) setInput('');
 
-  type Attachment = { name: string; content: string; mime_type: string; file_id: string; download_url: string };
+  type Attachment = { name: string; mime_type: string; file_id: string; download_url: string };
   const attachments: Attachment[] = [];
+  const failedUploads: string[] = [];
   for (const file of uploadedFiles) {
     const promise = fileUploadMap.current.get(file);
-    const result = promise ? await promise : { content: '', file_id: '', download_url: '' };
-    attachments.push({ name: file.name, content: result.content, mime_type: file.type || '', file_id: result.file_id, download_url: result.download_url });
+    const result = promise ? await promise : { file_id: '', download_url: '' };
+    if (!result.file_id) {
+      failedUploads.push(file.name);
+      continue;
+    }
+    attachments.push({ name: file.name, mime_type: file.type || '', file_id: result.file_id, download_url: result.download_url });
   }
-  const spaceResults = await Promise.all(
-    importedSpaceFiles.map(async (f) => ({
-      name: f.name,
-      content: await parseSpaceFileContent(f.download_url, f.name, f.mime_type, effectiveApiUrl ?? ''),
-      mime_type: f.mime_type, file_id: f.file_id, download_url: f.download_url,
-    })),
-  );
+  if (failedUploads.length > 0) {
+    message.error(t('文件上传失败，请移除后重试：{names}', { names: failedUploads.join('、') }));
+    removeSendingChatId(streamChatId);
+    return;
+  }
+  if (!directMessage) setInput('');
+  const spaceResults = importedSpaceFiles.map((f) => ({
+    name: f.name,
+    mime_type: f.mime_type,
+    file_id: f.file_id,
+    download_url: f.download_url,
+  }));
   attachments.push(...spaceResults);
   setUploadedFiles([]);
   setUploadingFiles(new Set());
@@ -494,7 +502,7 @@ export async function sendPlanMode(
         enabledKbIds,
         currentChatId,
         historyMessages,
-        attachments,
+        attachments.map(({ name, mime_type, file_id }) => ({ name, mime_type, file_id })),
         undefined,
         projectId,
         selectedModelProviderId,

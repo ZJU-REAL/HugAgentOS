@@ -3396,6 +3396,18 @@ textarea.jx-composer{
   padding: 12px;
   background: #fff;
 }
+.jx-spaceImportPreview-limitNotice {
+  position: sticky;
+  top: -12px;
+  z-index: 1;
+  margin: -12px -12px 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-warning-bg);
+  background: var(--color-warning-light);
+  color: var(--color-warning-active);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .jx-spaceImportPreview-table,
 .jx-spaceImportPreview-tableWrap table {
   border-collapse: collapse;

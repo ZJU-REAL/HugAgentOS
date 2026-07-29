@@ -324,6 +324,8 @@ export interface ModelCapabilities {
   main_context_length?: number;
   /** Tokens the backend reserves for the system prompt + skill/tool descriptions. */
   system_prompt_tokens?: number;
+  /** Maximum text characters automatically previewed per newly attached file. */
+  attachment_preview_chars?: number;
 }
 
 export interface UserSelectableModel {
@@ -367,6 +369,9 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
     user_selectable_models: models,
     main_context_length: typeof main.context_length === 'number' ? main.context_length : 0,
     system_prompt_tokens: typeof main.system_prompt_tokens === 'number' ? main.system_prompt_tokens : 0,
+    attachment_preview_chars: typeof main.attachment_preview_chars === 'number'
+      ? main.attachment_preview_chars
+      : 0,
   };
 }
 
@@ -2040,7 +2045,7 @@ export async function generatePlanStream(
   enabledKbIds?: string[],
   chatId?: string,
   historyMessages?: Array<{ role: string; content: string }>,
-  attachments?: Array<{ name: string; content: string; mime_type: string; file_id: string; download_url: string }>,
+  attachments?: Array<{ name: string; mime_type: string; file_id: string }>,
   enabledAgentIds?: string[],
   projectId?: string,
   modelProviderId?: string | null,

@@ -317,25 +317,14 @@ async def _prepare_history(
     return trimmed
 
 
-def _build_file_context(uploaded_files: List[Dict[str, Any]], max_chars: int = 50000) -> str:
-    """Build file context text from uploaded file attachments."""
-    if not uploaded_files:
-        return ""
-    file_names = [f"- {f.get('name', '未知文件')}" for f in uploaded_files]
-    content_parts: List[str] = []
-    for f in uploaded_files:
-        content = (f.get("content") or "").strip()
-        if content:
-            name = f.get("name", "未知文件")
-            if len(content) > max_chars:
-                content = content[:max_chars] + "\n... (内容过长，已截断)"
-            content_parts.append(f"### {name}\n{content}")
-    if not content_parts:
-        return ""
-    return (
-        f"[附件文件]: {chr(10).join(file_names)}\n\n"
-        f"[附件内容]\n" + "\n\n---\n\n".join(content_parts) + "\n[附件内容结束]"
-    )
+def _build_file_context(
+    uploaded_files: List[Dict[str, Any]],
+    user_id: Optional[str] = None,
+) -> str:
+    """Reuse the main-chat file_id-based lazy preview pipeline."""
+    from core.llm.hooks import _build_file_context as build_lazy_file_context
+
+    return build_lazy_file_context(uploaded_files, user_id=user_id)
 
 
 async def astream_generate_plan(
@@ -405,7 +394,7 @@ async def astream_generate_plan(
 
         # Embed plan prompt as part of user message (avoid system message
         # conflict with factory's built-in system prompt).
-        file_context = _build_file_context(uploaded_files or [])
+        file_context = _build_file_context(uploaded_files or [], user_id=user_id)
         file_section = f"\n\n---\n\n{file_context}" if file_context else ""
         user_content = f"{system_prompt}\n\n---\n\n用户任务：{task_description}{file_section}"
 
@@ -801,7 +790,7 @@ async def astream_execute_plan(
                 agent.state.context.extend(session_to_msgs(prepared_history))
 
                 # Inject file context (content must be a list of blocks)
-                file_context = _build_file_context(uploaded_files or [])
+                file_context = _build_file_context(uploaded_files or [], user_id=user_id)
                 if file_context:
                     agent.state.context.append(
                         Msg(
