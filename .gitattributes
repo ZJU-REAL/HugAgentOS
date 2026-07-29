@@ -23,6 +23,10 @@ Makefile text eol=lf
 # 后端源码会 bind-mount 进 Linux 容器运行
 *.py text eol=lf
 
+# 桌面依赖锁的内容哈希必须在 Windows / Linux 检出时保持一致
+requirements-desktop.txt text eol=lf
+requirements-desktop-windows-py311.lock text eol=lf
+
 # Windows 专用脚本保持 CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf

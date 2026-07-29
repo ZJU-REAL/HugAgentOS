@@ -8,6 +8,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "test:scripts": "node --test scripts/*.test.mjs",
+    "lock:windows": "node scripts/generate-windows-requirements-lock.mjs",
     "version:desktop": "node scripts/set-desktop-version.mjs"
   },
   "devDependencies": {

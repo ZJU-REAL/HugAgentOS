@@ -120,6 +120,30 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 > Linux 仍只构建桌面前端，不携带 Windows 本机服务载荷；dev 模式从仓库内
 > `src/frontend/dist` 读取静态资源。
 
+### Windows 本机服务依赖
+
+Windows 本机模式使用独立的 Python 3.11 依赖档案，避免把容器部署专用的
+PostgreSQL、云存储和远程沙箱 SDK 安装到最终用户环境：
+
+- `requirements-desktop.txt` 只声明 SQLite、local storage 和 host script runner
+  所需的直接依赖。
+- `requirements-desktop-windows-py311.lock` 锁定 Windows x86_64 / CPython 3.11
+  的完整传递依赖。安装器通过一次 `uv pip sync` 同步环境，不在用户机器上重新
+  解析浮动版本或构建源码包。
+- `desktop-bundle.json` 的 `dependency_fingerprint` 标识依赖内容。客户端更新只
+  修改源码或前端、且指纹不变时，安装器复用现有 venv，只重新注册本机服务包。
+
+修改桌面依赖后，必须在仓库根目录重新生成并提交锁文件：
+
+```bash
+npm --prefix desktop run lock:windows
+```
+
+构建脚本会校验锁文件内的输入 SHA-256；锁文件过期时会在耗时的前端构建前失败。
+Windows 首装默认优先使用阿里云 PyPI 镜像，镜像不可用或缺少锁定版本时使用同一
+份 uv 缓存重试官方 PyPI。内网部署可在启动客户端前设置
+`HUGAGENT_PYPI_INDEX_URL`，覆盖为组织自己的 PEP 503 兼容镜像地址。
+
 正式发版前需确保工作区干净，并在 Windows PowerShell 设置
 `$env:HUGAGENT_RELEASE_BUILD="1"`；此时 CE 生成器不会接受 `--allow-dirty`。版本号必须同时更新
 `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`（本机服务从 `0.2.0` 起提供），
@@ -145,6 +169,9 @@ HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 | `resources/server-bootstrap/install-local-server.sh` | macOS 应用数据目录内准备独立 Python 运行时并安装随包 CE 服务 |
 | `scripts/prepare-bundle.mjs` | 发行构建前生成同版本 CE 服务资源、清单和单文件 ZIP 载荷 |
 | `scripts/create-ce-archive.py` | 以稳定顺序把 CE 服务树压缩成 `server-ce.zip` |
+| `../requirements-desktop.txt` | 桌面本机服务专用的跨平台直接依赖档案 |
+| `../requirements-desktop-windows-py311.lock` | Windows x86_64 / CPython 3.11 精确依赖锁 |
+| `scripts/generate-windows-requirements-lock.mjs` | 从桌面依赖档案重新生成并标记 Windows 锁文件 |
 | `scripts/ce-payload.mjs` | 在派生 CE 仓校验版本标识并只暂存 tracked tree，源代码仓仍走生成器 |
 | `scripts/validate-release-version.mjs` | CI 三平台矩阵启动前校验桌面版本文件与 release tag |
 | `src-tauri/capabilities/default.json` | 插件权限（opener / deep-link / notification / global-shortcut / updater） |
@@ -251,8 +278,9 @@ npm run build
 
 - **Windows 包**仍需在 Windows 侧构建（Tauri 不支持交叉编译）；**Linux 包在装好 Rust 的
   Linux / WSL 环境可直接构建**（apt 依赖见上）。
-- Windows 本机服务首次安装需要联网下载 Python wheels。未安装 Python 3.11+ 时，引导脚本会
-  优先用 `winget` 为当前用户静默安装；系统同时缺少 Python 和 `winget` 时，进度页会给出可重试错误。
+- Windows 本机服务首次安装需要联网下载锁定的 Python wheels。安装器固定使用 Python 3.11；
+  未安装时会优先用 `winget` 为当前用户静默安装。系统同时缺少 Python 3.11 和 `winget` 时，
+  进度页会给出可重试错误。
   Node.js 20+ 缺失时也会尝试通过 `winget` 补齐；这一步失败不阻断核心服务，但 React 建站和高级
   PDF 渲染会保持降级状态。
 - macOS 本机服务首次安装会在应用数据目录下载独立的 `uv` 和 Python 3.11，不修改系统 Python

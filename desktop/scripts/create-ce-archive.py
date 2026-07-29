@@ -14,6 +14,8 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 REQUIRED_FILES = (
     "desktop-bundle.json",
     "pyproject.toml",
+    "requirements-desktop.txt",
+    "requirements-desktop-windows-py311.lock",
     "requirements-mem0.txt",
     "src/frontend/dist/index.html",
 )

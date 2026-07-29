@@ -34,6 +34,15 @@ function writeExecutable(path, contents) {
 function buildBundleArchive(bundle, fixture) {
   const archive = join(fixture, "server-ce.zip");
   const manifest = join(fixture, "server-ce-manifest.json");
+  if (!existsSync(join(bundle, "requirements-desktop.txt"))) {
+    writeFileSync(join(bundle, "requirements-desktop.txt"), "fastapi==1\n");
+  }
+  if (!existsSync(join(bundle, "requirements-desktop-windows-py311.lock"))) {
+    writeFileSync(
+      join(bundle, "requirements-desktop-windows-py311.lock"),
+      "# test lock\nuv==0.11.33\n",
+    );
+  }
   copyFileSync(join(bundle, "desktop-bundle.json"), manifest);
   let result;
   for (const python of ["python3", "python"]) {
