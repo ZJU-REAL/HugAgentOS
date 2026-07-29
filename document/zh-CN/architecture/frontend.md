@@ -67,7 +67,7 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `catalogStore` | 能力目录（技能 / 智能体 / MCP / KB）及启停 |
 | `agentStore` | 子智能体列表与选中态 |
 | `settingsStore` | 用户设置（记忆开关、模型偏好等） |
-| `fileStore` | 上传附件与解析状态 |
+| `fileStore` | 上传附件与上传状态 |
 | `kbStore` | 知识库空间 / 文档 / 分块状态 |
 | `mySpaceStore` | 我的空间资源树与收藏 |
 | `projectStore` | 项目列表、详情、项目内会话 |
@@ -118,7 +118,7 @@ InputArea（components/chat/）
    ▼
 useStreaming.send
    │ 1. chatStore 追加乐观 user 消息
-   │ 2. fetch POST /v1/chats/stream（携带能力位、附件、项目上下文）
+   │ 2. fetch POST /v1/chats/stream（附件只携带 file_id/name/mime_type）
    │ 逐行解析 data: {json}
    │ ├─ content/thinking → segments 分段追加（utils/segments.ts）
    │ ├─ tool_call/tool_result → 工具时间线（components/tool/）

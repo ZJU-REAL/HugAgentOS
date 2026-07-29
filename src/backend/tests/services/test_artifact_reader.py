@@ -99,6 +99,7 @@ def test_fetch_parsed_text_miss_triggers_parse_and_cache(monkeypatch):
     result = ar.fetch_parsed_text("ua_test123")
     assert result == "parsed text content"
     assert row.parsed_text == "parsed text content"
+    assert row.summary
     assert row.parsed_at is not None
     assert sess.committed
 

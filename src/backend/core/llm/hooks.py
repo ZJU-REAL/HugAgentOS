@@ -19,13 +19,12 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-MAX_FILE_CONTENT_CHARS = 50_000  # per-file truncation threshold; the xlsx preview budget uses the same value
+MAX_FILE_CONTENT_CHARS = 50_000  # per-turn read_artifact budget per file
 
 # Per-turn cumulative read budget for the read_artifact tool.
 # Mapping ``file_id → chars already returned this turn``. Reset by the
 # file_context pre_reply hook on every turn boundary so a single user turn
-# can read up to ``MAX_FILE_CONTENT_CHARS`` per file via paginated calls,
-# matching the budget of the static file_context injection.
+# can read up to ``MAX_FILE_CONTENT_CHARS`` per file via paginated calls.
 #
 # The contextvar pattern works because AgentScope dispatches tool calls in
 # the same async task as the agent's reply(), so the value set in the hook
@@ -293,7 +292,15 @@ def _build_xlsx_preview_block(
         return None
 
     try:
-        info = parse_xlsx_preview(file_bytes, char_budget=MAX_FILE_CONTENT_CHARS)
+        from core.content.artifact_reader import (
+            ATTACHMENT_PREVIEW_MAX_CHARS,
+            fetch_parsed_text,
+        )
+
+        # Reuse the bytes already downloaded for the structural preview to
+        # populate parsed_text + summary without a second storage round-trip.
+        fetch_parsed_text(file_id, user_id=user_id, prefetched_bytes=file_bytes)
+        info = parse_xlsx_preview(file_bytes, char_budget=ATTACHMENT_PREVIEW_MAX_CHARS)
     except RuntimeError as e:
         logger.warning(f"xlsx preview: parse failed for {file_id}: {e}")
         return None
@@ -325,13 +332,10 @@ def _build_xlsx_preview_block(
     lines.append("")
     lines.append("[操作指引]")
     lines.append(
-        f"- 对每行执行同一任务 → 调用 batch_plan(file_ids=['{file_id}'], "
-        "instruction='...')；后端会自动读取全部行（受 BATCH_MAX_XLSX_ROWS 限制）"
+        f"- 需要预览之外的正文时，调用 read_artifact(file_id='{file_id}', "
+        "offset=N, limit=4000) 按需读取"
     )
-    lines.append(
-        f"- 查看其他行的具体内容 → 调用 read_artifact(file_id='{file_id}', " "offset=N, limit=4000)"
-    )
-    lines.append("- 不要自己从预览里抽取 text_items，那只会处理你看到的部分行")
+    lines.append("- 以上只是有界预览，不要把未展示的行当作不存在，也不要推断未读取内容")
     return "\n".join(lines)
 
 
@@ -341,13 +345,9 @@ def _build_file_context(
 ) -> str:
     """Assemble the text-attachment list into the context text injected into the model (non-image files only).
 
-    xlsx files take the parse_xlsx_preview "summary + preview + directive" branch,
-    so the main agent isn't misled by the 50K truncation into believing "the Excel
-    only has N rows". Other types keep the original logic: fetch parsed_text and
-    truncate beyond 50K.
-
-    When content is empty but a file_id exists (e.g. imported from My Space), the
-    document content is automatically downloaded from storage and parsed.
+    Files are resolved exclusively by ``file_id``. The backend lazily parses and
+    caches the artifact, then injects only metadata plus a bounded preview. The
+    request body never supplies parsed content.
 
     ``user_id`` is used as the ownership check when fetching ``fetch_parsed_text`` /
     the xlsx preview, preventing a forged request-body ``attachments[].file_id``
@@ -366,7 +366,10 @@ def _build_file_context(
         if fid:
             desc += f"  (file_id: {fid})"
         file_descriptions.append(desc)
-    from core.content.artifact_reader import fetch_parsed_text
+    from core.content.artifact_reader import (
+        ATTACHMENT_PREVIEW_MAX_CHARS,
+        fetch_parsed_text,
+    )
 
     file_content_parts: List[str] = []
     for f in text_files:
@@ -379,16 +382,48 @@ def _build_file_context(
             # Fall through to regular path on preview failure so the agent
             # at least sees the parsed markdown (degraded but non-fatal).
 
-        content = (f.get("content") or "").strip()
-        # If there is no text content but a file_id exists (imported from My Space), fetch from storage and parse
-        fid = f.get("file_id")
-        if not content and fid:
-            logger.info(f"Document hook: fetching content from storage for {f.get('name')} ({fid})")
-            content = fetch_parsed_text(fid, user_id=user_id)
-        if content:
-            if len(content) > MAX_FILE_CONTENT_CHARS:
-                content = content[:MAX_FILE_CONTENT_CHARS] + "\n... (内容过长，已截断)"
-        file_content_parts.append(content)
+        fid = (f.get("file_id") or "").strip()
+        mime_type = f.get("mime_type") or ""
+        if not fid:
+            file_content_parts.append(
+                f"[文件: {f.get('name', '未知文件')}]\n"
+                "  状态: 缺少 file_id，无法读取正文"
+            )
+            continue
+
+        logger.info("Document hook: loading preview for %s (%s)", f.get("name"), fid)
+        content = fetch_parsed_text(fid, user_id=user_id)
+        if not content:
+            file_content_parts.append(
+                f"[文件: {f.get('name', '未知文件')}]\n"
+                f"  file_id: {fid}\n"
+                f"  MIME: {mime_type or '(未知)'}\n"
+                "  状态: 文件不可访问或解析失败"
+            )
+            continue
+
+        total_chars = len(content)
+        preview = content[:ATTACHMENT_PREVIEW_MAX_CHARS]
+        truncated = total_chars > len(preview)
+        block = [
+            f"[文件: {f.get('name', '未知文件')}]",
+            f"  file_id: {fid}",
+            f"  MIME: {mime_type or '(未知)'}",
+            f"  解析文本: 共 {total_chars} 字符，本轮自动展示 {len(preview)} 字符",
+            "",
+            preview,
+        ]
+        if truncated:
+            block.append(f"... (其余 {total_chars - len(preview)} 字符未展示) ...")
+        block.extend(
+            [
+                "",
+                "[读取指引]",
+                f"- 需要未展示的正文时，调用 read_artifact(file_id='{fid}', offset=N, limit=4000)",
+                "- 不要推断尚未读取的内容",
+            ]
+        )
+        file_content_parts.append("\n".join(block))
     file_content = "\n\n---\n\n".join(file_content_parts)
 
     return (
@@ -396,7 +431,7 @@ def _build_file_context(
         f"[file content begin]\n"
         f"{file_content}\n"
         f"[file content end]\n"
-        f"这是用户所上传的文件内容，请你根据文件内容，结合用户的问题进行回答"
+        "以上是用户附件的元数据和有界预览；需要预览之外的正文时必须按需调用 read_artifact。"
     )
 
 

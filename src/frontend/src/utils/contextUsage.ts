@@ -112,6 +112,31 @@ export const SYSTEM_BASE_TOKENS = 1_200;
 // Per historical attachment: the parsed file content is not retained on the
 // client after send, so we estimate a nominal per-file contribution.
 export const ATTACHMENT_EST_TOKENS = 800;
+/** Fallback matching the backend's bounded first-turn attachment preview. */
+export const DEFAULT_ATTACHMENT_PREVIEW_CHARS = 5_000;
+
+export interface StagedFileEstimate {
+  name?: string;
+  type?: string;
+  size?: number;
+}
+
+function isImageFile(file: StagedFileEstimate): boolean {
+  if ((file.type || '').toLowerCase().startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg|ico)$/i.test(file.name || '');
+}
+
+/** Estimate what the backend will inject, never the raw binary transfer size. */
+export function estimateStagedFileTokens(
+  file: StagedFileEstimate,
+  previewChars = DEFAULT_ATTACHMENT_PREVIEW_CHARS,
+): number {
+  if (isImageFile(file)) return ATTACHMENT_EST_TOKENS;
+  const previewCap = Math.max(1, previewChars || DEFAULT_ATTACHMENT_PREVIEW_CHARS);
+  // Parsed text length/content is unknown before the backend reads the file.
+  // Use its explicit preview budget; binary byte size is not a token proxy.
+  return previewCap;
+}
 
 interface MsgTokens {
   messages: number;
@@ -167,10 +192,10 @@ function tokensForMessage(m: ChatMessage): MsgTokens {
 export interface BreakdownOptions {
   /** Current unsent composer draft. */
   draft?: string;
-  /** Total bytes of files staged in the composer but not yet sent. */
-  stagedBytes?: number;
-  /** Count of imported-space files staged in the composer. */
-  stagedFileCount?: number;
+  /** Files staged in the composer but not yet sent. */
+  stagedFiles?: StagedFileEstimate[];
+  /** Backend's per-file automatic preview character budget. */
+  attachmentPreviewChars?: number;
   /**
    * Tokens occupied by the system prompt + tool/skill definitions. Prefer the
    * backend's real reserve (capabilities.system_prompt_tokens); falls back to
@@ -197,10 +222,11 @@ export function computeContextBreakdown(
     filesTok += t.files;
   }
 
-  // Staged (not-yet-sent) files: estimate ~4 bytes/token from raw size, plus a
-  // nominal estimate for imported-space files whose size we don't have here.
-  if (opts.stagedBytes) filesTok += Math.ceil(opts.stagedBytes / 4);
-  if (opts.stagedFileCount) filesTok += opts.stagedFileCount * ATTACHMENT_EST_TOKENS;
+  // Staged files are uploaded by file_id. The backend injects only a bounded
+  // preview, so raw binary size must never be treated as prompt size.
+  for (const file of opts.stagedFiles || []) {
+    filesTok += estimateStagedFileTokens(file, opts.attachmentPreviewChars);
+  }
 
   const inputTok = estimateTokens(opts.draft || '');
   const systemTok = opts.systemTokens && opts.systemTokens > 0

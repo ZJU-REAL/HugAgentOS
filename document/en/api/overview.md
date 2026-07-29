@@ -100,7 +100,7 @@ curl -N http://localhost:3000/api/v1/chats/stream \
   }'
 ```
 
-The request body is a `ChatRequest` (`src/backend/api/schemas.py`): `chat_id` and `message` are required; optional fields include `model_name`, `chat_mode` (`fast`/`medium`/`high`/`max`), `attachments`, and `enabled_kbs` / `enabled_skills` / `enabled_mcps` / `enabled_agents`.
+The request body is a `ChatRequest` (`src/backend/api/schemas.py`): `chat_id` and `message` are required; optional fields include `model_name`, `chat_mode` (`fast`/`medium`/`high`/`max`), `attachments`, and `enabled_kbs` / `enabled_skills` / `enabled_mcps` / `enabled_agents`. Each attachment accepts only `file_id`, `name`, and `mime_type`; the backend parses its body lazily by `file_id`, so file content must not be embedded in the request.
 
 ### Event types
 

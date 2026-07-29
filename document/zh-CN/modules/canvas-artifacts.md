@@ -1,6 +1,6 @@
 # 数据画布与产物
 
-> 最后更新：2026-06-11
+> 最后更新：2026-07-29
 
 对话产生的文件（AI 生成的报告、图表、表格、代码运行结果）在 HugAgentOS 中统一抽象为 **Artifact（产物）**：后端有持久化存储与权限受控的下载通道，前端有两类查看 / 编辑面板（数据画布、我的空间），还可以一键生成对外分享链接。本篇覆盖整条链路：产物怎么产生、存在哪、在哪看、怎么改、怎么分享。
 
@@ -22,11 +22,35 @@
 
 面板状态由 `stores/canvasStore.ts` 管理（`openCanvas` / `closeCanvas` / `updateArtifact`，`openSeq` 用于区分「打开新文件」与「同文件保存后刷新」）。
 
+### 大文件预览保护
+
+在线预览上限低于上传上限，因为 Office 压缩包解压并转成 DOM 或画布对象后，
+占用的内存可能远大于原文件。画布和「从我的空间导入」预览共用以下默认安全上限：
+
+| 文件类型 | 在线预览上限 |
+|---|---:|
+| 文本、Markdown、HTML、JSON、CSV | 2 MB |
+| Excel | 8 MB |
+| Word、PowerPoint | 20 MB |
+| 图片 | 25 MB |
+| PDF | 30 MB |
+| 音频、视频 | 使用浏览器元数据流式加载，不在 JavaScript 中读取完整文件 |
+
+已知文件大小超过上限时，界面不发起预览，只保留下载入口。响应未提供可靠的
+`Content-Length` 时，文本、Word、PowerPoint 和 Excel 读取仍执行流式字节计数；一旦超过
+上限就取消响应。切换文件或关闭预览也会中止仍在进行的请求。
+
+CSV 和导入窗格中的 Excel 只渲染前 200 行、50 列。数据画布中的 Excel 解析在独立的
+Web Worker 中执行，并按真实存在的单元格稀疏转换，不遍历工作表声明范围内的空单元格。
+在线编辑最多加载 100,000 个有效单元格，且有效范围限制为 100,000 行、512 列；超过时
+界面提示下载后在本地打开，主页面保持可操作。
+
 ### Univer 表格集成
 
 `components/canvas/UniverSpreadsheet.tsx` 负责 xlsx 的在线编辑：
 
-1. 用 SheetJS（`xlsx` 包）解析文件，转换为 Univer 的 `IWorkbookData` 格式（含多 Sheet、数字 / 布尔 / 公式单元格、合并区域，公式引用经 `utils/xlsxRange.ts::recomputeSheetRefs` 重算）。
+1. 在 Web Worker 中用 SheetJS（`xlsx` 包）解析文件，只遍历真实存在的单元格，再转换为
+   Univer 的稀疏 `IWorkbookData` 格式（含多 Sheet、数字 / 布尔 / 公式单元格和合并区域）。
 2. 运行时动态 `import('@univerjs/presets')` + `@univerjs/preset-sheets-core`（中文语言包）渲染电子表格——**实际只加载免费的 core 预设**。
 3. 编辑后通过 `exportXlsx()` 导出为新的 xlsx File，由 `CanvasPanel` 调 `api.ts::overwriteFile` 回写到同一个 `file_id`，dirty 状态驱动「保存」按钮。
 

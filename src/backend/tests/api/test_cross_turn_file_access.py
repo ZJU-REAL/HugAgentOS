@@ -5,8 +5,6 @@ from previous turns (both user-uploaded and AI-generated):
 
 - `_collect_historical_attachments` in api/routes/v1/chats.py: queries the
   Artifact table by chat_id — covers user uploads AND AI-generated files.
-- `_backfill_artifact_cache`: writes frontend-parsed `content` into
-  Artifact.parsed_text + .summary so future turns skip re-parsing.
 - `_build_historical_files_context` in core/llm/hooks.py: renders the list
   into a prompt block labeled by provenance.
 """
@@ -336,60 +334,6 @@ def test_extract_message_file_ids_reads_both_keys():
     assert _extract_message_file_ids(user_msg) == ["ua_1", "ua_2"]
     assert _extract_message_file_ids(asst_msg) == ["ai_1"]
     assert _extract_message_file_ids(_make_msg("user", None, datetime.utcnow())) == []
-
-
-# ── _backfill_artifact_cache ────────────────────────────────────────────────
-
-def test_backfill_writes_parsed_text_and_summary(monkeypatch):
-    from api.routes.v1 import chats as chats_mod
-
-    art = _make_art("ua_new", parsed_text=None, summary=None, filename="doc.txt")
-    sess = _MockSession([art])
-    import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
-
-    chats_mod._backfill_artifact_cache(
-        [{"file_id": "ua_new", "content": "hello world from frontend parse"}],
-        user_id="user_1",
-    )
-    assert art.parsed_text == "hello world from frontend parse"
-    assert art.summary  # non-empty after build_summary_from_text
-    assert sess.committed
-
-
-def test_backfill_skips_when_cache_already_populated(monkeypatch):
-    from api.routes.v1 import chats as chats_mod
-    art = _make_art("ua_existing",
-                    parsed_text="already cached",
-                    summary="already summarized",
-                    filename="x.txt")
-    sess = _MockSession([art])
-    import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
-
-    chats_mod._backfill_artifact_cache(
-        [{"file_id": "ua_existing", "content": "new content ignored"}],
-        user_id="user_1",
-    )
-    assert art.parsed_text == "already cached"  # not overwritten
-    assert art.summary == "already summarized"
-
-
-def test_backfill_no_attachments_is_noop(monkeypatch):
-    from api.routes.v1 import chats as chats_mod
-    called = {"n": 0}
-
-    def _fake():
-        called["n"] += 1
-        return _MockSession([])
-
-    import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", _fake)
-
-    chats_mod._backfill_artifact_cache([], "user_1")
-    chats_mod._backfill_artifact_cache([{"file_id": "", "content": ""}], "user_1")
-    chats_mod._backfill_artifact_cache([{"file_id": "ua_x", "content": ""}], "user_1")
-    assert called["n"] == 0  # no DB touch
 
 
 # ── _build_historical_files_context — source labels ───────────────────────

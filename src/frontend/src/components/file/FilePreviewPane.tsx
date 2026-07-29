@@ -12,7 +12,14 @@ import type { ResourceItem } from '../../types';
 import { getApiUrl, authFetch, maybeLocalizeUrl } from '../../api';
 import { mdToHtml } from '../../utils/markdown';
 import { getFileIconSrc } from '../../utils/fileIcon';
-import { recomputeSheetRefs } from '../../utils/xlsxRange';
+import {
+  PreviewFileTooLargeError,
+  exceedsPreviewLimit,
+  formatPreviewBytes,
+  getPreviewLimitBytes,
+  readLimitedArrayBuffer,
+  readLimitedText,
+} from '../../utils/filePreviewSafety';
 
 interface FilePreviewPaneProps {
   item: ResourceItem | null;
@@ -108,7 +115,8 @@ function withPdfViewerParams(url: string): string {
 
 // ─── small async-text hook ─────────────────────────────────────────
 
-function useFetchText(item: ResourceItem) {
+function useFetchText(item: ResourceItem, maxBytes: number) {
+  const url = buildRawUrl(item, true);
   const [state, setState] = useState<{ text: string | null; err: string | null; loading: boolean }>({
     text: null,
     err: null,
@@ -116,27 +124,39 @@ function useFetchText(item: ResourceItem) {
   });
   useEffect(() => {
     let cancelled = false;
-    setState({ text: null, err: null, loading: true });
-    const url = buildRawUrl(item, true);
+    const controller = new AbortController();
     if (!url) {
-      setState({ text: null, err: t('缺少下载链接'), loading: false });
-      return;
+      void Promise.resolve().then(() => {
+        if (!cancelled) setState({ text: null, err: t('缺少下载链接'), loading: false });
+      });
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
     }
-    authFetch(url)
+    authFetch(url, { signal: controller.signal })
       .then(async (resp) => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return resp.text();
+        return readLimitedText(resp, maxBytes);
       })
       .then((text) => {
         if (!cancelled) setState({ text, err: null, loading: false });
       })
       .catch((e) => {
-        if (!cancelled) setState({ text: null, err: String(e?.message || e), loading: false });
+        if (!cancelled) {
+          const err = e instanceof PreviewFileTooLargeError
+            ? t('文件超过 {limit} 的安全预览上限，请下载后在本地打开', {
+                limit: formatPreviewBytes(e.limitBytes),
+              })
+            : String(e?.message || e);
+          setState({ text: null, err, loading: false });
+        }
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [item.id]);
+  }, [maxBytes, url]);
   return state;
 }
 
@@ -166,7 +186,7 @@ function FrameViewer({ src }: { src: string }) {
 function VideoViewer({ src }: { src: string }) {
   return (
     <div className="jx-spaceImportPreview-media">
-      <video src={src} controls playsInline />
+      <video src={src} controls playsInline preload="metadata" />
     </div>
   );
 }
@@ -177,20 +197,20 @@ function AudioViewer({ src, name }: { src: string; name: string }) {
     <div className="jx-spaceImportPreview-audio">
       <div className="jx-spaceImportPreview-audioCover">{initial}</div>
       <div className="jx-spaceImportPreview-audioName" title={name}>{name}</div>
-      <audio src={src} controls />
+      <audio src={src} controls preload="metadata" />
     </div>
   );
 }
 
-function TextViewer({ item }: { item: ResourceItem }) {
-  const { text, err, loading } = useFetchText(item);
+function TextViewer({ item, maxBytes }: { item: ResourceItem; maxBytes: number }) {
+  const { text, err, loading } = useFetchText(item, maxBytes);
   if (loading) return <PreviewLoading />;
   if (err) return <PreviewError msg={err} />;
   return <pre className="jx-spaceImportPreview-text">{text}</pre>;
 }
 
-function JsonViewer({ item }: { item: ResourceItem }) {
-  const { text, err, loading } = useFetchText(item);
+function JsonViewer({ item, maxBytes }: { item: ResourceItem; maxBytes: number }) {
+  const { text, err, loading } = useFetchText(item, maxBytes);
   const pretty = useMemo(() => {
     if (!text) return '';
     try {
@@ -204,8 +224,8 @@ function JsonViewer({ item }: { item: ResourceItem }) {
   return <pre className="jx-spaceImportPreview-text jx-spaceImportPreview-text--json">{pretty}</pre>;
 }
 
-function MarkdownViewer({ item }: { item: ResourceItem }) {
-  const { text, err, loading } = useFetchText(item);
+function MarkdownViewer({ item, maxBytes }: { item: ResourceItem; maxBytes: number }) {
+  const { text, err, loading } = useFetchText(item, maxBytes);
   if (loading) return <PreviewLoading />;
   if (err) return <PreviewError msg={err} />;
   return (
@@ -216,11 +236,15 @@ function MarkdownViewer({ item }: { item: ResourceItem }) {
   );
 }
 
-function parseCsv(text: string, sep: string): string[][] {
+const MAX_TABLE_PREVIEW_ROWS = 200;
+const MAX_TABLE_PREVIEW_COLUMNS = 50;
+
+function parseCsv(text: string, sep: string): { rows: string[][]; truncated: boolean } {
   const rows: string[][] = [];
   let cur: string[] = [];
   let field = '';
   let inQuotes = false;
+  let truncated = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (inQuotes) {
@@ -241,36 +265,45 @@ function parseCsv(text: string, sep: string): string[][] {
       continue;
     }
     if (ch === sep) {
-      cur.push(field);
+      if (cur.length < MAX_TABLE_PREVIEW_COLUMNS) cur.push(field);
+      else truncated = true;
       field = '';
       continue;
     }
     if (ch === '\r') continue;
     if (ch === '\n') {
-      cur.push(field);
+      if (cur.length < MAX_TABLE_PREVIEW_COLUMNS) cur.push(field);
+      else truncated = true;
       rows.push(cur);
+      if (rows.length >= MAX_TABLE_PREVIEW_ROWS) {
+        truncated = i < text.length - 1;
+        break;
+      }
       cur = [];
       field = '';
       continue;
     }
     field += ch;
   }
-  if (field !== '' || cur.length > 0) {
-    cur.push(field);
+  if (rows.length < MAX_TABLE_PREVIEW_ROWS && (field !== '' || cur.length > 0)) {
+    if (cur.length < MAX_TABLE_PREVIEW_COLUMNS) cur.push(field);
+    else truncated = true;
     rows.push(cur);
   }
-  return rows;
+  return { rows, truncated };
 }
 
-function CsvViewer({ item }: { item: ResourceItem }) {
-  const { text, err, loading } = useFetchText(item);
+function CsvViewer({ item, maxBytes }: { item: ResourceItem; maxBytes: number }) {
+  const { text, err, loading } = useFetchText(item, maxBytes);
   const sep = extOf(item.name) === 'tsv' ? '\t' : ',';
-  const rows = useMemo(() => parseCsv(text || '', sep), [text, sep]);
+  const parsed = useMemo(() => parseCsv(text || '', sep), [text, sep]);
+  const { rows } = parsed;
   if (loading) return <PreviewLoading />;
   if (err) return <PreviewError msg={err} />;
   if (rows.length === 0) return <PreviewError msg={t('空文件')} />;
   return (
     <div className="jx-spaceImportPreview-tableWrap">
+      {parsed.truncated && <PreviewTruncatedNotice />}
       <table className="jx-spaceImportPreview-table">
         <thead>
           <tr>
@@ -294,31 +327,62 @@ function CsvViewer({ item }: { item: ResourceItem }) {
 }
 
 function XlsxViewer({ item }: { item: ResourceItem }) {
+  const url = buildRawUrl(item, true);
   const [state, setState] = useState<{
     loading: boolean;
     err: string | null;
-    sheets: { name: string; html: string }[];
+    sheets: { name: string; rows: string[][]; truncated: boolean }[];
     active: string;
   }>({ loading: true, err: null, sheets: [], active: '' });
   useEffect(() => {
     let cancelled = false;
-    setState({ loading: true, err: null, sheets: [], active: '' });
+    const controller = new AbortController();
     (async () => {
       try {
-        const url = buildRawUrl(item, true);
         if (!url) throw new Error(t('缺少下载链接'));
-        const resp = await authFetch(url);
+        const resp = await authFetch(url, { signal: controller.signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const buf = await resp.arrayBuffer();
+        const maxBytes = getPreviewLimitBytes('xlsx') ?? Number.MAX_SAFE_INTEGER;
+        const buf = await readLimitedArrayBuffer(resp, maxBytes);
         const XLSX = await import('xlsx');
         const wb = XLSX.read(buf, { type: 'array' });
-        // A stale <dimension> would make sheet_to_html drop rows outside the
-        // declared range; rebuild !ref from the real cells first.
-        recomputeSheetRefs(wb, XLSX);
-        const sheets = wb.SheetNames.map((n) => ({
-          name: n,
-          html: XLSX.utils.sheet_to_html(wb.Sheets[n], { id: '' }),
-        }));
+        const sheets = wb.SheetNames.map((name) => {
+          const worksheet = wb.Sheets[name];
+          const sparseRows = new Map<number, Map<number, string>>();
+          let maxRow = -1;
+          let maxColumn = -1;
+          let truncated = false;
+          let visitedCells = 0;
+
+          if (worksheet) {
+            for (const address in worksheet) {
+              if (!Object.prototype.hasOwnProperty.call(worksheet, address) || address[0] === '!') continue;
+              visitedCells += 1;
+              if (visitedCells > 100_000) {
+                truncated = true;
+                break;
+              }
+              const position = XLSX.utils.decode_cell(address);
+              if (position.r >= MAX_TABLE_PREVIEW_ROWS || position.c >= MAX_TABLE_PREVIEW_COLUMNS) {
+                truncated = true;
+                continue;
+              }
+              const cell = worksheet[address];
+              if (!cell) continue;
+              if (!sparseRows.has(position.r)) sparseRows.set(position.r, new Map());
+              sparseRows.get(position.r)?.set(position.c, cell.w ?? String(cell.v ?? ''));
+              maxRow = Math.max(maxRow, position.r);
+              maxColumn = Math.max(maxColumn, position.c);
+            }
+          }
+
+          const rows = Array.from({ length: maxRow + 1 }, (_, rowIndex) => (
+            Array.from({ length: maxColumn + 1 }, (_, columnIndex) => (
+              sparseRows.get(rowIndex)?.get(columnIndex) || ''
+            ))
+          ));
+          return { name, rows, truncated };
+        });
         if (!cancelled) {
           setState({
             loading: false,
@@ -329,9 +393,14 @@ function XlsxViewer({ item }: { item: ResourceItem }) {
         }
       } catch (e) {
         if (!cancelled) {
+          const message = e instanceof PreviewFileTooLargeError
+            ? t('文件超过 {limit} 的安全预览上限，请下载后在本地打开', {
+                limit: formatPreviewBytes(e.limitBytes),
+              })
+            : String((e as Error)?.message || e);
           setState({
             loading: false,
-            err: String((e as Error)?.message || e),
+            err: message,
             sheets: [],
             active: '',
           });
@@ -340,12 +409,13 @@ function XlsxViewer({ item }: { item: ResourceItem }) {
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [item.id]);
+  }, [url]);
   if (state.loading) return <PreviewLoading />;
   if (state.err) return <PreviewError msg={state.err} />;
   if (state.sheets.length === 0) return <PreviewError msg={t('工作簿为空')} />;
-  const activeHtml = state.sheets.find((s) => s.name === state.active)?.html || '';
+  const activeSheet = state.sheets.find((s) => s.name === state.active);
   return (
     <div className="jx-spaceImportPreview-xlsx">
       {state.sheets.length > 1 && (
@@ -362,10 +432,18 @@ function XlsxViewer({ item }: { item: ResourceItem }) {
           ))}
         </div>
       )}
-      <div
-        className="jx-spaceImportPreview-tableWrap"
-        dangerouslySetInnerHTML={{ __html: activeHtml }}
-      />
+      <div className="jx-spaceImportPreview-tableWrap">
+        {activeSheet?.truncated && <PreviewTruncatedNotice />}
+        <table className="jx-spaceImportPreview-table">
+          <tbody>
+            {(activeSheet?.rows || []).map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {row.map((cell, columnIndex) => <td key={columnIndex}>{cell}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -387,6 +465,17 @@ function PreviewError({ msg }: { msg: string }) {
       <ExclamationCircleOutlined style={{ fontSize: 28 }} />
       <div className="jx-spaceImportPreview-statusText">{t('预览加载失败')}</div>
       <div className="jx-spaceImportPreview-statusSub">{msg}</div>
+    </div>
+  );
+}
+
+function PreviewTruncatedNotice() {
+  return (
+    <div className="jx-spaceImportPreview-limitNotice">
+      {t('为保持页面流畅，仅展示前 {rows} 行、{columns} 列', {
+        rows: MAX_TABLE_PREVIEW_ROWS,
+        columns: MAX_TABLE_PREVIEW_COLUMNS,
+      })}
     </div>
   );
 }
@@ -415,6 +504,27 @@ function UnsupportedView({ item }: { item: ResourceItem }) {
   );
 }
 
+function LargeFileView({ item, limitBytes }: { item: ResourceItem; limitBytes: number }) {
+  const dl = buildRawUrl(item);
+  return (
+    <div className="jx-spaceImportPreview-status">
+      <ExclamationCircleOutlined style={{ fontSize: 36, color: 'var(--color-warning)' }} />
+      <div className="jx-spaceImportPreview-statusText">{t('文件较大，已停止在线预览')}</div>
+      <div className="jx-spaceImportPreview-statusSub">
+        {t('当前文件 {size}，超过此格式 {limit} 的安全预览上限。为避免页面卡顿，请下载后在本地打开。', {
+          size: formatPreviewBytes(item.size || 0),
+          limit: formatPreviewBytes(limitBytes),
+        })}
+      </div>
+      {dl && (
+        <Button type="primary" icon={<DownloadOutlined />} href={dl} style={{ marginTop: 12 }}>
+          {t('下载后打开')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="jx-spaceImportPreview-empty">
@@ -436,9 +546,14 @@ export function FilePreviewPane({ item }: FilePreviewPaneProps) {
   const kind = detectKind(item);
   const rawUrl = buildRawUrl(item, true);
   const dlUrl = buildRawUrl(item);
+  const previewLimitBytes = getPreviewLimitBytes(kind);
+  const previewTooLarge = exceedsPreviewLimit(item.size, previewLimitBytes);
+  const maxPreviewBytes = previewLimitBytes ?? Number.MAX_SAFE_INTEGER;
 
   let body: ReactNode;
-  switch (kind) {
+  if (previewTooLarge && previewLimitBytes !== null) {
+    body = <LargeFileView item={item} limitBytes={previewLimitBytes} />;
+  } else switch (kind) {
     case 'image':
       body = <ImageViewer src={rawUrl} name={item.name} />;
       break;
@@ -452,16 +567,16 @@ export function FilePreviewPane({ item }: FilePreviewPaneProps) {
       body = <AudioViewer src={rawUrl} name={item.name} />;
       break;
     case 'markdown':
-      body = <MarkdownViewer item={item} />;
+      body = <MarkdownViewer item={item} maxBytes={maxPreviewBytes} />;
       break;
     case 'json':
-      body = <JsonViewer item={item} />;
+      body = <JsonViewer item={item} maxBytes={maxPreviewBytes} />;
       break;
     case 'csv':
-      body = <CsvViewer item={item} />;
+      body = <CsvViewer item={item} maxBytes={maxPreviewBytes} />;
       break;
     case 'text':
-      body = <TextViewer item={item} />;
+      body = <TextViewer item={item} maxBytes={maxPreviewBytes} />;
       break;
     case 'pptx':
     case 'docx':

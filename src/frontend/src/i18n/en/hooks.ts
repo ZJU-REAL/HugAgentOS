@@ -2,6 +2,7 @@
 export const HOOKS_DICT: Record<string, string> = {
   // useStreaming — file upload warnings
   '文件"{name}"上传失败，发送后将无法下载': 'File "{name}" upload failed; download will be unavailable after sending',
+  '文件上传失败，请移除后重试：{names}': 'File upload failed. Remove and retry: {names}',
   // useStreaming — zombie run toast
   '上次会话因服务端重启未完成，请重新发起': 'The previous session was interrupted by a server restart. Please send again.',
   // useStreaming — API config missing

@@ -100,7 +100,7 @@ curl -N http://localhost:3000/api/v1/chats/stream \
   }'
 ```
 
-请求体为 `ChatRequest`（`src/backend/api/schemas.py`）：`chat_id`、`message` 必填；可选 `model_name`、`chat_mode`（`fast`/`medium`/`high`/`max`）、`attachments`、`enabled_kbs` / `enabled_skills` / `enabled_mcps` / `enabled_agents` 等。
+请求体为 `ChatRequest`（`src/backend/api/schemas.py`）：`chat_id`、`message` 必填；可选 `model_name`、`chat_mode`（`fast`/`medium`/`high`/`max`）、`attachments`、`enabled_kbs` / `enabled_skills` / `enabled_mcps` / `enabled_agents` 等。每个附件只接收 `file_id`、`name`、`mime_type`，正文由后端按 `file_id` 延迟解析，不能放进请求体。
 
 ### 事件类型
 

@@ -20,7 +20,6 @@ from core.chat.context import (
     resolve_user_facing_error,
 )
 from core.db.engine import SessionLocal, get_db
-from core.db.models import Artifact as ArtifactModel
 from core.db.models import MessageFeedback
 from core.infra.exceptions import ResourceNotFoundError, ServiceUnavailableError
 from core.infra.logging import get_logger
@@ -597,7 +596,7 @@ def _build_user_extra_data(
                 "name": a.name,
                 "mime_type": a.mime_type,
                 "file_id": a.file_id,
-                "download_url": a.download_url,
+                "download_url": f"/files/{a.file_id}",
             }
             for a in request.attachments
             if a.file_id
@@ -625,81 +624,6 @@ def _build_user_extra_data(
 
 # _build_effective_user_message has been moved down into core/chat/context.py
 # (shared with compaction_service / batch.py); this module imports it under the old name at the top.
-
-
-def _backfill_artifact_cache(
-    attachments: List[Dict[str, Any]],
-    user_id: str,
-) -> None:
-    """Populate Artifact.parsed_text and .summary from attachment.content.
-
-    The frontend (or /v1/file/parse) has already parsed uploaded files;
-    the parsed text arrives in `attachment.content`. We write it back to
-    the Artifact cache so subsequent turns can reference it without any
-    re-parsing — this is what the user referred to as "no need to call the
-    file-parsing tool a second time".
-
-    Silent on failure — this is a best-effort backfill, not a hard
-    requirement for the current turn.
-    """
-    if not attachments or not user_id:
-        return
-    try:
-        from core.content.artifact_summary import build_summary_from_text
-        from core.db.engine import SessionLocal
-        from core.db.models import Artifact as _ArtifactModel
-    except Exception:
-        return
-
-    to_update: List[tuple[str, str]] = []
-    for att in attachments:
-        fid = (att.get("file_id") or "").strip()
-        content = (att.get("content") or "").strip()
-        if fid and content:
-            to_update.append((fid, content))
-    if not to_update:
-        return
-
-    fids = [fid for fid, _ in to_update]
-    content_by_id = {fid: content for fid, content in to_update}
-
-    try:
-        with SessionLocal() as db:
-            rows = (
-                db.query(_ArtifactModel)
-                .filter(
-                    _ArtifactModel.artifact_id.in_(fids),
-                    _ArtifactModel.user_id == user_id,
-                    _ArtifactModel.deleted_at.is_(None),
-                )
-                .all()
-            )
-            changed = False
-            for art in rows:
-                content = content_by_id.get(art.artifact_id)
-                if not content:
-                    continue
-                if not art.parsed_text:
-                    art.parsed_text = content
-                    art.parsed_at = datetime.utcnow()
-                    changed = True
-                if not art.summary:
-                    try:
-                        art.summary = build_summary_from_text(
-                            content,
-                            art.filename or "file",
-                            art.mime_type or "",
-                        )
-                        art.parse_error = None
-                        changed = True
-                    except Exception as e:
-                        logger.debug(
-                            "backfill: summary derivation failed for %s: %s", art.artifact_id, e
-                        )
-            if changed:
-                db.commit()
-    except Exception as e:
-        logger.warning("backfill_artifact_cache failed: %s", e)
 
 
 # Cross-turn historical-file collection lives in ``core.chat.context`` so the
@@ -735,11 +659,6 @@ def _build_ctx(
         [a.model_dump() for a in request.attachments] if request.attachments else []
     )
     current_file_ids = {a.get("file_id") for a in current_attachments if a.get("file_id")}
-
-    # Backfill parsed_text + summary into Artifact rows from the frontend's
-    # already-parsed `content`, so future turns can inject summaries and
-    # `read_artifact` can serve full content without any re-parse.
-    _backfill_artifact_cache(current_attachments, db_user_id)
 
     historical_files = _collect_historical_attachments(
         chat_id=request.chat_id,
@@ -1324,10 +1243,8 @@ def _restore_attachments(saved: List[Dict]) -> List[AttachmentItem]:
     return [
         AttachmentItem(
             name=a.get("name", ""),
-            content="",
             mime_type=a.get("mime_type", ""),
             file_id=a.get("file_id", ""),
-            download_url=a.get("download_url", ""),
         )
         for a in saved
         if a.get("file_id")

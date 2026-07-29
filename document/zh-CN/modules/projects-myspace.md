@@ -115,7 +115,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 三条路径，互为补充：
 
-1. **附件注入（hooks）**：用户在输入框上传 / 从我的空间选择文件后，请求 `attachments[].file_id` 经 `core/llm/hooks.py` 的 pre_reply hook 处理——`_build_file_context()` 拉取 `parsed_text`（缺失时从对象存储下载并解析），拼成上下文文本注入；单文件 50K 字符预算，超出截断并提示用 `read_artifact` 分页续读；xlsx 走专用「摘要 + 预览 + 操作指引」分支防止截断误导；图片走多模态注入分支。所有按 `file_id` 的拉取都校验归属 `user_id`，防伪造跨用户读取；
+1. **附件注入（hooks）**：前端请求的 `attachments[]` 只携带 `file_id`、`name`、`mime_type`，不携带文件正文。`core/llm/hooks.py` 按 `file_id` 延迟下载、解析并缓存 `parsed_text` 与摘要；首轮只注入文件元数据和最多 5,000 字符的有界预览，xlsx 额外提供总行列数、表头和少量数据行。模型需要预览外的正文时通过 `read_artifact` 按需读取；图片仍走多模态注入。所有读取都校验 `user_id` 归属，防止伪造 `file_id` 跨用户访问；
 2. **项目文件清单**：项目对话的 system prompt 携带挂钩文件夹的文件列表（见上文），agent 按需用 `read_artifact` / 沙箱工具读取具体内容；
 3. **沙箱虚拟文件系统**：开启代码执行时，`/myspace/...` 路径把我的空间映射进沙箱（懒加载 + 反向同步），团队项目映射团队文件夹——见 [沙箱](./sandbox.md)。
 

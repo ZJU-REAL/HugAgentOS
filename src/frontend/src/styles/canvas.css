@@ -385,6 +385,40 @@
 .jx-canvas-unknown p { margin: 0; font-size: 14px; }
 .jx-canvas-unknown-hint { font-size: 12px; color: var(--color-text-placeholder); }
 
+/* ── Oversized preview safety fallback ── */
+.jx-canvas-largeFile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 40px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.jx-canvas-largeFileIcon {
+  margin-bottom: 2px;
+  color: var(--color-warning);
+  font-size: 42px;
+}
+
+.jx-canvas-largeFileTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.jx-canvas-largeFileHint {
+  max-width: 460px;
+  margin: 0 0 6px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 /* ══ DOCX Renderer ══ */
 .jx-canvas-docx {
   padding: 0;

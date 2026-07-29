@@ -12,10 +12,8 @@ class AttachmentItem(BaseModel):
     """单个文件附件"""
 
     name: str = Field(..., description="文件名")
-    content: str = Field("", description="文件文本内容（供模型读取）")
     mime_type: str = Field("", description="MIME 类型")
-    file_id: str = Field("", description="OSS 持久化后的文件 ID（供下载）")
-    download_url: str = Field("", description="下载路径，如 /files/{file_id}")
+    file_id: str = Field(..., min_length=1, description="持久化后的文件 ID")
 
 
 class QuotedFollowUpItem(BaseModel):

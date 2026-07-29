@@ -1,6 +1,9 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef, useState, useCallback } from 'react';
-import { recomputeSheetRefs } from '../../utils/xlsxRange';
 import { t } from '../../i18n';
+import { authFetch } from '../../api';
+import { readLimitedArrayBuffer } from '../../utils/filePreviewSafety';
+
+type UniverCreationResult = ReturnType<(typeof import('@univerjs/presets'))['createUniver']>;
 
 export interface UniverSpreadsheetHandle {
   exportXlsx: () => Promise<File>;
@@ -9,94 +12,21 @@ export interface UniverSpreadsheetHandle {
 
 interface UniverSpreadsheetProps {
   url: string;
+  fileName: string;
+  maxBytes: number;
   onDirty?: (dirty: boolean) => void;
 }
 
-/**
- * Converts SheetJS workbook to Univer IWorkbookData format.
- */
-function sheetJSToUniverData(wb: any, XLSX: any, fileName: string): any {
-  const sheetOrder: string[] = [];
-  const sheets: Record<string, any> = {};
-
-  wb.SheetNames.forEach((name: string, idx: number) => {
-    const sheetId = `sheet-${idx}`;
-    sheetOrder.push(sheetId);
-    const ws = wb.Sheets[name];
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-    const rowCount = Math.max(range.e.r + 1, 20);
-    const columnCount = Math.max(range.e.c + 1, 10);
-
-    const cellData: Record<number, Record<number, any>> = {};
-    for (let r = range.s.r; r <= range.e.r; r++) {
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const addr = XLSX.utils.encode_cell({ r, c });
-        const cell = ws[addr];
-        if (!cell) continue;
-        if (!cellData[r]) cellData[r] = {};
-
-        const cellObj: any = {};
-        if (cell.t === 'n') {
-          cellObj.v = cell.v;
-          cellObj.t = 2; // NUMBER
-        } else if (cell.t === 'b') {
-          cellObj.v = cell.v ? 1 : 0;
-          cellObj.t = 1; // BOOLEAN
-        } else if (cell.f) {
-          cellObj.f = '=' + cell.f;
-          if (cell.v !== undefined) cellObj.v = cell.v;
-        } else {
-          cellObj.v = cell.v != null ? String(cell.v) : '';
-          cellObj.t = 1; // STRING
-        }
-        cellData[r][c] = cellObj;
-      }
-    }
-
-    const columnData: Record<number, any> = {};
-    if (ws['!cols']) {
-      ws['!cols'].forEach((col: any, i: number) => {
-        if (col && col.wpx) columnData[i] = { w: col.wpx };
-      });
-    }
-    const rowData: Record<number, any> = {};
-    if (ws['!rows']) {
-      ws['!rows'].forEach((row: any, i: number) => {
-        if (row && row.hpx) rowData[i] = { h: row.hpx };
-      });
-    }
-    const mergeData: any[] = [];
-    if (ws['!merges']) {
-      ws['!merges'].forEach((m: any) => {
-        mergeData.push({ startRow: m.s.r, startColumn: m.s.c, endRow: m.e.r, endColumn: m.e.c });
-      });
-    }
-
-    sheets[sheetId] = {
-      id: sheetId, name, cellData,
-      rowCount: Math.max(rowCount, 100),
-      columnCount: Math.max(columnCount, 26),
-      defaultColumnWidth: 88, defaultRowHeight: 24,
-      columnData, rowData, mergeData,
-    };
-  });
-
-  return {
-    id: 'workbook-1', name: fileName, appVersion: '1.0.0',
-    locale: 'zhCN', sheetOrder, sheets, styles: {},
-  };
-}
-
 export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSpreadsheetProps>(
-  function UniverSpreadsheet({ url, onDirty }, ref) {
+  function UniverSpreadsheet({ url, fileName, maxBytes, onDirty }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const univerAPIRef = useRef<any>(null);
+    const univerAPIRef = useRef<UniverCreationResult['univerAPI'] | null>(null);
     const dirtyRef = useRef(false);
     const initDoneRef = useRef(false);
-    const fileNameRef = useRef('file.xlsx');
+    const fileNameRef = useRef(fileName);
 
     const resetDirty = useCallback(() => {
       dirtyRef.current = false;
@@ -147,18 +77,22 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
               continue;
             }
             const maxRow = Math.max(...rowKeys);
-            const aoa: any[][] = [];
+            const aoa: unknown[][] = [];
             for (let r = 0; r <= maxRow; r++) {
               const rowCells = cellData[r] || {};
               const colKeys = Object.keys(rowCells).map(Number);
               const maxCol = colKeys.length > 0 ? Math.max(...colKeys) : 0;
-              const row: any[] = [];
+              const row: unknown[] = [];
               for (let c = 0; c <= maxCol; c++) {
                 row.push(rowCells[c]?.v ?? '');
               }
               aoa.push(row);
             }
-            XLSX.utils.book_append_sheet(newWb, XLSX.utils.aoa_to_sheet(aoa), sd.name || sheetId);
+            XLSX.utils.book_append_sheet(
+              newWb,
+              XLSX.utils.aoa_to_sheet(aoa as Parameters<typeof XLSX.utils.aoa_to_sheet>[0]),
+              sd.name || sheetId,
+            );
           }
         }
 
@@ -171,7 +105,9 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
 
     useEffect(() => {
       let disposed = false;
-      let univerInstance: any = null;
+      let univerInstance: UniverCreationResult['univer'] | null = null;
+      let parseWorker: Worker | null = null;
+      const controller = new AbortController();
 
       (async () => {
         try {
@@ -179,21 +115,51 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
           setError(null);
 
           // 1. Fetch xlsx
-          const resp = await fetch(url);
+          const resp = await authFetch(url, { signal: controller.signal });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const buf = await resp.arrayBuffer();
-          const fileName = decodeURIComponent(url.split('/').pop() || 'file.xlsx');
-          fileNameRef.current = fileName.endsWith('.xlsx') ? fileName : fileName + '.xlsx';
+          const buf = await readLimitedArrayBuffer(resp, maxBytes);
+          fileNameRef.current = fileName;
 
           if (disposed) return;
 
-          // 2. Parse with SheetJS
-          const XLSX = await import('xlsx');
-          const wb = XLSX.read(buf, { type: 'array' });
-          // Stale <dimension> in the file would make SheetJS report a
-          // too-small !ref and drop rows; rebuild it from the real cells.
-          recomputeSheetRefs(wb, XLSX);
-          const workbookData = sheetJSToUniverData(wb, XLSX, fileNameRef.current);
+          // 2. Parse and convert off the main thread. Large or malformed
+          // worksheets must never block React input/painting.
+          parseWorker = new Worker(new URL('./xlsxPreview.worker.ts', import.meta.url), { type: 'module' });
+          let workbookData: unknown;
+          try {
+            workbookData = await new Promise<unknown>((resolve, reject) => {
+              if (!parseWorker) {
+                reject(new Error(t('电子表格加载失败')));
+                return;
+              }
+              parseWorker.onmessage = (event: MessageEvent<{
+                ok: boolean;
+                workbookData?: unknown;
+                code?: 'cells' | 'range' | 'parse';
+                limit?: number;
+                message?: string;
+              }>) => {
+                const result = event.data;
+                if (result.ok) {
+                  resolve(result.workbookData);
+                } else if (result.code === 'cells') {
+                  reject(new Error(t(
+                    '电子表格内容过多，在线预览最多支持 {n} 个有效单元格，请下载后在本地打开',
+                    { n: (result.limit || 0).toLocaleString() },
+                  )));
+                } else if (result.code === 'range') {
+                  reject(new Error(t('电子表格有效范围过大，无法安全在线预览，请下载后在本地打开')));
+                } else {
+                  reject(new Error(result.message || t('电子表格加载失败')));
+                }
+              };
+              parseWorker.onerror = () => reject(new Error(t('电子表格加载失败')));
+              parseWorker.postMessage({ buffer: buf, fileName: fileNameRef.current }, [buf]);
+            });
+          } finally {
+            parseWorker?.terminate();
+            parseWorker = null;
+          }
 
           if (disposed || !containerRef.current) return;
 
@@ -217,9 +183,10 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
           if (disposed || !containerRef.current) return;
 
           // 4. Create Univer
+          type CreateUniverOptions = Parameters<typeof createUniver>[0];
           const { univer, univerAPI } = createUniver({
-            locale: 'zhCN' as any,
-            locales: { zhCN: sheetsCoreZhCN.default } as any,
+            locale: 'zhCN' as CreateUniverOptions['locale'],
+            locales: { zhCN: sheetsCoreZhCN.default } as CreateUniverOptions['locales'],
             presets: [
               UniverSheetsCorePreset({ container: containerRef.current, header: true }),
             ],
@@ -231,7 +198,9 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
           univerAPIRef.current = univerAPI;
 
           // 5. Load workbook
-          univerAPI.createWorkbook(workbookData);
+          univerAPI.createWorkbook(
+            workbookData as Parameters<typeof univerAPI.createWorkbook>[0],
+          );
 
           // 6. Dirty detection — delayed to skip init commands
           setTimeout(() => {
@@ -248,7 +217,7 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
               'paste', 'undo', 'redo',
             ];
 
-            univerAPI.onCommandExecuted?.((cmd: any) => {
+            univerAPI.onCommandExecuted?.((cmd) => {
               if (!initDoneRef.current || dirtyRef.current) return;
               const id: string = (cmd?.id || '').toLowerCase();
               if (EDIT_PATTERNS.some(p => id.includes(p))) {
@@ -257,9 +226,11 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
               }
             });
           }, 2000);
-        } catch (e: any) {
-          console.error('[UniverSpreadsheet]', e);
-          if (!disposed) setError(e.message || t('电子表格加载失败'));
+        } catch (error: unknown) {
+          console.error('[UniverSpreadsheet]', error);
+          if (!disposed) {
+            setError(error instanceof Error ? error.message : t('电子表格加载失败'));
+          }
         } finally {
           if (!disposed) setLoading(false);
         }
@@ -267,12 +238,14 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
 
       return () => {
         disposed = true;
+        controller.abort();
+        parseWorker?.terminate();
         try { univerInstance?.dispose(); } catch { /* */ }
         univerAPIRef.current = null;
         dirtyRef.current = false;
         initDoneRef.current = false;
       };
-    }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [fileName, maxBytes, url]); // eslint-disable-line react-hooks/exhaustive-deps
 
     if (error) return <div className="jx-canvas-error">{error}</div>;
 

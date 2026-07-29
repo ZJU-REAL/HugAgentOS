@@ -67,7 +67,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `catalogStore` | Capability catalog (skills / agents / MCP / KB) and toggles |
 | `agentStore` | Sub-agent list and selection |
 | `settingsStore` | User settings (memory switches, model preferences) |
-| `fileStore` | Uploaded attachments and parse state |
+| `fileStore` | Uploaded attachments and upload state |
 | `kbStore` | KB spaces / documents / chunks |
 | `mySpaceStore` | MySpace resource tree and favorites |
 | `projectStore` | Project list, detail, in-project sessions |
@@ -118,7 +118,7 @@ InputArea (components/chat/)
    ▼
 useStreaming.send
    │ 1. chatStore appends the optimistic user message
-   │ 2. fetch POST /v1/chats/stream (capabilities, attachments, project context)
+   │ 2. fetch POST /v1/chats/stream (attachments carry only file_id/name/mime_type)
    │ parses data: {json} line by line
    │ ├─ content/thinking → appended into segments (utils/segments.ts)
    │ ├─ tool_call/tool_result → tool timeline (components/tool/)

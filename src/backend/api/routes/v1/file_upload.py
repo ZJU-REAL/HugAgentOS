@@ -73,9 +73,8 @@ async def upload_user_file(
             raise HTTPException(status_code=400, detail="目标文件夹不存在")
         db_folder_id = folder_id
 
-    # Leave summary / parsed_text empty; they are lazily backfilled from
-    # attachment.content in the first chat request that references this file
-    # (see _backfill_artifact_cache in chats.py), avoiding redundant server-side parsing.
+    # Leave summary / parsed_text empty. The first model turn that references
+    # this file parses it server-side and caches both fields for later reads.
     try:
         artifact = store_bytes_as_artifact(
             db, user_id=user_id, content=file_bytes, filename=file.filename,
