@@ -1,4 +1,10 @@
-import type { UpdateEntry, CapItem } from './types';
+import type { UpdateEntry } from './types';
+
+interface CapItem {
+  title: string;
+  desc: string;
+  bullets: string[];
+}
 
 // 社区版默认更新记录 / 能力清单（真源在 DB content_blocks，可经部署后配置覆盖）。
 // 商业版历史更新记录与行业能力介绍不随社区版分发。

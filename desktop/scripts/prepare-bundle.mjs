@@ -1,9 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { stageTrackedCeRepository } from "./ce-payload.mjs";
+import {
+  DESKTOP_REQUIREMENTS_FILE,
+  WINDOWS_DESKTOP_LOCK_FILE,
+  desktopDependencyFingerprint,
+} from "./desktop-dependencies.mjs";
 import { readDesktopVersion } from "./desktop-version.mjs";
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,6 +26,7 @@ const npmCommand =
 const npmPrefix =
   process.platform === "win32" ? ["/d", "/s", "/c", "npm.cmd"] : [];
 const desktopVersion = readDesktopVersion(desktopDir);
+const dependencyFingerprint = desktopDependencyFingerprint(repoRoot);
 const python = findPython();
 
 function run(command, args, options = {}) {
@@ -93,6 +105,26 @@ if (existsSync(ceBuilder)) {
   console.log(`[desktop] Staged ${copied} tracked CE files`);
 }
 
+// Desktop dependencies are a release input, not a derivative of the generic
+// server requirements. Copy them explicitly so development builds also see
+// newly added files before they have been committed to Git.
+for (const dependencyFile of [
+  DESKTOP_REQUIREMENTS_FILE,
+  WINDOWS_DESKTOP_LOCK_FILE,
+]) {
+  copyFileSync(
+    join(repoRoot, dependencyFile),
+    join(generatedRoot, dependencyFile),
+  );
+}
+const bundledDependencyFingerprint = desktopDependencyFingerprint(generatedRoot);
+if (bundledDependencyFingerprint !== dependencyFingerprint) {
+  throw new Error("Bundled desktop dependencies changed while staging.");
+}
+console.log(
+  `[desktop] Dependency lock ready: ${dependencyFingerprint.slice(0, 12)}`,
+);
+
 console.log("[desktop] Building the CE login/onboarding web application");
 run(
   npmCommand,
@@ -131,6 +163,7 @@ writeFileSync(
       schema: 1,
       desktop_version: desktopVersion,
       source_revision: revision.stdout.trim(),
+      dependency_fingerprint: dependencyFingerprint,
     },
     null,
     2,

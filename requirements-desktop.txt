@@ -1,0 +1,85 @@
+# Desktop local-server runtime dependencies.
+#
+# This profile is intentionally narrower than requirements.txt. The desktop
+# service always uses SQLite, local object storage, and the host script runner,
+# so container-only database, cloud-storage, and remote-sandbox providers do
+# not belong in the end-user Python environment.
+#
+# Regenerate the Windows Python 3.11 lock after changing this file:
+#   npm --prefix desktop run lock:windows
+
+# Bootstrap tools kept in the lock so `uv pip sync` can reconcile the complete
+# environment without removing the installer that is currently running.
+pip>=24.0
+setuptools>=78.1.1
+wheel>=0.45.1
+uv==0.11.33
+
+# Core web service and orchestration.
+fastapi>=0.110.0
+uvicorn>=0.27.0
+pydantic>=2.6.0
+anyio>=4.2.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+httpx>=0.27.0
+jsonschema>=4.20.0
+agentscope==2.0.0
+litellm>=1.50.0
+google-genai>=0.3.0
+ollama>=0.3.0
+mcp>=1.0.0,<2.0.0
+tavily-python>=0.5.0
+beautifulsoup4>=4.12.0
+
+# Local persistence and application services. PostgreSQL, S3, and OSS clients
+# are omitted because the desktop profile uses SQLite and local storage.
+sqlalchemy>=2.0.25
+alembic>=1.13.0
+redis>=5.0.0
+fakeredis>=2.21.0
+werkzeug>=3.0.0
+python-multipart>=0.0.9
+structlog>=23.2.0
+slowapi>=0.1.9
+argon2-cffi>=23.1.0
+croniter>=2.0.0
+pytz>=2024.1
+cryptography>=42.0.0
+
+# Model channels and inbound integrations retained by the local service.
+segno>=1.6.0
+lark-oapi>=1.4.0
+dingtalk-stream>=0.21.0
+
+# Persistent memory. Graph memory is disabled in the desktop profile, so the
+# Neo4j driver is omitted. Pin the embedded Milvus client/server pair to avoid
+# installing PyMilvus 3 and immediately downgrading it during bootstrap.
+mem0ai>=0.1.50
+protobuf<7
+pymilvus==2.5.18
+milvus-lite==3.1.0
+
+# File parsing, scripts, charts, and document generation. Remote OpenSandbox
+# and E2B clients are omitted because desktop execution uses the host runner.
+pandas>=2.1.0
+numpy>=1.26.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+scipy>=1.11.0
+python-docx>=1.1.0
+python-pptx>=1.0.0
+lxml>=5.1.0
+Pillow>=10.0.0
+qrcode[pil]>=7.4.2
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+reportlab>=4.0.0
+pypdf>=4.0.0
+pikepdf>=9.0.0
+defusedxml>=0.7.1
+markitdown[pptx]>=0.1.0
+tabulate>=0.9.0
+tqdm>=4.66.0

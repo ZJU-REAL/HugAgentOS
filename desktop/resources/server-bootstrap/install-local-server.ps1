@@ -69,7 +69,7 @@ function Start-FastDirectoryCleanup {
 function Test-PythonCandidate {
     param([string]$Executable, [string[]]$PrefixArguments)
     try {
-        & $Executable @PrefixArguments -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+        & $Executable @PrefixArguments -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)" 2>$null
         return $LASTEXITCODE -eq 0
     }
     catch {
@@ -81,7 +81,7 @@ function Resolve-Python {
     $candidates = @()
     $pyLauncher = Get-Command "py.exe" -ErrorAction SilentlyContinue
     if ($pyLauncher) {
-        $candidates += [PSCustomObject]@{ Executable = $pyLauncher.Source; Prefix = @("-3") }
+        $candidates += [PSCustomObject]@{ Executable = $pyLauncher.Source; Prefix = @("-3.11") }
     }
     foreach ($name in @("python.exe", "python3.exe")) {
         $command = Get-Command $name -ErrorAction SilentlyContinue
@@ -172,6 +172,34 @@ function Resolve-Bash {
     return $null
 }
 
+function Resolve-PythonPackageIndex {
+    $Configured = [string]$env:HUGAGENT_PYPI_INDEX_URL
+    if ($Configured) {
+        return [PSCustomObject]@{
+            Url = $Configured.TrimEnd('/')
+            Name = "configured mirror"
+            AllowOfficialFallback = $false
+        }
+    }
+
+    $DomesticMirror = "https://mirrors.aliyun.com/pypi/simple"
+    try {
+        Invoke-WebRequest -Uri "$DomesticMirror/uv/" -Method Head -TimeoutSec 6 -UseBasicParsing | Out-Null
+        return [PSCustomObject]@{
+            Url = $DomesticMirror
+            Name = "Alibaba Cloud mirror"
+            AllowOfficialFallback = $true
+        }
+    }
+    catch {
+        return [PSCustomObject]@{
+            Url = "https://pypi.org/simple"
+            Name = "official PyPI"
+            AllowOfficialFallback = $false
+        }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $BundleArchive -PathType Leaf)) {
     throw "The desktop package doesn't contain the CE server archive."
 }
@@ -187,6 +215,23 @@ $NodeDataDir = Join-Path $RuntimeRoot "node"
 $InstalledManifest = Join-Path $RuntimeRoot "installed-bundle.json"
 New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
 
+function Read-DependencyFingerprint {
+    param([string]$ManifestPath)
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+        return ""
+    }
+    try {
+        $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+        return [string]$Manifest.dependency_fingerprint
+    }
+    catch {
+        return ""
+    }
+}
+
+$BundledDependencyFingerprint = Read-DependencyFingerprint $BundleManifest
+$InstalledDependencyFingerprint = Read-DependencyFingerprint $InstalledManifest
+
 Write-ProgressLine 5 "正在解压同版本服务端资源…"
 $StagedSource = Join-Path $RuntimeRoot "source.next-$([Guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $StagedSource -Force | Out-Null
@@ -200,8 +245,11 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $StagedSource "src\frontend\dist\index.html") -PathType Leaf)) {
         throw "The bundled CE web application is missing."
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $StagedSource "requirements-mem0.txt") -PathType Leaf)) {
-        throw "The desktop package doesn't contain the persistent-memory dependencies."
+    if (-not (Test-Path -LiteralPath (Join-Path $StagedSource "requirements-desktop.txt") -PathType Leaf)) {
+        throw "The desktop package doesn't contain its local-server dependency profile."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $StagedSource "requirements-desktop-windows-py311.lock") -PathType Leaf)) {
+        throw "The desktop package doesn't contain its Windows Python 3.11 dependency lock."
     }
     if (Test-Path -LiteralPath $SourceDir) {
         $PreviousSource = Move-DirectoryToCleanup $SourceDir
@@ -227,7 +275,7 @@ $Python = Resolve-Python
 if (-not $Python) {
     $Winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
     if (-not $Winget) {
-        throw "Python 3.11+ isn't installed, and Windows Package Manager (winget) isn't available. Install Python 3.11 and retry."
+        throw "Python 3.11 isn't installed, and Windows Package Manager (winget) isn't available. Install Python 3.11 and retry."
     }
     Write-ProgressLine 16 "正在为当前用户安装 Python 3.11…"
     Invoke-Checked $Winget.Source @(
@@ -244,7 +292,7 @@ Write-Output "Using Python: $($Python.Executable)"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $RebuildVenv = $true
 if (Test-Path $VenvPython) {
-    & $VenvPython -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+    & $VenvPython -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)" 2>$null
     $RebuildVenv = $LASTEXITCODE -ne 0
     if (-not $RebuildVenv) {
         & $VenvPython -m pip --version 2>$null | Out-Null
@@ -260,58 +308,66 @@ if ($RebuildVenv) {
     Invoke-Checked $Python.Executable $VenvArguments "Unable to create the Python virtual environment"
 }
 
-Write-ProgressLine 32 "正在更新 Python 安装工具…"
-Invoke-Checked $VenvPython @("-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip", "setuptools", "wheel") "Unable to prepare pip"
-
-# uv 并行下载 + 快速解析，同网络下比原生 pip 快数倍（macOS 引导已用 uv，这里对齐）。
-# uv 装不上或安装中途失败都自动回退 pip，不会因此阻塞整个安装。
+$WindowsRequirementsLock = Join-Path $SourceDir "requirements-desktop-windows-py311.lock"
 $VenvUv = Join-Path $VenvDir "Scripts\uv.exe"
-try {
-    & $VenvPython -m pip install --disable-pip-version-check --upgrade uv
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "uv couldn't be installed; dependency installs fall back to pip."
+$DependenciesChanged = $RebuildVenv -or `
+    -not (Test-Path -LiteralPath $VenvUv -PathType Leaf) -or `
+    -not $BundledDependencyFingerprint -or `
+    $BundledDependencyFingerprint -ne $InstalledDependencyFingerprint
+
+if ($DependenciesChanged) {
+    Write-ProgressLine 32 "正在准备锁定的 Python 3.11 运行环境…"
+    $PythonPackageIndex = Resolve-PythonPackageIndex
+    Write-Output "Using Python package index: $($PythonPackageIndex.Name)"
+    $UvRequirement = Get-Content -LiteralPath $WindowsRequirementsLock | Where-Object {
+        $_ -match '^uv==[0-9]+\.[0-9]+\.[0-9]+$'
+    } | Select-Object -First 1
+    if (-not $UvRequirement) {
+        throw "The Windows dependency lock doesn't contain an exact uv version."
+    }
+    $UvPackage = $UvRequirement.Trim()
+    & $VenvPython -m pip install --disable-pip-version-check `
+        --index-url $PythonPackageIndex.Url $UvPackage
+    if ($LASTEXITCODE -ne 0 -and $PythonPackageIndex.AllowOfficialFallback) {
+        Write-Warning "The domestic Python mirror couldn't provide uv; retrying official PyPI."
+        Invoke-Checked $VenvPython @(
+            "-m", "pip", "install", "--disable-pip-version-check",
+            "--index-url", "https://pypi.org/simple", $UvPackage
+        ) "Unable to prepare the locked dependency installer"
+    }
+    elseif ($LASTEXITCODE -ne 0) {
+        throw "Unable to prepare the locked dependency installer (exit code $LASTEXITCODE)"
+    }
+
+    # Keep the build/cache prefix short. Some source distributions contain
+    # deeply nested paths and otherwise exceed MAX_PATH before wheel creation.
+    $env:UV_CACHE_DIR = Join-Path $env:LOCALAPPDATA "desktop-uv"
+    $env:UV_HTTP_RETRIES = "5"
+
+    Write-ProgressLine 42 "正在同步锁定的桌面运行依赖，首次安装需要数分钟…"
+    $SyncArguments = @(
+        "pip", "sync", "--python", $VenvPython,
+        "--only-binary", ":all:",
+        "--default-index", $PythonPackageIndex.Url,
+        $WindowsRequirementsLock
+    )
+    & $VenvUv @SyncArguments
+    if ($LASTEXITCODE -ne 0 -and $PythonPackageIndex.AllowOfficialFallback) {
+        Write-Warning "The domestic Python mirror is incomplete or unavailable; retrying the same locked sync with official PyPI."
+        Invoke-Checked $VenvUv @(
+            "pip", "sync", "--python", $VenvPython,
+            "--only-binary", ":all:",
+            "--default-index", "https://pypi.org/simple",
+            $WindowsRequirementsLock
+        ) "Unable to synchronize the locked desktop dependencies"
+    }
+    elseif ($LASTEXITCODE -ne 0) {
+        throw "Unable to synchronize the locked desktop dependencies (exit code $LASTEXITCODE)"
     }
 }
-catch {
-    Write-Warning "uv couldn't be installed; dependency installs fall back to pip. $($_.Exception.Message)"
+else {
+    Write-ProgressLine 70 "Python 依赖未变化，复用现有运行环境…"
 }
-$env:UV_CACHE_DIR = Join-Path $RuntimeRoot "cache\uv"
-$env:UV_HTTP_RETRIES = "5"
-
-function Install-PythonPackages {
-    param([string[]]$InstallArguments, [string]$FailureMessage)
-    if (Test-Path $VenvUv) {
-        & $VenvUv pip install --python $VenvPython @InstallArguments
-        if ($LASTEXITCODE -eq 0) {
-            return
-        }
-        Write-Warning "uv install failed (exit code $LASTEXITCODE); retrying with pip."
-    }
-    Invoke-Checked $VenvPython (
-        @("-m", "pip", "install", "--disable-pip-version-check", "--prefer-binary") + $InstallArguments
-    ) $FailureMessage
-}
-
-Write-ProgressLine 42 "正在安装服务端依赖，首次安装需要数分钟…"
-Install-PythonPackages @(
-    "-r", (Join-Path $SourceDir "requirements.txt")
-) "Unable to install the server dependencies"
-
-Write-ProgressLine 58 "正在安装永久记忆运行环境…"
-Install-PythonPackages @(
-    "--upgrade",
-    "-r", (Join-Path $SourceDir "requirements-mem0.txt"),
-    "protobuf<7", "pymilvus==2.5.18", "milvus-lite==3.1.0"
-) "Unable to install the persistent-memory dependencies"
-
-Write-ProgressLine 70 "正在安装本机脚本与文档处理能力…"
-# requirements-mcp.txt 必须显式列入：图表/报告 MCP（matplotlib、python-docx）在
-# 容器部署里装在独立 mcp 镜像，本机模式与 script-runner 共用同一 venv——不能
-# 依赖 script-runner 清单恰好覆盖它。
-Install-PythonPackages @(
-    "-r", (Join-Path $SourceDir "docker\requirements-script-runner.txt"),
-    "-r", (Join-Path $SourceDir "docker\requirements-mcp.txt")
-) "Unable to install the local tool dependencies"
 
 Write-ProgressLine 75 "正在准备本机 Bash 脚本能力…"
 $BashExecutableFile = Join-Path $RuntimeRoot "bash-executable.txt"
@@ -484,7 +540,8 @@ elseif (Test-Path $NodeExecutableFile) {
 }
 
 Write-ProgressLine 86 "正在注册 HugAgentOS 本机服务…"
-Install-PythonPackages @(
+Invoke-Checked $VenvUv @(
+    "pip", "install", "--python", $VenvPython,
     "--no-deps", "--editable", $SourceDir
 ) "Unable to install the HugAgentOS command"
 
