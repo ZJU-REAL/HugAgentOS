@@ -107,6 +107,7 @@ data: [DONE]
 
 - **生成**（`astream_generate_plan` / `POST /v1/plans/generate`）：以 `disable_tools=True` 的"裸模型"产出结构化 JSON 计划。系统提示词解析顺序：版本池 `plan_mode` 激活版本 → 旧版 `system/90_plan_mode` 分段 → 文件兜底 `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码最小提示。
 - **执行**（`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`）：每个步骤独立建 agent 顺序执行，支持步骤级 MCP/技能/子智能体绑定、取消（`is_run_cancelled` 轮询）；执行同样走 ChatRun + Redis Stream，可断线续播。
+- **前端呈现与标题**：手动计划模式的预览和执行进度统一显示在对话内的计划卡片，不再重复显示输入框上方的紧凑计划条（该计划条只服务普通对话中的模型 `update_plan`）；计划预览生成后即触发会话标题自动摘要，摘要完成前由首条任务生成临时标题。
 - **模型角色**：计划模式优先解析 `plan_agent` 角色，未配置降级 `main_agent`（`agent_factory.py` `_mode_role` 分支）。
 - 无人值守模式（计划执行 / 自动化）会从工具集中摘除 `batch_runner`，因为 `batch_plan` 的确认弹窗在该场景无 UI 可确认（`workflow.py::_resolve_batch_runner_visibility`）。
 

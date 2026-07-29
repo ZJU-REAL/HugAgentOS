@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from core.auth.backend import get_current_user, UserContext
+from core.chat.context import generate_smart_title
 from core.db.engine import get_db
 from core.infra.responses import success_response, sse_response
 from core.services.plan_service import PlanService
@@ -81,6 +82,7 @@ def _ensure_plan_session(
     db: Session,
     chat_id: Optional[str],
     user_id: str,
+    title_seed: str,
     project_id: Optional[str] = None,
 ) -> Optional[str]:
     """Ensure a chat session exists for plan mode messages.
@@ -100,7 +102,7 @@ def _ensure_plan_session(
         svc.ensure_session(
             chat_id=chat_id,
             user_id=user_id,
-            title="计划模式",
+            title=generate_smart_title(title_seed),
             extra_data={"plan_chat": True},
             project_id=project_id,
         )
@@ -182,7 +184,13 @@ async def generate_plan(
     后台 task 跑生成工作流，HTTP 连接断开（刷新页面）任务继续；前端可通过
     ``GET /v1/chats/{chat_id}/active-run`` 探测，结束后从消息列表拿到完整 plan。
     """
-    db_chat_id = _ensure_plan_session(db, req.chat_id, user.user_id, project_id=req.project_id)
+    db_chat_id = _ensure_plan_session(
+        db,
+        req.chat_id,
+        user.user_id,
+        req.task_description,
+        project_id=req.project_id,
+    )
     if not db_chat_id:
         raise HTTPException(status_code=400, detail="chat_id 必填，无法创建后台生成任务")
     try:
@@ -359,7 +367,13 @@ async def execute_plan(
         raise HTTPException(status_code=400, detail=f"计划状态为 '{plan.status}'，需要先审批")
 
     # Ensure chat session and save "确认执行" user message
-    db_chat_id = _ensure_plan_session(db, req.chat_id, user.user_id, project_id=req.project_id)
+    db_chat_id = _ensure_plan_session(
+        db,
+        req.chat_id,
+        user.user_id,
+        plan.title,
+        project_id=req.project_id,
+    )
     if not db_chat_id:
         raise HTTPException(status_code=400, detail="chat_id 必填，无法创建后台执行任务")
     actual_model_name = resolve_effective_chat_model_name() or "qwen"
