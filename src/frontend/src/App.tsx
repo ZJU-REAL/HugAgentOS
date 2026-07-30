@@ -80,7 +80,7 @@ export default function App() {
   const panelTitles = pageConfig.navigation.panel_titles;
   const brandName = usePageConfig('branding.product_name', 'HugAgentOS');
   const recommendBannerText = usePageConfig('texts.recommend_banner_text', '');
-  const { authUser, authChecking, setAuthUser } = useAuthStore();
+  const { authUser, authChecking, authExpiredUrl, setAuthUser } = useAuthStore();
   const {
     searchKeyword, setSearchResults, setSearchLoading,
     openSearchModal,
@@ -159,7 +159,7 @@ export default function App() {
   const fetchCapabilities = useModelCapabilitiesStore((s) => s.fetchCapabilities);
   const authUserId = authUser?.user_id || '';
   useEffect(() => {
-    if (authChecking) return;
+    if (authChecking || !authUserId) return;
     void fetchCapabilities();
   }, [fetchCapabilities, authChecking, authUserId]);
 
@@ -552,7 +552,9 @@ export default function App() {
     return showAuthSkeleton ? <AppLoadingSkeleton /> : null;
   }
 
-  if (!authUser || window.location.pathname.startsWith('/mock-sso/login')) return null;
+  if (!authUser || window.location.pathname.startsWith('/mock-sso/login')) {
+    return authExpiredUrl ? <AuthExpiredModal /> : null;
+  }
 
   if (authUser.must_change_password) {
     return (

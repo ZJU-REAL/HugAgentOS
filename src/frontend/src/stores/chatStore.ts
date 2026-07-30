@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatItem, ChatMessage, ChatStore as ChatStoreData, PlanProgressState } from '../types';
+import type { ChatItem, ChatMessage, ChatStore as ChatStoreData, ContextCompactionState, PlanProgressState } from '../types';
 import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
@@ -151,6 +151,8 @@ interface ChatState {
    *  backend compacted earlier context; it notifies once on this turn's first frame. The UI shows
    *  a dismissible banner (not persisted). */
   compactionNotices: Record<string, boolean>;
+  /** chatId → latest server checkpoint baseline used by ContextGauge. */
+  contextCompactions: Record<string, ContextCompactionState>;
   /** chatId → live plan/progress shown by the plan bar above the input (transient, not persisted).
    *  Fed by the agent's update_plan tool (plan_update SSE) and by manual plan-mode execution. */
   planProgress: Record<string, PlanProgressState | null>;
@@ -234,6 +236,8 @@ interface ChatState {
   setCompactionNotice: (chatId: string) => void;
   /** User dismissed the compaction banner */
   dismissCompactionNotice: (chatId: string) => void;
+  /** Replace or clear the active compacted-context baseline for a chat. */
+  setContextCompaction: (chatId: string, state: ContextCompactionState | null) => void;
 
   /** Bind a chat to a project (Claude-style workspace). Creates the chat entry on demand if it
    *  doesn't exist, making chat.projectId the single source of truth — the next message is sent
@@ -299,6 +303,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sessionLoadEpoch: 0,
   activeRuns: {},
   compactionNotices: {},
+  contextCompactions: {},
   planProgress: {},
 
   setStore: (store) => {
@@ -460,6 +465,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const next = { ...s.compactionNotices };
     delete next[chatId];
     return { compactionNotices: next };
+  }),
+  setContextCompaction: (chatId, state) => set((s) => {
+    const next = { ...s.contextCompactions };
+    if (state) next[chatId] = state;
+    else delete next[chatId];
+    return { contextCompactions: next };
   }),
 
   truncateMessagesFrom: (chatId, ts) => {
@@ -679,12 +690,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteChat: (id) => {
     const { store, currentChatId, currentUserId } = get();
-    const { [id]: _, ...rest } = store.chats;
+    const rest = { ...store.chats };
+    delete rest[id];
+    const nextCompactions = { ...get().contextCompactions };
+    const nextNotices = { ...get().compactionNotices };
+    delete nextCompactions[id];
+    delete nextNotices[id];
     const next: ChatStoreData = {
       chats: rest,
       order: store.order.filter((oid) => oid !== id),
     };
-    set({ store: next, storeRef: next });
+    set({
+      store: next,
+      storeRef: next,
+      contextCompactions: nextCompactions,
+      compactionNotices: nextNotices,
+    });
     saveChatStoreDebounced(currentUserId, next);
     if (currentChatId === id) {
       const newId = next.order[0] || nowId('chat');
@@ -741,6 +762,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
+      compactionNotices: {},
+      contextCompactions: {},
       chatMode: adminDefaultChatMode(),
     });
   },
@@ -772,6 +795,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
+      compactionNotices: {},
+      contextCompactions: {},
     });
   },
 }));

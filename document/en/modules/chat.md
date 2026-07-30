@@ -1,6 +1,6 @@
 # Chat & Agent Orchestration
 
-> Last updated: July 20, 2026
+> Last updated: July 30, 2026
 
 Chat is the core pipeline of HugAgentOS: a user message travels through the FastAPI route, runtime-context assembly, and the streaming orchestrator, then an AgentScope 2.0 ReActAgent drives multi-turn "think → call tool → observe" loops whose events are pushed to the frontend in real time over SSE. This page walks the end-to-end flow as it exists in the code, then covers the citation system, plan mode, sub-agents, conversation summarization, chat sharing, context compression, and oversized-tool-result offloading.
 
@@ -73,6 +73,7 @@ Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (k
 | `tool_pending` | Tool started, args still streaming | `tool_name` |
 | `batch_confirm` | Batch plan generated, awaiting user confirmation (human gate) | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | A tool is suspended awaiting confirmation of a MySpace write | confirmation context; the tool resumes in place after an out-of-band `POST /v1/chats/{chat_id}/file-confirm` |
+| `compaction_notice` | A new context-compaction checkpoint was created after the previous turn | `chat_id`, `context_compaction` (coverage boundary and replacement-summary token count) |
 | `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
 | `error` | Failure (mapped to a user-friendly message) | `error`, `chat_id` |
 | `heartbeat` | Heartbeat (event-level; a `: heartbeat` comment line also exists) | — |
@@ -184,6 +185,8 @@ Three complementary layers:
 | Chat title summary | `core/llm/summarizer.py::ConversationSummarizer` (`summarizer` model role, `ENABLE_SUMMARY` flag), `POST /v1/summary` | Auto-titling new chats |
 | History pre-trim + summary | `core/llm/context_manager.py::ContextWindowManager.manage_context()` trims to the model's context window; dropped messages are condensed by `core/llm/history_summarizer.py::summarize_history()` into a `<conversation_summary>` prepended to the history | Loading history that exceeds the token budget |
 | In-session compression | AgentScope 2.0 `ContextConfig` (`trigger_ratio=0.6`); the compression prompt demands a structured, resumable-ReAct-workflow summary (preserving artifact_ids, tool params, TODOs) | Context approaching the window inside the ReAct loop |
+
+Compaction checkpoints are internal `system` messages; they do not hide or delete any user-visible transcript entries. The message-list response and the next turn's `compaction_notice` both expose the latest checkpoint's coverage boundary and replacement-summary token estimate. The frontend context gauge therefore measures `replacement baseline + messages after the checkpoint` instead of continuing to accumulate the full history that the summary has replaced.
 
 ## Oversized tool-result offloading
 

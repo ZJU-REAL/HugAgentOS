@@ -49,6 +49,12 @@ function isMockLoginUrl(url?: string | null): boolean {
   return !value || value.includes('/mock-sso/login');
 }
 
+function fallbackLoginUrl(): string {
+  if (SSO_LOGIN_URL && !isMockLoginUrl(SSO_LOGIN_URL)) return SSO_LOGIN_URL;
+  const origin = window.location.origin;
+  return `${origin}/mock-sso/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+}
+
 /** Resolve the redirect-to-login URL.
  * Priority: 1) non-mock URL from 401 body  2) cached `/v1/auth/sso/authorize-url`
  * 3) `SSO_LOGIN_URL` env / mock-SSO landing.
@@ -65,9 +71,7 @@ async function resolveLoginUrl(serverUrl?: string | null): Promise<string> {
   // call can retry instead of being stuck with the cached failure.
   authorizeUrlPromise = null;
 
-  if (SSO_LOGIN_URL && !isMockLoginUrl(SSO_LOGIN_URL)) return SSO_LOGIN_URL;
-  const origin = window.location.origin;
-  return `${origin}/mock-sso/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  return fallbackLoginUrl();
 }
 
 /** Whether we are in the desktop login bridging flow (system-browser side). */
@@ -236,7 +240,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setAuthExpiredUrl: (url) => set({ authExpiredUrl: url }),
 
   triggerExpired: (loginUrl?: string) => {
-    const wasAuthed = get().wasAuthed;
+    const state = get();
+    const wasAuthed = state.wasAuthed;
+
+    // A protected request may be retried by several mounted effects at once.
+    // On the first 401, synchronously drop the in-memory user so every
+    // authUser-gated timer/effect is cleaned up before resolving the final SSO
+    // URL. Keeping authUser alive until this async lookup completed allowed an
+    // expired client to keep polling the current chat indefinitely.
+    if (wasAuthed) {
+      if (state.authExpiredUrl) {
+        if (state.authUser || state.authChecking) {
+          set({ authUser: null, authChecking: false });
+        }
+        return;
+      }
+      set({
+        authUser: null,
+        authChecking: false,
+        authExpiredUrl: loginUrl && !isMockLoginUrl(loginUrl)
+          ? loginUrl
+          : fallbackLoginUrl(),
+      });
+    }
+
     void resolveLoginUrl(loginUrl).then((url) => {
       if (wasAuthed) {
         set({ authExpiredUrl: url });

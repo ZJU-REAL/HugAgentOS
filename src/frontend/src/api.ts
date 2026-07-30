@@ -538,6 +538,7 @@ export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
     content: String(item.content ?? ''),
     isMarkdown: Boolean((item.metadata as JsonObject | undefined)?.is_markdown),
     ts: toTimestamp(item.created_at),
+    messageId: typeof item.message_id === 'string' ? item.message_id : undefined,
     citations: Array.isArray((item.metadata as JsonObject | undefined)?.citations)
       ? ((item.metadata as JsonObject).citations as ChatMessage['citations'])
       : undefined,

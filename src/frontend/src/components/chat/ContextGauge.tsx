@@ -98,6 +98,9 @@ function GaugeContent({ breakdown, window, ratio, modelName }: GaugeContentProps
 export function ContextGauge() {
   const currentChatId = useChatStore((s) => s.currentChatId);
   const messages = useChatStore((s) => (s.currentChatId ? s.store.chats[s.currentChatId]?.messages : undefined));
+  const compaction = useChatStore((s) => (
+    s.currentChatId ? s.contextCompactions[s.currentChatId] : undefined
+  ));
   const draft = useChatStore((s) => s.input);
   const uploadedFiles = useFileStore((s) => s.uploadedFiles);
   const importedSpaceFiles = useFileStore((s) => s.importedSpaceFiles);
@@ -138,8 +141,9 @@ export function ContextGauge() {
       stagedFiles,
       attachmentPreviewChars,
       systemTokens: systemPromptTokens,
+      compaction,
     }),
-    [messages, draft, stagedFiles, attachmentPreviewChars, systemPromptTokens],
+    [messages, draft, stagedFiles, attachmentPreviewChars, systemPromptTokens, compaction],
   );
 
   const hasContent = (messages?.length || 0) > 0 || !!draft.trim() || uploadedFiles.length > 0 || importedSpaceFiles.length > 0;

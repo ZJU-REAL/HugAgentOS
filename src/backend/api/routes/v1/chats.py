@@ -31,6 +31,7 @@ from core.infra.responses import (
 )
 from core.llm.message_compat import strip_thinking
 from core.services import ChatService, UserService
+from core.services.compaction_service import get_compaction_context_state
 from core.services.model_config import ModelConfigService
 from core.services.project_scope import project_scope_from_context
 from core.services.user_model_selection import (
@@ -415,13 +416,18 @@ async def list_messages(
 
     messages, total = chat_service.message_repo.list_by_chat(chat_id, page, page_size)
     items = [_message_to_dict(m) for m in messages]
-    return paginated_response(
+    response = paginated_response(
         items=items,
         page=page,
         page_size=page_size,
         total_items=total,
         message="Messages retrieved successfully",
     )
+    # Keep the complete transcript visible, while exposing the active
+    # checkpoint baseline separately so context-usage estimates do not keep
+    # counting messages that the model now sees only through the summary.
+    response["data"]["context_compaction"] = get_compaction_context_state(chat_service, chat_id)
+    return response
 
 
 @router.get("/{chat_id}/messages/{message_id}/followups", summary="获取追问问题")

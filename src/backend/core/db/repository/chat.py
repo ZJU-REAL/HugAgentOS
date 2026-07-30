@@ -265,6 +265,24 @@ class ChatMessageRepository:
 
         return messages, total
 
+    def count_visible_before(self, chat_id: str, before: datetime) -> int:
+        """Count user-facing messages written before an internal checkpoint.
+
+        Compaction checkpoints use ``role='system'`` and are intentionally
+        excluded, matching :meth:`list_by_chat`.  The count gives clients a
+        stable boundary in the visible history without exposing the checkpoint
+        row or its replacement payload.
+        """
+        return int(
+            self.db.query(ChatMessage)
+            .filter(
+                ChatMessage.chat_id == chat_id,
+                ChatMessage.role != "system",
+                ChatMessage.created_at < before,
+            )
+            .count()
+        )
+
     def create(self, message_data: Dict[str, Any]) -> ChatMessage:
         """Create a new chat message."""
         message = ChatMessage(**message_data)
