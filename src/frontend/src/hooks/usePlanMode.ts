@@ -509,10 +509,18 @@ export async function sendPlanMode(
         opts.suppressUserEcho,
       );
       if (!genResp.ok) throw new Error(t('计划生成请求失败: {status}', { status: genResp.status }));
-      await processPlanGenerateStream(genResp, currentChatId, {
+      const { planEvt } = await processPlanGenerateStream(genResp, currentChatId, {
         placeholderTs,
         onSetCurrentPlanId: setCurrentPlanId,
       });
+      if (planEvt) {
+        // The plan session now exists on the backend. Generate its model-written
+        // conversation title as soon as the preview is ready instead of waiting
+        // until the user eventually confirms and finishes the whole plan.
+        useChatStore.getState().addBackendSessionId(streamChatId);
+        useChatStore.getState().addLoadedMsgId(streamChatId);
+        setTimeout(() => generateSummary(streamChatId), 500);
+      }
     }
 
   } catch (e: any) {

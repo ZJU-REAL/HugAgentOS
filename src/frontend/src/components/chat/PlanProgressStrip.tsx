@@ -11,8 +11,9 @@ import { t } from '../../i18n';
 /* ───────────────────────────────────────────
    Plan bar — slim plan/progress strip pinned
    above the chat input. Fed by chatStore
-   planProgress (agent update_plan tool + manual
-   plan-mode execution). Collapsed: one 40px row
+   planProgress from the agent update_plan tool.
+   Manual plan mode already renders its full progress
+   inside the conversation. Collapsed: one 40px row
    with a determinate progress ring; click to
    expand the step checklist.
    ─────────────────────────────────────────── */
@@ -54,16 +55,21 @@ export function PlanProgressStrip({ chatId }: { chatId: string }) {
   const progress = useChatStore((s) => s.planProgress[chatId]);
   const [expanded, setExpanded] = useState(false);
 
-  const steps = progress?.steps ?? [];
+  // Manual plan mode already owns a full plan card in the message stream.
+  // Showing the same steps here would duplicate that UI above the composer;
+  // keep this compact strip for model-initiated update_plan progress only.
+  const visibleProgress = progress?.source === 'agent' ? progress : null;
+
+  const steps = visibleProgress?.steps ?? [];
   const completed = steps.filter((s) => s.status === 'completed').length;
   const failed = steps.filter((s) => s.status === 'failed').length;
   const total = steps.length;
   const current = steps.find((s) => s.status === 'in_progress');
-  const allDone = !!progress?.done || (total > 0 && completed + failed === total);
+  const allDone = !!visibleProgress?.done || (total > 0 && completed + failed === total);
 
   return (
     <AnimatePresence initial={false}>
-      {progress && total > 0 && (
+      {visibleProgress && total > 0 && (
         <motion.div
           key="planStrip"
           className="jx-planStrip"
@@ -86,7 +92,7 @@ export function PlanProgressStrip({ chatId }: { chatId: string }) {
                 ? <CloseCircleFilled className="jx-planStrip-doneIcon jx-planStrip-doneIcon--fail" />
                 : <CheckCircleFilled className="jx-planStrip-doneIcon" />)
               : <ProgressRing completed={completed} total={total} />}
-            <span className="jx-planStrip-title">{progress.title || t('任务计划')}</span>
+            <span className="jx-planStrip-title">{visibleProgress.title || t('任务计划')}</span>
             {!allDone && current && (
               <>
                 <span className="jx-planStrip-sep" aria-hidden>·</span>

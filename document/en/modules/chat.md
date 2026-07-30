@@ -117,6 +117,7 @@ Plan Mode splits complex tasks into "generate plan → user reviews/edits → ex
 
 - **Generate** (`astream_generate_plan` / `POST /v1/plans/generate`): a "bare LLM" agent (`disable_tools=True`) produces a structured JSON plan. System-prompt resolution: active `plan_mode` version in the prompt pool → legacy `system/90_plan_mode` part → fallback file `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded minimal prompt.
 - **Execute** (`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`): each step gets its own agent, executed sequentially, with step-level MCP/skill/sub-agent bindings and cancellation (`is_run_cancelled` polling); execution also goes through ChatRun + Redis Stream, so it survives disconnects.
+- **Frontend presentation and title**: manual Plan Mode keeps plan previews and execution progress in the in-conversation plan card instead of duplicating them in the compact strip above the composer (that strip is reserved for model-driven `update_plan` progress in regular chats). A model-generated conversation title is requested as soon as the preview is ready, with a first-task title used as the temporary fallback.
 - **Model role**: plan mode prefers the `plan_agent` role and falls back to `main_agent` (the `_mode_role` branch in `agent_factory.py`).
 - Unattended modes (plan execution / automation) remove `batch_runner` from the toolkit, since `batch_plan`'s confirmation dialog has no UI in those contexts (`workflow.py::_resolve_batch_runner_visibility`).
 
