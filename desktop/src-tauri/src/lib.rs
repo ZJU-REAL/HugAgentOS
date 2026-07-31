@@ -54,6 +54,17 @@ fn adaptive_display_zoom(scale_factor: f64, width: u32, height: u32) -> f64 {
     safe_scale.min(resolution_cap)
 }
 
+/// Windows needs to restore the WebView2 DPI scaling removed by
+/// `--force-device-scale-factor=1`. Native WebViews on macOS and Linux already
+/// apply the system scale factor, so another page zoom would double-scale HiDPI UI.
+fn display_zoom_for_platform(is_windows: bool, scale_factor: f64, width: u32, height: u32) -> f64 {
+    if is_windows {
+        adaptive_display_zoom(scale_factor, width, height)
+    } else {
+        1.0
+    }
+}
+
 /// 主窗口初始尺寸同样按显示器的逻辑分辨率计算，避免远程会话中 1280×860 逻辑像素
 /// 被高 DPI 放大后超出可用桌面。
 fn adaptive_window_dimensions(
@@ -90,8 +101,8 @@ fn main_window_dimensions(app: &tauri::AppHandle) -> (f64, f64, f64, f64) {
         .unwrap_or((1280.0, 860.0, 960.0, 640.0))
 }
 
-/// `WEBVIEW_BROWSER_ARGS` 把 WebView2 设备缩放固定为整数 1，消除分数 DPI 下 Ant Design
-/// 弹层坐标漂移；这里再施加经过分辨率限幅的视觉缩放。
+/// Compensate for the forced WebView2 scale on Windows. Keep native WebViews
+/// at page zoom 1.0 so their system HiDPI scaling is not applied twice.
 pub(crate) fn apply_display_zoom(window: &tauri::WebviewWindow) {
     let scale_factor = window.scale_factor().unwrap_or(1.0);
     let monitor_size = window
@@ -101,7 +112,12 @@ pub(crate) fn apply_display_zoom(window: &tauri::WebviewWindow) {
         .map(|monitor| *monitor.size())
         .or_else(|| window.inner_size().ok())
         .unwrap_or(tauri::PhysicalSize::new(1920, 1080));
-    let zoom = adaptive_display_zoom(scale_factor, monitor_size.width, monitor_size.height);
+    let zoom = display_zoom_for_platform(
+        cfg!(target_os = "windows"),
+        scale_factor,
+        monitor_size.width,
+        monitor_size.height,
+    );
     let _ = window.set_zoom(zoom);
 }
 
@@ -1078,14 +1094,20 @@ mod display_tests {
 
     #[test]
     fn remote_retina_dpi_is_capped_by_virtual_resolution() {
-        assert_eq!(adaptive_display_zoom(2.0, 1920, 1080), 1.0);
-        assert_eq!(adaptive_display_zoom(1.5, 2560, 1440), 1.0);
+        assert_eq!(display_zoom_for_platform(true, 2.0, 1920, 1080), 1.0);
+        assert_eq!(display_zoom_for_platform(true, 1.5, 2560, 1440), 1.0);
     }
 
     #[test]
     fn high_resolution_display_gets_moderate_zoom() {
-        assert_eq!(adaptive_display_zoom(2.0, 3840, 2160), 1.5);
-        assert_eq!(adaptive_display_zoom(1.25, 3840, 2160), 1.25);
+        assert_eq!(display_zoom_for_platform(true, 2.0, 3840, 2160), 1.5);
+        assert_eq!(display_zoom_for_platform(true, 1.25, 3840, 2160), 1.25);
+    }
+
+    #[test]
+    fn native_webviews_do_not_get_a_second_hidpi_zoom() {
+        assert_eq!(display_zoom_for_platform(false, 2.0, 3024, 1964), 1.0);
+        assert_eq!(display_zoom_for_platform(false, 2.0, 3840, 2160), 1.0);
     }
 
     #[test]
