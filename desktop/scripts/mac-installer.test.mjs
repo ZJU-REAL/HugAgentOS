@@ -124,10 +124,18 @@ test("macOS release falls back to ad-hoc signing without Apple credentials", () 
   assert.match(builder, /APPLE_SIGNING_IDENTITY\?\.trim\(\) \|\| "-"/);
   assert.doesNotMatch(builder, /APPLE_SIGNING_IDENTITY is required/);
   assert.match(builder, /\["--force", "--sign", identity\]/);
-  assert.match(
-    workflow,
-    /APPLE_SIGNING_IDENTITY: \$\{\{ secrets\.APPLE_SIGNING_IDENTITY \|\| '-' \}\}/,
-  );
+
+  const configureStepStart = workflow.indexOf("- name: Configure macOS signing");
+  const buildStepStart = workflow.indexOf("- name: Build and publish release");
+  assert.notEqual(configureStepStart, -1);
+  assert.ok(buildStepStart > configureStepStart);
+
+  const configureStep = workflow.slice(configureStepStart, buildStepStart);
+  const buildStep = workflow.slice(buildStepStart);
+  assert.match(configureStep, /APPLE_CERTIFICATE_SECRET/);
+  assert.match(configureStep, /echo 'APPLE_SIGNING_IDENTITY=-'/);
+  assert.doesNotMatch(buildStep, /APPLE_CERTIFICATE:/);
+  assert.doesNotMatch(buildStep, /APPLE_CERTIFICATE_PASSWORD:/);
 });
 
 test("CE generation uses an isolated pinned release-builder dependency", () => {
