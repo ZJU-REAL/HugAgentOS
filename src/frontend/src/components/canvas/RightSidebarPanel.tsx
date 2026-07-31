@@ -4,14 +4,23 @@ import { t } from '../../i18n';
 import { useCanvasStore } from '../../stores';
 import { ContentErrorBoundary } from '../common';
 import { CanvasPanel } from './CanvasPanel';
+import { IndustryChainCanvas } from './IndustryChainCanvas';
 import { OntologySidebarPanel } from './OntologySidebarPanel';
 
 export function RightSidebarPanel() {
   const activeView = useCanvasStore((state) => state.activeView);
   const artifact = useCanvasStore((state) => state.artifact);
   const ontologyTarget = useCanvasStore((state) => state.ontologyTarget);
+  const industryChainTarget = useCanvasStore((state) => state.industryChainTarget);
 
   if (activeView === 'file' && artifact) return <CanvasPanel />;
+  if (activeView === 'industry_chain') {
+    return (
+      <IndustryChainCanvas
+        key={`${industryChainTarget?.chatId ?? ''}:${industryChainTarget?.toolId ?? ''}`}
+      />
+    );
+  }
   if (activeView === 'ontology') {
     return (
       <ContentErrorBoundary

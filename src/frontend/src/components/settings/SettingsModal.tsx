@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
-  Modal, Switch, Button, Tag, List, Typography, Slider, message, Tabs, Empty, Input, Select,
+  Alert, Modal, Switch, Button, Tag, List, Typography, Slider, message, Tabs, Empty, Input, Select,
   Skeleton, Spin, Tooltip,
 } from 'antd';
 import {
@@ -107,6 +107,7 @@ export default function SettingsPage() {
     lastToggleError,
     ontologyEnabled,
     ontologyAvailable,
+    ontologyImportValidationForced,
     ontologyActivePacks,
     setMemoryPanelOpen,
     toggleMemory,
@@ -759,6 +760,15 @@ export default function SettingsPage() {
               </span>
             </Tooltip>
           </div>
+          {ontologyImportValidationForced && (
+            <Alert
+              showIcon
+              type="warning"
+              style={{ margin: '0 16px 16px' }}
+              message={t('管理员已强制插件导入执行本体构建校验')}
+              description={t('此门禁独立于上方个人开关；即使你关闭对话本体校验，导入或安装插件时仍会检查技能和 MCP。')}
+            />
+          )}
           {ontologyActivePacks.length > 0 && (
             <>
               <div className="jx-settings-divider" />

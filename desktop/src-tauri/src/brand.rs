@@ -45,7 +45,7 @@ pub const DESKTOP_UPDATE_BASE: &str = match option_env!("JX_DESKTOP_UPDATE_BASE"
 
 /// 本机服务 `/health` 返回的 `service` 标识（backend `api/health.py`）。就绪判定
 /// 靠它确认端口上跑的是我们的后端——两侧必须一致，否则健康检查 200 也永远
-/// 不算就绪，本机模式卡在「启动超时」（iChain 分支实测踩坑）。
+/// 不算就绪，本机模式卡在「启动超时」（HugAgentOS 分支实测踩坑）。
 pub const LOCAL_SERVICE_NAME: &str = match option_env!("JX_LOCAL_SERVICE_NAME") {
     Some(v) => v,
     None => "hugagent",

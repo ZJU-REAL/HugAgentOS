@@ -6,9 +6,10 @@
   "bundle": {
     "targets": ["app", "dmg"],
     "resources": {
-      "../resources/server-bootstrap": "server-bootstrap",
       "../generated/server-ce.zip": "server-ce.zip",
-      "../generated/server-ce/desktop-bundle.json": "server-ce-manifest.json"
+      "../generated/server-ce/desktop-bundle.json": "server-ce-manifest.json",
+      "../generated/runtime-core.tar.gz": "runtime-core.tar.gz",
+      "../generated/runtime-manifest.json": "runtime-manifest.json"
     },
     "macOS": {
       "minimumSystemVersion": "12.0"

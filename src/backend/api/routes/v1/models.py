@@ -15,16 +15,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from api.deps import require_config, require_system_settings
+from core.auth.backend import UserContext, require_auth
 from core.auth.backend import UserContext, require_auth
 from core.config.settings import settings
 from core.db.engine import get_db
@@ -671,17 +673,36 @@ async def unassign_role_endpoint(
 # ── Export / Import ───────────────────────────────────────────────────────────
 
 
+async def _require_model_export_access(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+    user: Optional[UserContext] = Depends(require_auth(False)),
+) -> None:
+    """模型导出访问闸。
+
+    默认等同 ``require_config``（CONFIG_TOKEN / can_system_config）。桌面双模式的
+    壳会用**普通用户会话**拉取本端点、把配置下发到该用户的本机执行面——部署方
+    显式设置 ``DESKTOP_MODEL_SYNC_SCOPE=authenticated`` 后放行任何已登录用户。
+    ⚠️ 导出含明文 api_key：authenticated 档等于把模型密钥分发到登录用户的桌面
+    本机，是否开启由部署方自行权衡；不设或设其它值行为与既有 require_config 一致。
+    """
+    scope = (os.getenv("DESKTOP_MODEL_SYNC_SCOPE") or "").strip().lower()
+    if scope == "authenticated" and user is not None:
+        return
+    await require_config(request, authorization=authorization, db=db)
+
+
 @router.get("/export", summary="导出模型配置")
 async def export_endpoint(
-    _: None = Depends(require_config),
+    _: None = Depends(_require_model_export_access),
     db: Session = Depends(get_db),
 ):
     """导出全部模型配置（供应商 + 角色分配），用于备份或跨环境迁移。
 
-    ⚠️ 导出内容含**明文 api_key**（供跨环境迁移原样重导入）。与其余管理端点
-    （已下放 ``require_system_settings``，CE 用户可增删改供应商）不同，本端点
-    仍要求 ``require_config``（CONFIG_TOKEN / can_system_config）——避免 CE 单信任域
-    下任意登录用户批量导出所有密钥明文。import 同理。
+    ⚠️ 导出内容含**明文 api_key**（供跨环境迁移原样重导入）。默认要求
+    ``require_config``；云端设 ``DESKTOP_MODEL_SYNC_SCOPE=authenticated`` 时放行
+    任何已登录用户（桌面双模式把云端模型配置下发到本机执行面所需）。import 不放宽。
     """
     return success_response(data=export_all(db))
 

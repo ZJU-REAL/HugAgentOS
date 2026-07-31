@@ -1,12 +1,12 @@
 # Admin Consoles
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-28
 
 HugAgentOS ships **two independent management consoles**, aimed at content operations and system administration respectively:
 
 | Entry | Frontend | Credential | Purpose |
 |---|---|---|---|
-| `/admin` operations console | `src/frontend/src/AdminApp.tsx` | `ADMIN_TOKEN` | Content operations: feature updates, capability center, skills, knowledge bases, sub-agents — "what users see and use" |
+| `/admin` operations console | `src/frontend/src/AdminApp.tsx` | `ADMIN_TOKEN` | Content operations: feature updates, problem review, skills, knowledge bases, and sub-agents — "what users see and use" |
 | `/config` system console | `src/frontend/src/ConfigApp.tsx` | `CONFIG_TOKEN` | System administration: model / MCP / prompt configuration, users & permissions, monitoring & billing, security audit, license |
 
 Entry routing happens in `src/frontend/src/main.tsx`: based on the `window.location.pathname` prefix it renders `AdminApp` (`/admin`), `ConfigApp` (`/config`), `ApiDocApp` (`/api-docs`), or the main app. The two consoles cross-link (the `/admin` header's "系统配置" button → `/config`; the `/config` header's "内容管理" button → `/admin`). For how the two tokens authenticate, see [Authentication & Permissions](auth.md).
@@ -15,16 +15,18 @@ The CE/EE assignment of backend admin routes has one composed source of truth �
 
 ## /admin operations console
 
-`AdminApp.tsx` organizes nine panels as tabs (components in `src/frontend/src/components/admin/`):
+`AdminApp.tsx` organizes eleven panels as tabs (components in `src/frontend/src/components/admin/`):
 
 | Tab | Component | Backend routes |
 |---|---|---|
 | Feature updates | `UpdatesEditor` | `content.py` (`docs_updates` content block) |
-| Capability center | `CapsEditor` | `content.py` (`docs_capabilities` content block) |
+| Problem review | `FeedbackManager` | `edition_ee/routes/feedbacks.py`, `admin_feedbacks.py` |
 | Skill management | `SkillsEditor` | `admin_skills.py` |
+| Plugin management | `PluginsEditor` | `admin_plugins.py` |
 | Pending drafts | `SkillDraftsPanel` | `admin_skill_drafts.py` |
 | Sandbox dependencies | `SandboxDepsManager` | `admin_sandbox.py` |
 | Knowledge base management | `KnowledgeBaseManager` | `admin_kb.py` |
+| Ontology governance | `OntologyManager` | `ontologies.py` |
 | Prompt hub | `PromptHubEditor` | `content.py` (`prompt_hub` content block) |
 | Sub-agents | `AdminAgentManager` | `admin_agents.py` |
 | User manual | `ManualEditor` | `content.py` (manual PDF upload) |
@@ -57,6 +59,14 @@ The CE/EE assignment of backend admin routes has one composed source of truth �
 
 1. **Install marketplace skills globally**: browse the marketplace listing (flagging "already installed globally"); installed skills have an empty owner, are available to everyone, and remain editable under Skill Management.
 2. **Review user listing submissions**: submission list (filterable by status), detail (with SKILL.md preview), approve (publish, installable by all), reject / unpublish.
+
+### User feedback and review (Enterprise Edition: content_admin)
+
+Signed-in users open "Problem Feedback" from the lower-left `?` menu and submit a category, severity, title, detailed description, and up to eight screenshots. Images can be selected, dragged in, or pasted. User endpoints live under `/v1/feedbacks`; screenshots can be removed before submission and are retained as evidence afterward.
+
+The "Problem Review" tab under `/admin` uses `/v1/admin/feedbacks` for paginated filtering, details, rejection, approval, and failed-publication retry. An administrator first binds an `owner/repository` and a GitHub fine-grained PAT with Issues write access. The token stays server-side and reads expose only a masked hint. Approval creates a structured GitHub Issue with Problem Description, Feedback Details, and Screenshots sections, then records the repository, Issue number, and URL. Remote failures remain `approved + failed` for retry, while an idempotency marker prevents a timeout retry from creating a duplicate Issue.
+
+The binding is normally maintained in this panel. `FEEDBACK_GITHUB_*` environment variables provide deployment fallbacks while the DB fields are empty; see [Environment Variables](../deployment/environment-variables.md).
 
 ### Prompt management (admin_prompts) (Enterprise Edition: content_admin)
 
@@ -111,7 +121,7 @@ There is also an API-oriented global audit query at `/v1/audit` (`api/routes/v1/
 | Endpoint | Credential | Description |
 |---|---|---|
 | `GET /docs`, `GET /docs/version` | public read | Frontend reads content blocks / lightweight version polling |
-| `PUT /docs/{block_id}` | `ADMIN_TOKEN` | Write content blocks: `docs_updates` (release-note timeline), `docs_capabilities` (capability center), `prompt_hub` (prompt hub) |
+| `PUT /docs/{block_id}` | `ADMIN_TOKEN` | Write `docs_updates` (release-note timeline) and `prompt_hub` (prompt hub). `docs_capabilities` remains available only for old snapshots and stored-data compatibility; the current admin console has no editor for it, and the user interface doesn't render it. |
 | `POST /manual/upload`, `GET /manual` | `ADMIN_TOKEN` for writes | User manual PDF |
 | `PUT /app_config`, `PUT /homepage_shortcuts`, `PUT /page_config`, `POST /page_config/assets/upload` | `CONFIG_TOKEN` | App config / homepage shortcuts / page branding (logo, navigation, copy) |
 | `GET/POST /docs/export|import`, `GET/POST /prompts/export|import` | admin credentials | Content / prompt snapshot migration |
@@ -136,7 +146,7 @@ There is also an API-oriented global audit query at `/v1/audit` (`api/routes/v1/
 Aligned with chapter 4 of the productization plan and the route registry:
 
 - **Community Edition (CE) keeps**: `content.py` content-block management (rebrandable), `models.py` model management, and login infrastructure (`auth.py` session endpoints, mock SSO).
-- **Enterprise Edition (EE)**: the full content console (skills / drafts / marketplace / KB / sub-agents / prompts / MCP / sandbox dependencies, `content_admin`), the system console (service configs + security console, `system_config`), audit & chat review (`audit`), team billing & usage (`billing`), and users / teams / invite codes (`multi_tenancy`).
+- **Enterprise Edition (EE)**: the full content console (feedback review / skills / plugins / drafts / marketplace / KB / ontology / sub-agents / prompts / MCP / sandbox dependencies, `content_admin`), the system console (service configs + security console, `system_config`), audit & chat review (`audit`), team billing & usage (`billing`), and users / teams / invite codes (`multi_tenancy`).
 - `config_license`, `config_verify`, and `auth` are explicitly exempt from the license guard so the "402 → replace license" escape hatch is always reachable.
 
 ## Source map
@@ -150,6 +160,7 @@ Aligned with chapter 4 of the productization plan and the route registry:
 | Administrative credential dependencies | `src/backend/api/deps.py` |
 | License features | `src/backend/edition_ee/licensing/features.py`, `src/backend/edition_ee/licensing/deps.py` |
 | Skills / drafts / marketplace | `src/backend/api/routes/v1/admin_skills.py`, `admin_skill_drafts.py`, `admin_marketplace.py` |
+| Feedback and GitHub publishing | `src/backend/edition_ee/routes/feedbacks.py`, `admin_feedbacks.py`, `services/feedback_service.py` |
 | Prompts / MCP / sub-agents | `src/backend/api/routes/v1/admin_prompts.py`, `admin_mcp_servers.py`, `admin_agents.py` |
 | Knowledge base / sandbox | `src/backend/edition_ee/routes/admin_kb.py`, `src/backend/api/routes/v1/admin_sandbox.py` |
 | Billing / usage / logs / chat review | `src/backend/api/routes/v1/admin_billing.py`, `admin_usage_logs.py`, `admin_logs.py`, `admin_chat_history.py` |

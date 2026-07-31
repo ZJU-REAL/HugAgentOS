@@ -126,8 +126,8 @@ export const getApiUrl = () => import.meta.env.VITE_API_BASE_URL || '/api';
 // kind==='local'；聊天则继承其绑定项目。此处维护两个注册表（api.ts 内自洽，
 // 不引 store，避免模块环）。仅 provision_mode==='dual' 时生效；web 上恒为空。
 
-// 头名必须用全小写技术标识：与桌面壳 Rust 反代匹配的小写常量（proxy.rs
-// TARGET_HEADER = x-hugagent-target）保持一致，品牌变换不改小写标识。
+// 头名必须用全小写技术标识：大写 HugAgentOS 会被 CE 品牌变换改写成 HugAgentOS，
+// 与桌面壳 Rust 反代匹配的小写常量（proxy.rs TARGET_HEADER）对不上，路由整体失效。
 export const LOCAL_TARGET_HEADER = 'x-hugagent-target';
 
 let _hybridDual = false;
@@ -1144,6 +1144,7 @@ export interface OntologySettings {
   ontology_enabled: boolean;
   ontology_pack_ids: string[];
   available: boolean;
+  plugin_import_build_validation_forced: boolean;
   active_packs: Array<{ pack_id: string; version_id: string; version: string }>;
 }
 

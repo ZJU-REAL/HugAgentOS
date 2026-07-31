@@ -1,14 +1,12 @@
 //! 桌面端托管的无 Docker 本机服务。
 //!
-//! Windows 与 macOS 安装包携带同版本 CE 派生树。这里负责调用平台引导脚本创建
-//! 独立 Python 环境、启动 `hugagent serve`、轮询健康状态，并在桌面进程退出时
-//! 回收子进程。Python 运行环境位于应用本地数据目录；macOS 业务数据统一放在
-//! ``~/.hugagent``，避免工作区路径中的空格传入命令行工具。
+//! Windows、macOS 与 Linux 安装包携带同版本 CE 派生树和私有 Python 运行时。
+//! 这里负责离线安装、启动服务、轮询健康状态，并在桌面进程退出时回收整个进程组。
+//! 运行环境位于应用本地数据目录；macOS/Linux 业务数据统一放在 ``~/.hugagent``。
 
-use serde::Serialize;
-use std::collections::VecDeque;
-#[cfg(target_os = "windows")]
-use std::ffi::OsString;
+use crate::local_payload::{self, PayloadPaths};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashSet, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -21,17 +19,33 @@ use tokio::sync::RwLock;
 pub const LOCAL_SERVER_PORT: u16 = 32101;
 pub const LOCAL_SERVER_BASE: &str = "http://127.0.0.1:32101";
 const MAX_LOG_LINES: usize = 80;
+const MAX_DATA_BACKUPS: usize = 3;
+const BACKUP_FILES: &[&str] = &[
+    "data.db",
+    "data.db-wal",
+    "data.db-shm",
+    "milvus.db",
+    "config.env",
+    "secrets.json",
+    "catalog.json",
+];
+
+#[derive(Debug, Deserialize, Serialize)]
+struct DataBackupManifest {
+    schema: u32,
+    files: Vec<String>,
+}
 
 /// Resolve the business-data directory independently from the managed runtime.
 ///
 /// The Tauri application-data root is still the right place for the bundled
-/// Python/runtime payload. On macOS it contains ``Application Support``, though,
-/// which is a poor workspace path for model-generated shell commands. Keep only
-/// the runtime there and use the same ``~/.hugagent`` data root as the standalone
-/// local installer. Existing desktop data is moved on first launch when that can
-/// be done without overwriting an existing standalone installation.
+/// Python/runtime payload. On macOS it contains ``Application Support`` and on
+/// Linux it may live below a desktop-specific data root; neither should become a
+/// model-generated workspace path. Keep only the runtime there and use the same
+/// ``~/.hugagent`` data root as the standalone local installer. Existing desktop
+/// data is moved on first launch when that does not overwrite standalone data.
 pub fn resolve_local_server_data_dir(runtime_root: &Path, home_dir: Option<&Path>) -> PathBuf {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let legacy = runtime_root.join("data");
         let Some(home_dir) = home_dir else {
@@ -39,19 +53,19 @@ pub fn resolve_local_server_data_dir(runtime_root: &Path, home_dir: Option<&Path
         };
         let preferred = home_dir.join(".hugagent");
         if let Err(error) = migrate_legacy_data_dir(&legacy, &preferred) {
-            eprintln!("[local-server] 迁移 macOS 数据目录失败，继续使用旧目录：{error}");
+            eprintln!("[local-server] 迁移本机数据目录失败，继续使用旧目录：{error}");
             return legacy;
         }
         preferred
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = home_dir;
         runtime_root.join("data")
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn migrate_legacy_data_dir(legacy: &Path, preferred: &Path) -> Result<(), String> {
     if !legacy.exists() || legacy == preferred {
         return Ok(());
@@ -110,7 +124,7 @@ impl Default for LocalServerStatus {
             logs: Vec::new(),
             installed: false,
             ready: false,
-            supported: cfg!(any(target_os = "windows", target_os = "macos")),
+            supported: local_payload::current_target() != "unsupported",
             server_base: LOCAL_SERVER_BASE.to_string(),
         }
     }
@@ -121,7 +135,8 @@ pub struct LocalServerManager {
     data_root: PathBuf,
     bundle_archive: PathBuf,
     bundle_manifest: PathBuf,
-    installer_script: PathBuf,
+    runtime_archive: PathBuf,
+    runtime_manifest: PathBuf,
     http: reqwest::Client,
     status: RwLock<LocalServerStatus>,
     child: Mutex<Option<Child>>,
@@ -139,7 +154,8 @@ impl LocalServerManager {
         data_root: PathBuf,
         bundle_archive: PathBuf,
         bundle_manifest: PathBuf,
-        installer_script: PathBuf,
+        runtime_archive: PathBuf,
+        runtime_manifest: PathBuf,
         http: reqwest::Client,
     ) -> Arc<Self> {
         let initial_status = LocalServerStatus {
@@ -151,7 +167,8 @@ impl LocalServerManager {
             data_root,
             bundle_archive,
             bundle_manifest,
-            installer_script,
+            runtime_archive,
+            runtime_manifest,
             http,
             status: RwLock::new(initial_status),
             child: Mutex::new(None),
@@ -166,36 +183,12 @@ impl LocalServerManager {
         let _ = self.bridge_secret.set(secret);
     }
 
-    #[cfg(target_os = "macos")]
-    fn source_dir(&self) -> PathBuf {
-        let current = self.root.join("current");
-        if current.is_dir() {
-            return current.join("source");
-        }
-        self.root.join("source")
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    fn source_dir(&self) -> PathBuf {
-        self.runtime_dir().join("source")
-    }
-
     fn data_dir(&self) -> PathBuf {
         self.data_root.clone()
     }
 
-    #[cfg(target_os = "windows")]
-    fn runtime_dir(&self) -> PathBuf {
-        self.root.join("runtime")
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn runtime_dir(&self) -> PathBuf {
-        self.root.clone()
-    }
-
     fn node_runtime_dir(&self) -> PathBuf {
-        self.runtime_dir().join("node")
+        self.root.join("tools").join("node")
     }
 
     fn log_path(&self) -> PathBuf {
@@ -210,52 +203,32 @@ impl LocalServerManager {
         self.root.join("server.pid")
     }
 
-    #[cfg(target_os = "windows")]
     fn executable(&self) -> PathBuf {
-        self.runtime_dir()
-            .join("venv")
-            .join("Scripts")
-            .join("hugagent.exe")
-    }
-
-    #[cfg(target_os = "macos")]
-    fn executable(&self) -> PathBuf {
-        let current = self.root.join("current");
-        if current.is_dir() {
-            return current.join("venv").join("bin").join("hugagent");
-        }
-        self.root.join("venv").join("bin").join("hugagent")
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    fn executable(&self) -> PathBuf {
-        self.root.join("venv").join("bin").join("hugagent")
-    }
-
-    fn installed_manifest_path(&self) -> PathBuf {
-        #[cfg(target_os = "macos")]
-        {
-            let current = self.root.join("current");
-            if current.is_dir() {
-                return current.join("desktop-bundle.json");
-            }
-        }
-        self.runtime_dir().join("installed-bundle.json")
+        local_payload::resolved_active(&self.root)
+            .ok()
+            .flatten()
+            .map(|release| release.executable)
+            .unwrap_or_else(|| self.root.join("missing-python"))
     }
 
     pub fn is_installed(&self) -> bool {
-        self.executable().is_file() && self.installed_manifest_path().is_file()
+        local_payload::resolved_active(&self.root)
+            .ok()
+            .flatten()
+            .is_some()
     }
 
     pub fn needs_install(&self) -> bool {
-        if !self.is_installed() {
-            return true;
-        }
-        let bundled = std::fs::read_to_string(&self.bundle_manifest);
-        let installed = std::fs::read_to_string(self.installed_manifest_path());
-        match (bundled, installed) {
-            (Ok(a), Ok(b)) => a.trim() != b.trim(),
-            _ => true,
+        local_payload::needs_install(&self.payload_paths())
+    }
+
+    fn payload_paths(&self) -> PayloadPaths<'_> {
+        PayloadPaths {
+            root: &self.root,
+            source_archive: &self.bundle_archive,
+            source_manifest: &self.bundle_manifest,
+            runtime_archive: &self.runtime_archive,
+            runtime_manifest: &self.runtime_manifest,
         }
     }
 
@@ -366,6 +339,8 @@ impl LocalServerManager {
         if !self.is_installed() {
             return Err("本机服务尚未安装".to_string());
         }
+        let release = local_payload::resolved_active(&self.root)?
+            .ok_or_else(|| "本机服务版本状态无效，请重新安装".to_string())?;
 
         {
             let mut child_guard = self.child.lock().map_err(|_| "服务进程锁异常")?;
@@ -394,8 +369,14 @@ impl LocalServerManager {
                 let stderr = stdout
                     .try_clone()
                     .map_err(|e| format!("打开服务错误日志失败：{e}"))?;
-                let mut command = Command::new(self.executable());
+                let backend_cli = release
+                    .source_dir
+                    .join("src")
+                    .join("backend")
+                    .join("cli.py");
+                let mut command = Command::new(&release.executable);
                 command
+                    .arg(&backend_cli)
                     .arg("serve")
                     .args([
                         "--host",
@@ -404,14 +385,15 @@ impl LocalServerManager {
                         &LOCAL_SERVER_PORT.to_string(),
                     ])
                     .arg("--no-browser")
-                    .current_dir(self.source_dir())
+                    .current_dir(&release.source_dir)
                     .env("HUGAGENT_HOME", self.data_dir())
                     .env("PYTHONUTF8", "1")
                     .env("PYTHONIOENCODING", "utf-8")
+                    .env("PYTHONDONTWRITEBYTECODE", "1")
                     .env("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1")
                     .env(
                         "FRONTEND_DIST_DIR",
-                        self.source_dir().join("src").join("frontend").join("dist"),
+                        release.source_dir.join("src").join("frontend").join("dist"),
                     )
                     .env("NODE_PATH", self.node_runtime_dir().join("node_modules"))
                     .env(
@@ -427,6 +409,7 @@ impl LocalServerManager {
                     command.env("HUGAGENT_DESKTOP_BRIDGE_SECRET", secret);
                     command.env("CONFIG_TOKEN", secret);
                 }
+                configure_process_group(&mut command);
                 hide_console(&mut command);
                 let child = command
                     .spawn()
@@ -483,7 +466,8 @@ impl LocalServerManager {
     fn apply_tool_path(&self, command: &mut Command) {
         let mut paths = Vec::new();
         for filename in ["node-executable.txt", "bash-executable.txt"] {
-            let Ok(executable) = std::fs::read_to_string(self.runtime_dir().join(filename)) else {
+            let Ok(executable) = std::fs::read_to_string(self.root.join("tools").join(filename))
+            else {
                 continue;
             };
             let executable = PathBuf::from(executable.trim());
@@ -540,17 +524,25 @@ impl LocalServerManager {
         if self.shutting_down.load(Ordering::SeqCst) {
             return Err("桌面端正在退出，已取消本机服务安装".to_string());
         }
-        if !cfg!(any(target_os = "windows", target_os = "macos")) {
-            return Err("当前版本暂不支持在此系统一键部署本机服务".to_string());
+        if local_payload::current_target() == "unsupported" {
+            return Err("当前 CPU 架构没有对应的离线本机运行时".to_string());
         }
-        if !self.bundle_archive.is_file() || !self.bundle_manifest.is_file() {
+        if !self.bundle_archive.is_file()
+            || !self.bundle_manifest.is_file()
+            || !self.runtime_archive.is_file()
+            || !self.runtime_manifest.is_file()
+        {
             return Err("安装包未携带本机服务资源，请重新下载完整安装包".to_string());
         }
-        if !self.installer_script.is_file() {
-            return Err("安装包缺少本机服务引导脚本".to_string());
-        }
 
+        let upgrading = self.is_installed();
         self.stop_server()?;
+        let data_backup = if upgrading {
+            self.update("installing", 3, "正在备份本机数据…").await;
+            backup_local_data(&self.data_root, &self.root.join("backups"))?
+        } else {
+            None
+        };
         let installer_log_path = self.installer_log_path();
         if let Some(parent) = installer_log_path.parent() {
             std::fs::create_dir_all(parent)
@@ -559,104 +551,60 @@ impl LocalServerManager {
         File::create(installer_log_path).map_err(|error| format!("重置安装日志失败：{error}"))?;
         self.status.write().await.logs.clear();
         self.update("installing", 2, "正在准备本机服务…").await;
-        self.append_log("开始安装本机服务；首次安装通常需要数分钟。")
+        self.append_log("开始离线安装本机服务；不会下载 Python 或项目依赖。")
             .await;
 
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        let root = self.root.clone();
+        let source_archive = self.bundle_archive.clone();
+        let source_manifest = self.bundle_manifest.clone();
+        let runtime_archive = self.runtime_archive.clone();
+        let runtime_manifest = self.runtime_manifest.clone();
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+        let install_task = tauri::async_runtime::spawn_blocking(move || {
+            let paths = PayloadPaths {
+                root: &root,
+                source_archive: &source_archive,
+                source_manifest: &source_manifest,
+                runtime_archive: &runtime_archive,
+                runtime_manifest: &runtime_manifest,
+            };
+            local_payload::install_payloads(&paths, |progress, message| {
+                let _ = progress_tx.send((progress, message.to_string()));
+            })
+        });
+        while let Some((progress, message)) = progress_rx.recv().await {
+            self.update("installing", progress, &message).await;
+            self.append_log(format!("HUGAGENT_PROGRESS|{progress}|{message}"))
+                .await;
+        }
+        if let Err(error) = install_task
+            .await
+            .map_err(|error| format!("本机服务安装任务异常退出：{error}"))?
         {
-            use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
-            use tokio::process::Command as TokioCommand;
-
-            #[cfg(target_os = "windows")]
-            let mut command = TokioCommand::new("powershell.exe");
-            #[cfg(target_os = "windows")]
-            command
-                .args([
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                ])
-                .arg("-File")
-                .arg(powershell_compatible_path(&self.installer_script))
-                .arg("-BundleArchive")
-                .arg(powershell_compatible_path(&self.bundle_archive))
-                .arg("-BundleManifest")
-                .arg(powershell_compatible_path(&self.bundle_manifest))
-                .arg("-InstallRoot")
-                .arg(powershell_compatible_path(&self.root))
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            #[cfg(target_os = "windows")]
-            command.kill_on_drop(true);
-            #[cfg(target_os = "windows")]
-            hide_tokio_console(&mut command);
-
-            #[cfg(target_os = "macos")]
-            let mut command = TokioCommand::new("/bin/bash");
-            #[cfg(target_os = "macos")]
-            command
-                .arg(&self.installer_script)
-                .arg("--bundle-archive")
-                .arg(&self.bundle_archive)
-                .arg("--bundle-manifest")
-                .arg(&self.bundle_manifest)
-                .arg("--install-root")
-                .arg(&self.root)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true);
-
-            let mut child = command
-                .spawn()
-                .map_err(|e| format!("无法启动本机服务安装器：{e}"))?;
-            let stdout = child.stdout.take().ok_or("无法读取安装器输出")?;
-            let stderr = child.stderr.take().ok_or("无法读取安装器错误输出")?;
-
-            let manager_out = self.clone();
-            let out_task = tauri::async_runtime::spawn(async move {
-                let mut lines = AsyncBufReader::new(stdout).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    manager_out.consume_installer_line(line).await;
-                }
-            });
-            let manager_err = self.clone();
-            let err_task = tauri::async_runtime::spawn(async move {
-                let mut lines = AsyncBufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    manager_err.append_log(line).await;
-                }
-            });
-
-            let exit = child
-                .wait()
-                .await
-                .map_err(|e| format!("等待安装器退出失败：{e}"))?;
-            let _ = tokio::join!(out_task, err_task);
-            if !exit.success() {
-                let error = format!("依赖安装未完成（退出码 {:?}）", exit.code());
-                if self.is_installed() {
-                    self.append_log("新版本安装失败，正在恢复原有本机服务…")
+            if self.is_installed() {
+                self.append_log("新版本安装失败，正在恢复原有本机服务…")
+                    .await;
+                if let Err(restart_error) = self.start_server().await {
+                    self.append_log(format!("原有本机服务恢复失败：{restart_error}"))
                         .await;
-                    if let Err(restart_error) = self.start_server().await {
-                        self.append_log(format!("原有本机服务恢复失败：{restart_error}"))
-                            .await;
-                    }
                 }
-                return Err(error);
             }
+            return Err(error);
         }
 
-        self.update("starting", 92, "依赖安装完成，正在启动服务…")
+        self.update("starting", 92, "离线运行环境已就绪，正在启动服务…")
             .await;
         match self.start_server().await {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                local_payload::prune_old_releases(&self.root);
+                prune_data_backups(&self.root.join("backups"));
+                Ok(())
+            }
             Err(start_error) => {
-                #[cfg(target_os = "macos")]
-                if restore_previous_release(&self.root)? {
+                if local_payload::restore_previous(&self.root)? {
+                    if let Some(backup) = data_backup.as_deref() {
+                        restore_local_data(&self.data_root, backup)?;
+                    }
                     self.append_log(format!("新版本启动失败，已回滚原有版本：{start_error}"))
                         .await;
                     self.start_server().await.map_err(|rollback_error| {
@@ -669,19 +617,6 @@ impl LocalServerManager {
                 Err(start_error)
             }
         }
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    async fn consume_installer_line(&self, line: String) {
-        if let Some(rest) = line.strip_prefix("HUGAGENT_PROGRESS|") {
-            let mut parts = rest.splitn(2, '|');
-            let progress = parts.next().and_then(|value| value.parse::<u8>().ok());
-            let message = parts.next().unwrap_or("正在安装本机服务…");
-            if let Some(progress) = progress {
-                self.update("installing", progress, message).await;
-            }
-        }
-        self.append_log(line).await;
     }
 
     fn stop_server(&self) -> Result<(), String> {
@@ -706,7 +641,13 @@ impl LocalServerManager {
                 }
                 #[cfg(not(target_os = "windows"))]
                 if running {
-                    let _ = child.kill();
+                    if let Err(group_error) = stop_live_process_group(child) {
+                        child.kill().map_err(|kill_error| {
+                            format!(
+                                "结束本机服务进程组失败（{group_error}），备用回收也失败：{kill_error}"
+                            )
+                        })?;
+                    }
                 }
                 let _ = child.wait();
                 let _ = std::fs::remove_file(self.pid_path());
@@ -727,20 +668,6 @@ impl LocalServerManager {
     }
 }
 
-/// Windows PowerShell 5.1 的 `-File` 不接受 `\\?\` 长路径前缀。Tauri 的路径 API
-/// 在安装目录中可能返回该格式，因此传给 PowerShell 前恢复为普通 DOS/UNC 路径。
-#[cfg(target_os = "windows")]
-fn powershell_compatible_path(path: &Path) -> OsString {
-    let value = path.as_os_str().to_string_lossy();
-    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
-        return OsString::from(format!(r"\\{rest}"));
-    }
-    if let Some(rest) = value.strip_prefix(r"\\?\") {
-        return OsString::from(rest);
-    }
-    path.as_os_str().to_owned()
-}
-
 impl Drop for LocalServerManager {
     fn drop(&mut self) {
         let _ = self.shutdown();
@@ -755,6 +682,100 @@ fn open_log(path: &Path) -> Result<File, String> {
         .map_err(|e| format!("打开服务日志失败：{e}"))
 }
 
+fn backup_local_data(data_root: &Path, backups_root: &Path) -> Result<Option<PathBuf>, String> {
+    let files: Vec<&str> = BACKUP_FILES
+        .iter()
+        .copied()
+        .filter(|name| data_root.join(name).is_file())
+        .collect();
+    if files.is_empty() {
+        return Ok(None);
+    }
+    std::fs::create_dir_all(backups_root)
+        .map_err(|error| format!("创建数据备份目录失败：{error}"))?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or_default();
+    let staged = backups_root.join(format!(".stage-{}-{stamp}", std::process::id()));
+    let destination = backups_root.join(format!("backup-{stamp}"));
+    let _ = std::fs::remove_dir_all(&staged);
+    std::fs::create_dir_all(&staged)
+        .map_err(|error| format!("创建数据备份暂存目录失败：{error}"))?;
+    let result = (|| {
+        for name in &files {
+            std::fs::copy(data_root.join(name), staged.join(name))
+                .map_err(|error| format!("备份 {name} 失败：{error}"))?;
+        }
+        let manifest = DataBackupManifest {
+            schema: 1,
+            files: files.iter().map(|value| (*value).to_string()).collect(),
+        };
+        let bytes = serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| format!("序列化数据备份清单失败：{error}"))?;
+        std::fs::write(staged.join("backup.json"), bytes)
+            .map_err(|error| format!("写入数据备份清单失败：{error}"))?;
+        std::fs::rename(&staged, &destination)
+            .map_err(|error| format!("提交数据备份失败：{error}"))?;
+        Ok::<(), String>(())
+    })();
+    if let Err(error) = result {
+        let _ = std::fs::remove_dir_all(&staged);
+        return Err(error);
+    }
+    Ok(Some(destination))
+}
+
+fn restore_local_data(data_root: &Path, backup: &Path) -> Result<(), String> {
+    let manifest: DataBackupManifest = serde_json::from_slice(
+        &std::fs::read(backup.join("backup.json"))
+            .map_err(|error| format!("读取数据备份清单失败：{error}"))?,
+    )
+    .map_err(|error| format!("解析数据备份清单失败：{error}"))?;
+    if manifest.schema != 1
+        || manifest
+            .files
+            .iter()
+            .any(|name| !BACKUP_FILES.contains(&name.as_str()))
+    {
+        return Err("数据备份清单无效".to_string());
+    }
+    std::fs::create_dir_all(data_root).map_err(|error| format!("创建本机数据目录失败：{error}"))?;
+    let restored: HashSet<String> = manifest.files.iter().cloned().collect();
+    for name in BACKUP_FILES {
+        if !restored.contains(*name) {
+            let _ = std::fs::remove_file(data_root.join(name));
+        }
+    }
+    for name in manifest.files {
+        std::fs::copy(backup.join(&name), data_root.join(&name))
+            .map_err(|error| format!("恢复 {name} 失败：{error}"))?;
+    }
+    Ok(())
+}
+
+fn prune_data_backups(backups_root: &Path) {
+    let Ok(entries) = std::fs::read_dir(backups_root) else {
+        return;
+    };
+    let mut backups: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_dir()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("backup-"))
+        })
+        .collect();
+    backups.sort();
+    let remove_count = backups.len().saturating_sub(MAX_DATA_BACKUPS);
+    for path in backups.into_iter().take(remove_count) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn hide_console(command: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -764,6 +785,45 @@ fn hide_console(command: &mut Command) {
 
 #[cfg(not(target_os = "windows"))]
 fn hide_console(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn configure_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn signal_process_group(pid: u32, signal: i32) -> Result<(), String> {
+    let result = unsafe { libc::kill(-(pid as i32), signal) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(format!("发送进程组信号失败：{error}"))
+    }
+}
+
+#[cfg(unix)]
+fn stop_live_process_group(child: &mut Child) -> Result<(), String> {
+    signal_process_group(child.id(), libc::SIGTERM)?;
+    for _ in 0..30 {
+        if child
+            .try_wait()
+            .map_err(|error| format!("等待本机服务退出失败：{error}"))?
+            .is_some()
+        {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    signal_process_group(child.id(), libc::SIGKILL)
+}
 
 #[cfg(target_os = "windows")]
 fn stop_recorded_server(
@@ -856,18 +916,14 @@ fn stop_recorded_server(
     }
 
     let pid_text = pid.to_string();
-    let _ = Command::new("/bin/kill")
-        .args(["-TERM", &pid_text])
-        .status();
+    let _ = signal_process_group(pid, libc::SIGTERM);
     for _ in 0..20 {
         if !mac_process_exists(&pid_text) {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let _ = Command::new("/bin/kill")
-        .args(["-KILL", &pid_text])
-        .status();
+    let _ = signal_process_group(pid, libc::SIGKILL);
     if mac_process_exists(&pid_text) {
         return Err("无法结束上次遗留的本机服务进程".to_string());
     }
@@ -887,74 +943,57 @@ fn mac_process_exists(pid: &str) -> bool {
 fn mac_server_command_matches(command_line: &str, install_root: &Path) -> bool {
     let root = install_root.to_string_lossy();
     command_line.contains(root.as_ref())
-        && command_line.contains("hugagent")
+        && command_line.contains("cli.py")
         && command_line.contains(" serve")
         && command_line.contains(&format!("--port {LOCAL_SERVER_PORT}"))
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(target_os = "linux")]
 fn stop_recorded_server(
     pid_path: &Path,
     _expected_executable: &Path,
-    _install_root: &Path,
+    install_root: &Path,
 ) -> Result<(), String> {
-    let _ = std::fs::remove_file(pid_path);
+    let Ok(raw_pid) = std::fs::read_to_string(pid_path) else {
+        return Ok(());
+    };
+    let Ok(pid) = raw_pid.trim().parse::<u32>() else {
+        return Ok(());
+    };
+    let proc_root = PathBuf::from(format!("/proc/{pid}"));
+    if !proc_root.exists() {
+        return Ok(());
+    }
+    let executable = match std::fs::read_link(proc_root.join("exe")) {
+        Ok(path) => path,
+        Err(_) => return Ok(()),
+    };
+    let command_line = std::fs::read(proc_root.join("cmdline"))
+        .map(|bytes| String::from_utf8_lossy(&bytes).replace('\0', " "))
+        .unwrap_or_default();
+    if !executable.starts_with(install_root)
+        || !linux_server_command_matches(&command_line, install_root)
+    {
+        return Ok(());
+    }
+    signal_process_group(pid, libc::SIGTERM)?;
+    for _ in 0..20 {
+        if !proc_root.exists() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    signal_process_group(pid, libc::SIGKILL)?;
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn restore_previous_release(root: &Path) -> Result<bool, String> {
-    let previous = root.join("current.previous");
-    if !previous.is_symlink() {
-        return Ok(false);
-    }
-    let current = root.join("current");
-    let failed_release = std::fs::read_link(&current).ok();
-    std::fs::rename(&previous, &current)
-        .map_err(|error| format!("恢复原有本机服务版本失败：{error}"))?;
-    if let Some(failed_release) = failed_release {
-        let releases = root.join("releases");
-        if failed_release.starts_with(&releases) {
-            #[cfg(target_os = "macos")]
-            detach_macos_tree_cleanup(&failed_release);
-            #[cfg(not(target_os = "macos"))]
-            let _ = std::fs::remove_dir_all(failed_release);
-        }
-    }
-    Ok(true)
-}
-
-#[cfg(target_os = "macos")]
-fn detach_macos_tree_cleanup(path: &Path) {
-    let Some(parent) = path.parent() else {
-        return;
-    };
-    let leaf = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("release");
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|value| value.as_nanos())
-        .unwrap_or_default();
-    let trash = parent.join(format!(".{leaf}.cleanup-{}-{nonce}", std::process::id()));
-    if std::fs::rename(path, &trash).is_err() {
-        return;
-    }
-    let _ = Command::new("/bin/rm")
-        .args(["-rf", "--"])
-        .arg(trash)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-}
-
-#[cfg(target_os = "windows")]
-fn hide_tokio_console(command: &mut tokio::process::Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+#[cfg(any(target_os = "linux", test))]
+fn linux_server_command_matches(command_line: &str, install_root: &Path) -> bool {
+    let root = install_root.to_string_lossy();
+    command_line.contains(root.as_ref())
+        && command_line.contains("cli.py")
+        && command_line.contains(" serve")
+        && command_line.contains(&format!("--port {LOCAL_SERVER_PORT}"))
 }
 
 fn tail_file(path: &Path, max_lines: usize) -> Vec<String> {
@@ -980,33 +1019,27 @@ mod tests {
         let root = base.join("installed");
         let bundle_archive = base.join("server-ce.zip");
         let bundle_manifest = base.join("server-ce-manifest.json");
-        let script = base.join("install.ps1");
+        let runtime_archive = base.join("runtime-core.tar.gz");
+        let runtime_manifest = base.join("runtime-manifest.json");
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         std::fs::write(&bundle_archive, "test archive").unwrap();
-        std::fs::write(&script, "# test").unwrap();
+        std::fs::write(&runtime_archive, "test runtime").unwrap();
         LocalServerManager::new(
             root,
             base.join("data"),
             bundle_archive,
             bundle_manifest,
-            script,
+            runtime_archive,
+            runtime_manifest,
             reqwest::Client::new(),
         )
     }
 
     #[test]
-    fn manifest_change_requires_reinstall() {
+    fn missing_or_invalid_payload_requires_reinstall() {
         let manager = manager("manifest");
-        std::fs::create_dir_all(manager.executable().parent().unwrap()).unwrap();
-        std::fs::write(manager.executable(), "test").unwrap();
-        std::fs::write(manager.installed_manifest_path(), "same\n").unwrap();
-        std::fs::write(&manager.bundle_manifest, "same\n").unwrap();
-
-        assert!(manager.is_installed());
-        assert!(!manager.needs_install());
-
-        std::fs::write(&manager.bundle_manifest, "new\n").unwrap();
+        assert!(!manager.is_installed());
         assert!(manager.needs_install());
     }
 
@@ -1034,32 +1067,18 @@ mod tests {
     }
 
     #[test]
-    fn desktop_installers_embed_one_ce_archive_and_separate_windows_runtime() {
+    fn every_desktop_target_embeds_source_and_offline_runtime() {
         let windows_config = include_str!("../tauri.windows.conf.json");
         let macos_config = include_str!("../tauri.macos.conf.json");
         let linux_config = include_str!("../tauri.linux.conf.json");
-        let windows_installer =
-            include_str!("../../resources/server-bootstrap/install-local-server.ps1");
 
-        for config in [windows_config, macos_config] {
+        for config in [windows_config, macos_config, linux_config] {
             assert!(config.contains("server-ce.zip"));
             assert!(config.contains("server-ce-manifest.json"));
+            assert!(config.contains("runtime-core.tar.gz"));
+            assert!(config.contains("runtime-manifest.json"));
             assert!(!config.contains("\"../generated/server-ce\": \"server-ce\""));
         }
-        assert!(!linux_config.contains("server-ce"));
-        // The macOS installer runs with the minimal GUI PATH, so optional Node
-        // detection must probe common per-user install locations instead of
-        // relying on `command -v` alone (else site building silently degrades).
-        let macos_installer =
-            include_str!("../../resources/server-bootstrap/install-local-server.sh");
-        assert!(macos_installer.contains(".local/bin/node"));
-        assert!(macos_installer.contains(".nvm/versions/node"));
-        assert!(macos_installer.contains(".volta/bin/node"));
-        assert!(windows_installer.contains("System.IO.Compression.ZipFile"));
-        assert!(windows_installer.contains("Join-Path $InstallRoot \"runtime\""));
-        assert!(windows_installer.contains("Join-Path $RuntimeRoot \"node\""));
-        assert!(windows_installer.contains("Start-DetachedDirectoryCleanup"));
-        assert!(!windows_installer.contains("Remove-Item -Path $VenvDir -Recurse"));
     }
 
     #[test]
@@ -1070,6 +1089,43 @@ mod tests {
         std::fs::write(&log, "one\ntwo\nthree\n").unwrap();
 
         assert_eq!(tail_file(&log, 2), vec!["two", "three"]);
+    }
+
+    #[test]
+    fn upgrade_backup_restores_databases_and_removes_new_wal_files() {
+        let manager = manager("data-backup");
+        std::fs::create_dir_all(&manager.data_root).unwrap();
+        std::fs::write(manager.data_root.join("data.db"), "before").unwrap();
+        std::fs::write(manager.data_root.join("config.env"), "old=true").unwrap();
+        let backup = backup_local_data(&manager.data_root, &manager.root.join("backups"))
+            .unwrap()
+            .unwrap();
+
+        std::fs::write(manager.data_root.join("data.db"), "after").unwrap();
+        std::fs::write(manager.data_root.join("data.db-wal"), "new wal").unwrap();
+        restore_local_data(&manager.data_root, &backup).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(manager.data_root.join("data.db")).unwrap(),
+            "before"
+        );
+        assert_eq!(
+            std::fs::read_to_string(manager.data_root.join("config.env")).unwrap(),
+            "old=true"
+        );
+        assert!(!manager.data_root.join("data.db-wal").exists());
+    }
+
+    #[test]
+    fn only_three_successful_upgrade_backups_are_retained() {
+        let manager = manager("backup-prune");
+        let backups = manager.root.join("backups");
+        for index in 0..5 {
+            std::fs::create_dir_all(backups.join(format!("backup-{index}"))).unwrap();
+        }
+        prune_data_backups(&backups);
+        let count = std::fs::read_dir(backups).unwrap().count();
+        assert_eq!(count, MAX_DATA_BACKUPS);
     }
 
     #[test]
@@ -1125,49 +1181,29 @@ mod tests {
     fn mac_stale_process_match_is_scoped_to_this_install_and_port() {
         let root = Path::new("/Users/test/Library/Application Support/HugAgentOS/local-server");
         assert!(mac_server_command_matches(
-            "/Users/test/Library/Application Support/HugAgentOS/local-server/releases/abc/venv/bin/python /Users/test/Library/Application Support/HugAgentOS/local-server/current/venv/bin/hugagent serve --host 127.0.0.1 --port 32101",
+            "/Users/test/Library/Application Support/HugAgentOS/local-server/releases/runtimes/abc/python/bin/python3 /Users/test/Library/Application Support/HugAgentOS/local-server/releases/sources/def/src/backend/cli.py serve --host 127.0.0.1 --port 32101",
             root,
         ));
         assert!(!mac_server_command_matches(
-            "/tmp/hugagent serve --host 127.0.0.1 --port 32101",
+            "/tmp/python /tmp/cli.py serve --host 127.0.0.1 --port 32101",
             root,
         ));
         assert!(!mac_server_command_matches(
-            "/Users/test/Library/Application Support/HugAgentOS/local-server/current/venv/bin/hugagent serve --port 32102",
+            "/Users/test/Library/Application Support/HugAgentOS/local-server/releases/runtimes/abc/python/bin/python3 /Users/test/Library/Application Support/HugAgentOS/local-server/releases/sources/def/src/backend/cli.py serve --port 32102",
             root,
         ));
     }
 
-    #[cfg(unix)]
     #[test]
-    fn failed_release_can_atomically_restore_previous_pointer() {
-        use std::os::unix::fs::symlink;
-
-        let manager = manager("rollback");
-        let root = &manager.root;
-        let old = root.join("releases").join("old");
-        let new = root.join("releases").join("new");
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::create_dir_all(&new).unwrap();
-        symlink(&new, root.join("current")).unwrap();
-        symlink(&old, root.join("current.previous")).unwrap();
-
-        assert!(restore_previous_release(root).unwrap());
-        assert_eq!(std::fs::read_link(root.join("current")).unwrap(), old);
-        assert!(!root.join("current.previous").exists());
-        assert!(!new.exists());
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn powershell_paths_drop_verbatim_prefixes() {
-        assert_eq!(
-            powershell_compatible_path(Path::new(r"\\?\C:\HugAgentOS\install.ps1")),
-            OsString::from(r"C:\HugAgentOS\install.ps1")
-        );
-        assert_eq!(
-            powershell_compatible_path(Path::new(r"\\?\UNC\server\share\install.ps1")),
-            OsString::from(r"\\server\share\install.ps1")
-        );
+    fn linux_stale_process_match_is_scoped_to_this_install_and_port() {
+        let root = Path::new("/home/test/.local/share/hugagent/local-server");
+        assert!(linux_server_command_matches(
+            "/home/test/.local/share/hugagent/local-server/releases/runtimes/abc/python/bin/python3 /home/test/.local/share/hugagent/local-server/releases/sources/def/src/backend/cli.py serve --host 127.0.0.1 --port 32101",
+            root,
+        ));
+        assert!(!linux_server_command_matches(
+            "/tmp/python /tmp/cli.py serve --port 32101",
+            root,
+        ));
     }
 }

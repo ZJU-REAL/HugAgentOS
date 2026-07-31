@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   rmSync,
@@ -11,11 +10,12 @@ import { fileURLToPath } from "node:url";
 
 import { stageTrackedCeRepository } from "./ce-payload.mjs";
 import {
-  DESKTOP_REQUIREMENTS_FILE,
-  WINDOWS_DESKTOP_LOCK_FILE,
+  currentDesktopTarget,
   desktopDependencyFingerprint,
 } from "./desktop-dependencies.mjs";
 import { readDesktopVersion } from "./desktop-version.mjs";
+import { buildDesktopRuntime } from "./build-runtime.mjs";
+import { validateDesktopBuildTarget } from "./desktop-build-target.mjs";
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(desktopDir, "..");
@@ -26,8 +26,18 @@ const npmCommand =
 const npmPrefix =
   process.platform === "win32" ? ["/d", "/s", "/c", "npm.cmd"] : [];
 const desktopVersion = readDesktopVersion(desktopDir);
-const dependencyFingerprint = desktopDependencyFingerprint(repoRoot);
-const python = findPython();
+const bundleFlavor = process.env.HUGAGENT_DESKTOP_BUNDLE || "full";
+if (!["full", "thin"].includes(bundleFlavor)) {
+  throw new Error(`Unknown HUGAGENT_DESKTOP_BUNDLE flavor: ${bundleFlavor}`);
+}
+validateDesktopBuildTarget(
+  process.env.TAURI_ENV_TARGET_TRIPLE
+    ? ["--target", process.env.TAURI_ENV_TARGET_TRIPLE]
+    : [],
+);
+const desktopTarget = currentDesktopTarget();
+const dependencyFingerprint = desktopDependencyFingerprint(repoRoot, desktopTarget);
+const python = bundleFlavor === "full" ? findPython() : null;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -68,16 +78,67 @@ function findPython() {
   );
 }
 
+function assertUv() {
+  const result = spawnSync("uv", ["--version"], {
+    stdio: "ignore",
+    shell: false,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      "uv 0.11.33 is required on the release builder. End users do not need uv.",
+    );
+  }
+}
+
+if (bundleFlavor === "full") assertUv();
+
 console.log("[desktop] Building the desktop web application");
 run(npmCommand, [...npmPrefix, "run", "build"], {
   cwd: join(repoRoot, "src", "frontend"),
 });
 
+if (bundleFlavor === "thin") {
+  console.log("[desktop] Preparing remote-only thin bundle (no local Python runtime)");
+  rmSync(generatedRoot, { recursive: true, force: true });
+  mkdirSync(generatedRoot, { recursive: true });
+  const placeholder = `${JSON.stringify(
+    {
+      schema: 0,
+      flavor: "thin",
+      desktop_version: desktopVersion,
+      target: desktopTarget,
+    },
+    null,
+    2,
+  )}\n`;
+  writeFileSync(join(generatedRoot, "desktop-bundle.json"), placeholder, "utf8");
+  writeFileSync(generatedArchive, "", "utf8");
+  writeFileSync(join(desktopDir, "generated", "runtime-core.tar.gz"), "", "utf8");
+  writeFileSync(
+    join(desktopDir, "generated", "runtime-manifest.json"),
+    placeholder,
+    "utf8",
+  );
+  console.log("[desktop] Remote-only thin resources ready");
+  process.exit(0);
+}
+
 const ceBuilder = join(repoRoot, "scripts", "build_ce.py");
 const requireClean =
   Boolean(process.env.CI) || process.env.HUGAGENT_RELEASE_BUILD === "1";
 if (existsSync(ceBuilder)) {
-  const ceArgs = [...python.prefix, ceBuilder, "--out", generatedRoot];
+  const ceArgs = [
+    "run",
+    "--no-project",
+    "--python",
+    "3.11",
+    "--with-requirements",
+    join(desktopDir, "requirements-desktop-build.txt"),
+    "python",
+    ceBuilder,
+    "--out",
+    generatedRoot,
+  ];
   if (!requireClean) ceArgs.push("--allow-dirty");
 
   console.log(
@@ -89,7 +150,7 @@ if (existsSync(ceBuilder)) {
     maxRetries: 3,
     retryDelay: 200,
   });
-  run(python.command, ceArgs, {
+  run("uv", ceArgs, {
     env: {
       PYTHONUTF8: "1",
       PYTHONIOENCODING: "utf-8",
@@ -105,22 +166,8 @@ if (existsSync(ceBuilder)) {
   console.log(`[desktop] Staged ${copied} tracked CE files`);
 }
 
-// Desktop dependencies are a release input, not a derivative of the generic
-// server requirements. Copy them explicitly so development builds also see
-// newly added files before they have been committed to Git.
-for (const dependencyFile of [
-  DESKTOP_REQUIREMENTS_FILE,
-  WINDOWS_DESKTOP_LOCK_FILE,
-]) {
-  copyFileSync(
-    join(repoRoot, dependencyFile),
-    join(generatedRoot, dependencyFile),
-  );
-}
-const bundledDependencyFingerprint = desktopDependencyFingerprint(generatedRoot);
-if (bundledDependencyFingerprint !== dependencyFingerprint) {
-  throw new Error("Bundled desktop dependencies changed while staging.");
-}
+// Desktop dependency inputs remain under desktop/. The private runtime already
+// contains their exact result, so the CE source archive does not duplicate them.
 console.log(
   `[desktop] Dependency lock ready: ${dependencyFingerprint.slice(0, 12)}`,
 );
@@ -160,9 +207,10 @@ writeFileSync(
   join(generatedRoot, "desktop-bundle.json"),
   `${JSON.stringify(
     {
-      schema: 1,
+      schema: 2,
       desktop_version: desktopVersion,
       source_revision: revision.stdout.trim(),
+      target: desktopTarget,
       dependency_fingerprint: dependencyFingerprint,
     },
     null,
@@ -170,6 +218,13 @@ writeFileSync(
   )}\n`,
   "utf8",
 );
+
+buildDesktopRuntime({
+  desktopDir,
+  repoRoot,
+  sourceRoot: generatedRoot,
+  python,
+});
 
 console.log("[desktop] Compressing the CE server payload into one resource");
 rmSync(generatedArchive, { force: true });

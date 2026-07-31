@@ -1,6 +1,6 @@
 # 项目空间与我的空间
 
-> 最后更新：2026-06-11
+> 最后更新：2026-07-30
 
 HugAgentOS 提供两级个人化工作区：
 
@@ -60,6 +60,15 @@ teams ─────────┬── team_members（role: owner/admin/memb
 4. 沙箱侧路径作用域：项目对话中 agent 的 `/myspace/...` 文件操作被重定向到挂钩文件夹之下（`core/llm/tools/myspace_vfs.py` 的 `ProjectScope` 显式传参机制）。
 
 团队项目权限沿用团队角色：owner/admin 恒为管理权限，member 按 `file_permission`（editor/viewer）二级控制（`core/auth/permissions_iface.py::require_project_access`）。
+
+### 项目侧栏交互
+
+左侧栏会把每个项目及其所属对话显示为一个分组，项目行提供以下快捷操作：
+
+- 单击项目名称区域，展开或收起该项目的对话列表；
+- 单击新建对话按钮，直接进入一个已绑定该项目的空白对话；
+- 打开更多菜单，可将项目置顶、在项目面板中打开，或移除项目。置顶与移除仅对
+  项目管理员可用；移除会软删除项目，已有对话会回落到普通历史对话列表。
 
 ## 我的空间（MySpace）
 
@@ -138,6 +147,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | `src/backend/core/llm/agent_factory.py` | 项目 section 注入 system prompt |
 | `src/backend/core/llm/tools/myspace_vfs.py` | 我的空间 ↔ 沙箱映射层 |
 | `src/frontend/src/components/projects/` | 项目前端组件 |
+| `src/frontend/src/components/sidebar/Sidebar.tsx` | 侧栏项目分组、快捷新建与项目菜单 |
 | `src/frontend/src/components/myspace/` | 我的空间前端组件 |
 
 相关文档：[记忆系统](./memory.md) · [对象存储](./storage.md) · [沙箱](./sandbox.md) · [知识库](./knowledge-base.md) · [认证与团队](./auth.md) · [版本对比](../editions/overview.md)

@@ -124,7 +124,31 @@ Plan Mode splits complex tasks into "generate plan → user reviews/edits → ex
 
 ## Sub-agents
 
-User-created sub-agents (`api/routes/v1/agents.py`, DB table `UserAgent`)
+The regular main-chat harness always provides three platform defaults. They
+are not `UserAgent` rows, use reserved IDs, and cannot be shadowed by a
+user-created agent:
+
+| ID | Role | Conversation context | Project workspace | Capability boundary |
+|---|---|---|---|---|
+| `builtin.explorer` | Explorer | Independent brief; no parent history | Shared, read-only | No Bash; only the intersection of parent-enabled query MCPs |
+| `builtin.worker` | Worker | Full parent conversation history | Shared, writable | Inherits this run's parent skills, MCPs, and KBs; grants nothing new |
+| `builtin.reviewer` | Reviewer | Independent brief; no producer history | Shared, read-only | No Bash; independently verifies and returns `pass / revise / escalate` |
+
+Context and workspace sharing are separate dimensions: Explorer and Reviewer
+can inspect current files without being anchored by the parent conversation or
+implementation trace, while Worker needs the complete user constraints and
+prior decisions. The main agent's dynamic routing table lists only capabilities
+that are enabled for the current run and permitted by the role policy. A skill,
+MCP server, knowledge base, or native tool that the parent disabled, lacks
+permission to use, or lost during runtime filtering is neither advertised nor
+delegated to a platform default. None of the three may delegate further. There
+is deliberately no built-in planner because the regular main agent already
+maintains plans via `update_plan`, avoiding “plans inside plans.” Their prompts
+are the independent `explorer / worker / reviewer` parts of the `subagents`
+prompt-pool kind;
+`prompts/prompt_text/subagents/` is only the seed and failure fallback.
+
+In addition, user-created sub-agents (`api/routes/v1/agents.py`, DB table `UserAgent`)
 can carry their own system prompt, MCP, skill, plugin, and knowledge base
 bindings, plus model parameters such as provider, temperature, `max_tokens`,
 and `max_iters`. When you create or edit a sub-agent, the resource picker
@@ -139,8 +163,9 @@ supports these sources:
   enable the MCP for the main agent. An administrator-disabled MCP remains
   unavailable.
 
-You can reach a sub-agent through four paths with different orchestration
-ownership:
+User-created sub-agents support four access paths. Platform defaults are
+reached through autonomous main-agent dispatch or explicit natural-language
+delegation. Orchestration ownership differs by path:
 
 - **Structured `@` delegation**: selecting one `@sub-agent` in the composer
   sends both `mention_agent_id` and its display name. The backend removes the

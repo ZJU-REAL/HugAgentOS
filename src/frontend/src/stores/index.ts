@@ -3,7 +3,7 @@ export { useChatStore } from './chatStore';
 export { useCatalogStore } from './catalogStore';
 export { useKbStore } from './kbStore';
 export { useSettingsStore } from './settingsStore';
-export { useUIStore, type HistoryTimeFilter, type DocsSubTab, type UpdateFilter } from './uiStore';
+export { useUIStore, type HistoryTimeFilter, type UpdateFilter } from './uiStore';
 export { useFileStore } from './fileStore';
 export { useAgentStore } from './agentStore';
 export { useMySpaceStore } from './mySpaceStore';

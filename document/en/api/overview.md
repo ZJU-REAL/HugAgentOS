@@ -1,6 +1,6 @@
 # API Overview
 
-> Last updated: 2026-07-19
+> Last updated: 2026-07-28
 
 The HugAgentOS backend is a FastAPI application; all business endpoints live under the `/v1/*` prefix. In a production deployment, Nginx strips the `/api/` prefix before forwarding to the backend (see `src/frontend/default.conf.template`), so **the full browser-facing path is `/api/v1/...`**, while hitting the backend container directly uses `/v1/...`. Examples in this document use the local development address `http://localhost:3000/api`.
 
@@ -220,6 +220,7 @@ The last column is the license feature flag declared in `EE_ROUTERS`; `—` mean
 | Content admin | `admin_mcp_servers.py` | `/v1/admin/mcp-servers` | `GET/POST /`, `POST /{server_id}/test`, `POST /reload-pool` | CONFIG | `content_admin` |
 | Content admin | `admin_agents.py` | `/v1/admin/agents` | `GET/POST /`, `PUT /{agent_id}/toggle`, `GET /export` | ADMIN | `content_admin` |
 | Content admin | `admin_skill_drafts.py` | `/v1/admin/skill-drafts` | `GET /`, `POST /{draft_id}/approve` (skill distillation review) | ADMIN | `content_admin` |
+| User feedback | `edition_ee/routes/feedbacks.py`, `admin_feedbacks.py` | `/v1/feedbacks`, `/v1/admin/feedbacks` | User form/screenshot submission; admin filtering, rejection, approval, and GitHub Issue publishing | User / ADMIN | `content_admin` |
 | Content admin | `admin_sandbox.py` | `/v1/admin/sandbox` | `GET /deps`, `POST /rebuild` (sandbox dependency rebuild) | ADMIN | `content_admin` |
 | Content admin | `admin_marketplace.py` | `/v1/admin/marketplace` | `GET /submissions`, `POST /submissions/{id}/approve` (listing review) | ADMIN | `content_admin` |
 | Billing | `admin_usage_logs.py` | `/v1/admin/usage-logs` | `GET /`, `GET /summary`, `GET /models` | CONFIG | `billing` |

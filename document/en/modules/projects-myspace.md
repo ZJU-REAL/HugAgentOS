@@ -1,6 +1,6 @@
 # Projects & MySpace
 
-> Last updated: 2026-06-11
+> Last updated: 2026-07-30
 
 HugAgentOS provides two tiers of personal workspace:
 
@@ -60,6 +60,19 @@ When a conversation is started inside a project (the request carries `project_id
 4. Sandbox path scoping: in project conversations, the agent's `/myspace/...` file operations are redirected under the linked folder (the explicit `ProjectScope` parameter mechanism in `core/llm/tools/myspace_vfs.py`).
 
 Team project permissions follow team roles: owner/admin always have admin rights; members are governed by `file_permission` (editor/viewer) (`core/auth/permissions_iface.py::require_project_access`).
+
+### Project sidebar controls
+
+The left sidebar groups each project with its conversations and provides these
+shortcuts on the project row:
+
+- Select the project name area to expand or collapse its conversation list.
+- Select the new-chat button to open a blank conversation already bound to the
+  project.
+- Open the more-actions menu to pin the project, open it in the project panel,
+  or remove it. Pinning and removal require project-admin access. Removal soft
+  deletes the project, and existing conversations return to the regular chat
+  history.
 
 ## MySpace
 
@@ -138,6 +151,7 @@ Three complementary paths:
 | `src/backend/core/llm/agent_factory.py` | Project section injection into the system prompt |
 | `src/backend/core/llm/tools/myspace_vfs.py` | MySpace ↔ sandbox mapping layer |
 | `src/frontend/src/components/projects/` | Project frontend components |
+| `src/frontend/src/components/sidebar/Sidebar.tsx` | Sidebar project groups, quick chat creation, and project actions |
 | `src/frontend/src/components/myspace/` | MySpace frontend components |
 
 Related docs: [Memory System](./memory.md) · [Object Storage](./storage.md) · [Sandbox](./sandbox.md) · [Knowledge Base](./knowledge-base.md) · [Auth & Teams](./auth.md) · [Edition Comparison](../editions/overview.md)

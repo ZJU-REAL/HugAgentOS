@@ -22,6 +22,7 @@ See internal design docs for details.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 import re
@@ -30,7 +31,7 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from core.agent_skills.binary_files import is_binary_value
@@ -54,6 +55,7 @@ from core.services.marketplace_service import (
     _strip_frontmatter,
     compute_install_id,
 )
+from core.services.ontology_policy import resolve_plugin_import_ontology_validation
 from core.services.plugin_importer import (
     NormalizedPlugin,
     NormalizedSkill,
@@ -120,9 +122,19 @@ def _sanitize_id(value: str, maxlen: int) -> str:
     return (s or "x")[:maxlen]
 
 
+def _sanitize_component_id(value: str, maxlen: int) -> str:
+    """Sanitize a namespaced component id without creating truncation collisions."""
+    normalized = re.sub(r"[^a-z0-9_-]+", "-", (value or "").lower()).strip("-") or "x"
+    if len(normalized) <= maxlen:
+        return normalized
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+    prefix = normalized[: maxlen - len(digest) - 1].rstrip("-")
+    return f"{prefix}-{digest}"
+
+
 def _make_skill_id(slug: str, skill_name: str, owner_user_id: Optional[str]) -> str:
     """Namespaced skill id: {slug}-{skill} (+ user fingerprint). Constrained by _ID_RE (<=63)."""
-    base = _sanitize_id(f"{slug}-{skill_name}", 50)
+    base = _sanitize_component_id(f"{slug}-{skill_name}", 50)
     return compute_install_id(
         base, owner_user_id
     )  # appends -<6-char fingerprint> when owner is non-empty
@@ -130,7 +142,10 @@ def _make_skill_id(slug: str, skill_name: str, owner_user_id: Optional[str]) -> 
 
 def _make_server_id(slug: str, server_name: str, owner_user_id: Optional[str]) -> str:
     """Namespaced MCP server id: {slug}-{server} (+ user fingerprint), same rules as skill ids."""
-    return compute_install_id(_sanitize_id(f"{slug}-{server_name}", 80), owner_user_id)
+    return compute_install_id(
+        _sanitize_component_id(f"{slug}-{server_name}", 80),
+        owner_user_id,
+    )
 
 
 # ── Rewriting inter-skill relative references ────────────────────────────────
@@ -180,6 +195,7 @@ def _apply_skill(
     secrets: Dict[str, str],
     required_secrets: List[Dict[str, Any]],
     enabled: bool,
+    validate_ontology_build: bool,
     sibling_ids: Optional[Dict[str, str]] = None,
 ) -> str:
     """Upsert one normalized skill as an AdminSkill (tagged with source_plugin). Returns the skill_id."""
@@ -219,15 +235,16 @@ def _apply_skill(
         raise BadRequestError(message=f"技能 {sk.name!r} 的 SKILL.md 不合法：{exc}")
 
     deps = detect_dependencies({fn: c for fn, c in extra_files.items() if not is_binary_value(c)})
-    ensure_ontology_build_valid(
-        db,
-        asset_type="skill",
-        name=_display_name or sk.name or skill_id,
-        description=meta.description or "",
-        instructions=content,
-        tool_names=list(meta.allowed_tools or []),
-        ontology_tags=list(meta.tags or []),
-    )
+    if validate_ontology_build:
+        ensure_ontology_build_valid(
+            db,
+            asset_type="skill",
+            name=_display_name or sk.name or skill_id,
+            description=meta.description or "",
+            instructions=content,
+            tool_names=list(meta.allowed_tools or []),
+            ontology_tags=list(meta.tags or []),
+        )
     now = datetime.utcnow()
     existing = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
     fields = dict(
@@ -261,6 +278,7 @@ def _apply_mcp(
     slug: str,
     owner_user_id: Optional[str],
     enabled: bool,
+    validate_ontology_build: bool,
 ) -> str:
     """Upsert one normalized MCP as an AdminMcpServer (tagged with source_plugin). Returns the server_id.
 
@@ -270,21 +288,22 @@ def _apply_mcp(
     server_id = _make_server_id(slug, mc.name, owner_user_id)
     effective_enabled = bool(enabled) and not mc.needs_runtime
     tools_meta = [item for item in list(getattr(mc, "tools", None) or []) if isinstance(item, dict)]
-    ensure_ontology_build_valid(
-        db,
-        asset_type="tool",
-        name=mc.display_name or mc.name,
-        description=mc.description or (mc.note or ""),
-        tool_names=[str(item["name"]) for item in tools_meta if item.get("name")],
-        tool_schemas={
-            str(item["name"]): item.get("inputSchema")
-            or item.get("input_schema")
-            or item.get("parameters")
-            or {}
-            for item in tools_meta
-            if item.get("name")
-        },
-    )
+    if validate_ontology_build:
+        ensure_ontology_build_valid(
+            db,
+            asset_type="tool",
+            name=mc.display_name or mc.name,
+            description=mc.description or (mc.note or ""),
+            tool_names=[str(item["name"]) for item in tools_meta if item.get("name")],
+            tool_schemas={
+                str(item["name"]): item.get("inputSchema")
+                or item.get("input_schema")
+                or item.get("parameters")
+                or {}
+                for item in tools_meta
+                if item.get("name")
+            },
+        )
     now = datetime.utcnow()
     existing = db.query(AdminMcpServer).filter(AdminMcpServer.server_id == server_id).first()
     fields = dict(
@@ -326,6 +345,7 @@ def _apply_normalized(
 ) -> Dict[str, Any]:
     """Persist a NormalizedPlugin and return the installation result (including the import_report)."""
     install_id = _make_plugin_install_id(np.slug, owner_user_id)
+    ontology_policy = resolve_plugin_import_ontology_validation(db, owner_user_id)
 
     de_skills = set(np.default_enabled.get("skills") or [])
     de_mcp = set(np.default_enabled.get("mcp") or [])
@@ -353,6 +373,7 @@ def _apply_normalized(
             secrets=secrets,
             required_secrets=np.required_secrets,
             enabled=(sk.name in de_skills) or not de_skills,
+            validate_ontology_build=ontology_policy.enabled,
             sibling_ids=sibling_ids,
         )
         skill_ids.append(sid)
@@ -365,6 +386,7 @@ def _apply_normalized(
             slug=np.slug,
             owner_user_id=owner_user_id,
             enabled=(mc.name in de_mcp),
+            validate_ontology_build=ontology_policy.enabled,
         )
         server_ids.append(sid)
         if mc.needs_runtime:
@@ -412,7 +434,8 @@ def _apply_normalized(
     db.commit()
     _refresh_after_change(owner_user_id)
     logger.info(
-        "plugin_%s: slug=%s kind=%s owner=%s skills=%d mcp=%d dropped=%d",
+        "plugin_%s: slug=%s kind=%s owner=%s skills=%d mcp=%d dropped=%d "
+        "ontology_validation=%s forced=%s",
         action,
         np.slug,
         np.kind,
@@ -420,6 +443,8 @@ def _apply_normalized(
         len(skill_ids),
         len(server_ids),
         len(np.dropped),
+        ontology_policy.enabled,
+        ontology_policy.forced,
     )
     return {
         "install_id": install_id,
@@ -1190,10 +1215,33 @@ def _extract_plugin_zip(raw: bytes) -> Iterator[Path]:
         extract_dir.mkdir()
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-                for member in zf.namelist():
-                    if member.startswith("/") or ".." in Path(member).parts:
-                        raise BadRequestError(message=f"非法压缩包条目：{member}")
-                zf.extractall(extract_dir)
+                seen_targets: set[str] = set()
+                for member in zf.infolist():
+                    # Some Windows ZIP writers store backslashes literally.
+                    # Normalize them before both traversal checks and extraction
+                    # so skills\foo\SKILL.md remains a portable skill directory.
+                    normalized_name = member.filename.replace("\\", "/")
+                    member_path = PurePosixPath(normalized_name)
+                    parts = member_path.parts
+                    if (
+                        not normalized_name
+                        or not parts
+                        or member_path.is_absolute()
+                        or ".." in parts
+                        or (parts and parts[0].endswith(":"))
+                    ):
+                        raise BadRequestError(message=f"非法压缩包条目：{member.filename}")
+                    target_key = "/".join(parts)
+                    if target_key in seen_targets:
+                        raise BadRequestError(message=f"压缩包包含重复条目：{normalized_name}")
+                    seen_targets.add(target_key)
+                    target = extract_dir.joinpath(*parts)
+                    if member.is_dir() or normalized_name.endswith("/"):
+                        target.mkdir(parents=True, exist_ok=True)
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(member) as source_file, target.open("wb") as target_file:
+                        shutil.copyfileobj(source_file, target_file)
         except zipfile.BadZipFile:
             raise BadRequestError(message="不是有效的 zip 文件")
         yield _locate_plugin_root(extract_dir)

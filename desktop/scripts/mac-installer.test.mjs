@@ -1,349 +1,108 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import {
+  explicitTauriTarget,
+  validateDesktopBuildTarget,
+} from "./desktop-build-target.mjs";
+
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const installer = join(
-  desktopDir,
-  "resources",
-  "server-bootstrap",
-  "install-local-server.sh",
-);
-const archiveBuilder = join(desktopDir, "scripts", "create-ce-archive.py");
+const rustDir = join(desktopDir, "src-tauri", "src");
 
-function writeExecutable(path, contents) {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, contents, "utf8");
-  chmodSync(path, 0o755);
-}
-
-function buildBundleArchive(bundle, fixture) {
-  const archive = join(fixture, "server-ce.zip");
-  const manifest = join(fixture, "server-ce-manifest.json");
-  if (!existsSync(join(bundle, "requirements-desktop.txt"))) {
-    writeFileSync(join(bundle, "requirements-desktop.txt"), "fastapi==1\n");
+test("desktop local install is offline and shared by all three operating systems", () => {
+  const source = readFileSync(join(rustDir, "local_server.rs"), "utf8");
+  const payload = readFileSync(join(rustDir, "local_payload.rs"), "utf8");
+  for (const obsoleteNetworkStep of [
+    "winget",
+    "uv python install",
+    "uv pip sync",
+    "pip install",
+    "curl ",
+  ]) {
+    assert.doesNotMatch(source, new RegExp(obsoleteNetworkStep, "i"));
+    assert.doesNotMatch(payload, new RegExp(obsoleteNetworkStep, "i"));
   }
-  if (!existsSync(join(bundle, "requirements-desktop-windows-py311.lock"))) {
-    writeFileSync(
-      join(bundle, "requirements-desktop-windows-py311.lock"),
-      "# test lock\nuv==0.11.33\n",
-    );
-  }
-  copyFileSync(join(bundle, "desktop-bundle.json"), manifest);
-  let result;
-  for (const python of ["python3", "python"]) {
-    result = spawnSync(
-      python,
-      [archiveBuilder, "--source", bundle, "--output", archive],
-      { encoding: "utf8" },
-    );
-    if (!result.error) break;
-  }
-  assert.equal(result?.status, 0, result?.stderr || result?.error?.message);
-  return { archive, manifest };
-}
+  assert.match(payload, /verify_file_hash/);
+  assert.match(payload, /run_smoke_test/);
+  assert.match(payload, /restore_previous/);
+});
 
-function installerArguments(paths, installRoot) {
-  return [
-    installer,
-    "--bundle-archive",
-    paths.archive,
-    "--bundle-manifest",
-    paths.manifest,
-    "--install-root",
-    installRoot,
-  ];
-}
-
-test("macOS bootstrap completes a clean CE install with an isolated runtime", () => {
-  const fixture = mkdtempSync(join(tmpdir(), "hugagent-macos-installer-"));
-  const bundle = join(fixture, "bundle");
-  const installRoot = join(fixture, "installed");
-  const uvLog = join(fixture, "uv.log");
-
-  try {
-    mkdirSync(join(bundle, "src", "frontend", "dist"), { recursive: true });
-    mkdirSync(join(bundle, "docker"), { recursive: true });
-    writeFileSync(join(bundle, "pyproject.toml"), "[project]\nname='test'\n");
-    writeFileSync(join(bundle, "requirements.txt"), "");
-    writeFileSync(join(bundle, "requirements-mem0.txt"), "mem0ai>=0.1.50\n");
-    writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
-    writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "ok");
-    writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"test"}\n');
-    let bundlePaths = buildBundleArchive(bundle, fixture);
-
-    writeExecutable(
-      join(installRoot, "tools", "uv"),
-      `#!/bin/bash
-set -e
-if [[ "$1" == "--system-certs" ]]; then shift; fi
-printf '%s\n' "$*" >> "\${HUGAGENT_UV_LOG:?}"
-if [[ " $* " == *" --prefer-binary "* ]]; then
-  echo "unexpected pip-only argument: --prefer-binary" >&2
-  exit 2
-fi
-if [[ "\${HUGAGENT_FAIL_REQUIREMENTS:-0}" == "1" && "$1" == "pip" && " $* " == *" --requirements "* ]]; then
-  exit 9
-fi
-if [[ "$1" == "venv" ]]; then
-  destination="\${!#}"
-  mkdir -p "$destination/bin"
-  printf '#!/bin/bash\\nexit 0\\n' > "$destination/bin/python"
-  chmod +x "$destination/bin/python"
-elif [[ "$1" == "pip" && " $* " == *" --editable "* ]]; then
-  previous=""
-  python=""
-  for argument in "$@"; do
-    if [[ "$previous" == "--python" ]]; then python="$argument"; fi
-    previous="$argument"
-  done
-  printf '#!/bin/bash\\nexit 0\\n' > "$(dirname "$python")/hugagent"
-  chmod +x "$(dirname "$python")/hugagent"
-fi
-`,
+test("Windows macOS and Linux packages embed both source and runtime payloads", () => {
+  for (const platform of ["windows", "macos", "linux"]) {
+    const config = readFileSync(
+      join(desktopDir, "src-tauri", `tauri.${platform}.conf.json`),
+      "utf8",
     );
-
-    const result = spawnSync(
-      "/bin/bash",
-      installerArguments(bundlePaths, installRoot),
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HUGAGENT_SKIP_OPTIONAL_NODE: "1",
-          HUGAGENT_UV_LOG: uvLog,
-        },
-      },
-    );
-
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /HUGAGENT_PROGRESS\|90\|/);
-    assert.equal(
-      readFileSync(
-        join(installRoot, "current", "desktop-bundle.json"),
-        "utf8",
-      ),
-      '{"desktop_version":"test"}\n',
-    );
-    assert.equal(
-      readFileSync(
-        join(
-          installRoot,
-          "current",
-          "source",
-          "src",
-          "frontend",
-          "dist",
-          "index.html",
-        ),
-        "utf8",
-      ),
-      "ok",
-    );
-    const uvCalls = readFileSync(uvLog, "utf8");
-    assert.match(uvCalls, /--overrides .*requirements-macos-overrides\.txt/);
-    assert.match(uvCalls, /--only-binary pikepdf/);
-    assert.match(uvCalls, /--requirements .*requirements-mem0\.txt/);
-    assert.match(uvCalls, /pymilvus==2\.5\.18/);
-    assert.match(uvCalls, /milvus-lite==3\.1\.0/);
-    assert.doesNotMatch(uvCalls, /--prefer-binary/);
-
-    writeFileSync(
-      join(bundle, "src", "frontend", "dist", "index.html"),
-      "updated",
-    );
-    writeFileSync(
-      join(bundle, "desktop-bundle.json"),
-      '{"desktop_version":"updated"}\n',
-    );
-    bundlePaths = buildBundleArchive(bundle, fixture);
-    const update = spawnSync(
-      "/bin/bash",
-      installerArguments(bundlePaths, installRoot),
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HUGAGENT_SKIP_OPTIONAL_NODE: "1",
-          HUGAGENT_UV_LOG: uvLog,
-        },
-      },
-    );
-    assert.equal(update.status, 0, update.stderr || update.stdout);
-    assert.equal(
-      readFileSync(
-        join(
-          installRoot,
-          "current",
-          "source",
-          "src",
-          "frontend",
-          "dist",
-          "index.html",
-        ),
-        "utf8",
-      ),
-      "updated",
-    );
-    assert.equal(
-      readFileSync(
-        join(
-          installRoot,
-          "current.previous",
-          "source",
-          "src",
-          "frontend",
-          "dist",
-          "index.html",
-        ),
-        "utf8",
-      ),
-      "ok",
-    );
-
-    writeFileSync(
-      join(bundle, "desktop-bundle.json"),
-      '{"desktop_version":"third"}\n',
-    );
-    bundlePaths = buildBundleArchive(bundle, fixture);
-    const third = spawnSync(
-      "/bin/bash",
-      installerArguments(bundlePaths, installRoot),
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HUGAGENT_SKIP_OPTIONAL_NODE: "1",
-          HUGAGENT_UV_LOG: uvLog,
-        },
-      },
-    );
-    assert.equal(third.status, 0, third.stderr || third.stdout);
-    assert.equal(
-      readdirSync(join(installRoot, "releases")).filter(
-        (name) => !name.startsWith("."),
-      ).length,
-      2,
-    );
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
+    for (const resource of [
+      "server-ce.zip",
+      "server-ce-manifest.json",
+      "runtime-core.tar.gz",
+      "runtime-manifest.json",
+    ]) {
+      assert.match(config, new RegExp(resource.replaceAll(".", "\\.")));
+    }
   }
 });
 
-test("macOS bootstrap leaves the previous release untouched after dependency failure", () => {
-  const fixture = mkdtempSync(join(tmpdir(), "hugagent-macos-rollback-"));
-  const bundle = join(fixture, "bundle");
-  const installRoot = join(fixture, "installed");
-  const uvLog = join(fixture, "uv.log");
-
-  try {
-    mkdirSync(join(bundle, "src", "frontend", "dist"), { recursive: true });
-    mkdirSync(join(bundle, "docker"), { recursive: true });
-    writeFileSync(join(bundle, "pyproject.toml"), "[project]\nname='test'\n");
-    writeFileSync(join(bundle, "requirements.txt"), "broken>=1\n");
-    writeFileSync(join(bundle, "requirements-mem0.txt"), "mem0ai>=0.1.50\n");
-    writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
-    writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "new");
-    writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"new"}\n');
-    const bundlePaths = buildBundleArchive(bundle, fixture);
-
-    mkdirSync(join(installRoot, "source"), { recursive: true });
-    writeFileSync(join(installRoot, "source", "version.txt"), "old");
-    writeExecutable(join(installRoot, "venv", "bin", "hugagent"), "#!/bin/bash\nexit 0\n");
-    writeFileSync(join(installRoot, "installed-bundle.json"), '{"desktop_version":"old"}\n');
-    writeExecutable(
-      join(installRoot, "tools", "uv"),
-      `#!/bin/bash
-set -e
-if [[ "$1" == "--system-certs" ]]; then shift; fi
-printf '%s\n' "$*" >> "\${HUGAGENT_UV_LOG:?}"
-if [[ "$1" == "venv" ]]; then
-  destination="\${!#}"
-  mkdir -p "$destination/bin"
-  printf '#!/bin/bash\\nexit 0\\n' > "$destination/bin/python"
-  chmod +x "$destination/bin/python"
-elif [[ "$1" == "pip" && " $* " == *" --requirements "* ]]; then
-  exit 9
-fi
-`,
-    );
-
-    const result = spawnSync(
-      "/bin/bash",
-      installerArguments(bundlePaths, installRoot),
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HUGAGENT_SKIP_OPTIONAL_NODE: "1",
-          HUGAGENT_UV_LOG: uvLog,
-        },
-      },
-    );
-
-    assert.equal(result.status, 9, result.stderr || result.stdout);
-    assert.equal(readFileSync(join(installRoot, "source", "version.txt"), "utf8"), "old");
-    assert.equal(
-      readFileSync(join(installRoot, "installed-bundle.json"), "utf8"),
-      '{"desktop_version":"old"}\n',
-    );
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
-  }
+test("release builder validates dependencies and relocatable runtime before archiving", () => {
+  const builder = readFileSync(join(desktopDir, "scripts", "build-runtime.mjs"), "utf8");
+  const smoke = readFileSync(join(desktopDir, "scripts", "runtime-smoke.py"), "utf8");
+  assert.match(builder, /--only-binary/);
+  assert.match(builder, /"pip", "check"/);
+  assert.match(builder, /runtime-smoke\.py/);
+  assert.match(builder, /signMacRuntime/);
+  assert.match(builder, /Resuming validated/);
+  assert.match(smoke, /import_module\("cli"\)/);
 });
 
-test("macOS bootstrap pins verified uv downloads and checks free space", () => {
-  const contents = readFileSync(installer, "utf8");
-  assert.match(contents, /--retry 5/);
-  assert.match(contents, /--retry-all-errors/);
-  assert.match(contents, /shasum -a 256/);
-  assert.match(contents, /UvSha256="9bed3567/);
-  assert.match(contents, /HUGAGENT_MIN_FREE_KB/);
+test("CE generation uses an isolated pinned release-builder dependency", () => {
+  const prepare = readFileSync(join(desktopDir, "scripts", "prepare-bundle.mjs"), "utf8");
+  const requirements = readFileSync(
+    join(desktopDir, "requirements-desktop-build.txt"),
+    "utf8",
+  );
+  assert.match(prepare, /--with-requirements/);
+  assert.match(prepare, /requirements-desktop-build\.txt/);
+  assert.match(prepare, /TAURI_ENV_TARGET_TRIPLE/);
+  assert.match(requirements, /^PyYAML==\d+\.\d+\.\d+$/m);
 });
 
-test("macOS bootstrap stops before copying when free space is insufficient", () => {
-  const fixture = mkdtempSync(join(tmpdir(), "hugagent-macos-disk-"));
-  const bundle = join(fixture, "bundle");
-  const installRoot = join(fixture, "installed");
+test("runtime archive creation opts into Windows extended-length paths", () => {
+  const archiveBuilder = readFileSync(
+    join(desktopDir, "scripts", "create-runtime-archive.py"),
+    "utf8",
+  );
+  assert.match(archiveBuilder, /def _long_path/);
+  assert.match(archiveBuilder, /\\\\\\\\\?\\\\UNC/);
+  assert.match(archiveBuilder, /source = _long_path/);
+  assert.match(archiveBuilder, /output = _long_path/);
+});
 
-  try {
-    mkdirSync(join(bundle, "src", "frontend", "dist"), { recursive: true });
-    mkdirSync(join(bundle, "docker"), { recursive: true });
-    writeFileSync(join(bundle, "pyproject.toml"), "[project]\nname='test'\n");
-    writeFileSync(join(bundle, "requirements.txt"), "");
-    writeFileSync(join(bundle, "requirements-mem0.txt"), "mem0ai>=0.1.50\n");
-    writeFileSync(join(bundle, "docker", "requirements-script-runner.txt"), "");
-    writeFileSync(join(bundle, "src", "frontend", "dist", "index.html"), "ok");
-    writeFileSync(join(bundle, "desktop-bundle.json"), '{"desktop_version":"test"}\n');
-    const bundlePaths = buildBundleArchive(bundle, fixture);
-
-    const result = spawnSync(
-      "/bin/bash",
-      installerArguments(bundlePaths, installRoot),
-      {
-        encoding: "utf8",
-        env: { ...process.env, HUGAGENT_MIN_FREE_KB: "999999999999" },
-      },
-    );
-
-    assert.equal(result.status, 4, result.stderr || result.stdout);
-    assert.match(result.stderr, /Not enough disk space/);
-    assert.equal(existsSync(join(installRoot, "source")), false);
-  } finally {
-    rmSync(fixture, { recursive: true, force: true });
-  }
+test("offline desktop builds reject universal and cross-architecture targets", () => {
+  assert.equal(explicitTauriTarget(["--target=x86_64-apple-darwin"]), "x86_64-apple-darwin");
+  assert.equal(
+    validateDesktopBuildTarget([], "darwin", "arm64"),
+    "aarch64-apple-darwin",
+  );
+  assert.throws(
+    () =>
+      validateDesktopBuildTarget(
+        ["--target", "universal-apple-darwin"],
+        "darwin",
+        "arm64",
+      ),
+    /separate installer/,
+  );
+  assert.throws(
+    () =>
+      validateDesktopBuildTarget(
+        ["--target", "x86_64-apple-darwin"],
+        "darwin",
+        "arm64",
+      ),
+    /matching OS and CPU architecture/,
+  );
 });

@@ -745,6 +745,14 @@
   tab-size: 4;
 }
 
+/* ══ Markdown Renderer ══ */
+.jx-canvas-markdown {
+  min-height: 100%;
+  padding: 28px clamp(24px, 5vw, 56px) 48px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
 /* ══ HTML Renderer ══ */
 .jx-canvas-html { height: 100%; }
 .jx-canvas-html-frame {
@@ -805,4 +813,362 @@
 .jx-canvas-saveBtn:disabled {
   color: var(--color-text-placeholder);
   cursor: not-allowed;
+}
+
+/* ══════════════════════════════════════════════════════
+   Industry chain map
+   ══════════════════════════════════════════════════════ */
+
+.jx-industryChain {
+  background: #fff;
+}
+
+.jx-industryChain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 10px 14px 10px 18px;
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, .96);
+  flex-shrink: 0;
+}
+
+.jx-industryChain-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.jx-industryChain-headingIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  font-size: 17px;
+  flex: 0 0 auto;
+}
+
+.jx-industryChain-headingText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.jx-industryChain-headingText strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-industryChain-headingText span {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-number);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.jx-industryChain-metrics {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.jx-industryChain-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: max-content;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-gray);
+}
+
+.jx-industryChain-metric small {
+  color: var(--color-text-tertiary);
+  font-size: 10.5px;
+}
+
+.jx-industryChain-metric strong {
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-number);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.jx-industryChain-body {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: #fff;
+}
+
+.jx-industryChain-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  background: #fff;
+}
+
+.jx-industryChain-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.jx-industryChain-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.jx-industryChain-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.jx-industryChain-edges path {
+  fill: none;
+  stroke: var(--color-fill-deep);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.jx-industryChain-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 0 30px 0 14px;
+  border: 1.5px solid var(--color-primary);
+  border-radius: var(--radius-xs);
+  background: #fff;
+  color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(18, 109, 255, .08);
+  cursor: default;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.jx-industryChain-node:hover,
+.jx-industryChain-node:focus-within {
+  border-color: var(--color-primary-hover);
+  box-shadow: 0 5px 16px rgba(18, 109, 255, .14);
+}
+
+.jx-industryChain-node--depth0 {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-text-white);
+  box-shadow: 0 5px 18px rgba(18, 109, 255, .24);
+  font-weight: 600;
+}
+
+.jx-industryChain-node--depth0:hover,
+.jx-industryChain-node--depth0:focus-within {
+  border-color: var(--color-primary-hover);
+  background: var(--color-primary-hover);
+}
+
+.jx-industryChain-node--depth1 {
+  background: var(--color-primary-light);
+  font-weight: 600;
+}
+
+.jx-industryChain-nodeAccent {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -4px;
+  width: 4px;
+  border-radius: 3px;
+  background: var(--color-primary);
+}
+
+.jx-industryChain-node--depth0 .jx-industryChain-nodeAccent {
+  display: none;
+}
+
+.jx-industryChain-nodeLabel {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-industryChain-nodeToggle {
+  position: absolute;
+  top: 50%;
+  right: -11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid var(--color-primary);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--color-primary);
+  font-size: 10px;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: var(--motion-transition-hover);
+}
+
+.jx-industryChain-nodeToggle:hover,
+.jx-industryChain-nodeToggle:focus-visible {
+  outline: none;
+  background: var(--color-primary);
+  color: var(--color-text-white);
+}
+
+.jx-industryChain-toolbar {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .94);
+  box-shadow: var(--shadow-dropdown);
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+
+.jx-industryChain-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: var(--motion-transition-hover);
+}
+
+.jx-industryChain-toolbar button:hover,
+.jx-industryChain-toolbar button:focus-visible {
+  outline: none;
+  background: var(--color-bg-gray);
+  color: var(--color-primary);
+}
+
+.jx-industryChain-toolbar > span {
+  min-width: 42px;
+  padding: 0 7px;
+  border-left: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-number);
+  font-size: 10.5px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.jx-industryChain-minimap {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  z-index: 3;
+  width: 142px;
+  height: 92px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, .9);
+  box-shadow: var(--shadow-card);
+  box-sizing: border-box;
+  backdrop-filter: blur(6px);
+}
+
+.jx-industryChain-minimap svg {
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.jx-industryChain-minimapEdge {
+  fill: none;
+  stroke: var(--color-fill-deep);
+  stroke-width: 7;
+}
+
+.jx-industryChain-minimapNode {
+  fill: var(--color-primary-disabled);
+  stroke: var(--color-primary);
+  stroke-width: 4;
+}
+
+.jx-industryChain-minimapViewport {
+  fill: rgba(18, 109, 255, .08);
+  stroke: var(--color-primary);
+  stroke-width: 7;
+  vector-effect: non-scaling-stroke;
+}
+
+.jx-industryChain-hint {
+  position: absolute;
+  right: 16px;
+  bottom: 18px;
+  z-index: 3;
+  padding: 5px 8px;
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, .88);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+@media (max-width: 980px) {
+  .jx-industryChain-metrics {
+    display: none;
+  }
+
+  .jx-industryChain-minimap {
+    width: 112px;
+    height: 76px;
+  }
+
+  .jx-industryChain-hint {
+    display: none;
+  }
+
+  .jx-industryChain-toolbar button {
+    padding: 0 7px;
+  }
 }

@@ -1,6 +1,6 @@
 # Data Model Overview
 
-> Last updated: 2026-07-19
+> Last updated: 2026-07-28
 
 The data-access layer lives in `src/backend/core/db/`: ORM models are split by domain into the `models/` package (14 domain files, all re-exported verbatim from `models/__init__.py`, so the legacy `from core.db.models import X` style still works), the repository layer sits in `repository/`, and the engine and sessions in `engine.py`. Development uses SQLite, production PostgreSQL — `models/__init__.py` defines two dialect-aware types shared by all models: `JSONType` (automatically upgraded to JSONB on PostgreSQL) and `INETType` (INET on PostgreSQL).
 
@@ -26,6 +26,8 @@ core/db/
 ├── model_repository.py  # Repository for model providers / role assignments
 └── edition_tables.py    # Single source of truth for the CE/EE table boundary
 ```
+
+Enterprise-only models live under `src/backend/edition_ee/db/models/` and are re-exported by `core.db.models` in the full build. The CE-derived tree physically removes that directory and replaces the export facade with an overlay. The feedback model is `feedback.py` in that package.
 
 ## Table Groups
 
@@ -54,6 +56,12 @@ Tables marked "(Enterprise Edition, EE)" belong to the `EE_ONLY_TABLES` set and 
 | `chat_runs` | Streaming runs: decouple AI tasks from the HTTP connection; support resume and crash recovery |
 | `message_feedback` | Likes/dislikes with optional comments |
 | `chat_sandbox_snapshots` | Per-chat persistent-sandbox snapshot pointers (environment restore with OpenSandbox) |
+
+### User feedback (edition_ee/db/models/feedback.py)
+
+| Table | Purpose |
+|---|---|
+| `user_feedback` (Enterprise Edition, EE) | User problems/suggestions, references to up to eight screenshots, review state, and GitHub Issue delivery results; review and publishing states are separate so remote failures can be retried safely |
 
 ### Projects, artifacts, and content blocks (models/project.py, models/artifact.py)
 
@@ -139,13 +147,13 @@ Tables marked "(Enterprise Edition, EE)" belong to the `EE_ONLY_TABLES` set and 
 
 ## Alembic Migrations
 
-- **EE main chain**: 53 migrations under `src/backend/alembic/versions/`, evolving from the initial schema (including structural moves such as MCP-to-streamable-http and the retirement of the office MCPs in favor of skills). Common commands: `alembic upgrade head`, `make migrate-new msg="..."` (autogenerate is driven by `core/db/models` metadata);
+- **EE main chain**: 93 migrations under `src/backend/alembic/versions/`, evolving from the initial schema (including structural moves such as MCP-to-streamable-http and the retirement of the office MCPs in favor of skills). Common commands: `alembic upgrade head`, `make migrate-new msg="..."` (autogenerate is driven by `core/db/models` metadata);
 - **Startup fallback**: the lifespan hook `_startup_ensure_tables` in `api/app.py` calls `core/db/engine.py::init_db`, which idempotently fills in missing tables for the SQLite dev database;
 - **Independent CE chain**: the CE derived tree excludes the entire main chain; the overlay supplies a single baseline, `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py` — `create_all` directly from CE-only SQLAlchemy metadata, dialect-aware on SQLite and PostgreSQL. Subsequent CE schema evolution appends regular migrations on that chain.
 
 ## The CE/EE Table Boundary (core/db/edition_tables.py)
 
-EE ORM classes are concentrated under `edition_ee/db/models/`, a package physically absent from the CE derived tree. Full-source validation uses `edition_ee/db/edition_tables.py::EE_ONLY_TABLES`, while the release gate independently forbids the same 20 tables:
+EE ORM classes are concentrated under `edition_ee/db/models/`, a package physically absent from the CE derived tree. Full-source validation uses `edition_ee/db/edition_tables.py::EE_ONLY_TABLES`, while the release gate independently forbids the same 21 tables:
 
 ```
 teams · team_members · team_folders · invite_codes        # multi-tenancy / SSO / invites
@@ -158,6 +166,7 @@ model_pricing                                             # billing
 data_sources · ds_table_meta · ds_column_meta · ds_golden_sql # data sources / metadata governance
 gateway_virtual_keys                                      # external model-gateway virtual key mirror
 sandbox_rebuilds · admin_skill_drafts · distillation_runs # sandbox rebuilds / skill distillation
+user_feedback                                             # feedback review / GitHub Issue publishing
 ```
 
 In the full source checkout, `ce_create_all(bind)` filters those names and cross-boundary foreign keys on a cloned MetaData for local boundary validation. The actual CE tree never imports EE ORM at all; its overlay clones only the registered CE metadata and defensively strips any foreign key whose target table is absent. Adding an EE model therefore requires coordinated updates to `EE_ONLY_TABLES`, the forbidden-table contract in `ce/manifest.yaml`, and any affected overlay.
@@ -170,6 +179,7 @@ A few tables that *look* EE but are required by CE are deliberately excluded fro
 |---|---|
 | Shared ORM / EE ORM | `src/backend/core/db/models/`, `src/backend/edition_ee/db/models/` |
 | Ontology repository | `src/backend/core/db/repository/ontology.py` |
+| Feedback model / repository | `src/backend/edition_ee/db/models/feedback.py`, `db/repository/feedback.py` |
 | Engine and startup table creation | `src/backend/core/db/engine.py` |
 | Repository layer | `src/backend/core/db/repository/` |
 | CE/EE table boundary | `src/backend/core/db/edition_tables.py` |

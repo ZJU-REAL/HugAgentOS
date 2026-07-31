@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
 import { create } from 'zustand';
-import type { UpdateEntry, CapItem, UpdateCategory, FileConfirmInfo, DesignPickInfo } from '../types';
+import type { UpdateEntry, UpdateCategory, FileConfirmInfo, DesignPickInfo } from '../types';
 import type { SearchResultItem } from '../api';
 import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
 
 export type HistoryTimeFilter = 'all' | 'today' | '7d' | '30d';
-export type DocsSubTab = 'updates' | 'capabilities';
 export type UpdateFilter = '全部' | UpdateCategory;
 
 const DISPATCH_PROCESS_STORAGE_KEY = 'hugagent_dispatch_process_visible';
@@ -46,10 +45,8 @@ interface UIState {
   recommendBarVisible: boolean;
 
   // ── Docs panel ──
-  activeDocsSubTab: DocsSubTab;
   activeUpdateFilter: UpdateFilter;
   featureUpdates: UpdateEntry[];
-  capabilitiesList: CapItem[];
 
   // ── Prompt Hub ──
   promptHubOpen: boolean;
@@ -85,10 +82,8 @@ interface UIState {
   setPreviewImage: (image: { url: string; name: string } | null) => void;
   setDetailModal: (modal: { title: string; body: ReactNode } | null) => void;
 
-  setActiveDocsSubTab: (tab: DocsSubTab) => void;
   setActiveUpdateFilter: (filter: UpdateFilter) => void;
   setFeatureUpdates: (updates: UpdateEntry[]) => void;
-  setCapabilitiesList: (items: CapItem[]) => void;
 
   setPromptHubOpen: (v: boolean) => void;
   setDispatchProcessVisible: (v: boolean) => void;
@@ -126,10 +121,8 @@ export const useUIStore = create<UIState>((set) => ({
   previewImage: null,
   detailModal: null,
 
-  activeDocsSubTab: 'updates',
   activeUpdateFilter: '全部',
   featureUpdates: [],
-  capabilitiesList: [],
 
   promptHubOpen: false,
   dispatchProcessVisible: loadDispatchProcessVisible(),
@@ -164,10 +157,8 @@ export const useUIStore = create<UIState>((set) => ({
   setPreviewImage: (image) => set({ previewImage: image }),
   setDetailModal: (modal) => set({ detailModal: modal }),
 
-  setActiveDocsSubTab: (tab) => set({ activeDocsSubTab: tab }),
   setActiveUpdateFilter: (filter) => set({ activeUpdateFilter: filter }),
   setFeatureUpdates: (updates) => set({ featureUpdates: updates }),
-  setCapabilitiesList: (items) => set({ capabilitiesList: items }),
 
   setPromptHubOpen: (v) => set({ promptHubOpen: v }),
   enqueuePendingConfirm: (chatId, info) =>

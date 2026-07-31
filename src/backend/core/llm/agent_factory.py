@@ -416,10 +416,10 @@ async def create_agent_executor(
     automation_run: bool = False,
     # read_only: read-only agent (for reviewers/auditors) — registers no
     # file-mutating tools (edit/write/delete/move/mkdir/myspace writes/
-    # put_artifact), keeping only read/glob/grep/view/get_artifact + bash (bash
-    # is for read-only verification; the prompt side constrains it from
-    # writing). Mirrors the Codex reviewer's sandbox_mode=read-only.
+    # put_artifact), keeping only read/glob/grep/view/get_artifact. Callers may
+    # independently disable bash for a hard read-only boundary.
     read_only: bool = False,
+    allow_bash: bool = True,
     ontology_runtime: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Agent, List[MCPClient]]:
     """Create and return an AgentScope 2.0 Agent along with its MCP client list.
@@ -781,15 +781,16 @@ async def create_agent_executor(
         # mount (built-in synced at startup, DB skills materialized on demand —
         # see agent_skills.config.get_sandbox_skills_dir), so bash needs no
         # per-call sync. loader/loaded_skill_ids kept for backward compat.
-        register_bash(
-            toolkit,
-            loader=loader,
-            loaded_skill_ids=loaded_skill_ids,
-            chat_id=chat_id,
-            sandbox_session_id=_sbx_sess,
-            user_id=current_user_id,
-            interactive=_interactive,
-        )
+        if allow_bash:
+            register_bash(
+                toolkit,
+                loader=loader,
+                loaded_skill_ids=loaded_skill_ids,
+                chat_id=chat_id,
+                sandbox_session_id=_sbx_sess,
+                user_id=current_user_id,
+                interactive=_interactive,
+            )
         if not read_only:
             register_sandbox_put_artifact(
                 toolkit,
@@ -1070,8 +1071,36 @@ async def create_agent_executor(
 
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:
+            from core.llm.builtin_subagents import refresh_builtin_subagents
             from core.llm.subagent_tool import build_subagent_prompt_section, register_subagent_tool
 
+            # Refresh platform-default rows only after the parent toolset has
+            # completed catalog defaults, permission filtering, skill-bound MCP
+            # expansion, and runtime feature gates. The same snapshot drives the
+            # routing prompt and the eventual child executor, so disabled tools
+            # are neither advertised nor delegated.
+            _subagent_parent_runtime = {
+                "enabled_skill_ids": list(skill_ids_to_register or []),
+                "enabled_mcp_ids": list(enabled_mcp_keys),
+                "enabled_kb_ids": list(enabled_kb_ids or []),
+                "sandbox_tools_enabled": (
+                    os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true"
+                ),
+                "code_capability_enabled": bool(code_capability_enabled()),
+                "reranker_enabled": reranker_enabled,
+                "model_name": model_name,
+                "model_provider_id": model_provider_id,
+                "chat_mode": chat_mode,
+                "chat_id": chat_id,
+                "sandbox_session_id": _sbx_sess,
+                "project_ctx": project_ctx,
+                "channel_origin": channel_origin,
+                "automation_run": automation_run,
+            }
+            visible_subagents = refresh_builtin_subagents(
+                visible_subagents,
+                _subagent_parent_runtime,
+            )
             _agent_ref = {"agent": None}  # set after creation
             register_subagent_tool(
                 toolkit,
@@ -1079,6 +1108,7 @@ async def create_agent_executor(
                 current_user_id or "",
                 agent_ref=_agent_ref,
                 chat_id=chat_id,
+                parent_runtime=_subagent_parent_runtime,
             )
             # `mentioned_agent_ids` is consumed by the caller via
             # build_subagent_mention_hint() and injected into the current user

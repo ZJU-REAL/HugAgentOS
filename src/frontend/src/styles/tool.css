@@ -1308,6 +1308,44 @@
 
 /* ── 产业链分析 ─────────────────────── */
 .jx-tr-chainText{font-size:12px;line-height:1.65;white-space:pre-wrap;color:rgba(15,23,42,.78);}
+.jx-tr-chainResult{display:flex;flex-direction:column;gap:10px;}
+.jx-tr-chainMapCard{
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 11px;
+  border:1px solid var(--color-primary-disabled);
+  border-radius:var(--radius-sm);
+  background:var(--color-primary-light);
+  color:var(--color-text);
+  text-align:left;
+  cursor:pointer;
+  transition:var(--motion-transition-hover),box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-tr-chainMapCard:hover,
+.jx-tr-chainMapCard:focus-visible{
+  outline:none;
+  border-color:var(--color-primary);
+  background:#fff;
+  box-shadow:0 5px 16px rgba(18,109,255,.10);
+}
+.jx-tr-chainMapIcon{
+  width:32px;
+  height:32px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:var(--radius-xs);
+  background:#fff;
+  color:var(--color-primary);
+  font-size:16px;
+  flex:0 0 auto;
+}
+.jx-tr-chainMapText{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.jx-tr-chainMapText strong{font-size:12.5px;font-weight:600;color:var(--color-text);}
+.jx-tr-chainMapText small{font-size:10.5px;line-height:1.45;color:var(--color-text-tertiary);}
+.jx-tr-chainMapArrow{color:var(--color-primary);font-size:12px;flex:0 0 auto;}
 .jx-tr-chainSections{display:flex;flex-direction:column;gap:8px;}
 .jx-tr-chainSection{padding:4px 8px 4px 10px;border-left:2px solid rgba(18,109,255,.22);border-radius:0 4px 4px 0;}
 .jx-tr-chainSection--clickable{

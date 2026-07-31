@@ -8,8 +8,8 @@ Windows 用户可以选择桌面端托管的无 Docker 单机服务，也可以�
 ## 桌面端一键安装本机服务
 
 Windows x86_64 个人用户可以直接使用 NSIS 桌面安装包。安装包携带与客户端同版本、通过
-社区版边界检查的单文件 CE 服务压缩包；首次启动时解压资源，并在当前用户目录创建独立
-Python 环境，不要求 Docker Desktop、WSL2、PostgreSQL 或 Redis。
+社区版边界检查的 CE 服务压缩包和完整私有 CPython 3.11 运行时；首次启动只在当前用户目录
+校验、解压并自检，不要求 Docker Desktop、WSL2、PostgreSQL、Redis 或系统 Python。
 
 ### 前提
 
@@ -19,9 +19,9 @@ Python 环境，不要求 Docker Desktop、WSL2、PostgreSQL 或 Redis。
 |---|---|
 | 操作系统 | Windows 10 或 Windows 11，x86_64 |
 | WebView2 | Windows 11 已内置；Windows 10 缺失时由 Tauri 安装器处理 |
-| 网络 | 首次安装需下载 Python wheels 与可选 Node 工具；服务代码和 Web 前端已在安装包内 |
-| Python | 已有 Python 3.11+ 可直接复用；缺失时安装器优先通过 `winget` 为当前用户安装 |
-| Node.js | Node.js 20+ 缺失时安装器会尝试通过 `winget` 补齐；失败不阻断核心服务 |
+| 网络 | 安装和本机服务首次启动均不需要访问 PyPI；只有配置在线模型或联网工具时才需要网络 |
+| Python | 无需安装；客户端使用随包私有 CPython 3.11，不修改 `PATH` 或系统 Python |
+| Node.js | 核心服务无需安装；依赖 Node 的可选高级工具未提供时会按能力降级 |
 | 磁盘 | 建议至少保留 5 GB，用于 Python 环境、模型工具依赖、数据和日志 |
 
 ### 安装步骤
@@ -30,11 +30,11 @@ Python 环境，不要求 Docker Desktop、WSL2、PostgreSQL 或 Redis。
 
 1. 运行 HugAgentOS 的 NSIS `.exe` 安装包。
 2. 在“是否同时安装无 Docker 的本机服务”提示中选择“是”。
-3. 启动桌面客户端，等待服务设置页完成资源解压、依赖安装和健康检查。
+3. 启动桌面客户端，等待服务设置页完成离线资源校验、解压、自检和健康检查。
 4. 使用首次启动生成的 `admin` / `admin` 登录，并按提示立即修改密码。
 5. 在首次引导中配置可用的大模型服务。
 
-安装失败时，服务设置页会保留最近的安装日志。修复网络、Python 或磁盘问题后，选择
+安装失败时，服务设置页会保留最近的安装日志。释放足够磁盘空间或重新下载完整安装包后，选择
 **一键安装并启动**即可幂等重试，不需要重新安装桌面客户端。
 
 ### 运行与数据
@@ -47,17 +47,19 @@ Python 环境，不要求 Docker Desktop、WSL2、PostgreSQL 或 Redis。
 ```text
 %LOCALAPPDATA%\com.hugagent.desktop\local-server\
   data\                    SQLite、存储、工作区和持久日志
-  runtime\
-    source\                与桌面版本匹配的 CE 服务资源
-    venv\                  独立 Python 环境
-    node\                  可重新生成的 Node 工具与浏览器
-    installed-bundle.json 已安装版本标记
+  releases\
+    sources\<source-id>\   内容寻址的 CE 服务资源
+    runtimes\<runtime-id>\ 内容寻址的私有 Python 与全部锁定依赖
+  active.json              当前原子激活版本
+  previous.json            可自动回滚的上一版本
+  backups\                 更新前关键数据库备份（最多三份）
   logs\                    桌面安装器与服务托管日志
   server.pid               崩溃后安全接管/回收服务进程的 PID 标记
 ```
 
-桌面客户端更新后，如果随包服务版本变化，客户端会自动升级 `source` 和 Python 依赖，保留
-`data`。交互卸载会询问是否同时删除本机服务数据，并默认选择“否”：选择“否”会保留账号、对话、
+桌面客户端更新后，如果随包服务或依赖指纹变化，客户端会先停止旧服务、备份关键数据库，再安装并
+自检新版本。新服务健康检查失败时会自动恢复上一份源码、运行时和数据。交互卸载会询问是否同时
+删除本机服务数据，并默认选择“否”：选择“否”会保留账号、对话、
 上传文件和工作区，选择“是”会一并清理。静默自动更新始终保留数据。卸载器会先停止本机服务，再把
 待删除目录原子改名，
 由隐藏的系统进程在后台执行清理，因此卸载界面不等待 Python 和 Node 的大量小文件逐个删除。

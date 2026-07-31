@@ -5,15 +5,11 @@ import { ToolCallRow } from './ToolCallRow';
 import { ThinkingStepRow } from './ThinkingStepRow';
 import { PendingStepRow } from './PendingStepRow';
 import { computeEffectiveStatus } from './renderers/utils';
-import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 import { t } from '../../i18n';
 
 /** Aggregate status of a contiguous step batch. */
 type ShellStatus = 'running' | 'success' | 'error';
 
-/** Threshold before a running batch auto-expands; avoids open→close flicker. */
-const AUTO_OPEN_DELAY_MS = 800;
-const AUTO_OPEN_MIN_VISIBLE_MS = 500;
 
 /**
  * A single entry in the shell timeline. Tool calls, thinking blocks, and
@@ -97,13 +93,12 @@ interface ToolRunShellProps {
  * steps so the user sees one unified "agent run" card instead of separate
  * "thinking process / tool call" entries in the message flow.
  */
-export function ToolRunShell({ steps, isStreaming, holdOpenUntilText }: ToolRunShellProps) {
+export function ToolRunShell({ steps, isStreaming, holdOpenUntilText: _holdOpenUntilText }: ToolRunShellProps) {
   const [mountTs] = useState(() => Date.now());
 
   const tools = steps.flatMap((s) => (s.kind === 'tool' ? [s.tool] : []));
   const toolStatuses = tools.map((t) => computeEffectiveStatus(t, isStreaming));
   const anyToolRunning = toolStatuses.includes('running');
-  const hasSettledTool = toolStatuses.some((s) => s !== 'running');
   const anyThinkingActive = steps.some((s) => s.kind === 'thinking' && s.active);
   const anyPending = steps.some((s) => s.kind === 'pending');
   const running = anyToolRunning || anyThinkingActive || anyPending;
@@ -120,15 +115,9 @@ export function ToolRunShell({ steps, isStreaming, holdOpenUntilText }: ToolRunS
   const endTs = tsList.length ? Math.max(...tsList) : mountTs;
 
   const [override, setOverride] = useState<boolean | null>(null);
-  // Keep the auto-open window alive across tool_result → next tool_call gaps.
-  // It closes when real answer text starts, so chained tools do not bounce
-  // between expanded/collapsed states while the model is still working.
-  const autoOpen = useDelayedFlag(running || !!holdOpenUntilText, {
-    showAfter: AUTO_OPEN_DELAY_MS,
-    minVisible: AUTO_OPEN_MIN_VISIBLE_MS,
-  });
-  const keepOpenBetweenTools = !!holdOpenUntilText && hasSettledTool;
-  const open = override ?? (autoOpen || keepOpenBetweenTools);
+  // 工具调度过程默认展开（含运行中与已完成/历史消息），用户可逐卡手动折叠；
+  // 此前的策略是回答正文开始后自动折叠、历史一律折叠，过程默认不可见。
+  const open = override ?? true;
 
   const title =
     running ? t('执行中') : status === 'error' ? t('已完成（含失败）') : t('已完成');

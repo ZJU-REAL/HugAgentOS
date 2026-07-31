@@ -32,6 +32,20 @@ from .protocol import (
 logger = logging.getLogger(__name__)
 
 
+def _connect_error_message() -> str:
+    """按部署形态给出准确的连接失败提示。
+
+    本机（DEPLOY_PROFILE=local）下 runner 是子进程而非容器——提示"检查容器"
+    纯属误导；看门狗会自动重拉，提示等待/重启客户端即可。
+    """
+    if settings.deploy.is_local:
+        return (
+            "本机代码执行服务不可达（127.0.0.1:8900），已尝试自动恢复；"
+            "稍候重试，若持续失败请重启客户端"
+        )
+    return "无法连接脚本执行服务 (hugagent-script-runner)，请检查容器是否运行"
+
+
 class ScriptRunnerProvider:
     name = "script_runner"
 
@@ -80,9 +94,7 @@ class ScriptRunnerProvider:
                     text = e.response.text if e.response is not None else str(e)
                     raise SandboxError(f"脚本执行失败: {text}") from e
                 except httpx.ConnectError as e:
-                    raise SandboxConnectError(
-                        "无法连接脚本执行服务 (hugagent-script-runner)，请检查容器是否运行"
-                    ) from e
+                    raise SandboxConnectError(_connect_error_message()) from e
 
         raise SandboxTimeoutError(
             f"脚本执行读取超时（{http_timeout}秒，已重试）: "
@@ -106,7 +118,7 @@ class ScriptRunnerProvider:
                     for item in staged_raw
                 ]
         except httpx.ConnectError as e:
-            raise SandboxConnectError("无法连接脚本执行服务") from e
+            raise SandboxConnectError(_connect_error_message()) from e
         except httpx.HTTPStatusError as e:
             text = e.response.text if e.response is not None else str(e)
             raise SandboxError(f"暂存文件失败: {text}") from e
@@ -131,7 +143,7 @@ class ScriptRunnerProvider:
                 resp = await client.post(f"{self._base_url}/put_file", json=body)
                 resp.raise_for_status()
         except httpx.ConnectError as e:
-            raise SandboxConnectError("无法连接脚本执行服务") from e
+            raise SandboxConnectError(_connect_error_message()) from e
         except httpx.HTTPStatusError as e:
             text = e.response.text if e.response is not None else str(e)
             raise SandboxError(f"put_file {path} 失败: {text}") from e
@@ -150,7 +162,7 @@ class ScriptRunnerProvider:
                 resp.raise_for_status()
                 payload = resp.json()
         except httpx.ConnectError as e:
-            raise SandboxConnectError("无法连接脚本执行服务") from e
+            raise SandboxConnectError(_connect_error_message()) from e
         except httpx.HTTPStatusError as e:
             text = e.response.text if e.response is not None else str(e)
             raise SandboxError(f"get_file {path} 失败: {text}") from e

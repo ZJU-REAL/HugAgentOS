@@ -48,10 +48,10 @@ Any prompt write (console edit, version activation, snapshot import, capability 
 
 The pool stores multiple prompt sets in a single `ContentBlock(id="prompt_versions")` row with payload `{active: {kind: version_id}, versions: [...]}`; the service layer is `core/services/prompt_version_service.py`:
 
-- **Four kinds** (`VALID_KINDS`): `system` (main agent), `code_exec` (code-execution segment), `distillation` (skill distillation), `plan_mode` (plan mode).
+- **Five kinds** (`VALID_KINDS`): `system` (main agent), `code_exec` (code-execution segment), `distillation` (skill distillation), `plan_mode` (plan mode), and `subagents` (independent prompts for the platform-default Explorer, Worker, and Reviewer).
 - Each version carries `(kind, id, name, description, parts[])`, a part being `{part_id, display_name, content, sort_order, is_enabled}`.
 - **API**: `list_versions / get_version / upsert_version (with from_id cloning) / delete_version (active version cannot be deleted) / activate_version`; activation immediately invalidates runtime caches.
-- **Seeding**: `seed_from_filesystem()` turns the on-disk markdown into default versions on cold start; it also runs two one-time migrations — renaming `system/v4 → system/default`, and extracting `system/90_plan_mode` out of system versions into a new `plan_mode/default` version.
+- **Seeding**: `seed_from_filesystem()` turns the on-disk markdown into default versions on cold start and idempotently fills the three `subagents/default` role parts; it also runs two one-time migrations — renaming `system/v4 → system/default`, and extracting `system/90_plan_mode` out of system versions into a new `plan_mode/default` version.
 - Startup also idempotently seeds two dynamic parts into the active system version: `system/05_system_reminder_convention` (teaches the model how to handle out-of-band `<system-reminder>` signals) and the project-mode part (`prompt_runtime.py::ensure_*_seeded`).
 
 ### Config console

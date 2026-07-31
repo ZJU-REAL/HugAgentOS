@@ -11,9 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin
+from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, UserShadow
+from core.infra.exceptions import BadRequestError
 from core.services import plugin_importer as pi
 from core.services import plugin_service as ps
+from core.services.ontology_policy import set_plugin_import_build_validation_forced
 
 OWNER = "test_user_123"
 
@@ -162,6 +164,55 @@ def test_import_cc_plugin_into_db(tmp_path, db_session):
     assert row is not None
     assert row.source == "imported_claude"
     assert len(row.component_ids["skills"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("user_enabled", "forced", "expected_calls"),
+    [
+        (False, False, 0),
+        (True, False, 4),
+        (False, True, 4),
+    ],
+)
+def test_plugin_import_ontology_validation_follows_user_and_force_policy(
+    tmp_path,
+    db_session,
+    monkeypatch,
+    user_enabled,
+    forced,
+    expected_calls,
+):
+    """Personal opt-out skips checks unless the independent admin gate is on."""
+    owner = f"ontology_import_{int(user_enabled)}_{int(forced)}"
+    db_session.add(
+        UserShadow(
+            user_id=owner,
+            username=owner,
+            extra_data={"ontology_enabled": user_enabled},
+        )
+    )
+    db_session.commit()
+    if forced:
+        set_plugin_import_build_validation_forced(db_session, True, updated_by="test")
+
+    calls = []
+    monkeypatch.setattr(
+        ps,
+        "ensure_ontology_build_valid",
+        lambda *_args, **kwargs: calls.append(kwargs["asset_type"]),
+    )
+
+    ps.import_plugin(
+        db_session,
+        _make_cc_plugin(tmp_path),
+        owner_user_id=owner,
+        secrets={"api_token": "test"},
+    )
+
+    assert len(calls) == expected_calls
+    if expected_calls:
+        assert calls.count("skill") == 2
+        assert calls.count("tool") == 2
 
 
 def test_owned_skill_enters_runtime_set(tmp_path, db_session):
@@ -391,6 +442,78 @@ def test_import_from_zip_global(tmp_path, db_session):
     assert any(p["slug"] == "hello-toolkit" for p in glob)
     # Not private to that user
     assert ps.list_installed(db_session, owner_user_id="someone") == []
+
+
+def test_import_zip_normalizes_windows_backslash_paths(db_session):
+    """ZIP entries written with Windows separators still form real skill directories on Linux."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "plugin.json",
+            json.dumps({
+                "name": "windows-path-plugin",
+                "version": "1.0.0",
+                "description": "Windows ZIP path compatibility",
+            }),
+        )
+        zf.writestr(
+            "skills\\windows-path-skill\\SKILL.md",
+            "---\nname: windows-path-skill\ndescription: Imported from a Windows ZIP\n---\n\nRun it.\n",
+        )
+
+    result = ps.import_plugin_from_zip(
+        db_session,
+        buf.getvalue(),
+        owner_user_id=None,
+    )
+
+    assert result["slug"] == "windows-path-plugin"
+    imported = result["import_report"]["imported"]
+    assert [(item["type"], item["name"]) for item in imported] == [
+        ("skill", "windows-path-skill")
+    ]
+
+
+def test_import_zip_rejects_backslash_path_traversal():
+    """Normalizing Windows separators must not reopen a ZIP traversal path."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("plugin.json", json.dumps({"name": "unsafe-plugin"}))
+        zf.writestr("..\\outside.txt", "blocked")
+
+    with pytest.raises(BadRequestError, match="非法压缩包条目"):
+        with ps._extract_plugin_zip(buf.getvalue()):
+            pass
+
+
+def test_long_namespaced_component_ids_remain_unique():
+    """Long skill/MCP names with the same prefix must not overwrite one another."""
+    slug = "petrochemical-product-skills-v1-0"
+    skill_ids = {
+        ps._make_skill_id(slug, name, OWNER)
+        for name in (
+            "petrochemical-prosperity-analysis",
+            "petrochemical-price-trend",
+            "petrochemical-product-opportunity-analysis",
+        )
+    }
+    server_ids = {
+        ps._make_server_id(slug, name, OWNER)
+        for name in (
+            "petrochemical-product-market-data-provider-primary",
+            "petrochemical-product-market-data-provider-secondary",
+        )
+    }
+
+    assert len(skill_ids) == 3
+    assert len(server_ids) == 2
+    assert all(len(item) <= 63 for item in skill_ids)
 
 
 def test_global_plugin_visible_to_user(tmp_path, db_session):

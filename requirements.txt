@@ -27,7 +27,7 @@ google-genai>=0.3.0
 ollama>=0.3.0
 
 # MCP Integration
-mcp>=1.0.0
+mcp>=1.0.0,<2.0.0
 
 # Additional Tools
 tavily-python>=0.5.0

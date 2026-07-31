@@ -8,7 +8,7 @@ import { isAutomationHistoryChat } from '../utils/history';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState } from '../utils/contextUsage';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, OntologyGovernanceSummary, ToolCall, UpdateEntry, CapItem, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -210,7 +210,7 @@ function parseHistoryMessage(m: any): ChatMessage {
 export function useChatInit() {
   const { authUser, authExpiredUrl, authChecking, initAuth } = useAuthStore();
   const { loadMemorySettings, loadOntologySettings } = useSettingsStore();
-  const { setFeatureUpdates, setCapabilitiesList } = useUIStore();
+  const { setFeatureUpdates } = useUIStore();
   const {
     updateStore, setCurrentChatId, setChatsLoading, setToolDisplayNames,
     addBackendSessionId, clearBackendSessionIds,
@@ -273,10 +273,9 @@ export function useChatInit() {
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data?.data?.updates)) setFeatureUpdates(data.data.updates as UpdateEntry[]);
-        if (Array.isArray(data?.data?.capabilities)) setCapabilitiesList(data.data.capabilities as CapItem[]);
       })
       .catch(() => {});
-  }, [panel, effectiveApiUrl, authChecking, authUser]);
+  }, [panel, authChecking, authUser, setFeatureUpdates]);
 
   // Persist catalog
   useEffect(() => {

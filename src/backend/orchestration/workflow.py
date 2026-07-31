@@ -620,6 +620,8 @@ async def _run_ontology_repair_round(
     return normalize_revision_candidate(answer), events, event_cursor, tool_count
 
 
+from core.llm.plan_update_tool import parse_plan_update_args  # noqa: E402
+
 # SSE tool-result payload builders (moved to routing.tool_payloads)
 from orchestration.tool_payloads import (  # noqa: E402
     _FAST_EMIT_TOOLS,
@@ -629,7 +631,6 @@ from orchestration.tool_payloads import (  # noqa: E402
     _build_view_text_file_payload,
     _tool_args_ready,
 )
-from core.llm.plan_update_tool import parse_plan_update_args  # noqa: E402
 
 # Process-level persistent references: after each streaming run,
 # (streaming_agent, mcp_clients) is pushed in so HTTP transport MCP clients
@@ -1004,6 +1005,18 @@ def run_chat_workflow(
     _reranker_enabled = bool(context.get("reranker_enabled", False))
 
     _workflow_batch_chat = bool(context.get("batch_chat", False))
+
+    if _direct_user_agent is None:
+        from core.llm.builtin_subagents import merge_builtin_subagents
+
+        _visible_subagents = merge_builtin_subagents(
+            _visible_subagents,
+            {
+                "enabled_skill_ids": enabled_skill_ids or [],
+                "enabled_mcp_ids": enabled_mcp_ids or [],
+                "enabled_kb_ids": enabled_kb_ids or [],
+            },
+        )
 
     async def _run():
         agent, mcp_clients = await create_agent_executor(
@@ -1919,19 +1932,28 @@ async def astream_chat_workflow(
             with _SessionLocal() as _db:
                 _ua_svc = _UAS(_db)
                 _visible_subagents = _ua_svc.list_for_user(_stream_user_id)
-            # Prefer the structured per-turn target. Text parsing remains a
-            # compatibility fallback for callers that only include @name.
-            if _visible_subagents:
-                _delegated_agent_id = _explicit_agent_id or _mention_agent_id
-                if _delegated_agent_id and any(
-                    str(item.get("agent_id") or "") == _delegated_agent_id
-                    for item in _visible_subagents
-                ):
-                    _mentioned_ids = [_delegated_agent_id]
-                else:
-                    _mentioned_ids = _parse_agent_mentions(user_message, _visible_subagents)
         except Exception as _exc:
             logger.warning("[workflow] failed to load visible subagents: %s", _exc)
+
+        from core.llm.builtin_subagents import merge_builtin_subagents
+
+        _visible_subagents = merge_builtin_subagents(
+            _visible_subagents,
+            {
+                "enabled_skill_ids": enabled_skill_ids or [],
+                "enabled_mcp_ids": enabled_mcp_ids or [],
+                "enabled_kb_ids": enabled_kb_ids or [],
+            },
+        )
+        # Prefer the structured per-turn target. Text parsing remains a
+        # compatibility fallback for callers that only include @name.
+        _delegated_agent_id = _explicit_agent_id or _mention_agent_id
+        if _delegated_agent_id and any(
+            str(item.get("agent_id") or "") == _delegated_agent_id for item in _visible_subagents
+        ):
+            _mentioned_ids = [_delegated_agent_id]
+        else:
+            _mentioned_ids = _parse_agent_mentions(user_message, _visible_subagents)
 
         # Create agent (with model-aware CompressionConfig + optional native LTM)
         _plan_chat = bool(context.get("plan_chat", False))
@@ -1944,6 +1966,8 @@ async def astream_chat_workflow(
             current_user_id=_stream_user_id,
             reranker_enabled=_stream_reranker,
             model_name=_stream_model_name,
+            model_provider_id=str(context.get("model_provider_id", "") or ""),
+            chat_mode=str(context.get("chat_mode", "") or ""),
             memory_enabled=_mem0_enabled,
             visible_subagents=_visible_subagents if _visible_subagents else None,
             plan_mode=_plan_chat,

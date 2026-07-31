@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -11,6 +12,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  DESKTOP_TARGETS,
   DESKTOP_REQUIREMENTS_FILE,
   WINDOWS_DESKTOP_LOCK_FILE,
   desktopDependencyFingerprint,
@@ -85,10 +87,12 @@ test("Windows Python 3.11 lock is exact and matches its desktop input", () => {
 });
 
 test("desktop dependency fingerprint is stable and content-addressed", () => {
-  const first = desktopDependencyFingerprint(repoRoot);
-  const second = desktopDependencyFingerprint(repoRoot);
-  assert.match(first, /^[a-f0-9]{64}$/);
-  assert.equal(second, first);
+  for (const target of Object.keys(DESKTOP_TARGETS)) {
+    const first = desktopDependencyFingerprint(repoRoot, target);
+    const second = desktopDependencyFingerprint(repoRoot, target);
+    assert.match(first, /^[a-f0-9]{64}$/);
+    assert.equal(second, first);
+  }
   assert.ok(
     readFileSync(join(repoRoot, WINDOWS_DESKTOP_LOCK_FILE), "utf8").length >
       10_000,
@@ -98,39 +102,30 @@ test("desktop dependency fingerprint is stable and content-addressed", () => {
 test("desktop dependency hash is independent of checkout line endings", () => {
   const fixture = mkdtempSync(join(tmpdir(), "desktop-dependencies-"));
   try {
+    mkdirSync(join(fixture, "desktop"), { recursive: true });
     for (const file of [DESKTOP_REQUIREMENTS_FILE, WINDOWS_DESKTOP_LOCK_FILE]) {
       const contents = readFileSync(join(repoRoot, file), "utf8");
       writeFileSync(join(fixture, file), contents.replaceAll("\n", "\r\n"));
     }
     assert.doesNotThrow(() => readAndValidateWindowsDesktopLock(fixture));
     assert.equal(
-      desktopDependencyFingerprint(fixture),
-      desktopDependencyFingerprint(repoRoot),
+      desktopDependencyFingerprint(fixture, "windows-x86_64"),
+      desktopDependencyFingerprint(repoRoot, "windows-x86_64"),
     );
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
 });
 
-test("Windows bootstrap uses one locked sync and no full pip fallback", () => {
-  const installer = readFileSync(
-    join(
-      desktopDir,
-      "resources",
-      "server-bootstrap",
-      "install-local-server.ps1",
-    ),
-    "utf8",
-  );
-  assert.match(installer, /"pip", "sync"/);
-  assert.match(
-    installer,
-    /https:\/\/mirrors\.aliyun\.com\/pypi\/simple/,
-  );
-  assert.match(installer, /HUGAGENT_PYPI_INDEX_URL/);
-  assert.match(installer, /"--default-index"/);
-  assert.match(installer, /BundledDependencyFingerprint/);
-  assert.match(installer, /Python 依赖未变化，复用现有运行环境/);
-  assert.doesNotMatch(installer, /retrying with pip/i);
-  assert.doesNotMatch(installer, /SourceDir "requirements\.txt"/);
+test("all supported desktop targets have exact Python 3.11 locks", () => {
+  for (const [target, config] of Object.entries(DESKTOP_TARGETS)) {
+    const lock = readFileSync(join(repoRoot, config.lockFile), "utf8");
+    assert.match(lock, /# input-sha256: [a-f0-9]{64}/);
+    assert.ok(requirementNames(lock).size > 100, `${target} lock is incomplete`);
+    for (const line of lock.split(/\r?\n/)) {
+      if (/^[A-Za-z0-9_.-]+/.test(line)) {
+        assert.match(line, /^[A-Za-z0-9_.-]+==[^\s]+$/);
+      }
+    }
+  }
 });

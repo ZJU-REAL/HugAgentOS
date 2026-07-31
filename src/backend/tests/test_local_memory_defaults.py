@@ -159,15 +159,17 @@ def test_cli_reconfigures_redirected_gbk_stream_to_utf8(monkeypatch):
 @pytest.mark.parametrize(
     "relative_path",
     [
-        "desktop/resources/server-bootstrap/install-local-server.ps1",
-        "desktop/resources/server-bootstrap/install-local-server.sh",
+        "desktop/requirements-desktop-windows-py311.lock",
+        "desktop/requirements-desktop-linux-x86_64-py311.lock",
+        "desktop/requirements-desktop-macos-aarch64-py311.lock",
+        "desktop/requirements-desktop-macos-x86_64-py311.lock",
     ],
 )
-def test_desktop_installer_includes_persistent_memory_runtime(relative_path):
+def test_desktop_offline_runtime_includes_persistent_memory_stack(relative_path):
     repo_root = Path(__file__).resolve().parents[3]
-    installer = (repo_root / relative_path).read_text(encoding="utf-8-sig")
+    lock = (repo_root / relative_path).read_text(encoding="utf-8")
 
-    assert "requirements-mem0.txt" in installer
-    assert "protobuf<7" in installer
-    assert "pymilvus==2.5.18" in installer
-    assert "milvus-lite==3.1.0" in installer
+    assert "mem0ai==" in lock
+    assert "protobuf==" in lock
+    assert "pymilvus==2.5.18" in lock
+    assert "milvus-lite==3.1.0" in lock

@@ -8,7 +8,7 @@ import {
   renderSearchCompany, renderCompanyBaseInfo, renderCompanyBusinessAnalysis,
   renderCompanyTechInsight, renderCompanyFunding, renderCompanyRiskWarning,
 } from './renderers/CompanyRenderer';
-import { preview } from './renderers/utils';
+import { renderIndustryChain } from './renderers/IndustryChainRenderer';
 import { mdToHtml } from '../../utils/markdown';
 import { t } from '../../i18n';
 
@@ -281,94 +281,7 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
 
   if (toolName === 'get_chain_information') {
     if (!out) return empty(t('无分析数据'));
-    const data = (typeof out === 'object' ? out : null) as any;
-    const result = data?.result ?? data;
-    if (typeof result === 'string') return <div className="jx-tr-chainText">{result}</div>;
-
-    if (typeof result === 'object' && result !== null) {
-      const renderTree = (node: any, depth: number): React.ReactNode => {
-        if (!node) return null;
-        const children: any[] = node['下级环节'] || [];
-        return (
-          <div key={node['名称']} style={{ paddingLeft: depth * 14 }} className="jx-tr-chainTreeNode">
-            <span className="jx-tr-chainTreeDot">{'—'.repeat(depth) || '·'}</span>
-            <span>{node['名称']}</span>
-            {children.map((c: any) => renderTree(c, depth + 1))}
-          </div>
-        );
-      };
-
-      const renderChainVal = (val: any): React.ReactNode => {
-        if (val == null) return <span className="jx-tr-chainNull">—</span>;
-        if (typeof val === 'number') return <span className="jx-tr-chainNum">{val.toLocaleString()}</span>;
-        if (typeof val === 'string') return <span>{val}</span>;
-        if (Array.isArray(val)) {
-          if (val.length === 0) return <span className="jx-tr-chainNull">{t('暂无数据')}</span>;
-          if (typeof val[0] === 'object' && val[0] !== null) {
-            const keys = Object.keys(val[0]);
-            return (
-              <div className="jx-tr-chainMiniTable">
-                {val.map((row: any, ri: number) => (
-                  <div key={ri} className="jx-tr-chainMiniRow">
-                    {keys.map((k) => (
-                      <span key={k} className="jx-tr-chainMiniCell">
-                        <span className="jx-tr-chainMiniKey">{k}</span>
-                        <span className="jx-tr-chainMiniVal">{row[k] ?? '—'}</span>
-                      </span>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            );
-          }
-          return <span>{(val as any[]).map(String).join('、')}</span>;
-        }
-        if ('名称' in val && ('下级环节' in val || Object.keys(val).length <= 2)) {
-          return <div className="jx-tr-chainTree">{renderTree(val, 0)}</div>;
-        }
-        return (
-          <div className="jx-tr-chainKV">
-            {Object.entries(val).map(([k, v]: [string, any]) => (
-              <div key={k} className="jx-tr-chainKVRow">
-                <span className="jx-tr-chainKVKey">{k}</span>
-                <div className="jx-tr-chainKVVal">{renderChainVal(v)}</div>
-              </div>
-            ))}
-          </div>
-        );
-      };
-
-      const sectionPreview = (val: any): string => {
-        if (typeof val === 'string') return val;
-        if (typeof val === 'number') return String(val);
-        if (Array.isArray(val)) return t('{n} 条数据', { n: val.length });
-        if (typeof val === 'object' && val !== null) {
-          if (val['名称']) return val['名称'];
-          if (val['描述']) return preview(val['描述']);
-          return Object.keys(val).slice(0, 3).join('、');
-        }
-        return '';
-      };
-
-      return (
-        <div className="jx-tr-chainSections">
-          {Object.entries(result).map(([sectionKey, sectionVal]: [string, any]) => {
-            const prevText = sectionPreview(sectionVal);
-            const openDetail = () => setDetailModal({
-              title: sectionKey,
-              body: <div className="jx-tr-chainDetailWrap">{renderChainVal(sectionVal)}</div>,
-            });
-            return (
-              <div key={sectionKey} className="jx-tr-chainSection jx-tr-chainSection--clickable" onClick={openDetail} title={t('点击查看详情')}>
-                <div className="jx-tr-chainSectionKey">{sectionKey}</div>
-                {prevText && <div className="jx-tr-chainSectionVal">{prevText}</div>}
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-    return <pre className="jx-tr-jsonBlock">{JSON.stringify(out, null, 2)}</pre>;
+    return renderIndustryChain(out, setDetailModal);
   }
 
   // ── Company profile tools ────────────────────────────────────────────────

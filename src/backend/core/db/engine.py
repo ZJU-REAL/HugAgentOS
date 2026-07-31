@@ -81,6 +81,15 @@ def init_db():
         report = ce_reconcile_schema(engine)
         if any(report.values()):
             logger.info("CE database schema reconciled: %s", report)
+        if settings.deploy.is_local:
+            # 桌面本机单机库：再补一次全量 create_all，把共享树 metadata 里的全部表
+            # 建齐。EE 风格树（如 HugAgentOS）在 CE 运行时下仍会触达团队等 EE 查询
+            # 路径——空表让其自然返回空结果，而不是 sqlite "no such table" 500。
+            # 完整版的 core.db.models 门面会注册 EE 模型；CE overlay 则只导出
+            # 社区模型。共享引擎无需、也不得直接依赖 edition_ee 包。
+            from core.db import models  # noqa: F401
+
+            Base.metadata.create_all(bind=engine)
         return
     # Import models so SQLAlchemy metadata is populated before create_all().
     from core.db import models  # noqa: F401

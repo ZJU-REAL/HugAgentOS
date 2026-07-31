@@ -143,12 +143,6 @@ export interface OntologyTagOption {
   workflows: OntologyTagWorkflow[];
 }
 
-export interface CapItem {
-  title: string;
-  desc: string;
-  bullets: string[];
-}
-
 export type ChatRole = 'user' | 'assistant';
 
 /**

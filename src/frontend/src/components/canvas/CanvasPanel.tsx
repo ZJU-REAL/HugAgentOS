@@ -9,6 +9,7 @@ import { Button, message, Modal } from 'antd';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { CanvasArtifact } from '../../stores/canvasStore';
 import { UniverSpreadsheet } from './UniverSpreadsheet';
+import { CitationMarkdownBlock } from '../citation';
 import type { UniverSpreadsheetHandle } from './UniverSpreadsheet';
 import { authFetch, overwriteFile } from '../../api';
 import {
@@ -28,7 +29,7 @@ function getFileExt(name: string): string {
   return (name.split('.').pop() || '').toLowerCase();
 }
 
-function getFileCategory(artifact: CanvasArtifact): 'docx' | 'xlsx' | 'pdf' | 'ppt' | 'image' | 'text' | 'html' | 'unknown' {
+function getFileCategory(artifact: CanvasArtifact): 'docx' | 'xlsx' | 'pdf' | 'ppt' | 'image' | 'markdown' | 'text' | 'html' | 'unknown' {
   const ext = getFileExt(artifact.name);
   const mime = artifact.mime_type || '';
   if (ext === 'docx' || ext === 'doc' || mime.includes('wordprocessingml')) return 'docx';
@@ -37,7 +38,8 @@ function getFileCategory(artifact: CanvasArtifact): 'docx' | 'xlsx' | 'pdf' | 'p
   if (ext === 'pptx' || ext === 'ppt' || mime.includes('presentationml') || mime.includes('powerpoint')) return 'ppt';
   if (mime.startsWith('image/')) return 'image';
   if (ext === 'html' || ext === 'htm' || mime === 'text/html') return 'html';
-  if (['txt', 'md', 'csv', 'json', 'xml', 'yaml', 'yml', 'log', 'py', 'js', 'ts', 'tsx', 'jsx', 'css', 'sql', 'sh', 'bat', 'ini', 'conf', 'toml'].includes(ext) || mime.startsWith('text/')) return 'text';
+  if (['md', 'markdown', 'mdx'].includes(ext) || mime === 'text/markdown') return 'markdown';
+  if (['txt', 'csv', 'json', 'xml', 'yaml', 'yml', 'log', 'py', 'js', 'ts', 'tsx', 'jsx', 'css', 'sql', 'sh', 'bat', 'ini', 'conf', 'toml'].includes(ext) || mime.startsWith('text/')) return 'text';
   return 'unknown';
 }
 
@@ -232,7 +234,7 @@ function ImageRenderer({ url, name }: { url: string; name: string }) {
   );
 }
 
-function TextRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
+function useRemoteText(url: string, maxBytes: number) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -260,12 +262,33 @@ function TextRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
     };
   }, [maxBytes, url]);
 
+  return { content, loading, error };
+}
+
+function TextRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
+  const { content, loading, error } = useRemoteText(url, maxBytes);
+
   if (error) return <div className="jx-canvas-error">{error}</div>;
   if (loading) return <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在加载…')}</span></div>;
   return (
     <div className="jx-canvas-text jx-canvas-fadeIn">
       <pre className="jx-canvas-text-pre">{content}</pre>
     </div>
+  );
+}
+
+function MarkdownRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
+  const { content, loading, error } = useRemoteText(url, maxBytes);
+
+  if (error) return <div className="jx-canvas-error">{error}</div>;
+  if (loading) return <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在加载…')}</span></div>;
+  return (
+    <CitationMarkdownBlock
+      text={content}
+      isMarkdown
+      citations={[]}
+      className="jx-canvas-markdown jx-md jx-canvas-fadeIn"
+    />
   );
 }
 
@@ -502,6 +525,7 @@ export function CanvasPanel() {
       case 'ppt': return <PptRenderer url={`${fileUrl}/preview?format=pdf`} maxBytes={maxPreviewBytes} />;
       case 'image': return <ImageRenderer url={fileUrl} name={artifact.name} />;
       case 'text': return <TextRenderer url={fileUrl} maxBytes={maxPreviewBytes} />;
+      case 'markdown': return <MarkdownRenderer url={fileUrl} maxBytes={maxPreviewBytes} />;
       case 'html': return <HtmlRenderer url={fileUrl} version={`${openSeq}-${artifact.size ?? 0}`} />;
       default: return <UnknownRenderer name={artifact.name} />;
     }

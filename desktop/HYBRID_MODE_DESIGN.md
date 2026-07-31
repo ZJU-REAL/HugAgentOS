@@ -19,7 +19,7 @@
 
 ### P1 · 桌面反代基础（Rust，`desktop/src-tauri/`）
 - `ProxyState` 持有**两个 live 上游**：`cloud_base` 与 `local_base`（`127.0.0.1:32101`）。
-- `proxy_handler` 增加路由分支：默认转云端；当请求带 `x-hugagent-target: local`（或命中本地项目路径前缀）时转本机。
+- `proxy_handler` 增加路由分支：默认转云端；当请求带 `X-HugAgentOS-Target: local`（或命中本地项目路径前缀）时转本机。
 - **凭证按上游分别注入**：云端请求注入云端 session cookie；本机请求注入本机凭证（见 P2 身份桥接）。
 - 双模式下**常驻启动本机后端**（解除 `lib.rs` 仅 Local 模式才启动的 gate）。
 - 新增 `ProvisionMode::Hybrid` 语义（或让 `Dual` 默认云端为主、本机常驻），**运行时切换不再 `restart()`**。
@@ -31,7 +31,7 @@
 
 ### P3 · 前端（合并本地项目 + 标记本地请求）
 - 侧边栏项目列表 = 云端项目（云端）+ 本地项目（本机）合并。
-- 打开本地项目时，SPA 给该项目作用域的请求打 `x-hugagent-target: local`，供反代路由。
+- 打开本地项目时，SPA 给该项目作用域的请求打 `X-HugAgentOS-Target: local`，供反代路由。
 - 我的空间/云端 UI 不受影响（默认云端）。
 
 ### P4 · 数据归属（多为自然结果）

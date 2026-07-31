@@ -402,8 +402,8 @@
 /* ── 项目分组：项目行（folder + 名称）+ 嵌套其下的会话列表 ── */
 .jx-projectGroup{ display:flex; flex-direction:column; }
 .jx-projectRow{
-  display:flex; align-items:center; gap:7px;
-  height:34px; min-height:34px;
+  display:flex; align-items:center; gap:6px;
+  height:36px; min-height:36px;
   /* 与 .jx-historyItem 同一水平基线（左 6 + margin 4 + listWrap pad 10 = x=20） */
   padding:0 8px 0 6px;
   margin:0 6px 0 4px;
@@ -415,10 +415,15 @@
   position:relative;
 }
 .jx-projectRow:hover{ background:#EBEDEE; }
-.jx-projectRow:focus-visible{ outline:2px solid rgba(18,109,255,.32); outline-offset:0; }
-.jx-projectRow.active{ background:#fff; }
+.jx-projectRow.active{ background:#fff; border-color:transparent; }
 .jx-projectRow.active .jx-projectRowIcon{ color:rgba(15,23,42,.8); }
-.jx-projectRow.active .jx-projectRowName{ color:#0F172A; }
+.jx-projectRow.active .jx-projectRowName{ font-weight:400; }
+.jx-projectRowToggle{
+  appearance:none; border:0; outline:0; background:transparent;
+  flex:1; min-width:0; align-self:stretch;
+  display:flex; align-items:center; gap:7px;
+  padding:0; color:inherit; text-align:left; cursor:pointer;
+}
 .jx-projectRowIcon{
   font-size:14px;
   color:rgba(15,23,42,.55);
@@ -431,24 +436,28 @@
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   transition:color .15s;
 }
-/* 项目行右侧折叠 chevron：默认隐藏，hover / 已折叠时显形 */
-.jx-projectRowChevron{
+/* 项目行右侧操作：更多菜单 + 新建项目对话。项目行本身负责展开/收起。 */
+.jx-projectRowActions{
+  display:flex; align-items:center; gap:2px; flex-shrink:0;
+  opacity:0; pointer-events:none;
+  transition:opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.jx-projectRow:hover .jx-projectRowActions,
+.jx-projectRowActions:focus-within{
+  opacity:1; pointer-events:auto;
+}
+.jx-projectRowActionBtn{
   appearance:none; border:none; background:transparent;
-  width:20px; height:20px; flex-shrink:0;
+  width:24px; height:24px; flex-shrink:0;
   display:inline-flex; align-items:center; justify-content:center;
   border-radius:6px;
   cursor:pointer;
   color:rgba(15,23,42,.45);
-  font-size:10px;
-  opacity:0;
-  transition:opacity var(--motion-duration-instant) var(--motion-ease-standard),
-             transform var(--motion-duration-fast) var(--motion-ease-standard),
-             background .12s;
+  font-size:13px;
+  padding:0;
+  transition:background .12s, color .12s;
 }
-.jx-projectRow:hover .jx-projectRowChevron,
-.jx-projectRowChevron.collapsed{ opacity:.85; }
-.jx-projectRowChevron:hover{ background:rgba(15,23,42,.08); color:rgba(15,23,42,.72); }
-.jx-projectRowChevron.collapsed{ transform:rotate(-90deg); }
+.jx-projectRowActionBtn:hover{ background:rgba(15,23,42,.08); color:rgba(15,23,42,.72); }
 /* 嵌套会话列表：整体右缩进，形成"项目文件夹 → 会话"的层级观感 */
 .jx-projectChatList{ padding-left:16px; }
 .jx-projectChatList .jx-historyTitle{ max-width:210px; }
