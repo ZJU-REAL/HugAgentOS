@@ -1,6 +1,7 @@
 """Local/desktop sidecar startup contracts."""
 
 import io
+import os
 import tarfile
 from types import SimpleNamespace
 
@@ -12,11 +13,16 @@ from orchestration import local_subprocess
 def test_child_env_binds_local_mcp_to_loopback(monkeypatch):
     monkeypatch.setenv("MCP_HOST", "mcp")
     monkeypatch.delenv("MCP_BIND_HOST", raising=False)
+    inherited = os.pathsep.join(["/existing/one", "/existing/two"])
+    monkeypatch.setenv("PYTHONPATH", inherited)
 
     env = local_subprocess._child_env()
 
     assert env["MCP_HOST"] == "127.0.0.1"
     assert env["MCP_BIND_HOST"] == "127.0.0.1"
+    pythonpath = env["PYTHONPATH"].split(os.pathsep)
+    assert pythonpath[0] == local_subprocess._BACKEND_DIR
+    assert pythonpath[1:] == inherited.split(os.pathsep)
 
 
 def test_site_publish_callback_uses_local_listener_port(monkeypatch):

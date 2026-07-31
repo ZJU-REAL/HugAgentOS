@@ -28,6 +28,7 @@ import os
 import signal
 import sys
 import time
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.config.settings import settings
@@ -41,6 +42,13 @@ _PROCS: List[Tuple[str, "asyncio.subprocess.Process"]] = []
 _SPECS: dict = {}
 _WATCHDOG: "asyncio.Task | None" = None
 _SHUTTING_DOWN = False
+
+# Child interpreters are launched with ``python -m`` rather than through the
+# backend CLI file.  Python therefore searches their working directory instead
+# of automatically adding ``src/backend`` (the CLI script's directory) to
+# ``sys.path``.  Keep the packaged source root explicit so the desktop runtime
+# can import ``mcp_servers`` and ``services`` on every platform.
+_BACKEND_DIR = str(Path(__file__).resolve().parents[1])
 
 # These are not optional conveniences in the local/desktop product: they back
 # the three plugins installed on the first zero-state boot.  Keeping this
@@ -70,6 +78,12 @@ def _child_env() -> dict:
     # single-machine profile.
     env["MCP_HOST"] = "127.0.0.1"
     env["MCP_BIND_HOST"] = "127.0.0.1"
+    inherited_pythonpath = [
+        entry for entry in env.get("PYTHONPATH", "").split(os.pathsep) if entry
+    ]
+    pythonpath = [_BACKEND_DIR]
+    pythonpath.extend(entry for entry in inherited_pythonpath if entry != _BACKEND_DIR)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath)
     return env
 
 
