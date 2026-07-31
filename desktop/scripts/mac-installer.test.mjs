@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import {
 } from "./desktop-build-target.mjs";
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoDir = resolve(desktopDir, "..");
 const rustDir = join(desktopDir, "src-tauri", "src");
 
 test("desktop local install is offline and shared by all three operating systems", () => {
@@ -47,6 +48,51 @@ test("Windows macOS and Linux packages embed both source and runtime payloads", 
   }
 });
 
+test("minimize-to-tray destroys the close confirmation window", () => {
+  const source = readFileSync(join(rustDir, "lib.rs"), "utf8");
+  const decisionStart = source.indexOf(
+    'if let Some(cw) = app2.get_webview_window("close-confirm")',
+  );
+  assert.notEqual(decisionStart, -1);
+  const decision = source.slice(decisionStart, source.indexOf("if exit", decisionStart));
+  assert.match(decision, /cw\.hide\(\)/);
+  assert.match(decision, /cw\.close\(\)/);
+  assert.ok(decision.indexOf("cw.hide()") < decision.indexOf("cw.close()"));
+});
+
+test("CE project creation follows the provisioned desktop mode", () => {
+  const deploymentStore = readFileSync(
+    join(repoDir, "src", "frontend", "src", "stores", "deploymentModeStore.ts"),
+    "utf8",
+  );
+  const projectComponent = (name) => {
+    const overlayPath = join(
+      repoDir,
+      "ce",
+      "overlay",
+      "src",
+      "frontend",
+      "src",
+      "components",
+      "projects",
+      name,
+    );
+    return existsSync(overlayPath)
+      ? overlayPath
+      : join(repoDir, "src", "frontend", "src", "components", "projects", name);
+  };
+  const projectsPanel = readFileSync(projectComponent("ProjectsPanel.tsx"), "utf8");
+  const createModal = readFileSync(projectComponent("CreateProjectModal.tsx"), "utf8");
+
+  assert.match(deploymentStore, /local_only'.*cloud: false, local: true/);
+  assert.match(deploymentStore, /dual'.*cloud: true, local: true/);
+  assert.match(projectsPanel, /projectCreationTargets\(isDesktop, provisionMode\)/);
+  assert.match(projectsPanel, /canCreateCloudProject && canCreateLocalProject/);
+  assert.match(projectsPanel, /\/__desktop\/pick-local-folder/);
+  assert.match(createModal, /if \(!canCreateCloudProject\)/);
+  assert.match(createModal, /if \(!canCreateCloudProject\) return null/);
+});
+
 test("release builder validates dependencies and relocatable runtime before archiving", () => {
   const builder = readFileSync(join(desktopDir, "scripts", "build-runtime.mjs"), "utf8");
   const smoke = readFileSync(join(desktopDir, "scripts", "runtime-smoke.py"), "utf8");
@@ -56,6 +102,40 @@ test("release builder validates dependencies and relocatable runtime before arch
   assert.match(builder, /signMacRuntime/);
   assert.match(builder, /Resuming validated/);
   assert.match(smoke, /import_module\("cli"\)/);
+});
+
+test("macOS release falls back to ad-hoc signing without Apple credentials", () => {
+  const builder = readFileSync(join(desktopDir, "scripts", "build-runtime.mjs"), "utf8");
+  const overlayWorkflow = join(
+    repoDir,
+    "ce",
+    "overlay",
+    ".github",
+    "workflows",
+    "desktop-release.yml",
+  );
+  const workflow = readFileSync(
+    existsSync(overlayWorkflow)
+      ? overlayWorkflow
+      : join(repoDir, ".github", "workflows", "desktop-release.yml"),
+    "utf8",
+  );
+
+  assert.match(builder, /APPLE_SIGNING_IDENTITY\?\.trim\(\) \|\| "-"/);
+  assert.doesNotMatch(builder, /APPLE_SIGNING_IDENTITY is required/);
+  assert.match(builder, /\["--force", "--sign", identity\]/);
+
+  const configureStepStart = workflow.indexOf("- name: Configure macOS signing");
+  const buildStepStart = workflow.indexOf("- name: Build and publish release");
+  assert.notEqual(configureStepStart, -1);
+  assert.ok(buildStepStart > configureStepStart);
+
+  const configureStep = workflow.slice(configureStepStart, buildStepStart);
+  const buildStep = workflow.slice(buildStepStart);
+  assert.match(configureStep, /APPLE_CERTIFICATE_SECRET/);
+  assert.match(configureStep, /echo 'APPLE_SIGNING_IDENTITY=-'/);
+  assert.doesNotMatch(buildStep, /APPLE_CERTIFICATE:/);
+  assert.doesNotMatch(buildStep, /APPLE_CERTIFICATE_PASSWORD:/);
 });
 
 test("CE generation uses an isolated pinned release-builder dependency", () => {

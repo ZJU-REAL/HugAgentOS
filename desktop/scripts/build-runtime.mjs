@@ -204,9 +204,11 @@ function directorySize(root) {
 
 function signMacRuntime(root) {
   if (process.platform !== "darwin") return;
-  const identity = process.env.APPLE_SIGNING_IDENTITY || "-";
-  if (process.env.HUGAGENT_RELEASE_BUILD === "1" && identity === "-") {
-    throw new Error("APPLE_SIGNING_IDENTITY is required for a macOS release runtime.");
+  const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || "-";
+  if (identity === "-") {
+    console.warn(
+      "[desktop] Apple signing identity unavailable; using ad-hoc signing for the macOS runtime.",
+    );
   }
   const files = [];
   const visit = (directory) => {

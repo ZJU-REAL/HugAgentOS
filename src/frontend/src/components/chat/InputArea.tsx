@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { useChatStore, useFileStore, useUIStore, useModelCapabilitiesStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
-import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { UserAgentItem } from '../../stores/agentStore';
 import type { ChatMode } from '../../stores/chatStore';
@@ -254,8 +254,12 @@ export function InputArea({
   const activeLocalMode = useDeploymentModeStore((s) => s.activeLocal);
   const provisionMode = useDeploymentModeStore((s) => s.provisionMode);
   const isDesktopShell = useDeploymentModeStore((s) => s.isDesktop);
+  const {
+    cloud: canCreateCloudProject,
+    local: canCreateLocalProject,
+  } = projectCreationTargets(isDesktopShell, provisionMode);
   // 混合架构：双模式=云端身份 + 本机执行面，本地项目能力在 dual 下同样可用。
-  const localCapable = activeLocalMode || provisionMode === 'dual';
+  const localCapable = canCreateLocalProject;
   const refreshDeploymentMode = useDeploymentModeStore((s) => s.refresh);
   useEffect(() => {
     refreshDeploymentMode();
@@ -777,40 +781,36 @@ export function InputArea({
                 ],
               },
               { type: 'divider' as const },
-              // 新建入口：桌面壳里区分「云端项目 / 本地项目」（本地项目=选电脑上的一个
-              // 文件夹作为项目）；网页端保持原来的「新建个人项目」。跨模式点击时沿用壳的
-              // 切换哨兵（activate-local / connect-server，会重启应用进入对应模式）。
+              // 新建入口严格跟随安装时选择的运行形态：纯本机只显示本地项目，纯云端
+              // 只显示云端项目，只有双模式同时显示两者。网页端保持原来的个人项目入口。
               ...(isDesktopShell
                 ? [
-                    {
-                      key: 'proj-new-cloud',
-                      label: (
-                        <div className="jx-projectOption">
-                          <FolderAddOutlined className="jx-projectOptionIcon" />
-                          <span className="jx-projectOptionName">{t('新建云端项目')}</span>
-                        </div>
-                      ),
-                      onClick: () => {
-                        if (activeLocalMode) window.location.href = '/__desktop/connect-server';
-                        else setProjectCreateModalOpen(true);
-                      },
-                    },
-                    {
-                      key: 'proj-new-local',
-                      label: (
-                        <div className="jx-projectOption">
-                          <LaptopOutlined className="jx-projectOptionIcon" />
-                          <span className="jx-projectOptionName">{t('新建本地项目')}</span>
-                        </div>
-                      ),
-                      onClick: () => {
-                        // 混合架构：本地能力可用（本机模式或双模式）→ 直接选文件夹；
-                        // 仅纯云端形态仍走 activate-local 切换。
-                        window.location.href = localCapable
-                          ? '/__desktop/pick-local-folder'
-                          : '/__desktop/activate-local';
-                      },
-                    },
+                    ...(canCreateCloudProject
+                      ? [{
+                          key: 'proj-new-cloud',
+                          label: (
+                            <div className="jx-projectOption">
+                              <FolderAddOutlined className="jx-projectOptionIcon" />
+                              <span className="jx-projectOptionName">{t('新建云端项目')}</span>
+                            </div>
+                          ),
+                          onClick: () => setProjectCreateModalOpen(true),
+                        }]
+                      : []),
+                    ...(canCreateLocalProject
+                      ? [{
+                          key: 'proj-new-local',
+                          label: (
+                            <div className="jx-projectOption">
+                              <LaptopOutlined className="jx-projectOptionIcon" />
+                              <span className="jx-projectOptionName">{t('新建本地项目')}</span>
+                            </div>
+                          ),
+                          onClick: () => {
+                            window.location.href = '/__desktop/pick-local-folder';
+                          },
+                        }]
+                      : []),
                   ]
                 : [
                     {

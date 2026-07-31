@@ -25,6 +25,26 @@ interface DeploymentModeState {
   refresh: () => void;
 }
 
+export interface ProjectCreationTargets {
+  cloud: boolean;
+  local: boolean;
+}
+
+/**
+ * Project creation follows the provisioned desktop capability set.
+ * Unknown/legacy desktop modes stay cloud-only as the safe fallback; the web
+ * application has no local-folder picker and is therefore cloud-only too.
+ */
+export function projectCreationTargets(
+  isDesktop: boolean,
+  provisionMode: string,
+): ProjectCreationTargets {
+  if (!isDesktop) return { cloud: true, local: false };
+  if (provisionMode === 'local_only') return { cloud: false, local: true };
+  if (provisionMode === 'dual') return { cloud: true, local: true };
+  return { cloud: true, local: false };
+}
+
 export const useDeploymentModeStore = create<DeploymentModeState>((set, get) => ({
   isDesktop: false,
   activeLocal: false,

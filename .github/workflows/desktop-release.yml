@@ -7,9 +7,11 @@
 # Required repository secrets:
 #   TAURI_SIGNING_PRIVATE_KEY
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-# macOS additionally requires:
+# macOS optionally uses these secrets for Developer ID signing and notarization:
 #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY
 #   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+# When they are absent, both native macOS packages use ad-hoc signing. Users
+# must approve those builds through System Settings > Privacy & Security.
 #
 # To cut a release:
 #   1. Run `npm --prefix desktop run version:desktop -- X.Y.Z` and commit the
@@ -147,18 +149,47 @@ jobs:
       - name: Verify dependency installation kept the checkout clean
         run: git diff --exit-code -- desktop/package-lock.json
 
+      # Do not pass empty APPLE_CERTIFICATE variables to tauri-action: their
+      # presence makes the action try to import an empty keychain certificate.
+      # Export the complete Developer ID environment only when every signing
+      # and notarization secret is available; otherwise request ad-hoc signing.
+      - name: Configure macOS signing
+        if: startsWith(matrix.platform, 'macos-')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_SECRET: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD_SECRET: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ -n "$APPLE_CERTIFICATE_SECRET" \
+             && -n "$APPLE_CERTIFICATE_PASSWORD_SECRET" \
+             && -n "$APPLE_SIGNING_IDENTITY_SECRET" \
+             && -n "$APPLE_ID_SECRET" \
+             && -n "$APPLE_PASSWORD_SECRET" \
+             && -n "$APPLE_TEAM_ID_SECRET" ]]; then
+            {
+              printf 'APPLE_CERTIFICATE=%s\n' "$APPLE_CERTIFICATE_SECRET"
+              printf 'APPLE_CERTIFICATE_PASSWORD=%s\n' "$APPLE_CERTIFICATE_PASSWORD_SECRET"
+              printf 'APPLE_SIGNING_IDENTITY=%s\n' "$APPLE_SIGNING_IDENTITY_SECRET"
+              printf 'APPLE_ID=%s\n' "$APPLE_ID_SECRET"
+              printf 'APPLE_PASSWORD=%s\n' "$APPLE_PASSWORD_SECRET"
+              printf 'APPLE_TEAM_ID=%s\n' "$APPLE_TEAM_ID_SECRET"
+            } >> "$GITHUB_ENV"
+            echo "Using Developer ID signing and notarization."
+          else
+            echo 'APPLE_SIGNING_IDENTITY=-' >> "$GITHUB_ENV"
+            echo "Apple credentials are incomplete; using ad-hoc signing."
+          fi
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           HUGAGENT_RELEASE_BUILD: "1"
           # tsc + Vite peaks near Node's default heap limit on hosted runners.
           NODE_OPTIONS: "--max-old-space-size=4096"

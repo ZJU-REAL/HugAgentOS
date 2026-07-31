@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Empty, Input, Select, Spin } from 'antd';
+import { FolderAddOutlined, LaptopOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Empty, Input, Select, Spin, message } from 'antd';
 
+import { createLocalProject } from '../../api';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
+import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useProjectStore } from '../../stores/projectStore';
 import CreateProjectModal from './CreateProjectModal';
 import ProjectCard from './ProjectCard';
@@ -18,16 +20,67 @@ export default function ProjectsPanel({ onOpenProject }: { onOpenProject: (proje
   const fetchProjects = useProjectStore((state) => state.fetchProjects);
   const setCreateOpen = useProjectStore((state) => state.setCreateModalOpen);
   const toggleFavoriteById = useProjectStore((state) => state.toggleFavoriteById);
+  const isDesktop = useDeploymentModeStore((state) => state.isDesktop);
+  const provisionMode = useDeploymentModeStore((state) => state.provisionMode);
+  const refreshDeploymentMode = useDeploymentModeStore((state) => state.refresh);
+  const {
+    cloud: canCreateCloudProject,
+    local: canCreateLocalProject,
+  } = projectCreationTargets(isDesktop, provisionMode);
   const { title, subtitle } = usePanelHeader('projects', {
     title: '项目',
     subtitle: '把对话、文件和指令打包成专属工作空间',
   });
 
   useEffect(() => { void fetchProjects(); }, [fetchProjects, sort]);
+  useEffect(() => { refreshDeploymentMode(); }, [refreshDeploymentMode]);
   useEffect(() => {
     const timer = setTimeout(() => void fetchProjects(), 300);
     return () => clearTimeout(timer);
   }, [fetchProjects, search]);
+
+  useEffect(() => {
+    if (!isDesktop || !canCreateLocalProject) return;
+    const onFolder = (event: Event) => {
+      const path = (event as CustomEvent<string>).detail;
+      if (!path) return;
+      const name = path.split(/[/\\]/).filter(Boolean).pop() || '本地项目';
+      void createLocalProject({ name, local_path: path })
+        .then(async (project) => {
+          await fetchProjects();
+          onOpenProject(project.project_id);
+        })
+        .catch((error) => {
+          message.error(`${t('新建本地项目')}：${error?.message || error}`);
+        });
+    };
+    window.addEventListener('hugagent:local-folder', onFolder as EventListener);
+    return () => window.removeEventListener('hugagent:local-folder', onFolder as EventListener);
+  }, [isDesktop, canCreateLocalProject, fetchProjects, onOpenProject]);
+
+  const pickLocalProjectFolder = () => {
+    window.location.href = '/__desktop/pick-local-folder';
+  };
+
+  const createButton = (
+    <Button
+      type="primary"
+      icon={<PlusOutlined />}
+      onClick={
+        canCreateLocalProject && !canCreateCloudProject
+          ? pickLocalProjectFolder
+          : canCreateCloudProject && !canCreateLocalProject
+            ? () => setCreateOpen(true)
+            : undefined
+      }
+    >
+      {isDesktop && canCreateLocalProject && !canCreateCloudProject
+        ? t('新建本地项目')
+        : isDesktop && canCreateCloudProject && !canCreateLocalProject
+          ? t('新建云端项目')
+          : t('新建项目')}
+    </Button>
+  );
 
   return (
     <div className="jx-projects">
@@ -49,9 +102,29 @@ export default function ProjectsPanel({ onOpenProject }: { onOpenProject: (proje
                 { value: 'created', label: t('创建时间') },
               ]}
             />
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-              {t('新建项目')}
-            </Button>
+            {isDesktop && canCreateCloudProject && canCreateLocalProject ? (
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: [
+                    {
+                      key: 'new-cloud-project',
+                      icon: <FolderAddOutlined />,
+                      label: t('新建云端项目'),
+                      onClick: () => setCreateOpen(true),
+                    },
+                    {
+                      key: 'new-local-project',
+                      icon: <LaptopOutlined />,
+                      label: t('新建本地项目'),
+                      onClick: pickLocalProjectFolder,
+                    },
+                  ],
+                }}
+              >
+                {createButton}
+              </Dropdown>
+            ) : createButton}
           </div>
         </div>
         <Input
@@ -83,7 +156,7 @@ export default function ProjectsPanel({ onOpenProject }: { onOpenProject: (proje
           </section>
         )}
       </div>
-      <CreateProjectModal onCreated={onOpenProject} />
+      {canCreateCloudProject && <CreateProjectModal onCreated={onOpenProject} />}
     </div>
   );
 }

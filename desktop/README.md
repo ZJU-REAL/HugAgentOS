@@ -158,7 +158,13 @@ npm --prefix desktop run lock:desktop
 `prepare-bundle.mjs` 会在耗时构建开始前校验三者一致。公开 CE 的 Desktop Release workflow 会在
 启动 Windows x86_64、Linux x86_64、macOS arm64、macOS x86_64 四个原生目标前校验 release tag
 必须精确等于 `desktop-v<上述版本号>`；版本或 tag 不一致时不会创建任何平台产物。工作流固定使用
-`uv 0.11.33`；macOS 正式发布还需配置 Apple 证书、签名身份与 notarization 所需 secrets。
+`uv 0.11.33`；macOS 正式发布建议配置 Apple 证书、签名身份与 notarization 所需 secrets。
+
+Apple 凭据不是生成测试安装包的硬前置。公开 CE 的 Release workflow 在未配置 Apple secrets 时会
+自动使用 ad-hoc 身份（`-`）签名 App 及内置 Python runtime 的 Mach-O 文件，并分别生成 Apple
+Silicon 与 Intel DMG；用户首次打开时需要在“系统设置 → 隐私与安全性”中选择“仍要打开”。配置
+Developer ID 与 notarization secrets 后，workflow 会自动改用正式签名，避免这一步人工放行。
+Tauri updater 的 `TAURI_SIGNING_PRIVATE_KEY` 是独立的更新包验签机制，仍为必需项。
 
 ## 关键文件
 

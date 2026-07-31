@@ -4,6 +4,7 @@ import { Input, message, Modal, Radio, TreeSelect } from 'antd';
 
 import { listPersonalFolderTree } from '../../api';
 import { t } from '../../i18n';
+import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useProjectStore } from '../../stores/projectStore';
 import type { PersonalFolderNode } from '../../types';
 
@@ -29,6 +30,9 @@ export default function CreateProjectModal({ onCreated }: Props) {
   const open = useProjectStore((state) => state.createModalOpen);
   const setOpen = useProjectStore((state) => state.setCreateModalOpen);
   const createPersonal = useProjectStore((state) => state.createPersonal);
+  const isDesktop = useDeploymentModeStore((state) => state.isDesktop);
+  const provisionMode = useDeploymentModeStore((state) => state.provisionMode);
+  const canCreateCloudProject = projectCreationTargets(isDesktop, provisionMode).cloud;
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [folderMode, setFolderMode] = useState<'auto' | 'existing'>('auto');
@@ -38,12 +42,16 @@ export default function CreateProjectModal({ onCreated }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    if (!canCreateCloudProject) {
+      setOpen(false);
+      return;
+    }
     setName('');
     setDescription('');
     setFolderMode('auto');
     setLinkedFolderId(undefined);
     void listPersonalFolderTree().then(setFolders).catch(() => setFolders([]));
-  }, [open]);
+  }, [open, canCreateCloudProject, setOpen]);
 
   const folderTreeData = useMemo(() => foldersToTree(folders), [folders]);
 
@@ -73,6 +81,8 @@ export default function CreateProjectModal({ onCreated }: Props) {
       setSubmitting(false);
     }
   };
+
+  if (!canCreateCloudProject) return null;
 
   return (
     <Modal
