@@ -7,9 +7,11 @@
 # Required repository secrets:
 #   TAURI_SIGNING_PRIVATE_KEY
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-# macOS additionally requires:
+# macOS optionally uses these secrets for Developer ID signing and notarization:
 #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY
 #   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+# When they are absent, both native macOS packages use ad-hoc signing. Users
+# must approve those builds through System Settings > Privacy & Security.
 #
 # To cut a release:
 #   1. Run `npm --prefix desktop run version:desktop -- X.Y.Z` and commit the
@@ -155,7 +157,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

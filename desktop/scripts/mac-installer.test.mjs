@@ -104,6 +104,32 @@ test("release builder validates dependencies and relocatable runtime before arch
   assert.match(smoke, /import_module\("cli"\)/);
 });
 
+test("macOS release falls back to ad-hoc signing without Apple credentials", () => {
+  const builder = readFileSync(join(desktopDir, "scripts", "build-runtime.mjs"), "utf8");
+  const overlayWorkflow = join(
+    repoDir,
+    "ce",
+    "overlay",
+    ".github",
+    "workflows",
+    "desktop-release.yml",
+  );
+  const workflow = readFileSync(
+    existsSync(overlayWorkflow)
+      ? overlayWorkflow
+      : join(repoDir, ".github", "workflows", "desktop-release.yml"),
+    "utf8",
+  );
+
+  assert.match(builder, /APPLE_SIGNING_IDENTITY\?\.trim\(\) \|\| "-"/);
+  assert.doesNotMatch(builder, /APPLE_SIGNING_IDENTITY is required/);
+  assert.match(builder, /\["--force", "--sign", identity\]/);
+  assert.match(
+    workflow,
+    /APPLE_SIGNING_IDENTITY: \$\{\{ secrets\.APPLE_SIGNING_IDENTITY \|\| '-' \}\}/,
+  );
+});
+
 test("CE generation uses an isolated pinned release-builder dependency", () => {
   const prepare = readFileSync(join(desktopDir, "scripts", "prepare-bundle.mjs"), "utf8");
   const requirements = readFileSync(
