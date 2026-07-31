@@ -6,8 +6,9 @@ import { buildHistorySegments } from '../utils/segments';
 import { attachArtifactsToToolCalls } from '../utils/fileParser';
 import { isAutomationHistoryChat } from '../utils/history';
 import { stripMcpToolPrefix } from '../utils/constants';
+import { parseContextCompactionState } from '../utils/contextUsage';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, OntologyGovernanceSummary, ToolCall, UpdateEntry, CapItem, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, OntologyGovernanceSummary, ToolCall, UpdateEntry, CapItem, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -202,6 +203,7 @@ function parseHistoryMessage(m: any): ChatMessage {
     ...(histSkillName && { skillName: histSkillName }),
     ...(histPluginName && { pluginName: histPluginName }),
     ...(histMentionName && { mentionName: histMentionName }),
+    ...(typeof m.message_id === 'string' && m.message_id && { messageId: m.message_id }),
   } as ChatMessage;
 }
 
@@ -456,6 +458,12 @@ export function useChatInit() {
                 const mp = await mr.json();
                 const msgItems: any[] = mp?.data?.items || [];
                 const quickMsgs: ChatMessage[] = msgItems.map(parseHistoryMessage);
+                if (Object.prototype.hasOwnProperty.call(mp?.data || {}, 'context_compaction')) {
+                  useChatStore.getState().setContextCompaction(
+                    targetChatId,
+                    parseContextCompactionState(mp.data.context_compaction),
+                  );
+                }
                 preloadComplete = !mp?.data?.pagination?.has_next;
                 if (!cancelled && quickMsgs.length > 0) {
                   // Detect plan mode from message content (fallback for sessions
@@ -622,6 +630,8 @@ export function useChatInit() {
         // 'preview' by the end, restore currentPlanId so "确认执行" after
         // refresh executes the existing plan instead of generating a new one.
         let pendingPlanId: string | null = null;
+        let contextCompactionSeen = false;
+        let contextCompaction: ContextCompactionState | null = null;
 
         while (true) {
           const r = await authFetch(`${effectiveApiUrl}/v1/chats/${chatId}/messages?page=${page}&page_size=100`, { headers: { ...chatTargetHeaders(chatId) } });
@@ -633,6 +643,10 @@ export function useChatInit() {
           if (!r.ok) throw new Error(`messages page ${page}: HTTP ${r.status}`);
           const payload = await r.json();
           const items: any[] = payload?.data?.items || [];
+          if (!contextCompactionSeen && Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_compaction')) {
+            contextCompactionSeen = true;
+            contextCompaction = parseContextCompactionState(payload.data.context_compaction);
+          }
 
           for (const m of items) {
             const planSnapshot = m?.metadata?.plan_snapshot;
@@ -651,6 +665,9 @@ export function useChatInit() {
         }
 
         if (!cancelled) {
+          if (contextCompactionSeen) {
+            useChatStore.getState().setContextCompaction(chatId, contextCompaction);
+          }
           loaded = true;
           addLoadedMsgId(chatId);
           updateStore(prev => {

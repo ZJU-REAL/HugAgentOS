@@ -3,6 +3,7 @@ import { t } from '../i18n';
 import { toFileConfirmInfo, toDesignPickInfo } from '../api';
 import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
+import { parseContextCompactionState } from '../utils/contextUsage';
 import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore } from '../stores';
 import type { ChatItem, ChatMessage, CitationItem, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
 
@@ -551,7 +552,10 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           // Earlier context was compacted in the background after the previous turn ended;
           // the backend notifies once in this turn's first frame
           // → ChatArea shows a dismissible notice bar
-          useChatStore.getState().setCompactionNotice(chatId);
+          const chatStore = useChatStore.getState();
+          chatStore.setCompactionNotice(chatId);
+          const contextCompaction = parseContextCompactionState(eventObj.context_compaction);
+          if (contextCompaction) chatStore.setContextCompaction(chatId, contextCompaction);
           return;
         }
         if (eventType === 'end') {

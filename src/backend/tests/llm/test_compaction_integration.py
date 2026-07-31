@@ -204,6 +204,34 @@ def test_compaction_notice_popped_exactly_once(db_session):
     assert S.pop_compaction_notice(svc, "chat_no_ckpt") is False
 
 
+def test_context_state_uses_compacted_baseline_and_visible_boundary(db_session):
+    """The UI receives replacement tokens plus an exact visible-message boundary."""
+    _mk_session(db_session)
+    svc = ChatService(db_session)
+    _add_user(svc, "第一轮问题")
+    covered = _add_assistant(svc, "第一轮回答")
+    replacement = [
+        {"role": "user", "content": "第一轮问题"},
+        {"role": "user", "content": C.format_summary_text("第一轮摘要")},
+    ]
+    checkpoint = svc.add_compaction_checkpoint(
+        CHAT_ID,
+        summary_text=C.format_summary_text("第一轮摘要"),
+        replacement_history=replacement,
+    )
+    _add_user(svc, "压缩后的新问题")
+
+    state = S.get_compaction_context_state(svc, CHAT_ID)
+
+    assert state == {
+        "checkpoint_id": checkpoint.message_id,
+        "checkpoint_created_at": checkpoint.created_at.isoformat(),
+        "covered_through_message_id": covered.message_id,
+        "covered_message_count": 2,
+        "replacement_tokens": S.estimate_history_tokens(replacement),
+    }
+
+
 def test_pre_turn_compaction_fast_path_no_llm(monkeypatch):
     """Zero external overhead below threshold / with no determinable threshold: never touches the DB, never calls the LLM (protects time-to-first-token)."""
     import asyncio

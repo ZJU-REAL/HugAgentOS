@@ -1,6 +1,6 @@
 # 对话与智能体编排
 
-> 最后更新：2026-07-20
+> 最后更新：2026-07-30
 
 对话是 HugAgentOS 的核心链路：一条用户消息经过 FastAPI 路由、运行时上下文装配、流式编排器，最终由 AgentScope 2.0 的 ReActAgent 驱动多轮「思考 → 调工具 → 观察」循环，并以 SSE 事件流实时推送到前端。本篇按真实代码走一遍端到端流程，并展开引用系统、计划模式、子智能体、会话摘要、会话分享、上下文压缩与超长结果 offload 等子能力。
 
@@ -73,6 +73,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | `tool_pending` | 工具已开始、参数仍在流式生成 | `tool_name` |
 | `batch_confirm` | 批量计划生成完毕，等待用户确认（人审门） | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | 确认上下文；用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后工具原地续跑 |
+| `compaction_notice` | 上一轮结束后已生成新的上下文压缩检查点 | `chat_id`, `context_compaction`（覆盖边界、摘要基线 token 数） |
 | `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
 | `error` | 出错（已映射为用户友好中文文案） | `error`, `chat_id` |
 | `heartbeat` | 心跳（事件级；另有 `: heartbeat` 注释行） | — |
@@ -150,6 +151,8 @@ data: [DONE]
 | 会话标题摘要 | `core/llm/summarizer.py::ConversationSummarizer`（`summarizer` 模型角色，`ENABLE_SUMMARY` 开关），`POST /v1/summary` | 新会话标题自动生成 |
 | 历史预裁剪 + 摘要 | `core/llm/context_manager.py::ContextWindowManager.manage_context()` 按模型上下文窗口裁剪；被裁掉的旧消息经 `core/llm/history_summarizer.py::summarize_history()` 压成 `<conversation_summary>` 注入队首 | 加载历史超出 token 预算时 |
 | 会话内压缩 | AgentScope 2.0 `ContextConfig`（`trigger_ratio=0.6`），压缩提示词要求产出可恢复 ReAct 工作流的结构化摘要（保留 artifact_id、工具参数、待办） | ReAct 循环内上下文逼近窗口时 |
+
+压缩检查点是内部 `system` 消息，不会从对话记录中隐藏或删除用户可见的历史消息。消息列表接口与下一轮的 `compaction_notice` 会同时返回最新检查点的覆盖边界和替代摘要 token 估算；前端上下文仪表据此按「摘要基线 + 检查点后的新消息」计算，而不是继续累计已经被摘要替换的完整旧历史。
 
 ## 超长工具结果 offload
 

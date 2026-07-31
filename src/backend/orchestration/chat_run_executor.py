@@ -381,12 +381,27 @@ async def _run_workflow(
         # in the background → notify the user once in this turn's first frame.
         # Failures are silent and must never affect the main conversation.
         try:
-            from core.services.compaction_service import pop_compaction_notice
+            from core.services.compaction_service import (
+                get_compaction_context_state,
+                pop_compaction_notice,
+            )
 
             with SessionLocal() as _cn_db:
-                _notify_compaction = pop_compaction_notice(ChatService(_cn_db), chat_id)
+                _cn_service = ChatService(_cn_db)
+                _notify_compaction = pop_compaction_notice(_cn_service, chat_id)
+                _compaction_state = (
+                    get_compaction_context_state(_cn_service, chat_id)
+                    if _notify_compaction
+                    else None
+                )
             if _notify_compaction:
-                await _emit({"type": "compaction_notice", "chat_id": chat_id})
+                await _emit(
+                    {
+                        "type": "compaction_notice",
+                        "chat_id": chat_id,
+                        "context_compaction": _compaction_state,
+                    }
+                )
         except Exception as _cn_exc:  # noqa: BLE001
             logger.debug("compaction_notice_failed", chat_id=chat_id, error=str(_cn_exc))
 

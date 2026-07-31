@@ -385,6 +385,17 @@ export interface ChatMessage {
   workspaceFiles?: string[] | null;
 }
 
+/** Latest backend context-compaction checkpoint used by the context gauge.
+ * The full transcript stays visible; messages covered by this boundary have
+ * been replaced in the model context by a compacted baseline. */
+export interface ContextCompactionState {
+  checkpointId: string;
+  checkpointTs: number;
+  coveredThroughMessageId?: string;
+  coveredMessageCount: number;
+  replacementTokens: number;
+}
+
 export interface ChatItem {
   id: string;
   title: string;

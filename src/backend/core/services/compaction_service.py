@@ -483,6 +483,41 @@ def estimate_history_tokens(history: List[Dict[str, Any]]) -> int:
     )
 
 
+def get_compaction_context_state(chat_service: Any, chat_id: str) -> Optional[Dict[str, Any]]:
+    """Return the latest compacted-context baseline for user-facing estimates.
+
+    The visible message history remains complete for reading/export.  This
+    small projection tells clients which visible messages the checkpoint has
+    replaced and how many estimated tokens its replacement history occupies,
+    so a context gauge can count ``replacement + post-checkpoint tail`` instead
+    of accumulating the full pre-compaction transcript forever.
+    """
+    if not settings.compaction.enabled:
+        return None
+
+    ckpt = chat_service.get_latest_compaction_checkpoint(chat_id)
+    if ckpt is None:
+        return None
+
+    extra = getattr(ckpt, "extra_data", None) or {}
+    replacement = extra.get("replacement_history")
+    if not isinstance(replacement, list):
+        replacement = []
+    created_at = getattr(ckpt, "created_at", None)
+    if created_at is None:
+        return None
+
+    return {
+        "checkpoint_id": getattr(ckpt, "message_id", ""),
+        "checkpoint_created_at": created_at.isoformat(),
+        "covered_through_message_id": extra.get("covers_up_to_message_id"),
+        "covered_message_count": chat_service.message_repo.count_visible_before(
+            chat_id, created_at
+        ),
+        "replacement_tokens": estimate_history_tokens(replacement),
+    }
+
+
 async def maybe_run_pre_turn_compaction(
     chat_id: Optional[str],
     history: List[Dict[str, Any]],

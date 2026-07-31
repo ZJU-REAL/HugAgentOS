@@ -92,7 +92,7 @@ export function ChatArea({
     { value: 'permanent', label: t('长期') },
   ] as const;
   const {
-    store, currentChatId, setInput,
+    store, currentChatId, setInput, planMode,
     shareSelectionMode, selectedShareMessageTs,
     pendingScrollMessageTs, setPendingScrollMessageTs,
     setQuotedFollowUp,
@@ -526,7 +526,7 @@ export function ChatArea({
         )}
       </AnimatePresence>
       <div className="jx-chatFooter">
-        <PlanProgressStrip chatId={currentChatId} />
+        {!planMode && <PlanProgressStrip chatId={currentChatId} />}
         <FileConfirmBar />
         <DesignPickerCard />
         {shareAccessLevel === 'read' ? (

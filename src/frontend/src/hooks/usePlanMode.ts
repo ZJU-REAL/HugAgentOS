@@ -4,7 +4,7 @@ import { generatePlanStream, updatePlanApi, executePlanStream, getPlanApi } from
 import { stripMcpToolPrefix } from '../utils/constants';
 import { useChatStore, useCatalogStore, useFileStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
-import type { ChatItem, ChatMessage, MessageSegment, PlanProgressState, ToolCall } from '../types';
+import type { ChatItem, ChatMessage, MessageSegment, ToolCall } from '../types';
 
 /** Mark the approval decision on the newest preview plan segment carrying planId
  *  (hides the confirm/discard buttons on the card afterwards). */
@@ -45,6 +45,11 @@ export async function processPlanExecuteStream(
     onAfterComplete?: (chatId: string) => void;
   } = {},
 ): Promise<void> {
+  // Manual plan mode renders the complete execution state in its message card.
+  // Clear any compact-strip state left by an older frontend bundle or a
+  // recovered stream so the same plan is never duplicated above the composer.
+  useChatStore.getState().setPlanProgress(chatId, null);
+
   const decoder = new TextDecoder();
   const execReader = response.body?.getReader();
   if (!execReader) return;
@@ -102,21 +107,6 @@ export async function processPlanExecuteStream(
     const content = resultText || '';
     if (resultText) segments.push({ type: 'text', content });
     appendAssistant(content, streaming, [...toolCalls], [...segments]);
-    // Mirror execution progress into the plan bar above the input
-    const barSteps: PlanProgressState['steps'] = (planData?.steps || []).map(s => ({
-      title: s.title,
-      status: s.status === 'running' ? 'in_progress'
-        : s.status === 'success' ? 'completed'
-        : s.status === 'failed' ? 'failed'
-        : 'pending',
-    }));
-    useChatStore.getState().setPlanProgress(chatId, {
-      source: 'plan_mode',
-      title: planTitle || '',
-      steps: barSteps,
-      done: mode === 'complete',
-      updatedAt: Date.now(),
-    });
   };
 
   updatePlanCard(true);

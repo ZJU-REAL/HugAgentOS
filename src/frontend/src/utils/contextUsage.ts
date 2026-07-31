@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolCall } from '../types';
+import type { ChatMessage, ContextCompactionState, ToolCall } from '../types';
 
 /**
  * Client-side context-usage estimation.
@@ -202,6 +202,61 @@ export interface BreakdownOptions {
    * SYSTEM_BASE_TOKENS when not provided.
    */
   systemTokens?: number;
+  /** Latest server-side compaction checkpoint, when this chat was compacted. */
+  compaction?: ContextCompactionState | null;
+}
+
+/** Parse the snake_case checkpoint projection returned by the API/SSE. */
+export function parseContextCompactionState(value: unknown): ContextCompactionState | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const checkpointId = typeof raw.checkpoint_id === 'string' ? raw.checkpoint_id : '';
+  const checkpointCreatedAt = typeof raw.checkpoint_created_at === 'string'
+    ? Date.parse(raw.checkpoint_created_at)
+    : Number.NaN;
+  const coveredMessageCount = Number(raw.covered_message_count);
+  const replacementTokens = Number(raw.replacement_tokens);
+  if (
+    !checkpointId
+    || !Number.isFinite(coveredMessageCount)
+    || coveredMessageCount < 0
+    || !Number.isFinite(replacementTokens)
+    || replacementTokens < 0
+  ) {
+    return null;
+  }
+  return {
+    checkpointId,
+    checkpointTs: Number.isNaN(checkpointCreatedAt) ? 0 : checkpointCreatedAt,
+    coveredThroughMessageId: typeof raw.covered_through_message_id === 'string'
+      ? raw.covered_through_message_id
+      : undefined,
+    coveredMessageCount: Math.floor(coveredMessageCount),
+    replacementTokens: Math.floor(replacementTokens),
+  };
+}
+
+function messagesAfterCompaction(
+  messages: ChatMessage[],
+  compaction: ContextCompactionState,
+): ChatMessage[] {
+  // The persisted boundary ID is the strongest signal and also works when
+  // client/server clocks or timezone serialization differ.
+  if (compaction.coveredThroughMessageId) {
+    const boundary = messages.findIndex(
+      (m) => m.messageId === compaction.coveredThroughMessageId,
+    );
+    if (boundary >= 0) return messages.slice(boundary + 1);
+  }
+  // The API supplies the count in the same visible ordering as /messages.
+  if (messages.length >= compaction.coveredMessageCount) {
+    return messages.slice(compaction.coveredMessageCount);
+  }
+  // Partial-history fallback while a multi-page load is still in progress.
+  if (compaction.checkpointTs > 0) {
+    return messages.filter((m) => m.ts > compaction.checkpointTs);
+  }
+  return [];
 }
 
 /** Compute the estimated context breakdown for a conversation. */
@@ -209,12 +264,16 @@ export function computeContextBreakdown(
   messages: ChatMessage[] | undefined | null,
   opts: BreakdownOptions = {},
 ): ContextBreakdown {
-  let messagesTok = 0;
+  let messagesTok = opts.compaction?.replacementTokens || 0;
   let toolsTok = 0;
   let thinkingTok = 0;
   let filesTok = 0;
 
-  for (const m of messages || []) {
+  const visibleMessages = messages || [];
+  const activeMessages = opts.compaction
+    ? messagesAfterCompaction(visibleMessages, opts.compaction)
+    : visibleMessages;
+  for (const m of activeMessages) {
     const t = tokensForMessage(m);
     messagesTok += t.messages;
     toolsTok += t.tools;
