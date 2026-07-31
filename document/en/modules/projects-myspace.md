@@ -1,6 +1,6 @@
 # Projects & MySpace
 
-> Last updated: 2026-07-30
+> Last updated: 2026-07-31
 
 HugAgentOS provides two tiers of personal workspace:
 
@@ -73,6 +73,20 @@ shortcuts on the project row:
   or remove it. Pinning and removal require project-admin access. Removal soft
   deletes the project, and existing conversations return to the regular chat
   history.
+
+### Desktop project-creation entry points
+
+Desktop creation controls strictly follow the provision mode selected during
+installation, with the same behavior on the Projects page and in the chat
+composer's project menu:
+
+- **Local only (`local_only`)** shows only **New Local Project** and uses the
+  system folder picker; the cloud-project modal is unavailable.
+- **Cloud only (`cloud_only`)** shows only **New Cloud Project** and offers no
+  local-folder project action.
+- **Dual mode (`dual`)** offers both cloud and local project actions.
+- The regular Web application has no desktop folder picker and keeps the cloud
+  personal/team project flow.
 
 ## MySpace
 

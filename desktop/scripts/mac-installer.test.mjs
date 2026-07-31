@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import {
 } from "./desktop-build-target.mjs";
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoDir = resolve(desktopDir, "..");
 const rustDir = join(desktopDir, "src-tauri", "src");
 
 test("desktop local install is offline and shared by all three operating systems", () => {
@@ -45,6 +46,51 @@ test("Windows macOS and Linux packages embed both source and runtime payloads", 
       assert.match(config, new RegExp(resource.replaceAll(".", "\\.")));
     }
   }
+});
+
+test("minimize-to-tray destroys the close confirmation window", () => {
+  const source = readFileSync(join(rustDir, "lib.rs"), "utf8");
+  const decisionStart = source.indexOf(
+    'if let Some(cw) = app2.get_webview_window("close-confirm")',
+  );
+  assert.notEqual(decisionStart, -1);
+  const decision = source.slice(decisionStart, source.indexOf("if exit", decisionStart));
+  assert.match(decision, /cw\.hide\(\)/);
+  assert.match(decision, /cw\.close\(\)/);
+  assert.ok(decision.indexOf("cw.hide()") < decision.indexOf("cw.close()"));
+});
+
+test("CE project creation follows the provisioned desktop mode", () => {
+  const deploymentStore = readFileSync(
+    join(repoDir, "src", "frontend", "src", "stores", "deploymentModeStore.ts"),
+    "utf8",
+  );
+  const projectComponent = (name) => {
+    const overlayPath = join(
+      repoDir,
+      "ce",
+      "overlay",
+      "src",
+      "frontend",
+      "src",
+      "components",
+      "projects",
+      name,
+    );
+    return existsSync(overlayPath)
+      ? overlayPath
+      : join(repoDir, "src", "frontend", "src", "components", "projects", name);
+  };
+  const projectsPanel = readFileSync(projectComponent("ProjectsPanel.tsx"), "utf8");
+  const createModal = readFileSync(projectComponent("CreateProjectModal.tsx"), "utf8");
+
+  assert.match(deploymentStore, /local_only'.*cloud: false, local: true/);
+  assert.match(deploymentStore, /dual'.*cloud: true, local: true/);
+  assert.match(projectsPanel, /projectCreationTargets\(isDesktop, provisionMode\)/);
+  assert.match(projectsPanel, /canCreateCloudProject && canCreateLocalProject/);
+  assert.match(projectsPanel, /\/__desktop\/pick-local-folder/);
+  assert.match(createModal, /if \(!canCreateCloudProject\)/);
+  assert.match(createModal, /if \(!canCreateCloudProject\) return null/);
 });
 
 test("release builder validates dependencies and relocatable runtime before archiving", () => {

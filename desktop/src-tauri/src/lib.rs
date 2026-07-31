@@ -672,9 +672,11 @@ fn open_close_confirm(app: &tauri::AppHandle) {
                     );
                 }
                 if let Some(cw) = app2.get_webview_window("close-confirm") {
-                    // Reuse the fully-loaded WebView next time. Rebuilding it is
-                    // both slower and the main source of close-dialog flicker.
+                    // Destroy the confirmation window after making it invisible.
+                    // Keeping the loaded WebView around races its page-load handler:
+                    // it can show itself again after the main window was hidden.
                     let _ = cw.hide();
+                    let _ = cw.close();
                 }
                 if exit {
                     app2.exit(0);

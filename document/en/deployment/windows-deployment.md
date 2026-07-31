@@ -1,6 +1,6 @@
 # Windows installation and deployment
 
-> Last updated: July 23, 2026 ｜ [简体中文](../../zh-CN/deployment/windows-deployment.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: July 31, 2026 ｜ [简体中文](../../zh-CN/deployment/windows-deployment.md) ｜ Back to [Deployment Guide](README.md)
 
 Windows users can run a Docker-free, desktop-managed local service or deploy the
 team service through Docker Desktop and WSL2. The local option is for personal use;
@@ -47,7 +47,9 @@ don't need to reinstall the desktop client.
 
 The local service listens only on `http://127.0.0.1:32101`; it isn't exposed to the
 LAN. Exiting the desktop app stops the service process. Minimizing to the tray keeps
-it running for background automations.
+it running for background automations. After **Minimize to tray** is selected, the
+close-confirmation window is destroyed immediately and does not reappear when the
+main window is restored from the tray.
 
 The runtime and data live under this directory:
 
