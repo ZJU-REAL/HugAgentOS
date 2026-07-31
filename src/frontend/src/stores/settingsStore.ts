@@ -43,6 +43,7 @@ interface SettingsState {
   rerankerAvailable: boolean;
   ontologyEnabled: boolean;
   ontologyAvailable: boolean;
+  ontologyImportValidationForced: boolean;
   ontologyActivePacks: Array<{ pack_id: string; version_id: string; version: string }>;
   /** Hint for rolling back a failed optimistic Switch update: which switch + the failure timestamp (the UI uses it as a shake-animation trigger) */
   lastToggleError: { key: 'memory' | 'memoryWrite' | 'ontology'; ts: number } | null;
@@ -92,6 +93,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   rerankerAvailable: false,
   ontologyEnabled: localStorage.getItem('hugagent_ontology_enabled') === 'true',
   ontologyAvailable: false,
+  ontologyImportValidationForced: false,
   ontologyActivePacks: [],
   lastToggleError: null,
 
@@ -142,6 +144,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({
         ontologyEnabled: settings.ontology_enabled,
         ontologyAvailable: settings.available,
+        ontologyImportValidationForced: settings.plugin_import_build_validation_forced ?? false,
         ontologyActivePacks: settings.active_packs || [],
       });
       localStorage.setItem('hugagent_ontology_enabled', String(settings.ontology_enabled));

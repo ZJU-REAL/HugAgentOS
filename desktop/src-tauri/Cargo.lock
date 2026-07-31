@@ -1165,6 +1165,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1677,17 +1687,21 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hugagent-desktop"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "axum",
  "bytes",
  "flate2",
+ "fs2",
  "futures-util",
  "getrandom 0.2.17",
+ "libc",
  "percent-encoding",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
@@ -1700,6 +1714,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "url",
+ "windows-sys 0.59.0",
  "zip",
 ]
 

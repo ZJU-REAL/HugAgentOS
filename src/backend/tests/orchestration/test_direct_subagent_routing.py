@@ -3,10 +3,7 @@ from types import SimpleNamespace
 import pytest
 from api.routes.v1.chats import _resolve_chat_agent_targets, _strip_direct_mention_prefix
 from api.schemas import ChatRequest
-from core.llm.subagent_tool import (
-    _shared_ontology_runtime,
-    build_explicit_subagent_command_hint,
-)
+from core.llm.subagent_tool import _shared_ontology_runtime, build_explicit_subagent_command_hint
 from core.services.subagent_routing_service import parse_explicit_subagent_command
 from fastapi import HTTPException
 from orchestration import workflow
@@ -172,6 +169,26 @@ def test_natural_language_command_is_resolved_by_chat_route(monkeypatch):
     assert execution_message == "分析杭州量知的风险"
     assert explicit_command is not None
     assert explicit_command.agent_id == "ua_risk"
+
+
+def test_builtin_subagent_natural_language_command_is_resolved_without_db_row(monkeypatch):
+    import core.services.user_agent_service as service_module
+
+    monkeypatch.setattr(service_module, "UserAgentService", _FakeUserAgentService)
+    request = ChatRequest(
+        chat_id="chat_1",
+        message="调用探索员子智能体 查清登录失败的代码路径",
+    )
+
+    resolved, persistent_name, execution_message, explicit_command = _resolve_chat_agent_targets(
+        SimpleNamespace(), request, "user_1"
+    )
+
+    assert persistent_name is None
+    assert resolved.mention_agent_id is None
+    assert execution_message == "查清登录失败的代码路径"
+    assert explicit_command is not None
+    assert explicit_command.agent_id == "builtin.explorer"
 
 
 def test_parent_and_child_share_the_same_ontology_runtime_object():

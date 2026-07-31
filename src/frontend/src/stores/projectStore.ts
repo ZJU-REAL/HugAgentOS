@@ -60,6 +60,7 @@ interface ProjectStoreState {
   deleteProject: (projectId: string) => Promise<void>;
   toggleFavorite: (on: boolean) => Promise<void>;
   toggleFavoriteById: (projectId: string, on: boolean) => Promise<void>;
+  togglePinnedById: (projectId: string, on: boolean) => Promise<void>;
   refreshFiles: () => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
   uploadFiles: (files: File[]) => Promise<{ succeeded: number; failed: number }>;
@@ -198,6 +199,28 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     } catch (error) {
       applyFavorite(!on);
       console.warn('toggleFavoriteById failed', projectId, error);
+    }
+  },
+
+  togglePinnedById: async (projectId, on) => {
+    const applyPinned = (value: boolean) => {
+      set({
+        list: get().list.map((project) => (
+          project.project_id === projectId ? { ...project, pinned: value } : project
+        )),
+      });
+      const { currentProjectId, currentProject } = get();
+      if (currentProject && currentProjectId === projectId) {
+        set({ currentProject: { ...currentProject, pinned: value } });
+      }
+    };
+
+    applyPinned(on);
+    try {
+      await apiUpdateProject(projectId, { pinned: on });
+    } catch (error) {
+      applyPinned(!on);
+      throw error;
     }
   },
 

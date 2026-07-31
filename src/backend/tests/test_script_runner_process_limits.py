@@ -41,17 +41,23 @@ def test_python_execution_uses_the_running_virtualenv():
     assert server.INTERPRETERS["python"] == [sys.executable, "-u"]
 
 
-def test_windows_installer_provisions_native_git_bash():
+def test_desktop_local_install_never_provisions_system_tools():
     repo_root = Path(__file__).resolve().parents[3]
-    installer = (
-        repo_root / "desktop" / "resources" / "server-bootstrap" / "install-local-server.ps1"
-    ).read_text(encoding="utf-8-sig")
-
-    assert "Git.Git" in installer
-    assert "bash-executable.txt" in installer
-    assert '"node-executable.txt", "bash-executable.txt"' in (
+    launcher = (
         repo_root / "desktop" / "src-tauri" / "src" / "local_server.rs"
     ).read_text(encoding="utf-8")
+    payload = (
+        repo_root / "desktop" / "src-tauri" / "src" / "local_payload.rs"
+    ).read_text(encoding="utf-8")
+
+    for obsolete_installer_step in ("winget", "pip install", "uv pip sync"):
+        assert obsolete_installer_step not in launcher.lower()
+        assert obsolete_installer_step not in payload.lower()
+    assert not list(
+        (repo_root / "desktop" / "resources" / "server-bootstrap").glob(
+            "install-local-server.*"
+        )
+    )
 
 
 def test_windows_workspace_rewrite_treats_backslashes_literally():

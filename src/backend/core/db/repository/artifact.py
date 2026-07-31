@@ -31,6 +31,37 @@ class ArtifactRepository:
             .first()
         )
 
+    def list_by_ids_for_user(self, artifact_ids: list[str], user_id: str) -> list[Artifact]:
+        """Return active artifacts owned by a user, preserving no caller-specific ordering."""
+        if not artifact_ids:
+            return []
+        return (
+            self.db.query(Artifact)
+            .filter(
+                Artifact.artifact_id.in_(artifact_ids),
+                Artifact.user_id == user_id,
+                Artifact.deleted_at.is_(None),
+            )
+            .all()
+        )
+
+    def soft_delete_owned(self, artifact_id: str, user_id: str) -> bool:
+        """Soft-delete any active artifact owned by the given user."""
+        artifact = (
+            self.db.query(Artifact)
+            .filter(
+                Artifact.artifact_id == artifact_id,
+                Artifact.user_id == user_id,
+                Artifact.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if not artifact:
+            return False
+        artifact.deleted_at = datetime.utcnow()
+        self.db.commit()
+        return True
+
     def list_by_user(
         self, user_id: str, artifact_type: Optional[str] = None, page: int = 1, page_size: int = 20
     ) -> tuple[List[Artifact], int]:

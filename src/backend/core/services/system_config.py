@@ -124,6 +124,17 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "sandbox",
         False,
     ),
+    # ontology —— independent enterprise governance gate for plugin imports.
+    # Unlike the user's ontology preference, this switch cannot be bypassed by
+    # turning off ontology validation in personal settings.
+    (
+        "ontology.force_plugin_import_build_validation",
+        "false",
+        "强制构建时本体校验",
+        "插件导入或安装时必须通过激活 Domain Pack 的构建校验；个人本体开关不能关闭此门禁。",
+        "ontology",
+        False,
+    ),
     # context —— tuning for conversation context compression. In-turn compression (AgentScope ContextConfig) trigger ratio:
     # compress history when estimated tokens exceed model context window × this value. Admin config takes precedence over env
     # (CHAT_COMPRESS_IN_TURN_RATIO is only the default); takes effect on new conversations after saving, no restart needed.

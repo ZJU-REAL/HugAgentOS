@@ -69,6 +69,7 @@ def test_user_can_opt_in_and_preview_runtime(ontology_client):
     assert initial.status_code == 200
     assert initial.json()["data"]["ontology_enabled"] is False
     assert initial.json()["data"]["available"] is True
+    assert initial.json()["data"]["plugin_import_build_validation_forced"] is False
 
     updated = ontology_client.patch(
         "/v1/ontologies/settings",
@@ -97,6 +98,28 @@ def test_user_can_opt_in_and_preview_runtime(ontology_client):
         json={"ontology_enabled": True},
     )
     assert unavailable.status_code == 400
+
+
+def test_admin_force_plugin_import_validation_policy_is_visible_to_users(ontology_client):
+    initial = ontology_client.get("/v1/admin/ontologies/policy")
+    assert initial.status_code == 200
+    assert initial.json()["data"]["force_plugin_import_build_validation"] is False
+
+    enabled = ontology_client.patch(
+        "/v1/admin/ontologies/policy",
+        json={"force_plugin_import_build_validation": True},
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["data"]["force_plugin_import_build_validation"] is True
+
+    user_settings = ontology_client.get("/v1/ontologies/settings")
+    assert user_settings.status_code == 200
+    assert user_settings.json()["data"]["ontology_enabled"] is False
+    assert user_settings.json()["data"]["plugin_import_build_validation_forced"] is True
+
+    ce_alias = ontology_client.get("/v1/ontologies/governance/policy")
+    assert ce_alias.status_code == 200
+    assert ce_alias.json()["data"]["force_plugin_import_build_validation"] is True
 
 
 def test_admin_metrics_endpoint_has_closed_loop_counters(ontology_client):

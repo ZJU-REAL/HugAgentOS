@@ -1,6 +1,6 @@
 # 环境变量参考
 
-> 最后更新：2026-07-16 ｜ [English](../../en/deployment/environment-variables.md) ｜ 返回 [部署指南](README.md)
+> 最后更新：2026-07-28 ｜ [English](../../en/deployment/environment-variables.md) ｜ 返回 [部署指南](README.md)
 
 > 本文是 Docker Compose 部署的全量环境变量参考。**无 Docker 一键安装**的本地模式变量（`DEPLOY_PROFILE=local` 等）由安装脚本自动写入，另见 [无 Docker 一键安装](quick-install.md) 与 `.env.example` 末尾的「无 Docker 本地模式」段。
 
@@ -97,6 +97,17 @@
 | `SESSION_COOKIE_HTTPONLY` | `true`（compose 默认） | 禁 JS 读取 | CE |
 | `SESSION_COOKIE_SAMESITE` | `lax` | CSRF 防护 | CE |
 | `SESSION_COOKIE_DOMAIN` | （空） | Cookie 域 | CE |
+
+### 问题反馈与 GitHub Issue（商业版 EE）
+
+这些变量是 `/admin`「问题处置」中 GitHub 绑定配置的部署级兜底。管理台保存到 `system_configs` 的值优先；令牌只在服务端使用，读取接口仅返回脱敏提示。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `FEEDBACK_GITHUB_REPOSITORY` | （空） | 目标仓库，格式 `owner/repository` |
+| `FEEDBACK_GITHUB_TOKEN` | （空） | 具备目标仓库 Issues 写权限的 Fine-grained PAT |
+| `FEEDBACK_GITHUB_API_URL` | `https://api.github.com` | GitHub REST API 根地址；GitHub Enterprise 可改为实例 API 地址 |
+| `FEEDBACK_PUBLIC_BASE_URL` | （空） | 可选；浏览器侧 API 根地址（如 `https://app.example.com/api`），用于生成 Issue 内反馈截图绝对链接；留空按当前域名的 `/api` 推导 |
 
 ## 数据库与 Redis
 
@@ -283,4 +294,5 @@ License 细节见 [License 机制](../editions/license.md)。
 | compose 层注入与默认值 | `docker-compose.yml`、`docker-compose.cube.yml` |
 | 沙箱 provider 选择 | `src/backend/core/sandbox/`、`settings.py::SandboxSettings` |
 | 记忆设置 | `settings.py::MemorySettings`、`src/backend/core/memory/`（service.py / pipeline.py） |
+| 问题反馈 GitHub 配置 | `src/backend/edition_ee/services/system_config.py`、`feedback_service.py` |
 | License / 版本门面 | `settings.py::LicenseSettings / EditionSettings` |

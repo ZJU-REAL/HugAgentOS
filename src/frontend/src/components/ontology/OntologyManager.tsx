@@ -99,6 +99,8 @@ export function OntologyManager({
   const [reviews, setReviews] = useState<ReviewRun[]>([]);
   const [drafts, setDrafts] = useState<OntologyDraft[]>([]);
   const [metrics, setMetrics] = useState<GovernanceMetrics | null>(null);
+  const [forcePluginImportValidation, setForcePluginImportValidation] = useState(false);
+  const [policySaving, setPolicySaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
@@ -112,12 +114,13 @@ export function OntologyManager({
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [packResp, eventResp, reviewResp, draftResp, metricsResp] = await Promise.all([
+      const [packResp, eventResp, reviewResp, draftResp, metricsResp, policyResp] = await Promise.all([
         adminFetch(token, apiPrefix),
         adminFetch(token, `${apiPrefix}/events?limit=100`),
         adminFetch(token, `${apiPrefix}/reviews?limit=100`),
         adminFetch(token, `${apiPrefix}/drafts?limit=100`),
         adminFetch(token, `${apiPrefix}/metrics`),
+        adminFetch(token, `${apiPrefix}/policy`),
       ]);
       const nextPacks = ((packResp?.data ?? packResp)?.items ?? []) as OntologyPack[];
       setPacks(nextPacks);
@@ -131,6 +134,9 @@ export function OntologyManager({
       setReviews((reviewResp?.data ?? reviewResp)?.items ?? []);
       setDrafts((draftResp?.data ?? draftResp)?.items ?? []);
       setMetrics((metricsResp?.data ?? metricsResp) ?? null);
+      setForcePluginImportValidation(Boolean(
+        (policyResp?.data ?? policyResp)?.force_plugin_import_build_validation,
+      ));
       await onChanged?.();
     } catch (err) {
       message.error(t('加载本体资产失败：{msg}', { msg: (err as Error)?.message || String(err) }));
@@ -140,6 +146,24 @@ export function OntologyManager({
   }, [apiPrefix, onChanged, token]);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
+
+  const updatePolicy = async (enabled: boolean) => {
+    setPolicySaving(true);
+    try {
+      const resp = await adminFetch(token, `${apiPrefix}/policy`, {
+        method: 'PATCH',
+        body: JSON.stringify({ force_plugin_import_build_validation: enabled }),
+      });
+      const data = resp?.data ?? resp;
+      setForcePluginImportValidation(Boolean(data?.force_plugin_import_build_validation));
+      message.success(t(enabled ? '强制本体构建校验已开启' : '强制本体构建校验已关闭'));
+      await onChanged?.();
+    } catch (err) {
+      message.error((err as Error)?.message || t('更新失败'));
+    } finally {
+      setPolicySaving(false);
+    }
+  };
 
   const updateFlags = async (pack: OntologyPack, patch: { is_enabled?: boolean; is_default?: boolean }) => {
     try {
@@ -386,6 +410,19 @@ export function OntologyManager({
         type="info"
         message={t('本体资产中心')}
         description={t('Domain Pack 版本发布后才会进入运行时；规则演进草案必须人工审核，审核通过也不会自动发布。')}
+      />
+      <Alert
+        showIcon
+        type={forcePluginImportValidation ? 'warning' : 'info'}
+        message={t('强制构建时本体校验')}
+        description={t('开启后，所有用户和管理员的插件导入/安装都必须通过激活 Domain Pack 的构建校验；个人本体开关不能关闭此门禁。')}
+        action={(
+          <Switch
+            checked={forcePluginImportValidation}
+            loading={policySaving}
+            onChange={(enabled) => void updatePolicy(enabled)}
+          />
+        )}
       />
       <Space>
         <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void loadAll()}>{t('刷新')}</Button>

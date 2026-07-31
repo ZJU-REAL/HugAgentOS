@@ -280,7 +280,7 @@ async fn setup_page(State(state): State<ProxyState>) -> Html<String> {
         )
         .replace(
             "__LOCAL_SUPPORTED__",
-            if cfg!(any(target_os = "windows", target_os = "macos")) {
+            if crate::local_payload::current_target() != "unsupported" {
                 "true"
             } else {
                 "false"
@@ -323,7 +323,7 @@ async fn init_page(State(state): State<ProxyState>) -> Html<String> {
         .replace("__CLOUD_BASE__", &html_escape(cloud_prefill.trim()))
         .replace(
             "__LOCAL_SUPPORTED__",
-            if cfg!(any(target_os = "windows", target_os = "macos")) {
+            if crate::local_payload::current_target() != "unsupported" {
                 "true"
             } else {
                 "false"

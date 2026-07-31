@@ -181,6 +181,7 @@ def _run_subagent_in_thread(
     shared_messages: Optional[List[Dict[str, Any]]] = None,
     emit: Optional[Callable[[Dict[str, Any]], None]] = None,
     ontology_runtime: Optional[Dict[str, Any]] = None,
+    parent_runtime: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, str, List[Dict[str, Any]]]:
     """Run a single sub-agent inside a *new* event loop on a worker thread.
 
@@ -203,37 +204,56 @@ def _run_subagent_in_thread(
         from agentscope.message import Msg
         from core.db.engine import SessionLocal
         from core.llm.agent_factory import create_agent_executor
+        from core.llm.builtin_subagents import build_builtin_runtime_profile, get_builtin_subagent
         from core.llm.mcp_manager import close_clients
         from core.llm.message_compat import session_to_msgs, strip_thinking
         from core.services.user_agent_service import UserAgentService
 
-        with SessionLocal() as db:
-            svc = UserAgentService(db)
-            user_agent = svc.get_raw_by_id(agent_id, user_id=current_user_id)
-            _ = user_agent.mcp_server_ids, user_agent.skill_ids, user_agent.kb_ids
-            _ = user_agent.system_prompt, user_agent.model_provider_id
-            _ = (
-                user_agent.max_iters,
-                user_agent.temperature,
-                user_agent.max_tokens,
-                user_agent.timeout,
-            )
+        builtin_spec = get_builtin_subagent(agent_id)
+        if builtin_spec is not None:
+            user_agent = build_builtin_runtime_profile(builtin_spec, parent_runtime)
+        else:
+            with SessionLocal() as db:
+                svc = UserAgentService(db)
+                user_agent = svc.get_raw_by_id(agent_id, user_id=current_user_id)
+                _ = user_agent.mcp_server_ids, user_agent.skill_ids, user_agent.kb_ids
+                _ = user_agent.system_prompt, user_agent.model_provider_id
+                _ = (
+                    user_agent.max_iters,
+                    user_agent.temperature,
+                    user_agent.max_tokens,
+                    user_agent.timeout,
+                )
 
-        # The sub-agent uses an "independent user-bound persistent sandbox" — the same
-        # _create_jupyter_sandbox path as the main conversation, mounting that user's
-        # credential volumes (lark/dws/email/myspace) so Feishu/DingTalk/email CLI plugins
-        # get credentials inside the sub-agent too. A unique session id isolates it from
-        # the main conversation and concurrent sub-agents (no shared container state);
-        # explicitly destroyed in finally after the run to avoid sandbox pile-up.
-        # (The old implementation passed sandbox_session_id="" which went through the
-        #  ephemeral light pool — a credential-less sandbox, and exactly the root cause of
-        #  lark-cli reporting "not configured" inside sub-agents.)
-        sub_session_id = f"sub-{agent_id}-{uuid.uuid4().hex[:12]}"
+        # Platform built-ins share the main project's sandbox so they see the same live
+        # workspace. User-defined agents retain the existing independent, user-bound
+        # persistent sandbox: a unique session keeps concurrent custom agents isolated and
+        # is explicitly destroyed after the run. Conversation inheritance is an orthogonal
+        # policy controlled by shared_messages below.
+        runtime = parent_runtime or {}
+        if builtin_spec is not None:
+            # Explorer/reviewer inspect the live workspace read-only; worker can continue
+            # the bounded implementation task there.
+            sub_session_id = runtime.get("sandbox_session_id") or runtime.get("chat_id")
+            should_close_sandbox = False
+        else:
+            sub_session_id = f"sub-{agent_id}-{uuid.uuid4().hex[:12]}"
+            should_close_sandbox = True
         agent, mcp_clients = await create_agent_executor(
             user_agent=user_agent,
             current_user_id=current_user_id,
             isolated=True,
             sandbox_session_id=sub_session_id,
+            chat_id=runtime.get("chat_id") if builtin_spec is not None else None,
+            project_ctx=runtime.get("project_ctx") if builtin_spec is not None else None,
+            channel_origin=runtime.get("channel_origin") if builtin_spec is not None else None,
+            automation_run=bool(runtime.get("automation_run")),
+            reranker_enabled=bool(runtime.get("reranker_enabled")),
+            model_name=runtime.get("model_name"),
+            model_provider_id=runtime.get("model_provider_id"),
+            chat_mode=runtime.get("chat_mode"),
+            read_only=bool(builtin_spec and builtin_spec.read_only),
+            allow_bash=not builtin_spec or builtin_spec.allow_bash,
             ontology_runtime=ontology_runtime,
         )
         # The sub-agent runs in its own thread/event loop → its own workspace ContextVar.
@@ -282,18 +302,18 @@ def _run_subagent_in_thread(
             response_text = (final_msg.get_text_content() if final_msg else "") or ""
             return True, strip_thinking(response_text), _ws.get_pinned()
         finally:
-            # Destroy the sub-agent's dedicated sandbox session (the unique session is never
-            # reused and must be reclaimed explicitly — otherwise every call leaks one
-            # persistent sandbox, and relying on the idle reaper as backstop is too slow).
+            # Destroy only a custom agent's dedicated sandbox session. Platform built-ins
+            # share the parent session and therefore must never close it here.
             # close_session is a SandboxProvider protocol method; each provider decides its
             # own semantics (opensandbox/cube destroy; script_runner no-op), so no getattr
             # fallback is needed.
-            try:
-                from core.sandbox import get_sandbox_provider
+            if should_close_sandbox:
+                try:
+                    from core.sandbox import get_sandbox_provider
 
-                await get_sandbox_provider().close_session(sub_session_id)
-            except BaseException as exc:
-                logger.debug("subagent close_session error (ignored): %s", exc)
+                    await get_sandbox_provider().close_session(sub_session_id)
+                except BaseException as exc:
+                    logger.debug("subagent close_session error (ignored): %s", exc)
             try:
                 await close_clients(mcp_clients)
             except BaseException as exc:
@@ -320,6 +340,7 @@ def register_subagent_tool(
     current_user_id: str,
     agent_ref: Optional[Dict] = None,
     chat_id: Optional[str] = None,
+    parent_runtime: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Register the call_subagent tool into the main agent's toolkit.
 
@@ -339,9 +360,9 @@ def register_subagent_tool(
     ) -> ToolResponse:
         """调用子智能体执行专业任务。子智能体拥有独立的工具和专业知识。
 
-        子智能体看不到当前对话历史，因此 task 必须包含足够的背景信息。
-        像给一个刚加入的同事布置任务一样编写 task：说明要完成什么、为什么、
-        已知什么信息、需要回答什么具体问题。
+        每个子智能体的上下文策略见系统提示列表：继承主对话的角色会自动获得完整历史，
+        独立简报角色只看到 task 和 context_summary。对于独立简报角色，要像给一个刚加入的
+        同事布置任务一样说明要完成什么、为什么、已知什么信息和需要回答什么具体问题。
         不要委托理解——不要写"根据你的发现帮我总结"，而是说明具体要分析什么。
 
         需要并行调用多个子智能体时，在同一轮回复中生成多个 call_subagent 调用，
@@ -431,14 +452,14 @@ def register_subagent_tool(
             _emit({"sub_type": "start", "task": task[:200]})
 
         # ── Sub-agent call log: same table as plan_mode (subagent_call_logs), typed
-        # user_agent, so "Config console → sub-agent call logs" no longer shows only plan
-        # mode — every call_subagent dispatch of a user-built sub-agent becomes an auditable
-        # record. Best-effort, never blocks tool execution. ──
+        # user_agent/builtin_<role>, so every call_subagent dispatch becomes an
+        # auditable record. Best-effort, never blocks tool execution. ──
+        builtin_role = (agent_info.get("extra_config") or {}).get("builtin_role")
         _run_start = time.monotonic()
         _sub_log_id = await log_writer.start_subagent_log(
             {
                 "subagent_name": agent_name,
-                "subagent_type": "user_agent",
+                "subagent_type": f"builtin_{builtin_role}" if builtin_role else "user_agent",
                 "subagent_id": agent_id,
                 "input_messages": {"task": task, "context_summary": context_summary},
             }
@@ -471,6 +492,7 @@ def register_subagent_tool(
                 shared_messages,
                 _emit,
                 ontology_runtime,
+                parent_runtime,
             )
 
             # Feed the files the sub-agent pinned to its workspace back into the main
@@ -543,11 +565,36 @@ def register_subagent_tool(
 
 
 def _get_tools_desc(agent_info: Dict[str, Any]) -> str:
-    """Return a short comma-separated list of MCP tools available to the agent."""
+    """Return the effective, role-filtered capability summary shown to the router."""
     mcp_ids = agent_info.get("mcp_server_ids") or []
-    if not mcp_ids:
-        return "默认工具集"
-    return ", ".join(mcp_ids)
+    skill_ids = agent_info.get("skill_ids") or []
+    kb_ids = agent_info.get("kb_ids") or []
+    extra = agent_info.get("extra_config") or {}
+    builtin_role = extra.get("builtin_role")
+
+    if not builtin_role:
+        return ", ".join(mcp_ids) if mcp_ids else "按该子智能体自身配置"
+
+    capabilities: List[str] = ["制品读取"]
+    sandbox_enabled = bool(extra.get("sandbox_tools_enabled"))
+    code_enabled = bool(extra.get("code_capability_enabled"))
+    read_only = bool(extra.get("read_only"))
+
+    if sandbox_enabled:
+        capabilities.append("沙盒文件查看" if read_only else "沙盒制品读写")
+        if bool(extra.get("allow_bash")):
+            capabilities.append("Bash")
+    if code_enabled:
+        capabilities.append(
+            "Read/Glob/Grep" if read_only else "Read/Edit/Write/Glob/Grep/Delete/Move/CreateFolder"
+        )
+    if skill_ids:
+        capabilities.append("技能：" + ", ".join(skill_ids))
+    if mcp_ids:
+        capabilities.append("MCP：" + ", ".join(mcp_ids))
+    if kb_ids:
+        capabilities.append("知识库：" + ", ".join(kb_ids))
+    return "；".join(capabilities)
 
 
 def build_subagent_prompt_section(
@@ -569,21 +616,32 @@ def build_subagent_prompt_section(
         desc = a.get("description", "")
         tools = _get_tools_desc(a)
         has_shared = (a.get("extra_config") or {}).get("shared_context", False)
-        ctx_col = "是" if has_shared else "否"
+        ctx_col = "继承主对话" if has_shared else "独立简报"
         rows.append(f"| {a['agent_id']} | {a['name']} | {desc} | {tools} | {ctx_col} |")
         if has_shared:
             shared_agents.append(a["name"])
 
-    table = "| ID | 名称 | 适用场景 | 可用工具 | 共享上下文 |\n|---|---|---|---|---|\n" + "\n".join(
-        rows
+    table = (
+        "| ID | 名称 | 适用场景 | 本轮可用能力 | 上下文策略 |\n"
+        "|---|---|---|---|---|\n" + "\n".join(rows)
     )
 
     section = (
         "## 可用子智能体\n\n"
         "你可以通过 `call_subagent` 工具将专业任务分派给子智能体处理。"
         "每个子智能体拥有独立的工具和专业知识。\n\n" + table + "\n\n"
+        "### 默认子智能体能力边界\n"
+        "- 上表中平台默认角色的「本轮可用能力」只列主智能体本轮最终启用、"
+        "且该角色策略允许继承的能力；未列出的技能、MCP、知识库或基础工具均不可用\n"
+        "- 主智能体关闭、用户未授权、管理员停用或运行时过滤掉的能力，"
+        "不会出现在上表，也不会下放给默认子智能体\n"
+        "- 探索员和审查员只获得只读基础工具、父级可访问知识库及父级已启用的查询型 MCP 交集；"
+        "不继承技能，不获得 Bash、文件写入或写型 MCP\n"
+        "- 执行员继承上表明确列出的父级技能、MCP 和知识库；"
+        "只有本轮相应系统能力已开启时，才获得 Bash 或文件读写工具\n"
+        "- 三个默认角色都没有 `update_plan` 和 `call_subagent`，不能维护主任务计划或继续委派\n\n"
         "### 何时使用子智能体\n"
-        "- 任务需要子智能体拥有的专业工具（参见上表「可用工具」列）\n"
+        "- 任务需要子智能体拥有的专业工具（参见上表「本轮可用能力」列）\n"
         "- 用户通过 @名称 明确指定时\n"
         "- 需要多个独立信息源时，在同一轮并行调用多个子智能体以提高效率\n\n"
         "### 何时不使用子智能体\n"
@@ -591,7 +649,7 @@ def build_subagent_prompt_section(
         "- 简单问答或你已有足够信息直接回答的问题\n"
         "- 不确定是否需要时，优先自己处理\n\n"
         "### 编写 task 描述的要求\n"
-        "除标注「共享上下文=是」的子智能体外，其余子智能体看不到当前对话历史。"
+        "标注「独立简报」的子智能体看不到当前对话历史。"
         "像给一个刚加入的同事布置任务一样编写 task：\n"
         "- 说明要完成什么，以及为什么需要这个信息\n"
         "- 描述你已经了解到或排除了什么\n"
@@ -599,8 +657,8 @@ def build_subagent_prompt_section(
         "- 如果需要简短回复，明确说明（如「200字以内」）\n"
         "- **不要委托理解**——不要写「根据你的分析帮我总结」，"
         "而是说明具体要查什么数据、对比什么指标、回答什么问题\n\n"
-        "### 共享上下文子智能体\n"
-        "标注「共享上下文=是」的子智能体能自动读取当前完整对话历史（含工具调用结果），"
+        "### 继承主对话的子智能体\n"
+        "标注「继承主对话」的子智能体能自动读取当前完整对话历史（含工具调用结果），"
         "无需在 task 中重复传递已有信息。对这类子智能体，task 只需简洁说明要执行的操作。\n\n"
         "### 处理结果\n"
         "- 子智能体的回复对用户不可见，你必须汇总整合后呈现给用户\n"

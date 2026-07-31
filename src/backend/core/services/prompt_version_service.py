@@ -1,6 +1,6 @@
 """Prompt version pool service.
 
-Stores multiple versions of system / code_exec / distillation prompts in
+Stores multiple versions of system / code_exec / distillation / sub-agent prompts in
 ContentBlock(id="prompt_versions") and provides activation + CRUD.
 
 Design:
@@ -8,7 +8,7 @@ Design:
 - Each version has (kind, id) as its composite key.
 - `get_active_version(kind)` returns the currently active version for a kind,
   or None if the DB is empty — callers then fall back to filesystem.
-- Filesystem directories (v4/, code_exec/, distillation/) serve as the
+- Filesystem directories (default/, code_exec/, distillation/, subagents/) serve as the
   "seed" and as the last-resort fallback when DB is unreachable.
 """
 
@@ -21,19 +21,15 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
-
-from core.content.content_blocks import (
-    DEFAULT_PROMPT_VERSIONS,
-    PROMPT_VERSIONS_BLOCK_ID,
-)
+from core.content.content_blocks import DEFAULT_PROMPT_VERSIONS, PROMPT_VERSIONS_BLOCK_ID
 from core.db.engine import SessionLocal
 from core.db.models import ContentBlock
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 
-VALID_KINDS = ("system", "code_exec", "distillation", "plan_mode")
+VALID_KINDS = ("system", "code_exec", "distillation", "plan_mode", "subagents")
 
 # Process-local cache for the payload, invalidated on write.
 _payload_cache: Optional[Dict[str, Any]] = None
@@ -41,6 +37,7 @@ _payload_cache_lock = Lock()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def _backend_root() -> Path:
     # src/backend
@@ -57,6 +54,8 @@ def _fs_dir(kind: str) -> Path:
         return root / "distillation"
     if kind == "plan_mode":
         return root / "plan_mode"
+    if kind == "subagents":
+        return root / "subagents"
     raise ValueError(f"unknown kind: {kind}")
 
 
@@ -65,12 +64,13 @@ def _read_fs_parts(kind: str) -> List[Dict[str, Any]]:
 
     For system/code_exec: each *.system.md file under the kind's system/ dir
     becomes one part. part_id = "system/<name>" (name stripped of .system.md).
-    For distillation / plan_mode: single *.system.md → one part.
+    For distillation/subagents: every file is an independent prompt part.
+    For plan_mode: its single file becomes one part.
     """
     parts: List[Dict[str, Any]] = []
     dirp = _fs_dir(kind)
 
-    if kind == "distillation":
+    if kind in {"distillation", "subagents"}:
         # Each *.system.md is a separate part (skill_distiller is always first, for
         # backward compatibility).
         # Note: distillation's parts are mutually independent prompts (used individually
@@ -78,31 +78,34 @@ def _read_fs_parts(kind: str) -> List[Dict[str, Any]]:
         # into a single prompt.
         if not dirp.is_dir():
             return parts
-        files = sorted(
-            (f for f in os.listdir(dirp) if f.endswith(".system.md")),
-            key=lambda f: (f != "skill_distiller.system.md", f),
-        )
+        files = sorted(f for f in os.listdir(dirp) if f.endswith(".system.md"))
+        if kind == "distillation":
+            files.sort(key=lambda f: (f != "skill_distiller.system.md", f))
         for idx, fname in enumerate(files):
             name = fname[: -len(".system.md")]
-            parts.append({
-                "part_id": name,
-                "display_name": name,
-                "content": (dirp / fname).read_text(encoding="utf-8"),
-                "sort_order": idx * 10,
-                "is_enabled": True,
-            })
+            parts.append(
+                {
+                    "part_id": name,
+                    "display_name": name,
+                    "content": (dirp / fname).read_text(encoding="utf-8"),
+                    "sort_order": idx * 10,
+                    "is_enabled": True,
+                }
+            )
         return parts
 
     if kind == "plan_mode":
         fp = dirp / "plan_mode.system.md"
         if fp.exists():
-            parts.append({
-                "part_id": "plan_mode",
-                "display_name": "plan_mode",
-                "content": fp.read_text(encoding="utf-8"),
-                "sort_order": 0,
-                "is_enabled": True,
-            })
+            parts.append(
+                {
+                    "part_id": "plan_mode",
+                    "display_name": "plan_mode",
+                    "content": fp.read_text(encoding="utf-8"),
+                    "sort_order": 0,
+                    "is_enabled": True,
+                }
+            )
         return parts
 
     if not dirp.is_dir():
@@ -112,13 +115,15 @@ def _read_fs_parts(kind: str) -> List[Dict[str, Any]]:
         name = fname[: -len(".system.md")]
         content = (dirp / fname).read_text(encoding="utf-8")
         part_id = f"system/{name}"
-        parts.append({
-            "part_id": part_id,
-            "display_name": name,
-            "content": content,
-            "sort_order": idx * 10,
-            "is_enabled": True,
-        })
+        parts.append(
+            {
+                "part_id": part_id,
+                "display_name": name,
+                "content": content,
+                "sort_order": idx * 10,
+                "is_enabled": True,
+            }
+        )
     return parts
 
 
@@ -140,6 +145,10 @@ def _default_version_for_kind(kind: str, version_id: Optional[str] = None) -> Di
         vid = version_id or "default"
         name = "default - 计划模式"
         desc = "Plan 模式下用于拆解用户任务为可执行步骤的 sub-agent 系统提示词"
+    elif kind == "subagents":
+        vid = version_id or "default"
+        name = "default - 平台默认子智能体"
+        desc = "探索员、执行员和审查员三个平台内置角色的独立系统提示词"
     else:
         raise ValueError(f"unknown kind: {kind}")
 
@@ -157,6 +166,7 @@ def _default_version_for_kind(kind: str, version_id: Optional[str] = None) -> Di
 
 # ── Payload load / save ─────────────────────────────────────────────────────
 
+
 def _load_payload(db: Optional[Session] = None) -> Dict[str, Any]:
     """Read current prompt_versions payload from DB (cached)."""
     global _payload_cache
@@ -169,9 +179,7 @@ def _load_payload(db: Optional[Session] = None) -> Dict[str, Any]:
     if own_session:
         db = SessionLocal()
     try:
-        row = db.query(ContentBlock).filter(
-            ContentBlock.id == PROMPT_VERSIONS_BLOCK_ID
-        ).first()
+        row = db.query(ContentBlock).filter(ContentBlock.id == PROMPT_VERSIONS_BLOCK_ID).first()
         if row and isinstance(row.payload, dict):
             payload = row.payload
         else:
@@ -195,9 +203,7 @@ def _save_payload(
     if own_session:
         db = SessionLocal()
     try:
-        row = db.query(ContentBlock).filter(
-            ContentBlock.id == PROMPT_VERSIONS_BLOCK_ID
-        ).first()
+        row = db.query(ContentBlock).filter(ContentBlock.id == PROMPT_VERSIONS_BLOCK_ID).first()
         now = datetime.now(timezone.utc)
         if row:
             row.payload = payload
@@ -228,10 +234,12 @@ def invalidate_cache() -> None:
 
 def _clone(obj: Any) -> Any:
     import copy
+
     return copy.deepcopy(obj)
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
+
 
 def list_versions(kind: Optional[str] = None, db: Optional[Session] = None) -> List[Dict[str, Any]]:
     payload = _load_payload(db)
@@ -241,20 +249,24 @@ def list_versions(kind: Optional[str] = None, db: Optional[Session] = None) -> L
     for v in versions:
         if kind and v.get("kind") != kind:
             continue
-        items.append({
-            "id": v.get("id"),
-            "kind": v.get("kind"),
-            "name": v.get("name") or v.get("id"),
-            "description": v.get("description") or "",
-            "parts_count": len(v.get("parts") or []),
-            "is_active": active.get(v.get("kind")) == v.get("id"),
-            "created_at": v.get("created_at"),
-            "updated_at": v.get("updated_at"),
-        })
+        items.append(
+            {
+                "id": v.get("id"),
+                "kind": v.get("kind"),
+                "name": v.get("name") or v.get("id"),
+                "description": v.get("description") or "",
+                "parts_count": len(v.get("parts") or []),
+                "is_active": active.get(v.get("kind")) == v.get("id"),
+                "created_at": v.get("created_at"),
+                "updated_at": v.get("updated_at"),
+            }
+        )
     return items
 
 
-def get_version(kind: str, version_id: str, db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
+def get_version(
+    kind: str, version_id: str, db: Optional[Session] = None
+) -> Optional[Dict[str, Any]]:
     if kind not in VALID_KINDS:
         return None
     payload = _load_payload(db)
@@ -301,7 +313,9 @@ def upsert_version(
     versions: List[Dict[str, Any]] = payload.setdefault("versions", [])
     now = datetime.now(timezone.utc).isoformat()
 
-    existing = next((v for v in versions if v.get("kind") == kind and v.get("id") == version_id), None)
+    existing = next(
+        (v for v in versions if v.get("kind") == kind and v.get("id") == version_id), None
+    )
 
     # If cloning, look up source (optional)
     source_parts: List[Dict[str, Any]] = []
@@ -376,6 +390,7 @@ def activate_version(kind: str, version_id: str, db: Optional[Session] = None) -
     # Downstream prompt builders cache by (active_id, updated_at); poke their cache too.
     try:
         from prompts.prompt_runtime import invalidate_prompt_cache
+
         invalidate_prompt_cache()
     except Exception:
         pass
@@ -387,19 +402,24 @@ def _normalize_parts(parts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         pid = (p.get("part_id") or "").strip()
         if not pid:
             continue
-        result.append({
-            "part_id": pid,
-            "display_name": p.get("display_name") or pid.split("/")[-1],
-            "content": p.get("content") or "",
-            "sort_order": int(p.get("sort_order") if p.get("sort_order") is not None else idx * 10),
-            "is_enabled": bool(p.get("is_enabled", True)),
-        })
+        result.append(
+            {
+                "part_id": pid,
+                "display_name": p.get("display_name") or pid.split("/")[-1],
+                "content": p.get("content") or "",
+                "sort_order": int(
+                    p.get("sort_order") if p.get("sort_order") is not None else idx * 10
+                ),
+                "is_enabled": bool(p.get("is_enabled", True)),
+            }
+        )
     # Stable sort by sort_order
     result.sort(key=lambda x: x["sort_order"])
     return result
 
 
 # ── Seeding ─────────────────────────────────────────────────────────────────
+
 
 def seed_from_filesystem(
     *,
@@ -420,7 +440,9 @@ def seed_from_filesystem(
     # Keeps the user's existing edits; the name change aligns the in-code
     # default version id with other kinds (code_exec/default, distillation/default, …).
     v4_row = next((v for v in versions if v.get("kind") == "system" and v.get("id") == "v4"), None)
-    default_row = next((v for v in versions if v.get("kind") == "system" and v.get("id") == "default"), None)
+    default_row = next(
+        (v for v in versions if v.get("kind") == "system" and v.get("id") == "default"), None
+    )
     if v4_row and not default_row:
         v4_row["id"] = "default"
         # Refresh display name only if it still looks like the factory label
@@ -451,26 +473,30 @@ def seed_from_filesystem(
             v["parts"] = new_parts
         if extracted_content:
             now = datetime.now(timezone.utc).isoformat()
-            versions.append({
-                "id": "default",
-                "kind": "plan_mode",
-                "name": "default - 计划模式（从 v4 迁移）",
-                "description": "由历史 v4 system/90_plan_mode 片段迁移而来的 plan_mode 默认版本",
-                "parts": [{
-                    "part_id": "plan_mode",
-                    "display_name": "plan_mode",
-                    "content": extracted_content,
-                    "sort_order": 0,
-                    "is_enabled": True,
-                }],
-                "created_at": now,
-                "updated_at": now,
-            })
+            versions.append(
+                {
+                    "id": "default",
+                    "kind": "plan_mode",
+                    "name": "default - 计划模式（从 v4 迁移）",
+                    "description": "由历史 v4 system/90_plan_mode 片段迁移而来的 plan_mode 默认版本",
+                    "parts": [
+                        {
+                            "part_id": "plan_mode",
+                            "display_name": "plan_mode",
+                            "content": extracted_content,
+                            "sort_order": 0,
+                            "is_enabled": True,
+                        }
+                    ],
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
             active["plan_mode"] = "default"
             added.append("plan_mode/default (migrated)")
             changed = True
 
-    # Default versions (v4 system + code_exec + distillation + plan_mode)
+    # Default versions (system + code_exec + distillation + plan_mode + subagents)
     for kind in VALID_KINDS:
         default_id = DEFAULT_PROMPT_VERSIONS["active"].get(kind)
         if default_id and not exists(kind, default_id):
@@ -500,6 +526,26 @@ def seed_from_filesystem(
                 added.append(f"distillation/{dist_default_id}:{fs_part['part_id']}")
                 changed = True
 
+    # Backfill platform sub-agent role prompts without overwriting operator edits.
+    subagents_default_id = DEFAULT_PROMPT_VERSIONS["active"].get("subagents") or "default"
+    subagents_default = next(
+        (
+            v
+            for v in versions
+            if v.get("kind") == "subagents" and v.get("id") == subagents_default_id
+        ),
+        None,
+    )
+    if subagents_default is not None:
+        existing_pids = {
+            (p.get("part_id") or "").strip() for p in subagents_default.get("parts") or []
+        }
+        for fs_part in _read_fs_parts("subagents"):
+            if fs_part["part_id"] not in existing_pids:
+                subagents_default.setdefault("parts", []).append(fs_part)
+                added.append(f"subagents/{subagents_default_id}:{fs_part['part_id']}")
+                changed = True
+
     if added or changed:
         _save_payload(payload, db=db, updated_by="system_seed")
         if added:
@@ -508,6 +554,7 @@ def seed_from_filesystem(
 
 
 # ── Assembled prompt helpers (used by runtime callers) ──────────────────────
+
 
 def render_active_prompt(kind: str, db: Optional[Session] = None) -> Optional[str]:
     """Concatenate enabled parts of the active version into a single string.
@@ -533,7 +580,7 @@ def render_active_prompt_part(
 ) -> Optional[str]:
     """Return a single named part of the active version (independent prompts).
 
-    Used by distillation-family prompts where each part is a standalone
+    Used by distillation and platform-subagent prompts where each part is a standalone
     system prompt (skill_distiller / session_digest / colleague_distiller /
     personal_distiller) rather than a concatenation segment.
 
@@ -578,17 +625,11 @@ def render_code_capability_segment(db: Optional[Session] = None) -> str:
     except Exception:
         logger.debug("render code_exec active prompt failed", exc_info=True)
     # Filesystem fallback: src/backend/prompts/prompt_text/code_exec/system/
-    backend_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(__file__))
-    )
-    ce_dir = os.path.join(
-        backend_root, "prompts", "prompt_text", "code_exec", "system"
-    )
+    backend_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    ce_dir = os.path.join(backend_root, "prompts", "prompt_text", "code_exec", "system")
     if os.path.isdir(ce_dir):
         parts: List[str] = []
-        for fn in sorted(
-            f for f in os.listdir(ce_dir) if f.endswith(".system.md")
-        ):
+        for fn in sorted(f for f in os.listdir(ce_dir) if f.endswith(".system.md")):
             try:
                 with open(os.path.join(ce_dir, fn), "r", encoding="utf-8") as f:
                     parts.append(f.read())

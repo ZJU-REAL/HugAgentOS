@@ -28,6 +28,7 @@ import os
 import signal
 import sys
 import time
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from core.config.settings import settings
@@ -37,6 +38,17 @@ logger = get_logger(__name__)
 
 # (label, argv) for each managed child. argv[0] is the current interpreter.
 _PROCS: List[Tuple[str, "asyncio.subprocess.Process"]] = []
+# label → argv：看门狗按此重拉挂掉的 sidecar。
+_SPECS: dict = {}
+_WATCHDOG: "asyncio.Task | None" = None
+_SHUTTING_DOWN = False
+
+# Child interpreters are launched with ``python -m`` rather than through the
+# backend CLI file.  Python therefore searches their working directory instead
+# of automatically adding ``src/backend`` (the CLI script's directory) to
+# ``sys.path``.  Keep the packaged source root explicit so the desktop runtime
+# can import ``mcp_servers`` and ``services`` on every platform.
+_BACKEND_DIR = str(Path(__file__).resolve().parents[1])
 
 # These are not optional conveniences in the local/desktop product: they back
 # the three plugins installed on the first zero-state boot.  Keeping this
@@ -66,6 +78,12 @@ def _child_env() -> dict:
     # single-machine profile.
     env["MCP_HOST"] = "127.0.0.1"
     env["MCP_BIND_HOST"] = "127.0.0.1"
+    inherited_pythonpath = [
+        entry for entry in env.get("PYTHONPATH", "").split(os.pathsep) if entry
+    ]
+    pythonpath = [_BACKEND_DIR]
+    pythonpath.extend(entry for entry in inherited_pythonpath if entry != _BACKEND_DIR)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath)
     return env
 
 
@@ -78,6 +96,7 @@ async def _spawn(label: str, argv: List[str]) -> Optional["asyncio.subprocess.Pr
             stderr=None,
         )
         _PROCS.append((label, proc))
+        _SPECS[label] = list(argv)
         logger.info("local_sidecar_spawned", sidecar=label, pid=proc.pid)
         return proc
     except Exception as exc:  # noqa: BLE001 — normalized into readiness failure by caller
@@ -178,8 +197,10 @@ async def _verify_required_plugin_tools(ports: dict[str, int]) -> None:
 
 async def start_local_sidecars() -> None:
     """Spawn the MCP launcher + script_runner sidecar (local profile only)."""
+    global _SHUTTING_DOWN
     if not settings.deploy.is_local:
         return
+    _SHUTTING_DOWN = False
     py = sys.executable or "python"
 
     from mcp_servers._launcher import PORTS as launcher_ports
@@ -223,6 +244,23 @@ async def start_local_sidecars() -> None:
         if runner is None:
             await stop_local_sidecars()
             raise RuntimeError("无法启动本机代码执行服务")
+        # 绑定失败（如 8900 被其它程序 / 另一产品的本机面占用）时进程会立刻退出，
+        # 但 _spawn 只看拉起瞬间——这里显式等端口就绪，问题在启动期暴露，
+        # 而不是等到用户第一次执行命令才报「无法连接脚本执行服务」。
+        runner_deadline = asyncio.get_event_loop().time() + _ready_timeout_seconds()
+        while not await _tcp_port_ready("127.0.0.1", 8900):
+            if runner.returncode is not None:
+                await stop_local_sidecars()
+                raise RuntimeError(
+                    f"本机代码执行服务启动即退出（exit={runner.returncode}）——"
+                    "多为运行环境/依赖问题，请把安装日志末尾的报错反馈"
+                )
+            if asyncio.get_event_loop().time() > runner_deadline:
+                await stop_local_sidecars()
+                raise RuntimeError(
+                    "本机代码执行服务未就绪（127.0.0.1:8900）——端口可能被其它程序占用"
+                )
+            await asyncio.sleep(0.5)
 
     # Do not let uvicorn finish its lifespan (and therefore let the desktop
     # shell report /health as ready) until the sidecars behind the advertised
@@ -243,9 +281,44 @@ async def start_local_sidecars() -> None:
         await stop_local_sidecars()
         raise
 
+    # 看门狗：sidecar 进程挂掉后自动重拉（此前无守护，runner 一死整个执行
+    # 能力就停摆到重启应用为止）。带 10s 退避，关停期间不再拉起。
+    global _WATCHDOG
+    if _WATCHDOG is None or _WATCHDOG.done():
+        _WATCHDOG = asyncio.get_event_loop().create_task(_supervise_sidecars())
+
+
+async def _supervise_sidecars() -> None:
+    while True:
+        await asyncio.sleep(20)
+        if _SHUTTING_DOWN:
+            return
+        for index, (label, proc) in enumerate(list(_PROCS)):
+            if proc.returncode is None:
+                continue
+            logger.warning(
+                "local_sidecar_exited", sidecar=label, returncode=proc.returncode
+            )
+            try:
+                _PROCS.remove((label, proc))
+            except ValueError:
+                pass
+            argv = _SPECS.get(label)
+            if not argv or _SHUTTING_DOWN:
+                continue
+            await asyncio.sleep(10)
+            replacement = await _spawn(label, argv)
+            if replacement is None:
+                logger.warning("local_sidecar_respawn_failed", sidecar=label)
+
 
 async def stop_local_sidecars() -> None:
     """Terminate managed children (SIGTERM, then SIGKILL) on shutdown."""
+    global _SHUTTING_DOWN, _WATCHDOG
+    _SHUTTING_DOWN = True
+    if _WATCHDOG is not None:
+        _WATCHDOG.cancel()
+        _WATCHDOG = None
     if not _PROCS:
         return
     for label, proc in _PROCS:

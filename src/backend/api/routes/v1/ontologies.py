@@ -15,6 +15,10 @@ from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.infra.responses import success_response
 from core.services import UserService
 from core.services.ontology_service import OntologyService
+from core.services.ontology_policy import (
+    plugin_import_build_validation_forced,
+    set_plugin_import_build_validation_forced,
+)
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -26,6 +30,10 @@ router = APIRouter(tags=["Ontologies"])
 class OntologySettingsRequest(BaseModel):
     ontology_enabled: bool
     ontology_pack_ids: list[str] | None = Field(default=None, max_length=20)
+
+
+class OntologyGovernancePolicyRequest(BaseModel):
+    force_plugin_import_build_validation: bool
 
 
 class OntologyVersionRequest(BaseModel):
@@ -120,6 +128,9 @@ async def get_ontology_settings(
             "ontology_enabled": bool(settings.get("ontology_enabled", False)),
             "ontology_pack_ids": selected,
             "available": bool(active),
+            "plugin_import_build_validation_forced": (
+                plugin_import_build_validation_forced(db)
+            ),
             "active_packs": [
                 {"pack_id": row.pack_id, "version_id": row.version_id, "version": row.version}
                 for row in active
@@ -192,6 +203,49 @@ async def ontology_governance_access(
     """Let the settings page hide global governance controls from unauthorized users."""
     allowed = bool(user) and user_can_manage_ontology_governance(db, user.user_id)
     return success_response(data={"allowed": allowed, "edition": settings.edition.edition})
+
+
+@router.get(
+    "/v1/ontologies/governance/policy",
+    dependencies=[Depends(require_ontology_governance)],
+    summary="CE 设置页获取本体治理策略",
+)
+@router.get(
+    "/v1/admin/ontologies/policy",
+    dependencies=[Depends(require_admin)],
+    summary="获取本体治理策略",
+)
+async def get_ontology_governance_policy(db: Session = Depends(get_db)):
+    return success_response(
+        data={
+            "force_plugin_import_build_validation": (
+                plugin_import_build_validation_forced(db)
+            )
+        }
+    )
+
+
+@router.patch(
+    "/v1/ontologies/governance/policy",
+    dependencies=[Depends(require_ontology_governance)],
+    summary="CE 设置页更新本体治理策略",
+)
+@router.patch(
+    "/v1/admin/ontologies/policy",
+    dependencies=[Depends(require_admin)],
+    summary="更新本体治理策略",
+)
+async def update_ontology_governance_policy(
+    body: OntologyGovernancePolicyRequest,
+    db: Session = Depends(get_db),
+):
+    enabled = set_plugin_import_build_validation_forced(
+        db,
+        body.force_plugin_import_build_validation,
+    )
+    return success_response(
+        data={"force_plugin_import_build_validation": enabled}
+    )
 
 
 @router.get(

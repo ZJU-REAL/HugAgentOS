@@ -498,9 +498,11 @@ def _resolve_chat_agent_targets(
     constrain its next real tool call to ``call_subagent``. Only a persistent
     ``agent_id`` conversation executes the selected sub-agent directly.
     """
+    from core.llm.builtin_subagents import get_builtin_subagent, merge_builtin_subagents
     from core.services.user_agent_service import UserAgentService
 
     service = UserAgentService(db)
+    available_delegates = merge_builtin_subagents(service.list_for_user(user_id))
     persistent_agent_name: Optional[str] = None
     execution_message = request.message
     explicit_command = None
@@ -519,16 +521,22 @@ def _resolve_chat_agent_targets(
 
         explicit_command = parse_explicit_subagent_command(
             request.message,
-            service.list_for_user(user_id),
+            available_delegates,
         )
         if explicit_command:
             return request, persistent_agent_name, explicit_command.task, explicit_command
 
     if mention_agent_id:
-        try:
-            mentioned = service.get_by_id(mention_agent_id, user_id=user_id)
-        except (LookupError, PermissionError) as exc:
-            raise HTTPException(status_code=403, detail="无法访问 @ 指定的子智能体") from exc
+        builtin = get_builtin_subagent(mention_agent_id)
+        if builtin is not None:
+            mentioned = next(
+                item for item in available_delegates if item.get("agent_id") == mention_agent_id
+            )
+        else:
+            try:
+                mentioned = service.get_by_id(mention_agent_id, user_id=user_id)
+            except (LookupError, PermissionError) as exc:
+                raise HTTPException(status_code=403, detail="无法访问 @ 指定的子智能体") from exc
         if mention_agent_name:
             selected_display_name = mention_agent_name
             mention_agent_name = str(mentioned["name"])
@@ -545,7 +553,7 @@ def _resolve_chat_agent_targets(
     elif mention_agent_name:
         exact_matches = [
             item
-            for item in service.list_for_user(user_id)
+            for item in available_delegates
             if item.get("name") == mention_agent_name and item.get("is_enabled", True)
         ]
         if not exact_matches:

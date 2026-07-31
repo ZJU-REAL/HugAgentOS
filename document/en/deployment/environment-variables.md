@@ -1,6 +1,6 @@
 # Environment Variable Reference
 
-> Last updated: 2026-07-16 ｜ [简体中文](../../zh-CN/deployment/environment-variables.md) ｜ Back to [Deployment Guide](README.md)
+> Last updated: 2026-07-28 ｜ [简体中文](../../zh-CN/deployment/environment-variables.md) ｜ Back to [Deployment Guide](README.md)
 
 > This document is the full environment-variable reference for the Docker Compose deployment. The **No-Docker Quick Install** local-mode variables (`DEPLOY_PROFILE=local`, etc.) are written automatically by the installer; see [No-Docker Quick Install](quick-install.md) and the "No-Docker local mode" section at the end of `.env.example`.
 
@@ -97,6 +97,17 @@ This reference is sourced from `.env.example` and `src/backend/core/config/setti
 | `SESSION_COOKIE_HTTPONLY` | `true` (compose default) | Block JS access | CE |
 | `SESSION_COOKIE_SAMESITE` | `lax` | CSRF protection | CE |
 | `SESSION_COOKIE_DOMAIN` | (empty) | Cookie domain | CE |
+
+### User feedback and GitHub Issues (Enterprise Edition)
+
+These variables are deployment-level fallbacks for the GitHub binding under `/admin` → Problem Review. Values saved by the console in `system_configs` take precedence. The token is only used server-side, and read APIs return a masked hint.
+
+| Variable | Default | Description |
+|---|---|---|
+| `FEEDBACK_GITHUB_REPOSITORY` | (empty) | Target repository in `owner/repository` form |
+| `FEEDBACK_GITHUB_TOKEN` | (empty) | Fine-grained PAT with Issues write access to the target repository |
+| `FEEDBACK_GITHUB_API_URL` | `https://api.github.com` | GitHub REST API root; use the instance API URL for GitHub Enterprise |
+| `FEEDBACK_PUBLIC_BASE_URL` | (empty) | Optional browser-facing API root (for example `https://app.example.com/api`) used for absolute feedback-screenshot links in Issues; when empty, `/api` is inferred from the current host |
 
 ## Database and Redis
 
@@ -283,4 +294,5 @@ See the [License mechanism](../editions/license.md) for details.
 | Compose-level injection and defaults | `docker-compose.yml`, `docker-compose.cube.yml` |
 | Sandbox provider selection | `src/backend/core/sandbox/`, `settings.py::SandboxSettings` |
 | Memory settings | `settings.py::MemorySettings`, `src/backend/core/memory/` (service.py / pipeline.py) |
+| Feedback GitHub configuration | `src/backend/edition_ee/services/system_config.py`, `feedback_service.py` |
 | License / edition facade | `settings.py::LicenseSettings / EditionSettings` |

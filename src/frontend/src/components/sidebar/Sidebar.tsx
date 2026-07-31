@@ -9,8 +9,9 @@ import { t } from '../../i18n';
 import {
   DeleteOutlined, EditOutlined,
   PushpinOutlined, PushpinFilled, StarOutlined, StarFilled,
-  EllipsisOutlined, CaretDownOutlined, FolderOutlined,
+  EllipsisOutlined, CaretDownOutlined, FolderOutlined, FolderOpenOutlined,
   ExportOutlined, ExclamationCircleFilled,
+  MessageOutlined,
 } from '@ant-design/icons';
 import { useUIStore, useChatStore, useAuthStore, useMySpaceStore, useAutomationChatStore, useAutomationStore } from '../../stores';
 import { useCatalogStore } from '../../stores/catalogStore';
@@ -24,6 +25,7 @@ import { resolveAvatarUrl } from '../../utils/avatar';
 import { getAutomationRuns } from '../../api';
 import type { ChatItem, PanelKey } from '../../types';
 import { HELP_DOCUMENTATION_URL, IS_COMMUNITY_EDITION_BUILD } from '../../edition';
+import { FeedbackModal } from '../../feedbackEdition';
 
 // The sidebar has 3 groups: Projects (project row + nested chats under it) / Automation / History (pinned items sorted to the top of the group).
 type HistoryGroupKey = 'projects' | 'automation' | 'history';
@@ -33,6 +35,7 @@ interface SidebarProjectGroup {
   projectId: string;
   name: string;
   pinned: boolean;
+  canAdmin: boolean;
   /** Project is known in the project list (false = only reconstructed as a fallback from leftover chat.projectId) */
   known: boolean;
   items: ChatItem[];
@@ -48,6 +51,7 @@ const HISTORY_ITEM_EXIT = { duration: 0.18, ease: EASE.exit };
 // Search has been moved down into SearchModal (mounted directly by App.tsx); the sidebar no longer holds search-related props.
 interface SidebarProps {
   onNewChat: () => void;
+  onNewProjectChat: (projectId: string, projectName: string) => void;
   onDeleteChat: (id: string) => void;
   onTogglePinned: (id: string) => void;
   onToggleFavorite: (id: string) => void;
@@ -60,7 +64,7 @@ interface SidebarProps {
 
 
 export function Sidebar({
-  onNewChat, onDeleteChat, onTogglePinned, onToggleFavorite,
+  onNewChat, onNewProjectChat, onDeleteChat, onTogglePinned, onToggleFavorite,
   onStartRename, onCommitRename, onExportChat, onSelectChat,
   onSetPanel,
 }: SidebarProps) {
@@ -77,6 +81,7 @@ export function Sidebar({
   const { authUser, doLogout, loggingOut } = useAuthStore();
   const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   // ── Page config (text and branding configurable via the admin console) ──
   const cfgProductName = usePageConfig('branding.product_name', 'HugAgentOS');
   const cfgProductSub = usePageConfig('branding.product_subtitle', 'HugAgentOS AI 智能助手');
@@ -286,6 +291,7 @@ export function Sidebar({
         projectId: p.project_id,
         name: p.name,
         pinned: !!p.pinned,
+        canAdmin: p.permission === 'admin',
         known: true,
         items,
         lastActivity: Math.max(
@@ -300,6 +306,7 @@ export function Sidebar({
         projectId: pid,
         name: items.find((i) => i.projectName)?.projectName || t('项目'),
         pinned: false,
+        canAdmin: false,
         known: false,
         items,
         lastActivity: Math.max(...items.map((i) => i.updatedAt || 0)),
@@ -309,6 +316,52 @@ export function Sidebar({
       (Number(b.pinned) - Number(a.pinned)) || (b.lastActivity - a.lastActivity));
     return groups;
   }, [sortedHistoryList, projects, knownProjectIds, isProjectOrphan]);
+
+  const openProjectPanel = (projectId: string) => {
+    void useProjectStore.getState().openProject(projectId);
+    onSetPanel('project_detail');
+  };
+
+  const toggleProjectPinned = async (group: SidebarProjectGroup) => {
+    try {
+      await useProjectStore.getState().togglePinnedById(group.projectId, !group.pinned);
+    } catch (err) {
+      message.error((err as Error)?.message || t('操作失败'));
+    }
+  };
+
+  const removeProject = (group: SidebarProjectGroup) => {
+    Modal.confirm({
+      title: t('移除项目「{name}」？', { name: group.name }),
+      content: t('项目对应的直传文件会一同软删除；引用文件不动。该操作可由数据库恢复。'),
+      okType: 'danger',
+      okText: t('移除'),
+      cancelText: t('取消'),
+      onOk: async () => {
+        try {
+          const wasOpen = currentProjectId === group.projectId;
+          await useProjectStore.getState().deleteProject(group.projectId);
+          updateStore((prev) => {
+            let changed = false;
+            const chats = { ...prev.chats };
+            for (const [chatId, chat] of Object.entries(chats)) {
+              if (chat.projectId !== group.projectId) continue;
+              const nextChat = { ...chat };
+              delete nextChat.projectId;
+              delete nextChat.projectName;
+              chats[chatId] = nextChat;
+              changed = true;
+            }
+            return changed ? { ...prev, chats } : prev;
+          });
+          if (wasOpen) onNewChat();
+          message.success(t('项目已移除'));
+        } catch (err) {
+          message.error((err as Error)?.message || t('移除失败'));
+        }
+      },
+    });
+  };
 
   const historySkeletonGroups = [
     { key: 'history', label: t('历史对话'), rows: 8 },
@@ -467,6 +520,12 @@ export function Sidebar({
   const helpMenu: MenuProps = {
     items: [
       ...(!IS_COMMUNITY_EDITION_BUILD ? [{
+        key: 'feedback',
+        label: t('问题反馈'),
+        icon: <MessageOutlined style={{ fontSize: 16 }} />,
+        onClick: () => setFeedbackOpen(true),
+      }] : []),
+      ...(!IS_COMMUNITY_EDITION_BUILD ? [{
         key: 'docs',
         label: t('更新记录'),
         icon: <img src="/home/updates.svg" alt="" style={{ width: 16, height: 16 }} />,
@@ -587,6 +646,7 @@ export function Sidebar({
               </Tooltip>
             </Dropdown>
           </div>
+          <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
         </div>
       </Sider>
     );
@@ -689,41 +749,90 @@ export function Sidebar({
                           <div key={pg.projectId} className="jx-projectGroup">
                             <div
                               className={`jx-projectRow${projActive ? ' active' : ''}`}
-                              role="button"
-                              tabIndex={0}
-                              title={pg.name}
-                              onClick={() => {
-                                if (!pg.known) return; // fallback groups (project no longer visible) can't open the detail page
-                                void useProjectStore.getState().openProject(pg.projectId);
-                                onSetPanel('project_detail');
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key !== 'Enter' && e.key !== ' ') return;
-                                e.preventDefault();
-                                if (!pg.known) return;
-                                void useProjectStore.getState().openProject(pg.projectId);
-                                onSetPanel('project_detail');
-                              }}
                             >
-                              <FolderOutlined className="jx-projectRowIcon" />
-                              <span className="jx-projectRowName">{pg.name}</span>
-                              {pg.pinned && (
-                                <Tooltip title={t('已置顶')}>
-                                  <span className="jx-historyPinIcon" onClick={(e) => e.stopPropagation()}>
-                                    <PushpinFilled />
-                                  </span>
-                                </Tooltip>
-                              )}
-                              {pg.items.length > 0 && (
-                                <button
-                                  type="button"
-                                  className={`jx-projectRowChevron${projCollapsed ? ' collapsed' : ''}`}
-                                  onClick={(e) => { e.stopPropagation(); toggleProjectCollapsed(pg.projectId); }}
-                                  aria-label={projCollapsed ? t('展开项目会话') : t('收起项目会话')}
-                                  aria-expanded={!projCollapsed}
-                                >
-                                  <CaretDownOutlined />
-                                </button>
+                              <button
+                                type="button"
+                                className="jx-projectRowToggle"
+                                title={pg.name}
+                                onClick={() => toggleProjectCollapsed(pg.projectId)}
+                                aria-label={projCollapsed ? t('展开项目会话') : t('收起项目会话')}
+                                aria-expanded={!projCollapsed}
+                              >
+                                <FolderOutlined className="jx-projectRowIcon" />
+                                <span className="jx-projectRowName">{pg.name}</span>
+                                {pg.pinned && (
+                                  <Tooltip title={t('已置顶')}>
+                                    <span className="jx-historyPinIcon">
+                                      <PushpinFilled />
+                                    </span>
+                                  </Tooltip>
+                                )}
+                              </button>
+                              {pg.known && (
+                                <div className="jx-projectRowActions">
+                                  <Dropdown
+                                    menu={{
+                                      items: [
+                                        {
+                                          key: 'pin-project',
+                                          label: pg.pinned ? t('取消置顶') : t('项目置顶'),
+                                          icon: pg.pinned ? <PushpinFilled /> : <PushpinOutlined />,
+                                          disabled: !pg.canAdmin,
+                                          onClick: ({ domEvent }) => {
+                                            domEvent.stopPropagation();
+                                            void toggleProjectPinned(pg);
+                                          },
+                                        },
+                                        {
+                                          key: 'open-project',
+                                          label: t('在项目面板中打开'),
+                                          icon: <FolderOpenOutlined />,
+                                          onClick: ({ domEvent }) => {
+                                            domEvent.stopPropagation();
+                                            openProjectPanel(pg.projectId);
+                                          },
+                                        },
+                                        {
+                                          key: 'remove-project',
+                                          label: t('移除项目'),
+                                          icon: <DeleteOutlined />,
+                                          danger: true,
+                                          disabled: !pg.canAdmin,
+                                          onClick: ({ domEvent }) => {
+                                            domEvent.stopPropagation();
+                                            removeProject(pg);
+                                          },
+                                        },
+                                      ],
+                                    }}
+                                    trigger={['click']}
+                                    placement="bottomRight"
+                                    overlayClassName="jx-chatItemMenu"
+                                  >
+                                    <button
+                                      type="button"
+                                      className="jx-projectRowActionBtn"
+                                      aria-label={t('项目更多操作')}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <EllipsisOutlined />
+                                    </button>
+                                  </Dropdown>
+                                  <Tooltip title={t('新建项目对话')}>
+                                    <button
+                                      type="button"
+                                      className="jx-projectRowActionBtn"
+                                      aria-label={t('新建项目对话')}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCollapsedProjects((prev) => ({ ...prev, [pg.projectId]: false }));
+                                        onNewProjectChat(pg.projectId, pg.name);
+                                      }}
+                                    >
+                                      <EditOutlined />
+                                    </button>
+                                  </Tooltip>
+                                </div>
                               )}
                             </div>
                             {pg.items.length > 0 && (
@@ -815,6 +924,7 @@ export function Sidebar({
         >
           {cfgLogoutContent}
         </Modal>
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
       </div>
     </Sider>
   );

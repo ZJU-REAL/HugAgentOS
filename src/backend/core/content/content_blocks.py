@@ -227,6 +227,7 @@ DEFAULT_PROMPT_VERSIONS: dict[str, Any] = {
         "code_exec": "default",
         "distillation": "default",
         "plan_mode": "default",
+        "subagents": "default",
     },
     "versions": [],
 }

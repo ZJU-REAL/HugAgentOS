@@ -523,6 +523,12 @@ export default function App() {
 
   const handleSetPanel = (p: PanelKey) => setPanelSafe(p);
 
+  const handleNewProjectChat = (projectId: string, projectName: string) => {
+    newChat(inputRef);
+    const chatId = useChatStore.getState().currentChatId;
+    useChatStore.getState().bindChatProject(chatId, projectId, projectName);
+  };
+
   const handleCapabilityClick = (capabilityId: string) => {
     if (capabilityId === 'knowledge') setPanelSafe('kb');
   };
@@ -592,6 +598,7 @@ export default function App() {
     <Layout style={{ height: '100%' }}>
       <Sidebar
         onNewChat={() => newChat(inputRef)}
+        onNewProjectChat={handleNewProjectChat}
         onDeleteChat={deleteChat}
         onTogglePinned={toggleChatPinned}
         onToggleFavorite={toggleChatFavorite}

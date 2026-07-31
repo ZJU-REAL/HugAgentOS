@@ -26,7 +26,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install desktop toolchain
         working-directory: desktop
@@ -40,16 +40,19 @@ jobs:
     name: ${{ matrix.name }}
     env:
       NODE_OPTIONS: "--max-old-space-size=4096"
+      HUGAGENT_DESKTOP_BUNDLE: "full"
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: macOS Rust tests
-            os: macos-latest
-            prepare_payload: true
-          - name: Windows CE payload and Rust tests
-            os: windows-latest
-            prepare_payload: true
+          - name: Linux x86_64 offline cold start
+            os: ubuntu-22.04
+          - name: Windows x86_64 offline cold start
+            os: windows-2025
+          - name: macOS Apple Silicon offline cold start
+            os: macos-15
+          - name: macOS Intel offline cold start
+            os: macos-15-intel
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -59,7 +62,34 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+
+      # Used only by the release builder to create deterministic archives.
+      # The packaged runtime is still the private CPython installed by uv.
+      - name: Setup Python archive tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Linux system dependencies
+        if: startsWith(matrix.os, 'ubuntu-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            file
+
+      - name: Setup pinned uv release builder
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.33"
+          enable-cache: true
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -78,69 +108,14 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Stage the public CE local-server payload
-        if: ${{ matrix.prepare_payload }}
         working-directory: desktop
         run: node scripts/prepare-bundle.mjs
 
-      - name: Install pinned uv for local-server dependency validation
-        if: ${{ matrix.prepare_payload }}
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.11.30"
-          enable-cache: false
-
-      - name: Resolve Windows local-server dependencies
-        if: matrix.os == 'windows-latest'
-        working-directory: desktop
-        shell: pwsh
-        run: |
-          uv pip install `
-            --dry-run `
-            --target "$env:RUNNER_TEMP\hugagent-deps-windows" `
-            --python-version 3.11 `
-            --python-platform x86_64-pc-windows-msvc `
-            --requirements generated/server-ce/requirements.txt `
-            --requirements generated/server-ce/requirements-mem0.txt `
-            --requirements generated/server-ce/docker/requirements-script-runner.txt `
-            "protobuf<7" `
-            "pymilvus==2.5.18" `
-            "milvus-lite==3.1.0"
-
-      - name: Validate macOS bootstrap on the native shell
-        if: matrix.os == 'macos-latest'
-        working-directory: desktop
-        run: npm run test:scripts
-
-      - name: Resolve macOS 12 compatible local-server dependencies
-        if: matrix.os == 'macos-latest'
-        working-directory: desktop
-        run: |
-          uv --system-certs pip install \
-            --dry-run \
-            --target "$RUNNER_TEMP/hugagent-deps-arm64" \
-            --python-version 3.11 \
-            --python-platform aarch64-apple-darwin \
-            --requirements generated/server-ce/requirements.txt \
-            --requirements generated/server-ce/requirements-mem0.txt \
-            --requirements generated/server-ce/docker/requirements-script-runner.txt \
-            --overrides resources/server-bootstrap/requirements-macos-overrides.txt \
-            --only-binary pikepdf \
-            "protobuf<7" \
-            "pymilvus==2.5.18" \
-            "milvus-lite==3.1.0"
-          uv --system-certs pip install \
-            --dry-run \
-            --target "$RUNNER_TEMP/hugagent-deps-x86_64" \
-            --python-version 3.11 \
-            --python-platform x86_64-apple-darwin \
-            --requirements generated/server-ce/requirements.txt \
-            --requirements generated/server-ce/requirements-mem0.txt \
-            --requirements generated/server-ce/docker/requirements-script-runner.txt \
-            --overrides resources/server-bootstrap/requirements-macos-overrides.txt \
-            --only-binary pikepdf \
-            "protobuf<7" \
-            "pymilvus==2.5.18" \
-            "milvus-lite==3.1.0"
-
       - name: Run desktop Rust tests
-        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
+
+      - name: Exercise the real offline install and health endpoint
+        run: >-
+          cargo test --manifest-path desktop/src-tauri/Cargo.toml
+          generated_payload_installs_and_serves_health_endpoint
+          -- --ignored --nocapture

@@ -47,10 +47,10 @@ src/backend/prompts/prompt_text/default/system/
 
 版本池把多套提示词存进单行 `ContentBlock(id="prompt_versions")`，payload 结构 `{active: {kind: version_id}, versions: [...]}`，服务层为 `core/services/prompt_version_service.py`：
 
-- **四类 kind**（`VALID_KINDS`）：`system`（主智能体）、`code_exec`（代码执行能力段）、`distillation`（技能蒸馏）、`plan_mode`（计划模式）。
+- **五类 kind**（`VALID_KINDS`）：`system`（主智能体）、`code_exec`（代码执行能力段）、`distillation`（技能蒸馏）、`plan_mode`（计划模式）、`subagents`（平台默认探索员 / 执行员 / 审查员的独立提示词）。
 - 每个版本含 `(kind, id, name, description, parts[])`，part 即 `{part_id, display_name, content, sort_order, is_enabled}`。
 - **API**：`list_versions / get_version / upsert_version（支持 from_id 克隆）/ delete_version（激活中禁删）/ activate_version`；激活后立即失效运行时缓存。
-- **Seed**：`seed_from_filesystem()` 首次冷启动把文件系统 markdown 读成默认版本；内置两个一次性迁移——`system/v4 → system/default` 改名、从各 system 版本抽出 `system/90_plan_mode` 生成 `plan_mode/default`。
+- **Seed**：`seed_from_filesystem()` 首次冷启动把文件系统 markdown 读成默认版本，并幂等补齐 `subagents/default` 的三个角色 part；内置两个一次性迁移——`system/v4 → system/default` 改名、从各 system 版本抽出 `system/90_plan_mode` 生成 `plan_mode/default`。
 - 启动时还会幂等补种两个动态段到激活 system 版本：`system/05_system_reminder_convention`（教模型处理 `<system-reminder>` 带外信号）与项目模式段（`prompt_runtime.py::ensure_*_seeded`）。
 
 ### Config 管理台

@@ -1,12 +1,12 @@
 # 管理台
 
-> 最后更新：2026-06-11
+> 最后更新：2026-07-28
 
 HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运营和系统管理两类角色：
 
 | 入口 | 前端 | 凭证 | 定位 |
 |---|---|---|---|
-| `/admin` 运营管理台 | `src/frontend/src/AdminApp.tsx` | `ADMIN_TOKEN` | 面向内容运营：功能更新、能力中心、技能、知识库、子智能体等「给用户看什么 / 用什么」 |
+| `/admin` 运营管理台 | `src/frontend/src/AdminApp.tsx` | `ADMIN_TOKEN` | 面向内容运营：功能更新、问题处置、技能、知识库、子智能体等「给用户看什么 / 用什么」 |
 | `/config` 系统管理台 | `src/frontend/src/ConfigApp.tsx` | `CONFIG_TOKEN` | 面向系统管理员：模型 / MCP / 提示词配置、用户与权限、监控计费、安全审计、License |
 
 入口分流在 `src/frontend/src/main.tsx`：按 `window.location.pathname` 前缀渲染 `AdminApp`（`/admin`）、`ConfigApp`（`/config`）、`ApiDocApp`（`/api-docs`）或主应用。两台之间有互跳按钮（`/admin` 顶栏「系统配置」→ `/config`；`/config` 顶栏「内容管理」→ `/admin`）。两类令牌的鉴权机制见 [认证与权限](auth.md)。
@@ -15,16 +15,18 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 
 ## /admin 运营管理台
 
-`AdminApp.tsx` 以 Tabs 组织九个面板（组件在 `src/frontend/src/components/admin/`）：
+`AdminApp.tsx` 以 Tabs 组织十一个面板（组件在 `src/frontend/src/components/admin/`）：
 
 | Tab | 组件 | 后端路由 |
 |---|---|---|
 | 功能更新 | `UpdatesEditor` | `content.py`（`docs_updates` 内容块） |
-| 能力中心 | `CapsEditor` | `content.py`（`docs_capabilities` 内容块） |
+| 问题处置 | `FeedbackManager` | `edition_ee/routes/feedbacks.py`、`admin_feedbacks.py` |
 | 技能管理 | `SkillsEditor` | `admin_skills.py` |
+| 插件管理 | `PluginsEditor` | `admin_plugins.py` |
 | 待审草稿 | `SkillDraftsPanel` | `admin_skill_drafts.py` |
 | 沙盒依赖 | `SandboxDepsManager` | `admin_sandbox.py` |
 | 知识库管理 | `KnowledgeBaseManager` | `admin_kb.py` |
+| 本体治理 | `OntologyManager` | `ontologies.py` |
 | 提示词中心 | `PromptHubEditor` | `content.py`（`prompt_hub` 内容块） |
 | 子智能体 | `AdminAgentManager` | `admin_agents.py` |
 | 操作手册 | `ManualEditor` | `content.py`（manual PDF 上传） |
@@ -57,6 +59,14 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 
 1. **安装市场技能为全局技能**：浏览市场列表（标注「是否已全局安装」）、安装后 owner 为空、全员可用，可继续在「技能管理」编辑。
 2. **审核用户上架申请**：申请列表（按 status 过滤）、详情（含 SKILL.md 预览）、通过（上架，全员可装）、驳回 / 下架。
+
+### 问题反馈与处置（商业版 EE：content_admin）
+
+登录用户可从左下角 `?` 菜单的「问题反馈」打开表单，提交类型、严重度、标题、详细描述及最多 8 张截图；支持选择、拖入与粘贴图片。用户端点为 `/v1/feedbacks`，截图在提交前可移除，提交后作为反馈证据保留。
+
+`/admin` 的「问题处置」通过 `/v1/admin/feedbacks` 提供分页筛选、详情查看、驳回、审核通过和失败重试。管理员先绑定 `owner/repository` 与具备 Issues 写权限的 GitHub Fine-grained PAT；令牌只保存在服务端，读取时仅返回脱敏提示。审核通过后，系统按“问题描述 / 反馈信息 / 截图”标准结构创建 GitHub Issue，并在反馈记录中保存仓库、Issue 编号和链接；远端失败时保留 `approved + failed` 状态供重试，幂等标记用于避免超时重试产生重复 Issue。
+
+GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变量作为 DB 未配置时的部署兜底，见 [环境变量参考](../deployment/environment-variables.md)。
 
 ### 提示词管理（admin_prompts）（商业版 EE：content_admin）
 
@@ -111,7 +121,7 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 | 端点 | 凭证 | 说明 |
 |---|---|---|
 | `GET /docs`、`GET /docs/version` | 公开读 | 前台读取内容块 / 轻量轮询版本 |
-| `PUT /docs/{block_id}` | `ADMIN_TOKEN` | 写内容块：`docs_updates`（功能更新时间轴）、`docs_capabilities`（能力中心）、`prompt_hub`（提示词广场） |
+| `PUT /docs/{block_id}` | `ADMIN_TOKEN` | 写内容块：`docs_updates`（功能更新时间轴）、`prompt_hub`（提示词广场）；`docs_capabilities` 仅为旧快照与存量数据兼容保留，当前管理台不提供编辑入口，用户界面也不渲染 |
 | `POST /manual/upload`、`GET /manual` | `ADMIN_TOKEN` 写 | 操作手册 PDF |
 | `PUT /app_config`、`PUT /homepage_shortcuts`、`PUT /page_config`、`POST /page_config/assets/upload` | `CONFIG_TOKEN` | 应用配置 / 首页快捷方式 / 页面品牌（logo、导航、文案） |
 | `GET/POST /docs/export|import`、`GET/POST /prompts/export|import` | 管理凭证 | 内容 / 提示词快照迁移 |
@@ -136,7 +146,7 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 按《开源与商业化产品方案》第四章与路由注册表对齐：
 
 - **社区版（CE）保留**：`content.py` 内容块管理（品牌可定制）、`models.py` 模型管理、登录基础设施（`auth.py` 会话端点、mock SSO）。
-- **商业版（EE）**：完整内容管理台（技能 / 草稿 / 市场 / 知识库 / 子智能体 / 提示词 / MCP / 沙盒依赖，`content_admin`）、系统管理台（服务配置 + 安全台，`system_config`）、审计与会话审查（`audit`）、团队计费与用量（`billing`）、用户 / 团队 / 注册码（`multi_tenancy`）。
+- **商业版（EE）**：完整内容管理台（问题反馈处置 / 技能 / 插件 / 草稿 / 市场 / 知识库 / 本体 / 子智能体 / 提示词 / MCP / 沙盒依赖，`content_admin`）、系统管理台（服务配置 + 安全台，`system_config`）、审计与会话审查（`audit`）、团队计费与用量（`billing`）、用户 / 团队 / 注册码（`multi_tenancy`）。
 - `config_license`、`config_verify`、`auth` 显式豁免 License 守卫，保证「402 → 换证」的逃生通道始终可达。
 
 ## 相关源码
@@ -150,6 +160,7 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 | 管理凭证依赖 | `src/backend/api/deps.py` |
 | License 能力位 | `src/backend/edition_ee/licensing/features.py`、`src/backend/edition_ee/licensing/deps.py` |
 | 技能 / 草稿 / 市场 | `src/backend/api/routes/v1/admin_skills.py`、`admin_skill_drafts.py`、`admin_marketplace.py` |
+| 问题反馈与 GitHub 发布 | `src/backend/edition_ee/routes/feedbacks.py`、`admin_feedbacks.py`、`services/feedback_service.py` |
 | 提示词 / MCP / 子智能体 | `src/backend/api/routes/v1/admin_prompts.py`、`admin_mcp_servers.py`、`admin_agents.py` |
 | 知识库 / 沙盒 | `src/backend/edition_ee/routes/admin_kb.py`、`src/backend/api/routes/v1/admin_sandbox.py` |
 | 计费 / 用量 / 日志 / 会话审查 | `src/backend/api/routes/v1/admin_billing.py`、`admin_usage_logs.py`、`admin_logs.py`、`admin_chat_history.py` |

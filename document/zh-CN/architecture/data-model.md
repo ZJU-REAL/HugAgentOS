@@ -1,6 +1,6 @@
 # 数据模型概览
 
-> 最后更新：2026-07-19
+> 最后更新：2026-07-28
 
 数据访问层位于 `src/backend/core/db/`：ORM 模型按领域拆为 `models/` 包（14 个领域文件，全部经 `models/__init__.py` 原样 re-export，旧的 `from core.db.models import X` 写法不变），仓储层在 `repository/` 包，引擎与会话在 `engine.py`。开发环境用 SQLite、生产用 PostgreSQL——`models/__init__.py` 定义 `JSONType`（PostgreSQL 自动升级为 JSONB）与 `INETType`（PostgreSQL 用 INET）两个方言感知类型，全部模型共用。
 
@@ -26,6 +26,8 @@ core/db/
 ├── model_repository.py  # 模型供应商/角色指派仓储
 └── edition_tables.py    # CE/EE 建表边界单一真源
 ```
+
+商业版专属模型位于 `src/backend/edition_ee/db/models/`，由完整版 `core.db.models` 统一 re-export；社区版派生树物理删除该目录，并用 overlay 替换导出面。问题反馈模型位于其中的 `feedback.py`。
 
 ## 表分组一览
 
@@ -54,6 +56,12 @@ core/db/
 | `chat_runs` | 流式 Run：把 AI 任务从 HTTP 连接解耦，支持断线续播与崩溃恢复 |
 | `message_feedback` | 消息点赞 / 点踩与评语 |
 | `chat_sandbox_snapshots` | 会话级持久沙箱快照指针（配合 OpenSandbox 恢复环境） |
+
+### 问题反馈（edition_ee/db/models/feedback.py）
+
+| 表 | 用途 |
+|---|---|
+| `user_feedback`（商业版 EE） | 用户问题/建议、最多 8 张截图引用、审核状态及 GitHub Issue 发布结果；审核与发布状态分离，远端失败可安全重试 |
 
 ### 项目与产物、内容块（models/project.py、models/artifact.py）
 
@@ -139,13 +147,13 @@ core/db/
 
 ## Alembic 迁移机制
 
-- **商业版主链**：`src/backend/alembic/versions/` 下 53 个迁移，从初始建表一路演进（含 MCP 迁往 streamable-http、办公 MCP 下线改技能等结构性变更）。常用命令：`alembic upgrade head`、`make migrate-new msg="..."`（autogenerate 基于 `core/db/models` 元数据）；
+- **商业版主链**：`src/backend/alembic/versions/` 下 93 个迁移，从初始建表一路演进（含 MCP 迁往 streamable-http、办公 MCP 下线改技能等结构性变更）。常用命令：`alembic upgrade head`、`make migrate-new msg="..."`（autogenerate 基于 `core/db/models` 元数据）；
 - **启动兜底**：`api/app.py` lifespan 的 `_startup_ensure_tables` 调 `core/db/engine.py::init_db`，对 SQLite 开发库幂等补建缺表；
 - **社区版独立链**：CE 派生树整体排除主链迁移，overlay 提供单一基线 `ce/overlay/src/backend/alembic/versions/ce_0001_initial.py`——直接以 CE-only SQLAlchemy 元数据 `create_all`，方言感知（SQLite / PostgreSQL 通吃）；后续 CE schema 演进在该链上追加常规迁移。
 
 ## CE/EE 建表边界（core/db/edition_tables.py）
 
-EE ORM 类定义集中在 `edition_ee/db/models/`，CE 派生树物理不包含该包。全量源码校验使用 `edition_ee/db/edition_tables.py::EE_ONLY_TABLES`，发布门禁同步禁止 20 张表：
+EE ORM 类定义集中在 `edition_ee/db/models/`，CE 派生树物理不包含该包。全量源码校验使用 `edition_ee/db/edition_tables.py::EE_ONLY_TABLES`，发布门禁同步禁止 21 张表：
 
 ```
 teams · team_members · team_folders · invite_codes        # 多租户 / SSO / 邀请
@@ -158,6 +166,7 @@ model_pricing                                             # 计费
 data_sources · ds_table_meta · ds_column_meta · ds_golden_sql # 数据源 / 元数据治理
 gateway_virtual_keys                                      # 对外模型网关虚拟密钥镜像
 sandbox_rebuilds · admin_skill_drafts · distillation_runs # 持久沙箱重建 / 技能蒸馏
+user_feedback                                             # 问题反馈审核 / GitHub Issue 发布
 ```
 
 全量源码下的 `ce_create_all(bind)` 会在克隆 MetaData 上过滤上述表与跨界外键，用于本地边界校验。真正的 CE 树则根本不导入 EE ORM；CE overlay 仅克隆已注册的 CE 元数据，并防御性摘除所有指向缺失表的外键。新增 EE 模型时必须同步更新 `EE_ONLY_TABLES`、`ce/manifest.yaml` 的禁止表契约与对应 overlay。
@@ -170,6 +179,7 @@ sandbox_rebuilds · admin_skill_drafts · distillation_runs # 持久沙箱重建
 |---|---|
 | 共享 ORM / EE ORM | `src/backend/core/db/models/`、`src/backend/edition_ee/db/models/` |
 | 本体仓储 | `src/backend/core/db/repository/ontology.py` |
+| 问题反馈模型 / 仓储 | `src/backend/edition_ee/db/models/feedback.py`、`db/repository/feedback.py` |
 | 引擎与启动建表 | `src/backend/core/db/engine.py` |
 | 仓储层 | `src/backend/core/db/repository/` |
 | CE/EE 建表边界 | `src/backend/core/db/edition_tables.py` |

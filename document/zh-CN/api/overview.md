@@ -1,6 +1,6 @@
 # API 总览
 
-> 最后更新：2026-07-19
+> 最后更新：2026-07-28
 
 HugAgentOS 后端是一个 FastAPI 应用，所有业务接口挂在 `/v1/*` 前缀下。生产部署中 Nginx 把 `/api/` 前缀剥掉后转发给后端（见 `src/frontend/default.conf.template`），因此**浏览器侧的完整路径是 `/api/v1/...`**，直接访问后端容器则是 `/v1/...`。本文示例统一使用本地开发地址 `http://localhost:3000/api`。
 
@@ -220,6 +220,7 @@ curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/cancel \
 | 内容管理台 | `admin_mcp_servers.py` | `/v1/admin/mcp-servers` | `GET/POST /`、`POST /{server_id}/test`、`POST /reload-pool` | CONFIG | `content_admin` |
 | 内容管理台 | `admin_agents.py` | `/v1/admin/agents` | `GET/POST /`、`PUT /{agent_id}/toggle`、`GET /export` | ADMIN | `content_admin` |
 | 内容管理台 | `admin_skill_drafts.py` | `/v1/admin/skill-drafts` | `GET /`、`POST /{draft_id}/approve`（技能蒸馏审核） | ADMIN | `content_admin` |
+| 问题反馈 | `edition_ee/routes/feedbacks.py`、`admin_feedbacks.py` | `/v1/feedbacks`、`/v1/admin/feedbacks` | 用户提交表单/截图；管理员筛选、驳回、审核通过并发布 GitHub Issue | 用户 / ADMIN | `content_admin` |
 | 内容管理台 | `admin_sandbox.py` | `/v1/admin/sandbox` | `GET /deps`、`POST /rebuild`（沙盒依赖重建） | ADMIN | `content_admin` |
 | 内容管理台 | `admin_marketplace.py` | `/v1/admin/marketplace` | `GET /submissions`、`POST /submissions/{id}/approve`（上架审核） | ADMIN | `content_admin` |
 | 计费 | `admin_usage_logs.py` | `/v1/admin/usage-logs` | `GET /`、`GET /summary`、`GET /models` | CONFIG | `billing` |

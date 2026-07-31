@@ -1,0 +1,6 @@
+# Release-builder-only Python dependencies.
+#
+# These packages are installed into an isolated, temporary `uv run`
+# environment. They are not shipped in addition to the locked local runtime,
+# and end users never install them.
+PyYAML==6.0.3

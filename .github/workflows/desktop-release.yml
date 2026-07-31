@@ -7,6 +7,9 @@
 # Required repository secrets:
 #   TAURI_SIGNING_PRIVATE_KEY
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# macOS additionally requires:
+#   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY
+#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
 #
 # To cut a release:
 #   1. Run `npm --prefix desktop run version:desktop -- X.Y.Z` and commit the
@@ -43,7 +46,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Test desktop release helpers
         working-directory: desktop
@@ -60,23 +63,30 @@ jobs:
     permissions:
       contents: write
     strategy:
-      fail-fast: true
+      # Preserve successful Windows/Linux artifacts when one signing platform
+      # is temporarily misconfigured.
+      fail-fast: false
       matrix:
         include:
-          # macOS: one universal (arm64 + x86_64) build -> .dmg + updater archive.
-          - platform: macos-latest
-            args: "--target universal-apple-darwin --bundles app dmg"
-            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          # Offline Python is architecture-specific. Build two native macOS
+          # packages; a universal shell with one Python architecture is invalid.
+          - name: macOS Apple Silicon
+            platform: macos-15
+            args: "--bundles app,dmg"
+          - name: macOS Intel
+            platform: macos-15-intel
+            args: "--bundles app,dmg"
           # Linux: tauri.linux.conf.json overrides targets to AppImage + deb.
-          - platform: ubuntu-22.04
+          - name: Linux x86_64
+            platform: ubuntu-22.04
             args: ""
-            rust-targets: ""
           # Windows: the base configuration builds the NSIS installer.
-          - platform: windows-latest
+          - name: Windows x86_64
+            platform: windows-2025
             args: ""
-            rust-targets: ""
 
     runs-on: ${{ matrix.platform }}
+    name: ${{ matrix.name }}
 
     steps:
       - name: Checkout
@@ -99,12 +109,23 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+
+      # Used only by the release builder to create deterministic archives.
+      # The packaged runtime is still the private CPython installed by uv.
+      - name: Setup Python archive tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup pinned uv release builder
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.33"
+          enable-cache: true
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -132,6 +153,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           HUGAGENT_RELEASE_BUILD: "1"
           # tsc + Vite peaks near Node's default heap limit on hosted runners.
           NODE_OPTIONS: "--max-old-space-size=4096"

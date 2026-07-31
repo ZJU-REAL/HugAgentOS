@@ -12,6 +12,7 @@ mod auth;
 mod brand;
 mod config;
 mod hybrid;
+mod local_payload;
 mod local_server;
 mod menu;
 mod notify;
@@ -293,21 +294,13 @@ pub fn run() {
                 &local_server_root,
                 home_dir.as_deref(),
             );
-            // macOS + Linux use the shell installer; Windows uses PowerShell.
-            // (Linux local-server payload itself — bundling + a Linux-verified
-            //  install path with correct uv checksums — still needs a Linux
-            //  build machine; ticket #12. This just picks the right script.)
-            let installer_name = if cfg!(target_os = "windows") {
-                "install-local-server.ps1"
-            } else {
-                "install-local-server.sh"
-            };
             let local_server = local_server::LocalServerManager::new(
                 local_server_root,
                 local_server_data_dir,
                 resource_dir.join("server-ce.zip"),
                 resource_dir.join("server-ce-manifest.json"),
-                resource_dir.join("server-bootstrap").join(installer_name),
+                resource_dir.join("runtime-core.tar.gz"),
+                resource_dir.join("runtime-manifest.json"),
                 http.clone(),
             );
 

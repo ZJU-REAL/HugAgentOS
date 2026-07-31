@@ -1,14 +1,17 @@
 {
   "name": "hugagent-desktop",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
-  "description": "HugAgentOS 桌面客户端（远程连接 + Windows/macOS 无 Docker 本机服务）",
+  "description": "HugAgentOS 桌面客户端（远程连接 + Windows/macOS/Linux 离线本机服务）",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "node scripts/build-desktop.mjs full",
+    "build:thin": "node scripts/build-desktop.mjs thin",
     "test:scripts": "node --test scripts/*.test.mjs",
-    "lock:windows": "node scripts/generate-windows-requirements-lock.mjs",
+    "lock:windows": "node scripts/generate-platform-requirements-locks.mjs windows-x86_64",
+    "lock:desktop": "node scripts/generate-platform-requirements-locks.mjs all",
+    "runtime:build": "node scripts/build-offline-runtime.mjs",
     "version:desktop": "node scripts/set-desktop-version.mjs"
   },
   "devDependencies": {
