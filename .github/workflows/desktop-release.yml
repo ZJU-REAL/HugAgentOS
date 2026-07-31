@@ -63,7 +63,9 @@ jobs:
     permissions:
       contents: write
     strategy:
-      fail-fast: true
+      # Preserve successful Windows/Linux artifacts when one signing platform
+      # is temporarily misconfigured.
+      fail-fast: false
       matrix:
         include:
           # Offline Python is architecture-specific. Build two native macOS
@@ -108,6 +110,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Used only by the release builder to create deterministic archives.
+      # The packaged runtime is still the private CPython installed by uv.
+      - name: Setup Python archive tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Setup pinned uv release builder
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0

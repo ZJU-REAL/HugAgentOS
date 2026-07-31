@@ -64,6 +64,13 @@ jobs:
         with:
           node-version: 22
 
+      # Used only by the release builder to create deterministic archives.
+      # The packaged runtime is still the private CPython installed by uv.
+      - name: Setup Python archive tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install Linux system dependencies
         if: startsWith(matrix.os, 'ubuntu-')
         run: |
