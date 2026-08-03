@@ -38,21 +38,37 @@ def db(monkeypatch):
 
 
 # ── Semantics of the setting ─────────────────────────────────────────────────
+#
+# There is one evolution switch — evolution_prefs.enabled — and participation
+# follows it. The legacy standalone contribution key in metadata is ignored,
+# so the two can never drift apart.
 
 
-def test_participation_defaults_to_on():
-    assert US.is_contribution_enabled({}) is True
-    assert US.is_contribution_enabled(None) is True
+def test_participation_follows_the_single_evolution_switch():
+    assert US.is_contribution_enabled({"evolution_prefs": {"enabled": True}}) is True
+    assert US.is_contribution_enabled({"evolution_prefs": {"enabled": False}}) is False
+
+
+def test_participation_defaults_to_off_until_evolution_is_enabled():
+    """Consent-first: a user who never enabled evolution contributes nothing."""
+    assert US.is_contribution_enabled({}) is False
+    assert US.is_contribution_enabled(None) is False
+
+
+def test_legacy_contribution_key_no_longer_overrides_the_switch():
+    metadata = {US.SETTING_KEY: True}  # stale value from the two-switch era
+    assert US.is_contribution_enabled(metadata) is False
 
 
 def test_opting_out_marks_episodes_private():
-    assert US.privacy_class_for({US.SETTING_KEY: False}) == US.PRIVACY_PRIVATE
-    assert US.privacy_class_for({US.SETTING_KEY: True}) == US.PRIVACY_TENANT
+    assert US.privacy_class_for({"evolution_prefs": {"enabled": False}}) == US.PRIVACY_PRIVATE
+    assert US.privacy_class_for({"evolution_prefs": {"enabled": True}}) == US.PRIVACY_TENANT
 
 
 def test_missing_user_resolves_to_the_default_rather_than_failing():
     resolved = US.resolve_for_user("")
-    assert resolved[US.SETTING_KEY] is True
+    assert resolved[US.SETTING_KEY] is False
+    assert resolved["privacy_class"] == US.PRIVACY_PRIVATE
 
 
 # ── Enforcement: the part that makes the promise real ────────────────────────

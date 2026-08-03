@@ -107,6 +107,7 @@ def test_a_missing_licensing_module_reads_as_community(monkeypatch):
     """The community tree excludes edition_ee entirely, so an ImportError is the
     expected signal — not a fault to be logged and retried."""
     import builtins
+    import sys
 
     import core.evolution.loop as L
 
@@ -116,6 +117,16 @@ def test_a_missing_licensing_module_reads_as_community(monkeypatch):
         if name.startswith("edition_ee"):
             raise ImportError("no edition_ee in community tree")
         return real_import(name, *args, **kwargs)
+
+    # Evict only the two licensing modules this test blocks.
+    # `importlib.import_module` returns straight from `sys.modules` without ever
+    # calling `__import__`, so with a warm cache the assertion below was vacuous:
+    # it passed alone and failed once an earlier test in the run had imported
+    # them. Evicting the whole `edition_ee` package instead would force
+    # `edition_ee.db.models` to re-import and re-register its tables on the
+    # shared SQLAlchemy metadata, breaking unrelated tests later in the run.
+    for name in ("edition_ee.licensing.features", "edition_ee.licensing.manager"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
 
     monkeypatch.setattr(builtins, "__import__", blocked)
     assert L.cross_user_mining_available() is False

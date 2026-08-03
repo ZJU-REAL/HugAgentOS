@@ -528,9 +528,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '合计': 'Total',
   '次': 'req(s)',
   // GCE evolution participation (settings panel)
-  '参与能力进化': 'Contribute to capability evolution',
-  '开启后，你的对话会作为证据参与技能与流程的沉淀；关闭后仍保留你自己的记忆与本轮进化展示':
-    'When on, your conversations serve as evidence for distilling skills and workflows. Turning it off keeps your own memory and per-turn evolution view intact.',
   '你的对话正在参与能力沉淀': 'Your conversations are contributing to capability distillation',
   '查看进化详情': 'View evolution details',
   '本账号促成的能力进化': 'Capabilities your account helped produce',
@@ -557,6 +554,22 @@ export const SETTINGS_DICT: Record<string, string> = {
   '待批准': 'Awaiting approval',
   '来自你的 {n} 次对话': 'from {n} of your conversations',
   '为我启用': 'Enable for me',
+  // Personal approval queue: only changes the user can actually carry out.
+  '查看将要安装的技能正文': 'View the skill document that will be installed',
+  '收起技能正文': 'Hide the skill document',
+  '它会用到的工具': 'Tools it will use',
+  '暂无待你决定的变更': 'Nothing awaiting your decision',
+  '已应用该记忆调整': 'Memory adjustment applied',
+  '操作失败，请稍后重试': 'Action failed — please retry',
+  '这里只列出你能自己决定的变更；影响全体成员的编排调整与能力退役由管理员审批。':
+    'Only changes you can decide on yourself are listed here; orchestration changes and capability retirements affect everyone and are approved by an administrator.',
+  '调整这条记忆的权重': 'Adjust this memory\'s weight',
+  '合并这几条重复记忆': 'Merge these duplicate memories',
+  '记忆': 'Memory',
+  '新增': 'Add',
+  '改写': 'Rewrite',
+  '调权': 'Reweight',
+  '合并': 'Merge',
   '已为你启用该能力': 'Capability enabled for you',
   '启用失败，请稍后重试': 'Could not enable it — please try again',
   '启用后仅对你生效，不影响其他成员；随时可在能力中心停用。':
@@ -666,7 +679,8 @@ export const SETTINGS_DICT: Record<string, string> = {
   '至少保留一项进化机制；如需完全停止，请关闭「启动进化」': 'Keep at least one mechanism. To stop entirely, turn off "Enable evolution".',
   // '启动进化' is shared with the first-run wizard and lives in onboarding.ts;
   // the dictionaries merge into one namespace, so it must not be repeated here.
-  '关闭后系统不再从你的用法中沉淀任何能力；已生成的内容保留': 'When off, the system stops distilling anything from how you work. Whatever it already produced is kept.',
+  '开启后，系统从你的用法中为你沉淀能力，你的对话也会作为证据参与集体能力沉淀；关闭后全部停止，已生成的内容保留':
+    'When on, the system distils capabilities for you from how you work, and your conversations serve as evidence for collective distillation. When off, both stop. Whatever it already produced is kept.',
   '进化机制': 'Evolution mechanisms',
   '选择允许系统为你沉淀哪些类型的能力': 'Choose which kinds of capability the system may distil for you',
   '领域本体关联': 'Domain ontology binding',

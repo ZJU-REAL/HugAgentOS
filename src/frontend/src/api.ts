@@ -3922,17 +3922,11 @@ export async function getTurnSettlement(messageId: string): Promise<EvolutionSum
   return unwrapData<EvolutionSummary>(wrapped);
 }
 
-// ── Evolution: per-user contribution setting (settings panel) ────────────────
+// ── Evolution: contribution summary (settings panel detail card) ─────────────
 //
-// Named "contribution", not "evolution on/off": one user cannot stop the system
-// distilling a skill from everyone else's traces. What they control is whether
-// their own conversations become evidence.
-export interface EvolutionContributionSetting {
-  evolution_contribution_enabled: boolean;
-  privacy_class: 'tenant' | 'private';
-  note?: string;
-}
-
+// The separate contribution setting is gone from the UI: participation follows
+// the single evolution switch in EvolutionPrefs. Only the summary — "what did
+// my conversations actually produce" — remains its own endpoint.
 export interface EvolutionContributionItem {
   candidate_id: string;
   target_kind: 'memory' | 'skill' | 'workflow' | 'ontology' | 'prompt';
@@ -3952,28 +3946,36 @@ export interface EvolutionContributions {
   candidates: EvolutionContributionItem[];
 }
 
-export async function getEvolutionSettings(): Promise<EvolutionContributionSetting> {
-  return unwrapData<EvolutionContributionSetting>(await apiRequest<unknown>('/v1/evolution/settings'));
-}
-
-export async function updateEvolutionSettings(enabled: boolean): Promise<EvolutionContributionSetting> {
-  return unwrapData<EvolutionContributionSetting>(
-    await apiRequest<unknown>('/v1/evolution/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    }),
-  );
-}
-
 export async function getEvolutionContributions(): Promise<EvolutionContributions> {
   return unwrapData<EvolutionContributions>(await apiRequest<unknown>('/v1/evolution/contributions'));
 }
 
 // ── Evolution: personal candidate approval (settings console) ────────────────
+/** The concrete content of a proposed change — what approving it will do. */
+export type EvolutionChangePreview =
+  | {
+      type: 'skill_document';
+      display_name: string;
+      description: string;
+      allowed_tools: string[];
+      content: string;
+    }
+  | {
+      type: 'memory_ops';
+      operations: Array<{
+        operation: string;
+        text: string;
+        reason: string;
+        before?: unknown;
+        after?: unknown;
+      }>;
+    }
+  | Record<string, never>;
+
 export interface MyEvolutionCandidate {
   candidate_id: string;
   target_kind: string;
+  operation: string;
   summary: string;
   status: string;
   risk_tier: string;
@@ -3981,6 +3983,11 @@ export interface MyEvolutionCandidate {
   total_evidence: number;
   own_share: number;
   tool_sequence: string[];
+  /** What the button does. Rows the user cannot action are not returned at all. */
+  action: string;
+  action_label: string;
+  action_effect: string;
+  change: EvolutionChangePreview;
   created_at?: string | null;
 }
 

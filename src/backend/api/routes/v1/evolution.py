@@ -47,11 +47,11 @@ class ContributionSettingRequest(BaseModel):
 
 @router.get("/settings", summary="获取本账号的进化参与设置")
 async def get_evolution_settings(user: UserContext = Depends(get_current_user)):
-    """The user's contribution choice.
+    """Legacy view of the single evolution switch.
 
-    Deliberately *not* named "evolution on/off": one user cannot stop the system
-    distilling a skill from everyone else's traces. What they control is whether
-    their own conversations are part of the evidence.
+    The separate contribution toggle is gone from the product; participation now
+    simply follows ``evolution_prefs.enabled``. This endpoint stays because
+    already-shipped desktop bundles still read it.
     """
     from core.evolution.user_settings import resolve_for_user
 
@@ -63,6 +63,7 @@ async def update_evolution_settings(
     body: ContributionSettingRequest,
     user: UserContext = Depends(get_current_user),
 ):
+    """Legacy alias: writes the same switch as PATCH /evolution/prefs."""
     from core.evolution.user_settings import update_for_user
 
     try:
