@@ -190,20 +190,22 @@ export default function LoopPanel({ onBack }: LoopPanelProps) {
             </div>
 
             <h3>迭代轨迹（审计）</h3>
-            <table className="loop-table">
-              <thead>
-                <tr><th>#</th><th>verdict</th><th>工具</th><th>tokens</th><th>判定源</th><th>理由</th></tr>
-              </thead>
-              <tbody>
-                {iterations.map((it) => (
-                  <tr key={it.seq}>
-                    <td>{it.seq}</td><td>{it.verdict}</td>
-                    <td>{it.tool_calls}</td><td>{it.tokens}</td><td>{it.decided_by}</td>
-                    <td className="loop-reason-cell">{it.reasoning}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="loop-tableWrap">
+              <table className="loop-table">
+                <thead>
+                  <tr><th>#</th><th>verdict</th><th>工具</th><th>tokens</th><th>判定源</th><th>理由</th></tr>
+                </thead>
+                <tbody>
+                  {iterations.map((it) => (
+                    <tr key={it.seq}>
+                      <td>{it.seq}</td><td>{it.verdict}</td>
+                      <td>{it.tool_calls}</td><td>{it.tokens}</td><td>{it.decided_by}</td>
+                      <td className="loop-reason-cell">{it.reasoning}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </div>

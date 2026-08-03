@@ -12,7 +12,7 @@ src/backend/
 ├── edition_ee/      # 商业版路由、License、Team/RBAC、ORM、Dify 与服务实现
 ├── orchestration/   # 对话编排：Run 执行器、工作流、策略、引用、调度器
 ├── core/            # 领域核心：17 个子模块（auth/llm/db/ontology/services/...）
-├── mcp_servers/     # 10 个独立 MCP 服务器（streamable-http 进程）
+├── mcp_servers/     # 9 个独立 MCP 服务器（streamable-http 进程）
 ├── prompts/         # 提示词装配运行时 + 文件兜底文本
 ├── skill_bundles/   # 技能资产：default（预置）+ marketplace（技能市场种子）
 ├── services/        # 独立 sidecar：script_runner_service（受限脚本执行）
@@ -186,7 +186,7 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 
 ## mcp_servers/ 与 sidecar
 
-`mcp_servers/` 下 10 个服务器：`internet_search_mcp`、`web_fetch_mcp`、`generate_chart_tool_mcp`、`report_export_mcp`、`batch_runner_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（mcp 容器内按 `_ports.py` 端口表拉起全部进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。
+`mcp_servers/` 下 9 个服务器：`internet_search_mcp`、`web_fetch_mcp`、`generate_chart_tool_mcp`、`batch_runner_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（mcp 容器内按 `_ports.py` 端口表拉起全部进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
 
 `services/script_runner_service/server.py` 是技能脚本执行 sidecar：独立容器、受限子进程（resource 限额）、无数据库 / Redis / API-Key 访问权。
 

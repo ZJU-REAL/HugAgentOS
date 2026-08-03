@@ -109,6 +109,7 @@ data: [DONE]
 - **生成**（`astream_generate_plan` / `POST /v1/plans/generate`）：以 `disable_tools=True` 的"裸模型"产出结构化 JSON 计划。系统提示词解析顺序：版本池 `plan_mode` 激活版本 → 旧版 `system/90_plan_mode` 分段 → 文件兜底 `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码最小提示。
 - **执行**（`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`）：每个步骤独立建 agent 顺序执行，支持步骤级 MCP/技能/子智能体绑定、取消（`is_run_cancelled` 轮询）；执行同样走 ChatRun + Redis Stream，可断线续播。
 - **前端呈现与标题**：手动计划模式的预览和执行进度统一显示在对话内的计划卡片，不再重复显示输入框上方的紧凑计划条（该计划条只服务普通对话中的模型 `update_plan`）；计划预览生成后即触发会话标题自动摘要，摘要完成前由首条任务生成临时标题。
+- **历史与当前模式解耦**：会话的 `planChat` 标记和 `plan_snapshot` 仅用于保留侧边栏类型及历史计划卡片；输入框是否继续走计划模式由独立的逐会话状态控制。用户关闭计划模式后仍能查看已有计划和报告，但后续消息（例如基于报告生成 PPT）按普通对话执行，刷新或重新进入会话也不会被历史计划自动重新开启。
 - **模型角色**：计划模式优先解析 `plan_agent` 角色，未配置降级 `main_agent`（`agent_factory.py` `_mode_role` 分支）。
 - 无人值守模式（计划执行 / 自动化）会从工具集中摘除 `batch_runner`，因为 `batch_plan` 的确认弹窗在该场景无 UI 可确认（`workflow.py::_resolve_batch_runner_visibility`）。
 
@@ -122,7 +123,9 @@ data: [DONE]
 | `builtin.worker` | 执行员 | 继承主对话完整历史 | 共享、可写 | 继承父级本轮技能、MCP 与 KB，不新增授权 |
 | `builtin.reviewer` | 审查员 | 独立简报，不继承执行历史 | 共享、只读 | 无 Bash；独立核验，返回 `pass / revise / escalate` |
 
-上下文和工作区是两个独立维度：探索员、审查员能检查当前文件，但不会被主对话或执行过程锚定；执行员则需要完整继承用户约束和既有决定。主智能体的动态路由表只展示本轮最终启用且角色策略允许下放的技能、MCP、知识库和基础工具；主智能体已关闭、未授权或被运行时过滤的能力既不会展示，也不会传给默认子智能体。三个角色都不能继续调用子智能体。默认列表不含 planner：普通主对话已用 `update_plan` 维护计划，避免形成“计划里的计划”。角色提示词来自版本池 `subagents` kind 的 `explorer / worker / reviewer` 三个独立 part，文件系统目录 `prompts/prompt_text/subagents/` 只负责种子和故障回退。
+这三个角色会直接显示在用户侧「子智能体」页面并标记为「内置」，所有用户初始默认开启。用户可逐个启停；停用状态保存在该用户的 `users_shadow.metadata.disabled_builtin_subagent_ids` 中，因此可跨浏览器保持。已停用角色仍留在子智能体列表供重新开启，但不会进入 `@` 候选、自然语言委派解析或主智能体的自主路由表，也不能从详情页开始专属会话。角色提示词在详情页只读展示，不再作为 Config 提示词管理的可编辑标签页。详情页的「能力策略」会显示这些角色跟随主智能体在运行时动态加载能力，并明确探索员、审查员的只读收窄规则，不再把动态继承误显示为「未绑定」。
+
+上下文和工作区是两个独立维度：探索员、审查员能检查当前文件，但不会被主对话或执行过程锚定；执行员则需要完整继承用户约束和既有决定。主智能体的动态路由表只展示本轮最终启用且角色策略允许下放的技能、MCP、知识库和基础工具；主智能体已关闭、未授权或被运行时过滤的能力既不会展示，也不会传给默认子智能体。三个角色都不能继续调用子智能体。默认列表不含 planner：普通主对话已用 `update_plan` 维护计划，避免形成“计划里的计划”。角色提示词在运行时仍来自版本池 `subagents` kind 的 `explorer / worker / reviewer` 三个独立 part，文件系统目录 `prompts/prompt_text/subagents/` 只负责种子和故障回退；该 kind 保留在后端与迁移快照中，以兼容既有环境。
 
 除此之外，用户自建子智能体（`api/routes/v1/agents.py`，DB 表 `UserAgent`）可绑定独立的系统提示词、MCP / 技能 / 插件 / KB 集合与模型参数（provider / temperature / max_tokens / max_iters）。创建或编辑时，资源选择器支持以下来源：
 

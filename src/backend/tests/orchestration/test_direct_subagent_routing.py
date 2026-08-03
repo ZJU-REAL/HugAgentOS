@@ -31,6 +31,22 @@ class _FakeUserAgentService:
         return list(self.items)
 
 
+class _FakeUserService:
+    def __init__(self, _db):
+        pass
+
+    def get_disabled_builtin_subagent_ids(self, user_id: str):
+        assert user_id == "user_1"
+        return set()
+
+
+@pytest.fixture(autouse=True)
+def _stub_builtin_preferences(monkeypatch):
+    import core.services.user_service as user_service_module
+
+    monkeypatch.setattr(user_service_module, "UserService", _FakeUserService)
+
+
 def test_explicit_mention_id_resolves_as_per_turn_target(monkeypatch):
     import core.services.user_agent_service as service_module
 
@@ -191,6 +207,30 @@ def test_builtin_subagent_natural_language_command_is_resolved_without_db_row(mo
     assert explicit_command.agent_id == "builtin.explorer"
 
 
+def test_disabled_builtin_subagent_is_rejected_as_explicit_target(monkeypatch):
+    import core.services.user_agent_service as service_module
+    import core.services.user_service as user_service_module
+
+    class _DisabledBuiltinUserService(_FakeUserService):
+        def get_disabled_builtin_subagent_ids(self, user_id: str):
+            assert user_id == "user_1"
+            return {"builtin.explorer"}
+
+    monkeypatch.setattr(service_module, "UserAgentService", _FakeUserAgentService)
+    monkeypatch.setattr(user_service_module, "UserService", _DisabledBuiltinUserService)
+    request = ChatRequest(
+        chat_id="chat_1",
+        message="@探索员 查清登录失败的代码路径",
+        mention_agent_id="builtin.explorer",
+        mention_name="探索员",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_chat_agent_targets(SimpleNamespace(), request, "user_1")
+
+    assert exc_info.value.status_code == 403
+
+
 def test_parent_and_child_share_the_same_ontology_runtime_object():
     runtime = {
         "enabled": True,
@@ -225,6 +265,13 @@ def test_only_persistent_agent_chat_uses_direct_route():
         )
         == "ua_risk"
     )
+
+
+def test_dedicated_builtin_chat_preserves_role_write_boundaries():
+    assert workflow._direct_agent_execution_permissions("builtin.explorer") == (True, False)
+    assert workflow._direct_agent_execution_permissions("builtin.worker") == (False, True)
+    assert workflow._direct_agent_execution_permissions("builtin.reviewer") == (True, False)
+    assert workflow._direct_agent_execution_permissions("ua_risk") == (False, True)
 
 
 @pytest.mark.asyncio

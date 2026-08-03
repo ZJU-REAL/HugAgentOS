@@ -1,6 +1,6 @@
 # MCP Tool System
 
-> Last updated: 2026-07-02
+> Last updated: 2026-08-02
 
 HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://modelcontextprotocol.io): every category of external capability (internet search, web fetching, database queries, chart generation, ...) is an independent MCP server, all running inside a dedicated `mcp` container that the backend reaches over the streamable-http transport. This design has three payoffs:
 
@@ -18,10 +18,10 @@ HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://m
 │ (FastAPI│        │ble-http│   :9102  internet_search                        │
 │  agent) │        │        │   :9103  ai_chain_information_mcp (industry, EE)│
 └─────────┘        │        │   :9104  generate_chart_tool                    │
-     │             │        │   :9105  report_export_mcp                      │
+     │             │        │   :9105  reserved (former report export MCP)   │
  MCPConnectionPool │        │   :9106  web_fetch                              │
  (core/llm/        │        │   :9107  batch_runner                           │
-  mcp_pool.py)     └───┬────┘   :9108  automation_task                        │
+  mcp_pool.py)     └───┬────┘   :9108  automation_task (automation plugin)    │
                        │        9109–9111 reserved (former office MCPs)       │
                        │        :9112  skill_manager                          │
                        └──────────────────────────────────────────────────────┘
@@ -29,7 +29,12 @@ HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://m
 
 The single source of truth for port assignment is `src/backend/mcp_servers/_ports.py`: both `core/config/mcp_config.py` (which builds the backend-side `http://mcp:NNNN/mcp/` URLs) and `mcp_servers/_launcher.py` (which binds those ports inside the container) read from it.
 
-> Historical note: the office-document MCP servers (word / excel / ppt / pdf) have been moved out of the `mcp` container entirely. That capability now ships as [agent skills](agent-skills.md) (word-editing / excel-editing / ppt-design / pdf-editing) that execute inside the sandbox container, each vendoring its own engine. Consequently `docker/Dockerfile.mcp` no longer installs LibreOffice / .NET / Node / Chromium; 9108 has been reused for automation task management, while 9109–9111 remain reserved.
+> Historical note: office-document editing and export (word / excel / ppt /
+> pdf) have moved out of the `mcp` container into
+> [agent skills](agent-skills.md) (word-editing / excel-editing / ppt-design /
+> pdf-editing), whose engines run inside the sandbox. `report_export_mcp` is
+> retired, and port 9105 remains reserved. The automation plugin provides port
+> 9108, while ports 9109–9111 remain reserved.
 
 ## Built-in MCP servers at a glance
 
@@ -40,13 +45,12 @@ The single source of truth for port assignment is `src/backend/mcp_servers/_port
 | `internet_search_mcp` | 9102 | `internet_search` | Community CE |
 | `ai_chain_information_mcp` | 9103 | 13 industry-chain / company-profile tools (below) | **Enterprise EE** |
 | `generate_chart_tool_mcp` | 9104 | `generate_chart_tool` | Community CE |
-| `report_export_mcp` | 9105 | `export_table_to_excel` | Community CE |
 | `web_fetch_mcp` | 9106 | `web_fetch` | Community CE |
 | `batch_runner_mcp` | 9107 | `batch_plan` | Community CE |
-| `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` etc. | Community CE |
+| `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` etc. | Community CE (automation plugin) |
 | `skill_manager_mcp` | 9112 | `search_marketplace` / `install_from_marketplace` / `register_skill` / `list_my_skills` / `submit_to_marketplace` / `delete_skill` | Community CE |
 
-> Edition boundaries follow the [open-source & commercialization plan](../editions/overview.md): the two industry servers depend on intranet-only data sources (the industry knowledge center and the data warehouse) and are Enterprise-only — the CE derivation pipeline strips their directories via `ce/manifest.yaml` and drops their `catalog.json` seeds. The remaining eight general-purpose servers all ship in the Community Edition.
+> Edition boundaries follow the [open-source & commercialization plan](../editions/overview.md): the two industry servers depend on intranet-only data sources (the industry knowledge center and the data warehouse) and are Enterprise-only — the CE derivation pipeline strips their directories via `ce/manifest.yaml` and drops their `catalog.json` seeds. The remaining seven general-purpose servers all ship in the Community Edition.
 
 ### retrieve_dataset_content — knowledge-base retrieval (CE)
 
@@ -98,12 +102,6 @@ Depends on the intranet "industry knowledge center" — Enterprise-only.
 ### generate_chart_tool — data visualization (CE)
 
 `generate_chart_tool(data, query)`: takes JSON data plus a plotting instruction, renders line/bar/pie charts with matplotlib (the mcp container bundles WenQuanYi and FangZheng fonts for CJK rendering), saves the image as a platform artifact and returns a `file_id` / download URL. The tool description mandates fetching real data first ("never plot from thin air") and documents the standard hand-off to the sandbox (`sandbox_put_artifact` to copy the chart in before embedding it in Word/PPT).
-
-### report_export_mcp — lightweight table export (CE)
-
-`export_table_to_excel(markdown, title, filename)`: one-click conversion of Markdown tables already produced in the chat into a styled .xlsx download (one sheet per table). Anything needing formulas, multi-sheet models or editing existing files goes through the excel-editing skill instead.
-
-> The server's former `export_report_to_docx` (Markdown → official-document-style Word) **MCP entry point has been retired**, superseded by the word-editing skill's `word-cli create --markdown`; the function body is kept only for selftest regression (see the header comment of `report_export_mcp/server.py`).
 
 ### web_fetch — web page fetching (CE)
 
@@ -162,24 +160,78 @@ The source of truth for MCP server configuration is the `admin_mcp_servers` tabl
 
 Whether a server is **visible to the model** additionally passes through [catalog](catalog.md) gating: each entry in the `mcp` section of `core/config/catalog.json` corresponds to a server_id, and a server whose `is_enabled(id, "mcp_server")` is false will not be registered with the agent even if connected.
 
-## Administrator-defined MCP servers
+## System-config administrator-defined MCP servers
 
-The admin console's MCP management maps to `api/routes/v1/admin_mcp_servers.py` (prefix `/v1/admin/mcp-servers`):
+The `/config` system console's **MCP Tools → MCP Server Management** view maps to `api/routes/v1/admin_mcp_servers.py` (prefix `/v1/admin/mcp-servers`) and uses `CONFIG_TOKEN` or the `can_system_config` capability:
 
 - **CRUD**: create/edit servers of any transport (`stdio` / `streamable_http` / `sse`), with `command+args` (stdio) or `url+headers` (HTTP/SSE), environment injection (`env_vars` literals + `env_inherit` from the host), icons and user-facing intros;
 - **Probe-on-create**: `_probe_connectivity` performs a real connection; failures are rejected before persisting;
 - **Toggle & ordering**: `POST /{id}/toggle` switches a server instantly (refreshing the catalog and the connection pool);
-- **Secret masking**: the list endpoint masks secret-looking values in `env_vars`;
+- **Secret protection**: HTTP header values are encrypted at rest and returned as `***`; secret-looking `env_vars` values are masked as well;
 - **Test & reload**: `POST /{id}/test` re-probes a single server; `POST /reload-pool` hot-rebuilds the connection pool.
+- **Move to MCP Marketplace**: creates a credential-free marketplace snapshot
+  from an existing remote HTTP/SSE MCP and disables the original global
+  instance. The service then leaves the MCP server list and can be reviewed,
+  edited, and installed globally from the marketplace.
+
+Plugin-provided MCPs, such as the automation plugin's scheduled-task MCP, don't
+appear in MCP server management. Their enablement and removal follow the plugin
+lifecycle and are handled in plugin management.
 
 ## User self-service MCP (capability center)
 
 Regular users can add remote MCP servers visible **only to themselves** (`api/routes/v1/me_capabilities.py`, prefix `/v1/me`):
 
-- `POST /v1/me/mcp-servers`: add a private remote MCP — **HTTP/SSE only**; the user entry point deliberately forbids stdio (no arbitrary command execution on the server); probe-on-create, unreachable endpoints are never persisted;
+- `POST /v1/me/mcp-servers`: add a private remote MCP — **HTTP/SSE over public HTTPS only**; the user entry point deliberately forbids stdio (no arbitrary command execution on the server), and DNS/IP validation blocks localhost, private, link-local, and reserved addresses; probe-on-create means unreachable endpoints are never persisted;
 - `DELETE /v1/me/mcp-servers/{id}`: remove one's own private MCP.
 
-Implementation reuses the same `admin_mcp_servers` table: `owner_user_id` = current user for owner isolation, auto-generated `umcp_<hex>` server IDs to avoid clashes, and `is_stable=False` to keep them out of the warmup pool. The feature is gated by the per-user `can_add_mcp` permission flag (open by default in the single-tenant Community Edition; granted per user by organisation admins in the Enterprise Edition — see [editions](../editions/overview.md)).
+Implementation reuses the same `admin_mcp_servers` table: `owner_user_id` = current user for owner isolation, auto-generated `umcp_<hex>` server IDs to avoid clashes, and `is_stable=False` to keep them out of the warmup pool. HTTP header values are encrypted with Fernet at rest and decrypted only at runtime. The feature is gated by the per-user `can_add_mcp` permission flag (open by default in the single-tenant Community Edition; granted per user by organisation admins in the Enterprise Edition — see [editions](../editions/overview.md)).
+
+## MCP marketplace
+
+System marketplace governance lives at **`/config → MCP Tools`**. Matching Skill Management, the MCP server toolbar exposes two modal actions—MCP Marketplace and Listing Reviews—without another nested management tab; `/admin` has no duplicate entry. It lists and globally installs entries, reviews submissions, manages visibility, revalidates remote tools, suspends unsafe listings, and removes entries. It uses `CONFIG_TOKEN` or `can_system_config`.
+
+The capability center's MCP marketplace uses the same listing-visibility model as the skill, sub-agent, and plugin marketplaces, including public listings and grants to selected users, teams, or roles. A marketplace listing stores only a **credential-free, reviewed version snapshot**; the concrete `admin_mcp_servers` instance created by an installation stores that installer's own credentials:
+
+- Users can inspect tool names, input schemas, risk level, and required credentials, then install a listing as a private MCP. Administrators can install it globally. An installed listing can be opened again to rotate its credential.
+- Users can submit an already connected private MCP, track pending/approved/rejected state, and withdraw it before review. Instances installed from the MCP marketplace don't expose the submission action, and the backend rejects duplicate listing attempts.
+- Creating a remote HTTP/SSE MCP in Config probes it and lists it in the marketplace first; it is not globally active until an administrator reviews and installs it from the marketplace. Existing global remote MCPs can also be listed. StdIO MCPs remain locally managed and must use the plugin marketplace for cross-environment distribution.
+- Administrators can edit a listing's name, summary, user introduction,
+  category, tags, and icon. Changes propagate to existing installations. The
+  reviewed endpoint, authentication contract, tool schemas, risk report, and
+  version number remain an immutable version snapshot; changing them requires
+  revalidation and a new version.
+- Admin controls cover listing/delisting, user/team/role visibility, manual revalidation, soft deletion, and a security suspension kill switch. Suspension immediately disables every installation derived from that listing, and lifting it restores those installations.
+- Tool names and descriptions associated with deletion, execution, or mutation produce medium/high risk reports. High-risk installations require explicit confirmation.
+- By default, the backend reconnects to each remote MCP every six hours and compares its tool-snapshot hash. Drift moves the listing to `changed` and pauses new installations until review. Configure the period with `MCP_MARKET_REVALIDATE_INTERVAL`.
+
+A fresh deployment seeds five **platform-curated templates**. They appear in the marketplace but are never installed or enabled automatically:
+
+| Listing | Install-time input | Notes |
+|---|---|---|
+| Amap MCP | Amap Web Service API Key | The encrypted key is injected into the `key` URL query parameter only at runtime; the marketplace URL never contains it. |
+| Metaso Search MCP | Metaso API Key | Runtime configuration automatically builds `Authorization: Bearer …`. |
+| GitHub MCP | Fine-grained PAT or OAuth App sign-in | GitHub's official remote MCP does not support DCR; OAuth requires a registered Client ID/Secret. |
+| GitLab MCP | Browser OAuth (recommended) or an access token with `mcp` scope | GitLab's official MCP is Beta; browser sign-in supports DCR, PKCE, and refresh tokens. Regular PATs may not connect. |
+| Alibaba Cloud Observability MCP | A configured personal SSE endpoint | Configure AK/SK first in ModelScope Hosted, Function Compute, or another protected environment. The platform does not collect the cloud AK/SK directly. |
+
+Curated templates use `per_install` discovery: marketplace details show representative official capabilities, while installation connects with that user's credential, discovers the concrete tool schemas, reassesses risk, and saves the result only on the user's private MCP. Templates with write operations, such as GitHub and GitLab, are pre-classified as high risk and require explicit confirmation.
+
+### General authentication contract
+
+Each marketplace version declares one or more methods in `auth_config`: `none`, `token`, or `oauth2`. `auth_schema` only describes install-time fields injected into headers, query parameters, or a personal endpoint, and fields may be limited to specific methods. Older entries infer Token or no-auth behavior automatically.
+
+OAuth remote MCPs use protected-resource and authorization-server metadata discovery, Authorization Code + PKCE, state validation, RFC 8707 resource indicators, and DCR when available. Services without DCR collect a registered Client ID/Secret. Access tokens, refresh tokens, client metadata, and expiry are stored only as an encrypted bundle on the concrete installation and are refreshed at runtime; they never enter marketplace snapshots.
+
+Same-origin deployments automatically use `/api/v1/mcp-market/oauth/callback` on the browser origin. Cross-origin frontend/backend deployments must set `MCP_OAUTH_PUBLIC_BASE_URL` to the browser-reachable API base so callback URLs are never reflected from an untrusted Host header.
+
+User APIs live under `/v1/mcp-market` and cover browsing, details, private installation, submission, and withdrawal. For compatibility with existing clients, system-config management APIs retain the `/v1/admin/mcp-market` prefix, but they belong to `/config` authorization (`CONFIG_TOKEN` / `can_system_config`) and cover publishing, global installation, review, visibility, revalidation, suspension, and removal. To avoid remote-code-execution exposure, the marketplace accepts only remote `streamable_http` / `sse` MCP servers. Stdio capabilities should be distributed through reviewed plugins, where the plugin installation lifecycle controls their code and dependencies.
+
+### Data boundaries
+
+The marketplace uses four dedicated tables: `mcp_market_items` for listing metadata, `mcp_market_versions` for immutable tool snapshots, risk reports, and credential-free auth contracts, `mcp_market_submissions` for review snapshots, and `mcp_market_installations` to link versions to concrete instances. Headers, tokens, OAuth bundles, query keys, and personal endpoints never enter marketplace records. Every installer authenticates independently, and Fernet-encrypted credentials remain on that installation only.
+
+The user marketplace, authentication, and runtime refresh live in `core/` and CE routes. `/config` routes and `components/admin` remain EE-registered and are physically removed by the CE derivation manifest. The main tree uses the `mcpmkt01`–`mcpmkt04retire` migration chain; CE uses independent `ce_0003` and `ce_0004` migrations for the same core tables and retirement cleanup without importing `edition_ee`.
 
 ## Local debugging
 
@@ -217,10 +269,15 @@ docker-compose up -d --build mcp
 | `src/backend/core/llm/mcp_pool.py` | MCP connection pool (stdio pooled / HTTP per-request) |
 | `src/backend/core/llm/mcp_manager.py` | MCPClient construction + bare tool-name restoration |
 | `src/backend/core/services/mcp_service.py` | DB-driven server config service (30 s cache) |
+| `src/backend/core/services/mcp_marketplace_service.py` | Marketplace publishing, review, installation, visibility, and security controls |
+| `src/backend/core/services/mcp_oauth_service.py` | OAuth 2.1 login, SDK metadata discovery, encrypted token storage, and refresh |
+| `src/backend/core/services/mcp_marketplace_monitor.py` | Periodic remote tool-snapshot revalidation and drift monitoring |
 | `src/backend/core/config/mcp_config.py` | Built-in server URL builder (http://mcp:NNNN/mcp/) |
 | `src/backend/core/config/catalog.json` | Capability catalog: MCP enable/disable seeds |
 | `src/backend/api/routes/v1/admin_mcp_servers.py` | Admin custom-MCP API |
 | `src/backend/api/routes/v1/me_capabilities.py` | User self-service private MCP / skill API |
-| `docker/Dockerfile.mcp` | mcp container image (matplotlib/openpyxl/pandoc/CJK fonts) |
+| `src/backend/api/routes/v1/mcp_marketplace.py` | User-facing MCP marketplace API |
+| `src/backend/api/routes/v1/admin_mcp_marketplace.py` | Admin MCP marketplace and review API |
+| `docker/Dockerfile.mcp` | mcp container image (MCP runtime, plotting dependencies, and CJK fonts) |
 
 Related docs: [Capability catalog](catalog.md) · [Agent skills](agent-skills.md) · [Knowledge base](knowledge-base.md) · [Editions & licensing](../editions/overview.md)

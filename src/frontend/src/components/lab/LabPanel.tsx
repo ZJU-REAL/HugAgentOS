@@ -93,7 +93,7 @@ export default function LabPanel() {
   }
 
   return (
-    <div className="jx-agentPage">
+    <div className="jx-agentPage jx-labPage">
       <div className="jx-agentPage-header">
         <div>
           <div className="jx-agentPage-title">{labTitle}</div>

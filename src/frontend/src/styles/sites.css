@@ -159,3 +159,127 @@
 /* ── 列表视图补充 ── */
 .jx-sites-search { margin-bottom: var(--space-lg); border-radius: var(--radius-lg); }
 .jx-sites-emptyTitle { font-size: 16px; font-weight: 600; color: var(--color-text); }
+
+@media (max-width: 768px) {
+  .jx-sites-body {
+    padding-top: 4px;
+    overflow: visible;
+  }
+
+  .jx-sites-search {
+    margin-bottom: 14px;
+  }
+
+  .jx-sites-list {
+    gap: 12px;
+  }
+
+  .jx-sites-card {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .jx-sites-cardHead {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .jx-sites-cardTitle {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .jx-sites-cardUrl {
+    display: block;
+    max-width: 100%;
+  }
+
+  .jx-sites-cardMeta {
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+
+  .jx-sites-cardActions {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .jx-sites-cardActions .ant-btn {
+    margin: 0;
+  }
+
+  .jx-sites-tabActions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .jx-sites-manageModal .ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+    padding-bottom: 0;
+  }
+
+  .jx-sites-manageModal .ant-modal-content {
+    padding: 18px 16px;
+  }
+
+  .jx-sites-manageModal .ant-modal-title {
+    padding-right: 24px;
+    overflow-wrap: anywhere;
+  }
+
+  .jx-sites-manageModal .ant-tabs-nav {
+    margin-bottom: 14px;
+  }
+
+  .jx-sites-manageModal .ant-tabs-nav-wrap {
+    overflow-x: auto;
+  }
+
+  .jx-sites-manageModal .ant-input-group-addon {
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .jx-sites-list {
+    overflow: hidden;
+    gap: 0;
+    border: 1px solid rgba(15,23,42,.065);
+    border-radius: 22px;
+    background: rgba(255,255,255,.94);
+    box-shadow: 0 12px 34px rgba(42,61,94,.075), 0 1px 2px rgba(15,23,42,.035);
+  }
+
+  .jx-sites-card {
+    padding: 18px 16px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .jx-sites-card + .jx-sites-card {
+    border-top: 1px solid rgba(15,23,42,.075);
+  }
+
+  .jx-sites-cardTitle {
+    color: #101828;
+    font-size: 17px;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+
+  .jx-sites-cardMeta {
+    color: #667085;
+    font-size: 13px;
+  }
+
+  .jx-sites-cardActions .ant-btn {
+    min-height: 36px;
+    border-radius: 11px;
+  }
+}

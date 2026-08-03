@@ -191,7 +191,7 @@ The frontend's `src/frontend/src/hooks/useStreaming.ts` dispatches on `type` and
 |---|---|---|---|
 | `frontend` | hugagent-frontend | `3002:80` | Nginx: static assets + `/api` reverse proxy |
 | `backend` | hugagent-backend | `3001` | FastAPI main service |
-| `mcp` | hugagent-mcp | internal `9100–9108`, `9112` | 10 MCP servers as long-running streamable-http processes (8 general CE tools plus 2 EE industry tools) |
+| `mcp` | hugagent-mcp | dedicated internal ports | 9 MCP servers as long-running streamable-http processes (7 general CE tools plus 2 EE industry tools) |
 | `postgres` | hugagent-postgres | `5432` | Primary database |
 | `redis` | hugagent-redis | `6379` | Sessions / caching |
 | `script-runner` (profile `script_runner`) | hugagent-script-runner | internal | Lightweight script-execution sidecar (no DB/secret access) |
@@ -217,7 +217,7 @@ System prompts are no longer hardcoded: the version pool is stored in the `conte
 
 ### MCP tools as independent processes
 
-Each tool is a standalone MCP server under `src/backend/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `mcp_servers/_ports.py` is the single source of truth). The backend connects through the HTTP client pool in `core/llm/mcp_manager.py`. Benefits: a tool crash never affects the main process, heavy office dependencies have moved out of the mcp image, and the tool tier can scale independently. CE keeps 8 general-purpose servers; the two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
+Each tool is a standalone MCP server under `src/backend/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `mcp_servers/_ports.py` is the single source of truth). The backend connects through the HTTP client pool in `core/llm/mcp_manager.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. CE keeps 7 general-purpose servers; the two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
 
 ### Runs decoupled from connections
 

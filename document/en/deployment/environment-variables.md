@@ -15,6 +15,7 @@ This reference is sourced from `.env.example` and `src/backend/core/config/setti
 | `BACKEND_PORT` | `3001` | Backend listen port + Docker port mapping; also becomes `PORT` inside the container | CE |
 | `FRONTEND_PORT` | `3002` | Frontend nginx host port (80 inside the container) | CE |
 | `VITE_API_BASE_URL` | (empty) | API base URL baked into the frontend JS bundle at build time; **leave empty to use the nginx `/api` proxy (recommended)** | CE |
+| `MCP_OAUTH_PUBLIC_BASE_URL` | (empty) | Browser-visible API base for MCP OAuth callbacks; leave empty for the same-origin nginx/Vite `/api` proxy, or set a cross-origin base such as `https://app.example.com/api` | CE |
 | `ENV` / `ENVIRONMENT` | `dev` | Runtime environment (dev / staging / prod); affects log format and `.env.<ENV>` loading | CE |
 | `TZ` | `Asia/Shanghai` | Timezone for all containers | CE |
 | `SERVICE_NAME` | `hugagent` | Service name (logging / alerting identifier) | CE |
@@ -159,6 +160,7 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | Variable | Default | Description | Edition |
 |---|---|---|---|
 | `MCP_HOST` | `mcp` (compose default) | MCP container hostname; set `127.0.0.1` for local debugging | CE |
+| `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | Remote MCP marketplace snapshot revalidation interval in seconds (minimum `300`) | CE |
 | `INTERNET_SEARCH_ENGINE` | `tavily` (compose default) | Internet search engine: `tavily` / `baidu` / `langsearch` | CE |
 | `TAVILY_API_KEY` | (empty) | Tavily Search API key; required when Tavily is selected | CE |
 | `BAIDU_API_KEY` | (empty) | Baidu search API key; required when Baidu is selected | CE |

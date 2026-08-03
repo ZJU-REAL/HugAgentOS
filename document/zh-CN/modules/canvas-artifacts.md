@@ -105,16 +105,12 @@ MCP 工具 `generate_chart_tool`（`src/backend/mcp_servers/generate_chart_tool_
 
 图表立即出现在聊天附件区，可在画布中预览、在我的空间收纳。工具描述中强制「先取数后绘图」，禁止凭空编数据。若要把图表插入沙箱里正在生成的 Word/PPT，需先用 `sandbox_put_artifact` 把 `file_id` 拷进沙箱再由 CLI 引用沙箱路径——artifact 存储与沙箱文件系统是两个世界。
 
-## 报告导出如何落到产物
+## 文档导出如何落到产物
 
-MCP 工具组 `report_export_mcp`（`src/backend/mcp_servers/report_export_mcp/`）做轻量 Markdown → Office 导出，同样经 `save_artifact_bytes` 落库：
-
-| 工具 | 说明 |
-|---|---|
-| `export_report_to_docx` | Markdown 报告 → .docx（公文字体：标题方正小标宋、正文方正仿宋；基于 `reference.docx` 模板）。**已标记 DEPRECATED**——复杂排版（自定义样式、页眉页脚、目录、插图、模板套打）请改用 word 编辑技能 `word-cli create` |
-| `export_table_to_excel` | 解析 Markdown 表格 → .xlsx 下载 |
-
-返回的 `file_id` / `url` 与图表一致，自动出现在附件区；xlsx 还能直接在数据画布里继续编辑。
+Word 和 Excel 导出由 [Agent 技能](agent-skills.md)完成：word-editing 使用
+`word-cli create --markdown` 生成 Word，excel-editing 负责表格创建、公式和多
+工作表编辑。技能在沙箱中生成文件，并通过工作区产物流程钉入会话；返回的
+文件会出现在附件区和「我的空间」，xlsx 还可在数据画布中继续编辑。
 
 ## 端到端示例
 
@@ -122,7 +118,7 @@ MCP 工具组 `report_export_mcp`（`src/backend/mcp_servers/report_export_mcp/`
 
 1. 智能体先用搜索 / 数据工具取数；
 2. 调 `generate_chart_tool` 生成柱状图 → artifact A（PNG，附件区可见，画布可预览）；
-3. 撰写分析文本后调 `export_report_to_docx` → artifact B（docx）；
+3. 撰写分析文本后调用 word-editing 技能生成 artifact B（docx）；
 4. 两个产物随 `meta` 事件钉入工作区、由 `persist_artifacts` 落库，出现在「我的空间」；
 5. 用户点击 docx 在画布预览，满意后 `POST /v1/chat-shares` 生成 15 天有效的分享链接发给同事。
 
@@ -138,7 +134,7 @@ MCP 工具组 `report_export_mcp`（`src/backend/mcp_servers/report_export_mcp/`
 | 会话分享 API | `src/backend/api/routes/v1/chat_shares.py` |
 | 分享前端 | `src/frontend/src/SharePreviewApp.tsx`、`src/frontend/src/components/share/ShareRecordsPage.tsx` |
 | 图表生成 MCP | `src/backend/mcp_servers/generate_chart_tool_mcp/server.py`、`chart.py` |
-| 报告导出 MCP | `src/backend/mcp_servers/report_export_mcp/server.py`、`impl.py` |
+| 文档导出技能 | `src/backend/skill_bundles/default/word-editing/`、`src/backend/skill_bundles/default/excel-editing/` |
 | 我的空间前端 | `src/frontend/src/components/myspace/`、`src/frontend/src/stores/mySpaceStore.ts` |
 
 延伸阅读：[沙箱](sandbox.md) · [项目与我的空间](projects-myspace.md) · [存储](storage.md) · [MCP 工具](mcp-tools.md)

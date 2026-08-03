@@ -35,6 +35,7 @@ interface InputAreaProps {
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement | null>) => void;
   removeFile: (index: number) => void;
   placeholder?: string;
+  mobilePlaceholder?: string;
   rows?: number;
   disableMention?: boolean;
   /** New-chat composer on the project page: hides the "Project" selector dropdown
@@ -188,6 +189,7 @@ function clearEditorIfOnlyBrowserEmptyNodes(editor: HTMLElement) {
 export function InputArea({
   inputRef, fileInputRef, send, abort, continueLoop, handleFileSelect, removeFile,
   placeholder = t('请输入你的问题，按Enter发送，Shift+Enter换行'),
+  mobilePlaceholder,
   rows: _rows = 3,
   disableMention = false,
   projectComposer = false,
@@ -670,6 +672,7 @@ export function InputArea({
           suppressContentEditableWarning
           className={`jx-composer jx-composerEditor${isEmpty ? ' jx-composerEditor--empty' : ''}`}
           data-placeholder={placeholder}
+          data-mobile-placeholder={mobilePlaceholder || placeholder}
           onInput={() => { if (!composingRef.current) syncText(); }}
           onCompositionStart={() => { composingRef.current = true; setIsComposing(true); }}
           onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); syncText(); }}
@@ -902,7 +905,7 @@ export function InputArea({
             </motion.button>
           )}
 
-          <div style={{ flex: 1 }} />
+          <div className="jx-composerSpacer" style={{ flex: 1 }} />
 
           {userModelSwitchEnabled && selectableModels.length > 0 && (() => {
             const currentModel = selectableModels.find((m) => m.provider_id === selectedModelProviderId)
@@ -948,9 +951,10 @@ export function InputArea({
 
           {(() => {
             // Mode entries (plan / batch), shared by the main menu and the project-page
-            // projectComposer, each gated by allowed_apps. projectComposer (project page)
-            // marks per the selected activeMode; the main menu marks per the current chat type.
-            const planActive = projectComposer ? activeMode === 'plan' : isPlanChat;
+            // projectComposer, each gated by allowed_apps. A chat can retain historical plan
+            // cards after the user returns to ordinary conversation, so the main menu must use
+            // the active composer mode rather than the persistent planChat classification.
+            const planActive = projectComposer ? activeMode === 'plan' : planMode;
             const batchActive = projectComposer ? activeMode === 'batch' : isBatchChat;
             const activeSuffix = projectComposer ? t('（已选）') : t('（已开启）');
             const modeItems = [

@@ -58,6 +58,13 @@ The pool stores multiple prompt sets in a single `ContentBlock(id="prompt_versio
 
 Management lives under "Prompt Management" in the Config console, backed by `api/routes/v1/admin_prompts.py` (`CONFIG_TOKEN` auth):
 
+The frontend version tabs expose only `system / plan_mode / code_exec /
+distillation`. The backend still stores and seeds `subagents`, resolves it at
+runtime, and carries it in cross-environment snapshots, but it is no longer an
+editable Config tab. The three built-in roles and their read-only prompts now
+appear on the user-facing **Sub-agents** page, where each user manages only
+their own enablement state.
+
 | Endpoint | Function |
 |---|---|
 | `GET/POST/PUT/DELETE /v1/admin/prompts/versions...` | Pool CRUD (per kind) |

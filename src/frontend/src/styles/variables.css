@@ -13,17 +13,17 @@
 
   /* ── 边框与填充 (Neutral Gray) ── */
   --color-fill-heavy:#8C94A2;
-  --color-fill-deep:#B3BAC8;
-  --color-fill:#D8DBE2;
-  --color-border:#E3E6EA;
-  --color-fill-hover:#EBEDEE;
-  --color-bg-gray:#F5F6F7;
+  --color-fill-deep:#98A2B3;
+  --color-fill:#DDE3EC;
+  --color-border:#E3E8EF;
+  --color-fill-hover:#EEF1F5;
+  --color-bg-gray:#F4F6F9;
 
   /* ── 文字 ── */
-  --color-text:#262626;
-  --color-text-secondary:#4D4D4D;
-  --color-text-tertiary:#808080;
-  --color-text-placeholder:#B3B3B3;
+  --color-text:#101828;
+  --color-text-secondary:#475467;
+  --color-text-tertiary:#667085;
+  --color-text-placeholder:#98A2B3;
   --color-text-white:#FFFFFF;
 
   /* ── 成功 (Success Green) ── */
@@ -58,10 +58,10 @@
   --color-icon-orange:#F8AB42;
 
   /* ── 圆角 (4 级) ── */
-  --radius-xs:4px;
-  --radius-sm:8px;
-  --radius-md:12px;
-  --radius-lg:20px;
+  --radius-xs:6px;
+  --radius-sm:10px;
+  --radius-md:16px;
+  --radius-lg:24px;
 
   /* ── 间距 (4px 基准) ── */
   --space-xs:4px;
@@ -73,6 +73,7 @@
   /* ── 字体 ── */
   --font-family:"PingFang SC","Microsoft YaHei","微软雅黑",sans-serif;
   --font-family-number:"DingTalk Sans","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
 
   /* ── 字号 ── */
   --font-size-xs:12px;
@@ -84,14 +85,14 @@
 
   /* ── 投影 (双层: ambient + key-light) ── */
   --shadow-card:
-    0 1px 2px rgba(15,23,42,.06),
-    0 4px 12px rgba(15,23,42,.04);
+    0 1px 2px rgba(15,23,42,.035),
+    0 8px 24px rgba(35,55,88,.055);
   --shadow-card-hover:
-    0 2px 4px rgba(15,23,42,.08),
-    0 12px 32px rgba(15,23,42,.10);
+    0 2px 5px rgba(15,23,42,.055),
+    0 16px 38px rgba(35,55,88,.09);
   --shadow-dropdown:
-    0 2px 6px rgba(15,23,42,.08),
-    0 12px 32px rgba(15,23,42,.14);
+    0 2px 8px rgba(15,23,42,.06),
+    0 20px 48px rgba(35,55,88,.14);
 
   /* ── Motion: Duration 梯度（4 级）──
    * instant: hover/active 着色、icon 微反馈

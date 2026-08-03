@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, UserShadow
 from core.infra.exceptions import BadRequestError
 from core.services import plugin_importer as pi
@@ -22,17 +21,28 @@ OWNER = "test_user_123"
 
 # ── Test fixture: build a real Claude Code plugin package in tmp ──────────────
 
+
 def _make_cc_plugin(root: Path) -> Path:
     pdir = root / "hello-toolkit"
     (pdir / ".claude-plugin").mkdir(parents=True)
-    (pdir / ".claude-plugin" / "plugin.json").write_text(json.dumps({
-        "name": "hello-toolkit",
-        "version": "2.1.0",
-        "description": "A Claude Code demo plugin",
-        "userConfig": {
-            "api_token": {"type": "string", "title": "API Token", "sensitive": True, "required": True}
-        },
-    }), encoding="utf-8")
+    (pdir / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "hello-toolkit",
+                "version": "2.1.0",
+                "description": "A Claude Code demo plugin",
+                "userConfig": {
+                    "api_token": {
+                        "type": "string",
+                        "title": "API Token",
+                        "sensitive": True,
+                        "required": True,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
     # Skill 1: with references + scripts + path variables
     sk = pdir / "skills" / "hello-greeter"
@@ -44,7 +54,9 @@ def _make_cc_plugin(root: Path) -> Path:
         "See references/style.md for tone.\n",
         encoding="utf-8",
     )
-    (sk / "references" / "style.md").write_text("Be warm. Path: ${CLAUDE_PLUGIN_ROOT}/data\n", encoding="utf-8")
+    (sk / "references" / "style.md").write_text(
+        "Be warm. Path: ${CLAUDE_PLUGIN_ROOT}/data\n", encoding="utf-8"
+    )
     (sk / "scripts" / "greet.py").write_text("print('hello')\n", encoding="utf-8")
 
     # Skill 2: plain text
@@ -56,24 +68,42 @@ def _make_cc_plugin(root: Path) -> Path:
     )
 
     # MCP: one remote http + one stdio
-    (pdir / ".mcp.json").write_text(json.dumps({
-        "mcpServers": {
-            "weather-remote": {"url": "https://mcp.example.com/mcp", "headers": {"X-Key": "${WEATHER_KEY}"}},
-            "local-fs": {"command": "npx", "args": ["-y", "@x/fs-mcp", "${CLAUDE_PLUGIN_ROOT}/data"]},
-        }
-    }), encoding="utf-8")
+    (pdir / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "weather-remote": {
+                        "url": "https://mcp.example.com/mcp",
+                        "headers": {"X-Key": "${WEATHER_KEY}"},
+                    },
+                    "local-fs": {
+                        "command": "npx",
+                        "args": ["-y", "@x/fs-mcp", "${CLAUDE_PLUGIN_ROOT}/data"],
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
 
     # Tier3: components that should be dropped
     (pdir / "hooks").mkdir()
-    (pdir / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {"PreToolUse": []}}), encoding="utf-8")
+    (pdir / "hooks" / "hooks.json").write_text(
+        json.dumps({"hooks": {"PreToolUse": []}}), encoding="utf-8"
+    )
     (pdir / "commands").mkdir()
-    (pdir / "commands" / "deploy.md").write_text("---\ndescription: deploy\n---\nDeploy $ARGUMENTS\n", encoding="utf-8")
+    (pdir / "commands" / "deploy.md").write_text(
+        "---\ndescription: deploy\n---\nDeploy $ARGUMENTS\n", encoding="utf-8"
+    )
     (pdir / "agents").mkdir()
-    (pdir / "agents" / "reviewer.md").write_text("---\nname: reviewer\ndescription: x\n---\nReview.\n", encoding="utf-8")
+    (pdir / "agents" / "reviewer.md").write_text(
+        "---\nname: reviewer\ndescription: x\n---\nReview.\n", encoding="utf-8"
+    )
     return pdir
 
 
 # ── normalize layer ───────────────────────────────────────────────────────────
+
 
 def test_normalize_cc_plugin(tmp_path):
     pdir = _make_cc_plugin(tmp_path)
@@ -113,10 +143,14 @@ def test_normalize_cc_plugin(tmp_path):
 
 # ── import into DB ─────────────────────────────────────────────────────────────
 
+
 def test_import_cc_plugin_into_db(tmp_path, db_session):
     pdir = _make_cc_plugin(tmp_path)
     result = ps.import_plugin(
-        db_session, pdir, owner_user_id=OWNER, secrets={"api_token": "sk-test-123"},
+        db_session,
+        pdir,
+        owner_user_id=OWNER,
+        secrets={"api_token": "sk-test-123"},
     )
     assert result["kind"] == "claude"
     assert result["source"] if "source" in result else True  # source set on row
@@ -146,21 +180,31 @@ def test_import_cc_plugin_into_db(tmp_path, db_session):
     assert "sk-test-123" in greeter.extra_files["secrets.json"]
 
     # MCP persisted: remote enabled, stdio disabled
-    remote = db_session.query(AdminMcpServer).filter(
-        AdminMcpServer.source_plugin == "hello-toolkit",
-        AdminMcpServer.transport == "streamable_http",
-    ).first()
+    remote = (
+        db_session.query(AdminMcpServer)
+        .filter(
+            AdminMcpServer.source_plugin == "hello-toolkit",
+            AdminMcpServer.transport == "streamable_http",
+        )
+        .first()
+    )
     assert remote is not None and remote.is_enabled is True
-    stdio = db_session.query(AdminMcpServer).filter(
-        AdminMcpServer.source_plugin == "hello-toolkit",
-        AdminMcpServer.transport == "stdio",
-    ).first()
+    stdio = (
+        db_session.query(AdminMcpServer)
+        .filter(
+            AdminMcpServer.source_plugin == "hello-toolkit",
+            AdminMcpServer.transport == "stdio",
+        )
+        .first()
+    )
     assert stdio is not None and stdio.is_enabled is False  # needs a runtime, disabled by default
 
     # Install record
-    row = db_session.query(InstalledPlugin).filter(
-        InstalledPlugin.owner_user_id == OWNER, InstalledPlugin.slug == "hello-toolkit"
-    ).first()
+    row = (
+        db_session.query(InstalledPlugin)
+        .filter(InstalledPlugin.owner_user_id == OWNER, InstalledPlugin.slug == "hello-toolkit")
+        .first()
+    )
     assert row is not None
     assert row.source == "imported_claude"
     assert len(row.component_ids["skills"]) == 2
@@ -237,9 +281,20 @@ def test_uninstall_removes_everything(tmp_path, db_session):
 
     ps.uninstall_plugin(db_session, install_id, owner_user_id=OWNER)
 
-    assert db_session.query(AdminSkill).filter(AdminSkill.source_plugin == "hello-toolkit").count() == 0
-    assert db_session.query(AdminMcpServer).filter(AdminMcpServer.source_plugin == "hello-toolkit").count() == 0
-    assert db_session.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).count() == 0
+    assert (
+        db_session.query(AdminSkill).filter(AdminSkill.source_plugin == "hello-toolkit").count()
+        == 0
+    )
+    assert (
+        db_session.query(AdminMcpServer)
+        .filter(AdminMcpServer.source_plugin == "hello-toolkit")
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).count()
+        == 0
+    )
 
 
 def test_installed_detail_lists_components(tmp_path, db_session):
@@ -278,21 +333,33 @@ def test_enable_disable_toggle(tmp_path, db_session):
     skills = db_session.query(AdminSkill).filter(AdminSkill.source_plugin == "hello-toolkit").all()
     assert all(s.is_enabled is True for s in skills)
     # stdio MCP stays disabled even when the plugin is enabled as a whole
-    stdio = db_session.query(AdminMcpServer).filter(
-        AdminMcpServer.source_plugin == "hello-toolkit", AdminMcpServer.transport == "stdio"
-    ).first()
+    stdio = (
+        db_session.query(AdminMcpServer)
+        .filter(
+            AdminMcpServer.source_plugin == "hello-toolkit", AdminMcpServer.transport == "stdio"
+        )
+        .first()
+    )
     assert stdio.is_enabled is False
 
 
 # ── Codex format detection ────────────────────────────────────────────────────
 
+
 def test_detect_codex_plugin(tmp_path):
     pdir = tmp_path / "codex-plug"
     (pdir / ".codex-plugin").mkdir(parents=True)
-    (pdir / ".codex-plugin" / "plugin.json").write_text(json.dumps({
-        "name": "codex-plug", "version": "1.0.0", "description": "codex demo",
-        "interface": {"composerIcon": "./assets/icon.png"},
-    }), encoding="utf-8")
+    (pdir / ".codex-plugin" / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "codex-plug",
+                "version": "1.0.0",
+                "description": "codex demo",
+                "interface": {"composerIcon": "./assets/icon.png"},
+            }
+        ),
+        encoding="utf-8",
+    )
     sk = pdir / "skills" / "summarize"
     sk.mkdir(parents=True)
     (sk / "SKILL.md").write_text(
@@ -307,6 +374,7 @@ def test_detect_codex_plugin(tmp_path):
 
 # ── Error paths ───────────────────────────────────────────────────────────────
 
+
 def test_reject_non_plugin_dir(tmp_path):
     (tmp_path / "random.txt").write_text("nope", encoding="utf-8")
     with pytest.raises(Exception):
@@ -314,6 +382,7 @@ def test_reject_non_plugin_dir(tmp_path):
 
 
 # ── Built-in plugin package paths ─────────────────────────────────────────────
+
 
 def test_builtin_plugin_list_and_install(db_session):
     """The built-in sample plugin sample-translator should be discovered by list and be installable."""
@@ -386,12 +455,13 @@ def test_builtin_firecrawl_plugin_install(db_session):
     for expected in ("firecrawl-scrape", "firecrawl-search", "firecrawl-crawl", "firecrawl-cli"):
         assert any(i.startswith(expected) for i in ids), f"缺少技能 {expected}"
     # What gets installed is skills, not MCP (the official route uses the Bash(firecrawl *) CLI, not MCP)
-    assert db_session.query(AdminMcpServer).filter(
-        AdminMcpServer.source_plugin == "firecrawl"
-    ).count() == 0
+    assert (
+        db_session.query(AdminMcpServer).filter(AdminMcpServer.source_plugin == "firecrawl").count()
+        == 0
+    )
     # The umbrella skill is adapted to the platform: keeps the admin-config guidance, strips broken links to firecrawl-build/workflows
     cli = next(s for s in sk if s.skill_id.startswith("firecrawl-cli"))
-    assert "系统配置" in cli.skill_content
+    assert "plugin library (插件库)" in cli.skill_content
     assert "firecrawl-build" not in cli.skill_content
     assert "firecrawl-workflows" not in cli.skill_content
 
@@ -431,12 +501,16 @@ def test_firecrawl_admin_config_schema_and_guards(db_session):
 def test_import_from_zip_global(tmp_path, db_session):
     """Admin path: import_plugin_from_zip + owner=None → global install, visible via list_installed(None)."""
     zip_bytes = _zip_cc_plugin(tmp_path)
-    res = ps.import_plugin_from_zip(db_session, zip_bytes, owner_user_id=None, secrets={"api_token": "g"})
+    res = ps.import_plugin_from_zip(
+        db_session, zip_bytes, owner_user_id=None, secrets={"api_token": "g"}
+    )
     assert res["kind"] == "claude"
     # Global skills/MCP (owner empty)
-    sk = db_session.query(AdminSkill).filter(
-        AdminSkill.source_plugin == "hello-toolkit", AdminSkill.owner_user_id.is_(None)
-    ).all()
+    sk = (
+        db_session.query(AdminSkill)
+        .filter(AdminSkill.source_plugin == "hello-toolkit", AdminSkill.owner_user_id.is_(None))
+        .all()
+    )
     assert len(sk) == 2
     glob = ps.list_installed(db_session, owner_user_id=None)
     assert any(p["slug"] == "hello-toolkit" for p in glob)
@@ -453,11 +527,13 @@ def test_import_zip_normalizes_windows_backslash_paths(db_session):
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "plugin.json",
-            json.dumps({
-                "name": "windows-path-plugin",
-                "version": "1.0.0",
-                "description": "Windows ZIP path compatibility",
-            }),
+            json.dumps(
+                {
+                    "name": "windows-path-plugin",
+                    "version": "1.0.0",
+                    "description": "Windows ZIP path compatibility",
+                }
+            ),
         )
         zf.writestr(
             "skills\\windows-path-skill\\SKILL.md",
@@ -472,9 +548,7 @@ def test_import_zip_normalizes_windows_backslash_paths(db_session):
 
     assert result["slug"] == "windows-path-plugin"
     imported = result["import_report"]["imported"]
-    assert [(item["type"], item["name"]) for item in imported] == [
-        ("skill", "windows-path-skill")
-    ]
+    assert [(item["type"], item["name"]) for item in imported] == [("skill", "windows-path-skill")]
 
 
 def test_import_zip_rejects_backslash_path_traversal():
@@ -544,7 +618,9 @@ def test_user_toggle_global_plugin_per_user(tmp_path, db_session):
     from core.services.catalog_service import CatalogService
 
     zip_bytes = _zip_cc_plugin(tmp_path)
-    res = ps.import_plugin_from_zip(db_session, zip_bytes, owner_user_id=None, secrets={"api_token": "g"})
+    res = ps.import_plugin_from_zip(
+        db_session, zip_bytes, owner_user_id=None, secrets={"api_token": "g"}
+    )
     install_id = res["install_id"]
     sids = [x["id"] for x in res["import_report"]["imported"] if x["type"] == "skill"]
 
@@ -580,7 +656,9 @@ def test_publish_zip_to_market_then_install(tmp_path, db_session):
     assert len(detail["skills"]) == 2
 
     # 4. Install from the market → creates InstalledPlugin + global skills
-    inst = ps.install_plugin(db_session, "hello-toolkit", owner_user_id=None, secrets={"api_token": "x"})
+    inst = ps.install_plugin(
+        db_session, "hello-toolkit", owner_user_id=None, secrets={"api_token": "x"}
+    )
     assert inst["action"] == "installed"
     assert db_session.query(InstalledPlugin).count() == 1
     market2 = ps.list_plugins(db_session, owner_user_id=None)
@@ -591,6 +669,7 @@ def test_publish_zip_to_market_then_install(tmp_path, db_session):
     assert res2["action"] == "updated"
     ps.delete_market_package(db_session, "hello-toolkit")
     from core.db.models import PluginMarketPackage
+
     assert db_session.query(PluginMarketPackage).count() == 0
     assert db_session.query(InstalledPlugin).count() == 1  # the installed instance is still there
 
@@ -598,6 +677,7 @@ def test_publish_zip_to_market_then_install(tmp_path, db_session):
 def test_app_registers_plugin_router():
     """The FastAPI app loads, and the /v1/plugins routes are registered."""
     from api.app import app
+
     paths = {r.path for r in app.routes}
     assert "/v1/plugins" in paths
     assert "/v1/plugins/import" in paths
@@ -643,38 +723,48 @@ async def test_feishu_plugin_app_routes_delegate_to_lark_service(monkeypatch):
 
 # ── Route-layer end-to-end: real HTTP stack (multipart zip upload → import → list → uninstall) ──────
 
+
 def _zip_cc_plugin(tmp_path) -> bytes:
     import io
     import zipfile
+
     pdir = _make_cc_plugin(tmp_path)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for p in sorted(pdir.rglob("*")):
             if p.is_file():
-                zf.write(p, p.relative_to(pdir.parent).as_posix())  # extra top-level directory wrapper, tests _locate_plugin_root
+                zf.write(
+                    p, p.relative_to(pdir.parent).as_posix()
+                )  # extra top-level directory wrapper, tests _locate_plugin_root
     return buf.getvalue()
 
 
 def test_route_import_and_uninstall_e2e(tmp_path, db_session):
     """Import a plugin zip through the real FastAPI route stack, then list and uninstall."""
-    from fastapi.testclient import TestClient
-
     from api.app import app
     from core.auth.backend import UserContext, get_current_user
     from core.db.engine import get_db
     from core.db.models import UserShadow
+    from fastapi.testclient import TestClient
 
     # Create a test user with can_import_plugin enabled
-    db_session.add(UserShadow(
-        user_id=OWNER, username="Tester", extra_data={"can_import_plugin": True},
-    ))
+    db_session.add(
+        UserShadow(
+            user_id=OWNER,
+            username="Tester",
+            extra_data={"can_import_plugin": True},
+        )
+    )
     db_session.commit()
 
     def _override_db():
         yield db_session
 
     app.dependency_overrides[get_current_user] = lambda: UserContext(
-        user_id=OWNER, user_center_id="c1", username="Tester", email="t@e.com",
+        user_id=OWNER,
+        user_center_id="c1",
+        username="Tester",
+        email="t@e.com",
     )
     app.dependency_overrides[get_db] = _override_db
 
@@ -709,6 +799,9 @@ def test_route_import_and_uninstall_e2e(tmp_path, db_session):
         # Uninstall
         resp = client.delete(f"/v1/plugins/installed/{install_id}")
         assert resp.status_code == 200
-        assert db_session.query(AdminSkill).filter(AdminSkill.source_plugin == "hello-toolkit").count() == 0
+        assert (
+            db_session.query(AdminSkill).filter(AdminSkill.source_plugin == "hello-toolkit").count()
+            == 0
+        )
     finally:
         app.dependency_overrides.clear()

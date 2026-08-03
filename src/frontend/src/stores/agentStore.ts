@@ -13,7 +13,7 @@ export interface AgentChangeHistoryItem {
 
 export interface UserAgentItem {
   agent_id: string;
-  owner_type: 'admin' | 'user';
+  owner_type: 'admin' | 'user' | 'builtin';
   user_id: string | null;
   name: string;
   avatar: string | null;
@@ -57,6 +57,7 @@ interface AgentState {
   fetchAvailableResources: () => Promise<void>;
   createAgent: (data: Partial<UserAgentItem>) => Promise<UserAgentItem>;
   updateAgent: (agentId: string, data: Partial<UserAgentItem>) => Promise<UserAgentItem>;
+  toggleBuiltinAgent: (agentId: string, enabled: boolean) => Promise<UserAgentItem>;
   deleteAgent: (agentId: string) => Promise<void>;
   setCurrentAgent: (agent: UserAgentItem | null) => void;
 }
@@ -115,6 +116,18 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   updateAgent: async (agentId, data) => {
     const agent = await request<UserAgentItem>(`/v1/agents/${agentId}`, { method: 'PUT', body: JSON.stringify(data) });
+    set((state) => ({
+      agents: state.agents.map((item) => item.agent_id === agentId ? agent : item),
+      currentAgent: state.currentAgent?.agent_id === agentId ? agent : state.currentAgent,
+    }));
+    return agent;
+  },
+
+  toggleBuiltinAgent: async (agentId, enabled) => {
+    const agent = await request<UserAgentItem>(`/v1/agents/${agentId}/toggle`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
     set((state) => ({
       agents: state.agents.map((item) => item.agent_id === agentId ? agent : item),
       currentAgent: state.currentAgent?.agent_id === agentId ? agent : state.currentAgent,

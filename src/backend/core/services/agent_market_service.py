@@ -352,7 +352,7 @@ def _resolve_bindings(
     avail = UserAgentService(db).list_available_resources(owner_user_id=owner_user_id)
     avail_skill = {s["id"] for s in avail.get("skills", [])}
     # available-resources only lists AdminMcpServer rows; but built-in MCP tools (e.g.
-    # database_query / report_export_mcp) are catalog-defined and loaded at runtime by catalog id,
+    # database_query) are catalog-defined and loaded at runtime by catalog id,
     # and don't necessarily have a same-named AdminMcpServer row. Merge the catalog-enabled
     # built-in MCP ids into the "resolvable" set, so these legitimate built-in tools aren't
     # misjudged as "unresolvable" and dropped (once bound, the runtime connects on demand).

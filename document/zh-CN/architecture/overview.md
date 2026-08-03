@@ -180,7 +180,7 @@ RAG 则提供支撑决策所需的文档与证据。
 |---|---|---|---|
 | `frontend` | hugagent-frontend | `3002:80` | Nginx：静态资源 + `/api` 反代 |
 | `backend` | hugagent-backend | `3001` | FastAPI 主服务 |
-| `mcp` | hugagent-mcp | 内部 `9100–9108`、`9112` | 10 个 MCP 服务器常驻进程（streamable-http；CE 8 个通用工具，EE 另含 2 个行业工具） |
+| `mcp` | hugagent-mcp | 内部独立端口 | 9 个 MCP 服务器常驻进程（streamable-http；CE 7 个通用工具，EE 另含 2 个行业工具） |
 | `postgres` | hugagent-postgres | `5432` | 主数据库 |
 | `redis` | hugagent-redis | `6379` | 会话 / 缓存 |
 | `script-runner`（profile `script_runner`） | hugagent-script-runner | 内部 | 轻量脚本执行 sidecar（无 DB/密钥访问权） |
@@ -206,7 +206,7 @@ RAG 则提供支撑决策所需的文档与证据。
 
 ### MCP 工具独立进程
 
-每个工具是 `src/backend/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp_manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（办公三件套的 LibreOffice 等重依赖已迁出 mcp 镜像）、可独立扩缩。CE 保留 8 个通用 Server；`query_database` 与 `ai_chain_information_mcp` 两个行业工具依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
+每个工具是 `src/backend/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp_manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（文档编辑与导出已迁入沙箱技能）、可独立扩缩。CE 保留 7 个通用 Server；`query_database` 与 `ai_chain_information_mcp` 两个行业工具依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
 
 ### Run 与连接解耦
 

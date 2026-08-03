@@ -866,7 +866,7 @@ def cmd_doctor(args) -> int:
         required=False,
     )
     check(
-        "pandoc（可选，Word 转换 / 报告导出）",
+        "pandoc（可选，Word 转换 / 文档导出）",
         _tools["pandoc"] is not None,
         "" if _tools["pandoc"] else "未安装，Word 转换降级",
         required=False,

@@ -126,50 +126,93 @@ def effective_builtin_capabilities(
 
 def list_builtin_subagents(
     parent_runtime: Optional[Mapping[str, Any]] = None,
+    *,
+    disabled_agent_ids: Iterable[str] = (),
+    include_prompt: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Serialize platform defaults into the existing visible-agent shape."""
+    """Serialize platform defaults into the existing visible-agent shape.
+
+    Runtime callers normally omit ``include_prompt`` because the router needs
+    only the capability summary.  The user-facing agent library enables it so
+    the detail page can show the role prompt without duplicating prompt-loading
+    logic in the API layer.
+    """
+    disabled_ids = {str(agent_id) for agent_id in disabled_agent_ids}
     items: List[Dict[str, Any]] = []
-    for spec in BUILTIN_SUBAGENTS:
+    for sort_order, spec in enumerate(BUILTIN_SUBAGENTS):
         capabilities = effective_builtin_capabilities(spec, parent_runtime)
-        items.append(
-            {
-                "agent_id": spec.agent_id,
-                "name": spec.name,
-                "description": spec.description,
-                "is_enabled": True,
-                "owner_type": "builtin",
-                "mcp_server_ids": capabilities["mcp_server_ids"],
-                "skill_ids": capabilities["skill_ids"],
-                "kb_ids": capabilities["kb_ids"],
-                "plugin_ids": [],
-                "extra_config": {
-                    "builtin_role": spec.role,
-                    "shared_context": spec.shared_context,
-                    "context_policy": (
-                        "inherit_parent" if spec.shared_context else "independent_brief"
-                    ),
-                    "read_only": spec.read_only,
-                    "allow_bash": spec.allow_bash,
-                    "capability_policy": spec.capability_policy,
-                    "sandbox_tools_enabled": bool(
-                        (parent_runtime or {}).get("sandbox_tools_enabled", False)
-                    ),
-                    "code_capability_enabled": bool(
-                        (parent_runtime or {}).get("code_capability_enabled", False)
-                    ),
-                },
-            }
-        )
+        item = {
+            "agent_id": spec.agent_id,
+            "name": spec.name,
+            "avatar": None,
+            "description": spec.description,
+            "system_prompt": load_builtin_subagent_prompt(spec) if include_prompt else "",
+            "welcome_message": "",
+            "suggested_questions": [],
+            "is_enabled": spec.agent_id not in disabled_ids,
+            "owner_type": "builtin",
+            "user_id": None,
+            "mcp_server_ids": capabilities["mcp_server_ids"],
+            "skill_ids": capabilities["skill_ids"],
+            "kb_ids": capabilities["kb_ids"],
+            "plugin_ids": [],
+            "model_provider_id": None,
+            "temperature": None,
+            "max_tokens": None,
+            "max_iters": spec.max_iters,
+            "timeout": 120,
+            "sort_order": sort_order,
+            "ontology_tags": [],
+            "version": "builtin",
+            "change_history": [],
+            "created_at": None,
+            "updated_at": None,
+            "created_by": None,
+            "extra_config": {
+                "builtin_role": spec.role,
+                "shared_context": spec.shared_context,
+                "context_policy": (
+                    "inherit_parent" if spec.shared_context else "independent_brief"
+                ),
+                "read_only": spec.read_only,
+                "allow_bash": spec.allow_bash,
+                "capability_policy": spec.capability_policy,
+                "sandbox_tools_enabled": bool(
+                    (parent_runtime or {}).get("sandbox_tools_enabled", False)
+                ),
+                "code_capability_enabled": bool(
+                    (parent_runtime or {}).get("code_capability_enabled", False)
+                ),
+            },
+        }
+        items.append(item)
     return items
 
 
 def merge_builtin_subagents(
     user_agents: Optional[List[Dict[str, Any]]],
     parent_runtime: Optional[Mapping[str, Any]] = None,
+    *,
+    disabled_agent_ids: Iterable[str] = (),
+    include_disabled: bool = False,
+    include_prompt: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Prepend built-ins and preserve all non-conflicting user agents."""
-    builtins = list_builtin_subagents(parent_runtime)
-    builtin_ids = {item["agent_id"] for item in builtins}
+    """Prepend enabled built-ins and preserve all non-conflicting user agents.
+
+    ``include_disabled`` is reserved for management/library views.  Runtime
+    routing deliberately omits disabled platform roles so they cannot be
+    selected by mentions, natural-language delegation, or autonomous routing.
+    """
+    builtins = list_builtin_subagents(
+        parent_runtime,
+        disabled_agent_ids=disabled_agent_ids,
+        include_prompt=include_prompt,
+    )
+    if not include_disabled:
+        builtins = [item for item in builtins if item["is_enabled"]]
+    # Keep every reserved platform ID protected even when that role is disabled
+    # and therefore omitted from the runtime-visible list.
+    builtin_ids = set(_BUILTIN_BY_ID)
     return builtins + [
         item for item in (user_agents or []) if str(item.get("agent_id") or "") not in builtin_ids
     ]

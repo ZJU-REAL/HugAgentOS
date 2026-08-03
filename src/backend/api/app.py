@@ -63,6 +63,7 @@ async def lifespan(app: FastAPI):
     await _startup_seed_prompt_versions()
     await _startup_seed_roles()
     await _startup_seed_mcp_servers()
+    await _startup_mcp_market_monitor()
     await _startup_seed_default_plugins()
     await _startup_recover_datasource_sidecars()
     await _startup_seed_ontologies()
@@ -77,6 +78,7 @@ async def lifespan(app: FastAPI):
     await _shutdown_stale_run_reaper()
     await _shutdown_channel_manager()
     await _shutdown_datasource_sidecar_recovery()
+    await _shutdown_mcp_market_monitor()
     await _shutdown_local_sidecars()
     await _shutdown_pools()
 
@@ -660,6 +662,8 @@ async def _startup_seed_mcp_servers():
     """
     try:
         from core.db.engine import SessionLocal
+        from core.services.mcp_management_service import encrypt_legacy_mcp_headers
+        from core.services.mcp_marketplace_service import ensure_curated_market_items
         from core.services.mcp_service import (
             prune_removed_builtin_mcp_servers,
             seed_builtin_mcp_servers_if_empty,
@@ -673,10 +677,35 @@ async def _startup_seed_mcp_servers():
             seeded = seed_builtin_mcp_servers_if_empty(db)
             if seeded:
                 logger.info("[startup] built-in MCP catalog seeded: %s", ", ".join(seeded))
+            encrypted = encrypt_legacy_mcp_headers(db)
+            if encrypted:
+                logger.info("[startup] encrypted legacy MCP header rows: %d", encrypted)
+            curated = ensure_curated_market_items(db)
+            if curated:
+                logger.info("[startup] curated MCP marketplace seeded: %s", ", ".join(curated))
         finally:
             db.close()
     except Exception as exc:
         logger.warning("[startup] MCP catalog seed failed: %s", exc)
+
+
+async def _startup_mcp_market_monitor():
+    """Start periodic remote-tool drift detection after MCP rows are available."""
+    try:
+        from core.services.mcp_marketplace_monitor import start_monitor
+
+        start_monitor()
+    except Exception as exc:
+        logger.warning("[startup] MCP marketplace monitor failed to start: %s", exc)
+
+
+async def _shutdown_mcp_market_monitor():
+    try:
+        from core.services.mcp_marketplace_monitor import stop_monitor
+
+        await stop_monitor()
+    except Exception as exc:
+        logger.warning("[shutdown] MCP marketplace monitor failed: %s", exc)
 
 
 async def _startup_seed_default_plugins():

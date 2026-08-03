@@ -7,6 +7,7 @@ import {
 import {
   CloseOutlined,
   InsertRowRightOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 import 'highlight.js/styles/github.css';
 import { t } from './i18n';
@@ -87,6 +88,7 @@ export default function App() {
     detailModal, setDetailModal,
     recommendBarVisible, setRecommendBarVisible,
     promptHubOpen,
+    siderCollapsed, setSiderCollapsed,
   } = useUIStore();
   const {
     store, currentChatId, setCurrentChatId,
@@ -112,6 +114,39 @@ export default function App() {
   const automationActiveGroup = useAutomationChatStore((s) => s.activeGroup);
   const exitAutomationChat = useAutomationChatStore((s) => s.exitAutomationChat);
   const isCE = useEditionStore((s) => s.edition === 'ce');
+
+  // Mobile uses the full sidebar as an off-canvas drawer. Remember the desktop
+  // rail state while entering mobile so resizing back does not unexpectedly
+  // change the user's desktop preference.
+  const wasMobileViewportRef = useRef(false);
+  const desktopSiderCollapsedRef = useRef(false);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 960px)');
+    const syncSidebarForViewport = () => {
+      if (media.matches && !wasMobileViewportRef.current) {
+        desktopSiderCollapsedRef.current = useUIStore.getState().siderCollapsed;
+        setSiderCollapsed(true);
+      } else if (!media.matches && wasMobileViewportRef.current) {
+        setSiderCollapsed(desktopSiderCollapsedRef.current);
+      }
+      wasMobileViewportRef.current = media.matches;
+    };
+    syncSidebarForViewport();
+    media.addEventListener('change', syncSidebarForViewport);
+    return () => media.removeEventListener('change', syncSidebarForViewport);
+  }, [setSiderCollapsed]);
+
+  const closeMobileSidebar = () => {
+    if (window.matchMedia('(max-width: 960px)').matches) {
+      setSiderCollapsed(true);
+    }
+  };
+
+  const openMobileSidebar = () => {
+    if (window.matchMedia('(max-width: 960px)').matches) {
+      setSiderCollapsed(false);
+    }
+  };
 
   useEffect(() => {
     if (panel === 'share_records') {
@@ -493,6 +528,7 @@ export default function App() {
     setPanelSafe('chat');
     setCurrentChatId(id);
     setToolResultPanel(null);
+    closeMobileSidebar();
   };
 
   const handleSelectSearchResult = (item: SearchResultItem) => {
@@ -519,14 +555,24 @@ export default function App() {
     setPanelSafe('chat');
     setCurrentChatId(item.id);
     setToolResultPanel(null);
+    closeMobileSidebar();
   };
 
-  const handleSetPanel = (p: PanelKey) => setPanelSafe(p);
+  const handleSetPanel = (p: PanelKey) => {
+    setPanelSafe(p);
+    closeMobileSidebar();
+  };
+
+  const handleNewChat = () => {
+    newChat(inputRef);
+    closeMobileSidebar();
+  };
 
   const handleNewProjectChat = (projectId: string, projectName: string) => {
     newChat(inputRef);
     const chatId = useChatStore.getState().currentChatId;
     useChatStore.getState().bindChatProject(chatId, projectId, projectName);
+    closeMobileSidebar();
   };
 
   const handleCapabilityClick = (capabilityId: string) => {
@@ -595,9 +641,9 @@ export default function App() {
   }
 
   return (
-    <Layout style={{ height: '100%' }}>
+    <Layout className="jx-appShell" style={{ height: '100%' }}>
       <Sidebar
-        onNewChat={() => newChat(inputRef)}
+        onNewChat={handleNewChat}
         onNewProjectChat={handleNewProjectChat}
         onDeleteChat={deleteChat}
         onTogglePinned={toggleChatPinned}
@@ -608,14 +654,34 @@ export default function App() {
         onSelectChat={handleSelectChat}
         onSetPanel={handleSetPanel}
       />
+      {!siderCollapsed && (
+        <button
+          type="button"
+          className="jx-mobileSidebarBackdrop"
+          onClick={() => setSiderCollapsed(true)}
+          aria-label={t('关闭侧边栏')}
+        />
+      )}
       {/* Global search modal: triggered by the search button / ⌘K / Ctrl+K */}
       <SearchModal
-        onNewChat={() => newChat(inputRef)}
+        onNewChat={handleNewChat}
         onSelectChat={handleSelectChat}
         onSelectSearchResult={handleSelectSearchResult}
       />
 
       <Layout className="jx-appMainLayout" style={{ overflow: 'hidden', background: '#ffffff' }}>
+        {!showChatHeader && (
+          <header className="jx-mobileHeader">
+            <button
+              type="button"
+              className="jx-mobileMenuBtn"
+              onClick={openMobileSidebar}
+              aria-label={t('打开侧边栏')}
+            >
+              <MenuOutlined />
+            </button>
+          </header>
+        )}
         {panel === 'chat' && !isEmptyChat && (
           <Tooltip title={canvasOpen ? t('收起右侧面板') : t('展开右侧面板')} placement="bottomRight">
             <Button
@@ -643,6 +709,14 @@ export default function App() {
         {/* Chat panel with messages: minimal header with title */}
         {showChatHeader && (
           <div className="jx-chatTopbar">
+            <button
+              type="button"
+              className="jx-mobileMenuBtn"
+              onClick={openMobileSidebar}
+              aria-label={t('打开侧边栏')}
+            >
+              <MenuOutlined />
+            </button>
             {chat?.projectId && (
               <span
                 className="jx-chatTopbarProject"
@@ -697,6 +771,7 @@ export default function App() {
             <div
               key={panel}
               className="jx-panel jx-anim-fadeInUp"
+              data-panel={panel}
               style={{ '--fadeInUp-distance': '6px', animationDuration: '180ms' } as React.CSSProperties}
             >
               {panel === 'chat' && (

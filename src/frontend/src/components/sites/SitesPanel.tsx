@@ -257,6 +257,7 @@ function SiteManageModal({
 
   return (
     <Modal
+      wrapClassName="jx-sites-manageModal"
       title={`${t('站点管理')} — ${site.title}`}
       open
       onCancel={onClose}
@@ -304,6 +305,7 @@ function SiteManageModal({
                 size="small"
                 rowKey="version"
                 pagination={false}
+                scroll={{ x: 620 }}
                 dataSource={versions}
                 columns={[
                   {
@@ -360,6 +362,7 @@ function SiteManageModal({
                   size="small"
                   rowKey="id"
                   pagination={{ pageSize: 8 }}
+                  scroll={{ x: 560 }}
                   dataSource={submissions}
                   columns={submissionColumns}
                   locale={{ emptyText: t('站点表单提交后会出现在这里') }}
@@ -387,6 +390,7 @@ function SiteManageModal({
                   size="small"
                   rowKey="key"
                   pagination={{ pageSize: 8 }}
+                  scroll={{ x: 520 }}
                   dataSource={kvItems}
                   columns={kvColumns}
                   locale={{ emptyText: t('站点通过 __api/kv 写入的数据会出现在这里') }}

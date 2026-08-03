@@ -33,8 +33,8 @@ The edition boundary is aligned with the public pricing page. The table below re
 | Chat | ✅ Full: SSE streaming, ReAct agent, plan mode, deep thinking, cited sources | — |
 | Knowledge-base RAG | ✅ Document upload, smart chunking, hybrid vector + keyword retrieval, private KBs | ➕ External KB integration (Dify), public KB admin console |
 | Sub-agents | ✅ Create, auto-routing, @-mention collaboration (personal) | ➕ Organization-level agent library & admin console |
-| MCP tools | ✅ 8 general tools: internet search, web fetch, chart generation, report export, batch runner, automation task management, skill management, KB retrieval | ➕ 2 industry tools: data-warehouse query (`query_database`), industry-chain knowledge center (`ai_chain_information_mcp`) |
-| Self-service capability hub | ✅ Bring your own private MCP servers (remote HTTP/SSE) and private skills (hand-written or zip upload), owner-isolated | ➕ Org-level permission governance, skill review & distillation |
+| MCP tools | ✅ 7 general tools: internet search, web fetch, chart generation, batch runner, automation task management, skill management, KB retrieval | ➕ 2 industry tools: data-warehouse query (`query_database`), industry-chain knowledge center (`ai_chain_information_mcp`) |
+| Self-service capability hub | ✅ MCP marketplace (Token/OAuth installs), private remote HTTP/SSE MCP servers, and private skills (hand-written or zip upload), owner-isolated | ➕ Org-level permission governance, MCP/skill listing review, and distillation |
 | Personal API keys | ✅ Create / revoke your own API keys for the native agent API | ➕ External model gateway (OpenAI / Anthropic compatible) plus org-managed per-user authorization bits |
 | Memory | ✅ L1 personal profile + L2 vector (Milvus, optional) + L3 graph (Neo4j, optional) | ➕ Memory audit (compliance trail, `memory_audit` table) |
 | Automation | ✅ Scheduled tasks, cron, prompt/plan automation, retry on failure | — |

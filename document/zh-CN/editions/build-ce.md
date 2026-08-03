@@ -84,7 +84,7 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `src/backend/core/services/edition_startup.py` | CE 启动接缝；为 EE 数据源恢复、蒸馏调度提供 no-op 实现，避免导入已裁除模块 |
 | `src/backend/tests/ce_release/` | 可执行 CE 发布回归套件，覆盖登录、私有技能/MCP、数据库升级及启动/Compose 契约 |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | 去除管理端点与组织字段后的 CE API 契约 |
-| `src/backend/mcp_servers/_ports.py` | 8 个通用工具的端口表（EE 行业工具端口标注 reserved） |
+| `src/backend/mcp_servers/_ports.py` | 7 个通用工具的端口表（EE 行业工具与已退役端口标注 reserved） |
 | `src/frontend/default.conf.template` | CE 前端 Nginx 模板，移除 `/gateway/**` 反代与 litellm upstream |
 | `src/frontend/src/main.tsx` | CE 入口：只挂主应用 / API 文档 / 分享预览，不挂 /admin、/config |
 | `src/frontend/src/updates.ts` | CE 版本说明数据 |

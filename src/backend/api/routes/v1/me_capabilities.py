@@ -25,7 +25,12 @@ from core.db.engine import get_db
 from core.db.models import AdminMcpServer, AdminSkill
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
-from core.services.mcp_management_service import probe_mcp_connectivity, refresh_mcp_caches
+from core.services.mcp_management_service import (
+    encrypt_mcp_headers,
+    probe_mcp_connectivity,
+    refresh_mcp_caches,
+    validate_remote_mcp_url,
+)
 from core.services.skill_management_service import (
     build_skill_content,
     extract_instructions,
@@ -87,6 +92,7 @@ async def create_my_mcp_server(
 
     if not body.url.strip():
         raise BadRequestError(message="url 不能为空")
+    await validate_remote_mcp_url(body.url, require_https=True)
 
     # Auto-generate a globally unique server_id to avoid collisions with public MCPs / other users
     server_id = f"umcp_{uuid.uuid4().hex[:16]}"
@@ -112,6 +118,7 @@ async def create_my_mcp_server(
     if not ok:
         raise BadRequestError(message=f"MCP 连接失败，无法添加：{err}")
 
+    row.headers = encrypt_mcp_headers(body.headers)
     db.add(row)
     db.commit()
     db.refresh(row)

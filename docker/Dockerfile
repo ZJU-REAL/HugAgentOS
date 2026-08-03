@@ -85,7 +85,8 @@ RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout
       find /tmp -maxdepth 2 -name lark-cli -type f -exec mv {} /usr/local/bin/lark-cli \; && \
       chmod +x /usr/local/bin/lark-cli && lark-cli --version; \
     else \
-      echo "[backend] optional lark-cli download failed; Feishu integration will be unavailable" >&2; \
+      echo "[backend] required lark-cli download failed; refusing to build a backend without Feishu login support" >&2; \
+      exit 1; \
     fi && rm -f /tmp/lark-cli.tar.gz
 
 # himalaya（电子邮箱 CLI）—— 后端以子进程跑 per-user IMAP/SMTP 连通性校验

@@ -1,4 +1,4 @@
-"""Single source of truth for MCP server → port mapping（社区版：9 个通用工具）.
+"""Single source of truth for MCP server → port mapping（社区版通用工具）.
 
 Both ``core/config/mcp_config.py`` (which builds backend-side
 ``http://mcp:NNNN/mcp/`` URLs) and ``mcp_servers/_launcher.py`` (which
@@ -17,7 +17,7 @@ PORTS: dict[str, int] = {
     "internet_search": 9102,
     # 9103 reserved（产业知识中心查询，商业版）
     "generate_chart_tool": 9104,
-    "report_export_mcp": 9105,
+    # 9105 reserved（已下线 report_export_mcp；文档导出改由技能完成）
     "web_fetch": 9106,
     "batch_runner": 9107,
     "automation_task": 9108,

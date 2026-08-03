@@ -1,5 +1,9 @@
 /** 英文字典（chat 域）：key 为中文原文，value 为英文译文。 */
 export const CHAT_DICT: Record<string, string> = {
+  '你的智能任务助手': 'Your intelligent task assistant',
+  '常用任务': 'Common tasks',
+  '政策解读': 'Policy Brief',
+  '输入问题或需求': 'Enter a question or request',
   '对话较长，已自动压缩较早的上下文。多次压缩可能影响回答准确性，建议适时开启新对话。': 'This conversation is long, so earlier context was automatically compacted. Repeated compactions may reduce accuracy — consider starting a new chat when convenient.',
   '追问引用': 'Quoted reference',
   '移除引用': 'Remove quote',

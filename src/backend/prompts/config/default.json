@@ -18,8 +18,7 @@
       "retrieve_dataset_content",
       "internet_search",
       "ai_chain_information_mcp",
-      "generate_chart_tool",
-      "report_export_mcp"
+      "generate_chart_tool"
     ]
   },
   "tools": {

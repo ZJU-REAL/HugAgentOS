@@ -506,23 +506,30 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
         className="jx-sk-detailPage"
         {...(navDir === 'detail' ? DRILL_IN_DETAIL : { initial: false })}
       >
-        {/* Sticky header: back + name + tag + toggle */}
+        {/* Sticky header: identity remains compact while the enable switch stays on the first row */}
         <div className="jx-sk-stickyHeader">
           <button className="jx-sk-backBtn jx-sk-backBtn--inline" onClick={closeDetail}>
             <LeftOutlined style={{ fontSize: 14 }} />
           </button>
-          <SkillAvatar icon={(selectedItem as any).icon} name={selectedItem.name} seed={selectedItem.id} size={28} round />
-          <span className="jx-sk-detailName">{selectedItem.name}</span>
-          <Tag className="jx-sk-tag" color={selectedItem.enabled ? 'blue' : 'default'}>
-            {selectedItem.enabled ? t('已启用') : t('未启用')}
-          </Tag>
-          {version && <span className="jx-sk-version" style={{ marginLeft: 4, marginTop: 0, marginBottom: 0 }}>v{version}</span>}
-          <div style={{ flex: 1 }} />
-          <span className="jx-sk-enableLabel">{t('启用')}</span>
-          <Switch
-            checked={!!selectedItem.enabled}
-            onChange={(v) => toggleEnabled(selectedKind, selectedItem.id, v)}
-          />
+          <div className="jx-sk-stickyHeaderIdentity">
+            <SkillAvatar icon={(selectedItem as any).icon} name={selectedItem.name} seed={selectedItem.id} size={28} round />
+            <div className="jx-sk-detailHeading">
+              <div className="jx-sk-detailHeadingMain">
+                <span className="jx-sk-detailName">{selectedItem.name}</span>
+                <Tag className="jx-sk-tag" color={selectedItem.enabled ? 'blue' : 'default'}>
+                  {selectedItem.enabled ? t('已启用') : t('未启用')}
+                </Tag>
+              </div>
+              {version && <span className="jx-sk-version">v{version}</span>}
+            </div>
+          </div>
+          <div className="jx-sk-detailHeaderRight">
+            <span className="jx-sk-enableLabel">{t('启用')}</span>
+            <Switch
+              checked={!!selectedItem.enabled}
+              onChange={(v) => toggleEnabled(selectedKind, selectedItem.id, v)}
+            />
+          </div>
         </div>
 
         {/* Scrollable body */}

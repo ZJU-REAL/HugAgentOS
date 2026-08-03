@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, List
+from typing import Any, Dict, List
 
-from pydantic import ConfigDict
+import httpx
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
+from pydantic import ConfigDict, Field
 
 from agentscope.mcp import MCPClient, StdioMCPConfig
 from agentscope.tool import MCPTool
@@ -69,7 +72,39 @@ class BareNameMCPClient(MCPClient):
     path is unaffected.
     """
 
-    model_config = ConfigDict(ignored_types=(_CYFUNCTION_TYPE,))
+    model_config = ConfigDict(ignored_types=(_CYFUNCTION_TYPE,), arbitrary_types_allowed=True)
+    oauth_provider: Any = Field(default=None, exclude=True)
+
+    def _create_http_client(self):
+        """Attach the SDK OAuth provider without forking AgentScope's client."""
+        if self.oauth_provider is None:
+            return super()._create_http_client()
+        config = self.mcp_config
+        request_hook = getattr(self.oauth_provider, "mcp_request_hook", None)
+        event_hooks = {"request": [request_hook]} if request_hook else None
+        if config.url.endswith("/sse") or config.url.endswith("/messages/"):
+            def _http_client_factory(headers=None, timeout=None, auth=None):
+                return httpx.AsyncClient(
+                    headers=headers,
+                    timeout=timeout,
+                    auth=auth,
+                    event_hooks=event_hooks,
+                )
+
+            return sse_client(
+                url=config.url,
+                headers=config.headers,
+                timeout=config.timeout,
+                auth=self.oauth_provider,
+                httpx_client_factory=_http_client_factory,
+            )
+        http_client = httpx.AsyncClient(
+            headers=config.headers,
+            timeout=config.timeout,
+            auth=self.oauth_provider,
+            event_hooks=event_hooks,
+        )
+        return streamable_http_client(url=config.url, http_client=http_client)
 
     async def get_tool(self, name: str) -> MCPTool:
         tool = await super().get_tool(name)

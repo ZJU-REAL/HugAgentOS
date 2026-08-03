@@ -882,10 +882,29 @@ def _direct_agent_id_from_context(context: Dict[str, Any]) -> Optional[str]:
     return str(value) if value else None
 
 
-def _load_direct_user_agent(agent_id: str, user_id: str):
-    """Load and detach the complete user-agent configuration for execution."""
+def _direct_agent_execution_permissions(agent_id: str) -> Tuple[bool, bool]:
+    """Return ``(read_only, allow_bash)`` for a dedicated sub-agent chat."""
+    from core.llm.builtin_subagents import get_builtin_subagent
+
+    builtin_spec = get_builtin_subagent(agent_id)
+    if builtin_spec is None:
+        return False, True
+    return builtin_spec.read_only, builtin_spec.allow_bash
+
+
+def _load_direct_user_agent(
+    agent_id: str,
+    user_id: str,
+    parent_runtime: Optional[Dict[str, Any]] = None,
+):
+    """Load a built-in profile or detach a complete custom-agent configuration."""
     from core.db.engine import SessionLocal
+    from core.llm.builtin_subagents import build_builtin_runtime_profile, get_builtin_subagent
     from core.services.user_agent_service import UserAgentService
+
+    builtin_spec = get_builtin_subagent(agent_id)
+    if builtin_spec is not None:
+        return build_builtin_runtime_profile(builtin_spec, parent_runtime)
 
     with SessionLocal() as db:
         user_agent = UserAgentService(db).get_raw_by_id(agent_id, user_id=user_id)
@@ -936,15 +955,27 @@ def run_chat_workflow(
     _mention_agent_id = str(context.get("mention_agent_id") or "") or None
     _direct_agent_id = _direct_agent_id_from_context(context)
     _direct_user_agent = None
+    _direct_read_only = False
+    _direct_allow_bash = True
     _visible_subagents: List[Dict[str, Any]] = []
     _request_ontology_runtime = context.get("ontology_runtime")
     if not isinstance(_request_ontology_runtime, dict):
         _request_ontology_runtime = {}
         context["ontology_runtime"] = _request_ontology_runtime
     if _direct_agent_id:
+        _direct_read_only, _direct_allow_bash = _direct_agent_execution_permissions(
+            _direct_agent_id
+        )
         _direct_user_agent = _load_direct_user_agent(
             _direct_agent_id,
             str(context.get("user_id", "")),
+            {
+                "enabled_skill_ids": enabled_skill_ids_from_context(context) or [],
+                "enabled_mcp_ids": enabled_mcp_ids_from_context(context) or [],
+                "enabled_kb_ids": enabled_kb_ids_from_context(context) or [],
+                "sandbox_tools_enabled": bool(context.get("sandbox_tools_enabled", False)),
+                "code_capability_enabled": bool(context.get("code_capability_enabled", False)),
+            },
         )
         activations = activate_runtime_for_asset(
             _request_ontology_runtime,
@@ -961,11 +992,16 @@ def run_chat_workflow(
         try:
             from core.db.engine import SessionLocal as _SessionLocal
             from core.services.user_agent_service import UserAgentService as _UAS
+            from core.services.user_service import UserService as _UserService
 
             with _SessionLocal() as _db:
                 _visible_subagents = _UAS(_db).list_for_user(str(context.get("user_id", "")))
+                _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
+                    str(context.get("user_id", ""))
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[workflow] failed to load visible subagents: %s", exc)
+            _disabled_builtin_ids = set()
     for skill_id in _explicit_skill_ids_from_context(context):
         resolve_runtime_asset_tags(
             runtime=_request_ontology_runtime,
@@ -1016,6 +1052,7 @@ def run_chat_workflow(
                 "enabled_mcp_ids": enabled_mcp_ids or [],
                 "enabled_kb_ids": enabled_kb_ids or [],
             },
+            disabled_agent_ids=_disabled_builtin_ids,
         )
 
     async def _run():
@@ -1032,6 +1069,8 @@ def run_chat_workflow(
             memory_enabled=_workflow_mem_enabled,
             batch_mode=_workflow_batch_chat if _direct_user_agent is None else False,
             user_agent=_direct_user_agent,
+            read_only=_direct_read_only,
+            allow_bash=_direct_allow_bash,
             visible_subagents=_visible_subagents if _visible_subagents else None,
             chat_id=context.get("chat_id"),
             project_ctx=_extract_project_ctx(context),
@@ -1209,10 +1248,18 @@ async def _astream_subagent_direct(
     import time as _time
 
     _wf_start = _time.monotonic()
+    _direct_read_only, _direct_allow_bash = _direct_agent_execution_permissions(agent_id)
 
     user_agent = _load_direct_user_agent(
         agent_id,
         str(context.get("user_id", "")),
+        {
+            "enabled_skill_ids": enabled_skill_ids_from_context(context) or [],
+            "enabled_mcp_ids": enabled_mcp_ids_from_context(context) or [],
+            "enabled_kb_ids": enabled_kb_ids_from_context(context) or [],
+            "sandbox_tools_enabled": bool(context.get("sandbox_tools_enabled", False)),
+            "code_capability_enabled": bool(context.get("code_capability_enabled", False)),
+        },
     )
     from core.services import log_service as log_writer
 
@@ -1336,6 +1383,8 @@ async def _astream_subagent_direct(
             chat_mode=_stream_chat_mode,
             memory_enabled=_mem0_enabled,
             user_agent=user_agent,
+            read_only=_direct_read_only,
+            allow_bash=_direct_allow_bash,
             # Same as the main agent: pass chat_id → the sandbox session uses
             # the chat_id-keyed "user-bound persistent sandbox" (mounting the
             # per-user credential volumes for lark/dws/email etc.). Omitting it
@@ -1928,12 +1977,17 @@ async def astream_chat_workflow(
         try:
             from core.db.engine import SessionLocal as _SessionLocal
             from core.services.user_agent_service import UserAgentService as _UAS
+            from core.services.user_service import UserService as _UserService
 
             with _SessionLocal() as _db:
                 _ua_svc = _UAS(_db)
                 _visible_subagents = _ua_svc.list_for_user(_stream_user_id)
+                _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
+                    _stream_user_id
+                )
         except Exception as _exc:
             logger.warning("[workflow] failed to load visible subagents: %s", _exc)
+            _disabled_builtin_ids = set()
 
         from core.llm.builtin_subagents import merge_builtin_subagents
 
@@ -1944,6 +1998,7 @@ async def astream_chat_workflow(
                 "enabled_mcp_ids": enabled_mcp_ids or [],
                 "enabled_kb_ids": enabled_kb_ids or [],
             },
+            disabled_agent_ids=_disabled_builtin_ids,
         )
         # Prefer the structured per-turn target. Text parsing remains a
         # compatibility fallback for callers that only include @name.

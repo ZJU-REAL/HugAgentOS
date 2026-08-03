@@ -267,7 +267,6 @@ export function useStreaming(
 
       const currentChat = useChatStore.getState().store.chats[currentChatId];
       const agentId = (currentChat as any)?.agentId || undefined;
-      const planChat = !!(currentChat as any)?.planChat;
       const batchChat = !!(currentChat as any)?.batchChat;
       const modelCaps = useModelCapabilitiesStore.getState();
       const selectedModelProviderId = modelCaps.capabilities.user_model_switch_enabled
@@ -321,7 +320,6 @@ export function useStreaming(
             mention_agent_id: currentMention.id,
             mention_name: currentMention.name,
           } : {}),
-          ...(planChat ? { plan_chat: true } : {}),
           ...(batchChat ? { batch_chat: true } : {}),
           // Project mount: read from the chat's own projectId (the frontend binds it when
           // creating/fetching the session). When the chat has no bound project, fall back to

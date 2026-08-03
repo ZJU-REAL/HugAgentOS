@@ -128,7 +128,11 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
         row.tools_json = [{"name": "example_tool", "description": "", "inputSchema": {}}]
         return True, ""
 
+    async def validate_ok(url, *, require_https):
+        assert require_https is True
+
     monkeypatch.setattr(me_capabilities, "probe_mcp_connectivity", probe_ok)
+    monkeypatch.setattr(me_capabilities, "validate_remote_mcp_url", validate_ok)
     user = SimpleNamespace(user_id=initialized_ce_database)
     db: Session = SessionLocal()
     try:

@@ -186,7 +186,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 
 ## mcp_servers/ and sidecars
 
-`mcp_servers/` hosts 10 servers: `internet_search_mcp`, `web_fetch_mcp`, `generate_chart_tool_mcp`, `report_export_mcp`, `batch_runner_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `query_database_mcp` and `ai_chain_information_mcp` (Enterprise Edition, EE). Shared plumbing: `_launcher.py` (spawns all processes inside the mcp container according to the `_ports.py` port table), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`.
+`mcp_servers/` hosts 9 servers: `internet_search_mcp`, `web_fetch_mcp`, `generate_chart_tool_mcp`, `batch_runner_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `query_database_mcp` and `ai_chain_information_mcp` (Enterprise Edition, EE). Shared plumbing: `_launcher.py` (spawns all processes inside the mcp container according to the `_ports.py` port table), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`. Word, Excel, and other document exports are handled by Agent skills inside the sandbox.
 
 `services/script_runner_service/server.py` is the skill-script execution sidecar: its own container, resource-limited subprocesses, and no database / Redis / API-key access.
 

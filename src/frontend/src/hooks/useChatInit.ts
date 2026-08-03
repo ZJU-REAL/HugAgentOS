@@ -7,6 +7,7 @@ import { attachArtifactsToToolCalls } from '../utils/fileParser';
 import { isAutomationHistoryChat } from '../utils/history';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState } from '../utils/contextUsage';
+import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore } from '../stores';
 import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
@@ -380,6 +381,9 @@ export function useChatInit() {
             agentId: meta.agent_id || undefined,
             agentName: meta.agent_name || undefined,
             planChat: meta.plan_chat === true ? true : undefined,
+            ...(typeof localSnapshot.chats[id]?.planModeActive === 'boolean'
+              ? { planModeActive: localSnapshot.chats[id].planModeActive }
+              : {}),
             batchChat: meta.batch_chat === true ? true : undefined,
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,
@@ -399,19 +403,29 @@ export function useChatInit() {
           // Capture previously selected chat before updating store
           const prevChatId = useChatStore.getState().currentChatId;
 
-          updateStore(() => {
+          updateStore((prev) => {
+            // Session fetches are asynchronous. Preserve the freshest explicit composer choice
+            // from the live store as well as the startup snapshot, so a click made while this
+            // request was in flight cannot be overwritten by the server response.
+            const mergedServerChats: Record<string, ChatItem> = {};
+            for (const [id, serverChat] of Object.entries(chats)) {
+              const active = prev.chats[id]?.planModeActive;
+              mergedServerChats[id] = typeof active === 'boolean'
+                ? { ...serverChat, planModeActive: active }
+                : serverChat;
+            }
             const preserved: Record<string, ChatItem> = {};
             const preservedOrder: string[] = [];
             for (const id of localSnapshot.order) {
               const localChat = localSnapshot.chats[id];
               const hasMessages = Array.isArray(localChat?.messages) && localChat.messages.length > 0;
-              if (!chats[id] && localChat && hasMessages && !isAutomationHistoryChat(localChat)) {
+              if (!mergedServerChats[id] && localChat && hasMessages && !isAutomationHistoryChat(localChat)) {
                 preserved[id] = localChat;
                 preservedOrder.push(id);
               }
             }
             return {
-              chats: { ...chats, ...preserved },
+              chats: { ...mergedServerChats, ...preserved },
               order: [...order, ...preservedOrder],
             };
           });
@@ -495,9 +509,18 @@ export function useChatInit() {
                       },
                     };
                   });
-                  // Sync planMode state since setCurrentChatId ran before messages were loaded
-                  if (hasPlanMessages && !useChatStore.getState().planMode) {
-                    useChatStore.getState().setPlanMode(true);
+                  // Legacy sessions may lack plan_chat metadata, so their history remains a
+                  // fallback for the initial mode. An explicit false is the user's persisted
+                  // choice to continue as an ordinary conversation and must never be overwritten.
+                  const latestState = useChatStore.getState();
+                  const latestChat = latestState.store.chats[targetChatId];
+                  if (
+                    hasPlanMessages
+                    && targetChatId === latestState.currentChatId
+                    && shouldRestorePlanModeFromHistory(latestChat)
+                    && !latestState.planMode
+                  ) {
+                    latestState.setPlanMode(true);
                   }
                   if (pendingPlanId) {
                     useChatStore.getState().setCurrentPlanId(pendingPlanId);
@@ -588,6 +611,9 @@ export function useChatInit() {
             agentId: meta.agent_id || undefined,
             agentName: meta.agent_name || undefined,
             planChat: meta.plan_chat === true ? true : undefined,
+            ...(typeof prev.chats[s.chat_id]?.planModeActive === 'boolean'
+              ? { planModeActive: prev.chats[s.chat_id].planModeActive }
+              : {}),
             batchChat: meta.batch_chat === true ? true : undefined,
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,
@@ -684,9 +710,16 @@ export function useChatInit() {
               },
             };
           });
-          // Sync planMode state for the active chat
-          if (hasPlanMessages && chatId === useChatStore.getState().currentChatId && !useChatStore.getState().planMode) {
-            useChatStore.getState().setPlanMode(true);
+          // Sync the legacy default only when the user has not explicitly disabled plan mode.
+          const latestState = useChatStore.getState();
+          const latestChat = latestState.store.chats[chatId];
+          if (
+            hasPlanMessages
+            && chatId === latestState.currentChatId
+            && shouldRestorePlanModeFromHistory(latestChat)
+            && !latestState.planMode
+          ) {
+            latestState.setPlanMode(true);
           }
           // Restore pending plan id (if any) for the active chat
           if (pendingPlanId && chatId === useChatStore.getState().currentChatId) {

@@ -57,6 +57,8 @@ src/backend/prompts/prompt_text/default/system/
 
 管理入口在 Config 管理台「提示词管理」，对应路由 `api/routes/v1/admin_prompts.py`（`CONFIG_TOKEN` 鉴权）：
 
+前端版本管理标签页仅展示 `system / plan_mode / code_exec / distillation`。`subagents` 仍由后端版本池保存并参与种子、运行时解析和跨环境快照，但不再作为 Config 可编辑标签页；三个内置角色及其只读提示词改在用户侧「子智能体」页面展示，用户只管理自己的启停状态。
+
 | 端点 | 功能 |
 |---|---|
 | `GET/POST/PUT/DELETE /v1/admin/prompts/versions...` | 版本池 CRUD（按 kind） |

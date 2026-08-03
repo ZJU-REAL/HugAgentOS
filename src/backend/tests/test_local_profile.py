@@ -103,6 +103,29 @@ def test_seed_builtin_mcp_skips_when_catalog_present(db_session):
     assert db_session.query(AdminMcpServer).count() == 1
 
 
+def test_retired_report_export_mcp_is_not_seeded_and_legacy_row_is_pruned(db_session):
+    from core.db.models import AdminMcpServer
+    from core.services.mcp_service import BUILTIN_MCP_SERVERS, prune_removed_builtin_mcp_servers
+    from mcp_servers._ports import PORTS
+
+    assert "report_export_mcp" not in PORTS
+    assert "report_export_mcp" not in {str(spec["server_id"]) for spec in BUILTIN_MCP_SERVERS}
+    db_session.add(
+        AdminMcpServer(
+            server_id="report_export_mcp",
+            display_name="报告导出",
+            transport="streamable_http",
+            url="http://mcp:9105/mcp/",
+            owner_user_id=None,
+            source_plugin=None,
+        )
+    )
+    db_session.commit()
+
+    assert prune_removed_builtin_mcp_servers(db_session) == ["report_export_mcp"]
+    assert db_session.query(AdminMcpServer).count() == 0
+
+
 # ── super_admin bootstrap ────────────────────────────────────────────────────
 
 
@@ -560,10 +583,11 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch):
     assert srv._rewrite_bash_workspace_refs(
         f"ls {local_root}/site && test -f {local_root}/site/index.html",
         local_root,
-    ) == (
-        f"ls '{local_root}'/site && test -f '{local_root}'/site/index.html"
+    ) == (f"ls '{local_root}'/site && test -f '{local_root}'/site/index.html")
+    assert (
+        srv._rewrite_bash_workspace_refs(
+            f"ls '{local_root}/site'",
+            local_root,
+        )
+        == f"ls '{local_root}/site'"
     )
-    assert srv._rewrite_bash_workspace_refs(
-        f"ls '{local_root}/site'",
-        local_root,
-    ) == f"ls '{local_root}/site'"
