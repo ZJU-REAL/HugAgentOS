@@ -53,10 +53,19 @@ logger = get_logger(__name__)
 EmitFn = Callable[[Dict[str, Any]], Awaitable[None]]
 CancelFn = Callable[[], bool]
 
-# How many consecutive iterations a requirement can go without flipping → force the worker to change strategy (self-correction).
-_STRATEGY_CHANGE_AFTER = 2
-# Max attempts for a single requirement before the stagnation exit (HITL suspend / otherwise mark blocked and skip); prevents a single-item infinite loop.
-_MAX_ATTEMPTS_PER_REQ = 6
+# Loop thresholds come from the active orchestration profile, resolved **per
+# run** and **per tenant** (core.evolution.policies projects the profile onto
+# the knobs this loop uses).
+#
+# Resolving at import — which is what this did — had two failure modes that
+# never surfaced as errors: a newly published profile did not take effect until
+# the process restarted, and different replicas ran different policies until all
+# of them had. Resolving without a tenant had a third: one tenant's published
+# retry counts and budget multiplier silently became everyone's.
+def _resolve_loop_policy(*, tenant_id: str, user_id: str = ""):
+    from core.evolution.policies import load_loop_policy
+
+    return load_loop_policy(tenant_id=tenant_id, user_id=user_id)
 
 _WORKSPACE = "/workspace"
 _LEDGER_PATH = f"{_WORKSPACE}/feature_list.json"
@@ -506,6 +515,7 @@ async def run_autonomous_loop(
     save_ledger: Optional[Callable[[Dict[str, Any]], None]] = None,
     project_ctx: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
+    tenant_id: str = "default",
 ) -> LoopResult:
     """Drive an autonomous loop until "all requirements in the ledger pass" / budget exhausted / cancelled.
 
@@ -527,6 +537,18 @@ async def run_autonomous_loop(
     """
     session = session_id or f"loop-{loop_id}"
     from core.services.ontology_service import build_user_ontology_runtime
+
+    # Resolved here, once per run, from the tenant's active profile. Held in a
+    # local rather than a module constant so a concurrent run under a different
+    # tenant cannot read this one's numbers.
+    policy = _resolve_loop_policy(tenant_id=tenant_id, user_id=user_id)
+    strategy_change_after = policy.strategy_change_after
+    max_attempts_per_req = policy.max_attempts_per_requirement
+    logger.info(
+        "[loop %s] policy=%s tenant=%s change_after=%d max_attempts=%d budget_x%.2f",
+        loop_id, policy.version, tenant_id, strategy_change_after,
+        max_attempts_per_req, policy.budget_multiplier,
+    )
 
     ontology_enabled, ontology_runtime = build_user_ontology_runtime(
         user_id=user_id,
@@ -663,7 +685,7 @@ async def run_autonomous_loop(
         logger.info("[loop %s] iter %d req=%s (%s)", loop_id, seq, req["id"], _progress_frac(ledger))
 
         # 1) Worker runs one iteration (fresh context, fed only the current requirement)
-        strategy_change = int(req.get("attempts", 0)) >= _STRATEGY_CHANGE_AFTER
+        strategy_change = int(req.get("attempts", 0)) >= strategy_change_after
         prompt = _build_requirement_prompt(
             objective=goal_spec.objective, ledger=ledger, req=req, seq=seq,
             handoff=handoff, feedback=feedback, strategy_change=strategy_change,
@@ -742,7 +764,7 @@ async def run_autonomous_loop(
                         loop_id, req["id"], _progress_frac(ledger), git_sha)
         else:
             # Stagnation exit: a single item exhausted its attempts without passing → HITL suspend / otherwise mark blocked and skip (prevents a single-item infinite loop).
-            if int(req.get("attempts", 0)) >= _MAX_ATTEMPTS_PER_REQ:
+            if int(req.get("attempts", 0)) >= max_attempts_per_req:
                 if hitl_enabled:
                     await _persist_ledger(ledger)
                     status = "awaiting_human"

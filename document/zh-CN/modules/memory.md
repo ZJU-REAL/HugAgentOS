@@ -2,7 +2,7 @@
 
 > 最后更新：2026-06-11
 
-HugAgentOS 内置一套**分层持久记忆系统**，基于 [mem0](https://github.com/mem0ai/mem0) 构建：开启后，智能体能跨会话记住用户的身份背景、偏好习惯与历史事实，并在新会话中自动带入这些上下文。记忆按信息稳定性分为三层（L1 档案 / L2 向量事实 / L3 知识图谱），三层均属社区版能力；只有**记忆审计**（合规留痕）属于商业版（商业版 EE）。
+HugAgentOS 内置一套**分层持久记忆系统**，基于 [mem0](https://github.com/mem0ai/mem0) 构建：开启后，智能体能跨会话记住用户的身份背景、偏好习惯，以及**这里做事的方式**（口径、顺序、红线），并在新会话中自动带入这些上下文。记忆按信息稳定性分为三层（L1 档案 / L2 做法沉淀 / L3 知识图谱），三层均属社区版能力；只有**记忆审计**（合规留痕）属于商业版（商业版 EE）。
 
 整套系统遵循一条核心承诺：**所有记忆 I/O 绝不在 SSE 主链路上同步等待**——检索走带预算超时的后台任务，写入走 SSE 关闭后的有界后置流水线（见 `src/backend/core/memory/__init__.py` 模块文档）。
 
@@ -11,7 +11,7 @@ HugAgentOS 内置一套**分层持久记忆系统**，基于 [mem0](https://gith
 | 层 | 名称 | 存储 | 注入时机 | 实现 |
 |---|---|---|---|---|
 | L1 | Profile 用户档案 | DB（bounded markdown，默认上限 1500 字符） | 会话启动时冻结注入 | `core/memory/profile.py` |
-| L2 | Fact 事实记忆 | Milvus 向量库（collection `hugagent_memories`） | 会话启动时按相似度检索 Top-K 注入 | `core/memory/service.py`（mem0 封装） |
+| L2 | Procedural 做法沉淀 | Milvus 向量库（collection `hugagent_memories`） | 会话启动时按相似度检索 Top-K 注入 | `core/memory/service.py`（mem0 封装） |
 | L3 | Graph 图谱记忆 | Neo4j（可选，`MEM0_GRAPH_ENABLED=true`） | 按需检索 | `core/memory/service.py`（mem0 `enable_graph`） |
 | — | Session 辅助层 | `chats.metadata.session_memory` | 单会话内 | 会话任务工作集 |
 | — | Audit 审计旁路（商业版 EE） | DB 表 `memory_audit` | 所有读写旁路记录 | `core/memory/audit.py` |
@@ -47,7 +47,7 @@ orchestration/workflow.py
 save_memories_background()
   └─ core/memory/pipeline.schedule_post_response_tasks()
        · 全局 Semaphore 限并发（默认 8）
-       · 关键词分类 → 跑 0~4 个 extractor（identity/preference/fact/task）
+       · 分类 → 跑 0~4 个 extractor（identity/preference/task 关键词命中；procedural 每个实质轮次都跑）
        · 每个 extractor 单独 30s 超时
        · sanitize 脱敏闸门 → 写 L1/L2/Session → audit 旁路
 ```
@@ -61,7 +61,9 @@ save_memories_background()
 - **永不 await**：`schedule_post_response_tasks()` 是同步函数，只 `asyncio.create_task()`；
 - **有界并发**：全局 `asyncio.Semaphore`（`MEMORY_BG_MAX_CONCURRENCY`，默认 8）；
 - **Milvus 熔断器**：连续失败 N 次（默认 3）后短路 60 秒，检索 / 写入路径共用（`milvus_breaker`）；
-- **抽取器路由**（`core/memory/extractors/router.py`）：按关键词线索分类本轮对话，命中才跑对应 LLM 抽取器——`identity`（身份）、`preference`（偏好）、`fact`（事实，要求助手回复 >30 字）、`task`（任务）；空集则直接跳过所有 LLM 调用。
+- **抽取器路由**（`core/memory/extractors/router.py`）：`identity`（身份）、`preference`（偏好）、`task`（任务）按关键词线索命中才跑；**`procedural`（做法）不设关键词闸门**，只要本轮实质（用户 ≥8 字且助手 ≥30 字）就跑——一条约定用什么措辞说出来是不可预测的，正则在模型读到之前就替它决定"这轮没有做法"，漏掉的部分既无声也不可见。空集则直接跳过所有 LLM 调用。
+- **L2 只存做法，不存事实**：事实写下来的那一刻就开始过期，记住它等于让系统自信地复述一个陈旧数字，而不是去查当前值；能被重复使用、且能进一步编译成技能的，只有"这里怎么做事"。因此没有 fact 抽取器，也没有回退路径。
+- **写入不经 mem0 二次推断**：写入统一带 `infer=False`。mem0 默认会用它自己的通用事实抽取 prompt 再判一次，把我们已经蒸馏好的规则悄悄丢掉——表现为"写入成功但什么都没写"，日志无错、卡片无内容。
 
 ## 脱敏闸门（sanitizer）
 
@@ -91,7 +93,10 @@ save_memories_background()
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/v1/memories` | L2 事实记忆列表；`?project_id=` 按项目 workspace 过滤 |
+| GET | `/v1/memories` | L2 做法沉淀列表；`?project_id=` 按项目 workspace 过滤 |
+| PATCH | `/v1/memories/{id}` | 改写单条 L2 记忆正文（保留 id 与元数据） |
+| PATCH | `/v1/memories/profile/field` | 改写 L1 档案的单个字段 |
+| DELETE | `/v1/memories/profile/field` | 删除 L1 档案的单个字段 |
 | GET | `/v1/memories/profile` | L1 用户档案（markdown 全文 + 字符上限） |
 | GET | `/v1/memories/graph` | L3 图谱（当前返回 enabled 状态，结构化关系查询待后续版本） |
 | GET | `/v1/memories/audit` | 审计记录（商业版 EE） |
@@ -114,7 +119,7 @@ save_memories_background()
 ## 前端记忆中心
 
 - 入口：设置弹窗「记忆设置」分区（`src/frontend/src/components/settings/SettingsModal.tsx`），提供「写入记忆」「永久记忆」两个 Switch；
-- 「我的分层记忆」弹窗：三个 Tab——档案 L1（markdown 全文）、事实 L2（列表 + 单条删除 + 一键清空，组件 `src/frontend/src/components/memory/FactsList.tsx`）、图谱 L3（未启用时提示需配置 `MEM0_GRAPH_ENABLED` + Neo4j）；
+- 「我的分层记忆」弹窗：三个 Tab——档案 L1（markdown 全文）、做法 L2（列表 + 单条编辑/删除 + 一键清空，组件 `src/frontend/src/components/memory/FactsList.tsx`）、图谱 L3（未启用时提示需配置 `MEM0_GRAPH_ENABLED` + Neo4j）；
 - 项目维度的记忆查看：`src/frontend/src/components/projects/ProjectMemoriesModal.tsx`；
 - API 封装：`src/frontend/src/api.ts`（`getMemories` / `getMemoryProfile` / `getMemoryGraph` / `getMemorySettings` 等）。
 
@@ -128,7 +133,7 @@ docker-compose --profile mem0 up -d
 
 | 服务 | 镜像 | 作用 |
 |---|---|---|
-| milvus | `milvusdb/milvus:v2.4.0`（standalone） | L2 向量存储 |
+| milvus | `milvusdb/milvus:v2.5.4`（standalone） | L2 向量存储 |
 | etcd | `quay.io/coreos/etcd:v3.5.5` | Milvus 元数据 |
 | minio | `minio/minio` | Milvus 对象存储 |
 | neo4j | `neo4j:5.15-community` | L3 图谱存储（可选） |
@@ -167,7 +172,7 @@ MEMORY_RETRIEVAL_BUDGET_MS=600    # 检索预算
 MEMORY_BG_MAX_CONCURRENCY=8       # 后台写入并发
 MEMORY_EXTRACT_TIMEOUT_S=30       # 单 extractor 超时
 MEMORY_PROFILE_MAX_CHARS=1500     # L1 档案字符上限
-MEMORY_FACT_DEFAULT_TTL_DAYS=180  # L2 事实默认 TTL
+MEMORY_FACT_DEFAULT_TTL_DAYS=180  # L2 默认 TTL（做法写入固定用 365 天）
 MEMORY_FROZEN_TOPK=5              # 冻结块 Fact Top-K
 MEMORY_BREAKER_THRESHOLD=3        # Milvus 熔断阈值
 MEMORY_BREAKER_COOLDOWN_S=60      # 熔断冷却
@@ -188,7 +193,7 @@ RERANKER_API_KEY=...
 | `src/backend/core/memory/service.py` | mem0 配置组装与异步封装（Milvus / Neo4j / Reranker） |
 | `src/backend/core/memory/profile.py` | L1 档案：get / patch / compact / delete |
 | `src/backend/core/memory/pipeline.py` | 后置写入流水线、信号量、Milvus 熔断器 |
-| `src/backend/core/memory/extractors/` | identity / preference / fact / task 抽取器 + 关键词路由 |
+| `src/backend/core/memory/extractors/` | identity / preference / task / procedural 抽取器 + 路由 |
 | `src/backend/core/memory/sanitizer.py` | 脱敏闸门（硬编码规则 + DB 动态规则） |
 | `src/backend/core/memory/audit.py` | 审计旁路（商业版 EE） |
 | `src/backend/core/memory/context.py` | `MemoryContext` 与 workspace / 层级解析 |
@@ -198,5 +203,5 @@ RERANKER_API_KEY=...
 | `src/backend/core/db/models/memory.py` | 共享的 `MemorySanitizerRule` ORM |
 | `src/backend/edition_ee/db/models/memory.py` | `MemoryAudit` ORM（仅 EE） |
 | `src/frontend/src/components/settings/SettingsModal.tsx` | 记忆设置 + 分层记忆弹窗 |
-| `src/frontend/src/components/memory/FactsList.tsx` | L2 事实列表组件 |
+| `src/frontend/src/components/memory/FactsList.tsx` | L2 做法列表组件（可编辑/删除） |
 | `docker-compose.yml`（`mem0` profile） | Milvus / etcd / MinIO / Neo4j |

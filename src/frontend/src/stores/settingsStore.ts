@@ -228,7 +228,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   loadMemories: () => _safeLoad(
-    set, getMemories, (data) => ({ memoryItems: data.items }), t('加载事实记忆失败'),
+    set, getMemories, (data) => ({ memoryItems: data.items }), t('加载长期记忆失败'),
   ),
   loadMemoryProfile: () => _safeLoad(
     set, getMemoryProfile, (data) => ({ memoryProfile: data }), t('加载档案记忆失败'),

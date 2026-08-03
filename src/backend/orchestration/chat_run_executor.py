@@ -412,6 +412,23 @@ async def _run_workflow(
         # original prompt instead of the upcoming batch results.
         seen_batch_confirm = False
 
+        # Evidence-plane join keys (GCE ticket 04). Injected here rather than at
+        # every context construction site: this is the one place that owns both
+        # the run and its pre-allocated assistant message id.
+        context.setdefault("run_id", run_id)
+        context.setdefault("message_id", message_id)
+
+        # Stamp the message id onto tool logging for this run. The plumbing
+        # already existed but had no caller, so every tool call was written with
+        # an empty message_id — which silently broke the join the evidence plane
+        # depends on, and left every episode with no tool sequence to learn from.
+        try:
+            from core.services.log_service import set_current_message_id
+
+            set_current_message_id(message_id)
+        except Exception:  # pragma: no cover - logging must never fail a run
+            pass
+
         async for chunk in _aiter_with_inactivity_timeout(
             astream_chat_workflow(
                 session_messages=session_messages,
@@ -594,6 +611,8 @@ async def _run_workflow(
                     "citations": chunk.get("citations", []),
                     "workspace_files": _ws_files,
                     "ontology_governance": chunk.get("ontology_governance"),
+                    # Skeleton marker: settlement runs after the stream closes.
+                    "evolution_pending": chunk.get("evolution_pending"),
                 }
                 await _emit(metadata)
 
@@ -1483,6 +1502,8 @@ async def _run_autonomous_loop_workflow(
         except Exception:  # noqa: BLE001 - audit is non-critical; don't block execution
             logger.warning("loop mark_running failed", exc_info=True)
 
+        from core.auth.tenancy import tenant_of
+
         result = await run_autonomous_loop(
             loop_id=loop_id,
             user_id=user_id,
@@ -1501,6 +1522,10 @@ async def _run_autonomous_loop_workflow(
             save_ledger=_save_ledger,
             project_ctx=project_ctx,
             chat_id=chat_id,
+            # Carried explicitly so the loop resolves *this* tenant's
+            # orchestration profile. Omitting it is how one tenant's published
+            # retry counts and budget multiplier became everyone's.
+            tenant_id=tenant_of(user_id),
         )
 
         try:

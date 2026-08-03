@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from time import monotonic
 from typing import Any, Dict, List, Optional
 
 from core.config.settings import settings
 from core.memory import profile
 from core.memory.context import MemoryContext
-from core.memory.service import retrieve_memories
+from core.memory.retrieval_types import MemoryRetrievalResult
+from core.memory.service import retrieve_memories_structured
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +43,9 @@ async def launch_memory_retrieval(
         budget_ms if budget_ms is not None else settings.memory.retrieval_budget_ms
     ) / 1000.0
 
-    async def _fetch() -> Optional[str]:
+    async def _fetch() -> Optional[MemoryRetrievalResult]:
         try:
-            return await retrieve_memories(
+            return await retrieve_memories_structured(
                 user_id=user_id,
                 query=user_message,
                 workspace_id=workspace_id,
@@ -51,9 +53,50 @@ async def launch_memory_retrieval(
             )
         except Exception as exc:
             logger.warning("[memory] retrieval failed: %s", exc)
-            return None
+            return MemoryRetrievalResult.degraded_result("orchestration_error")
 
     return asyncio.create_task(_fetch())
+
+
+def _as_result(value: object) -> Optional[MemoryRetrievalResult]:
+    """Normalise whatever the retrieval task produced.
+
+    The task may legitimately yield ``None`` (never started) and, for callers
+    that still hand us a pre-rendered string, we degrade gracefully rather than
+    crash the turn.
+    """
+    if isinstance(value, MemoryRetrievalResult):
+        return value
+    return None
+
+
+# The structured recall for the current turn, keyed by the retrieval task so
+# concurrent runs never read each other's result. A WeakKeyDictionary keeps this
+# from becoming a leak: once the task is collected, so is the entry.
+_last_retrieval: "weakref.WeakKeyDictionary[asyncio.Task, MemoryRetrievalResult]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def set_last_retrieval(task: asyncio.Task, result: MemoryRetrievalResult) -> None:
+    try:
+        _last_retrieval[task] = result
+    except TypeError:  # pragma: no cover - non-weakrefable task
+        pass
+
+
+def get_last_retrieval(task: Optional[asyncio.Task]) -> Optional[MemoryRetrievalResult]:
+    """Structured recall for a turn, for trace-event emission.
+
+    Returns ``None`` when retrieval never ran or timed out — callers must treat
+    that as "no evidence", never as "memory contributed nothing".
+    """
+    if task is None:
+        return None
+    try:
+        return _last_retrieval.get(task)
+    except TypeError:  # pragma: no cover
+        return None
 
 
 async def build_frozen_memory_block(
@@ -89,6 +132,7 @@ async def build_frozen_memory_block(
 
     # Fact layer (L2)
     fact_text = ""
+    fact_result: Optional[MemoryRetrievalResult] = None
     if memory_task is not None:
         try:
             # Wait up to retrieval_budget_ms (default 600ms), then give up; memory_task was
@@ -96,7 +140,15 @@ async def build_frozen_memory_block(
             # The old value of 50ms was measured to be far below Milvus warm search's ~200ms,
             # so Fact injection almost never hit.
             wait_budget_s = max(0.1, settings.memory.retrieval_budget_ms / 1000.0)
-            fact_text = await asyncio.wait_for(memory_task, timeout=wait_budget_s) or ""
+            fact_result = _as_result(
+                await asyncio.wait_for(memory_task, timeout=wait_budget_s)
+            )
+            fact_text = fact_result.to_text() if fact_result is not None else ""
+            # Stash the structured recall on the task so the workflow can emit a
+            # retrieval trace event without re-running the search. Attribution
+            # needs ids/ranks/scores that the rendered text has already lost.
+            if fact_result is not None:
+                set_last_retrieval(memory_task, fact_result)
         except asyncio.TimeoutError:
             logger.info(
                 "[memory] fact retrieval still running past wait window, skipping injection"
@@ -244,6 +296,7 @@ def save_memories_background(
     workspace_id: str = "default",
     chat_id: Optional[str] = None,
     scope_user_id: Optional[str] = None,
+    message_id: Optional[str] = None,
 ) -> None:
     """Delegate to the unified post-response pipeline — never await; SSE is closed and the user isn't waiting.
 
@@ -261,12 +314,14 @@ def save_memories_background(
     ``user_id`` remains the real user for audit metadata.
     """
     if not (write_enabled and full_response and user_id):
+        _report_no_memory_writes(message_id)
         return
 
     try:
         from core.memory.pipeline import schedule_post_response_tasks
     except Exception as exc:
         logger.warning("[memory] pipeline unavailable, skipping save: %s", exc)
+        _report_no_memory_writes(message_id)
         return
 
     ctx = MemoryContext(
@@ -275,8 +330,26 @@ def save_memories_background(
         chat_id=chat_id,
         write_enabled=write_enabled,
         scope_user_id=scope_user_id,
+        message_id=message_id,
     )
     try:
         schedule_post_response_tasks(ctx, user_message, full_response)
     except Exception as exc:
         logger.warning("[memory] schedule_post_response_tasks failed: %s", exc)
+        _report_no_memory_writes(message_id, failed=True)
+
+
+def _report_no_memory_writes(message_id: Optional[str], *, failed: bool = False) -> None:
+    """Tell the turn's settlement that no write pipeline will report for it.
+
+    Every path that declines to schedule the pipeline must say so, otherwise the
+    turn's card waits out the settlement watchdog for nothing.
+    """
+    if not message_id:
+        return
+    try:
+        from core.evolution.settlement_runner import report_memory_writes
+
+        report_memory_writes(message_id, written=0, procedural=0, failed=failed)
+    except Exception as exc:  # noqa: BLE001 - never break the response path
+        logger.debug("[memory] settlement report skipped: %s", exc)

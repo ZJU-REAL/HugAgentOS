@@ -46,6 +46,11 @@ class MemoryContext:
     # Optional edition scope identifier. Default and personal projects use None,
     # falling back to user_id. Audit metadata still records the real user_id.
     scope_user_id: Optional[str] = None
+    # Assistant message this write pipeline belongs to. Carried so the pipeline
+    # can report *what it actually wrote* back to the turn's settlement; without
+    # it the card had to guess from the retrieval count, which is a different
+    # number entirely.
+    message_id: Optional[str] = None
 
     @property
     def effective_actor(self) -> str:
@@ -67,6 +72,7 @@ class MemoryContext:
             actor=self.actor,
             write_enabled=self.write_enabled,
             scope_user_id=self.scope_user_id,
+            message_id=self.message_id,
         )
 
 

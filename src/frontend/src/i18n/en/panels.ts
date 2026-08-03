@@ -395,9 +395,11 @@ export const PANELS_DICT: Record<string, string> = {
   '即将上线': 'Coming soon',
 
   // ── FactsList ────────────────────────────────────────────────────────
-  'mem0 / Milvus 向量事实，按需检索注入': 'mem0 / Milvus vector facts, retrieved on demand',
-  '暂无事实记忆': 'No memory facts yet',
-  '清空所有事实': 'Clear all facts',
+  '沉淀下来的「做法/口径」，按需检索注入': 'Distilled ways of working, retrieved on demand',
+  '仅本项目可见的做法沉淀（按需检索注入到对话）': 'Ways of working visible only to this project, retrieved on demand',
+  '该项目暂无沉淀的做法，几轮对话之后会在这里出现。': 'No ways of working distilled for this project yet — they appear after a few conversations.',
+  '暂无长期记忆': 'No long-term memory yet',
+  '清空全部记忆': 'Clear all memories',
 
   // ── BrandLoader ──────────────────────────────────────────────────────
   '加载中': 'Loading',
@@ -411,4 +413,18 @@ export const PANELS_DICT: Record<string, string> = {
   '登录已失效': 'Session expired',
   '重新登录': 'Sign in again',
   '您的登录会话已过期，请重新登录。': 'Your session has expired. Please sign in again.',
+  // GCE evolution panel (ticket 07)
+  '本轮进化': 'This turn\'s evolution',
+  '暂无本轮进化内容': 'No evolution recorded for this turn',
+  '能力增量': 'Capability delta',
+  '进化趋势': 'Evolution trend',
+  '数据积累中': 'Collecting data',
+  '本轮进化内容暂时无法显示': 'This turn\'s evolution cannot be displayed right now',
+  '当前会话仍可继续使用。': 'The conversation can still be used normally.',
+  '任务执行': 'Task executed',
+  '经验提取': 'Experience extracted',
+  '一致性校验': 'Consistency checked',
+  '本轮调用的既有能力': 'Existing capabilities used this turn',
+  '能力入库': 'Capability stored',
+  '未通过': 'Not passed',
 };

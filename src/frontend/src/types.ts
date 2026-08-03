@@ -277,6 +277,39 @@ export interface OntologyRevisionSummary {
 }
 
 /** User-visible ontology governance evidence, intentionally separate from model thinking. */
+/**
+ * One memory a turn wrote.
+ *
+ * `handle` is what makes the row actionable — a mem0 id for an L2 procedure, a
+ * profile field key for an L1 entry — and decides which API the edit and delete
+ * buttons call. An entry without one is never emitted by the backend.
+ */
+export interface EvolutionMemoryEntry {
+  /** `L1` = user profile field, `L2` = procedural memory. */
+  layer: 'L1' | 'L2';
+  handle: string;
+  text: string;
+  kind?: string;
+  /** Why the rule holds — what tells a reader where it stops applying. */
+  why?: string;
+  /** The task family it was stated for. */
+  applies_to?: string;
+  action?: string;
+}
+
+export interface EvolutionSummary {
+  episode_id?: string;
+  message_id?: string;
+  /** `empty` means nothing was written — render no card at all. */
+  state: 'pending' | 'settled' | 'failed' | 'empty';
+  /** `written` or `failed`; memory is the only mechanism a turn can report. */
+  status?: 'written' | 'failed' | '';
+  gain?: number;
+  entries?: EvolutionMemoryEntry[];
+  error?: string;
+  settled_at?: string;
+}
+
 export interface OntologyGovernanceSummary {
   governance_run_id?: string;
   activations: OntologyActivationSummary[];
@@ -348,6 +381,7 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   thinking?: ThinkingBlock[];
   ontologyGovernance?: OntologyGovernanceSummary;
+  evolution?: EvolutionSummary;
   segments?: MessageSegment[];  // ordered segment list (used by new messages)
   citations?: CitationItem[];   // tool-call citation registry
   followUpQuestions?: string[]; // follow-up questions (clickable to send)
@@ -978,6 +1012,11 @@ export interface MemoryItem {
   confidentiality?: 'public' | 'internal' | 'sensitive';
   ttl_days?: number;
   evidence?: string;
+  /** L2 stores procedures only; these carry the rule's reason and its scope. */
+  memory_type?: string;
+  why?: string;
+  applies_to?: string;
+  strength?: string;
 }
 
 export interface MemoryProfile {

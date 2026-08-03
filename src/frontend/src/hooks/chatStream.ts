@@ -6,7 +6,7 @@ import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState } from '../utils/contextUsage';
 import { getIndustryChainNameFromInput } from '../utils/industryChain';
 import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore } from '../stores';
-import type { ChatItem, ChatMessage, CitationItem, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
+import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
 
 /**
  * Unified chat SSE stream processor (single source of truth).
@@ -174,6 +174,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   const thinking: { content: string; timestamp: number }[] = [];
   const segments: MessageSegment[] = [];
   let ontologyGovernance: OntologyGovernanceSummary | undefined;
+  // Settlement runs after the stream closes, so all the closing frame can carry
+  // is a skeleton marker; the real summary arrives via the settlement endpoint.
+  let evolutionSummary: EvolutionSummary | undefined;
   let metaMessageId: string | undefined;
   let metaFollowUps: string[] = [];
   let allCitations: CitationItem[] = [];
@@ -476,6 +479,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         isMarkdown: isMd,
         toolCalls: toolCalls.length > 0 ? [...toolCalls] : undefined,
         thinking: thinking.length > 0 ? [...thinking] : undefined,
+        evolution: evolutionSummary,
         ontologyGovernance: ontologyGovernance
           ? {
               ...ontologyGovernance,
@@ -1009,6 +1013,15 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           if (Array.isArray(eventObj.workspace_files)) {
             metaWorkspaceFiles = (eventObj.workspace_files as unknown[])
               .filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+          }
+          if (eventObj.evolution_pending && typeof eventObj.evolution_pending === 'object') {
+            const pending = eventObj.evolution_pending as Partial<EvolutionSummary>;
+            // A watch token, not something to render: the card stays absent
+            // until settlement reports what was actually written.
+            evolutionSummary = {
+              state: 'pending',
+              message_id: typeof pending.message_id === 'string' ? pending.message_id : undefined,
+            };
           }
           if (eventObj.ontology_governance && typeof eventObj.ontology_governance === 'object') {
             const persisted = eventObj.ontology_governance as Partial<OntologyGovernanceSummary>;

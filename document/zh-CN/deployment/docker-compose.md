@@ -39,7 +39,7 @@ CE 在空数据库首次启动时会全局安装并启用 `automation`、
 |---|---|---|---|---|
 | `etcd` | hugagent-etcd | `quay.io/coreos/etcd:v3.5.5` | 内部 | Milvus 元数据存储 |
 | `minio` | hugagent-minio | `minio/minio:RELEASE.2023-03-13...` | 内部 | Milvus 对象存储 |
-| `milvus` | hugagent-milvus | `milvusdb/milvus:v2.4.0` | `19530`、`9091` | 向量库（L2 向量记忆、自建知识库检索） |
+| `milvus` | hugagent-milvus | `milvusdb/milvus:v2.5.4` | `19530`、`9091` | 向量库（L2 向量记忆、自建知识库检索） |
 | `neo4j` | hugagent-neo4j | `neo4j:5.15-community` | `7474`、`7687` | 图数据库（L3 知识图谱记忆，可选） |
 
 ### 依赖关系

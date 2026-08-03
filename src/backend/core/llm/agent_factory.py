@@ -30,6 +30,7 @@ from core.llm.middlewares import (
     FinishPinGuardMiddleware,
     GoalAnchorReminderMiddleware,
     IterBudgetReminderMiddleware,
+    StallInterventionMiddleware,
     OntologyGateMiddleware,
     WorkspacePinHintMiddleware,
 )
@@ -150,17 +151,27 @@ def _filter_mcp_servers_by_keys(
 
 
 def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> list[str]:
-    """Strip out private skill ids belonging to other users, preventing unauthorized invocation.
+    """Strip out skill ids this user must not load.
 
-    Kept: public skills (owner_user_id empty, including filesystem/built-in
-    skills not in the admin_skills table) + the user's own private skills.
-    Dropped: other users' private skills.
+    Two independent rules, applied at the one choke point every agent (main,
+    sub-agent, batch) passes through:
+
+    1. **Ownership.** Kept: public skills (``owner_user_id`` empty, including
+       filesystem/built-in skills absent from ``admin_skills``) + the user's own
+       private skills. Dropped: other users' private skills.
+    2. **Release exposure.** An evolution-authored skill is only loadable once
+       its release actually reaches this user — ``active``, or ``canary`` with the
+       user in the bucket. A ``shadow`` release reaches nobody. Without this the
+       release ladder was decorative: a materialised skill was a global public
+       row, so a ``risk_tier=high`` capability the system wrote about itself went
+       to every user at once.
     """
     if not skill_ids:
         return skill_ids
     try:
         from core.db.engine import SessionLocal
         from core.db.models import AdminSkill
+        from core.evolution.exposure import filter_skill_ids as filter_evolved
 
         with SessionLocal() as db:
             owned = dict(
@@ -171,9 +182,19 @@ def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> 
                 )
                 .all()
             )
+            allowed = [sid for sid in skill_ids if owned.get(sid) in (None, user_id)]
+            return filter_evolved(allowed, user_id=user_id or "", db=db)
     except Exception:
-        return skill_ids
-    return [sid for sid in skill_ids if owned.get(sid) in (None, user_id)]
+        # Ownership filtering degrades to "keep what was asked for", as before.
+        # Exposure does not: an evolved skill whose release state we could not
+        # read is withheld, because the unsafe direction here is loading an
+        # unvetted self-authored capability.
+        try:
+            from core.evolution.exposure import is_evolved_skill_id
+
+            return [sid for sid in skill_ids if not is_evolved_skill_id(sid)]
+        except Exception:
+            return skill_ids
 
 
 def _filter_kb_ids_for_user(kb_ids: list[str], user_id: Optional[str]) -> list[str]:
@@ -380,6 +401,63 @@ def _mcp_ids_bound_to_skills(skill_ids: list[str]) -> list[str]:
     return result
 
 
+# The one place evolved prompt content may live, and it is a *named block* at
+# the end of the system prompt rather than an edit anywhere inside it.
+#
+# Three things follow from making it a block instead of a patch:
+#   · the hand-written prompt is never touched, so a generated line can never
+#     weaken or delete a clause somebody wrote deliberately;
+#   · removing evolved content is deleting one section, whatever the base prompt
+#     has done in the meantime;
+#   · an operator reading the assembled prompt can see exactly which part the
+#     system wrote about itself, which an inline patch makes impossible.
+DYNAMIC_BLOCK_HEADER = "## 动态补充（由能力进化沉淀，可在进化控制台停用）"
+
+
+def _render_dynamic_block(fragments: list[str]) -> str:
+    """Render evolved prompt fragments as one clearly-attributed section."""
+    lines = [DYNAMIC_BLOCK_HEADER, ""]
+    lines.extend(fragment.strip() for fragment in fragments if fragment.strip())
+    return "\n\n".join(lines)
+
+
+def _resolve_prompt_fragments(fragment_ids: list[str]) -> list[str]:
+    """The text of each fragment a profile references.
+
+    Fragments are stored as prompt candidates and referenced by id, not copied
+    into the profile. Copying would mean a fragment corrected in one place stays
+    wrong everywhere it was pasted, and there would be no single row to roll
+    back. A reference that no longer resolves is skipped rather than rendered as
+    an empty line, so a retired fragment leaves no trace in the prompt.
+    """
+    if not fragment_ids:
+        return []
+    try:
+        from core.db.engine import SessionLocal
+        from core.db.models.evolution import EvolutionCandidate
+
+        with SessionLocal() as db:
+            rows = (
+                db.query(EvolutionCandidate)
+                .filter(
+                    EvolutionCandidate.target_kind == "prompt",
+                    EvolutionCandidate.target_asset_id.in_(list(fragment_ids)),
+                    EvolutionCandidate.status == "active",
+                )
+                .all()
+            )
+        by_id = {
+            str(row.target_asset_id): str(
+                ((row.ir or {}).get("changes") or [{}])[0].get("fragment") or ""
+            )
+            for row in rows
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[factory] prompt fragments unavailable: %s", exc)
+        return []
+    return [by_id[fid] for fid in fragment_ids if by_id.get(fid)]
+
+
 async def create_agent_executor(
     agent_spec: Optional[AgentSpec] = None,
     user_query: Optional[str] = None,
@@ -410,6 +488,10 @@ async def create_agent_executor(
     # leaks at the root.
     top_level_chat: bool = False,
     chat_id: Optional[str] = None,
+    # run_id lets the Runtime Binder (GCE ticket 03) key this run's frozen asset
+    # bundle, so evidence assembled after the response can look up exactly which
+    # versions were in play. Optional — non-chat paths simply bind anonymously.
+    run_id: Optional[str] = None,
     sandbox_session_id: Optional[str] = None,
     project_ctx: Optional[Dict[str, Any]] = None,
     channel_origin: Optional[Dict[str, Any]] = None,
@@ -486,6 +568,128 @@ async def create_agent_executor(
     # agent only retrieves from authorized KBs.
     if enabled_kb_ids:
         enabled_kb_ids = _filter_kb_ids_for_user(enabled_kb_ids, current_user_id)
+
+    # ── Orchestration profile (the assembly this task type calls for) ───────
+    # Resolved per run, per subject. This is the only place the profile is read,
+    # so everything it governs — which tools are visible, which skills are
+    # offered, what the retrieval budget is — is decided once, here, from one
+    # reviewed artefact rather than from constants scattered across the module.
+    from core.auth.tenancy import tenant_of
+    from core.evolution.agent_profile import builtin_profile, load_active_profile
+
+    profile = builtin_profile()
+    if user_agent is None:
+        # A user-built sub-agent carries its own explicit bindings. Applying a
+        # learned profile on top would override a person's deliberate
+        # configuration with a statistical one, which is not a trade the person
+        # agreed to.
+        try:
+            profile = await asyncio.to_thread(
+                load_active_profile,
+                task_type=str(chat_mode or "chat"),
+                user_id=current_user_id or "",
+                tenant_id=tenant_of(current_user_id),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("[factory] profile load failed, using built-in: %s", exc)
+
+    if profile.skill_ids:
+        # The profile decides what this task type gets offered at all. Anything
+        # outside it is not a candidate, which is the mechanism that stops a
+        # skill distilled from one family from being in view during another —
+        # the leak that text annotations were measured to be unable to close.
+        allowed = set(profile.skill_ids)
+        skill_ids_for_bindings = [
+            sid for sid in (skill_ids_for_bindings or []) if sid in allowed
+        ] or list(profile.skill_ids)
+        if enabled_skill_ids is not None:
+            enabled_skill_ids = [sid for sid in enabled_skill_ids if sid in allowed]
+
+    # ── Skill availability evidence (GCE ticket 10) ─────────────────────────
+    # Which skills were available to the model this turn. Skill *loading* keeps
+    # its own logic — every enabled skill's name and description goes into the
+    # prompt and the model opens what it wants — so this records availability,
+    # not a ranked choice, and ``degraded`` says so.
+    #
+    # Whether a skill was actually *used* is a separate observation
+    # (``skill.opened``), recorded from the tool log. Keeping the two apart is
+    # what the decremental engine needs; narrowing what gets loaded is not.
+    skill_selection = None
+    try:
+        from core.agent_skills.selection_record import build_selection
+
+        skill_selection = build_selection(
+            all_candidate_ids=list(skill_ids_for_bindings or []),
+            selected_ids=list(skill_ids_for_bindings or []),
+            strategy="passthrough",
+            degraded=True,
+            degrade_reason="top_k_disabled",
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("[skill-select] record skipped: %s", exc)
+
+    # The profile's sub-agent routes, applied. A route says "for this task type,
+    # this work goes to a separate context"; anything the profile does not route
+    # to stays out of view for this task type, which is the same narrowing
+    # argument as the tool allowlist — an unroutable sub-agent in the prompt is
+    # a delegation the model can attempt and should not.
+    #
+    # Evolution-authored agents ship disabled until their route is approved as a
+    # prompt change, so this never surfaces one the reviewer has not seen.
+    if profile.subagent_routes and visible_subagents:
+        routed = {
+            route.agent_id
+            for route in profile.subagent_routes
+            if not route.task_types or str(chat_mode or "chat") in route.task_types
+        }
+        visible_subagents = [
+            agent
+            for agent in visible_subagents
+            if str(agent.get("agent_id") or "") in routed
+        ]
+
+    # The profile's tool allowlist, applied. It can only narrow: the candidate
+    # that produced it was validated against the base grant, and intersecting
+    # here means even a stored profile that has outlived a narrowed grant cannot
+    # re-widen it.
+    if profile.tool_allowlist is not None:
+        allowed_tools = set(profile.tool_allowlist)
+        current_mcp = (
+            enabled_mcp_ids
+            if isinstance(enabled_mcp_ids, list)
+            else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
+        )
+        enabled_mcp_ids = [mcp_id for mcp_id in current_mcp if mcp_id in allowed_tools]
+        _log.info(
+            "[factory] profile %s narrowed MCP servers %d → %d",
+            profile.profile_id, len(current_mcp), len(enabled_mcp_ids),
+        )
+
+    # ── Runtime Binder (GCE ticket 03) ──────────────────────────────────────
+    # Freeze which asset versions this run is about to use. Bound here, after
+    # skills / MCPs / KBs are fully resolved but before anything executes, so a
+    # mid-run publish cannot change what this run did. Purely observational:
+    # any failure degrades the bundle to partial and never touches the answer.
+    asset_bundle = None
+    try:
+        from core.evolution.runtime_binding import bind_runtime_assets
+
+        asset_bundle = bind_runtime_assets(
+            run_id=run_id,
+            skill_ids=skill_ids_for_bindings,
+            kb_ids=enabled_kb_ids,
+            model_name=model_name,
+            model_provider_id=model_provider_id,
+            chat_mode=chat_mode,
+            memory_enabled=memory_enabled,
+            # Which assembly this run used. A bundle that omits it cannot
+            # reproduce the run, and counterfactual replay would be substituting
+            # one asset against an unknown baseline.
+            orchestration_profile_id=profile.profile_id,
+            workflow_policy_version=profile.version,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("[binder] binding skipped: %s", exc)
 
     # The current user's self-added private MCPs (owner-isolated, queried from the DB on demand)
     owned_mcp_servers: dict = {}
@@ -727,6 +931,13 @@ async def create_agent_executor(
     skill_ids_to_register = enabled_skill_ids
     if skill_ids_to_register is None:
         skill_ids_to_register = _effective_main_available_skills()
+        # The fallback resolves from the static catalog, which today carries no
+        # evolution-authored ids — but the exposure gate is applied here anyway
+        # rather than relying on that. A gate that only covers the paths we
+        # happened to think of is not a gate.
+        skill_ids_to_register = _filter_skill_ids_for_user(
+            skill_ids_to_register, current_user_id
+        )
     # Note: a subagent's (user_agent) enabled_skill_ids is always a list ([]
     # when unconfigured) and never hits the None fallback above — i.e. "a
     # subagent with no skills configured has no skills"; strictly per its own
@@ -1157,6 +1368,24 @@ async def create_agent_executor(
                 chat_id,
             )
 
+    # Prompt fragments this task type carries, per the active profile.
+    #
+    # This is the structural answer to a measured failure: giving a rule a scope
+    # *in prose* does not work — the model either ignores the exception or
+    # over-applies it, and both were observed against a real model. A fragment
+    # attached to a profile reaches only the task types that profile governs, so
+    # the scope is enforced by what is assembled rather than by what the text
+    # asks the model to infer.
+    if profile.prompt_fragments:
+        fragments = await asyncio.to_thread(_resolve_prompt_fragments, profile.prompt_fragments)
+        if fragments:
+            system_prompt = system_prompt + "\n\n" + _render_dynamic_block(fragments)
+            _log.info(
+                "[factory] +%s %d profile prompt fragment(s) appended",
+                _elapsed(),
+                len(fragments),
+            )
+
     # Create model (streaming enabled for SSE)
     # Mode-specific model role: plan mode → plan_agent → falls back to
     # main_agent; everything else → main_agent. Code execution is not a
@@ -1444,7 +1673,10 @@ async def create_agent_executor(
     _DEFAULT_MAIN_ITERS = 50
     _DEFAULT_SUBAGENT_ITERS = 10
     _agent_name = "hugagent_agent"
-    _max_iters = _DEFAULT_MAIN_ITERS
+    # The active profile's turn budget governs the main agent. The built-in
+    # profile carries the same 50 this used, so resolution is a no-op until a
+    # profile is published.
+    _max_iters = profile.max_react_turns if user_agent is None else _DEFAULT_MAIN_ITERS
     if max_iters is not None:
         _max_iters = max_iters
     elif user_agent is not None:
@@ -1495,6 +1727,11 @@ async def create_agent_executor(
         FileContextMiddleware(),  # on_reply: inject file context
         WorkspacePinHintMiddleware(),  # on_reasoning: remind to pin
         IterBudgetReminderMiddleware(),  # on_reasoning: inject a wrap-up reminder near max_iters
+        # on_acting: the active profile's intervention rules, applied to *this*
+        # loop. Previously they only reached the autonomous loop, which left the
+        # orchestration profile with one field that governed nothing on the axis
+        # almost all traffic takes.
+        StallInterventionMiddleware(profile.intervention_rules),
         OntologyGateMiddleware(_ontology_runtime),  # on_acting: zero-LLM L-a contract gate
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
     ]
@@ -1553,6 +1790,36 @@ async def create_agent_executor(
     # Set the agent reference so the call_subagent closure can extract shared context
     if _agent_ref is not None:
         _agent_ref["agent"] = agent
+
+    # Carry the frozen bundle on the agent so the post-response evidence
+    # assembler can record what this run actually used without re-resolving it
+    # (by then the versions may already have moved).
+    if asset_bundle is not None:
+        try:
+            setattr(agent, "_jx_asset_bundle", asset_bundle)
+        except Exception:  # pragma: no cover - agent may reject attributes
+            pass
+    if skill_selection is not None:
+        try:
+            setattr(agent, "_jx_skill_selection", skill_selection)
+        except Exception:  # pragma: no cover
+            pass
+    # Which assembly governed this run, for the turn card. Carried rather than
+    # re-resolved after the response: by then a profile may have been published
+    # or switched off, and the card would name one the run never used.
+    try:
+        setattr(
+            agent,
+            "_jx_profile",
+            {
+                "profile_id": profile.profile_id,
+                "version": profile.version,
+                "task_types": list(profile.task_types),
+                "narrowed_tools": profile.tool_allowlist is not None,
+            },
+        )
+    except Exception:  # pragma: no cover
+        pass
 
     _log.info("[factory] +%s agent created, TOTAL setup done", _elapsed())
 

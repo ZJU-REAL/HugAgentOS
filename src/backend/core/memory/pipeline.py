@@ -98,19 +98,51 @@ def schedule_post_response_tasks(
     4. `user_message / assistant_message / user_id` are non-empty
     """
     if not settings.memory.layered_enabled:
+        _report_settlement(ctx)
         return
     if not settings.memory.enabled:
+        _report_settlement(ctx)
         return
     if not ctx.write_enabled:
         logger.debug("[memory_pipeline] skip: user write_enabled=False (user=%s)", ctx.user_id)
+        _report_settlement(ctx)
         return
     if not (user_message and assistant_message and ctx.user_id):
+        _report_settlement(ctx)
         return
 
     try:
         asyncio.create_task(_run_post_response_safe(ctx, user_message, assistant_message))
     except RuntimeError:
         logger.warning("[memory_pipeline] no running loop, skipping post-response task")
+        _report_settlement(ctx)
+
+
+def _report_settlement(
+    ctx: MemoryContext,
+    items: Optional[list] = None,
+    *,
+    failed: bool = False,
+) -> None:
+    """Report the memories this turn actually wrote to its evolution settlement.
+
+    Called on **every** exit path, including the gates that write nothing: the
+    turn's card is held open until this arrives, and a silent skip would leave
+    it waiting on the watchdog. An empty list is a perfectly good answer — it
+    settles the turn to "nothing happened", which draws no card at all.
+
+    Items, not counts: the card lists each memory and offers to edit or delete
+    it, which is only possible for entries it can address.
+    """
+    message_id = getattr(ctx, "message_id", None)
+    if not message_id:
+        return
+    try:
+        from core.evolution.settlement_runner import report_memory_writes
+
+        report_memory_writes(message_id, items=list(items or []), failed=failed)
+    except Exception as exc:  # noqa: BLE001 - settlement must never break writes
+        logger.debug("[memory_pipeline] settlement report skipped: %s", exc)
 
 
 async def _run_post_response_safe(
@@ -123,22 +155,26 @@ async def _run_post_response_safe(
         sem = get_background_semaphore()
     except Exception as exc:
         logger.warning("[memory_pipeline] semaphore unavailable: %s", exc)
+        _report_settlement(ctx)
         return
 
     async with sem:
         try:
-            await _run_pipeline(ctx, user_message, assistant_message)
+            written = await _run_pipeline(ctx, user_message, assistant_message)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("[memory_pipeline] post-response task failed")
+            _report_settlement(ctx, failed=True)
+        else:
+            _report_settlement(ctx, written)
 
 
 async def _run_pipeline(
     ctx: MemoryContext,
     user_message: str,
     assistant_message: str,
-) -> None:
+) -> list:
     """The actual pipeline: classify → extract → sanitize → write to the matching layer → audit.
 
     Extractors live in `core.memory.extractors.router`; the import is placed here
@@ -149,7 +185,7 @@ async def _run_pipeline(
     classes = classify_conversation(user_message, assistant_message)
     if not classes:
         logger.debug("[memory_pipeline] empty class set, skipping")
-        return
+        return []
 
     logger.info(
         "[memory_pipeline] user=%s workspace=%s classes=%s",
@@ -167,4 +203,4 @@ async def _run_pipeline(
     # results has the shape { ExtractorType: list[dict] | dict };
     # the actual persistence logic is handled by each layer writer
     from core.memory.extractors.writers import write_layered
-    await write_layered(results, ctx)
+    return await write_layered(results, ctx)

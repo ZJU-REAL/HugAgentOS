@@ -34,6 +34,7 @@ import {
   listModelProviders,
   listModelRoles,
   testMyServiceConfig,
+  updateEvolutionPrefs,
   updateMemorySettings,
   updateMemoryWriteSettings,
   updateMyServiceConfigs,
@@ -169,9 +170,23 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   const [memoryWriteEnabled, setMemoryWriteEnabled] = useState(false);
   const [memoryAvailable, setMemoryAvailable] = useState(false);
   const [embeddingAvailable, setEmbeddingAvailable] = useState(false);
+  // Pre-checked on purpose: on an instance that has the embedding model and
+  // memory growth in place, evolution is the intended experience. The gate
+  // below still decides whether that choice can take effect, so this is a
+  // recommendation rather than a decision made on the user's behalf.
+  const [evolutionEnabled, setEvolutionEnabled] = useState(true);
   const [ontologyEnabled, setOntologyEnabled] = useState(false);
   const [ontologyAvailable, setOntologyAvailable] = useState(false);
   const [activeOntologyCount, setActiveOntologyCount] = useState(0);
+
+  // Evolution cannot do its job without the embedding model (intent clustering
+  // and the memory scan both fall back to something measurably blind) and it
+  // has nothing to grow from unless conversations are allowed to settle into
+  // memory. Rather than let it run and quietly find nothing, the switch is
+  // unavailable until both hold.
+  const memoryReady = memoryAvailable && embeddingAvailable && memoryEnabled;
+  const evolutionAvailable = memoryReady && memoryWriteEnabled;
+  const evolutionActive = evolutionAvailable && evolutionEnabled;
 
   const persistStep = useCallback((next: number) => {
     setSubmitError('');
@@ -449,10 +464,11 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         await saveServiceGroup(parserGroup);
       } else if (step === 4) {
         await Promise.all([
-          updateMemorySettings(memoryAvailable && embeddingAvailable && memoryEnabled),
-          updateMemoryWriteSettings(
-            memoryAvailable && embeddingAvailable && memoryEnabled && memoryWriteEnabled,
-          ),
+          updateMemorySettings(memoryReady),
+          updateMemoryWriteSettings(memoryReady && memoryWriteEnabled),
+          // Written on every pass, including when it resolves to false, so the
+          // wizard is what decides this rather than the stored default.
+          updateEvolutionPrefs({ enabled: evolutionActive }),
           updateOntologySettings(ontologyAvailable && ontologyEnabled),
         ]);
       } else {
@@ -881,11 +897,29 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
               {t('开启记忆前请先配置并分配 embedding 模型')}
             </Tag>
           )}
-          {memoryAvailable && embeddingAvailable && memoryEnabled && (
+          {memoryReady && (
             <label className="jx-firstRun-subSwitch">
               <span>{t('允许对话自动沉淀新记忆')}</span>
               <Switch size="small" checked={memoryWriteEnabled} onChange={setMemoryWriteEnabled} />
             </label>
+          )}
+          {memoryReady && (
+            <>
+              <label className="jx-firstRun-subSwitch">
+                <span>{t('启动进化')}</span>
+                <Switch
+                  size="small"
+                  checked={evolutionActive}
+                  disabled={!evolutionAvailable}
+                  onChange={setEvolutionEnabled}
+                />
+              </label>
+              {!evolutionAvailable && (
+                <Tag color="warning">
+                  {t('开启进化前请先允许对话自动沉淀新记忆')}
+                </Tag>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -919,7 +953,8 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         <div><span>{t('主模型')}</span><strong>{currentMainProvider?.model_name || modelDraft.modelName || t('已配置')}</strong></div>
         <div><span>{t('索引模型')}</span><strong>{selectedAuxProviderIds.embedding ? t('已配置') : t('未配置')}</strong></div>
         <div><span>{t('重排模型')}</span><strong>{selectedAuxProviderIds.reranker ? t('已配置') : t('未配置')}</strong></div>
-        <div><span>{t('永久记忆')}</span><strong>{memoryAvailable && embeddingAvailable && memoryEnabled ? t('开启') : t('关闭')}</strong></div>
+        <div><span>{t('永久记忆')}</span><strong>{memoryReady ? t('开启') : t('关闭')}</strong></div>
+        <div><span>{t('启动进化')}</span><strong>{evolutionActive ? t('开启') : t('关闭')}</strong></div>
         <div><span>{t('本体核验')}</span><strong>{ontologyAvailable && ontologyEnabled ? t('开启') : t('关闭')}</strong></div>
       </div>
     </div>
@@ -938,7 +973,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     ['连接你的 AI 模型', '主对话模型为必填项；索引模型和重排模型可按需配置。'],
     ['让智能体访问实时信息', '配置搜索服务后，天气、新闻和公开资料查询会更加完整。'],
     ['决定如何读取复杂文档', '外部解析服务适合 PDF、扫描件和包含公式的文档。'],
-    ['选择需要的智能增强', '你可以控制是否跨对话记忆，以及是否执行领域本体核验。'],
+    ['选择需要的智能增强', '你可以控制是否跨对话记忆、是否让系统从你的用法中自我进化，以及是否执行领域本体核验。'],
     ['一切就绪', '完成初始化后，你将进入 HugAgentOS 工作台。'],
   ];
 

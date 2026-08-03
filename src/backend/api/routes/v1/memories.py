@@ -1,13 +1,21 @@
 """Memory management API
 
-GET    /v1/memories           list L2 Fact memories (vector retrieval layer)
-GET    /v1/memories/profile   view the L1 Profile user profile (bounded markdown)
-GET    /v1/memories/audit     view audit records (read/write/delete traces)
-GET    /v1/memories/graph     view the L3 Graph (Neo4j entity relations)
-GET    /v1/memories/settings  get the user's memory settings
-PATCH  /v1/memories/settings  update the user's memory settings (switches)
-DELETE /v1/memories           clear all L2 memories
-DELETE /v1/memories/{id}      delete a single L2 memory
+GET    /v1/memories                 list L2 procedural memories (vector retrieval layer)
+GET    /v1/memories/profile         view the L1 Profile user profile (bounded markdown)
+GET    /v1/memories/audit           view audit records (read/write/delete traces)
+GET    /v1/memories/graph           view the L3 Graph (Neo4j entity relations)
+GET    /v1/memories/settings        get the user's memory settings
+PATCH  /v1/memories/settings        update the user's memory settings (switches)
+PATCH  /v1/memories/profile/field   edit one L1 profile field
+DELETE /v1/memories/profile/field   delete one L1 profile field
+DELETE /v1/memories                 clear all L2 memories
+PATCH  /v1/memories/{id}            edit a single L2 memory
+DELETE /v1/memories/{id}            delete a single L2 memory
+
+The single-entry edit/delete routes exist because the turn card shows the user
+every memory it just wrote and offers to fix or remove it. A memory system the
+user cannot correct in the moment they see the mistake is one they stop
+trusting, and the only alternative — wiping the layer — is not a correction.
 """
 
 from typing import Optional
@@ -16,12 +24,20 @@ from core.auth.backend import UserContext, get_current_user
 from core.config.settings import settings as _jx_settings
 from core.db.engine import get_db
 from core.infra.responses import error_response, success_response
+from core.memory.context import MemoryContext
+from core.memory.profile import delete_field as profile_delete_field
 from core.memory.profile import get as profile_get
-from core.memory.service import delete_all_memories, delete_memory, get_all_memories
+from core.memory.profile import upsert_field as profile_upsert_field
+from core.memory.service import (
+    delete_all_memories,
+    delete_memory,
+    get_all_memories,
+    update_memory,
+)
 from core.services import UserService
 from core.services.memory_settings_service import MemorySettingsService
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/v1/memories", tags=["memories"])
@@ -31,6 +47,20 @@ class MemorySettingsRequest(BaseModel):
     memory_enabled: bool | None = None
     memory_write_enabled: bool | None = None
     reranker_enabled: bool | None = None
+
+
+class MemoryEditRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="记忆正文")
+    # When present, the turn card that reported this memory is updated too, so
+    # the transcript never shows a version of the memory that no longer exists.
+    message_id: Optional[str] = Field(None, description="上报该记忆的消息 id")
+
+
+class ProfileFieldRequest(BaseModel):
+    key: str = Field(..., min_length=1, description="档案字段键，如 identity.dept")
+    text: str = Field(..., min_length=1, description="字段取值")
+    workspace_id: str = "default"
+    message_id: Optional[str] = None
 
 
 # ── Register fixed paths first so they aren't mis-matched by /{memory_id} ──
@@ -109,7 +139,7 @@ async def update_memory_settings(
 # ── List / clear / delete single ────────────────────────────────
 
 
-@router.get("", summary="查询事实记忆列表")
+@router.get("", summary="查询长期记忆列表")
 async def list_memories(
     project_id: Optional[str] = Query(
         None, description="若指定，只返回属于该项目 workspace 的记忆"
@@ -117,10 +147,11 @@ async def list_memories(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """L2 Fact 事实记忆列表（mem0/Milvus 向量）。
+    """L2 长期记忆列表（mem0/Milvus 向量）——只存"做法/口径"，不存事实。
 
     返回的 item 会把 mem0 原始 metadata 拍平到顶层（layer / source / tags /
-    confidentiality / ttl_days / evidence）方便前端分层展示；未知字段保持原样透传。
+    confidentiality / ttl_days / evidence / why / applies_to / memory_type）方便
+    前端分层展示；未知字段保持原样透传。
 
     ``project_id`` 给定时按 ``metadata.workspace_id == f"project:{project_id}"``
     过滤；不给则按 ``workspace_id="default"`` 过滤（避免把项目记忆混进默认空间）。
@@ -183,6 +214,12 @@ def _flatten_fact_metadata(item: dict) -> dict:
         "confidentiality": meta.get("confidentiality"),
         "ttl_days": meta.get("ttl_days"),
         "evidence": meta.get("evidence"),
+        # A procedure's reason and the task family it holds for. Surfaced because
+        # a rule without its reason can only be obeyed everywhere or nowhere.
+        "memory_type": meta.get("memory_type") or "",
+        "why": meta.get("why") or "",
+        "applies_to": meta.get("applies_to") or "",
+        "strength": meta.get("strength") or "",
         "author_user_id": meta.get("author_user_id") or meta.get("user_id"),
     }
 
@@ -196,12 +233,89 @@ async def remove_all_memories(user: UserContext = Depends(get_current_user)):
     return success_response(data={"message": "已清空所有记忆"})
 
 
+# ── L1 profile: one field at a time ───────────────────────────────────────
+
+
+@router.patch("/profile/field", summary="修改单条档案记忆")
+async def edit_profile_field(
+    body: ProfileFieldRequest,
+    user: UserContext = Depends(get_current_user),
+):
+    """改写 L1 档案里的一个字段（如 `identity.dept`）。"""
+    ctx = MemoryContext(
+        user_id=str(user.user_id),
+        workspace_id=body.workspace_id,
+        write_enabled=True,
+        actor=str(user.user_id),
+    )
+    applied = await profile_upsert_field(ctx, body.key, body.text, reason="user_edit")
+    if not applied:
+        return error_response(code=50003, message="修改失败", status_code=500)
+    if body.message_id:
+        from core.evolution.settlement_store import update_entry_text
+
+        update_entry_text(body.message_id, body.key, body.text)
+    return success_response(data={"key": body.key, "text": body.text})
+
+
+@router.delete("/profile/field", summary="删除单条档案记忆")
+async def remove_profile_field(
+    key: str = Query(..., description="档案字段键"),
+    workspace_id: str = Query("default"),
+    message_id: Optional[str] = Query(None),
+    user: UserContext = Depends(get_current_user),
+):
+    """删除 L1 档案里的一个字段。"""
+    ctx = MemoryContext(
+        user_id=str(user.user_id),
+        workspace_id=workspace_id,
+        write_enabled=True,
+        actor=str(user.user_id),
+    )
+    ok = await profile_delete_field(ctx, key)
+    if not ok:
+        return error_response(code=50001, message="删除失败", status_code=500)
+    if message_id:
+        from core.evolution.settlement_store import drop_entry
+
+        drop_entry(message_id, key)
+    return success_response(data={"deleted": key})
+
+
+# ── L2 procedures: one entry at a time ────────────────────────────────────
+
+
+@router.patch("/{memory_id}", summary="修改单条记忆")
+async def edit_memory(
+    memory_id: str,
+    body: MemoryEditRequest,
+    user: UserContext = Depends(get_current_user),
+):
+    """改写单条 L2 记忆的正文，保留其 id 与元数据。"""
+    ok = await update_memory(memory_id, body.text)
+    if not ok:
+        return error_response(code=50003, message="修改失败", status_code=500)
+    if body.message_id:
+        from core.evolution.settlement_store import update_entry_text
+
+        update_entry_text(body.message_id, memory_id, body.text)
+    return success_response(data={"id": memory_id, "text": body.text})
+
+
 @router.delete("/{memory_id}", summary="删除单条记忆")
-async def remove_memory(memory_id: str, user: UserContext = Depends(get_current_user)):
+async def remove_memory(
+    memory_id: str,
+    message_id: Optional[str] = Query(None, description="上报该记忆的消息 id"),
+    user: UserContext = Depends(get_current_user),
+):
     """删除单条记忆。"""
     ok = await delete_memory(memory_id)
     if not ok:
         return error_response(code=50001, message="删除失败", status_code=500)
+    if message_id:
+        from core.evolution.settlement_store import drop_entry
+
+        drop_entry(message_id, memory_id)
     return success_response(data={"deleted": memory_id})
 
 

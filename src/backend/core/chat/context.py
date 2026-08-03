@@ -141,12 +141,19 @@ def build_runtime_context(
     memory_enabled: bool = False,
     memory_write_enabled: bool = False,
     reranker_enabled: bool = False,
+    # Evidence-plane keys (GCE ticket 04). The assistant message id is the join
+    # key every existing log table already carries, so threading it through here
+    # is what lets a run's scattered logs be assembled into one Episode.
+    run_id: Optional[str] = None,
+    message_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build the runtime context dict consumed by workflow.py."""
     return {
         "model_name": model_name,
         "user_id": user_id,
         "chat_id": chat_id,
+        "run_id": run_id,
+        "message_id": message_id,
         "enable_thinking": enable_thinking,
         "uploaded_files": uploaded_files or [],
         "enabled_skills": enabled_skills,

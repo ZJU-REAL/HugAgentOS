@@ -4,7 +4,7 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, KBChunk, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, EvolutionSummary, KBChunk, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
@@ -1084,8 +1084,40 @@ export async function getMemories(
   return unwrapData<{ enabled: boolean; items: MemoryItem[]; count: number }>(wrapped);
 }
 
-export async function deleteMemory(memoryId: string): Promise<void> {
-  await apiRequest(`/v1/memories/${memoryId}`, { method: 'DELETE' });
+export async function deleteMemory(memoryId: string, messageId?: string): Promise<void> {
+  // `messageId` lets the backend drop the entry from the turn card that reported
+  // it, so the transcript never keeps offering actions on a deleted memory.
+  const qs = messageId ? `?message_id=${encodeURIComponent(messageId)}` : '';
+  await apiRequest(`/v1/memories/${memoryId}${qs}`, { method: 'DELETE' });
+}
+
+export async function updateMemory(
+  memoryId: string,
+  text: string,
+  messageId?: string,
+): Promise<void> {
+  await apiRequest(`/v1/memories/${memoryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ text, message_id: messageId }),
+  });
+}
+
+/** L1 profile entries are addressed by field key rather than by a store id. */
+export async function updateProfileField(
+  key: string,
+  text: string,
+  messageId?: string,
+): Promise<void> {
+  await apiRequest('/v1/memories/profile/field', {
+    method: 'PATCH',
+    body: JSON.stringify({ key, text, message_id: messageId }),
+  });
+}
+
+export async function deleteProfileField(key: string, messageId?: string): Promise<void> {
+  const params = new URLSearchParams({ key });
+  if (messageId) params.set('message_id', messageId);
+  await apiRequest(`/v1/memories/profile/field?${params.toString()}`, { method: 'DELETE' });
 }
 
 export async function clearAllMemories(): Promise<void> {
@@ -2252,6 +2284,9 @@ export const api = {
   healthCheck,
   getMemories,
   deleteMemory,
+  updateMemory,
+  updateProfileField,
+  deleteProfileField,
   clearAllMemories,
   getMemorySettings,
   updateMemorySettings,
@@ -3873,4 +3908,135 @@ export async function getMyUsageSummary(
   } catch {
     return cloud;
   }
+}
+
+// ── Evolution: per-turn settlement (GCE ticket 06) ───────────────────────────
+//
+// The SSE push is the fast path for a live client; this is the durable one —
+// used after a reload, or when the connection dropped before settlement
+// finished. A turn still settling legitimately reports `pending`.
+export async function getTurnSettlement(messageId: string): Promise<EvolutionSummary> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/evolution/turns/${encodeURIComponent(messageId)}`,
+  );
+  return unwrapData<EvolutionSummary>(wrapped);
+}
+
+// ── Evolution: per-user contribution setting (settings panel) ────────────────
+//
+// Named "contribution", not "evolution on/off": one user cannot stop the system
+// distilling a skill from everyone else's traces. What they control is whether
+// their own conversations become evidence.
+export interface EvolutionContributionSetting {
+  evolution_contribution_enabled: boolean;
+  privacy_class: 'tenant' | 'private';
+  note?: string;
+}
+
+export interface EvolutionContributionItem {
+  candidate_id: string;
+  target_kind: 'memory' | 'skill' | 'workflow' | 'ontology' | 'prompt';
+  summary: string;
+  status: string;
+  risk_tier: string;
+  your_episodes: number;
+  total_evidence: number;
+  created_at?: string | null;
+}
+
+export interface EvolutionContributions {
+  episodes: number;
+  contributed_episodes: number;
+  private_episodes: number;
+  memory_written: number;
+  candidates: EvolutionContributionItem[];
+}
+
+export async function getEvolutionSettings(): Promise<EvolutionContributionSetting> {
+  return unwrapData<EvolutionContributionSetting>(await apiRequest<unknown>('/v1/evolution/settings'));
+}
+
+export async function updateEvolutionSettings(enabled: boolean): Promise<EvolutionContributionSetting> {
+  return unwrapData<EvolutionContributionSetting>(
+    await apiRequest<unknown>('/v1/evolution/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+  );
+}
+
+export async function getEvolutionContributions(): Promise<EvolutionContributions> {
+  return unwrapData<EvolutionContributions>(await apiRequest<unknown>('/v1/evolution/contributions'));
+}
+
+// ── Evolution: personal candidate approval (settings console) ────────────────
+export interface MyEvolutionCandidate {
+  candidate_id: string;
+  target_kind: string;
+  summary: string;
+  status: string;
+  risk_tier: string;
+  your_episodes: number;
+  total_evidence: number;
+  own_share: number;
+  tool_sequence: string[];
+  created_at?: string | null;
+}
+
+export async function getMyEvolutionCandidates(): Promise<{
+  candidates: MyEvolutionCandidate[];
+  own_evidence_threshold: number;
+}> {
+  return unwrapData(await apiRequest<unknown>('/v1/evolution/my-candidates'));
+}
+
+export async function approveMyEvolutionCandidate(candidateId: string): Promise<{
+  skill_id: string;
+  scope: string;
+  tools: string[];
+}> {
+  return unwrapData(
+    await apiRequest<unknown>(
+      `/v1/evolution/my-candidates/${encodeURIComponent(candidateId)}/approve`,
+      { method: 'POST' },
+    ),
+  );
+}
+
+// ── Evolution: per-user preferences ─────────────────────────────────────────
+export interface EvolutionPrefs {
+  enabled: boolean;
+  /** `none` is a first-class choice, not a degraded state. */
+  ontology_mode: 'none' | 'any' | 'specific';
+  ontology_pack_id: string;
+  mechanisms: string[];
+  min_support: number;
+  auto_approve_low_risk: boolean;
+}
+
+export interface OntologyPackOption {
+  pack_id: string;
+  name: string;
+  active: boolean;
+}
+
+export async function getEvolutionPrefs(): Promise<{
+  prefs: EvolutionPrefs;
+  ontology_packs: OntologyPackOption[];
+  ontology_modes: string[];
+}> {
+  return unwrapData(await apiRequest<unknown>('/v1/evolution/prefs'));
+}
+
+export async function updateEvolutionPrefs(
+  patch: Partial<EvolutionPrefs>,
+): Promise<EvolutionPrefs> {
+  return unwrapData(
+    await apiRequest<unknown>('/v1/evolution/prefs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  );
 }

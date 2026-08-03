@@ -1,0 +1,377 @@
+/* Turn card: the memories a turn wrote, each editable in place.
+   Colour comes from variables.css so both themes work without a second sheet. */
+
+.jx-evolutionCard {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--jx-border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--jx-surface-2, #fafafa);
+}
+
+.jx-evolutionCard.is-failed { border-color: var(--jx-danger-border, #fecaca); }
+
+.jx-evolutionCard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.jx-evolutionCard-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--jx-text, #111827);
+}
+
+.jx-evolutionCard-gain {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--jx-primary, #2563eb);
+}
+
+.jx-evolutionCard-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jx-evolutionCard-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--jx-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--jx-surface, #fff);
+}
+
+.jx-evolutionCard-entry.is-busy { opacity: .6; pointer-events: none; }
+
+/* Which layer the memory landed in. L1 is who the user is, L2 is how work is
+   done here — different enough that collapsing them would hide what changed. */
+.jx-evolutionCard-layer {
+  flex: none;
+  margin-top: 1px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.jx-evolutionCard-layer.is-l1 { background: rgba(37, 99, 235, .10); color: #1d4ed8; }
+.jx-evolutionCard-layer.is-l2 { background: rgba(16, 185, 129, .12); color: #047857; }
+
+.jx-evolutionCard-entryBody { flex: 1 1 auto; min-width: 0; }
+
+.jx-evolutionCard-entryText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--jx-text, #111827);
+  overflow-wrap: anywhere;
+}
+
+.jx-evolutionCard-entryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--jx-text-secondary, #6b7280);
+}
+
+.jx-evolutionCard-entryError {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--jx-danger, #b91c1c);
+}
+
+.jx-evolutionCard-editor {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--jx-primary, #2563eb);
+  border-radius: 8px;
+  background: var(--jx-surface, #fff);
+  color: var(--jx-text, #111827);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.jx-evolutionCard-entryActions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jx-evolutionCard-entryActions button {
+  border: 0;
+  background: none;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--jx-text-secondary, #6b7280);
+  cursor: pointer;
+}
+.jx-evolutionCard-entryActions button:hover:not(:disabled) {
+  background: var(--jx-surface-2, #f3f4f6);
+  color: var(--jx-primary, #2563eb);
+}
+.jx-evolutionCard-entryActions button:disabled { cursor: default; opacity: .5; }
+
+.jx-evolutionCard-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--jx-danger, #b91c1c);
+}
+.jx-evolutionCard-error small { color: var(--jx-text-secondary, #6b7280); }
+
+/* ── Settings: contribution details card ─────────────────────────────────── */
+
+.jx-evoContrib-loading { display: grid; place-items: center; padding: 40px 0; }
+.jx-evoContrib-error { color: var(--jx-danger, #b91c1c); font-size: 13px; padding: 16px 0; }
+
+.jx-evoContrib-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.jx-evoContrib-stat {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--jx-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--jx-surface-2, #fafafa);
+}
+.jx-evoContrib-stat strong { font-size: 20px; font-weight: 700; line-height: 1.2; }
+.jx-evoContrib-stat span { font-size: 11px; color: var(--jx-text-secondary, #6b7280); }
+
+.jx-evoContrib-list { display: flex; flex-direction: column; gap: 10px; }
+
+.jx-evoContrib-row {
+  padding: 12px 14px;
+  border: 1px solid var(--jx-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--jx-surface, #fff);
+}
+.jx-evoContrib-rowHead { display: flex; align-items: center; gap: 8px; }
+.jx-evoContrib-rowIcon { color: var(--jx-primary, #2563eb); }
+.jx-evoContrib-rowKind { font-size: 13px; font-weight: 600; margin-right: auto; }
+.jx-evoContrib-rowSummary {
+  margin: 8px 0 0; font-size: 12px;
+  color: var(--jx-text-secondary, #6b7280);
+  overflow-wrap: anywhere;
+}
+
+/* The provenance chain reads left→right so the causal story is visible at a
+   glance: specific conversations produced this capability. */
+.jx-evoContrib-chain {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--jx-border, #e5e7eb);
+  font-size: 11.5px;
+}
+.jx-evoContrib-chainNode {
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--jx-surface-2, #f3f4f6);
+  color: var(--jx-text-secondary, #6b7280);
+}
+.jx-evoContrib-chainNode.is-terminal {
+  background: rgba(37, 99, 235, .10); color: #1d4ed8; font-weight: 600;
+}
+.jx-evoContrib-chainArrow { color: var(--jx-primary, #2563eb); }
+
+.jx-evoContrib-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 32px 20px; text-align: center;
+  border: 1px dashed var(--jx-border, #e5e7eb); border-radius: 12px;
+}
+.jx-evoContrib-empty strong { font-size: 13px; }
+.jx-evoContrib-empty span { font-size: 12px; color: var(--jx-text-secondary, #6b7280); max-width: 380px; }
+
+.jx-evoContrib-note {
+  margin: 16px 0 0; font-size: 11.5px;
+  color: var(--jx-text-secondary, #9ca3af); line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .jx-evoContrib-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Settings: personal approval list ────────────────────────────────────── */
+
+.jx-evoApproval { display: flex; flex-direction: column; gap: 10px; }
+
+.jx-evoApproval-item {
+  padding: 12px 14px;
+  border: 1px solid var(--jx-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--jx-surface, #fff);
+}
+.jx-evoApproval-head { display: flex; align-items: center; gap: 8px; }
+.jx-evoApproval-title { font-size: 13px; font-weight: 600; margin-right: auto; overflow-wrap: anywhere; }
+
+.jx-evoApproval-steps {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  margin-top: 8px; font-size: 11.5px;
+}
+.jx-evoApproval-step { display: inline-flex; align-items: center; gap: 4px; }
+.jx-evoApproval-step code {
+  padding: 1px 6px; border-radius: 5px;
+  background: var(--jx-surface-2, #f3f4f6);
+  font-size: 11px;
+}
+.jx-evoApproval-arrow { color: var(--jx-primary, #2563eb); }
+
+.jx-evoApproval-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--jx-border, #e5e7eb);
+  font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+}
+
+.jx-evoApproval-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 26px 18px; text-align: center;
+}
+.jx-evoApproval-empty strong { font-size: 13px; }
+.jx-evoApproval-empty span { font-size: 12px; color: var(--jx-text-secondary, #6b7280); max-width: 400px; }
+
+.jx-evoApproval-note {
+  margin: 12px 0 0; font-size: 11.5px;
+  color: var(--jx-text-secondary, #9ca3af);
+}
+
+/* ── Settings: fine-grained prefs ────────────────────────────────────────── */
+
+.jx-evoPrefs { display: flex; flex-direction: column; gap: 16px; }
+.jx-evoPrefs-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.jx-evoPrefs-label { display: flex; flex-direction: column; gap: 2px; min-width: 190px; flex: 1; }
+.jx-evoPrefs-label > span { font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.jx-evoPrefs-label small { font-size: 11.5px; color: var(--jx-text-secondary, #6b7280); }
+.jx-evoPrefs-hint { color: var(--jx-text-secondary, #9ca3af); font-size: 12px; }
+
+.jx-evoPrefs-mechs { display: flex; flex-direction: column; gap: 8px; min-width: 260px; }
+.jx-evoPrefs-mech {
+  display: grid; grid-template-columns: auto auto 1fr; align-items: center;
+  gap: 8px; cursor: pointer;
+}
+.jx-evoPrefs-mechName { font-size: 12.5px; font-weight: 600; }
+.jx-evoPrefs-mech small { font-size: 11px; color: var(--jx-text-secondary, #9ca3af); }
+
+.jx-evoPrefs-ontology { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.jx-evoPrefs-packSelect { min-width: 200px; }
+
+@media (max-width: 640px) {
+  .jx-evoPrefs-row { flex-direction: column; }
+  .jx-evoPrefs-ontology { align-items: flex-start; width: 100%; }
+}
+
+/* ── /config admin console ──────────────────────────────────────────────── */
+
+.jx-evoConsole { display: flex; flex-direction: column; gap: 16px; }
+.jx-evoConsole-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+}
+.jx-evoConsole-trigger { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.jx-evoConsole-trigger code { font-size: 11px; }
+.jx-evoConsole-actions { display: flex; gap: 8px; }
+
+.jx-evoConsole-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.jx-evoConsole-stat {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 14px; border: 1px solid var(--jx-border, #e5e7eb);
+  border-radius: 10px; background: var(--jx-surface-2, #fafafa);
+}
+.jx-evoConsole-stat strong { font-size: 22px; font-weight: 700; line-height: 1.2; }
+.jx-evoConsole-stat span { font-size: 11.5px; color: var(--jx-text-secondary, #6b7280); }
+
+.jx-evoConsole-funnel { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.jx-evoConsole-funnelItem { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.jx-evoConsole-muted { color: var(--jx-text-secondary, #9ca3af); font-size: 12px; }
+
+.jx-evoConsole-note {
+  margin: 4px 0 0; font-size: 11.5px;
+  color: var(--jx-text-secondary, #9ca3af); line-height: 1.6;
+}
+
+/* Capability health + orchestration: the "subtraction" side of the console. */
+.jx-evoConsole-health { display: flex; flex-direction: column; gap: 20px; }
+.jx-evoConsole-healthBlock { display: flex; flex-direction: column; gap: 8px; }
+.jx-evoConsole-healthBlock h4 {
+  margin: 0; font-size: 13px; font-weight: 600;
+  display: flex; flex-direction: column; gap: 3px;
+}
+/* The hint carries why the bucket exists and what the right response is —
+   "never opened" and "opened and ignored" need opposite fixes, and a table of
+   asset ids alone cannot say so. */
+.jx-evoConsole-healthHint {
+  font-size: 11.5px; font-weight: 400; line-height: 1.6;
+  color: var(--jx-text-secondary, #9ca3af);
+}
+
+@media (max-width: 900px) {
+  .jx-evoConsole-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Readiness block: evolution cannot run at all, stated before anything else on
+   the page — a console showing an empty funnel with no explanation is how
+   "misconfigured" gets mistaken for "nothing to learn". */
+.jx-evoConsole-blocked {
+  border: 1px solid var(--jx-danger, #dc2626); border-left-width: 3px;
+  border-radius: 8px; padding: 14px 18px;
+  background: var(--jx-danger-bg, #fef2f2);
+}
+.jx-evoConsole-blocked strong { font-size: 14px; }
+.jx-evoConsole-blocked p { margin: 6px 0 8px; font-size: 12.5px; line-height: 1.65; }
+.jx-evoConsole-blocked ul { margin: 0; padding-left: 20px; font-size: 12.5px; }
+.jx-evoConsole-blocked li { margin: 6px 0; line-height: 1.6; }
+
+/* Retroactive contribution: what this turn's evidence became, once the nightly
+   cycle actually used it. Visually quieter than the mechanism cells because it
+   arrives hours later — it is a footnote to the turn, not its headline. */
+.jx-evolutionCard-contrib {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--jx-border, #e5e7eb);
+}
+.jx-evolutionCard-contribHead {
+  font-size: 11.5px; font-weight: 600; color: var(--jx-text-secondary, #6b7280);
+}
+.jx-evolutionCard-contrib ul { margin: 6px 0 0; padding-left: 18px; }
+.jx-evolutionCard-contrib li {
+  font-size: 11.5px; line-height: 1.7; color: var(--jx-text-secondary, #6b7280);
+}
+.jx-evolutionCard-contrib em {
+  font-style: normal; margin-left: 6px; opacity: .75;
+}
+
+/* The console lays Card blocks on the grey page, like its sibling panels
+   (system health, sandbox management). Before this the tabs and tables sat
+   directly on the page background with nothing between them and the frame,
+   which read as cramped and made the panel look unfinished next to the others. */
+.jx-evoConsole-funnelCard .ant-card-body { padding: 12px 18px; }
+.jx-evoConsole-tabsCard .ant-card-body { padding: 4px 20px 18px; }
+/* Tab strip needs room to breathe from the card edge, and the panel body needs
+   room from the tab strip — antd's defaults assume a full-bleed container. */
+.jx-evoConsole-tabsCard .ant-tabs-nav { margin-bottom: 18px; }
+.jx-evoConsole-tabsCard .ant-tabs-tabpane { padding-bottom: 4px; }
+.jx-evoConsole-tabsCard .jx-evoConsole-note { margin-top: 14px; }

@@ -5,7 +5,7 @@ export const STORES_DICT: Record<string, string> = {
   '写入记忆设置更新失败': 'Failed to update memory write settings',
   '重排序设置更新失败': 'Failed to update reranker settings',
   '本体校验设置更新失败': 'Failed to update ontology validation settings',
-  '加载事实记忆失败': 'Failed to load factual memory',
+  '加载长期记忆失败': 'Failed to load long-term memory',
   '加载档案记忆失败': 'Failed to load profile memory',
   '加载图谱记忆失败': 'Failed to load graph memory',
   '删除记忆失败': 'Failed to delete memory',

@@ -70,6 +70,7 @@ async def lifespan(app: FastAPI):
     await _startup_preload()
     await _startup_automation_scheduler()
     await _startup_distillation_scheduler()
+    await _startup_evolution_scheduler()
     await _startup_recover_persona_distill_jobs()
     await _startup_warmup_memory()
     await _startup_channel_manager()
@@ -994,6 +995,17 @@ async def _startup_channel_manager():
 _automation_scheduler = None
 _distillation_scheduler = None
 _idle_reaper_task = None
+
+
+async def _startup_evolution_scheduler():
+    """Start the nightly evolution-cycle backstop."""
+    try:
+        from orchestration.schedulers.evolution_scheduler import EvolutionCronScheduler
+
+        await EvolutionCronScheduler().start()
+    except Exception as exc:
+        # A scheduler that fails to start must not take the API down with it.
+        logger.warning("evolution_scheduler_start_failed", error=str(exc))
 
 
 async def _startup_distillation_scheduler():

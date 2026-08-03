@@ -99,7 +99,7 @@ async def upsert_field(
     key: str,
     value: str,
     reason: Optional[str] = None,
-) -> bool:
+) -> list[dict]:
     """Idempotently update one field: replace the value if the key exists, otherwise append.
 
     `key` should preferably be namespaced: `identity.name` / `identity.dept` / `preference.verbosity`.
@@ -111,15 +111,21 @@ async def upsert_field(
 async def upsert_fields(
     ctx: MemoryContext,
     fields: list[tuple[str, str, Optional[str]]],
-) -> bool:
+) -> list[dict]:
     """Upsert multiple fields at once (single transaction, single executor dispatch).
 
     Each element of `fields` is `(key, value, reason)`. Every value goes through
     sanitize independently; a field that hits sensitive words is rejected and
     audited on its own, while the other fields are still written.
+
+    Returns the fields that **actually changed**, as
+    ``[{"key", "value", "action"}]`` — a value identical to the stored one is a
+    no-op and is not returned. The turn card lists exactly these, so returning
+    the attempted set instead would show the user memories that were never
+    written.
     """
     if not ctx.user_id or not fields:
-        return False
+        return []
 
     # Sanitize first (synchronous, no DB access)
     prepared: list[dict] = []
@@ -136,7 +142,7 @@ async def upsert_fields(
         prepared.append({"key": key, "value": san.text, "reason": reason, "hits": san.hits})
 
     if not prepared:
-        return False
+        return []
 
     try:
         loop = asyncio.get_running_loop()
@@ -144,7 +150,7 @@ async def upsert_fields(
     except Exception as exc:
         logger.warning("[profile_memory] upsert_fields failed user=%s n=%d: %s",
                        ctx.user_id, len(prepared), exc)
-        return False
+        return []
 
 
 def _schedule_compact(
@@ -175,8 +181,11 @@ def _upsert_fields_sync(
     ctx: MemoryContext,
     prepared: list[dict],
     loop: Optional[asyncio.AbstractEventLoop] = None,
-) -> bool:
-    """Apply all field updates in a single transaction, then write audit rows in batch."""
+) -> list[dict]:
+    """Apply all field updates in a single transaction, then write audit rows in batch.
+
+    Returns the entries that changed; an unchanged value yields nothing.
+    """
     from core.db.engine import SessionLocal
     from core.db.models import ProfileMemory
 
@@ -206,7 +215,7 @@ def _upsert_fields_sync(
             # else: value unchanged → skip (no audit row, no DB churn)
 
         if not applied:
-            return True  # all no-ops
+            return []  # all no-ops
 
         new_md = _serialize_profile(entries)
         if row is None:
@@ -228,7 +237,10 @@ def _upsert_fields_sync(
 
     if over_limit:
         _schedule_compact(ctx, loop)
-    return True
+    return [
+        {"key": item["key"], "value": item["value"], "action": item["action"]}
+        for item in applied
+    ]
 
 
 async def patch(
@@ -411,6 +423,52 @@ async def _run_compact_llm(content: str, max_chars: int) -> str:
 
 
 # ─── Delete (right to be forgotten) ────────────────────────────────────────
+
+
+async def delete_field(ctx: MemoryContext, key: str) -> bool:
+    """Remove one field from the profile.
+
+    The turn card lists every memory it wrote and offers to delete it, and a
+    profile field is one of those memories. Without a per-field delete the only
+    way to undo a wrong identity line would be to erase the whole profile, so
+    the user's realistic choice would be "keep the mistake" — which is how a
+    memory system loses trust.
+    """
+    if not ctx.user_id or not key:
+        return False
+    try:
+        loop = asyncio.get_running_loop()
+        removed = await loop.run_in_executor(None, _delete_field_sync, ctx, key)
+    except Exception as exc:
+        logger.warning("[profile_memory] delete_field failed user=%s key=%s: %s",
+                       ctx.user_id, key, exc)
+        return False
+
+    if removed:
+        await audit_record(ctx, action="forget", layer="L1", reason=f"user removed field {key}")
+    return removed
+
+
+def _delete_field_sync(ctx: MemoryContext, key: str) -> bool:
+    from core.db.engine import SessionLocal
+    from core.db.models import ProfileMemory
+
+    with SessionLocal() as session:
+        row = (
+            session.query(ProfileMemory)
+            .filter_by(user_id=ctx.user_id, workspace_id=ctx.workspace_id)
+            .first()
+        )
+        if row is None:
+            return False
+        entries = _parse_profile(row.content_md or "")
+        kept = [e for e in entries if e.get("key") != key]
+        if len(kept) == len(entries):
+            return False
+        row.content_md = _serialize_profile(kept)
+        row.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        return True
 
 
 async def delete(ctx: MemoryContext) -> bool:
