@@ -1,8 +1,8 @@
 # Memory System (mem0)
 
-> Last updated: 2026-06-11
+> Last updated: 2026-08-03
 
-HugAgentOS ships with a **layered persistent memory system** built on [mem0](https://github.com/mem0ai/mem0). When enabled, the agent remembers a user's identity, preferences, and **how work is done here** (definitions, orderings, red lines) across sessions, and automatically brings that context into new conversations. Memory is organized into three layers by information stability (L1 profile / L2 procedures / L3 knowledge graph) — all three layers are Community Edition capabilities; only **memory auditing** (compliance trail) belongs to the commercial edition (Enterprise Edition, EE).
+HugAgentOS ships with a **layered persistent memory system**. L2 uses [mem0](https://github.com/mem0ai/mem0) with Milvus, while L3 uses a local adapter that connects directly to Neo4j. When enabled, the agent remembers a user's identity, preferences, **how work is done here** (definitions, orderings, red lines), and stable entity relationships across sessions. Memory is organized into three layers by information stability (L1 profile / L2 procedures / L3 knowledge graph) — all three layers are Community Edition capabilities; only **memory auditing** (compliance trail) belongs to the commercial edition (Enterprise Edition, EE).
 
 The whole system honors one core promise: **no memory I/O ever blocks the SSE hot path** — retrieval runs as a background task with a time budget, and writes go through a bounded post-response pipeline after the SSE stream closes (see the module docstring in `src/backend/core/memory/__init__.py`).
 
@@ -12,7 +12,7 @@ The whole system honors one core promise: **no memory I/O ever blocks the SSE ho
 |---|---|---|---|---|
 | L1 | Profile | DB (bounded markdown, 1500-char default cap) | Frozen into context at session start | `core/memory/profile.py` |
 | L2 | Procedures | Milvus vector store (collection `hugagent_memories`) | Top-K similarity retrieval at session start | `core/memory/service.py` (mem0 wrapper) |
-| L3 | Graph | Neo4j (optional, `MEM0_GRAPH_ENABLED=true`) | On-demand retrieval | `core/memory/service.py` (mem0 `enable_graph`) |
+| L3 | Graph | Neo4j (optional, `MEM0_GRAPH_ENABLED=true`) | Entity-aware on-demand retrieval | `core/memory/graph.py` (local Neo4j adapter) |
 | — | Session working set | `chats.metadata.session_memory` | Within a single session | per-session task working set |
 | — | Audit side channel (Enterprise Edition, EE) | DB table `memory_audit` | Side-recorded on every read/write | `core/memory/audit.py` |
 
@@ -30,7 +30,8 @@ api/routes/v1/chats.py
 orchestration/workflow.py
   ├─► launch_memory_retrieval()            ← background task, returns immediately
   │     └─ core/memory/service.retrieve_memories()
-  │          └─ mem0.Memory.search() → Milvus vector search (+ optional Neo4j graph search)
+  │          ├─ mem0.Memory.search() → Milvus vector search
+  │          └─ core/memory/graph.py → optional Neo4j relation search
   │
   ├─► build_frozen_memory_block()          ← assembles the "session-frozen" block
   │     · L1 profile: DB read, <20ms, always awaited
@@ -48,12 +49,12 @@ orchestration/workflow.py
 save_memories_background()
   └─ core/memory/pipeline.schedule_post_response_tasks()
        · global semaphore caps concurrency (default 8)
-       · classification → runs 0–4 extractors (identity/preference/task by keyword; procedural on every substantive turn)
+       · classification → runs 0–5 extractors (identity/preference/task by keyword; procedural on every substantive turn; graph only when L3 is enabled)
        · each extractor has its own 30s timeout
-       · sanitizer gate → write L1/L2/session → audit side channel
+       · sanitizer gate → write L1/L2/L3/session → audit side channel
 ```
 
-The integration layer for retrieval and injection lives in `src/backend/orchestration/memory_integration.py`; mem0 configuration assembly (LLM / embedder / Milvus / Neo4j / reranker) is in `src/backend/core/memory/service.py` — model configs are resolved from the DB roles `memory` / `embedding` first, falling back to environment variables.
+The integration layer for retrieval and injection lives in `src/backend/orchestration/memory_integration.py`. mem0's LLM / embedder / Milvus / reranker configuration is assembled in `src/backend/core/memory/service.py`, while Neo4j graph reads and writes live in `src/backend/core/memory/graph.py`. Model configs are resolved from the DB roles `memory` / `embedding` first, falling back to environment variables.
 
 ## Write pipeline and extractors
 
@@ -64,7 +65,10 @@ Writes happen only when the user has explicitly enabled `memory_write_enabled` (
 - **Milvus circuit breaker**: after N consecutive failures (default 3) the breaker opens for 60 seconds; retrieval and write paths share the same `milvus_breaker`;
 - **Extractor routing** (`core/memory/extractors/router.py`): `identity`, `preference`, and `task` run only on keyword cues; **`procedural` has no keyword gate** and runs on every substantive turn (user ≥ 8 chars, assistant ≥ 30 chars) — a convention is stated in whatever words the user happened to use, so a regex deciding "no procedure here" before the model reads the turn drops them silently and invisibly. An empty classification skips all LLM calls entirely.
 - **L2 stores procedures, not facts**: a fact starts decaying the moment it is written, so remembering it makes the system confidently recall a stale number instead of looking the current one up. What survives repetition — and what a skill can be compiled from — is how work gets done. There is no fact extractor and no fallback path.
+- **L3 stores stable relationships, not procedures**: its extractor accepts user-asserted or user-confirmed affiliation, responsibility, dependency, use, composition, alias, and classification relationships. Volatile measurements, status, news, and one-off instructions never enter the graph. Repeated observations reinforce the same edge by increasing `seen_count` and refreshing `last_seen_at` instead of creating duplicates.
 - **Writes bypass mem0's own inference**: every write passes `infer=False`. By default mem0 re-judges the text with its generic fact-extraction prompt and can silently discard an already-distilled rule, which surfaces as "the write succeeded and stored nothing" — no error in the log, no entry on the card.
+
+> mem0ai 2.x removed graph-store support from the open-source `Memory` class. The project no longer passes an ignored `graph_store` configuration to mem0; `core/memory/graph.py` uses the existing `neo4j` driver for L3 persistence, retrieval, exact-edge reinforcement, and deletion.
 
 ## Sanitizer gate
 
@@ -99,7 +103,8 @@ Route file: `src/backend/api/routes/v1/memories.py` (registered in the CE router
 | PATCH | `/v1/memories/profile/field` | Edit one L1 profile field |
 | DELETE | `/v1/memories/profile/field` | Delete one L1 profile field |
 | GET | `/v1/memories/profile` | L1 profile (full markdown + char cap) |
-| GET | `/v1/memories/graph` | L3 graph (currently returns enabled status; structured relation queries planned) |
+| GET | `/v1/memories/graph` | L3 relation list; supports `?project_id=` scope |
+| DELETE | `/v1/memories/graph/{relation_id}` | Delete one L3 relation |
 | GET | `/v1/memories/audit` | Audit records (Enterprise Edition, EE) |
 | GET | `/v1/memories/settings` | Read user memory / reranker toggles |
 | PATCH | `/v1/memories/settings` | Update toggles (persisted to `users_shadow.metadata`) |
@@ -191,10 +196,11 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | Path | Responsibility |
 |---|---|
 | `src/backend/core/memory/__init__.py` | Layered memory package entry and public API |
-| `src/backend/core/memory/service.py` | mem0 config assembly and async wrappers (Milvus / Neo4j / reranker) |
+| `src/backend/core/memory/service.py` | mem0 config and async wrappers (Milvus / reranker), plus L3 retrieval merge |
+| `src/backend/core/memory/graph.py` | L3 Neo4j relation persistence, reinforcement, retrieval, and deletion |
 | `src/backend/core/memory/profile.py` | L1 profile: get / patch / compact / delete |
 | `src/backend/core/memory/pipeline.py` | Post-response write pipeline, semaphore, Milvus circuit breaker |
-| `src/backend/core/memory/extractors/` | identity / preference / task / procedural extractors + router |
+| `src/backend/core/memory/extractors/` | identity / preference / task / procedural / graph extractors + router |
 | `src/backend/core/memory/sanitizer.py` | Sanitizer gate (hardcoded + DB-managed rules) |
 | `src/backend/core/memory/audit.py` | Audit side channel (Enterprise Edition, EE) |
 | `src/backend/core/memory/context.py` | `MemoryContext` and workspace / layer resolution |

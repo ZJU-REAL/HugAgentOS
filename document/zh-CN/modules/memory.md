@@ -1,8 +1,8 @@
 # 记忆系统（mem0）
 
-> 最后更新：2026-06-11
+> 最后更新：2026-08-03
 
-HugAgentOS 内置一套**分层持久记忆系统**，基于 [mem0](https://github.com/mem0ai/mem0) 构建：开启后，智能体能跨会话记住用户的身份背景、偏好习惯，以及**这里做事的方式**（口径、顺序、红线），并在新会话中自动带入这些上下文。记忆按信息稳定性分为三层（L1 档案 / L2 做法沉淀 / L3 知识图谱），三层均属社区版能力；只有**记忆审计**（合规留痕）属于商业版（商业版 EE）。
+HugAgentOS 内置一套**分层持久记忆系统**：L2 向量层使用 [mem0](https://github.com/mem0ai/mem0) + Milvus，L3 图谱层由本地适配器直连 Neo4j。开启后，智能体能跨会话记住用户的身份背景、偏好习惯、**这里做事的方式**（口径、顺序、红线），以及稳定的实体关系。记忆按信息稳定性分为三层（L1 档案 / L2 做法沉淀 / L3 知识图谱），三层均属社区版能力；只有**记忆审计**（合规留痕）属于商业版（商业版 EE）。
 
 整套系统遵循一条核心承诺：**所有记忆 I/O 绝不在 SSE 主链路上同步等待**——检索走带预算超时的后台任务，写入走 SSE 关闭后的有界后置流水线（见 `src/backend/core/memory/__init__.py` 模块文档）。
 
@@ -12,7 +12,7 @@ HugAgentOS 内置一套**分层持久记忆系统**，基于 [mem0](https://gith
 |---|---|---|---|---|
 | L1 | Profile 用户档案 | DB（bounded markdown，默认上限 1500 字符） | 会话启动时冻结注入 | `core/memory/profile.py` |
 | L2 | Procedural 做法沉淀 | Milvus 向量库（collection `hugagent_memories`） | 会话启动时按相似度检索 Top-K 注入 | `core/memory/service.py`（mem0 封装） |
-| L3 | Graph 图谱记忆 | Neo4j（可选，`MEM0_GRAPH_ENABLED=true`） | 按需检索 | `core/memory/service.py`（mem0 `enable_graph`） |
+| L3 | Graph 图谱记忆 | Neo4j（可选，`MEM0_GRAPH_ENABLED=true`） | 按实体按需检索 | `core/memory/graph.py`（本地 Neo4j 适配器） |
 | — | Session 辅助层 | `chats.metadata.session_memory` | 单会话内 | 会话任务工作集 |
 | — | Audit 审计旁路（商业版 EE） | DB 表 `memory_audit` | 所有读写旁路记录 | `core/memory/audit.py` |
 
@@ -30,7 +30,8 @@ api/routes/v1/chats.py
 orchestration/workflow.py
   ├─► launch_memory_retrieval()            ← 后台 task，立即返回（不阻塞）
   │     └─ core/memory/service.retrieve_memories()
-  │          └─ mem0.Memory.search() → Milvus 向量检索（+ Neo4j 图检索，可选）
+  │          ├─ mem0.Memory.search() → Milvus 向量检索
+  │          └─ core/memory/graph.py → Neo4j 实体关系检索（可选）
   │
   ├─► build_frozen_memory_block()          ← 组装"会话冻结块"
   │     · L1 Profile：读 DB，<20ms，必等
@@ -47,12 +48,12 @@ orchestration/workflow.py
 save_memories_background()
   └─ core/memory/pipeline.schedule_post_response_tasks()
        · 全局 Semaphore 限并发（默认 8）
-       · 分类 → 跑 0~4 个 extractor（identity/preference/task 关键词命中；procedural 每个实质轮次都跑）
+       · 分类 → 跑 0~5 个 extractor（identity/preference/task 关键词命中；procedural 每个实质轮次都跑；graph 仅在 L3 开启时跑）
        · 每个 extractor 单独 30s 超时
-       · sanitize 脱敏闸门 → 写 L1/L2/Session → audit 旁路
+       · sanitize 脱敏闸门 → 写 L1/L2/L3/Session → audit 旁路
 ```
 
-检索与注入的整合层在 `src/backend/orchestration/memory_integration.py`；mem0 配置组装（LLM / Embedder / Milvus / Neo4j / Reranker）在 `src/backend/core/memory/service.py`，模型配置优先取 DB 中 `memory` / `embedding` 角色，缺省回落到环境变量。
+检索与注入的整合层在 `src/backend/orchestration/memory_integration.py`；mem0 的 LLM / Embedder / Milvus / Reranker 配置在 `src/backend/core/memory/service.py`，Neo4j 图谱读写在 `src/backend/core/memory/graph.py`。模型配置优先取 DB 中 `memory` / `embedding` 角色，缺省回落到环境变量。
 
 ## 写入流水线与抽取器
 
@@ -63,7 +64,10 @@ save_memories_background()
 - **Milvus 熔断器**：连续失败 N 次（默认 3）后短路 60 秒，检索 / 写入路径共用（`milvus_breaker`）；
 - **抽取器路由**（`core/memory/extractors/router.py`）：`identity`（身份）、`preference`（偏好）、`task`（任务）按关键词线索命中才跑；**`procedural`（做法）不设关键词闸门**，只要本轮实质（用户 ≥8 字且助手 ≥30 字）就跑——一条约定用什么措辞说出来是不可预测的，正则在模型读到之前就替它决定"这轮没有做法"，漏掉的部分既无声也不可见。空集则直接跳过所有 LLM 调用。
 - **L2 只存做法，不存事实**：事实写下来的那一刻就开始过期，记住它等于让系统自信地复述一个陈旧数字，而不是去查当前值；能被重复使用、且能进一步编译成技能的，只有"这里怎么做事"。因此没有 fact 抽取器，也没有回退路径。
+- **L3 只存稳定关系，不存步骤**：图谱抽取器只接受用户明确陈述或确认的隶属、负责、依赖、使用、组成、别名、分类等实体关系；快速变化的数值、状态、新闻以及一次性指令均拒绝入图。相同关系再次出现时增加 `seen_count` 并刷新 `last_seen_at`，不会复制边。
 - **写入不经 mem0 二次推断**：写入统一带 `infer=False`。mem0 默认会用它自己的通用事实抽取 prompt 再判一次，把我们已经蒸馏好的规则悄悄丢掉——表现为"写入成功但什么都没写"，日志无错、卡片无内容。
+
+> mem0ai 2.x 已从开源 `Memory` 类移除 graph store。项目不再向 mem0 传入会被忽略的 `graph_store` 配置，而由 `core/memory/graph.py` 使用既有 `neo4j` 驱动完成 L3 的抽取后写入、查询、去重强化和删除。
 
 ## 脱敏闸门（sanitizer）
 
@@ -98,7 +102,8 @@ save_memories_background()
 | PATCH | `/v1/memories/profile/field` | 改写 L1 档案的单个字段 |
 | DELETE | `/v1/memories/profile/field` | 删除 L1 档案的单个字段 |
 | GET | `/v1/memories/profile` | L1 用户档案（markdown 全文 + 字符上限） |
-| GET | `/v1/memories/graph` | L3 图谱（当前返回 enabled 状态，结构化关系查询待后续版本） |
+| GET | `/v1/memories/graph` | L3 图谱关系列表；支持 `?project_id=` 项目作用域 |
+| DELETE | `/v1/memories/graph/{relation_id}` | 删除单条 L3 图谱关系 |
 | GET | `/v1/memories/audit` | 审计记录（商业版 EE） |
 | GET | `/v1/memories/settings` | 读用户记忆 / 重排开关 |
 | PATCH | `/v1/memories/settings` | 更新开关（持久化到 `users_shadow.metadata`） |
@@ -190,10 +195,11 @@ RERANKER_API_KEY=...
 | 路径 | 职责 |
 |---|---|
 | `src/backend/core/memory/__init__.py` | 分层记忆包入口与公共 API |
-| `src/backend/core/memory/service.py` | mem0 配置组装与异步封装（Milvus / Neo4j / Reranker） |
+| `src/backend/core/memory/service.py` | mem0 配置组装与异步封装（Milvus / Reranker）+ L3 检索合流 |
+| `src/backend/core/memory/graph.py` | L3 Neo4j 图谱关系的写入、强化、查询与删除 |
 | `src/backend/core/memory/profile.py` | L1 档案：get / patch / compact / delete |
 | `src/backend/core/memory/pipeline.py` | 后置写入流水线、信号量、Milvus 熔断器 |
-| `src/backend/core/memory/extractors/` | identity / preference / task / procedural 抽取器 + 路由 |
+| `src/backend/core/memory/extractors/` | identity / preference / task / procedural / graph 抽取器 + 路由 |
 | `src/backend/core/memory/sanitizer.py` | 脱敏闸门（硬编码规则 + DB 动态规则） |
 | `src/backend/core/memory/audit.py` | 审计旁路（商业版 EE） |
 | `src/backend/core/memory/context.py` | `MemoryContext` 与 workspace / 层级解析 |

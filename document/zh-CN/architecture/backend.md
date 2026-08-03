@@ -98,7 +98,7 @@ src/backend/
 | 文件 | 职责 |
 |---|---|
 | `profile.py` | L1 画像记忆：有界 markdown 档案，会话启动冻结注入 |
-| `service.py` | L2/L3 封装：mem0 + Milvus 向量事实、Neo4j 图谱（配置组装 + 异步包装） |
+| `service.py` / `graph.py` | L2：mem0 + Milvus 做法向量；L3：本地 Neo4j 图谱关系（配置组装 + 异步包装） |
 | `pipeline.py` | 写入后置流水线——全部记忆写操作剥离出 SSE 主链路 |
 | `extractors/` | 4 个 LLM 抽取器（identity/preference/fact/task）+ `router.py` 分类调度 + `writers.py` 落盘分发 |
 | `sanitizer.py` | 敏感数据脱敏闸门（规则存 `memory_sanitizer_rules` 表） |

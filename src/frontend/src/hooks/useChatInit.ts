@@ -9,7 +9,7 @@ import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, EvolutionSummary, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -139,6 +139,15 @@ function parseHistoryMessage(m: any): ChatMessage {
     ? (m.metadata.workspace_files as unknown[])
         .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
     : undefined;
+  const rawEvolution = m.role === 'assistant'
+    && m.metadata?.evolution
+    && typeof m.metadata.evolution === 'object'
+    ? m.metadata.evolution as Partial<EvolutionSummary>
+    : undefined;
+  const histEvolution: EvolutionSummary | undefined = rawEvolution
+    && ['pending', 'settled', 'failed', 'empty'].includes(String(rawEvolution.state))
+    ? rawEvolution as EvolutionSummary
+    : undefined;
   const rawOntologyGovernance = m.role === 'assistant'
     && m.metadata?.ontology_governance
     && typeof m.metadata.ontology_governance === 'object'
@@ -199,6 +208,7 @@ function parseHistoryMessage(m: any): ChatMessage {
     ...(histAttachments && histAttachments.length > 0 && { attachments: histAttachments }),
     ...(histQuotedFollowUp?.text && { quotedFollowUp: histQuotedFollowUp }),
     ...(histWorkspaceFiles !== undefined && { workspaceFiles: histWorkspaceFiles }),
+    ...(histEvolution && { evolution: histEvolution }),
     ...(histOntologyGovernance && { ontologyGovernance: histOntologyGovernance }),
     ...(histSkillId && { skillId: histSkillId }),
     ...(histSkillName && { skillName: histSkillName }),

@@ -98,7 +98,10 @@ def record_retrieved_refs(
                     user_id=user_id,
                     workspace_id=workspace_id,
                     content_hash=relation.content_hash,
-                    external_id=None,
+                    # The graph store's stable relation id (grel_*). Without it
+                    # an L3 evidence ref cannot be resolved back to the Neo4j
+                    # edge it came from, which makes graph evidence unauditable.
+                    external_id=relation.relation_id or None,
                     preview=_preview(
                         f"{relation.source} → {relation.relationship} → {relation.target}"
                     ),

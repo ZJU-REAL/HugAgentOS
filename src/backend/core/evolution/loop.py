@@ -29,8 +29,8 @@ from core.db.models.evolution import (
 from core.evolution import promotion as P
 from core.evolution.credit import (
     T_MEMORY,
-    T_SKILL,
     T_ORCHESTRATION,
+    T_SKILL,
     CreditFeatures,
     aggregate_finding,
     assign_credit,
@@ -76,11 +76,13 @@ def _view_for(episode, events) -> Dict[str, Any]:
         EV_TOOL_CALLED,
     )
     from core.memory.ref_shadow import build_ref_id
-    from core.memory.retrieval_types import LAYER_FACT
+    from core.memory.retrieval_types import LAYER_FACT, LAYER_GRAPH
 
     tools: List[str] = []
     skills: List[str] = []
     memory_refs: List[str] = []
+    graph_refs: List[str] = []
+    graph_relations: List[Dict[str, Any]] = []
     skills_opened: List[Dict[str, Any]] = []
     selection_degraded = False
     error_count = 0
@@ -102,9 +104,7 @@ def _view_for(episode, events) -> Dict[str, Any]:
             skills_opened.append(
                 {
                     "skill_id": str(payload.get("skill_id") or ""),
-                    "tools_after_open": [
-                        str(t) for t in (payload.get("tools_after_open") or [])
-                    ],
+                    "tools_after_open": [str(t) for t in (payload.get("tools_after_open") or [])],
                 }
             )
         elif event.event_type == EV_MEMORY_RETRIEVED:
@@ -120,6 +120,34 @@ def _view_for(episode, events) -> Dict[str, Any]:
                         content_hash=content_hash,
                     )
                 )
+            # L3 is deliberately tracked separately from L2. A graph relation
+            # is declarative context, not a procedure, and must never enter the
+            # memory→skill compiler as though it were an instruction.
+            for relation in payload.get("graph") or []:
+                content_hash = str(relation.get("content_hash") or "")
+                if not content_hash:
+                    continue
+                graph_refs.append(
+                    build_ref_id(
+                        layer=LAYER_GRAPH,
+                        user_id=user_id,
+                        workspace_id=str(relation.get("workspace_id") or "default"),
+                        content_hash=content_hash,
+                    )
+                )
+                # The full reference, kept for the evidence resolver: a pack's
+                # L3 entry must carry the store's stable relation_id so an
+                # activated skill's graph evidence can be resolved back to the
+                # exact Neo4j edge — a bare ref id cannot do that.
+                graph_relations.append(
+                    {
+                        "relation_id": str(relation.get("relation_id") or ""),
+                        "content_hash": content_hash,
+                        "predicate": str(relation.get("predicate") or ""),
+                        "confidence": relation.get("confidence") or 0.0,
+                        "workspace_id": str(relation.get("workspace_id") or "default"),
+                    }
+                )
 
     outcome = episode.outcome or {}
     return {
@@ -134,6 +162,8 @@ def _view_for(episode, events) -> Dict[str, Any]:
         "skills_opened": skills_opened,
         "selection_degraded": selection_degraded,
         "memory_refs": memory_refs,
+        "graph_refs": graph_refs,
+        "graph_relations": graph_relations,
         "task_type": episode.task_type or "chat",
         "backfilled": bool(episode.backfilled),
         # Repeated tool errors are the observable form of "this run was stuck",
@@ -277,6 +307,16 @@ def _persist_candidate(
     evidence_refs: List[str],
 ) -> Optional[str]:
     """Store a candidate, collapsing duplicates rather than failing on them."""
+    from core.evolution import lineage
+
+    # Attribution outlives the candidate that happened to carry it: every
+    # decision that reaches persistence gets its own ledger row, and the stored
+    # copy inside the candidate becomes a cache keyed by ``decision_id``.
+    decision_id = lineage.record_credit_decision(
+        credit, episode_id=(evidence_refs[0] if evidence_refs else "")
+    )
+    credit = {**credit, "decision_id": decision_id}
+
     checksum = ir.change_checksum()
     try:
         with SessionLocal() as db:
@@ -397,9 +437,7 @@ def _memory_scan_findings(views: List[Dict[str, Any]]) -> List[Any]:
     findings: List[Any] = []
     for user_id, refs in retrieved.items():
         try:
-            _, user_findings = _run_async(
-                scan_user_memories(user_id, retrieved_refs=refs)
-            )
+            _, user_findings = _run_async(scan_user_memories(user_id, retrieved_refs=refs))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[evolution-loop] memory scan failed for %s: %s", user_id, exc)
             continue
@@ -492,8 +530,12 @@ def _memory_candidates(
         )
         if candidate_id:
             created.append(
-                {"candidate_id": candidate_id, "kind": "memory", "user_id": user_id,
-                 "operations": len(user_ops)}
+                {
+                    "candidate_id": candidate_id,
+                    "kind": "memory",
+                    "user_id": user_id,
+                    "operations": len(user_ops),
+                }
             )
     return created
 
@@ -501,14 +543,24 @@ def _memory_candidates(
 def _intent_skill_candidates(
     extras: Dict[str, Any], views: List[Dict[str, Any]], *, dry_run: bool
 ) -> List[Dict[str, Any]]:
-    """Recurring intents, written up as skills by the generator.
+    """Recurring intents, compiled through the unified skill candidate engine.
 
     The intent finding says a capability is missing; it does not say what the
-    capability is. Turning it into an asset needs a document, which is what
-    :mod:`core.evolution.skill_gen` produces and validates. A finding without a
-    document has nowhere to go — which is exactly where these used to stop.
+    capability is. The engine resolves the cluster's evidence into an immutable
+    pack, derives the deterministic structure (tools, boundaries, dependencies),
+    has the model write only the document, and validates the layered contract —
+    the same chain the tool-sequence path uses, so identical evidence can no
+    longer produce structurally different skills depending on which engine
+    noticed it first.
     """
-    from core.evolution.skill_gen import generate_skill_document
+    from core.evolution.skill_candidate_engine import (
+        STATUS_CREATED,
+        STATUS_DRY_RUN,
+        STATUS_NOT_WRITTEN,
+        STATUS_REJECTED,
+        SkillCandidateSpec,
+        create_skill_candidate,
+    )
 
     findings = [
         f
@@ -541,81 +593,50 @@ def _intent_skill_candidates(
             continue
 
         asset_id = str(finding.get("asset_id") or "")
-        procedures = _procedures_for_cluster(cluster, views)
-        document, draft = _run_async(
-            generate_skill_document(
-                skill_id=asset_id,
-                episodes=episodes,
-                procedures=procedures,
-                rationale=str(finding.get("reason") or ""),
-            )
+        spec = SkillCandidateSpec(
+            asset_id=asset_id,
+            proposer="intent_engine",
+            hypothesis=str(finding.get("reason") or ""),
+            views=episodes,
+            intent_cluster=cluster,
+            procedures=_procedures_for_cluster(cluster, views),
+            operation="new",
+            base_version="v0",
+            risk_tier=RISK_HIGH,
+            scope={"level": "workspace"},
+            tenant_id=str(episodes[0].get("tenant_id") or "default"),
+            write_document=True,
         )
-        if document is None:
+        outcome = create_skill_candidate(
+            spec, credit=decision.to_dict(), dry_run=dry_run, run_async=_run_async
+        )
+        status = outcome.get("status")
+        if status == STATUS_NOT_WRITTEN:
             created.append(
                 {
                     "kind": "recurring_intent",
                     "asset_id": asset_id,
                     "written": False,
-                    "why_not": draft.to_dict(),
+                    "why_not": outcome.get("why_not") or {},
                 }
             )
-            continue
-
-        ir = EvolutionIR(
-            target_kind="skill",
-            target_asset_id=asset_id,
-            base_version="v0",
-            operation="new",
-            hypothesis=str(finding.get("reason") or ""),
-            changes=[
-                {
-                    "document": document,
-                    # Carried so demotion has a target: these are the memories
-                    # whose content went into the document, each with its owner,
-                    # because down-weighting happens in one person's store.
-                    "source_memories": [
-                        {"ref": p.get("ref", ""), "user_id": p.get("user_id", "")}
-                        for p in procedures
-                        if p.get("ref")
-                    ],
-                    "tool_sequence": [],
-                }
-            ],
-            evidence_refs=episode_ids[:20],
-            requested_tools=list(document.get("allowed_tools") or []),
-            risk_tier=RISK_HIGH,
-            scope={"level": "workspace"},
-            rollback=Rollback(
-                version_id="v0", triggers=["success -3pp", "risk_denial_rate +2pp"]
-            ),
-            evaluation_plan={"replay_set": "auto_holdout", "primary_metric": "task_success"},
-        )
-        try:
-            validate_ir(
-                ir,
-                credit_decision=decision.to_dict(),
-                base_tools=list(document.get("allowed_tools") or []),
+        elif status == STATUS_REJECTED:
+            logger.info(
+                "[evolution-loop] intent candidate rejected: %s %s",
+                outcome.get("code"),
+                outcome.get("violations") or "",
             )
-        except InvariantViolation as violation:
-            logger.info("[evolution-loop] intent candidate rejected: %s", violation.code)
-            continue
-        if dry_run:
+        elif status == STATUS_DRY_RUN:
             created.append({"dry_run": True, "kind": "recurring_intent", "asset_id": asset_id})
-            continue
-        candidate_id = _persist_candidate(
-            ir,
-            credit=decision.to_dict(),
-            proposer="intent_engine",
-            evidence_refs=episode_ids[:20],
-        )
-        if candidate_id:
+        elif status == STATUS_CREATED:
             created.append(
                 {
-                    "candidate_id": candidate_id,
+                    "candidate_id": outcome["candidate_id"],
                     "kind": "recurring_intent",
                     "asset_id": asset_id,
                     "written": True,
-                    "attempts": draft.attempts,
+                    "attempts": outcome.get("attempts", 0),
+                    "evidence_pack_id": outcome.get("pack_id", ""),
                 }
             )
     return created
@@ -706,9 +727,7 @@ def _decremental_candidates(extras: Dict[str, Any], *, dry_run: bool) -> List[Di
         decision = aggregate_finding(
             target=T_SKILL,
             explanation=str(item.get("explanation") or item.get("reason") or ""),
-            confidence=confidence_from_evidence(
-                int(item.get("offers", 0) or 0), saturates_at=20
-            ),
+            confidence=confidence_from_evidence(int(item.get("offers", 0) or 0), saturates_at=20),
             evidence_count=int(item.get("offers", 0) or 0),
         )
         if not decision.may_produce_candidate:
@@ -720,9 +739,14 @@ def _decremental_candidates(extras: Dict[str, Any], *, dry_run: bool) -> List[Di
             base_version="current",
             operation="deprecate",
             hypothesis=str(item.get("explanation") or item.get("reason") or ""),
-            changes=[{"retire_reason": item.get("reason"), "stats": {
-                k: v for k, v in item.items() if k not in ("asset_id", "explanation")
-            }}],
+            changes=[
+                {
+                    "retire_reason": item.get("reason"),
+                    "stats": {
+                        k: v for k, v in item.items() if k not in ("asset_id", "explanation")
+                    },
+                }
+            ],
             evidence_refs=[asset_id],
             risk_tier=RISK_MEDIUM,
             scope={"level": "workspace"},
@@ -745,8 +769,12 @@ def _decremental_candidates(extras: Dict[str, Any], *, dry_run: bool) -> List[Di
         )
         if candidate_id:
             created.append(
-                {"candidate_id": candidate_id, "kind": "retirement", "asset_id": asset_id,
-                 "reason": item.get("reason")}
+                {
+                    "candidate_id": candidate_id,
+                    "kind": "retirement",
+                    "asset_id": asset_id,
+                    "reason": item.get("reason"),
+                }
             )
     return created
 
@@ -772,9 +800,7 @@ def _orchestration_candidates(
     base_tools = [str(t) for t in get_enabled_ids("tools")] + [
         str(t) for t in get_enabled_ids("mcp")
     ]
-    offered_tools = {
-        str(view.get("task_type") or "chat"): base_tools for view in views
-    }
+    offered_tools = {str(view.get("task_type") or "chat"): base_tools for view in views}
     proposals, subagents = generate_orchestration_proposals(
         views, offered_tools=offered_tools, parent_tools=base_tools
     )
@@ -832,7 +858,9 @@ def _orchestration_candidates(
             created.append({"dry_run": True, "kind": "agent_profile", "task_type": task_type})
             continue
         candidate_id = _persist_candidate(
-            ir, credit=decision.to_dict(), proposer="orchestration_engine",
+            ir,
+            credit=decision.to_dict(),
+            proposer="orchestration_engine",
             evidence_refs=evidence,
         )
         if candidate_id:
@@ -875,7 +903,9 @@ def _orchestration_candidates(
             created.append({"dry_run": True, "kind": "subagent", "name": subagent.name})
             continue
         candidate_id = _persist_candidate(
-            ir, credit=decision.to_dict(), proposer="orchestration_engine",
+            ir,
+            credit=decision.to_dict(),
+            proposer="orchestration_engine",
             evidence_refs=subagent.evidence_refs,
         )
         if candidate_id:
@@ -913,9 +943,7 @@ def _prompt_candidates(views: List[Dict[str, Any]], *, dry_run: bool) -> List[Di
     if not decision.may_produce_candidate:
         return []
 
-    asset_id = "auto-prompt-" + hashlib.sha256(
-        payload["fragment"].encode("utf-8")
-    ).hexdigest()[:12]
+    asset_id = "auto-prompt-" + hashlib.sha256(payload["fragment"].encode("utf-8")).hexdigest()[:12]
     ir = EvolutionIR(
         target_kind="prompt",
         target_asset_id=asset_id,
@@ -938,7 +966,9 @@ def _prompt_candidates(views: List[Dict[str, Any]], *, dry_run: bool) -> List[Di
     if dry_run:
         return [{"dry_run": True, "kind": "prompt", "asset_id": asset_id}]
     candidate_id = _persist_candidate(
-        ir, credit=decision.to_dict(), proposer="prompt_engine",
+        ir,
+        credit=decision.to_dict(),
+        proposer="prompt_engine",
         evidence_refs=evidence.episode_ids[:20],
     )
     return (
@@ -971,10 +1001,113 @@ def _active_prompt_fragments() -> List[str]:
         return []
 
 
-def _run_other_engines(
+def _graph_evolution_candidates(
     views: List[Dict[str, Any]], *, dry_run: bool
-) -> Dict[str, Any]:
-    """Memory, decremental, intent, orchestration and prompt — each with an exit.
+) -> List[Dict[str, Any]]:
+    """L3 的演进：强化/降权自动执行，语义变更走人工候选。
+
+    Per user, because the graph is per user scope: a contradiction between two
+    people's graphs is not a contradiction at all.
+    """
+    from core.config.settings import settings
+
+    if not (settings.memory.enabled and settings.memory.graph_enabled):
+        return []
+
+    from core.evolution.graph_scan import apply_graph_ops, scan_graph_relations
+
+    observed_by_user: Dict[str, Dict[str, int]] = {}
+    for view in views:
+        user_id = str(view.get("user_id") or "")
+        if not user_id:
+            continue
+        bucket = observed_by_user.setdefault(user_id, {})
+        for relation in view.get("graph_relations") or []:
+            relation_id = str(relation.get("relation_id") or "")
+            if relation_id:
+                bucket[relation_id] = bucket.get(relation_id, 0) + 1
+
+    created: List[Dict[str, Any]] = []
+    for user_id, observed in observed_by_user.items():
+        try:
+            from core.memory.graph import list_graph_relations
+
+            relations = _run_async(list_graph_relations(user_id, limit=200))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[evolution-loop] graph listing failed for %s: %s", user_id, exc)
+            continue
+        if not relations:
+            continue
+
+        ops = scan_graph_relations(relations, observed_relation_ids=observed)
+        if not ops:
+            continue
+        if dry_run:
+            created.append(
+                {"dry_run": True, "kind": "graph", "user_id": user_id, "ops": len(ops)}
+            )
+            continue
+
+        outcome = apply_graph_ops(ops, scope_user_id=user_id)
+        manual = outcome.get("manual") or []
+        entry: Dict[str, Any] = {
+            "kind": "graph",
+            "user_id": user_id,
+            "auto_applied": len(outcome.get("applied") or []),
+            "manual_proposed": len(manual),
+        }
+        if manual:
+            decision = aggregate_finding(
+                target=T_MEMORY,
+                explanation="；".join(str(op.get("reason") or "") for op in manual[:3]),
+                confidence=confidence_from_evidence(len(manual), saturates_at=6),
+                evidence_count=len(manual),
+            )
+            if decision.may_produce_candidate:
+                asset_id = "graph-" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:12]
+                ir = EvolutionIR(
+                    target_kind="memory",
+                    target_asset_id=asset_id,
+                    base_version="current",
+                    operation="update",
+                    hypothesis=(
+                        f"图谱有 {len(manual)} 处语义变更需要人工裁决："
+                        + "；".join(str(op.get("reason") or "") for op in manual[:3])
+                    ),
+                    changes=[{"user_id": user_id, "graph_ops": manual}],
+                    evidence_refs=[
+                        str(op.get("relation_id") or "") for op in manual if op.get("relation_id")
+                    ][:20],
+                    risk_tier=RISK_MEDIUM,
+                    scope={"level": "user", "user_id": user_id},
+                    rollback=Rollback(version_id="current", triggers=["manual"]),
+                    evaluation_plan={"replay_set": "personal", "primary_metric": "task_success"},
+                )
+                try:
+                    validate_ir(
+                        ir,
+                        credit_decision=decision.to_dict(),
+                        allowed_scopes=["user", "workspace"],
+                    )
+                except InvariantViolation as violation:
+                    logger.info(
+                        "[evolution-loop] graph candidate rejected: %s", violation.code
+                    )
+                else:
+                    candidate_id = _persist_candidate(
+                        ir,
+                        credit=decision.to_dict(),
+                        proposer="graph_engine",
+                        evidence_refs=list(ir.evidence_refs),
+                    )
+                    if candidate_id:
+                        entry["candidate_id"] = candidate_id
+        created.append(entry)
+    return created
+
+
+def _run_other_engines(views: List[Dict[str, Any]], *, dry_run: bool) -> Dict[str, Any]:
+    """Memory, decremental, intent, orchestration, prompt and graph — each with an exit.
 
     Independently guarded: a failure in one engine must not cost the others
     their findings, because they answer different questions and an operator
@@ -992,6 +1125,7 @@ def _run_other_engines(
         ("decremental", lambda: _decremental_candidates(extras, dry_run=dry_run)),
         ("orchestration", lambda: _orchestration_candidates(views, dry_run=dry_run)),
         ("prompt", lambda: _prompt_candidates(views, dry_run=dry_run)),
+        ("graph", lambda: _graph_evolution_candidates(views, dry_run=dry_run)),
     ):
         try:
             produced.extend(fn())
@@ -1011,9 +1145,7 @@ def _run_other_engines(
     return {"extras": extras, "engine_candidates": produced}
 
 
-def run_evolution_cycle(
-    *, limit: int = 500, dry_run: bool = False
-) -> Dict[str, Any]:
+def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str, Any]:
     """One fleet-wide pass: discover → attribute → promote → validate → persist.
 
     Returns a report rather than raising: this runs as a background job and a
@@ -1037,9 +1169,7 @@ def run_evolution_cycle(
 
     readiness = check_readiness()
     if not readiness.ready:
-        logger.warning(
-            "[evolution-loop] not ready, refusing to run: %s", readiness.blocking
-        )
+        logger.warning("[evolution-loop] not ready, refusing to run: %s", readiness.blocking)
         return {
             "episodes": 0,
             "patterns": 0,
@@ -1075,8 +1205,17 @@ def run_evolution_cycle(
     constraints = P.extract_ordering_constraints(views)
     report["ordering_constraints"] = [c.to_dict() for c in constraints]
 
+    from core.evolution.skill_candidate_engine import (
+        STATUS_CREATED,
+        STATUS_DRY_RUN,
+        STATUS_REJECTED,
+        SkillCandidateSpec,
+        create_skill_candidate,
+    )
+
     existing_signatures: Dict[str, str] = {}
     covered_tool_sets: List[List[str]] = []
+    by_episode_id = {str(v.get("episode_id") or ""): v for v in views}
 
     for pattern in patterns:
         decision = assign_credit(_features_for(pattern))
@@ -1102,64 +1241,55 @@ def run_evolution_cycle(
         asset_id = proposal.patch_target or (
             "auto-" + hashlib.sha256(proposal.signature.encode("utf-8")).hexdigest()[:12]
         )
-        ir = EvolutionIR(
-            target_kind="skill",
-            target_asset_id=asset_id,
-            base_version="v0" if not proposal.patch_target else "current",
-            operation="patch" if proposal.patch_target else "new",
+        sequence = [str(t) for t in proposal.payload.get("tool_sequence", [])]
+        supporting = [
+            by_episode_id[e]
+            for e in (proposal.payload.get("episode_ids") or [])
+            if e in by_episode_id
+        ]
+        spec = SkillCandidateSpec(
+            asset_id=asset_id,
+            proposer="promotion_chain",
             hypothesis=proposal.rationale,
-            changes=[
-                {
-                    "tool_sequence": proposal.payload.get("tool_sequence", []),
-                    # Attach every rule whose tools this skill touches, and
-                    # carry its scope along with it.
-                    #
-                    # Attaching must not apply the usability policy: doing so
-                    # dropped exactly the context-dependent rules the scoping
-                    # exists to preserve — a rule contradicted in one task type
-                    # is still valid in the ones where it held, and that
-                    # decision belongs at use time, where the context is known.
-                    "ordering_constraints": [
-                        c.to_dict()
-                        for c in constraints
-                        if c.before in proposal.payload.get("tool_sequence", [])
-                        and c.after in proposal.payload.get("tool_sequence", [])
-                    ],
-                }
+            views=supporting,
+            tool_sequence=sequence,
+            # Attach every rule whose tools this skill touches, and carry its
+            # scope along with it. Attaching must not apply the usability
+            # policy: doing so dropped exactly the context-dependent rules the
+            # scoping exists to preserve — a rule contradicted in one task type
+            # is still valid in the ones where it held, and that decision
+            # belongs at use time, where the context is known.
+            ordering_constraints=[
+                c.to_dict()
+                for c in constraints
+                if c.before in sequence and c.after in sequence
             ],
-            evidence_refs=proposal.payload.get("episode_ids", []),
+            operation="patch" if proposal.patch_target else "new",
+            base_version="current" if proposal.patch_target else "v0",
             # A brand-new capability is riskier than tweaking an existing one.
             risk_tier=RISK_MEDIUM if proposal.patch_target else RISK_HIGH,
             scope={"level": "workspace"},
-            rollback=Rollback(
-                version_id="v0" if not proposal.patch_target else "current",
-                triggers=["success -3pp", "risk_denial_rate +2pp"],
+            tenant_id=str(
+                (supporting[0].get("tenant_id") if supporting else "") or "default"
             ),
-            evaluation_plan={"replay_set": "auto_holdout", "primary_metric": "task_success"},
+            write_document=False,
         )
-
-        try:
-            validate_ir(ir, credit_decision=decision.to_dict(), base_tools=None)
-        except InvariantViolation as violation:
+        outcome = create_skill_candidate(spec, credit=decision.to_dict(), dry_run=dry_run)
+        status = outcome.get("status")
+        if status == STATUS_REJECTED:
             report["rejected"].append(
-                {"signature": proposal.signature, "code": violation.code}
+                {"signature": proposal.signature, "code": outcome.get("code")}
             )
-            continue
-
-        if dry_run:
+        elif status == STATUS_DRY_RUN:
             report["candidates"].append({"dry_run": True, "signature": proposal.signature})
-            continue
-
-        candidate_id = _persist_candidate(
-            ir,
-            credit=decision.to_dict(),
-            proposer="promotion_chain",
-            evidence_refs=proposal.payload.get("episode_ids", []),
-        )
-        if candidate_id:
-            covered_tool_sets.append(list(proposal.payload.get("tool_sequence") or []))
+        elif status == STATUS_CREATED:
+            covered_tool_sets.append(sequence)
             report["candidates"].append(
-                {"candidate_id": candidate_id, "signature": proposal.signature}
+                {
+                    "candidate_id": outcome["candidate_id"],
+                    "signature": proposal.signature,
+                    "evidence_pack_id": outcome.get("pack_id", ""),
+                }
             )
 
     # ── Ordering rules that no sequence candidate carries ────────────────────
@@ -1177,82 +1307,62 @@ def run_evolution_cycle(
             report["no_update"] += 1
         else:
             rule_payload = [c.to_dict() for c in orphan_rules]
-            signature = "|".join(
-                sorted(f"{c.before}<{c.after}" for c in orphan_rules)
-            )
-            asset_id = "auto-rules-" + hashlib.sha256(
-                signature.encode("utf-8")
-            ).hexdigest()[:12]
-            episode_ids = sorted(
-                {
-                    view["episode_id"]
-                    for view in views
-                    if view.get("verdict") == "success"
-                    and any(
-                        c.before in (view.get("tool_sequence") or [])
-                        and c.after in (view.get("tool_sequence") or [])
-                        for c in orphan_rules
-                    )
-                }
-            )[:20]
-            rule_ir = EvolutionIR(
-                target_kind="skill",
-                target_asset_id=asset_id,
-                base_version="v0",
-                operation="new",
+            signature = "|".join(sorted(f"{c.before}<{c.after}" for c in orphan_rules))
+            asset_id = "auto-rules-" + hashlib.sha256(signature.encode("utf-8")).hexdigest()[:12]
+            supporting_views = [
+                view
+                for view in views
+                if view.get("verdict") == "success"
+                and any(
+                    c.before in (view.get("tool_sequence") or [])
+                    and c.after in (view.get("tool_sequence") or [])
+                    for c in orphan_rules
+                )
+            ]
+            rule_spec = SkillCandidateSpec(
+                asset_id=asset_id,
+                proposer="promotion_chain",
                 hypothesis=(
-                    f"{len(orphan_rules)} 条工具顺序约束在 {len(episode_ids)} 条成功执行中"
+                    f"{len(orphan_rules)} 条工具顺序约束在 {len(supporting_views)} 条成功执行中"
                     "稳定成立且跨多种工具组合复现，但规划阶段每次仍可能排错"
                 ),
-                changes=[
-                    {
-                        # Deliberately empty: this asset claims no fixed sequence,
-                        # only constraints. Materialisation renders it as rules.
-                        "tool_sequence": [],
-                        "ordering_constraints": rule_payload,
-                    }
-                ],
-                evidence_refs=episode_ids,
+                views=supporting_views,
+                # Deliberately no tool sequence: this asset claims no fixed
+                # order of its own, only constraints. Materialisation renders
+                # it as rules.
+                tool_sequence=[],
+                ordering_constraints=rule_payload,
+                operation="new",
+                base_version="v0",
                 risk_tier=RISK_HIGH,
                 scope={"level": "workspace"},
-                rollback=Rollback(
-                    version_id="v0",
-                    triggers=["success -3pp", "risk_denial_rate +2pp"],
+                tenant_id=str(
+                    (supporting_views[0].get("tenant_id") if supporting_views else "")
+                    or "default"
                 ),
-                evaluation_plan={
-                    "replay_set": "auto_holdout",
-                    "primary_metric": "task_success",
-                },
+                write_document=False,
             )
-            try:
-                validate_ir(
-                    rule_ir, credit_decision=rule_decision.to_dict(), base_tools=None
-                )
-            except InvariantViolation as violation:
-                report["rejected"].append(
-                    {"signature": signature, "code": violation.code}
-                )
+            outcome = create_skill_candidate(
+                rule_spec, credit=rule_decision.to_dict(), dry_run=dry_run
+            )
+            status = outcome.get("status")
+            if status == STATUS_REJECTED:
+                report["rejected"].append({"signature": signature, "code": outcome.get("code")})
             else:
                 report["proposals"] += 1
-                if dry_run:
+                if status == STATUS_DRY_RUN:
                     report["candidates"].append(
                         {"dry_run": True, "signature": signature, "kind": "ordering_rules"}
                     )
-                else:
-                    rule_candidate_id = _persist_candidate(
-                        rule_ir,
-                        credit=rule_decision.to_dict(),
-                        proposer="promotion_chain",
-                        evidence_refs=episode_ids,
+                elif status == STATUS_CREATED:
+                    report["candidates"].append(
+                        {
+                            "candidate_id": outcome["candidate_id"],
+                            "signature": signature,
+                            "kind": "ordering_rules",
+                            "evidence_pack_id": outcome.get("pack_id", ""),
+                        }
                     )
-                    if rule_candidate_id:
-                        report["candidates"].append(
-                            {
-                                "candidate_id": rule_candidate_id,
-                                "signature": signature,
-                                "kind": "ordering_rules",
-                            }
-                        )
 
     # The other two engines, plus orchestration. Every finding below becomes a
     # candidate in the same table, behind the same security gate and the same
@@ -1302,6 +1412,30 @@ def _record_evaluation(candidate_id: str, report: Any, eval_type: str) -> None:
         logger.warning("[evolution-loop] recording evaluation failed: %s", exc)
 
 
+def _replay_coverage_for(candidate_id: str, task_ids: List[str]) -> Optional[Dict[str, Any]]:
+    """Coverage assessment for candidates that carry an evidence pack.
+
+    Returns ``None`` for pre-pack candidates — the gate governs only what the
+    unified engine produced, so legacy candidates keep their old semantics.
+    """
+    try:
+        from core.evolution import lineage
+        from core.evolution.applicability import assess_replay_coverage
+
+        with SessionLocal() as db:
+            candidate = db.get(EvolutionCandidate, candidate_id)
+            pack_id = str(getattr(candidate, "evidence_pack_id", "") or "")
+        if not pack_id:
+            return None
+        pack = lineage.load_evidence_pack(pack_id)
+        if pack is None:
+            return None
+        return assess_replay_coverage(pack, task_ids)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[evolution-loop] replay coverage check skipped: %s", exc)
+        return None
+
+
 def evaluate_candidate(
     candidate_id: str,
     run_arm: Any,
@@ -1314,12 +1448,7 @@ def evaluate_candidate(
     reachable from here — shadow and canary need real traffic, and activation
     needs a human, so this can never quietly ship anything.
     """
-    from core.evolution.release import (
-        DRAFT,
-        REJECTED,
-        REPLAY_PASSED,
-        is_legal_transition,
-    )
+    from core.evolution.release import DRAFT, REJECTED, REPLAY_PASSED, is_legal_transition
     from core.evolution.replay import VERDICT_IMPROVED, VERDICT_REGRESSED, run_tiered_replay
 
     tiered = run_tiered_replay(task_ids, run_arm)
@@ -1328,6 +1457,25 @@ def evaluate_candidate(
         return None
 
     _record_evaluation(candidate_id, report, "replay" if tiered.passed_sentinel else "sentinel")
+
+    # Replay 覆盖闸门：带证据 pack 的候选，其回放集必须覆盖 pack 声称的行为面
+    # （成功 / 失败恢复 / 负样本 / 图谱依赖两类场景）。只用成功案例喂出来的
+    # "improved" 是单面证据，不允许换来 replay_passed；回归照常生效——安全
+    # 方向的结论不需要覆盖完整也成立。
+    coverage: Optional[Dict[str, Any]] = None
+    if report.verdict == VERDICT_IMPROVED:
+        coverage = _replay_coverage_for(candidate_id, task_ids)
+        if coverage is not None and not coverage.get("covered", True):
+            return {
+                "candidate_id": candidate_id,
+                "verdict": report.verdict,
+                "status": DRAFT,
+                "transition": "held_insufficient_coverage",
+                "coverage": coverage,
+                "tasks_run": tiered.tasks_run,
+                "effect_size": report.effect_size,
+                "p_value": report.p_value,
+            }
 
     try:
         with SessionLocal() as db:

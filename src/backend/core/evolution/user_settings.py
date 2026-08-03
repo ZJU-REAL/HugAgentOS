@@ -167,6 +167,43 @@ def personal_action(candidate) -> Optional[Dict[str, str]]:
     return None
 
 
+def _personally_activated_ids(db, user_id: str, candidate_ids: List[str]) -> set:
+    """Candidates this user has already turned into a live personal release.
+
+    A personal activation deliberately leaves the candidate's status untouched
+    so others (and an administrator) can still act on it — which means status
+    alone cannot tell "this user already accepted it". The release record can:
+    it is scoped to the owner at activation. Terminal stages (rolled back /
+    retired / rejected) do not count, so a user who undid a personal skill is
+    offered it again rather than locked out.
+    """
+    if not candidate_ids:
+        return set()
+    out = set()
+    try:
+        from core.db.models.evolution import EvolutionRelease
+        from core.evolution.release import TERMINAL_STAGES
+
+        for release in (
+            db.query(EvolutionRelease)
+            .filter(EvolutionRelease.candidate_id.in_(candidate_ids))
+            .all()
+        ):
+            scope = release.scope_filter or {}
+            if str(scope.get("owner_user_id") or "") != user_id:
+                continue
+            if str(release.stage or "") in TERMINAL_STAGES:
+                continue
+            out.add(release.candidate_id)
+    except Exception as exc:
+        # Degrade to "exclude nothing": a broken release lookup must not empty
+        # the whole queue, and re-offering an accepted candidate is the safer
+        # failure (a repeat activation is idempotent in effect).
+        logger.warning("[evo-settings] personal release lookup failed: %s", exc)
+        db.rollback()
+    return out
+
+
 def pending_for_user(user_id: str, *, limit: int = 20) -> List[Dict[str, Any]]:
     """Candidates this user may approve for themselves.
 
@@ -192,14 +229,25 @@ def pending_for_user(user_id: str, *, limit: int = 20) -> List[Dict[str, Any]]:
             if not own_ids:
                 return []
 
-            out: List[Dict[str, Any]] = []
-            for candidate in (
+            candidates = (
                 db.query(EvolutionCandidate)
                 .filter(EvolutionCandidate.status.in_(("draft", "replay_passed")))
                 .order_by(EvolutionCandidate.created_at.desc())
                 .limit(200)
                 .all()
-            ):
+            )
+            # A skill candidate the user already accepted stays draft/replay_passed
+            # by design (its life continues for others), so without this it would
+            # reappear on every refresh — an "enable" button for something already
+            # enabled, whose second press just stamps out a duplicate release.
+            already_mine = _personally_activated_ids(
+                db, user_id, [c.candidate_id for c in candidates]
+            )
+
+            out: List[Dict[str, Any]] = []
+            for candidate in candidates:
+                if candidate.candidate_id in already_mine:
+                    continue
                 refs = set(candidate.evidence_refs or [])
                 if not refs:
                     continue
@@ -302,6 +350,12 @@ def approve_for_user(candidate_id: str, user_id: str) -> Dict[str, Any]:
     allowed = {c["candidate_id"]: c for c in pending_for_user(user_id, limit=200)}
     row = allowed.get(candidate_id)
     if row is None:
+        # Distinguish "already yours" from "not yours to approve" — a stale tab
+        # or double click lands here, and telling that user they lack permission
+        # over a skill they just installed reads as a failure.
+        with SessionLocal() as db:
+            if candidate_id in _personally_activated_ids(db, user_id, [candidate_id]):
+                raise PermissionError("该候选你已启用过，对应能力已在你的技能列表中，无需重复启用")
         raise PermissionError(
             "该候选无法由你单独批准：可能主要来自他人的对话证据，或属于影响全体成员的编排/退役变更，需管理员审批"
         )

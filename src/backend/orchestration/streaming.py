@@ -8,7 +8,10 @@ fine-grained EventType into our 8 SSE events:
 - ("tool_call", dict)      - tool invocation complete
 - ("tool_result", dict)    - tool invocation result
 - ("file_confirm", dict)   - myspace write confirmation (in-house ContextVar gate, distinct from native HITL)
-- ("heartbeat", None)      - silence heartbeat
+- ("heartbeat", None)      - silence heartbeat (queue empty ≥3s: the model produced nothing at all)
+- ("model_progress", None) - throttled liveness signal: upstream events keep arriving but none maps
+                             to an SSE event (tool-call args / suppressed thinking streaming). Unlike
+                             "heartbeat" it counts as activity for the run inactivity watchdog.
 - ("error", Exception|dict)- agent error (dict shaped like ExceedMaxIters' {kind,name})
 
 No standalone end event: ``stream()`` ends the generator directly upon the internal done
@@ -48,6 +51,13 @@ logger = logging.getLogger(__name__)
 
 
 _HTTP_ERR_RE = re.compile(r"HTTP\s*[45]\d\d")
+
+# Minimum spacing of ("model_progress", None) liveness signals. During long
+# tool-call-argument generation the model streams ToolCallDeltaEvent for
+# minutes while _map_event yields nothing downstream — without this signal the
+# run inactivity watchdog (CHAT_RUN_INACTIVITY_TIMEOUT_SEC) sees pure silence
+# and kills a healthy run mid-generation.
+_MODEL_PROGRESS_MIN_INTERVAL_S = 5.0
 
 
 def _looks_like_tool_error(content: str) -> bool:
@@ -230,6 +240,9 @@ class StreamingAgent:
         _stream_start = time.monotonic()
         _first_event_logged = False
         _poll_interval = 3.0
+        # Last time anything was yielded downstream — basis for the throttled
+        # model_progress liveness signal when upstream events map to nothing.
+        _last_out_ts = time.monotonic()
 
         try:
             while True:
@@ -262,12 +275,26 @@ class StreamingAgent:
                 reasoning_protocol = self._take_reasoning_protocol()
                 if reasoning_protocol is not None:
                     yield ("reasoning_protocol", reasoning_protocol)
+                _mapped_any = False
                 async for out in self._map_event(payload):
                     if not _first_event_logged:
                         _ttfe = (time.monotonic() - _stream_start) * 1000
                         logger.info("[stream] TTFE: %.0fms, type=%s", _ttfe, out[0])
                         _first_event_logged = True
+                    _mapped_any = True
                     yield out
+                if _mapped_any:
+                    _last_out_ts = time.monotonic()
+                else:
+                    # The model is alive (an upstream event just arrived) but
+                    # nothing was forwarded — typical of long tool-call-arg /
+                    # suppressed-thinking streaming. Emit a throttled liveness
+                    # signal so the inactivity watchdog doesn't misjudge a
+                    # healthy run as hung.
+                    _now = time.monotonic()
+                    if _now - _last_out_ts >= _MODEL_PROGRESS_MIN_INTERVAL_S:
+                        _last_out_ts = _now
+                        yield ("model_progress", None)
         except Exception as e:  # noqa: BLE001
             yield ("error", e)
         finally:

@@ -1688,6 +1688,17 @@ async def create_agent_executor(
         )
     elif isolated:
         _max_iters = _DEFAULT_SUBAGENT_ITERS
+    else:
+        # Main-agent env override for long-running tasks. Wins over the profile
+        # value: the profile validation range tops out at 80 turns, far below
+        # what e.g. a multi-hour report-generation run needs. Read per-call so
+        # ops can adjust without code changes (container restart still needed).
+        _env_iters = (os.getenv("CHAT_MAIN_MAX_ITERS") or "").strip()
+        if _env_iters:
+            try:
+                _max_iters = max(3, int(_env_iters))
+            except ValueError:
+                _log.warning("[factory] 非法 CHAT_MAIN_MAX_ITERS=%r，忽略", _env_iters)
 
     # ── Create the Agent (AgentScope 2.0) ──
     # Note: long_term_memory is not passed — mem0 is fully stripped from the SSE

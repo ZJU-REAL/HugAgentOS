@@ -98,7 +98,7 @@ Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (te
 | File | Responsibility |
 |---|---|
 | `profile.py` | L1 profile memory: bounded markdown dossier, frozen and injected at session start |
-| `service.py` | L2/L3 wrapper: mem0 + Milvus vector facts, Neo4j graph (config assembly + async wrapping) |
+| `service.py` / `graph.py` | L2: mem0 + Milvus procedure vectors; L3: local Neo4j graph relations (config assembly + async wrapping) |
 | `pipeline.py` | Post-hoc write pipeline — all memory writes are taken off the SSE hot path |
 | `extractors/` | 4 LLM extractors (identity/preference/fact/task) + `router.py` classification dispatch + `writers.py` persistence fan-out |
 | `sanitizer.py` | Sensitive-data scrubbing gate (rules stored in `memory_sanitizer_rules`) |

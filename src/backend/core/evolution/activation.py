@@ -519,6 +519,7 @@ def materialise_skill_candidate(
         tools: List[str] = []
         constraints: List[Dict[str, Any]] = []
         document: Optional[Dict[str, Any]] = None
+        manifest: Optional[Dict[str, Any]] = None
         # ref → owning user. Demotion happens inside one person's store, so a
         # skill compiled from several people's memories needs the owner of each.
         source_memories: Dict[str, str] = {}
@@ -532,9 +533,20 @@ def materialise_skill_candidate(
             written = change.get("document")
             if isinstance(written, dict) and written.get("content"):
                 document = written
+            declared = change.get("manifest")
+            if isinstance(declared, dict) and declared:
+                manifest = declared
             for item in change.get("source_memories") or []:
                 if isinstance(item, dict) and item.get("ref"):
                     source_memories[str(item["ref"])] = str(item.get("user_id") or "")
+
+        # 图谱证据自相矛盾的候选可以存在、可以进 shadow 观测，但不允许自动
+        # 走到 ACTIVE：冲突意味着「适用条件」本身不可信，必须先由人裁决。
+        if manifest and manifest.get("graph_conflict") and stage == ACTIVE:
+            raise ActivationError(
+                "graph_conflict_requires_review",
+                f"L3 图谱证据存在冲突，禁止直接激活：{manifest.get('graph_conflicts')}",
+            )
 
         skill_id = candidate.target_asset_id
         if not skill_id.startswith(EVOLUTION_PREFIX):
@@ -634,13 +646,25 @@ def materialise_skill_candidate(
         row.version = _next_version(previous)
         row.tags = sorted(set((previous or {}).get("tags", [])) | {EVOLUTION_TAG})
         # The distilled ordering, in the shape the runtime reads.
-        row.extra_files = {
+        extra_files = {
             **(previous or {}).get("extra_files", {}),
             "tool_sequence.json": _json(tools),
             # The transferable part. A consumer that only understands sequences
             # still works; one that understands rules gets the wider benefit.
             "ordering_constraints.json": _json(constraints),
         }
+        if manifest:
+            # 机器读 manifest（边界/依赖/证据引用），Agent 读 SKILL.md —— 两者
+            # 职责分离。作用域以本次激活实际发生的为准，而不是候选申报的。
+            extra_files["evolution_manifest.json"] = _json(
+                {
+                    **manifest,
+                    "scope": "personal" if owner_user_id else str(
+                        manifest.get("scope") or "workspace"
+                    ),
+                }
+            )
+        row.extra_files = extra_files
         row.allowed_tools = tools
         row.is_enabled = True
 
@@ -731,6 +755,29 @@ def materialise_skill_candidate(
             )
             demoted.extend(op["memory_ref"] for op in outcome.get("applied", []))
 
+    # 血缘落账：这一版技能由哪些 L2 记忆编译（compiled_from）、被哪些 L3 关系
+    # 约束（constrained_by）、由哪些 Episode 验证（validated_by）。尽力而为——
+    # 账本失败绝不回滚一次已经成立的激活。
+    lineage_written = 0
+    try:
+        from core.evolution import lineage
+
+        with SessionLocal() as db:
+            refreshed = db.get(EvolutionCandidate, candidate_id)
+            pack_id = str(getattr(refreshed, "evidence_pack_id", "") or "")
+        pack = lineage.load_evidence_pack(pack_id) if pack_id else None
+        if pack is not None:
+            lineage_written = len(
+                lineage.record_links(
+                    lineage.links_for_skill(
+                        pack, skill_id=skill_id, skill_version=new_version
+                    ),
+                    candidate_id=candidate_id,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[activation] lineage recording skipped: %s", exc)
+
     return {
         "skill_id": skill_id,
         "release_id": release_id,
@@ -738,6 +785,7 @@ def materialise_skill_candidate(
         "traffic_percent": traffic,
         "scope": scope_filter,
         "demoted_memories": demoted,
+        "lineage_links": lineage_written,
         # Spelled out because "activated" previously implied "live for
         # everyone", and for anything above low risk it no longer does.
         "exposed_to": (
@@ -851,6 +899,13 @@ def advance_skill_release(
             raise ActivationError("promotion_refused", reason)
 
         if target_stage == ACTIVE:
+            # 冲突的 L3 证据在 shadow/canary 里观测没问题，但升到全量必须先由
+            # 人裁决冲突本身——适用条件不可信的技能不配自动放大到所有人。
+            if _has_graph_conflict(candidate):
+                raise ActivationError(
+                    "graph_conflict_requires_review",
+                    "候选的 L3 图谱证据存在未裁决的冲突，禁止放量到 active",
+                )
             _check_pace(db, tenant_id=str((release.scope_filter or {}).get("tenant_id") or "default"))
 
         release.stage = target_stage
@@ -884,6 +939,17 @@ def advance_skill_release(
         }
 
 
+def _has_graph_conflict(candidate) -> bool:
+    """Whether the candidate's manifest flags contradictory L3 evidence."""
+    if candidate is None:
+        return False
+    for change in (getattr(candidate, "ir", None) or {}).get("changes") or []:
+        manifest = change.get("manifest") if isinstance(change, dict) else None
+        if isinstance(manifest, dict) and manifest.get("graph_conflict"):
+            return True
+    return False
+
+
 def rollback_skill_activation(
     release_id: str, *, actor: str, reason: str, kind: str = "manual"
 ) -> Dict[str, Any]:
@@ -898,7 +964,11 @@ def rollback_skill_activation(
     which is the number that tells you whether the ramp is worth its cost.
     """
     from core.db.models import AdminSkill
-    from core.db.models.evolution import EvolutionCandidate, EvolutionRelease
+    from core.db.models.evolution import (
+        EvolutionAgentProfile,
+        EvolutionCandidate,
+        EvolutionRelease,
+    )
     from core.evolution.release import ROLLBACK_GUARDRAIL, ROLLBACK_MANUAL, ROLLED_BACK
 
     if not actor or not reason:
@@ -910,11 +980,13 @@ def rollback_skill_activation(
             raise ActivationError("release_not_found", f"发布记录不存在: {release_id}")
 
         previous = (release.guardrails or {}).get("previous")
+        skill_id = release.target_asset_id
         row = (
             db.query(AdminSkill)
-            .filter(AdminSkill.skill_id == release.target_asset_id)
+            .filter(AdminSkill.skill_id == skill_id)
             .first()
         )
+        invalidated: List[str] = []
         if row is not None:
             if previous:
                 row.skill_content = previous["skill_content"]
@@ -927,6 +999,20 @@ def rollback_skill_activation(
                 row.is_enabled = previous["is_enabled"]
             else:
                 row.is_enabled = False
+                # No prior version means the skill just stopped being loadable,
+                # so a profile assembled on top of it is now promising a
+                # capability that fails silently — same cross-layer rule as
+                # retirement. With a restored prior version the skill stays
+                # loadable and the profiles stay valid.
+                for profile_row in (
+                    db.query(EvolutionAgentProfile)
+                    .filter(EvolutionAgentProfile.is_active.is_(True))
+                    .all()
+                ):
+                    payload = profile_row.payload or {}
+                    if skill_id in (payload.get("skill_ids") or []):
+                        profile_row.is_active = False
+                        invalidated.append(profile_row.profile_id)
 
         release.stage = ROLLED_BACK
         release.rolled_back_at = datetime.now(timezone.utc)
@@ -938,11 +1024,50 @@ def rollback_skill_activation(
         candidate = db.get(EvolutionCandidate, release.candidate_id)
         if candidate is not None:
             candidate.status = ROLLED_BACK
+        candidate_id = release.candidate_id
         db.commit()
 
+    # The reverse edge of the promotion chain. Materialisation down-weighted the
+    # memories this skill was compiled from; rolling the skill back must restore
+    # them in the same motion, or the knowledge stays half-priced with no
+    # carrier — retrieval skips it because a skill supposedly covers it, and the
+    # skill is gone. Same ledger the retire path already replays.
+    from core.evolution.memory_apply import revert_memory_ops
+
+    restored = revert_memory_ops(candidate_id=candidate_id) if candidate_id else {}
+
+    # 血缘：这一版回滚到了哪一版。审计问「技能 v2 后来怎么了」时，答案在链上。
+    try:
+        from core.evolution import lineage
+
+        current_version = str((previous or {}).get("version") or "")
+        lineage.record_links(
+            [
+                (
+                    "skill",
+                    f"{skill_id}@rolled_back",
+                    lineage.REL_ROLLED_BACK_TO,
+                    "skill",
+                    f"{skill_id}@{current_version or 'disabled'}",
+                )
+            ],
+            candidate_id=candidate_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[activation] rollback lineage skipped: %s", exc)
+
+    logger.info(
+        "[activation] rolled back %s (release=%s memories restored=%d profiles invalidated=%s)",
+        skill_id,
+        release_id,
+        len(restored.get("reverted", [])),
+        invalidated,
+    )
     return {
         "release_id": release_id,
         "restored_previous": bool(previous),
+        "restored_memory_ops": restored.get("reverted", []),
+        "invalidated_profiles": invalidated,
         "reason": reason,
     }
 
@@ -1105,6 +1230,26 @@ def materialise_profile_candidate(
         candidate.approved_by = approver
         candidate.approved_at = datetime.now(timezone.utc)
         db.commit()
+
+        # 血缘：哪些技能被装配进了这个 profile。
+        try:
+            from core.evolution import lineage
+
+            lineage.record_links(
+                [
+                    (
+                        "skill",
+                        str(skill_id),
+                        lineage.REL_ASSEMBLED_INTO,
+                        "agent_profile",
+                        f"{profile.profile_id}@{profile.version}",
+                    )
+                    for skill_id in profile.skill_ids
+                ],
+                candidate_id=candidate_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[activation] profile lineage skipped: %s", exc)
 
         logger.info(
             "[activation] profile %s active for %s (tools=%s skills=%s)",

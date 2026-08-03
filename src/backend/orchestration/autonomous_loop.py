@@ -372,6 +372,15 @@ async def _run_worker_iteration(
             elif et == "tool_pending":
                 if emit:
                     await emit({"type": "tool_pending", **(payload or {})})
+            elif et == "model_progress":
+                # Liveness during long tool-call-arg generation: written to the
+                # Redis stream so the stale-run reaper sees a live run (its
+                # "quiet" check reads the last stream entry), but never
+                # forwarded to clients — follow_run_as_sse skips this type.
+                # Deliberately NOT forwarding "heartbeat" here: those fire even
+                # when the model is truly silent and would defeat the reaper.
+                if emit:
+                    await emit({"type": "model_progress"})
             elif et == "error":
                 logger.warning("[loop] worker stream error: %s", payload)
     finally:

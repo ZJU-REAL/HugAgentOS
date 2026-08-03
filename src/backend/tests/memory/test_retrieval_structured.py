@@ -171,6 +171,71 @@ def test_graph_relations_reported_as_graph_layer():
     assert result.relations[0].to_event_payload()["layer"] == LAYER_GRAPH
 
 
+def test_relation_event_payload_carries_the_stable_graph_id():
+    """L3 evidence must be resolvable back to the Neo4j edge it came from.
+
+    Without ``relation_id`` in the trace event, an Episode's graph evidence can
+    only be matched by content — which breaks as soon as an entity is renamed
+    or merged. Old traces without the id still degrade to the content hash.
+    """
+    relation = RetrievedRelation(
+        source="项目北斗",
+        relationship="依赖",
+        target="统一身份认证平台",
+        rank=1,
+        relation_id="grel_abc123",
+        predicate="depends_on",
+        confidence=0.87,
+    )
+    payload = relation.to_event_payload()
+    assert payload["relation_id"] == "grel_abc123"
+    assert payload["predicate"] == "depends_on"
+    assert payload["confidence"] == pytest.approx(0.87)
+    # Legacy construction (no id) stays valid and keys on content alone.
+    legacy = RetrievedRelation(source="A", relationship="属于", target="B", rank=1)
+    assert legacy.to_event_payload()["relation_id"] == ""
+
+
+def test_relation_ref_shadow_records_the_graph_relation_id(monkeypatch):
+    """The shadow row for an L3 relation must keep the store's own id.
+
+    ``external_id=None`` made graph evidence unauditable: the ref existed but
+    pointed at nothing that could be looked up in Neo4j.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import core.memory.ref_shadow as RS
+    from core.db.engine import Base
+    from core.db.models import MemoryRefShadow
+
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
+    Base.metadata.create_all(engine, tables=[MemoryRefShadow.__table__])
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(RS, "SessionLocal", factory)
+
+    result = MemoryRetrievalResult(
+        relations=(
+            RetrievedRelation(
+                source="项目北斗",
+                relationship="依赖",
+                target="统一身份认证平台",
+                rank=1,
+                relation_id="grel_abc123",
+            ),
+        )
+    )
+    refs = RS.record_retrieved_refs(result, user_id="u1")
+    assert len(refs) == 1
+    with factory() as db:
+        row = db.query(MemoryRefShadow).one()
+        assert row.layer == LAYER_GRAPH
+        assert row.external_id == "grel_abc123"
+        assert row.ref_id == refs[0]
+
+
 # ── Content hash / ref stability ─────────────────────────────────────────────
 
 

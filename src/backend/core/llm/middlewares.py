@@ -19,6 +19,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 from contextvars import ContextVar
 from pathlib import Path
@@ -640,15 +641,51 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
             self._maybe_remind(agent)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[iter_budget] failed: %s", exc)
+        try:
+            input_kwargs = self._maybe_force_text(agent, input_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[iter_budget] force-text failed: %s", exc)
         async for evt in next_handler(**input_kwargs):
             yield evt
 
-    def _maybe_remind(self, agent: Agent) -> None:
+    def _remaining(self, agent: Agent) -> tuple[int, int]:
+        """Return (max_iters, remaining-including-current-round)."""
         max_iters = int(getattr(agent.react_config, "max_iters", 0) or 0)
+        cur_iter = int(getattr(agent.state, "cur_iter", 0) or 0)
+        return max_iters, max_iters - cur_iter
+
+    def _maybe_force_text(self, agent: Agent, input_kwargs: dict) -> dict:
+        """Final round: force tool_choice="none" so the model can only produce text.
+
+        The reminder alone is advisory — a model that still emits a tool call in
+        the final round trips AgentScope's hard limit and the whole turn's output
+        is discarded. Forcing text turns the hard error into a guaranteed clean
+        exit (the loop sees no tool calls and yields the reply Msg). Skipped for
+        micro budgets (same guard as the reminder) and when a caller already
+        pinned an explicit tool_choice. Kill-switch: CHAT_FINAL_ITER_FORCE_TEXT=false.
+        """
+        if (os.getenv("CHAT_FINAL_ITER_FORCE_TEXT") or "true").strip().lower() in (
+            "0", "false", "off", "no",
+        ):
+            return input_kwargs
+        max_iters, remaining = self._remaining(agent)
+        if max_iters <= self._threshold + 1 or remaining > 1:
+            return input_kwargs
+        if input_kwargs.get("tool_choice") is not None:
+            return input_kwargs
+        from agentscope.tool import ToolChoice
+
+        logger.info(
+            "[iter_budget] final round (max_iters=%d): forcing tool_choice=none for clean delivery",
+            max_iters,
+        )
+        return {**input_kwargs, "tool_choice": ToolChoice(mode="none")}
+
+    def _maybe_remind(self, agent: Agent) -> None:
+        max_iters, remaining = self._remaining(agent)
         if max_iters <= self._threshold + 1:
             return
         cur_iter = int(getattr(agent.state, "cur_iter", 0) or 0)
-        remaining = max_iters - cur_iter  # includes the current round
         if remaining > self._threshold:
             return
         key = (getattr(agent.state, "reply_id", "") or "", cur_iter)

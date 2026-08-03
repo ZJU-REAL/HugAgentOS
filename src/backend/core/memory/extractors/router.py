@@ -24,6 +24,7 @@ import re
 from enum import Enum
 from typing import Optional
 
+from core.config.settings import settings
 from core.memory.context import MemoryContext
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class ExtractorType(Enum):
     PREFERENCE = "preference"
     TASK = "task"
     PROCEDURAL = "procedural"
+    GRAPH = "graph"
 
 
 # ─── Keyword trigger conditions ─────────────────────────────────────────────────────────
@@ -93,6 +95,12 @@ def classify_conversation(user_msg: str, assistant_msg: str) -> set[ExtractorTyp
         and len((assistant_msg or "").strip()) >= _SUBSTANTIVE_ASSISTANT_CHARS
     ):
         classes.add(ExtractorType.PROCEDURAL)
+        # L3 has the same substance floor as L2, but is deployment-gated. The
+        # extractor itself decides whether the turn contains a stable entity
+        # relation; keywords cannot do that without silently losing aliases,
+        # dependencies, and ownership statements phrased in new ways.
+        if settings.memory.graph_enabled:
+            classes.add(ExtractorType.GRAPH)
 
     return classes
 
@@ -114,13 +122,14 @@ async def run_extractors_with_timeout(
     if not classes:
         return {}
 
-    from core.memory.extractors import identity, preference, procedural, task
+    from core.memory.extractors import graph, identity, preference, procedural, task
 
     runners: dict[ExtractorType, callable] = {
         ExtractorType.IDENTITY: identity.extract,
         ExtractorType.PREFERENCE: preference.extract,
         ExtractorType.TASK: task.extract,
         ExtractorType.PROCEDURAL: procedural.extract,
+        ExtractorType.GRAPH: graph.extract,
     }
 
     async def _wrap(et: ExtractorType):

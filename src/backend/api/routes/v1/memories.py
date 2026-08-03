@@ -8,6 +8,7 @@ GET    /v1/memories/settings        get the user's memory settings
 PATCH  /v1/memories/settings        update the user's memory settings (switches)
 PATCH  /v1/memories/profile/field   edit one L1 profile field
 DELETE /v1/memories/profile/field   delete one L1 profile field
+DELETE /v1/memories/graph/{id}      delete one L3 graph relation
 DELETE /v1/memories                 clear all L2 memories
 PATCH  /v1/memories/{id}            edit a single L2 memory
 DELETE /v1/memories/{id}            delete a single L2 memory
@@ -25,15 +26,11 @@ from core.config.settings import settings as _jx_settings
 from core.db.engine import get_db
 from core.infra.responses import error_response, success_response
 from core.memory.context import MemoryContext
+from core.memory.graph import delete_graph_relation, list_graph_relations
 from core.memory.profile import delete_field as profile_delete_field
 from core.memory.profile import get as profile_get
 from core.memory.profile import upsert_field as profile_upsert_field
-from core.memory.service import (
-    delete_all_memories,
-    delete_memory,
-    get_all_memories,
-    update_memory,
-)
+from core.memory.service import delete_all_memories, delete_memory, get_all_memories, update_memory
 from core.services import UserService
 from core.services.memory_settings_service import MemorySettingsService
 from fastapi import APIRouter, Depends, Query
@@ -286,6 +283,26 @@ async def remove_profile_field(
     return success_response(data={"deleted": key})
 
 
+# ── L3 graph: one relation at a time ──────────────────────────────────────
+
+
+@router.delete("/graph/{relation_id}", summary="删除单条图谱关系")
+async def remove_graph_relation(
+    relation_id: str,
+    message_id: Optional[str] = Query(None, description="上报该关系的消息 id"),
+    user: UserContext = Depends(get_current_user),
+):
+    """删除当前用户默认作用域中的一条 L3 关系。"""
+    ok = await delete_graph_relation(relation_id, scope_user_id=str(user.user_id))
+    if not ok:
+        return error_response(code=50001, message="删除失败", status_code=500)
+    if message_id:
+        from core.evolution.settlement_store import drop_entry
+
+        drop_entry(message_id, relation_id)
+    return success_response(data={"deleted": relation_id})
+
+
 # ── L2 procedures: one entry at a time ────────────────────────────────────
 
 
@@ -404,15 +421,35 @@ async def list_memory_audit(
 
 @router.get("/graph", summary="查询图谱记忆")
 async def get_memory_graph(
-    user: UserContext = Depends(get_current_user),
     limit: int = Query(30, ge=1, le=200, description="返回关系条数"),
+    project_id: Optional[str] = Query(None, description="若指定，返回该项目作用域的关系"),
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """L3 图谱记忆：当前用户的实体关系（Neo4j）。
-
-    当前返回 `enabled` 状态 + 空 relations 列表。结构化 graph 查询需要 service 层
-    暴露 `mem0.Memory.search(filters={"graph_only": True})`，下轮实现；前端 Tab 以
-    `enabled` 字段决定显示占位或关系。
-    """
+    """L3 图谱记忆：当前用户或项目作用域的实体关系（Neo4j）。"""
     if not (_jx_settings.memory.enabled and _jx_settings.memory.graph_enabled):
         return success_response(data={"enabled": False, "relations": [], "count": 0})
-    return success_response(data={"enabled": True, "relations": [], "count": 0})
+
+    scope_user_id = str(user.user_id)
+    workspace_id = "default"
+    if project_id:
+        from core.services.project_scope import project_memory_policy
+
+        policy = project_memory_policy(db, project_id, scope_user_id)
+        if policy is None:
+            return success_response(data={"enabled": False, "relations": [], "count": 0})
+        ws_enabled, scope_user_id = policy
+        if not ws_enabled:
+            return success_response(data={"enabled": False, "relations": [], "count": 0})
+        workspace_id = f"project:{project_id}"
+    else:
+        user_settings = UserService(db).get_user_settings(str(user.user_id))
+        if not bool(user_settings.get("memory_enabled", False)):
+            return success_response(data={"enabled": False, "relations": [], "count": 0})
+
+    relations = await list_graph_relations(
+        scope_user_id,
+        workspace_id=workspace_id,
+        limit=limit,
+    )
+    return success_response(data={"enabled": True, "relations": relations, "count": len(relations)})

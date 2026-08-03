@@ -481,6 +481,13 @@ async def _run_workflow(
                 # Not written to the stream — the SSE layer's own keep-alive cadence is handled by Nginx/StreamingResponse
                 continue
 
+            elif chunk_type == "model_progress":
+                # The model is still streaming (e.g. long tool-call-argument
+                # generation) even though nothing maps to an SSE event. Not
+                # written to the wire; merely receiving it resets the
+                # inactivity watchdog (is_activity excludes only "heartbeat").
+                continue
+
             elif chunk_type == "tool_pending":
                 pending_event = {
                     "type": "tool_pending",
@@ -907,16 +914,26 @@ async def follow_run(run_id: str, *, from_offset: int = 0) -> AsyncIterator[Dict
 
 
 def _decode_entry(fields: Any) -> Optional[Dict[str, Any]]:
-    """Decode the fields of a single Redis Stream entry into an SSE event dict."""
+    """Decode the fields of a single Redis Stream entry into an SSE event dict.
+
+    Returns None for undecodable entries and for internal liveness markers
+    (``model_progress``): those exist only so the stale-run reaper sees a live
+    stream (it reads entry timestamps, not payloads) and must never reach
+    clients — the frontend treats unknown event types as "pending ended".
+    Only used by follow_run_as_sse's replay/tail paths.
+    """
     if not fields:
         return None
     raw = fields.get("data") if isinstance(fields, dict) else None
     if raw is None:
         return None
     try:
-        return json.loads(raw)
+        event = json.loads(raw)
     except Exception:
         return None
+    if isinstance(event, dict) and event.get("type") == "model_progress":
+        return None
+    return event
 
 
 def _next_id(last_id: str) -> str:

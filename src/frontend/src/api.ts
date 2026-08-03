@@ -1091,6 +1091,11 @@ export async function deleteMemory(memoryId: string, messageId?: string): Promis
   await apiRequest(`/v1/memories/${memoryId}${qs}`, { method: 'DELETE' });
 }
 
+export async function deleteGraphRelation(relationId: string, messageId?: string): Promise<void> {
+  const qs = messageId ? `?message_id=${encodeURIComponent(messageId)}` : '';
+  await apiRequest(`/v1/memories/graph/${relationId}${qs}`, { method: 'DELETE' });
+}
+
 export async function updateMemory(
   memoryId: string,
   text: string,
@@ -2284,6 +2289,7 @@ export const api = {
   healthCheck,
   getMemories,
   deleteMemory,
+  deleteGraphRelation,
   updateMemory,
   updateProfileField,
   deleteProfileField,

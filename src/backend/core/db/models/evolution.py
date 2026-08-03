@@ -154,6 +154,10 @@ class EvolutionCandidate(Base):
     change_checksum = Column(String(64), nullable=False)
 
     evidence_refs = Column(JSONType, default=list)
+    # The immutable, content-addressed evidence pack this candidate was compiled
+    # from (``evolution_evidence_packs``). ``evidence_refs`` stays as the quick
+    # display list; the pack is the authoritative, resolvable evidence.
+    evidence_pack_id = Column(String(64), index=True)
     credit_decision = Column(JSONType)
     risk_tier = Column(String(16), default="medium", nullable=False)
     scope = Column(JSONType, default=dict)
@@ -309,6 +313,97 @@ class EvolutionAgentProfile(Base):
 
     __table_args__ = (
         Index("idx_evolution_profiles_active", "is_active", "updated_at"),
+    )
+
+
+class EvolutionEvidencePack(Base):
+    """One immutable, content-addressed evidence pack (compiler V2, P1).
+
+    ``pack_id`` is derived from the pack's canonical content, so resolving the
+    same evidence twice yields the same row — which is what stops repeated
+    cycles from minting duplicate candidates, and what makes "which exact
+    evidence was this skill compiled from?" answerable years later. Rows are
+    never updated; a different pack is a different row.
+    """
+
+    __tablename__ = "evolution_evidence_packs"
+
+    pack_id = Column(String(64), primary_key=True)
+    schema_version = Column(String(8), nullable=False, default="2")
+    pack_hash = Column(String(80), nullable=False)
+    scope = Column(JSONType, default=dict)
+    pack = Column(JSONType, nullable=False)
+    support = Column(JSONType, default=dict)
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("pack_hash", name="uq_evolution_evidence_packs_hash"),
+        Index("idx_evolution_evidence_packs_created", "created_at"),
+    )
+
+
+class EvolutionCreditDecision(Base):
+    """One persisted attribution verdict.
+
+    ``CreditDecision`` used to be a runtime object only: the candidate stored a
+    JSON copy, but "why did this cycle blame L2 rather than L3?" could not be
+    answered for decisions that produced nothing. Persisting every decision that
+    reaches the candidate builder is what makes attribution auditable, and
+    candidates reference the decision id rather than owning the only copy.
+    """
+
+    __tablename__ = "evolution_credit_decisions"
+
+    decision_id = Column(String(64), primary_key=True)
+    episode_id = Column(String(64), index=True)
+    selected = Column(String(32), nullable=False, default="no_update")
+    verdict = Column(String(32), default="")
+    confidence = Column(Float, default=0.0)
+    scores = Column(JSONType, default=dict)
+    features = Column(JSONType, default=dict)
+    explanation = Column(Text, default="")
+    assigner_version = Column(String(32), default="")
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("idx_evolution_credit_selected", "selected", "created_at"),
+    )
+
+
+class EvolutionPromotionLink(Base):
+    """One edge of the promotion lineage graph.
+
+    First-class rather than derived, because the questions it answers span
+    tables that each know only their own side: which L2 memories a skill was
+    compiled from (``compiled_from``), which L3 relations bound it
+    (``constrained_by``), which episodes validated it (``validated_by``),
+    which profile assembled it (``assembled_into``), and where a rollback went
+    (``rolled_back_to``).
+    """
+
+    __tablename__ = "evolution_promotion_links"
+
+    link_id = Column(String(64), primary_key=True)
+    source_kind = Column(String(24), nullable=False)
+    source_id = Column(String(160), nullable=False)
+    relation = Column(String(32), nullable=False)
+    target_kind = Column(String(24), nullable=False)
+    target_id = Column(String(160), nullable=False)
+    candidate_id = Column(String(64), index=True)
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        # One fact, one row — re-materialising must not duplicate the lineage.
+        UniqueConstraint(
+            "source_kind",
+            "source_id",
+            "relation",
+            "target_kind",
+            "target_id",
+            name="uq_evolution_promotion_links_edge",
+        ),
+        Index("idx_evolution_promotion_links_target", "target_kind", "target_id"),
+        Index("idx_evolution_promotion_links_source", "source_kind", "source_id"),
     )
 
 

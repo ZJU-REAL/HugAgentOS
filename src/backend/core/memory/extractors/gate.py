@@ -36,6 +36,7 @@ PROMPT = """你是一个记忆写入门卫。判断这轮对话中是否包含**
 - identity: 用户的身份信息（姓名、部门、岗位、单位、联系方式）
 - preference: 稳定的表达偏好（格式、详略、语言风格、明确禁忌）
 - procedural: 可复用的做事方式（步骤顺序、口径定义、校验红线、交付约定）
+- graph: 稳定的实体关系（隶属、负责、依赖、使用、组成、别名、分类）
 - task: 本轮明确提出的多步任务目标（仅本会话内使用）
 
 【判定标准 —— 宁缺毋滥】
@@ -81,8 +82,9 @@ async def llm_write_gate(
     )
     raw = await run_llm_with_prompt(prompt, timeout_s=timeout_s, max_tokens=150)
     if raw is None:
-        logger.info("[memory_gate] LLM unavailable, failing open (%d candidates pass)",
-                    len(candidates))
+        logger.info(
+            "[memory_gate] LLM unavailable, failing open (%d candidates pass)", len(candidates)
+        )
         return candidates
 
     parsed = parse_json(raw, require_key="classes")
@@ -100,7 +102,10 @@ async def llm_write_gate(
     verdict = candidates & approved
     if verdict != candidates:
         dropped = sorted(c.value for c in candidates - verdict)
-        logger.info("[memory_gate] narrowed %s → %s (dropped %s)",
-                    sorted(c.value for c in candidates),
-                    sorted(c.value for c in verdict), dropped)
+        logger.info(
+            "[memory_gate] narrowed %s → %s (dropped %s)",
+            sorted(c.value for c in candidates),
+            sorted(c.value for c in verdict),
+            dropped,
+        )
     return verdict

@@ -2166,6 +2166,9 @@ textarea.jx-composer{
   transition:color .18s ease, border-color .18s ease;
   pointer-events:auto;
 }
+.jx-planModeIcon{
+  display:none;
+}
 .jx-planModeBtn:hover{
   color:rgba(15,23,42,.88);
   border-color:rgba(15,23,42,.22);

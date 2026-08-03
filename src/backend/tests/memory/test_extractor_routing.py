@@ -14,7 +14,6 @@ Two rules this file exists to hold:
 
 from core.memory.extractors.router import ExtractorType, classify_conversation
 
-
 LONG_ANSWER = "好的，我按你说的口径重新算了一遍，" * 3
 
 
@@ -25,6 +24,7 @@ def test_there_is_no_fact_extractor():
         "preference",
         "task",
         "procedural",
+        "graph",
     }
 
 
@@ -55,9 +55,7 @@ def test_a_throwaway_turn_is_not_worth_an_llm_call():
 
 def test_an_unanswered_turn_is_not_examined():
     # A question the assistant never answered has no outcome to learn from.
-    assert ExtractorType.PROCEDURAL not in classify_conversation(
-        "这个财务口径应该怎么算比较好", ""
-    )
+    assert ExtractorType.PROCEDURAL not in classify_conversation("这个财务口径应该怎么算比较好", "")
 
 
 def test_identity_and_preference_stay_keyword_gated():
@@ -66,3 +64,20 @@ def test_identity_and_preference_stay_keyword_gated():
     assert ExtractorType.IDENTITY in classify_conversation("我是研发中心的负责人", LONG_ANSWER)
     assert ExtractorType.IDENTITY not in classify_conversation("帮我算下这个季度的数", LONG_ANSWER)
     assert ExtractorType.PREFERENCE in classify_conversation("以后回答简洁点", LONG_ANSWER)
+
+
+def test_graph_extraction_is_deployment_gated(monkeypatch):
+    from types import SimpleNamespace
+
+    from core.memory.extractors import router
+
+    monkeypatch.setattr(
+        router,
+        "settings",
+        SimpleNamespace(memory=SimpleNamespace(graph_enabled=True)),
+    )
+    classes = router.classify_conversation(
+        "项目北斗依赖统一身份认证平台才能登录",
+        LONG_ANSWER,
+    )
+    assert ExtractorType.GRAPH in classes

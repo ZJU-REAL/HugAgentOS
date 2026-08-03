@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { approveMyEvolutionCandidate, getMyEvolutionCandidates } from '../../api';
 import type { MyEvolutionCandidate } from '../../api';
 import { t } from '../../i18n';
+import { useCatalogStore } from '../../stores/catalogStore';
 
 /**
  * Capability changes the signed-in user can decide on for themselves.
@@ -107,13 +108,24 @@ export function EvolutionApprovalList() {
         message.success(
           candidate.action === 'apply_memory'
             ? t('已应用该记忆调整')
-            : t('已为你启用该能力'),
+            : t('已为你启用该能力，可在「能力中心 → 技能」查看'),
         );
         // Drop it locally rather than refetching: the row is gone either way,
         // and a spinner over a list the user just acted on reads as uncertainty.
         setItems((prev) => prev.filter((c) => c.candidate_id !== candidate.candidate_id));
+        if (candidate.action !== 'apply_memory') {
+          // The new private skill lives in the capability catalog; without a
+          // refetch the cached store keeps showing the pre-approval list until
+          // the next full page load.
+          void useCatalogStore.getState().fetchCatalog();
+        }
       })
-      .catch(() => message.error(t('操作失败，请稍后重试')))
+      .catch((err: unknown) => {
+        // The backend explains refusals ("你已启用过…" / "需管理员审批") — a
+        // generic retry toast would hide the one line that resolves them.
+        const detail = err instanceof Error ? err.message : '';
+        message.error(detail && !detail.startsWith('API Error') ? detail : t('操作失败，请稍后重试'));
+      })
       .finally(() => setApproving(''));
   };
 

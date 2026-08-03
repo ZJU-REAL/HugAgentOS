@@ -98,6 +98,24 @@ def test_substitution_does_not_mutate_the_original():
     assert bundle.first_of_kind(C.ASSET_SKILL).version == "v1"
 
 
+def test_memory_policy_ref_names_each_layer():
+    """Attribution must distinguish "L3 offered nothing" from "L3 was off".
+
+    A single opaque ``v1`` policy could not answer which layered configuration
+    a given Episode actually ran under.
+    """
+    refs = rb._memory_refs(True, "ws-1")
+    layers = refs[0].detail["layers"]
+    assert set(layers) == {"profile", "fact", "graph"}
+    assert "enabled" in layers["graph"]
+    assert "dedup_min_score" in layers["fact"]
+
+    # With the user switch off, every layer reads disabled regardless of env.
+    off = rb._memory_refs(False, "ws-1")
+    assert off[0].detail["enabled"] is False
+    assert off[0].detail["layers"]["graph"]["enabled"] is False
+
+
 # ── binding behaviour ────────────────────────────────────────────────────────
 
 
