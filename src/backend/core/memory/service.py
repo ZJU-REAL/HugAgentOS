@@ -1,13 +1,18 @@
 """mem0 memory service wrapper
 
 Directly reuses mem0 framework capabilities:
-- fact extraction (LLM)
 - vector retrieval (Milvus)
 - graph retrieval (Neo4j, enable_graph=True)
-- reranking (Reranker API)
-- dedup/update decisions (LLM)
+- native expiration (add/update ``expiration_date``; expired entries are hidden
+  from search and get_all)
 
-This file only does config assembly + async wrapping; it implements no memory-management logic.
+What it deliberately does NOT delegate to mem0: extraction and dedup. Writes go
+in with ``infer=False`` after our own extractors have judged the turn, and
+near-duplicate detection is our own pre-write search (`find_similar_procedure` +
+`reinforce_procedure_entry`) — mem0's dedup lives inside the ``infer`` pass we
+skip, so skipping it without a replacement made every L2 write a blind append.
+
+This file only does config assembly + async wrapping beyond that.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ import asyncio
 import logging
 import math
 import threading
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 from core.config.settings import settings
@@ -414,6 +419,122 @@ def _record_retrieval_refs(
         logger.debug("[MemoryService] ref shadow upsert skipped: %s", exc)
 
 
+def _expiration_from_ttl(ttl_days: int) -> Optional[str]:
+    """YYYY-MM-DD expiry for mem0's native expiration, or None for no expiry."""
+    if not ttl_days or ttl_days <= 0:
+        return None
+    return (date.today() + timedelta(days=int(ttl_days))).isoformat()
+
+
+async def find_similar_procedure(
+    ctx,
+    content: str,
+    *,
+    min_score: Optional[float] = None,
+) -> Optional[dict]:
+    """Search L2 for an existing procedure near-duplicate to ``content``.
+
+    Returns the best match as ``{"id", "memory", "score", "metadata"}`` when its
+    cosine score reaches ``min_score`` (default from settings), else None. Any
+    failure returns None — the caller then writes a new entry, which is the
+    correct degradation: a duplicate row is recoverable, a lost memory is not.
+    """
+    if not settings.memory.enabled or not content or not ctx or not ctx.user_id:
+        return None
+    threshold = (
+        min_score if min_score is not None
+        else settings.memory.procedure_dedup_min_score
+    )
+
+    loop = asyncio.get_running_loop()
+    memory = await loop.run_in_executor(None, _get_memory)
+    if memory is None:
+        return None
+
+    search_filters: dict = {"user_id": ctx.effective_scope_user_id}
+    if ctx.workspace_id:
+        search_filters["workspace_id"] = ctx.workspace_id
+
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: memory.search(content, filters=search_filters, top_k=3),
+        )
+    except Exception as exc:
+        logger.debug("[MemoryService] dedup search failed, treating as no match: %s", exc)
+        return None
+
+    items = result.get("results", []) if isinstance(result, dict) else result
+    best: Optional[dict] = None
+    for m in items if isinstance(items, list) else []:
+        if not isinstance(m, dict):
+            continue
+        meta = m.get("metadata") or {}
+        if meta.get("layer") != "L2":
+            continue
+        score = float(m.get("score") or 0.0)
+        if score < threshold:
+            continue
+        if best is None or score > float(best.get("score") or 0.0):
+            best = {
+                "id": m.get("id"),
+                "memory": m.get("memory") or m.get("text") or "",
+                "score": score,
+                "metadata": meta,
+            }
+    return best if best and best.get("id") else None
+
+
+async def reinforce_procedure_entry(similar: dict, *, strength: str = "weak") -> bool:
+    """Record that an already-stored procedure was stated again.
+
+    A restatement is evidence, not new content: bump ``seen_count``, promote the
+    entry to strong (anything seen twice has earned persistence), and extend its
+    expiry to the full procedure TTL. ``updated_at`` is bumped by mem0 itself,
+    which also refreshes the retrieval-side time decay.
+    """
+    memory_id = similar.get("id")
+    if not memory_id:
+        return False
+
+    loop = asyncio.get_running_loop()
+    memory = await loop.run_in_executor(None, _get_memory)
+    if memory is None:
+        return False
+
+    meta = similar.get("metadata") or {}
+    seen = _int_or(meta.get("seen_count"), 1) + 1
+    ttl = settings.memory.procedure_ttl_days
+    patch = {
+        "seen_count": seen,
+        "strength": "strong",
+        "ttl_days": int(ttl),
+        "last_reinforced_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: memory.update(
+                memory_id,
+                metadata=patch,
+                expiration_date=_expiration_from_ttl(ttl),
+            ),
+        )
+        logger.info("[MemoryService] procedure reinforced id=%s seen=%d (stated as %s)",
+                    memory_id, seen, strength)
+        return True
+    except Exception as exc:
+        logger.warning("[MemoryService] reinforce failed id=%s: %s", memory_id, exc)
+        return False
+
+
+def _int_or(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 async def save_procedure_entry(
     *,
     ctx,
@@ -500,7 +621,14 @@ async def save_procedure_entry(
             # shows no memory, the log shows no error, and the user is told the
             # turn had nothing worth remembering.
             lambda: memory.add(
-                messages, user_id=mem0_user_id, metadata=metadata, infer=False
+                messages,
+                user_id=mem0_user_id,
+                metadata=metadata,
+                infer=False,
+                # Native expiry: an expired entry stops being recalled without
+                # waiting for the sweeper to physically remove it. ttl_days
+                # stays in metadata as the display/extension source of truth.
+                expiration_date=_expiration_from_ttl(ttl_days),
             ),
         )
         if milvus_breaker is not None:

@@ -76,6 +76,13 @@ def _int(val: str, default: int = 0) -> int:
         return default
 
 
+def _float(val: str, default: float = 0.0) -> float:
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 # Legacy frontend model alias, stamped on runs/requests when no explicit model
 # name is resolved. Runtime model selection is DB-driven (model providers /
 # role assignments); this is only the last-resort label. Single source of
@@ -275,6 +282,29 @@ class MemorySettings:
     )
     fact_default_ttl_days: int = field(
         default_factory=lambda: _int(_env("MEMORY_FACT_DEFAULT_TTL_DAYS", "180"), 180)
+    )
+    # ── Write-path quality gates ─────────────────────────────────
+    # One fast LLM call after the regex classify that decides whether the turn
+    # actually contains anything worth remembering. The regex classes are the
+    # recall floor; the gate can only narrow them, never widen.
+    llm_gate_enabled: bool = field(
+        default_factory=lambda: _bool(_env("MEMORY_LLM_GATE_ENABLED", "true"))
+    )
+    gate_timeout_s: int = field(
+        default_factory=lambda: _int(_env("MEMORY_GATE_TIMEOUT_S", "10"), 10)
+    )
+    # Near-duplicate threshold for L2 procedures: a new rule whose cosine score
+    # against an existing entry reaches this is a reinforcement, not a new row.
+    procedure_dedup_min_score: float = field(
+        default_factory=lambda: _float(_env("MEMORY_PROCEDURE_DEDUP_MIN_SCORE", "0.9"), 0.9)
+    )
+    # Lifetimes: strong rules (or any rule seen twice) persist for a year;
+    # a weak rule enters provisionally and ages out unless it recurs.
+    procedure_ttl_days: int = field(
+        default_factory=lambda: _int(_env("MEMORY_PROCEDURE_TTL_DAYS", "365"), 365)
+    )
+    procedure_weak_ttl_days: int = field(
+        default_factory=lambda: _int(_env("MEMORY_PROCEDURE_WEAK_TTL_DAYS", "30"), 30)
     )
     frozen_topk: int = field(default_factory=lambda: _int(_env("MEMORY_FROZEN_TOPK", "5"), 5))
     breaker_threshold: int = field(

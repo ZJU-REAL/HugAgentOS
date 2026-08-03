@@ -23,13 +23,18 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from core.config.settings import settings
 from core.memory.extractors.router import ExtractorType
 from core.memory.audit import record as audit_record
 from core.memory.audit import record_batch as audit_record_batch
 from core.memory.context import MemoryContext
 from core.memory.pipeline import milvus_breaker
 from core.memory.sanitizer import sanitize
-from core.memory.service import save_procedure_entry
+from core.memory.service import (
+    find_similar_procedure,
+    reinforce_procedure_entry,
+    save_procedure_entry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,10 +151,23 @@ async def _upsert_profile_facts(
 async def _write_procedures_to_milvus(data: dict, ctx: MemoryContext) -> list[dict]:
     """Store "how work is done here" — the whole of what L2 keeps.
 
-    Returns one item per procedure actually persisted, carrying the mem0 id. A
-    write whose id cannot be read back counts as not written: the card would
-    otherwise show a memory the user cannot edit or delete, which is worse than
-    not showing it.
+    Two gates run before anything is appended:
+
+    1. **Near-dup check.** The same convention restated across conversations must
+       not become five near-identical rows. A vector search against the scope's
+       existing L2 entries runs first; a hit above the dedup threshold turns the
+       write into a *reinforcement* of the existing entry (seen_count += 1,
+       promoted to strong, expiry extended) instead of a new row.
+    2. **Strength-tiered TTL.** A rule the extractor marks ``strong`` persists
+       for the full procedure TTL. A ``weak`` rule enters *provisionally* with a
+       short TTL — if it never recurs it ages out; the moment it is restated,
+       gate 1 promotes it to persistent. That is "seen twice → persist" without
+       needing a side table.
+
+    Returns one item per procedure actually persisted or reinforced, carrying
+    the mem0 id. A write whose id cannot be read back counts as not written: the
+    card would otherwise show a memory the user cannot edit or delete, which is
+    worse than not showing it.
     """
     if milvus_breaker.is_open():
         logger.info("[writer:procedural] milvus breaker open, skipping %d procedures",
@@ -178,6 +196,32 @@ async def _write_procedures_to_milvus(data: dict, ctx: MemoryContext) -> list[di
             continue
         why = (item.get("why") or "")[:200]
         applies_to = (item.get("applies_to") or "")[:80]
+        strength = "strong" if (item.get("strength") == "strong") else "weak"
+
+        # Gate 1: near-dup → reinforce instead of append. A failed search
+        # returns None and falls through to a normal write — a duplicate row is
+        # recoverable, a dropped memory is not.
+        similar = await find_similar_procedure(ctx, san.text)
+        if similar:
+            reinforced = await reinforce_procedure_entry(similar, strength=strength)
+            if reinforced:
+                written.append({
+                    "layer": LAYER_PROCEDURE,
+                    "kind": "procedure",
+                    "handle": similar["id"],
+                    "text": similar.get("memory") or san.text,
+                    "why": why,
+                    "applies_to": applies_to,
+                    "action": "reinforce",
+                })
+            continue
+
+        # Gate 2: strength decides the lifetime, not whether we listen at all.
+        ttl_days = (
+            settings.memory.procedure_ttl_days
+            if strength == "strong"
+            else settings.memory.procedure_weak_ttl_days
+        )
         try:
             memory_id = await save_procedure_entry(
                 ctx=ctx,
@@ -185,13 +229,14 @@ async def _write_procedures_to_milvus(data: dict, ctx: MemoryContext) -> list[di
                 source="procedural_extractor",
                 tags=["procedure"],
                 confidentiality="internal",
-                ttl_days=365,
+                ttl_days=ttl_days,
                 evidence=why[:120],
                 sanitizer_hits=san.hits,
                 memory_meta={
                     "why": why,
                     "applies_to": applies_to,
-                    "strength": item.get("strength") or "weak",
+                    "strength": strength,
+                    "seen_count": 1,
                 },
             )
         except Exception as exc:

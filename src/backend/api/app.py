@@ -71,6 +71,7 @@ async def lifespan(app: FastAPI):
     await _startup_automation_scheduler()
     await _startup_distillation_scheduler()
     await _startup_evolution_scheduler()
+    await _startup_memory_ttl_scheduler()
     await _startup_recover_persona_distill_jobs()
     await _startup_warmup_memory()
     await _startup_channel_manager()
@@ -1006,6 +1007,18 @@ async def _startup_evolution_scheduler():
     except Exception as exc:
         # A scheduler that fails to start must not take the API down with it.
         logger.warning("evolution_scheduler_start_failed", error=str(exc))
+
+
+async def _startup_memory_ttl_scheduler():
+    """Start the daily memory-TTL sweep (deletes expired L2 entries)."""
+    if not settings.memory.enabled:
+        return
+    try:
+        from orchestration.schedulers.memory_ttl_scheduler import MemoryTtlScheduler
+
+        await MemoryTtlScheduler().start()
+    except Exception as exc:
+        logger.warning("[startup] Memory TTL scheduler failed to start: %s", exc)
 
 
 async def _startup_distillation_scheduler():

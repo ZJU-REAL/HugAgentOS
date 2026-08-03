@@ -254,6 +254,12 @@
 | `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | L2 Fact 默认 TTL（天） | CE |
 | `MEMORY_FROZEN_TOPK` | `5` | 注入冻结块的 Fact top-K | CE |
 | `MEMORY_BREAKER_THRESHOLD` / `MEMORY_BREAKER_COOLDOWN_S` | `3` / `60` | Milvus 熔断阈值 / 冷却（秒） | CE |
+| `MEMORY_LLM_GATE_ENABLED` | `true` | 写入门卫：抽取前用一次快速 LLM 判断本轮是否有值得长期记住的内容（只收窄、失败放行） | CE |
+| `MEMORY_GATE_TIMEOUT_S` | `10` | 写入门卫 LLM 调用超时（秒） | CE |
+| `MEMORY_PROCEDURE_DEDUP_MIN_SCORE` | `0.9` | L2 写前近重阈值：与已有条目余弦相似度达到该值转为"强化"（不新增行） | CE |
+| `MEMORY_PROCEDURE_TTL_DAYS` | `365` | L2 强规则 / 被复述过的规则的存活期（天） | CE |
+| `MEMORY_PROCEDURE_WEAK_TTL_DAYS` | `30` | L2 弱规则试用期（天）：期内未再出现则过期，再次出现即升为持久 | CE |
+| `MEMORY_TTL_SWEEP_ENABLED` / `MEMORY_TTL_SWEEP_CRON` | `true` / `15 4 * * *` | 每日过期记忆物理清理（过期条目在此之前已被检索侧隐藏） | CE |
 
 ## 版本、品牌与 License
 
