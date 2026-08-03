@@ -20,7 +20,7 @@ const MECHANISMS: Array<{ key: string; label: string; desc: string }> = [
  * and a design that assumes a pack exists breaks the third case completely.
  * "Not bound" is therefore presented as an ordinary choice, not a warning.
  */
-export function EvolutionPrefsPanel() {
+export function EvolutionPrefsPanel({ onShowDetail }: { onShowDetail?: () => void }) {
   const [prefs, setPrefs] = useState<EvolutionPrefs | null>(null);
   const [packs, setPacks] = useState<OntologyPackOption[]>([]);
   const [saving, setSaving] = useState(false);
@@ -68,10 +68,13 @@ export function EvolutionPrefsPanel() {
 
   return (
     <div className="jx-evoPrefs">
+      {/* The single evolution switch: distilling for this user and their
+          conversations serving as evidence both follow it — there is no
+          separate participation toggle. */}
       <div className="jx-evoPrefs-row">
         <div className="jx-evoPrefs-label">
           <span>{t('启动进化')}</span>
-          <small>{t('关闭后系统不再从你的用法中沉淀任何能力；已生成的内容保留')}</small>
+          <small>{t('开启后，系统从你的用法中为你沉淀能力，你的对话也会作为证据参与集体能力沉淀；关闭后全部停止，已生成的内容保留')}</small>
         </div>
         <Switch
           checked={prefs.enabled}
@@ -79,6 +82,17 @@ export function EvolutionPrefsPanel() {
           onChange={(on) => patch({ enabled: on })}
         />
       </div>
+
+      {prefs.enabled && onShowDetail && (
+        <div className="jx-settings-memoryDetail">
+          <span className="jx-settings-memoryCount">
+            {t('你的对话正在参与能力沉淀')}
+          </span>
+          <a className="jx-settings-memoryLink" onClick={onShowDetail}>
+            {t('查看进化详情')}
+          </a>
+        </div>
+      )}
 
       <div className="jx-evoPrefs-row">
         <div className="jx-evoPrefs-label">

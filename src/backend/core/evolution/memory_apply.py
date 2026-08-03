@@ -220,3 +220,65 @@ def demote_promoted_memories(
     )
 
 
+
+
+def apply_memory_candidate(
+    candidate_id: str,
+    *,
+    approver: str,
+    require_user_id: str = "",
+) -> Dict[str, Any]:
+    """Apply an approved memory reorganisation candidate.
+
+    Lives here rather than in the admin route because **both** control planes
+    need it: the enterprise console approves on behalf of a tenant, and a user
+    approves their own memories from the settings panel — which is a Community
+    Edition surface. While this was route-local, the user path fell through to
+    the skill materialiser and every memory candidate answered
+    "暂不支持物化 memory 候选", i.e. every row in that queue was a button that
+    could only fail.
+
+    ``require_user_id`` guards the personal path: a user may only apply
+    operations against their own memories.
+    """
+    from core.db.engine import SessionLocal
+    from core.db.models.evolution import EvolutionCandidate
+    from core.evolution.activation import ActivationError
+
+    with SessionLocal() as db:
+        candidate = db.get(EvolutionCandidate, candidate_id)
+        if candidate is None:
+            raise ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
+        if approver == (candidate.proposer or ""):
+            raise ActivationError("self_approval_forbidden", "生成者不能批准自己提出的候选")
+
+        change = ((candidate.ir or {}).get("changes") or [{}])[0]
+        user_id = str(change.get("user_id") or "") or require_user_id
+        raw_ops = change.get("operations") or []
+        if not user_id or not raw_ops:
+            raise ActivationError("no_memory_payload", "候选未携带可执行的记忆操作")
+        if require_user_id and user_id != require_user_id:
+            raise ActivationError(
+                "not_your_memory", "该候选操作的是他人的记忆，不能由你批准"
+            )
+
+        candidate.approved_by = approver
+        candidate.approved_at = datetime.now(timezone.utc)
+        candidate.status = "active"
+        db.commit()
+
+    ops = [
+        MemoryOp(
+            operation=str(op.get("operation") or ""),
+            memory_ref=str(op.get("memory_ref") or ""),
+            scope=str(op.get("scope") or "user"),
+            reason=str(op.get("reason") or ""),
+            before=op.get("before"),
+            after=op.get("after"),
+        )
+        for op in raw_ops
+    ]
+    outcome = apply_memory_ops(
+        ops, candidate_id=candidate_id, user_id=user_id, approver=approver
+    )
+    return {"candidate_id": candidate_id, "user_id": user_id, **outcome}

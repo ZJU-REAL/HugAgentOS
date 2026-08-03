@@ -225,6 +225,51 @@
 .jx-evoApproval-head { display: flex; align-items: center; gap: 8px; }
 .jx-evoApproval-title { font-size: 13px; font-weight: 600; margin-right: auto; overflow-wrap: anywhere; }
 
+/* The concrete change: a skill's body, or the memory ops that will run.
+   Quieter than the headline but selectable, because it is what the user is
+   actually being asked to approve. */
+.jx-evoApproval-change { margin-top: 8px; }
+
+.jx-evoApproval-toggle {
+  border: 0; background: none; padding: 0;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--jx-primary, #2563eb); cursor: pointer;
+}
+.jx-evoApproval-toggle:hover { text-decoration: underline; }
+
+.jx-evoApproval-desc {
+  margin: 6px 0 0; font-size: 12px;
+  color: var(--jx-text-secondary, #6b7280); overflow-wrap: anywhere;
+}
+
+.jx-evoApproval-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 6px; font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+}
+.jx-evoApproval-tools code {
+  padding: 1px 6px; border-radius: 5px;
+  background: var(--jx-surface-2, #f3f4f6); font-size: 11px;
+}
+
+.jx-evoApproval-doc {
+  margin: 8px 0 0; padding: 10px 12px;
+  max-height: 320px; overflow: auto;
+  border: 1px solid var(--jx-border, #e5e7eb); border-radius: 8px;
+  background: var(--jx-surface-2, #fafafa);
+  font-size: 12px; line-height: 1.6; white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.jx-evoApproval-ops { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jx-evoApproval-ops li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  font-size: 12px;
+}
+.jx-evoApproval-opText { color: var(--jx-text, #111827); overflow-wrap: anywhere; }
+.jx-evoApproval-ops em {
+  font-style: normal; font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+}
+
 .jx-evoApproval-steps {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
   margin-top: 8px; font-size: 11.5px;
