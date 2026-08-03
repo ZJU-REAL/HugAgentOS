@@ -175,7 +175,7 @@ async def _run_pipeline(
     user_message: str,
     assistant_message: str,
 ) -> list:
-    """The actual pipeline: classify → extract → sanitize → write to the matching layer → audit.
+    """The actual pipeline: classify → LLM gate → extract → sanitize → write to the matching layer → audit.
 
     Extractors live in `core.memory.extractors.router`; the import is placed here
     to avoid a circular dependency.
@@ -186,6 +186,21 @@ async def _run_pipeline(
     if not classes:
         logger.debug("[memory_pipeline] empty class set, skipping")
         return []
+
+    # LLM gate: the regex above decides what this turn *could* contain; one fast
+    # LLM call decides whether it actually does. Without it every substantive
+    # turn reaches the extractors and the default is to write. Fail-open on any
+    # gate failure — see gate.py.
+    if settings.memory.llm_gate_enabled:
+        from core.memory.extractors.gate import llm_write_gate
+
+        classes = await llm_write_gate(
+            user_message, assistant_message, classes,
+            timeout_s=settings.memory.gate_timeout_s,
+        )
+        if not classes:
+            logger.info("[memory_pipeline] llm gate: nothing worth writing this turn")
+            return []
 
     logger.info(
         "[memory_pipeline] user=%s workspace=%s classes=%s",

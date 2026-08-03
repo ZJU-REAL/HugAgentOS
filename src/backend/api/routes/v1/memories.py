@@ -220,6 +220,10 @@ def _flatten_fact_metadata(item: dict) -> dict:
         "why": meta.get("why") or "",
         "applies_to": meta.get("applies_to") or "",
         "strength": meta.get("strength") or "",
+        # Reinforcement bookkeeping: how many turns restated this rule, and when
+        # it stops being recalled (mem0 native expiry; absent on legacy rows).
+        "seen_count": meta.get("seen_count"),
+        "expiration_date": meta.get("expiration_date"),
         "author_user_id": meta.get("author_user_id") or meta.get("user_id"),
     }
 

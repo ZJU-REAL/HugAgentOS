@@ -26,6 +26,17 @@ def _breaker_closed(monkeypatch):
     monkeypatch.setattr(W.milvus_breaker, "record_failure", lambda: None)
 
 
+@pytest.fixture(autouse=True)
+def _no_near_duplicate(monkeypatch):
+    """Pin the dedup gate open: these tests are about write reporting, and must
+    not depend on whatever a live Milvus happens to contain."""
+
+    async def _none(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(W, "find_similar_procedure", _none)
+
+
 @pytest.mark.asyncio
 async def test_a_written_procedure_comes_back_with_its_id_and_reason(ctx, monkeypatch):
     async def fake_save(**kwargs):

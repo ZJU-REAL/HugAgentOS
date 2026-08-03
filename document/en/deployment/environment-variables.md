@@ -254,6 +254,12 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | L2 Fact default TTL (days) | CE |
 | `MEMORY_FROZEN_TOPK` | `5` | Fact top-K injected into the frozen block | CE |
 | `MEMORY_BREAKER_THRESHOLD` / `MEMORY_BREAKER_COOLDOWN_S` | `3` / `60` | Milvus circuit-breaker threshold / cooldown (s) | CE |
+| `MEMORY_LLM_GATE_ENABLED` | `true` | Write gate: one fast LLM call before extraction judging whether the turn contains anything worth remembering (narrow-only, fails open) | CE |
+| `MEMORY_GATE_TIMEOUT_S` | `10` | Write-gate LLM call timeout (s) | CE |
+| `MEMORY_PROCEDURE_DEDUP_MIN_SCORE` | `0.9` | L2 pre-write near-dup threshold: cosine similarity at/above this reinforces the existing entry instead of appending | CE |
+| `MEMORY_PROCEDURE_TTL_DAYS` | `365` | Lifetime (days) of strong / restated L2 rules | CE |
+| `MEMORY_PROCEDURE_WEAK_TTL_DAYS` | `30` | Provisional lifetime (days) of weak L2 rules: they age out unless restated, at which point they are promoted to persistent | CE |
+| `MEMORY_TTL_SWEEP_ENABLED` / `MEMORY_TTL_SWEEP_CRON` | `true` / `15 4 * * *` | Daily physical deletion of expired memories (already hidden from retrieval before deletion) | CE |
 
 ## Edition, branding, and license
 
