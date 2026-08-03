@@ -8,6 +8,7 @@ import { motion } from 'motion/react';
 import { useState } from 'react';
 
 import {
+  deleteGraphRelation,
   deleteMemory,
   deleteProfileField,
   updateMemory,
@@ -40,6 +41,7 @@ interface EvolutionCardProps {
 const LAYER_LABEL: Record<string, string> = {
   L1: '用户画像',
   L2: '做法沉淀',
+  L3: '图谱关系',
 };
 
 function MemoryRow({
@@ -59,6 +61,7 @@ function MemoryRow({
   const [error, setError] = useState('');
 
   const isProfile = entry.layer === 'L1';
+  const isGraph = entry.layer === 'L3';
 
   const save = async () => {
     const text = draft.trim();
@@ -72,6 +75,10 @@ function MemoryRow({
     try {
       if (isProfile) {
         await updateProfileField(entry.handle, text, messageId);
+      } else if (isGraph) {
+        // Graph relations are triples. They can be removed and re-learned, but
+        // free-text editing would make the relation shape ambiguous.
+        return;
       } else {
         await updateMemory(entry.handle, text, messageId);
       }
@@ -90,6 +97,8 @@ function MemoryRow({
     try {
       if (isProfile) {
         await deleteProfileField(entry.handle, messageId);
+      } else if (isGraph) {
+        await deleteGraphRelation(entry.handle, messageId);
       } else {
         await deleteMemory(entry.handle, messageId);
       }
@@ -161,14 +170,16 @@ function MemoryRow({
           </>
         ) : (
           <>
-            <button
-              type="button"
-              aria-label={t('编辑这条记忆')}
-              onClick={() => setEditing(true)}
-              disabled={busy}
-            >
-              <EditOutlined />
-            </button>
+            {!isGraph && (
+              <button
+                type="button"
+                aria-label={t('编辑这条记忆')}
+                onClick={() => setEditing(true)}
+                disabled={busy}
+              >
+                <EditOutlined />
+              </button>
+            )}
             <button
               type="button"
               aria-label={t('删除这条记忆')}

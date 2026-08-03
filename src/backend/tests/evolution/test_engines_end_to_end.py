@@ -315,6 +315,126 @@ def test_rolling_the_skill_back_restores_the_memories(db):
     assert weights == {}
 
 
+def _rollback_fixture(db, monkeypatch, *, guardrails):
+    """A materialised skill, its demoted source memory, and a dependent profile."""
+    from sqlalchemy.orm import sessionmaker
+
+    from core.db.models import AdminSkill
+    from core.evolution import activation as A
+
+    AdminSkill.__table__.create(db.get_bind(), checkfirst=True)
+    factory = sessionmaker(bind=db.get_bind())
+    monkeypatch.setattr(A, "SessionLocal", factory)
+
+    db.add(
+        EvolutionCandidate(
+            candidate_id="cand-9",
+            target_kind="skill",
+            target_asset_id="evo-fin",
+            operation="new",
+            ir={"changes": []},
+            change_checksum="cand-9",
+            evidence_refs=[],
+            status="active",
+        )
+    )
+    db.add(
+        AdminSkill(
+            skill_id="evo-fin",
+            skill_content="new",
+            display_name="新版",
+            description="新版",
+            is_enabled=True,
+            version="1.0.1",
+        )
+    )
+    db.add(
+        EvolutionRelease(
+            release_id="rel-9",
+            candidate_id="cand-9",
+            target_kind="skill",
+            target_asset_id="evo-fin",
+            stage="canary",
+            traffic_percent=5,
+            scope_filter={},
+            guardrails=guardrails,
+            rollback_version_id="",
+            approved_by="admin",
+        )
+    )
+    db.add(
+        EvolutionAgentProfile(
+            profile_id="prof-1",
+            payload={"skill_ids": ["evo-fin"]},
+            is_active=True,
+        )
+    )
+    db.commit()
+    MA.demote_promoted_memories(
+        candidate_id="cand-9", user_id="u1", memory_refs=["mref-a"], skill_id="evo-fin"
+    )
+    return A
+
+
+def test_release_rollback_restores_demoted_memories_in_the_same_motion(db, monkeypatch):
+    """The gap this closes: rollback restored the skill but not the knowledge.
+
+    Materialisation down-weights the memories a skill was compiled from. Rolling
+    the release back without reverting those ops left the knowledge half-priced
+    with no carrier — retrieval skipped it because a skill supposedly covered
+    it, and the skill was gone.
+    """
+    from core.db.models import AdminSkill
+    from core.memory.weights import invalidate, load_overlay
+
+    A = _rollback_fixture(db, monkeypatch, guardrails={})
+    weights, _ = load_overlay("u1", "default")
+    assert weights == {"mref-a": MA.PROMOTION_WEIGHT}
+
+    outcome = A.rollback_skill_activation("rel-9", actor="admin", reason="canary 指标崩了")
+
+    invalidate()
+    weights, _ = load_overlay("u1", "default")
+    assert weights == {}
+    assert outcome["restored_memory_ops"], outcome
+    # No prior version: the skill stops being loadable, so the profile built on
+    # top of it must stop being applied — same cross-layer rule as retirement.
+    assert outcome["invalidated_profiles"] == ["prof-1"]
+    db.expire_all()
+    assert db.query(AdminSkill).one().is_enabled is False
+    assert db.query(EvolutionAgentProfile).one().is_active is False
+
+
+def test_release_rollback_to_a_prior_version_keeps_dependent_profiles(db, monkeypatch):
+    """With a restored prior version the skill stays loadable — profiles hold."""
+    from core.db.models import AdminSkill
+    from core.memory.weights import invalidate, load_overlay
+
+    previous = {
+        "skill_content": "old",
+        "display_name": "旧版",
+        "description": "旧版",
+        "version": "1.0.0",
+        "tags": ["evolved"],
+        "allowed_tools": ["a"],
+        "extra_files": {},
+        "is_enabled": True,
+    }
+    A = _rollback_fixture(db, monkeypatch, guardrails={"previous": previous})
+
+    outcome = A.rollback_skill_activation("rel-9", actor="admin", reason="人工回滚")
+
+    invalidate()
+    weights, _ = load_overlay("u1", "default")
+    assert weights == {}
+    assert outcome["restored_previous"] is True
+    assert outcome["invalidated_profiles"] == []
+    db.expire_all()
+    row = db.query(AdminSkill).one()
+    assert row.is_enabled is True and row.skill_content == "old"
+    assert db.query(EvolutionAgentProfile).one().is_active is True
+
+
 # ── Orchestration governs the next run ───────────────────────────────────────
 
 

@@ -178,15 +178,24 @@ class EvolutionIR:
 
         Excludes timestamps and evidence refs deliberately: the same edit
         proposed twice from different evidence is still the same edit, and
-        repeated evidence must not flood the review queue.
+        repeated evidence must not flood the review queue. The embedded
+        ``manifest`` is stripped for the same reason — it carries the evidence
+        pack's hash, and hashing it back in would turn every fresh episode into
+        a "new" candidate for an unchanged edit.
         """
+        changes = [
+            {k: v for k, v in change.items() if k != "manifest"}
+            if isinstance(change, dict)
+            else change
+            for change in self.changes
+        ]
         payload = json.dumps(
             {
                 "kind": self.target_kind,
                 "asset": self.target_asset_id,
                 "base": self.base_version,
                 "op": self.operation,
-                "changes": self.changes,
+                "changes": changes,
             },
             sort_keys=True,
             ensure_ascii=False,

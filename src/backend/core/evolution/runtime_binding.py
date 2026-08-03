@@ -160,15 +160,29 @@ def _memory_refs(memory_enabled: bool, workspace_id: str) -> List[AssetRef]:
 
     # The memory *policy* is what evolves; the memory contents are evidence, not
     # a pinned version. Recording the policy knobs is what lets a later replay
-    # reproduce the same retrieval behaviour.
+    # reproduce the same retrieval behaviour. Per-layer, because attribution
+    # needs to distinguish "L3 offered nothing" from "L3 was switched off" —
+    # a single opaque flag cannot answer which policy a given Episode ran under.
+    effective = bool(memory_enabled and settings.memory.enabled)
     return [
         AssetRef(
             kind=ASSET_MEMORY,
             asset_id=f"policy:{workspace_id or 'default'}",
-            version="v1",
+            version="v2",
             detail={
-                "enabled": bool(memory_enabled and settings.memory.enabled),
+                "enabled": effective,
                 "retrieval_budget_ms": settings.memory.retrieval_budget_ms,
+                "layers": {
+                    "profile": {"enabled": effective},
+                    "fact": {
+                        "enabled": effective,
+                        "layered": bool(settings.memory.layered_enabled),
+                        "dedup_min_score": settings.memory.procedure_dedup_min_score,
+                    },
+                    "graph": {
+                        "enabled": bool(effective and settings.memory.graph_enabled),
+                    },
+                },
             },
         )
     ]

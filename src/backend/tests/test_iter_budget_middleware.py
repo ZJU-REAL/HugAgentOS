@@ -92,3 +92,45 @@ def test_tiny_budget_never_reminds(max_iters):
     agent = _fake_agent(max_iters=max_iters, cur_iter=max(0, max_iters - 1))
     mw._maybe_remind(agent)
     assert agent.state.context == []
+
+
+# ── _maybe_force_text ──────────────────────────────────────────────────────
+
+
+def test_force_text_on_final_round():
+    mw = IterBudgetReminderMiddleware()
+    agent = _fake_agent(max_iters=10, cur_iter=9)  # final round
+    out = mw._maybe_force_text(agent, {"tool_choice": None})
+    tc = out.get("tool_choice")
+    assert tc is not None and tc.mode == "none"
+
+
+def test_no_force_text_before_final_round():
+    mw = IterBudgetReminderMiddleware()
+    agent = _fake_agent(max_iters=10, cur_iter=8)  # 2 left
+    out = mw._maybe_force_text(agent, {"tool_choice": None})
+    assert out.get("tool_choice") is None
+
+
+def test_force_text_respects_explicit_tool_choice():
+    sentinel = object()
+    mw = IterBudgetReminderMiddleware()
+    agent = _fake_agent(max_iters=10, cur_iter=9)
+    out = mw._maybe_force_text(agent, {"tool_choice": sentinel})
+    assert out["tool_choice"] is sentinel
+
+
+@pytest.mark.parametrize("max_iters", [1, 2, 3])
+def test_force_text_skips_tiny_budget(max_iters):
+    mw = IterBudgetReminderMiddleware()
+    agent = _fake_agent(max_iters=max_iters, cur_iter=max(0, max_iters - 1))
+    out = mw._maybe_force_text(agent, {"tool_choice": None})
+    assert out.get("tool_choice") is None
+
+
+def test_force_text_kill_switch(monkeypatch):
+    monkeypatch.setenv("CHAT_FINAL_ITER_FORCE_TEXT", "false")
+    mw = IterBudgetReminderMiddleware()
+    agent = _fake_agent(max_iters=10, cur_iter=9)
+    out = mw._maybe_force_text(agent, {"tool_choice": None})
+    assert out.get("tool_choice") is None

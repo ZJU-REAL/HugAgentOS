@@ -2,9 +2,12 @@
 
 Directly reuses mem0 framework capabilities:
 - vector retrieval (Milvus)
-- graph retrieval (Neo4j, enable_graph=True)
 - native expiration (add/update ``expiration_date``; expired entries are hidden
   from search and get_all)
+
+L3 graph memory is implemented locally in :mod:`core.memory.graph`. mem0ai 2.x
+removed graph-store support from its open-source ``Memory`` class, so passing a
+``graph_store`` config block there would be silently ignored.
 
 What it deliberately does NOT delegate to mem0: extraction and dedup. Writes go
 in with ``infer=False`` after our own extractors have judged the turn, and
@@ -26,11 +29,7 @@ from typing import List, Optional
 
 from core.config.settings import settings
 from core.memory.context import Confidentiality
-from core.memory.retrieval_types import (
-    MemoryRetrievalResult,
-    RetrievedRelation,
-    build_memory_item,
-)
+from core.memory.retrieval_types import MemoryRetrievalResult, RetrievedRelation, build_memory_item
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +86,12 @@ def _build_mem0_config() -> dict:
     - LLM: from DB (memory role) or env fallback
     - Embedder: from DB (embedding role) or env fallback
     - Vector Store: Milvus
-    - Graph Store: Neo4j (optional, controlled by settings.memory.graph_enabled)
+    L3 Neo4j configuration is owned by ``core.memory.graph`` rather than mem0.
     """
     # Resolve LLM config from DB
     try:
         from core.services.model_config import ModelConfigService
+
         svc = ModelConfigService.get_instance()
         mem_cfg = svc.resolve("memory")
         embed_cfg = svc.resolve("embedding")
@@ -106,7 +106,9 @@ def _build_mem0_config() -> dict:
     embed_model = embed_cfg.model_name if embed_cfg else settings.memory.embed_model
     embed_url = embed_cfg.base_url if embed_cfg else settings.memory.embed_url
     embed_key = embed_cfg.api_key if embed_cfg else settings.memory.embed_api_key
-    embed_dims = int((embed_cfg.extra.get("dimensions") if embed_cfg else None) or settings.memory.embed_dims)
+    embed_dims = int(
+        (embed_cfg.extra.get("dimensions") if embed_cfg else None) or settings.memory.embed_dims
+    )
 
     config: dict = {
         "llm": {
@@ -151,17 +153,6 @@ def _build_mem0_config() -> dict:
         # exists.
     }
 
-    # Graph memory (optional)
-    if settings.memory.graph_enabled:
-        config["graph_store"] = {
-            "provider": "neo4j",
-            "config": {
-                "url": settings.memory.neo4j_url,
-                "username": settings.memory.neo4j_username,
-                "password": settings.memory.neo4j_password,
-            },
-        }
-
     return config
 
 
@@ -184,8 +175,11 @@ def _get_memory() -> Optional[object]:
         try:
             _patch_mem0_embedding()
             from mem0 import Memory
+
             cfg = _build_mem0_config()
-            logger.info("[MemoryService] 初始化 mem0.Memory (graph=%s)", settings.memory.graph_enabled)
+            logger.info(
+                "[MemoryService] 初始化 mem0.Memory (graph=%s)", settings.memory.graph_enabled
+            )
             _memory_instance = Memory.from_config(cfg)
             _memory_init_failed = False
             return _memory_instance
@@ -270,23 +264,39 @@ async def retrieve_memories_structured(
     if not settings.memory.enabled or not user_id:
         return MemoryRetrievalResult.degraded_result("disabled")
 
-    # Breaker short-circuit: skip the attempt if Milvus has failed consecutively recently
+    # The Milvus breaker and the Neo4j path are independent: an open vector
+    # breaker must not hide graph relations that are still available.
     try:
         from core.memory.pipeline import milvus_breaker
-        if milvus_breaker.is_open():
-            logger.info("[MemoryService] milvus breaker open, skipping retrieval")
-            return MemoryRetrievalResult.degraded_result("breaker_open")
     except Exception:
         milvus_breaker = None  # type: ignore[assignment]
 
     async def _do_search() -> MemoryRetrievalResult:
+        typed_relations = await _retrieve_graph_relations(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            query=query,
+            limit=5,
+        )
+        if milvus_breaker is not None and milvus_breaker.is_open():
+            logger.info("[MemoryService] milvus breaker open, serving L3 only")
+            return MemoryRetrievalResult(
+                relations=typed_relations,
+                degraded=True,
+                degrade_reason="breaker_open",
+            )
+
         for attempt in range(2):
             loop = asyncio.get_running_loop()
             # A cold _get_memory() start does mem0.Memory.from_config (~700ms);
             # it must run in the executor, otherwise it blocks the event loop and bypasses the wait_for budget.
             memory = await loop.run_in_executor(None, _get_memory)
             if memory is None:
-                return MemoryRetrievalResult.degraded_result("store_unavailable")
+                return MemoryRetrievalResult(
+                    relations=typed_relations,
+                    degraded=True,
+                    degrade_reason="store_unavailable",
+                )
             try:
                 # mem0 2.0+: user_id must go into filters; limit was renamed top_k;
                 # workspace_id also goes into filters so Milvus filters at the recall stage,
@@ -300,15 +310,15 @@ async def retrieve_memories_structured(
                         query,
                         filters=search_filters,
                         top_k=limit,
-                    )
+                    ),
                 )
-                # mem0 v1.1 returns {"results": [...], "relations": [...]}
+                # mem0ai 2.x returns vector results only. L3 relations are read
+                # independently from our Neo4j layer above.
                 items = result.get("results", []) if isinstance(result, dict) else result
-                relations = result.get("relations", []) if isinstance(result, dict) else []
 
                 # ── Scope + confidentiality filtering (new) ──
                 filtered_items = []
-                for m in (items if isinstance(items, list) else []):
+                for m in items if isinstance(items, list) else []:
                     if not isinstance(m, dict):
                         continue
                     meta = m.get("metadata") or {}
@@ -345,35 +355,23 @@ async def retrieve_memories_structured(
                 # actually injected, not the store's raw recall order.
                 typed_items = []
                 for index, raw in enumerate(filtered_items, start=1):
-                    typed = build_memory_item(
-                        raw, rank=index, default_workspace=workspace_id
-                    )
+                    typed = build_memory_item(raw, rank=index, default_workspace=workspace_id)
                     if typed is not None:
                         typed_items.append(typed)
 
-                typed_relations = []
-                for index, r in enumerate(relations[:5], start=1):
-                    if not isinstance(r, dict):
-                        continue
-                    typed_relations.append(
-                        RetrievedRelation(
-                            source=r.get("source", ""),
-                            relationship=r.get("relationship", ""),
-                            target=r.get("target", ""),
-                            rank=index,
-                        )
-                    )
-
                 result = MemoryRetrievalResult(
                     items=tuple(typed_items),
-                    relations=tuple(typed_relations),
+                    relations=typed_relations,
                     recalled_count=recalled_count,
                     filtered_count=filtered_count,
                 )
 
                 logger.info(
                     "[MemoryService] 检索: user=%s ws=%s 召回 %d → 过滤后 %d",
-                    user_id, workspace_id, recalled_count, filtered_count,
+                    user_id,
+                    workspace_id,
+                    recalled_count,
+                    filtered_count,
                 )
                 if milvus_breaker is not None:
                     milvus_breaker.record_success()
@@ -390,8 +388,16 @@ async def retrieve_memories_structured(
                 logger.warning("[MemoryService] 检索失败，降级为空: %s", exc)
                 if milvus_breaker is not None:
                     milvus_breaker.record_failure()
-                return MemoryRetrievalResult.degraded_result("search_failed")
-        return MemoryRetrievalResult.degraded_result("retry_exhausted")
+                return MemoryRetrievalResult(
+                    relations=typed_relations,
+                    degraded=True,
+                    degrade_reason="search_failed",
+                )
+        return MemoryRetrievalResult(
+            relations=typed_relations,
+            degraded=True,
+            degrade_reason="retry_exhausted",
+        )
 
     if timeout_s is None:
         return await _do_search()
@@ -419,6 +425,47 @@ def _record_retrieval_refs(
         logger.debug("[MemoryService] ref shadow upsert skipped: %s", exc)
 
 
+async def _retrieve_graph_relations(
+    *, user_id: str, workspace_id: str, query: str, limit: int
+) -> tuple[RetrievedRelation, ...]:
+    """Best-effort L3 lookup, independent from the Milvus health state."""
+    if not settings.memory.graph_enabled:
+        return ()
+    try:
+        from core.memory.graph import search_graph_relations
+
+        rows = await search_graph_relations(
+            user_id,
+            query,
+            workspace_id=workspace_id,
+            limit=limit,
+        )
+    except Exception as exc:  # noqa: BLE001 - optional layer
+        logger.warning("[MemoryService] graph retrieval failed: %s", exc)
+        return ()
+    return tuple(
+        RetrievedRelation(
+            source=str(row.get("source") or ""),
+            relationship=str(row.get("relationship") or row.get("predicate") or ""),
+            target=str(row.get("target") or ""),
+            rank=index,
+            workspace_id=workspace_id,
+            relation_id=str(row.get("relation_id") or ""),
+            predicate=str(row.get("predicate") or ""),
+            confidence=_safe_float(row.get("confidence")),
+        )
+        for index, row in enumerate(rows, start=1)
+        if isinstance(row, dict) and row.get("source") and row.get("target")
+    )
+
+
+def _safe_float(value) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _expiration_from_ttl(ttl_days: int) -> Optional[str]:
     """YYYY-MM-DD expiry for mem0's native expiration, or None for no expiry."""
     if not ttl_days or ttl_days <= 0:
@@ -441,10 +488,7 @@ async def find_similar_procedure(
     """
     if not settings.memory.enabled or not content or not ctx or not ctx.user_id:
         return None
-    threshold = (
-        min_score if min_score is not None
-        else settings.memory.procedure_dedup_min_score
-    )
+    threshold = min_score if min_score is not None else settings.memory.procedure_dedup_min_score
 
     loop = asyncio.get_running_loop()
     memory = await loop.run_in_executor(None, _get_memory)
@@ -520,8 +564,12 @@ async def reinforce_procedure_entry(similar: dict, *, strength: str = "weak") ->
                 expiration_date=_expiration_from_ttl(ttl),
             ),
         )
-        logger.info("[MemoryService] procedure reinforced id=%s seen=%d (stated as %s)",
-                    memory_id, seen, strength)
+        logger.info(
+            "[MemoryService] procedure reinforced id=%s seen=%d (stated as %s)",
+            memory_id,
+            seen,
+            strength,
+        )
         return True
     except Exception as exc:
         logger.warning("[MemoryService] reinforce failed id=%s: %s", memory_id, exc)
@@ -634,8 +682,12 @@ async def save_procedure_entry(
         if milvus_breaker is not None:
             milvus_breaker.record_success()
         memory_id = _added_memory_id(result)
-        logger.debug("[MemoryService] procedure saved user=%s ws=%s id=%s",
-                     ctx.user_id, ctx.workspace_id, memory_id)
+        logger.debug(
+            "[MemoryService] procedure saved user=%s ws=%s id=%s",
+            ctx.user_id,
+            ctx.workspace_id,
+            memory_id,
+        )
         return memory_id
     except Exception as exc:
         logger.warning("[MemoryService] save_procedure_entry failed: %s", exc)
@@ -707,11 +759,10 @@ async def save_conversation(user_id: str, user_message: str, assistant_message: 
             return
         try:
             loop = asyncio.get_running_loop()
-            logger.info("[MemoryService] 开始保存记忆, user_id=%s, msg_len=%d", user_id, len(user_message))
-            result = await loop.run_in_executor(
-                None,
-                lambda: memory.add(messages, user_id=user_id)
+            logger.info(
+                "[MemoryService] 开始保存记忆, user_id=%s, msg_len=%d", user_id, len(user_message)
             )
+            result = await loop.run_in_executor(None, lambda: memory.add(messages, user_id=user_id))
             logger.info("[MemoryService] 用户 %s 的记忆已保存, result=%s", user_id, result)
             return
         except Exception as exc:
@@ -750,8 +801,7 @@ async def get_all_memories(
             loop = asyncio.get_running_loop()
             # mem0 2.0+: user_id must go into filters; workspace_id filters as metadata
             result = await loop.run_in_executor(
-                None,
-                lambda: memory.get_all(filters=filters, top_k=top_k)
+                None, lambda: memory.get_all(filters=filters, top_k=top_k)
             )
             if isinstance(result, dict):
                 return result.get("results", [])
@@ -784,9 +834,7 @@ async def update_memory(memory_id: str, content: str) -> bool:
             return False
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, lambda: memory.update(memory_id, content.strip())
-            )
+            await loop.run_in_executor(None, lambda: memory.update(memory_id, content.strip()))
             return True
         except Exception as exc:
             if attempt == 0 and _is_connection_error(exc):

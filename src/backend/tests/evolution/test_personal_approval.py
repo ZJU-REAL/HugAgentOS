@@ -12,7 +12,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
-from core.db.models.evolution import EvolutionCandidate, EvolutionEpisode
+from core.db.models.evolution import (
+    EvolutionCandidate,
+    EvolutionEpisode,
+    EvolutionRelease,
+)
 from core.evolution import user_settings as US
 
 
@@ -20,7 +24,12 @@ from core.evolution import user_settings as US
 def db(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(
-        engine, tables=[EvolutionEpisode.__table__, EvolutionCandidate.__table__]
+        engine,
+        tables=[
+            EvolutionEpisode.__table__,
+            EvolutionCandidate.__table__,
+            EvolutionRelease.__table__,
+        ],
     )
     factory = sessionmaker(bind=engine)
     monkeypatch.setattr(US, "SessionLocal", factory)
@@ -297,3 +306,77 @@ def test_the_skill_body_is_shown_so_approval_is_a_decision(db):
     assert change["type"] == "skill_document"
     assert "## 步骤" in change["content"]
     assert change["allowed_tools"] == ["internet_search"]
+
+
+# ── An accepted candidate leaves the queue ───────────────────────────────────
+#
+# A personal activation deliberately keeps the candidate's status at
+# draft/replay_passed so others can still accept it and an administrator can
+# still consider it globally. That must not mean the *acceptor* keeps seeing it:
+# a row that survives its own approval reads as "the button did nothing", and a
+# second press mints a duplicate release.
+
+
+def _personal_release(db, release_id, candidate_id, owner, stage="active"):
+    db.add(
+        EvolutionRelease(
+            release_id=release_id,
+            candidate_id=candidate_id,
+            target_kind="skill",
+            target_asset_id=f"evo-{candidate_id}-u{owner}",
+            stage=stage,
+            traffic_percent=0,
+            scope_filter={"level": "workspace", "owner_user_id": owner},
+            approved_by=f"user:{owner}",
+        )
+    )
+
+
+def test_a_candidate_i_accepted_no_longer_appears_in_my_queue(db):
+    for i in range(5):
+        _episode(db, f"e{i}", "alice")
+    _candidate(db, "c1", [f"e{i}" for i in range(5)])
+    _personal_release(db, "r1", "c1", "alice")
+    db.commit()
+
+    assert US.pending_for_user("alice") == []
+
+
+def test_my_acceptance_does_not_hide_the_candidate_from_others(db):
+    for i in range(3):
+        _episode(db, f"a{i}", "alice")
+    for i in range(3):
+        _episode(db, f"b{i}", "bob")
+    # Same candidate qualifies for both users (own_share threshold met per user
+    # is impossible with shared evidence, so use two separate candidates).
+    _candidate(db, "ca", [f"a{i}" for i in range(3)])
+    _candidate(db, "cb", [f"b{i}" for i in range(3)])
+    _personal_release(db, "r1", "ca", "alice")
+    db.commit()
+
+    assert US.pending_for_user("alice") == []
+    assert [c["candidate_id"] for c in US.pending_for_user("bob")] == ["cb"]
+
+
+def test_a_rolled_back_personal_release_reoffers_the_candidate(db):
+    for i in range(5):
+        _episode(db, f"e{i}", "alice")
+    _candidate(db, "c1", [f"e{i}" for i in range(5)])
+    _personal_release(db, "r1", "c1", "alice", stage="rolled_back")
+    db.commit()
+
+    assert [c["candidate_id"] for c in US.pending_for_user("alice")] == ["c1"]
+
+
+def test_re_approving_an_accepted_candidate_is_refused_with_the_reason(db):
+    for i in range(5):
+        _episode(db, f"e{i}", "alice")
+    _candidate(db, "c1", [f"e{i}" for i in range(5)])
+    _personal_release(db, "r1", "c1", "alice")
+    db.commit()
+
+    with pytest.raises(PermissionError) as exc:
+        US.approve_for_user("c1", "alice")
+    # Not the scope refusal: telling a user they lack permission over a skill
+    # they just installed misreports success as failure.
+    assert "已启用" in str(exc.value)

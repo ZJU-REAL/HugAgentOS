@@ -4,6 +4,7 @@ Dispatches the {ExtractorType: dict} returned by `run_extractors_with_timeout()`
 to the corresponding layer:
 - IDENTITY / PREFERENCE → L1 Profile (one addressable field each)
 - PROCEDURAL → L2 Milvus (core.memory.service.save_procedure_entry)
+- GRAPH → L3 Neo4j (core.memory.graph.write_graph_relations)
 - TASK → Session auxiliary layer (chats.metadata.session_memory)
 
 Every writer must:
@@ -24,10 +25,11 @@ import logging
 from typing import Optional
 
 from core.config.settings import settings
-from core.memory.extractors.router import ExtractorType
 from core.memory.audit import record as audit_record
 from core.memory.audit import record_batch as audit_record_batch
 from core.memory.context import MemoryContext
+from core.memory.extractors.router import ExtractorType
+from core.memory.graph import parse_relation, parse_relations, write_graph_relations
 from core.memory.pipeline import milvus_breaker
 from core.memory.sanitizer import sanitize
 from core.memory.service import (
@@ -41,6 +43,7 @@ logger = logging.getLogger(__name__)
 # Layers a written item can belong to, as reported to the turn card.
 LAYER_PROFILE = "L1"
 LAYER_PROCEDURE = "L2"
+LAYER_GRAPH = "L3"
 
 
 async def write_layered(
@@ -58,6 +61,7 @@ async def write_layered(
     preference_data = results.get(ExtractorType.PREFERENCE)
     task_data = results.get(ExtractorType.TASK)
     procedural_data = results.get(ExtractorType.PROCEDURAL)
+    graph_data = results.get(ExtractorType.GRAPH)
 
     written: list[dict] = []
 
@@ -71,6 +75,12 @@ async def write_layered(
     if procedural_data:
         written += await _write_procedures_to_milvus(procedural_data, ctx)
 
+    # GRAPH → L3 Neo4j. Declarative entity relations stay separate from the
+    # procedural L2 store and therefore cannot be compiled into a skill body as
+    # though a relationship were an instruction.
+    if graph_data:
+        written += await _write_relations_to_neo4j(graph_data, ctx)
+
     # TASK → Session auxiliary layer. Scoped to this conversation, so it is not
     # a long-term memory and never appears on the card.
     if task_data:
@@ -79,10 +89,85 @@ async def write_layered(
     return written
 
 
+async def _write_relations_to_neo4j(data: dict, ctx: MemoryContext) -> list[dict]:
+    """Sanitize and persist stable entity relations in L3."""
+    if not settings.memory.graph_enabled:
+        return []
+
+    candidates = parse_relations(data.get("relations") or [])
+    if not candidates:
+        return []
+
+    accepted = []
+    rejected_audit: list[dict] = []
+    for relation in candidates:
+        source = sanitize(relation.source)
+        target = sanitize(relation.target)
+        # A redacted node has no useful identity ("[REDACTED:email] depends on
+        # X"), so both hard rejects and redactions are withheld from the graph.
+        hits = list(source.hits) + list(target.hits)
+        if source.reject or target.reject or hits:
+            rejected_audit.append(
+                {
+                    "action": "write_rejected",
+                    "layer": LAYER_GRAPH,
+                    "confidentiality": "internal",
+                    "content": relation.text,
+                    "reason": f"sanitizer: {','.join(hits) or 'classified'}",
+                }
+            )
+            continue
+        clean = parse_relation(
+            {
+                **relation.to_dict(),
+                "source": source.text,
+                "target": target.text,
+            }
+        )
+        if clean is not None:
+            accepted.append(clean)
+
+    if rejected_audit:
+        await audit_record_batch(ctx, rejected_audit)
+    if not accepted:
+        return []
+
+    rows = await write_graph_relations(ctx, accepted)
+    if not rows:
+        return []
+
+    await audit_record_batch(
+        ctx,
+        [
+            {
+                "action": "write",
+                "layer": LAYER_GRAPH,
+                "memory_id": row["relation_id"],
+                "content": (f"{row['source']} → {row['relationship']} → {row['target']}"),
+                "reason": "graph_extractor",
+            }
+            for row in rows
+        ],
+    )
+    logger.info("[writer:graph] wrote or reinforced %d relations to L3", len(rows))
+    return [
+        {
+            "layer": LAYER_GRAPH,
+            "kind": "graph_relation",
+            "handle": row["relation_id"],
+            "text": f"{row['source']} → {row['relationship']} → {row['target']}",
+            "action": "reinforce" if int(row.get("seen_count") or 1) > 1 else "write",
+        }
+        for row in rows
+    ]
+
+
 async def _write_profile_from_identity(data: dict, ctx: MemoryContext) -> list[dict]:
     """Batch-upsert identity fields under `identity.<field>` — duplicate values short-circuit, new values overwrite old, single transaction."""
     return await _upsert_profile_facts(
-        data, ctx, namespace="identity",
+        data,
+        ctx,
+        namespace="identity",
         value_fn=lambda f: str(f.get("value", "")),
         confidentiality_aware=True,
     )
@@ -91,7 +176,9 @@ async def _write_profile_from_identity(data: dict, ctx: MemoryContext) -> list[d
 async def _write_profile_from_preference(data: dict, ctx: MemoryContext) -> list[dict]:
     """Batch-upsert preference fields under `preference.<field>`; strength is merged into value."""
     return await _upsert_profile_facts(
-        data, ctx, namespace="preference",
+        data,
+        ctx,
+        namespace="preference",
         value_fn=lambda f: f"{f.get('value', '')}（{f.get('strength', 'weak')}）",
         confidentiality_aware=False,
     )
@@ -133,8 +220,7 @@ async def _upsert_profile_facts(
     try:
         applied = await upsert_fields(target_ctx, fields)
     except Exception as exc:
-        logger.warning("[writer:%s] batch upsert failed (n=%d): %s",
-                       namespace, len(fields), exc)
+        logger.warning("[writer:%s] batch upsert failed (n=%d): %s", namespace, len(fields), exc)
         return []
     return [
         {
@@ -170,8 +256,10 @@ async def _write_procedures_to_milvus(data: dict, ctx: MemoryContext) -> list[di
     worse than not showing it.
     """
     if milvus_breaker.is_open():
-        logger.info("[writer:procedural] milvus breaker open, skipping %d procedures",
-                    len(data.get("procedures") or []))
+        logger.info(
+            "[writer:procedural] milvus breaker open, skipping %d procedures",
+            len(data.get("procedures") or []),
+        )
         return []
 
     procedures = data.get("procedures") or []
@@ -188,11 +276,14 @@ async def _write_procedures_to_milvus(data: dict, ctx: MemoryContext) -> list[di
             continue
         san = sanitize(rule)
         if san.reject:
-            rejected_audit.append({
-                "action": "write_rejected", "layer": "L2",
-                "confidentiality": "internal",
-                "reason": f"sanitizer: {','.join(san.hits)}",
-            })
+            rejected_audit.append(
+                {
+                    "action": "write_rejected",
+                    "layer": "L2",
+                    "confidentiality": "internal",
+                    "reason": f"sanitizer: {','.join(san.hits)}",
+                }
+            )
             continue
         why = (item.get("why") or "")[:200]
         applies_to = (item.get("applies_to") or "")[:80]
@@ -205,15 +296,17 @@ async def _write_procedures_to_milvus(data: dict, ctx: MemoryContext) -> list[di
         if similar:
             reinforced = await reinforce_procedure_entry(similar, strength=strength)
             if reinforced:
-                written.append({
-                    "layer": LAYER_PROCEDURE,
-                    "kind": "procedure",
-                    "handle": similar["id"],
-                    "text": similar.get("memory") or san.text,
-                    "why": why,
-                    "applies_to": applies_to,
-                    "action": "reinforce",
-                })
+                written.append(
+                    {
+                        "layer": LAYER_PROCEDURE,
+                        "kind": "procedure",
+                        "handle": similar["id"],
+                        "text": similar.get("memory") or san.text,
+                        "why": why,
+                        "applies_to": applies_to,
+                        "action": "reinforce",
+                    }
+                )
             continue
 
         # Gate 2: strength decides the lifetime, not whether we listen at all.
@@ -247,15 +340,17 @@ async def _write_procedures_to_milvus(data: dict, ctx: MemoryContext) -> list[di
         milvus_breaker.record_success()
         if not memory_id:
             continue
-        written.append({
-            "layer": LAYER_PROCEDURE,
-            "kind": "procedure",
-            "handle": memory_id,
-            "text": san.text,
-            "why": why,
-            "applies_to": applies_to,
-            "action": "write",
-        })
+        written.append(
+            {
+                "layer": LAYER_PROCEDURE,
+                "kind": "procedure",
+                "handle": memory_id,
+                "text": san.text,
+                "why": why,
+                "applies_to": applies_to,
+                "action": "write",
+            }
+        )
 
     if rejected_audit:
         await audit_record_batch(ctx, rejected_audit)
@@ -277,9 +372,10 @@ async def _write_session_task(data: dict, ctx: MemoryContext) -> int:
         return 0
 
     try:
+        import asyncio
+
         from core.db.engine import SessionLocal
         from core.db.models import ChatSession
-        import asyncio
 
         def _update():
             with SessionLocal() as session:

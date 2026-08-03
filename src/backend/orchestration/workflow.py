@@ -1650,6 +1650,12 @@ async def _astream_subagent_direct(
                 elif event_type == "heartbeat":
                     yield {"type": "heartbeat"}
 
+                elif event_type == "model_progress":
+                    # Liveness signal from StreamingAgent: the model is still
+                    # streaming (tool-call args etc.) though nothing maps to an
+                    # SSE event. Forwarded so the run watchdog counts activity.
+                    yield {"type": "model_progress"}
+
                 elif event_type == "tool_pending":
                     yield {"type": "tool_pending", **(payload or {})}
 
@@ -2610,6 +2616,12 @@ async def astream_chat_workflow(
 
                 elif event_type == "heartbeat":
                     yield {"type": "heartbeat"}
+
+                elif event_type == "model_progress":
+                    # Liveness signal from StreamingAgent: the model is still
+                    # streaming (tool-call args etc.) though nothing maps to an
+                    # SSE event. Forwarded so the run watchdog counts activity.
+                    yield {"type": "model_progress"}
 
                 elif event_type == "tool_pending":
                     yield {"type": "tool_pending", **(payload or {})}

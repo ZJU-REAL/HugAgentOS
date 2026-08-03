@@ -49,15 +49,16 @@ SETTLE_EMPTY = "empty"
 # Layers a written memory can belong to.
 LAYER_PROFILE = "L1"
 LAYER_PROCEDURE = "L2"
+LAYER_GRAPH = "L3"
 
 
 @dataclass
 class MemoryEntry:
     """One memory written this turn, as shown on the card.
 
-    ``handle`` is what makes the entry actionable: a mem0 id for an L2 procedure,
-    a profile field key for an L1 entry. An entry without one cannot be edited or
-    deleted, so it is never emitted.
+    ``handle`` is what makes the entry actionable: a profile field key for L1,
+    a mem0 id for L2, or a Neo4j relation id for L3. An entry without one cannot
+    be corrected or deleted, so it is never emitted.
     """
 
     layer: str

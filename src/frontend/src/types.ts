@@ -280,13 +280,13 @@ export interface OntologyRevisionSummary {
 /**
  * One memory a turn wrote.
  *
- * `handle` is what makes the row actionable — a mem0 id for an L2 procedure, a
- * profile field key for an L1 entry — and decides which API the edit and delete
- * buttons call. An entry without one is never emitted by the backend.
+ * `handle` is what makes the row actionable — a profile field key for L1, a
+ * mem0 id for L2, or a Neo4j relation id for L3 — and decides which API the
+ * actions call. An entry without one is never emitted by the backend.
  */
 export interface EvolutionMemoryEntry {
-  /** `L1` = user profile field, `L2` = procedural memory. */
-  layer: 'L1' | 'L2';
+  /** `L1` = user profile, `L2` = procedure, `L3` = entity relation. */
+  layer: 'L1' | 'L2' | 'L3';
   handle: string;
   text: string;
   kind?: string;

@@ -81,12 +81,23 @@ class RetrievedMemory:
 
 @dataclass(frozen=True)
 class RetrievedRelation:
-    """One graph-memory relation triple (L3)."""
+    """One graph-memory relation triple (L3).
+
+    ``relation_id`` is the stable id the graph store assigned at write time
+    (``grel_*``). It is what lets an Episode's L3 evidence be resolved back to
+    the exact Neo4j edge weeks later — content alone cannot do that once the
+    entities have been renamed or merged. Old traces without it degrade to the
+    content hash, so the field is optional rather than required.
+    """
 
     source: str
     relationship: str
     target: str
     rank: int
+    workspace_id: str = "default"
+    relation_id: str = ""
+    predicate: str = ""
+    confidence: float = 0.0
 
     @property
     def is_complete(self) -> bool:
@@ -99,8 +110,12 @@ class RetrievedRelation:
     def to_event_payload(self) -> Dict[str, Any]:
         return {
             "layer": LAYER_GRAPH,
+            "relation_id": self.relation_id,
+            "predicate": self.predicate,
+            "confidence": round(self.confidence, 4),
             "content_hash": self.content_hash,
             "rank": self.rank,
+            "workspace_id": self.workspace_id,
         }
 
 

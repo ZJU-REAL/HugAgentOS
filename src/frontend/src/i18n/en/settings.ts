@@ -571,6 +571,8 @@ export const SETTINGS_DICT: Record<string, string> = {
   '调权': 'Reweight',
   '合并': 'Merge',
   '已为你启用该能力': 'Capability enabled for you',
+  '已为你启用该能力，可在「能力中心 → 技能」查看':
+    'Capability enabled for you — find it under Capability Centre → Skills',
   '启用失败，请稍后重试': 'Could not enable it — please try again',
   '启用后仅对你生效，不影响其他成员；随时可在能力中心停用。':
     'Enabling applies to you only and does not affect other members; you can disable it anytime in the capability centre.',

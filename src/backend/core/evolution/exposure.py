@@ -126,26 +126,60 @@ def visible_evolved_skill_ids(
     return visible
 
 
+def _applicable_by_manifest(db, skill_ids: Set[str], *, task_type: str) -> Set[str]:
+    """Of ``skill_ids``, those whose evolution manifest permits ``task_type``.
+
+    The manifest is the machine-readable boundary compiled from L3 evidence;
+    a skill whose graph evidence excluded this task type must not be offered
+    for it. Skills without a manifest (hand-authored, pre-manifest) pass.
+    """
+    from core.db.models import AdminSkill
+    from core.evolution.applicability import load_manifest, manifest_permits
+
+    rows = (
+        db.query(AdminSkill.skill_id, AdminSkill.extra_files)
+        .filter(AdminSkill.skill_id.in_(sorted(skill_ids)))
+        .all()
+    )
+    manifests = {skill_id: load_manifest(extra) for skill_id, extra in rows}
+    permitted: Set[str] = set()
+    for skill_id in skill_ids:
+        ok, reason = manifest_permits(manifests.get(skill_id), task_type=task_type)
+        if ok:
+            permitted.add(skill_id)
+        else:
+            logger.info("[exposure] %s withheld by manifest: %s", skill_id, reason)
+    return permitted
+
+
 def filter_skill_ids(
     skill_ids: Sequence[str],
     *,
     user_id: str,
     tenant_id: str = "default",
+    task_type: str = "",
     db=None,
 ) -> List[str]:
     """Drop evolved skills this subject is not entitled to; keep everything else.
 
     Called on the request path, so it does nothing at all when the list contains
     no evolved ids — the common case, and one that must not cost a query.
+
+    ``task_type``, when the caller knows it, additionally applies the manifest's
+    L3-derived applicability boundary — a skill whose graph evidence excluded
+    this task type is withheld even though its release reaches the user.
     """
     ids = [sid for sid in skill_ids if sid]
     if not any(is_evolved_skill_id(sid) for sid in ids):
         return list(ids)
 
     def _resolve(session) -> Set[str]:
-        return visible_evolved_skill_ids(
+        allowed = visible_evolved_skill_ids(
             session, ids, user_id=user_id or "", tenant_id=tenant_id or "default"
         )
+        if allowed and task_type:
+            allowed = _applicable_by_manifest(session, allowed, task_type=task_type)
+        return allowed
 
     try:
         if db is not None:
