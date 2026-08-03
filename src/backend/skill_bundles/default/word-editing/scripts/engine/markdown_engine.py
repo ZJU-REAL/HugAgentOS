@@ -1,8 +1,7 @@
 """Markdown → DOCX bytes engine.
 
-The core conversion used to live inside ``mcp_servers/report_export_mcp/impl.py``
-but logically belongs in the engine so the word-editing skill (and any other
-consumer) can reach it without depending on a sibling MCP server's internals.
+The conversion belongs to the word-editing engine so every skill operation can
+reuse it without depending on a sibling integration.
 
 Public API:
     markdown_to_docx_bytes(markdown, title) -> bytes
@@ -18,10 +17,8 @@ Public API:
         headings / centered tables to an existing .docx. Used to make the
         ``create --content`` structural (.NET) output render identically to
         ``create --markdown`` output.
-
-The legacy underscore-prefixed name ``_markdown_to_docx_bytes`` is kept as
-an alias for backward compat.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -43,10 +40,9 @@ _BODY_FONT = "方正仿宋简体"
 _HEADING_FONT = "方正小标宋简体"
 _CODE_FONT = "Courier New"
 
-# Optional pandoc reference template — same lookup as the original
-# report_export_mcp version, but here we don't bundle one alongside this
-# module, so the lookup almost always falls through (which the code below
-# handles gracefully with ``os.path.exists`` checks).
+# Optional pandoc reference template. The skill does not bundle one alongside
+# this module, so the lookup normally falls through; the converter handles that
+# case through ``os.path.exists`` checks.
 _REFERENCE_DOCX = os.path.join(os.path.dirname(__file__), "reference.docx")
 
 # Table styling constants
@@ -56,19 +52,20 @@ _TABLE_BORDER_COLOR = "B8CCE4"
 
 # Pre-compiled regex for inline markdown parsing
 _INLINE_RE = re.compile(
-    r"(\*\*(.+?)\*\*)"        # group 1,2: bold
-    r"|(\*(.+?)\*)"           # group 3,4: italic
-    r"|(`(.+?)`)"             # group 5,6: inline code
+    r"(\*\*(.+?)\*\*)"  # group 1,2: bold
+    r"|(\*(.+?)\*)"  # group 3,4: italic
+    r"|(`(.+?)`)"  # group 5,6: inline code
     r"|(\[(.+?)\]\((.+?)\))"  # group 7,8,9: link [text](url)
 )
 
 
 # ── DOCX helpers ────────────────────────────────────────────────────────────
 
+
 def _set_document_default_fonts(doc, ea_font: str) -> None:
     """Write docDefaults into styles.xml so every paragraph inherits the CJK font."""
-    from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
 
     styles_el = doc.styles.element
     docDefaults = styles_el.find(qn("w:docDefaults"))
@@ -119,8 +116,8 @@ def _apply_body_paragraph_defaults(para) -> None:
     first-line indent 2 chars + 1.5 line spacing + justified alignment.
     """
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
 
     para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     para.paragraph_format.line_spacing = 1.5
@@ -137,8 +134,8 @@ def _apply_body_paragraph_defaults(para) -> None:
 
 def _apply_cjk_font_to_para(para, font_name: str) -> None:
     """Apply CJK font to all runs + paragraph mark in a paragraph."""
-    from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
 
     def _set_rFonts(rPr_el: Any, name: str) -> None:
         rFonts = rPr_el.find(qn("w:rFonts"))
@@ -171,12 +168,20 @@ def _setup_heading_styles(doc) -> None:
     don't round-trip through python-docx's built-in name lookup, which used to
     silently skip every heading and leave them blue.
     """
-    from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     from docx.shared import RGBColor
 
-    targets = {"Title", "Subtitle", "Heading 1", "Heading 2", "Heading 3",
-               "Heading 4", "Heading 5", "Heading 6"}
+    targets = {
+        "Title",
+        "Subtitle",
+        "Heading 1",
+        "Heading 2",
+        "Heading 3",
+        "Heading 4",
+        "Heading 5",
+        "Heading 6",
+    }
     for style in doc.styles:
         if (style.name or "") not in targets:
             continue
@@ -218,11 +223,15 @@ def _pandoc_convert(markdown: str, title: str) -> bytes:
     out_path = str(pathlib.Path(in_path).with_suffix(".docx"))
     try:
         cmd = [
-            "pandoc", in_path,
-            "-f", "gfm",
-            "-t", "docx",
+            "pandoc",
+            in_path,
+            "-f",
+            "gfm",
+            "-t",
+            "docx",
             "--wrap=none",
-            "-o", out_path,
+            "-o",
+            out_path,
         ]
         if os.path.exists(_REFERENCE_DOCX):
             cmd += ["--reference-doc", _REFERENCE_DOCX]
@@ -260,8 +269,8 @@ def _post_process_cjk_fonts(docx_bytes: bytes) -> bytes:
 def _style_tables(tables) -> None:
     """Add header background, alternating row colors, borders, and center each table."""
     from docx.enum.table import WD_TABLE_ALIGNMENT
-    from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     from docx.shared import RGBColor
 
     def _set_cell_shading(cell, color: str) -> None:
@@ -309,7 +318,7 @@ def _add_inline_runs(paragraph, text: str, font_name: str) -> None:
     last_end = 0
     for m in _INLINE_RE.finditer(text):
         if m.start() > last_end:
-            run = paragraph.add_run(text[last_end:m.start()])
+            run = paragraph.add_run(text[last_end : m.start()])
             run.font.name = font_name
 
         if m.group(2):  # bold
@@ -403,11 +412,7 @@ def _fallback_markdown_to_docx(markdown: str, title: str) -> bytes:
             i += 1
             continue
 
-        if (
-            stripped.startswith("|")
-            and stripped.endswith("|")
-            and stripped.count("|") >= 2
-        ):
+        if stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2:
             table_lines = []
             while i < len(lines):
                 s = lines[i].strip()
@@ -515,8 +520,3 @@ def markdown_to_docx_bytes(markdown: str, title: str) -> bytes:
         return _post_process_cjk_fonts(raw)
     logger.info("Pandoc not available, using fallback python-docx converter")
     return _fallback_markdown_to_docx(markdown, title)
-
-
-# Backward-compat alias: the old call site in mcp_servers/report_export_mcp/impl.py
-# imported the underscore-prefixed name.
-_markdown_to_docx_bytes = markdown_to_docx_bytes

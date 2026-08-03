@@ -1,26 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Switch, Tag, Input, Typography, Button, Modal, Form, Select, Popconfirm, message, Pagination } from 'antd';
+import { Switch, Tag, Input, Typography, Button, Modal, Form, Select, Popconfirm, message, Pagination, Tooltip, Dropdown } from 'antd';
 import { t } from '../../i18n';
-import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined, AppstoreOutlined, CloudUploadOutlined, DownOutlined } from '@ant-design/icons';
 import { useCatalogStore, useAuthStore } from '../../stores';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
-import { createMyMcpServer, deleteMyMcpServer } from '../../api';
+import {
+  createMyMcpServer,
+  deleteMyMcpServer,
+  getMyMcpMarketSubmissions,
+  submitMcpToMarketplace,
+  withdrawMcpMarketSubmission,
+} from '../../api';
+import type { McpMarketSubmission } from '../../types';
+import { McpMarketplaceModal } from './McpMarketplaceModal';
+import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
 // when the API provides no value.
 // Number of cards per page in the grid (2-column layout, 6 rows)
 const MCP_PAGE_SIZE = 12;
+const MCP_MARKET_CATEGORIES = ['信息检索', '数据分析', '内容创作', '办公协作', '研发工具', '业务系统', '自动化', '通用工具'];
 
 function McpIcon({ id, icon }: { id: string; icon?: string }) {
-  if (icon) {
+  const normalizedIcon = normalizeMcpIconUrl(icon);
+  const [failedIcon, setFailedIcon] = useState('');
+  if (normalizedIcon && failedIcon !== normalizedIcon) {
     return (
       <div className="jx-mcp-iconWrap">
-        <img src={icon} alt="" className="jx-mcp-iconImg" />
+        <img
+          src={normalizedIcon}
+          alt=""
+          className="jx-mcp-iconImg"
+          onError={() => setFailedIcon(normalizedIcon)}
+        />
       </div>
     );
   }
@@ -55,6 +72,70 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
   const [addOpen, setAddOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [form] = Form.useForm();
+  const [marketOpen, setMarketOpen] = useState(false);
+  const [submissions, setSubmissions] = useState<McpMarketSubmission[]>([]);
+  const [applyServerId, setApplyServerId] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyForm] = Form.useForm();
+
+  const reloadSubmissions = useCallback(async () => {
+    try {
+      setSubmissions(await getMyMcpMarketSubmissions());
+    } catch {
+      setSubmissions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (canAddMcp) void reloadSubmissions();
+  }, [canAddMcp, reloadSubmissions]);
+
+  const submissionByServer = useMemo(() => {
+    const result = new Map<string, McpMarketSubmission>();
+    submissions.forEach((submission) => {
+      if (!result.has(submission.source_server_id)) result.set(submission.source_server_id, submission);
+    });
+    return result;
+  }, [submissions]);
+
+  const openApply = useCallback((serverId: string) => {
+    applyForm.resetFields();
+    applyForm.setFieldsValue({ version: '1.0.0' });
+    setApplyServerId(serverId);
+  }, [applyForm]);
+
+  const submitApply = useCallback(async () => {
+    if (!applyServerId) return;
+    const values = await applyForm.validateFields();
+    setApplying(true);
+    try {
+      await submitMcpToMarketplace({
+        source_server_id: applyServerId,
+        category: values.category,
+        version: values.version,
+        summary: values.summary || '',
+        note: values.note || '',
+        tags: values.tags || [],
+      });
+      message.success(t('MCP 上架申请已提交，等待管理员审核'));
+      setApplyServerId(null);
+      await reloadSubmissions();
+    } catch (error) {
+      message.error((error as Error).message || t('提交失败'));
+    } finally {
+      setApplying(false);
+    }
+  }, [applyForm, applyServerId, reloadSubmissions]);
+
+  const withdrawApply = useCallback(async (submissionId: string) => {
+    try {
+      await withdrawMcpMarketSubmission(submissionId);
+      message.success(t('申请已撤回'));
+      await reloadSubmissions();
+    } catch (error) {
+      message.error((error as Error).message || t('撤回失败'));
+    }
+  }, [reloadSubmissions]);
 
   const handleAddMcp = useCallback(async () => {
     const values = await form.validateFields();
@@ -157,10 +238,10 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
 
   // ── Detail View ──────────────────────────────────────────────
   if (selectedItem) {
-    const version = (selectedItem as any).version || '';
+    const version = selectedItem.version || '';
     // ``detail`` is the user-facing user_intro markdown (managed via admin DB
     // + configs/user_intros.py defaults). No frontmatter; render as-is.
-    const markdownBody = (selectedItem as any).detail || '';
+    const markdownBody = selectedItem.detail || '';
 
     return (
       <motion.div
@@ -241,9 +322,18 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
             </div>
           )}
           {canAddMcp && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddOpen(true)} style={{ marginLeft: 8 }}>
-              {t('添加 MCP')}
-            </Button>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'market', icon: <AppstoreOutlined />, label: t('MCP 市场'), onClick: () => setMarketOpen(true) },
+                  { key: 'private', icon: <PlusOutlined />, label: t('连接私有 MCP'), onClick: () => setAddOpen(true) },
+                ],
+              }}
+            >
+              <Button type="primary" icon={<PlusOutlined />} style={{ marginLeft: 8 }}>
+                {t('添加 MCP 工具')} <DownOutlined />
+              </Button>
+            </Dropdown>
           )}
         </div>
       </div>
@@ -275,11 +365,50 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
                 {item.owner === 'self' && (
                   <Tag style={{ background: '#EBF2FF', color: '#126DFF', border: 'none' }}>{t('我的')}</Tag>
                 )}
+                {item.owner === 'self' && (() => {
+                  const submission = submissionByServer.get(item.id);
+                  if (!submission) return null;
+                  if (submission.status === 'pending') return <Tag color="gold">{t('上架审核中')}</Tag>;
+                  if (submission.status === 'approved') return <Tag color="green">{t('已上架市场')}</Tag>;
+                  return (
+                    <Tooltip title={submission.review_note || t('申请被驳回，可修改后重新申请')}>
+                      <Tag color="red">{t('上架被驳回')}</Tag>
+                    </Tooltip>
+                  );
+                })()}
               </div>
               {item.owner === 'self' && (
                 // Container-level stopPropagation: the Popconfirm confirm button is in a portal, but React synthetic events
                 // bubble along the component tree, otherwise clicking "delete" would bubble to the card onClick and jump into the detail view.
-                <span style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
+                <span className="jx-mcp-cardActions" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
+                  {(() => {
+                    if (item.marketplace_installed) return null;
+                    const submission = submissionByServer.get(item.id);
+                    if (submission?.status === 'pending') {
+                      return (
+                        <Popconfirm
+                          title={t('撤回 MCP 上架申请？')}
+                          onConfirm={() => void withdrawApply(submission.submission_id)}
+                          okText={t('撤回')}
+                          cancelText={t('取消')}
+                        >
+                          <Button type="text" size="small" icon={<CloudUploadOutlined />} />
+                        </Popconfirm>
+                      );
+                    }
+                    if (submission?.status === 'approved') {
+                      return <Button type="text" size="small" disabled icon={<CloudUploadOutlined />} />;
+                    }
+                    return (
+                      <Button
+                        type="text"
+                        size="small"
+                        title={t('申请上架 MCP 市场')}
+                        icon={<CloudUploadOutlined />}
+                        onClick={() => openApply(item.id)}
+                      />
+                    );
+                  })()}
                   <Popconfirm
                     title={t('删除这个私有 MCP？')}
                     okText={t('删除')}
@@ -321,6 +450,51 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
         </div>
       )}
 
+      <McpMarketplaceModal
+        open={marketOpen}
+        canInstall={canAddMcp}
+        onClose={() => setMarketOpen(false)}
+        onInstalled={() => { void fetchCatalog(); }}
+      />
+
+      <Modal
+        title={t('申请上架 MCP 市场')}
+        open={!!applyServerId}
+        onCancel={() => setApplyServerId(null)}
+        onOk={() => void submitApply()}
+        okText={t('提交申请')}
+        cancelText={t('取消')}
+        confirmLoading={applying}
+        width={540}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          {t('系统会重新连接服务并保存不含凭据的工具快照。管理员审核通过后，其他用户安装时必须填写自己的凭据；远程工具发生变化会暂停安装并触发复审。')}
+        </Typography.Paragraph>
+        {applyServerId && submissionByServer.get(applyServerId)?.status === 'rejected' && (
+          <Typography.Paragraph type="danger" style={{ fontSize: 12 }}>
+            {t('上次申请被驳回：{reason}', { reason: submissionByServer.get(applyServerId)?.review_note || t('未填写原因') })}
+          </Typography.Paragraph>
+        )}
+        <Form form={applyForm} layout="vertical" initialValues={{ version: '1.0.0' }}>
+          <Form.Item name="summary" label={t('市场展示摘要（可选）')}>
+            <Input.TextArea rows={2} maxLength={2000} />
+          </Form.Item>
+          <Form.Item name="category" label={t('上架分类')} rules={[{ required: true, message: t('请选择上架分类') }]}>
+            <Select options={MCP_MARKET_CATEGORIES.map((value) => ({ value, label: value }))} />
+          </Form.Item>
+          <Form.Item name="version" label={t('版本号')} rules={[{ required: true, message: t('请输入版本号') }]}>
+            <Input placeholder="1.0.0" maxLength={50} />
+          </Form.Item>
+          <Form.Item name="tags" label={t('标签（可选）')}>
+            <Select mode="tags" tokenSeparators={[',', '，']} maxCount={20} />
+          </Form.Item>
+          <Form.Item name="note" label={t('给管理员的备注（可选）')}>
+            <Input.TextArea rows={3} maxLength={2000} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* Add-private-MCP modal */}
       <Modal
         title={t('添加 MCP 工具')}
@@ -333,7 +507,7 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          {t('仅支持远程 HTTP/SSE 类型的 MCP 服务，添加时会自动测试连通性。该工具仅你自己可见可用。')}
+          {t('仅支持公网 HTTPS 的远程 HTTP/SSE MCP，添加时会执行地址安全检查和工具发现。该连接仅你自己可见可用，之后可申请上架市场。')}
         </Typography.Paragraph>
         <Form form={form} layout="vertical" initialValues={{ transport: 'streamable_http' }}>
           <Form.Item name="display_name" label={t('名称')} rules={[{ required: true, message: t('请输入名称') }]}>

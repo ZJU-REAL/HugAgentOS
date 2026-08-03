@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import mapped_column, relationship
@@ -167,6 +168,206 @@ class AdminMcpServer(Base):
         Index("idx_admin_mcp_servers_sort_order", "sort_order"),
         Index("idx_admin_mcp_servers_owner_user_id", "owner_user_id"),
         Index("idx_admin_mcp_servers_source_plugin", "source_plugin"),
+    )
+
+
+class McpMarketItem(Base):
+    """Installable MCP marketplace entry.
+
+    The marketplace stores a credential-free definition.  Concrete credentials
+    and enablement live on the ``AdminMcpServer`` created for each installation.
+    ``latest_version_id`` points at an immutable ``McpMarketVersion`` snapshot.
+    """
+
+    __tablename__ = "mcp_market_items"
+
+    slug = Column(String(128), primary_key=True)
+    display_name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    user_intro = Column(Text)
+    category = Column(String(64), nullable=False, default="通用工具")
+    tags = Column(JSONType, default=list)
+    icon = Column(String(500))
+    publisher_id = Column(String(64))
+    publisher_name = Column(String(255), nullable=False, default="")
+    source = Column(String(16), nullable=False, default="community")
+    latest_version_id = Column(String(64), nullable=False)
+    # active = installable; changed = remote tool drift awaiting review;
+    # suspended = security kill switch (derived installations are disabled).
+    status = Column(String(16), nullable=False, default="active")
+    status_reason = Column(Text)
+    last_verified_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    deleted_at = Column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('admin', 'community')",
+            name="mcp_market_items_source_check",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'changed', 'suspended')",
+            name="mcp_market_items_status_check",
+        ),
+        Index("idx_mcp_market_items_status", "status", "updated_at"),
+        Index("idx_mcp_market_items_category", "category"),
+    )
+
+
+class McpMarketVersion(Base):
+    """Immutable, reviewed MCP marketplace version snapshot."""
+
+    __tablename__ = "mcp_market_versions"
+
+    version_id = Column(String(64), primary_key=True)
+    slug = Column(
+        String(128),
+        ForeignKey("mcp_market_items.slug", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version = Column(String(50), nullable=False, default="1.0.0")
+    transport = Column(String(20), nullable=False, default="streamable_http")
+    url = Column(Text, nullable=False)
+    # [{key, label, target: "header" | "query" | "url", required, secret, ...}];
+    # values are never stored here.
+    auth_schema = Column(JSONType, default=list)
+    # Provider-neutral authentication contract.  ``methods`` may contain
+    # none/token/oauth2 options; OAuth endpoint discovery follows MCP metadata.
+    auth_config = Column(JSONType, default=dict)
+    tools_json = Column(JSONType, default=list)
+    tool_hash = Column(String(64), nullable=False)
+    risk_level = Column(String(16), nullable=False, default="low")
+    risk_report = Column(JSONType, default=dict)
+    source_server_id = Column(String(100))
+    approved_by = Column(String(64))
+    approved_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "transport IN ('streamable_http', 'sse')",
+            name="mcp_market_versions_transport_check",
+        ),
+        CheckConstraint(
+            "risk_level IN ('low', 'medium', 'high')",
+            name="mcp_market_versions_risk_check",
+        ),
+        UniqueConstraint("slug", "version", name="uq_mcp_market_versions_slug_version"),
+        Index("idx_mcp_market_versions_slug", "slug", "created_at"),
+    )
+
+
+class McpMarketSubmission(Base):
+    """Credential-free snapshot submitted by a user for MCP marketplace review."""
+
+    __tablename__ = "mcp_market_submissions"
+
+    submission_id = Column(String(64), primary_key=True)
+    slug = Column(String(128), nullable=False)
+    source_server_id = Column(String(100), nullable=False)
+    owner_user_id = Column(String(64), nullable=False)
+    submitter_name = Column(String(255), nullable=False, default="")
+    display_name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    user_intro = Column(Text)
+    category = Column(String(64), nullable=False, default="通用工具")
+    tags = Column(JSONType, default=list)
+    icon = Column(String(500))
+    version = Column(String(50), nullable=False, default="1.0.0")
+    transport = Column(String(20), nullable=False)
+    url = Column(Text, nullable=False)
+    auth_schema = Column(JSONType, default=list)
+    auth_config = Column(JSONType, default=dict)
+    tools_json = Column(JSONType, default=list)
+    tool_hash = Column(String(64), nullable=False)
+    risk_level = Column(String(16), nullable=False, default="low")
+    risk_report = Column(JSONType, default=dict)
+    note = Column(Text, nullable=False, default="")
+    status = Column(String(16), nullable=False, default="pending")
+    review_note = Column(Text)
+    reviewed_by = Column(String(64))
+    reviewed_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    deleted_at = Column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'withdrawn')",
+            name="mcp_market_submissions_status_check",
+        ),
+        CheckConstraint(
+            "transport IN ('streamable_http', 'sse')",
+            name="mcp_market_submissions_transport_check",
+        ),
+        CheckConstraint(
+            "risk_level IN ('low', 'medium', 'high')",
+            name="mcp_market_submissions_risk_check",
+        ),
+        Index("idx_mcp_market_submissions_status", "status", "created_at"),
+        Index("idx_mcp_market_submissions_owner", "owner_user_id", "created_at"),
+        Index("idx_mcp_market_submissions_slug", "slug"),
+    )
+
+
+class McpMarketInstallation(Base):
+    """Links a reviewed market version to the concrete installed MCP server."""
+
+    __tablename__ = "mcp_market_installations"
+
+    install_id = Column(String(64), primary_key=True)
+    slug = Column(
+        String(128),
+        ForeignKey("mcp_market_items.slug", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_id = Column(
+        String(64),
+        ForeignKey("mcp_market_versions.version_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    server_id = Column(
+        String(100),
+        ForeignKey("admin_mcp_servers.server_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    # NULL means the admin installed it globally; otherwise it is private to the user.
+    owner_user_id = Column(String(64))
+    status = Column(String(16), nullable=False, default="active")
+    installed_by = Column(String(64))
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'suspended')",
+            name="mcp_market_installations_status_check",
+        ),
+        Index("idx_mcp_market_installations_owner", "owner_user_id", "created_at"),
+        Index("idx_mcp_market_installations_slug", "slug", "status"),
+        Index(
+            "uq_mcp_market_installations_user_slug",
+            "slug",
+            "owner_user_id",
+            unique=True,
+            postgresql_where=text("owner_user_id IS NOT NULL"),
+            sqlite_where=text("owner_user_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_mcp_market_installations_global_slug",
+            "slug",
+            unique=True,
+            postgresql_where=text("owner_user_id IS NULL"),
+            sqlite_where=text("owner_user_id IS NULL"),
+        ),
     )
 
 

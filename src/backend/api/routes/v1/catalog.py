@@ -52,13 +52,19 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
     badge and delete button based on ``owner == 'self'``.
     """
     from core.config.catalog_loader import skill_body_from_raw
-    from core.db.models import AdminMcpServer, AdminSkill
+    from core.db.models import AdminMcpServer, AdminSkill, McpMarketInstallation
     from core.services.skill_icon_service import get_skill_icons
 
     skill_items: List[Dict[str, Any]] = []
     mcp_items: List[Dict[str, Any]] = []
     icons = get_skill_icons(db)
     try:
+        marketplace_server_ids = {
+            str(row[0])
+            for row in db.query(McpMarketInstallation.server_id)
+            .filter(McpMarketInstallation.owner_user_id == user_id)
+            .all()
+        }
         for row in (
             db.query(AdminSkill)
             .filter(AdminSkill.owner_user_id == user_id)
@@ -94,6 +100,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
             .order_by(AdminMcpServer.sort_order)
             .all()
         ):
+            extra_config = dict(row.extra_config or {})
             mcp_items.append(
                 {
                     "id": row.server_id,
@@ -108,6 +115,8 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
                     "detail": row.user_intro or "",
                     "owner": "self",
                     "deletable": True,
+                    "marketplace_installed": bool(extra_config.get("market_slug"))
+                    or row.server_id in marketplace_server_ids,
                 }
             )
     except Exception as exc:

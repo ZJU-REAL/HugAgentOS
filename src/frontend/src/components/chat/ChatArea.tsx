@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Select, message } from 'antd';
+import { BookOutlined, FileTextOutlined, PieChartOutlined } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { EASE, staggerStyle } from '../../utils/motionTokens';
 import { useDelayedFlag } from '../../hooks';
@@ -28,6 +29,27 @@ function buildShortcutUrl(base: string, token?: string | null): string {
   return `${base}${sep}token=${encodeURIComponent(token)}`;
 }
 import { MessageBubble } from './MessageBubble';
+
+const MOBILE_QUICK_TASKS = [
+  {
+    id: 'policy',
+    label: '政策解读',
+    prompt: '请帮我解读这份政策，提炼核心要点、适用对象和执行建议。',
+    Icon: BookOutlined,
+  },
+  {
+    id: 'material',
+    label: '材料对比',
+    prompt: '请帮我对比这些材料，梳理主要差异、共同点和结论。',
+    Icon: FileTextOutlined,
+  },
+  {
+    id: 'data',
+    label: '数据分析',
+    prompt: '请帮我分析这组数据，提炼关键指标、趋势和异常。',
+    Icon: PieChartOutlined,
+  },
+] as const;
 import { InputArea } from './InputArea';
 import { PlanProgressStrip } from './PlanProgressStrip';
 import { FileConfirmBar } from './FileConfirmBar';
@@ -294,7 +316,7 @@ export function ChatArea({
 
   if (hasNoMessages) {
     return (
-      <div className="jx-emptyPage">
+      <div className={`jx-emptyPage${!isAgentChat && !isSiteChat ? ' jx-emptyPage--main' : ''}`}>
         {isSiteChat && (
           <div className="jx-siteHeroTop">
             <button
@@ -314,6 +336,12 @@ export function ChatArea({
             <img src="/home/title-bg.png" alt="" className="jx-heroBgImg" />
             <h1 className="jx-heroTitle">{heroTitle}</h1>
             <p className="jx-heroSubtitle">{heroSubtitle}</p>
+            {!isAgentChat && !isSiteChat && (
+              <div className="jx-mobileHeroText">
+                <h1>HugAgentOS</h1>
+                <p>{t('你的智能任务助手')}</p>
+              </div>
+            )}
           </div>
 
           <div className="jx-homeInput" style={staggerStyle(1)}>
@@ -331,6 +359,7 @@ export function ChatArea({
                 handleFileSelect={handleFileSelect}
                 removeFile={removeFile}
                 placeholder={inputPlaceholder}
+                mobilePlaceholder={!isAgentChat && !isSiteChat ? t('输入问题或需求') : inputPlaceholder}
                 disableMention={isAgentChat}
               />
             )}
@@ -357,6 +386,28 @@ export function ChatArea({
                   <span className="jx-capCardLabel">{t(card.label)}</span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {!isAgentChat && !isSiteChat && (
+            <div className="jx-mobileQuickTasks" style={staggerStyle(2)}>
+              <div className="jx-mobileQuickTasksLabel">{t('常用任务')}</div>
+              <div className="jx-mobileQuickTasksRow">
+                {MOBILE_QUICK_TASKS.map((task) => {
+                  const TaskIcon = task.Icon;
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      className="jx-mobileQuickTask"
+                      onClick={() => applyQuickScenario(task.prompt)}
+                    >
+                      <TaskIcon className="jx-mobileQuickTaskIcon" />
+                      <span>{t(task.label)}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

@@ -6,9 +6,7 @@
 # it moved to the word / excel / pdf / ppt skills that run in the opensandbox
 # container (each skill vendors its own engine). This image therefore only
 # carries what the remaining MCP servers actually import:
-#   - matplotlib / Pillow  → generate_chart_tool_mcp
-#   - openpyxl             → report_export_mcp (export_table_to_excel)
-#   - python-docx + pandoc → report_export_mcp (markdown→docx path)
+#   - matplotlib / Pillow → generate_chart_tool_mcp
 # No LibreOffice / .NET / Node / Chromium — those were only used by the
 # office tooling that has since moved to the sandbox.
 
@@ -27,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install backend deps + the few office/chart deps the MCP servers still use.
+# Install backend deps + the chart dependencies the MCP servers still use.
 COPY requirements.txt docker/requirements-mcp.txt ./
 RUN pip install --no-cache-dir --user \
     -r requirements.txt \
@@ -42,14 +40,12 @@ WORKDIR /app
 
 # Runtime deps:
 #   - curl — HEALTHCHECK probe
-#   - pandoc — mcp_servers.report_export_mcp.impl._pandoc_convert (markdown→docx)
 #   - fonts-wqy-zenhei + fontconfig — CJK glyphs for matplotlib chart rendering
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     tzdata \
     fontconfig \
     fonts-wqy-zenhei \
-    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder

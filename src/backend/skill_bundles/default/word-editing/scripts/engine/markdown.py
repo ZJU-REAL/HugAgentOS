@@ -18,17 +18,17 @@ Out of scope:
     - Nested lists, blockquotes, images, raw HTML — not needed by the
       current LLM use cases.
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
 
-
-# Inline span matchers — mirrors ``report_export_mcp.impl._INLINE_RE``.
+# Inline span matchers shared by the Word Markdown renderers.
 INLINE_RE = re.compile(
-    r"(\*\*(.+?)\*\*)"        # 1,2 bold
-    r"|(\*(.+?)\*)"           # 3,4 italic
-    r"|(`(.+?)`)"             # 5,6 inline code
+    r"(\*\*(.+?)\*\*)"  # 1,2 bold
+    r"|(\*(.+?)\*)"  # 3,4 italic
+    r"|(`(.+?)`)"  # 5,6 inline code
     r"|(\[(.+?)\]\((.+?)\))"  # 7,8,9 link
 )
 
@@ -37,12 +37,12 @@ INLINE_RE = re.compile(
 # warn callers that their markdown markup will land as literal characters.
 _SIGNAL_RE = re.compile(
     r"(?m)"  # ^ matches per-line
-    r"(^#{1,6}\s)"        # ATX heading
-    r"|(^[-*+]\s)"        # bullet
-    r"|(^\d+\.\s)"        # numbered
-    r"|(^\|.+\|\s*$)"     # table row
-    r"|(```)"             # fenced code
-    r"|(\*\*.+?\*\*)"     # bold span
+    r"(^#{1,6}\s)"  # ATX heading
+    r"|(^[-*+]\s)"  # bullet
+    r"|(^\d+\.\s)"  # numbered
+    r"|(^\|.+\|\s*$)"  # table row
+    r"|(```)"  # fenced code
+    r"|(\*\*.+?\*\*)"  # bold span
 )
 
 
@@ -57,7 +57,7 @@ def add_inline_runs(paragraph, text: str, body_font: str, code_font: str = "Cour
     last_end = 0
     for m in INLINE_RE.finditer(text):
         if m.start() > last_end:
-            run = paragraph.add_run(text[last_end:m.start()])
+            run = paragraph.add_run(text[last_end : m.start()])
             run.font.name = body_font
         if m.group(2):
             run = paragraph.add_run(m.group(2))
@@ -93,12 +93,8 @@ def emit_blocks(doc, markdown: str) -> list[Any]:
     take is safe.
     """
     from docx.oxml.ns import qn
-    from .styles import (
-        BODY_FONT,
-        CODE_FONT,
-        HEADING_FONT,
-        apply_cjk_font_to_para,
-    )
+
+    from .styles import BODY_FONT, CODE_FONT, HEADING_FONT, apply_cjk_font_to_para
 
     body = doc.element.body
     p_tag, tbl_tag = qn("w:p"), qn("w:tbl")
@@ -124,11 +120,7 @@ def emit_blocks(doc, markdown: str) -> list[Any]:
         # Markdown table syntax → reject. Callers should use word_add_table
         # so position / caption / merge are controlled explicitly and a
         # caption written elsewhere doesn't end up duplicated.
-        if (
-            stripped.startswith("|")
-            and stripped.endswith("|")
-            and stripped.count("|") >= 2
-        ):
+        if stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2:
             raise ValueError(
                 "markdown insert does not handle '| ... |' table syntax — "
                 "use word_add_table (or apply_edits op='add_table') for the "

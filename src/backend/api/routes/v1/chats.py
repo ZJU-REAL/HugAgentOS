@@ -500,19 +500,26 @@ def _resolve_chat_agent_targets(
     """
     from core.llm.builtin_subagents import get_builtin_subagent, merge_builtin_subagents
     from core.services.user_agent_service import UserAgentService
+    from core.services.user_service import UserService
 
     service = UserAgentService(db)
-    available_delegates = merge_builtin_subagents(service.list_for_user(user_id))
+    disabled_ids = UserService(db).get_disabled_builtin_subagent_ids(user_id)
+    available_delegates = merge_builtin_subagents(
+        service.list_for_user(user_id),
+        disabled_agent_ids=disabled_ids,
+    )
     persistent_agent_name: Optional[str] = None
     execution_message = request.message
     explicit_command = None
 
     if request.agent_id:
-        try:
-            persistent = service.get_by_id(request.agent_id, user_id=user_id)
-            persistent_agent_name = str(persistent["name"])
-        except (LookupError, PermissionError) as exc:
-            raise HTTPException(status_code=403, detail="无法访问该子智能体") from exc
+        persistent = next(
+            (item for item in available_delegates if item.get("agent_id") == request.agent_id),
+            None,
+        )
+        if persistent is None:
+            raise HTTPException(status_code=403, detail="无法访问该子智能体")
+        persistent_agent_name = str(persistent["name"])
 
     mention_agent_id = request.mention_agent_id
     mention_agent_name = request.mention_name
@@ -530,8 +537,11 @@ def _resolve_chat_agent_targets(
         builtin = get_builtin_subagent(mention_agent_id)
         if builtin is not None:
             mentioned = next(
-                item for item in available_delegates if item.get("agent_id") == mention_agent_id
+                (item for item in available_delegates if item.get("agent_id") == mention_agent_id),
+                None,
             )
+            if mentioned is None:
+                raise HTTPException(status_code=403, detail="无法访问 @ 指定的子智能体")
         else:
             try:
                 mentioned = service.get_by_id(mention_agent_id, user_id=user_id)

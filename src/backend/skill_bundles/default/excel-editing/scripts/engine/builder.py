@@ -8,6 +8,7 @@ The full Formula-First / role-styling power can be reintroduced as separate
 tools (excel_apply_formula, excel_apply_role_styling) without changing this
 foundational builder.
 """
+
 from __future__ import annotations
 
 from typing import Any, Iterable
@@ -37,7 +38,7 @@ def _write_rows(ws, rows: Iterable[list[Any]], *, start_row: int = 1) -> int:
 
 
 def _apply_header_style(ws, header_row: int, n_cols: int) -> None:
-    """Bold + filled header row (matches the look of report_export_mcp tables)."""
+    """Apply the shared bold and filled style to a table header row."""
     from openpyxl.styles import Alignment, Font, PatternFill
 
     fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")

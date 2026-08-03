@@ -15,6 +15,7 @@
 | `BACKEND_PORT` | `3001` | 后端监听端口 + Docker 端口映射；容器内同时作为 `PORT` | CE |
 | `FRONTEND_PORT` | `3002` | 前端 nginx 对外端口（容器内 80） | CE |
 | `VITE_API_BASE_URL` | （空） | 构建期烧进前端 JS 包的 API 基址；**留空走 nginx `/api` 反代（推荐）** | CE |
+| `MCP_OAUTH_PUBLIC_BASE_URL` | （空） | MCP 浏览器 OAuth 的外部 API 基址；同源 nginx/Vite `/api` 反代留空，跨域部署填写如 `https://app.example.com/api` | CE |
 | `ENV` / `ENVIRONMENT` | `dev` | 运行环境（dev / staging / prod），影响日志格式与 `.env.<ENV>` 加载 | CE |
 | `TZ` | `Asia/Shanghai` | 全部容器时区 | CE |
 | `SERVICE_NAME` | `hugagent` | 服务名（日志 / 告警标识） | CE |
@@ -159,6 +160,7 @@
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
 | `MCP_HOST` | `mcp`（compose 默认） | MCP 容器主机名；本地调试可设 `127.0.0.1` | CE |
+| `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | MCP 市场远程工具快照复检周期（秒，最小 `300`） | CE |
 | `INTERNET_SEARCH_ENGINE` | `tavily`（compose 默认） | 联网搜索引擎：`tavily` / `baidu` / `langsearch` | CE |
 | `TAVILY_API_KEY` | （空） | Tavily Search API Key；选择 Tavily 时必填 | CE |
 | `BAIDU_API_KEY` | （空） | 百度搜索 API Key；选择百度时必填 | CE |

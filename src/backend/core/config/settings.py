@@ -332,6 +332,9 @@ class ServerSettings:
         default_factory=lambda: _int(_env("PORT", _env("BACKEND_PORT", "3001")), 3001)
     )
     cors_origins: str = field(default_factory=lambda: _env("CORS_ORIGINS", ""))
+    mcp_oauth_public_base_url: str = field(
+        default_factory=lambda: _env("MCP_OAUTH_PUBLIC_BASE_URL", "").rstrip("/")
+    )
     max_request_size: int = field(
         default_factory=lambda: _int(
             _env("MAX_REQUEST_SIZE", str(50 * 1024 * 1024)), 50 * 1024 * 1024
@@ -352,6 +355,12 @@ class ServerSettings:
     # service name; override with MCP_HOST=127.0.0.1 for local debugging
     # (e.g. running ``python -m mcp_servers._launcher`` outside docker).
     mcp_host: str = field(default_factory=lambda: _env("MCP_HOST", "mcp"))
+    mcp_market_revalidate_interval: int = field(
+        default_factory=lambda: max(
+            300,
+            _int(_env("MCP_MARKET_REVALIDATE_INTERVAL", "21600"), 21600),
+        )
+    )
 
     @property
     def is_prod(self) -> bool:

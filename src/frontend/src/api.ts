@@ -1241,6 +1241,93 @@ export async function deleteMyMcpServer(serverId: string): Promise<void> {
   await apiRequest(`/v1/me/mcp-servers/${encodeURIComponent(serverId)}`, { method: 'DELETE' });
 }
 
+// ── MCP marketplace (user side) ─────────────────────────────────────────────
+import type { McpMarketItem, McpMarketListResult, McpMarketSubmission } from './types';
+
+export async function getMcpMarketItems(): Promise<McpMarketListResult> {
+  const wrapped = await apiRequest<unknown>('/v1/mcp-market/items');
+  return unwrapData<McpMarketListResult>(wrapped);
+}
+
+export async function getMcpMarketItem(slug: string): Promise<McpMarketItem> {
+  const wrapped = await apiRequest<unknown>(`/v1/mcp-market/items/${encodeURIComponent(slug)}`);
+  return unwrapData<McpMarketItem>(wrapped);
+}
+
+export async function installMcpMarketItem(
+  slug: string,
+  credentials: Record<string, string> = {},
+  confirmHighRisk = false,
+  authMethod?: string,
+): Promise<{ server_id: string; action: string }> {
+  const wrapped = await apiRequest<unknown>('/v1/mcp-market/install', {
+    method: 'POST',
+    body: JSON.stringify({
+      slug,
+      auth_method: authMethod,
+      credentials,
+      confirm_high_risk: confirmHighRisk,
+    }),
+  });
+  return unwrapData<{ server_id: string; action: string }>(wrapped);
+}
+
+export async function startMcpMarketOAuth(input: {
+  slug: string;
+  auth_method: string;
+  credentials?: Record<string, string>;
+  client_id?: string;
+  client_secret?: string;
+  confirm_high_risk?: boolean;
+}): Promise<{ flow_id: string; authorization_url: string; status: string }> {
+  const wrapped = await apiRequest<unknown>('/v1/mcp-market/oauth/start', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return unwrapData<{ flow_id: string; authorization_url: string; status: string }>(wrapped);
+}
+
+export async function getMcpMarketOAuthStatus(flowId: string): Promise<{
+  status: string;
+  error?: string;
+  result?: { server_id?: string; action?: string };
+}> {
+  const wrapped = await apiRequest<unknown>(`/v1/mcp-market/oauth/status/${encodeURIComponent(flowId)}`);
+  return unwrapData(wrapped);
+}
+
+export async function cancelMcpMarketOAuth(flowId: string): Promise<void> {
+  await apiRequest<unknown>(`/v1/mcp-market/oauth/cancel/${encodeURIComponent(flowId)}`, {
+    method: 'POST',
+  });
+}
+
+export async function submitMcpToMarketplace(input: {
+  source_server_id: string;
+  category: string;
+  version: string;
+  summary?: string;
+  note?: string;
+  tags?: string[];
+}): Promise<McpMarketSubmission> {
+  const wrapped = await apiRequest<unknown>('/v1/mcp-market/submissions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return unwrapData<McpMarketSubmission>(wrapped);
+}
+
+export async function getMyMcpMarketSubmissions(): Promise<McpMarketSubmission[]> {
+  const wrapped = await apiRequest<unknown>('/v1/mcp-market/submissions');
+  return unwrapData<{ items: McpMarketSubmission[] }>(wrapped).items || [];
+}
+
+export async function withdrawMcpMarketSubmission(submissionId: string): Promise<void> {
+  await apiRequest(`/v1/mcp-market/submissions/${encodeURIComponent(submissionId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function uploadMySkill(file: File): Promise<{ id: string; skipped?: unknown[] }> {
   const form = new FormData();
   form.append('file', file);

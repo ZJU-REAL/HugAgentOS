@@ -12,7 +12,7 @@ The platform ships in two editions: the **Community Edition (CE, open source)** 
 |---|---|---|
 | Conversational agent | SSE streaming chat, AgentScope 2.0 ReActAgent, Plan Mode sub-agent, deep thinking, `[ref:tool-N]` citation tracing, automatic conversation-title summarization | CE |
 | Sub-agents | User-created sub-agents, @mention collaboration, routing strategy (`ROUTER_STRATEGY`) | CE (agent versioning / org-level agent library: EE) |
-| MCP tool ecosystem | 10 built-in MCP servers (8 CE general tools: internet search, web fetch, chart generation, report export, batch planning, automation task management, skill management, knowledge retrieval; 2 EE industry tools: data-warehouse query and industry-chain info), served from a dedicated `mcp` container over streamable-http (`http://mcp:9100-9108/mcp/`, `http://mcp:9112/mcp/`); users can self-register remote HTTP/SSE MCP servers | CE (industry tools such as industry-chain analysis, company profiling, data-warehouse query: EE) |
+| MCP tool ecosystem | 9 built-in MCP servers (7 CE general tools: internet search, web fetch, chart generation, batch planning, automation task management, skill management, knowledge retrieval; 2 EE industry tools: data-warehouse query and industry-chain info), served from a dedicated `mcp` container over streamable-http; users can self-register remote HTTP/SSE MCP servers | CE (industry tools such as industry-chain analysis, company profiling, data-warehouse query: EE) |
 | Skill system | Agent Skills (SKILL.md + scripts): built-in skill bundles, admin upload, skill marketplace browse & install, skill distillation | CE (skill review / org governance: EE) |
 | Sandbox execution | `bash` / `sandbox_put_artifact` / `sandbox_get_artifact` tools with three switchable providers: script_runner (lightweight, built-in), OpenSandbox (persistent sessions + Jupyter context + snapshots), CubeSandbox (E2B-compatible MicroVM) | CE for the lightweight sandbox; persistent sandboxes (session keep-alive / snapshots): EE |
 | Memory system | mem0 three-layer memory: L1 user profile, L2 vector memory (Milvus), L3 knowledge graph (Neo4j), with cross-session injection and background extraction | CE (memory audit: EE) |
@@ -64,7 +64,7 @@ In one sentence: **the Community Edition lets one person push the platform to it
   2.0 ReAct)     strategy)                                      │
        │                                                        ▼
        ├──► core/llm/mcp_manager ──► mcp container          Milvus / Neo4j
-       │      (10 MCP servers, http://mcp:9100-9108/mcp/ + :9112) (mem0 profile)
+       │      (9 MCP servers, ports 9100–9104, 9106–9108, and 9112) (mem0 profile)
        ├──► core/sandbox/* ──► script-runner / OpenSandbox / CubeSandbox
        └──► PostgreSQL · Redis · storage (local / S3 / OSS)
 ```

@@ -113,16 +113,14 @@ The MCP tool `generate_chart_tool` (`src/backend/mcp_servers/generate_chart_tool
 
 The chart immediately appears in the chat attachment area, previewable in the canvas and collectible in My Space. The tool description enforces "fetch data first, then plot" — fabricating numbers is forbidden. To embed a chart into a Word/PPT being built inside the sandbox, the `file_id` must first be copied into the sandbox with `sandbox_put_artifact`, then referenced by its sandbox path from the CLI — artifact storage and the sandbox filesystem are separate worlds.
 
-## How report export lands as artifacts
+## How document export lands as artifacts
 
-The MCP tool group `report_export_mcp` (`src/backend/mcp_servers/report_export_mcp/`) does lightweight Markdown → Office export, persisted through `save_artifact_bytes` as well:
-
-| Tool | Description |
-|---|---|
-| `export_report_to_docx` | Markdown report → .docx (official-document fonts; based on the `reference.docx` template). **Marked DEPRECATED** — for complex layout (custom styles, headers/footers, TOC, image insertion, template fill) use the word-editing skill `word-cli create` instead |
-| `export_table_to_excel` | Parses Markdown tables → .xlsx download |
-
-The returned `file_id` / `url` matches the chart tool's contract and shows up automatically in the attachment area; the xlsx can then be edited further right in the data canvas.
+[Agent skills](agent-skills.md) handle Word and Excel export. The word-editing
+skill uses `word-cli create --markdown` to generate Word documents, and the
+excel-editing skill handles spreadsheet creation, formulas, and multi-sheet
+editing. Skills generate files in the sandbox and pin them through the
+conversation workspace artifact flow. The files appear in attachments and My
+Space, and xlsx files remain editable in the data canvas.
 
 ## End-to-end example
 
@@ -130,7 +128,7 @@ The returned `file_id` / `url` matches the chart tool's contract and shows up au
 
 1. The agent fetches data via search / data tools;
 2. calls `generate_chart_tool` → artifact A (PNG, visible in attachments, previewable in canvas);
-3. writes the analysis and calls `export_report_to_docx` → artifact B (docx);
+3. writes the analysis and uses the word-editing skill to produce artifact B (docx);
 4. both artifacts are pinned into the workspace with the `meta` event and persisted by `persist_artifacts`, appearing in My Space;
 5. the user previews the docx in the canvas, then `POST /v1/chat-shares` creates a 15-day share link to send to a colleague.
 
@@ -146,7 +144,7 @@ The returned `file_id` / `url` matches the chart tool's contract and shows up au
 | Chat share API | `src/backend/api/routes/v1/chat_shares.py` |
 | Share frontend | `src/frontend/src/SharePreviewApp.tsx`, `src/frontend/src/components/share/ShareRecordsPage.tsx` |
 | Chart generation MCP | `src/backend/mcp_servers/generate_chart_tool_mcp/server.py`, `chart.py` |
-| Report export MCP | `src/backend/mcp_servers/report_export_mcp/server.py`, `impl.py` |
+| Document export skills | `src/backend/skill_bundles/default/word-editing/`, `src/backend/skill_bundles/default/excel-editing/` |
 | My Space frontend | `src/frontend/src/components/myspace/`, `src/frontend/src/stores/mySpaceStore.ts` |
 
 Further reading: [Sandbox](sandbox.md) · [Projects & My Space](projects-myspace.md) · [Storage](storage.md) · [MCP Tools](mcp-tools.md)

@@ -106,6 +106,7 @@ def make_client(
         return client_cls(
             name=name,
             is_stateful=is_stateful,
+            oauth_provider=cfg.get("oauth_provider"),
             mcp_config=HttpMCPConfig(
                 url=_url,
                 headers=cfg.get("headers") or None,

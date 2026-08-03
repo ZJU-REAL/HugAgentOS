@@ -13,6 +13,7 @@ export {
 export { buildHistorySegments } from './segments';
 export { uploadFileToOSS, normalizeArtifactOutput, extractArtifactOutputs, attachArtifactsToToolCalls } from './fileParser';
 export { formatDateTime } from './date';
+export { resolvePlanModeActive, shouldRestorePlanModeFromHistory } from './chatMode';
 export {
   INTERNET_SEARCH_ENGINES,
   getInternetSearchEngineMeta,

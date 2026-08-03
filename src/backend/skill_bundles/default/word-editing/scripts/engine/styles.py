@@ -1,10 +1,5 @@
-"""CJK font and heading style helpers for python-docx.
+"""CJK font and heading style helpers for python-docx."""
 
-Extracted from ``mcp_servers/report_export_mcp/impl.py:46-130`` so the same font
-logic is shared between the legacy markdown-export tool and the new office_mcp
-word tools. Behavior must remain identical to keep existing exports rendering
-the same.
-"""
 from __future__ import annotations
 
 from typing import Any
@@ -17,7 +12,7 @@ CODE_FONT = "Courier New"
 EN_BODY_FONT = "Calibri"
 EN_HEADING_FONT = "Calibri"
 
-# Table styling — matches report_export_mcp so user-facing rendering is identical
+# Table styling shared by the Word editing operations.
 TABLE_HEADER_COLOR = "366092"
 TABLE_ALT_ROW_COLOR = "DCE6F1"
 TABLE_BORDER_COLOR = "B8CCE4"
@@ -25,17 +20,26 @@ TABLE_BORDER_COLOR = "B8CCE4"
 # Single source of truth for ``position`` values across editor.py / builder.py /
 # the word-editing skill scripts. Without this, four sites had to keep tuples in sync.
 INSERT_POSITIONS: tuple[str, ...] = (
-    "end", "start",
-    "after_heading", "after_section",
-    "after_paragraph", "before_paragraph",
+    "end",
+    "start",
+    "after_heading",
+    "after_section",
+    "after_paragraph",
+    "before_paragraph",
 )
-ANCHOR_REQUIRED_POSITIONS: frozenset[str] = frozenset({
-    "after_heading", "after_section",
-    "after_paragraph", "before_paragraph",
-})
+ANCHOR_REQUIRED_POSITIONS: frozenset[str] = frozenset(
+    {
+        "after_heading",
+        "after_section",
+        "after_paragraph",
+        "before_paragraph",
+    }
+)
 
 
-def font_for_style(style_name: str | None, body_font: str = BODY_FONT, heading_font: str = HEADING_FONT) -> str:
+def font_for_style(
+    style_name: str | None, body_font: str = BODY_FONT, heading_font: str = HEADING_FONT
+) -> str:
     """Pick the right CJK font for a paragraph style name."""
     if not style_name:
         return body_font
@@ -125,8 +129,16 @@ def setup_heading_styles(doc, heading_font: str | None = None) -> None:
 
     font = heading_font or HEADING_FONT
 
-    targets = {"Title", "Subtitle", "Heading 1", "Heading 2", "Heading 3",
-               "Heading 4", "Heading 5", "Heading 6"}
+    targets = {
+        "Title",
+        "Subtitle",
+        "Heading 1",
+        "Heading 2",
+        "Heading 3",
+        "Heading 4",
+        "Heading 5",
+        "Heading 6",
+    }
     for style in doc.styles:
         if (style.name or "") not in targets:
             continue
@@ -151,11 +163,7 @@ def setup_heading_styles(doc, heading_font: str | None = None) -> None:
 
 
 def style_table(table, body_font: str = BODY_FONT) -> None:
-    """Apply header background, alternating row shading, borders, CJK font, and center the table.
-
-    Mirrors ``report_export_mcp/impl.py:_style_tables`` so tables created via
-    ``word_add_table`` look identical to tables in ``export_report_to_docx``.
-    """
+    """Apply header background, alternating row shading, borders, CJK font, and center the table."""
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn

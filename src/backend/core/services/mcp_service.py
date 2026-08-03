@@ -150,18 +150,48 @@ class McpServerConfigService:
             cfg["command"] = row.command or "python"
             cfg["args"] = list(row.args or [])
 
-        # HTTP/SSE fields
+        plaintext_headers: Dict[str, str] = {}
+        if row.headers:
+            from core.services.mcp_management_service import decrypt_mcp_headers
+
+            plaintext_headers = decrypt_mcp_headers(row.headers)
+
+        # HTTP/SSE fields. Marketplace credentials that belong in the URL are
+        # decrypted and materialized only here, immediately before connecting.
         if row.transport in ("streamable_http", "sse"):
-            cfg["url"] = _rewrite_builtin_mcp_host(row.url or "")
+            from core.services.mcp_management_service import (
+                materialize_mcp_http_connection,
+                mcp_oauth_bundle_storage_key,
+            )
+
+            runtime_url, runtime_headers = materialize_mcp_http_connection(
+                row.url or "", plaintext_headers
+            )
+            cfg["url"] = _rewrite_builtin_mcp_host(runtime_url)
+            if runtime_headers:
+                cfg["headers"] = runtime_headers
+            oauth_raw = plaintext_headers.get(mcp_oauth_bundle_storage_key())
+            if oauth_raw:
+                try:
+                    import json
+
+                    from core.services.mcp_oauth_service import (
+                        OAuthBundleStorage,
+                        build_oauth_provider,
+                    )
+
+                    oauth_bundle = json.loads(oauth_raw)
+                    storage = OAuthBundleStorage(oauth_bundle, server_id=row.server_id)
+                    cfg["oauth_provider"] = build_oauth_provider(
+                        cfg["url"], oauth_bundle, storage=storage
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Invalid OAuth bundle for MCP '%s': %s", row.server_id, exc)
 
         # Build env: inherit from OS + explicit env_vars
         env = self._build_env(row)
         if env:
             cfg["env"] = env
-
-        # Headers
-        if row.headers:
-            cfg["headers"] = dict(row.headers)
 
         # Optional per-server timeouts live in the existing free-form JSON
         # field, avoiding a schema migration while still allowing long-running
@@ -271,7 +301,7 @@ class McpServerConfigService:
 #
 # The URL is templated per-server from ``mcp_servers._ports`` + ``settings.server.
 # mcp_host`` at seed time, so compose gets ``http://mcp:<port>/mcp/`` and local
-# gets ``http://127.0.0.1:<port>/mcp/`` from the same definition. Only the 8
+# gets ``http://127.0.0.1:<port>/mcp/`` from the same definition. Only the
 # built-in servers the ``mcp`` container / ``_launcher`` actually serves are
 # included; plugin-provided servers (automation_task / skill_manager /
 # site_publish) arrive via plugin install, and external-service ones (db_query /
@@ -333,16 +363,6 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
         "icon": "/home/mcp/data.svg",
     },
     {
-        "server_id": "report_export_mcp",
-        "display_name": "报告导出",
-        "description": "将 Markdown 格式的分析报告导出为 Word 文档，或将表格数据导出为 Excel 文件供下载。",
-        "user_intro": None,
-        "is_stable": True,
-        "is_enabled": False,
-        "sort_order": 5,
-        "icon": "/home/mcp/report.svg",
-    },
-    {
         "server_id": "web_fetch",
         "display_name": "网站信息抓取",
         "description": "抓取指定网页 URL 的内容，提取正文文本或 Markdown，支持搜索引擎结果页解析。",
@@ -366,6 +386,12 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
     },
 ]
 
+# Built-ins retired from the packaged runtime.  Keep this explicit tombstone
+# set separate from ``BUILTIN_MCP_SERVERS`` so upgraded create_all/SQLite
+# deployments can remove legacy rows even though the server is no longer a
+# seed candidate.
+RETIRED_BUILTIN_MCP_SERVER_IDS: Set[str] = {"report_export_mcp"}
+
 
 def is_removed_builtin_mcp_server(
     server_id: str,
@@ -382,6 +408,9 @@ def is_removed_builtin_mcp_server(
     """
     if source_plugin is not None:
         return False
+
+    if server_id in RETIRED_BUILTIN_MCP_SERVER_IDS:
+        return True
 
     from mcp_servers._ports import PORTS
 
@@ -400,7 +429,7 @@ def prune_removed_builtin_mcp_servers(db) -> List[str]:
     """
     from mcp_servers._ports import PORTS
 
-    removed_ids = {
+    removed_ids = RETIRED_BUILTIN_MCP_SERVER_IDS | {
         str(spec["server_id"])
         for spec in BUILTIN_MCP_SERVERS
         if str(spec["server_id"]) not in PORTS

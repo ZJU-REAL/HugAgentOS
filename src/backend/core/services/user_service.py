@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from core.auth.account_policy import AccountCapacityExceeded, account_capacity_block_reason
 from core.db.models import UserShadow
@@ -100,3 +100,44 @@ class UserService:
         user.extra_data = current
         user.updated_at = datetime.utcnow()
         self.db.commit()
+
+    def get_disabled_builtin_subagent_ids(self, user_id: str) -> Set[str]:
+        """Return the valid platform sub-agent IDs disabled by this user."""
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            return set()
+        metadata = dict(user.extra_data or {})
+        raw_ids = metadata.get("disabled_builtin_subagent_ids") or []
+        if not isinstance(raw_ids, list):
+            return set()
+
+        from core.llm.builtin_subagents import get_builtin_subagent
+
+        return {
+            agent_id
+            for value in raw_ids
+            if isinstance(value, str)
+            for agent_id in [value.strip()]
+            if agent_id and get_builtin_subagent(agent_id) is not None
+        }
+
+    def set_builtin_subagent_enabled(self, user_id: str, agent_id: str, enabled: bool) -> None:
+        """Persist one user's platform sub-agent switch; defaults stay enabled."""
+        from core.llm.builtin_subagents import get_builtin_subagent
+
+        if get_builtin_subagent(agent_id) is None:
+            raise LookupError(f"Builtin sub-agent {agent_id} not found")
+
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            raise LookupError(f"User {user_id} not found")
+
+        disabled_ids = self.get_disabled_builtin_subagent_ids(user_id)
+        if enabled:
+            disabled_ids.discard(agent_id)
+        else:
+            disabled_ids.add(agent_id)
+
+        metadata = dict(user.extra_data or {})
+        metadata["disabled_builtin_subagent_ids"] = sorted(disabled_ids)
+        self.repo.update(user_id, {"extra_data": metadata})

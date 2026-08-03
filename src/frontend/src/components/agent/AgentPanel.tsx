@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Button, Drawer, Input, Modal, Skeleton, Switch, Tooltip, message, Select, Form, Tag, List, Empty, Dropdown } from 'antd';
-import { PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined, LeftOutlined, RobotOutlined, AppstoreAddOutlined, UploadOutlined, DownOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined, LeftOutlined, RightOutlined, RobotOutlined, AppstoreAddOutlined, UploadOutlined, DownOutlined } from '@ant-design/icons';
 import { useAgentStore, type UserAgentItem } from '../../stores/agentStore';
 import { AgentMarketplaceModal } from './AgentMarketplaceModal';
 import {
@@ -156,7 +156,7 @@ function AgentListSkeleton() {
 
 function AgentDetailSkeleton() {
   return (
-    <div className="jx-agentPage">
+    <div className="jx-agentPage jx-agentLibraryPage">
       <div className="jx-agentDetail-top">
         <button className="jx-agentDetail-backBtn" type="button" aria-hidden="true">
           <LeftOutlined style={{ fontSize: 14 }} />
@@ -194,7 +194,7 @@ function AgentDetailSkeleton() {
 
 export function AgentPanel() {
   const {
-    agents, loading, fetchAgents, deleteAgent, updateAgent, setCurrentAgent,
+    agents, loading, fetchAgents, deleteAgent, updateAgent, toggleBuiltinAgent, setCurrentAgent,
     fetchAvailableResources, availableResources,
   } = useAgentStore();
   const { panel, panelEntryNonce, setPanel } = useCatalogStore();
@@ -273,7 +273,8 @@ export function AgentPanel() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = agents.filter((a) => (
-      a.is_enabled || a.owner_type === 'user' || editionAgentPolicy.includeInLibrary(a)
+      a.is_enabled || a.owner_type === 'user' || a.owner_type === 'builtin'
+      || editionAgentPolicy.includeInLibrary(a)
     ));
     if (!q) return list;
     return list.filter((a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q));
@@ -340,7 +341,11 @@ export function AgentPanel() {
 
   async function handleToggleEnabled(agent: UserAgentItem, enabled: boolean) {
     try {
-      await updateAgent(agent.agent_id, { is_enabled: enabled });
+      if (agent.owner_type === 'builtin') {
+        await toggleBuiltinAgent(agent.agent_id, enabled);
+      } else {
+        await updateAgent(agent.agent_id, { is_enabled: enabled });
+      }
     } catch (err: unknown) {
       message.error((err as Error).message || t('操作失败'));
     }
@@ -364,6 +369,8 @@ export function AgentPanel() {
   // ── Detail view ──────────────────────────────────────────────
   if (selectedAgent) {
     const canEdit = canEditAgent(selectedAgent);
+    const isBuiltin = selectedAgent.owner_type === 'builtin';
+    const canToggle = canEdit || isBuiltin;
     const agentIdx = agents.findIndex((a) => a.agent_id === selectedAgent.agent_id);
     const skillNameMap = new Map((availableResources?.skills || []).map((item) => [item.id, item.name]));
     const mcpNameMap = new Map((availableResources?.mcp_servers || []).map((item) => [item.id, item.name]));
@@ -371,6 +378,40 @@ export function AgentPanel() {
     const skillLabels = (selectedAgent.skill_ids || []).map((id) => skillNameMap.get(id) || id);
     const mcpLabels = (selectedAgent.mcp_server_ids || []).map((id) => mcpNameMap.get(id) || id);
     const pluginLabels = (selectedAgent.plugin_ids || []).map((id) => pluginNameMap.get(id) || id);
+    const capabilityPolicy = typeof selectedAgent.extra_config?.capability_policy === 'string'
+      ? selectedAgent.extra_config.capability_policy
+      : '';
+    const isReadOnlyBuiltin = isBuiltin && capabilityPolicy === 'read_only_intersection';
+    const builtinCapabilityItems: AgentDetailItem[] = [
+      {
+        label: t('能力来源'),
+        value: t('跟随主智能体（运行时动态加载）'),
+      },
+      {
+        label: t('工具 (MCP)'),
+        value: isReadOnlyBuiltin ? t('跟随主智能体，仅保留只读工具') : t('跟随主智能体'),
+      },
+      {
+        label: t('技能'),
+        value: isReadOnlyBuiltin ? t('不继承执行型技能') : t('跟随主智能体'),
+      },
+      {
+        label: t('插件'),
+        value: isReadOnlyBuiltin
+          ? t('跟随主智能体，仅使用插件展开后的只读工具')
+          : t('跟随主智能体，运行时展开为工具和技能'),
+      },
+      {
+        label: t('知识库'),
+        value: t('跟随主智能体，并受当前用户权限限制'),
+      },
+      {
+        label: t('权限边界'),
+        value: isReadOnlyBuiltin
+          ? t('只读，不允许 Bash 或修改工作区')
+          : t('不新增授权，受当前用户权限和会话开关限制'),
+      },
+    ];
     const version = selectedAgent.version || 'V1.0';
     const changeHistory = [...(selectedAgent.change_history || [])].reverse();
     const detailSections: AgentDetailSection[] = [
@@ -399,12 +440,14 @@ export function AgentPanel() {
       },
       {
         key: 'bindings',
-        title: t('能力绑定'),
-        items: [
-          { label: t('绑定工具 (MCP)'), value: mcpLabels, list: true, emptyText: t('未绑定工具') },
-          { label: t('绑定技能'), value: skillLabels, list: true, emptyText: t('未绑定技能') },
-          { label: t('绑定插件'), value: pluginLabels, list: true, emptyText: t('未绑定插件') },
-        ],
+        title: isBuiltin ? t('能力策略') : t('能力绑定'),
+        items: isBuiltin
+          ? builtinCapabilityItems
+          : [
+            { label: t('绑定工具 (MCP)'), value: mcpLabels, list: true, emptyText: t('未绑定工具') },
+            { label: t('绑定技能'), value: skillLabels, list: true, emptyText: t('未绑定技能') },
+            { label: t('绑定插件'), value: pluginLabels, list: true, emptyText: t('未绑定插件') },
+          ],
       },
       {
         key: 'runtime',
@@ -419,7 +462,7 @@ export function AgentPanel() {
     return (
       <motion.div
         key="detail"
-        className="jx-agentPage"
+        className="jx-agentPage jx-agentLibraryPage"
         {...(navDir === 'detail' ? DRILL_IN_DETAIL : { initial: false })}
       >
         <div className="jx-agentDetail-top">
@@ -438,10 +481,11 @@ export function AgentPanel() {
                 <AgentIcon agent={selectedAgent} size={44} colorIndex={agentIdx >= 0 ? agentIdx : 0} />
               </div>
               <span className="jx-agentDetail-name">{selectedAgent.name}</span>
+              <EditionAgentBadge agent={selectedAgent} />
               <span className={`jx-agentDetail-badge${selectedAgent.is_enabled ? ' on' : ''}`}>
                 {selectedAgent.is_enabled ? t('已启用') : t('未启用')}
               </span>
-              {canEdit && (
+              {canToggle && (
                 <div className="jx-agentDetail-enableRow">
                   <span className="jx-agentDetail-enableLabel">{t('启用')}</span>
                   <Switch
@@ -453,22 +497,24 @@ export function AgentPanel() {
               )}
             </div>
 
-            <div className="jx-agentDetail-versionRow">
-              <div className="jx-agentDetail-versionLeft">
-                <div className="jx-agentDetail-version">{t('版本号：{ver}', { ver: version })}</div>
-                <Button
-                  type="text"
-                  size="small"
-                  className="jx-agentDetail-versionAction"
-                  onClick={() => setHistoryDrawerOpen(true)}
-                >
-                  {t('变更记录')}
-                </Button>
+            {!isBuiltin && (
+              <div className="jx-agentDetail-versionRow">
+                <div className="jx-agentDetail-versionLeft">
+                  <div className="jx-agentDetail-version">{t('版本号：{ver}', { ver: version })}</div>
+                  <Button
+                    type="text"
+                    size="small"
+                    className="jx-agentDetail-versionAction"
+                    onClick={() => setHistoryDrawerOpen(true)}
+                  >
+                    {t('变更记录')}
+                  </Button>
+                </div>
+                <div className="jx-agentDetail-version jx-agentDetail-versionMeta">
+                  {t('最近更新：{time}', { time: formatDateTime(selectedAgent.updated_at, t('未记录')) })}
+                </div>
               </div>
-              <div className="jx-agentDetail-version jx-agentDetail-versionMeta">
-                {t('最近更新：{time}', { time: formatDateTime(selectedAgent.updated_at, t('未记录')) })}
-              </div>
-            </div>
+            )}
 
             <hr className="jx-agentDetail-divider" />
 
@@ -518,7 +564,13 @@ export function AgentPanel() {
             {/* Actions */}
             <div className="jx-agentDetail-actionsWrap">
               <div className="jx-agentDetail-actions">
-                <Button type="primary" onClick={() => startAgentChat(selectedAgent)}>{t('开始对话')}</Button>
+                <Button
+                  type="primary"
+                  disabled={!selectedAgent.is_enabled}
+                  onClick={() => startAgentChat(selectedAgent)}
+                >
+                  {t('开始对话')}
+                </Button>
                 {canEdit && channelBotEnabled && (
                   <Tooltip title={t('绑定渠道机器人')}>
                     <Button
@@ -676,7 +728,7 @@ export function AgentPanel() {
   return (
     <motion.div
       key="list"
-      className="jx-agentPage"
+      className="jx-agentPage jx-agentLibraryPage"
       {...(navDir === 'list' ? DRILL_IN_BACK : { initial: false })}
     >
       {/* Header */}
@@ -756,6 +808,7 @@ export function AgentPanel() {
                         </Tooltip>
                       </span>
                     )}
+                    <RightOutlined className="jx-agentCard-disclosure" aria-hidden="true" />
                   </div>
                   <p className="jx-agentCard-desc">
                     {agent.description || agent.system_prompt?.slice(0, 100) || t('暂无描述')}

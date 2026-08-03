@@ -84,7 +84,7 @@ Content edits that plain text substitution cannot express, implemented in `build
 | `src/backend/core/services/edition_startup.py` | CE startup seam with no-op implementations for EE data-source recovery and distillation scheduling, so pruned modules are never imported |
 | `src/backend/tests/ce_release/` | Executable CE release regressions for login, private skills/MCP, database upgrades, startup, and Compose contracts |
 | `src/backend/api/routes/v1/{agents,content,kb_models,projects}.py` | CE API contracts with administration endpoints and organization fields removed |
-| `src/backend/mcp_servers/_ports.py` | Port table for the 8 general tools (EE industry-tool ports marked reserved) |
+| `src/backend/mcp_servers/_ports.py` | Port table for the 7 general tools (EE industry-tool and retired ports marked reserved) |
 | `src/frontend/default.conf.template` | CE frontend Nginx template with `/gateway/**` proxying and the litellm upstream removed |
 | `src/frontend/src/main.tsx` | CE entry: mounts only the main app / API docs / share preview — no /admin, no /config |
 | `src/frontend/src/updates.ts` | CE release-notes data |

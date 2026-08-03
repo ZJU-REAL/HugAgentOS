@@ -25,6 +25,8 @@ export const CORE_DICT: Record<string, string> = {
   '推荐用法：优先使用知识库检索可提升可引用性与结果可靠性。': 'Tip: Using Knowledge Base retrieval improves citability and result reliability.',
   '前往知识库 >': 'Go to Knowledge Base >',
   '关闭': 'Close',
+  '打开侧边栏': 'Open sidebar',
+  '关闭侧边栏': 'Close sidebar',
 
   // api.ts — upload error messages
   '文件过大，单个文件不能超过 {n} MB': 'File too large. Maximum file size is {n} MB.',

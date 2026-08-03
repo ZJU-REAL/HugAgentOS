@@ -130,18 +130,6 @@
       }
     },
     {
-      "id": "report_export_mcp",
-      "kind": "mcp_server",
-      "name": "报告导出",
-      "description": "将 Markdown 格式的分析报告导出为 Word 文档，或将表格数据导出为 Excel 文件供下载。",
-      "desc": "将 Markdown 格式的分析报告导出为 Word 文档，或将表格数据导出为 Excel 文件供下载。",
-      "enabled": true,
-      "version": "1",
-      "config": {
-        "server": "report_export_mcp"
-      }
-    },
-    {
       "id": "web_fetch",
       "kind": "mcp_server",
       "name": "网站信息抓取",
@@ -163,18 +151,6 @@
       "version": "1",
       "config": {
         "server": "batch_runner"
-      }
-    },
-    {
-      "id": "automation_task",
-      "kind": "mcp_server",
-      "name": "automation_task",
-      "description": "MCP 服务：automation_task",
-      "desc": "MCP 服务：automation_task",
-      "enabled": true,
-      "version": "1",
-      "config": {
-        "server": "automation_task"
       }
     },
     {

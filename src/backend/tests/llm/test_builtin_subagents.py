@@ -1,3 +1,4 @@
+from core.db.models import UserShadow
 from core.llm.builtin_subagents import (
     BUILTIN_SUBAGENTS,
     build_builtin_runtime_profile,
@@ -9,6 +10,7 @@ from core.llm.builtin_subagents import (
 )
 from core.llm.subagent_tool import build_subagent_prompt_section
 from core.services import prompt_version_service
+from core.services.user_service import UserService
 
 
 def test_platform_defaults_are_exactly_explorer_worker_reviewer():
@@ -101,6 +103,43 @@ def test_merge_prepends_defaults_and_blocks_reserved_id_shadowing():
         "builtin.reviewer",
         "custom.risk",
     ]
+
+
+def test_merge_omits_user_disabled_defaults_but_library_keeps_them_visible():
+    runtime = merge_builtin_subagents(
+        [{"agent_id": "builtin.worker", "name": "伪造执行员"}],
+        disabled_agent_ids={"builtin.worker"},
+    )
+    assert [item["agent_id"] for item in runtime] == [
+        "builtin.explorer",
+        "builtin.reviewer",
+    ]
+
+    library = merge_builtin_subagents(
+        [],
+        disabled_agent_ids={"builtin.worker"},
+        include_disabled=True,
+        include_prompt=True,
+    )
+    by_id = {item["agent_id"]: item for item in library}
+    assert by_id["builtin.explorer"]["is_enabled"] is True
+    assert by_id["builtin.worker"]["is_enabled"] is False
+    assert by_id["builtin.worker"]["owner_type"] == "builtin"
+    assert by_id["builtin.worker"]["system_prompt"].strip()
+
+
+def test_builtin_switch_is_persisted_per_user_and_defaults_to_enabled(db_session):
+    db_session.add(UserShadow(user_id="builtin-pref-user", username="Builtin Pref", extra_data={}))
+    db_session.commit()
+    service = UserService(db_session)
+
+    assert service.get_disabled_builtin_subagent_ids("builtin-pref-user") == set()
+
+    service.set_builtin_subagent_enabled("builtin-pref-user", "builtin.reviewer", False)
+    assert service.get_disabled_builtin_subagent_ids("builtin-pref-user") == {"builtin.reviewer"}
+
+    service.set_builtin_subagent_enabled("builtin-pref-user", "builtin.reviewer", True)
+    assert service.get_disabled_builtin_subagent_ids("builtin-pref-user") == set()
 
 
 def test_refresh_uses_parent_final_grants_without_adding_or_inventing_tools():

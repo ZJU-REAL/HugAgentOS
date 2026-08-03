@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 KIND_PLUGIN = "plugin"
 KIND_SKILL = "skill"
 KIND_AGENT = "agent"
+KIND_MCP = "mcp"
 
 
 def get_disabled_ids(db: Session, kind: str) -> set[str]:
@@ -71,6 +72,7 @@ def annotate_and_filter(
         if not include_disabled and not enabled:
             continue
         item["market_enabled"] = enabled
+        item["visibility"] = "public"
         out.append(item)
     return out
 
@@ -88,6 +90,7 @@ def ensure_item_visible(
 
 __all__ = [
     "KIND_AGENT",
+    "KIND_MCP",
     "KIND_PLUGIN",
     "KIND_SKILL",
     "annotate_and_filter",

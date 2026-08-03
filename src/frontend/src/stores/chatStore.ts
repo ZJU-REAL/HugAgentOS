@@ -4,6 +4,7 @@ import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScope
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
+import { resolvePlanModeActive } from '../utils/chatMode';
 
 /** Fixed slug of the site-building plugin (plugin_bundles/marketplace/sites). Site-building
  *  capability (publish_site tool + site-builder guidance skill) is provided by it — removed from
@@ -338,7 +339,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       currentChatId: id,
       sending: get().sendingChatIds.has(id),
-      planMode: !!chat?.planChat,
+      planMode: resolvePlanModeActive(chat),
       // Autonomous loop is a "one-shot composer intent" and does not persist with the chat —
       // switching to any chat resets to a normal conversation, so a loop mode left on in the
       // previous chat doesn't carry over into a new/other chat.
@@ -418,7 +419,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setActiveSkill: (skill) => set({ activeSkill: skill }),
   setActivePlugin: (plugin) => set({ activePlugin: plugin }),
   setActiveMention: (mention) => set({ activeMention: mention }),
-  setPlanMode: (v) => set(v ? { planMode: true, loopMode: false } : { planMode: false }),
+  setPlanMode: (v) => {
+    const { currentChatId, currentUserId, store } = get();
+    const chat = store.chats[currentChatId];
+    if (!chat) {
+      set(v ? { planMode: true, loopMode: false } : { planMode: false });
+      return;
+    }
+    const next: ChatStoreData = {
+      ...store,
+      chats: {
+        ...store.chats,
+        [currentChatId]: { ...chat, planModeActive: v },
+      },
+    };
+    set({
+      store: next,
+      storeRef: next,
+      ...(v ? { planMode: true, loopMode: false } : { planMode: false }),
+    });
+    saveChatStoreDebounced(currentUserId, next);
+  },
   setLoopMode: (v) => set(v ? { loopMode: true, planMode: false } : { loopMode: false }),
   syncComposerForPanel: (panel) => {
     const { currentChatId, store } = get();
@@ -583,8 +604,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         };
     const nextChat: ChatItem = { ...base, id: targetId, updatedAt: now };
     // Plan / batch are mutually exclusive
-    if (planChat) { nextChat.planChat = true; delete nextChat.batchChat; }
-    else { nextChat.batchChat = true; delete nextChat.planChat; }
+    if (planChat) {
+      nextChat.planChat = true;
+      nextChat.planModeActive = true;
+      delete nextChat.batchChat;
+    } else {
+      nextChat.batchChat = true;
+      delete nextChat.planChat;
+      delete nextChat.planModeActive;
+    }
     const next: ChatStoreData = {
       chats: { ...store.chats, [targetId]: nextChat },
       // When reusing an empty chat, leave order untouched (it enters the sidebar history when the first message is sent, consistent with bindChatProject); new chats go to the top.
@@ -634,6 +662,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Site building is mutually exclusive with plan / batch
     const nextChat: ChatItem = { ...base, id: targetId, updatedAt: now, siteChat: true };
     delete nextChat.planChat;
+    delete nextChat.planModeActive;
     delete nextChat.batchChat;
     // Bind the site source-code project → messages are sent with project_id automatically, and agent file tools operate inside the project folder.
     if (projectId) {
@@ -683,6 +712,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeSkill: null,
       activePlugin: null,
       activeMention: null,
+      planMode: false,
+      currentPlanId: null,
       loopMode: false,
       chatMode: adminDefaultChatMode(),
     });
@@ -709,8 +740,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     saveChatStoreDebounced(currentUserId, next);
     if (currentChatId === id) {
       const newId = next.order[0] || nowId('chat');
+      const nextChat = next.chats[newId];
       saveCurrentChatId(currentUserId, newId);
-      set({ currentChatId: newId, shareSelectionMode: false, selectedShareMessageTs: new Set(), quotedFollowUp: null, activeSkill: null, activePlugin: null, activeMention: null });
+      set({
+        currentChatId: newId,
+        planMode: resolvePlanModeActive(nextChat),
+        loopMode: false,
+        currentPlanId: null,
+        shareSelectionMode: false,
+        selectedShareMessageTs: new Set(),
+        quotedFollowUp: null,
+        activeSkill: null,
+        activePlugin: null,
+        activeMention: null,
+      });
     }
   },
 
@@ -759,6 +802,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeSkill: null,
       activePlugin: null,
       activeMention: null,
+      planMode: resolvePlanModeActive(store.chats[currentChatId]),
+      loopMode: false,
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
@@ -792,6 +837,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeSkill: null,
       activePlugin: null,
       activeMention: null,
+      planMode: false,
+      loopMode: false,
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},

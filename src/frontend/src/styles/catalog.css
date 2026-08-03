@@ -278,18 +278,124 @@
 
 @media (max-width: 768px){
   .jx-abilityCenter{
-    padding:18px 16px 24px;
-    gap:16px;
+    padding:12px 12px 24px;
+    gap:12px;
   }
   .jx-abilityCenterTabs{
-    padding:6px 10px;
+    width:100%;
+    padding:5px 6px;
+    box-sizing:border-box;
   }
   .jx-abilityCenterTab{
-    padding:5px 12px;
-    font-size:14px;
+    flex:1 1 0;
+    min-width:0;
+    justify-content:center;
+    padding:7px 5px;
+    font-size:13px;
   }
   .jx-abilityCenterDivider{
     height:18px;
+    margin:0;
+  }
+  .jx-abilityCenterTabLabel{
+    min-width:0;
+    white-space:nowrap;
+  }
+  .jx-abilityCenter .jx-sk-page,
+  .jx-abilityCenter .jx-mcp-page{
+    padding:14px 0 48px;
+  }
+  .jx-abilityCenter .jx-sk-header,
+  .jx-abilityCenter .jx-mcp-header{
+    flex-direction:column;
+    gap:14px;
+    margin-bottom:18px;
+  }
+  .jx-abilityCenter .jx-sk-title,
+  .jx-abilityCenter .jx-mcp-title{
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px 6px;
+    font-size:19px;
+    line-height:1.35;
+  }
+  .jx-abilityCenter .jx-sectionTitleCount{
+    font-size:13px;
+    line-height:1.35;
+    transform:none;
+  }
+  .jx-abilityCenter .jx-sk-subtitle,
+  .jx-abilityCenter .jx-mcp-subtitle{
+    line-height:1.6;
+    overflow-wrap:anywhere;
+  }
+  .jx-abilityCenter .jx-sk-headerRight,
+  .jx-abilityCenter .jx-mcp-headerRight{
+    display:grid;
+    grid-template-columns:minmax(0, 1fr) auto;
+    width:100%;
+    gap:8px;
+    margin-top:0;
+  }
+  .jx-abilityCenter .jx-mcp-searchBox,
+  .jx-abilityCenter .jx-mcp-searchInput{
+    width:100%;
+    min-width:0;
+  }
+  .jx-abilityCenter .jx-sk-headerRight .ant-btn,
+  .jx-abilityCenter .jx-mcp-headerRight .ant-btn{
+    margin-left:0 !important;
+    white-space:nowrap;
+  }
+  .jx-abilityCenter .jx-sk-grid,
+  .jx-abilityCenter .jx-mcp-grid{
+    grid-template-columns:minmax(0, 1fr);
+    gap:12px;
+  }
+  .jx-abilityCenter .jx-sk-card,
+  .jx-abilityCenter .jx-mcp-card{
+    padding:14px;
+  }
+  .jx-abilityCenter .jx-sk-cardTop,
+  .jx-abilityCenter .jx-mcp-cardTop{
+    align-items:flex-start;
+  }
+  .jx-abilityCenter .jx-sk-cardNameGroup,
+  .jx-abilityCenter .jx-mcp-cardNameGroup{
+    flex-wrap:wrap;
+  }
+  .jx-abilityCenter .jx-sk-cardNameGroup{
+    flex:1;
+  }
+  .jx-abilityCenter .jx-sk-cardName{
+    white-space:normal;
+    overflow:visible;
+    text-overflow:clip;
+    line-height:1.4;
+  }
+  .jx-abilityCenter .jx-sk-detailPage,
+  .jx-abilityCenter .jx-mcp-detailPage{
+    padding:0;
+  }
+  .jx-abilityCenter .jx-sk-stickyHeader,
+  .jx-abilityCenter .jx-mcp-stickyHeader{
+    flex-wrap:wrap;
+    padding:12px 0;
+  }
+  .jx-abilityCenter .jx-sk-detailName,
+  .jx-abilityCenter .jx-mcp-detailName{
+    min-width:0;
+    max-width:45vw;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .jx-abilityCenter .jx-sk-stickyBody,
+  .jx-abilityCenter .jx-mcp-stickyBody{
+    padding-top:16px;
+  }
+  .jx-abilityCenter .jx-sk-metaCard{
+    padding:16px;
   }
 }
 
@@ -1446,6 +1552,43 @@
 
 /* ── Header right (启用 + switch) ───────────────────────────────── */
 
+.jx-sk-stickyHeaderIdentity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-sk-detailHeading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.jx-sk-detailHeadingMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jx-sk-detailHeading .jx-sk-detailName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-sk-detailHeading .jx-sk-tag {
+  flex-shrink: 0;
+}
+
+.jx-sk-detailHeading .jx-sk-version {
+  display: block;
+  margin: 2px 0 0;
+}
+
 .jx-sk-detailHeaderRight {
   display: flex;
   align-items: center;
@@ -1705,6 +1848,11 @@
 .jx-agentCard-badge.on {
   color: #126DFF;
   background: #DBEAFE;
+}
+
+.jx-agentCard-badge--builtin {
+  color: #8A5A00;
+  background: #FFF4D6;
 }
 
 /* Edit / delete — visible on hover */
@@ -2415,8 +2563,65 @@
 
 @media (max-width: 640px) {
   .jx-agentPage-header {
-    flex-direction: column;
+    flex-direction: row;
+    align-items: flex-start;
     gap: 12px;
+  }
+
+  .jx-agentPage {
+    width: 100%;
+    padding: 18px 16px 48px;
+    box-sizing: border-box;
+  }
+
+  .jx-agentPage-title {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .jx-agentPage-header > div {
+    min-width: 0;
+  }
+
+  .jx-agentPage-header > .ant-btn {
+    flex: none;
+  }
+
+  .jx-agentPage-subtitle {
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .jx-agentPage-grid {
+    gap: 12px;
+  }
+
+  .jx-agentCard {
+    padding: 14px;
+  }
+
+  .jx-agentCard-head {
+    align-items: flex-start;
+  }
+
+  .jx-agentCard-nameRow {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .jx-agentCard-name,
+  .jx-agentCard-desc {
+    overflow-wrap: anywhere;
+  }
+
+  .jx-labPage .jx-agentCard-desc {
+    display: block;
+    overflow: visible;
+    text-align: left;
+    -webkit-line-clamp: unset;
   }
 
   .jx-agentPage-headerRight {

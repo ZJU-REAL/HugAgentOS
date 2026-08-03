@@ -12,7 +12,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：以 ReAct 智能体为内核，�
 |---|---|---|
 | 对话智能体 | SSE 流式对话、AgentScope 2.0 ReActAgent、计划模式（Plan Mode）子智能体、深度思考、`[ref:tool-N]` 引用溯源、会话标题自动摘要 | CE |
 | 子智能体 | 用户自建子智能体、@提及协作、路由策略（`ROUTER_STRATEGY`） | CE（版本管理/组织级智能体库为 EE） |
-| MCP 工具生态 | 10 个内置 MCP server（CE 8 个通用工具：联网搜索、网页抓取、图表生成、报表导出、批量计划、自动化任务管理、技能管理、知识检索；EE 2 个行业工具：数仓查询、产业链信息），独立 `mcp` 容器以 streamable-http 提供（`http://mcp:9100-9108/mcp/`、`http://mcp:9112/mcp/`）；用户可自助接入远程 HTTP/SSE MCP | CE（产业链/企业画像/数仓等行业工具为 EE） |
+| MCP 工具生态 | 9 个内置 MCP server（CE 7 个通用工具：联网搜索、网页抓取、图表生成、批量计划、自动化任务管理、技能管理、知识检索；EE 2 个行业工具：数仓查询、产业链信息），独立 `mcp` 容器以 streamable-http 提供；用户可自助接入远程 HTTP/SSE MCP | CE（产业链/企业画像/数仓等行业工具为 EE） |
 | 技能系统 | Agent Skills（SKILL.md + 脚本）：内置技能包、管理台上传、技能市场浏览安装、技能蒸馏 | CE（技能审核/组织治理为 EE） |
 | 沙箱执行 | `bash` / `sandbox_put_artifact` / `sandbox_get_artifact` 工具，三种 provider 可切换：script_runner（轻量内置）、OpenSandbox（持久会话 + Jupyter 上下文 + 快照）、CubeSandbox（E2B 兼容 MicroVM） | CE 轻量沙箱；持久沙箱（会话保持/快照）为 EE |
 | 记忆系统 | mem0 三层记忆：L1 个人画像、L2 向量记忆（Milvus）、L3 知识图谱（Neo4j），跨会话注入与后台抽取 | CE（记忆审计为 EE） |
@@ -64,7 +64,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：以 ReAct 智能体为内核，�
   2.0 ReAct）                                                  │
        │                                                       ▼
        ├──► core/llm/mcp_manager ──► mcp 容器                Milvus / Neo4j
-       │      （10 个 MCP server, http://mcp:9100-9108/mcp/ + :9112）  （mem0 profile）
+       │      （9 个 MCP server，独立 streamable-http 端口）             （mem0 profile）
        ├──► core/sandbox/* ──► script-runner / OpenSandbox / CubeSandbox
        └──► PostgreSQL · Redis · 存储 (local / S3 / OSS)
 ```

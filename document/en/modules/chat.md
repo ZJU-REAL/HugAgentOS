@@ -119,6 +119,7 @@ Plan Mode splits complex tasks into "generate plan → user reviews/edits → ex
 - **Generate** (`astream_generate_plan` / `POST /v1/plans/generate`): a "bare LLM" agent (`disable_tools=True`) produces a structured JSON plan. System-prompt resolution: active `plan_mode` version in the prompt pool → legacy `system/90_plan_mode` part → fallback file `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded minimal prompt.
 - **Execute** (`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`): each step gets its own agent, executed sequentially, with step-level MCP/skill/sub-agent bindings and cancellation (`is_run_cancelled` polling); execution also goes through ChatRun + Redis Stream, so it survives disconnects.
 - **Frontend presentation and title**: manual Plan Mode keeps plan previews and execution progress in the in-conversation plan card instead of duplicating them in the compact strip above the composer (that strip is reserved for model-driven `update_plan` progress in regular chats). A model-generated conversation title is requested as soon as the preview is ready, with a first-task title used as the temporary fallback.
+- **History is separate from the active mode**: the chat's `planChat` marker and `plan_snapshot` only preserve its sidebar classification and historical plan cards; an independent per-chat composer state decides whether the next message uses Plan Mode. Turning Plan Mode off keeps prior plans and reports visible, while later requests (for example, generating a presentation from a report) run as ordinary chat and stay that way after refresh or re-entry.
 - **Model role**: plan mode prefers the `plan_agent` role and falls back to `main_agent` (the `_mode_role` branch in `agent_factory.py`).
 - Unattended modes (plan execution / automation) remove `batch_runner` from the toolkit, since `batch_plan`'s confirmation dialog has no UI in those contexts (`workflow.py::_resolve_batch_runner_visibility`).
 
@@ -134,6 +135,19 @@ user-created agent:
 | `builtin.worker` | Worker | Full parent conversation history | Shared, writable | Inherits this run's parent skills, MCPs, and KBs; grants nothing new |
 | `builtin.reviewer` | Reviewer | Independent brief; no producer history | Shared, read-only | No Bash; independently verifies and returns `pass / revise / escalate` |
 
+All three appear directly in the user-facing **Sub-agents** page with a
+**Built-in** badge and start enabled for every user. Each user can toggle them
+independently; the disabled set is persisted in
+`users_shadow.metadata.disabled_builtin_subagent_ids`, so it follows the
+account across browsers. A disabled role remains in the library so it can be
+re-enabled, but is removed from `@` candidates, explicit-language delegation,
+and autonomous routing, and cannot start a dedicated conversation. Its prompt
+is shown read-only on the detail page instead of as an editable Config prompt
+tab. The detail page's **Capability Policy** shows that these roles load the
+main agent's effective capabilities dynamically at runtime and makes the
+read-only narrowing for Explorer and Reviewer explicit, instead of presenting
+dynamic inheritance as “not bound.”
+
 Context and workspace sharing are separate dimensions: Explorer and Reviewer
 can inspect current files without being anchored by the parent conversation or
 implementation trace, while Worker needs the complete user constraints and
@@ -143,9 +157,10 @@ MCP server, knowledge base, or native tool that the parent disabled, lacks
 permission to use, or lost during runtime filtering is neither advertised nor
 delegated to a platform default. None of the three may delegate further. There
 is deliberately no built-in planner because the regular main agent already
-maintains plans via `update_plan`, avoiding “plans inside plans.” Their prompts
-are the independent `explorer / worker / reviewer` parts of the `subagents`
-prompt-pool kind;
+maintains plans via `update_plan`, avoiding “plans inside plans.” At runtime,
+their prompts remain the independent `explorer / worker / reviewer` parts of
+the `subagents` prompt-pool kind. That kind stays in backend storage and
+migration snapshots for compatibility;
 `prompts/prompt_text/subagents/` is only the seed and failure fallback.
 
 In addition, user-created sub-agents (`api/routes/v1/agents.py`, DB table `UserAgent`)

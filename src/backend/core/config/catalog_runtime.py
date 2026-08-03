@@ -28,13 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_MCP_ICONS: Dict[str, str] = {
-    "query_database": "/home/mcp/数据库.svg",
-    "retrieve_dataset_content": "/home/mcp/知识.svg",
-    "internet_search": "/home/mcp/互联网.svg",
-    "ai_chain_information_mcp": "/home/mcp/产业链.svg",
-    "generate_chart_tool": "/home/mcp/数据.svg",
-    "report_export_mcp": "/home/mcp/报告.svg",
-    "web_fetch": "/home/mcp/来源.svg",
+    "query_database": "/home/mcp/database.svg",
+    "retrieve_dataset_content": "/home/mcp/knowledge.svg",
+    "internet_search": "/home/mcp/internet.svg",
+    "ai_chain_information_mcp": "/home/mcp/industry-chain.svg",
+    "generate_chart_tool": "/home/mcp/data.svg",
+    "web_fetch": "/home/mcp/source.svg",
 }
 _DATABASE_QUERY_ENABLED_CONFIG = "database_query.capability_enabled"
 _RUNTIME_DB_CACHE_TTL = 30.0

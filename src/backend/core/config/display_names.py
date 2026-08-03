@@ -20,7 +20,6 @@ MCP_SERVER_DISPLAY_NAMES: Dict[str, str] = {
     "internet_search": "互联网搜索",
     "ai_chain_information_mcp": "产业知识中心查询",
     "generate_chart_tool": "数据可视化",
-    "report_export_mcp": "报告导出",
     # (Word capability migrated to the word-editing skill; no longer goes by an MCP tool name)
     # (Excel capability migrated to the excel-editing skill; no longer goes by an MCP tool name)
     # (PPT capability migrated to the ppt-design skill; no longer goes by an MCP tool name)
@@ -37,7 +36,6 @@ MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
     "internet_search": "通过互联网实时搜索公开网页、新闻及财经资讯，作为数据库与知识库之外的信息兜底。",
     "ai_chain_information_mcp": "获取产业链全景分析报告、核心数据指标、产业动态资讯、AI 领域热点聚合及企业画像查询。",
     "generate_chart_tool": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
-    "report_export_mcp": "将 Markdown 格式的分析报告导出为 Word 文档，或将表格数据导出为 Excel 文件供下载。",
     # (Word capability migrated to the word-editing skill; no longer goes by an MCP tool name)
     # (Excel capability migrated to the excel-editing skill; no longer goes by an MCP tool name)
     # (PPT capability migrated to the ppt-design skill; no longer goes by an MCP tool name)
@@ -73,7 +71,6 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     "get_company_funding": "企业资金穿透",
     "get_company_risk_warning": "企业风险预警",
     "generate_chart_tool": "数据可视化",
-    "export_table_to_excel": "导出 Excel 表格",
     # (Word capability migrated to the word-editing skill, see src/backend/skill_bundles/word-editing/)
     # The MCP layer no longer exposes word_mcp; the scripts/*.py CLIs inside the skill are the single entry point.
     # (Excel capability migrated to the excel-editing skill, see src/backend/skill_bundles/excel-editing/)

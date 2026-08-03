@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from typing import Dict
 
-
 # ── Skills ────────────────────────────────────────────────────────────
 
 SKILL_USER_INTROS: Dict[str, str] = {
@@ -40,7 +39,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 提问技巧提示：明确时间、行业口径、任务目标
 - 一个推荐的下一步追问，帮助你从"了解能力"过渡到"实际办理"
 """,
-
     "economic-indicator-query": """\
 ## 用途
 精准查询规上工业、GDP、产业增加值、固投等宏观经济运行指标的官方数值，自动完成同比 / 环比 / 累计计算。数据严格取自产业数仓，不走互联网。
@@ -56,7 +54,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 可选的趋势图（折线 / 柱状）
 - 明确标注的数据口径（如"规上工业"定义）与数据来源（数仓）
 """,
-
     "enterprise-profile-query": """\
 ## 用途
 输入一家企业名称，自动汇聚工商基础、经营数据、创新能力、资质荣誉、风险舆情五大维度信息，生成标准化全景画像。优先服务本地企业。
@@ -74,7 +71,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 风险与舆情（司法、招聘异常、负面新闻）
 - 信息来源与数据时效标注
 """,
-
     "industry-chain-structure-analysis": """\
 ## 用途
 拆解某条产业链的上中下游环节，识别本地企业在各环节中的分布，标注优势环节与潜在断链风险点，服务产业规划与强链补链。
@@ -91,7 +87,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 优势环节与薄弱 / 断链环节标注
 - 数据来源说明（产业知识中心 / 互联网公开整合）
 """,
-
     "industry-chain-target-recommendation": """\
 ## 用途
 针对产业链上的薄弱环节或指定技术方向，智能筛选潜在的招商引资目标企业，并结合企业近期动态生成可落地的触达建议。
@@ -108,7 +103,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 触达策略建议（适合走哪类对接渠道）
 - 风险与时效提示
 """,
-
     "material-comparison": """\
 ## 用途
 对两份或多份文档做深度比对，自动识别新增 / 删除 / 修改的条款、数据与表述差异，输出结构化差异清单及潜在风险提示。
@@ -125,7 +119,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 风险点提示（如条款方向性变化、责任主体调整）
 - 可导出为 Word 报告
 """,
-
     "policy-matching-diagnosis": """\
 ## 用途
 对企业与政策做双向智能匹配：既能给单家企业做"政策体检"找出可申报清单，也能给一项政策反向筛出潜在符合条件的企业。
@@ -142,7 +135,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 申报路径与材料清单提示
 - 数据来源与政策时效标注
 """,
-
     "policy-search-interpretation": """\
 ## 用途
 快速检索本地及国家、省级相关的政策文件，把复杂的政策条款浓缩成结构化的知识卡片，每条都附带来源与时效。
@@ -159,7 +151,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 每条信息附 [来源] 链接
 - 时效与发布时间显著标注
 """,
-
     "process-guidance": """\
 ## 用途
 针对具体办事事项（如高企认定、技改审批、专精特新申报），输出标准化的办理条件、材料清单、流程步骤、受理部门与时限信息。
@@ -177,7 +168,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 分步骤流程图（含时限、收费、依据文件）
 - 政策来源与有效期标注
 """,
-
     "quick-material-analysis": """\
 ## 用途
 对一份完整材料（政策、规划、报告等）做深度分析，提取核心要点、梳理逻辑骨架、生成可执行 SOP，并支持导出 PDF / Word。
@@ -195,7 +185,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 1–2 个费曼检验问答
 - 批判性总结与下一步建议
 """,
-
     "report-summary-generation": """\
 ## 用途
 对长文档（年报、调研、白皮书、政策汇编）一键生成精炼摘要，覆盖核心观点、关键数据与相关要点，节省阅读时间。
@@ -213,7 +202,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 主要结论与建议
 - 可导出为 Word / PDF
 """,
-
     "ifind-repilot-finance-data-search": """\
 ## 用途
 用自然语言直接查询金融数据：A 股、基金、期货等上市品种的基本信息 / 财务数据 / 日频行情，外加宏观经济、行业经济、利率与商品等各类指标，省去对照接口文档的麻烦。
@@ -231,7 +219,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 数据频度与时间口径标注
 - 数据来源标注（同花顺 iFinD）
 """,
-
     "cn-web-search": """\
 ## 用途
 针对中文网站做垂直搜索，覆盖公众号、财经、技术博客、学术站点、知识社区等，弥补通用搜索引擎对中文内容定位不够精准的问题。
@@ -248,7 +235,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 可直接点击的原文链接
 - 来源平台与发布时间标注
 """,
-
     "ppt-design": """\
 ## 用途
 专业演示文稿（PPT / 幻灯片 / deck）的设计与生成：根据一段需求自动谋篇布局——封面 / 目录 / 分章 / 富版式内容页（数据要点 / 图标行 / 时间线 / 对比 / 漏斗 / 金字塔等 20+ 种）/ 总结——再用质检闭环（缩略图 + 占位符扫描）确保不出"满页 bullets 的 AI 套模板脸"。也用于在已有 .pptx 上加页 / 删页 / 改标题 / 插图，以及导出 PDF。
@@ -266,7 +252,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 缩略图（每页一张 JPG，肉眼复核）
 - PDF 导出结果
 """,
-
     "excel-editing": """\
 ## 用途
 Excel 工作簿（.xlsx）的处理工具集：从零新建（数据表或公式优先的财务模型）、批量编辑单元格与公式、追加 sheet、插入原生图表、公式静态校验、xlsx 转 PDF。编辑既有工作簿走「字节保留」路径，VBA / 数据透视 / 条件格式 / sparkline 一律不丢。
@@ -286,7 +271,6 @@ Excel 工作簿（.xlsx）的处理工具集：从零新建（数据表或公式
 - 公式校验报告（#REF! / 跨表引用断裂等）
 - PDF 副本（从 xlsx 转出）
 """,
-
     "pdf-editing": """\
 ## 用途
 PDF 文档（.pdf）的处理工具集：读取文本/目录/元数据/表单字段，合并多份 PDF、按页范围拆分、填写 AcroForm 表单字段，也覆盖从 spec 直接生成印刷级 PDF 报告（含封面 / 图表 / 数学公式 / 流程图）和把 Markdown / Word / 文本重排成同等设计的 PDF。
@@ -327,7 +311,6 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 同比、环比、累计值自动计算
 - 引用数据库表 / 视图作为来源
 """,
-
     "retrieve_dataset_content": """\
 ## 用途
 在公有或私有知识库中做语义检索，把上传的政策文件、产业报告、内部文档都纳入回答范围。检索结果带原文片段与可点击的来源标记。
@@ -344,7 +327,6 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - [ref:retrieve_dataset_content-N] 格式的引用标注
 - 检索覆盖范围说明（哪些知识库被检索）
 """,
-
     "internet_search": """\
 ## 用途
 当数仓和知识库都查不到时，调用互联网搜索做兜底——抓取新闻、财经资讯、公开网页等实时信息，并标明信息来源。
@@ -361,7 +343,6 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 信息时效标注（发布时间）
 - 来源可靠性提示（官媒 / 自媒体 / 论坛等）
 """,
-
     "ai_chain_information_mcp": """\
 ## 用途
 对接产业知识中心，按需获取产业链全景报告、核心指标、行业动态、AI 热点和企业画像数据，是产业分析类问题的主力数据源。
@@ -378,7 +359,6 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 最新产业动态与新闻聚合
 - 企业多维画像数据
 """,
-
     "generate_chart_tool": """\
 ## 用途
 根据查询到的数据，直接生成柱状图、折线图、饼图等可视化图表，作为图片嵌入到回答中，无需再额外导出。
@@ -395,33 +375,12 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 支持柱状 / 折线 / 饼图 / 堆叠图等常见类型
 - 数据标签清晰可读
 """,
-
-    "report_export_mcp": """\
-## 用途
-把对话中生成的 Markdown 分析报告一键导出为 Word 文档，或把表格数据导出为 Excel 文件，方便落地分发与归档。
-
-## 适用场景
-- "把这份分析导出成 Word"
-- "这个表格能下载成 Excel 吗"
-- "生成一份正式格式的报告"
-- "导出刚才那段内容为可下载文件"
-
-## 输出示例
-- .docx 报告文件（含标题层级、表格、列表）
-- .xlsx 工作簿（保留表头、列宽合理）
-- 公文场景使用方正字体
-- 直接生成下载链接
-""",
-
     # Word capability has migrated to the word-editing skill (see src/backend/skill_bundles/word-editing/).
     # The MCP layer no longer exposes word_mcp; the skill's scripts/*.py CLI is the single entry point.
-
     # Excel capability has migrated to the excel-editing skill (see src/backend/skill_bundles/excel-editing/).
     # The MCP layer no longer exposes excel_mcp; the skill's scripts/excel-cli is the single entry point.
-
     # PDF capability has migrated to the pdf-editing skill (see src/backend/skill_bundles/pdf-editing/).
     # The MCP layer no longer exposes pdf_mcp; the skill's scripts/pdf-cli is the single entry point.
-
     "web_fetch": """\
 ## 用途
 抓取指定 URL 的网页内容，提取正文或转为 Markdown，也能解析搜索引擎结果页。补充互联网搜索之外的"指定页面深读"能力。
@@ -438,7 +397,6 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 搜索引擎结果列表（含标题 / 摘要 / 链接）
 - 抓取时间与来源 URL 标注
 """,
-
     "batch_runner": """\
 ## 用途
 对一组对象（Excel 行、多份文档、文本枚举）批量执行同一个任务。先生成一份可审阅的执行计划，确认无误后再逐条跑，避免重复劳动。
