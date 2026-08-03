@@ -94,6 +94,26 @@ def test_ce_api_key_crud_is_reachable_from_personal_settings(initialized_ce_data
         assert revoked.status_code == 200, revoked.text
 
 
+def test_ce_mcp_marketplace_is_registered_and_returns_items(initialized_ce_database):
+    from api.app import app
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/login",
+            data={"username": "admin", "password": "admin", "redirect": "/"},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303, login.text
+        ticket = parse_qs(urlparse(login.headers["location"]).query)["ticket"][0]
+        exchange = client.post("/v1/auth/ticket/exchange", json={"code": ticket})
+        assert exchange.status_code == 200, exchange.text
+
+        response = client.get("/v1/mcp-market/items")
+
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]
+
+
 def test_ce_registers_all_local_auth_routes():
     from api.app import app
 
