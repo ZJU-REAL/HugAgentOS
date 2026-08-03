@@ -60,7 +60,7 @@ bash scripts/deploy/deploy_prepare.sh --skip-merge   # 跳过 merge，对当前 
 | 自建（必备） | `hugagent-backend:latest`、`hugagent-mcp:latest`、`hugagent-frontend:latest` |
 | 核心基础设施（必备） | `postgres:15-alpine`、`redis:7-alpine` |
 | opensandbox profile（必备） | `opensandbox/server:v0.1.13`、`opensandbox/execd:v1.0.15`、`opensandbox/egress:v1.0.10`、`opensandbox/code-interpreter:v1.0.2` |
-| mem0 profile（必备） | `quay.io/coreos/etcd:v3.5.5`、`minio/minio:RELEASE.2023-03-13T19-46-17Z`、`milvusdb/milvus:v2.4.0`、`neo4j:5.15-community` |
+| mem0 profile（必备） | `quay.io/coreos/etcd:v3.5.5`、`minio/minio:RELEASE.2023-03-13T19-46-17Z`、`milvusdb/milvus:v2.5.4`、`neo4j:5.15-community` |
 | 可选（本地存在则带上） | `hugagent-script-runner:latest`、`hugagent-opensandbox-custom:latest` |
 
 ### save_pack_app.sh —— 应用增量包

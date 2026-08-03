@@ -680,6 +680,153 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
         )
 
 
+# ── StallIntervention ──────────────────────────────────────────────────────
+class StallInterventionMiddleware(MiddlewareBase):
+    """Apply the active profile's intervention rules to the **ReAct loop**.
+
+    The rules existed before this and only ever reached ``autonomous_loop`` — the
+    long-running self-driving product — through
+    :mod:`core.evolution.policies`. That left the orchestration profile with one
+    field that governed nothing on the axis nearly all traffic takes, and it is a
+    fair reading of "you are still tuning a workflow": every other part of the
+    profile shapes the ReAct assembly, this one did not.
+
+    What a ReAct turn can actually observe is narrower than what a multi-run loop
+    can, and pretending otherwise is how a rule ends up never firing:
+
+    * ``repeated_actions`` — the same tool called with the same arguments again;
+    * ``tool_error_streak`` — consecutive failing tool calls;
+    * ``no_progress`` — consecutive calls that returned nothing usable.
+
+    ``no_diff`` and ``reviewer_score_flat`` need a file tree and a reviewer
+    verdict, which a single answer has neither of; those stay loop-only and are
+    declared as such in :mod:`core.evolution.agent_profile`.
+
+    The intervention itself is a ``<system-reminder>`` appended to the context —
+    the same mechanism the iteration-budget reminder uses. A middleware cannot
+    reach into the model's plan, and it should not: the model is told what has
+    been observed and what to do about it, and stays responsible for the how.
+    """
+
+    def __init__(self, rules: List[Any] | None = None) -> None:
+        self._rules = list(rules or [])
+        self._signals: dict[str, int] = {}
+        self._last_call: tuple | None = None
+        self._fired: set[str] = set()
+
+    async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):  # noqa: ANN001
+        if not self._rules:
+            async for item in next_handler(**input_kwargs):
+                yield item
+            return
+
+        tool_call = input_kwargs.get("tool_call")
+        tool_name = str(getattr(tool_call, "name", "") or "")
+        try:
+            signature = (tool_name, json.dumps(getattr(tool_call, "input", None), sort_keys=True,
+                                               default=str))
+        except Exception:  # noqa: BLE001
+            signature = (tool_name, "")
+
+        if signature == self._last_call:
+            self._signals["repeated_actions"] = self._signals.get("repeated_actions", 0) + 1
+        else:
+            # A streak is consecutive by definition; a different call breaks it.
+            self._signals["repeated_actions"] = 0
+        self._last_call = signature
+
+        last_state = None
+        async for item in next_handler(**input_kwargs):
+            last_state = getattr(item, "state", last_state)
+            yield item
+
+        failed = last_state in {
+            ToolResultState.ERROR,
+            ToolResultState.DENIED,
+            ToolResultState.INTERRUPTED,
+        }
+        if failed:
+            self._signals["tool_error_streak"] = self._signals.get("tool_error_streak", 0) + 1
+            self._signals["no_progress"] = self._signals.get("no_progress", 0) + 1
+        else:
+            self._signals["tool_error_streak"] = 0
+            self._signals["no_progress"] = 0
+
+        try:
+            self._maybe_intervene(agent)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[stall-intervention] failed: %s", exc)
+
+    def _maybe_intervene(self, agent: Agent) -> None:
+        from core.evolution.agent_profile import (
+            ACTION_CHANGE_STRATEGY,
+            ACTION_DELEGATE,
+            ACTION_ESCALATE,
+            ACTION_NARROW_SCOPE,
+            ACTION_RETRY,
+            ACTION_ROLLBACK_AND_FORK,
+            ACTION_STOP,
+        )
+
+        applicable = [
+            rule
+            for rule in self._rules
+            if self._signals.get(getattr(rule, "signal", ""), 0) >= int(getattr(rule, "threshold", 0) or 0)
+            and int(getattr(rule, "threshold", 0) or 0) > 0
+        ]
+        if not applicable:
+            return
+        # Most-specific first: a long stall escalates rather than repeating the
+        # mild response that already failed to help.
+        rule = max(applicable, key=lambda r: int(getattr(r, "threshold", 0) or 0))
+        action = str(getattr(rule, "action", ""))
+        signal = str(getattr(rule, "signal", ""))
+
+        # Fire once per (signal, action). Repeating the same reminder every
+        # iteration turns it into noise the model learns to skip.
+        key = f"{signal}:{action}"
+        if key in self._fired:
+            return
+        self._fired.add(key)
+
+        observed = {
+            "repeated_actions": "你已经用完全相同的参数重复调用同一个工具",
+            "tool_error_streak": "连续多次工具调用失败",
+            "no_progress": "连续多轮没有取得任何可用结果",
+        }.get(signal, "当前执行已停滞")
+
+        guidance = {
+            ACTION_CHANGE_STRATEGY: "换一条思路：不要重试同样的调用，改用别的工具或别的切入角度。",
+            ACTION_NARROW_SCOPE: "缩小范围：先只解决其中最小的一个子问题，拿到确定结果再往下走。",
+            ACTION_RETRY: "可以再试一次，但必须改变参数或前置条件，原样重试不会有不同结果。",
+            ACTION_DELEGATE: "把这段工作交给合适的子智能体处理，只取回结论。",
+            ACTION_ESCALATE: "停止尝试，向用户说明卡在哪里、还缺什么信息。",
+            ACTION_STOP: "停止继续尝试，如实汇报已完成的部分和未完成的原因。",
+            # Loop-only: a single answer has nothing to roll back to.
+            ACTION_ROLLBACK_AND_FORK: "放弃当前路径，回到上一个可用状态重新规划。",
+        }.get(action, "")
+        if not guidance:
+            return
+
+        agent.state.context.append(
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"<system-reminder>\n{observed}。{guidance}\n"
+                            f"（该干预来自当前生效的编排配置：{signal} ≥ "
+                            f"{getattr(rule, 'threshold', 0)} → {action}）\n</system-reminder>"
+                        ),
+                    )
+                ],
+            )
+        )
+        logger.info("[stall-intervention] %s >= %s -> %s", signal, getattr(rule, "threshold", 0), action)
+
+
 # ── FinishPinGuard ─────────────────────────────────────────────────────────
 class FinishPinGuardMiddleware(MiddlewareBase):
     def __init__(self, *, batch_mode: bool = False) -> None:

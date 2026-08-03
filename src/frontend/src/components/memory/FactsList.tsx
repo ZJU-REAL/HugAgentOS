@@ -1,7 +1,8 @@
 import { useState, type CSSProperties } from 'react';
-import { Button, Empty, Tag, Typography } from 'antd';
-import { DeleteOutlined } from '@ant-design/icons';
+import { Button, Empty, Input, Tag, Typography } from 'antd';
+import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
+import { updateMemory } from '../../api';
 import type { MemoryItem } from '../../types';
 import { formatDateTime } from '../../utils/date';
 import { EASE, LAYOUT_ANIM_MAX_ITEMS } from '../../utils/motionTokens';
@@ -11,6 +12,7 @@ interface FactsListProps {
   items: MemoryItem[];
   onRemove: (id: string) => Promise<void>;
   onClearAll?: () => Promise<void>;
+  onEdited?: () => void;
   hint?: string;
   emptyText?: string;
 }
@@ -48,16 +50,36 @@ const ROW_STYLE: CSSProperties = {
 const ROW_BODY_STYLE: CSSProperties = { flex: 1, minWidth: 0 };
 const ROW_TAGS_STYLE: CSSProperties = { marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' };
 const ROW_TIME_STYLE: CSSProperties = { fontSize: 11, color: '#B3B3B3' };
+const ROW_WHY_STYLE: CSSProperties = { marginTop: 4, fontSize: 11.5, color: '#8c8c8c' };
 
 export function FactsList({
   items,
   onRemove,
   onClearAll,
-  hint = t('mem0 / Milvus 向量事实，按需检索注入'),
-  emptyText = t('暂无事实记忆'),
+  onEdited,
+  hint = t('沉淀下来的「做法/口径」，按需检索注入'),
+  emptyText = t('暂无长期记忆'),
 }: FactsListProps) {
   // Clearing in progress: this state enters the exit variants via custom on the render where the row is still present
   const [clearing, setClearing] = useState(false);
+  // Which row is being edited, and its draft text. A memory the user can read
+  // but not fix is one they end up deleting instead.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const saveEdit = async (id: string) => {
+    const text = draft.trim();
+    if (!text) return;
+    setSaving(true);
+    try {
+      await updateMemory(id, text);
+      setEditingId(null);
+      onEdited?.();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleClearAll = async () => {
     if (!onClearAll) return;
@@ -75,7 +97,7 @@ export function FactsList({
         <span>{hint}</span>
         {onClearAll && (
           <Button size="small" danger onClick={() => void handleClearAll()} disabled={items.length === 0}>
-            {t('清空所有事实')}
+            {t('清空全部记忆')}
           </Button>
         )}
       </div>
@@ -91,8 +113,24 @@ export function FactsList({
               style={ROW_STYLE}
             >
               <div style={ROW_BODY_STYLE}>
-                <Typography.Text style={{ fontSize: 13 }}>{item.memory}</Typography.Text>
+                {editingId === item.id ? (
+                  <Input.TextArea
+                    value={draft}
+                    autoSize={{ minRows: 2, maxRows: 6 }}
+                    disabled={saving}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onPressEnter={(e) => {
+                      e.preventDefault();
+                      void saveEdit(item.id);
+                    }}
+                  />
+                ) : (
+                  <Typography.Text style={{ fontSize: 13 }}>{item.memory}</Typography.Text>
+                )}
                 <div style={ROW_TAGS_STYLE}>
+                  {/* A rule's scope and reason are what tell a reader where it
+                      stops applying, so they sit next to the rule itself. */}
+                  {item.applies_to && <Tag color="purple">{item.applies_to}</Tag>}
                   {item.confidentiality && (
                     <Tag
                       color={item.confidentiality === 'sensitive' ? 'orange' :
@@ -101,7 +139,6 @@ export function FactsList({
                       {item.confidentiality}
                     </Tag>
                   )}
-                  {item.source && <Tag>{item.source}</Tag>}
                   {(item.tags || []).map((tag) => <Tag key={tag} color="geekblue">{tag}</Tag>)}
                   {item.updated_at && (
                     <span style={ROW_TIME_STYLE}>
@@ -109,12 +146,38 @@ export function FactsList({
                     </span>
                   )}
                 </div>
+                {item.why && editingId !== item.id && (
+                  <div style={ROW_WHY_STYLE}>{t('原因')}：{item.why}</div>
+                )}
               </div>
-              <Button
-                type="text" danger size="small"
-                icon={<DeleteOutlined />}
-                onClick={() => void onRemove(item.id)}
-              />
+              {editingId === item.id ? (
+                <>
+                  <Button size="small" type="link" loading={saving} onClick={() => void saveEdit(item.id)}>
+                    {t('保存')}
+                  </Button>
+                  <Button size="small" type="text" onClick={() => setEditingId(null)}>
+                    {t('取消')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="text" size="small"
+                    icon={<EditOutlined />}
+                    aria-label={t('编辑这条记忆')}
+                    onClick={() => {
+                      setEditingId(item.id);
+                      setDraft(item.memory || '');
+                    }}
+                  />
+                  <Button
+                    type="text" danger size="small"
+                    icon={<DeleteOutlined />}
+                    aria-label={t('删除这条记忆')}
+                    onClick={() => void onRemove(item.id)}
+                  />
+                </>
+              )}
             </motion.li>
           ))}
           {items.length === 0 && (

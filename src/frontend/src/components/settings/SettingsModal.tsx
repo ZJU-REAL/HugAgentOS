@@ -17,13 +17,18 @@ import type { MemoryItem } from '../../types';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import { mdToHtml } from '../../utils/markdown';
 import {
+  getEvolutionSettings,
   getMyProfile,
   getMySystemAccess,
   getOntologyGovernanceAccess,
   setMyAvatarUrl,
+  updateEvolutionSettings,
   updateMyProfile,
   uploadMyAvatar,
 } from '../../api';
+import { EvolutionApprovalList } from './EvolutionApprovalList';
+import { EvolutionPrefsPanel } from './EvolutionPrefsPanel';
+import { EvolutionContributionCard } from './EvolutionContributionCard';
 import {
   EDITION_SETTINGS_SECTIONS,
   EditionProfileMemberships,
@@ -48,7 +53,7 @@ interface SectionDef {
 const SETTINGS_SECTIONS: SectionDef[] = [
   { id: 'profile', label: t('个人信息'), icon: <UserOutlined /> },
   { id: 'session', label: t('会话设置'), icon: <MessageOutlined /> },
-  { id: 'memory', label: t('记忆设置'), icon: <DatabaseOutlined /> },
+  { id: 'memory', label: t('进化控制台'), icon: <DatabaseOutlined /> },
   { id: 'ontology', label: t('本体校验'), icon: <SafetyCertificateOutlined /> },
   { id: 'enabled', label: t('已启用清单'), icon: <AppstoreOutlined /> },
 ];
@@ -115,6 +120,7 @@ export default function SettingsPage() {
     toggleOntology,
     loadOntologySettings,
     loadMemoryAllLayers,
+    loadMemories,
     removeMemory,
     clearMemories,
   } = useSettingsStore();
@@ -130,6 +136,30 @@ export default function SettingsPage() {
   const [sysAccess, setSysAccess] = useState(false);
   const [ontologyGovernanceAccess, setOntologyGovernanceAccess] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  // Evolution participation. Optimistic on toggle, reverted if the write fails —
+  // a switch that silently springs back with no explanation is worse than one
+  // that briefly showed the wrong state.
+  const [evolutionContribution, setEvolutionContribution] = useState(true);
+  const [evolutionSaving, setEvolutionSaving] = useState(false);
+  const [evolutionCardOpen, setEvolutionCardOpen] = useState(false);
+  useEffect(() => {
+    getEvolutionSettings()
+      .then((setting) => setEvolutionContribution(setting.evolution_contribution_enabled))
+      // Default to on when unreadable, matching the backend default rather than
+      // showing a switch whose position contradicts the server.
+      .catch(() => setEvolutionContribution(true));
+  }, [authUser?.user_id]);
+
+  const toggleEvolutionContribution = (checked: boolean) => {
+    const previous = evolutionContribution;
+    setEvolutionContribution(checked);
+    setEvolutionSaving(true);
+    updateEvolutionSettings(checked)
+      .then((setting) => setEvolutionContribution(setting.evolution_contribution_enabled))
+      .catch(() => setEvolutionContribution(previous))
+      .finally(() => setEvolutionSaving(false));
+  };
+
   useEffect(() => {
     if (!isCE) { setSysAccess(false); return; }
     getMySystemAccess()
@@ -660,7 +690,7 @@ export default function SettingsPage() {
         {/* ── Memory settings ─────────────────────────────────── */}
         {activeSection === 'memory' && (
         <section id="section-memory" className="jx-settings-section">
-        <h3 className="jx-settings-section-title">{t('记忆设置')}</h3>
+        <h3 className="jx-settings-section-title">{t('进化控制台')}</h3>
         <div className="jx-settings-card">
           {/* Memory write */}
           <div className={`jx-settings-row${shakeRowKey === 'memoryWrite' ? ' jx-anim-shake' : ''}`}>
@@ -714,7 +744,7 @@ export default function SettingsPage() {
               >
                 <div className="jx-settings-memoryDetail">
                   <span className="jx-settings-memoryCount">
-                    {t('当前事实记忆 {n} 条', { n: memoryItems.length })}
+                    {t('当前长期记忆 {n} 条', { n: memoryItems.length })}
                     {memoryProfile && memoryProfile.length > 0 ? ` · ${t('档案 {n} 字', { n: memoryProfile.length })}` : ''}
                   </span>
                   <a
@@ -730,6 +760,73 @@ export default function SettingsPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          <div className="jx-settings-divider" />
+
+          {/* Evolution participation.
+              Deliberately *not* labelled "evolve or not": one user cannot stop
+              the system distilling a skill from everyone else's traces. What
+              they genuinely control — and what the backend enforces via the
+              episode's privacy class — is whether their own conversations
+              become evidence. */}
+          <div className="jx-settings-row">
+            <div className="jx-settings-rowLeft">
+              <span className="jx-settings-rowLabel">{t('参与能力进化')}</span>
+              <span className="jx-settings-rowDesc">
+                {t('开启后，你的对话会作为证据参与技能与流程的沉淀；关闭后仍保留你自己的记忆与本轮进化展示')}
+              </span>
+            </div>
+            <Switch
+              checked={evolutionContribution}
+              loading={evolutionSaving}
+              onChange={(checked) => toggleEvolutionContribution(checked)}
+            />
+          </div>
+
+          <AnimatePresence initial={false}>
+            {evolutionContribution && (
+              <motion.div
+                key="evolution-detail"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22, ease: SLIDE_EASE }}
+                style={{ overflow: 'hidden' }}
+              >
+                <div className="jx-settings-memoryDetail">
+                  <span className="jx-settings-memoryCount">
+                    {t('你的对话正在参与能力沉淀')}
+                  </span>
+                  <a
+                    className="jx-settings-memoryLink"
+                    onClick={() => setEvolutionCardOpen(true)}
+                  >
+                    {t('查看进化详情')}
+                  </a>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Fine-grained controls. Kept below the switches so the common case —
+            flip participation on or off — stays a one-glance decision, while
+            deployments that need per-mechanism or ontology scoping have it. */}
+        <h3 className="jx-settings-section-title" style={{ marginTop: 24 }}>
+          {t('进化配置')}
+        </h3>
+        <div className="jx-settings-card jx-settings-card--padded">
+          <EvolutionPrefsPanel />
+        </div>
+
+        {/* Approvals live with the user, not in the admin console: these
+            capabilities were distilled from this person's own conversations,
+            and accepting one installs it privately for them alone. */}
+        <h3 className="jx-settings-section-title" style={{ marginTop: 24 }}>
+          {t('待我批准的能力')}
+        </h3>
+        <div className="jx-settings-card jx-settings-card--padded">
+          <EvolutionApprovalList />
         </div>
         </section>
         )}
@@ -1005,6 +1102,11 @@ export default function SettingsPage() {
         </div>
       </Modal>
 
+      <EvolutionContributionCard
+        open={evolutionCardOpen}
+        onClose={() => setEvolutionCardOpen(false)}
+      />
+
       <Modal
         title={t('我的分层记忆')}
         open={memoryPanelOpen}
@@ -1028,8 +1130,8 @@ export default function SettingsPage() {
               },
               {
                 key: 'facts',
-                label: tabLabel(t('事实 L2'), memoryItems.length),
-                pane: renderFactsTab(memoryItems, removeMemory, clearMemories),
+                label: tabLabel(t('做法 L2'), memoryItems.length),
+                pane: renderFactsTab(memoryItems, removeMemory, clearMemories, loadMemories),
               },
               {
                 key: 'graph',
@@ -1109,8 +1211,16 @@ function renderFactsTab(
   items: MemoryItem[],
   removeMemory: (id: string) => Promise<void>,
   clearMemories: () => Promise<void>,
+  reload: () => void,
 ) {
-  return <FactsList items={items} onRemove={removeMemory} onClearAll={clearMemories} />;
+  return (
+    <FactsList
+      items={items}
+      onRemove={removeMemory}
+      onClearAll={clearMemories}
+      onEdited={reload}
+    />
+  );
 }
 
 function renderGraphTab(

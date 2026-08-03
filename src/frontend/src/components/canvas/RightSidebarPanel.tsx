@@ -21,6 +21,8 @@ export function RightSidebarPanel() {
       />
     );
   }
+  // No evolution view: what a turn learned is now shown, and edited, inline on
+  // the card itself. A side panel could only restate it one click further away.
   if (activeView === 'ontology') {
     return (
       <ContentErrorBoundary

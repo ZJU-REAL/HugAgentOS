@@ -60,7 +60,7 @@ Prerequisite: all self-built images already `docker compose build`-ed and all up
 | Self-built (required) | `hugagent-backend:latest`, `hugagent-mcp:latest`, `hugagent-frontend:latest` |
 | Core infrastructure (required) | `postgres:15-alpine`, `redis:7-alpine` |
 | opensandbox profile (required) | `opensandbox/server:v0.1.13`, `opensandbox/execd:v1.0.15`, `opensandbox/egress:v1.0.10`, `opensandbox/code-interpreter:v1.0.2` |
-| mem0 profile (required) | `quay.io/coreos/etcd:v3.5.5`, `minio/minio:RELEASE.2023-03-13T19-46-17Z`, `milvusdb/milvus:v2.4.0`, `neo4j:5.15-community` |
+| mem0 profile (required) | `quay.io/coreos/etcd:v3.5.5`, `minio/minio:RELEASE.2023-03-13T19-46-17Z`, `milvusdb/milvus:v2.5.4`, `neo4j:5.15-community` |
 | Optional (included when present locally) | `hugagent-script-runner:latest`, `hugagent-opensandbox-custom:latest` |
 
 ### save_pack_app.sh — incremental app pack

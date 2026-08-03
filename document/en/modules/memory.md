@@ -2,7 +2,7 @@
 
 > Last updated: 2026-06-11
 
-HugAgentOS ships with a **layered persistent memory system** built on [mem0](https://github.com/mem0ai/mem0). When enabled, the agent remembers a user's identity, preferences, and historical facts across sessions, and automatically brings that context into new conversations. Memory is organized into three layers by information stability (L1 profile / L2 vector facts / L3 knowledge graph) — all three layers are Community Edition capabilities; only **memory auditing** (compliance trail) belongs to the commercial edition (Enterprise Edition, EE).
+HugAgentOS ships with a **layered persistent memory system** built on [mem0](https://github.com/mem0ai/mem0). When enabled, the agent remembers a user's identity, preferences, and **how work is done here** (definitions, orderings, red lines) across sessions, and automatically brings that context into new conversations. Memory is organized into three layers by information stability (L1 profile / L2 procedures / L3 knowledge graph) — all three layers are Community Edition capabilities; only **memory auditing** (compliance trail) belongs to the commercial edition (Enterprise Edition, EE).
 
 The whole system honors one core promise: **no memory I/O ever blocks the SSE hot path** — retrieval runs as a background task with a time budget, and writes go through a bounded post-response pipeline after the SSE stream closes (see the module docstring in `src/backend/core/memory/__init__.py`).
 
@@ -11,7 +11,7 @@ The whole system honors one core promise: **no memory I/O ever blocks the SSE ho
 | Layer | Name | Storage | Injection point | Implementation |
 |---|---|---|---|---|
 | L1 | Profile | DB (bounded markdown, 1500-char default cap) | Frozen into context at session start | `core/memory/profile.py` |
-| L2 | Facts | Milvus vector store (collection `hugagent_memories`) | Top-K similarity retrieval at session start | `core/memory/service.py` (mem0 wrapper) |
+| L2 | Procedures | Milvus vector store (collection `hugagent_memories`) | Top-K similarity retrieval at session start | `core/memory/service.py` (mem0 wrapper) |
 | L3 | Graph | Neo4j (optional, `MEM0_GRAPH_ENABLED=true`) | On-demand retrieval | `core/memory/service.py` (mem0 `enable_graph`) |
 | — | Session working set | `chats.metadata.session_memory` | Within a single session | per-session task working set |
 | — | Audit side channel (Enterprise Edition, EE) | DB table `memory_audit` | Side-recorded on every read/write | `core/memory/audit.py` |
@@ -34,7 +34,7 @@ orchestration/workflow.py
   │
   ├─► build_frozen_memory_block()          ← assembles the "session-frozen" block
   │     · L1 profile: DB read, <20ms, always awaited
-  │     · L2 facts: awaits the retrieval task within a 600ms budget
+  │     · L2 procedures: awaits the retrieval task within a 600ms budget
   │       (MEMORY_RETRIEVAL_BUDGET_MS); on timeout, injection is skipped
   │       so agent startup is never blocked
   │
@@ -48,7 +48,7 @@ orchestration/workflow.py
 save_memories_background()
   └─ core/memory/pipeline.schedule_post_response_tasks()
        · global semaphore caps concurrency (default 8)
-       · keyword classification → runs 0–4 extractors (identity/preference/fact/task)
+       · classification → runs 0–4 extractors (identity/preference/task by keyword; procedural on every substantive turn)
        · each extractor has its own 30s timeout
        · sanitizer gate → write L1/L2/session → audit side channel
 ```
@@ -62,7 +62,9 @@ Writes happen only when the user has explicitly enabled `memory_write_enabled` (
 - **Never awaited**: `schedule_post_response_tasks()` is synchronous and only calls `asyncio.create_task()`;
 - **Bounded concurrency**: a global `asyncio.Semaphore` (`MEMORY_BG_MAX_CONCURRENCY`, default 8);
 - **Milvus circuit breaker**: after N consecutive failures (default 3) the breaker opens for 60 seconds; retrieval and write paths share the same `milvus_breaker`;
-- **Extractor routing** (`core/memory/extractors/router.py`): keyword cues classify each turn, and only matching LLM extractors run — `identity`, `preference`, `fact` (requires an assistant reply > 30 chars), and `task`; an empty classification skips all LLM calls entirely.
+- **Extractor routing** (`core/memory/extractors/router.py`): `identity`, `preference`, and `task` run only on keyword cues; **`procedural` has no keyword gate** and runs on every substantive turn (user ≥ 8 chars, assistant ≥ 30 chars) — a convention is stated in whatever words the user happened to use, so a regex deciding "no procedure here" before the model reads the turn drops them silently and invisibly. An empty classification skips all LLM calls entirely.
+- **L2 stores procedures, not facts**: a fact starts decaying the moment it is written, so remembering it makes the system confidently recall a stale number instead of looking the current one up. What survives repetition — and what a skill can be compiled from — is how work gets done. There is no fact extractor and no fallback path.
+- **Writes bypass mem0's own inference**: every write passes `infer=False`. By default mem0 re-judges the text with its generic fact-extraction prompt and can silently discard an already-distilled rule, which surfaces as "the write succeeded and stored nothing" — no error in the log, no entry on the card.
 
 ## Sanitizer gate
 
@@ -92,7 +94,10 @@ Route file: `src/backend/api/routes/v1/memories.py` (registered in the CE router
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/v1/memories` | L2 fact list; `?project_id=` filters by project workspace |
+| GET | `/v1/memories` | L2 procedure list; `?project_id=` filters by project workspace |
+| PATCH | `/v1/memories/{id}` | Edit one L2 memory's text (id and metadata preserved) |
+| PATCH | `/v1/memories/profile/field` | Edit one L1 profile field |
+| DELETE | `/v1/memories/profile/field` | Delete one L1 profile field |
 | GET | `/v1/memories/profile` | L1 profile (full markdown + char cap) |
 | GET | `/v1/memories/graph` | L3 graph (currently returns enabled status; structured relation queries planned) |
 | GET | `/v1/memories/audit` | Audit records (Enterprise Edition, EE) |
@@ -115,7 +120,7 @@ Project chats get their own scope: personal projects and the default workspace u
 ## Frontend memory center
 
 - Entry point: the "Memory settings" section of the settings modal (`src/frontend/src/components/settings/SettingsModal.tsx`), with two switches: "Write memory" and "Persistent memory";
-- The "My layered memory" modal has three tabs — Profile L1 (full markdown), Facts L2 (list with per-item delete and clear-all, component `src/frontend/src/components/memory/FactsList.tsx`), and Graph L3 (shows a hint to configure `MEM0_GRAPH_ENABLED` + Neo4j when disabled);
+- The "My layered memory" modal has three tabs — Profile L1 (full markdown), Procedures L2 (list with per-item edit/delete and clear-all, component `src/frontend/src/components/memory/FactsList.tsx`), and Graph L3 (shows a hint to configure `MEM0_GRAPH_ENABLED` + Neo4j when disabled);
 - Project-scoped memory viewing: `src/frontend/src/components/projects/ProjectMemoriesModal.tsx`;
 - API client wrappers: `src/frontend/src/api.ts` (`getMemories` / `getMemoryProfile` / `getMemoryGraph` / `getMemorySettings`, etc.).
 
@@ -129,7 +134,7 @@ docker-compose --profile mem0 up -d
 
 | Service | Image | Role |
 |---|---|---|
-| milvus | `milvusdb/milvus:v2.4.0` (standalone) | L2 vector store |
+| milvus | `milvusdb/milvus:v2.5.4` (standalone) | L2 vector store |
 | etcd | `quay.io/coreos/etcd:v3.5.5` | Milvus metadata |
 | minio | `minio/minio` | Milvus object storage |
 | neo4j | `neo4j:5.15-community` | L3 graph store (optional) |
@@ -168,7 +173,7 @@ MEMORY_RETRIEVAL_BUDGET_MS=600    # retrieval budget
 MEMORY_BG_MAX_CONCURRENCY=8       # background write concurrency
 MEMORY_EXTRACT_TIMEOUT_S=30       # per-extractor timeout
 MEMORY_PROFILE_MAX_CHARS=1500     # L1 profile char cap
-MEMORY_FACT_DEFAULT_TTL_DAYS=180  # default L2 fact TTL
+MEMORY_FACT_DEFAULT_TTL_DAYS=180  # default L2 TTL (procedure writes pin 365 days)
 MEMORY_FROZEN_TOPK=5              # frozen-block fact Top-K
 MEMORY_BREAKER_THRESHOLD=3        # Milvus breaker threshold
 MEMORY_BREAKER_COOLDOWN_S=60      # breaker cooldown
@@ -189,7 +194,7 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/core/memory/service.py` | mem0 config assembly and async wrappers (Milvus / Neo4j / reranker) |
 | `src/backend/core/memory/profile.py` | L1 profile: get / patch / compact / delete |
 | `src/backend/core/memory/pipeline.py` | Post-response write pipeline, semaphore, Milvus circuit breaker |
-| `src/backend/core/memory/extractors/` | identity / preference / fact / task extractors + keyword router |
+| `src/backend/core/memory/extractors/` | identity / preference / task / procedural extractors + router |
 | `src/backend/core/memory/sanitizer.py` | Sanitizer gate (hardcoded + DB-managed rules) |
 | `src/backend/core/memory/audit.py` | Audit side channel (Enterprise Edition, EE) |
 | `src/backend/core/memory/context.py` | `MemoryContext` and workspace / layer resolution |
@@ -199,5 +204,5 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/core/db/models/memory.py` | Shared `MemorySanitizerRule` ORM |
 | `src/backend/edition_ee/db/models/memory.py` | `MemoryAudit` ORM (EE only) |
 | `src/frontend/src/components/settings/SettingsModal.tsx` | Memory settings + layered memory modal |
-| `src/frontend/src/components/memory/FactsList.tsx` | L2 fact list component |
+| `src/frontend/src/components/memory/FactsList.tsx` | L2 procedure list component (editable) |
 | `docker-compose.yml` (`mem0` profile) | Milvus / etcd / MinIO / Neo4j |

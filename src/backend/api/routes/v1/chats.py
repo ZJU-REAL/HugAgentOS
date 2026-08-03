@@ -1382,6 +1382,8 @@ async def _stream_sse_response(
                     "citations": chunk.get("citations", []),
                     "workspace_files": _ws_files,
                     "ontology_governance": chunk.get("ontology_governance"),
+                    # Skeleton marker: settlement runs after the stream closes.
+                    "evolution_pending": chunk.get("evolution_pending"),
                 }
                 yield f"data: {json.dumps(metadata, ensure_ascii=False)}\n\n"
 

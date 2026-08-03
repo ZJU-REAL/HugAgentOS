@@ -255,6 +255,32 @@ def _parse_tool_result_value(value: Any) -> Any:
         return {"result": value}
 
 
+def _profile_memory_budget_ms(context: Dict[str, Any]) -> Optional[int]:
+    """How long this task type waits for memory, per the active profile.
+
+    Returns ``None`` when nothing is published, which leaves the caller on the
+    deployment default — the built-in profile carries that same value, so this
+    is a no-op until a profile deliberately changes it.
+
+    Never raises: retrieval sits on the user's critical path, and an orchestration
+    lookup must not be able to fail a turn.
+    """
+    try:
+        from core.auth.tenancy import tenant_of
+        from core.evolution.agent_profile import load_active_profile
+
+        user_id = str(context.get("user_id") or "")
+        profile = load_active_profile(
+            task_type=str(context.get("chat_mode") or "chat"),
+            user_id=user_id,
+            tenant_id=tenant_of(user_id),
+        )
+        return profile.memory_budget_ms
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[memory] profile budget unavailable: %s", exc)
+        return None
+
+
 def _capture_nested_ontology_evidence(
     payload: Dict[str, Any],
     trace: List[Dict[str, Any]],
@@ -1348,6 +1374,11 @@ async def _astream_subagent_direct(
         user_message,
         _mem0_enabled,
         workspace_id=_mem0_workspace_id,
+        # The retrieval budget is part of the orchestration profile: how long
+        # this task type is willing to wait for memory is an assembly decision,
+        # not a global constant. Resolved here because retrieval starts before
+        # the agent is built.
+        budget_ms=_profile_memory_budget_ms(context),
     )
 
     warnings: List[str] = []
@@ -1839,6 +1870,134 @@ async def _astream_subagent_direct(
 # ------------------------------------------------------------------
 
 
+def _evolution_pending_marker(context: Dict[str, Any], memory_write_enabled: bool):
+    """Marker for the closing frame so the client can draw the skeleton card.
+
+    The turn's real outcome is not knowable yet — memory writes are scheduled
+    after the stream closes — so all we can honestly say here is "settling, and
+    these are the mechanisms that might report".
+    """
+    message_id = str(context.get("message_id") or "")
+    if not message_id or not memory_write_enabled:
+        # Without memory writes there is nothing a turn can settle to, so there
+        # is nothing for the client to watch.
+        return None
+    try:
+        from core.evolution.settlement import pending_payload
+
+        return pending_payload(message_id=message_id)
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _assemble_episode_background(
+    *,
+    message_id: str,
+    run_id: str,
+    chat_id: str,
+    user_id: str,
+    objective: str,
+    agent: Any = None,
+    memory_task: Any = None,
+    latency_ms: Optional[int] = None,
+    memory_write_enabled: bool = False,
+) -> None:
+    """Kick off Episode assembly after the stream closed.
+
+    Fire-and-forget by design: the user already has their answer, and evidence
+    assembly must never be able to delay or fail a turn. Every failure mode
+    here degrades to "no Episode for this run", which the console shows
+    honestly rather than papering over.
+    """
+    if not message_id:
+        return
+
+    try:
+        from core.evolution.events import EV_MEMORY_RETRIEVED, TraceSink
+        from core.evolution.trace_assembler import assemble_episode
+        from orchestration.memory_integration import get_last_retrieval
+
+        bundle = getattr(agent, "_jx_asset_bundle", None) if agent is not None else None
+
+        sink = TraceSink(
+            run_id=run_id, message_id=message_id, chat_id=chat_id, user_id=user_id
+        )
+        # The rendered memory block has already discarded ids, scores and ranks;
+        # this is the only place they still exist.
+        retrieval = get_last_retrieval(memory_task)
+        if retrieval is not None:
+            sink.append(
+                EV_MEMORY_RETRIEVED,
+                retrieval.to_event_payload(),
+                asset_kind="memory",
+            )
+
+        # Which skills were considered, chosen, and rejected — the rejects are
+        # the negative examples skill attribution is built on.
+        # Ordered tool calls, read back from the log this run already wrote.
+        # Without them an episode carries no tool sequence and the promotion
+        # chain has nothing to distil.
+        from core.evolution.trace_assembler import emit_tool_events
+
+        emit_tool_events(sink, message_id, chat_id)
+
+        selection = getattr(agent, "_jx_skill_selection", None) if agent is not None else None
+        if selection is not None:
+            from core.evolution.events import EV_SKILL_SELECTED
+
+            sink.append(
+                EV_SKILL_SELECTED, selection.to_event_payload(), asset_kind="skill"
+            )
+        sink.flush()
+
+        # Stamp the user's contribution choice onto the episode. Doing it at
+        # write time means the decision is fixed by what the user had agreed to
+        # *at that moment*, rather than being re-evaluated later against a
+        # setting they may since have changed.
+        from core.evolution.user_settings import resolve_for_user
+
+        privacy_class = resolve_for_user(user_id).get("privacy_class", "tenant")
+
+        episode_id = assemble_episode(
+            message_id=message_id,
+            run_id=run_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            objective=objective,
+            bundle=bundle,
+            latency_ms=latency_ms,
+            privacy_class=privacy_class,
+        )
+
+        # Hand the evidence side to the settlement runner. It settles once the
+        # memory write pipeline reports what it actually wrote — the only party
+        # that knows. Settling here instead would have to guess that number, and
+        # the guess it used to make (the *retrieval* count) described what the
+        # turn read, not what it learned.
+        from core.evolution.settlement_runner import register_turn
+
+        # Which skills the turn opened and which profile governed it stay on the
+        # episode, where the retirement engine reads them. They are not on the
+        # card: they describe the system doing its job, not learning anything.
+        register_turn(
+            message_id=message_id,
+            episode_id=episode_id or "",
+            expects_memory=memory_write_enabled,
+        )
+
+        # Consider running a cycle now that new evidence exists. The check is a
+        # single indexed count and almost always says no; when it says yes the
+        # cycle runs off-thread. The user already has their answer either way.
+        from core.evolution.trigger import schedule_if_due, schedule_personal
+
+        # This user's own loop runs in every edition; the fleet-wide one is
+        # enterprise-gated and no-ops elsewhere.
+        schedule_personal(user_id)
+        schedule_if_due()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("[evolution] episode assembly skipped: %s", exc)
+
+
 async def astream_chat_workflow(
     *,
     session_messages: List[Dict[str, Any]],
@@ -1928,6 +2087,11 @@ async def astream_chat_workflow(
         user_message,
         _mem0_enabled,
         workspace_id=_mem0_workspace_id,
+        # The retrieval budget is part of the orchestration profile: how long
+        # this task type is willing to wait for memory is an assembly decision,
+        # not a global constant. Resolved here because retrieval starts before
+        # the agent is built.
+        budget_ms=_profile_memory_budget_ms(context),
     )
 
     # ── Main-route streaming ──────────────────────────────────────
@@ -2636,6 +2800,10 @@ async def astream_chat_workflow(
         "citations": all_citations,
         "usage": streaming_agent.get_usage(),
         "ontology_governance": _ontology_governance_summary(_ontology_runtime),
+        # Settlement has not run yet (memory writes are scheduled below), so all
+        # this can honestly say is "settling" — the client draws a skeleton and
+        # fills it in when the summary arrives.
+        "evolution_pending": _evolution_pending_marker(context, _mem0_write_enabled),
     }
 
     # ── [memory] Post-response pipeline (SSE already closed, user isn't waiting) ──
@@ -2658,6 +2826,24 @@ async def astream_chat_workflow(
             workspace_id=_mem0_workspace_id,
             chat_id=_mem0_chat_id,
             scope_user_id=_mem0_scope_user_id,
+            # Lets the pipeline report its real write count back to this turn's
+            # settlement instead of the card having to guess one.
+            message_id=str(context.get("message_id") or ""),
         )
     else:
         logger.debug("[workflow] memory save skipped: write_enabled=False (user=%s)", _mem0_user_id)
+
+    # ── [evolution] Evidence assembly (SSE already closed, user isn't waiting) ──
+    # The response path only bound versions and appended events; joining them
+    # into one causal Episode is deliberately deferred to here.
+    _assemble_episode_background(
+        message_id=str(context.get("message_id") or ""),
+        run_id=str(context.get("run_id") or ""),
+        chat_id=str(context.get("chat_id") or ""),
+        user_id=str(context.get("user_id") or ""),
+        objective=user_message,
+        agent=streaming_agent,
+        memory_task=_memory_task,
+        latency_ms=None,
+        memory_write_enabled=_mem0_write_enabled,
+    )

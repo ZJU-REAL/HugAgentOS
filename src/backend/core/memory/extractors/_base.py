@@ -62,7 +62,13 @@ async def _get_client() -> tuple[object, str]:
         _client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
-            timeout=30.0,
+            # Deliberately above every caller's own timeout. This client used to
+            # cap at 30s while extractors asked for 60, so the HTTP layer gave up
+            # first and the caller's budget never applied — a reasoning model
+            # simply never finished in time and every extraction returned empty.
+            # The real bound belongs to the caller's asyncio timeout, which each
+            # extractor sets; this only stops a socket hanging forever.
+            timeout=180.0,
         )
         _model_name = model_name
         logger.info("[extractor] memory LLM client initialized model=%s base=%s",
@@ -82,23 +88,114 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
-def parse_json(raw: str) -> Optional[dict]:
-    """Fault-tolerant parsing of the JSON returned by the LLM."""
+_THINK_BLOCK_RE = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.DOTALL | re.IGNORECASE)
+_THINK_CLOSE_RE = re.compile(r"</(think|thinking|reasoning)>", re.IGNORECASE)
+
+
+def _strip_reasoning(text: str) -> str:
+    """Drop inline chain-of-thought before looking for the answer.
+
+    A reasoning model narrates first and answers last. Its narration quotes the
+    prompt's own examples — including their JSON — so anything that reads "the
+    first object in the response" reads the model thinking out loud rather than
+    its conclusion.
+
+    Handles the **unpaired** closing tag as well: several reasoning endpoints
+    start narrating immediately and emit only `</think>` before the answer, with
+    no opening tag to pair it with. Matching pairs alone leaves the entire
+    narration in place, and its worked examples then win over the real answer.
+    """
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    matches = list(_THINK_CLOSE_RE.finditer(cleaned))
+    if matches:
+        cleaned = cleaned[matches[-1].end():]
+    return cleaned
+
+
+def _json_candidates(s: str) -> list:
+    """Every balanced ``{...}`` span in the text, in order of appearance.
+
+    Brace-counting rather than a regex: `\\{.*\\}` is greedy and spans from the
+    first brace to the last, which on a narrated response is one unparseable
+    blob covering the reasoning *and* the answer.
+    """
+    spans = []
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(s):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    spans.append(s[start : i + 1])
+    return spans
+
+
+def parse_json(raw: str, *, require_key: Optional[str] = None) -> Optional[dict]:
+    """Fault-tolerant parsing of the JSON returned by the LLM.
+
+    Tolerates a reasoning model: the answer is the **last** valid object in the
+    response, not the first, because everything before it may be the model
+    reciting the prompt's examples while it thinks.
+
+    ``require_key`` is the top-level key the caller expects (``facts`` /
+    ``procedures`` / …). Reasoning text is full of half-formed objects — a single
+    ``{"field": ..., "value": ...}`` the model was weighing up mid-thought — and
+    without this check the last of those parses cleanly and gets returned as the
+    result. Requiring the key means an unfinished response yields nothing rather
+    than a fragment the writer would happily persist.
+    """
     if not raw:
         return None
-    s = _strip_fences(raw)
+    s = _strip_fences(_strip_reasoning(raw))
+
+    def _acceptable(value: Any) -> bool:
+        return isinstance(value, dict) and (require_key is None or require_key in value)
+
     try:
-        return json.loads(s)
+        parsed = json.loads(s)
+        if _acceptable(parsed):
+            return parsed
     except json.JSONDecodeError:
-        # Try to extract the first {...}
-        m = re.search(r"\{.*\}", s, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except json.JSONDecodeError:
-                pass
+        pass
+
+    for candidate in reversed(_json_candidates(s)):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if _acceptable(parsed):
+            return parsed
+
     logger.debug("[extractor] failed to parse JSON: %r", raw[:200])
     return None
+
+
+# A reasoning model spends its budget narrating before it answers. The
+# extraction prompts need a few hundred tokens for the answer itself, so a
+# budget sized for the answer alone gets consumed by the narration and the reply
+# is cut off mid-thought — the JSON never arrives. That failure is invisible:
+# every extractor returns None, nothing is written, and the product simply
+# reports that no turn ever had anything worth remembering. This floor is what
+# makes the memory pipeline work regardless of which model is assigned to the
+# memory role.
+_REASONING_HEADROOM_TOKENS = 3000
 
 
 async def run_llm_with_prompt(
@@ -124,11 +221,17 @@ async def run_llm_with_prompt(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=max_tokens,
+                max_tokens=max(max_tokens, _REASONING_HEADROOM_TOKENS),
             ),
             timeout=timeout_s,
         )
-        return (resp.choices[0].message.content or "").strip()
+        message = resp.choices[0].message
+        content = (getattr(message, "content", None) or "").strip()
+        if content:
+            return content
+        # Some OpenAI-compatible reasoning endpoints put everything on
+        # `reasoning_content` and leave `content` empty. The answer is in there.
+        return (getattr(message, "reasoning_content", None) or "").strip() or None
     except asyncio.TimeoutError:
         logger.info("[extractor] LLM call timed out after %ds", timeout_s)
         return None

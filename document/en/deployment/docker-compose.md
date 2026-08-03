@@ -41,7 +41,7 @@ Enterprise Edition (EE).
 |---|---|---|---|---|
 | `etcd` | hugagent-etcd | `quay.io/coreos/etcd:v3.5.5` | internal | Milvus metadata store |
 | `minio` | hugagent-minio | `minio/minio:RELEASE.2023-03-13...` | internal | Milvus object storage |
-| `milvus` | hugagent-milvus | `milvusdb/milvus:v2.4.0` | `19530`, `9091` | Vector DB (L2 vector memory, self-hosted KB retrieval) |
+| `milvus` | hugagent-milvus | `milvusdb/milvus:v2.5.4` | `19530`, `9091` | Vector DB (L2 vector memory, self-hosted KB retrieval) |
 | `neo4j` | hugagent-neo4j | `neo4j:5.15-community` | `7474`, `7687` | Graph DB (L3 knowledge-graph memory, optional) |
 
 ### Dependency graph

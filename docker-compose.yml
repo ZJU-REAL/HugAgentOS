@@ -434,7 +434,7 @@ services:
     profiles:
     - mem0
   milvus:
-    image: milvusdb/milvus:v2.4.0
+    image: milvusdb/milvus:v2.5.4
     container_name: hugagent-milvus
     logging: *id001
     command:

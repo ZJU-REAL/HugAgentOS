@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+
+
 export interface CanvasArtifact {
   file_id: string;
   name: string;

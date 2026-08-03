@@ -51,7 +51,7 @@ async def extract(user_msg: str, assistant_msg: str, timeout_s: int) -> Optional
     raw = await run_llm_with_prompt(prompt, timeout_s=timeout_s, max_tokens=500)
     if raw is None:
         return None
-    parsed = parse_json(raw)
+    parsed = parse_json(raw, require_key="facts")
     if not isinstance(parsed, dict) or "facts" not in parsed:
         return None
     return parsed

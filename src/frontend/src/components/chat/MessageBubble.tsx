@@ -23,6 +23,7 @@ import { ToolProgressInline } from '../tool/ToolProgressInline';
 import { anyToolRunning } from '../tool/renderers/utils';
 import { ThinkingInline } from './ThinkingInline';
 import { StreamWaitIndicator } from './StreamWaitIndicator';
+import { EvolutionCard } from './EvolutionCard';
 import { OntologyReviewTrigger } from './OntologyReviewTrigger';
 import { useStallDetector } from '../../hooks';
 import { PlanCard } from './PlanCard';
@@ -1004,6 +1005,14 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
               </motion.button>
             ))}
           </motion.div>
+        )}
+
+        {m.role === 'assistant' && m.evolution && (
+          <EvolutionCard
+            summary={m.evolution}
+            chatId={currentChatId}
+            messageId={m.messageId}
+          />
         )}
 
         {m.role === 'assistant' && m.ontologyGovernance && (

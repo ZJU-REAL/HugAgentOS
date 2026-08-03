@@ -31,6 +31,12 @@ server {
 
     location / {
         try_files $uri $uri/ /index.html;
+        # The entry HTML reached by SPA fallback is index.html and must be just
+        # as uncacheable — the `location = /index.html` block above only matches
+        # that literal URL, which nobody requests. Without this, browsers cache
+        # the entry document heuristically and keep loading a stale hashed
+        # bundle: the deploy looks successful and the user still runs old code.
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     }
 
     # 用户站点托管（对话建站）：/site/<slug>/… 原样反代给后端公开托管路由

@@ -1,7 +1,19 @@
-"""Extractor router — classify the conversation + concurrently dispatch 4 extractors.
+"""Extractor router — decide what to extract, then dispatch concurrently.
 
-- `classify_conversation()`: lightweight keyword-based classification (no LLM call); on an empty hit set, skip directly.
+- `classify_conversation()`: which extractors this turn deserves. Identity,
+  preference and task stay keyword-gated: they are cheap to spot and their cues
+  are explicit ("我是…", "以后都用…"). **Procedural is not gated** — it runs on
+  every substantive turn.
 - `run_extractors_with_timeout()`: run the matched extractors concurrently, each with its own timeout, merging the returns.
+
+Why procedural lost its keyword gate: a convention shows up in whatever words
+the user happened to use, and a regex listing "一律 / 必须先 / 口径是" decides
+*before the model ever sees the turn* whether that turn could contain one. Every
+procedure phrased outside the list was dropped silently and invisibly — the
+worst failure mode a memory system can have, because it looks identical to a
+turn that genuinely had nothing to learn. The extractor itself is a far better
+judge than the regex, and it already returns an empty list when there is nothing
+worth keeping.
 """
 
 from __future__ import annotations
@@ -20,8 +32,8 @@ logger = logging.getLogger(__name__)
 class ExtractorType(Enum):
     IDENTITY = "identity"
     PREFERENCE = "preference"
-    FACT = "fact"
     TASK = "task"
+    PROCEDURAL = "procedural"
 
 
 # ─── Keyword trigger conditions ─────────────────────────────────────────────────────────
@@ -43,18 +55,17 @@ _PREFERENCE_CUES = re.compile(
     re.IGNORECASE,
 )
 
-_FACT_CUES = re.compile(
-    r"(?:查询|查一下|查下|帮我查|数据|统计|指标|数值|占比|同比|环比|"
-    r"GDP|财政|收入|营收|利润|增速|报告|年报|季报|文件|通知|批复|"
-    r"营收|毛利|KPI|OKR|项目|客户)",
-    re.IGNORECASE,
-)
-
 _TASK_CUES = re.compile(
     r"(?:帮我|接下来|然后|计划|分析|写一份|做一版|生成|输出|整理|"
     r"先.*再|第一步|第二步|步骤|一起做)",
     re.IGNORECASE,
 )
+
+# A turn shorter than this on either side cannot state a convention: a two-word
+# request with a one-line answer has no room for "how such things are done", and
+# running the extractor on it would only buy noise at the cost of an LLM call.
+_SUBSTANTIVE_USER_CHARS = 8
+_SUBSTANTIVE_ASSISTANT_CHARS = 30
 
 
 def classify_conversation(user_msg: str, assistant_msg: str) -> set[ExtractorType]:
@@ -66,17 +77,23 @@ def classify_conversation(user_msg: str, assistant_msg: str) -> set[ExtractorTyp
         return set()
 
     classes: set[ExtractorType] = set()
-    joint = (user_msg or "") + "\n" + (assistant_msg or "")
 
     if _IDENTITY_CUES.search(user_msg):
         classes.add(ExtractorType.IDENTITY)
     if _PREFERENCE_CUES.search(user_msg):
         classes.add(ExtractorType.PREFERENCE)
-    # fact requires the assistant to have actually answered something (>30 chars), to avoid storing "I don't know either"
-    if _FACT_CUES.search(joint) and len(assistant_msg or "") > 30:
-        classes.add(ExtractorType.FACT)
     if _TASK_CUES.search(user_msg):
         classes.add(ExtractorType.TASK)
+
+    # Procedural: no keyword gate, only a substance floor. The extractor decides
+    # whether the turn contained a reusable way of working; a regex cannot, and
+    # the procedures it missed were invisible.
+    if (
+        len(user_msg.strip()) >= _SUBSTANTIVE_USER_CHARS
+        and len((assistant_msg or "").strip()) >= _SUBSTANTIVE_ASSISTANT_CHARS
+    ):
+        classes.add(ExtractorType.PROCEDURAL)
+
     return classes
 
 
@@ -97,13 +114,13 @@ async def run_extractors_with_timeout(
     if not classes:
         return {}
 
-    from core.memory.extractors import identity, preference, fact, task
+    from core.memory.extractors import identity, preference, procedural, task
 
     runners: dict[ExtractorType, callable] = {
         ExtractorType.IDENTITY: identity.extract,
         ExtractorType.PREFERENCE: preference.extract,
-        ExtractorType.FACT: fact.extract,
         ExtractorType.TASK: task.extract,
+        ExtractorType.PROCEDURAL: procedural.extract,
     }
 
     async def _wrap(et: ExtractorType):

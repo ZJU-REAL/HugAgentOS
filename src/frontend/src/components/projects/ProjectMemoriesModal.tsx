@@ -69,8 +69,8 @@ export default function ProjectMemoriesModal({
         <FactsList
           items={items}
           onRemove={handleRemove}
-          hint={t('仅本项目可见的事实记忆（按需检索注入到对话）')}
-          emptyText={t('该项目暂无事实记忆，几轮对话之后会在这里出现。')}
+          hint={t('仅本项目可见的做法沉淀（按需检索注入到对话）')}
+          emptyText={t('该项目暂无沉淀的做法，几轮对话之后会在这里出现。')}
         />
       )}
     </Modal>

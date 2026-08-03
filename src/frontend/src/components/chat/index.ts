@@ -9,3 +9,4 @@ export { PlanCard } from './PlanCard';
 export { PlanProgressStrip } from './PlanProgressStrip';
 export { OntologyRevisionPanel } from './OntologyRevisionPanel';
 export { OntologyReviewTrigger } from './OntologyReviewTrigger';
+export { EvolutionCard } from './EvolutionCard';

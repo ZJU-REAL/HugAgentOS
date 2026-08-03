@@ -46,6 +46,51 @@ class ProfileMemory(Base):
     __table_args__ = (Index("idx_profile_memory_updated_at", "updated_at"),)
 
 
+class MemoryRefShadow(Base):
+    """Stable local identity for memories whose real home is an external store.
+
+    L2/L3 memories live in the vector / graph store, and those stores rewrite
+    their own ids whenever a memory is merged, split or updated.  That is fine
+    for retrieval but fatal for attribution: months later we still need to
+    answer "which memory was injected into that run", and the id recorded at
+    the time may no longer resolve.
+
+    This table pins a content-derived ``ref_id`` that survives id churn, so an
+    Episode can reference a memory by something that stays valid.  It stores a
+    hash plus a short sanitized preview — never the full memory text, which
+    already lives in the memory store and would only widen the privacy surface
+    if duplicated here.
+    """
+
+    __tablename__ = "memory_ref_shadow"
+
+    # Derived from (layer, user, workspace, content_hash) — deterministic, so the
+    # same content always resolves to the same ref no matter how often the
+    # external store renumbers it.
+    ref_id = Column(String(64), primary_key=True)
+    layer = Column(String(16), nullable=False)
+    user_id = Column(String(64), nullable=False)
+    workspace_id = Column(String(64), nullable=False, default="default")
+    content_hash = Column(String(64), nullable=False)
+    # Most recently observed external id; informational only, never a join key.
+    external_id = Column(String(128))
+    content_preview = Column(String(200), default="")
+    first_seen_episode_id = Column(String(64))
+    first_seen_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    last_seen_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, nullable=False)
+    seen_count = Column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "layer IN ('profile', 'fact', 'graph')", name="memory_ref_shadow_layer_check"
+        ),
+        Index("idx_memory_ref_shadow_user", "user_id", "workspace_id"),
+        Index("idx_memory_ref_shadow_hash", "content_hash"),
+        Index("idx_memory_ref_shadow_external", "external_id"),
+        Index("idx_memory_ref_shadow_last_seen", "last_seen_at"),
+    )
+
+
 class MemorySanitizerRule(Base):
     """Sensitive-word rules appended / disabled at runtime (defaults are hardcoded in memory_sanitizer.py)."""
 
