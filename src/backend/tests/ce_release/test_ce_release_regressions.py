@@ -134,6 +134,34 @@ def test_ce_registers_all_local_auth_routes():
     } <= actual
 
 
+def test_ce_registers_personal_evolution_routes():
+    """The evolution evidence plane is a CE capability, and it must be mounted.
+
+    When this router is missing, the first-run wizard's
+    ``PATCH /v1/evolution/prefs`` falls through to the desktop local server's
+    GET-only SPA catch-all and surfaces as a bare 405 — the whole「启动进化」
+    step becomes a dead end.
+    """
+    from api.app import app
+
+    operations = {"get", "post", "put", "patch", "delete"}
+    actual = {
+        (method.upper(), path)
+        for path, path_item in app.openapi()["paths"].items()
+        for method in path_item
+        if method in operations
+    }
+
+    assert {
+        ("GET", "/v1/evolution/prefs"),
+        ("PATCH", "/v1/evolution/prefs"),
+        ("GET", "/v1/evolution/settings"),
+        ("PATCH", "/v1/evolution/settings"),
+        ("GET", "/v1/evolution/my-candidates"),
+        ("POST", "/v1/evolution/my-cycle"),
+    } <= actual
+
+
 def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
     initialized_ce_database,
     monkeypatch,

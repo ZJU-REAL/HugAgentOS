@@ -43,6 +43,11 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("integrations", "router"),
     ("channels", "router"),
     ("meta", "router"),
+    # 个人进化的证据面与偏好开关（结算查询 / prefs / 个人候选审批）。CE 完整
+    # 可用；控制面（管理员审批/发布）在 EE。此前 CE 漏挂本路由，首启向导的
+    # PATCH /v1/evolution/prefs 落到桌面本机 server 的 GET catch-all 上，
+    # 「启动进化」直接 405。
+    ("evolution", "router"),
     ("sites", "router"),
     ("desktop", "router"),
     ("local", "router"),
