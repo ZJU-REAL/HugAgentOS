@@ -217,13 +217,43 @@
 .jx-evoApproval { display: flex; flex-direction: column; gap: 10px; }
 
 .jx-evoApproval-item {
-  padding: 12px 14px;
+  padding: 14px 16px;
   border: 1px solid var(--jx-border, #e5e7eb);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--jx-surface, #fff);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+  transition: border-color .18s ease, box-shadow .18s ease;
 }
-.jx-evoApproval-head { display: flex; align-items: center; gap: 8px; }
-.jx-evoApproval-title { font-size: 13px; font-weight: 600; margin-right: auto; overflow-wrap: anywhere; }
+.jx-evoApproval-item:hover {
+  border-color: color-mix(in srgb, var(--jx-primary, #2563eb) 24%, var(--jx-border, #e5e7eb));
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .055);
+}
+.jx-evoApproval-head { display: flex; align-items: flex-start; gap: 10px; }
+.jx-evoApproval-head .ant-tag { flex: 0 0 auto; margin-top: 1px; }
+.jx-evoApproval-identity {
+  display: flex; flex: 1 1 auto; min-width: 0;
+  flex-direction: column; gap: 2px;
+}
+.jx-evoApproval-title { font-size: 13.5px; font-weight: 650; overflow-wrap: anywhere; }
+.jx-evoApproval-subtitle {
+  font-size: 11.5px; line-height: 1.5;
+  color: var(--jx-text-secondary, #6b7280);
+}
+
+.jx-evoApproval-finding {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px;
+  align-items: baseline; margin-top: 10px; padding: 9px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--jx-primary, #2563eb) 5%, var(--jx-surface-2, #f8fafc));
+}
+.jx-evoApproval-finding > span {
+  font-size: 10.5px; font-weight: 650; letter-spacing: .02em;
+  color: var(--jx-primary, #2563eb); white-space: nowrap;
+}
+.jx-evoApproval-finding p {
+  margin: 0; font-size: 12px; line-height: 1.55;
+  color: var(--jx-text-secondary, #6b7280); overflow-wrap: anywhere;
+}
 
 /* The concrete change: a skill's body, or the memory ops that will run.
    Quieter than the headline but selectable, because it is what the user is
@@ -231,11 +261,46 @@
 .jx-evoApproval-change { margin-top: 8px; }
 
 .jx-evoApproval-toggle {
-  border: 0; background: none; padding: 0;
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--jx-primary, #2563eb); cursor: pointer;
+  height: 26px !important; padding: 0 6px !important;
+  margin-left: -6px;
+  font-size: 12px !important; color: var(--jx-primary, #2563eb) !important;
 }
-.jx-evoApproval-toggle:hover { text-decoration: underline; }
+.jx-evoApproval-toggle:hover { background: color-mix(in srgb, var(--jx-primary, #2563eb) 8%, transparent) !important; }
+
+.jx-evoApproval-detailPanel {
+  display: flex; flex-direction: column; gap: 12px;
+  margin-top: 6px; padding: 13px 14px;
+  border: 1px solid var(--jx-border, #e5e7eb); border-radius: 10px;
+  background: var(--jx-surface-2, #fafafa);
+  animation: jx-evoApproval-reveal .18s ease-out;
+}
+@keyframes jx-evoApproval-reveal {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.jx-evoApproval-detailPanel section { display: flex; flex-direction: column; gap: 5px; }
+.jx-evoApproval-detailPanel section > strong { font-size: 11.5px; font-weight: 650; }
+.jx-evoApproval-detailPanel section > p {
+  margin: 0; font-size: 12px; line-height: 1.6;
+  color: var(--jx-text-secondary, #6b7280);
+}
+.jx-evoApproval-detailSteps {
+  display: flex; flex-direction: column; gap: 7px;
+  margin: 0; padding-left: 22px; font-size: 12px;
+}
+.jx-evoApproval-detailSteps li { padding-left: 2px; }
+.jx-evoApproval-detailSteps li > span { color: var(--jx-text, #111827); }
+.jx-evoApproval-detailSteps code {
+  margin-left: 7px; padding: 1px 5px; border-radius: 4px;
+  background: color-mix(in srgb, var(--jx-text, #111827) 6%, transparent);
+  color: var(--jx-text-secondary, #6b7280); font-size: 10.5px;
+}
+.jx-evoApproval-scope {
+  display: flex; align-items: center; gap: 6px;
+  padding-top: 10px; border-top: 1px dashed var(--jx-border, #e5e7eb);
+  font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+}
+.jx-evoApproval-scope svg { color: #059669; }
 
 .jx-evoApproval-desc {
   margin: 6px 0 0; font-size: 12px;
@@ -272,13 +337,18 @@
 
 .jx-evoApproval-steps {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-  margin-top: 8px; font-size: 11.5px;
+  margin-top: 10px; font-size: 11.5px;
 }
-.jx-evoApproval-step { display: inline-flex; align-items: center; gap: 4px; }
-.jx-evoApproval-step code {
-  padding: 1px 6px; border-radius: 5px;
+.jx-evoApproval-step {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 8px 4px 5px; border-radius: 999px;
   background: var(--jx-surface-2, #f3f4f6);
-  font-size: 11px;
+  color: var(--jx-text, #111827);
+}
+.jx-evoApproval-stepIndex {
+  display: inline-grid; place-items: center; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--jx-surface, #fff);
+  color: var(--jx-primary, #2563eb); font-size: 9.5px; font-weight: 700;
 }
 .jx-evoApproval-arrow { color: var(--jx-primary, #2563eb); }
 
@@ -297,9 +367,21 @@
 .jx-evoApproval-empty strong { font-size: 13px; }
 .jx-evoApproval-empty span { font-size: 12px; color: var(--jx-text-secondary, #6b7280); max-width: 400px; }
 
+.jx-evoApproval-loading {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  min-height: 96px; color: var(--jx-text-secondary, #6b7280); font-size: 12px;
+}
+
 .jx-evoApproval-note {
   margin: 12px 0 0; font-size: 11.5px;
   color: var(--jx-text-secondary, #9ca3af);
+}
+
+@media (max-width: 640px) {
+  .jx-evoApproval-item { padding: 12px; }
+  .jx-evoApproval-finding { grid-template-columns: 1fr; gap: 3px; }
+  .jx-evoApproval-meta { align-items: stretch; }
+  .jx-evoApproval-meta .ant-btn { width: 100%; }
 }
 
 /* ── Settings: fine-grained prefs ────────────────────────────────────────── */

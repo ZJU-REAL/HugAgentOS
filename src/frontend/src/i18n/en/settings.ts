@@ -551,12 +551,26 @@ export const SETTINGS_DICT: Record<string, string> = {
   '当同类任务反复出现，系统会把稳定的做法整理成能力候选，等你确认。':
     'When similar tasks recur, the system distils the stable approach into a capability candidate for you to confirm.',
   '能力候选': 'Capability candidate',
+  '固定流程：{steps}': 'Reusable flow: {steps}',
+  '把重复成功的做法保存成可复用流程': 'Save a repeatedly successful approach as a reusable flow',
+  '为什么建议': 'Why this is suggested',
+  '系统在 {n} 次历史执行中发现了相同做法（成功率 {rate}），建议保存下来，避免以后每次重新规划。':
+    'The same approach appeared in {n} previous runs with a {rate} success rate. Saving it avoids planning it again each time.',
   '待批准': 'Awaiting approval',
   '来自你的 {n} 次对话': 'from {n} of your conversations',
   '为我启用': 'Enable for me',
   // Personal approval queue: only changes the user can actually carry out.
   '查看将要安装的技能正文': 'View the skill document that will be installed',
   '收起技能正文': 'Hide the skill document',
+  '查看技能详情': 'View skill details',
+  '收起技能详情': 'Hide skill details',
+  '这个技能会做什么': 'What this skill will do',
+  '遇到需要这些工具共同完成的任务时，智能体会直接复用这套已验证流程，减少重复规划。':
+    'When a task needs these tools together, the agent will reuse this verified flow instead of planning it from scratch.',
+  '执行步骤': 'Steps',
+  '完整技能正文': 'Full skill document',
+  '作为你的私有技能安装，只对你生效': 'Installed as your private skill and only applies to you',
+  '正在整理能力候选…': 'Preparing capability candidates…',
   '它会用到的工具': 'Tools it will use',
   '暂无待你决定的变更': 'Nothing awaiting your decision',
   '已应用该记忆调整': 'Memory adjustment applied',

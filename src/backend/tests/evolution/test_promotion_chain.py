@@ -101,6 +101,24 @@ def test_recurring_pattern_is_compiled_into_a_skill_proposal():
     assert "重新规划" not in proposal.rationale
 
 
+def test_one_repeated_tool_call_is_not_mislabelled_as_a_sequence_skill():
+    pattern = P.Pattern(
+        kind=P.PATTERN_SUCCESS_SUBSEQUENCE,
+        signature="call_subagent",
+        support=9,
+        success_rate=1.0,
+        tool_sequence=["call_subagent"],
+        episode_ids=[f"ep-{i}" for i in range(9)],
+    )
+
+    assert (
+        P.promote_tool_sequence_to_skill(
+            pattern, skill_credit=0.9, workflow_credit=0.1
+        )
+        is None
+    )
+
+
 def test_promotion_is_refused_when_orchestration_explains_it_better():
     proposal = P.promote_tool_sequence_to_skill(
         _success_pattern(),

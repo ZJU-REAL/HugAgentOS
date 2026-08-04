@@ -1,11 +1,19 @@
-import { CheckOutlined, DownOutlined, InboxOutlined, UpOutlined } from '@ant-design/icons';
-import { Button, Tag, message } from 'antd';
+import {
+  CheckOutlined,
+  EyeOutlined,
+  InboxOutlined,
+  LockOutlined,
+  UpOutlined,
+} from '@ant-design/icons';
+import { Button, Spin, Tag, message } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { approveMyEvolutionCandidate, getMyEvolutionCandidates } from '../../api';
 import type { MyEvolutionCandidate } from '../../api';
 import { t } from '../../i18n';
+import { useChatStore } from '../../stores/chatStore';
 import { useCatalogStore } from '../../stores/catalogStore';
+import { TOOL_NAME_OVERRIDES } from '../../utils/constants';
 
 /**
  * Capability changes the signed-in user can decide on for themselves.
@@ -29,44 +37,118 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 const OP_LABEL: Record<string, string> = {
+  new: '新增',
   create: '新增',
+  patch: '优化',
   update: '改写',
   reweight: '调权',
   deprecate: '停用',
   merge: '合并',
 };
 
-function ChangeDetail({ candidate }: { candidate: MyEvolutionCandidate }) {
+function displayToolName(tool: string, names: Record<string, string>): string {
+  return TOOL_NAME_OVERRIDES[tool] || names[tool] || tool;
+}
+
+function humaniseFinding(summary: string): string {
+  const sequenceFinding = summary.match(
+    /^(\d+)\s*个\s*Episode\s*出现相同工具子序列且成功率\s*([^，,]+)[，,]每次仍在重新规划$/,
+  );
+  if (!sequenceFinding) return summary;
+  return t('系统在 {n} 次历史执行中发现了相同做法（成功率 {rate}），建议保存下来，避免以后每次重新规划。', {
+    n: sequenceFinding[1],
+    rate: sequenceFinding[2],
+  });
+}
+
+function candidateTitle(
+  candidate: MyEvolutionCandidate,
+  toolNames: Record<string, string>,
+): string {
+  const change = candidate.change;
+  if (change && 'type' in change && change.type === 'skill_document' && change.display_name) {
+    return change.display_name;
+  }
+  if (candidate.target_kind === 'skill' && candidate.tool_sequence?.length) {
+    const steps = candidate.tool_sequence.map((tool) => displayToolName(tool, toolNames));
+    return t('固定流程：{steps}', { steps: steps.join(' → ') });
+  }
+  return candidate.summary || t('能力候选');
+}
+
+interface ChangeDetailProps {
+  candidate: MyEvolutionCandidate;
+  toolNames: Record<string, string>;
+}
+
+function ChangeDetail({ candidate, toolNames }: ChangeDetailProps) {
   const [open, setOpen] = useState(false);
   const change = candidate.change as Record<string, unknown>;
+  const isSkill = candidate.target_kind === 'skill';
 
-  if (!change || !change.type) return null;
-
-  if (change.type === 'skill_document') {
-    const tools = (change.allowed_tools as string[]) ?? [];
+  if (isSkill) {
+    const isDocument = change?.type === 'skill_document';
+    const isSequence = change?.type === 'skill_sequence';
+    const tools = ((change?.allowed_tools as string[]) ?? candidate.tool_sequence ?? []);
+    const steps = ((change?.steps as string[]) ?? candidate.tool_sequence ?? []);
     return (
       <div className="jx-evoApproval-change">
-        <button type="button" className="jx-evoApproval-toggle" onClick={() => setOpen(!open)}>
-          {open ? <UpOutlined /> : <DownOutlined />}
-          <span>{open ? t('收起技能正文') : t('查看将要安装的技能正文')}</span>
-        </button>
-        {(change.description as string) && (
-          <p className="jx-evoApproval-desc">{change.description as string}</p>
-        )}
-        {tools.length > 0 && (
-          <div className="jx-evoApproval-tools">
-            <span>{t('它会用到的工具')}：</span>
-            {tools.map((tool) => (
-              <code key={tool}>{tool}</code>
-            ))}
+        <Button
+          className="jx-evoApproval-toggle"
+          type="text"
+          size="small"
+          icon={open ? <UpOutlined /> : <EyeOutlined />}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? t('收起技能详情') : t('查看技能详情')}
+        </Button>
+
+        {open && (
+          <div className="jx-evoApproval-detailPanel">
+            <section>
+              <strong>{t('这个技能会做什么')}</strong>
+              <p>
+                {isDocument && change.description
+                  ? String(change.description)
+                  : t('遇到需要这些工具共同完成的任务时，智能体会直接复用这套已验证流程，减少重复规划。')}
+              </p>
+            </section>
+
+            {tools.length > 0 && (
+              <section>
+                <strong>{isSequence ? t('执行步骤') : t('它会用到的工具')}</strong>
+                <ol className="jx-evoApproval-detailSteps">
+                  {(steps.length ? steps : tools).map((tool) => {
+                    const label = displayToolName(tool, toolNames);
+                    return (
+                      <li key={tool}>
+                        <span>{label}</span>
+                        {label !== tool && <code>{tool}</code>}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+            )}
+
+            {isDocument && Boolean(change.content) && (
+              <section>
+                <strong>{t('完整技能正文')}</strong>
+                <pre className="jx-evoApproval-doc">{String(change.content)}</pre>
+              </section>
+            )}
+
+            <div className="jx-evoApproval-scope">
+              <LockOutlined />
+              <span>{t(candidate.action_effect || '作为你的私有技能安装，只对你生效')}</span>
+            </div>
           </div>
         )}
-        {open && <pre className="jx-evoApproval-doc">{change.content as string}</pre>}
       </div>
     );
   }
 
-  if (change.type === 'memory_ops') {
+  if (change?.type === 'memory_ops') {
     const ops = (change.operations as Array<Record<string, string>>) ?? [];
     return (
       <div className="jx-evoApproval-change">
@@ -87,19 +169,25 @@ function ChangeDetail({ candidate }: { candidate: MyEvolutionCandidate }) {
 }
 
 export function EvolutionApprovalList() {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<MyEvolutionCandidate[]>([]);
   const [approving, setApproving] = useState<string>('');
+  const toolDisplayNames = useChatStore((state) => state.toolDisplayNames);
 
-  const load = () => {
-    setLoading(true);
+  useEffect(() => {
+    let active = true;
     getMyEvolutionCandidates()
-      .then((data) => setItems(data.candidates ?? []))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(load, []);
+      .then((data) => {
+        if (active) setItems(data.candidates ?? []);
+      })
+      .catch(() => {
+        if (active) setItems([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const approve = (candidate: MyEvolutionCandidate) => {
     setApproving(candidate.candidate_id);
@@ -129,7 +217,16 @@ export function EvolutionApprovalList() {
       .finally(() => setApproving(''));
   };
 
-  if (!loading && items.length === 0) {
+  if (loading && items.length === 0) {
+    return (
+      <div className="jx-evoApproval-loading">
+        <Spin size="small" />
+        <span>{t('正在整理能力候选…')}</span>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
     return (
       <div className="jx-evoApproval-empty">
         <InboxOutlined />
@@ -146,24 +243,40 @@ export function EvolutionApprovalList() {
         <div key={candidate.candidate_id} className="jx-evoApproval-item">
           <div className="jx-evoApproval-head">
             <Tag color={candidate.target_kind === 'memory' ? 'cyan' : 'geekblue'}>
-              {t(KIND_LABEL[candidate.target_kind] ?? candidate.target_kind)}
-              {candidate.operation ? ` · ${t(OP_LABEL[candidate.operation] ?? candidate.operation)}` : ''}
+              {candidate.target_kind === 'skill' && ['new', 'create'].includes(candidate.operation)
+                ? t('新技能')
+                : `${t(KIND_LABEL[candidate.target_kind] ?? candidate.target_kind)}${candidate.operation ? ` · ${t(OP_LABEL[candidate.operation] ?? candidate.operation)}` : ''}`}
             </Tag>
-            <span className="jx-evoApproval-title">{candidate.summary || t('能力候选')}</span>
+            <div className="jx-evoApproval-identity">
+              <span className="jx-evoApproval-title">{candidateTitle(candidate, toolDisplayNames)}</span>
+              {candidate.target_kind === 'skill' && (
+                <span className="jx-evoApproval-subtitle">
+                  {t('把重复成功的做法保存成可复用流程')}
+                </span>
+              )}
+            </div>
           </div>
 
-          <ChangeDetail candidate={candidate} />
+          {candidate.summary && (
+            <div className="jx-evoApproval-finding">
+              <span>{t('为什么建议')}</span>
+              <p>{humaniseFinding(candidate.summary)}</p>
+            </div>
+          )}
 
           {candidate.tool_sequence?.length > 0 && (
             <div className="jx-evoApproval-steps">
               {candidate.tool_sequence.map((tool, index) => (
                 <span key={`${tool}-${index}`} className="jx-evoApproval-step">
                   {index > 0 && <span className="jx-evoApproval-arrow">→</span>}
-                  <code>{tool}</code>
+                  <span className="jx-evoApproval-stepIndex">{index + 1}</span>
+                  <span>{displayToolName(tool, toolDisplayNames)}</span>
                 </span>
               ))}
             </div>
           )}
+
+          <ChangeDetail candidate={candidate} toolNames={toolDisplayNames} />
 
           <div className="jx-evoApproval-meta">
             {/* Provenance and blast radius, so approval is an informed act. */}
@@ -172,7 +285,7 @@ export function EvolutionApprovalList() {
               {candidate.total_evidence > candidate.your_episodes
                 ? ` · ${t('共 {n} 条证据', { n: candidate.total_evidence })}`
                 : ''}
-              {candidate.action_effect ? ` · ${candidate.action_effect}` : ''}
+              {candidate.action_effect ? ` · ${t(candidate.action_effect)}` : ''}
             </span>
             <Button
               type="primary"
