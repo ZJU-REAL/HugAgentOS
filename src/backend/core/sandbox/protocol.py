@@ -232,6 +232,18 @@ class SandboxProvider(Protocol):
         """
         ...
 
+    async def touch_session(self, session_id: str) -> bool:
+        """Mark a live session as active without executing anything in it.
+
+        Long-running workflows call this on a timer (see
+        ``core/sandbox/keepalive.py``) so the idle reaper does not destroy
+        their session during long model-streaming phases with no sandbox
+        calls. Returns False when the session does not exist (yet); providers
+        with no session lifecycle implement it as a no-op returning False.
+        Never raises.
+        """
+        ...
+
     async def health(self) -> bool: ...
 
     # ── Read-only admin interface (for the security admin console; all pure

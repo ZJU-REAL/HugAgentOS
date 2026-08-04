@@ -181,15 +181,39 @@ def _new_ledger(objective: str, requirements: List[Dict[str, Any]]) -> Dict[str,
     return {"objective": objective, "iteration": 0, "requirements": requirements}
 
 
-async def _read_ledger(*, session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+async def _read_ledger(
+    *, session_id: str, user_id: str, loop_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """Read the sandbox ledger; reject one stamped by a different loop.
+
+    Sandboxes are pool-recycled across sessions of the same user (idle
+    sessions park their sandbox for reuse), so a brand-new loop can inherit
+    the previous loop's /workspace — including its feature_list.json.
+    Observed live: a fresh loop "resumed" from a dead loop's checkpoint with
+    a requirement already attempt-blocked. The loop_id stamp (written by
+    _write_ledger) makes foreign ledgers invisible; unstamped legacy ledgers
+    are still accepted.
+    """
     raw = await _read_file(_LEDGER_PATH, session_id=session_id, user_id=user_id)
     if not raw:
         return None
     try:
         obj = json.loads(raw)
-        return obj if isinstance(obj, dict) and obj.get("requirements") else None
     except (json.JSONDecodeError, ValueError):
         return None
+    if not (isinstance(obj, dict) and obj.get("requirements")):
+        return None
+    stamp = obj.get("loop_id")
+    if loop_id and stamp != loop_id:
+        # Unstamped counts as foreign too: a recycled sandbox carrying a
+        # pre-stamp ledger is exactly the contamination case. The DB mirror
+        # (keyed by loop_id) is the compatibility path for legacy resumes.
+        logger.info(
+            "[loop %s] ignoring foreign sandbox ledger (stamped %s — recycled sandbox)",
+            loop_id, stamp or "<none>",
+        )
+        return None
+    return obj
 
 
 async def _write_ledger(ledger: Dict[str, Any], *, session_id: str, user_id: str) -> None:
@@ -291,6 +315,13 @@ async def _run_worker_iteration(
 
     runtime = ontology_runtime or {"enabled": False, "packs": [], "review_level": "none"}
     hold_output = requires_output_review(runtime)
+
+    # Keep the sandbox session alive for the whole worker phase — see
+    # core/sandbox/keepalive.py for why (idle reaper vs long model-streaming
+    # phases with no sandbox calls).
+    from core.sandbox.keepalive import start_session_keepalive
+
+    _keepalive_task = start_session_keepalive(session_id)
     try:
         async for et, payload in sa.stream(
             [{"role": "user", "content": prompt}],
@@ -372,18 +403,10 @@ async def _run_worker_iteration(
             elif et == "tool_pending":
                 if emit:
                     await emit({"type": "tool_pending", **(payload or {})})
-            elif et == "model_progress":
-                # Liveness during long tool-call-arg generation: written to the
-                # Redis stream so the stale-run reaper sees a live run (its
-                # "quiet" check reads the last stream entry), but never
-                # forwarded to clients — follow_run_as_sse skips this type.
-                # Deliberately NOT forwarding "heartbeat" here: those fire even
-                # when the model is truly silent and would defeat the reaper.
-                if emit:
-                    await emit({"type": "model_progress"})
             elif et == "error":
                 logger.warning("[loop] worker stream error: %s", payload)
     finally:
+        _keepalive_task.cancel()
         usage = sa.get_usage()
         await close_clients(clients)
     if hold_output and text:
@@ -576,6 +599,7 @@ async def run_autonomous_loop(
 
     async def _persist_ledger(led: Dict[str, Any]) -> None:
         """Flush the ledger: dual-write to the sandbox (working cache) + DB mirror (reliable source of truth for resume)."""
+        led["loop_id"] = loop_id  # stamp: _read_ledger rejects foreign ledgers on recycled sandboxes
         await _write_ledger(led, session_id=session, user_id=user_id)
         if save_ledger:
             try:
@@ -598,9 +622,10 @@ async def run_autonomous_loop(
             db_ledger = load_ledger()
         except Exception as exc:  # noqa: BLE001
             logger.warning("[loop %s] DB ledger load failed: %s", loop_id, exc)
-    sbx_ledger = await _read_ledger(session_id=session, user_id=user_id)
+    sbx_ledger = await _read_ledger(session_id=session, user_id=user_id, loop_id=loop_id)
     ledger = _pick_fresher_ledger(db_ledger, sbx_ledger)
     if ledger is not None:
+        ledger["loop_id"] = loop_id  # stamp before any backfill (DB mirrors from older builds lack it)
         seq = int(ledger.get("iteration", 0) or 0)
         # Sandbox ledger missing/stale (sandbox wiped after restart or snapshot not flushed) →
         # backfill the authoritative ledger into the sandbox so the worker can read feature_list.json.

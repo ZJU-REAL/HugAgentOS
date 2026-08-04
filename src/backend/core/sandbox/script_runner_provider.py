@@ -175,6 +175,11 @@ class ScriptRunnerProvider:
         """No-op: the sidecar's ``/workspace`` is globally shared; there is no per-session sandbox to destroy."""
         del session_id
 
+    async def touch_session(self, session_id: str) -> bool:
+        """No-op: no per-session lifecycle, nothing to keep alive."""
+        del session_id
+        return False
+
     async def current_sandbox_id(self, session_id: Optional[str]) -> Optional[str]:
         """The script_runner sidecar's ``/workspace`` is global to the container
         and persists for the container's lifetime. There is no "per-session

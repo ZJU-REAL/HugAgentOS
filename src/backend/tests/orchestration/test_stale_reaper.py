@@ -155,25 +155,56 @@ async def test_young_run_untouched(reaper_env):
 # ─── Reaping aligned with in-process task cancellation ──────────────────────────────────────────
 
 
-async def test_reap_cancels_local_worker_task(reaper_env, monkeypatch):
+async def test_quiet_over_age_run_with_live_task_survives(reaper_env, monkeypatch):
+    """A live in-process worker task is never a zombie — the inactivity watchdog
+    owns hang detection for it. Stream-quiet reaping killed healthy long runs
+    whose model was streaming huge tool-call args (which map to no stream
+    events); the quiet check now applies only to orphans."""
     session_factory, _ = reaper_env
     _insert_run(session_factory, "run_local", age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300)
 
     task = asyncio.create_task(asyncio.sleep(3600))
     monkeypatch.setitem(executor._active_runs, "run_local", task)
 
+    assert await executor.reap_stale_runs() == 0
+    assert _get_run(session_factory, "run_local").status == "running"
+    assert not task.cancelled()
+    task.cancel()
+
+
+async def test_orphan_with_done_task_is_reaped(reaper_env, monkeypatch):
+    """A finished task left in _active_runs does not shield the run: quiet orphans are reaped."""
+    session_factory, _ = reaper_env
+    _insert_run(session_factory, "run_done", age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300)
+
+    task = asyncio.create_task(asyncio.sleep(0))
+    await task  # completed task still parked in the registry
+    monkeypatch.setitem(executor._active_runs, "run_done", task)
+
+    assert await executor.reap_stale_runs() == 1
+    assert _get_run(session_factory, "run_done").status == "failed"
+
+
+async def test_hard_expired_cancels_local_worker_task(reaper_env, monkeypatch):
+    """Past the absolute lifetime cap, even a live in-process task is reaped and cancelled."""
+    session_factory, _ = reaper_env
+    _insert_run(session_factory, "run_local_hard", age_sec=executor._HARD_MAX_AGE_SEC + 300)
+
+    task = asyncio.create_task(asyncio.sleep(3600))
+    monkeypatch.setitem(executor._active_runs, "run_local_hard", task)
+
     assert await executor.reap_stale_runs() == 1
     await asyncio.sleep(0)  # let the cancel propagate
     assert task.cancelled()
 
 
-async def test_reap_leaves_plan_execute_task_to_cooperative_stop(reaper_env, monkeypatch):
+async def test_hard_expired_leaves_plan_execute_task_to_cooperative_stop(reaper_env, monkeypatch):
     """plan_execute does no cross-task cancel (anyio deadlock risk); it self-stops via polling."""
     session_factory, _ = reaper_env
     _insert_run(
         session_factory,
         "run_plan",
-        age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300,
+        age_sec=executor._HARD_MAX_AGE_SEC + 300,
         kind="plan_execute",
     )
 

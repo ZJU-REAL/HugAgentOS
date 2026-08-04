@@ -1647,14 +1647,12 @@ async def _astream_subagent_direct(
                         "citations": cit_dicts,
                     }
 
-                elif event_type == "heartbeat":
-                    yield {"type": "heartbeat"}
-
-                elif event_type == "model_progress":
-                    # Liveness signal from StreamingAgent: the model is still
-                    # streaming (tool-call args etc.) though nothing maps to an
-                    # SSE event. Forwarded so the run watchdog counts activity.
-                    yield {"type": "model_progress"}
+                elif event_type in ("heartbeat", "model_progress"):
+                    # heartbeat = transport keep-alive; model_progress = the
+                    # model is still streaming (tool-call args etc.) though
+                    # nothing maps to an SSE event — forwarded so the run
+                    # watchdog counts activity (it excludes only heartbeat).
+                    yield {"type": event_type}
 
                 elif event_type == "tool_pending":
                     yield {"type": "tool_pending", **(payload or {})}
@@ -2614,14 +2612,12 @@ async def astream_chat_workflow(
                             # we enforce it here defensively.
                             break
 
-                elif event_type == "heartbeat":
-                    yield {"type": "heartbeat"}
-
-                elif event_type == "model_progress":
-                    # Liveness signal from StreamingAgent: the model is still
-                    # streaming (tool-call args etc.) though nothing maps to an
-                    # SSE event. Forwarded so the run watchdog counts activity.
-                    yield {"type": "model_progress"}
+                elif event_type in ("heartbeat", "model_progress"):
+                    # heartbeat = transport keep-alive; model_progress = the
+                    # model is still streaming (tool-call args etc.) though
+                    # nothing maps to an SSE event — forwarded so the run
+                    # watchdog counts activity (it excludes only heartbeat).
+                    yield {"type": event_type}
 
                 elif event_type == "tool_pending":
                     yield {"type": "tool_pending", **(payload or {})}

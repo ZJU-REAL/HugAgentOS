@@ -477,15 +477,12 @@ async def _run_workflow(
             elif chunk_type == "tool_result":
                 await _emit(build_tool_result_event(chunk, chat_id, tool_calls_log))
 
-            elif chunk_type == "heartbeat":
-                # Not written to the stream — the SSE layer's own keep-alive cadence is handled by Nginx/StreamingResponse
-                continue
-
-            elif chunk_type == "model_progress":
-                # The model is still streaming (e.g. long tool-call-argument
-                # generation) even though nothing maps to an SSE event. Not
-                # written to the wire; merely receiving it resets the
-                # inactivity watchdog (is_activity excludes only "heartbeat").
+            elif chunk_type in ("heartbeat", "model_progress"):
+                # Neither is written to the stream. heartbeat = transport
+                # keep-alive (excluded from is_activity); model_progress = the
+                # model is still streaming (e.g. long tool-call-arg generation)
+                # with nothing mapping to an SSE event — merely receiving it
+                # resets the inactivity watchdog.
                 continue
 
             elif chunk_type == "tool_pending":
@@ -917,9 +914,10 @@ def _decode_entry(fields: Any) -> Optional[Dict[str, Any]]:
     """Decode the fields of a single Redis Stream entry into an SSE event dict.
 
     Returns None for undecodable entries and for internal liveness markers
-    (``model_progress``): those exist only so the stale-run reaper sees a live
-    stream (it reads entry timestamps, not payloads) and must never reach
-    clients — the frontend treats unknown event types as "pending ended".
+    (``model_progress``) — nothing writes them to streams anymore (the reaper
+    now trusts in-process task liveness), but entries from older builds may
+    survive within the stream TTL and must never reach clients (the frontend
+    treats unknown event types as "pending ended").
     Only used by follow_run_as_sse's replay/tail paths.
     """
     if not fields:
@@ -2052,6 +2050,16 @@ async def reap_stale_runs() -> int:
         hard_expired = began_at is not None and began_at < hard_cutoff
 
         if not hard_expired:
+            # A run whose asyncio task is alive in THIS process is never a
+            # zombie — the in-process inactivity watchdog owns hang detection
+            # for it. The stream-quiet check below is only for orphans whose
+            # worker vanished (process restart/crash). Without this guard, a
+            # healthy long run streaming huge tool-call args (which map to no
+            # stream events) past 30min would be reaped as "quiet".
+            task = _active_runs.get(rid)
+            if task is not None and not task.done():
+                logger.info("chat_run_stale_skip_inprocess", run_id=rid)
+                continue
             last_ms = await _stream_last_write_ms(rid)
             if last_ms is not None and (now_ms - last_ms) < _STALE_QUIET_SEC * 1000:
                 # The stream is still producing: this is a long task, not a zombie — skip this round
