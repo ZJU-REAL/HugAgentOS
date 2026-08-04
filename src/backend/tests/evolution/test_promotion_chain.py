@@ -48,25 +48,44 @@ def test_patterns_carry_the_memories_they_came_from():
     assert len(success.memory_refs) == 6
 
 
-# ── Memory → Skill ───────────────────────────────────────────────────────────
+# ── Episode → Skill：SOP 门 ───────────────────────────────────────────────────
 
 
-def _success_pattern(support=27, rate=0.9):
+def _success_pattern(support=27, rate=0.9, tools=("search", "verify", "chart", "export")):
     return P.Pattern(
         kind=P.PATTERN_SUCCESS_SUBSEQUENCE,
-        signature="search→verify→chart→export",
+        signature="→".join(tools),
         support=support,
         success_rate=rate,
-        tool_sequence=["search", "verify", "chart", "export"],
+        tool_sequence=list(tools),
         memory_refs=[f"mref-{i}" for i in range(support)],
         episode_ids=[f"ep-{i}" for i in range(support)],
     )
 
 
+def _supporting_episodes(
+    support=27, *, objective="帮我生成一份本周的销售数据周报", chats=None
+):
+    """The views behind the pattern: same kind of request, separate conversations."""
+    return [
+        {
+            "episode_id": f"ep-{i}",
+            "chat_id": chats[i] if chats else f"chat-{i}",
+            "verdict": "success",
+            "tool_sequence": ["search", "verify", "chart", "export"],
+            "objective": objective,
+        }
+        for i in range(support)
+    ]
+
+
 def test_recurring_pattern_is_compiled_into_a_skill_proposal():
-    """The 27-weekly-reports case: same tools every time, re-planned every time."""
+    """The 27-weekly-reports case: same request, same tools, separate chats."""
     proposal = P.promote_tool_sequence_to_skill(
-        _success_pattern(), skill_credit=0.81, workflow_credit=0.46
+        _success_pattern(),
+        episodes=_supporting_episodes(27),
+        skill_credit=0.81,
+        workflow_credit=0.46,
     )
     assert proposal is not None
     # Named for what it reads. Co-retrieved memories are context, not sources:
@@ -76,11 +95,18 @@ def test_recurring_pattern_is_compiled_into_a_skill_proposal():
     assert proposal.support == 27
     assert proposal.source_refs == []
     assert len(proposal.payload["co_retrieved_memory_refs"]) == 27
+    # The rationale states the shared intent — the thing that makes it an SOP —
+    # not an unmeasured claim about re-planning.
+    assert proposal.payload["intent"]
+    assert "重新规划" not in proposal.rationale
 
 
 def test_promotion_is_refused_when_orchestration_explains_it_better():
     proposal = P.promote_tool_sequence_to_skill(
-        _success_pattern(), skill_credit=0.3, workflow_credit=0.8
+        _success_pattern(),
+        episodes=_supporting_episodes(27),
+        skill_credit=0.3,
+        workflow_credit=0.8,
     )
     # A stable ordering can mean "the workflow is fixed", not "a skill exists".
     # Promoting anyway creates a skill with no independent content.
@@ -89,23 +115,110 @@ def test_promotion_is_refused_when_orchestration_explains_it_better():
 
 def test_low_success_rate_is_not_promoted():
     assert (
-        P.promote_tool_sequence_to_skill(_success_pattern(rate=0.4), skill_credit=0.9) is None
+        P.promote_tool_sequence_to_skill(
+            _success_pattern(rate=0.4), episodes=_supporting_episodes(27), skill_credit=0.9
+        )
+        is None
     )
 
 
 def test_insufficient_support_is_not_promoted():
     assert (
-        P.promote_tool_sequence_to_skill(_success_pattern(support=2), skill_credit=0.9) is None
+        P.promote_tool_sequence_to_skill(
+            _success_pattern(support=2), episodes=_supporting_episodes(2), skill_credit=0.9
+        )
+        is None
     )
 
 
 def test_existing_equivalent_skill_becomes_a_patch_not_a_twin():
     proposal = P.promote_tool_sequence_to_skill(
         _success_pattern(),
+        episodes=_supporting_episodes(27),
         skill_credit=0.9,
         existing_skill_signatures={"search→verify→chart→export": "skill-weekly-report"},
     )
     assert proposal.patch_target == "skill-weekly-report"
+
+
+def test_a_trivial_sequence_is_never_promoted():
+    """整轮对话只调一次 view_text_file 也构成"相同序列"——但那说明任务简单，
+    不说明存在可复用的过程知识。包装单个通用工具是纯噪声。"""
+    for tools in (("view_text_file",), ("call_subagent", "view_text_file")):
+        pattern = _success_pattern(support=9, rate=1.0, tools=tools)
+        assert (
+            P.promote_tool_sequence_to_skill(
+                pattern, episodes=_supporting_episodes(9), skill_credit=0.9
+            )
+            is None
+        )
+
+
+def test_unrelated_conversations_are_not_an_sop():
+    """Same tool sequence across unrelated requests is a coincidence of tooling."""
+    objectives = [
+        "帮我生成一份本周的销售数据周报",
+        "把这份英文合同翻译成中文",
+        "查一下明天上海到北京的航班",
+        "写一首关于秋天的短诗",
+        "统计仓库里还剩多少台服务器",
+        "给新同事拟一封入职欢迎邮件",
+    ]
+    episodes = [
+        {
+            "episode_id": f"ep-{i}",
+            "chat_id": f"chat-{i}",
+            "verdict": "success",
+            "tool_sequence": ["search", "verify", "chart", "export"],
+            "objective": objectives[i],
+        }
+        for i in range(6)
+    ]
+    assert (
+        P.promote_tool_sequence_to_skill(
+            _success_pattern(support=6), episodes=episodes, skill_credit=0.9
+        )
+        is None
+    )
+
+
+def test_recurrence_within_one_conversation_is_one_occasion():
+    """一场会话里反复跑同一套流程只算一次场合，不构成"这件事总在发生"。"""
+    episodes = _supporting_episodes(6, chats=["chat-same"] * 6)
+    assert (
+        P.promote_tool_sequence_to_skill(
+            _success_pattern(support=6), episodes=episodes, skill_credit=0.9
+        )
+        is None
+    )
+
+
+def test_no_request_text_means_no_commonality_and_no_promotion():
+    """Commonality that cannot be established is not commonality."""
+    episodes = _supporting_episodes(6, objective="")
+    assert (
+        P.promote_tool_sequence_to_skill(
+            _success_pattern(support=6), episodes=episodes, skill_credit=0.9
+        )
+        is None
+    )
+
+
+def test_promotion_without_supporting_views_is_refused():
+    """A caller that cannot show the episodes gets a refusal, not the benefit
+    of the doubt."""
+    assert P.promote_tool_sequence_to_skill(_success_pattern(), skill_credit=0.9) is None
+
+
+def test_personal_support_floor_is_honoured_when_passed():
+    """个人路径发现阶段用门槛 3；晋升阶段必须沿用同一门槛，而不是全局的 5。"""
+    proposal = P.promote_tool_sequence_to_skill(
+        _success_pattern(support=3),
+        episodes=_supporting_episodes(3),
+        min_support=3,
+        skill_credit=0.9,
+    )
+    assert proposal is not None and proposal.support == 3
 
 
 def test_procedural_memories_are_what_becomes_a_skill():

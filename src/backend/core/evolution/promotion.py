@@ -57,6 +57,14 @@ WORKFLOW_MIN_COMBO_FREQUENCY = 5
 # common sequence becomes a workflow whether or not the grouping helps.
 WORKFLOW_MIN_UPLIFT = 0.05
 
+# 一段 SOP 至少要有的步骤数。长度 1–2 的"序列"几乎总是通用工具的巧合复现——
+# 整轮对话只调一次 view_text_file 也会形成"相同序列"——包装它们不携带任何
+# 过程知识，只往评审队列里添噪声。
+MIN_TOOL_SEQUENCE_LEN = 3
+# 支撑 Episode 中归入同一意图簇的最低占比。序列相同只说明工具巧合，
+# 意图相同才说明存在可复用的做事方法——这是把一段序列当 SOP 的前提。
+INTENT_COHESION_RATIO = 0.6
+
 
 @dataclass
 class Pattern:
@@ -197,21 +205,84 @@ class PromotionProposal:
         }
 
 
+def _dominant_shared_intent(
+    pattern: Pattern,
+    episodes: Optional[Sequence[Dict[str, Any]]],
+    *,
+    support_floor: int,
+):
+    """The one intent behind a sequence's supporting episodes, or ``None``.
+
+    ``None`` is a refusal, and deliberately covers the honest-uncertainty cases
+    too: no views supplied, request text too short to cluster, no clustering
+    method available. "We cannot tell whether these conversations had anything
+    in common" and "they had nothing in common" both mean no SOP claim can be
+    made — treating the first as a pass is how single-tool coincidences used to
+    become skills.
+    """
+    if not episodes:
+        return None
+    wanted = {str(e) for e in pattern.episode_ids}
+    supporting = [e for e in episodes if str(e.get("episode_id") or "") in wanted]
+    if len(supporting) < support_floor:
+        return None
+
+    from core.evolution.similarity import METHOD_NONE, cluster_intents
+
+    clusters, method = cluster_intents(supporting, min_support=2)
+    if method == METHOD_NONE or not clusters:
+        return None
+    top = clusters[0]
+    if len(top.episode_ids) < support_floor:
+        return None
+    if len(top.episode_ids) / len(supporting) < INTENT_COHESION_RATIO:
+        return None
+    # 复现必须跨会话：occasions 按 chat_id 去重，同一会话里反复跑同一套
+    # 流程只算一次场合，不构成"这件事总在发生"。
+    if top.occasions < support_floor:
+        return None
+    return top
+
+
 def promote_tool_sequence_to_skill(
     pattern: Pattern,
     *,
+    episodes: Optional[Sequence[Dict[str, Any]]] = None,
+    min_support: Optional[int] = None,
     skill_credit: float = 0.0,
     workflow_credit: float = 0.0,
     existing_skill_signatures: Optional[Dict[str, str]] = None,
 ) -> Optional[PromotionProposal]:
     """Compile a recurring successful tool sequence into a skill proposal.
 
+    A recurring sequence alone is *not* evidence of a reusable capability.
+    Generic tools recur across unrelated conversations by construction, and the
+    limiting case — a whole conversation whose "sequence" is one call to
+    ``view_text_file`` — says only that the task was trivial. What justifies an
+    SOP is commonality of *purpose*: the same kind of request, on separate
+    occasions, repeatedly completed by the same non-trivial procedure. So the
+    gates hold together, and each excludes a specific way of being wrong:
+
+    * the sequence is **non-trivial** (≥ :data:`MIN_TOOL_SEQUENCE_LEN` steps) —
+      wrapping one generic tool adds an asset and no knowledge;
+    * the supporting episodes **share an intent** — a dominant cluster over
+      their request text (via :mod:`core.evolution.similarity`) covers
+      ≥ :data:`INTENT_COHESION_RATIO` of them; without that the recurrence is a
+      coincidence of tooling, and no commonality means no promotion;
+    * the recurrence spans **separate conversations** — one chat re-running the
+      same procedure is one occasion, not evidence it keeps coming back;
+    * the recurrences **succeed** at ≥ :data:`SKILL_MIN_SUCCESS_RATE`.
+
+    ``episodes`` are the flattened views the pattern was discovered from; the
+    intent gate reads their request text. A caller that cannot supply them gets
+    a refusal, not the benefit of the doubt.
+
     Named for what it reads. This was called ``promote_memory_to_skill`` and
-    carried ``from_layer="memory"``, but all three of its thresholds are about
-    tool sequences and no memory content ever enters the result —
-    ``pattern.memory_refs`` are hashes of whatever happened to be retrieved
-    during the supporting episodes. The name promised a memory→skill chain the
-    code did not have; :func:`promote_procedural_memory_to_skill` is that chain.
+    carried ``from_layer="memory"``, but no memory content ever enters the
+    result — ``pattern.memory_refs`` are hashes of whatever happened to be
+    retrieved during the supporting episodes. The name promised a memory→skill
+    chain the code did not have; :func:`promote_procedural_memory_to_skill` is
+    that chain.
 
     Refuses when orchestration is the better explanation: a stable tool ordering
     can equally mean "the workflow is fixed" rather than "there is a reusable
@@ -220,7 +291,15 @@ def promote_tool_sequence_to_skill(
     """
     if pattern.kind != PATTERN_SUCCESS_SUBSEQUENCE or not pattern.tool_sequence:
         return None
-    if pattern.support < MIN_SUPPORT:
+    support_floor = MIN_SUPPORT if min_support is None else int(min_support)
+    if len(pattern.tool_sequence) < MIN_TOOL_SEQUENCE_LEN:
+        logger.info(
+            "[promotion] skipping %s: %d-step sequence is below the SOP floor",
+            pattern.signature,
+            len(pattern.tool_sequence),
+        )
+        return None
+    if pattern.support < support_floor:
         return None
     if pattern.success_rate < SKILL_MIN_SUCCESS_RATE:
         return None
@@ -231,15 +310,27 @@ def promote_tool_sequence_to_skill(
         )
         return None
 
+    intent = _dominant_shared_intent(pattern, episodes, support_floor=support_floor)
+    if intent is None:
+        logger.info(
+            "[promotion] skipping %s: supporting episodes share no intent — a "
+            "recurring sequence without a recurring request is not an SOP",
+            pattern.signature,
+        )
+        return None
+    covered = [e for e in pattern.episode_ids if e in set(intent.episode_ids)]
+
     existing = (existing_skill_signatures or {}).get(pattern.signature)
     return PromotionProposal(
         from_layer="episode",
         to_layer="skill",
         signature=pattern.signature,
-        support=pattern.support,
+        support=len(covered),
         rationale=(
-            f"{pattern.support} 个 Episode 出现相同工具子序列且成功率 "
-            f"{pattern.success_rate:.0%}，每次仍在重新规划"
+            f"「{intent.representative[:40]}」类请求在 {intent.occasions} 次独立会话中"
+            f"反复出现，每次都以同一 {len(pattern.tool_sequence)} 步工具序列成功完成"
+            f"（{len(covered)} 个 Episode，成功率 {pattern.success_rate:.0%}）——"
+            "同类意图 + 稳定做法，具备沉淀为 SOP 的共性"
         ),
         # Co-retrieved memories are *context*, not sources. They are carried so
         # a reviewer can see what was in view, and deliberately not demoted —
@@ -248,7 +339,9 @@ def promote_tool_sequence_to_skill(
         source_refs=[],
         payload={
             "tool_sequence": pattern.tool_sequence,
-            "episode_ids": pattern.episode_ids[:20],
+            "episode_ids": covered[:20],
+            "intent": intent.representative,
+            "occasions": intent.occasions,
             "co_retrieved_memory_refs": list(pattern.memory_refs),
         },
         # An equivalent skill already exists → patch it instead of adding a twin.

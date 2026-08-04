@@ -54,9 +54,10 @@ def _skill_label(tools: Sequence[str], *, rules_only: bool = False) -> str:
 
     The name and description are the *only* things the model sees before it
     decides whether to open a skill, so they have to describe the job. The
-    candidate's ``hypothesis`` reads "5 个 Episode 出现相同工具子序列且成功率
-    100%" — true, and useless for that decision, since it says nothing about
-    when the skill applies. It belongs in the provenance section, not the title.
+    candidate's ``hypothesis`` describes the evidence ("「…」类请求在 N 次独立
+    会话中以同一序列成功完成") — true, and useless for that decision, since it
+    says nothing about when the skill applies. It belongs in the provenance
+    section, not the title.
     """
     head = " → ".join(tools[:4]) + ("…" if len(tools) > 4 else "")
     return ("工具顺序规则：" if rules_only else "固定调用顺序：") + head

@@ -229,15 +229,13 @@ def load_episode_views(*, limit: int = 500, since_days: int = 30) -> List[Dict[s
 
 
 def _features_for(pattern: P.Pattern) -> CreditFeatures:
-    """Translate a discovered pattern into attribution features."""
-    if pattern.kind == P.PATTERN_SUCCESS_SUBSEQUENCE and pattern.tool_sequence:
-        return CreditFeatures(
-            outcome_verdict="failed",  # "works, but is re-planned every time"
-            outcome_confidence=0.85,
-            repeated_tool_subsequence=True,
-            skill_selected_count=0,
-            skill_rejected_count=len(pattern.tool_sequence),
-        )
+    """Translate a discovered pattern into attribution features.
+
+    Success-subsequence tool patterns no longer come through here: they are an
+    aggregate observation over successful runs, and inventing a ``failed``
+    verdict to route them through the failure attributor is the exact move
+    :func:`core.evolution.credit.aggregate_finding` exists to replace.
+    """
     if pattern.kind == P.PATTERN_REPEATED_FAILURE:
         return CreditFeatures(
             outcome_verdict="failed",
@@ -1218,7 +1216,21 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
     by_episode_id = {str(v.get("episode_id") or ""): v for v in views}
 
     for pattern in patterns:
-        decision = assign_credit(_features_for(pattern))
+        if pattern.kind == P.PATTERN_SUCCESS_SUBSEQUENCE and pattern.tool_sequence:
+            # An observation across many *successful* runs — aggregate decision,
+            # not failure attribution with invented features.
+            decision = aggregate_finding(
+                target=T_SKILL,
+                explanation=(
+                    f"{pattern.support} 个成功 Episode 复现同一 "
+                    f"{len(pattern.tool_sequence)} 步工具序列"
+                    f"（成功率 {pattern.success_rate:.0%}）"
+                ),
+                confidence=confidence_from_evidence(pattern.support, saturates_at=10),
+                evidence_count=pattern.support,
+            )
+        else:
+            decision = assign_credit(_features_for(pattern))
         if not decision.may_produce_candidate:
             # No-update / unidentifiable / a non-asset cause. Refusing here is
             # the mechanism that stops a KB gap being "fixed" by editing a skill.
@@ -1227,6 +1239,7 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
 
         proposal = P.promote_tool_sequence_to_skill(
             pattern,
+            episodes=views,
             skill_credit=decision.scores.get("skill", 0.0),
             workflow_credit=decision.scores.get("workflow", 0.0),
             existing_skill_signatures=existing_signatures,
@@ -1247,6 +1260,34 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
             for e in (proposal.payload.get("episode_ids") or [])
             if e in by_episode_id
         ]
+
+        # 规则门测统计，测不了语义——意图簇可能是巧合归并，序列可能是对任何
+        # 任务都成立的通用组合。规则幸存者再过一道 LLM 裁决，拒绝即不产候选。
+        from core.evolution.sop_judge import adjudicate_sequence_sop
+
+        verdict = _run_async(
+            adjudicate_sequence_sop(
+                representative=str(proposal.payload.get("intent") or ""),
+                objectives=[str(v.get("objective") or "") for v in supporting],
+                tool_sequence=sequence,
+                occasions=int(proposal.payload.get("occasions") or 0),
+                support=proposal.support,
+                success_rate=pattern.success_rate,
+            )
+        )
+        if not verdict.worthy:
+            report["rejected"].append(
+                {
+                    "signature": proposal.signature,
+                    "code": (
+                        "sop_judge_unavailable"
+                        if verdict.judge_unavailable
+                        else "sop_judge_refused"
+                    ),
+                    "reason": verdict.reason,
+                }
+            )
+            continue
         spec = SkillCandidateSpec(
             asset_id=asset_id,
             proposer="promotion_chain",
@@ -1274,7 +1315,12 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
             ),
             write_document=False,
         )
-        outcome = create_skill_candidate(spec, credit=decision.to_dict(), dry_run=dry_run)
+        # 裁决结论随候选进 credit_decision 落库，评审员能看到机器放行的理由。
+        outcome = create_skill_candidate(
+            spec,
+            credit={**decision.to_dict(), "sop_judge": verdict.to_dict()},
+            dry_run=dry_run,
+        )
         status = outcome.get("status")
         if status == STATUS_REJECTED:
             report["rejected"].append(
