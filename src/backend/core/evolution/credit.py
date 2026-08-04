@@ -228,7 +228,7 @@ def _score_targets(f: CreditFeatures) -> Dict[str, float]:
 def _explain(selected: str, f: CreditFeatures) -> str:
     reasons = {
         T_MEMORY: "当前请求与注入记忆存在显式冲突",
-        T_SKILL: "出现稳定重复的工具子序列，但每次都在重新规划",
+        T_SKILL: "出现稳定重复的工具子序列，存在可沉淀的过程知识",
         # Names the *assembly* — tools, skills, prompt fragments, routes — not a
         # DAG. The product's main axis is a ReAct loop, which executes no DAG,
         # so "workflow" pointed reviewers at a thing that does not exist here.

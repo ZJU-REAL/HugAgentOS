@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 
 from core.db.engine import SessionLocal
 from core.evolution import promotion as P
-from core.evolution.credit import CreditFeatures, assign_credit
+from core.evolution.credit import T_SKILL, aggregate_finding, confidence_from_evidence
 from core.evolution.ir import (
     RISK_LOW,
     RISK_MEDIUM,
@@ -161,25 +161,71 @@ def run_personal_cycle(
     known_concepts = _known_concepts(prefs)
 
     for pattern in patterns:
-        decision = assign_credit(
-            CreditFeatures(
-                outcome_verdict="failed",
-                outcome_confidence=0.85,
-                repeated_tool_subsequence=True,
-                skill_selected_count=0,
-                skill_rejected_count=len(pattern.tool_sequence),
-            )
+        if pattern.kind != P.PATTERN_SUCCESS_SUBSEQUENCE or not pattern.tool_sequence:
+            continue
+        # 这是"多次成功里观察到的共性"，不是某次失败的归因，所以走聚合决策。
+        # 旧实现在这里伪造 outcome_verdict="failed" 逼归因器选中技能引擎——
+        # 正是 credit.aggregate_finding 的 docstring 点名批判的做法：评审台
+        # 因此展示了一句没人测量过的失败解释。
+        decision = aggregate_finding(
+            target=T_SKILL,
+            explanation=(
+                f"{pattern.support} 个成功 Episode 复现同一 "
+                f"{len(pattern.tool_sequence)} 步工具序列"
+                f"（成功率 {pattern.success_rate:.0%}），观察自本人历史会话"
+            ),
+            confidence=confidence_from_evidence(pattern.support, saturates_at=10),
+            evidence_count=pattern.support,
         )
         if not decision.may_produce_candidate:
             report["no_update"] += 1
             continue
 
+        # min_support 必须显式传入：发现阶段用的个人门槛（3）在 _discover 返回
+        # 后已恢复为全局值（5），不传的话支持度 3–4 的个人模式会在这里被静默拒绝。
         proposal = P.promote_tool_sequence_to_skill(
             pattern,
+            episodes=views,
+            min_support=PERSONAL_MIN_SUPPORT,
             skill_credit=decision.scores.get("skill", 0.0),
             workflow_credit=decision.scores.get("workflow", 0.0),
         )
         if proposal is None:
+            continue
+
+        # 规则门之后的 LLM 语义裁决：意图簇是否巧合归并、序列是否只是对任何
+        # 任务都成立的通用组合。拒绝即不产候选；模型不可用同样拒绝，但在
+        # 报告里可区分。
+        from core.evolution.loop import _run_async
+        from core.evolution.sop_judge import adjudicate_sequence_sop
+
+        covered = {str(e) for e in (proposal.payload.get("episode_ids") or [])}
+        verdict = _run_async(
+            adjudicate_sequence_sop(
+                representative=str(proposal.payload.get("intent") or ""),
+                objectives=[
+                    str(v.get("objective") or "")
+                    for v in views
+                    if str(v.get("episode_id") or "") in covered
+                ],
+                tool_sequence=[str(t) for t in proposal.payload.get("tool_sequence", [])],
+                occasions=int(proposal.payload.get("occasions") or 0),
+                support=proposal.support,
+                success_rate=pattern.success_rate,
+            )
+        )
+        if not verdict.worthy:
+            report["rejected"].append(
+                {
+                    "signature": proposal.signature,
+                    "code": (
+                        "sop_judge_unavailable"
+                        if verdict.judge_unavailable
+                        else "sop_judge_refused"
+                    ),
+                    "reason": verdict.reason,
+                }
+            )
             continue
 
         asset_id = "u" + hashlib.sha256(
@@ -213,10 +259,11 @@ def run_personal_cycle(
             evaluation_plan={"replay_set": "personal", "primary_metric": "task_success"},
         )
 
+        stored_credit = {**decision.to_dict(), "sop_judge": verdict.to_dict()}
         try:
             validate_ir(
                 ir,
-                credit_decision=decision.to_dict(),
+                credit_decision=stored_credit,
                 allowed_scopes=["user", "workspace"],
                 known_concepts=known_concepts,
             )
@@ -232,7 +279,7 @@ def run_personal_cycle(
 
         candidate_id = _persist_candidate(
             ir,
-            credit=decision.to_dict(),
+            credit=stored_credit,
             proposer=f"personal:{user_id}",
             evidence_refs=proposal.payload.get("episode_ids", []),
         )
