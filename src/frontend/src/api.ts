@@ -3967,6 +3967,14 @@ export type EvolutionChangePreview =
       content: string;
     }
   | {
+      type: 'skill_sequence';
+      display_name: string;
+      description: string;
+      allowed_tools: string[];
+      steps: string[];
+      ordering_constraints: Array<Record<string, unknown>>;
+    }
+  | {
       type: 'memory_ops';
       operations: Array<{
         operation: string;

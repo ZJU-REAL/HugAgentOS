@@ -30,11 +30,16 @@ const bundleFlavor = process.env.HUGAGENT_DESKTOP_BUNDLE || "full";
 if (!["full", "thin"].includes(bundleFlavor)) {
   throw new Error(`Unknown HUGAGENT_DESKTOP_BUNDLE flavor: ${bundleFlavor}`);
 }
-validateDesktopBuildTarget(
-  process.env.TAURI_ENV_TARGET_TRIPLE
-    ? ["--target", process.env.TAURI_ENV_TARGET_TRIPLE]
-    : [],
-);
+if (bundleFlavor === "full") {
+  // The offline runtime is a native payload, so a cross-architecture target
+  // cannot be packaged with it. Thin bundles carry no runtime — any target,
+  // including universal-apple-darwin, is buildable on any host.
+  validateDesktopBuildTarget(
+    process.env.TAURI_ENV_TARGET_TRIPLE
+      ? ["--target", process.env.TAURI_ENV_TARGET_TRIPLE]
+      : [],
+  );
+}
 const desktopTarget = currentDesktopTarget();
 const dependencyFingerprint = desktopDependencyFingerprint(repoRoot, desktopTarget);
 const python = bundleFlavor === "full" ? findPython() : null;

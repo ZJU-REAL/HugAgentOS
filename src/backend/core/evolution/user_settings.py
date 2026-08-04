@@ -258,6 +258,23 @@ def pending_for_user(user_id: str, *, limit: int = 20) -> List[Dict[str, Any]]:
                 action = personal_action(candidate)
                 if action is None:
                     continue
+                change_preview = _change_preview(candidate)
+                if str(candidate.target_kind or "") == "skill":
+                    # Legacy personal cycles could promote a single repeated
+                    # tool call as a "sequence".  Such a candidate has neither
+                    # an order to preserve nor an applicability condition, and
+                    # approving it would install a tautological skill.  Keep
+                    # the evidence intact for audit, but do not present noise as
+                    # a decision the user ought to make.
+                    if change_preview.get("type") == "skill_sequence":
+                        steps = change_preview.get("steps") or []
+                        rules = change_preview.get("ordering_constraints") or []
+                        if len(steps) < 2 and not rules:
+                            continue
+                    elif change_preview.get("type") != "skill_document":
+                        # A skill with no inspectable content is not informed
+                        # consent and would also fail materialisation later.
+                        continue
                 out.append(
                     {
                         "candidate_id": candidate.candidate_id,
@@ -276,7 +293,7 @@ def pending_for_user(user_id: str, *, limit: int = 20) -> List[Dict[str, Any]]:
                         "action": action["action"],
                         "action_label": action["label"],
                         "action_effect": action["effect"],
-                        "change": _change_preview(candidate),
+                        "change": change_preview,
                         "created_at": candidate.created_at.isoformat()
                         if candidate.created_at
                         else None,
@@ -300,7 +317,8 @@ def _change_preview(candidate) -> Dict[str, Any]:
     """
     ir = candidate.ir or {}
     kind = str(candidate.target_kind or "")
-    for change in ir.get("changes") or []:
+    changes = ir.get("changes") or []
+    for change in changes:
         if kind == "skill":
             document = change.get("document")
             if isinstance(document, dict) and document.get("content"):
@@ -327,6 +345,40 @@ def _change_preview(candidate) -> Dict[str, Any]:
                         for op in operations
                     ],
                 }
+    if kind == "skill":
+        # Sequence-only candidates are the common output of the personal
+        # evolution path.  They do not carry an authored SKILL.md, but approval
+        # still materialises a concrete name, description and ordered set of
+        # steps.  Surface that exact structure instead of returning {}, which
+        # made the frontend silently remove the detail button.
+        tools: List[str] = []
+        constraints: List[Dict[str, Any]] = []
+        for change in changes:
+            sequence = change.get("tool_sequence")
+            if isinstance(sequence, list) and sequence and not tools:
+                tools = [str(tool) for tool in sequence]
+            rules = change.get("ordering_constraints")
+            if isinstance(rules, list) and rules:
+                constraints = [dict(rule) for rule in rules if isinstance(rule, dict)]
+
+        rules_only = not tools and bool(constraints)
+        if rules_only:
+            from core.evolution.activation import _tools_from_constraints
+
+            tools = _tools_from_constraints(constraints)
+        if tools:
+            # Reuse the materialiser's wording so the preview and the installed
+            # skill never disagree about what the user accepted.
+            from core.evolution.activation import _skill_description, _skill_label
+
+            return {
+                "type": "skill_sequence",
+                "display_name": _skill_label(tools, rules_only=rules_only),
+                "description": _skill_description(tools, constraints, rules_only=rules_only),
+                "allowed_tools": tools,
+                "steps": tools,
+                "ordering_constraints": constraints,
+            }
     return {}
 
 

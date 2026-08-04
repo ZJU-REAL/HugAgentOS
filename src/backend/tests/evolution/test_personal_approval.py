@@ -200,6 +200,34 @@ def test_the_tool_sequence_is_surfaced_so_approval_is_informed(db):
     assert pending[0]["tool_sequence"] == ["a", "b"]
 
 
+def test_sequence_only_skill_has_an_inspectable_change_preview(db):
+    for i in range(5):
+        _episode(db, f"e{i}", "alice")
+    _candidate(db, "c1", [f"e{i}" for i in range(5)])
+    db.commit()
+
+    change = US.pending_for_user("alice")[0]["change"]
+    assert change["type"] == "skill_sequence"
+    assert change["display_name"] == "固定调用顺序：a → b"
+    assert change["steps"] == ["a", "b"]
+    assert "`a`、`b`" in change["description"]
+
+
+def test_legacy_single_tool_candidate_is_hidden_without_deleting_evidence(db):
+    for i in range(5):
+        _episode(db, f"e{i}", "alice")
+    _candidate(
+        db,
+        "single",
+        [f"e{i}" for i in range(5)],
+        ir={"changes": [{"tool_sequence": ["view_text_file"]}]},
+    )
+    db.commit()
+
+    assert US.pending_for_user("alice") == []
+    assert db.get(EvolutionCandidate, "single") is not None
+
+
 # ── The queue lists only what it can carry out ───────────────────────────────
 #
 # Every case below used to appear with a 「为我启用」 button whose sole possible
