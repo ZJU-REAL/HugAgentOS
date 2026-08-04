@@ -44,8 +44,6 @@ logger = get_logger(__name__)
 EmitFn = Callable[[Dict[str, Any]], Awaitable[None]]
 
 _VALID_VERDICTS = (DONE, CONTINUE, OFF_TRACK, NEED_HUMAN)
-# The reviewer itself needs to run a few tool steps (ls/read/grep) to gather evidence; give it a small but sufficient step cap.
-_REVIEWER_MAX_ITERS = 12
 
 
 def _build_review_prompt(
@@ -61,13 +59,17 @@ def _build_review_prompt(
         "你是一个自主循环的**独立产出评审员**。你不是执行者，是裁判。",
         "你和刚才干活的执行 agent 是**两个人**——你**绝不能**采信它自报的"
         "「我已完成 / 我加上了 / 我优化了」之类的话。你的唯一职责是：**亲自打开当前"
-        "项目里产出的真实文件**（用 ls / view_text_file / grep / glob / bash 等只读手段），"
+        "项目里产出的真实文件**（用你可用的只读工具：ls / read / grep / glob 等），"
         "核对下面这条需求到底有没有真正落地。",
         "\n## ⛔ 只读约束\n你**禁止**创建、修改、删除任何文件，也不要发布/构建改动。"
         "只允许读取、检索、运行**只读**命令来取证。",
         f"\n## 总目标\n{objective}",
-        f"\n## 本轮要核验的需求\n{requirement_desc}",
-        f"\n## 验收标准（逐条核对）\n{criteria}",
+        f"\n## 本轮要核验的需求（**你的判定单位**）\n{requirement_desc}",
+        f"\n## 全局验收标准（整个任务的最终标准，仅作参照）\n{criteria}\n"
+        "⚠️ 判定纪律：done/continue 只针对**本轮需求**——本轮需求描述的产出有确凿证据即"
+        "判 done。全局标准里未被本轮需求覆盖的项（通常由其他需求承载）**不构成**本轮"
+        "continue 的理由；只有当本轮需求本身就是最终交付（或明确引用了某条全局标准）时，"
+        "才逐条核对对应标准。",
     ]
     if worker_summary.strip():
         parts.append(
@@ -81,8 +83,13 @@ def _build_review_prompt(
         "2. 打开与本需求直接相关的文件，读它的真实内容。\n"
         "3. 对照验收标准逐条判断：内容里是否**确实**出现了需求要求的东西"
         "（如某个功能模块、某段文案、某种交互/布局），还是只是被声称做了。\n"
-        "4. 如需求涉及「能跑/能构建/能通过」，用只读命令实际验证（如 grep 关键实现、"
-        "查语法、必要时构建到临时目录）。"
+        "4. 如需求涉及「能跑/能构建/能通过」，在可用工具范围内用只读手段验证"
+        "（如 grep 关键实现、通读关键文件）。\n"
+        "5. 如验收标准涉及「已注册为可下载 artifact / sandbox_get_artifact /"
+        " pin_to_workspace 交付」：注册状态存在平台注册表里，沙箱文件系统查**不**到——"
+        "从执行 agent 自述中找到它报告的 file_id（找线索不算采信），用 `read_artifact`"
+        " 工具读取该 file_id：**能成功读到内容即证明已注册**（该工具直接读平台注册表），"
+        "顺带核验内容是否符合要求；读取失败或没有任何 file_id 线索才判未注册。"
     )
     if second_pass:
         parts.append(
@@ -95,8 +102,9 @@ def _build_review_prompt(
         '"criteria_hit": ["已确凿满足的验收标准原文", ...], '
         '"evidence": "你**亲自读到**的文件路径 + 关键内容片段/命令输出，作为判定依据", '
         '"feedback": "若未完成：具体还差什么、下一轮该改哪个文件的什么；若完成：一句话结论"}\n'
-        "判定纪律：**只有当每一条验收标准都能被你引用到的真实文件证据支撑时**才输出 done；"
+        "判定纪律：**本轮需求描述的每一项产出都能被你引用到的真实证据支撑时**才输出 done；"
         "证据不足、找不到对应产出、或只有自报没有实物，一律 continue（绝不放水）。"
+        "criteria_hit 只列本轮证据顺带确凿满足的全局标准，列不满不影响 done。"
     )
     return "\n".join(parts)
 
@@ -173,7 +181,21 @@ async def review_requirement(
         second_pass=second_pass,
     )
     try:
+        # Reuse the platform-registered builtin reviewer (builtin.reviewer) —
+        # same construction path as call_subagent: its DB-managed system prompt
+        # (Config console → prompt management → subagents/reviewer), read-only
+        # capability policy and max_iters govern here too, instead of a second
+        # hand-rolled reviewer definition. The spec lives in a static module
+        # tuple, so it is always present; a prompt-load failure raises into the
+        # except below (spawn failed → conservative continue).
+        from core.llm.builtin_subagents import (
+            build_builtin_runtime_profile,
+            get_builtin_subagent,
+        )
+
+        _spec = get_builtin_subagent("builtin.reviewer")
         agent, clients = await create_agent_executor(
+            user_agent=build_builtin_runtime_profile(_spec, None),
             current_user_id=user_id,
             model_name=model_name,
             sandbox_session_id=session_id,   # key: same sandbox as the worker → reads real output
@@ -181,8 +203,8 @@ async def review_requirement(
             chat_id=chat_id,
             enabled_skill_ids=[],             # pure verification, load no business skills
             isolated=True,                    # independent MCP client, avoid cross-task cancel-scope
-            max_iters=_REVIEWER_MAX_ITERS,
-            read_only=True,                   # read-only: register no file-modifying tools (the judge isn't a player)
+            read_only=_spec.read_only,
+            allow_bash=_spec.allow_bash,
         )
     except Exception as exc:  # noqa: BLE001 - a reviewer agent that won't start must not drag down the loop
         logger.warning("[loop-review] spawn reviewer failed: %s", exc)
@@ -192,6 +214,11 @@ async def review_requirement(
 
     sa = StreamingAgent(agent, clients)
     text = ""
+    # The review phase can also stream for minutes with no sandbox calls —
+    # same keepalive as the worker phase so the shared session survives it.
+    from core.sandbox.keepalive import start_session_keepalive
+
+    _keepalive_task = start_session_keepalive(session_id)
     try:
         # The reviewer's stream is **not forwarded** to the user bubble — it's an internal judge, only its final text verdict is collected.
         # subagent_scope attributes the reviewer's internal read/grep/... tool calls to this sub-agent log (auditable).
@@ -210,6 +237,7 @@ async def review_requirement(
     except Exception as exc:  # noqa: BLE001
         logger.warning("[loop-review] reviewer run failed: %s", exc)
     finally:
+        _keepalive_task.cancel()
         await close_clients(clients)
 
     async def _return(result: Dict[str, Any], *, log_status: str = "success") -> Dict[str, Any]:

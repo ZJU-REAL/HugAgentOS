@@ -240,9 +240,10 @@ class StreamingAgent:
         _stream_start = time.monotonic()
         _first_event_logged = False
         _poll_interval = 3.0
-        # Last time anything was yielded downstream — basis for the throttled
-        # model_progress liveness signal when upstream events map to nothing.
-        _last_out_ts = time.monotonic()
+        # Last model_progress emission — throttles the liveness signal emitted
+        # when upstream events map to nothing. Only the swallowed-event branch
+        # reads/updates the clock, keeping the mapped hot path free of it.
+        _last_progress_ts = _stream_start
 
         try:
             while True:
@@ -283,17 +284,15 @@ class StreamingAgent:
                         _first_event_logged = True
                     _mapped_any = True
                     yield out
-                if _mapped_any:
-                    _last_out_ts = time.monotonic()
-                else:
+                if not _mapped_any:
                     # The model is alive (an upstream event just arrived) but
                     # nothing was forwarded — typical of long tool-call-arg /
                     # suppressed-thinking streaming. Emit a throttled liveness
                     # signal so the inactivity watchdog doesn't misjudge a
                     # healthy run as hung.
                     _now = time.monotonic()
-                    if _now - _last_out_ts >= _MODEL_PROGRESS_MIN_INTERVAL_S:
-                        _last_out_ts = _now
+                    if _now - _last_progress_ts >= _MODEL_PROGRESS_MIN_INTERVAL_S:
+                        _last_progress_ts = _now
                         yield ("model_progress", None)
         except Exception as e:  # noqa: BLE001
             yield ("error", e)

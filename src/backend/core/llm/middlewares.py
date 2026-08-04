@@ -19,7 +19,6 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import time
 from contextvars import ContextVar
 from pathlib import Path
@@ -635,26 +634,33 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
     def __init__(self, *, threshold: int = 2) -> None:
         self._threshold = threshold
         self._last_key: tuple | None = None
+        # Env is immutable for the process lifetime — parse the kill-switch once
+        # per middleware (one per agent build), not on every reasoning round.
+        from core.config.settings import _bool, _env
+
+        self._force_text = _bool(_env("CHAT_FINAL_ITER_FORCE_TEXT", "true"))
 
     async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):
+        max_iters, cur_iter, remaining = self._budget(agent)
         try:
-            self._maybe_remind(agent)
+            self._maybe_remind(agent, max_iters, cur_iter, remaining)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[iter_budget] failed: %s", exc)
         try:
-            input_kwargs = self._maybe_force_text(agent, input_kwargs)
+            input_kwargs = self._maybe_force_text(input_kwargs, max_iters, remaining)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[iter_budget] force-text failed: %s", exc)
         async for evt in next_handler(**input_kwargs):
             yield evt
 
-    def _remaining(self, agent: Agent) -> tuple[int, int]:
-        """Return (max_iters, remaining-including-current-round)."""
+    @staticmethod
+    def _budget(agent: Agent) -> tuple[int, int, int]:
+        """Return (max_iters, cur_iter, remaining-including-current-round)."""
         max_iters = int(getattr(agent.react_config, "max_iters", 0) or 0)
         cur_iter = int(getattr(agent.state, "cur_iter", 0) or 0)
-        return max_iters, max_iters - cur_iter
+        return max_iters, cur_iter, max_iters - cur_iter
 
-    def _maybe_force_text(self, agent: Agent, input_kwargs: dict) -> dict:
+    def _maybe_force_text(self, input_kwargs: dict, max_iters: int, remaining: int) -> dict:
         """Final round: force tool_choice="none" so the model can only produce text.
 
         The reminder alone is advisory — a model that still emits a tool call in
@@ -664,12 +670,7 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
         micro budgets (same guard as the reminder) and when a caller already
         pinned an explicit tool_choice. Kill-switch: CHAT_FINAL_ITER_FORCE_TEXT=false.
         """
-        if (os.getenv("CHAT_FINAL_ITER_FORCE_TEXT") or "true").strip().lower() in (
-            "0", "false", "off", "no",
-        ):
-            return input_kwargs
-        max_iters, remaining = self._remaining(agent)
-        if max_iters <= self._threshold + 1 or remaining > 1:
+        if remaining > 1 or max_iters <= self._threshold + 1 or not self._force_text:
             return input_kwargs
         if input_kwargs.get("tool_choice") is not None:
             return input_kwargs
@@ -681,11 +682,9 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
         )
         return {**input_kwargs, "tool_choice": ToolChoice(mode="none")}
 
-    def _maybe_remind(self, agent: Agent) -> None:
-        max_iters, remaining = self._remaining(agent)
+    def _maybe_remind(self, agent: Agent, max_iters: int, cur_iter: int, remaining: int) -> None:
         if max_iters <= self._threshold + 1:
             return
-        cur_iter = int(getattr(agent.state, "cur_iter", 0) or 0)
         if remaining > self._threshold:
             return
         key = (getattr(agent.state, "reply_id", "") or "", cur_iter)
