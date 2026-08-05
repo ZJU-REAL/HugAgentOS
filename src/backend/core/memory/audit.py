@@ -1,23 +1,34 @@
-"""记忆审计旁路 —— 社区版 no-op stub。
+"""Memory audit side-channel — community-edition no-op stub.
 
-记忆审计（存 hash 不存原文、链路追溯）属商业版合规能力；社区版保持
-同名接口但不落任何审计数据，调用方（L1 画像 / 抽取写入器）零改动。
+Memory auditing (hash-only storage, trace chains) is a commercial-edition
+compliance capability; the community edition keeps the same module surface but
+records nothing, so callers (the L1 profile writer, the extraction pipeline)
+need zero changes.
+
+The stubs must stay *call-compatible* with the EE implementation, whose real
+signatures are ``record(ctx, action, layer, *, memory_id=None, content=None,
+reason=None)`` etc. — the first three are positional. Narrowing the stub
+signature makes positional calls raise TypeError, and that raise lands *after*
+the business transaction has committed, turning a successful write into a
+reported failure (bitten in the 0.2.15 desktop local build: the L1 preference
+was persisted, yet the UI never showed the write card). Hence ``*args`` /
+``**kwargs`` catch-alls.
 """
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
 
 
-async def record(ctx: Any = None, **kwargs: Any) -> None:
+async def record(*args: Any, **kwargs: Any) -> None:
     return None
 
 
-async def record_batch(ctx: Any = None, items: Iterable[Any] | None = None, **kwargs: Any) -> None:
+async def record_batch(*args: Any, **kwargs: Any) -> None:
     return None
 
 
-def record_sync(ctx: Any = None, **kwargs: Any) -> None:
+def record_sync(*args: Any, **kwargs: Any) -> None:
     return None
 
 

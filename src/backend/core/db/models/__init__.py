@@ -34,6 +34,18 @@ from core.db.models.chat import (
     MessageFeedback,
 )
 from core.db.models.config import ModelProvider, ModelRoleAssignment, SystemConfig
+from core.db.models.evolution import (
+    EvolutionAgentProfile,
+    EvolutionCandidate,
+    EvolutionCreditDecision,
+    EvolutionEpisode,
+    EvolutionEvaluation,
+    EvolutionEvidencePack,
+    EvolutionMemoryOp,
+    EvolutionPromotionLink,
+    EvolutionRelease,
+    EvolutionTraceEvent,
+)
 from core.db.models.identity import (
     ChannelConnection,
     DingTalkConnection,
@@ -46,7 +58,7 @@ from core.db.models.identity import (
 )
 from core.db.models.knowledge import CatalogOverride, KBChunk, KBDocument, KBSpace
 from core.db.models.logs import SkillCallLog, SubAgentCallLog, ToolCallLog
-from core.db.models.memory import MemorySanitizerRule, ProfileMemory
+from core.db.models.memory import MemoryRefShadow, MemorySanitizerRule, ProfileMemory
 from core.db.models.ontology import (
     OntologyDraft,
     OntologyEnforcementEvent,
