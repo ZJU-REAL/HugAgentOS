@@ -2881,12 +2881,24 @@ textarea.jx-composer{
   overflow-anchor: none;
   cursor: text;
 }
-/* Placeholder — must be absolute so it doesn't push the cursor */
-.jx-composerEditor--empty::before {
-  content: attr(data-placeholder);
+/* Keep placeholder rendering outside contentEditable so IME composition never
+   causes React to mutate the editor element itself. */
+.jx-composerPlaceholder {
+  box-sizing: border-box;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 16px 16px 60px;
+  font-size: 16px;
+  line-height: 1.5715;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: hidden;
   color: #B3B3B3;
   pointer-events: none;
-  position: absolute;
+}
+.jx-composerPlaceholder::before {
+  content: attr(data-placeholder);
 }
 
 /* ── Inline chips inside the editor (same text flow) ── */
