@@ -2128,6 +2128,8 @@ async def astream_chat_workflow(
     _ontology_runtime = _request_ontology_runtime
     _ontology_event_cursor = 0
     _ontology_trace: List[Dict[str, Any]] = []
+    _last_plan: Optional[Dict[str, Any]] = None
+    _stream_errored = False
 
     try:
         import time as _time
@@ -2392,6 +2394,7 @@ async def astream_chat_workflow(
                     if tool_name == "update_plan":
                         _pu = parse_plan_update_args(tool_args)
                         if _pu:
+                            _last_plan = _pu
                             yield {"type": "plan_update", **_pu}
                         continue
 
@@ -2689,6 +2692,7 @@ async def astream_chat_workflow(
 
         logger.error("stream_workflow_error: %s\n%s", e, traceback.format_exc())
         warnings.append(f"Streaming error: {str(e)[:200]}")
+        _stream_errored = True
 
         if displayed_tools and not full_response:
             fallback_msg = (
@@ -2818,6 +2822,24 @@ async def astream_chat_workflow(
 
     await streaming_agent.shutdown()
     _persistent_clients.append((streaming_agent, list(mcp_clients)))
+
+    # update_plan finalization: the model routinely finishes its last step and
+    # streams the answer without a closing update_plan call, leaving the plan
+    # bar stuck at N-1/N. When the turn ends normally with an answer and no
+    # step is still pending, the remaining in_progress step is the one that
+    # just produced the answer — close it out.
+    if _last_plan and full_response and not _stream_errored:
+        _plan_steps = _last_plan.get("steps") or []
+        if (
+            _plan_steps
+            and all(s.get("status") != "pending" for s in _plan_steps)
+            and any(s.get("status") == "in_progress" for s in _plan_steps)
+        ):
+            yield {
+                "type": "plan_update",
+                "title": _last_plan.get("title", ""),
+                "steps": [{**s, "status": "completed"} for s in _plan_steps],
+            }
 
     yield {
         "type": "meta",
