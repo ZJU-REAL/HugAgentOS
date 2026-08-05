@@ -390,6 +390,18 @@ pub fn run() {
                 }
             }
 
+            // 初始化页预填形态：全新安装（尚无 server.json）默认「本机模式」——桌面
+            // 包自带本机 server payload，本机开箱即用。瘦客户端（thin bundle，无本机
+            // 能力）与不支持本机服务的平台仍预填云端；已有配置沿用推断值（升级用户
+            // 预填不变）。
+            let init_mode_prefill = if !config_dir.join("server.json").is_file()
+                && local_payload::current_target() != "unsupported"
+            {
+                config::ProvisionMode::LocalOnly
+            } else {
+                cfg.provision_mode()
+            };
+
             let web_dir = resolve_web_dir(app);
 
             // 同步起反代拿到端口（仅绑定 + 后台 spawn，很快返回）。
@@ -401,6 +413,7 @@ pub fn run() {
                 local_server: local_server.clone(),
                 active_local: cfg.uses_local_server(),
                 provision_mode: cfg.provision_mode(),
+                init_mode_prefill,
                 cloud_server_base: cfg.cloud_base(),
                 local_base: local_server::LOCAL_SERVER_BASE.to_string(),
                 hybrid_local,
