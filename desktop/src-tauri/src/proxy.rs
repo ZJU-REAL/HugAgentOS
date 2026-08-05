@@ -38,6 +38,9 @@ pub struct ProxyState {
     pub active_local: bool,
     /// 初始化选定的运行形态（本机 / 云端 / 双模式）。前端据此决定是否展示切换。
     pub provision_mode: ProvisionMode,
+    /// 初始化选择页的预填形态：全新安装（尚无 server.json）预填「本机模式」；
+    /// 已有配置（显式选过或遗留 deployment_mode）沿用推断值，升级用户预填不变。
+    pub init_mode_prefill: ProvisionMode,
     /// 记住的云端服务器地址，供初始化选择页预填。
     pub cloud_server_base: String,
     /// 混合架构（Dual）：本机执行面地址（http://127.0.0.1:32101）。
@@ -304,7 +307,7 @@ async fn setup_page(State(state): State<ProxyState>) -> Html<String> {
 /// 形态时展开服务器地址输入。提交整页导航到哨兵 `/__desktop/provision?mode=..&base=..`，
 /// 由主窗口的 Rust 导航守卫落盘并重启。`manage=1` 时是「稍后更改运行模式」入口。
 async fn init_page(State(state): State<ProxyState>) -> Html<String> {
-    let current_mode = match state.provision_mode {
+    let current_mode = match state.init_mode_prefill {
         ProvisionMode::LocalOnly => "local",
         ProvisionMode::CloudOnly => "cloud",
         ProvisionMode::Dual => "dual",
