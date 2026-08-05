@@ -156,6 +156,201 @@ def _build_mem0_config() -> dict:
     return config
 
 
+def _apply_probed_embed_dims(cfg: dict) -> None:
+    """Correct the collection dimension with one real /embeddings call.
+
+    The embed call is patched to drop the ``dimensions`` parameter (qwen3-style
+    models reject matryoshka), so stored vectors always come back at the model's
+    *native* width, while the collection is created from configuration (default
+    1024). When the two disagree the collection is born broken (qwen3-embedding-8b
+    actually returns 4096) and every subsequent insert fails on a dim mismatch.
+    A probe failure (network / credentials) never blocks init — the configured
+    value stays in effect.
+    """
+    emb = cfg["embedder"]["config"]
+    vs = cfg["vector_store"]["config"]
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=emb["api_key"],
+            base_url=emb["openai_base_url"],
+            timeout=8,
+            max_retries=0,
+        )
+        probed = len(
+            client.embeddings.create(input=["dimension probe"], model=emb["model"]).data[0].embedding
+        )
+    except Exception as exc:
+        logger.warning(
+            "[MemoryService] embed dims probe failed, keeping configured %s: %s",
+            vs["embedding_model_dims"],
+            exc,
+        )
+        return
+    if probed and probed != vs["embedding_model_dims"]:
+        logger.info(
+            "[MemoryService] embedding model returns %d dims (configured %d), using the probed value",
+            probed,
+            vs["embedding_model_dims"],
+        )
+        vs["embedding_model_dims"] = probed
+
+
+# Refuse to auto-migrate beyond this many rows: a paginated Milvus query tops out
+# at offset+limit 16384, and re-embedding a huge collection inside init would
+# stall every caller behind the singleton lock.
+_MIGRATION_MAX_ROWS = 10_000
+
+
+def _reconcile_vector_collection(cfg: dict) -> Optional[list]:
+    """Reconcile an existing Milvus collection whose dim no longer matches.
+
+    Two ways to get here: the collection was bootstrapped at a wrong default
+    width (writes never succeeded, so it is empty), or the user switched to an
+    embedding model with a different native width (the data is real and must
+    follow the new model).
+
+    - empty collection → drop it; mem0 recreates it at the right width.
+    - non-empty → re-embed every stored text with the *new* embedder first;
+      only when all of them succeed is the old collection dropped. Returns the
+      re-embedded rows for `_replay_migrated_rows` to insert after mem0 has
+      recreated the collection. If re-embedding fails the old data stays put.
+
+    Reconcile failures only warn — init proceeds exactly as before.
+    """
+    vs = cfg["vector_store"]["config"]
+    client = None
+    try:
+        from pymilvus import MilvusClient
+
+        client = MilvusClient(uri=vs["url"], token=vs.get("token") or "")
+        name = vs["collection_name"]
+        if not client.has_collection(name):
+            return None
+        desc = client.describe_collection(name)
+        existing = 0
+        for field in desc.get("fields", []):
+            dim = (field.get("params") or {}).get("dim")
+            if dim:
+                existing = int(dim)
+                break
+        desired = int(vs["embedding_model_dims"])
+        if not existing or existing == desired:
+            return None
+        rows = int(client.get_collection_stats(name).get("row_count", 0) or 0)
+        if rows == 0:
+            client.drop_collection(name)
+            logger.warning(
+                "[MemoryService] empty collection %s at %d dims != target %d — dropped for rebuild",
+                name,
+                existing,
+                desired,
+            )
+            return None
+        if rows > _MIGRATION_MAX_ROWS:
+            logger.error(
+                "[MemoryService] collection %s holds %d rows at %d dims != target %d — "
+                "too large for automatic migration, migrate it manually",
+                name,
+                rows,
+                existing,
+                desired,
+            )
+            return None
+        replay = _reembed_rows(client, name, cfg)
+        if replay is None:
+            # Old data is untouched; writes keep failing until the new embedder
+            # is reachable, at which point the next init retries the migration.
+            logger.error(
+                "[MemoryService] collection %s needs migration from %d to %d dims but "
+                "re-embedding failed — keeping the old collection",
+                name,
+                existing,
+                desired,
+            )
+            return None
+        client.drop_collection(name)
+        logger.warning(
+            "[MemoryService] migrating collection %s: %d memories re-embedded from %d to %d dims",
+            name,
+            len(replay),
+            existing,
+            desired,
+        )
+        return replay
+    except Exception as exc:
+        logger.warning("[MemoryService] collection reconcile failed (ignored): %s", exc)
+        return None
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+
+def _reembed_rows(client, name: str, cfg: dict) -> Optional[list]:
+    """Fetch every stored payload and embed its text with the new embedder.
+
+    Every embedding must succeed *before* the caller drops the old collection —
+    a drop after a half-done migration would destroy memories whenever the new
+    model happens to be unreachable.
+    """
+    emb = cfg["embedder"]["config"]
+    try:
+        from openai import OpenAI
+
+        oai = OpenAI(
+            api_key=emb["api_key"],
+            base_url=emb["openai_base_url"],
+            timeout=30,
+            max_retries=1,
+        )
+        out = []
+        offset = 0
+        page = 500
+        while True:
+            batch = client.query(
+                collection_name=name,
+                filter='id != ""',
+                output_fields=["id", "metadata"],
+                offset=offset,
+                limit=page,
+            )
+            if not batch:
+                break
+            for row in batch:
+                payload = row.get("metadata") or {}
+                text = payload.get("data")
+                if not text:
+                    continue  # e.g. malformed legacy rows; nothing to re-embed
+                vector = (
+                    oai.embeddings.create(input=[text], model=emb["model"]).data[0].embedding
+                )
+                out.append({"id": row.get("id"), "payload": payload, "vector": vector})
+            if len(batch) < page:
+                break
+            offset += page
+        return out
+    except Exception as exc:
+        logger.error("[MemoryService] re-embedding for migration failed: %s", exc)
+        return None
+
+
+def _replay_migrated_rows(instance, rows: list) -> None:
+    """Insert re-embedded rows into the collection mem0 just recreated."""
+    try:
+        instance.vector_store.insert(
+            ids=[row["id"] for row in rows],
+            vectors=[row["vector"] for row in rows],
+            payloads=[row["payload"] for row in rows],
+        )
+        logger.info("[MemoryService] migration replay done: %d memories restored", len(rows))
+    except Exception as exc:
+        logger.error("[MemoryService] migration replay failed (%d rows): %s", len(rows), exc)
+
+
 def _get_memory() -> Optional[object]:
     """Thread-safe lazy initialization: cache the instance on success; on failure allow retry next time."""
     global _memory_instance, _memory_init_failed
@@ -177,10 +372,16 @@ def _get_memory() -> Optional[object]:
             from mem0 import Memory
 
             cfg = _build_mem0_config()
+            _apply_probed_embed_dims(cfg)
+            replay_rows = _reconcile_vector_collection(cfg)
             logger.info(
                 "[MemoryService] 初始化 mem0.Memory (graph=%s)", settings.memory.graph_enabled
             )
             _memory_instance = Memory.from_config(cfg)
+            if replay_rows:
+                # Embedding-model switch: refill the freshly created collection
+                # with the rows re-embedded during reconciliation.
+                _replay_migrated_rows(_memory_instance, replay_rows)
             _memory_init_failed = False
             return _memory_instance
         except Exception as exc:
@@ -201,10 +402,33 @@ def _reset_memory() -> None:
     logger.info("[MemoryService] 已重置 mem0 实例，下次调用将重新初始化")
 
 
+def reset_runtime() -> None:
+    """Invalidation entry point for model-config changes (called by the config routes).
+
+    The mem0 singleton is built from the model config *as of init time*; clearing
+    the ModelConfigService cache alone never rebuilds an existing instance — if the
+    first init ran with the placeholder key, every later write keeps failing 401.
+    """
+    _reset_memory()
+
+
 def _is_connection_error(exc: Exception) -> bool:
     """Check if an exception indicates a broken Milvus/gRPC connection."""
     msg = str(exc).lower()
     return any(kw in msg for kw in ("closed channel", "connection refused", "unavailable", "grpc"))
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """Credential-style failures: the instance was most likely built from a stale or
+    placeholder config, so a reset followed by a rebuild against the current config
+    self-heals. Kept separate from `_is_connection_error` on purpose — auth errors
+    must not count against the Milvus circuit breaker.
+    """
+    msg = str(exc).lower()
+    return any(
+        kw in msg
+        for kw in ("invalid_api_key", "incorrect api key", "unauthorized", "error code: 401", "401 unauthorized")
+    )
 
 
 async def retrieve_memories(
@@ -381,7 +605,7 @@ async def retrieve_memories_structured(
                 _record_retrieval_refs(result, user_id=user_id, workspace_id=workspace_id)
                 return result
             except Exception as exc:
-                if attempt == 0 and _is_connection_error(exc):
+                if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
                     logger.warning("[MemoryService] Milvus 连接断开，重试: %s", exc)
                     _reset_memory()
                     continue
@@ -652,48 +876,59 @@ async def save_procedure_entry(
     mem0_user_id = ctx.effective_scope_user_id
     messages = [{"role": "assistant", "content": content}]
 
-    try:
-        result = await loop.run_in_executor(
-            None,
-            # ``infer=False`` stores this text verbatim.
-            #
-            # By default mem0 runs its *own* LLM extraction over whatever it is
-            # handed and decides for itself whether to keep anything. Our
-            # procedural extractor has already done exactly that work — with a
-            # prompt built for procedures rather than mem0's generic
-            # fact-finding one — so leaving inference on means paying for a
-            # second model call whose only power is to disagree. And it does
-            # disagree: handed a distilled rule it frequently returns no
-            # operations at all, which reaches us as a successful write of
-            # nothing. That failure is invisible by construction — the card
-            # shows no memory, the log shows no error, and the user is told the
-            # turn had nothing worth remembering.
-            lambda: memory.add(
-                messages,
-                user_id=mem0_user_id,
-                metadata=metadata,
-                infer=False,
-                # Native expiry: an expired entry stops being recalled without
-                # waiting for the sweeper to physically remove it. ttl_days
-                # stays in metadata as the display/extension source of truth.
-                expiration_date=_expiration_from_ttl(ttl_days),
-            ),
-        )
-        if milvus_breaker is not None:
-            milvus_breaker.record_success()
-        memory_id = _added_memory_id(result)
-        logger.debug(
-            "[MemoryService] procedure saved user=%s ws=%s id=%s",
-            ctx.user_id,
-            ctx.workspace_id,
-            memory_id,
-        )
-        return memory_id
-    except Exception as exc:
-        logger.warning("[MemoryService] save_procedure_entry failed: %s", exc)
-        if milvus_breaker is not None and _is_connection_error(exc):
-            milvus_breaker.record_failure()
-        return None
+    for attempt in range(2):
+        try:
+            result = await loop.run_in_executor(
+                None,
+                # ``infer=False`` stores this text verbatim.
+                #
+                # By default mem0 runs its *own* LLM extraction over whatever it is
+                # handed and decides for itself whether to keep anything. Our
+                # procedural extractor has already done exactly that work — with a
+                # prompt built for procedures rather than mem0's generic
+                # fact-finding one — so leaving inference on means paying for a
+                # second model call whose only power is to disagree. And it does
+                # disagree: handed a distilled rule it frequently returns no
+                # operations at all, which reaches us as a successful write of
+                # nothing. That failure is invisible by construction — the card
+                # shows no memory, the log shows no error, and the user is told the
+                # turn had nothing worth remembering.
+                lambda: memory.add(
+                    messages,
+                    user_id=mem0_user_id,
+                    metadata=metadata,
+                    infer=False,
+                    # Native expiry: an expired entry stops being recalled without
+                    # waiting for the sweeper to physically remove it. ttl_days
+                    # stays in metadata as the display/extension source of truth.
+                    expiration_date=_expiration_from_ttl(ttl_days),
+                ),
+            )
+            if milvus_breaker is not None:
+                milvus_breaker.record_success()
+            memory_id = _added_memory_id(result)
+            logger.debug(
+                "[MemoryService] procedure saved user=%s ws=%s id=%s",
+                ctx.user_id,
+                ctx.workspace_id,
+                memory_id,
+            )
+            return memory_id
+        except Exception as exc:
+            # Both a broken connection and stale credentials point at an instance
+            # built from an outdated config: reset, rebuild against the current
+            # config and retry once. Auth errors stay out of the Milvus breaker.
+            if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
+                logger.warning("[MemoryService] mem0 instance looks stale, resetting for retry: %s", exc)
+                _reset_memory()
+                memory = await loop.run_in_executor(None, _get_memory)
+                if memory is not None:
+                    continue
+            logger.warning("[MemoryService] save_procedure_entry failed: %s", exc)
+            if milvus_breaker is not None and _is_connection_error(exc):
+                milvus_breaker.record_failure()
+            return None
+    return None
 
 
 def _added_memory_id(result) -> Optional[str]:
@@ -766,7 +1001,7 @@ async def save_conversation(user_id: str, user_message: str, assistant_message: 
             logger.info("[MemoryService] 用户 %s 的记忆已保存, result=%s", user_id, result)
             return
         except Exception as exc:
-            if attempt == 0 and _is_connection_error(exc):
+            if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
                 logger.warning("[MemoryService] Milvus 连接断开，正在重置并重试: %s", exc)
                 _reset_memory()
                 continue
@@ -809,7 +1044,7 @@ async def get_all_memories(
                 return result
             return []
         except Exception as exc:
-            if attempt == 0 and _is_connection_error(exc):
+            if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
                 logger.warning("[MemoryService] Milvus 连接断开，正在重置并重试: %s", exc)
                 _reset_memory()
                 continue
@@ -837,7 +1072,7 @@ async def update_memory(memory_id: str, content: str) -> bool:
             await loop.run_in_executor(None, lambda: memory.update(memory_id, content.strip()))
             return True
         except Exception as exc:
-            if attempt == 0 and _is_connection_error(exc):
+            if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
                 logger.warning("[MemoryService] Milvus 连接断开，正在重置并重试: %s", exc)
                 _reset_memory()
                 continue
@@ -857,7 +1092,7 @@ async def delete_memory(memory_id: str) -> bool:
             await loop.run_in_executor(None, lambda: memory.delete(memory_id))
             return True
         except Exception as exc:
-            if attempt == 0 and _is_connection_error(exc):
+            if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
                 logger.warning("[MemoryService] Milvus 连接断开，正在重置并重试: %s", exc)
                 _reset_memory()
                 continue
@@ -879,7 +1114,7 @@ async def delete_all_memories(user_id: str) -> bool:
             await loop.run_in_executor(None, lambda: memory.delete_all(user_id=user_id))
             return True
         except Exception as exc:
-            if attempt == 0 and _is_connection_error(exc):
+            if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
                 logger.warning("[MemoryService] Milvus 连接断开，正在重置并重试: %s", exc)
                 _reset_memory()
                 continue

@@ -118,6 +118,25 @@ class ImportRequest(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
+def _invalidate_model_caches() -> None:
+    """Single invalidation point for model-config changes: the resolve cache plus
+    every runtime singleton built from it.
+
+    The mem0 singleton captures the memory/embedding config at init time; clearing
+    the resolve cache alone leaves memory running on stale credentials (a first
+    init against the placeholder key means every later write fails 401). The reset
+    is lazy — the next memory read/write rebuilds against the fresh config — so it
+    is cheap enough to apply on every change without filtering by role.
+    """
+    ModelConfigService.get_instance().invalidate_cache()
+    try:
+        from core.memory import service as memory_service
+
+        memory_service.reset_runtime()
+    except Exception as exc:  # a failed runtime reset must not block saving the config
+        logger.warning("[models] memory runtime reset failed (ignored): %s", exc)
+
+
 def _mask_api_key(key: str) -> str:
     if not key or len(key) <= 8:
         return "****"
@@ -489,7 +508,7 @@ async def create_provider_endpoint(
             currency=body.currency,
             display_name=body.display_name,
         )
-    ModelConfigService.get_instance().invalidate_cache()
+    _invalidate_model_caches()
     return success_response(data=_provider_to_dict(provider, _get_pricing(db, provider.model_name)))
 
 
@@ -547,7 +566,7 @@ async def update_provider_endpoint(
             display_name=provider.display_name,
             **price_fields,
         )
-    ModelConfigService.get_instance().invalidate_cache()
+    _invalidate_model_caches()
     return success_response(data=_provider_to_dict(provider, _get_pricing(db, provider.model_name)))
 
 
@@ -566,7 +585,7 @@ async def delete_provider_endpoint(
         )
     if not delete_provider(db, provider_id):
         raise HTTPException(status_code=404, detail="Provider not found")
-    ModelConfigService.get_instance().invalidate_cache()
+    _invalidate_model_caches()
     return success_response(data={"deleted": provider_id})
 
 
@@ -652,7 +671,7 @@ async def assign_role_endpoint(
 
     if not assign_role(db, role_key, body.provider_id):
         raise HTTPException(status_code=400, detail="Assignment failed")
-    ModelConfigService.get_instance().invalidate_cache()
+    _invalidate_model_caches()
     return success_response(data={"role_key": role_key, "provider_id": body.provider_id})
 
 
@@ -666,7 +685,7 @@ async def unassign_role_endpoint(
     if role_key not in ROLE_DEFINITIONS:
         raise HTTPException(status_code=404, detail=f"Unknown role: {role_key}")
     unassign_role(db, role_key)
-    ModelConfigService.get_instance().invalidate_cache()
+    _invalidate_model_caches()
     return success_response(data={"role_key": role_key, "provider_id": None})
 
 
@@ -715,5 +734,5 @@ async def import_endpoint(
 ):
     """导入模型配置（供应商 + 角色分配）。仅限管理员（CONFIG_TOKEN / can_system_config，同 export）；overwrite=True 时覆盖同名条目，导入后刷新模型配置缓存。"""
     result = import_all(db, body.model_dump(), overwrite=body.overwrite)
-    ModelConfigService.get_instance().invalidate_cache()
+    _invalidate_model_caches()
     return success_response(data=result)
