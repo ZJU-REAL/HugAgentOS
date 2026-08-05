@@ -1,9 +1,9 @@
 """LLM write gate — one fast judgment call before any extractor runs.
 
 The regex classify answers "which extractors *could* this turn concern"; it is
-deliberately loose (procedural has no keyword gate at all), so on its own the
-pipeline extracts on nearly every substantive turn and the store fills with
-marginal entries. This gate adds the judgment the regex cannot make: **is there
+deliberately loose (identity, preference and procedural all clear it on any
+substantive turn), so on its own the pipeline extracts on nearly every
+substantive turn and the store fills with marginal entries. This gate adds the judgment the regex cannot make: **is there
 anything in this turn worth remembering long-term at all, and of which kinds?**
 
 Contract:

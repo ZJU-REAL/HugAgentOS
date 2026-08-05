@@ -369,7 +369,8 @@
     box-shadow:0 10px 30px rgba(42,61,94,.075);
   }
 
-  .jx-projectDetail-inputWrap .jx-composerEditor{
+  .jx-projectDetail-inputWrap .jx-composerEditor,
+  .jx-projectDetail-inputWrap .jx-composerPlaceholder{
     min-height:132px;
     max-height:260px;
     padding:17px 16px 58px;
@@ -806,7 +807,8 @@
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-composer,
-  .jx-emptyPage--main .jx-homeInput .jx-composerEditor{
+  .jx-emptyPage--main .jx-homeInput .jx-composerEditor,
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder{
     width:100% !important;
     height:90px !important;
     min-height:90px !important;
@@ -816,7 +818,7 @@
     line-height:1.45;
   }
 
-  .jx-emptyPage--main .jx-homeInput .jx-composerEditor--empty::before{
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder::before{
     content:attr(data-mobile-placeholder);
     color:#929bab;
     font-size:15px;
@@ -1683,7 +1685,8 @@
 
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap,
   .jx-emptyPage--main .jx-homeInput .jx-composer,
-  .jx-emptyPage--main .jx-homeInput .jx-composerEditor{
+  .jx-emptyPage--main .jx-homeInput .jx-composerEditor,
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder{
     height:82px !important;
     min-height:82px !important;
   }

@@ -1851,6 +1851,10 @@ async def _astream_subagent_direct(
         "citations": all_citations,
         "usage": _direct_usage,
         "ontology_governance": _ontology_governance_summary(_ontology_runtime),
+        # Same contract as the main route: memory writes are scheduled below,
+        # so the frame can only announce "settling" for the client's skeleton
+        # card. Without this marker subagent turns never showed their card.
+        "evolution_pending": _evolution_pending_marker(context, _mem0_write_enabled),
     }
 
     # ── [memory] Post-response pipeline (SSE already closed, user isn't waiting) ────
@@ -1864,9 +1868,26 @@ async def _astream_subagent_direct(
             workspace_id=_mem0_workspace_id,
             chat_id=_mem0_chat_id,
             scope_user_id=_mem0_scope_user_id,
+            message_id=str(context.get("message_id") or ""),
         )
     else:
         logger.debug("[subagent] memory save skipped: write_enabled=False (user=%s)", _mem0_user_id)
+
+    # ── [evolution] Evidence assembly — same contract as the main route. Without
+    # registration the settlement runner parks the memory report on a 45s
+    # watchdog before settling, which pushed subagent cards past the client's
+    # polling budget.
+    _assemble_episode_background(
+        message_id=str(context.get("message_id") or ""),
+        run_id=str(context.get("run_id") or ""),
+        chat_id=str(context.get("chat_id") or ""),
+        user_id=str(context.get("user_id") or ""),
+        objective=user_message,
+        agent=streaming_agent,
+        memory_task=_memory_task,
+        latency_ms=None,
+        memory_write_enabled=_mem0_write_enabled,
+    )
 
 
 # ------------------------------------------------------------------

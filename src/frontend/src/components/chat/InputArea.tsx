@@ -518,6 +518,10 @@ export function InputArea({
 
   // ── Keyboard ──
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    // Let the IME own every key while it is composing. In particular, Enter and
+    // Tab may confirm a candidate instead of sending or selecting a popup item.
+    if (composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+
     // Slash popup: Enter/Tab → select skill
     if (slashVisible && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
       e.preventDefault();
@@ -584,7 +588,7 @@ export function InputArea({
     }
   }
 
-  const isEmpty = !input.trim() && !activeMention && !activeSkill && !activePlugin && !isComposing;
+  const showPlaceholder = !input.trim() && !activeMention && !activeSkill && !activePlugin && !isComposing;
 
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
 
@@ -592,7 +596,7 @@ export function InputArea({
     <div className="jx-inputArea">
       {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
           本地项目在本机），不在项目内提供切换入口 */}
-      <LoopPlanBar onContinue={continueLoop} />
+      {!projectComposer && <LoopPlanBar onContinue={continueLoop} />}
       {hasAttachments && (
         <div className="jx-inputAttachments">
           <AnimatePresence initial={false}>
@@ -670,9 +674,7 @@ export function InputArea({
           ref={editorRef}
           contentEditable
           suppressContentEditableWarning
-          className={`jx-composer jx-composerEditor${isEmpty ? ' jx-composerEditor--empty' : ''}`}
-          data-placeholder={placeholder}
-          data-mobile-placeholder={mobilePlaceholder || placeholder}
+          className="jx-composer jx-composerEditor"
           onInput={() => { if (!composingRef.current) syncText(); }}
           onCompositionStart={() => { composingRef.current = true; setIsComposing(true); }}
           onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); syncText(); }}
@@ -684,6 +686,14 @@ export function InputArea({
           }}
           onBlur={() => { setTimeout(() => { setMentionVisible(false); setSlashVisible(false); }, 200); }}
         />
+        {showPlaceholder && (
+          <div
+            className="jx-composerPlaceholder"
+            data-placeholder={placeholder}
+            data-mobile-placeholder={mobilePlaceholder || placeholder}
+            aria-hidden="true"
+          />
+        )}
 
         <div className="jx-composerBar">
           {(() => {

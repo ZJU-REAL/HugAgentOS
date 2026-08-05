@@ -20,9 +20,11 @@ import type { EvolutionSummary } from '../types';
  * ordinary conversations. Only the backend declares a real failure.
  */
 const POLL_INTERVAL_MS = 3000;
-// ~60s: the memory pipeline's extractors have their own 30s timeout, and
-// settlement waits for their real write count before reporting.
-const MAX_ATTEMPTS = 20;
+// ~90s: the memory pipeline's extractors have their own 30s timeout, and the
+// settlement runner waits up to another 45s (its watchdog) for their real write
+// count before reporting — a 60s budget quietly outran slow-but-successful
+// settlements, so this sits beyond the backend's worst case.
+const MAX_ATTEMPTS = 30;
 
 const TERMINAL_STATES: EvolutionSummary['state'][] = ['settled', 'failed', 'empty'];
 

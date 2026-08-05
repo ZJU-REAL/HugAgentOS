@@ -6,10 +6,13 @@ Two rules this file exists to hold:
    the moment it is written; remembering it makes the system recall a stale
    number instead of looking the current one up. There is no fact extractor to
    fall back to.
-2. **Procedural extraction is not keyword-gated.** A convention is stated in
-   whatever words the user happened to use, so a regex deciding before the model
-   ever reads the turn drops every procedure phrased outside its list — silently,
-   and indistinguishably from a turn that had nothing to teach.
+2. **Long-term extraction is not keyword-gated.** A convention — or an identity
+   or preference — is stated in whatever words the user happened to use, so a
+   regex deciding before the model ever reads the turn drops everything phrased
+   outside its list — silently, and indistinguishably from a turn that had
+   nothing to teach. The LLM write gate can only narrow the candidate set, so a
+   class the router fails to nominate is unrecoverable; substantive turns
+   nominate identity, preference and procedural alike and let the gate judge.
 """
 
 from core.memory.extractors.router import ExtractorType, classify_conversation
@@ -58,12 +61,22 @@ def test_an_unanswered_turn_is_not_examined():
     assert ExtractorType.PROCEDURAL not in classify_conversation("这个财务口径应该怎么算比较好", "")
 
 
-def test_identity_and_preference_stay_keyword_gated():
-    # Their cues are explicit and cheap to spot, so paying for an extra
-    # extraction on every turn would buy nothing.
-    assert ExtractorType.IDENTITY in classify_conversation("我是研发中心的负责人", LONG_ANSWER)
-    assert ExtractorType.IDENTITY not in classify_conversation("帮我算下这个季度的数", LONG_ANSWER)
-    assert ExtractorType.PREFERENCE in classify_conversation("以后回答简洁点", LONG_ANSWER)
+def test_identity_and_preference_are_nominated_on_substantive_turns():
+    # The gate can only narrow the router's set, so a class not nominated here
+    # can never be written: keyword-gating L1 meant identity stated in words
+    # outside the cue list never reached the profile — and never showed on the
+    # turn's card. Substantive turns nominate them and the gate judges.
+    classes = classify_conversation("顺便说下我上个月调到数据组了", LONG_ANSWER)
+    assert ExtractorType.IDENTITY in classes
+    assert ExtractorType.PREFERENCE in classes
+
+
+def test_identity_and_preference_cues_still_catch_short_turns():
+    # The keyword cues survive as a recall floor for turns too short to clear
+    # the substance bar — an explicit "我是…" deserves extraction even when the
+    # assistant's reply was a one-liner.
+    assert ExtractorType.IDENTITY in classify_conversation("我是研发中心的负责人", "好的")
+    assert ExtractorType.PREFERENCE in classify_conversation("以后回答简洁点", "好的")
 
 
 def test_graph_extraction_is_deployment_gated(monkeypatch):
