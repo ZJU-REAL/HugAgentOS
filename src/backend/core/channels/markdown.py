@@ -41,6 +41,31 @@ def strip_citation_markers(text: str) -> str:
     return _REF_RE.sub("", text)
 
 
+def strip_inline_thinking(text: str) -> str:
+    """Drop inline ``<think>…</think>`` reasoning, keeping only the final answer body.
+
+    Channel sessions run with enable_thinking=True (see core/channels/inbound.py), and
+    models without a structured reasoning channel (DeepSeek R1 style / Qwen behind a
+    gateway without a reasoning parser) embed the chain of thought directly in the
+    content stream. The web UI parses the tags itself (utils/segments.ts: everything
+    before the **last** ``</think>`` renders as collapsible thinking; the opening
+    ``<think>`` is often absent); IM channels have no such layer, so without this the
+    raw reasoning would go out as message text. Mirrors the frontend's semantics:
+    keep only what follows the last ``</think>``, and drop a dangling unclosed
+    ``<think>`` tail (stream cut mid-thinking).
+    """
+    text = text or ""
+    if "<think>" not in text and "</think>" not in text:
+        return text
+    last_close = text.rfind("</think>")
+    if last_close != -1:
+        text = text[last_close + len("</think>"):]
+    open_idx = text.find("<think>")
+    if open_idx != -1:
+        text = text[:open_idx]
+    return text.strip()
+
+
 def derive_title(text: str, fallback: str = "新消息", limit: int = 20) -> str:
     """Distill a one-line plain-text title from Markdown body (DingTalk markdown
     messages require title; shown in conversation-list summaries/notifications).

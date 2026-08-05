@@ -215,7 +215,14 @@ async def _ingest_attachments(
 
 
 async def _collect_reply(run_id: str):
-    """Follow the run's event stream, accumulating assistant text + capturing artifact files generated this turn (meta.artifacts)."""
+    """Follow the run's event stream, accumulating assistant text + capturing artifact files generated this turn (meta.artifacts).
+
+    Structured-reasoning models emit thinking as separate ``thinking`` events (ignored
+    here), but inline-thinking models embed ``<think>…</think>`` in the content deltas
+    themselves — strip those before handing the text to the channel, or the raw chain
+    of thought goes out as message text (the web UI parses the tags; IM cannot).
+    """
+    from core.channels.markdown import strip_inline_thinking
     from orchestration import chat_run_executor
 
     full = ""
@@ -228,7 +235,7 @@ async def _collect_reply(run_id: str):
             arts = event.get("artifacts")
             if isinstance(arts, list):
                 artifacts = arts
-    return full.strip(), artifacts
+    return strip_inline_thinking(full).strip(), artifacts
 
 
 def _load_generated_files(artifacts: List[Dict[str, Any]]):
@@ -415,9 +422,10 @@ async def _process_inbound(msg: InboundMsg) -> None:
         enabled = _resolve_enabled(db, conn, owner_id)
         # Enable thinking: same as the web client's default in non-fast mode. With thinking off,
         # models (Qwen family especially) tend to emit shallow filler like "I'll get right on X"
-        # without actually landing on tool calls, idling repeatedly across turns. Thinking events
-        # are ignored by _collect_reply (which only accumulates content/meta), so they never leak
-        # into the channel reply.
+        # without actually landing on tool calls, idling repeatedly across turns. Thinking never
+        # leaks into the channel reply: structured-reasoning models emit separate thinking events
+        # (ignored by _collect_reply, which only accumulates content/meta), and inline-thinking
+        # models' <think>…</think> spans inside content are stripped by _collect_reply.
         context = build_runtime_context(
             model_name=None, user_id=owner_id, chat_id=chat_id, enable_thinking=True,
             uploaded_files=uploaded_files,
