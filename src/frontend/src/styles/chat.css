@@ -1557,8 +1557,13 @@ textarea.jx-composer{
   background:#fff;
 }
 .jx-inputArea{
+  position:relative;
   padding-top:12px;
   width:100%;
+}
+/* 输入区拖拽上传高亮层：圆角与 composer 一致 */
+.jx-inputArea-dropOverlay{
+  border-radius:16px;
 }
 .jx-chatFooter::before{
   content:'';

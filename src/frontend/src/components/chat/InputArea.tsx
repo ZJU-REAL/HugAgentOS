@@ -21,6 +21,8 @@ import type { InstalledPluginItem } from '../../types';
 import { AgentMentionPopup, useAgentMention } from '../agent';
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
+import { useFileDropZone } from '../../hooks/useFileDropZone';
+import { DropOverlay } from '../common/DropOverlay';
 import LocalApprovalPill from './LocalApprovalPill';
 import DeploymentSwitcher from './DeploymentSwitcher';
 import { ContextGauge } from './ContextGauge';
@@ -592,8 +594,18 @@ export function InputArea({
 
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
 
+  // 拖文件到输入区直接作为附件上传，复用点击"浏览"的同一条 handleFileSelect 管线
+  // （它只读 e.target.files，合成一个最小 change 事件即可）。
+  const { dragActive, dropZoneProps } = useFileDropZone(true, (files) => {
+    handleFileSelect(
+      { target: { files } } as unknown as React.ChangeEvent<HTMLInputElement>,
+      fileInputRef,
+    );
+  });
+
   return (
-    <div className="jx-inputArea">
+    <div className="jx-inputArea" {...dropZoneProps}>
+      <DropOverlay active={dragActive} hint={t('松开即可添加为附件')} className="jx-inputArea-dropOverlay" iconSize={20} />
       {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
           本地项目在本机），不在项目内提供切换入口 */}
       {!projectComposer && <LoopPlanBar onContinue={continueLoop} />}

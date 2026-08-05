@@ -234,4 +234,5 @@ export const CHAT_DICT: Record<string, string> = {
   '删除这条记忆': 'Delete this memory',
   '修改失败，请重试': 'Edit failed — please retry',
   '删除失败，请重试': 'Delete failed — please retry',
+  '松开即可添加为附件': 'Release to attach the files',
 };
