@@ -1,19 +1,23 @@
 """Extractor router — decide what to extract, then dispatch concurrently.
 
-- `classify_conversation()`: which extractors this turn deserves. Identity,
-  preference and task stay keyword-gated: they are cheap to spot and their cues
-  are explicit ("我是…", "以后都用…"). **Procedural is not gated** — it runs on
-  every substantive turn.
+- `classify_conversation()`: which extractors this turn deserves. Every
+  substantive turn nominates identity, preference and procedural (plus graph
+  when deployed); the keyword cues only remain as a recall floor for turns too
+  short to clear the substance bar ("我叫张三"). Task stays keyword-gated: its
+  cues are explicit and it is session-scoped anyway.
 - `run_extractors_with_timeout()`: run the matched extractors concurrently, each with its own timeout, merging the returns.
 
-Why procedural lost its keyword gate: a convention shows up in whatever words
-the user happened to use, and a regex listing "一律 / 必须先 / 口径是" decides
-*before the model ever sees the turn* whether that turn could contain one. Every
-procedure phrased outside the list was dropped silently and invisibly — the
-worst failure mode a memory system can have, because it looks identical to a
-turn that genuinely had nothing to learn. The extractor itself is a far better
-judge than the regex, and it already returns an empty list when there is nothing
-worth keeping.
+Why the keyword gates fell: a fact shows up in whatever words the user happened
+to use, and a regex listing "我是… / 一律 / 必须先" decides *before the model
+ever sees the turn* whether that turn could contain one. Everything phrased
+outside the list was dropped silently and invisibly — the worst failure mode a
+memory system can have, because it looks identical to a turn that genuinely had
+nothing to learn. Procedural learned this first; identity and preference had the
+same failure (the LLM write gate can only narrow the candidate set, so whatever
+the regex failed to nominate was unrecoverable — turns stating who the user is
+never produced an L1 write). The gate plus the extractors are far better judges
+than the regex, and both already return empty when there is nothing worth
+keeping.
 """
 
 from __future__ import annotations
@@ -80,6 +84,9 @@ def classify_conversation(user_msg: str, assistant_msg: str) -> set[ExtractorTyp
 
     classes: set[ExtractorType] = set()
 
+    # Keyword cues are a recall floor, not the gatekeeper: they catch turns too
+    # short to clear the substance bar below ("我叫张三" is 4 chars). Task keeps
+    # them as its only trigger — it is session-scoped and its cues are explicit.
     if _IDENTITY_CUES.search(user_msg):
         classes.add(ExtractorType.IDENTITY)
     if _PREFERENCE_CUES.search(user_msg):
@@ -87,18 +94,18 @@ def classify_conversation(user_msg: str, assistant_msg: str) -> set[ExtractorTyp
     if _TASK_CUES.search(user_msg):
         classes.add(ExtractorType.TASK)
 
-    # Procedural: no keyword gate, only a substance floor. The extractor decides
-    # whether the turn contained a reusable way of working; a regex cannot, and
-    # the procedures it missed were invisible.
+    # No keyword gate past this point, only a substance floor: the LLM write
+    # gate and the extractors decide what the turn actually contained. A regex
+    # cannot, and whatever it missed was dropped invisibly — the gate can only
+    # narrow this set, so anything not nominated here is unrecoverable.
     if (
         len(user_msg.strip()) >= _SUBSTANTIVE_USER_CHARS
         and len((assistant_msg or "").strip()) >= _SUBSTANTIVE_ASSISTANT_CHARS
     ):
         classes.add(ExtractorType.PROCEDURAL)
-        # L3 has the same substance floor as L2, but is deployment-gated. The
-        # extractor itself decides whether the turn contains a stable entity
-        # relation; keywords cannot do that without silently losing aliases,
-        # dependencies, and ownership statements phrased in new ways.
+        classes.add(ExtractorType.IDENTITY)
+        classes.add(ExtractorType.PREFERENCE)
+        # L3 has the same substance floor, but is deployment-gated on Neo4j.
         if settings.memory.graph_enabled:
             classes.add(ExtractorType.GRAPH)
 

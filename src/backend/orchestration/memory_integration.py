@@ -306,7 +306,7 @@ def save_memories_background(
 
     Inside `schedule_post_response_tasks`:
     - global Semaphore bounds concurrency (default 8)
-    - runs 0-4 extractors classified by keyword
+    - runs 0-5 extractors picked by the router's substance floor + LLM write gate
     - each extractor has its own 30s timeout
     - sanitize → write L1/L2/Session → audit
 
