@@ -90,12 +90,14 @@ async def deliver_to_conversation(
     ok = True
     try:
         if text:
-            # [ref:tool-N] citation markers only render on the web frontend, so strip them before
-            # outbound; markdown rendering/downgrade is handled inside adapter.push per each
-            # channel's capability (e.g. DingTalk sends a markdown message).
-            from core.channels.markdown import strip_citation_markers
+            # [ref:tool-N] citation markers and inline <think> reasoning only make sense on the
+            # web frontend, so strip both before outbound (automation runs currently disable
+            # thinking, so the <think> strip is a safety net); markdown rendering/downgrade is
+            # handled inside adapter.push per each channel's capability (e.g. DingTalk sends a
+            # markdown message).
+            from core.channels.markdown import strip_citation_markers, strip_inline_thinking
 
-            r = await adapter.push(conn, msg, strip_citation_markers(text))
+            r = await adapter.push(conn, msg, strip_citation_markers(strip_inline_thinking(text)))
             if not r.success:
                 logger.warning(
                     "[channels] 主动文本投递失败 channel=%s conv=%s kind=%s detail=%s",

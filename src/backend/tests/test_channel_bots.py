@@ -736,6 +736,50 @@ def test_markdown_strip_citation_markers():
     assert strip_citation_markers("") == ""
 
 
+def test_markdown_strip_inline_thinking():
+    """Inline chain of thought must never reach the channel as message text.
+    Semantics mirror the web frontend (segments.ts): body = whatever follows the LAST </think>."""
+    from core.channels.markdown import strip_inline_thinking
+
+    # Full tag pair
+    assert strip_inline_thinking("<think>推理过程</think>\n最终回复") == "最终回复"
+    # Multi-round tool loop: one thinking block per round, opening <think> often absent
+    # (server-side template pre-fill) — only the text after the last close tag survives
+    assert strip_inline_thinking("先想想A</think>再想想B</think>正式答复") == "正式答复"
+    # Dangling opener (stream cut mid-thinking) → drop the unclosed tail
+    assert strip_inline_thinking("正文<think>没写完的思考") == "正文"
+    # All-thinking reply collapses to empty (caller then sends the no-text receipt)
+    assert strip_inline_thinking("<think>只有思考") == ""
+    # No tags → untouched
+    assert strip_inline_thinking("普通回复") == "普通回复"
+    assert strip_inline_thinking("") == ""
+
+
+def test_collect_reply_strips_inline_thinking(monkeypatch):
+    """_collect_reply: content deltas carrying inline <think> spans (channel runs use
+    enable_thinking=True, so the streaming layer forwards them raw) must be stripped
+    before delivery; thinking events stay ignored as before."""
+    from core.channels import inbound as inbound_mod
+    from orchestration import chat_run_executor
+
+    events = [
+        {"type": "thinking", "delta": "结构化思考,本就不进正文"},
+        {"type": "content", "delta": "<think>内联思"},
+        {"type": "content", "delta": "考跨 delta</think>你好,"},
+        {"type": "content", "delta": "这是答复"},
+        {"type": "meta", "artifacts": [{"file_id": "f1"}]},
+    ]
+
+    async def _fake_follow(run_id):
+        for ev in events:
+            yield ev
+
+    monkeypatch.setattr(chat_run_executor, "follow_run", _fake_follow)
+    reply, artifacts = asyncio.run(inbound_mod._collect_reply("run_x"))
+    assert reply == "你好,这是答复"
+    assert artifacts == [{"file_id": "f1"}]
+
+
 def test_markdown_derive_title():
     from core.channels.markdown import derive_title
 
