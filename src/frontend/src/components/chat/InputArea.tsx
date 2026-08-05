@@ -596,7 +596,7 @@ export function InputArea({
     <div className="jx-inputArea">
       {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
           本地项目在本机），不在项目内提供切换入口 */}
-      <LoopPlanBar onContinue={continueLoop} />
+      {!projectComposer && <LoopPlanBar onContinue={continueLoop} />}
       {hasAttachments && (
         <div className="jx-inputAttachments">
           <AnimatePresence initial={false}>
