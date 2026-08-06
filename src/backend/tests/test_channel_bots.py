@@ -727,6 +727,46 @@ def test_replace_placeholder_falls_back_to_recall_and_send():
     assert calls["recalled"] == ["pqk_ph"] and calls["sent"] == ["⚠️ 出错了"]
 
 
+def test_replace_placeholder_without_message_id_sends_terminal_notice_directly():
+    """WeChat returns no placeholder ID, but users must still receive the terminal message."""
+    from core.channels.inbound import _replace_placeholder
+
+    calls = {"edited": 0, "sent": []}
+
+    class _Adapter:
+        async def edit_message(self, conn, mid, text):
+            calls["edited"] += 1
+            return SendResult.fail("bad_format", "不支持")
+
+        async def send_text(self, conn, msg, text):
+            calls["sent"].append(text)
+            return SendResult.ok()
+
+    msg = InboundMsg(
+        channel_id="c",
+        channel_type="weixin",
+        text="",
+        chat_type="p2p",
+        external_conversation_id="wx-user",
+    )
+    asyncio.run(_replace_placeholder(_Adapter(), object(), msg, None, "⚠️ 处理失败"))
+    assert calls == {"edited": 0, "sent": ["⚠️ 处理失败"]}
+
+
+def test_collect_reply_raises_user_facing_stream_error(monkeypatch):
+    from core.channels.inbound import ChannelRunError, _collect_reply
+    from orchestration import chat_run_executor
+
+    async def _events():
+        yield {"type": "thinking", "delta": "内部思考"}
+        yield {"type": "error", "error": "模型暂时不可用"}
+
+    monkeypatch.setattr(chat_run_executor, "follow_run", lambda run_id: _events())
+
+    with pytest.raises(ChannelRunError, match="模型暂时不可用"):
+        asyncio.run(_collect_reply("run_failed"))
+
+
 # ── Channel markdown adaptation (core/channels/markdown.py) ───────────────
 def test_markdown_strip_citation_markers():
     from core.channels.markdown import strip_citation_markers

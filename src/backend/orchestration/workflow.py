@@ -60,6 +60,39 @@ def _extract_project_ctx(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {k: context.get(k) for k in _PROJECT_CTX_KEYS}
 
 
+def _resolve_agent_model_runtime(
+    agent: Any, fallback_model_name: Any = ""
+) -> Tuple[str, int]:
+    """Return the effective model name and context window baked into an agent.
+
+    AgentScope chat models expose the upstream name as ``.model``. Some provider
+    wrappers expose ``.model_name`` instead, so accept both before consulting the
+    request fallback. Channel runs intentionally omit a model selection; converting
+    that ``None`` to the literal string ``"None"`` previously made direct sub-agent
+    conversations fail context-window lookup even though the resolved main model was
+    correctly configured.
+    """
+    model = getattr(agent, "model", None)
+    state = getattr(agent, "state", None)
+    candidates = (
+        getattr(model, "model", None),
+        getattr(model, "model_name", None),
+        getattr(state, "model_name", None),
+        fallback_model_name,
+    )
+    model_name = ""
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if text and text.lower() != "none":
+            model_name = text
+            break
+
+    context_window = int(getattr(model, "context_size", 0) or 0)
+    if context_window <= 0:
+        context_window = resolve_model_context_window(model_name)
+    return model_name, context_window
+
+
 def _extract_skill_id_from_path(path: str) -> str:
     """Extract skill_id from a SKILL.md path (convention: .../skills/<skill_id>/SKILL.md)."""
     if not path:
@@ -1116,6 +1149,10 @@ def run_chat_workflow(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[workflow] set agent.state failed: %s", exc)
 
+            _actual_model, _ctx_window = _resolve_agent_model_runtime(
+                agent, _workflow_model_name
+            )
+
             # PreTurn compaction safety net (symmetric with the streaming path
             # — both workflow entry points protect themselves, and future new
             # callers get it automatically). Zero overhead below the threshold.
@@ -1123,9 +1160,11 @@ def run_chat_workflow(
             try:
                 from core.services.compaction_service import maybe_run_pre_turn_compaction
 
-                _actual_model = getattr(agent.model, "model_name", _workflow_model_name)
                 _pt_messages, _ = await maybe_run_pre_turn_compaction(
-                    context.get("chat_id"), session_messages, model_name=_actual_model
+                    context.get("chat_id"),
+                    session_messages,
+                    model_name=_actual_model,
+                    context_window=_ctx_window,
                 )
             except Exception as _pt_exc:  # noqa: BLE001
                 logger.warning("[workflow] pre-turn compaction failed: %s", _pt_exc)
@@ -1135,7 +1174,9 @@ def run_chat_workflow(
             if history and history[-1].get("role") in ("user", "human"):
                 history.pop()
 
-            _ctx_mgr = ContextWindowManager.for_model(_workflow_model_name)
+            _ctx_mgr = ContextWindowManager(
+                ContextBudget(model_context_window=_ctx_window)
+            )
             history = _ctx_mgr.trim_history(history)
 
             if history:
@@ -1457,8 +1498,12 @@ async def _astream_subagent_direct(
         # checkpoint system of its own); over budget it is trimmed directly to
         # the token budget (layer-C compression of oversized user messages
         # still happens inside manage_context).
-        _actual_model = getattr(agent.model, "model_name", _stream_model_name)
-        ctx_manager = ContextWindowManager.for_model(_actual_model)
+        _actual_model, _ctx_window = _resolve_agent_model_runtime(
+            agent, _stream_model_name
+        )
+        ctx_manager = ContextWindowManager(
+            ContextBudget(model_context_window=_ctx_window)
+        )
         trimmed, dropped_messages = ctx_manager.manage_context(session_messages)
         if dropped_messages:
             logger.warning(
@@ -2288,10 +2333,9 @@ async def astream_chat_workflow(
         # object do we fall back to resolve — unconfigured raises, fail loud,
         # never silently run with the wrong window.
         # preturn and manage_context below share the same value.
-        _actual_model = getattr(agent.model, "model_name", _stream_model_name)
-        _ctx_window = int(getattr(agent.model, "context_size", 0) or 0)
-        if _ctx_window <= 0:
-            _ctx_window = resolve_model_context_window(_actual_model)
+        _actual_model, _ctx_window = _resolve_agent_model_runtime(
+            agent, _stream_model_name
+        )
         try:
             from core.services.compaction_service import maybe_run_pre_turn_compaction
 
