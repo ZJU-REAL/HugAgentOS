@@ -39,6 +39,10 @@ _MAX_INBOUND_FILE_BYTES = 50 * 1024 * 1024
 _conv_locks: "defaultdict[str, asyncio.Lock]" = defaultdict(asyncio.Lock)
 
 
+class ChannelRunError(RuntimeError):
+    """A user-facing terminal error emitted by the shared chat-run stream."""
+
+
 def _conv_key(msg: "InboundMsg") -> str:
     return f"{msg.channel_id}:{msg.external_conversation_id}"
 
@@ -235,6 +239,9 @@ async def _collect_reply(run_id: str):
             arts = event.get("artifacts")
             if isinstance(arts, list):
                 artifacts = arts
+        elif et == "error":
+            detail = str(event.get("error") or event.get("delta") or "").strip()
+            raise ChannelRunError(detail or "请求处理失败，请稍后重试")
     return strip_inline_thinking(full).strip(), artifacts
 
 
@@ -282,18 +289,26 @@ async def _recall_placeholder(adapter, conn, msg: InboundMsg, placeholder_id: st
         logger.debug("[channels] 占位撤回异常", exc_info=True)
 
 
-async def _replace_placeholder(adapter, conn, msg: InboundMsg, placeholder_id: str, text: str) -> None:
-    """Replace the placeholder message with text: edit in place if editable; otherwise recall (if supported) + resend.
+async def _replace_placeholder(
+    adapter, conn, msg: InboundMsg, placeholder_id: Optional[str], text: str
+) -> None:
+    """Finish a placeholder flow with text, always sending a terminal message.
+
+    Edit in place when the channel returned a placeholder ID; otherwise recall
+    (if supported) and resend. WeChat's send API does not return a message ID, so
+    it must take the direct-send path instead of silently leaving the placeholder
+    as the last visible message.
 
     Error notices / "no text reply" receipts go through here — the old logic only edited,
     and since DingTalk edits always fail, users were stuck on "processing" forever with
     no follow-up ever shown."""
     edit = getattr(adapter, "edit_message", None)
-    if edit is not None:
+    if placeholder_id and edit is not None:
         r = await edit(conn, placeholder_id, text)
         if r.success:
             return
-    await _recall_placeholder(adapter, conn, msg, placeholder_id)
+    if placeholder_id:
+        await _recall_placeholder(adapter, conn, msg, placeholder_id)
     fr = await adapter.send_text(conn, msg, text)
     if not fr.success:
         logger.warning("[channels] 占位替换消息发送失败 kind=%s detail=%s", fr.error_kind, fr.error_detail)
@@ -512,13 +527,17 @@ async def _process_inbound(msg: InboundMsg) -> None:
             request_payload={"channel_id": msg.channel_id, "source": "channel"}, model_name=None,
         )
         reply, gen_artifacts = await _collect_reply(run.run_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("[channels] inbound run 失败 channel_id=%s", msg.channel_id)
-        if placeholder_id:
-            try:
-                await _replace_placeholder(adapter, conn, msg, placeholder_id, "⚠️ 处理出错了，请稍后重试。")
-            except Exception:  # noqa: BLE001
-                pass
+        notice = (
+            str(exc).strip()
+            if isinstance(exc, ChannelRunError) and str(exc).strip()
+            else "处理出错了，请稍后重试。"
+        )
+        try:
+            await _replace_placeholder(adapter, conn, msg, placeholder_id, f"⚠️ {notice}")
+        except Exception:  # noqa: BLE001
+            logger.debug("[channels] 失败消息回推异常", exc_info=True)
         return
 
     # Note: the assistant reply is **not persisted here**. start_run's background executor
@@ -532,7 +551,7 @@ async def _process_inbound(msg: InboundMsg) -> None:
     try:
         if reply:
             await _deliver_reply(adapter, conn, msg, reply, placeholder_id)
-        elif placeholder_id:
+        else:
             note = "已为你生成文件。" if gen_artifacts else "（本次无文本回复）"
             await _replace_placeholder(adapter, conn, msg, placeholder_id, note)
         if getattr(adapter, "push_file", None):
