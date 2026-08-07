@@ -23,10 +23,11 @@ import { CollapseHeight } from './components/common/CollapseHeight';
 import { Sidebar, SearchModal } from './components/sidebar';
 import { ChatArea, PromptHubPanel } from './components/chat';
 import { ToolResultPanel } from './components/tool';
-import { CatalogPanel, AbilityCenterPage, SkillsPage, McpPage } from './components/catalog';
-import { AgentPanel } from './components/agent';
+import { CatalogPanel, AbilityCenterPage } from './components/catalog';
 import { DocsPanel, AppCenterPanel } from './components/docs';
 import LabPanel from './components/lab/LabPanel';
+import { AutomationPanel } from './components/lab/AutomationPanel';
+import { SitesPanel } from './components/sites';
 import { MySpacePanel } from './components/myspace';
 import { ProjectsPanel, ProjectDetailPanel } from './components/projects';
 import { useProjectStore } from './stores/projectStore';
@@ -576,7 +577,11 @@ export default function App() {
   };
 
   const handleCapabilityClick = (capabilityId: string) => {
-    if (capabilityId === 'knowledge') setPanelSafe('kb');
+    // 知识库已并入「我的空间」的 Tab，首页快捷入口直接落到那个 Tab
+    if (capabilityId === 'knowledge') {
+      setMySpaceTab('kb');
+      setPanelSafe('my_space');
+    }
   };
 
   // ── Derived header text (for non-chat panels) ──
@@ -584,19 +589,9 @@ export default function App() {
   const panelSubtitles = pageConfig.navigation.panel_subtitles;
   const hint = panelSubtitles[panel as string] ?? '';
 
-  // Whether to show the header: only for non-chat panels, or chat panels with messages
-  const showHeader = panel !== 'chat'
-    && panel !== 'settings'
-    && panel !== 'skills'
-    && panel !== 'mcp'
-    && panel !== 'agents'
-    && panel !== 'my_space'
-    && panel !== 'ability_center'
-    && panel !== 'app_center'
-    && panel !== 'projects'
-    && panel !== 'project_detail'
-    && panel !== 'kb'
-    && panel !== 'lab';
+  // 顶部通栏标题只有这两个面板还在用——其余面板都自带页头。
+  // 写成正面枚举而不是逐个 `panel !== 'x'` 的否定链：新增面板默认不显示，不必回来补一行。
+  const showHeader = panel === 'docs' || panel === 'share_records';
   const showChatHeader = panel === 'chat' && !isEmptyChat;
   const showAuthSkeleton = useDelayedFlag(authChecking);
 
@@ -754,7 +749,7 @@ export default function App() {
                 <span className="jx-recommendBanner-icon">💡</span>
                 <span className="jx-recommendBanner-text">
                   {recommendBannerText.trim() || t('推荐用法：优先使用知识库检索可提升可引用性与结果可靠性。')}
-                  <a className="jx-recommendBanner-link" onClick={() => setPanelSafe('kb')}>{t('前往知识库 >')}</a>
+                  <a className="jx-recommendBanner-link" onClick={() => handleCapabilityClick('knowledge')}>{t('前往知识库 >')}</a>
                 </span>
                 <button className="jx-recommendBanner-close" onClick={() => setRecommendBarVisible(false)} aria-label={t('关闭')}>
                   <CloseOutlined style={{ fontSize: 16 }} />
@@ -793,12 +788,12 @@ export default function App() {
                 />
               )}
               {panel === 'ability_center' && <AbilityCenterPage />}
-              {panel === 'skills' && <SkillsPage />}
-              {panel === 'mcp' && <McpPage />}
-              {panel === 'agents' && <AgentPanel />}
-              {panel !== 'chat' && panel !== 'docs' && panel !== 'app_center' && panel !== 'lab' && panel !== 'settings' && panel !== 'skills' && panel !== 'mcp' && panel !== 'agents' && panel !== 'share_records' && panel !== 'my_space' && panel !== 'ability_center' && panel !== 'projects' && panel !== 'project_detail' && <CatalogPanel />}
+              {/* 知识库已并入「我的空间」的 Tab；这里保留独立 kb 面板，供旧的深链/首页快捷入口继续可用 */}
+              {panel === 'kb' && <CatalogPanel />}
               {panel === 'docs' && <DocsPanel />}
               {panel === 'app_center' && <AppCenterPanel />}
+              {panel === 'automation' && <AutomationPanel />}
+              {panel === 'sites' && <SitesPanel />}
               {panel === 'lab' && <LabPanel />}
               {panel === 'settings' && <SettingsPage />}
               {panel === 'my_space' && <MySpacePanel />}

@@ -36,6 +36,7 @@ import { EASE, SPRING } from '../../utils/motionTokens';
 import { DropOverlay } from '../common/DropOverlay';
 import type { UploadProgress } from '../common/UploadProgressBar';
 import { UploadProgressBar } from '../common/UploadProgressBar';
+import { CatalogPanel } from '../catalog';
 import { ShareRecordsPage } from '../share';
 import { DocumentList } from './DocumentList';
 import { FavoriteList } from './FavoriteList';
@@ -49,6 +50,9 @@ import {
 
 const TABS: Array<{ key: MySpaceTab; label: string }> = [
   { key: 'assets', label: t('文件资产') },
+  // 知识库原本是侧边栏一级入口，现在收进我的空间，紧挨「文件资产」——文件资产里的文档本来就是
+  // 「可按需加入私有知识库」的上游，两者放一起更顺。面板复用 CatalogPanel（embedded 模式去掉页头）。
+  { key: 'kb', label: t('知识库') },
   { key: 'favorites', label: t('会话收藏') },
   { key: 'shares', label: t('分享记录') },
   { key: 'notifications', label: t('消息通知') },
@@ -416,6 +420,7 @@ export function MySpacePanel() {
   const currentHasMore = tab === 'favorites' ? favHasMore : hasMore;
   const tabDescriptions: Record<MySpaceTab, string> = {
     assets: t('汇集与AI会话过程中上传或生成的各类文档与图片，可按需加入你创建的私有知识库'),
+    kb: t('浏览与管理知识库、查看文档列表，并支持文档内检索'),
     favorites: t('集中管理你收藏的重要会话与自动化任务，方便快速回看与继续交流'),
     shares: t('查看并管理已生成的分享链接与有效状态，查看浏览量'),
     notifications: t('查看自动化任务执行结果通知，及时了解任务完成状态'),
@@ -573,13 +578,16 @@ export function MySpacePanel() {
           )}
         </div>
 
+        {/* 知识库 Tab 由 CatalogPanel 自管分页，别让文件资产的无限滚动跟着触发 loadMore */}
         <div className="jx-mySpace-body" onScroll={(event) => {
-          if (tab === 'shares' || tab === 'notifications') return;
+          if (tab === 'shares' || tab === 'notifications' || tab === 'kb') return;
           const element = event.currentTarget;
           if (element.scrollHeight - element.scrollTop - element.clientHeight < 100) void loadMore();
         }}>
           <motion.div key={tab} className="jx-mySpace-bodyFade" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            {tab === 'notifications' ? (
+            {tab === 'kb' ? (
+              <CatalogPanel embedded />
+            ) : tab === 'notifications' ? (
               <NotificationList />
             ) : tab === 'shares' ? (
               <ShareRecordsPage embedded hideEmbeddedDesc />

@@ -147,7 +147,8 @@ export function RunTimelinePanel() {
 
   const navigateBackToDetail = () => {
     setSelectedTaskId(group.taskId);
-    setPanel('app_center');
+    // 定时任务已从应用中心拆成一级面板，回详情直接落到 'automation'
+    setPanel('automation');
     exitAutomationChat();
   };
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Catalog, PanelKey } from '../types';
+import type { AbilityTabKey, Catalog, PanelKey } from '../types';
 import { getCatalog, updateCatalogItem } from '../api';
 import { loadCatalog, saveCatalog } from '../storage';
 
@@ -7,10 +7,13 @@ const PANEL_STORAGE_KEY = 'hugagent_active_panel';
 // Keep in sync with authStore.LOGIN_LANDING_KEY (inlined to avoid a circular import).
 const LOGIN_LANDING_KEY = 'hugagent_login_landing';
 
+// 可以从 localStorage 恢复的面板。'skills' / 'agents' / 'mcp' 已并入能力中心的二级导航、
+// 不再是独立面板，故不在此列——残留的旧值会退回 'chat'。
 const VALID_PANELS: readonly PanelKey[] = [
-  'chat', 'skills', 'agents', 'mcp', 'kb', 'docs',
+  'chat', 'kb', 'docs',
   'app_center', 'settings', 'share_records', 'my_space',
   'ability_center', 'lab', 'projects', 'project_detail',
+  'automation', 'sites',
 ] as const;
 
 function loadActivePanel(): PanelKey {
@@ -45,12 +48,19 @@ interface CatalogState {
   manageQuery: string;
   /** Selected catalog item id */
   selectedId: string | null;
+  /** 能力中心当前展开的能力类别——由侧边栏的二级导航项驱动，页面本身不再有 Tab 栏 */
+  abilityTab: AbilityTabKey;
+  /** 本次会话中访问过的能力类别。能力中心据此只挂载访问过的 pane——四个 pane 各自会在挂载时
+   *  拉一份列表，全挂等于一次打出四份请求。累积在这里而不是页面内部：切换动作发生在侧边栏，
+   *  放在 setAbilityTab 里是唯一不需要靠 effect 追赶的位置。 */
+  visitedAbilityTabs: readonly AbilityTabKey[];
 
   setCatalog: (catalog: Catalog) => void;
   setCatalogLoading: (v: boolean) => void;
   setPanel: (panel: PanelKey) => void;
   setManageQuery: (query: string) => void;
   setSelectedId: (id: string | null) => void;
+  setAbilityTab: (tab: AbilityTabKey) => void;
 
   /** Fetch catalog from backend, merge with localStorage enabled state */
   fetchCatalog: () => Promise<void>;
@@ -65,6 +75,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   panelEntryNonce: 0,
   manageQuery: '',
   selectedId: null,
+  abilityTab: 'agents',
+  visitedAbilityTabs: ['agents'],
 
   setCatalog: (catalog) => {
     set({ catalog });
@@ -82,6 +94,13 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   },
   setManageQuery: (query) => set({ manageQuery: query }),
   setSelectedId: (id) => set({ selectedId: id }),
+  setAbilityTab: (tab) => set((state) => ({
+    abilityTab: tab,
+    manageQuery: '',
+    visitedAbilityTabs: state.visitedAbilityTabs.includes(tab)
+      ? state.visitedAbilityTabs
+      : [...state.visitedAbilityTabs, tab],
+  })),
 
   fetchCatalog: async () => {
     try {

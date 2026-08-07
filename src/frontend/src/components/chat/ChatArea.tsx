@@ -323,8 +323,7 @@ export function ChatArea({
               type="button"
               className="jx-siteHeroTopBtn"
               onClick={() => {
-                useChatStore.getState().setSitesListRequested(true);
-                useCatalogStore.getState().setPanel('lab');
+                useCatalogStore.getState().setPanel('sites');
               }}
             >
               {t('我的站点')}

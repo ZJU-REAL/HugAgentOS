@@ -48,8 +48,16 @@ export interface PageConfig {
 
 // "Projects" no longer appears in the main navigation by default: browsing/entering projects goes through the sidebar "Projects" group, and selecting/creating goes through the input-box
 // project dropdown. LAYOUT_ITEMS still keeps the projects definition, and the backend page config can add it back as needed.
-export const DEFAULT_SIDEBAR_ITEMS = ['agents', 'kb', 'app_center', 'my_space'];
-export const DEFAULT_MENU_ITEMS = ['settings', 'ability_center', 'lab'];
+// ⚠️ 这两个数组只是**出厂默认值**，不是最终形态——运行时以 DB 里的
+// `page_config.navigation.sidebar_items / menu_items` 为准（见 Sidebar.tsx 的 usePageConfig）。
+// 管理员随时可在 /config →「页面配置」里把任意入口在「侧边栏 / 用户菜单 / 隐藏」三栏间拖动、
+// 调序、或一键「恢复默认」回到这里的取值。新增入口只要进 LAYOUT_ITEMS，就自动出现在那个编排界面里。
+//
+// 当前默认的取舍：能力中心从底部菜单提到一级导航（其四类能力做成二级导航）；定时任务从应用中心、
+// 站点从实验室各自拆出来成一级导航；知识库并入我的空间的 Tab、子智能体并入能力中心的二级导航，
+// 因此都不再单列；应用中心与项目反向下沉到用户下拉菜单，主导航只留高频入口。
+export const DEFAULT_SIDEBAR_ITEMS = ['ability_center', 'automation', 'sites', 'my_space'];
+export const DEFAULT_MENU_ITEMS = ['settings', 'app_center', 'projects', 'lab'];
 
 export const DEFAULT_PAGE_CONFIG: PageConfig = {
   branding: {
@@ -67,7 +75,7 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
       ability_center: '能力中心',
       skills: '技能库',
       agents: '子智能体',
-      mcp: 'MCP工具库',
+      mcp: '连接器',
       kb: '知识库',
       docs: '更新记录',
       app_center: '应用中心',
@@ -76,12 +84,14 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
       my_space: '我的空间',
       projects: '项目',
       project_detail: '项目详情',
+      automation: '定时任务',
+      sites: '站点',
     },
     panel_subtitles: {
-      ability_center: '智能体基础能力管理，包含技能库以及MCP工具库',
+      ability_center: '智能体基础能力管理，包含智能体、技能、连接器与插件',
       skills: '启用/停用技能，并查看详细介绍、输入输出与示例。',
       agents: '选择与启用子智能体，并查看其职责边界与路由提示。',
-      mcp: '管理 MCP 工具服务，并查看其作用范围与可靠性影响。',
+      mcp: '管理 MCP 连接器服务，并查看其作用范围与可靠性影响。',
       kb: '浏览知识库、查看文档列表，并支持文档内检索。',
       docs: '查看功能更新、能力中心与平台说明。',
       app_center: '基于 AI 能力的场景化智能应用',
@@ -90,6 +100,8 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
       my_space: '',
       projects: '把对话、文件和指令打包成专属工作空间',
       project_detail: '',
+      automation: '按计划自动执行任务，也可随时手动触发。在任意对话中描述你想定期做的事，即可快速创建',
+      sites: '在对话里描述需求，AI 生成完整网站并一键发布，由平台托管、凭链接即可访问',
     },
     admin_header: {
       title: 'HugAgentOS — 后台管理',

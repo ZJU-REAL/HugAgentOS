@@ -48,7 +48,7 @@ function McpIcon({ id, icon }: { id: string; icon?: string }) {
   );
 }
 
-export function McpPage({ embedded = false, onDetailChange }: { embedded?: boolean; onDetailChange?: (hasDetail: boolean) => void }) {
+export function McpPage({ embedded = false }: { embedded?: boolean }) {
   const {
     catalog,
     panel,
@@ -57,8 +57,8 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
     toggleItem,
   } = useCatalogStore();
   const { title: mcpTitle, subtitle: mcpSubtitle } = usePanelHeader('mcp', {
-    title: 'MCP工具库',
-    subtitle: '管理 MCP 工具服务，并查看其作用范围与可靠性影响。',
+    title: '连接器',
+    subtitle: '管理 MCP 连接器服务，并查看其作用范围与可靠性影响。',
   });
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
@@ -207,11 +207,6 @@ export function McpPage({ embedded = false, onDetailChange }: { embedded?: boole
   const toggleEnabled = (id: string, enabled: boolean) => {
     void toggleItem('mcp', id, enabled);
   };
-
-  // Notify parent of detail state changes (covers all code paths including useEffect resets)
-  useEffect(() => {
-    onDetailChange?.(!!selectedId);
-  }, [selectedId, onDetailChange]);
 
   const openDetail = useCallback((id: string) => {
     setNavDir('detail');

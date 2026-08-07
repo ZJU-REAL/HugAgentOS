@@ -22,6 +22,7 @@ import { LAYOUT_ITEMS } from './items';
 import { DEFAULT_SIDEBAR_ITEMS, DEFAULT_MENU_ITEMS } from '../../utils/pageConfigDefaults';
 import { buildSidebarChatItems } from '../../utils/history';
 import { resolveAvatarUrl } from '../../utils/avatar';
+import { loadJsonPref, saveJsonPref } from '../../storage';
 import { getAutomationRuns } from '../../api';
 import type { ChatItem, PanelKey } from '../../types';
 import { HELP_DOCUMENTATION_URL, IS_COMMUNITY_EDITION_BUILD } from '../../edition';
@@ -43,6 +44,11 @@ interface SidebarProjectGroup {
 }
 
 const { Sider } = Layout;
+
+// 导航分组折叠偏好（key = LAYOUT_ITEMS 的 key）。与「侧栏是否收起」同属浏览器级 UI 偏好，
+// 不按账号隔离；读写复用 storage.ts 的通用 JSON 偏好 helper。
+const NAV_COLLAPSED_KEY = 'hugagent_ui_nav_collapsed_v1';
+const loadCollapsedNavGroups = () => loadJsonPref<Record<string, boolean>>(NAV_COLLAPSED_KEY, {});
 
 // Chat list item add/remove animation: enter 0.22s float-up expand / exit 0.18s height collapse (items below smoothly reposition via layout).
 const HISTORY_ITEM_ENTER = { duration: 0.22, ease: EASE.brandOut };
@@ -94,6 +100,8 @@ export function Sidebar({
   const sidebarLayoutKeys = usePageConfig<string[]>('navigation.sidebar_items', DEFAULT_SIDEBAR_ITEMS);
   const menuLayoutKeys = usePageConfig<string[]>('navigation.menu_items', DEFAULT_MENU_ITEMS);
   const { panel } = useCatalogStore();
+  const abilityTab = useCatalogStore((s) => s.abilityTab);
+  const setAbilityTab = useCatalogStore((s) => s.setAbilityTab);
   const notifUnreadCount = useMySpaceStore((s) => s.notifUnreadCount);
   const sidebarTasks = useAutomationChatStore((s) => s.sidebarTasks);
   const sidebarPrefs = useAutomationChatStore((s) => s.sidebarPrefs);
@@ -105,7 +113,6 @@ export function Sidebar({
   const toggleSidebarPinned = useAutomationChatStore((s) => s.toggleSidebarPinned);
   const toggleSidebarFavorite = useAutomationChatStore((s) => s.toggleSidebarFavorite);
   const updateAutomationTask = useAutomationStore((s) => s.updateTask);
-  const setAutomationSelectedTaskId = useAutomationStore((s) => s.setSelectedTaskId);
   // ── Projects section data: project list + the currently open project (for highlighting) ──
   const projects = useProjectStore((s) => s.list);
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
@@ -158,6 +165,16 @@ export function Sidebar({
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
   const toggleProjectCollapsed = (projectId: string) => {
     setCollapsedProjects((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
+  };
+  // 带二级列表的导航分组（目前是「能力中心」）的折叠状态，默认展开。
+  // 与历史分组不同，这个是导航偏好——写 localStorage，刷新后保持用户上次的选择。
+  const [collapsedNavGroups, setCollapsedNavGroups] = useState<Record<string, boolean>>(loadCollapsedNavGroups);
+  const toggleNavGroupCollapsed = (key: string) => {
+    setCollapsedNavGroups((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      saveJsonPref(NAV_COLLAPSED_KEY, next);
+      return next;
+    });
   };
 
   const historyList = useMemo(
@@ -482,10 +499,22 @@ export function Sidebar({
         ) : (
           <img src={meta.icon} alt="" style={{ width: 16, height: 16 }} />
         ),
-        onClick: () => {
-          if (key === 'lab') setAutomationSelectedTaskId(null);
-          onSetPanel(meta.targetPanel);
-        },
+        // 有二级项的入口在菜单里渲染成子菜单，否则被放进用户菜单时这些类别就无从进入。
+        // 子菜单父项的 onClick 在 antd 里不会触发，所以两者二选一。
+        ...(meta.children?.length
+          ? {
+            children: meta.children.map((child) => ({
+              key: `${key}-${child.key}`,
+              label: child.label,
+              onClick: () => {
+                setAbilityTab(child.key);
+                onSetPanel(meta.targetPanel);
+              },
+            })),
+          }
+          : {
+            onClick: () => onSetPanel(meta.targetPanel),
+          }),
       })),
       ...(!IS_COMMUNITY_EDITION_BUILD && (authUser?.can_system_config || authUser?.can_content_manage)
         ? [{ type: 'divider' as const }]
@@ -613,7 +642,6 @@ export function Sidebar({
                         className={`jx-miniRailBtn${active ? ' active' : ''}`}
                         aria-label={meta.label}
                         onClick={() => {
-                          if (key === 'lab') setAutomationSelectedTaskId(null);
                           onSetPanel(meta.targetPanel);
                         }}
                       >
@@ -682,24 +710,67 @@ export function Sidebar({
         {/* Primary nav menu */}
         {visibleSidebarItems.length > 0 && (
           <div className="jx-navMenu">
-            {visibleSidebarItems.map(({ key, meta }) => (
-              <button
-                key={key}
-                className={`jx-navItem${meta.activePanels?.includes(panel) ? ' active' : ''}`}
-                onClick={() => {
-                  if (key === 'lab') setAutomationSelectedTaskId(null);
-                  onSetPanel(meta.targetPanel);
-                }}>
-                {key === 'my_space' && notifUnreadCount > 0 ? (
-                  <Badge count={notifUnreadCount} size="small" offset={[-2, 2]}>
+            {visibleSidebarItems.map(({ key, meta }) => {
+              // 无二级列表：还是一个普通导航按钮
+              if (!meta.children?.length) {
+                return (
+                  <button
+                    key={key}
+                    className={`jx-navItem${meta.activePanels?.includes(panel) ? ' active' : ''}`}
+                    onClick={() => {
+                      onSetPanel(meta.targetPanel);
+                    }}>
+                    {key === 'my_space' && notifUnreadCount > 0 ? (
+                      <Badge count={notifUnreadCount} size="small" offset={[-2, 2]}>
+                        <img src={meta.icon} alt="" className="jx-navItemIcon" />
+                      </Badge>
+                    ) : (
+                      <img src={meta.icon} alt="" className="jx-navItemIcon" />
+                    )}
+                    <span>{meta.label}</span>
+                  </button>
+                );
+              }
+              // 有二级列表：一级行退化为可折叠的分组标题，高亮交给选中的二级项，避免父子同时点亮。
+              // 折叠后二级项藏起来，一级行本身仍指向该面板（收起时点它 = 展开 + 进面板，不至于进不去）。
+              const collapsed = !!collapsedNavGroups[key];
+              const groupActive = meta.activePanels?.includes(panel);
+              return (
+                <div
+                  key={key}
+                  className={`jx-navGroup${collapsed ? ' jx-navGroup--collapsed' : ''}`}
+                >
+                  <button
+                    className={`jx-navItem${collapsed && groupActive ? ' active' : ''}`}
+                    aria-expanded={!collapsed}
+                    onClick={() => {
+                      toggleNavGroupCollapsed(key);
+                      if (collapsed) onSetPanel(meta.targetPanel);
+                    }}>
                     <img src={meta.icon} alt="" className="jx-navItemIcon" />
-                  </Badge>
-                ) : (
-                  <img src={meta.icon} alt="" className="jx-navItemIcon" />
-                )}
-                <span>{meta.label}</span>
-              </button>
-            ))}
+                    <span>{meta.label}</span>
+                  </button>
+                  {/* 折叠动画复用全局 .jx-expandWrap（grid-template-rows 0fr→1fr），与历史分组一致 */}
+                  <div className={`jx-expandWrap jx-navGroupExpand${collapsed ? '' : ' jx-expandWrap--open'}`}>
+                    <div className="jx-navSubList">
+                      {meta.children.map((child) => (
+                        <button
+                          key={`${key}-${child.key}`}
+                          className={`jx-navSubItem${
+                            panel === meta.targetPanel && abilityTab === child.key ? ' active' : ''
+                          }`}
+                          onClick={() => {
+                            setAbilityTab(child.key);
+                            onSetPanel(meta.targetPanel);
+                          }}>
+                          <span>{child.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useChatStore, useCatalogStore, useAuthStore, useAutomationStore } from '../../stores';
+import { useMemo } from 'react';
+import { useChatStore, useCatalogStore, useAuthStore } from '../../stores';
 import { staggerStyle } from '../../utils/motionTokens';
 import { t } from '../../i18n';
 import { useAppConfig, usePanelHeader } from '../../hooks/usePageConfig';
 import { BUILTIN_APPS, type AppItem } from '../../stores/pageConfigStore';
-import { AutomationPanel } from '../lab/AutomationPanel';
 
+// 「自动化」已从应用中心拆出，成为侧边栏一级入口「定时任务」（LAYOUT_ITEMS.automation → panel 'automation'）。
+// BUILTIN_APPS 里仍保留 automation 项，因为它同时是 allowed_apps 权限位的载体，只是不再在这里陈列。
 const PLAN_MODE_ITEM: AppItem =
   BUILTIN_APPS.find((a) => a.id === 'plan_mode') ?? BUILTIN_APPS[0];
-const AUTOMATION_ITEM: AppItem | undefined = BUILTIN_APPS.find((a) => a.id === 'automation');
 const BATCH_RUNNER_ITEM: AppItem | undefined = BUILTIN_APPS.find((a) => a.id === 'batch_runner');
 
 const PLACEHOLDER_ITEM: AppItem = {
@@ -32,21 +32,11 @@ export default function AppCenterPanel() {
   const { setPanel } = useCatalogStore();
   const ssoToken = useAuthStore((s) => s.authUser?.sso_token ?? null);
   const allowedApps = useAuthStore((s) => s.authUser?.allowed_apps ?? null);
-  const automationSelectedTaskId = useAutomationStore((s) => s.selectedTaskId);
   const appConfig = useAppConfig();
   const { title, subtitle } = usePanelHeader('app_center', {
     title: '应用中心',
     subtitle: '基于 AI 能力的场景化智能应用',
   });
-
-  // If an automation task is already selected when opening the app center (jumped in from the sidebar), go straight into the automation sub-panel
-  const [subPanel, setSubPanel] = useState<string | null>(
-    automationSelectedTaskId ? 'automation' : null,
-  );
-
-  useEffect(() => {
-    if (automationSelectedTaskId) setSubPanel('automation');
-  }, [automationSelectedTaskId]);
 
   const items = useMemo<AppItem[]>(() => {
     const allowedSet = Array.isArray(allowedApps) ? new Set(allowedApps) : null;
@@ -54,7 +44,6 @@ export default function AppCenterPanel() {
 
     const result: AppItem[] = [];
     if (isAllowed(PLAN_MODE_ITEM.id)) result.push(PLAN_MODE_ITEM);
-    if (AUTOMATION_ITEM && isAllowed(AUTOMATION_ITEM.id)) result.push(AUTOMATION_ITEM);
     if (BATCH_RUNNER_ITEM && isAllowed(BATCH_RUNNER_ITEM.id)) result.push(BATCH_RUNNER_ITEM);
 
     for (const app of appConfig.apps) {
@@ -79,10 +68,6 @@ export default function AppCenterPanel() {
       setPanel('chat');
       return;
     }
-    if (app.id === 'automation') {
-      setSubPanel('automation');
-      return;
-    }
     if (app.id === 'batch_runner') {
       enterChatMode('batch');
       setPanel('chat');
@@ -90,10 +75,6 @@ export default function AppCenterPanel() {
     }
     openExternal(app.url);
   };
-
-  if (subPanel === 'automation') {
-    return <AutomationPanel onBack={() => setSubPanel(null)} />;
-  }
 
   return (
     <div className="jx-agentPage">

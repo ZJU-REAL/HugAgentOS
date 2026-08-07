@@ -148,6 +148,31 @@ if (typeof window !== 'undefined') {
   });
 }
 
+/**
+ * 读写一个「JSON 对象」型 localStorage 偏好项。
+ *
+ * 这个 guard + try/JSON.parse + 类型兜底的组合此前在 catalogStore / uiStore /
+ * automationChatStore 里各抄了一遍；新的偏好项直接用这两个函数，别再抄第五份。
+ * 需要按账号隔离的数据请先用 {@link userScopedKey} 包一下 key。
+ */
+export function loadJsonPref<T extends object>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? (parsed as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveJsonPref(key: string, value: object) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch { /* localStorage unavailable (private mode / quota) */ }
+}
+
 export function loadCatalog(): Catalog {
   try {
     const raw = localStorage.getItem(ENABLE_KEY);

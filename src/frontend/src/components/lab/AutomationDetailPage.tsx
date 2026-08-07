@@ -20,7 +20,7 @@ import {
 import { useAutomationStore, useAutomationChatStore } from '../../stores';
 import { useDelayedFlag } from '../../hooks';
 import {
-  RUN_STATUS_LABEL, cronToHumanReadable, formatRelativeTime, channelConversationLabel,
+  RUN_STATUS_LABEL, RUN_STATUS_CLASS, cronToHumanReadable, formatRelativeTime, channelConversationLabel,
 } from './automationUtils';
 import { APP_TIMEZONE, formatDate, formatShortDateTime } from '../../utils/date';
 import { ScheduleSelector, type ScheduleValue } from './ScheduleSelector';
@@ -38,13 +38,6 @@ const STATUS_LABEL: Record<string, string> = {
   disabled: t('已停用'),
   completed: t('已完成'),
   expired: t('已过期'),
-};
-
-const RUN_STATUS_CLASS: Record<string, string> = {
-  // The running-state dot carries .jx-anim-ripple for a spreading ripple (motion.css primitive; color/multiplier in automation.css)
-  running: 'is-running jx-anim-ripple',
-  success: 'is-success',
-  failed: 'is-failed',
 };
 
 const SCHEDULE_TYPE_LABEL: Record<AutomationScheduleType, string> = {
@@ -557,7 +550,7 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                       {runs.map((run) => (
                         <div key={run.run_id} className="jx-automation-detail-runRow">
                           <span
-                            className={`jx-automation-detail-runRow-dot ${RUN_STATUS_CLASS[run.status] || 'is-failed'}`}
+                            className={`jx-automation-runDot ${RUN_STATUS_CLASS[run.status] || 'is-failed'}`}
                             title={RUN_STATUS_LABEL[run.status] || run.status}
                           />
                           <span className="jx-automation-detail-runRow-time">

@@ -427,4 +427,8 @@ export const PANELS_DICT: Record<string, string> = {
   '本轮调用的既有能力': 'Existing capabilities used this turn',
   '能力入库': 'Capability stored',
   '未通过': 'Not passed',
+
+  // ── 侧边栏导航改版：定时任务 / 站点 一级入口，能力中心四 Tab ──
+  '连接器': 'Connectors',
+  '定时任务': 'Scheduled Tasks',
 };

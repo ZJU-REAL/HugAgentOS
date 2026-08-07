@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { useAuthStore, useChatStore } from '../../stores';
+import { useAuthStore } from '../../stores';
 import { staggerStyle } from '../../utils/motionTokens';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { EDITION_LAB_ITEMS, SkillDistillPanel } from '../../labEdition';
 import LoopPanel from '../loop/LoopPanel';
-import { SitesPanel } from '../sites';
 import { t } from '../../i18n';
 
 const LAB_ITEMS = [
@@ -16,13 +15,7 @@ const LAB_ITEMS = [
     description: t('让智能体自我推进的长时运行任务：按可验证目标（环境验证）反复迭代、自我修正，达标或触预算即停'),
     enabled: true,
   },
-  {
-    id: 'sites',
-    name: t('站点'),
-    icon: '/home/new-icons/more.svg',
-    description: t('在对话里描述需求，AI 生成完整网站并一键发布，由平台托管、凭链接即可访问，支持随时对话迭代更新'),
-    enabled: true,
-  },
+  // 「站点」已从实验室提升为侧边栏一级入口（LAYOUT_ITEMS.sites → panel 'sites'），此处不再重复陈列。
   {
     id: 'coming_soon',
     name: t('更多实验'),
@@ -33,18 +26,12 @@ const LAB_ITEMS = [
 ];
 
 export default function LabPanel() {
-  const [subPanel, setSubPanel] = useState<'skill_distill' | 'autonomous_loop' | 'sites' | null>(null);
+  const [subPanel, setSubPanel] = useState<'skill_distill' | 'autonomous_loop' | null>(null);
   const labEnabled = useAuthStore((s) => s.authUser?.lab_enabled);
-  const sitesListRequested = useChatStore((s) => s.sitesListRequested);
-  const setSitesListRequested = useChatStore((s) => s.setSitesListRequested);
   const { title: labTitle, subtitle: labSubtitle } = usePanelHeader('lab', {
     title: '实验室',
     subtitle: 'AI 能力实验性应用',
   });
-
-  // When arriving from the main chat "My Sites" entry (sitesListRequested), go straight to the sites list management page,
-  // no local state needed —— decided directly at render time, and the flag is cleared on exit.
-  const showSites = subPanel === 'sites' || sitesListRequested;
 
   // Defensive permission check: if the admin has disabled this user's lab permission, show a no-permission notice inside the panel.
   // A default of undefined is treated as enabled (backward compatible).
@@ -66,23 +53,11 @@ export default function LabPanel() {
       setSubPanel('skill_distill');
     } else if (id === 'autonomous_loop') {
       setSubPanel('autonomous_loop');
-    } else if (id === 'sites') {
-      // Clicking "Sites" first enters the sites management page (list / versions / forms / KV);
-      // the site-creation entry is the "Create" button at the top-right of the sites page, clicking it jumps to a main-chat site-building session.
-      setSubPanel('sites');
     }
-  };
-
-  const backToLab = () => {
-    setSubPanel(null);
-    if (sitesListRequested) setSitesListRequested(false);
   };
 
   if (subPanel === 'skill_distill') {
     return <SkillDistillPanel onBack={() => setSubPanel(null)} />;
-  }
-  if (showSites) {
-    return <SitesPanel onBack={backToLab} />;
   }
   if (subPanel === 'autonomous_loop') {
     return (
