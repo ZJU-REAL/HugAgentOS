@@ -199,7 +199,7 @@ class AutomationScheduler:
 
         try:
             if task_type == "prompt":
-                chat_id, result_summary, usage = await asyncio.wait_for(
+                chat_id, result_text, usage = await asyncio.wait_for(
                     self._execute_prompt_task(
                         user_id=user_id,
                         task_name=task_name,
@@ -212,7 +212,7 @@ class AutomationScheduler:
                     timeout=TASK_EXECUTION_TIMEOUT_S,
                 )
             elif task_type == "plan":
-                chat_id, result_summary, usage = await asyncio.wait_for(
+                chat_id, result_text, usage = await asyncio.wait_for(
                     self._execute_plan_task(
                         user_id=user_id,
                         task_name=task_name,
@@ -227,7 +227,7 @@ class AutomationScheduler:
                 )
             elif task_type == "loop":
                 # Periodically advance a persistent autonomous loop (M4 scheduler integration); loop_id stored in task.extra_data
-                chat_id, result_summary, usage = await asyncio.wait_for(
+                chat_id, result_text, usage = await asyncio.wait_for(
                     self._execute_loop_task(
                         user_id=user_id,
                         task_name=task_name,
@@ -246,7 +246,9 @@ class AutomationScheduler:
                     run.run_id,
                     status="success",
                     chat_id=chat_id,
-                    result_summary=result_summary,
+                    # 存全文：这一份同时是渠道投递的正文来源，截断只发生在展示侧
+                    # （run_to_dict 的 summary_limit / 通知中心）。
+                    result_summary=result_text,
                     duration_ms=duration_ms,
                     usage=usage,
                 )
@@ -269,7 +271,7 @@ class AutomationScheduler:
             _targets = resolve_delivery_targets(task_metadata)
             if has_inapp(_targets):
                 await self._send_notification(
-                    user_id, task_id, task_name, "success", result_summary or "执行完成", chat_id
+                    user_id, task_id, task_name, "success", result_text or "执行完成", chat_id
                 )
             logger.info("[scheduler] task %s completed in %dms", task_id, duration_ms)
 
@@ -290,7 +292,7 @@ class AutomationScheduler:
                     _ok = await deliver_to_conversation(
                         _ch,
                         _conv,
-                        head + (result_summary or "执行完成"),
+                        head + (result_text or "执行完成"),
                         files=_gen_files,
                     )
                     if _ok:
@@ -521,8 +523,9 @@ class AutomationScheduler:
                 scope=project_scope_from_context(context),
             )
 
-        summary = full_response[:500] if full_response else "执行完成"
-        return chat_id, summary, usage
+        # 返回全文——这份文本同时是渠道投递（钉钉/飞书）的正文，在这里截断会让定时消息
+        # 只发出开头一段。摘要截断统一在展示侧做（见 automation_service.truncate_summary）。
+        return chat_id, (full_response or "执行完成"), usage
 
     async def _execute_plan_task(
         self,
@@ -700,8 +703,9 @@ class AutomationScheduler:
                 scope=project_scope_from_chat_id(db, chat_id),
             )
 
-        summary = (result_text or assistant_content)[:500]
-        return chat_id, summary, usage
+        # 同 _execute_prompt_task：返回全文，截断交给展示侧
+        # （assistant_content 上面已是 `result_text or 兜底文案`，无需再叠一层 or）
+        return chat_id, assistant_content, usage
 
     async def _execute_loop_task(self, *, user_id: str, task_name: str, loop_id):
         """Periodically advance a persistent autonomous loop: start/resume a loop run and wait for it to reach a terminal state (M4 scheduler integration).
@@ -886,6 +890,10 @@ class AutomationScheduler:
     ):
         try:
             from core.infra.redis import get_redis
+            from core.services.automation_service import (
+                SUMMARY_LIMIT_BRIEF,
+                truncate_summary,
+            )
 
             redis = get_redis()
             notification = {
@@ -893,7 +901,9 @@ class AutomationScheduler:
                 "task_id": task_id,
                 "task_name": task_name,
                 "status": status,
-                "summary": summary[:200],
+                # 走统一截断策略：result_summary 现在是全文，裸切会把整篇报告拦腰截断且
+                # 不带任何提示，与运行历史列表的观感不一致。
+                "summary": truncate_summary(summary, SUMMARY_LIMIT_BRIEF),
                 "chat_id": chat_id,
                 "timestamp": int(datetime.utcnow().timestamp() * 1000),
                 "read": False,

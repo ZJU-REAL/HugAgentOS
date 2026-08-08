@@ -631,7 +631,16 @@ def find_retirement_candidates(
                     "reason": REASON_NEVER_OPENED,
                     "action": ACTION_LOWER_EXPOSURE,
                     "explanation": (
-                        f"已被挂载 {offers} 次、曝光 {exposure_days:.0f} 天，模型一次都没打开——"
+                        f"已被挂载 {offers} 次、"
+                        # A hand-authored skill has no release record and so no
+                        # finite exposure window — it has been there from the
+                        # start. Formatting that as a number printed "曝光 inf 天".
+                        + (
+                            "一直可用"
+                            if exposure_days == float("inf")
+                            else f"曝光 {exposure_days:.0f} 天"
+                        )
+                        + "，模型一次都没打开——"
                         "多半是描述没写清它解决什么问题，而不是能力本身没用"
                     ),
                     **stats,
