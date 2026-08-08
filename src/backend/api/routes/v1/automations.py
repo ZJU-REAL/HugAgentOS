@@ -4,14 +4,14 @@ import json
 from typing import Any, Dict, List, Optional
 
 from croniter import croniter
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from core.auth.backend import get_current_user, UserContext
 from core.db.engine import get_db
 from core.infra.responses import success_response, created_response
-from core.services.automation_service import AutomationService
+from core.services.automation_service import AutomationService, SUMMARY_LIMIT_LIST
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
@@ -296,14 +296,18 @@ async def activate_sidebar(
 @router.get("/{task_id}/runs", summary="自动化任务运行历史")
 async def get_automation_runs(
     task_id: str,
-    limit: int = 10,
+    # 上界防护：result_summary 现在是全文，无上限的 limit 会把成百上千份完整报告拉进内存
+    limit: int = Query(10, ge=1, le=100),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """获取指定自动化任务的运行历史记录，可通过 limit 限制返回条数。"""
     svc = AutomationService(db)
     runs = svc.get_task_runs(task_id, user.user_id, limit=limit)
-    return success_response(data=[AutomationService.run_to_dict(r) for r in runs])
+    # result_summary 存全文（渠道投递要用），列表只做两行摘要展示 → 截断防止响应体膨胀
+    return success_response(
+        data=[AutomationService.run_to_dict(r, summary_limit=SUMMARY_LIMIT_LIST) for r in runs]
+    )
 
 
 # ── Notifications (Redis-backed) ──────────────────────────────

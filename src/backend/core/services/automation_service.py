@@ -13,6 +13,20 @@ from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
+# ── 运行结果摘要截断策略（单一真源）────────────────────────────────────
+# ScheduledTaskRun.result_summary 存的是**全文**：它同时是渠道（钉钉/飞书等）投递的正文，
+# 在写库/执行侧截断会让定时消息只发出开头一段。所以截断一律发生在展示侧，且统一走
+# truncate_summary，保证各处「被截断」的观感一致（都带省略号）。
+SUMMARY_LIMIT_LIST = 500   # 运行历史列表：前端只做两行 line-clamp 展示
+SUMMARY_LIMIT_BRIEF = 200  # 通知中心卡片 / MCP brief：进模型上下文或小卡片，要更短
+
+
+def truncate_summary(text: Optional[str], limit: Optional[int]) -> Optional[str]:
+    """按 limit 截断展示用摘要；``limit`` 为 None/0 表示不截断，原样返回。"""
+    if not limit or not text or len(text) <= limit:
+        return text
+    return text[:limit] + "…"
+
 
 def _channel_target_fields(extra_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Parse the first channel delivery target from a task's extra_data, filling in
@@ -383,13 +397,21 @@ class AutomationService:
         }
 
     @staticmethod
-    def run_to_dict(run: ScheduledTaskRun) -> Dict[str, Any]:
+    def run_to_dict(
+        run: ScheduledTaskRun, *, summary_limit: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """运行记录 → dict。
+
+        ``result_summary`` 存的是**全文**（渠道投递要用完整正文，见 automation_scheduler），
+        因此只展示摘要的消费方应传 ``summary_limit`` 自行截断，避免把一整篇报告塞进列表
+        响应/模型上下文。不传 = 原样返回全文（供需要完整结果的详情场景使用）。
+        """
         return {
             "run_id": run.run_id,
             "task_id": run.task_id,
             "status": run.status,
             "chat_id": run.chat_id,
-            "result_summary": run.result_summary,
+            "result_summary": truncate_summary(run.result_summary, summary_limit),
             "error_message": run.error_message,
             "started_at": run.started_at.isoformat() if run.started_at else None,
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,

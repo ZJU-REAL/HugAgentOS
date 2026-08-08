@@ -185,7 +185,7 @@ def list_tasks(*, user_id: str, status: str = "active") -> Dict[str, Any]:
 
 def get_task(*, user_id: str, task_ref: str) -> Dict[str, Any]:
     from core.db.engine import SessionLocal
-    from core.services.automation_service import AutomationService
+    from core.services.automation_service import AutomationService, SUMMARY_LIMIT_BRIEF
 
     with SessionLocal() as db:
         task, cands = _resolve_ref(db, user_id, task_ref)
@@ -195,7 +195,10 @@ def get_task(*, user_id: str, task_ref: str) -> Dict[str, Any]:
             return {"ok": False, "message": f"❌ 没找到任务：{task_ref}"}
         brief = _task_brief(task)
         runs = _svc(db).get_task_runs(task.task_id, limit=5)
-        brief["recent_runs"] = [AutomationService.run_to_dict(r) for r in runs]
+        # result_summary 存全文（渠道投递用），进模型上下文只要短摘要
+        brief["recent_runs"] = [
+            AutomationService.run_to_dict(r, summary_limit=SUMMARY_LIMIT_BRIEF) for r in runs
+        ]
     return {"ok": True, "task": brief}
 
 
