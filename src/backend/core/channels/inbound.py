@@ -18,6 +18,7 @@ import asyncio
 import logging
 import mimetypes
 from collections import OrderedDict, defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from core.channels.protocol import InboundMsg
@@ -287,6 +288,20 @@ _OBSERVE_TEXT_MAX = 500
 # opening long after the chatter around it scrolled out of the message buffer.
 _OBSERVE_FILE_INDEX_MAX = 100
 
+# ── Deterministic history pull budget ────────────────────────────────────────────────────
+# Group history is pulled by code on every @, never by the model deciding to call a tool:
+# a capability that only works when the model remembers to use it is not a capability.
+# Every pull is incremental — bounded below by the stored cursor — so the same messages are
+# not fetched twice; the window below only applies to the very first pull in a conversation,
+# where there is no cursor yet.
+_HISTORY_COLDSTART_WINDOW_H = 24    # how far back the first pull reaches
+_HISTORY_MAX_MESSAGES = 80          # hard cap per pull
+_HISTORY_MAX_TOTAL_CHARS = 12000    # total text budget per pull, so one chatty group can't flood the prompt
+_HISTORY_TIMEOUT_S = 10             # a slow platform must never hold up the reply
+# Consecutive failures after which we stop retrying for a conversation. Without this, a
+# permanently unavailable API would add its timeout to every single @ forever.
+_HISTORY_MAX_FAILURES = 3
+
 
 async def _resolve_addressed(adapter, conn: ChannelConnection, msg: InboundMsg) -> bool:
     """Is this message aimed at the bot? Adapters that cannot decide synchronously defer here.
@@ -374,6 +389,141 @@ def _observe_message(db, conn: ChannelConnection, msg: InboundMsg) -> None:
 
     session.extra_data = meta  # reassign: in-place JSON mutation is not change-tracked
     db.commit()
+
+
+def _record_observed_batch(
+    db, session: ChatSession, items: List[Dict[str, Any]], file_index: Dict[str, Any]
+) -> None:
+    """Append a pulled batch to the observation buffer + file index, respecting the caps."""
+    meta = dict(session.extra_data or {})
+    buf = list(meta.get("observed") or [])
+    buf.extend(items)
+    meta["observed"] = buf[-_OBSERVE_MAX:]
+    if file_index:
+        index = dict(meta.get("observed_files") or {})
+        for key, entry in file_index.items():
+            index.pop(key, None)
+            index[key] = entry
+        while len(index) > _OBSERVE_FILE_INDEX_MAX:
+            index.pop(next(iter(index)))
+        meta["observed_files"] = index
+    session.extra_data = meta
+    db.commit()
+
+
+def _history_state(session: ChatSession) -> Dict[str, Any]:
+    state = (session.extra_data or {}).get("history_pull")
+    return dict(state) if isinstance(state, dict) else {}
+
+
+def _save_history_state(db, session: ChatSession, state: Dict[str, Any]) -> None:
+    meta = dict(session.extra_data or {})
+    meta["history_pull"] = state
+    session.extra_data = meta
+    db.commit()
+
+
+async def _pull_history(
+    db, adapter, conn: ChannelConnection, msg: InboundMsg, session: ChatSession
+) -> int:
+    """Deterministically pull this group's new messages and fold them into the buffer.
+
+    Runs on every @ in a group, driven by code rather than by the model choosing to call a
+    tool. Incremental by construction: the cursor stored on the session is the lower bound, so
+    a pull only ever returns messages we have not already taken. The first pull in a
+    conversation has no cursor and instead reaches back ``_HISTORY_COLDSTART_WINDOW_H`` hours
+    — that is the cold start, and it is also what makes content from *before the bot joined*
+    reachable at all.
+
+    Deliberately independent of group listening: pushing and pulling sit behind different
+    platform permissions, so a channel that will not push non-@ messages may still allow the
+    pull. Returns the number of messages recorded.
+    """
+    fetch = getattr(adapter, "fetch_history", None)
+    if fetch is None:
+        return 0
+    state = _history_state(session)
+    if int(state.get("failures") or 0) >= _HISTORY_MAX_FAILURES:
+        return 0
+
+    cursor = int(state.get("cursor_ms") or 0)
+    if not cursor:
+        # Timezone-aware on purpose: this value is compared against platform epoch-ms, and
+        # the naive-utcnow habit elsewhere in this codebase is exactly what makes stored
+        # timestamps read 8 hours off.
+        cursor = int(
+            (datetime.now(timezone.utc) - timedelta(hours=_HISTORY_COLDSTART_WINDOW_H)).timestamp() * 1000
+        )
+    seen_ids = set(state.get("seen_ids") or [])
+
+    try:
+        items = await asyncio.wait_for(
+            fetch(conn, msg.external_conversation_id, since_ms=cursor, limit=_HISTORY_MAX_MESSAGES),
+            timeout=_HISTORY_TIMEOUT_S,
+        )
+    except Exception:  # noqa: BLE001 — includes timeout; history is a bonus, never a blocker
+        logger.warning(
+            "[channels] 群历史拉取失败 channel_id=%s conv=%s",
+            conn.channel_id, msg.external_conversation_id, exc_info=True,
+        )
+        state["failures"] = int(state.get("failures") or 0) + 1
+        _save_history_state(db, session, state)
+        return 0
+
+    records: List[Dict[str, Any]] = []
+    file_index: Dict[str, Any] = {}
+    budget = _HISTORY_MAX_TOTAL_CHARS
+    newest = cursor
+    for it in items or []:
+        mid = getattr(it, "message_id", "") or ""
+        # Dedup on two fronts: the cursor boundary is inclusive on some platforms, and a
+        # message may also have already arrived via push. Either way it must not be recorded
+        # twice — that is what made repeated pulls wasteful.
+        if mid and (mid in seen_ids or _already_handled(f"hist:{mid}")):
+            continue
+        text = (getattr(it, "text", "") or "").strip()
+        if len(text) > _OBSERVE_TEXT_MAX:
+            text = text[:_OBSERVE_TEXT_MAX] + "…"
+        refs = [
+            {"kind": a.get("kind") or "file", "key": a.get("key") or "", "name": a.get("name") or ""}
+            for a in (getattr(it, "attachments", None) or [])
+            if a.get("key")
+        ]
+        if not text and not refs:
+            continue
+        if len(text) > budget:            # total budget exhausted → stop, keep the cursor honest
+            break
+        budget -= len(text)
+        entry: Dict[str, Any] = {"n": getattr(it, "sender_name", "") or "用户", "t": text}
+        if refs:
+            entry["a"] = refs
+            for ref in refs:
+                file_index[ref["key"]] = {
+                    "name": ref["name"], "kind": ref["kind"],
+                    "message_id": mid, "raw": dict(getattr(it, "raw", None) or {}),
+                }
+        records.append(entry)
+        if mid:
+            seen_ids.add(mid)
+        newest = max(newest, int(getattr(it, "ts_ms", 0) or 0))
+
+    if records:
+        _record_observed_batch(db, session, records, file_index)
+    # Advance the cursor even when nothing was recorded: the window was still covered, and
+    # not advancing would re-request it on every message forever.
+    state.update({
+        "cursor_ms": newest,
+        "failures": 0,
+        # Bounded id memory purely for boundary dedup; the cursor does the real work.
+        "seen_ids": list(seen_ids)[-200:],
+    })
+    _save_history_state(db, session, state)
+    if records:
+        logger.info(
+            "[channels] 群历史拉取 %d 条 channel_id=%s conv=%s",
+            len(records), conn.channel_id, msg.external_conversation_id,
+        )
+    return len(records)
 
 
 def _drain_observed(db, session: ChatSession) -> List[Dict[str, Any]]:
@@ -586,6 +736,10 @@ async def _process_inbound(msg: InboundMsg) -> None:
         # #5 Label the speaker in group scenarios so the agent can tell multi-person conversations apart
         if msg.chat_type == "group":
             user_text = f"{_speaker_label(msg)}：{user_text}"
+            # Deterministic incremental pull, before draining: whatever the platform pushed
+            # (possibly nothing) plus whatever we can pull ends up in the same buffer, and the
+            # drain below sees both. Failure is absorbed inside — it must not block the reply.
+            await _pull_history(db, adapter, conn, msg, session)
             # observe_all: prepend everything the group said since the last @ as background.
             # Prepending into user_text (rather than a separate context field) means it is
             # persisted with the turn, so later turns still see the group log through normal
@@ -657,6 +811,10 @@ async def _process_inbound(msg: InboundMsg) -> None:
             "channel_id": conn.channel_id,
             "conversation_id": msg.external_conversation_id,
             "chat_type": msg.chat_type,
+            # channel_type lets the agent be told *which* platform it is in, so it can reach
+            # for that platform's CLI to pull group history the bot never received (anything
+            # from before it joined). Delivery targets never needed it; the prompt does.
+            "channel_type": conn.channel_type,
         }
         repo.touch_event(conn.channel_id)
         # The commits in create_session / add_message / touch_event expire conn's column

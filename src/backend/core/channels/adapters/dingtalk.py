@@ -158,6 +158,21 @@ class DingTalkAdapter:
             },
         )
 
+    # ── Group history pull: intentionally not implemented ────────────────
+    # ``fetch_history`` is deliberately absent rather than stubbed. The inbound orchestration
+    # treats a missing hook as "this channel cannot pull history" and skips it entirely, which
+    # is the honest state of things: DingTalk's group-message read capability is a reviewed
+    # high-bar permission, and no REST endpoint for reading a group's history with **app**
+    # credentials (AppKey/AppSecret) could be confirmed from the public documentation. The
+    # official `dws` CLI can do it, but it authenticates as a **user** via OAuth — a different
+    # identity and permission model, and not something the inbound path should depend on.
+    #
+    # To implement later: confirm the endpoint + permission name with DingTalk, then add
+    # ``async def fetch_history(self, conn, conversation_id, *, since_ms, limit)`` here
+    # returning HistoryItem objects with ``key`` set to each attachment's downloadCode and
+    # ``raw['dingtalk_robot_code']`` populated, so download_resource keeps working on pulled
+    # files. No orchestration change is needed — the hook is discovered by presence.
+
     # ── Inbound attachments ─────────────────────────────────────────────
     @staticmethod
     def _extract_attachments(msgtype: str, payload: Dict[str, Any]) -> list:

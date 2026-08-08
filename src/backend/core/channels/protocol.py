@@ -88,6 +88,18 @@ class InboundMsg:
 
 
 @dataclass
+class HistoryItem:
+    """One message pulled from a group's history (normalized across channels)."""
+
+    message_id: str
+    sender_name: str
+    text: str
+    ts_ms: int = 0                                     # epoch ms, for cursor advancement
+    attachments: List[Dict[str, Any]] = field(default_factory=list)  # same shape as InboundMsg
+    raw: Dict[str, Any] = field(default_factory=dict)  # what download_resource needs later
+
+
+@dataclass
 class SendResult:
     """Normalized outbound send result."""
 
@@ -167,6 +179,31 @@ class ChannelAdapter(Protocol):
 
     async def validate_credentials(self, conn: Any) -> Dict[str, Any]:
         """Validate credentials at bind time (exchange for an access_token, etc.); returns a bot identity summary. Raises on failure."""
+        ...
+
+    # ── Group history pull (optional) ───────────────────────────────────────
+    async def fetch_history(
+        self, conn: Any, conversation_id: str, *, since_ms: int, limit: int
+    ) -> List["HistoryItem"]:
+        """Pull a group's own messages from the platform, oldest-first.
+
+        This is the *pull* counterpart to group listening's *push*, and the two sit behind
+        **different platform permissions** — which is the whole point of having it. Where a
+        platform will not push non-@ group messages to a bot, pulling with the app's own
+        credentials may still be allowed; and pulling is the only way to see anything from
+        before the bot joined the group.
+
+        Implementations must use the channel **app credentials** (tenant/access token), not a
+        user's OAuth session, so this stays a property of the channel connection rather than
+        of whichever human happens to be linked.
+
+        ``since_ms`` is an epoch-millisecond lower bound (exclusive is preferred; the caller
+        de-duplicates by ``message_id`` regardless, because platforms differ on whether the
+        boundary is inclusive). ``limit`` is a hard cap on returned items.
+
+        Returning an empty list must be indistinguishable from "not supported" for the
+        caller — any failure degrades to "no history", never an exception.
+        """
         ...
 
     # ── Group listening (optional; only channels that defer the @-decision implement this) ──

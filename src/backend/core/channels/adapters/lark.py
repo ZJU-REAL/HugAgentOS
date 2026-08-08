@@ -33,7 +33,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
-from core.channels.protocol import ChannelCaps, InboundMsg, SendResult
+from core.channels.protocol import ChannelCaps, HistoryItem, InboundMsg, SendResult
 from core.infra.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -324,6 +324,85 @@ class LarkAdapter:
             addressed_to_bot=True if chat_type == "p2p" else None,
             mentioned_ids=list(mentioned_ids or []),
             raw={"lark_chat_id": chat_id, "lark_message_id": message_id},
+        )
+
+    # ── Group history pull (app credentials, independent of group listening) ──
+    async def fetch_history(
+        self, conn: Any, conversation_id: str, *, since_ms: int, limit: int
+    ) -> List[HistoryItem]:
+        """GET /open-apis/im/v1/messages — this chat's own messages, oldest-first.
+
+        Uses the tenant token (app credentials), so it is a property of the bound app rather
+        than of any user's session. Note this sits behind a *different* permission from event
+        push: an app that is not allowed to receive non-@ group messages may still be allowed
+        to read the chat's history, which is precisely why pulling is worth having.
+
+        Feishu takes ``start_time`` in **seconds**; the caller works in milliseconds.
+        Any failure returns [] — the caller treats "unsupported" and "failed" alike.
+        """
+        chat_id = (conversation_id or "").strip()
+        if not chat_id:
+            return []
+        try:
+            token = await self._tenant_token(conn.app_id, self._app_secret(conn))
+            params = {
+                "container_id_type": "chat",
+                "container_id": chat_id,
+                "sort_type": "ByCreateTimeAsc",
+                "page_size": str(max(1, min(int(limit or 50), 50))),  # Feishu caps page_size at 50
+            }
+            if since_ms > 0:
+                params["start_time"] = str(int(since_ms // 1000))
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"{LARK_API_BASE}/open-apis/im/v1/messages",
+                    params=params,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            body = resp.json() or {}
+            if resp.status_code != 200 or body.get("code") not in (0, None):
+                logger.warning(
+                    "[lark] 群历史拉取失败 chat=%s code=%s msg=%s",
+                    chat_id, body.get("code"), str(body.get("msg"))[:120],
+                )
+                return []
+            return [
+                item
+                for item in (
+                    self._history_item(raw) for raw in (body.get("data") or {}).get("items") or []
+                )
+                if item is not None
+            ]
+        except Exception:  # noqa: BLE001
+            logger.warning("[lark] 群历史拉取异常 chat=%s", chat_id, exc_info=True)
+            return []
+
+    @classmethod
+    def _history_item(cls, raw: Dict[str, Any]) -> Optional[HistoryItem]:
+        """One ``im/v1/messages`` entry → HistoryItem, reusing the inbound content parser."""
+        if not isinstance(raw, dict) or raw.get("deleted"):
+            return None
+        body = raw.get("body") or {}
+        text, attachments = cls._extract_payload(raw.get("msg_type"), body.get("content"))
+        if not text and not attachments:
+            return None
+        sender = raw.get("sender") or {}
+        message_id = raw.get("message_id") or ""
+        try:
+            ts_ms = int(raw.get("create_time") or 0)
+        except (TypeError, ValueError):
+            ts_ms = 0
+        return HistoryItem(
+            message_id=message_id,
+            # Feishu returns only ids here; a display name would need a directory lookup per
+            # sender, which is not worth an extra API call per message for background context.
+            sender_name=(sender.get("id") or "")[-6:] or "群成员",
+            text=text,
+            ts_ms=ts_ms,
+            attachments=attachments,
+            # download_resource resolves resources by message_id — carry it so a file pulled
+            # from history stays fetchable later via channel_read_attachment.
+            raw={"lark_message_id": message_id},
         )
 
     # ── Group listening: is this group message @'ing the bot? ───────────

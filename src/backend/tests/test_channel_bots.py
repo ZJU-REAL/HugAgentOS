@@ -1533,3 +1533,189 @@ def test_channel_read_attachment_rejects_unknown_and_foreign(db_session, monkeyp
 
     # 不在渠道会话里时工具压根没有 chat_id
     assert "渠道会话" in _tool_json(asyncio.run(_reg_channel_tool("u_o", None)("fk_1")))["error"]
+
+
+# ── 渠道会话身份注入（让 agent 能去拉入群前的群历史）────────────────────────────
+
+
+def test_inbound_channel_origin_carries_channel_type(db_session, monkeypatch):
+    """channel_origin 必须带上 channel_type，否则提示里说不出「哪个平台」、也选不出 CLI。"""
+    import core.channels.inbound as inbound_mod
+
+    chan_id = _mk_conn(db_session).channel_id
+    monkeypatch.setattr(inbound_mod, "SessionLocal", lambda: db_session)
+
+    captured = {}
+
+    class _Ad:
+        caps = None
+        async def resolve_addressed(self, conn, inbound): return True
+        async def send_text(self, *a, **k): return SendResult.ok("x")
+        async def send_placeholder(self, *a, **k): return SendResult.ok("ph")
+
+    monkeypatch.setattr(inbound_mod, "get_adapter", lambda ct: _Ad())
+    # 这个扫描器自己开 DB 会话（不走被 patch 的那个），测试库里没建表 → 直接短路掉，
+    # 本用例只关心 context 的组装。
+    monkeypatch.setattr(
+        "core.chat.context.collect_historical_attachments", lambda *a, **k: []
+    )
+
+    async def _fake_start_run(**kwargs):
+        captured.update(kwargs.get("context") or {})
+        raise RuntimeError("stop here — 只验证 context 组装")
+
+    monkeypatch.setattr("orchestration.chat_run_executor.start_run", _fake_start_run)
+
+    asyncio.run(inbound_mod._process_inbound(
+        _inbound("oc_g1", "group", text="帮我看看群里发的文件", mid="mco1")
+    ))
+
+    origin = captured.get("channel_origin") or {}
+    assert origin.get("channel_type") == "lark"
+    assert origin.get("chat_type") == "group"
+    assert origin.get("conversation_id") == "oc_g1"
+    assert origin.get("channel_id") == chan_id
+
+
+# ── 确定性群历史拉取（代码触发、增量、带预算）──────────────────────────────────
+
+
+class _HistAdapter:
+    """带 fetch_history 的假 adapter；记录每次调用的 since_ms 以验证增量。"""
+
+    def __init__(self, batches):
+        self.batches = list(batches)
+        self.calls = []
+
+    async def fetch_history(self, conn, conversation_id, *, since_ms, limit):
+        self.calls.append({"conv": conversation_id, "since_ms": since_ms, "limit": limit})
+        return self.batches.pop(0) if self.batches else []
+
+
+def _hist(mid, text, ts_ms, name="群友", attachments=None):
+    from core.channels.protocol import HistoryItem
+    return HistoryItem(
+        message_id=mid, sender_name=name, text=text, ts_ms=ts_ms,
+        attachments=attachments or [], raw={"lark_message_id": mid},
+    )
+
+
+def test_history_pull_is_incremental_and_dedupes(db_session):
+    """第二次拉取必须以游标为下界，且边界重复的消息不能重复入库。"""
+    from core.channels.inbound import _find_or_create_session, _pull_history
+
+    conn = _mk_conn(db_session)
+    msg = _inbound("oc_g1", "group", mid="m_at1")
+    session = _find_or_create_session(db_session, conn, msg)
+
+    # 用真实量级的 epoch ms：游标只进不退，比冷启动窗口更旧的时间戳不会让它倒退
+    import time as _t
+    t0 = int(_t.time() * 1000) - 3_600_000       # 1 小时前，落在 24h 冷启动窗口内
+    ad = _HistAdapter([
+        [_hist("h1", "周三评审会", t0), _hist("h2", "地点 302", t0 + 1_000)],
+        # 第二批把 h2 又回了一遍（平台边界通常是闭区间）+ 一条新的
+        [_hist("h2", "地点 302", t0 + 1_000), _hist("h3", "带上季度数据", t0 + 2_000)],
+    ])
+
+    assert asyncio.run(_pull_history(db_session, ad, conn, msg, session)) == 2
+    assert ad.calls[0]["since_ms"] > 0, "首次拉取要有冷启动窗口下界，不能从 0 全量拉"
+    assert ad.calls[0]["limit"] == 80
+
+    assert asyncio.run(_pull_history(db_session, ad, conn, msg, session)) == 1, "重复的不该再记一次"
+    assert ad.calls[1]["since_ms"] == t0 + 1_000, "第二次必须从游标开始，而不是重新拉一遍窗口"
+
+    db_session.refresh(session)
+    texts = [it["t"] for it in (session.extra_data or {})["observed"]]
+    assert texts == ["周三评审会", "地点 302", "带上季度数据"]
+
+
+def test_history_pull_respects_budget_and_truncation(db_session):
+    """总字数预算与单条截断都要生效——活跃群不能把提示词撑爆。"""
+    from core.channels.inbound import (
+        _HISTORY_MAX_TOTAL_CHARS, _OBSERVE_TEXT_MAX, _find_or_create_session, _pull_history,
+    )
+
+    conn = _mk_conn(db_session)
+    msg = _inbound("oc_g2", "group", mid="m_at2")
+    session = _find_or_create_session(db_session, conn, msg)
+
+    import time as _t
+    _now = int(_t.time() * 1000)
+    big = [_hist(f"b{i}", "x" * 5000, _now - 60_000 + i) for i in range(10)]
+    ad = _HistAdapter([big])
+    n = asyncio.run(_pull_history(db_session, ad, conn, msg, session))
+
+    db_session.refresh(session)
+    entries = (session.extra_data or {})["observed"]
+    assert n == len(entries)
+    assert all(len(e["t"]) <= _OBSERVE_TEXT_MAX + 1 for e in entries), "单条要截断"
+    assert sum(len(e["t"]) for e in entries) <= _HISTORY_MAX_TOTAL_CHARS, "总量要卡预算"
+
+
+def test_history_pull_records_attachment_handles(db_session):
+    """历史里的文件同样只留句柄进索引，且带上 message_id 供后续按需取回。"""
+    from core.channels.inbound import _find_or_create_session, _pull_history
+
+    conn = _mk_conn(db_session)
+    msg = _inbound("oc_g3", "group", mid="m_at3")
+    session = _find_or_create_session(db_session, conn, msg)
+
+    ad = _HistAdapter([[
+        _hist("hf1", "看下这个", int(__import__("time").time() * 1000) - 60_000,
+              attachments=[{"kind": "file", "key": "fk_h", "name": "周报.docx"}]),
+    ]])
+    asyncio.run(_pull_history(db_session, ad, conn, msg, session))
+
+    db_session.refresh(session)
+    idx = (session.extra_data or {})["observed_files"]
+    assert idx["fk_h"]["name"] == "周报.docx"
+    assert idx["fk_h"]["message_id"] == "hf1"
+    assert idx["fk_h"]["raw"] == {"lark_message_id": "hf1"}
+
+
+def test_history_pull_degrades_and_stops_retrying(db_session):
+    """拉取失败绝不能影响回复；连续失败到上限后不再重试，避免每条消息都白等一次超时。"""
+    from core.channels.inbound import _HISTORY_MAX_FAILURES, _find_or_create_session, _pull_history
+
+    conn = _mk_conn(db_session)
+    msg = _inbound("oc_g4", "group", mid="m_at4")
+    session = _find_or_create_session(db_session, conn, msg)
+
+    class _Broken:
+        calls = 0
+        async def fetch_history(self, conn, conversation_id, *, since_ms, limit):
+            type(self).calls += 1
+            raise RuntimeError("接口 500")
+
+    bad = _Broken()
+    for _ in range(_HISTORY_MAX_FAILURES + 3):
+        assert asyncio.run(_pull_history(db_session, bad, conn, msg, session)) == 0
+    assert _Broken.calls == _HISTORY_MAX_FAILURES, "到上限后应停止重试"
+
+    # 渠道没实现该钩子（钉钉当前状态）→ 直接跳过，不报错
+    class _NoHook:
+        pass
+    assert asyncio.run(_pull_history(db_session, _NoHook(), conn, msg, session)) == 0
+
+
+def test_lark_history_item_parsing():
+    """飞书 im/v1/messages 条目 → HistoryItem；已删除/不支持类型要跳过。"""
+    item = LarkAdapter._history_item({
+        "message_id": "om_1", "msg_type": "text", "create_time": "1700000000000",
+        "sender": {"id": "ou_abcdef123"},
+        "body": {"content": json.dumps({"text": "@_user_1 周三评审"})},
+    })
+    assert item.message_id == "om_1" and item.ts_ms == 1700000000000
+    assert item.text == "周三评审", "@ 提及应被剥掉"
+    assert item.raw == {"lark_message_id": "om_1"}
+
+    f = LarkAdapter._history_item({
+        "message_id": "om_2", "msg_type": "file", "create_time": "1",
+        "sender": {"id": "ou_x"},
+        "body": {"content": json.dumps({"file_key": "fk", "file_name": "a.pdf"})},
+    })
+    assert f.attachments == [{"kind": "file", "key": "fk", "name": "a.pdf"}]
+
+    assert LarkAdapter._history_item({"message_id": "om_3", "deleted": True}) is None
+    assert LarkAdapter._history_item({"message_id": "om_4", "msg_type": "sticker",
+                                      "body": {"content": "{}"}}) is None
