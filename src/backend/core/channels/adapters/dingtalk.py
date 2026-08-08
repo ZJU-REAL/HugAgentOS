@@ -49,12 +49,20 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
+from datetime import datetime, timezone
+
 from core.channels.markdown import derive_title, downgrade_for_dingtalk
-from core.channels.protocol import ChannelCaps, InboundMsg, SendResult, chunk_text
+from core.channels.protocol import (
+    ChannelCaps,
+    HistoryItem,
+    InboundMsg,
+    SendResult,
+    chunk_text,
+)
 from core.infra.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -75,7 +83,13 @@ class DingTalkAdapter:
         # open platform). Without it, group listening stays inert rather than broken.
         supports_group_observe=True,
         bind_mode="credentials",
-        credential_fields=("app_id", "app_secret"),
+        # mcp_* are optional and only needed for pulling group history through DingTalk's MCP
+        # gateway (see fetch_history): either a user access token, or the service_id +
+        # access_key pair issued when an MCP service is installed for the app. They flow in
+        # through CreateBotRequest.extra and are encrypted into config like any other secret.
+        credential_fields=(
+            "app_id", "app_secret", "mcp_user_token", "mcp_service_id", "mcp_access_key",
+        ),
     )
 
     # access_token cache: {app_id: (token, expire_epoch)} (only for validate/testing; replies use sessionWebhook)
@@ -158,20 +172,136 @@ class DingTalkAdapter:
             },
         )
 
-    # ── Group history pull: intentionally not implemented ────────────────
-    # ``fetch_history`` is deliberately absent rather than stubbed. The inbound orchestration
-    # treats a missing hook as "this channel cannot pull history" and skips it entirely, which
-    # is the honest state of things: DingTalk's group-message read capability is a reviewed
-    # high-bar permission, and no REST endpoint for reading a group's history with **app**
-    # credentials (AppKey/AppSecret) could be confirmed from the public documentation. The
-    # official `dws` CLI can do it, but it authenticates as a **user** via OAuth — a different
-    # identity and permission model, and not something the inbound path should depend on.
+    # ── Group history pull (DingTalk MCP gateway) ────────────────────────
+    # DingTalk exposes no classic REST OpenAPI for reading a group's message history — the
+    # server-side API list only covers sending, recalling and read-receipts. The capability
+    # lives behind DingTalk's **MCP gateway** instead, as the ``list_conversation_message_v2``
+    # tool on the "钉钉群聊" MCP server, which is why it cannot be found among the REST docs.
     #
-    # To implement later: confirm the endpoint + permission name with DingTalk, then add
-    # ``async def fetch_history(self, conn, conversation_id, *, since_ms, limit)`` here
-    # returning HistoryItem objects with ``key`` set to each attachment's downloadCode and
-    # ``raw['dingtalk_robot_code']`` populated, so download_resource keeps working on pulled
-    # files. No orchestration change is needed — the hook is discovered by presence.
+    # Verified against the live gateway:
+    #   POST https://mcp-gw.dingtalk.com/server/<serverId>
+    #   JSON-RPC 2.0  method=tools/call  name=list_conversation_message_v2
+    #   arguments {openconversation_id, time:"yyyy-MM-dd HH:mm:ss", limit, forward}
+    #   → {"result": {"messages": [...], "hasMore": bool, "nextCursor": <epoch ms>}}
+    #
+    # Auth is the part that needs the tenant's own setup, which is why both accepted forms are
+    # supported and neither is hardcoded:
+    #   * ``x-user-access-token`` — a **user** identity token. Confirmed working end-to-end.
+    #   * ``service_id`` + ``access_key`` — the service-level pair the gateway names when no
+    #     token is supplied, issued when an MCP service is installed for an app. Sent in both
+    #     query and headers because the exact placement is not publicly documented and the
+    #     gateway ignores unknown extras.
+    # Credentials come from the connection's own config, so this stays independent of the
+    # `dws` CLI plugin: no subprocess, no sandbox, no reading another tool's keychain.
+    DINGTALK_MCP_GATEWAY = "https://mcp-gw.dingtalk.com/server"
+    # "钉钉群聊" MCP server id (market key 27f939aef74c67b5). Overridable per connection.
+    DINGTALK_GROUP_CHAT_SERVER = (
+        "0a1609437385696b77fc4771c3ddaf5656b487f809966c0cc8d4755e7b1d3b74"
+    )
+
+    def _mcp_auth(self, conn: Any) -> Optional[tuple]:
+        """(url, headers) for the group-chat MCP server, or None when unconfigured."""
+        cfg = conn.config if isinstance(conn.config, dict) else {}
+        server = (cfg.get("mcp_group_chat_server") or self.DINGTALK_GROUP_CHAT_SERVER).strip()
+        url = f"{self.DINGTALK_MCP_GATEWAY}/{server}"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        user_token = decrypt_secret(cfg.get("mcp_user_token_enc")) or ""
+        service_id = decrypt_secret(cfg.get("mcp_service_id_enc")) or ""
+        access_key = decrypt_secret(cfg.get("mcp_access_key_enc")) or ""
+        if user_token:
+            headers["x-user-access-token"] = user_token
+        elif service_id and access_key:
+            headers["service_id"] = service_id
+            headers["access_key"] = access_key
+            url = f"{url}?service_id={service_id}&access_key={access_key}"
+        else:
+            return None  # not configured → the caller skips history entirely
+        return url, headers
+
+    async def fetch_history(
+        self, conn: Any, conversation_id: str, *, since_ms: int, limit: int
+    ) -> List[HistoryItem]:
+        """Pull a group's messages via the MCP gateway. Returns [] on anything unexpected."""
+        conv = (conversation_id or "").strip()
+        auth = self._mcp_auth(conn)
+        if not conv or auth is None:
+            return []
+        url, headers = auth
+        # The tool takes a local-time string, not epoch ms.
+        since_dt = datetime.fromtimestamp(max(since_ms, 0) / 1000, tz=timezone.utc).astimezone()
+        payload = {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "name": "list_conversation_message_v2",
+                "arguments": {
+                    "openconversation_id": conv,
+                    "time": since_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "limit": max(1, min(int(limit or 50), 100)),
+                    "forward": True,   # messages *after* the cursor
+                },
+            },
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                logger.warning(
+                    "[dingtalk] 群历史拉取失败 status=%s body=%s",
+                    resp.status_code, resp.text[:200],
+                )
+                return []
+            return self._parse_mcp_history(resp.json() or {})
+        except Exception:  # noqa: BLE001
+            logger.warning("[dingtalk] 群历史拉取异常 conv=%s", conv[:24], exc_info=True)
+            return []
+
+    @staticmethod
+    def _parse_mcp_history(body: Dict[str, Any]) -> List[HistoryItem]:
+        """JSON-RPC envelope → HistoryItem list.
+
+        The gateway wraps the tool payload in MCP's ``result.content[].text`` when it answers
+        as a tool result, but answers some calls with the raw object; both shapes are handled
+        rather than guessing which one a given deployment returns.
+        """
+        result = body.get("result")
+        if isinstance(result, dict) and "content" in result:
+            for block in result.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    try:
+                        result = json.loads(block.get("text") or "{}")
+                    except Exception:  # noqa: BLE001
+                        result = {}
+                    break
+        if not isinstance(result, dict):
+            return []
+        inner = result.get("result") if isinstance(result.get("result"), dict) else result
+        out: List[HistoryItem] = []
+        for m in inner.get("messages") or []:
+            if not isinstance(m, dict):
+                continue
+            # Written out rather than chained: `a or b if cond else ""` binds the conditional
+            # looser than the `or`, which silently made every message look empty.
+            text = m.get("content") or ""
+            if not text and isinstance(m.get("text"), dict):
+                text = (m["text"].get("content") or "")
+            if not isinstance(text, str):
+                text = str(text)
+            sender = m.get("senderNick") or m.get("senderName") or m.get("senderId") or "群成员"
+            try:
+                ts = int(m.get("createTime") or m.get("createAt") or 0)
+            except (TypeError, ValueError):
+                ts = 0
+            mid = str(m.get("msgId") or m.get("messageId") or "")
+            if not text.strip():
+                continue
+            out.append(HistoryItem(
+                message_id=mid, sender_name=str(sender), text=text.strip(), ts_ms=ts,
+                attachments=[], raw={},
+            ))
+        return out
 
     # ── Inbound attachments ─────────────────────────────────────────────
     @staticmethod

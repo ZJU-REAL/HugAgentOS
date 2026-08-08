@@ -12,6 +12,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import re
 
 import pytest
 
@@ -1719,3 +1720,136 @@ def test_lark_history_item_parsing():
     assert LarkAdapter._history_item({"message_id": "om_3", "deleted": True}) is None
     assert LarkAdapter._history_item({"message_id": "om_4", "msg_type": "sticker",
                                       "body": {"content": "{}"}}) is None
+
+
+# ── 钉钉群历史拉取（MCP 网关）────────────────────────────────────────────────
+
+
+def test_dingtalk_fetch_history_requires_config(db_session):
+    """没配 MCP 凭据就直接跳过——不发一个必然 400 的请求。"""
+    from core.channels.adapters.dingtalk import DingTalkAdapter
+
+    class _Conn:
+        config = {}
+        app_id = "k"
+        channel_id = "c"
+
+    a = DingTalkAdapter()
+    assert asyncio.run(a.fetch_history(_Conn(), "cid", since_ms=0, limit=5)) == []
+    assert a._mcp_auth(_Conn()) is None
+
+
+def test_dingtalk_mcp_auth_forms(monkeypatch):
+    """两种鉴权：用户令牌走 x-user-access-token；服务级走 service_id/access_key。"""
+    from core.channels.adapters import dingtalk as dt
+
+    monkeypatch.setattr(dt, "decrypt_secret", lambda v: v or "")
+    a = dt.DingTalkAdapter()
+
+    class _C:
+        app_id = "k"
+        channel_id = "c"
+        config = {"mcp_user_token_enc": "utok"}
+
+    url, h = a._mcp_auth(_C())
+    assert h["x-user-access-token"] == "utok"
+    assert url.startswith("https://mcp-gw.dingtalk.com/server/")
+    assert "service_id" not in h, "有用户令牌时不该再塞服务级参数"
+
+    class _C2(_C):
+        config = {"mcp_service_id_enc": "svc", "mcp_access_key_enc": "ak"}
+
+    url2, h2 = a._mcp_auth(_C2())
+    assert h2["service_id"] == "svc" and h2["access_key"] == "ak"
+    # 放置位置官方未公开，query 与 header 同时给
+    assert "service_id=svc" in url2 and "access_key=ak" in url2
+
+    # 允许按连接覆盖 server id（钉钉换 MCP server 时不必改代码）
+    class _C3(_C):
+        config = {"mcp_user_token_enc": "t", "mcp_group_chat_server": "SRV123"}
+
+    assert a._mcp_auth(_C3())[0].endswith("/SRV123")
+
+
+def test_dingtalk_fetch_history_call_shape(monkeypatch):
+    """请求体必须是 JSON-RPC tools/call + list_conversation_message_v2，时间是本地时间串。"""
+    import httpx as _httpx
+
+    from core.channels.adapters import dingtalk as dt
+
+    monkeypatch.setattr(dt, "decrypt_secret", lambda v: v or "")
+    captured = {}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+        @staticmethod
+        def json():
+            return {"result": {"messages": [
+                {"msgId": "m1", "senderNick": "张三", "content": "本周进展", "createTime": 1700000000000},
+                {"msgId": "m2", "senderNick": "李四", "content": "  ", "createTime": 1700000001000},
+            ]}}
+
+    class _Client:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, headers=None, json=None):
+            captured.update({"url": url, "headers": headers, "json": json})
+            return _Resp()
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda **kw: _Client())
+
+    class _C:
+        app_id = "k"
+        channel_id = "c"
+        config = {"mcp_user_token_enc": "utok"}
+
+    a = dt.DingTalkAdapter()
+    items = asyncio.run(a.fetch_history(_C(), "cid_x", since_ms=1_700_000_000_000, limit=7))
+
+    params = captured["json"]["params"]
+    assert captured["json"]["method"] == "tools/call"
+    assert params["name"] == "list_conversation_message_v2"
+    args = params["arguments"]
+    assert args["openconversation_id"] == "cid_x"
+    assert args["limit"] == 7 and args["forward"] is True
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", args["time"]), args["time"]
+    # 空白正文的消息不入库
+    assert [i.message_id for i in items] == ["m1"]
+    assert items[0].sender_name == "张三"
+
+
+def test_dingtalk_fetch_history_degrades_on_error(monkeypatch):
+    """非 200 / 异常一律返回 []，绝不把异常抛回入站链路。"""
+    import httpx as _httpx
+
+    from core.channels.adapters import dingtalk as dt
+
+    monkeypatch.setattr(dt, "decrypt_secret", lambda v: v or "")
+
+    class _Bad:
+        status_code = 400
+        text = '{"error":"Missing service_id or access_key"}'
+        @staticmethod
+        def json(): return {}
+
+    class _Client:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, *a, **k): return _Bad()
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda **kw: _Client())
+
+    class _C:
+        app_id = "k"; channel_id = "c"; config = {"mcp_user_token_enc": "t"}
+
+    a = dt.DingTalkAdapter()
+    assert asyncio.run(a.fetch_history(_C(), "cid", since_ms=0, limit=5)) == []
+
+    class _Boom:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, *a, **k): raise RuntimeError("网络挂了")
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda **kw: _Boom())
+    assert asyncio.run(a.fetch_history(_C(), "cid", since_ms=0, limit=5)) == []
