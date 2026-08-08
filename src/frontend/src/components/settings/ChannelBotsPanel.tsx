@@ -180,6 +180,14 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
     try { await updateChannelBot(bot.channel_id, { enabled }); await refresh(); }
     catch (e) { message.error((e as Error)?.message || t('操作失败')); }
   };
+  const onToggleListen = async (bot: ChannelBot, observe: boolean) => {
+    try {
+      await updateChannelBot(bot.channel_id, {
+        group_listen_mode: observe ? 'observe_all' : 'mention_only',
+      });
+      await refresh();
+    } catch (e) { message.error((e as Error)?.message || t('操作失败')); }
+  };
   const onTest = async (bot: ChannelBot) => {
     try { await testChannelBot(bot.channel_id); message.success(t('凭据有效')); }
     catch (e) { message.error((e as Error)?.message || t('测试失败')); }
@@ -223,6 +231,11 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
         )}
         {bots.map((bot) => {
           const meta = STATUS_META[bot.status];
+          // 群聊旁听只在平台可能投递「未 @ 」群消息的渠道上出现（飞书 / 钉钉）——
+          // 企业微信 / 微信结构上拿不到，给开关等于误导用户。
+          const canObserve = adapters.find(
+            (a) => a.channel_type === bot.channel_type,
+          )?.supports_group_observe;
           return (
             <div key={bot.channel_id} className="jx-settings-card" style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -237,6 +250,26 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                   </div>
                   {bot.status === 'error' && bot.last_error && (
                     <div className="jx-conn-desc" style={{ color: '#d4380d', fontSize: 12 }}>{bot.last_error}</div>
+                  )}
+                  {canObserve && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Switch
+                        size="small"
+                        checked={bot.group_listen_mode === 'observe_all'}
+                        onChange={(v) => onToggleListen(bot, v)}
+                      />
+                      <span className="jx-conn-desc" style={{ fontSize: 12 }}>
+                        {t('群聊旁听：读取群里未 @ 它的消息作为上下文（只读不回复）')}
+                      </span>
+                    </div>
+                  )}
+                  {canObserve && bot.group_listen_mode === 'observe_all' && (
+                    <div className="jx-conn-desc" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
+                      {t('开启后群内成员的日常发言会被记录为该机器人的对话上下文，请确保群成员知情。')}
+                      {bot.channel_type === 'lark'
+                        ? t('另需在飞书开放平台为该应用申请敏感权限「获取群组中所有消息」(im:message.group_msg) 并重新发布版本，否则飞书不会推送未 @ 的消息，此开关不会生效。')
+                        : t('另需在钉钉开放平台为该应用申请群消息读取权限，否则钉钉只在被 @ 时回调，此开关不会生效。')}
+                    </div>
                   )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>

@@ -397,6 +397,15 @@ export const SETTINGS_DICT: Record<string, string> = {
     'Bind a channel bot (Feishu / DingTalk / WeCom / WeChat) to sub-agent "{name}": messages sent to it are answered by this sub-agent using its own bound capabilities.',
   '注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到该子智能体的能力。':
     'Note: the bot runs with your permissions — anyone who @-mentions it in a group can reach this sub-agent through it.',
+  // ── 群聊旁听 ──
+  '群聊旁听：读取群里未 @ 它的消息作为上下文（只读不回复）':
+    'Group listening: read messages that do not @-mention the bot as context (read-only, never replied to)',
+  '开启后群内成员的日常发言会被记录为该机器人的对话上下文，请确保群成员知情。':
+    'Once enabled, everyday messages from group members are recorded as this bot\'s conversation context — make sure group members are aware.',
+  '另需在飞书开放平台为该应用申请敏感权限「获取群组中所有消息」(im:message.group_msg) 并重新发布版本，否则飞书不会推送未 @ 的消息，此开关不会生效。':
+    'You must also request the sensitive scope "Read all messages in a group" (im:message.group_msg) for this app on the Feishu open platform and republish the app version; otherwise Feishu never pushes non-@ messages and this switch has no effect.',
+  '另需在钉钉开放平台为该应用申请群消息读取权限，否则钉钉只在被 @ 时回调，此开关不会生效。':
+    'You must also request group-message read permission for this app on the DingTalk open platform; otherwise DingTalk only calls back on @-mentions and this switch has no effect.',
   '还没有机器人，点下方「绑定机器人」创建。': 'No bots yet. Click "Bind bot" below to create one.',
   '绑定机器人': 'Bind bot',
   '绑定': 'Bind',

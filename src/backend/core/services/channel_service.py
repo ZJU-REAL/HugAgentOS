@@ -90,6 +90,7 @@ def bot_to_dict(conn: ChannelConnection) -> Dict[str, Any]:
         "status": conn.status,
         "enabled": conn.enabled,
         "agent_id": conn.agent_id,
+        "group_listen_mode": conn.group_listen_mode,
         "resource_scope": conn.resource_scope,
         "last_event_at": conn.last_event_at.isoformat() if conn.last_event_at else None,
         "last_error": conn.last_error,
@@ -149,6 +150,7 @@ class ChannelService:
         transport: str = "long_conn",
         resource_scope: Optional[Dict[str, Any]] = None,
         agent_id: Optional[str] = None,
+        group_listen_mode: str = "mention_only",
     ) -> ChannelConnection:
         # 1. Capability bit
         caps = resolve_user_capabilities(self.db, owner_id)
@@ -198,6 +200,7 @@ class ChannelService:
             "config": config,
             "resource_scope": _clean_scope(resource_scope),
             "agent_id": agent_id,
+            "group_listen_mode": _validate_group_listen(channel_type, group_listen_mode),
             "status": "pending",
             "enabled": True,
         })
@@ -231,9 +234,14 @@ class ChannelService:
         resource_scope_set: bool = False,
         agent_id: Optional[str] = None,
         agent_id_set: bool = False,
+        group_listen_mode: Optional[str] = None,
     ) -> ChannelConnection:
         conn = self._owned(channel_id, owner_id)
         patch: Dict[str, Any] = {}
+        if group_listen_mode is not None:
+            patch["group_listen_mode"] = _validate_group_listen(
+                conn.channel_type, group_listen_mode
+            )
         if display_name is not None:
             patch["display_name"] = display_name.strip()[:100]
         if resource_scope_set:
@@ -427,6 +435,26 @@ def _manager():
     from core.channels.manager import get_manager
 
     return get_manager()
+
+
+GROUP_LISTEN_MODES = ("mention_only", "observe_all")
+
+
+def _validate_group_listen(channel_type: str, mode: Optional[str]) -> str:
+    """Validate the group-listening mode, rejecting it on channels that can never honor it.
+
+    ``observe_all`` only means anything where the platform is capable of delivering non-@
+    group messages. Storing it on WeCom/WeChat would leave the owner believing the bot reads
+    the group when it structurally cannot — so reject rather than silently accept.
+    """
+    mode = (mode or "mention_only").strip()
+    if mode not in GROUP_LISTEN_MODES:
+        raise BadRequestError(f"group_listen_mode 非法：{mode}")
+    if mode == "observe_all":
+        caps = get_adapter(channel_type).caps
+        if not getattr(caps, "supports_group_observe", False):
+            raise BadRequestError(f"渠道 {channel_type} 不支持群聊旁听")
+    return mode
 
 
 def _clean_scope(scope: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

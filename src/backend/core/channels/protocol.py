@@ -29,6 +29,12 @@ class ChannelCaps:
     splits_long_messages: bool = False
     # Whether a backend-resident long connection (WebSocket / long polling) is supported. False = webhook only.
     supports_long_conn: bool = True
+    # Whether the channel can deliver group messages that do **not** @ the bot (so "silent
+    # observation" is meaningful). Only true where the platform offers such a permission
+    # (Lark ``im:message.group_msg`` / DingTalk group-message read). The frontend uses this to
+    # decide whether to offer the group-listening switch at all — without the flag the switch
+    # would be a lie, since the platform never pushes the messages in the first place.
+    supports_group_observe: bool = False
     # Bind mode: 'credentials' (fill in an App ID/Secret form) | 'qr' (QR-scan device flow, e.g. WeChat iLink).
     # The frontend uses this to decide between showing a credential form or a QR button — avoiding "if channel name" in the frontend.
     bind_mode: str = "credentials"
@@ -61,6 +67,20 @@ class InboundMsg:
     sender_id: str = ""                   # speaker open_id (audit only, not resolved to a platform account)
     sender_name: str = ""                 # speaker nickname (audit)
     message_id: str = ""                  # channel-side message ID (idempotent dedup)
+    # Is this message directed at the bot (p2p, or an @bot in a group)?
+    #   True  → run the agent and reply
+    #   False → a bystander group message; only meaningful when the channel is in
+    #           ``observe_all`` group-listening mode, where it is recorded as context and
+    #           **never** replied to
+    #   None  → the adapter cannot decide synchronously (Lark needs the bot's own open_id,
+    #           which requires an API call); inbound orchestration resolves it via the
+    #           adapter's optional ``resolve_addressed`` hook, defaulting to True.
+    # Default None + a True-defaulting resolver keeps channels that never learned about this
+    # field (WeCom / WeChat) behaving exactly as before.
+    addressed_to_bot: Optional[bool] = None
+    # Platform IDs mentioned in this message (Lark open_id, etc.). Only populated when the
+    # adapter defers the decision; ``resolve_addressed`` matches the bot's own ID against it.
+    mentioned_ids: List[str] = field(default_factory=list)
     # Inbound attachments (files/images): each item {kind: 'file'|'image', key: <resource key>, name: <filename>}.
     # Parsed by the adapter; inbound orchestration downloads from it → stores an Artifact → injects into uploaded_files for the agent to read.
     attachments: List[Dict[str, Any]] = field(default_factory=list)
@@ -147,6 +167,17 @@ class ChannelAdapter(Protocol):
 
     async def validate_credentials(self, conn: Any) -> Dict[str, Any]:
         """Validate credentials at bind time (exchange for an access_token, etc.); returns a bot identity summary. Raises on failure."""
+        ...
+
+    # ── Group listening (optional; only channels that defer the @-decision implement this) ──
+    async def resolve_addressed(self, conn: Any, inbound: InboundMsg) -> bool:
+        """Decide whether a group message with ``addressed_to_bot is None`` is aimed at the bot.
+
+        Implemented by channels that need an API call to learn their own bot identity (Lark:
+        the bot's open_id, matched against ``inbound.mentioned_ids``). Must **fail open**
+        (return True) when the identity cannot be determined — a bot that answers a message it
+        was not @'d in is a far smaller failure than one that silently ignores a direct @.
+        """
         ...
 
     # ── Files (optional; channels without file support may skip these — inbound orchestration checks hasattr) ──────

@@ -2947,6 +2947,12 @@ export interface ChannelBot {
   enabled: boolean;
   /** Bound sub-agent ID; null = main agent (the owner's default capabilities) */
   agent_id: string | null;
+  /**
+   * 群聊旁听：`mention_only` 仅处理 @ 机器人的消息；`observe_all` 旁观群内其他消息作为上下文
+   * （不回复）。`observe_all` 还需渠道应用本身具备平台的「读取群内全部消息」权限，否则平台
+   * 根本不会把未 @ 的消息推过来。
+   */
+  group_listen_mode: 'mention_only' | 'observe_all';
   resource_scope: { kb_ids?: string[]; skill_ids?: string[] } | null;
   last_event_at: string | null;
   last_error: string | null;
@@ -2959,6 +2965,8 @@ export interface ChannelAdapterInfo {
   max_message_len: number;
   supports_markdown: boolean;
   supports_long_conn: boolean;
+  /** 该渠道是否可能投递「未 @ 机器人」的群消息（即群聊旁听是否有意义） */
+  supports_group_observe: boolean;
   bind_mode: 'credentials' | 'qr';
   credential_fields: string[];
 }
@@ -2975,6 +2983,8 @@ export interface CreateChannelBotPayload {
   resource_scope?: { kb_ids?: string[]; skill_ids?: string[] };
   /** Bind to a specific sub-agent; omitted = main agent */
   agent_id?: string;
+  /** 群聊旁听模式；不传 = mention_only */
+  group_listen_mode?: 'mention_only' | 'observe_all';
 }
 
 export async function listChannelAdapters(): Promise<ChannelAdapterInfo[]> {
@@ -3006,7 +3016,13 @@ export async function createChannelBot(payload: CreateChannelBotPayload): Promis
 
 export async function updateChannelBot(
   channelId: string,
-  patch: { display_name?: string; enabled?: boolean; resource_scope?: { kb_ids?: string[]; skill_ids?: string[] }; agent_id?: string | null },
+  patch: {
+    display_name?: string;
+    enabled?: boolean;
+    resource_scope?: { kb_ids?: string[]; skill_ids?: string[] };
+    agent_id?: string | null;
+    group_listen_mode?: 'mention_only' | 'observe_all';
+  },
 ): Promise<ChannelBot> {
   const wrapped = await apiRequest<unknown>(`/v1/channels/bots/${channelId}`, {
     method: 'PATCH',
