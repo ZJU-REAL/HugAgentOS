@@ -69,6 +69,11 @@ class DingTalkAdapter:
         supports_markdown=True,
         splits_long_messages=False,
         supports_long_conn=True,
+        # DingTalk exposes ``isInAtList`` on every bot callback, so the gate is already
+        # wired; whether non-@ group messages ever get delivered depends on the tenant
+        # holding DingTalk's group-message read permission (applied for and reviewed on the
+        # open platform). Without it, group listening stays inert rather than broken.
+        supports_group_observe=True,
         bind_mode="credentials",
         credential_fields=("app_id", "app_secret"),
     )
@@ -118,7 +123,8 @@ class DingTalkAdapter:
             # Rich text: concatenate the plain-text nodes inside
             parts = (payload.get("content") or {}).get("richText") or []
             text = " ".join(p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")).strip()
-        if not text:
+        attachments = self._extract_attachments(msgtype, payload)
+        if not text and not attachments:
             return None
         conv_type = str(payload.get("conversationType") or "1")
         chat_type = "group" if conv_type == "2" else "p2p"
@@ -132,12 +138,109 @@ class DingTalkAdapter:
             sender_id=payload.get("senderStaffId") or payload.get("senderId") or "",
             sender_name=payload.get("senderNick") or "",
             message_id=payload.get("msgId") or "",
-            attachments=[],
+            attachments=attachments,
+            # ``isInAtList`` is DingTalk's own "was the bot in the @ list" flag. With only the
+            # default permission DingTalk delivers @bot messages exclusively, so this is
+            # always true and the gate is a no-op; once the tenant is granted group-message
+            # read, non-@ messages start arriving with it false and silent observation kicks
+            # in with no further code change. Absent field → treat as addressed.
+            addressed_to_bot=(
+                True if chat_type == "p2p" else bool(payload.get("isInAtList", True))
+            ),
             raw={
                 "dingtalk_session_webhook": payload.get("sessionWebhook") or "",
                 "dingtalk_conversation_id": conv_id,
+                # Needed by download_resource: messageFiles/download requires robotCode, and
+                # per DingTalk's docs it is **not** the AppKey — the only reliable source is
+                # this field on the callback payload (present in Stream mode, which is what
+                # the long connection uses).
+                "dingtalk_robot_code": payload.get("robotCode") or "",
             },
         )
+
+    # ── Inbound attachments ─────────────────────────────────────────────
+    @staticmethod
+    def _extract_attachments(msgtype: str, payload: Dict[str, Any]) -> list:
+        """Message → attachment list. ``key`` carries DingTalk's ``downloadCode``.
+
+        Content layout per DingTalk's "received message types" reference:
+          picture  → {pictureDownloadCode, downloadCode}
+          file     → {spaceId, fileName, downloadCode, fileId}
+          audio    → {downloadCode, recognition}
+          video    → {duration, videoType, downloadCode}
+          richText → {richText: [ ...nodes, image nodes carry downloadCode... ]}
+        Everything is read defensively (``downloadCode`` looked up in more than one place)
+        because these payloads are only loosely specified and vary by client version — a
+        missing field must degrade to "no attachment", never raise and kill the connection.
+        """
+        content = payload.get("content") if isinstance(payload.get("content"), dict) else {}
+        out: list = []
+
+        def _add(kind: str, code: Any, name: str) -> None:
+            if code:
+                out.append({"kind": kind, "key": str(code), "name": name})
+
+        if msgtype == "picture":
+            code = content.get("downloadCode") or content.get("pictureDownloadCode")
+            _add("image", code, f"dingtalk_image_{payload.get('msgId', '')[:8] or 'x'}.png")
+        elif msgtype == "file":
+            _add("file", content.get("downloadCode"), content.get("fileName") or "file.bin")
+        elif msgtype == "audio":
+            _add("file", content.get("downloadCode"), "dingtalk_audio.amr")
+        elif msgtype == "video":
+            _add("file", content.get("downloadCode"), "dingtalk_video.mp4")
+        elif msgtype == "richText":
+            for i, node in enumerate(content.get("richText") or []):
+                if not isinstance(node, dict):
+                    continue
+                code = node.get("downloadCode") or node.get("pictureDownloadCode")
+                _add("image", code, f"dingtalk_richtext_{i}.png")
+        return out
+
+    async def download_resource(
+        self, conn: Any, inbound: InboundMsg, attachment: Dict[str, Any]
+    ) -> Optional[bytes]:
+        """Download an inbound attachment: downloadCode → temporary downloadUrl → bytes.
+
+        Two hops, per DingTalk's design:
+          POST /v1.0/robot/messageFiles/download {downloadCode, robotCode} → {downloadUrl}
+          GET  downloadUrl → bytes
+        The temporary URL serves the file with a ``.file`` extension; we ignore that and keep
+        the filename taken from the message, so the artifact keeps its real extension.
+        Download codes expire, so a deferred fetch can legitimately fail — returning None
+        (rather than raising) lets the caller degrade to "attachment unavailable".
+        """
+        code = attachment.get("key")
+        robot_code = (inbound.raw or {}).get("dingtalk_robot_code") or ""
+        if not code:
+            return None
+        if not robot_code:
+            logger.warning("[dingtalk] 缺少 robotCode，无法下载附件 code=%s", str(code)[:12])
+            return None
+        try:
+            token = await self._access_token(conn.app_id, self._app_secret(conn))
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{DINGTALK_API_BASE}/v1.0/robot/messageFiles/download",
+                    headers={"x-acs-dingtalk-access-token": token},
+                    json={"downloadCode": code, "robotCode": robot_code},
+                )
+                if resp.status_code != 200:
+                    logger.warning(
+                        "[dingtalk] 下载地址获取失败 status=%s body=%s",
+                        resp.status_code, resp.text[:200],
+                    )
+                    return None
+                url = (resp.json() or {}).get("downloadUrl")
+                if not url:
+                    return None
+                fr = await client.get(url)
+            if fr.status_code == 200:
+                return fr.content
+            logger.warning("[dingtalk] 附件下载失败 status=%s", fr.status_code)
+        except Exception:  # noqa: BLE001
+            logger.exception("[dingtalk] 附件下载异常 code=%s", str(code)[:12])
+        return None
 
     # ── Outbound push (via sessionWebhook, no access_token needed) ───────
     @staticmethod

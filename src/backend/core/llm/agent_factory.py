@@ -41,6 +41,7 @@ from core.llm.tools import (
     register_bash,
     register_delete,
     register_edit,
+    register_channel_attachment,
     register_get_data_context,
     register_glob,
     register_grep,
@@ -1145,6 +1146,13 @@ async def create_agent_executor(
         # Unconditional: any user may have uploaded files in prior turns of this chat,
         # and the hook injects historical-file summaries referencing this tool.
         register_read_artifact(toolkit, user_id=current_user_id)
+
+        # ── Phase 3.7b: channel_read_attachment (channel runs only) ──
+        # Group listening records bystander attachments by key without downloading them;
+        # this is how the agent pulls one in on demand. Gated on channel runs so the tool
+        # never clutters the toolkit of web conversations, where it could never resolve.
+        if _is_channel_run:
+            register_channel_attachment(toolkit, user_id=current_user_id, chat_id=chat_id)
 
         # ── Phase 3.8: Register pin_to_workspace ──
         # Lets the agent gate which generated files reach the user-visible

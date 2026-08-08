@@ -28,6 +28,7 @@ from .sandbox_tool import (
 from .skill_tool import (
     register_sandboxed_view_text_file,
 )
+from .channel_attachment_tool import register_channel_attachment
 from .myspace_tool import register_myspace_tools
 from .pin_tool import register_pin_to_workspace
 from .read_artifact_tool import register_read_artifact
@@ -37,6 +38,7 @@ __all__ = [
     "ReadEntry",
     "ReadStateTracker",
     "register_bash",
+    "register_channel_attachment",
     "register_get_data_context",
     "register_delete",
     "register_edit",

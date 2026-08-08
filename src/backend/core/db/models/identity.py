@@ -393,6 +393,18 @@ class ChannelConnection(Base):
     agent_id = Column(
         String(64), ForeignKey("user_agents.agent_id", ondelete="SET NULL"), nullable=True
     )
+    # Group listening: how much of a group conversation the bot may see.
+    #   mention_only (default) — only messages that @ the bot; anything else is dropped.
+    #   observe_all            — bystander group messages are recorded as background context
+    #                            (never replied to) and folded into the next @bot turn.
+    # observe_all is inert unless the channel app also holds the platform's "read all group
+    # messages" permission (Lark ``im:message.group_msg`` / DingTalk group-message read) —
+    # without it the platform never delivers non-@ messages in the first place.
+    # Defaults to mention_only because observing a whole group's chatter is privacy-sensitive
+    # and must be an explicit, per-bot decision by the owner.
+    group_listen_mode = Column(
+        String(16), nullable=False, default="mention_only", server_default="mention_only"
+    )
     # disconnected (default / disconnected) | pending (verifying) | connected | error
     status = Column(String(16), nullable=False, default="pending")
     enabled = Column(Boolean, nullable=False, default=True)
@@ -409,6 +421,10 @@ class ChannelConnection(Base):
         CheckConstraint(
             "transport IN ('long_conn', 'webhook')",
             name="channel_connections_transport_check",
+        ),
+        CheckConstraint(
+            "group_listen_mode IN ('mention_only', 'observe_all')",
+            name="channel_connections_group_listen_check",
         ),
         # token lock: within the same channel, the same app can only be bound once (prevents multiple people grabbing the same bot credentials)
         UniqueConstraint("channel_type", "app_id", name="uq_channel_connections_type_app"),

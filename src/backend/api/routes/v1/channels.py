@@ -49,12 +49,17 @@ class CreateBotRequest(BaseModel):
     # messages are pinned to that sub-agent; omitted / null -> main agent (owner's default
     # capabilities); the "my bot" binding uses this path.
     agent_id: Optional[str] = Field(None, description="绑定的子智能体 ID；空 = 主智能体")
+    group_listen_mode: str = Field(
+        "mention_only",
+        description="群聊旁听：mention_only=仅处理 @ 机器人的消息；observe_all=旁观群内其他消息作为上下文（不回复）",
+    )
 
 
 class UpdateBotRequest(BaseModel):
     display_name: Optional[str] = Field(None, max_length=100)
     enabled: Optional[bool] = None
     resource_scope: Optional[_ResourceScope] = None
+    group_listen_mode: Optional[str] = Field(None, description="群聊旁听模式；不传 = 不改")
     # Rebind only when this key is explicitly passed (including passing null to unbind);
     # untouched if omitted. Distinguished via model_fields_set.
     agent_id: Optional[str] = Field(None, description="改绑的子智能体 ID；null = 解绑回主智能体")
@@ -66,6 +71,7 @@ def _caps_to_dict(caps: ChannelCaps) -> Dict[str, Any]:
         "max_message_len": caps.max_message_len,
         "supports_markdown": caps.supports_markdown,
         "supports_long_conn": caps.supports_long_conn,
+        "supports_group_observe": getattr(caps, "supports_group_observe", False),
         "bind_mode": getattr(caps, "bind_mode", "credentials"),
         "credential_fields": list(getattr(caps, "credential_fields", ("app_id", "app_secret"))),
     }
@@ -127,6 +133,7 @@ async def create_bot(
         transport=body.transport,
         resource_scope=body.resource_scope.model_dump() if body.resource_scope else None,
         agent_id=body.agent_id,
+        group_listen_mode=body.group_listen_mode,
     )
     data = bot_to_dict(conn)
     # In webhook mode, echo back the callback address for the user to fill into the channel backend.
@@ -152,6 +159,7 @@ async def update_bot(
         resource_scope_set=body.resource_scope is not None,
         agent_id=body.agent_id,
         agent_id_set="agent_id" in body.model_fields_set,
+        group_listen_mode=body.group_listen_mode,
     )
     return success_response(data=bot_to_dict(conn))
 

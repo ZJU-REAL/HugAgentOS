@@ -29,7 +29,7 @@ import os
 import re
 import threading
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
@@ -94,10 +94,21 @@ class LarkAdapter:
         supports_markdown=False,     # uses text messages; rich text (post) left for later
         splits_long_messages=False,
         supports_long_conn=True,
+        # Feishu gates group delivery with three mutually distinct scopes:
+        #   im:message.group_at_msg                        → only messages @-ing this bot
+        #   im:message.group_at_msg.include_bot:readonly   → messages @-ing any bot
+        #   im:message.group_msg (sensitive)               → every group message
+        # Group listening needs the last one, plus republishing the app version; with the
+        # others Feishu never pushes a non-@ message and observe_all stays inert. Note the
+        # @-gate is worth running under the middle scope too: it stops us answering a message
+        # that @'d somebody else's bot.
+        supports_group_observe=True,
     )
 
     # tenant_access_token cache: {app_id: (token, expire_epoch)}
     _token_cache: Dict[str, tuple] = {}
+    # The bot's own open_id: {app_id: open_id}. Stable per app → cached without expiry.
+    _bot_id_cache: Dict[str, str] = {}
 
     # ── Credentials ─────────────────────────────────────────────────────
     @staticmethod
@@ -201,8 +212,27 @@ class LarkAdapter:
             sender_open_id=sender_open_id,
             sender_name=(sender.get("sender_id") or {}).get("user_id", "") or "",
             attachments=attachments,
+            mentioned_ids=self._mentioned_ids(message),
             raw=payload,
         )
+
+    @staticmethod
+    def _mentioned_ids(message: Dict[str, Any]) -> List[str]:
+        """open_ids of everyone @'d in this message (``message.mentions``).
+
+        Only relevant once the app holds ``im:message.group_msg`` and Feishu starts pushing
+        non-@ group messages too — until then every delivered group message has the bot in
+        here anyway. The bot's own open_id is not known synchronously, so matching happens
+        later in ``resolve_addressed``.
+        """
+        out: List[str] = []
+        for m in message.get("mentions") or []:
+            if not isinstance(m, dict):
+                continue
+            oid = (m.get("id") or {}).get("open_id") if isinstance(m.get("id"), dict) else None
+            if oid:
+                out.append(oid)
+        return out
 
     @staticmethod
     def _strip_mentions(text: str) -> str:
@@ -277,7 +307,7 @@ class LarkAdapter:
     def _make_inbound(
         *, conn: Any, chat_id: str, chat_type: str, message_id: str,
         text: str, sender_open_id: str, sender_name: str,
-        raw: Dict[str, Any], attachments=None,
+        raw: Dict[str, Any], attachments=None, mentioned_ids=None,
     ) -> InboundMsg:
         return InboundMsg(
             channel_id=conn.channel_id,
@@ -289,8 +319,50 @@ class LarkAdapter:
             sender_name=sender_name,
             message_id=message_id,
             attachments=attachments or [],
+            # p2p is always aimed at the bot; in a group it depends on whether the bot's own
+            # open_id is in the mention list — resolved asynchronously in resolve_addressed.
+            addressed_to_bot=True if chat_type == "p2p" else None,
+            mentioned_ids=list(mentioned_ids or []),
             raw={"lark_chat_id": chat_id, "lark_message_id": message_id},
         )
+
+    # ── Group listening: is this group message @'ing the bot? ───────────
+    async def resolve_addressed(self, conn: Any, inbound: InboundMsg) -> bool:
+        """True when the bot's own open_id appears in the message's mention list.
+
+        Fails open (True) whenever the bot identity cannot be fetched, so a transient
+        ``bot/v3/info`` failure degrades to today's behavior (answer everything delivered)
+        rather than making the bot go mute in the group.
+        """
+        try:
+            bot_open_id = await self._bot_open_id(conn)
+        except Exception:  # noqa: BLE001
+            logger.debug("[lark] 机器人 open_id 获取失败，按「已被 @」处理", exc_info=True)
+            return True
+        if not bot_open_id:
+            return True
+        return bot_open_id in (inbound.mentioned_ids or [])
+
+    async def _bot_open_id(self, conn: Any) -> str:
+        """The bot's own open_id (``/open-apis/bot/v3/info``), cached per app_id.
+
+        Feishu never puts the bot identity in the event payload, so it has to be fetched once
+        and kept. The value is stable for the lifetime of the app, hence a plain process cache
+        with no expiry (a restart just re-fetches).
+        """
+        cached = self._bot_id_cache.get(conn.app_id)
+        if cached:
+            return cached
+        token = await self._tenant_token(conn.app_id, self._app_secret(conn))
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{LARK_API_BASE}/open-apis/bot/v3/info",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        open_id = ((resp.json() or {}).get("bot") or {}).get("open_id") or ""
+        if open_id:
+            self._bot_id_cache[conn.app_id] = open_id
+        return open_id
 
     # ── Outbound push ───────────────────────────────────────────────────
     def _chat_id(self, inbound: InboundMsg) -> str:
@@ -504,5 +576,21 @@ class LarkAdapter:
             sender_open_id=open_id or "",
             sender_name="",
             attachments=attachments,
+            mentioned_ids=self._sdk_mentioned_ids(message),
             raw={},
         )
+
+    @staticmethod
+    def _sdk_mentioned_ids(message: Any) -> List[str]:
+        """SDK-typed counterpart of ``_mentioned_ids`` (``MentionEvent.id.open_id``).
+
+        The long connection is the production path, so mention extraction must exist on both
+        sides; missing it here would make every group message look un-@'d.
+        """
+        out: List[str] = []
+        for m in getattr(message, "mentions", None) or []:
+            ident = getattr(m, "id", None)
+            oid = getattr(ident, "open_id", "") if ident is not None else ""
+            if oid:
+                out.append(oid)
+        return out
