@@ -535,7 +535,21 @@ async def _process_inbound(msg: InboundMsg) -> None:
             if conn.group_listen_mode == "observe_all":
                 _observe_message(db, conn, msg)
                 repo.touch_event(conn.channel_id)  # bystander traffic still proves the connection is alive
-            # mention_only → drop entirely, exactly as before this feature existed.
+                logger.info(
+                    "[channels] 旁听群消息 channel_id=%s type=%s conv=%s",
+                    conn.channel_id, conn.channel_type, msg.external_conversation_id,
+                )
+            else:
+                # mention_only → drop entirely, exactly as before this feature existed.
+                # Logged because reaching this line at all is the *only* evidence that the
+                # platform is delivering non-@ group messages (i.e. that the "read all group
+                # messages" permission is actually granted). Without it, "the bot ignores the
+                # group" and "the platform never sends the group" look identical from outside.
+                # DEBUG, not INFO: an active group would otherwise flood the log.
+                logger.debug(
+                    "[channels] 丢弃未 @ 的群消息（旁听未开启）channel_id=%s type=%s",
+                    conn.channel_id, conn.channel_type,
+                )
             # Either way: no reset-command handling, no run, no placeholder, no reply.
             db.close()
             return
