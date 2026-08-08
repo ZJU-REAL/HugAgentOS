@@ -1,9 +1,12 @@
 """Unit test for ``backfill_navigation_entries``.
 
-Verifies the three states:
-1. Row missing → no-op, returns 0
-2. Row exists but missing 'projects' → adds to sidebar_items/panel_titles/panel_subtitles
-3. Row already up-to-date → idempotent, returns 0
+Covers:
+1. Row missing / malformed → no-op, returns 0
+2. Missing entries → seeded into their declared bucket (sidebar_items or menu_items)
+   plus panel_titles / panel_subtitles
+3. Already up-to-date → idempotent, returns 0, custom copy preserved
+4. Anchor absent → degrade to appending at the end
+5. Entry parked in the *other* bucket → treated as present, never duplicated
 """
 from __future__ import annotations
 
@@ -24,61 +27,32 @@ def _make_db(row):
     return db
 
 
+def _nav(sidebar: list[str], menu: list[str], titles=None, subtitles=None) -> dict:
+    """Build a navigation payload that already contains every whitelisted entry except
+    the ones the individual test wants to exercise, so each test isolates one behaviour."""
+    return {
+        "navigation": {
+            "sidebar_items": sidebar,
+            "menu_items": menu,
+            "panel_titles": titles if titles is not None else {},
+            "panel_subtitles": subtitles if subtitles is not None else {},
+        },
+    }
+
+
+# Every key in _NAV_BACKFILL_ENTRIES; used to build "steady state" fixtures.
+_ALL_TITLES = {
+    "projects": "项目",
+    "automation": "定时任务",
+    "sites": "站点",
+}
+_ALL_SUBTITLES = {k: f"{k} sub" for k in _ALL_TITLES}
+
+
 def test_no_row_returns_zero():
     db = _make_db(None)
     assert backfill_navigation_entries(db) == 0
     db.commit.assert_not_called()
-
-
-def test_full_backfill_when_all_three_missing():
-    row = _make_row({
-        "navigation": {
-            "sidebar_items": ["agents", "kb", "app_center", "my_space"],
-            "panel_titles": {"app_center": "应用中心"},
-            "panel_subtitles": {"app_center": "..."},
-        },
-    })
-    db = _make_db(row)
-    changed = backfill_navigation_entries(db)
-    # 1 sidebar insert + 1 title + 1 subtitle = 3 fields
-    assert changed == 3
-    nav = row.payload["navigation"]
-    # Inserted after 'app_center'
-    assert nav["sidebar_items"] == ["agents", "kb", "app_center", "projects", "my_space"]
-    assert nav["panel_titles"]["projects"] == "项目"
-    assert nav["panel_subtitles"]["projects"] == "把对话、文件和指令打包成专属工作空间"
-    db.commit.assert_called_once()
-
-
-def test_idempotent_when_already_present():
-    row = _make_row({
-        "navigation": {
-            "sidebar_items": ["agents", "kb", "app_center", "projects", "my_space"],
-            "panel_titles": {"projects": "Custom Title"},
-            "panel_subtitles": {"projects": "Custom Sub"},
-        },
-    })
-    db = _make_db(row)
-    changed = backfill_navigation_entries(db)
-    assert changed == 0
-    db.commit.assert_not_called()
-    # Don't overwrite custom values
-    assert row.payload["navigation"]["panel_titles"]["projects"] == "Custom Title"
-
-
-def test_anchor_missing_falls_back_to_append():
-    row = _make_row({
-        "navigation": {
-            "sidebar_items": ["agents", "kb"],  # no app_center anchor
-            "panel_titles": {},
-            "panel_subtitles": {},
-        },
-    })
-    db = _make_db(row)
-    changed = backfill_navigation_entries(db)
-    assert changed == 3
-    # Appended at end because 'app_center' not found
-    assert row.payload["navigation"]["sidebar_items"] == ["agents", "kb", "projects"]
 
 
 def test_malformed_payload_returns_zero():
@@ -88,19 +62,99 @@ def test_malformed_payload_returns_zero():
     db.commit.assert_not_called()
 
 
-def test_partial_backfill_when_only_sidebar_missing():
-    row = _make_row({
-        "navigation": {
-            "sidebar_items": ["agents", "kb", "app_center", "my_space"],
-            "panel_titles": {"projects": "项目"},  # already has
-            "panel_subtitles": {"projects": "已有"},  # already has
-        },
-    })
+def test_seeds_missing_entries_into_their_declared_bucket():
+    """A legacy row that predates all three entries gets each one seeded into the bucket
+    its whitelist entry declares — projects into the user menu, automation/sites into the
+    sidebar — each next to its anchor."""
+    row = _make_row(_nav(
+        sidebar=["ability_center", "my_space"],
+        menu=["settings", "app_center", "lab"],
+    ))
     db = _make_db(row)
     changed = backfill_navigation_entries(db)
-    # Only the sidebar list mutated
-    assert changed == 1
+    # 3 entries × (list + title + subtitle) = 9 fields
+    assert changed == 9
     nav = row.payload["navigation"]
-    assert "projects" in nav["sidebar_items"]
+    # projects → menu_items, right after its 'app_center' anchor
+    assert nav["menu_items"] == ["settings", "app_center", "projects", "lab"]
+    # automation after 'ability_center', then sites after 'automation'
+    assert nav["sidebar_items"] == ["ability_center", "automation", "sites", "my_space"]
+    assert nav["panel_titles"]["automation"] == "定时任务"
+    assert nav["panel_subtitles"]["sites"].startswith("在对话里描述需求")
+    db.commit.assert_called_once()
+
+
+def test_idempotent_when_already_present():
+    row = _make_row(_nav(
+        sidebar=["ability_center", "automation", "sites", "my_space"],
+        menu=["settings", "app_center", "projects", "lab"],
+        titles={**_ALL_TITLES, "projects": "Custom Title"},
+        subtitles={**_ALL_SUBTITLES, "projects": "Custom Sub"},
+    ))
+    db = _make_db(row)
+    assert backfill_navigation_entries(db) == 0
+    db.commit.assert_not_called()
+    # Never overwrite operator-customised copy
+    assert row.payload["navigation"]["panel_titles"]["projects"] == "Custom Title"
+
+
+def test_anchor_missing_falls_back_to_append():
+    """'automation' anchors after 'ability_center'; with the anchor gone it appends."""
+    row = _make_row(_nav(
+        sidebar=["my_space"],  # no 'ability_center' anchor
+        menu=["settings", "app_center", "projects", "lab"],
+        titles=dict(_ALL_TITLES),
+        subtitles=dict(_ALL_SUBTITLES),
+    ))
+    db = _make_db(row)
+    changed = backfill_navigation_entries(db)
+    # only automation + sites lists mutate (titles/subtitles already present)
+    assert changed == 2
+    # automation appended, then sites lands after its 'automation' anchor
+    assert row.payload["navigation"]["sidebar_items"] == ["my_space", "automation", "sites"]
+
+
+def test_partial_backfill_when_only_list_missing():
+    row = _make_row(_nav(
+        sidebar=["ability_center", "automation", "sites", "my_space"],
+        menu=["settings", "app_center", "lab"],  # projects missing here only
+        titles=dict(_ALL_TITLES),
+        subtitles=dict(_ALL_SUBTITLES),
+    ))
+    db = _make_db(row)
+    assert backfill_navigation_entries(db) == 1
+    nav = row.payload["navigation"]
+    assert nav["menu_items"] == ["settings", "app_center", "projects", "lab"]
     assert nav["panel_titles"]["projects"] == "项目"
-    assert nav["panel_subtitles"]["projects"] == "已有"
+
+
+def test_entry_moved_to_other_bucket_is_left_alone():
+    """Regression: an operator who moved 'projects' out of the user menu and into the
+    sidebar (or the reverse) must not have it re-seeded — that would resurrect it in the
+    bucket the whitelist prefers and leave it duplicated in both on every restart."""
+    row = _make_row(_nav(
+        sidebar=["ability_center", "automation", "sites", "projects", "my_space"],
+        menu=["settings", "app_center", "lab"],  # projects deliberately not here
+        titles=dict(_ALL_TITLES),
+        subtitles=dict(_ALL_SUBTITLES),
+    ))
+    db = _make_db(row)
+    assert backfill_navigation_entries(db) == 0
+    db.commit.assert_not_called()
+    nav = row.payload["navigation"]
+    assert "projects" not in nav["menu_items"]
+    assert nav["sidebar_items"].count("projects") == 1
+
+
+def test_sidebar_entry_moved_into_menu_is_left_alone():
+    """Same protection in the other direction: 'automation' declares bucket=sidebar, but
+    an operator may have tucked it into the user menu."""
+    row = _make_row(_nav(
+        sidebar=["ability_center", "sites", "my_space"],
+        menu=["settings", "app_center", "projects", "automation", "lab"],
+        titles=dict(_ALL_TITLES),
+        subtitles=dict(_ALL_SUBTITLES),
+    ))
+    db = _make_db(row)
+    assert backfill_navigation_entries(db) == 0
+    assert "automation" not in row.payload["navigation"]["sidebar_items"]

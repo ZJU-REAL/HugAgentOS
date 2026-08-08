@@ -25,11 +25,6 @@ import type {
   PluginImportReport, PluginRequiredSecret, PluginSkillComponent, PluginMcpComponent,
 } from '../../types';
 
-interface PluginsPageProps {
-  embedded?: boolean;
-  onDetailChange?: (detail: boolean) => void;
-}
-
 type Level = 'list' | 'plugin' | 'component';
 type SelectedComponent =
   | { kind: 'skill'; data: PluginSkillComponent }
@@ -53,7 +48,7 @@ function sourceLabel(source?: string): string | null {
   return null;
 }
 
-export function PluginsPage({ onDetailChange }: PluginsPageProps) {
+export function PluginsPage() {
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
   const { manageQuery, setManageQuery, panelEntryNonce } = useCatalogStore();
   const canImportPlugin = useAuthStore((s) => s.authUser?.can_import_plugin === true);
@@ -83,8 +78,6 @@ export function PluginsPage({ onDetailChange }: PluginsPageProps) {
   const [secretForm] = Form.useForm();
   const [report, setReport] = useState<{ name: string; report: PluginImportReport } | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => { onDetailChange?.(level !== 'list'); }, [level, onDetailChange]);
 
   const refresh = useCallback(async () => {
     setLoading(true);

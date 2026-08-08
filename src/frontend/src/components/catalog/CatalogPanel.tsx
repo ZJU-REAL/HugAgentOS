@@ -184,7 +184,12 @@ function filterDisplayTags(tags?: string[]): string[] {
   });
 }
 
-export function CatalogPanel() {
+interface CatalogPanelProps {
+  /** 内嵌在「我的空间」的知识库 Tab 里渲染时为 true：外层已经有标题栏，这里不再重复渲染页头。 */
+  embedded?: boolean;
+}
+
+export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title: kbTitle, subtitle: kbSubtitle } = usePanelHeader('kb', {
     title: '知识库',
@@ -688,15 +693,17 @@ export function CatalogPanel() {
 
   return (
     <>
-      <div className="jx-kbView">
+      <div className={`jx-kbView${embedded ? ' jx-kbView--embedded' : ''}`}>
         {!selectedItem ? (
           <>
-            <div className="jx-agentPage-header">
-              <div>
-                <div className="jx-agentPage-title">{kbTitle}</div>
-                {kbSubtitle ? <div className="jx-agentPage-subtitle">{kbSubtitle}</div> : null}
+            {!embedded && (
+              <div className="jx-agentPage-header">
+                <div>
+                  <div className="jx-agentPage-title">{kbTitle}</div>
+                  {kbSubtitle ? <div className="jx-agentPage-subtitle">{kbSubtitle}</div> : null}
+                </div>
               </div>
-            </div>
+            )}
             <section className="jx-kbTabsWrap">
               <div className="jx-kbTabs" ref={tabsRef}>
                 {((isCE ? ['private'] : ['public', 'private']) as KBTabKey[]).map((tab) => {

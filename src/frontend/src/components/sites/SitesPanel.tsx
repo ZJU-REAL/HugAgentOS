@@ -3,7 +3,6 @@ import {
   Button, Empty, Form, Input, Modal, Popconfirm, Select, Table, Tabs, Tag, message,
 } from 'antd';
 import {
-  ArrowLeftOutlined,
   AppstoreOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -45,10 +44,6 @@ import { stablePublicOrigin } from '../../stores/deploymentModeStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { t } from '../../i18n';
 import '../../styles/sites.css';
-
-interface SitesPanelProps {
-  onBack: () => void;
-}
 
 /** Enter a "site" building session in the main chat: reuse the main chat input (with attachments/projects/+ menu),
  *  and auto-activate the installed "site" plugin (injecting the site-builder skill + site_publish tool). Site-building
@@ -404,7 +399,7 @@ function SiteManageModal({
   );
 }
 
-export function SitesPanel({ onBack }: SitesPanelProps) {
+export function SitesPanel() {
   const [sites, setSites] = useState<SiteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [managing, setManaging] = useState<SiteItem | null>(null);
@@ -463,12 +458,9 @@ export function SitesPanel({ onBack }: SitesPanelProps) {
   return (
     <div className="jx-agentPage">
       <div className="jx-agentPage-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack} style={{ marginRight: 4 }} />
-          <div>
-            <div className="jx-agentPage-title">{t('站点')}</div>
-            <div className="jx-agentPage-subtitle">{t('将你的想法变成真实网站')}</div>
-          </div>
+        <div>
+          <div className="jx-agentPage-title">{t('站点')}</div>
+          <div className="jx-agentPage-subtitle">{t('将你的想法变成真实网站')}</div>
         </div>
         <Button type="primary" onClick={startSiteCreation}>{t('创建')}</Button>
       </div>

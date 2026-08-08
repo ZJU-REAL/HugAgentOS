@@ -17,6 +17,15 @@ export const RUN_STATUS_LABEL: Record<AutomationRunStatus, string> = {
   failed: t('失败'),
 };
 
+/** Status modifier classes for the run dot (`.jx-automation-runDot`), shared by the task
+ *  detail page and the aggregated run list. The running state additionally carries the
+ *  `.jx-anim-ripple` motion primitive; colour/spread live in automation.css. */
+export const RUN_STATUS_CLASS: Record<AutomationRunStatus, string> = {
+  running: 'is-running jx-anim-ripple',
+  success: 'is-success',
+  failed: 'is-failed',
+};
+
 /** Convert a 5-field cron expression to a human-readable Chinese string. */
 export function cronToHumanReadable(cron: string): string {
   const parts = cron.trim().split(/\s+/);

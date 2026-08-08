@@ -12,6 +12,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  /** 从「推荐任务」卡片进入时的预填值（名称 / 提示词 / cron）。空则走原来的空白表单。 */
+  preset?: { name: string; prompt: string; cron: string } | null;
 }
 
 function defaultSchedule(): ScheduleValue {
@@ -30,7 +32,7 @@ function toPlanStepData(plan: Plan): PlanStepData[] {
   }));
 }
 
-export function AutomationCreateModal({ open, onClose, onCreated }: Props) {
+export function AutomationCreateModal({ open, onClose, onCreated, preset = null }: Props) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [taskType, setTaskType] = useState<'prompt' | 'plan'>('prompt');
@@ -50,6 +52,14 @@ export function AutomationCreateModal({ open, onClose, onCreated }: Props) {
     if (!open) return;
     listChannelConversations().then(setConvs).catch(() => { /* Fail silently when there are no channel conversations */ });
   }, [open]);
+
+  // 推荐任务预填：弹窗打开时把示例灌进表单（destroyOnClose 会重建 Form，所以要在 open 后再 set）。
+  useEffect(() => {
+    if (!open || !preset) return;
+    setTaskType('prompt');
+    setSchedule({ schedule_type: 'recurring', cron_expression: preset.cron });
+    form.setFieldsValue({ name: preset.name, prompt: preset.prompt });
+  }, [open, preset, form]);
 
   const loadPlans = async () => {
     if (plansLoaded) return;
@@ -123,7 +133,7 @@ export function AutomationCreateModal({ open, onClose, onCreated }: Props) {
         conversation_id: target?.conversation_id,
       });
 
-      message.success(t('自动化任务创建成功'));
+      message.success(t('定时任务创建成功'));
       resetAll();
       onCreated();
     } catch (e: unknown) {
@@ -139,7 +149,7 @@ export function AutomationCreateModal({ open, onClose, onCreated }: Props) {
 
   return (
     <Modal
-      title={t('创建自动化任务')}
+      title={t('新建定时任务')}
       open={open}
       onCancel={handleCancel}
       onOk={handleSubmit}

@@ -192,7 +192,12 @@ function AgentDetailSkeleton() {
   );
 }
 
-export function AgentPanel() {
+interface AgentPanelProps {
+  /** 作为「能力中心」的一个 pane 内嵌渲染时为 true：不做 localStorage 详情恢复，进入能力中心一律回到列表。 */
+  embedded?: boolean;
+}
+
+export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
   const {
     agents, loading, fetchAgents, deleteAgent, updateAgent, toggleBuiltinAgent, setCurrentAgent,
     fetchAvailableResources, availableResources,
@@ -210,7 +215,11 @@ export function AgentPanel() {
   });
 
   const [search, setSearch] = useState('');
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(loadDetailId);
+  // 内嵌进能力中心时不做 localStorage 详情恢复：那份记忆属于独立的子智能体面板
+  const persistDetail = !embedded;
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    persistDetail ? loadDetailId : null,
+  );
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [botDrawerOpen, setBotDrawerOpen] = useState(false);
   // undefined = list/detail, null = create page, UserAgentItem = edit page
@@ -265,7 +274,10 @@ export function AgentPanel() {
     void fetchAgents();
     void fetchAvailableResources();
   }, []);
-  useEffect(() => { saveDetailId(selectedAgentId); }, [selectedAgentId]);
+  useEffect(() => {
+    if (!persistDetail) return;
+    saveDetailId(selectedAgentId);
+  }, [persistDetail, selectedAgentId]);
 
   const canEditAgent = (a: UserAgentItem): boolean =>
     a.owner_type === 'user' || editionAgentPolicy.canManage(a);
@@ -293,13 +305,15 @@ export function AgentPanel() {
     setBotDrawerOpen(false);
   }, [selectedAgentId]);
 
+  // 重新进入宿主面板时回到列表；内嵌时宿主是能力中心，独立挂载时宿主是子智能体面板。
+  const homePanel = embedded ? 'ability_center' : 'agents';
   useEffect(() => {
-    if (panel !== 'agents') return;
+    if (panel !== homePanel) return;
     setSelectedAgentId(null);
     setHistoryDrawerOpen(false);
     setFormPageAgent(undefined);
     setSearch('');
-  }, [panel, panelEntryNonce]);
+  }, [homePanel, panel, panelEntryNonce]);
 
   function startAgentChat(agent: UserAgentItem) {
     setCurrentAgent(agent);

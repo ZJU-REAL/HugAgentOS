@@ -224,9 +224,6 @@ interface ChatState {
    *  and editing happen inside the project folder; messages are sent with project_id
    *  automatically); opts.title is used as the chat/project display name. */
   enterSiteMode: (opts?: { projectId?: string; projectName?: string; title?: string }) => boolean;
-  /** Request to open the "My Sites" list (top-right of the site-building page → Lab SitesPanel list). */
-  sitesListRequested: boolean;
-  setSitesListRequested: (v: boolean) => void;
   setEditingMessageTs: (ts: number | null) => void;
   bumpSessionLoadEpoch: () => void;
   /** Truncate messages from the given timestamp (inclusive) */
@@ -694,9 +691,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
     return !!sitesPlugin;
   },
-
-  sitesListRequested: false,
-  setSitesListRequested: (v) => set({ sitesListRequested: v }),
 
   newChat: () => {
     const id = nowId('chat');

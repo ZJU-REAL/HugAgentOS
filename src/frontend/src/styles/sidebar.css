@@ -187,8 +187,8 @@
 .jx-logo{ width:40px; height:40px; flex-shrink:0; }
 .jx-logoImg{ width:100%; height:100%; object-fit:contain; display:block; }
 .jx-brand-text{ flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; min-height:40px; }
-.jx-brand-title{ font-weight:800; font-size:20px; line-height:1.2; color:#1e293b; }
-.jx-brand-sub{ font-size:12px; color:rgba(15,23,42,.45); margin-top:1px; }
+.jx-brand-title{ font-weight:800; font-size:18px; line-height:1.2; color:#1e293b; }
+.jx-brand-sub{ font-size:11px; color:rgba(15,23,42,.45); margin-top:1px; }
 
 /* Search button */
 .jx-searchBtn{
@@ -221,7 +221,7 @@
   border-radius:100px;
   background:#fff;
   color:#126DFF;
-  font-size:14px;
+  font-size:13px;
   font-weight:600;
   display:flex;
   align-items:center;
@@ -268,7 +268,7 @@
   border:none;
   background:transparent;
   width:248px;
-  height:36px;
+  height:34px;
   display:flex;
   align-items:center;
   gap:8px;
@@ -276,7 +276,7 @@
   padding:0 12px 0 4px;
   border-radius:12px;
   cursor:pointer;
-  font-size:14px;
+  font-size:13px;
   font-weight:400;
   color:#262626;
   text-align:left;
@@ -289,7 +289,69 @@
   color:#262626;
   font-weight:400;
 }
-.jx-navItemIcon{ width:20px; height:20px; flex-shrink:0; opacity:.7; }
+.jx-navItemIcon{ width:18px; height:18px; flex-shrink:0; opacity:.7; }
+
+/* ══════════════════════════════════════════
+   带二级列表的导航分组（能力中心 → 智能体/技能/连接器/插件）
+   ══════════════════════════════════════════ */
+.jx-navGroup{ display:flex; flex-direction:column; gap:2px; }
+
+/* 二级列表：左侧一条竖线做层级引导线。
+   线的 x = 一级行 padding-left 4 + 图标半宽 9 = 13px，正对父级图标中心。 */
+.jx-navSubList{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding-top:2px;
+}
+.jx-navSubList::before{
+  content:"";
+  position:absolute;
+  left:13px;
+  /* 上端从父行底缘起、下端收到最后一项的中线，避免竖线戳出列表 */
+  top:0;
+  bottom:16px;
+  width:2px;
+  background:rgba(15,23,42,.10);
+  border-radius:2px;
+  pointer-events:none;
+}
+
+/* 二级项：纯文字无图标，左缘与一级项的文字对齐（4 + 图标 18 + gap 8 = 30） */
+.jx-navSubItem{
+  appearance:none;
+  border:none;
+  background:transparent;
+  position:relative;
+  width:248px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  padding:0 12px 0 30px;
+  border-radius:12px;
+  cursor:pointer;
+  font-size:13px;
+  font-weight:400;
+  color:rgba(15,23,42,.62);
+  text-align:left;
+  transition:background .15s, color .15s, transform .12s;
+}
+.jx-navSubItem:hover{ background:#EBEDEE; color:#262626; }
+.jx-navSubItem:active{ transform:scale(.98); transition-duration:.06s; }
+.jx-navSubItem.active{ background:#EBEDEE; color:#262626; font-weight:500; }
+/* 选中项把引导线对应的那一节染成主色，指明"线上的哪一节是当前项"。
+   left/width 与 .jx-navSubList::before 完全一致，正好盖在竖线上。 */
+.jx-navSubItem.active::before{
+  content:"";
+  position:absolute;
+  left:13px;
+  top:7px;
+  bottom:7px;
+  width:2px;
+  border-radius:2px;
+  background:var(--color-primary, #126DFF);
+}
 .jx-navItem:hover .jx-navItemIcon{ opacity:1; }
 .jx-navItem.active .jx-navItemIcon{ opacity:1; }
 
@@ -352,7 +414,7 @@
 .jx-historyGroupHeader:hover{ color:rgba(15,23,42,.72); }
 .jx-historyGroupHeader:focus-visible{ outline:2px solid rgba(18,109,255,.32); outline-offset:0; }
 .jx-historyGroupTitle{
-  font-size:12px;
+  font-size:11px;
   font-weight:500;
   color:inherit;
   user-select:none;
@@ -382,14 +444,17 @@
    该范式解决（fr 不需要知道具体像素高）。
    内层 min-height:0 + overflow:hidden 是 grid 行收缩生效的前提；
    折叠完成后用 visibility 兜底摘除 tab 焦点（延迟到塌缩动画结束才隐藏）。 */
-.jx-historyGroupExpand{ --expand-dur:var(--motion-duration-normal); }
-.jx-historyGroupExpand > .jx-historyGroupList{
+.jx-historyGroupExpand,
+.jx-navGroupExpand{ --expand-dur:var(--motion-duration-normal); }
+.jx-historyGroupExpand > .jx-historyGroupList,
+.jx-navGroupExpand > .jx-navSubList{
   min-height:0;
   overflow:hidden;
   visibility:visible;
   transition:visibility 0s;
 }
-.jx-historyGroup--collapsed .jx-historyGroupExpand > .jx-historyGroupList{
+.jx-historyGroup--collapsed .jx-historyGroupExpand > .jx-historyGroupList,
+.jx-navGroup--collapsed .jx-navGroupExpand > .jx-navSubList{
   visibility:hidden;
   transition-delay:var(--expand-dur, .25s);
 }
@@ -425,14 +490,14 @@
   padding:0; color:inherit; text-align:left; cursor:pointer;
 }
 .jx-projectRowIcon{
-  font-size:14px;
+  font-size:13px;
   color:rgba(15,23,42,.55);
   flex-shrink:0;
   transition:color .15s;
 }
 .jx-projectRowName{
   flex:1; min-width:0;
-  font-size:13px; font-weight:500; color:#262626;
+  font-size:12px; font-weight:500; color:#262626;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   transition:color .15s;
 }
@@ -520,13 +585,13 @@
   justify-content:center;
   margin-right:4px;
   color:rgba(15,23,42,.45);
-  font-size:11px;
+  font-size:10px;
   opacity:.9;
   transition:color .15s ease;
 }
 .jx-historyItem:hover .jx-historyPinIcon{ color:rgba(15,23,42,.72); }
 .jx-historyTitle{
-  font-size:13px; font-weight:500; color:#262626;
+  font-size:12px; font-weight:500; color:#262626;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   flex:1;
   min-width:0;
@@ -537,7 +602,7 @@
 /* ── History type icons (agent / code / plan) ── */
 .jx-historyTypeIcon{
   flex-shrink:0;
-  font-size:13px;
+  font-size:12px;
   margin-right:5px;
   color:rgba(15,23,42,.38);
   transition:color .15s;
@@ -599,7 +664,7 @@
   animation:jx-kf-renameIn var(--motion-duration-fast) var(--motion-ease-standard) both;
 }
 .jx-historyEditInput .ant-input{ border-radius:8px; }
-.jx-historyEmpty{ padding:20px 8px; font-size:12px; color:rgba(15,23,42,.40); text-align:center; }
+.jx-historyEmpty{ padding:20px 8px; font-size:11px; color:rgba(15,23,42,.40); text-align:center; }
 
 /* 关键词高亮：被 utils/highlight.ts 用于侧栏 + 搜索弹窗的高亮 span */
 .jx-searchHighlight{ color:var(--color-primary); font-weight:600; }
@@ -618,7 +683,7 @@
   flex:1; min-width:0;
   display:flex; align-items:center; gap:6px;
   padding:6px 4px; border-radius:8px; background:transparent;
-  cursor:pointer; font-size:13px; font-weight:500; color:#262626;
+  cursor:pointer; font-size:12px; font-weight:500; color:#262626;
   text-align:left; transition:background .15s;
 }
 .jx-userInfoBtn:hover{ background:rgba(0,0,0,.04); }
@@ -638,7 +703,7 @@
   border-radius:10px; padding:4px;
   box-shadow:0 8px 24px rgba(15,23,42,.12); border:1px solid rgba(15,23,42,.08); min-width:140px;
 }
-.jx-chatItemMenu.ant-dropdown .ant-dropdown-menu-item{ border-radius:6px; padding:7px 10px; font-size:13px; }
+.jx-chatItemMenu.ant-dropdown .ant-dropdown-menu-item{ border-radius:6px; padding:7px 10px; font-size:12px; }
 .jx-chatItemMenu.ant-dropdown .ant-dropdown-menu-item-divider{ margin:4px 0; background:rgba(15,23,42,.08); }
 
 .jx-settingsMenu.ant-dropdown .ant-dropdown-menu{
@@ -646,7 +711,7 @@
   box-shadow:0 8px 32px rgba(15,23,42,.14); border:1px solid rgba(15,23,42,.08); min-width:160px;
 }
 .jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item{
-  border-radius:8px; padding:8px 12px; font-size:13px; color:rgba(15,23,42,.82);
+  border-radius:8px; padding:8px 12px; font-size:12px; color:rgba(15,23,42,.82);
 }
 .jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item:hover{ background:rgba(18,109,255,.06); color:#126DFF; }
 .jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item-divider{ margin:4px 0; background:rgba(15,23,42,.08); }

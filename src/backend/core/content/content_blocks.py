@@ -66,23 +66,27 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
             "ability_center": "能力中心",
             "skills": "技能库",
             "agents": "子智能体",
-            "mcp": "MCP工具库",
+            "mcp": "连接器",
             "kb": "知识库",
             "docs": "更新记录",
             "app_center": "应用中心",
+            "automation": "定时任务",
+            "sites": "站点",
             "projects": "项目",
             "lab": "实验室",
             "settings": "系统设置",
             "my_space": "我的空间",
         },
         "panel_subtitles": {
-            "ability_center": "智能体基础能力管理，包含技能库以及MCP工具库",
+            "ability_center": "智能体基础能力管理，包含智能体、技能、连接器与插件",
             "skills": "启用/停用技能，并查看详细介绍、输入输出与示例。",
             "agents": "选择与启用子智能体，并查看其职责边界与路由提示。",
-            "mcp": "管理 MCP 工具服务，并查看其作用范围与可靠性影响。",
+            "mcp": "管理 MCP 连接器服务，并查看其作用范围与可靠性影响。",
             "kb": "浏览知识库、查看文档列表，并支持文档内检索。",
             "docs": "查看功能更新、能力中心与平台说明。",
             "app_center": "基于 AI 能力的场景化智能应用",
+            "automation": "按计划自动执行任务，也可随时手动触发。在任意对话中描述你想定期做的事，即可快速创建",
+            "sites": "在对话里描述需求，AI 生成完整网站并一键发布，由平台托管、凭链接即可访问",
             "projects": "把对话、文件和指令打包成专属工作空间",
             "lab": "AI 能力实验性应用",
             "settings": "",
@@ -102,8 +106,11 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
             "config_label": "系统配置",
             "apidoc_label": "接口文档",
         },
-        "sidebar_items": ["agents", "kb", "app_center", "projects", "my_space"],
-        "menu_items": ["settings", "ability_center", "lab"],
+        # 与前端 utils/pageConfigDefaults.ts 的 DEFAULT_SIDEBAR_ITEMS / DEFAULT_MENU_ITEMS 保持一致。
+        # 这只是新装环境的出厂值——已存在的部署以 DB 现有取值为准，由 backfill_navigation_entries
+        # 补齐新增条目，管理员随后可在 /config「页面配置」里自由编排。
+        "sidebar_items": ["ability_center", "automation", "sites", "my_space"],
+        "menu_items": ["settings", "app_center", "projects", "lab"],
     },
     "texts": {
         "input_placeholder": "请输入您的问题…",
@@ -333,14 +340,21 @@ def enforce_ce_branding(db: Session) -> bool:
 #   turned off app_center) and avoids overwriting branding fields in reverse.
 # - Each entry carries an insert_after anchor; if the anchor is absent, degrade to
 #   appending at the end.
+# - ``bucket`` picks which list the entry is seeded into ("sidebar" / "menu").
+# - **Presence is checked across BOTH lists.** An operator who moved an entry from the
+#   sidebar into the user menu (or vice versa) has not "lost" it — re-inserting it into
+#   the bucket we happen to prefer would silently undo their placement on every restart
+#   and leave the entry duplicated in two buckets. Only a genuinely absent key is seeded.
+#   (Deliberately hidden entries live in neither list, so they *do* come back — that is
+#   the documented trade-off of this safety net; use the admin UI to hide them again.)
+# - Titles/subtitles are **not** repeated here — they are read from DEFAULT_PAGE_CONFIG above,
+#   so panel copy has exactly one home and a fresh install can never disagree with a
+#   backfilled one.
 # - On failure, quietly return False; never block startup.
 _NAV_BACKFILL_ENTRIES: list[dict[str, Any]] = [
-    {
-        "key": "projects",
-        "insert_after": "app_center",
-        "panel_title": "项目",
-        "panel_subtitle": "把对话、文件和指令打包成专属工作空间",
-    },
+    {"key": "projects", "bucket": "menu", "insert_after": "app_center"},
+    {"key": "automation", "bucket": "sidebar", "insert_after": "ability_center"},
+    {"key": "sites", "bucket": "sidebar", "insert_after": "automation"},
 ]
 
 
@@ -360,30 +374,37 @@ def backfill_navigation_entries(db: Session) -> int:
     if not isinstance(nav, dict):
         return 0  # malformed payload — leave it alone, admin UI will surface
 
+    default_nav = DEFAULT_PAGE_CONFIG["navigation"]
+
     changed = 0
     for entry in _NAV_BACKFILL_ENTRIES:
         key = entry["key"]
-        items = nav.get("sidebar_items")
-        if isinstance(items, list) and key not in items:
+        bucket_field = "menu_items" if entry["bucket"] == "menu" else "sidebar_items"
+        items = nav.get(bucket_field)
+        # Present in *either* list counts as placed: the operator may have moved the entry
+        # between buckets on purpose, and re-seeding it would duplicate it across both.
+        already_placed = any(
+            key in value
+            for field in ("sidebar_items", "menu_items")
+            if isinstance(value := nav.get(field), list)
+        )
+        if isinstance(items, list) and not already_placed:
             anchor = entry.get("insert_after")
             new_items = list(items)
             if anchor and anchor in new_items:
-                idx = new_items.index(anchor) + 1
-                new_items.insert(idx, key)
+                new_items.insert(new_items.index(anchor) + 1, key)
             else:
                 new_items.append(key)
-            nav["sidebar_items"] = new_items
+            nav[bucket_field] = new_items
             changed += 1
 
-        titles = nav.get("panel_titles")
-        if isinstance(titles, dict) and key not in titles and entry.get("panel_title"):
-            titles[key] = entry["panel_title"]
-            changed += 1
-
-        subtitles = nav.get("panel_subtitles")
-        if isinstance(subtitles, dict) and key not in subtitles and entry.get("panel_subtitle"):
-            subtitles[key] = entry["panel_subtitle"]
-            changed += 1
+        # Copy comes from DEFAULT_PAGE_CONFIG so it is never re-typed here.
+        for field in ("panel_titles", "panel_subtitles"):
+            target = nav.get(field)
+            text = default_nav[field].get(key)
+            if isinstance(target, dict) and key not in target and text:
+                target[key] = text
+                changed += 1
 
     if changed:
         payload["navigation"] = nav

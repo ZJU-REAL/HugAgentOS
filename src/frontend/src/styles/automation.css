@@ -360,7 +360,7 @@
 .jx-automation-detail-runRow:last-child { border-bottom: none; }
 .jx-automation-detail-runRow:hover { background: #F7F9FC; }
 
-.jx-automation-detail-runRow-dot {
+.jx-automation-runDot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -368,13 +368,13 @@
 }
 /* 运行中扩散涟漪：组件层挂 .jx-anim-ripple（motion.css 原语，compositor-only），
    这里只调色与扩散倍数（8px 圆点 ×2.5 ≈ 原 6px box-shadow 扩散幅度） */
-.jx-automation-detail-runRow-dot.is-running {
+.jx-automation-runDot.is-running {
   background: #126DFF;
   --ripple-color: var(--color-primary);
   --ripple-scale: 2.5;
 }
-.jx-automation-detail-runRow-dot.is-success { background: #02B589; }
-.jx-automation-detail-runRow-dot.is-failed  { background: #FC5D5D; }
+.jx-automation-runDot.is-success { background: #02B589; }
+.jx-automation-runDot.is-failed  { background: #FC5D5D; }
 
 .jx-automation-detail-runRow-time {
   flex-shrink: 0;
@@ -684,4 +684,291 @@
   width: 80%;
   height: 14px;
   border-radius: 6px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   定时任务页（侧边栏一级面板）：页头工具区 / 推荐任务轮播 /
+   我的定时任务·执行记录 Tab / 空态 / 聚合执行记录列表
+   ══════════════════════════════════════════════════════════════ */
+
+.jx-automation-headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.jx-automation-search {
+  width: 240px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── 推荐任务轮播 ── */
+
+.jx-automation-presets {
+  margin: 4px 0 28px;
+}
+
+.jx-automation-presetsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.jx-automation-presetsTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-automation-presetsNav {
+  display: flex;
+  gap: 8px;
+}
+
+.jx-automation-presetsArrow {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: #fff;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+.jx-automation-presetsArrow:hover:not(:disabled) {
+  background: var(--color-bg-gray);
+  color: var(--color-text);
+}
+
+.jx-automation-presetsArrow:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.jx-automation-presetsTrack {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: 4px;
+  /* 轨道自身不显示滚动条，靠左右箭头翻页 */
+  scrollbar-width: none;
+}
+
+.jx-automation-presetsTrack::-webkit-scrollbar {
+  display: none;
+}
+
+.jx-automation-presetCard {
+  flex: 0 0 300px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  padding: 18px 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: #fff;
+  cursor: pointer;
+  /* 位移/时长交给 motion.css 的 .jx-card-lift 原语（含 reduced-motion 降级），这里只管配色 */
+}
+
+.jx-automation-presetCard:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 16px rgba(18, 109, 255, .08);
+}
+
+.jx-automation-presetCard-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-automation-presetCard-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-tertiary);
+  /* 卡片高度对齐：正文最多 3 行 */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.jx-automation-presetCard-cron {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-gray);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+/* ── 列表区 Tab ── */
+
+.jx-automation-listHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.jx-automation-tabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.jx-automation-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-placeholder);
+  cursor: pointer;
+  transition: color .15s;
+}
+
+.jx-automation-tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.jx-automation-tab.active {
+  color: var(--color-text);
+}
+
+.jx-automation-sort {
+  min-width: 150px;
+}
+
+/* ── 空态 ── */
+
+.jx-automation-empty {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 56px 24px;
+}
+
+.jx-automation-emptyTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.jx-automation-emptyDesc {
+  font-size: 13px;
+  color: var(--color-text-placeholder);
+  margin-bottom: 12px;
+}
+
+/* ── 聚合执行记录 ── */
+
+.jx-automation-runListHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.jx-automation-runListCount {
+  font-size: 12px;
+  color: var(--color-text-placeholder);
+}
+
+.jx-automation-runRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: #fff;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.jx-automation-runRow:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 10px rgba(18, 109, 255, .06);
+}
+
+/* 圆点复用上面 detail 列表的 .jx-automation-runDot（含 is-running 的涟漪配色），
+   这里只补一点上边距让它对齐多行文案的首行。 */
+.jx-automation-runRow > .jx-automation-runDot { margin-top: 6px; }
+
+.jx-automation-runMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.jx-automation-runTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-automation-runTaskName {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-automation-runStatus {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.jx-automation-runSummary {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.jx-automation-runError {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-error);
+}
+
+.jx-automation-runMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-placeholder);
+}
+
+.jx-automation-runDuration {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 768px) {
+  .jx-automation-headerRight { gap: 8px; }
+  .jx-automation-search { width: 140px; }
+  .jx-automation-presetCard { flex-basis: 260px; }
 }

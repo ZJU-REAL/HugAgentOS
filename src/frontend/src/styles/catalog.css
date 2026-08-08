@@ -188,76 +188,14 @@
 }
 
 /* ── 能力中心 ── */
+/* 类别切换已移到左侧边栏的二级导航，页面内不再有 Tab 栏 ——
+   顶部不留给 Tab 的那段留白，直接由 pane 自己的页头顶到最上面。 */
 .jx-abilityCenter{
   min-height:calc(100dvh - 98px);
   display:flex;
   flex-direction:column;
-  padding:18px 20px 28px;
-  gap:16px;
+  padding:0 20px 28px;
   box-sizing:border-box;
-}
-.jx-abilityCenterHeader{
-  flex-shrink:0;
-}
-.jx-abilityCenterHero{
-  display:flex;
-  justify-content:center;
-  padding-top:2px;
-}
-.jx-abilityCenterTabs{
-  display:inline-flex;
-  align-items:center;
-  gap:0;
-  width:fit-content;
-  max-width:100%;
-  margin:0 auto;
-  padding:7px 12px;
-  background:#FFFFFF;
-  border:1px solid rgba(15,23,42,.08);
-  border-radius:999px;
-  box-shadow:0 8px 22px rgba(15,23,42,.035);
-}
-.jx-abilityCenterTab{
-  appearance:none;
-  border:none;
-  background:transparent;
-  border-radius:999px;
-  padding:5px 16px;
-  font-size:15px;
-  font-weight:500;
-  color:rgba(15,23,42,.64);
-  cursor:pointer;
-  transition:color .18s ease;
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  white-space:nowrap;
-}
-.jx-abilityCenterTab:hover{
-  color:#111827;
-}
-.jx-abilityCenterTab.active{
-  color:#111827;
-  font-weight:600;
-}
-.jx-abilityCenterTabLabel{
-  line-height:1;
-  display:inline-flex;
-  align-items:baseline;
-  gap:4px;
-}
-.jx-abilityCenterTabArrow{
-  font-size:17px;
-  line-height:1;
-  font-weight:400;
-  transform:translateY(-.5px);
-  opacity:.72;
-}
-.jx-abilityCenterDivider{
-  width:1px;
-  height:22px;
-  background:rgba(15,23,42,.10);
-  margin:0 2px;
 }
 .jx-abilityCenterBody{
   min-height:0;
@@ -278,28 +216,7 @@
 
 @media (max-width: 768px){
   .jx-abilityCenter{
-    padding:12px 12px 24px;
-    gap:12px;
-  }
-  .jx-abilityCenterTabs{
-    width:100%;
-    padding:5px 6px;
-    box-sizing:border-box;
-  }
-  .jx-abilityCenterTab{
-    flex:1 1 0;
-    min-width:0;
-    justify-content:center;
-    padding:7px 5px;
-    font-size:13px;
-  }
-  .jx-abilityCenterDivider{
-    height:18px;
-    margin:0;
-  }
-  .jx-abilityCenterTabLabel{
-    min-width:0;
-    white-space:nowrap;
+    padding:0 12px 24px;
   }
   .jx-abilityCenter .jx-sk-page,
   .jx-abilityCenter .jx-mcp-page{
@@ -1693,12 +1610,6 @@
   padding: 20px 0 60px;
 }
 
-/* Ability center: when detail is shown, remove extra top gap */
-.jx-abilityCenter--detail {
-  padding-top: 0;
-  gap: 0;
-}
-
 /* ══════════════════════════════════════════════════════════════════
    Agent Page — pixel-matched to UI design spec screenshot
    ══════════════════════════════════════════════════════════════════ */
@@ -2663,6 +2574,15 @@
   flex-direction:column;
   gap:14px;
   background:transparent;
+}
+
+/* 内嵌在「我的空间 → 知识库」Tab 里：外层 shell 已经限宽 980 并自带滚动，
+   这里去掉自身的限宽/左右内边距/整屏最小高度，跟其它 Tab 的内容左右缘对齐。 */
+.jx-kbView--embedded{
+  min-height:0;
+  max-width:none;
+  margin:0;
+  padding:4px 0 24px;
 }
 
 .jx-kbHero{

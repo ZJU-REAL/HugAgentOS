@@ -189,4 +189,7 @@ export const MYSPACE_DICT: Record<string, string> = {
   '下载原文件': 'Download original file',
   '松开，上传到当前文件夹': 'Release to upload to the current folder',
   '松开，上传到本项目': 'Release to upload to this project',
+
+  // ── 知识库 Tab（并入我的空间） ──
+  '浏览与管理知识库、查看文档列表，并支持文档内检索': 'Browse and manage knowledge bases, view document lists, and search within documents',
 };

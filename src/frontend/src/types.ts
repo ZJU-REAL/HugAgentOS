@@ -12,7 +12,10 @@ import type {
 
 export type { MarketVisibilityValue } from './editionMarketplaceTypes';
 
-export type PanelKey = 'chat' | 'skills' | 'agents' | 'mcp' | 'kb' | 'docs' | 'app_center' | 'settings' | 'share_records' | 'my_space' | 'ability_center' | 'lab' | 'projects' | 'project_detail';
+export type PanelKey = 'chat' | 'skills' | 'agents' | 'mcp' | 'kb' | 'docs' | 'app_center' | 'settings' | 'share_records' | 'my_space' | 'ability_center' | 'lab' | 'projects' | 'project_detail' | 'automation' | 'sites';
+
+/** 能力中心的四类能力。选中项由侧边栏的二级导航驱动，所以状态放在 catalogStore 而非页面内部。 */
+export type AbilityTabKey = 'agents' | 'skills' | 'mcp' | 'plugins';
 
 // ─── Projects (Claude-style workspaces) ─────────────────────────────────────
 
@@ -1123,7 +1126,7 @@ export interface SystemConfigGroup {
 
 // ── My Space types ─────────────────────────────────────────────────────────
 
-export type MySpaceTab = 'assets' | 'favorites' | 'shares' | 'notifications';
+export type MySpaceTab = 'assets' | 'kb' | 'favorites' | 'shares' | 'notifications';
 
 // ── Automation types ────────────────────────────────────────────
 export type AutomationTaskType = 'prompt' | 'plan';

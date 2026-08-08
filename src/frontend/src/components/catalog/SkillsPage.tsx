@@ -47,7 +47,7 @@ function saveSkillsDetailState(id: string | null, kind: 'skills' | 'agents') {
   window.localStorage.setItem(SKILLS_DETAIL_KIND_STORAGE_KEY, kind);
 }
 
-export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: boolean; onDetailChange?: (hasDetail: boolean) => void }) {
+export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
   const {
     catalog,
     panel,
@@ -474,11 +474,6 @@ export function SkillsPage({ embedded = false, onDetailChange }: { embedded?: bo
     if (!isCatalogKind(kind)) return;
     void toggleItem(kind as 'skills' | 'agents' | 'mcp' | 'kb', id, enabled);
   };
-
-  // Notify parent of detail state changes (covers all code paths including useEffect resets)
-  useEffect(() => {
-    onDetailChange?.(!!selectedId);
-  }, [selectedId, onDetailChange]);
 
   const openDetail = useCallback((id: string, kind: 'skills' | 'agents') => {
     setNavDir('detail');

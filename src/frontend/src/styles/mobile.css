@@ -11,10 +11,6 @@
 
 /* Apple mobile refinement: skill detail identity row + project workspaces */
 @media (max-width:768px){
-  .jx-abilityCenter--detail{
-    padding:10px 16px 48px;
-  }
-
   .jx-abilityCenter .jx-sk-detailPage{
     width:100%;
     max-width:none;
@@ -1496,33 +1492,6 @@
 
   .jx-abilityCenter{
     padding:10px 16px 48px;
-  }
-
-  .jx-abilityCenterTabs{
-    padding:5px;
-    border:1px solid rgba(255,255,255,.86);
-    border-radius:22px;
-    background:var(--jx-mobile-material);
-    box-shadow:0 9px 28px rgba(42,61,94,.065),inset 0 0 0 .5px rgba(15,23,42,.04);
-    backdrop-filter:saturate(180%) blur(22px);
-    -webkit-backdrop-filter:saturate(180%) blur(22px);
-  }
-
-  .jx-abilityCenterTab{
-    min-height:38px;
-    border-radius:17px;
-    color:#667085;
-    font-size:13px;
-  }
-
-  .jx-abilityCenterTab.active{
-    background:rgba(255,255,255,.92);
-    color:#101828;
-    box-shadow:0 3px 10px rgba(42,61,94,.07);
-  }
-
-  .jx-abilityCenterDivider{
-    opacity:.55;
   }
 
   .jx-abilityCenter .jx-sk-title,
