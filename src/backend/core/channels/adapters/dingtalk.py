@@ -48,13 +48,25 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import re
+import shutil
+import tempfile
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
+from datetime import datetime, timezone
+
 from core.channels.markdown import derive_title, downgrade_for_dingtalk
-from core.channels.protocol import ChannelCaps, InboundMsg, SendResult, chunk_text
+from core.channels.protocol import (
+    ChannelCaps,
+    HistoryItem,
+    InboundMsg,
+    SendResult,
+    chunk_text,
+)
 from core.infra.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -158,6 +170,203 @@ class DingTalkAdapter:
             },
         )
 
+    # ── Group history pull (via the official dws CLI) ────────────────────
+    # DingTalk has **no** REST OpenAPI for reading a group's message history — the
+    # server-side API list only covers sending, recalling and read receipts. The capability
+    # is reachable two ways, and this takes the second:
+    #   1. DingTalk's MCP gateway (`list_conversation_message_v2` on the group-chat MCP
+    #      server). Works, but needs credentials provisioned per app — extra setup.
+    #   2. The official `dws` CLI, which the backend **already** runs as a subprocess for
+    #      this user's DingTalk connection and which is **already logged in**. No new
+    #      credentials, no extra configuration: it simply reuses the connection the owner
+    #      has set up. That is why this is the one implemented.
+    #
+    # Runs as the connection's owner (per-user $HOME is the credential isolation boundary,
+    # same as every other backend dws call). The 8s cap keeps a slow CLI from eating into
+    # the caller's own history budget; any failure returns [] and history is skipped.
+    _DWS_HISTORY_TIMEOUT_S = 8
+
+    async def fetch_history(
+        self,
+        conn: Any,
+        conversation_id: str,
+        *,
+        since_ms: int,
+        limit: int,
+        newest_first: bool = False,
+    ) -> List[HistoryItem]:
+        """`dws chat message list --group <conv> --time <t>` → normalized history items."""
+        conv = (conversation_id or "").strip()
+        owner = getattr(conn, "owner_user_id", "") or ""
+        if not conv or not owner:
+            return []
+        from core.services.dingtalk_service import _run_dws
+
+        # dws takes a local-time string, not epoch ms. `--forward` picks the direction:
+        # true = messages after --time (incremental from the cursor); false = messages
+        # before --time, which anchored at *now* is how the cold start gets the most recent
+        # ones instead of the oldest of a week-long window.
+        anchor_ms = int(datetime.now(timezone.utc).timestamp() * 1000) if newest_first else since_ms
+        anchor = datetime.fromtimestamp(max(anchor_ms, 0) / 1000, tz=timezone.utc).astimezone()
+        args = [
+            "chat", "message", "list",
+            "--group", conv,
+            "--time", anchor.strftime("%Y-%m-%d %H:%M:%S"),
+            "--limit", str(max(1, min(int(limit or 50), 100))),
+            "--forward=false" if newest_first else "--forward=true",
+            "--format", "json",
+        ]
+        try:
+            out, err, code = await _run_dws(owner, args, timeout=self._DWS_HISTORY_TIMEOUT_S)
+        except Exception:  # noqa: BLE001
+            logger.warning("[dingtalk] dws 群历史拉取异常 conv=%s", conv[:24], exc_info=True)
+            return []
+        if code != 0 or not out.strip():
+            # Not logged in / no permission / timeout all land here. Debug, not warning:
+            # a tenant without the DingTalk connection set up would otherwise log on every
+            # single group message.
+            logger.debug(
+                "[dingtalk] dws 群历史拉取未成功 code=%s err=%s", code, (err or "")[:160]
+            )
+            return []
+        try:
+            return self._parse_dws_history(json.loads(out))
+        except Exception:  # noqa: BLE001
+            logger.debug("[dingtalk] dws 输出解析失败: %s", out[:200], exc_info=True)
+            return []
+
+    _DWS_DOWNLOAD_TIMEOUT_S = 45
+
+    async def _download_via_dws(self, conn: Any, file_id: str) -> Optional[bytes]:
+        """`dws drive download --node <fileId>` → bytes.
+
+        The CLI only writes to a local path (it does the signed-URL dance internally), so the
+        bytes are read back from a temp file that is always removed, including on failure —
+        this runs on the backend host, not in a disposable sandbox.
+        """
+        owner = getattr(conn, "owner_user_id", "") or ""
+        if not owner:
+            return None
+        from core.services.dingtalk_service import _run_dws
+
+        tmpdir = tempfile.mkdtemp(prefix="dws_dl_")
+        target = os.path.join(tmpdir, "download.bin")
+        try:
+            out, err, code = await _run_dws(
+                owner,
+                ["drive", "download", "--node", file_id, "--output", target, "--format", "json"],
+                timeout=self._DWS_DOWNLOAD_TIMEOUT_S,
+            )
+            if code != 0 or not os.path.exists(target):
+                logger.warning(
+                    "[dingtalk] dws 文件下载失败 file_id=%s code=%s err=%s",
+                    file_id[:16], code, (err or out or "")[:160],
+                )
+                return None
+            with open(target, "rb") as fh:
+                return fh.read()
+        except Exception:  # noqa: BLE001
+            logger.warning("[dingtalk] dws 文件下载异常 file_id=%s", file_id[:16], exc_info=True)
+            return None
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @staticmethod
+    def _dws_ts_ms(value: Any) -> int:
+        """dws ``createTime`` → epoch ms.
+
+        The CLI returns a **local-time string** (``"2026-08-08 21:57:33"``), not epoch
+        milliseconds. Parsing it as an int silently yielded 0 for every message, which left
+        the pull cursor pinned at the cold-start window — so every @ re-fetched the same 24
+        hours forever. Numeric forms are still accepted in case a CLI version returns them.
+        """
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
+        text = str(value or "").strip()
+        if not text:
+            return 0
+        if text.isdigit():
+            return int(text)
+        try:
+            naive = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return 0
+        # Local time, as the CLI prints it; astimezone() attaches the process zone.
+        return int(naive.astimezone().timestamp() * 1000)
+
+    # dws renders a file message as **plain text**, not a structured attachment:
+    #   "[文件] 周报.docx fileId: X6GRez... 注意：如需下载使用dws drive download命令下载"
+    # Parsed back out here, otherwise a pulled file is just an unusable sentence — the agent
+    # can see a file was shared but has no handle to open it. Images use the same shape.
+    _DWS_FILE_RE = re.compile(
+        r"\[(?P<kind>文件|图片)\]\s*(?P<name>.+?)\s+fileId:\s*(?P<fid>[A-Za-z0-9_\-]+)"
+        r"(?:\s*注意[：:][^\n]*)?"
+    )
+
+    @classmethod
+    def _extract_dws_files(cls, content: str) -> tuple:
+        """(cleaned_text, attachment_refs) for one history message body."""
+        refs: List[Dict[str, Any]] = []
+        for m in cls._DWS_FILE_RE.finditer(content or ""):
+            refs.append({
+                "kind": "image" if m.group("kind") == "图片" else "file",
+                "key": m.group("fid"),
+                "name": m.group("name").strip(),
+            })
+        if not refs:
+            return (content or "").strip(), []
+        # Drop the matched sentences: the attachment ref already renders name + handle, and
+        # the "use dws drive download" tail is instruction noise aimed at a CLI user.
+        return cls._DWS_FILE_RE.sub("", content or "").strip(), refs
+
+    @staticmethod
+    def _parse_dws_history(body: Dict[str, Any]) -> List[HistoryItem]:
+        """dws JSON output → HistoryItem list.
+
+        Field names verified against live CLI output — they are **not** the ones the bot
+        callback uses, which is the trap here:
+          {"result": {"messages": [{"openMessageId", "sender", "content", "createTime",
+                                    "openConversationId", "senderOpenDingTalkId"}], ...}}
+        A bare ``{"messages": [...]}`` is accepted too, so a CLI version that drops the
+        envelope does not silently yield nothing.
+        """
+        if not isinstance(body, dict):
+            return []
+        if body.get("success") is False or body.get("errorCode"):
+            return []
+        result = body.get("result") if isinstance(body.get("result"), dict) else body
+        out: List[HistoryItem] = []
+        for m in result.get("messages") or []:
+            if not isinstance(m, dict):
+                continue
+            # Written out rather than chained: `a or b if cond else ""` binds the conditional
+            # looser than the `or`, which would silently make every message look empty.
+            text = m.get("content") or ""
+            if not text and isinstance(m.get("text"), dict):
+                text = m["text"].get("content") or ""
+            if not isinstance(text, str):
+                text = str(text)
+            text, refs = DingTalkAdapter._extract_dws_files(text)
+            if not text and not refs:
+                continue
+            out.append(HistoryItem(
+                # openMessageId is the real id; msgId/messageId kept as fallbacks only.
+                message_id=str(
+                    m.get("openMessageId") or m.get("msgId") or m.get("messageId") or ""
+                ),
+                # `sender` is already the display name — no directory lookup needed.
+                sender_name=str(
+                    m.get("sender") or m.get("senderNick") or m.get("senderName") or "群成员"
+                ),
+                text=text,
+                ts_ms=DingTalkAdapter._dws_ts_ms(m.get("createTime") or m.get("createAt")),
+                attachments=refs,
+                # Marks which download route this file needs: history files live on DingTalk
+                # Drive and are fetched by fileId, not by the bot callback's downloadCode.
+                raw={"dws_drive": True} if refs else {},
+            ))
+        return out
+
     # ── Inbound attachments ─────────────────────────────────────────────
     @staticmethod
     def _extract_attachments(msgtype: str, payload: Dict[str, Any]) -> list:
@@ -211,9 +420,14 @@ class DingTalkAdapter:
         (rather than raising) lets the caller degrade to "attachment unavailable".
         """
         code = attachment.get("key")
-        robot_code = (inbound.raw or {}).get("dingtalk_robot_code") or ""
         if not code:
             return None
+        # Files seen through *history* are DingTalk Drive entries addressed by fileId, not
+        # bot-callback attachments addressed by a short-lived downloadCode — different
+        # storage, different API. The marker is set when the history item is parsed.
+        if (inbound.raw or {}).get("dws_drive"):
+            return await self._download_via_dws(conn, str(code))
+        robot_code = (inbound.raw or {}).get("dingtalk_robot_code") or ""
         if not robot_code:
             logger.warning("[dingtalk] 缺少 robotCode，无法下载附件 code=%s", str(code)[:12])
             return None
