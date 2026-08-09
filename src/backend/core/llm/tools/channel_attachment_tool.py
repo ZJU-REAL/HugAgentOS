@@ -18,6 +18,7 @@ Registered only for channel runs (see agent_factory's ``_is_channel_run``).
 import json
 import logging
 import mimetypes
+import os
 from typing import Any, Dict, Optional
 
 from agentscope.message import TextBlock
@@ -112,6 +113,7 @@ def register_channel_attachment(
             JSON: 成功返回 {file_id, filename, mime_type, size, next: 使用提示}；
                   失败返回 {error: 原因}。下载码可能过期，过旧的文件可能取不回。
         """
+        from core.channels.protocol import ChannelResourceError
         from core.channels.registry import get_adapter
         from core.db.engine import SessionLocal
         from core.services.artifact_service import store_bytes_as_artifact
@@ -141,6 +143,10 @@ def register_channel_attachment(
                     conn, _rebuild_inbound(conn, session, entry),
                     {"kind": entry.get("kind") or "file", "key": key, "name": name},
                 )
+            except ChannelResourceError as exc:
+                # 平台给了明确理由（如跨组织访问被拒），原样透出——把它说成“已过期”
+                # 会让用户往完全错误的方向排查。
+                return _err(str(exc) or "渠道拒绝了这次读取")
             except Exception:  # noqa: BLE001
                 logger.exception("[channels] 按需取回附件失败 key=%s", key[:16])
                 return _err("附件下载失败，可能下载码已过期")
@@ -149,6 +155,13 @@ def register_channel_attachment(
             if len(content) > _MAX_ATTACHMENT_BYTES:
                 return _err(f"文件过大（{len(content)} 字节），超出 50MB 上限")
 
+            # An online document is fetched as markdown *content*, and its name is a title
+            # with no extension. read_artifact dispatches its parser purely on the filename
+            # extension, so leaving it bare would mean the file downloads fine and then reads
+            # back as "unsupported format" — fetched but unusable. Give it the extension that
+            # matches what the bytes actually are.
+            if entry.get("kind") == "doc" and not os.path.splitext(name)[1]:
+                name = f"{name}.md"
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
             art = store_bytes_as_artifact(
                 db, user_id=str(session.user_id), content=content, filename=name,

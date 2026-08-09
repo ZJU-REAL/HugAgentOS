@@ -87,6 +87,16 @@ class InboundMsg:
     raw: Dict[str, Any] = field(default_factory=dict)  # raw event, kept for reference
 
 
+class ChannelResourceError(RuntimeError):
+    """A resource fetch failed for a reason the user needs to hear verbatim.
+
+    ``download_resource`` normally returns None on failure, which the caller reports as a
+    generic "download failed, the link may have expired". That is actively misleading when
+    the platform refused for a specific, actionable reason — a cross-organization access
+    block reads nothing like an expiry. Adapters raise this to carry that reason up.
+    """
+
+
 @dataclass
 class HistoryItem:
     """One message pulled from a group's history (normalized across channels)."""
