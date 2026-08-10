@@ -60,14 +60,15 @@ automation, and a data canvas in one self-hosted workspace.
 > Issue or Discussion. Pull requests for documentation and examples are
 > welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
 
-<p align="center">
-  <img src="./assets/hugagentos-promo-en.webp" alt="HugAgentOS 60-second product tour" width="100%" />
-</p>
+## Demo
 
-<p align="center">
-  <sub>60-second product tour ·
-  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-en.mp4">full video with sound</a></sub>
-</p>
+A 60-second tour: the same task run twice, with audited self-evolution in between —
+memory, skills and orchestration each settled, and each taking effect only after you
+approve it.
+
+> The tour is narrated in Chinese; an English cut is planned.
+
+https://github.com/user-attachments/assets/a268e371-a11f-488b-98d4-08598e2fdf89
 
 ## Quick start
 
