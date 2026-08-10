@@ -66,7 +66,7 @@ A 60-second tour: the same task run twice, with audited self-evolution in betwee
 memory, skills and orchestration each settled, and each taking effect only after you
 approve it.
 
-https://github.com/user-attachments/assets/a268e371-a11f-488b-98d4-08598e2fdf89
+https://github.com/user-attachments/assets/635c5b35-10c0-47b9-a6f1-c73df9510e90
 
 ## Quick start
 
