@@ -20,6 +20,15 @@
 </p>
 
 <p align="center">
+  <video src="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-zh.mp4" controls muted playsinline width="100%"></video>
+</p>
+
+<p align="center">
+  <sub>60 秒宣传片 · 若上方视频未自动播放，可
+  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-zh.mp4">点此观看</a></sub>
+</p>
+
+<p align="center">
   <a href="./README.md">English</a> ·
   <a href="./README_CN.md">简体中文</a>
 </p>
@@ -60,51 +69,34 @@ Agent Skills、沙箱执行、长期记忆、自动化和数据画布整合到�
 
 ## 快速开始
 
-个人试用可以选择一键安装，长期服务或服务隔离场景可以选择 Docker Compose。
-两种方式都需要准备 OpenAI 兼容模型或本地模型。
+个人试用用一键安装，长期服务或需要服务隔离用 Docker Compose。两者都需要准备
+OpenAI 兼容模型或本地模型。**初始账号与密码均为 `admin`，首次登录必须修改；
+CE 不提供自助注册。**
 
-### 方式一：一键安装
+### 方式一：一键安装（Linux / macOS / WSL2）
 
-在 Linux、macOS 或 WSL2 上安装个人单机版。开始前需要 Python 3.11+、
-Node.js 20+、Git 和 `curl`。Linux 平台若没有兼容的 `ripgrep` 预编译 wheel，
-还需要当前稳定版 Rust 工具链；不需要 Docker、PostgreSQL 或 Redis。
+需要 Python 3.11+、Node.js 20+、Git 和 `curl`；不需要 Docker、PostgreSQL 或 Redis。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh | bash
 ```
 
-安装器会把 HugAgentOS 拉取到 `~/.hugagent/source`，创建隔离的 Python 环境，
-安装依赖并构建 Web 应用，然后进入首次配置向导。按照提示创建管理员并接入
-OpenAI 兼容模型或本地模型，完成后浏览器会打开
-[http://127.0.0.1:3001](http://127.0.0.1:3001)。
-
-全新数据目录默认只创建一个本地管理员：账号和初始密码均为
-`admin`，首次登录必须修改密码。CE 不提供自助注册功能。
+安装器会把源码拉到 `~/.hugagent/source`，创建隔离 Python 环境、构建 Web 应用并进入
+首次配置向导，完成后打开 [http://127.0.0.1:3001](http://127.0.0.1:3001)。之后用
+`~/.hugagent/venv/bin/hugagent` 再次启动。
 
 > [!WARNING]
-> 一键部署默认仅监听 `127.0.0.1`。如果你确实需要在服务器上接受远程连接，
-> 请使用 `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`，并先配置
-> 强管理员密码、防火墙和 HTTPS。不要在不受信任的网络中直接暴露服务。
+> 默认仅监听 `127.0.0.1`。确需远程访问时用
+> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`，并先配置强密码、防火墙
+> 与 HTTPS，不要直接暴露在不受信任的网络中。
 
-以后可随时使用下面的命令再次启动：
-
-```bash
-~/.hugagent/venv/bin/hugagent
-```
-
-> [!NOTE]
-> 一键安装适合个人试用与开发，默认使用 SQLite、进程内状态和本地子进程沙箱。
-> 长期运行服务器或需要生产级隔离时，请使用
-> [Docker Compose 部署指南](./document/zh-CN/deployment/docker-compose.md)。
-
-安装选项、能力边界和故障排查见
-[无 Docker 一键安装指南](./document/zh-CN/deployment/quick-install.md)。
+一键安装使用 SQLite、进程内状态与本地子进程沙箱，适合个人试用与开发；选项与故障
+排查见[一键安装指南](./document/zh-CN/deployment/quick-install.md)。
 
 ### 方式二：Docker Compose
 
-需要 PostgreSQL、Redis、隔离沙箱、持久化服务卷，或准备长期运行服务器时，
-使用 Docker Compose。开始前需要安装 Git、Docker Engine 或
-Docker Desktop，以及 Docker Compose v2。
+需要 PostgreSQL、Redis、隔离沙箱与持久化卷时使用。需先安装 Git、Docker 与
+Compose v2。
 
 ```bash
 git clone https://github.com/ZJU-REAL/HugAgentOS.git
@@ -114,135 +106,72 @@ mkdir -p data/storage
 docker compose up -d --build
 ```
 
-打开 [http://localhost:3002](http://localhost:3002)。初始账号和密码均为
-`admin`，首次登录必须修改密码。随后进入「设置 → 系统管理 → 模型服务」，
-接入 OpenAI 兼容模型或本地模型。
-
-使用 `docker compose ps` 检查服务状态；使用 `docker compose down` 停止服务且
-保留数据。Profiles、数据持久化、生产配置和重建流程见
+打开 [http://localhost:3002](http://localhost:3002)，登录后进入「设置 → 系统管理 →
+模型服务」接入模型。Profiles、持久化与生产配置见
 [Docker Compose 部署指南](./document/zh-CN/deployment/docker-compose.md)。
 
-## 从回答到交付
+## 为什么是 HugAgentOS
 
-HugAgentOS 的重点不是再包装一个聊天界面，而是把智能体完成任务需要的上下文、
-执行能力和产物管理放在同一条链路中。
+重点不是再包装一个聊天界面，而是把智能体完成任务所需的上下文、执行能力和产物管理
+放在同一条链路里；并把领域本体从「知识库」提升为**机器可执行的控制平面**——受控的
+概念、关系、铁律与 Action 契约，让技能、记忆和编排三大引擎共享同一套业务语言。
 
 <table>
   <tr>
     <td width="50%" valign="top">
       <strong>🔌 模型可替换</strong><br />
-      通过统一的模型服务配置接入云端或本地模型，不把应用锁定在单一供应商。
+      统一的模型服务配置接入云端或本地模型，不锁定单一供应商。
     </td>
     <td width="50%" valign="top">
       <strong>🛠️ 能执行任务</strong><br />
-      ReAct 编排 MCP、技能和沙箱，让模型能够搜索、分析、生成文件并调用外部能力。
+      ReAct 编排 MCP、技能与沙箱，让模型能搜索、分析、生成文件并调用外部能力。
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <strong>🧠 有知识与记忆</strong><br />
-      私有知识库与分层记忆共同提供跨文件、跨会话的长期上下文。
+      私有知识库与分层记忆提供跨文件、跨会话的长期上下文。
     </td>
     <td width="50%" valign="top">
       <strong>🏠 数据可自持</strong><br />
-      应用、数据库和文件存储均可运行在自己的基础设施中，部署边界清晰可控。
-    </td>
-  </tr>
-</table>
-
-## 领域本体驱动的企业可信体系
-
-HugAgentOS 不只把本体当作知识库，而是把它作为机器可执行的控制平面。受控的领域
-概念、关系、铁律、Action 契约、角色与权限，让技能、记忆和编排三大引擎共享
-同一套业务语言。
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🧭 统一语义底座</strong><br />
-      使用版本化的概念与关系，对齐领域意图、技能、工具、记忆和智能体角色。
-    </td>
-    <td width="50%" valign="top">
-      <strong>🏗️ 构建时治理</strong><br />
-      在技能、工具和子智能体创建或导入时进行校验，并通过一致的 Action 契约
-      完成标准化能力装配。
+      应用、数据库与文件存储都可运行在自己的基础设施中。
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <strong>🛡️ 门控可信执行</strong><br />
-      候选计划依次经过确定性规则检查、风险分级证据评审和门控执行。违规动作
-      会携带规则、证据与修正建议返回，不会静默放行。
+      候选计划依次经过确定性规则检查、风险分级证据评审与门控执行；违规动作会带着
+      规则、证据和修正建议返回，不会静默放行。
     </td>
     <td width="50%" valign="top">
-      <strong>🔎 可溯、受控的持续进化</strong><br />
-      记录审批、驳回、证据和执行结果，把执法事件整理为版本化本体建议，经过
-      人工审核后生效，并保留回滚能力。
+      <strong>🔎 可溯的持续进化</strong><br />
+      审批、驳回、证据与执行结果均留痕，整理为版本化本体建议，人工审核后生效并可回滚。
     </td>
   </tr>
 </table>
 
 > [!NOTE]
-> 本体可信控制平面是正在现有 Harness 上分阶段集成的企业级目标架构。它强化
-> 结构化合规和基于证据的评审，但不对自由文本作“零幻觉”承诺。
+> 本体可信控制平面是正在现有 Harness 上分阶段集成的企业级目标架构。它强化结构化
+> 合规和基于证据的评审，但不对自由文本作「零幻觉」承诺。
 
 ## 核心能力
 
-社区版覆盖个人智能体从对话、执行到沉淀和复用的完整闭环；可选组件按需启用，
-不需要在首跑时部署全部基础设施。
+社区版覆盖个人智能体从对话、执行到沉淀复用的完整闭环，可选组件按需启用。
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>💬 智能对话与计划模式</strong><br />
-      SSE 流式输出、ReAct 工具编排、深度思考、计划模式、引用溯源与断线续播。
-    </td>
-    <td width="50%" valign="top">
-      <strong>📚 私有知识库 RAG</strong><br />
-      文档上传与分块、向量和关键词混合检索、可选重排，以及个人知识库隔离。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🤝 个人子智能体</strong><br />
-      创建不同角色的子智能体，通过自动路由或 <code>@</code> 提及协同完成任务。
-    </td>
-    <td width="50%" valign="top">
-      <strong>🔧 MCP 工具生态</strong><br />
-      内置联网搜索、网页抓取、知识检索、图表、报告、批量任务、自动化和技能管理。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🧩 Agent Skills</strong><br />
-      使用标准化技能说明与脚本扩展智能体，支持内置技能、技能市场和个人技能。
-    </td>
-    <td width="50%" valign="top">
-      <strong>⚙️ 自动化与批量执行</strong><br />
-      用自然语言创建定时任务，或对 Excel、Word、文件列表批量运行同一套流程。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🧪 沙箱与内容产物</strong><br />
-      在本地子进程或轻量容器沙箱中运行代码，生成图表、报告、Office 文件、网页和数据画布。
-    </td>
-    <td width="50%" valign="top">
-      <strong>🧠 三层个人记忆</strong><br />
-      L1 个人画像使用关系库存储，可选启用 Milvus 向量记忆与 Neo4j 图谱记忆。
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🗂️ 个人工作空间</strong><br />
-      用项目、文件夹、收藏、会话分享和产物中心组织长期任务与资料。
-    </td>
-    <td width="50%" valign="top">
-      <strong>📊 数据画布</strong><br />
-      在会话中查看和编辑结构化数据，让分析过程与最终结果保持在同一工作区。
-    </td>
-  </tr>
-</table>
+| 能力 | 说明 |
+|---|---|
+| 💬 **智能对话与计划模式** | SSE 流式、ReAct 工具编排、深度思考、计划模式、引用溯源、断线续播 |
+| 📚 **私有知识库 RAG** | 文档分块、向量与关键词混合检索、可选重排、个人知识库隔离 |
+| 🤝 **个人子智能体** | 创建不同角色的子智能体，自动路由或 `@` 提及协同 |
+| 🔧 **MCP 工具生态** | 内置联网搜索、网页抓取、知识检索、图表、报告、批量、自动化、技能管理 |
+| 🧩 **Agent Skills** | 标准化技能说明 + 脚本扩展，支持内置、市场与个人技能 |
+| ⚙️ **自动化与批量执行** | 自然语言创建定时任务；对 Excel / Word / 文件列表批量跑同一流程 |
+| 💬 **群聊接入** | 飞书 / 钉钉 / 企微机器人；可选群聊旁听与历史回溯，让智能体看得到群里的上下文 |
+| 🧪 **沙箱与产物** | 子进程或轻量容器沙箱执行代码，产出图表、报告、Office 文件、网页与数据画布 |
+| 🧠 **三层个人记忆** | L1 画像存关系库；可选 Milvus 向量记忆与 Neo4j 图谱记忆 |
+| 🧬 **个人进化** | 从你的真实工作沉淀记忆与技能，逐条审批后才对你生效，可随时关闭 |
+| 🗂️ **个人工作空间** | 项目、文件夹、收藏、会话分享与产物中心 |
+| 📊 **数据画布** | 会话内查看与编辑结构化数据，分析过程与结果同处一个工作区 |
 
 ## 系统架构
 
@@ -307,18 +236,12 @@ HugAgentOS 将用户渠道、智能体工作流、可复用能力引擎、本体
 
 ## 路线图
 
-社区版接下来将重点建设互联互通的工作空间、更高效的模型编排，以及更丰富的
-扩展生态。
-
-1. **云端/本地切换与多端互通。** 实现云端运行与本地运行的无缝切换，通过
-   一套服务端部署连接受支持的客户端，同步会话、智能体、技能、文件和任务状态，
-   让用户在不同界面之间切换时能够延续上下文。
-2. **基于 Mixture of Agents（MoA）的自适应模型路由。** 根据任务复杂度、模态、
-   时延和成本选择、切换或按需组合模型。简单任务使用轻量模型，复杂任务升级到
-   更强或更专业的模型，在保证效果的同时减少不必要的 token 消耗。
-3. **更丰富的可扩展能力生态。** 持续扩充内置与社区贡献的智能体、技能、MCP
-   服务及工具和插件，并完善发现、安装、更新、兼容性、质量审核与安全审核流程，
-   让可复用能力更容易构建、分享和持续演进。
+1. **云端 / 本地无缝切换与多端互通** —— 一套服务端连接多客户端，同步会话、智能体、
+   技能、文件与任务状态。
+2. **基于 MoA 的自适应模型路由** —— 按任务复杂度、模态、时延与成本选择或组合模型，
+   简单任务用轻量模型，复杂任务再升级。
+3. **更丰富的扩展生态** —— 持续扩充智能体、技能、MCP 服务与插件，完善发现、安装、
+   更新与质量/安全审核流程。
 
 ## 参与贡献
 

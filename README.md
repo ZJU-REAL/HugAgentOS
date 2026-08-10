@@ -20,6 +20,15 @@
 </p>
 
 <p align="center">
+  <video src="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-en.mp4" controls muted playsinline width="100%"></video>
+</p>
+
+<p align="center">
+  <sub>60-second product tour · if the video does not play above,
+  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-en.mp4">watch it here</a></sub>
+</p>
+
+<p align="center">
   <a href="./README.md">English</a> ·
   <a href="./README_CN.md">简体中文</a>
 </p>
@@ -62,58 +71,39 @@ automation, and a data canvas in one self-hosted workspace.
 
 ## Quick start
 
-Choose the local installer for a personal trial or Docker Compose for a
-server-oriented, service-isolated deployment. Both methods require access to an
-OpenAI-compatible or local model.
+Use the one-command install to try it out, or Docker Compose for a long-running
+service with isolation. Either way you need an OpenAI-compatible or local model.
+**The initial account and password are both `admin` and must be changed on first
+sign-in; the Community Edition has no self-registration.**
 
-### Option 1: one-command installation
+### Option 1: one-command install (Linux / macOS / WSL2)
 
-Install the personal, single-machine profile on Linux, macOS, or WSL2. You
-need Python 3.11 or later, Node.js 20 or later, Git, and `curl`. On Linux
-platforms without a compatible prebuilt `ripgrep` wheel, you also need the
-current stable Rust toolchain. You don't need Docker, PostgreSQL, or Redis.
+Requires Python 3.11+, Node.js 20+, Git and `curl`. No Docker, PostgreSQL or
+Redis needed.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh | bash
 ```
 
-The installer clones HugAgentOS into `~/.hugagent/source`, creates an isolated
-Python environment, installs the dependencies, builds the web application, and
-opens the first-run wizard. Follow the prompts to create an administrator and
-connect an OpenAI-compatible or local model. HugAgentOS then opens at
-[http://127.0.0.1:3001](http://127.0.0.1:3001).
-
-A fresh data directory creates exactly one local administrator. The initial
-username and password are both `admin`, and the password must be changed on the
-first sign-in. CE does not provide self-service registration.
+The installer fetches the source into `~/.hugagent/source`, creates an isolated
+Python environment, builds the web application and walks you through first-run
+setup; it then opens [http://127.0.0.1:3001](http://127.0.0.1:3001). Start it
+again later with `~/.hugagent/venv/bin/hugagent`.
 
 > [!WARNING]
-> The one-click server listens on `127.0.0.1` by default. If you need remote
-> access to a server, run
-> `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`, and configure a
-> strong administrator password, a firewall, and HTTPS first. Don't expose the
-> service directly on an untrusted network.
+> The installation listens on `127.0.0.1` only. If you genuinely need remote
+> access, use `hugagent serve --host 0.0.0.0 --port 3001 --no-browser`, and set a
+> strong password, a firewall and HTTPS first. Do not expose it on an untrusted
+> network.
 
-Start HugAgentOS again at any time with this command:
-
-```bash
-~/.hugagent/venv/bin/hugagent
-```
-
-> [!NOTE]
-> The one-command profile is designed for personal trials and development. It
-> uses SQLite, in-process state, and a local subprocess sandbox. For long-running
-> servers or production-style isolation, use the [Docker Compose deployment
-> guide](./document/en/deployment/docker-compose.md).
-
-For installer options, capability boundaries, and troubleshooting, read the
-[no-Docker installation guide](./document/en/deployment/quick-install.md).
+This path uses SQLite, in-process state and a local subprocess sandbox, which
+suits personal use and development. Options and troubleshooting are in the
+[one-command install guide](./document/en/deployment/quick-install.md).
 
 ### Option 2: Docker Compose
 
-Use Docker Compose when you need PostgreSQL, Redis, an isolated sandbox,
-durable service volumes, or a long-running server deployment. You need Git,
-Docker Engine or Docker Desktop, and Docker Compose v2.
+Use this when you need PostgreSQL, Redis, an isolated sandbox and persistent
+volumes. Requires Git, Docker and Compose v2.
 
 ```bash
 git clone https://github.com/ZJU-REAL/HugAgentOS.git
@@ -123,159 +113,85 @@ mkdir -p data/storage
 docker compose up -d --build
 ```
 
-Open [http://localhost:3002](http://localhost:3002). The initial account and
-password are both `admin`; change the password at the first sign-in. Then open
-**Settings → System Administration → Model Services** to connect an
-OpenAI-compatible or local model.
-
-Check the service status with `docker compose ps`. To stop the stack without
-deleting its data, run `docker compose down`. For profiles, persistence,
-production configuration, and rebuild workflows, read the
+Open [http://localhost:3002](http://localhost:3002), then connect a model under
+**Settings → System → Model services**. Profiles, persistence and production
+configuration are covered in the
 [Docker Compose deployment guide](./document/en/deployment/docker-compose.md).
 
-## From answers to outcomes
+## Why HugAgentOS
 
-HugAgentOS isn't another wrapper around a chat box. It puts the context,
-execution environment, and artifact management an agent needs into one task
-flow.
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🔌 Bring your model</strong><br />
-      Connect cloud or local models through one provider layer without locking
-      the application to a single vendor.
-    </td>
-    <td width="50%" valign="top">
-      <strong>🛠️ Take action</strong><br />
-      ReAct orchestration combines MCP, skills, and a sandbox to search,
-      analyze, create files, and call external capabilities.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🧠 Retain context</strong><br />
-      Private knowledge bases and layered memory provide context across files
-      and conversations.
-    </td>
-    <td width="50%" valign="top">
-      <strong>🏠 Own your data</strong><br />
-      Run the application, databases, and file storage on infrastructure you
-      control.
-    </td>
-  </tr>
-</table>
-
-## Enterprise trust through domain ontology
-
-HugAgentOS uses domain ontology as an executable control plane, not only as a
-knowledge store. Controlled concepts, relationships, invariants, action
-contracts, roles, and permissions give the skill, memory, and orchestration
-engines one shared business language.
+The point is not another chat wrapper. It is putting the context, the execution
+capability, and the artifact management an agent needs to finish real work on a
+single path — and raising the domain ontology from a knowledge base to a
+**machine-executable control plane**, so that governed concepts, relations, rules
+and action contracts give the skill, memory and orchestration engines one shared
+business vocabulary.
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <strong>🧭 Shared semantic ground</strong><br />
-      Align domain intent, skills, tools, memory, and agent roles against one
-      versioned set of concepts and relationships.
+      <strong>🔌 Model-agnostic</strong><br />
+      Connect cloud or local models through one model-service configuration,
+      without locking the application to a single vendor.
     </td>
     <td width="50%" valign="top">
-      <strong>🏗️ Build-time governance</strong><br />
-      Validate skills, tools, and sub-agents as they are created or imported,
-      and assemble capabilities through consistent Action contracts.
+      <strong>🛠️ Actually does the work</strong><br />
+      ReAct orchestrates MCP servers, skills and sandboxes, so the model can
+      search, analyse, produce files and call external capabilities.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <strong>🛡️ Policy-gated execution</strong><br />
-      Turn a candidate plan into action through deterministic rule checks,
-      risk-based evidence review, and gated execution. Violations return with
-      the rule, evidence, and repair guidance instead of silently proceeding.
+      <strong>🧠 Knowledge and memory</strong><br />
+      Private knowledge bases and layered memory supply long-term context across
+      files and conversations.
     </td>
     <td width="50%" valign="top">
-      <strong>🔎 Traceable, governed evolution</strong><br />
-      Record approvals, rejections, evidence, and outcomes. Enforcement events
-      become versioned ontology proposals that require human review and remain
-      reversible.
+      <strong>🏠 Your data stays yours</strong><br />
+      Application, database and file storage all run on your own infrastructure.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>🛡️ Gated, trustworthy execution</strong><br />
+      Candidate plans pass deterministic rule checks, risk-tiered evidence review
+      and a gate. A violating action returns with the rule, the evidence and a
+      correction — it is never waved through silently.
+    </td>
+    <td width="50%" valign="top">
+      <strong>🔎 Traceable evolution</strong><br />
+      Approvals, rejections, evidence and outcomes are all recorded, distilled
+      into versioned ontology proposals that take effect only after human review,
+      and can be rolled back.
     </td>
   </tr>
 </table>
 
 > [!NOTE]
-> The ontology trust plane is a target enterprise architecture being integrated
-> incrementally on top of the current Harness. It strengthens structured
-> compliance and evidence-backed review; it doesn't claim to eliminate every
-> free-text hallucination.
+> The ontology trust control plane is an enterprise target architecture being
+> integrated into the existing harness in stages. It strengthens structured
+> compliance and evidence-based review; it does not promise "zero hallucination"
+> for free text.
 
 ## Core capabilities
 
-Community Edition covers the complete personal-agent loop from conversation
-and execution to retention and reuse. Optional infrastructure stays optional
-during the first run.
+The Community Edition covers the full loop for a personal agent — conversation,
+execution, consolidation and reuse. Optional components are enabled as needed.
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>💬 Agentic chat and Plan Mode</strong><br />
-      SSE streaming, ReAct tool orchestration, deep thinking, Plan Mode,
-      traceable citations, and resumable streams.
-    </td>
-    <td width="50%" valign="top">
-      <strong>📚 Private knowledge-base RAG</strong><br />
-      Document ingestion and chunking, hybrid vector and keyword retrieval,
-      optional reranking, and private knowledge isolation.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🤝 Personal sub-agents</strong><br />
-      Create agents with focused roles, then collaborate through automatic
-      routing or <code>@</code> mentions.
-    </td>
-    <td width="50%" valign="top">
-      <strong>🔧 MCP tool ecosystem</strong><br />
-      Built-in web search, page fetching, knowledge retrieval, charts, reports,
-      batch jobs, automation, and skill management.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🧩 Agent Skills</strong><br />
-      Extend agents with structured instructions and scripts through bundled
-      skills, a skill marketplace, and personal skills.
-    </td>
-    <td width="50%" valign="top">
-      <strong>⚙️ Automation and batch execution</strong><br />
-      Create scheduled tasks in natural language or apply one workflow across
-      spreadsheets, Word documents, and file lists.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🧪 Sandbox and artifacts</strong><br />
-      Run code in a local subprocess or lightweight container sandbox, then
-      create charts, reports, Office files, websites, and data-canvas artifacts.
-    </td>
-    <td width="50%" valign="top">
-      <strong>🧠 Three-tier personal memory</strong><br />
-      Store the L1 personal profile in the relational database, with optional
-      Milvus vector memory and Neo4j graph memory.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>🗂️ Personal workspace</strong><br />
-      Organize long-running work with projects, folders, favorites, shared
-      conversations, and an artifact center.
-    </td>
-    <td width="50%" valign="top">
-      <strong>📊 Data canvas</strong><br />
-      Inspect and edit structured data inside the conversation so the analysis
-      and final result stay in one workspace.
-    </td>
-  </tr>
-</table>
+| Capability | What it gives you |
+|---|---|
+| 💬 **Conversation and plan mode** | SSE streaming, ReAct tool orchestration, deep thinking, plan mode, citations, resumable runs |
+| 📚 **Private knowledge base RAG** | Document chunking, hybrid vector and keyword retrieval, optional reranking, per-user isolation |
+| 🤝 **Personal sub-agents** | Sub-agents with distinct roles, reached by automatic routing or an `@` mention |
+| 🔧 **MCP tool ecosystem** | Built-in web search, page fetch, knowledge retrieval, charts, reports, batch runs, automation, skill management |
+| 🧩 **Agent Skills** | Extend the agent with standardised skill definitions and scripts — built-in, marketplace and personal |
+| ⚙️ **Automation and batch runs** | Create scheduled tasks in natural language; run one process across an Excel sheet, a Word file or a file list |
+| 💬 **Group chat channels** | Feishu / DingTalk / WeCom bots, with optional group listening and history retrieval so the agent can see the conversation around it |
+| 🧪 **Sandbox and artifacts** | Run code in a subprocess or lightweight container sandbox, producing charts, reports, Office files, web pages and data canvases |
+| 🧠 **Three-layer personal memory** | L1 profile in the relational store; optional Milvus vector memory and Neo4j graph memory |
+| 🧬 **Personal evolution** | Settle memory and skills out of your real work, each approved individually before it applies to you, and switchable off |
+| 🗂️ **Personal workspace** | Projects, folders, favourites, conversation sharing and an artifact center |
+| 📊 **Data canvas** | Inspect and edit structured data inside the conversation, keeping analysis and result in one workspace |
 
 ## Architecture
 
@@ -347,24 +263,15 @@ Start from [document/README.md](./document/README.md) to browse every guide.
 
 ## Roadmap
 
-Future Community Edition development will focus on a connected workspace,
-efficient model orchestration, and a broader extension ecosystem.
-
-1. **Cloud/local switching and cross-client continuity.** Enable seamless
-   switching between cloud-hosted and local runtimes. A single server
-   deployment will connect supported clients and synchronize conversations,
-   agents, skills, files, and task state so work can move between interfaces
-   without losing context.
-2. **Adaptive model routing with Mixture of Agents (MoA).** Select, switch, or
-   combine models based on task complexity, modality, latency, and cost. Simple
-   tasks can use lightweight models, while demanding tasks can escalate to
-   stronger or specialized models, maintaining quality while reducing
-   unnecessary token usage.
-3. **A richer extensibility ecosystem.** Expand the catalog of built-in and
-   community agents, skills, MCP servers and tools, and plugins. Improve the
-   supporting workflows for discovery, installation, updates, compatibility,
-   quality review, and security review so reusable capabilities are easier to
-   build and share.
+1. **Seamless cloud/local switching across clients** — one server deployment
+   serving multiple clients, keeping conversations, agents, skills, files and task
+   state in sync.
+2. **Adaptive model routing based on Mixture of Agents** — select or combine models
+   by task complexity, modality, latency and cost: light models for simple work,
+   stronger ones only when the task warrants it.
+3. **A richer extension ecosystem** — more built-in and community agents, skills,
+   MCP servers and plugins, with better discovery, installation, updates, and
+   quality and security review.
 
 ## Contributing
 
