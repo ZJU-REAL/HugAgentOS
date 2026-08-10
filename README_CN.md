@@ -58,14 +58,12 @@ Agent Skills、沙箱执行、长期记忆、自动化和数据画布整合到�
 > `src/**` 的修改请通过 Issue 或 Discussion 反馈；文档与示例欢迎直接提交 PR。
 > 详细规则见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-<p align="center">
-  <img src="./assets/hugagentos-promo-zh.webp" alt="HugAgentOS 60 秒宣传片" width="100%" />
-</p>
+## 演示
 
-<p align="center">
-  <sub>60 秒宣传片 ·
-  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-zh.mp4">带声音的完整视频</a></sub>
-</p>
+60 秒速览：同一个任务做两次——中间是受审计的自进化，记忆、技能与编排逐条沉淀，
+每一步都要经你确认才生效。
+
+https://github.com/user-attachments/assets/a268e371-a11f-488b-98d4-08598e2fdf89
 
 ## 快速开始
 
