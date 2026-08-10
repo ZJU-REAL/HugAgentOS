@@ -20,15 +20,6 @@
 </p>
 
 <p align="center">
-  <video src="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-zh.mp4" controls muted playsinline width="100%"></video>
-</p>
-
-<p align="center">
-  <sub>60 秒宣传片 · 若上方视频未自动播放，可
-  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-zh.mp4">点此观看</a></sub>
-</p>
-
-<p align="center">
   <a href="./README.md">English</a> ·
   <a href="./README_CN.md">简体中文</a>
 </p>
@@ -66,6 +57,15 @@ Agent Skills、沙箱执行、长期记忆、自动化和数据画布整合到�
 > 本社区仓库由上游主仓按发布版本自动生成，并标记为 `generated`。
 > `src/**` 的修改请通过 Issue 或 Discussion 反馈；文档与示例欢迎直接提交 PR。
 > 详细规则见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+<p align="center">
+  <img src="./assets/hugagentos-promo-zh.webp" alt="HugAgentOS 60 秒宣传片" width="100%" />
+</p>
+
+<p align="center">
+  <sub>60 秒宣传片 ·
+  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-zh.mp4">带声音的完整视频</a></sub>
+</p>
 
 ## 快速开始
 
