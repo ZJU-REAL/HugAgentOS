@@ -20,15 +20,6 @@
 </p>
 
 <p align="center">
-  <video src="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-en.mp4" controls muted playsinline width="100%"></video>
-</p>
-
-<p align="center">
-  <sub>60-second product tour · if the video does not play above,
-  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-en.mp4">watch it here</a></sub>
-</p>
-
-<p align="center">
   <a href="./README.md">English</a> ·
   <a href="./README_CN.md">简体中文</a>
 </p>
@@ -68,6 +59,15 @@ automation, and a data canvas in one self-hosted workspace.
 > each release and is marked `generated`. Report changes to `src/**` through an
 > Issue or Discussion. Pull requests for documentation and examples are
 > welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+
+<p align="center">
+  <img src="./assets/hugagentos-promo-en.webp" alt="HugAgentOS 60-second product tour" width="100%" />
+</p>
+
+<p align="center">
+  <sub>60-second product tour ·
+  <a href="https://github.com/ZJU-REAL/HugAgentOS/raw/main/assets/hugagentos-promo-en.mp4">full video with sound</a></sub>
+</p>
 
 ## Quick start
 
