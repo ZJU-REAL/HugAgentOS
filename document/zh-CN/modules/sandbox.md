@@ -1,6 +1,6 @@
 # 沙箱执行系统
 
-> 最后更新：2026-06-11
+> 最后更新：2026-08-11
 
 沙箱是 HugAgentOS 中智能体执行代码的隔离环境：模型在对话里调用 `bash` 跑命令、运行[技能](agent-skills.md)脚本、生成可下载产物，全部发生在沙箱里而非后端主进程。系统通过统一的 **Provider 协议**抽象出三种可切换的执行后端——从单机轻量的 script_runner 到带持久会话、快照恢复的 OpenSandbox，再到远端 MicroVM 集群的 Cube——上层工具代码对此完全无感。
 
@@ -16,6 +16,7 @@
 | `stage_files(user_id, files)` | 把输入文件暂存到用户 myspace 缓存，返回沙箱内可引用的绝对路径 |
 | `put_file(session_id, path, content)` | 写字节进沙箱指定路径（自动建上级目录） |
 | `get_file(session_id, path)` | 从沙箱读文件字节 |
+| `get_file_to_path(session_id, path, destination, max_bytes)` | 把沙箱文件分块流式写入后端临时文件，并在传输中强制校验大小上限 |
 | `current_sandbox_id(session_id)` | 纯查询当前绑定的底层沙箱身份（用于检测沙箱被重建） |
 | `health()` | 健康探测 |
 | `admin_*` 系列 | 安全管理台只读视图（能力声明 / 实例枚举 / 单实例详情 / 池统计），不支持的能力抛 `SandboxAdminNotSupported` 由 UI 置灰 |
@@ -45,11 +46,26 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 |---|---|
 | `bash(command, timeout)` | 在沙箱执行任意 shell 命令；工作目录 `/workspace`，同会话内文件持久；硬上限 120 秒；另注册大写 `Bash` 别名（兼容部分模型按训练惯例发出的大写工具名调用） |
 | `sandbox_put_artifact(artifact_id, dest_path)` | 把平台 artifact（用户上传文件、图表工具产物等）的字节拷入沙箱路径——沙箱不会自动看到上传文件 |
-| `sandbox_get_artifact(src_path)` | 把沙箱内文件登记为可下载 artifact——bash 产物不会自动出现在附件区 |
+| `sandbox_get_artifact(src_path)` | 把沙箱内文件流式登记为可下载 artifact；默认单文件上限 100 MiB——bash 产物不会自动出现在附件区 |
 
 沙箱会话标识由 `resolve_sandbox_session(sandbox_session_id, chat_id)` 解析：主对话/计划执行 → `chat_id`（per-chat 持久 kernel）；批量项/子智能体 → `""`（ephemeral）。
 
 **MySpace 回写闭环**：`bash` 命令成功且命令串包含 `myspace` 时，`_sync_myspace_changes` 列出沙箱 `/workspace/myspace/{uid}` 下近 10 分钟修改的文件、与后端镜像缓存做 md5 比对，差异文件逐个过用户确认门（`MYSPACE_WRITE_CONFIRM`，非交互模式直接拒写）后以**同 file_id 就地回写**「我的空间」——下载/预览链接不变。这闭合了"模型用 python-docx 在沙箱改了 docx、用户空间却纹丝不动"的断链。
+
+### 大文件产物交付
+
+`sandbox_get_artifact` 默认支持最大 100 MiB（104,857,600 字节）的单个文件，
+上限由 `SANDBOX_ARTIFACT_MAX_BYTES` 统一配置。三种 provider 都实现
+`get_file_to_path`：script_runner 使用原始 HTTP 响应流，OpenSandbox 使用
+`read_bytes_stream`，Cube 使用 E2B `format="stream"`。后端按流式分块写入
+临时文件，再通过文件接口复制到本地 artifact 目录或上传到 OSS；传输过程中
+不会把完整二进制转换成 Base64，也不会把整份文件常驻后端内存。
+
+沙箱 `execute` 返回的内联产物仍保持单文件 10 MiB、单次合计 20 MiB 的保护
+上限，因为这些文件会进入工具 JSON。大型产物必须显式调用
+`sandbox_get_artifact`。文件在传输前或传输中超过配置上限时，工具返回
+`sandbox_artifact_too_large` 结构化错误；PDF 应按页拆分，其他格式应拆包或
+降低体积后逐个交付。
 
 ## OpenSandbox 会话生命周期（EE）
 
@@ -116,6 +132,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 |---|---|---|
 | `SANDBOX_PROVIDER` | `script_runner` | provider 选择：`script_runner` / `opensandbox` / `cube` |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 |
+| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | `sandbox_get_artifact` 单文件流式交付上限（默认 100 MiB） |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
 | `OPENSANDBOX_DEFAULT_TIMEOUT_S` | 1800 | 沙箱服务端 TTL |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、2/5、20 | 预热池水位 |

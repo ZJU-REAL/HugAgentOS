@@ -1,6 +1,6 @@
 # Sandbox Execution System
 
-> Last updated: 2026-06-11
+> Last updated: 2026-08-11
 
 The sandbox is the isolated environment where HugAgentOS's agents execute code: every `bash` call the model makes in a conversation, every [skill](agent-skills.md) script run, every generated deliverable happens inside the sandbox rather than the backend process. A single **provider protocol** abstracts three interchangeable execution backends — from the single-host lightweight script_runner, through OpenSandbox with persistent sessions and snapshot recovery, to a remote MicroVM fleet (Cube) — with the tool layer above completely agnostic to the choice.
 
@@ -16,6 +16,7 @@ Every provider implements the same `SandboxProvider` Protocol, whose field contr
 | `stage_files(user_id, files)` | Stage input files into the user's myspace cache; returns sandbox-referenceable absolute paths |
 | `put_file(session_id, path, content)` | Write bytes to a sandbox path (parent dirs auto-created) |
 | `get_file(session_id, path)` | Read file bytes from the sandbox |
+| `get_file_to_path(session_id, path, destination, max_bytes)` | Stream a sandbox file into a backend temporary file while enforcing the size limit during transfer |
 | `current_sandbox_id(session_id)` | Pure query of the currently bound sandbox identity (detects rebuilds) |
 | `health()` | Health probe |
 | `admin_*` family | Read-only views for the security console (capability declaration / instance listing / detail / pool stats); unsupported abilities raise `SandboxAdminNotSupported` and the UI greys them out |
@@ -45,11 +46,29 @@ Cube's design trade-offs (the price of being remote): every language goes throug
 |---|---|
 | `bash(command, timeout)` | Run an arbitrary shell command in the sandbox; working dir `/workspace`, files persist within a session; hard cap 120 s; an upper-case `Bash` alias is also registered (some models emit Title-cased tool names by training convention) |
 | `sandbox_put_artifact(artifact_id, dest_path)` | Copy a platform artifact's bytes (user uploads, chart-tool outputs, …) into a sandbox path — uploads are never auto-visible in the sandbox |
-| `sandbox_get_artifact(src_path)` | Register a sandbox file as a downloadable artifact — bash outputs never auto-appear in the attachment area |
+| `sandbox_get_artifact(src_path)` | Stream a sandbox file into a downloadable artifact; the default per-file limit is 100 MiB — bash outputs never auto-appear in the attachment area |
 
 The sandbox session identity is resolved by `resolve_sandbox_session(sandbox_session_id, chat_id)`: main chat / plan execution → `chat_id` (per-chat persistent kernel); batch items / sub-agents → `""` (ephemeral).
 
 **MySpace write-back loop**: when a `bash` command succeeds and its string mentions `myspace`, `_sync_myspace_changes` lists files modified in the last 10 minutes under the sandbox's `/workspace/myspace/{uid}`, md5-diffs them against the backend mirror cache, routes each changed file through the user-confirmation gate (`MYSPACE_WRITE_CONFIRM`; non-interactive contexts are denied outright), then writes approved changes back to "My Space" **in place under the same file_id** — download/preview links stay valid. This closes the gap where the model edits a docx with python-docx in the sandbox while the user's copy never changes.
+
+### Large artifact delivery
+
+`sandbox_get_artifact` supports individual files up to 100 MiB (104,857,600
+bytes) by default. `SANDBOX_ARTIFACT_MAX_BYTES` configures the shared limit.
+All three providers implement `get_file_to_path`: script_runner uses a raw HTTP
+response stream, OpenSandbox uses `read_bytes_stream`, and Cube uses the E2B
+`format="stream"` mode. The backend writes streamed chunks to a temporary file,
+then copies that file into the local artifact directory or uploads it to OSS
+through the file-based storage API. The transfer doesn't convert the complete
+binary to Base64 or retain the complete file in backend memory.
+
+Inline artifacts returned by sandbox `execute` keep their 10 MiB per-file and
+20 MiB per-call safety limits because those files enter the tool JSON payload.
+Use `sandbox_get_artifact` explicitly for larger deliverables. If a file exceeds
+the configured limit before or during transfer, the tool returns the structured
+`sandbox_artifact_too_large` error. Split PDFs by page; split other archive-like
+formats or reduce their content before delivering each part.
 
 ## OpenSandbox session lifecycle (EE)
 
@@ -117,6 +136,7 @@ All skill files are exposed inside the sandbox through a **single read-only bind
 |---|---|---|
 | `SANDBOX_PROVIDER` | `script_runner` | Provider selection: `script_runner` / `opensandbox` / `cube` |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address |
+| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Per-file streaming delivery limit for `sandbox_get_artifact` (100 MiB by default) |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox server & image |
 | `OPENSANDBOX_DEFAULT_TIMEOUT_S` | 1800 | Server-side sandbox TTL |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3, 2/5, 20 | Warm-pool watermarks |

@@ -10,12 +10,15 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import AsyncIterable
 from pathlib import Path
 from shlex import (
     quote as shell_escape,  # re-export so providers can `from ._common import shell_escape`
 )
 
 from core.config.settings import settings
+
+from .errors import SandboxFileTooLargeError
 
 __all__ = [
     "ALLOWED_EXTENSIONS",
@@ -43,6 +46,7 @@ __all__ = [
     "yida_shared_workspace_dir",
     "safe_user_id",
     "shell_escape",
+    "stream_to_file",
 ]
 
 logger = logging.getLogger(__name__)
@@ -72,6 +76,30 @@ MAX_TOTAL_FILE_SIZE = 20 * 1024 * 1024
 MAX_FILE_COUNT = 20
 MAX_OUTPUT_BYTES = 1024 * 1024
 MAX_STDERR_BYTES = 10240
+
+
+async def stream_to_file(chunks: AsyncIterable[bytes], destination: Path, *, max_bytes: int) -> int:
+    """Write an async byte stream to ``destination`` with a hard byte limit.
+
+    The partial destination is removed on any failure, including a stream that
+    grows beyond ``max_bytes`` after its initial metadata check.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    total = 0
+    try:
+        with destination.open("wb") as output:
+            async for chunk in chunks:
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    raise SandboxFileTooLargeError(actual_size=total, max_size=max_bytes)
+                output.write(chunk)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return total
+
 
 # Backend-side view of the sandbox workspace root. Stays ``/workspace`` for the
 # Docker sidecar / opensandbox / cube containers (in-container absolute path). The

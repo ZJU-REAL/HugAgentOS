@@ -11,23 +11,24 @@ no longer coexists with this ``tools/`` package.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import logging
 import os
+import tempfile
+from pathlib import Path
 from typing import Any, Optional
 
 from agentscope.tool import Toolkit
 
 # AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
-
 from core.llm.tools._common import resolve_sandbox_session
 from core.llm.tools._tool_helpers import (
-    MAX_ARTIFACT_FILE_SIZE,
     _resolve_artifact_files,
     _resp_json,
-    _store_generated_files,
+    _store_generated_file_path,
     _validate_workspace_path,
 )
 
@@ -41,9 +42,7 @@ import re as _re
 _PAT_URL_RE = _re.compile(r"PAT_AUTHORIZATION_URL=(\S+)")
 
 
-def _detect_dws_pat_authorization(
-    exit_code: int, stdout: str, stderr: str
-) -> Optional[dict]:
+def _detect_dws_pat_authorization(exit_code: int, stdout: str, stderr: str) -> Optional[dict]:
     """Detect a dws PAT per-scope authorization interception and return a structured hint; return None otherwise.
 
     Pure function for easy unit testing. Hit condition: ``PAT_AUTHORIZATION_URL=``
@@ -98,12 +97,9 @@ async def _sync_myspace_changes(
         shell_quote,
     )
     from core.llm.tools._myspace_confirm import OP_WRITE
-    from core.sandbox import (
-        SandboxConnectError as _SCE,
-        SandboxError as _SE,
-        get_sandbox_provider as _get_provider,
-    )
-
+    from core.sandbox import SandboxConnectError as _SCE
+    from core.sandbox import SandboxError as _SE
+    from core.sandbox import get_sandbox_provider as _get_provider
     from core.sandbox._common import WORKSPACE as _WS
 
     base = f"{_WS}/myspace/{user_id}"
@@ -135,8 +131,7 @@ async def _sync_myspace_changes(
         try:
             cache_fp = _ms.myspace_cache_file(user_id, rel)
             cache_md5 = (
-                hashlib.md5(cache_fp.read_bytes()).hexdigest()
-                if cache_fp.is_file() else None
+                hashlib.md5(cache_fp.read_bytes()).hexdigest() if cache_fp.is_file() else None
             )
         except Exception:  # noqa: BLE001
             cache_md5 = None
@@ -145,8 +140,11 @@ async def _sync_myspace_changes(
 
         logical = f"/myspace/{rel}"
         guard = await myspace_write_guard(
-            chat_id=chat_id, op=OP_WRITE, logical_path=logical,
-            is_myspace=True, interactive=interactive,
+            chat_id=chat_id,
+            op=OP_WRITE,
+            logical_path=logical,
+            is_myspace=True,
+            interactive=interactive,
             summary=f"bash 修改了 {logical}，同步回我的空间",
         )
         if guard is not None:
@@ -160,15 +158,19 @@ async def _sync_myspace_changes(
             logger.warning("[bash.myspace-sync] get_file %s 失败: %s", rel, exc)
             continue
         ref = _ms.sync_upsert(
-            user_id=user_id, chat_id=chat_id,
-            logical_path=logical, content=data,
+            user_id=user_id,
+            chat_id=chat_id,
+            logical_path=logical,
+            content=data,
         )
         if ref:
             pin_artifact_to_workspace(ref)
             synced.append(ref)
             logger.info(
                 "[bash.myspace-sync] %s → artifact %s (%dB, in_place=%s)",
-                logical, ref.get("file_id"), len(data),
+                logical,
+                ref.get("file_id"),
+                len(data),
                 ref.get("in_place_update"),
             )
     return synced, blocked
@@ -206,13 +208,11 @@ def register_bash(
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
 
     async def bash(command: str, timeout: int = 60) -> ToolResponse:
-        from core.sandbox import (
-            ExecuteRequest as _ExecuteRequest,
-            SandboxConnectError as _SandboxConnectError,
-            SandboxError as _SandboxError,
-            SandboxTimeoutError as _SandboxTimeoutError,
-            get_sandbox_provider as _get_provider,
-        )
+        from core.sandbox import ExecuteRequest as _ExecuteRequest
+        from core.sandbox import SandboxConnectError as _SandboxConnectError
+        from core.sandbox import SandboxError as _SandboxError
+        from core.sandbox import SandboxTimeoutError as _SandboxTimeoutError
+        from core.sandbox import get_sandbox_provider as _get_provider
 
         cmd = (command or "").strip()
         if not cmd:
@@ -268,11 +268,8 @@ def register_bash(
             # (true Claude-Code-shaped HITL) before executing. Non-interactive
             # runs (batch/sub-agent) skip the popup and just run + audit.
             if verdict.decision == "confirm" and interactive:
-                from core.llm.tools._myspace_confirm import (
-                    KIND_LOCAL_CMD,
-                    OP_LOCAL_EXEC,
-                    gate as _confirm_gate,
-                )
+                from core.llm.tools._myspace_confirm import KIND_LOCAL_CMD, OP_LOCAL_EXEC
+                from core.llm.tools._myspace_confirm import gate as _confirm_gate
 
                 _reasons = "、".join(verdict.reasons)
                 _blocked = await _confirm_gate(
@@ -280,8 +277,7 @@ def register_bash(
                     op=OP_LOCAL_EXEC,
                     logical_path=cmd[:160],
                     interactive=interactive,
-                    summary=("在本机执行：" + cmd[:200])
-                    + (f"（{_reasons}）" if _reasons else ""),
+                    summary=("在本机执行：" + cmd[:200]) + (f"（{_reasons}）" if _reasons else ""),
                     kind=KIND_LOCAL_CMD,
                 )
                 if _blocked is not None:
@@ -329,7 +325,9 @@ def register_bash(
         if result.exit_code == 0 and user_id and "myspace" in cmd:
             try:
                 synced, blocked = await _sync_myspace_changes(
-                    sess=_sess, user_id=user_id, chat_id=chat_id,
+                    sess=_sess,
+                    user_id=user_id,
+                    chat_id=chat_id,
                     interactive=interactive,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -370,7 +368,7 @@ def register_bash(
         "在沙盒里执行一条 shell 命令（默认 bash 解释器）。\n\n"
         "约定：\n"
         f"- 工作目录默认 {_WS}。已加载的技能文件位于 {_WS}/skills/<skill_id>/，\n"
-        f"  典型用法：bash(command=\"cd {_WS}/skills/<id> && bash scripts/foo.sh\")。\n"
+        f'  典型用法：bash(command="cd {_WS}/skills/<id> && bash scripts/foo.sh")。\n'
         f"- 多步骤工作流可以连用多次 bash——{_WS} 在整轮对话内是持久的，\n"
         "  上一条命令写下的文件下一条命令直接能读。\n"
         "- 用户上传的文件不会自动出现在沙盒里。需要时先调 \n"
@@ -422,11 +420,9 @@ def register_sandbox_put_artifact(
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
 
     async def sandbox_put_artifact(artifact_id: str, dest_path: str) -> ToolResponse:
-        from core.sandbox import (
-            SandboxConnectError as _SandboxConnectError,
-            SandboxError as _SandboxError,
-            get_sandbox_provider as _get_provider,
-        )
+        from core.sandbox import SandboxConnectError as _SandboxConnectError
+        from core.sandbox import SandboxError as _SandboxError
+        from core.sandbox import get_sandbox_provider as _get_provider
 
         if not artifact_id or not isinstance(artifact_id, str):
             return _resp_json({"error": "artifact_id 必须为非空字符串"})
@@ -437,6 +433,7 @@ def register_sandbox_put_artifact(
         # Alias the canonical /workspace → real root before handing to the provider
         # (no-op in Docker); the model writes /workspace paths from the prompt/skills.
         from ._paths import canonicalize_ws_path
+
         dest_path = canonicalize_ws_path(dest_path)
 
         # _resolve_artifact_files accepts the {filename: artifact_id} shape;
@@ -458,12 +455,14 @@ def register_sandbox_put_artifact(
         except (_SandboxError, _SandboxConnectError) as exc:
             return _resp_json({"error": str(exc)})
 
-        return _resp_json({
-            "ok": True,
-            "artifact_id": artifact_id,
-            "dest_path": dest_path,
-            "size": len(content),
-        })
+        return _resp_json(
+            {
+                "ok": True,
+                "artifact_id": artifact_id,
+                "dest_path": dest_path,
+                "size": len(content),
+            }
+        )
 
     sandbox_put_artifact.__doc__ = (
         "把已存在的 artifact（用户上传文件，或之前 bash/工具产出的文件）的字节\n"
@@ -498,72 +497,100 @@ def register_sandbox_get_artifact(
         return
 
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
+    from core.config.settings import settings as _settings
+
+    max_bytes = _settings.sandbox.artifact_max_bytes
 
     async def sandbox_get_artifact(src_path: str, name: str = "") -> ToolResponse:
         import mimetypes as _mt
-        from core.sandbox import (
-            SandboxConnectError as _SandboxConnectError,
-            SandboxError as _SandboxError,
-            get_sandbox_provider as _get_provider,
-        )
+
+        from core.sandbox import SandboxConnectError as _SandboxConnectError
+        from core.sandbox import SandboxError as _SandboxError
+        from core.sandbox import get_sandbox_provider as _get_provider
 
         path_err = _validate_workspace_path(src_path)
         if path_err:
             return _resp_json({"error": path_err})
         from ._paths import canonicalize_ws_path
+
         src_path = canonicalize_ws_path(src_path)
 
         provider = _get_provider()
+        from core.sandbox import SandboxFileTooLargeError as _SandboxFileTooLargeError
+
+        suffix = Path(src_path).suffix
+        with tempfile.NamedTemporaryFile(
+            prefix="sandbox-artifact-", suffix=suffix, delete=False
+        ) as tmp:
+            tmp_path = Path(tmp.name)
         try:
-            content = await provider.get_file(_sess, src_path, user_id=user_id)
+            size = await provider.get_file_to_path(
+                _sess,
+                src_path,
+                tmp_path,
+                max_bytes=max_bytes,
+                user_id=user_id,
+            )
+        except _SandboxFileTooLargeError as exc:
+            tmp_path.unlink(missing_ok=True)
+            suggestion = "PDF 请按页拆分为多个文件后逐个交付；其他格式请拆包或降低内容体积。"
+            return _resp_json(
+                {
+                    "error": (
+                        f"文件 {src_path} 过大: {exc.actual_size} bytes > " f"{exc.max_size} bytes"
+                    ),
+                    "code": "sandbox_artifact_too_large",
+                    "actual_size": exc.actual_size,
+                    "max_size": exc.max_size,
+                    "suggestion": suggestion,
+                }
+            )
         except (_SandboxError, _SandboxConnectError) as exc:
+            tmp_path.unlink(missing_ok=True)
             return _resp_json({"error": str(exc)})
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        try:
+            if size <= 0:
+                return _resp_json({"error": f"文件 {src_path} 为空"})
 
-        if not content:
-            return _resp_json({"error": f"文件 {src_path} 为空"})
-        if len(content) > MAX_ARTIFACT_FILE_SIZE:
-            return _resp_json({
-                "error": (
-                    f"文件 {src_path} 过大: {len(content)} bytes > "
-                    f"{MAX_ARTIFACT_FILE_SIZE} bytes"
-                ),
-            })
+            out_name = (name or src_path.rsplit("/", 1)[-1]).strip() or "output"
+            mime, _ = _mt.guess_type(out_name)
+            mime = mime or "application/octet-stream"
 
-        out_name = (name or src_path.rsplit("/", 1)[-1]).strip() or "output"
-        mime, _ = _mt.guess_type(out_name)
-        mime = mime or "application/octet-stream"
+            ref = await asyncio.to_thread(
+                _store_generated_file_path,
+                tmp_path,
+                name=out_name,
+                mime_type=mime,
+                user_id=user_id,
+                source="sandbox_get_artifact",
+                extra_metadata={"src_path": src_path} if src_path else None,
+            )
+            if not ref:
+                return _resp_json({"error": "artifact 登记失败（存储后端不可用？）"})
 
-        refs = _store_generated_files(
-            [{
-                "name": out_name,
-                "size": len(content),
-                "content_b64": base64.b64encode(content).decode("ascii"),
-                "mime_type": mime,
-            }],
-            user_id=user_id,
-            source="sandbox_get_artifact",
-            extra_metadata={"src_path": src_path} if src_path else None,
-        )
-        if not refs:
-            return _resp_json({"error": "artifact 登记失败（存储后端不可用？）"})
-
-        ref = refs[0]
-        return _resp_json({
-            "ok": True,
-            "file_id": ref["file_id"],
-            "name": ref["name"],
-            "url": ref["url"],
-            "mime_type": ref["mime_type"],
-            "size": ref["size"],
-            # frontend ToolOutputRenderer expects download links rendered as an artifacts array
-            "artifacts": [ref],
-        })
+            return _resp_json(
+                {
+                    "ok": True,
+                    "file_id": ref["file_id"],
+                    "name": ref["name"],
+                    "url": ref["url"],
+                    "mime_type": ref["mime_type"],
+                    "size": ref["size"],
+                    # frontend ToolOutputRenderer expects download links rendered as an artifacts array
+                    "artifacts": [ref],
+                }
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     sandbox_get_artifact.__doc__ = (
         "把沙盒里的某个文件读出来，登记为持久 artifact，并返回 file_id。\n\n"
         "⚠️ **拿到 file_id ≠ 已交付**。本工具只是把沙盒文件登记进 artifact 存储，\n"
         "返回的 url（如 /files/xxx）默认对用户隐藏——直到你再调一次\n"
-        "`pin_to_workspace(file_ids=[\"<file_id>\"])`，文件才会作为附件出现在对话区。\n"
+        '`pin_to_workspace(file_ids=["<file_id>"])`，文件才会作为附件出现在对话区。\n'
         "**禁止**把 file_id 或 url 直接写进正文当下载链接，那对用户不可见。\n\n"
         "典型流程：bash 跑完生成脚本，脚本把结果写到 /workspace/out.xlsx：\n"
         "  1) sandbox_get_artifact(src_path='/workspace/out.xlsx') → 得到 file_id\n"
@@ -575,7 +602,9 @@ def register_sandbox_get_artifact(
         "Returns:\n"
         "    JSON: {ok: true, file_id, name, url, mime_type, size, artifacts: [...]}\n"
         "    或 {error: '...'}。\n"
-        "限制：单文件最大 10 MB。\n"
+        f"限制：单文件最大 {max_bytes} bytes（默认 100 MiB，可由 "
+        "SANDBOX_ARTIFACT_MAX_BYTES 配置）。超限时不要反复尝试同一文件；"
+        "PDF 应按页拆分，其他格式应拆包或降低体积后再逐个登记。\n"
     )
 
     toolkit.register_tool_function(sandbox_get_artifact, namesake_strategy="override")

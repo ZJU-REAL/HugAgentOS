@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 try:
@@ -48,6 +49,9 @@ MAX_MEMORY_MB = int(os.getenv("SCRIPT_MAX_MEMORY_MB", "256"))
 WORKSPACE_ROOT = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
 MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
+MAX_ARTIFACT_EXPORT_BYTES = max(
+    1, int(os.getenv("SANDBOX_ARTIFACT_MAX_BYTES", str(100 * 1024 * 1024)))
+)
 
 # Local-profile /workspace→real-root rewrite for executed script text. Compiled
 # once here (invariant: WORKSPACE_ROOT is read from env at import). None in Docker,
@@ -133,8 +137,7 @@ def _rewrite_bash_workspace_refs(value: str, workspace_root: str) -> str:
         return value
     replacement = workspace_root.rstrip("/\\")
     expanded_re = re.compile(
-        rf"(?<![A-Za-z0-9_.\\/\-]){re.escape(replacement)}"
-        r"(?=/|$|[\"'\s:;)&|])"
+        rf"(?<![A-Za-z0-9_.\\/\-]){re.escape(replacement)}" r"(?=/|$|[\"'\s:;)&|])"
     )
     value = _quote_bash_path_refs(value, expanded_re, replacement)
     return _quote_bash_path_refs(value, _WS_PATH_RE, replacement)
@@ -480,8 +483,8 @@ async def put_file(req: PutFileRequest):
     return {"ok": True, "size": len(content)}
 
 
-# /get_file serves both sandbox_get_artifact (small outputs) and the internal
-# site-publish flow, whose tar pack is allowed up to 40MB (internal_sites
+# /get_file serves legacy Base64 consumers and the internal site-publish flow,
+# whose tar pack is allowed up to 40MB (internal_sites
 # MAX_PACK_BYTES) — a fetch cap below that makes larger site publishes fail
 # after a successful in-sandbox tar. Keep a generous ceiling here; callers
 # enforce their own tighter budgets.
@@ -490,7 +493,7 @@ MAX_FETCH_FILE_SIZE = 64 * 1024 * 1024
 
 @app.post("/get_file", response_model=GetFileResponse)
 async def get_file(req: GetFileRequest):
-    """Read a file from the sandbox and return it base64-encoded. Used by sandbox_get_artifact to register outputs as artifacts."""
+    """Read a file from the sandbox and return it base64-encoded."""
     p = _validate_workspace_path(req.path)
     if not p.is_file():
         raise HTTPException(404, f"文件不存在: {req.path}")
@@ -500,6 +503,27 @@ async def get_file(req: GetFileRequest):
     return GetFileResponse(
         content_b64=base64.b64encode(data).decode("ascii"),
         size=len(data),
+    )
+
+
+@app.post("/get_file_raw", response_class=FileResponse)
+async def get_file_raw(req: GetFileRequest) -> FileResponse:
+    """Stream a sandbox file without Base64 expansion."""
+    p = _validate_workspace_path(req.path)
+    if not p.is_file():
+        raise HTTPException(404, f"文件不存在: {req.path}")
+    size = p.stat().st_size
+    if size > MAX_ARTIFACT_EXPORT_BYTES:
+        raise HTTPException(
+            413,
+            f"文件过大: {size} > {MAX_ARTIFACT_EXPORT_BYTES}",
+        )
+    media_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+    return FileResponse(
+        path=p,
+        media_type=media_type,
+        filename=p.name,
+        headers={"X-Artifact-Size": str(size)},
     )
 
 

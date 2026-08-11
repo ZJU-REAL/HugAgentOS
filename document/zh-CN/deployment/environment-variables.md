@@ -186,6 +186,7 @@
 | `SANDBOX_MAX_CONCURRENT` | `4` | 单进程并发沙盒执行数（预留） | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 | CE |
 | `SANDBOX_TOOLS_TIMEOUT` / `SANDBOX_TOOLS_MAX_TIMEOUT` | `30` / `120` | 单条 bash 命令默认 / 最大超时（秒） | CE |
+| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | `sandbox_get_artifact` 单文件流式交付上限（100 MiB） | CE |
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner 内存上限（MB） | CE |
 | `MYSPACE_WRITE_CONFIRM` | `true`（代码默认） | 沙盒对 `/myspace` 写操作须用户带外确认 | CE |
 

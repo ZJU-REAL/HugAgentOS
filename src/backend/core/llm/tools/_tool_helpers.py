@@ -40,7 +40,10 @@ def _store_generated_files(
             continue
 
         name = str(fd.get("name", "output")).strip() or "output"
-        mime_type = str(fd.get("mime_type", "application/octet-stream")).strip() or "application/octet-stream"
+        mime_type = (
+            str(fd.get("mime_type", "application/octet-stream")).strip()
+            or "application/octet-stream"
+        )
         try:
             content = base64.b64decode(content_b64)
         except Exception:
@@ -65,16 +68,62 @@ def _store_generated_files(
             logger.warning("failed to persist generated artifact %s: %s", name, exc)
             continue
 
-        refs.append({
-            "file_id": item["file_id"],
-            "name": item.get("name", name),
-            "url": f"/files/{item['file_id']}",
-            "mime_type": item.get("mime_type", mime_type),
-            "size": item.get("size", len(content)),
-            "storage_key": item.get("storage_key"),
-        })
+        refs.append(
+            {
+                "file_id": item["file_id"],
+                "name": item.get("name", name),
+                "url": f"/files/{item['file_id']}",
+                "mime_type": item.get("mime_type", mime_type),
+                "size": item.get("size", len(content)),
+                "storage_key": item.get("storage_key"),
+            }
+        )
 
     return refs
+
+
+def _store_generated_file_path(
+    file_path: str | Path,
+    *,
+    name: str,
+    mime_type: str,
+    user_id: Optional[str],
+    source: str,
+    extra_metadata: Optional[dict[str, Any]] = None,
+) -> dict[str, Any] | None:
+    """Persist a generated file from disk and return a normalized artifact ref."""
+    try:
+        from core.artifacts.store import save_artifact_file
+    except Exception as exc:
+        logger.warning("artifact store unavailable for %s: %s", source, exc)
+        return None
+
+    metadata: dict[str, Any] = {"source": source}
+    if user_id:
+        metadata["user_id"] = user_id
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
+    try:
+        item = save_artifact_file(
+            file_path=file_path,
+            name=name,
+            mime_type=mime_type,
+            extension=Path(name).suffix.lstrip("."),
+            metadata=metadata,
+        )
+    except Exception as exc:
+        logger.warning("failed to persist generated artifact %s: %s", name, exc)
+        return None
+
+    return {
+        "file_id": item["file_id"],
+        "name": item.get("name", name),
+        "url": f"/files/{item['file_id']}",
+        "mime_type": item.get("mime_type", mime_type),
+        "size": item.get("size", 0),
+        "storage_key": item.get("storage_key"),
+    }
 
 
 def _summarize_generated_files(files_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -84,11 +133,13 @@ def _summarize_generated_files(files_data: list[dict[str, Any]]) -> list[dict[st
         name = str(fd.get("name", "")).strip()
         if not name:
             continue
-        summaries.append({
-            "name": name,
-            "mime_type": str(fd.get("mime_type", "application/octet-stream")),
-            "size": int(fd.get("size", 0) or 0),
-        })
+        summaries.append(
+            {
+                "name": name,
+                "mime_type": str(fd.get("mime_type", "application/octet-stream")),
+                "size": int(fd.get("size", 0) or 0),
+            }
+        )
     return summaries
 
 
@@ -108,8 +159,8 @@ def _resolve_artifact_files(
         return None, None
 
     try:
-        from core.storage.factory import get_storage
         from core.content.artifact_refs import resolve_artifact_storage_key
+        from core.storage.factory import get_storage
     except Exception as exc:
         return None, f"artifact 解析依赖不可用: {exc}"
 
@@ -133,9 +184,7 @@ def _resolve_artifact_files(
                     if user_id and art.user_id != user_id:
                         owner_ok = False
                     else:
-                        storage_key = resolve_artifact_storage_key(
-                            art.artifact_id, art.storage_key
-                        )
+                        storage_key = resolve_artifact_storage_key(art.artifact_id, art.storage_key)
             finally:
                 db.close()
         except Exception:
@@ -148,6 +197,7 @@ def _resolve_artifact_files(
         if not storage_key:
             try:
                 from core.artifacts.store import get_artifact
+
                 item = get_artifact(artifact_id)
                 if item:
                     item_user = (item.get("metadata") or {}).get("user_id")
@@ -178,16 +228,21 @@ def _resolve_artifact_files(
 
 def _resp_json(payload: dict[str, Any]) -> ToolResponse:
     """Helper: wrap a JSON-serializable dict as a single-text-block ToolResponse."""
-    return ToolResponse(content=[TextBlock(
-        type="text",
-        text=json.dumps(payload, ensure_ascii=False),
-    )])
+    return ToolResponse(
+        content=[
+            TextBlock(
+                type="text",
+                text=json.dumps(payload, ensure_ascii=False),
+            )
+        ]
+    )
 
 
 def _validate_workspace_path(path: str) -> str | None:
     """Reject paths outside the workspace root or with traversal segments.
     Returns an error string on rejection, None on success."""
     from core.sandbox._common import WORKSPACE as _WS
+
     from ._paths import canonicalize_ws_path
 
     if not path or not isinstance(path, str):
