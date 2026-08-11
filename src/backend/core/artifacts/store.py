@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -46,10 +47,12 @@ def _storage_type() -> str:
 # ── Helper: get the OSS backend (lazy import to avoid circular deps) ────────────────
 def _get_oss_storage():
     from core.storage import get_storage
+
     return get_storage()
 
 
 # ── Index management ─────────────────────────────────────────────────────
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
@@ -103,7 +106,20 @@ def _save_index(data: Dict[str, Any]) -> None:
             logger.warning(f"Failed to backup artifact index to OSS: {e}")
 
 
+def _record_artifact(item: Dict[str, Any]) -> None:
+    """Add one artifact to the local index and its OSS backup."""
+    with _LOCK:
+        index = _load_index()
+        files = index.get("files")
+        if not isinstance(files, dict):
+            files = {}
+            index["files"] = files
+        files[item["file_id"]] = item
+        _save_index(index)
+
+
 # ── Public API ──────────────────────────────────────────────────────
+
 
 def save_artifact_bytes(
     *,
@@ -152,7 +168,7 @@ def save_artifact_bytes(
             "name": name,
             "mime_type": mime_type,
             "size": len(content),
-            "path": None,           # no local path in OSS mode
+            "path": None,  # no local path in OSS mode
             "storage_key": storage_key,
             "created_at": _now_iso(),
             "metadata": metadata or {},
@@ -178,14 +194,79 @@ def save_artifact_bytes(
             "metadata": metadata or {},
         }
 
-    with _LOCK:
-        index = _load_index()
-        files = index.get("files")
-        if not isinstance(files, dict):
-            files = {}
-            index["files"] = files
-        files[file_id] = item
-        _save_index(index)
+    _record_artifact(item)
+
+    return item
+
+
+def save_artifact_file(
+    *,
+    file_path: str | Path,
+    name: str,
+    mime_type: str = "application/octet-stream",
+    extension: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Persist a local file without loading its binary content into memory.
+
+    Local storage copies the file into the artifact directory. OSS storage
+    uses the backend's file-upload method, which streams from disk. SVG files
+    retain the existing viewBox normalisation behavior and use the byte path.
+    """
+    source = Path(file_path).resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"Artifact source file not found: {source}")
+
+    ext = extension.strip().lstrip(".")
+    if "svg" in mime_type.lower() or ext.lower() == "svg":
+        return save_artifact_bytes(
+            content=source.read_bytes(),
+            name=name,
+            mime_type=mime_type,
+            extension=ext,
+            metadata=metadata,
+        )
+
+    size = source.stat().st_size
+    file_id = uuid4().hex
+    filename = f"{file_id}.{ext}" if ext else file_id
+    storage_key = f"artifacts/{filename}"
+
+    if _storage_type() == "oss":
+        try:
+            storage = _get_oss_storage()
+            storage.upload(str(source), storage_key)
+            logger.info("Artifact file uploaded to OSS: %s", storage_key)
+        except Exception as exc:
+            logger.error("Failed to upload artifact file to OSS: %s", exc)
+            raise
+        item: Dict[str, Any] = {
+            "file_id": file_id,
+            "name": name,
+            "mime_type": mime_type,
+            "size": size,
+            "path": None,
+            "storage_key": storage_key,
+            "created_at": _now_iso(),
+            "metadata": metadata or {},
+        }
+    else:
+        abs_path = (_STORE_DIR / filename).resolve()
+        _ensure_store()
+        shutil.copyfile(source, abs_path)
+        logger.info("Artifact file saved locally: %s", abs_path)
+        item = {
+            "file_id": file_id,
+            "name": name,
+            "mime_type": mime_type,
+            "size": size,
+            "path": str(abs_path),
+            "storage_key": storage_key,
+            "created_at": _now_iso(),
+            "metadata": metadata or {},
+        }
+
+    _record_artifact(item)
 
     return item
 

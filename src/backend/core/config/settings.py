@@ -511,6 +511,15 @@ class SandboxSettings:
     max_timeout: int = field(
         default_factory=lambda: _int(_env("SANDBOX_TOOLS_MAX_TIMEOUT", "120"), 120)
     )
+    artifact_max_bytes: int = field(
+        default_factory=lambda: max(
+            1,
+            _int(
+                _env("SANDBOX_ARTIFACT_MAX_BYTES", str(100 * 1024 * 1024)),
+                100 * 1024 * 1024,
+            ),
+        )
+    )
 
     # opensandbox
     opensandbox_domain: str = field(

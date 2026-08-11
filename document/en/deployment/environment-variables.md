@@ -186,6 +186,7 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `SANDBOX_MAX_CONCURRENT` | `4` | Concurrent sandbox executions per backend process (reserved) | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address | CE |
 | `SANDBOX_TOOLS_TIMEOUT` / `SANDBOX_TOOLS_MAX_TIMEOUT` | `30` / `120` | Default / maximum timeout per bash command (s) | CE |
+| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Per-file streaming delivery limit for `sandbox_get_artifact` (100 MiB) | CE |
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner memory cap (MB) | CE |
 | `MYSPACE_WRITE_CONFIRM` | `true` (code default) | Sandbox writes to `/myspace` require out-of-band user confirmation | CE |
 

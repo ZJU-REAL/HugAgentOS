@@ -9,6 +9,7 @@ only performs semantic alignment.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional, Protocol
 
 
@@ -117,11 +118,11 @@ class SandboxAdminCapabilities:
     """
 
     provider: str
-    can_list: bool = False        # can enumerate running instances
-    can_inspect: bool = False     # can view single-instance detail (files / recent output)
+    can_list: bool = False  # can enumerate running instances
+    can_inspect: bool = False  # can view single-instance detail (files / recent output)
     can_pool_stats: bool = False  # can provide connection-pool statistics
-    can_snapshots: bool = False   # has a snapshot system (chat_sandbox_snapshots)
-    can_kill: bool = False        # write operation, not implemented this phase
+    can_snapshots: bool = False  # has a snapshot system (chat_sandbox_snapshots)
+    can_kill: bool = False  # write operation, not implemented this phase
 
 
 @dataclass
@@ -136,13 +137,13 @@ class SandboxInfo:
     """
 
     sandbox_id: str
-    session_id: Optional[str] = None     # bound chat_id (if any)
+    session_id: Optional[str] = None  # bound chat_id (if any)
     user_id: Optional[str] = None
-    pool_kind: Optional[str] = None      # jupyter / light / user / general / warm
-    state: str = "active"                # active | idle | stale
+    pool_kind: Optional[str] = None  # jupyter / light / user / general / warm
+    state: str = "active"  # active | idle | stale
     idle_seconds: Optional[float] = None  # now - last_active (monotonic clock delta)
     owner_tag: Optional[str] = None
-    backend_managed: bool = True         # whether in the current process registry
+    backend_managed: bool = True  # whether in the current process registry
     # Ownership classification for detached instances (backend_managed=False),
     # derived from owner_tag:
     # self-orphan (our own orphan) | external (another client) | untagged (no owner tag).
@@ -158,12 +159,13 @@ class SandboxProvider(Protocol):
 
     async def execute(self, req: ExecuteRequest) -> ExecuteResult: ...
 
-    async def stage_files(
-        self, user_id: str, files: list[StageFile]
-    ) -> list[StagedFile]: ...
+    async def stage_files(self, user_id: str, files: list[StageFile]) -> list[StagedFile]: ...
 
     async def put_file(
-        self, session_id: Optional[str], path: str, content: bytes,
+        self,
+        session_id: Optional[str],
+        path: str,
+        content: bytes,
         user_id: Optional[str] = None,
     ) -> None:
         """Write bytes to the given path in the sandbox (parent directories
@@ -183,7 +185,9 @@ class SandboxProvider(Protocol):
         ...
 
     async def get_file(
-        self, session_id: Optional[str], path: str,
+        self,
+        session_id: Optional[str],
+        path: str,
         user_id: Optional[str] = None,
     ) -> bytes:
         """Read file bytes from the sandbox. Raises SandboxError if the file
@@ -191,6 +195,24 @@ class SandboxProvider(Protocol):
 
         ``user_id``: see ``put_file`` — used to bind the user's credential
         volume when a new session is created.
+        """
+        ...
+
+    async def get_file_to_path(
+        self,
+        session_id: Optional[str],
+        path: str,
+        destination: Path,
+        *,
+        max_bytes: int,
+        user_id: Optional[str] = None,
+    ) -> int:
+        """Stream a sandbox file into a backend-local path.
+
+        Implementations must enforce ``max_bytes`` while streaming, delete a
+        partial destination on failure, and return the number of bytes written.
+        This path is used for downloadable artifacts so large binaries never
+        need to be represented as Base64 tool payloads.
         """
         ...
 
@@ -256,9 +278,7 @@ class SandboxProvider(Protocol):
         management view."""
         ...
 
-    async def admin_list_sandboxes(
-        self, include_server: bool = False
-    ) -> list["SandboxInfo"]:
+    async def admin_list_sandboxes(self, include_server: bool = False) -> list["SandboxInfo"]:
         """Enumerate running sandbox instances.
 
         By default returns only instances in the current process registry

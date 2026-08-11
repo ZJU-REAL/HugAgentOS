@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
-
 from core.config.settings import settings
 
-from .errors import SandboxConnectError, SandboxError, SandboxTimeoutError
+from ._common import stream_to_file
+from .errors import SandboxConnectError, SandboxError, SandboxFileTooLargeError, SandboxTimeoutError
 from .protocol import (
     ExecuteRequest,
     ExecuteResult,
@@ -25,8 +27,8 @@ from .protocol import (
     SandboxAdminNotSupported,
     SandboxFile,
     SandboxInfo,
-    StageFile,
     StagedFile,
+    StageFile,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,7 +85,9 @@ class ScriptRunnerProvider:
                     last_exc = e
                     logger.warning(
                         "[script_runner] ReadTimeout script=%s attempt=%d/2 (http_timeout=%ds)",
-                        req.script_name, attempt + 1, http_timeout,
+                        req.script_name,
+                        attempt + 1,
+                        http_timeout,
                     )
                     continue
                 except httpx.TimeoutException as e:
@@ -101,9 +105,7 @@ class ScriptRunnerProvider:
             f"{type(last_exc).__name__ if last_exc else 'ReadTimeout'}"
         )
 
-    async def stage_files(
-        self, user_id: str, files: list[StageFile]
-    ) -> list[StagedFile]:
+    async def stage_files(self, user_id: str, files: list[StageFile]) -> list[StagedFile]:
         body = {
             "user_id": user_id,
             "files": [{"name": f.name, "content_b64": f.content_b64} for f in files],
@@ -113,10 +115,7 @@ class ScriptRunnerProvider:
                 resp = await client.post(f"{self._base_url}/stage", json=body)
                 resp.raise_for_status()
                 staged_raw = resp.json().get("staged", [])
-                return [
-                    StagedFile(name=item["name"], path=item["path"])
-                    for item in staged_raw
-                ]
+                return [StagedFile(name=item["name"], path=item["path"]) for item in staged_raw]
         except httpx.ConnectError as e:
             raise SandboxConnectError(_connect_error_message()) from e
         except httpx.HTTPStatusError as e:
@@ -124,7 +123,10 @@ class ScriptRunnerProvider:
             raise SandboxError(f"暂存文件失败: {text}") from e
 
     async def put_file(
-        self, session_id: Optional[str], path: str, content: bytes,
+        self,
+        session_id: Optional[str],
+        path: str,
+        content: bytes,
         user_id: Optional[str] = None,
     ) -> None:
         """Write bytes into the sandbox via the sidecar's /put_file.
@@ -149,16 +151,16 @@ class ScriptRunnerProvider:
             raise SandboxError(f"put_file {path} 失败: {text}") from e
 
     async def get_file(
-        self, session_id: Optional[str], path: str,
+        self,
+        session_id: Optional[str],
+        path: str,
         user_id: Optional[str] = None,
     ) -> bytes:
         """Read sandbox file bytes via the sidecar's /get_file. ``session_id`` / ``user_id`` ignored."""
         del session_id, user_id
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{self._base_url}/get_file", json={"path": path}
-                )
+                resp = await client.post(f"{self._base_url}/get_file", json={"path": path})
                 resp.raise_for_status()
                 payload = resp.json()
         except httpx.ConnectError as e:
@@ -170,6 +172,67 @@ class ScriptRunnerProvider:
             return base64.b64decode(payload.get("content_b64", ""))
         except Exception as e:
             raise SandboxError(f"get_file {path} 返回的 base64 无法解码") from e
+
+    async def get_file_to_path(
+        self,
+        session_id: Optional[str],
+        path: str,
+        destination: Path,
+        *,
+        max_bytes: int,
+        user_id: Optional[str] = None,
+    ) -> int:
+        """Stream a sandbox file from the sidecar into a local path."""
+        del session_id, user_id
+        timeout = httpx.Timeout(
+            float(settings.sandbox.max_timeout),
+            connect=10.0,
+            pool=10.0,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self._base_url}/get_file_raw",
+                    json={"path": path},
+                ) as resp:
+                    if resp.status_code >= 400:
+                        body = (await resp.aread()).decode("utf-8", errors="replace")
+                        if resp.status_code == 413:
+                            match = re.search(r"(\d+)\s*>\s*(\d+)", body)
+                            actual = int(match.group(1)) if match else max_bytes + 1
+                            server_max = int(match.group(2)) if match else max_bytes
+                            raise SandboxFileTooLargeError(
+                                actual_size=actual,
+                                max_size=min(max_bytes, server_max),
+                            )
+                        raise SandboxError(f"get_file {path} 失败: HTTP {resp.status_code}: {body}")
+
+                    size_header = resp.headers.get("x-artifact-size") or resp.headers.get(
+                        "content-length"
+                    )
+                    if size_header:
+                        try:
+                            known_size = int(size_header)
+                        except ValueError:
+                            known_size = 0
+                        if known_size > max_bytes:
+                            raise SandboxFileTooLargeError(
+                                actual_size=known_size, max_size=max_bytes
+                            )
+                    return await stream_to_file(
+                        resp.aiter_bytes(chunk_size=1024 * 1024),
+                        destination,
+                        max_bytes=max_bytes,
+                    )
+        except SandboxError:
+            raise
+        except httpx.ConnectError as exc:
+            raise SandboxConnectError(_connect_error_message()) from exc
+        except httpx.TimeoutException as exc:
+            raise SandboxTimeoutError(f"get_file {path} 流式读取超时") from exc
+        except httpx.HTTPError as exc:
+            raise SandboxError(f"get_file {path} 流式读取失败: {exc}") from exc
 
     async def close_session(self, session_id: Optional[str]) -> None:
         """No-op: the sidecar's ``/workspace`` is globally shared; there is no per-session sandbox to destroy."""
@@ -206,9 +269,7 @@ class ScriptRunnerProvider:
     def admin_capabilities(self) -> SandboxAdminCapabilities:
         return SandboxAdminCapabilities(provider=self.name)
 
-    async def admin_list_sandboxes(
-        self, include_server: bool = False
-    ) -> list[SandboxInfo]:
+    async def admin_list_sandboxes(self, include_server: bool = False) -> list[SandboxInfo]:
         raise SandboxAdminNotSupported("script_runner 是共享 sidecar，无可枚举实例")
 
     async def admin_get_sandbox(self, sandbox_id: str) -> Optional[SandboxInfo]:
