@@ -19,6 +19,9 @@ export interface IndustryChainViewModel {
   error?: string;
 }
 
+export const INDUSTRY_CHAIN_DEFAULT_LEVELS = 3;
+export const INDUSTRY_CHAIN_MAX_LEVELS = 4;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -36,15 +39,31 @@ function parseJson(value: unknown): unknown {
 
 function unwrapOutput(output: unknown): unknown {
   let current = parseJson(output);
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < 4; i += 1) {
     const record = asRecord(current);
-    if (!record || !('result' in record)) break;
-    current = parseJson(record.result);
+    if (!record || '产业链图谱' in record || '产业链概况' in record) break;
+    if ('result' in record) {
+      current = parseJson(record.result);
+      continue;
+    }
+    if ('结果' in record) {
+      current = parseJson(record['结果']);
+      continue;
+    }
+    if ('产业链全景' in record) {
+      current = parseJson(record['产业链全景']);
+      continue;
+    }
+    break;
   }
   return current;
 }
 
-function normalizeNode(value: unknown, path: string): IndustryChainTreeNode | null {
+function normalizeNode(
+  value: unknown,
+  path: string,
+  level = 1,
+): IndustryChainTreeNode | null {
   const record = asRecord(value);
   if (!record) return null;
 
@@ -53,9 +72,9 @@ function normalizeNode(value: unknown, path: string): IndustryChainTreeNode | nu
   if (!label) return null;
 
   const rawChildren = record['下级环节'] ?? record.children;
-  const children = Array.isArray(rawChildren)
+  const children = level < INDUSTRY_CHAIN_MAX_LEVELS && Array.isArray(rawChildren)
     ? rawChildren
-      .map((child, index) => normalizeNode(child, `${path}.${index}`))
+      .map((child, index) => normalizeNode(child, `${path}.${index}`, level + 1))
       .filter((child): child is IndustryChainTreeNode => child !== null)
     : [];
 

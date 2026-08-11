@@ -8,10 +8,8 @@ candidates through unchanged rather than silently remembering nothing.
 """
 
 import pytest
-
 from core.memory.extractors import gate as G
 from core.memory.extractors.router import ExtractorType
-
 
 CANDIDATES = {ExtractorType.PROCEDURAL, ExtractorType.PREFERENCE}
 
@@ -35,6 +33,20 @@ async def test_an_empty_verdict_means_nothing_is_written(monkeypatch):
     _mock_llm(monkeypatch, '{"classes": []}')
     verdict = await G.llm_write_gate("u", "a", set(CANDIDATES), timeout_s=5)
     assert verdict == set()
+
+
+@pytest.mark.asyncio
+async def test_verified_correction_keeps_procedural_even_when_llm_drops_it(monkeypatch):
+    _mock_llm(monkeypatch, '{"classes": []}')
+    verdict = await G.llm_write_gate(
+        "你把链接下载到沙盒再交付",
+        "下载成功并验证完整",
+        set(CANDIDATES),
+        timeout_s=5,
+        recent_trajectory="失败 → 用户改法 → 成功",
+        verified_correction=True,
+    )
+    assert verdict == {ExtractorType.PROCEDURAL}
 
 
 @pytest.mark.asyncio

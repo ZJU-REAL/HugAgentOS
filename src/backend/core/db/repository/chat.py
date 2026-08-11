@@ -265,6 +265,29 @@ class ChatMessageRepository:
 
         return messages, total
 
+    def list_recent_by_chat(
+        self,
+        chat_id: str,
+        *,
+        limit: int = 8,
+        before: Optional[datetime] = None,
+    ) -> List[ChatMessage]:
+        """Return the newest visible messages in chronological order.
+
+        ``before`` makes a post-response consumer stop at the assistant message
+        it belongs to, so a later overlapping turn cannot leak into its input.
+        """
+
+        query = self.db.query(ChatMessage).filter(
+            ChatMessage.chat_id == chat_id,
+            ChatMessage.role.in_(("user", "assistant")),
+        )
+        if before is not None:
+            query = query.filter(ChatMessage.created_at <= before)
+        messages = query.order_by(ChatMessage.created_at.desc()).limit(max(1, limit)).all()
+        messages.reverse()
+        return messages
+
     def count_visible_before(self, chat_id: str, before: datetime) -> int:
         """Count user-facing messages written before an internal checkpoint.
 

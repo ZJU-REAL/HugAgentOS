@@ -71,6 +71,22 @@ _WORKSPACE = "/workspace"
 _LEDGER_PATH = f"{_WORKSPACE}/feature_list.json"
 
 
+def _loop_tool_result_limit() -> int:
+    """Per-tool-result context cap (tokens) for loop worker/reviewer agents.
+
+    Document-heavy loop workloads measured 650k–1M tokens per iteration under
+    the general 20k cap (every round re-sends all accumulated tool results).
+    6k keeps greps/summaries useful while cutting the quadratic growth ~3×;
+    full content remains readable on demand from /workspace/.offload.
+    """
+    import os
+
+    try:
+        return max(1_000, int(os.getenv("LOOP_TOOL_RESULT_LIMIT", "6000")))
+    except ValueError:
+        return 6_000
+
+
 @dataclass
 class LoopBudget:
     max_iters: int = 50
@@ -176,8 +192,9 @@ def _new_ledger(objective: str, requirements: List[Dict[str, Any]]) -> Dict[str,
     for r in requirements:
         r.setdefault("passes", False)
         r.setdefault("evidence", "")
-        r.setdefault("attempts", 0)   # iterations attempted for this item (attempt cap → strategy change / blocked exit)
-        r.setdefault("blocked", False)  # still failing at the attempt cap → mark skipped, avoids a single-item infinite loop
+        r.setdefault("attempts", 0)   # total iterations attempted for this item (strategy change / hard ceiling)
+        r.setdefault("stalls", 0)     # consecutive rounds WITHOUT reviewer-affirmed material progress (stagnation cap)
+        r.setdefault("blocked", False)  # stagnating at the stall cap (or runaway at the hard ceiling) → mark skipped, avoids a single-item infinite loop
     return {"objective": objective, "iteration": 0, "requirements": requirements}
 
 
@@ -304,6 +321,12 @@ async def _run_worker_iteration(
         isolated=True,  # independent MCP clients per iteration, avoids cross-task cancel-scope
         max_iters=worker_max_iters,
         ontology_runtime=ontology_runtime,
+        # Tight per-tool-result context cap: loop workers grep/read huge draft
+        # files every round, and the ReAct loop re-sends all accumulated tool
+        # results each round — the default 20k cap measured 650k–1M tokens PER
+        # ITERATION on the 200-page-report workload. Full content stays readable
+        # via /workspace/.offload. Env-tunable.
+        tool_result_limit=_loop_tool_result_limit(),
     )
     sa = StreamingAgent(agent, clients)
     text = ""
@@ -471,6 +494,12 @@ def _build_requirement_prompt(
             "\n## 持久工作区\n你的文件保存在沙箱 /workspace，**跨迭代持久**且已是 git 仓库。"
             "开工先 `ls -la /workspace` 并读相关文件，在已有成果上继续，不要从零重写。"
         )
+    workspace_note += (
+        "\n⚠️ 大文件纪律：超过 3 万字符的文件**禁止整读进上下文**（读了也会被截断，"
+        "还白白吃掉预算）。核验/定位一律用统计与抽样命令：`wc -m`、`grep -n/-c`、"
+        "`head`/`tail`/`sed -n 'a,bp'`、`word-cli read --mode outline`；要改哪段就只读哪段。"
+        "被截断的工具结果全文都在 /workspace/.offload/ 里，需要时按路径查。"
+    )
     parts = [
         f"# 自主任务（第 {seq} 轮 · 需求 {req['id']} · 总进度 {_progress_frac(ledger)}）",
         f"\n## 总目标\n{objective}",
@@ -734,10 +763,31 @@ async def run_autonomous_loop(
             ontology_runtime=ontology_runtime,
         )
         tokens_spent += work["tokens"]
-        req["attempts"] = int(req.get("attempts", 0)) + 1
         if is_cancelled and is_cancelled():
             status, reason = "cancelled", "外部取消"
             break
+
+        # Infrastructure-failure guard: a worker round that produced NOTHING
+        # (no tool calls, no text, no tokens) is an environment outage — e.g.
+        # an LLM-gateway blip fast-fails every call — not evidence about the
+        # requirement. Charging it as an attempt/stall let a 10-minute gateway
+        # outage burn 6 empty rounds and block a requirement that was one
+        # healthy iteration from passing (observed on the 200-page rerun).
+        # Back off briefly and retry; the wall-clock/iteration budgets still
+        # bound a permanent outage.
+        if not work["tokens"] and not work["tool_calls"] and not str(work.get("text") or "").strip():
+            logger.warning(
+                "[loop %s] iter %d req=%s produced nothing (infra failure?) — "
+                "not counted as attempt; backing off 30s", loop_id, seq, req["id"],
+            )
+            await _emit(emit, {"type": "iteration_evaluated", "seq": seq,
+                               "requirement_id": req["id"], "verdict": "infra_retry",
+                               "tool_calls": 0, "tokens": 0,
+                               "reason": "本轮无任何产出（疑似模型/网关故障），不计入尝试，稍后重试"})
+            await asyncio.sleep(30)
+            continue
+
+        req["attempts"] = int(req.get("attempts", 0)) + 1
 
         # 2) Read-only reviewer sub-agent: independently opens the **real produced files** to verify this requirement (never trusts the worker's self-report).
         review = await review_requirement(
@@ -797,19 +847,40 @@ async def run_autonomous_loop(
             logger.info("[loop %s] ✓ %s passed (%s) commit=%s",
                         loop_id, req["id"], _progress_frac(ledger), git_sha)
         else:
-            # Stagnation exit: a single item exhausted its attempts without passing → HITL suspend / otherwise mark blocked and skip (prevents a single-item infinite loop).
-            if int(req.get("attempts", 0)) >= max_attempts_per_req:
+            # Stall bookkeeping: the reviewer affirms material progress (progress=true,
+            # evidence-backed) → reset the streak; otherwise count one stalled round.
+            # A mega-requirement legitimately spanning many rounds (e.g. 20-chapter
+            # body written chapter-by-chapter) used to hit the flat attempt cap and
+            # get blocked mid-progress — the 2026-08-10 HugAgentOS 200-page rerun lost
+            # its core body requirement exactly this way at attempt 6 while the
+            # draft had healthily grown every round.
+            if bool(review.get("progress")):
+                req["stalls"] = 0
+            else:
+                req["stalls"] = int(req.get("stalls", 0)) + 1
+            # Stagnation exit: consecutive no-progress rounds at the cap, or total
+            # attempts at the hard ceiling (progress affirmations must not defeat
+            # the anti-infinite-loop guarantee) → HITL suspend / otherwise mark
+            # blocked and skip.
+            _stalled = int(req.get("stalls", 0)) >= max_attempts_per_req
+            _runaway = int(req.get("attempts", 0)) >= max_attempts_per_req * 3
+            if _stalled or _runaway:
                 if hitl_enabled:
                     await _persist_ledger(ledger)
                     status = "awaiting_human"
-                    reason = f"需求 {req['id']} 连续 {req['attempts']} 轮未通过评审，请人工介入"
+                    reason = (
+                        f"需求 {req['id']} 连续 {req['stalls']} 轮无实质推进，请人工介入"
+                        if _stalled
+                        else f"需求 {req['id']} 已尝试 {req['attempts']} 轮仍未通过评审，请人工介入"
+                    )
                     await _emit(emit, {"type": "loop_awaiting_human", "seq": seq, "reason": reason})
                     break
                 req["blocked"] = True
                 await _emit(emit, {"type": "loop_stagnation", "seq": seq,
-                                   "requirement_id": req["id"], "attempts": req["attempts"]})
-                logger.info("[loop %s] req %s blocked after %d attempts",
-                            loop_id, req["id"], req["attempts"])
+                                   "requirement_id": req["id"], "attempts": req["attempts"],
+                                   "stalls": req["stalls"]})
+                logger.info("[loop %s] req %s blocked after %d attempts (%d consecutive stalls)",
+                            loop_id, req["id"], req["attempts"], req["stalls"])
         feedback = review.get("feedback", "")
 
         # 6) Handoff + persist ledger/progress (for resume). git diff takes precedence over the text summary.

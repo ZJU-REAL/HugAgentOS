@@ -711,17 +711,22 @@ async def _shutdown_mcp_market_monitor():
 
 
 async def _startup_seed_default_plugins():
-    """Install the three credential-free plugins on first CE Compose boot.
+    """Install edition-specific default plugins once per persistent database.
 
     Local/desktop installs run the equivalent bootstrap in ``cli.py`` before
     the API is imported. Compose needs a database-backed marker so a user who
     later uninstalls one of the defaults does not have it resurrected after a
-    container restart.
+    container restart. Edition-specific bundles are delegated through the
+    startup seam so CE never imports enterprise implementations.
     """
-    if settings.edition.edition != "ce" or settings.deploy.is_local:
+    edition = settings.edition.edition
+    if edition == "ce" and settings.deploy.is_local:
+        return
+    if edition not in {"ce", "ee"}:
         return
 
     from core.db.engine import SessionLocal
+    from core.services.edition_startup import bootstrap_edition_plugins
     from core.services.plugin_service import (
         DEFAULT_BOOTSTRAP_PLUGIN_SLUGS,
         ensure_default_plugins_bootstrapped,
@@ -729,15 +734,21 @@ async def _startup_seed_default_plugins():
 
     db = SessionLocal()
     try:
-        if ensure_default_plugins_bootstrapped(db):
+        if edition == "ce" and ensure_default_plugins_bootstrapped(db):
             logger.info(
                 "[startup] default plugins bootstrapped: %s",
                 ", ".join(DEFAULT_BOOTSTRAP_PLUGIN_SLUGS),
             )
+        edition_plugins = bootstrap_edition_plugins(db) if edition == "ee" else ()
+        if edition_plugins:
+            logger.info(
+                "[startup] edition plugins bootstrapped: %s",
+                ", ".join(edition_plugins),
+            )
     except Exception as exc:
         logger.error("[startup] default plugin bootstrap failed: %s", exc)
-        # These plugins are part of the advertised CE baseline. Do not report a
-        # healthy web deployment with only a partial/default-missing toolset.
+        # These plugins preserve advertised edition capabilities. Do not report
+        # a healthy deployment with only a partial/default-missing toolset.
         raise
     finally:
         db.close()

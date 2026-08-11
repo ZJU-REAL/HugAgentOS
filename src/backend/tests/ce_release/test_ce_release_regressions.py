@@ -177,7 +177,7 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
         return True, ""
 
     async def validate_ok(url, *, require_https):
-        assert require_https is True
+        assert require_https is False
 
     monkeypatch.setattr(me_capabilities, "probe_mcp_connectivity", probe_ok)
     monkeypatch.setattr(me_capabilities, "validate_remote_mcp_url", validate_ok)
@@ -262,12 +262,14 @@ def test_ce_schema_reconcile_repairs_legacy_sqlite_columns(tmp_path):
 
 def test_ce_startup_seams_and_compose_defaults_are_ce_safe():
     from core.services.edition_startup import (
+        bootstrap_edition_plugins,
         create_distillation_scheduler,
         recover_datasource_sidecars,
         recover_persona_distill_jobs,
     )
 
     assert asyncio.run(recover_datasource_sidecars()) == {}
+    assert bootstrap_edition_plugins(None) == ()
     assert create_distillation_scheduler() is None
     assert recover_persona_distill_jobs() == 0
 

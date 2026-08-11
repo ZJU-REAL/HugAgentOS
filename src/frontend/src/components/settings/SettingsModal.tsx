@@ -126,6 +126,7 @@ export default function SettingsPage() {
   const { authUser, doLogout, setAvatarUrl, setAuthUser, loggingOut } = useAuthStore();
   const apiKeyEnabled = authUser?.can_use_api_key === true;
   const channelBotEnabled = authUser?.can_create_channel_bot === true;
+  const ontologyValidationAllowed = authUser?.can_use_ontology_validation === true;
   // Organization management is exposed only when the edition capability is active.
   const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenancy : true));
   // CE personal system settings: shown only in the community edition (EE uses the /config system console), and only when the backend probe permits it —
@@ -156,6 +157,9 @@ export default function SettingsPage() {
     let base = multiTenancy
       ? [...SETTINGS_SECTIONS, ...EDITION_SETTINGS_SECTIONS]
       : SETTINGS_SECTIONS;
+    if (!ontologyValidationAllowed) {
+      base = base.filter((section) => section.id !== 'ontology');
+    }
     if (isCE && ontologyGovernanceAccess) {
       base = base.map((section) => (
         section.id === 'ontology' ? { ...section, label: t('本体治理') } : section
@@ -167,7 +171,7 @@ export default function SettingsPage() {
     if (isCE && sysAccess) base = [...base, SYS_MODEL_SECTION, SYS_SERVICE_SECTION];
     if (isCE) base = [...base, MY_LOGS_SECTION];
     return base;
-  }, [apiKeyEnabled, channelBotEnabled, multiTenancy, isCE, ontologyGovernanceAccess, sysAccess]);
+  }, [apiKeyEnabled, channelBotEnabled, multiTenancy, isCE, ontologyGovernanceAccess, ontologyValidationAllowed, sysAccess]);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [savingNickname, setSavingNickname] = useState(false);
@@ -766,7 +770,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Ontology validation ─────────────────────────────── */}
-        {activeSection === 'ontology' && (
+        {ontologyValidationAllowed && activeSection === 'ontology' && (
         <section id="section-ontology" className="jx-settings-section">
         <h3 className="jx-settings-section-title">{isCE && ontologyGovernanceAccess ? t('本体治理') : t('本体校验')}</h3>
         <div className="jx-settings-card">

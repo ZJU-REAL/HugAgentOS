@@ -710,22 +710,24 @@ export function InputArea({
         <div className="jx-composerBar">
           {(() => {
             const MODE_META: Record<ChatMode, { title: string; desc: string; label: string }> = {
+              turbo:  { title: t('极速模式'),   desc: t('政策资讯速查，仅检索工具，秒级直达结果'), label: t('极速模式') },
               fast:   { title: t('快速模式'),   desc: t('适用于大部分情况'),              label: t('快速模式') },
               medium: { title: t('思考·中'),    desc: t('默认思考强度，兼顾速度与质量'),  label: t('思考·中') },
               high:   { title: t('思考·高'),    desc: t('更深入推理，处理复杂分析'),      label: t('思考·高') },
               max:    { title: t('思考·超高'),  desc: t('研究级别的专家智能体'),          label: t('思考·超高') },
             };
-            // Multi-tier models show 4 items; models without multi-tier support only show "fast / thinking" (thinking maps to medium)
+            // Multi-tier models show 5 items; models without multi-tier support show
+            // "turbo / fast / thinking" (thinking maps to medium — turbo/fast don't need effort tiers)
             const modeKeys: ChatMode[] = supportsReasoningEffort
-              ? ['fast', 'medium', 'high', 'max']
-              : ['fast', 'medium'];
+              ? ['turbo', 'fast', 'medium', 'high', 'max']
+              : ['turbo', 'fast', 'medium'];
             // Without multi-tier support, display high/max as medium
             const effectiveMode: ChatMode = supportsReasoningEffort
               ? chatMode
-              : (chatMode === 'fast' ? 'fast' : 'medium');
-            const isThinking = effectiveMode !== 'fast';
+              : (chatMode === 'fast' || chatMode === 'turbo' ? chatMode : 'medium');
+            const isThinking = effectiveMode !== 'fast' && effectiveMode !== 'turbo';
             const currentMeta = MODE_META[effectiveMode];
-            const btnLabel = supportsReasoningEffort ? currentMeta.label : (isThinking ? t('思考模式') : t('快速模式'));
+            const btnLabel = supportsReasoningEffort ? currentMeta.label : (isThinking ? t('思考模式') : currentMeta.label);
             const items = modeKeys.map((key) => {
               const meta = MODE_META[key];
               const isCurrent = effectiveMode === key;

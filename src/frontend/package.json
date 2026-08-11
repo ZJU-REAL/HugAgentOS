@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "node scripts/check-i18n.mjs && tsc -b && vite build",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "test:chat-stream": "esbuild scripts/test-chat-stream-segments.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-chat-stream-segments.mjs && node node_modules/.tmp/test-chat-stream-segments.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

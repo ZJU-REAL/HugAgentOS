@@ -171,9 +171,9 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
     # chat_mode is the single source of truth for the thinking level; the
     # enable_thinking bool is only a legacy-client fallback.
     chat_mode = (req.chat_mode or "").strip().lower() or None
-    if chat_mode not in (None, "fast", "medium", "high", "max"):
+    if chat_mode not in (None, "turbo", "fast", "medium", "high", "max"):
         chat_mode = None
-    enable_thinking = (chat_mode != "fast") if chat_mode else req.enable_thinking
+    enable_thinking = (chat_mode not in ("fast", "turbo")) if chat_mode else req.enable_thinking
     # The project the loop is bound to (stored in metadata at creation) — the
     # worker/reviewer scope to the project folder based on it.
     project_id = (loop.extra_data or {}).get("project_id") if loop.extra_data else None

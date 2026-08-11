@@ -7,6 +7,8 @@ extractor returns None, nothing is written, and the product reports that the
 turn had nothing worth remembering.
 """
 
+import pytest
+from core.memory.extractors import procedural
 from core.memory.extractors._base import parse_json
 
 
@@ -63,9 +65,44 @@ def test_a_truncated_reply_yields_nothing_rather_than_a_fragment():
 
 
 def test_a_non_dict_top_level_is_rejected():
-    assert parse_json('[1, 2, 3]', require_key="facts") is None
+    assert parse_json("[1, 2, 3]", require_key="facts") is None
 
 
 def test_empty_input_is_rejected():
     assert parse_json("", require_key="facts") is None
     assert parse_json("完全没有 JSON 的一段话", require_key="facts") is None
+
+
+@pytest.mark.asyncio
+async def test_verified_correction_retries_with_focused_procedure_prompt(monkeypatch):
+    replies = iter(
+        [
+            '{"procedures": [{"rule": "a"}, {"rule": "b"}, {"rule": "c"}]}',
+            '{"procedures": [{"rule": "下载 PDF 时用 curl 保存到沙盒后验证完整性", '
+            '"why": "网页正文抓取不能替代二进制文件下载", '
+            '"applies_to": "外部 PDF 下载与交付", "strength": "strong"}]}',
+        ]
+    )
+    prompts = []
+
+    async def fake_llm(prompt, *, timeout_s, max_tokens=800):
+        prompts.append(prompt)
+        return next(replies)
+
+    monkeypatch.setattr(procedural, "run_llm_with_prompt", fake_llm)
+    result = await procedural.extract(
+        "那为什么之前一直失败？",
+        "之前误把网页抓取失败当成无法下载，改用 curl 后成功。",
+        5,
+        recent_trajectory=(
+            "[ASSISTANT] 沙盒无网络，无法下载\n"
+            "[USER] 你把 OSS 链接下载到沙盒再交付\n"
+            "[ASSISTANT] curl 下载成功并验证完整"
+        ),
+        verified_correction=True,
+    )
+
+    assert result["procedures"][0]["strength"] == "strong"
+    assert len(result["procedures"]) == 1
+    assert len(prompts) == 2
+    assert "已经由程序确认" in prompts[1]

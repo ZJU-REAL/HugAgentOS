@@ -128,7 +128,7 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
     },
     "defaults": {
         # Initial mode on every user login / new chat:
-        # - chat_mode: 'fast' / 'medium' / 'high' / 'max' (recommended)
+        # - chat_mode: 'turbo' / 'fast' / 'medium' / 'high' / 'max' (recommended)
         # - thinking_mode: bool (legacy field, fallback compat; true→medium, false→fast)
         "chat_mode": "fast",
         "thinking_mode": False,
@@ -235,6 +235,7 @@ DEFAULT_PROMPT_VERSIONS: dict[str, Any] = {
         "distillation": "default",
         "plan_mode": "default",
         "subagents": "default",
+        "turbo": "default",
     },
     "versions": [],
 }

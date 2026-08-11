@@ -35,8 +35,8 @@ export interface PageConfig {
   };
   texts: Record<string, string>;
   defaults: {
-    /** Initial mode on each user login / new conversation: fast / medium / high / max */
-    chat_mode: 'fast' | 'medium' | 'high' | 'max';
+    /** Initial mode on each user login / new conversation: turbo / fast / medium / high / max */
+    chat_mode: 'turbo' | 'fast' | 'medium' | 'high' | 'max';
     /** Legacy field, dual-written with chat_mode for old-frontend compatibility; true=thinking mode, false=fast mode */
     thinking_mode: boolean;
   };

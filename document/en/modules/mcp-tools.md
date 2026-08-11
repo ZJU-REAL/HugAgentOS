@@ -1,6 +1,6 @@
 # MCP Tool System
 
-> Last updated: 2026-08-02
+> Last updated: 2026-08-11
 
 HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://modelcontextprotocol.io): every category of external capability (internet search, web fetching, database queries, chart generation, ...) is an independent MCP server, all running inside a dedicated `mcp` container that the backend reaches over the streamable-http transport. This design has three payoffs:
 
@@ -16,7 +16,7 @@ HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://m
 ┌─────────┐  HTTP  ┌───┴────┐   :9100  retrieve_dataset_content (KB retrieval)│
 │ backend │───────▶│streama-│   :9101  query_database (data warehouse, EE)    │
 │ (FastAPI│        │ble-http│   :9102  internet_search                        │
-│  agent) │        │        │   :9103  ai_chain_information_mcp (industry, EE)│
+│  agent) │        │        │   :9103  unified Industry Knowledge Center (EE)│
 └─────────┘        │        │   :9104  generate_chart_tool                    │
      │             │        │   :9105  reserved (former report export MCP)   │
  MCPConnectionPool │        │   :9106  web_fetch                              │
@@ -43,14 +43,19 @@ The single source of truth for port assignment is `src/backend/mcp_servers/_port
 | `retrieve_dataset_content_mcp` | 9100 | `retrieve_dataset_content` / `list_datasets` / `retrieve_local_kb` | Community CE |
 | `query_database_mcp` | 9101 | `query_database` | **Enterprise EE** |
 | `internet_search_mcp` | 9102 | `internet_search` | Community CE |
-| `ai_chain_information_mcp` | 9103 | 13 industry-chain / company-profile tools (below) | **Enterprise EE** |
+| `ai_chain_information_mcp` | 9103 | 27 industry, enterprise, news, policy, report, patent, and technology tools | **Enterprise EE (Industry Knowledge Center plugin)** |
 | `generate_chart_tool_mcp` | 9104 | `generate_chart_tool` | Community CE |
 | `web_fetch_mcp` | 9106 | `web_fetch` | Community CE |
 | `batch_runner_mcp` | 9107 | `batch_plan` | Community CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` etc. | Community CE (automation plugin) |
 | `skill_manager_mcp` | 9112 | `search_marketplace` / `install_from_marketplace` / `register_skill` / `list_my_skills` / `submit_to_marketplace` / `delete_skill` | Community CE |
 
-> Edition boundaries follow the [open-source & commercialization plan](../editions/overview.md): the two industry servers depend on intranet-only data sources (the industry knowledge center and the data warehouse) and are Enterprise-only — the CE derivation pipeline strips their directories via `ce/manifest.yaml` and drops their `catalog.json` seeds. The remaining seven general-purpose servers all ship in the Community Edition.
+> Edition boundaries follow the
+> [open-source and commercialization plan](../editions/overview.md). The
+> Industry Knowledge Center plugin and data-warehouse query depend on industry
+> data sources and are Enterprise-only. The CE derivation pipeline physically
+> removes the plugin's one self-contained MCP and 14 Skills through
+> `ce/manifest.yaml`. General-purpose tools ship in Community Edition.
 
 ### retrieve_dataset_content — knowledge-base retrieval (CE)
 
@@ -77,27 +82,44 @@ LangSearch maps its generated summary to `content`. The agent uses this tool
 only as a fallback when internal knowledge bases, the warehouse, and industry
 tools return no results.
 
-### ai_chain_information_mcp — industry knowledge center (Enterprise EE)
+### Industry Knowledge Center plugin (Enterprise EE)
 
-A grouped server that bundles 13 industry-chain and company-profile tools under one MCP server (keeping pluggability at the server level); the implementation is split across `impl_chain / impl_news / impl_latest / impl_company / impl_entity / impl_rank`:
+The Industry Knowledge Center is now a native marketplace plugin instead of an
+unremovable static MCP. One installation adds one MCP server and 14 workflow
+Skills. Enablement, updates, and removal follow the plugin lifecycle. On an EE
+upgrade, the backend installs the plugin once and removes the old static MCP
+row. If an administrator later uninstalls it, startup doesn't restore it.
 
-| Tool | Purpose |
-|---|---|
-| `get_chain_information(chain_id)` | Industry-chain panorama report & core metrics |
-| `get_industry_news(keyword, news_type, chain, region)` | Industry news feed |
-| `get_latest_ai_news()` | Aggregated AI-sector headlines |
-| `search_company(keyword, top_num)` | Fuzzy company search |
-| `get_company_base_info(company_id)` | Basic company profile |
-| `get_company_business_analysis(company_id)` | Business analysis |
-| `get_company_tech_insight(company_id)` | Technology insight |
-| `get_company_funding(company_id)` | Funding history |
-| `get_industry_hot_companies(...)` | Trending companies ranking |
-| `get_industry_hot_products(...)` | Trending products ranking |
-| `get_company_hot_events(...)` | Company hot events |
-| `get_product_detail(...)` | Product details |
-| `get_company_risk_warning(company_id)` | Risk warnings |
+The unified server exposes 27 high-value tools:
 
-Depends on the intranet "industry knowledge center" — Enterprise-only.
+| Component | Tools | Capabilities |
+|---|---:|---|
+| `ai_chain_information_mcp` (9103) | 27 | 13 mature compatibility tools plus 14 workflows for chain discovery/briefing/competitiveness, enterprise screening/evaluation, policies, reports, patents, and technology roadmaps |
+
+The unified MCP package owns its explicit tool functions, detailed Chinese
+descriptions, fixed endpoint composition, and package-local `common.py`. It
+doesn't rely on a centralized dynamic registry or a root-level industry
+runtime module. It resolves `industry.url` and `industry.auth_token` through the existing
+runtime configuration service. Administrators keep managing these values in
+**System Configuration** or the plugin's administrator configuration panel.
+The plugin declares no `required_secrets`, so regular users don't enter a URL
+or token during installation.
+
+Each new tool exposes flat parameters and a detailed agent-visible description
+covering its use cases, inputs, output panels, and selection against adjacent
+tools. The 14 new workflows return only `结果` (business results), optional
+`未获取内容` (unavailable panels), and `结果说明` when truncation occurs. The
+13 mature tools retain their established business response shapes so the
+industry-chain Canvas, news lists, and company-profile renderers remain
+compatible. Neither group exposes endpoint paths, HTTP status, or execution
+counts to the agent's answer context.
+Multi-endpoint workflows remain concurrent and preserve partial success under
+a 25,000-character business-data limit.
+
+The internal audit still records all 240 endpoints discovered in the web app,
+but capability inventory, arbitrary endpoint invocation, region trees, generic
+entity resolution, personal libraries, collections/subscriptions, report
+workbenches, and upstream write operations are no longer exposed to agents.
 
 ### generate_chart_tool — data visualization (CE)
 
@@ -172,7 +194,10 @@ The `/config` system console's **MCP Tools → MCP Server Management** view maps
 - **Move to MCP Marketplace**: creates a credential-free marketplace snapshot
   from an existing remote HTTP/SSE MCP and disables the original global
   instance. The service then leaves the MCP server list and can be reviewed,
-  edited, and installed globally from the marketplace.
+  edited, and installed globally from the marketplace. A token already
+  configured on the source remains encrypted server-side as an
+  administrator-managed credential for authorised installers; neither the
+  marketplace record nor frontend responses contain its value.
 
 Plugin-provided MCPs, such as the automation plugin's scheduled-task MCP, don't
 appear in MCP server management. Their enablement and removal follow the plugin
@@ -182,7 +207,7 @@ lifecycle and are handled in plugin management.
 
 Regular users can add remote MCP servers visible **only to themselves** (`api/routes/v1/me_capabilities.py`, prefix `/v1/me`):
 
-- `POST /v1/me/mcp-servers`: add a private remote MCP — **HTTP/SSE over public HTTPS only**; the user entry point deliberately forbids stdio (no arbitrary command execution on the server), and DNS/IP validation blocks localhost, private, link-local, and reserved addresses; probe-on-create means unreachable endpoints are never persisted;
+- `POST /v1/me/mcp-servers`: add a private remote MCP over public HTTP or HTTPS using HTTP/SSE transports; the user entry point deliberately forbids stdio (no arbitrary command execution on the server), and DNS/IP validation blocks localhost, private, link-local, and reserved addresses; probe-on-create means unreachable endpoints are never persisted. HTTP is plaintext, so HTTPS remains recommended for production;
 - `DELETE /v1/me/mcp-servers/{id}`: remove one's own private MCP.
 
 Implementation reuses the same `admin_mcp_servers` table: `owner_user_id` = current user for owner isolation, auto-generated `umcp_<hex>` server IDs to avoid clashes, and `is_stable=False` to keep them out of the warmup pool. HTTP header values are encrypted with Fernet at rest and decrypted only at runtime. The feature is gated by the per-user `can_add_mcp` permission flag (open by default in the single-tenant Community Edition; granted per user by organisation admins in the Enterprise Edition — see [editions](../editions/overview.md)).
@@ -191,16 +216,12 @@ Implementation reuses the same `admin_mcp_servers` table: `owner_user_id` = curr
 
 System marketplace governance lives at **`/config → MCP Tools`**. Matching Skill Management, the MCP server toolbar exposes two modal actions—MCP Marketplace and Listing Reviews—without another nested management tab; `/admin` has no duplicate entry. It lists and globally installs entries, reviews submissions, manages visibility, revalidates remote tools, suspends unsafe listings, and removes entries. It uses `CONFIG_TOKEN` or `can_system_config`.
 
-The capability center's MCP marketplace uses the same listing-visibility model as the skill, sub-agent, and plugin marketplaces, including public listings and grants to selected users, teams, or roles. A marketplace listing stores only a **credential-free, reviewed version snapshot**; the concrete `admin_mcp_servers` instance created by an installation stores that installer's own credentials:
+The capability center's MCP marketplace uses the same listing-visibility model as the skill, sub-agent, and plugin marketplaces, including public listings and grants to selected users, teams, or roles. A marketplace listing stores only a **credential-free, reviewed version snapshot**. An administrator-published listing may retain administrator-managed credentials on its source `admin_mcp_servers` row; during installation the backend copies them into the user's private instance under encryption, without putting credential values in marketplace tables or frontend responses:
 
-- Users can inspect tool names, input schemas, risk level, and required credentials, then install a listing as a private MCP. Administrators can install it globally. An installed listing can be opened again to rotate its credential.
+- Users can inspect tool names, input schemas, and risk level, then install a listing as a private MCP. If the marketplace auth policy is administrator-managed and all token fields are configured, the UI asks for no token. With installer-managed credentials, each user supplies a token or completes OAuth during installation.
 - Users can submit an already connected private MCP, track pending/approved/rejected state, and withdraw it before review. Instances installed from the MCP marketplace don't expose the submission action, and the backend rejects duplicate listing attempts.
-- Creating a remote HTTP/SSE MCP in Config probes it and lists it in the marketplace first; it is not globally active until an administrator reviews and installs it from the marketplace. Existing global remote MCPs can also be listed. StdIO MCPs remain locally managed and must use the plugin marketplace for cross-environment distribution.
-- Administrators can edit a listing's name, summary, user introduction,
-  category, tags, and icon. Changes propagate to existing installations. The
-  reviewed endpoint, authentication contract, tool schemas, risk report, and
-  version number remain an immutable version snapshot; changing them requires
-  revalidation and a new version.
+- When creating a remote HTTP/SSE MCP in Config, administrators can check “Require Token/Auth” and select Token or OAuth. A token may be entered centrally or left blank: a centrally supplied token makes user installation credential-free, while a blank token requires every user to enter one; OAuth is completed by each user. If the first connection is unauthorized because no administrator credential was supplied, the listing can still be created and uses `per_install` tool discovery after user authentication. Remote MCPs are not globally active until installed from the marketplace. StdIO MCPs remain locally managed and must use the plugin marketplace for cross-environment distribution.
+- Administrators can edit a listing's name, summary, user introduction, category, tags, icon, and authentication policy. The policy explicitly selects no authentication, installer-provided credentials, or administrator-managed credentials. Administrator tokens are maintained only under Edit; the marketplace no longer exposes an “Update Global Credentials” action. Presentation changes and administrator-token updates propagate to existing installations. The reviewed endpoint, tool schemas, risk report, and version number remain version snapshots.
 - Admin controls cover listing/delisting, user/team/role visibility, manual revalidation, soft deletion, and a security suspension kill switch. Suspension immediately disables every installation derived from that listing, and lifting it restores those installations.
 - Tool names and descriptions associated with deletion, execution, or mutation produce medium/high risk reports. High-risk installations require explicit confirmation.
 - By default, the backend reconnects to each remote MCP every six hours and compares its tool-snapshot hash. Drift moves the listing to `changed` and pauses new installations until review. Configure the period with `MCP_MARKET_REVALIDATE_INTERVAL`.
@@ -219,9 +240,11 @@ Curated templates use `per_install` discovery: marketplace details show represen
 
 ### General authentication contract
 
-Each marketplace version declares one or more methods in `auth_config`: `none`, `token`, or `oauth2`. `auth_schema` only describes install-time fields injected into headers, query parameters, or a personal endpoint, and fields may be limited to specific methods. Older entries infer Token or no-auth behavior automatically.
+Each marketplace version declares one or more methods in `auth_config`: `none`, `token`, or `oauth2`. `credential_mode` selects `installer` (each user) or `admin` (centrally managed) credentials. `auth_schema` only describes install-time fields injected into headers, query parameters, or a personal endpoint, and fields may be limited to specific methods. Older entries infer their effective policy from the authentication fields and administrator source credentials for backward compatibility.
 
-OAuth remote MCPs use protected-resource and authorization-server metadata discovery, Authorization Code + PKCE, state validation, RFC 8707 resource indicators, and DCR when available. Services without DCR collect a registered Client ID/Secret. Access tokens, refresh tokens, client metadata, and expiry are stored only as an encrypted bundle on the concrete installation and are refreshed at runtime; they never enter marketplace snapshots.
+When an administrator chooses centrally managed credentials during creation or marketplace editing, the backend verifies that the source server holds every required field. List and detail responses expose only `credentials_managed_by_admin=true`; installation reuses and re-encrypts those values server-side, never returning token contents. Selecting installer-provided credentials prevents marketplace installation from reusing the source token even when that token remains available for revalidation. Community submissions and platform-curated templates continue to require independent installer authentication and never reuse publisher credentials.
+
+OAuth remote MCPs use protected-resource and authorization-server metadata discovery, Authorization Code + PKCE, state validation, RFC 8707 resource indicators, and DCR when available. Services without DCR collect a registered Client ID/Secret. Public HTTP and HTTPS are accepted for the MCP endpoint, authorization metadata, and callback base; HTTP exposes authorization codes and tokens in plaintext and is intended only for controlled test environments. Access tokens, refresh tokens, client metadata, and expiry are stored only as an encrypted bundle on the concrete installation and are refreshed at runtime; they never enter marketplace snapshots.
 
 Same-origin deployments automatically use `/api/v1/mcp-market/oauth/callback` on the browser origin. Cross-origin frontend/backend deployments must set `MCP_OAUTH_PUBLIC_BASE_URL` to the browser-reachable API base so callback URLs are never reflected from an untrusted Host header.
 
@@ -229,7 +252,7 @@ User APIs live under `/v1/mcp-market` and cover browsing, details, private insta
 
 ### Data boundaries
 
-The marketplace uses four dedicated tables: `mcp_market_items` for listing metadata, `mcp_market_versions` for immutable tool snapshots, risk reports, and credential-free auth contracts, `mcp_market_submissions` for review snapshots, and `mcp_market_installations` to link versions to concrete instances. Headers, tokens, OAuth bundles, query keys, and personal endpoints never enter marketplace records. Every installer authenticates independently, and Fernet-encrypted credentials remain on that installation only.
+The marketplace uses four dedicated tables: `mcp_market_items` for listing metadata, `mcp_market_versions` for immutable tool snapshots, risk reports, and credential-free auth contracts, `mcp_market_submissions` for review snapshots, and `mcp_market_installations` to link versions to concrete instances. Headers, tokens, OAuth bundles, query keys, and personal endpoints never enter marketplace records. Community listings and curated templates authenticate each installer independently. Administrator-published token listings may read encrypted managed credentials from their source `admin_mcp_servers` row and re-encrypt them into the concrete installation, without ever exposing them to the frontend.
 
 The user marketplace, authentication, and runtime refresh live in `core/` and CE routes. `/config` routes and `components/admin` remain EE-registered and are physically removed by the CE derivation manifest. The main tree uses the `mcpmkt01`–`mcpmkt04retire` migration chain; CE uses independent `ce_0003` and `ce_0004` migrations for the same core tables and retirement cleanup without importing `edition_ee`.
 

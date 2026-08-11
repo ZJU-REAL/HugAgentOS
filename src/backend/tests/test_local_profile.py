@@ -176,6 +176,7 @@ def test_ce_default_admin_is_idempotent_and_requires_password_change(db_session,
     assert shadow.extra_data["can_create_public_kb"] is False
     assert shadow.extra_data["can_create_channel_bot"] is True
     assert shadow.extra_data["can_switch_model"] is True
+    assert shadow.extra_data["can_use_ontology_validation"] is True
     assert shadow.extra_data["must_change_password"] is True
     assert shadow.extra_data["onboarding_required"] is True
 

@@ -11,9 +11,9 @@ import { resolvePlanModeActive } from '../utils/chatMode';
  *  global defaults, now purely plugin-gated (available only when installed + selected). */
 export const SITES_PLUGIN_SLUG = 'sites';
 
-export type ChatMode = 'fast' | 'medium' | 'high' | 'max';
+export type ChatMode = 'turbo' | 'fast' | 'medium' | 'high' | 'max';
 
-const VALID_CHAT_MODES: readonly ChatMode[] = ['fast', 'medium', 'high', 'max'];
+const VALID_CHAT_MODES: readonly ChatMode[] = ['turbo', 'fast', 'medium', 'high', 'max'];
 
 /** Read the admin-configured "default chat mode". Prefer the chat_mode field; fall back to
  *  thinking_mode when unrecognized; if neither is set → fast. */
@@ -29,7 +29,7 @@ function adminDefaultChatMode(): ChatMode {
 
 /** chatMode → whether thinking mode is active (used as the equivalent for hooks/UI toggle buttons). */
 export function isThinkingMode(mode: ChatMode): boolean {
-  return mode !== 'fast';
+  return mode !== 'fast' && mode !== 'turbo';
 }
 
 const CURRENT_CHAT_KEY = 'hugagent_current_chat_id';

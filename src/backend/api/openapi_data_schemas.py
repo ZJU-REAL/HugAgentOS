@@ -283,6 +283,7 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "sso_token": {"type": "string"},
             "allowed_apps": {"type": "array", "items": {"type": "string"}},
             "lab_enabled": {"type": "boolean"},
+            "can_use_ontology_validation": {"type": "boolean"},
         },
     },
     "CurrentUserInfo": {

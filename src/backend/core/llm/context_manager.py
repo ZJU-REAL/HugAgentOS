@@ -38,7 +38,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-CHARS_PER_TOKEN = 2.5  # average estimate for Chinese text
+# Average chars-per-token used for budget estimation. Deliberately conservative:
+# mainstream tokenizers (qwen/deepseek family) run ~1.5–1.8 chars/token on Chinese
+# prose and JSON-heavy tool text. The previous 2.5 under-counted real tokens by up
+# to ~1.7×, which let plan-mode/step history estimated at ~320k tokens reach 361k+
+# real tokens and blow a 393k model window with a hard 400 (maximum context length
+# exceeded). Over-estimating merely trims a little more history; under-estimating
+# kills the request outright — err on the low side.
+CHARS_PER_TOKEN = 2.0
 
 # Token estimation constant for vision blocks. Vision models are actually billed per patch,
 # independent of base64 length; a conservative upper bound is enough, avoiding counting
@@ -84,7 +91,7 @@ def resolve_model_context_window(model_name: str) -> int:
 
 
 def estimate_tokens(text: str) -> int:
-    """Estimate token count of text. Chinese is roughly 2.5 characters/token."""
+    """Estimate token count of text (conservative CHARS_PER_TOKEN average)."""
     if not text:
         return 0
     return max(1, int(len(text) / CHARS_PER_TOKEN))
@@ -185,7 +192,7 @@ def compress_oversized_user_message(
     if tokens <= max_tokens:
         return message, False
 
-    # Convert the token budget back into a character budget (average 2.5 characters/token)
+    # Convert the token budget back into a character budget (CHARS_PER_TOKEN average)
     char_budget = int(max_tokens * CHARS_PER_TOKEN)
 
     content = message.get("content", "")

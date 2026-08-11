@@ -858,6 +858,17 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not sections:
         return None
 
+    # 极速模式警示：被呼唤技能的 SKILL.md 往往指示 bash/沙箱/文件工具流程，
+    # 而极速模式不装配这些工具。若不在呼唤点明说，模型会照着技能说明发起
+    # 不存在的工具调用（实测会卡死在参数流上）。
+    if str(context.get("chat_mode", "") or "").lower() == "turbo" and skill_ids:
+        sections.append(
+            "注意：当前为极速模式，没有 bash、沙箱、文件读写和文档生成工具。"
+            "技能说明中涉及这些工具的步骤一律不可执行，也不要尝试调用——"
+            "读取 SKILL.md 后，只输出你能以纯文本交付的部分（结构、正文、模板等），"
+            "并在结尾建议用户切换到「快速模式」或「思考模式」完整执行该技能。"
+        )
+
     header = (
         f"用户已显式调用插件「{plugin_name}」，请优先采用其能力："
         if plugin_name
@@ -1114,6 +1125,20 @@ def run_chat_workflow(
             disabled_agent_ids=_disabled_builtin_ids,
         )
 
+    _workflow_turbo = (
+        _direct_user_agent is None
+        and _workflow_chat_mode == "turbo"
+        and not _workflow_batch_chat
+    )
+    if _workflow_turbo:
+        # 极速模式下子智能体仅在本轮被显式委派/@ 时入场（此路径无文本 @ 解析）。
+        _turbo_delegated = str(_explicit_agent_id or _mention_agent_id or "")
+        _visible_subagents = [
+            item
+            for item in _visible_subagents
+            if _turbo_delegated and str(item.get("agent_id") or "") == _turbo_delegated
+        ]
+
     async def _run():
         agent, mcp_clients = await create_agent_executor(
             agent_spec=None,
@@ -1125,6 +1150,15 @@ def run_chat_workflow(
             model_name=_workflow_model_name,
             model_provider_id=_workflow_model_provider_id,
             chat_mode=_workflow_chat_mode,
+            turbo_mode=_workflow_turbo,
+            turbo_explicit_skill_ids=(
+                _explicit_skill_ids_from_context(context) if _workflow_turbo else None
+            ),
+            turbo_explicit_mcp_ids=(
+                [m for m in (context.get("mcp_ids") or []) if isinstance(m, str)]
+                if _workflow_turbo
+                else None
+            ),
             memory_enabled=_workflow_mem_enabled,
             batch_mode=_workflow_batch_chat if _direct_user_agent is None else False,
             user_agent=_direct_user_agent,
@@ -1707,17 +1741,24 @@ async def _astream_subagent_direct(
                     # thinking/tool_call/tool_result/content — attached under
                     # the call_subagent tool card that launched it (linked via
                     # parent_tool_id).
-                    nested_citations = _capture_nested_ontology_evidence(
-                        payload or {},
-                        _ontology_trace,
-                        all_citations,
-                        citation_offsets,
-                    )
-                    yield {
-                        "type": "subagent_event",
-                        **(payload or {}),
-                        **({"citations": nested_citations} if nested_citations else {}),
-                    }
+                    if (payload or {}).get("sub_type") == "progress":
+                        # Sub-agent liveness (long tool-call-arg generation with
+                        # nothing renderable yet) — feed the run inactivity
+                        # watchdog without writing a sub-step to the stream or
+                        # the persisted tool log.
+                        yield {"type": "model_progress"}
+                    else:
+                        nested_citations = _capture_nested_ontology_evidence(
+                            payload or {},
+                            _ontology_trace,
+                            all_citations,
+                            citation_offsets,
+                        )
+                        yield {
+                            "type": "subagent_event",
+                            **(payload or {}),
+                            **({"citations": nested_citations} if nested_citations else {}),
+                        }
 
                 elif event_type in ("file_confirm", "design_pick"):
                     # Confirmation-type events (§13 MySpace write confirm /
@@ -2249,6 +2290,23 @@ async def astream_chat_workflow(
         # Create agent (with model-aware CompressionConfig + optional native LTM)
         _plan_chat = bool(context.get("plan_chat", False))
         _batch_chat = bool(context.get("batch_chat", False))
+        # 极速模式：配置化检索工具集 + 独立 turbo 提示词 + 迭代硬上限。
+        # plan/batch 会话有自己的编排语义，不进入极速裁剪。
+        _turbo_chat = (
+            str(context.get("chat_mode", "") or "").lower() == "turbo"
+            and not _plan_chat
+            and not _batch_chat
+        )
+        if _turbo_chat:
+            # 手动呼唤是极速模式下子智能体的唯一入场券：只把本轮被 @/显式
+            # 委派命中的那一个传给 factory（系统提示词也就只渲染这一行），
+            # 没有呼唤则完全不带子智能体。
+            _mentioned_set = {str(m) for m in (_mentioned_ids or []) if m}
+            _visible_subagents = [
+                item
+                for item in _visible_subagents
+                if str(item.get("agent_id") or "") in _mentioned_set
+            ]
         agent, mcp_clients = await create_agent_executor(
             agent_spec=None,
             enabled_skill_ids=enabled_skill_ids,
@@ -2259,6 +2317,17 @@ async def astream_chat_workflow(
             model_name=_stream_model_name,
             model_provider_id=str(context.get("model_provider_id", "") or ""),
             chat_mode=str(context.get("chat_mode", "") or ""),
+            turbo_mode=_turbo_chat,
+            # 显式呼唤透传：斜杠技能 / 插件展开的 skill_ids 与 mcp_ids。
+            # 仅 turbo 模式消费；能力说明仍走 user message 注入，不进全量清单。
+            turbo_explicit_skill_ids=(
+                _explicit_skill_ids_from_context(context) if _turbo_chat else None
+            ),
+            turbo_explicit_mcp_ids=(
+                [m for m in (context.get("mcp_ids") or []) if isinstance(m, str)]
+                if _turbo_chat
+                else None
+            ),
             memory_enabled=_mem0_enabled,
             visible_subagents=_visible_subagents if _visible_subagents else None,
             plan_mode=_plan_chat,
@@ -2695,17 +2764,24 @@ async def astream_chat_workflow(
                     # thinking/tool_call/tool_result/content — attached under
                     # the call_subagent tool card that launched it (linked via
                     # parent_tool_id).
-                    nested_citations = _capture_nested_ontology_evidence(
-                        payload or {},
-                        _ontology_trace,
-                        all_citations,
-                        citation_offsets,
-                    )
-                    yield {
-                        "type": "subagent_event",
-                        **(payload or {}),
-                        **({"citations": nested_citations} if nested_citations else {}),
-                    }
+                    if (payload or {}).get("sub_type") == "progress":
+                        # Sub-agent liveness (long tool-call-arg generation with
+                        # nothing renderable yet) — feed the run inactivity
+                        # watchdog without writing a sub-step to the stream or
+                        # the persisted tool log.
+                        yield {"type": "model_progress"}
+                    else:
+                        nested_citations = _capture_nested_ontology_evidence(
+                            payload or {},
+                            _ontology_trace,
+                            all_citations,
+                            citation_offsets,
+                        )
+                        yield {
+                            "type": "subagent_event",
+                            **(payload or {}),
+                            **({"citations": nested_citations} if nested_citations else {}),
+                        }
 
                 elif event_type in ("file_confirm", "design_pick"):
                     # Confirmation-type events (§13 MySpace write confirm /

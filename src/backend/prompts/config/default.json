@@ -17,7 +17,6 @@
       "query_database",
       "retrieve_dataset_content",
       "internet_search",
-      "ai_chain_information_mcp",
       "generate_chart_tool"
     ]
   },

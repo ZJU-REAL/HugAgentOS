@@ -7,7 +7,10 @@ status, content deltas, and tool events stream in real time whether or not revie
 
 ## User Setting
 
-Open **Settings → Ontology Validation** after signing in. CE instance
+In EE, an administrator must first grant `can_use_ontology_validation` through
+**System Configuration → User Management / Team Management / Role Permissions**.
+Without it, the ontology-validation entry is hidden and direct calls to the
+personal settings endpoint are rejected. Open **Settings → Ontology Validation** after signing in. CE instance
 administrators see this entry as **Ontology Governance**. The same page provides
 the personal validation switch and global Domain Pack management. When an
 active default Domain Pack is available, enable **Use Domain Ontology

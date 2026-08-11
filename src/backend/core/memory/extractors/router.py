@@ -121,6 +121,8 @@ async def run_extractors_with_timeout(
     assistant_message: str,
     ctx: MemoryContext,
     timeout_s: int = 30,
+    recent_trajectory: str = "",
+    verified_correction: bool = False,
 ) -> dict[ExtractorType, Optional[dict]]:
     """Run the matched extractors concurrently, each with its own timeout.
 
@@ -141,6 +143,14 @@ async def run_extractors_with_timeout(
 
     async def _wrap(et: ExtractorType):
         try:
+            if et is ExtractorType.PROCEDURAL:
+                return et, await procedural.extract(
+                    user_message,
+                    assistant_message,
+                    timeout_s,
+                    recent_trajectory=recent_trajectory,
+                    verified_correction=verified_correction,
+                )
             return et, await runners[et](user_message, assistant_message, timeout_s)
         except Exception as exc:
             logger.warning("[extractor:%s] failed: %s", et.value, exc)

@@ -292,6 +292,12 @@ export const CATALOG_DICT: Record<string, string> = {
   '图标已选用': 'Icon selected',
   '读取图标失败': 'Failed to read icon',
 
+  // 外接知识库的 LLM Wiki 视图
+  // 知识库授权页在 provider_label 缺失时的兜底展示名
+  '外部知识库': 'External KB',
+  '知识库视图': 'Knowledge base view',
+  '知识 Wiki': 'Knowledge Wiki',
+
   // skillIcons PRESETS labels
   '文档': 'Documents',
   '写作': 'Writing',

@@ -19,8 +19,8 @@ from urllib.parse import urlencode, urlparse
 from core.config.settings import settings
 from core.db.engine import SessionLocal
 from core.db.models import AdminMcpServer, McpMarketItem, McpMarketVersion
-from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.infra.crypto import decrypt_secret, encrypt_secret
+from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.infra.redis import get_redis
 from core.services.mcp_management_service import (
     decrypt_mcp_headers,
@@ -59,9 +59,7 @@ class OAuthBundleStorage(TokenStorage):
             tokens = tokens.model_copy(update={"refresh_token": previous["refresh_token"]})
         self.bundle["tokens"] = tokens.model_dump(mode="json", exclude_none=True)
         self.bundle["expires_at"] = (
-            time.time() + int(tokens.expires_in)
-            if tokens.expires_in is not None
-            else None
+            time.time() + int(tokens.expires_in) if tokens.expires_in is not None else None
         )
         self._persist()
 
@@ -99,7 +97,9 @@ class OAuthBundleStorage(TokenStorage):
             return
         db = SessionLocal()
         try:
-            row = db.query(AdminMcpServer).filter(AdminMcpServer.server_id == self.server_id).first()
+            row = (
+                db.query(AdminMcpServer).filter(AdminMcpServer.server_id == self.server_id).first()
+            )
             if not row:
                 return
             headers = decrypt_mcp_headers(row.headers)
@@ -136,11 +136,12 @@ def build_oauth_provider(
         callback_handler=callback_handler,
         timeout=300.0,
     )
+
     async def _validate_oauth_request(request) -> None:
         # OAuth discovery metadata is controlled by the remote resource.  Apply
         # the same DNS/IP SSRF boundary to every SDK-generated request, not only
         # to the original MCP URL.
-        await validate_remote_mcp_url(str(request.url), require_https=True)
+        await validate_remote_mcp_url(str(request.url), require_https=False)
 
     provider.mcp_request_hook = _validate_oauth_request
     context = provider.context
@@ -213,7 +214,7 @@ def public_oauth_callback_url(request: Any) -> str:
     if configured:
         parsed = urlparse(configured)
         if (
-            parsed.scheme not in ({"https"} if settings.server.is_prod else {"http", "https"})
+            parsed.scheme not in {"http", "https"}
             or not parsed.netloc
             or parsed.username
             or parsed.password
@@ -230,7 +231,7 @@ def public_oauth_callback_url(request: Any) -> str:
     request_host = str(request.headers.get("host") or request.url.netloc).lower()
     if settings.server.is_prod and parsed_origin.netloc.lower() != request_host:
         raise BadRequestError(
-            message="跨域部署必须配置 MCP_OAUTH_PUBLIC_BASE_URL（例如 https://app.example.com/api）"
+            message="跨域部署必须配置 MCP_OAUTH_PUBLIC_BASE_URL（例如 http(s)://app.example.com/api）"
         )
     return f"{origin}/api/v1/mcp-market/oauth/callback"
 
@@ -282,7 +283,9 @@ async def start_oauth_install(
 
     _purge_expired_flows()
     _, version = _get_version(db, slug)
-    auth_config = market._normalize_auth_config(version.auth_config, list(version.auth_schema or []))
+    auth_config = market._normalize_auth_config(
+        version.auth_config, list(version.auth_schema or [])
+    )
     method = next((row for row in auth_config["methods"] if row["id"] == auth_method), None)
     if not method or method["type"] != "oauth2":
         raise BadRequestError(message="该 MCP 不支持所选 OAuth 认证方式")
@@ -332,7 +335,9 @@ async def _run_flow(flow: OAuthInstallFlow) -> None:
     db = SessionLocal()
     try:
         item, version = _get_version(db, flow.slug)
-        auth_config = market._normalize_auth_config(version.auth_config, list(version.auth_schema or []))
+        auth_config = market._normalize_auth_config(
+            version.auth_config, list(version.auth_schema or [])
+        )
         method = next(row for row in auth_config["methods"] if row["id"] == flow.auth_method)
         headers = market._installation_secrets(
             version,
@@ -341,7 +346,7 @@ async def _run_flow(flow: OAuthInstallFlow) -> None:
             auth_method=flow.auth_method,
         )
         runtime_url, _ = market.materialize_mcp_http_connection(version.url, headers)
-        await validate_remote_mcp_url(runtime_url, require_https=True)
+        await validate_remote_mcp_url(runtime_url, require_https=False)
 
         metadata = OAuthClientMetadata(
             redirect_uris=[flow.callback_url],

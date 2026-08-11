@@ -710,10 +710,14 @@
   border-radius:12px; padding:4px;
   box-shadow:0 8px 32px rgba(15,23,42,.14); border:1px solid rgba(15,23,42,.08); min-width:160px;
 }
-.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item{
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item,
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-submenu-title{
   border-radius:8px; padding:8px 12px; font-size:12px; color:rgba(15,23,42,.82);
 }
-.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item:hover{ background:rgba(18,109,255,.06); color:#126DFF; }
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item:hover,
+.jx-settingsMenu.ant-dropdown .ant-dropdown-menu-submenu-title:hover{
+  background:rgba(18,109,255,.06); color:#126DFF;
+}
 .jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item-divider{ margin:4px 0; background:rgba(15,23,42,.08); }
 
 /* 退出登录：悬停时才显示红色背景 */

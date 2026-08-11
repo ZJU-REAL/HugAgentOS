@@ -26,7 +26,13 @@ def ontology_client():
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine)
     with session_factory() as db:
-        db.add(UserShadow(user_id="onto_api_user", username="ontology user", extra_data={}))
+        db.add(
+            UserShadow(
+                user_id="onto_api_user",
+                username="ontology user",
+                extra_data={"can_use_ontology_validation": True},
+            )
+        )
         payload_path = (
             Path(__file__).resolve().parents[2]
             / "configs"
@@ -67,6 +73,7 @@ def ontology_client():
 def test_user_can_opt_in_and_preview_runtime(ontology_client):
     initial = ontology_client.get("/v1/ontologies/settings")
     assert initial.status_code == 200
+    assert initial.json()["data"]["allowed"] is True
     assert initial.json()["data"]["ontology_enabled"] is False
     assert initial.json()["data"]["available"] is True
     assert initial.json()["data"]["plugin_import_build_validation_forced"] is False
@@ -98,6 +105,35 @@ def test_user_can_opt_in_and_preview_runtime(ontology_client):
         json={"ontology_enabled": True},
     )
     assert unavailable.status_code == 400
+
+
+def test_user_without_permission_cannot_enable_ontology_validation(ontology_client):
+    with ontology_client.ontology_session_factory() as db:
+        user = db.query(UserShadow).filter(UserShadow.user_id == "onto_api_user").one()
+        user.extra_data = {"ontology_enabled": True, "can_use_ontology_validation": False}
+        db.commit()
+
+    settings = ontology_client.get("/v1/ontologies/settings")
+    assert settings.status_code == 200
+    assert settings.json()["data"]["allowed"] is False
+    assert settings.json()["data"]["ontology_enabled"] is False
+
+    update = ontology_client.patch(
+        "/v1/ontologies/settings",
+        json={"ontology_enabled": True},
+    )
+    assert update.status_code == 403
+
+    preview = ontology_client.get(
+        "/v1/ontologies/runtime/preview",
+        params={"task": "分析企业风险"},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["data"] == {
+        "enabled": False,
+        "packs": [],
+        "review_level": "none",
+    }
 
 
 def test_admin_force_plugin_import_validation_policy_is_visible_to_users(ontology_client):

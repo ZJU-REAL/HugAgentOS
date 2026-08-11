@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-VALID_KINDS = ("system", "code_exec", "distillation", "plan_mode", "subagents")
+VALID_KINDS = ("system", "code_exec", "distillation", "plan_mode", "subagents", "turbo")
 
 # Process-local cache for the payload, invalidated on write.
 _payload_cache: Optional[Dict[str, Any]] = None
@@ -56,6 +56,8 @@ def _fs_dir(kind: str) -> Path:
         return root / "plan_mode"
     if kind == "subagents":
         return root / "subagents"
+    if kind == "turbo":
+        return root / "turbo"
     raise ValueError(f"unknown kind: {kind}")
 
 
@@ -94,13 +96,13 @@ def _read_fs_parts(kind: str) -> List[Dict[str, Any]]:
             )
         return parts
 
-    if kind == "plan_mode":
-        fp = dirp / "plan_mode.system.md"
+    if kind in {"plan_mode", "turbo"}:
+        fp = dirp / f"{kind}.system.md"
         if fp.exists():
             parts.append(
                 {
-                    "part_id": "plan_mode",
-                    "display_name": "plan_mode",
+                    "part_id": kind,
+                    "display_name": kind,
                     "content": fp.read_text(encoding="utf-8"),
                     "sort_order": 0,
                     "is_enabled": True,
@@ -149,6 +151,10 @@ def _default_version_for_kind(kind: str, version_id: Optional[str] = None) -> Di
         vid = version_id or "default"
         name = "default - 平台默认子智能体"
         desc = "探索员、执行员和审查员三个平台内置角色的独立系统提示词"
+    elif kind == "turbo":
+        vid = version_id or "default"
+        name = "default - 极速模式"
+        desc = "极速模式（快速查询）系统提示词：仅联网搜索/网页抓取/知识库检索三类工具，1-2 轮并行调用后直接作答"
     else:
         raise ValueError(f"unknown kind: {kind}")
 
@@ -638,3 +644,35 @@ def render_code_capability_segment(db: Optional[Session] = None) -> str:
         if parts:
             return "\n\n".join(parts)
     return ""
+
+
+def render_turbo_system_prompt(db: Optional[Session] = None) -> str:
+    """The single source of truth for the turbo-mode (极速模式) system prompt.
+
+    Turbo mode replaces the full assembled system prompt with this standalone
+    one: the agent only carries retrieval tools (internet_search / web_fetch /
+    knowledge-base retrieval), so none of the default prompt's tool/workflow
+    sections apply.
+
+    Priority: DB ``turbo`` active version → filesystem fallback
+    (``prompts/prompt_text/turbo/turbo.system.md``) → minimal hardcoded prompt.
+    """
+    try:
+        rendered = render_active_prompt("turbo", db=db)
+        if rendered:
+            return rendered
+    except Exception:
+        logger.debug("render turbo active prompt failed", exc_info=True)
+    fp = _fs_dir("turbo") / "turbo.system.md"
+    try:
+        if fp.exists():
+            content = fp.read_text(encoding="utf-8").strip()
+            if content:
+                return content
+    except Exception:
+        logger.debug("read turbo fs prompt failed", exc_info=True)
+    return (
+        "你是极速查询助手。收到问题后，最多发起 1-2 轮工具调用（同一轮内可并行"
+        "调用多个检索工具），拿到结果立即用中文简洁作答，并标注信息来源。"
+        "不要使用超出检索范围的工具，不要反复迭代。"
+    )

@@ -47,7 +47,7 @@ src/backend/prompts/prompt_text/default/system/
 
 版本池把多套提示词存进单行 `ContentBlock(id="prompt_versions")`，payload 结构 `{active: {kind: version_id}, versions: [...]}`，服务层为 `core/services/prompt_version_service.py`：
 
-- **五类 kind**（`VALID_KINDS`）：`system`（主智能体）、`code_exec`（代码执行能力段）、`distillation`（技能蒸馏）、`plan_mode`（计划模式）、`subagents`（平台默认探索员 / 执行员 / 审查员的独立提示词）。
+- **六类 kind**（`VALID_KINDS`）：`system`（主智能体）、`code_exec`（代码执行能力段）、`distillation`（技能蒸馏）、`plan_mode`（计划模式）、`subagents`（平台默认探索员 / 执行员 / 审查员的独立提示词）、`turbo`（极速模式独立提示词）。
 - 每个版本含 `(kind, id, name, description, parts[])`，part 即 `{part_id, display_name, content, sort_order, is_enabled}`。
 - **API**：`list_versions / get_version / upsert_version（支持 from_id 克隆）/ delete_version（激活中禁删）/ activate_version`；激活后立即失效运行时缓存。
 - **Seed**：`seed_from_filesystem()` 首次冷启动把文件系统 markdown 读成默认版本，并幂等补齐 `subagents/default` 的三个角色 part；内置两个一次性迁移——`system/v4 → system/default` 改名、从各 system 版本抽出 `system/90_plan_mode` 生成 `plan_mode/default`。
@@ -57,7 +57,7 @@ src/backend/prompts/prompt_text/default/system/
 
 管理入口在 Config 管理台「提示词管理」，对应路由 `api/routes/v1/admin_prompts.py`（`CONFIG_TOKEN` 鉴权）：
 
-前端版本管理标签页仅展示 `system / plan_mode / code_exec / distillation`。`subagents` 仍由后端版本池保存并参与种子、运行时解析和跨环境快照，但不再作为 Config 可编辑标签页；三个内置角色及其只读提示词改在用户侧「子智能体」页面展示，用户只管理自己的启停状态。
+前端版本管理标签页仅展示 `system / turbo / plan_mode / code_exec / distillation`。`subagents` 仍由后端版本池保存并参与种子、运行时解析和跨环境快照，但不再作为 Config 可编辑标签页；三个内置角色及其只读提示词改在用户侧「子智能体」页面展示，用户只管理自己的启停状态。
 
 | 端点 | 功能 |
 |---|---|
@@ -75,6 +75,7 @@ src/backend/prompts/prompt_text/default/system/
 | `code_exec` | `agent_factory.py` 在 `CODE_CAPABILITY_ENABLED=true` 时把该段（代码能力提示词）拼到 system prompt 尾部；单一真源为 `prompt_version_service.render_code_capability_segment()`，管理台 preview 同源 | DB 激活版本 → `prompts/prompt_text/code_exec/system/*.system.md` |
 | `distillation` | 技能蒸馏（`core/llm/skill_distiller.py`，把对话轨迹蒸馏为可复用技能） | DB 激活版本 → `prompts/prompt_text/distillation/skill_distiller.system.md` |
 | `plan_mode` | 计划模式生成子智能体（`orchestration/subagents/plan_mode.py::_load_plan_prompt`） | DB `plan_mode` 激活版本 → 旧版 system 版本的 `system/90_plan_mode` 分段 → `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码兜底 |
+| `turbo` | 极速模式（对话模式选「极速」时，`agent_factory.py` 以该提示词**整体替换**主系统提示词）。工具集由 Config「系统配置 → 极速模式」动态配置（`turbo.mcp_server_ids`，默认联网搜索/网页抓取/知识库检索三件套，**独立于能力目录的启停**）；用户显式呼唤的技能 / @子智能体 / 插件可临时入场（`turbo.manual_invoke_enable`）；迭代上限可配（`turbo.max_iters`，默认 4）。单一真源为 `prompt_version_service.render_turbo_system_prompt()` | DB `turbo` 激活版本 → `prompts/prompt_text/turbo/turbo.system.md` → 硬编码兜底 |
 
 子智能体不走版本池整版拼装：`prompt_runtime.py::build_subagent_system_prompt()` 以用户自定义 `system_prompt` 为核心，复用激活版本（或文件）的 `20_tools_policy` / `65_citations` / `60_format` 分段组装，详见 [对话与智能体编排](chat.md)。
 
@@ -124,6 +125,6 @@ python scripts/import_content.py --api-url http://<HOST>/api --prompts prompts_s
 | 迁移接口（export/import） | `src/backend/api/routes/v1/content.py`，`core/content/content_blocks.py` |
 | 迁移脚本 | `src/backend/scripts/export_content.py`，`scripts/import_content.py` |
 | 系统提示词兜底文件 | `src/backend/prompts/prompt_text/default/system/` |
-| 场景提示词兜底 | `src/backend/prompts/prompt_text/{code_exec,distillation,plan_mode}/` |
+| 场景提示词兜底 | `src/backend/prompts/prompt_text/{code_exec,distillation,plan_mode,turbo}/` |
 | 动态段 | `src/backend/prompts/kb_lite_section.py`，`prompts/project_section.py` |
 | 提示词广场前端 | `src/frontend/src/components/chat/PromptHubPanel.tsx`，`components/admin/PromptHubEditor.tsx` |

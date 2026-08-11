@@ -288,13 +288,28 @@ def _run_subagent_in_thread(
             # to sub-steps and bypass-forwarded via emit.
             final_msg = None
             mapper = _SubMapper()
+            # Throttled liveness: during long tool-call-argument generation the
+            # sub-agent's upstream events all buffer inside _SubMapper (ToolCallDelta /
+            # ToolResultTextDelta / unclassified thinking) and emit is never called —
+            # the parent run's inactivity watchdog then saw pure silence and killed a
+            # healthy run mid-generation (the main-path StreamingAgent got this fix as
+            # ("model_progress", None); nested subagents were the known remaining gap).
+            _last_progress = time.monotonic()
             async for chunk in agent._reply(inputs=user_msg):
                 if isinstance(chunk, Msg):
                     final_msg = chunk
                     continue
                 try:
-                    for sub in mapper.feed(chunk):
+                    subs = mapper.feed(chunk)
+                    for sub in subs:
                         emit(sub)
+                    if subs:
+                        _last_progress = time.monotonic()
+                    else:
+                        _now = time.monotonic()
+                        if _now - _last_progress >= 5.0:
+                            _last_progress = _now
+                            emit({"sub_type": "progress"})
                 except (
                     Exception
                 ):  # noqa: BLE001 — bypass mapping must never take down the sub-agent

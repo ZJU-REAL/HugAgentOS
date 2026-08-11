@@ -20,7 +20,8 @@ from threading import Lock
 from typing import Optional
 
 from core.config.settings import settings
-from core.infra.rate_limit import CircuitBreaker as _InfraCircuitBreaker, CircuitBreakerState
+from core.infra.rate_limit import CircuitBreaker as _InfraCircuitBreaker
+from core.infra.rate_limit import CircuitBreakerState
 from core.memory.context import MemoryContext
 
 logger = logging.getLogger(__name__)
@@ -180,9 +181,26 @@ async def _run_pipeline(
     Extractors live in `core.memory.extractors.router`; the import is placed here
     to avoid a circular dependency.
     """
-    from core.memory.extractors.router import classify_conversation, run_extractors_with_timeout
+    from core.memory.extractors.router import (
+        ExtractorType,
+        classify_conversation,
+        run_extractors_with_timeout,
+    )
+    from core.memory.trajectory import load_recent_trajectory
 
     classes = classify_conversation(user_message, assistant_message)
+    trajectory = await load_recent_trajectory(ctx, user_message, assistant_message)
+    if trajectory.verified_correction:
+        # A verified correction spans several turns, so the current pair alone
+        # may look like a one-off instruction or an assistant self-commentary.
+        # It is nevertheless strong procedural evidence and must reach the
+        # extractor even if the current turn is too short for the substance bar.
+        classes.add(ExtractorType.PROCEDURAL)
+        logger.info(
+            "[memory_pipeline] verified correction detected, preserving procedural "
+            "candidate (chat=%s)",
+            ctx.chat_id,
+        )
     if not classes:
         logger.debug("[memory_pipeline] empty class set, skipping")
         return []
@@ -195,8 +213,12 @@ async def _run_pipeline(
         from core.memory.extractors.gate import llm_write_gate
 
         classes = await llm_write_gate(
-            user_message, assistant_message, classes,
+            user_message,
+            assistant_message,
+            classes,
             timeout_s=settings.memory.gate_timeout_s,
+            recent_trajectory=trajectory.transcript,
+            verified_correction=trajectory.verified_correction,
         )
         if not classes:
             logger.info("[memory_pipeline] llm gate: nothing worth writing this turn")
@@ -204,7 +226,9 @@ async def _run_pipeline(
 
     logger.info(
         "[memory_pipeline] user=%s workspace=%s classes=%s",
-        ctx.user_id, ctx.workspace_id, sorted(c.value for c in classes),
+        ctx.user_id,
+        ctx.workspace_id,
+        sorted(c.value for c in classes),
     )
 
     results = await run_extractors_with_timeout(
@@ -213,9 +237,12 @@ async def _run_pipeline(
         assistant_message=assistant_message,
         ctx=ctx,
         timeout_s=settings.memory.extract_timeout_s,
+        recent_trajectory=trajectory.transcript,
+        verified_correction=trajectory.verified_correction,
     )
 
     # results has the shape { ExtractorType: list[dict] | dict };
     # the actual persistence logic is handled by each layer writer
     from core.memory.extractors.writers import write_layered
+
     return await write_layered(results, ctx)

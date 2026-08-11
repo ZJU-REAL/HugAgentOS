@@ -92,7 +92,10 @@ async def create_my_mcp_server(
 
     if not body.url.strip():
         raise BadRequestError(message="url 不能为空")
-    await validate_remote_mcp_url(body.url, require_https=True)
+    # Public HTTP endpoints are allowed for controlled/test deployments.  The
+    # shared validator still blocks loopback, private, link-local, and reserved
+    # targets; HTTPS remains the recommended production transport.
+    await validate_remote_mcp_url(body.url, require_https=False)
 
     # Auto-generate a globally unique server_id to avoid collisions with public MCPs / other users
     server_id = f"umcp_{uuid.uuid4().hex[:16]}"

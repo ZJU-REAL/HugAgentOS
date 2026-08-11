@@ -101,7 +101,7 @@ def _get_main_model(mode: str = "medium"):
     cached = _model_cache.get(key)
     if cached is not None:
         return cached
-    if mode == "fast":
+    if mode in ("fast", "turbo"):
         instance = get_default_model(disable_thinking=True, stream=True)
     elif mode in ("high", "max"):
         instance = get_default_model(reasoning_effort=mode, stream=True)
@@ -132,7 +132,7 @@ def _get_provider_model(provider_id: str, mode: str = "medium"):
         return _get_main_model(mode)
 
     supports_effort = bool((resolved.extra or {}).get("supports_reasoning_effort"))
-    disable_thinking = mode == "fast"
+    disable_thinking = mode in ("fast", "turbo")
     reasoning_effort = None
     if not disable_thinking and supports_effort and mode in ("medium", "high", "max"):
         reasoning_effort = mode
@@ -155,9 +155,9 @@ def _get_provider_model(provider_id: str, mode: str = "medium"):
 
 
 def _resolve_chat_mode(ctx) -> str:
-    """Resolve the final chat_mode (fast/medium/high/max) from agent.state (AgentRuntimeState)."""
+    """Resolve the final chat_mode (turbo/fast/medium/high/max) from agent.state (AgentRuntimeState)."""
     raw = getattr(ctx, "chat_mode", None)
-    if raw in ("fast", "medium", "high", "max"):
+    if raw in ("turbo", "fast", "medium", "high", "max"):
         return raw
     # Fallback for legacy clients
     return "medium" if getattr(ctx, "enable_thinking", True) else "fast"

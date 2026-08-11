@@ -1,6 +1,6 @@
 # Memory System (mem0)
 
-> Last updated: 2026-08-03
+> Last updated: 2026-08-10
 
 HugAgentOS ships with a **layered persistent memory system**. L2 uses [mem0](https://github.com/mem0ai/mem0) with Milvus, while L3 uses a local adapter that connects directly to Neo4j. When enabled, the agent remembers a user's identity, preferences, **how work is done here** (definitions, orderings, red lines), and stable entity relationships across sessions. Memory is organized into three layers by information stability (L1 profile / L2 procedures / L3 knowledge graph) — all three layers are Community Edition capabilities; only **memory auditing** (compliance trail) belongs to the commercial edition (Enterprise Edition, EE).
 
@@ -49,7 +49,8 @@ orchestration/workflow.py
 save_memories_background()
   └─ core/memory/pipeline.schedule_post_response_tasks()
        · global semaphore caps concurrency (default 8)
-       · classification → runs 0–5 extractors (identity/preference/task by keyword; procedural on every substantive turn; graph only when L3 is enabled)
+       · current-turn classification + a bounded recent trajectory (up to 8 messages) → runs 0–5 extractors
+       · failure → user-supplied method change → success is retained as a procedural candidate
        · each extractor has its own 30s timeout
        · sanitizer gate → write L1/L2/L3/session → audit side channel
 ```
@@ -63,7 +64,8 @@ Writes happen only when the user has explicitly enabled `memory_write_enabled` (
 - **Never awaited**: `schedule_post_response_tasks()` is synchronous and only calls `asyncio.create_task()`;
 - **Bounded concurrency**: a global `asyncio.Semaphore` (`MEMORY_BG_MAX_CONCURRENCY`, default 8);
 - **Milvus circuit breaker**: after N consecutive failures (default 3) the breaker opens for 60 seconds; retrieval and write paths share the same `milvus_breaker`;
-- **Extractor routing** (`core/memory/extractors/router.py`): `identity`, `preference`, and `task` run only on keyword cues; **`procedural` has no keyword gate** and runs on every substantive turn (user ≥ 8 chars, assistant ≥ 30 chars) — a convention is stated in whatever words the user happened to use, so a regex deciding "no procedure here" before the model reads the turn drops them silently and invisibly. An empty classification skips all LLM calls entirely.
+- **Extractor routing** (`core/memory/extractors/router.py`): keyword cues keep short `identity` and `preference` statements from being missed, while substantive turns nominate both as well; `task` remains gated by explicit task cues; **`procedural` has no keyword gate** and runs on every substantive turn (user ≥ 8 chars, assistant ≥ 30 chars) — a convention is stated in whatever words the user happened to use, so a regex deciding "no procedure here" before the model reads the turn drops them silently and invisibly. An empty classification skips all LLM calls entirely.
+- **Multi-turn correction retention** (`core/memory/trajectory.py`): the post-response pipeline reads at most eight recent messages from the current chat. Both “explicit assistant failure → user method change → later success” and “assistant produced a result → user explicitly corrected the prior method → later success” deterministically retain the `procedural` candidate. The LLM gate cannot erase these result-verified lessons; if the general procedure extractor still returns empty, only this rare signal gets one focused failure-recovery extraction retry. Bare retries, assistant-only “lessons,” and suggestions without success evidence do not trigger it.
 - **L2 stores procedures, not facts**: a fact starts decaying the moment it is written, so remembering it makes the system confidently recall a stale number instead of looking the current one up. What survives repetition — and what a skill can be compiled from — is how work gets done. There is no fact extractor and no fallback path.
 - **L3 stores stable relationships, not procedures**: its extractor accepts user-asserted or user-confirmed affiliation, responsibility, dependency, use, composition, alias, and classification relationships. Volatile measurements, status, news, and one-off instructions never enter the graph. Repeated observations reinforce the same edge by increasing `seen_count` and refreshing `last_seen_at` instead of creating duplicates.
 - **Writes bypass mem0's own inference**: every write passes `infer=False`. By default mem0 re-judges the text with its generic fact-extraction prompt and can silently discard an already-distilled rule, which surfaces as "the write succeeded and stored nothing" — no error in the log, no entry on the card.
@@ -200,6 +202,7 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/core/memory/graph.py` | L3 Neo4j relation persistence, reinforcement, retrieval, and deletion |
 | `src/backend/core/memory/profile.py` | L1 profile: get / patch / compact / delete |
 | `src/backend/core/memory/pipeline.py` | Post-response write pipeline, semaphore, Milvus circuit breaker |
+| `src/backend/core/memory/trajectory.py` | Bounded recent chat trajectory and failure → method change → success detection |
 | `src/backend/core/memory/extractors/` | identity / preference / task / procedural / graph extractors + router |
 | `src/backend/core/memory/sanitizer.py` | Sanitizer gate (hardcoded + DB-managed rules) |
 | `src/backend/core/memory/audit.py` | Audit side channel (Enterprise Edition, EE) |

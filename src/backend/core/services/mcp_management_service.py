@@ -386,9 +386,16 @@ async def probe_mcp_connectivity(
 
         if row.transport not in ("stdio", "streamable_http", "sse"):
             raise RuntimeError(f"Unknown transport: {row.transport}")
-        client = make_client(row.server_id, cfg)
-        await client.connect()
+        is_http = row.transport in ("streamable_http", "sse")
+        # AgentScope's stateful HTTP MCP client owns an AnyIO cancel scope that
+        # is bound to the task which opened it.  Failed handshakes (notably 401)
+        # can finalize the underlying async generator in another task, masking
+        # the real HTTP error with "Attempted to exit cancel scope...".  A
+        # stateless client keeps the complete list_tools lifecycle in this task.
+        client = make_client(row.server_id, cfg, is_stateful=not is_http)
         try:
+            if not is_http:
+                await client.connect()
             discovered = await client.list_tools()
             tools_meta = []
             for tool in discovered or []:
@@ -435,10 +442,14 @@ async def probe_mcp_connectivity(
                     messages = "; ".join(item.message for item in report.errors)
                     raise RuntimeError(f"Domain Pack 构建校验失败：{messages}")
         finally:
-            try:
-                await client.close()
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("MCP probe client close failed: %s", exc)
+            # Stateless HTTP list_tools opens and closes its own connection.
+            # Calling close() is unnecessary and can re-enter the SDK's
+            # task-bound cancel scope.  Stateful stdio still requires cleanup.
+            if not is_http:
+                try:
+                    await client.close()
+                except BaseException as exc:  # noqa: BLE001
+                    logger.debug("MCP probe client close failed: %s", exc)
 
     try:
         await asyncio.wait_for(_do_probe(), timeout=timeout_seconds)
@@ -446,4 +457,50 @@ async def probe_mcp_connectivity(
     except asyncio.TimeoutError:
         return False, f"连接超时（> {timeout_seconds:.0f}s）"
     except BaseException as exc:
-        return False, f"{type(exc).__name__}: {exc}"
+        current_task = asyncio.current_task()
+        if (
+            isinstance(exc, asyncio.CancelledError)
+            and current_task is not None
+            and current_task.cancelling() > 0
+        ):
+            raise
+        return False, _format_mcp_probe_exception(exc)
+
+
+def _format_mcp_probe_exception(exc: BaseException) -> str:
+    """Return the actionable leaf error without leaking AnyIO cleanup noise."""
+    queue = [exc]
+    fallback = ""
+    while queue:
+        current = queue.pop(0)
+        nested = getattr(current, "exceptions", None)
+        if nested:
+            queue[0:0] = list(nested)
+            continue
+
+        message = str(current).strip()
+        lowered = message.lower()
+        is_cancel_noise = isinstance(current, (asyncio.CancelledError, GeneratorExit)) or any(
+            marker in lowered
+            for marker in (
+                "cancel scope",
+                "cancelled via",
+                "canceled via",
+                "generator didn't stop",
+            )
+        )
+        if is_cancel_noise:
+            continue
+
+        if isinstance(current, httpx.HTTPStatusError) and current.response is not None:
+            status = current.response.status_code
+            reason = current.response.reason_phrase
+            if status in (401, 403):
+                return f"远端 MCP 返回 {status} {reason}，请检查鉴权设置和 Token"
+            return f"远端 MCP 返回 HTTP {status} {reason}"
+        if isinstance(current, httpx.ConnectError):
+            return "无法连接远端 MCP，请检查地址、网络和服务状态"
+        if message:
+            return f"{type(current).__name__}: {message}"
+        fallback = fallback or type(current).__name__
+    return fallback or "MCP 连接被中断，请稍后重试"

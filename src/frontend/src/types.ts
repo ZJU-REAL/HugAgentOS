@@ -863,6 +863,7 @@ export interface McpMarketAuthMethod {
 export interface McpMarketAuthConfig {
   default_method: string;
   methods: McpMarketAuthMethod[];
+  credential_mode: 'auto' | 'installer' | 'admin';
 }
 
 export interface McpMarketTool {
@@ -889,6 +890,9 @@ export interface McpMarketItem extends EditionMarketplaceItemFields {
   auth_schema: McpMarketAuthField[];
   auth_config: McpMarketAuthConfig;
   requires_auth: boolean;
+  credentials_managed_by_admin: boolean;
+  supports_admin_credentials: boolean;
+  requires_user_credentials: boolean;
   tools: McpMarketTool[];
   tool_count: number;
   tool_hash: string;
@@ -1414,4 +1418,122 @@ export interface LoopIterationItem {
   tool_calls: number;
   tokens: number;
   decided_by?: string;
+}
+
+// ── 外接知识库的 LLM Wiki / 概念图谱（仅 WeKnora 后端提供） ──────────────────
+
+export type WikiPageType =
+  | 'concept'
+  | 'entity'
+  | 'synthesis'
+  | 'comparison'
+  | 'summary'
+  | 'index';
+
+/** 「知识」Tab 合并的页面类型；「摘要」自成一个 Tab，「索引」是虚拟总览视图 */
+export const WIKI_KNOWLEDGE_TYPES = ['entity', 'concept', 'synthesis', 'comparison'] as const;
+
+/** Wiki 目录树的一个节点（page_count 是递归计数，has_children 决定是否给展开箭头） */
+export interface WikiFolder {
+  id: string;
+  name: string;
+  parent_id?: string;
+  page_count: number;
+  has_children: boolean;
+}
+
+export interface WikiIndexItem {
+  slug: string;
+  title: string;
+  summary?: string;
+  wiki_path?: string;
+}
+
+export interface WikiIndexGroup {
+  type: string;
+  type_label?: string;
+  total: number;
+  items: WikiIndexItem[];
+}
+
+/** 索引总览：一段总述 + 按类型分组的条目 */
+export interface WikiIndexOverview {
+  intro: string;
+  version?: number;
+  groups: WikiIndexGroup[];
+}
+
+/** 定位阶段的精简页面：只带判断相关性所需的信息，不含长正文 */
+export interface WikiPageBrief {
+  slug: string;
+  title: string;
+  page_type: WikiPageType | string;
+  type_label?: string;
+  summary?: string;
+  aliases?: string[];
+  category_path?: string[];
+  wiki_path?: string;
+  out_links?: string[];
+  in_links?: string[];
+  source_refs?: string[];
+  chunk_refs?: string[];
+  updated_at?: string;
+}
+
+/** 相关概念：后端已把 out_links 的 slug 解析成可读标题 */
+export interface WikiRelatedPage {
+  slug: string;
+  title: string;
+  page_type: string;
+}
+
+/** 读页返回：在精简页基础上补上正文 markdown 与解析过的相关概念 */
+export interface WikiPageDetail extends WikiPageBrief {
+  content: string;
+  related_pages?: WikiRelatedPage[];
+}
+
+export interface WikiStats {
+  total_pages: number;
+  pages_by_type: Record<string, number>;
+  total_links: number;
+  orphan_count: number;
+}
+
+export interface WikiGraphNode {
+  slug: string;
+  title: string;
+  page_type: string;
+  link_count?: number;
+}
+
+export interface WikiGraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface WikiGraphData {
+  nodes: WikiGraphNode[];
+  edges: WikiGraphEdge[];
+  meta?: {
+    mode?: string;
+    total?: number;
+    returned?: number;
+    truncated?: boolean;
+    center?: string;
+    depth?: number;
+  };
+}
+
+/** 顺血缘取回的原文分块 */
+export interface WikiSourceChunk {
+  chunk_id: string;
+  document_id: string;
+  document_title?: string;
+  content: string;
+}
+
+export interface WikiCapability {
+  provider: string;
+  supports_wiki: boolean;
 }

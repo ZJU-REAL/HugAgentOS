@@ -183,7 +183,7 @@ export default function App() {
   useEffect(() => {
     if (!pageConfigLoaded || defaultChatModeApplied.current) return;
     defaultChatModeApplied.current = true;
-    const VALID: readonly ChatMode[] = ['fast', 'medium', 'high', 'max'];
+    const VALID: readonly ChatMode[] = ['turbo', 'fast', 'medium', 'high', 'max'];
     const raw = pageConfig.defaults?.chat_mode as string | undefined;
     const next: ChatMode = (raw && (VALID as readonly string[]).includes(raw))
       ? (raw as ChatMode)

@@ -14,6 +14,9 @@ Contract:
   behavior (over-writing), not to silently remembering nothing.
 - One call, small answer. The whole point is that a ~50-token verdict is far
   cheaper than the up-to-four extractor calls it saves on an empty turn.
+- A deterministic verified-correction signal is a recall floor for PROCEDURAL.
+  The LLM may narrow every other candidate, but it cannot erase a trajectory
+  that already shows failure → user method change → successful retry.
 """
 
 from __future__ import annotations
@@ -55,12 +58,14 @@ PROMPT = """你是一个记忆写入门卫。判断这轮对话中是否包含**
 - 用户明确提出的多步任务，以及尚未完成的目标、步骤、进度、截止时间和交付物 → task；此类信息只在本会话内保留，不作为长期事实
 - 用户对已有信息的纠正、替换或失效声明，例如“不是 A，是 B”“我现在改负责 X”“以后不用旧口径”；应记住新信息并用于更新旧记忆
 - 助手提出的方案被用户明确确认为今后的规则或偏好，例如“对，以后都按这个执行”；按对应类别记住
+- 多轮轨迹中出现“助手先前失败/误判 → 用户给出不同做法 → 助手按新做法执行成功”，这是经结果验证的失败恢复经验 → procedural。即使用户没有说“以后”，也应记住具体的工具选择、验证步骤与错误归因，避免下次重复踩坑
 
 总判断原则：
 - 只有用户明确说出或明确确认的内容才能作为事实写入，不要把助手的推测当成用户记忆
 - 判断它在未来是否仍然有用：如果下次对话不知道这条信息会导致做错、重复询问或违反用户约定，就应该记住
 - 用户明确要求记住时应优先保留；若内容同时符合多个类别，可以返回多个类别
 - 不要因为信息只出现一次就拒绝；稳定性由语义和用户意图判断，而不是由出现次数判断
+- “近期轨迹”只用于识别上述多轮纠错；identity / preference / graph / task 仍只根据当前轮判断
 
 【输出格式（严格 JSON，无代码块包裹）】
 {{"classes": ["identity", "procedural"]}}
@@ -72,6 +77,9 @@ PROMPT = """你是一个记忆写入门卫。判断这轮对话中是否包含**
 [USER] {user_msg}
 [ASSISTANT] {assistant_msg}
 
+近期轨迹（可能与当前轮重叠）：
+{recent_trajectory}
+
 仅返回合法 JSON。"""
 
 
@@ -80,6 +88,8 @@ async def llm_write_gate(
     assistant_msg: str,
     candidates: set[ExtractorType],
     timeout_s: int,
+    recent_trajectory: str = "",
+    verified_correction: bool = False,
 ) -> set[ExtractorType]:
     """Return the subset of ``candidates`` the LLM judges worth extracting.
 
@@ -93,6 +103,7 @@ async def llm_write_gate(
         PROMPT,
         (user_msg or "")[:_GATE_INPUT_CHARS],
         (assistant_msg or "")[:_GATE_INPUT_CHARS],
+        extra={"recent_trajectory": recent_trajectory},
     )
     raw = await run_llm_with_prompt(prompt, timeout_s=timeout_s, max_tokens=150)
     if raw is None:
@@ -114,6 +125,10 @@ async def llm_write_gate(
             continue
 
     verdict = candidates & approved
+    if verified_correction and ExtractorType.PROCEDURAL in candidates:
+        if ExtractorType.PROCEDURAL not in verdict:
+            logger.info("[memory_gate] preserving procedural: verified correction trajectory")
+        verdict.add(ExtractorType.PROCEDURAL)
     if verdict != candidates:
         dropped = sorted(c.value for c in candidates - verdict)
         logger.info(
