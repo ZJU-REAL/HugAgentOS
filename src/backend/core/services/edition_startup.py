@@ -5,6 +5,10 @@ def seed_default_roles(db) -> None:
     return None
 
 
+def bootstrap_edition_plugins(db) -> tuple[str, ...]:
+    return ()
+
+
 async def recover_datasource_sidecars() -> dict:
     return {}
 
@@ -18,6 +22,7 @@ def recover_persona_distill_jobs() -> int:
 
 
 __all__ = [
+    "bootstrap_edition_plugins",
     "create_distillation_scheduler",
     "recover_datasource_sidecars",
     "recover_persona_distill_jobs",

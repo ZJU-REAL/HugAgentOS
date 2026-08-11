@@ -141,6 +141,7 @@ POST /mock-sso/ticket/exchange  → 校验 ticket，返回用户信息
 | `can_use_api_key` | 关 | `PATCH /v1/config/users/{id}/api-key-permission` | 是否可创建 / 使用个人 API-Key；关闭后已有 Key 立即失效 |
 | `can_add_skill` | 关 | `PATCH /v1/config/users/{id}/skill-permission` | 能力中心自助上传 / 手写私有技能（`api/routes/v1/me_capabilities.py`） |
 | `can_add_mcp` | 关 | `PATCH /v1/config/users/{id}/mcp-permission` | 能力中心自助添加私有远程 MCP（HTTP/SSE） |
+| `can_use_ontology_validation` | 关 | `PATCH /v1/config/users/{id}/ontology-validation-permission` | 设置中心的本体校验入口、个人开关与运行时本体校验；无权限时入口隐藏，已有个人开关也不生效 |
 | `lab_enabled` | **开** | `PATCH /v1/config/users/{id}/lab-permission` | 实验室模块入口与访问 |
 | `allowed_apps` | 无限制 | `PATCH /v1/config/users/{id}/app-permissions` | 应用可见范围；`None`=全部启用应用，列表=白名单（空列表=全屏蔽） |
 | `role: super_admin` | 无 | （直接写 metadata） | `require_super_admin` 依赖放行；可绕过团队角色检查 |

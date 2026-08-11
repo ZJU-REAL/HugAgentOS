@@ -1,6 +1,6 @@
 # 记忆系统（mem0）
 
-> 最后更新：2026-08-03
+> 最后更新：2026-08-10
 
 HugAgentOS 内置一套**分层持久记忆系统**：L2 向量层使用 [mem0](https://github.com/mem0ai/mem0) + Milvus，L3 图谱层由本地适配器直连 Neo4j。开启后，智能体能跨会话记住用户的身份背景、偏好习惯、**这里做事的方式**（口径、顺序、红线），以及稳定的实体关系。记忆按信息稳定性分为三层（L1 档案 / L2 做法沉淀 / L3 知识图谱），三层均属社区版能力；只有**记忆审计**（合规留痕）属于商业版（商业版 EE）。
 
@@ -48,7 +48,8 @@ orchestration/workflow.py
 save_memories_background()
   └─ core/memory/pipeline.schedule_post_response_tasks()
        · 全局 Semaphore 限并发（默认 8）
-       · 分类 → 跑 0~5 个 extractor（identity/preference/task 关键词命中；procedural 每个实质轮次都跑；graph 仅在 L3 开启时跑）
+       · 当前轮分类 + 有界近期轨迹（最多 8 条消息）→ 跑 0~5 个 extractor
+       · “失败 → 用户给出不同做法 → 执行成功”保留为 procedural 候选
        · 每个 extractor 单独 30s 超时
        · sanitize 脱敏闸门 → 写 L1/L2/L3/Session → audit 旁路
 ```
@@ -62,7 +63,8 @@ save_memories_background()
 - **永不 await**：`schedule_post_response_tasks()` 是同步函数，只 `asyncio.create_task()`；
 - **有界并发**：全局 `asyncio.Semaphore`（`MEMORY_BG_MAX_CONCURRENCY`，默认 8）；
 - **Milvus 熔断器**：连续失败 N 次（默认 3）后短路 60 秒，检索 / 写入路径共用（`milvus_breaker`）；
-- **抽取器路由**（`core/memory/extractors/router.py`）：`identity`（身份）、`preference`（偏好）、`task`（任务）按关键词线索命中才跑；**`procedural`（做法）不设关键词闸门**，只要本轮实质（用户 ≥8 字且助手 ≥30 字）就跑——一条约定用什么措辞说出来是不可预测的，正则在模型读到之前就替它决定"这轮没有做法"，漏掉的部分既无声也不可见。空集则直接跳过所有 LLM 调用。
+- **抽取器路由**（`core/memory/extractors/router.py`）：`identity`（身份）与 `preference`（偏好）的关键词线索负责兜住过短消息，实质轮次也会进入候选；`task`（任务）仍按明确任务线索触发；**`procedural`（做法）不设关键词闸门**，只要本轮实质（用户 ≥8 字且助手 ≥30 字）就跑——一条约定用什么措辞说出来是不可预测的，正则在模型读到之前就替它决定"这轮没有做法"，漏掉的部分既无声也不可见。空集则直接跳过所有 LLM 调用。
+- **多轮纠错保留**（`core/memory/trajectory.py`）：后置流水线从当前会话读取最多 8 条近期消息；“助手明确失败 → 用户改变方法 → 后续成功”和“助手曾给出结果 → 用户明确纠正先前做法 → 后续成功”两类轨迹都会确定性保留 `procedural` 候选。门卫模型不能把这类已经由结果验证的经验清空；通用做法抽取仍返回空时，仅对该稀有信号追加一次聚焦失败恢复抽取。普通重试、助手单方面自称的“教训”和没有成功证据的建议不会触发。
 - **L2 只存做法，不存事实**：事实写下来的那一刻就开始过期，记住它等于让系统自信地复述一个陈旧数字，而不是去查当前值；能被重复使用、且能进一步编译成技能的，只有"这里怎么做事"。因此没有 fact 抽取器，也没有回退路径。
 - **L3 只存稳定关系，不存步骤**：图谱抽取器只接受用户明确陈述或确认的隶属、负责、依赖、使用、组成、别名、分类等实体关系；快速变化的数值、状态、新闻以及一次性指令均拒绝入图。相同关系再次出现时增加 `seen_count` 并刷新 `last_seen_at`，不会复制边。
 - **写入不经 mem0 二次推断**：写入统一带 `infer=False`。mem0 默认会用它自己的通用事实抽取 prompt 再判一次，把我们已经蒸馏好的规则悄悄丢掉——表现为"写入成功但什么都没写"，日志无错、卡片无内容。
@@ -199,6 +201,7 @@ RERANKER_API_KEY=...
 | `src/backend/core/memory/graph.py` | L3 Neo4j 图谱关系的写入、强化、查询与删除 |
 | `src/backend/core/memory/profile.py` | L1 档案：get / patch / compact / delete |
 | `src/backend/core/memory/pipeline.py` | 后置写入流水线、信号量、Milvus 熔断器 |
+| `src/backend/core/memory/trajectory.py` | 有界近期会话轨迹与“失败—改法—成功”纠错检测 |
 | `src/backend/core/memory/extractors/` | identity / preference / task / procedural / graph 抽取器 + 路由 |
 | `src/backend/core/memory/sanitizer.py` | 脱敏闸门（硬编码规则 + DB 动态规则） |
 | `src/backend/core/memory/audit.py` | 审计旁路（商业版 EE） |

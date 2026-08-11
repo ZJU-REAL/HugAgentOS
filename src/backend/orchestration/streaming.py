@@ -9,9 +9,15 @@ fine-grained EventType into our 8 SSE events:
 - ("tool_result", dict)    - tool invocation result
 - ("file_confirm", dict)   - myspace write confirmation (in-house ContextVar gate, distinct from native HITL)
 - ("heartbeat", None)      - silence heartbeat (queue empty ≥3s: the model produced nothing at all)
-- ("model_progress", None) - throttled liveness signal: upstream events keep arriving but none maps
-                             to an SSE event (tool-call args / suppressed thinking streaming). Unlike
-                             "heartbeat" it counts as activity for the run inactivity watchdog.
+- ("model_progress", None) - throttled liveness signal, emitted in two situations. (a) upstream events
+                             keep arriving but none maps to an SSE event (tool-call args / suppressed
+                             thinking streaming); (b) a model call is in flight (ModelCallStart seen,
+                             no end yet) and the queue is silent — a hung/slow LLM endpoint produces
+                             zero events per attempt, and without this signal the run inactivity
+                             watchdog killed healthy-but-waiting runs as "卡死" instead of letting the
+                             HTTP read timeout surface the real model error. Unlike "heartbeat" it
+                             counts as activity for the run inactivity watchdog; zombie protection is
+                             delegated to the httpx timeouts on the model client while in flight.
 - ("error", Exception|dict)- agent error (dict shaped like ExceedMaxIters' {kind,name})
 
 No standalone end event: ``stream()`` ends the generator directly upon the internal done
@@ -58,6 +64,11 @@ _HTTP_ERR_RE = re.compile(r"HTTP\s*[45]\d\d")
 # run inactivity watchdog (CHAT_RUN_INACTIVITY_TIMEOUT_SEC) sees pure silence
 # and kills a healthy run mid-generation.
 _MODEL_PROGRESS_MIN_INTERVAL_S = 5.0
+
+# Queue poll interval of the stream() main loop — on each timeout it emits a
+# heartbeat (or model_progress while a model call is in flight). Module-level for
+# testability.
+_QUEUE_POLL_INTERVAL_S = 3.0
 
 
 def _looks_like_tool_error(content: str) -> bool:
@@ -124,6 +135,13 @@ class StreamingAgent:
         self._emitted_answer = ""
         self._in_thinking = False
         self._reasoning_protocol_emitted = False
+        # True between ModelCallStartEvent and ModelCallEndEvent. While a call is
+        # in flight the LLM endpoint may legitimately produce nothing for minutes
+        # (long prefill on a huge prompt / hung gateway being retried); the queue
+        # poll then emits model_progress instead of heartbeat so the run
+        # inactivity watchdog doesn't kill a run that is merely waiting on the
+        # model — the model client's own httpx timeouts remain the backstop.
+        self._model_call_inflight = False
 
     def _take_reasoning_protocol(self) -> Optional[Dict[str, bool]]:
         """Return the structured-reasoning marker once the active model is known.
@@ -239,7 +257,7 @@ class StreamingAgent:
 
         _stream_start = time.monotonic()
         _first_event_logged = False
-        _poll_interval = 3.0
+        _poll_interval = _QUEUE_POLL_INTERVAL_S
         # Last model_progress emission — throttles the liveness signal emitted
         # when upstream events map to nothing. Only the swallowed-event branch
         # reads/updates the clock, keeping the mapped hot path free of it.
@@ -259,6 +277,16 @@ class StreamingAgent:
                 try:
                     kind, payload = await asyncio.wait_for(event_q.get(), timeout=_poll_interval)
                 except asyncio.TimeoutError:
+                    if self._model_call_inflight:
+                        # Model call in flight with a silent wire — count as
+                        # liveness (throttled) so the inactivity watchdog waits
+                        # for the model client's own timeout/retry outcome
+                        # instead of misjudging the run as hung.
+                        _now = time.monotonic()
+                        if _now - _last_progress_ts >= _MODEL_PROGRESS_MIN_INTERVAL_S:
+                            _last_progress_ts = _now
+                            yield ("model_progress", None)
+                            continue
                     yield ("heartbeat", None)
                     continue
                 if kind == "done":
@@ -453,7 +481,13 @@ class StreamingAgent:
             yield ("tool_result", {"name": name, "id": tid, "content": content})
             return
 
+        if nm == "ModelCallStartEvent":
+            # Marks the wire as "waiting on the model" — see _model_call_inflight.
+            self._model_call_inflight = True
+            return
+
         if nm == "ModelCallEndEvent":
+            self._model_call_inflight = False
             self._usage_records.append({
                 "prompt_tokens": int(getattr(ev, "input_tokens", 0) or 0),
                 "completion_tokens": int(getattr(ev, "output_tokens", 0) or 0),
@@ -484,7 +518,7 @@ class StreamingAgent:
             return
 
         # Everything else is never forwarded, internal only: lifecycle (ReplyStart/End,
-        # ModelCallStart, the various *Start/*End) + DataBlockStart/Delta (model-produced
+        # the various *Start/*End) + DataBlockStart/Delta (model-produced
         # image_chunk — currently no downstream consumer and the configured models only take
         # images as input, so intentionally dropped; add a branch when support is needed).
         return

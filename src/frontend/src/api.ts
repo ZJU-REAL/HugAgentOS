@@ -1178,6 +1178,7 @@ export async function updateRerankerSettings(rerankerEnabled: boolean): Promise<
 }
 
 export interface OntologySettings {
+  allowed: boolean;
   ontology_enabled: boolean;
   ontology_pack_ids: string[];
   available: boolean;
@@ -1741,6 +1742,8 @@ export interface AuthUser extends EditionAuthUserFields {
   can_create_channel_bot?: boolean;
   /** Whether the user may switch the currently available model from the chat input box (default false) */
   can_switch_model?: boolean;
+  /** Whether the user may configure and use ontology validation (default false) */
+  can_use_ontology_validation?: boolean;
   /** Whether the user may enter the /config system settings console without a token (default false) */
   can_system_config?: boolean;
   /** Whether the user may enter the /admin content management console without a token (default false) */
@@ -4076,4 +4079,138 @@ export async function updateEvolutionPrefs(
       body: JSON.stringify(patch),
     }),
   );
+}
+
+import type {
+  WikiCapability,
+  WikiFolder,
+  WikiGraphData,
+  WikiIndexOverview,
+  WikiPageBrief,
+  WikiPageDetail,
+  WikiSourceChunk,
+  WikiStats,
+} from './types';
+
+// ── 外接知识库的 LLM Wiki / 概念图谱 ─────────────────────────────────────────
+//
+// 只有具备 Wiki 能力的后端（当前为 WeKnora）提供这层结构化产物。前端先调
+// getWikiCapability 探测，为假时整个 Wiki 入口不渲染，避免出现注定 404 的按钮。
+
+export async function getWikiCapability(): Promise<WikiCapability> {
+  try {
+    return unwrapData<WikiCapability>(
+      await apiRequest<unknown>('/v1/catalog/kb/wiki/capability'),
+    );
+  } catch {
+    return { provider: '', supports_wiki: false };
+  }
+}
+
+export async function getWikiStats(kbId: string): Promise<WikiStats> {
+  return unwrapData<WikiStats>(
+    await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/stats`),
+  );
+}
+
+export async function getWikiPages(
+  kbId: string,
+  options: {
+    page?: number;
+    pageSize?: number;
+    /** 逗号分隔多类型，如 entity,concept,synthesis,comparison */
+    pageType?: string;
+    /** 把范围收窄到某个目录节点 */
+    categoryPath?: string;
+    categoryDepth?: number;
+  } = {},
+): Promise<{ pages: WikiPageBrief[]; total: number }> {
+  const { page = 1, pageSize = 50, pageType = '', categoryPath = '', categoryDepth = 0 } = options;
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  if (pageType) params.set('page_type', pageType);
+  if (categoryPath) {
+    params.set('category_path', categoryPath);
+    params.set('category_depth', String(categoryDepth || 1));
+  }
+  const data = unwrapData<{ pages?: WikiPageBrief[]; total?: number }>(
+    await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/pages?${params}`),
+  );
+  return { pages: data.pages || [], total: data.total || 0 };
+}
+
+/** 目录树的某一层；parentId 留空取根层 */
+export async function getWikiFolders(
+  kbId: string,
+  parentId = '',
+  pageTypes = '',
+): Promise<WikiFolder[]> {
+  const params = new URLSearchParams();
+  if (parentId) params.set('parent_id', parentId);
+  if (pageTypes) params.set('page_types', pageTypes);
+  const qs = params.toString();
+  const data = unwrapData<{ folders?: WikiFolder[] }>(
+    await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/folders${qs ? `?${qs}` : ''}`),
+  );
+  return data.folders || [];
+}
+
+export async function getWikiIndexOverview(
+  kbId: string,
+  limit = 20,
+): Promise<WikiIndexOverview> {
+  const data = unwrapData<WikiIndexOverview>(
+    await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/index?limit=${limit}`),
+  );
+  return { intro: data.intro || '', version: data.version, groups: data.groups || [] };
+}
+
+export async function searchWikiPages(
+  kbId: string,
+  query: string,
+  limit = 20,
+): Promise<{ pages: WikiPageBrief[]; total: number }> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  const data = unwrapData<{ pages?: WikiPageBrief[]; total?: number }>(
+    await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/search?${params}`),
+  );
+  return { pages: data.pages || [], total: data.total || 0 };
+}
+
+export async function getWikiPage(kbId: string, slug: string): Promise<WikiPageDetail> {
+  return unwrapData<WikiPageDetail>(
+    await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/page/${slug}`),
+  );
+}
+
+export async function getWikiGraph(
+  kbId: string,
+  options: { mode?: 'overview' | 'ego'; center?: string; depth?: number; limit?: number; types?: string } = {},
+): Promise<WikiGraphData> {
+  const { mode = 'overview', center = '', depth = 1, limit = 60, types = '' } = options;
+  const params = new URLSearchParams({ mode, limit: String(limit) });
+  if (mode === 'ego') {
+    params.set('center', center);
+    params.set('depth', String(depth));
+  }
+  if (types) params.set('types', types);
+  const data = unwrapData<WikiGraphData>(
+    await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/graph?${params}`),
+  );
+  return { nodes: data.nodes || [], edges: data.edges || [], meta: data.meta };
+}
+
+export async function getWikiSourceChunks(
+  kbId: string,
+  slug: string,
+  maxChunks = 6,
+): Promise<{ page: WikiPageDetail; chunks: WikiSourceChunk[] }> {
+  const data = unwrapData<{ page?: WikiPageDetail; chunks?: WikiSourceChunk[] }>(
+    await apiRequest<unknown>(
+      `/v1/catalog/kb/${kbId}/wiki/source/${slug}?max_chunks=${maxChunks}`,
+    ),
+  );
+  return { page: data.page as WikiPageDetail, chunks: data.chunks || [] };
 }

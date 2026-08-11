@@ -5,6 +5,7 @@ import './search-modal.css';
 import './chat.css';
 import './tool.css';
 import './catalog.css';
+import './kb-wiki.css';
 import './common.css';
 import './settings.css';
 import './mcp.css';

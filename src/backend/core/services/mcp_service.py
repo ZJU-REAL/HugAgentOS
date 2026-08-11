@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from core.db.engine import SessionLocal
 from core.db.models import AdminMcpServer
+from core.services.edition_mcp import edition_retired_builtin_mcp_server_ids
 
 logger = logging.getLogger(__name__)
 
@@ -343,16 +344,6 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
         "icon": "/home/mcp/internet.svg",
     },
     {
-        "server_id": "ai_chain_information_mcp",
-        "display_name": "产业知识中心查询",
-        "description": "获取产业链全景分析报告、核心数据指标、产业动态资讯、AI 领域热点聚合及企业画像查询。",
-        "user_intro": None,
-        "is_stable": True,
-        "is_enabled": True,
-        "sort_order": 3,
-        "icon": "/home/mcp/industry-chain.svg",
-    },
-    {
         "server_id": "generate_chart_tool",
         "display_name": "数据可视化",
         "description": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
@@ -390,7 +381,10 @@ BUILTIN_MCP_SERVERS: List[Dict[str, Any]] = [
 # set separate from ``BUILTIN_MCP_SERVERS`` so upgraded create_all/SQLite
 # deployments can remove legacy rows even though the server is no longer a
 # seed candidate.
-RETIRED_BUILTIN_MCP_SERVER_IDS: Set[str] = {"report_export_mcp"}
+RETIRED_BUILTIN_MCP_SERVER_IDS: Set[str] = {
+    "report_export_mcp",
+    *edition_retired_builtin_mcp_server_ids(),
+}
 
 
 def is_removed_builtin_mcp_server(

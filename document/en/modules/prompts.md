@@ -48,7 +48,7 @@ Any prompt write (console edit, version activation, snapshot import, capability 
 
 The pool stores multiple prompt sets in a single `ContentBlock(id="prompt_versions")` row with payload `{active: {kind: version_id}, versions: [...]}`; the service layer is `core/services/prompt_version_service.py`:
 
-- **Five kinds** (`VALID_KINDS`): `system` (main agent), `code_exec` (code-execution segment), `distillation` (skill distillation), `plan_mode` (plan mode), and `subagents` (independent prompts for the platform-default Explorer, Worker, and Reviewer).
+- **Six kinds** (`VALID_KINDS`): `system` (main agent), `code_exec` (code-execution segment), `distillation` (skill distillation), `plan_mode` (plan mode), `subagents` (independent prompts for the platform-default Explorer, Worker, and Reviewer), and `turbo` (the standalone turbo-mode prompt).
 - Each version carries `(kind, id, name, description, parts[])`, a part being `{part_id, display_name, content, sort_order, is_enabled}`.
 - **API**: `list_versions / get_version / upsert_version (with from_id cloning) / delete_version (active version cannot be deleted) / activate_version`; activation immediately invalidates runtime caches.
 - **Seeding**: `seed_from_filesystem()` turns the on-disk markdown into default versions on cold start and idempotently fills the three `subagents/default` role parts; it also runs two one-time migrations — renaming `system/v4 → system/default`, and extracting `system/90_plan_mode` out of system versions into a new `plan_mode/default` version.
@@ -58,7 +58,7 @@ The pool stores multiple prompt sets in a single `ContentBlock(id="prompt_versio
 
 Management lives under "Prompt Management" in the Config console, backed by `api/routes/v1/admin_prompts.py` (`CONFIG_TOKEN` auth):
 
-The frontend version tabs expose only `system / plan_mode / code_exec /
+The frontend version tabs expose only `system / turbo / plan_mode / code_exec /
 distillation`. The backend still stores and seeds `subagents`, resolves it at
 runtime, and carries it in cross-environment snapshots, but it is no longer an
 editable Config tab. The three built-in roles and their read-only prompts now
@@ -81,6 +81,7 @@ their own enablement state.
 | `code_exec` | `agent_factory.py` appends this segment (the code-capability prompt) to the system prompt when `CODE_CAPABILITY_ENABLED=true`; the single source of truth is `prompt_version_service.render_code_capability_segment()`, also used by the console preview | active DB version → `prompts/prompt_text/code_exec/system/*.system.md` |
 | `distillation` | Skill distillation (`core/llm/skill_distiller.py`, distilling conversation trajectories into reusable skills) | active DB version → `prompts/prompt_text/distillation/skill_distiller.system.md` |
 | `plan_mode` | The plan-generation sub-agent (`orchestration/subagents/plan_mode.py::_load_plan_prompt`) | active `plan_mode` DB version → legacy `system/90_plan_mode` part → `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded fallback |
+| `turbo` | Turbo mode (when the chat-mode picker is set to Turbo, `agent_factory.py` **replaces** the assembled main system prompt with this one). The tool set is admin-configurable via Config "System Config → Turbo" (`turbo.mcp_server_ids`, defaulting to internet search / web fetch / KB retrieval, **independent of catalog enable/disable state**); explicitly summoned skills / @sub-agents / plugins may join per turn (`turbo.manual_invoke_enable`); the react-iteration cap is configurable (`turbo.max_iters`, default 4). The single source of truth is `prompt_version_service.render_turbo_system_prompt()` | active `turbo` DB version → `prompts/prompt_text/turbo/turbo.system.md` → hardcoded fallback |
 
 Sub-agents do not use the full pool assembly: `prompt_runtime.py::build_subagent_system_prompt()` builds around the user-defined `system_prompt`, reusing the `20_tools_policy` / `65_citations` / `60_format` parts from the active version (or files). See [Chat & Agent Orchestration](chat.md).
 
@@ -130,6 +131,6 @@ The same flow works for offline production (image-pack delivery, persistent DB v
 | Migration endpoints (export/import) | `src/backend/api/routes/v1/content.py`, `core/content/content_blocks.py` |
 | Migration scripts | `src/backend/scripts/export_content.py`, `scripts/import_content.py` |
 | System prompt fallback files | `src/backend/prompts/prompt_text/default/system/` |
-| Scenario prompt fallbacks | `src/backend/prompts/prompt_text/{code_exec,distillation,plan_mode}/` |
+| Scenario prompt fallbacks | `src/backend/prompts/prompt_text/{code_exec,distillation,plan_mode,turbo}/` |
 | Dynamic sections | `src/backend/prompts/kb_lite_section.py`, `prompts/project_section.py` |
 | Prompt Hub frontend | `src/frontend/src/components/chat/PromptHubPanel.tsx`, `components/admin/PromptHubEditor.tsx` |

@@ -46,12 +46,12 @@ Retry policy: the model layer runs with `max_retries=0`; the agent layer's `Mode
 
 ## Dynamic model switching (chat_mode)
 
-Each frontend message may carry `chat_mode` (`fast / medium / high / max`); before the reply starts, `core/llm/middlewares.py::DynamicModelMiddleware` (`on_reply`) hot-swaps `agent.model`:
+Each frontend message may carry `chat_mode` (`turbo / fast / medium / high / max`); before the reply starts, `core/llm/middlewares.py::DynamicModelMiddleware` (`on_reply`) hot-swaps `agent.model`:
 
 ```
 chat_mode → hooks._resolve_chat_mode(agent.state)
           → hooks._get_main_model(mode)        # process-level instance cache, invalidated by ModelConfigService.version
-   fast   → disable_thinking=True
+   turbo/fast → disable_thinking=True (turbo additionally narrows the agent to retrieval-only tools at assembly time)
    medium → thinking on (with effort=medium when supports_reasoning_effort)
    high/max → reasoning_effort=high/max (endpoint must declare support)
 ```

@@ -1,7 +1,7 @@
 """Capability-flag resolution with edition-provided default layers.
 
-The system has 6 user capability flags (consistent with the Config admin
-console "User Management" / "Team Management"):
+The system exposes user capability flags consistently across the Config admin
+console's user, team, and role management panels:
 
 | Key                 | Type | System default | Meaning                                        |
 |---------------------|------|----------------|------------------------------------------------|
@@ -12,6 +12,7 @@ console "User Management" / "Team Management"):
 | ``can_import_plugin``| bool| ``False``      | Install/import plugins                         |
 | ``can_add_agent``   | bool | ``False``      | Build own sub-agents / install & publish on sub-agent marketplace |
 | ``can_switch_model`` | bool | ``False``     | User-side chat model switching                 |
+| ``can_use_ontology_validation`` | bool | ``False`` | Configure and use personal ontology validation |
 | ``allowed_apps``    | list/None | ``None``  | App visibility whitelist (``None`` = all enabled apps) |
 
 **Teams act only as defaults** (set centrally in Config "Team Management →
@@ -39,10 +40,8 @@ from typing import Any, Dict, Optional
 from core.config.settings import settings
 from sqlalchemy.orm import Session
 
-# Boolean capability flags → system defaults. The first 5 are "feature module"
-# permissions; the last 2 are "admin-console access" permissions (system config /
-# content management console), which also support the "personal → team default →
-# system default" three-tier resolution.
+# Boolean capability flags → system defaults. Feature permissions and admin-console
+# access permissions share the same layered resolution rules.
 BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "lab_enabled": True,
     "can_use_api_key": False,
@@ -54,6 +53,7 @@ BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "can_create_public_kb": False,
     "can_create_channel_bot": False,
     "can_switch_model": False,
+    "can_use_ontology_validation": False,
     "can_run_autonomous_loop": True,  # long-running autonomous loop (open in CE, enabled by default, can be disabled per user/team)
     "can_system_config": False,
     "can_content_manage": False,

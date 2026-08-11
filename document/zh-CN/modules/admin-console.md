@@ -130,7 +130,7 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 
 | 路由组 | 文件 | 凭证 | 版本 | 说明 |
 |---|---|---|---|---|
-| `/v1/config/users` | `config_users.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 用户列表 / 详情 / 状态、重置密码、删除，及五个权限位（应用可见范围、实验室、API-Key、自助技能、自助 MCP），见 [认证与权限](auth.md) |
+| `/v1/config/users` | `config_users.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 用户列表 / 详情 / 状态、重置密码、删除，以及应用可见范围、本体校验等功能权限位，见 [认证与权限](auth.md) |
 | `/v1/config/teams` | `config_teams.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 团队 CRUD、成员增删、角色设置 |
 | `/v1/config/invites` | `config_invites.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 注册码批量生成 / 列表 / 吊销 / 删除 |
 | `/v1/config/security` | `config_security.py` | `CONFIG_TOKEN` | 商业版 EE（system_config） | 安全管理台（只读）：沙盒、审计日志、系统健康快照 |

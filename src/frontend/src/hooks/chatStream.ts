@@ -5,6 +5,13 @@ import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState } from '../utils/contextUsage';
 import { getIndustryChainNameFromInput } from '../utils/industryChain';
+import {
+  appendStreamTextSegment,
+  appendThinkingContentBeforeTrailingText,
+  deferThinkingTextFragmentBeforeTool,
+  restoreDeferredThinkingTextFragment,
+  type DeferredThinkingTextFragment,
+} from '../utils/streamSegments';
 import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore } from '../stores';
 import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
 
@@ -185,6 +192,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   // to only those file_ids.
   let metaWorkspaceFiles: string[] | null = null;
   let parseBuffer = '';
+  let deferredThinkingText: DeferredThinkingTextFragment | undefined;
   let toolPending = false;
   let ontologySidebarAutoOpened = false;
 
@@ -256,21 +264,43 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     const lastSeg = segments[segments.length - 1];
     const lastThink = isDelta && lastSeg?.type === 'thinking' ? lastSeg : null;
     if (lastThink) {
-      lastThink.content = (lastThink.content || '') + content;
-      if (thinking.length > 0) thinking[thinking.length - 1].content += content;
-      else thinking.push({ content, timestamp: Date.now() });
+      segments[segments.length - 1] = {
+        ...lastThink,
+        content: (lastThink.content || '') + content,
+      };
+      if (thinking.length > 0) {
+        const lastThinking = thinking[thinking.length - 1];
+        thinking[thinking.length - 1] = {
+          ...lastThinking,
+          content: lastThinking.content + content,
+        };
+      } else {
+        thinking.push({ content, timestamp: Date.now() });
+      }
     } else {
       segments.push({ type: 'thinking', content });
       thinking.push({ content, timestamp: Date.now() });
     }
   };
 
+  const appendLateStructuredThinkContent = (content: string) => {
+    if (!appendThinkingContentBeforeTrailingText(segments, content)) {
+      appendThinkContent(content, true);
+      return;
+    }
+    const lastThinking = thinking[thinking.length - 1];
+    if (lastThinking) {
+      thinking[thinking.length - 1] = {
+        ...lastThinking,
+        content: lastThinking.content + content,
+      };
+    }
+  };
+
   const appendTextSeg = (text: string) => {
     if (!text) return;
     full += text;
-    const last = segments[segments.length - 1];
-    if (last && last.type === 'text') last.content = (last.content || '') + text;
-    else segments.push({ type: 'text', content: text });
+    deferredThinkingText = appendStreamTextSegment(segments, text, deferredThinkingText);
   };
 
   const replaceAnswerText = (text: string) => {
@@ -278,6 +308,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     // segment with the committee-reviewed final answer. This event arrives
     // only when the review actually changed the draft.
     full = text;
+    deferredThinkingText = undefined;
     for (let i = segments.length - 1; i >= 0; i--) {
       if (segments[i].type === 'text') segments.splice(i, 1);
     }
@@ -753,6 +784,11 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           } else {
             activeToolId = eventToolId || `tool_${Date.now()}_${toolCalls.length}`;
             toolCalls.push({ id: activeToolId, name: rawName || t('工具调用'), displayName, input: toolInput, status: 'running', timestamp: Date.now() });
+            deferredThinkingText = deferThinkingTextFragmentBeforeTool(
+              segments,
+              enableThinking,
+              deferredThinkingText,
+            );
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
           }
           if (activeToolName === 'get_chain_information' && canOpenIndustryChainForChat(chatId)) {
@@ -821,7 +857,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             // <think> open tag — re-arm the stripper into the thinking phase; flush the buffer
             // as body text before switching phases.
             if (parseBuffer) {
-              appendTextSeg(parseBuffer);
+              if (thinkingPhaseActive) appendThinkContent(parseBuffer, true);
+              else appendTextSeg(parseBuffer);
               parseBuffer = '';
             }
             thinkingPhaseActive = true;
@@ -849,7 +886,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           // reasoning (hybrid models omit <think> after tools) leaks into body text.
           if (enableThinking && !structuredReasoning) {
             if (parseBuffer) {
-              appendTextSeg(parseBuffer);
+              if (thinkingPhaseActive) appendThinkContent(parseBuffer, true);
+              else appendTextSeg(parseBuffer);
               parseBuffer = '';
             }
             thinkingPhaseActive = true;
@@ -997,9 +1035,11 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             }
             thinkingPhaseActive = false;
           }
+          const followsVisibleAnswerText = segments[segments.length - 1]?.type === 'text';
           const thinkContent = (obj.content || obj.text || obj.delta || '') as string;
           if (thinkContent) {
-            appendThinkContent(thinkContent, !!obj.delta);
+            if (followsVisibleAnswerText) appendLateStructuredThinkContent(thinkContent);
+            else appendThinkContent(thinkContent, !!obj.delta);
             appendOrUpdate(true);
           }
           return;
@@ -1193,6 +1233,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     }
     parseBuffer = '';
   }
+  deferredThinkingText = restoreDeferredThinkingTextFragment(segments, deferredThinkingText);
   const isMd = /\n|```|\*\*|^\s*#\s/m.test(full);
   useChatStore.getState().updateStore((prev) => {
     const c = prev.chats[chatId];

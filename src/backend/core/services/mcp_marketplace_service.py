@@ -220,7 +220,14 @@ def _normalize_auth_config(
     default_method = str(config.get("default_method") or normalized[0]["id"])
     if default_method not in {method["id"] for method in normalized}:
         default_method = str(normalized[0]["id"])
-    return {"default_method": default_method, "methods": normalized}
+    credential_mode = str(config.get("credential_mode") or "auto")
+    if credential_mode not in {"auto", "installer", "admin"}:
+        credential_mode = "auto"
+    return {
+        "default_method": default_method,
+        "methods": normalized,
+        "credential_mode": credential_mode,
+    }
 
 
 def _credential_free_connection(row: AdminMcpServer) -> tuple[str, List[Dict[str, Any]]]:
@@ -317,6 +324,7 @@ def _installed_slug_set(db: Session, owner_user_id: Optional[str]) -> set[str]:
 
 
 def _item_dict(
+    db: Session,
     item: McpMarketItem,
     version: McpMarketVersion,
     *,
@@ -324,6 +332,18 @@ def _item_dict(
 ) -> Dict[str, Any]:
     auth_schema = list(version.auth_schema or [])
     auth_config = _normalize_auth_config(version.auth_config, auth_schema)
+    requires_auth = any(method["type"] != "none" for method in auth_config["methods"])
+    credentials_managed_by_admin = bool(
+        _admin_managed_credential_headers(
+            db,
+            item,
+            version,
+            auth_method=str(auth_config["default_method"]),
+        )
+    )
+    if auth_config["credential_mode"] == "auto":
+        auth_config["credential_mode"] = "admin" if credentials_managed_by_admin else "installer"
+    supports_admin_credentials = bool(_admin_credential_source(db, item, version))
     return {
         "slug": item.slug,
         "display_name": item.display_name,
@@ -341,7 +361,10 @@ def _item_dict(
         "url_origin": _safe_origin(version.url),
         "auth_schema": auth_schema,
         "auth_config": auth_config,
-        "requires_auth": any(method["type"] != "none" for method in auth_config["methods"]),
+        "requires_auth": requires_auth,
+        "credentials_managed_by_admin": credentials_managed_by_admin,
+        "supports_admin_credentials": supports_admin_credentials,
+        "requires_user_credentials": requires_auth and not credentials_managed_by_admin,
         "tools": list(version.tools_json or []),
         "tool_count": len(version.tools_json or []),
         "tool_hash": version.tool_hash,
@@ -377,7 +400,8 @@ def list_market_items(
     rows = query.order_by(McpMarketItem.updated_at.desc(), McpMarketItem.slug).all()
     installed = _installed_slug_set(db, owner_user_id)
     items = [
-        _item_dict(row, _version_for_item(db, row), installed=row.slug in installed) for row in rows
+        _item_dict(db, row, _version_for_item(db, row), installed=row.slug in installed)
+        for row in rows
     ]
     items = ml.annotate_and_filter(
         db,
@@ -409,7 +433,10 @@ def get_market_item(
     if not admin:
         ml.ensure_item_visible(db, ml.KIND_MCP, slug, viewer_user_id, resource="mcp_market_item")
     data = _item_dict(
-        item, _version_for_item(db, item), installed=slug in _installed_slug_set(db, owner_user_id)
+        db,
+        item,
+        _version_for_item(db, item),
+        installed=slug in _installed_slug_set(db, owner_user_id),
     )
     state = ml.annotate_and_filter(
         db,
@@ -468,7 +495,7 @@ async def submit_to_marketplace(
     if pending:
         raise BadRequestError(message="该 MCP 已有待审核的上架申请")
 
-    await validate_remote_mcp_url(row.url, require_https=True)
+    await validate_remote_mcp_url(row.url, require_https=False)
     ok, error = await probe_mcp_connectivity(row, db)
     if not ok:
         raise BadRequestError(message=f"MCP 上架检测失败：{error}")
@@ -732,7 +759,7 @@ async def review_submission(
             raise BadRequestError(message="MCP 连接地址或传输方式已变化，请申请人重新提交")
         if source_auth_schema != list(row.auth_schema or []):
             raise BadRequestError(message="MCP 认证参数已变化，请申请人重新提交")
-        await validate_remote_mcp_url(source.url or "", require_https=True)
+        await validate_remote_mcp_url(source.url or "", require_https=False)
         ok, error = await probe_mcp_connectivity(source, db)
         if not ok:
             db.rollback()
@@ -789,6 +816,9 @@ async def publish_admin_server(
     tags: Optional[List[str]] = None,
     publisher_name: str = "管理员",
     link_as_installation: bool = True,
+    auth_schema_override: Optional[List[Dict[str, Any]]] = None,
+    auth_config_override: Optional[Dict[str, Any]] = None,
+    allow_deferred_discovery: bool = False,
 ) -> Dict[str, Any]:
     row = (
         db.query(AdminMcpServer)
@@ -810,10 +840,10 @@ async def publish_admin_server(
         require_https=False,
     )
     ok, error = await probe_mcp_connectivity(row, db)
-    if not ok:
+    if not ok and not allow_deferred_discovery:
         raise BadRequestError(message=f"MCP 发布检测失败：{error}")
     tools = list(row.tools_json or [])
-    if not tools:
+    if not tools and not allow_deferred_discovery:
         raise BadRequestError(message="MCP 未发现任何工具，不能发布")
     existing = (
         db.query(McpMarketItem)
@@ -822,7 +852,21 @@ async def publish_admin_server(
         .first()
     )
     slug = existing.slug if existing else _new_slug(db, row.display_name, source_server_id)
-    template_url, auth_schema = _credential_free_connection(row)
+    template_url, inferred_auth_schema = _credential_free_connection(row)
+    stored_market_config = dict(row.extra_config or {})
+    auth_schema = list(
+        auth_schema_override
+        if auth_schema_override is not None
+        else stored_market_config.get("market_auth_schema") or inferred_auth_schema
+    )
+    auth_config = _normalize_auth_config(
+        (
+            auth_config_override
+            if auth_config_override is not None
+            else stored_market_config.get("market_auth_config")
+        ),
+        auth_schema,
+    )
     item = _publish_snapshot(
         db,
         slug=slug,
@@ -839,15 +883,22 @@ async def publish_admin_server(
         transport=row.transport,
         url=template_url,
         auth_schema=auth_schema,
-        auth_config=_normalize_auth_config(None, auth_schema),
+        auth_config=auth_config,
         tools=tools,
         source_server_id=row.server_id,
         approved_by=publisher_name,
     )
+    db.flush()
+    if allow_deferred_discovery:
+        market_version = _version_for_item(db, item)
+        market_version.risk_report = {
+            **dict(market_version.risk_report or {}),
+            "discovery_mode": "per_install",
+            "install_notice": "该 MCP 的完整工具清单将在用户完成认证后动态发现。",
+        }
     # Existing global MCPs are linked as an installation.  A server created
     # through the marketplace-first flow remains a disabled source template
     # until an administrator explicitly installs it from the market.
-    db.flush()
     if link_as_installation:
         installation = (
             db.query(McpMarketInstallation)
@@ -890,7 +941,7 @@ async def publish_admin_server(
     db.commit()
     ml.set_listing_enabled(db, ml.KIND_MCP, item.slug, True, updated_by=publisher_name)
     refresh_mcp_caches()
-    return _item_dict(item, _version_for_item(db, item), installed=link_as_installation)
+    return _item_dict(db, item, _version_for_item(db, item), installed=link_as_installation)
 
 
 def _credential_storage_key(field: Dict[str, Any]) -> str:
@@ -901,6 +952,74 @@ def _credential_storage_key(field: Dict[str, Any]) -> str:
     if target == "url":
         return mcp_url_override_storage_key()
     return name
+
+
+def _admin_credential_source(
+    db: Session,
+    item: McpMarketItem,
+    version: McpMarketVersion,
+) -> Optional[AdminMcpServer]:
+    if item.source != "admin" or not version.source_server_id:
+        return None
+    return (
+        db.query(AdminMcpServer)
+        .filter(
+            AdminMcpServer.server_id == version.source_server_id,
+            AdminMcpServer.owner_user_id.is_(None),
+        )
+        .first()
+    )
+
+
+def _admin_managed_credential_headers(
+    db: Session,
+    item: McpMarketItem,
+    version: McpMarketVersion,
+    *,
+    auth_method: str,
+) -> Dict[str, str]:
+    """Return an admin publisher's credentials without exposing them to marketplace APIs.
+
+    Marketplace versions remain credential-free.  For an admin-published MCP,
+    the original global/source ``AdminMcpServer`` is the encrypted credential
+    authority.  If it still has every required field for the selected token
+    method, user installations may copy those values into their own encrypted
+    server row without asking the user to enter the same token again.
+    """
+    auth_config = _normalize_auth_config(version.auth_config, list(version.auth_schema or []))
+    if auth_config["credential_mode"] == "installer":
+        return {}
+    selected = next(
+        (method for method in auth_config["methods"] if method["id"] == auth_method),
+        None,
+    )
+    if selected is None or selected["type"] != "token":
+        return {}
+    fields = [
+        field
+        for field in (version.auth_schema or [])
+        if not field.get("methods") or auth_method in field.get("methods", [])
+    ]
+    if not fields:
+        return {}
+    source = _admin_credential_source(db, item, version)
+    if source is None:
+        return {}
+
+    stored = decrypt_mcp_headers(source.headers)
+    source_query = dict(parse_qsl(urlparse(source.url or "").query, keep_blank_values=True))
+    managed: Dict[str, str] = {}
+    for field in fields:
+        storage_key = _credential_storage_key(field)
+        value = str(stored.get(storage_key) or "")
+        if not value and str(field.get("target") or "header") == "query":
+            query_name = str(field.get("name") or field.get("key") or "").strip()
+            value = str(source_query.get(query_name) or "")
+        if value:
+            managed[storage_key] = value
+        elif field.get("required", True):
+            return {}
+    return managed
 
 
 def _materialize_credential_value(field: Dict[str, Any], value: str) -> str:
@@ -1010,19 +1129,25 @@ async def install_market_item(
         if source_candidate and (source_candidate.extra_config or {}).get("market_source_only"):
             existing_server = source_candidate
     old_headers = decrypt_mcp_headers(existing_server.headers) if existing_server else {}
+    managed_headers = _admin_managed_credential_headers(
+        db,
+        item,
+        version,
+        auth_method=selected_method,
+    )
+    fallback_headers = {**managed_headers, **old_headers}
     headers = _installation_secrets(
         version,
         dict(credentials or {}),
-        old_headers,
+        fallback_headers,
         auth_method=selected_method,
         oauth_bundle=oauth_bundle,
     )
     runtime_url, _ = materialize_mcp_http_connection(version.url, headers)
-    user_install = owner_user_id is not None
     await validate_remote_mcp_url(
         runtime_url,
-        allow_private_network=item.source == "admin" and not user_install,
-        require_https=user_install or item.source != "admin",
+        allow_private_network=item.source == "admin" and owner_user_id is None,
+        require_https=False,
     )
 
     now = datetime.utcnow()
@@ -1175,13 +1300,17 @@ def update_market_item(
     category: Optional[str] = None,
     tags: Optional[List[str]] = None,
     icon: Optional[str] = None,
+    requires_auth: Optional[bool] = None,
+    credential_mode: Optional[str] = None,
+    managed_credentials: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """Edit marketplace presentation metadata without mutating its reviewed snapshot.
+    """Edit marketplace presentation metadata and its administrator-owned auth policy.
 
-    Tool schemas, transport, endpoint templates, authentication contracts, and
-    version numbers remain immutable in ``McpMarketVersion``.  Presentation
-    fields are propagated to existing concrete installations so Config and the
-    capability center do not show two names for the same marketplace MCP.
+    Tool schemas, transport, endpoint templates, and version numbers remain
+    immutable.  Authentication can be disabled, delegated to each installer,
+    or backed by the administrator source server's encrypted credentials.
+    Secret values are never persisted in marketplace rows or returned by this
+    function.  Presentation fields are propagated to existing installations.
     """
     item = (
         db.query(McpMarketItem)
@@ -1190,6 +1319,8 @@ def update_market_item(
     )
     if not item:
         raise ResourceNotFoundError("mcp_market_item", slug)
+    version = _version_for_item(db, item)
+    previous_auth_schema = list(version.auth_schema or [])
 
     if display_name is not None:
         normalized_name = display_name.strip()
@@ -1206,6 +1337,98 @@ def update_market_item(
         item.tags = list(dict.fromkeys(str(tag).strip() for tag in tags if str(tag).strip()))
     if icon is not None:
         item.icon = icon.strip() or None
+
+    auth_schema = list(version.auth_schema or [])
+    auth_config = _normalize_auth_config(version.auth_config, auth_schema)
+    if requires_auth is False:
+        auth_schema = []
+        auth_config = _normalize_auth_config(
+            {
+                "default_method": "none",
+                "methods": [{"id": "none", "type": "none", "label": "无需认证"}],
+                "credential_mode": "installer",
+            },
+            auth_schema,
+        )
+    elif requires_auth is True and not any(
+        method["type"] != "none" for method in auth_config["methods"]
+    ):
+        auth_schema = [
+            {
+                "key": "Authorization",
+                "label": "Token / Authorization",
+                "target": "header",
+                "required": True,
+                "secret": True,
+                "prefix": "Bearer ",
+            }
+        ]
+        auth_config = _normalize_auth_config(
+            {
+                "default_method": "token",
+                "methods": [{"id": "token", "type": "token", "label": "Token"}],
+                "credential_mode": credential_mode or "installer",
+            },
+            auth_schema,
+        )
+
+    if credential_mode is not None:
+        if credential_mode not in {"installer", "admin"}:
+            raise BadRequestError(message="MCP 凭据提供方式无效")
+        if credential_mode == "admin" and not auth_schema:
+            raise BadRequestError(message="请先勾选需要 Token/Auth")
+        auth_config["credential_mode"] = credential_mode
+
+    version.auth_schema = auth_schema
+    version.auth_config = auth_config
+
+    admin_source = None
+    if item.source == "admin" and version.source_server_id:
+        admin_source = (
+            db.query(AdminMcpServer)
+            .filter(
+                AdminMcpServer.server_id == version.source_server_id,
+                AdminMcpServer.owner_user_id.is_(None),
+            )
+            .first()
+        )
+        if admin_source is not None:
+            admin_source.extra_config = {
+                **dict(admin_source.extra_config or {}),
+                "market_auth_schema": auth_schema,
+                "market_auth_config": auth_config,
+            }
+
+    if auth_config["credential_mode"] == "admin":
+        if item.source != "admin" or not version.source_server_id:
+            raise BadRequestError(message="只有管理员发布的 MCP 才能统一配置 Token")
+        if admin_source is None:
+            raise BadRequestError(message="管理员发布源已不存在，无法统一配置 Token")
+        source_headers = decrypt_mcp_headers(admin_source.headers)
+        supplied = dict(managed_credentials or {})
+        allowed_keys = {str(field.get("key") or "") for field in auth_schema}
+        unknown_keys = sorted(key for key in supplied if key not in allowed_keys)
+        if unknown_keys:
+            raise BadRequestError(message=f"未知的 MCP 认证字段：{', '.join(unknown_keys)}")
+        for field in auth_schema:
+            key = str(field.get("key") or "").strip()
+            value = str(supplied.get(key) or "").strip()
+            if value:
+                source_headers[_credential_storage_key(field)] = _materialize_credential_value(
+                    field, value
+                )
+        admin_source.headers = encrypt_mcp_headers(source_headers)
+        managed_headers = _admin_managed_credential_headers(
+            db,
+            item,
+            version,
+            auth_method=str(auth_config["default_method"]),
+        )
+        if not managed_headers:
+            raise BadRequestError(message="请填写管理员统一 Token/Auth")
+    else:
+        managed_headers = {}
+
     item.updated_at = datetime.utcnow()
 
     installation_server_ids = [
@@ -1227,6 +1450,15 @@ def update_market_item(
             server.user_intro = item.user_intro
             server.icon = item.icon
             server.updated_at = item.updated_at
+            if requires_auth is False:
+                existing_headers = decrypt_mcp_headers(server.headers)
+                for field in previous_auth_schema:
+                    existing_headers.pop(_credential_storage_key(field), None)
+                server.headers = encrypt_mcp_headers(existing_headers)
+            elif managed_headers:
+                existing_headers = decrypt_mcp_headers(server.headers)
+                existing_headers.update(managed_headers)
+                server.headers = encrypt_mcp_headers(existing_headers)
 
     db.commit()
     refresh_mcp_caches()
@@ -1342,7 +1574,7 @@ async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
         )
         if not has_endpoint_override:
             try:
-                await validate_remote_mcp_url(version.url, require_https=True)
+                await validate_remote_mcp_url(version.url, require_https=False)
                 item.status = "active"
                 item.status_reason = None
             except BadRequestError as exc:
@@ -1354,7 +1586,7 @@ async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
         item.last_verified_at = datetime.utcnow()
         item.updated_at = datetime.utcnow()
         db.commit()
-        return _item_dict(item, version, installed=False)
+        return _item_dict(db, item, version, installed=False)
     source = (
         db.query(AdminMcpServer)
         .filter(AdminMcpServer.server_id == version.source_server_id)
@@ -1368,7 +1600,7 @@ async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
         item.last_verified_at = datetime.utcnow()
         item.updated_at = datetime.utcnow()
         db.commit()
-        return _item_dict(item, version, installed=False)
+        return _item_dict(db, item, version, installed=False)
     source_template_url, source_auth_schema = _credential_free_connection(source)
     if source.transport != version.transport or source_template_url.strip() != version.url.strip():
         item.status = "changed"
@@ -1376,23 +1608,26 @@ async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
         item.last_verified_at = datetime.utcnow()
         item.updated_at = datetime.utcnow()
         db.commit()
-        return _item_dict(item, version, installed=False)
-    if source_auth_schema != list(version.auth_schema or []):
+        return _item_dict(db, item, version, installed=False)
+    auth_policy = _normalize_auth_config(version.auth_config, list(version.auth_schema or []))
+    if auth_policy["credential_mode"] == "auto" and source_auth_schema != list(
+        version.auth_schema or []
+    ):
         item.status = "changed"
         item.status_reason = "原始 MCP 的认证参数已变化，需发布新版本"
         item.last_verified_at = datetime.utcnow()
         item.updated_at = datetime.utcnow()
         db.commit()
-        return _item_dict(item, version, installed=False)
+        return _item_dict(db, item, version, installed=False)
     try:
         await validate_remote_mcp_url(
             version.url,
             allow_private_network=item.source == "admin",
-            require_https=item.source != "admin",
+            require_https=False,
         )
     except BadRequestError as exc:
         set_suspended(db, slug, suspended=True, reason=f"远程地址安全复检失败：{exc}")
-        return _item_dict(item, version, installed=False)
+        return _item_dict(db, item, version, installed=False)
     ok, error = await probe_mcp_connectivity(source, db)
     if not ok:
         item.status = "changed"
@@ -1408,4 +1643,4 @@ async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
     item.last_verified_at = datetime.utcnow()
     item.updated_at = datetime.utcnow()
     db.commit()
-    return _item_dict(item, version, installed=False)
+    return _item_dict(db, item, version, installed=False)

@@ -503,7 +503,26 @@ async def create_agent_executor(
     # independently disable bash for a hard read-only boundary.
     read_only: bool = False,
     allow_bash: bool = True,
+    # turbo_mode: 极速模式（quick-lookup entry）。Retrieval-only assembly:
+    # carries exactly the admin-configured turbo MCP set（系统配置「极速模式」，
+    # deliberately independent of catalog enable/disable state）, drops skills,
+    # sandbox/file tools, subagents and plan tooling, swaps in the standalone
+    # "turbo" system prompt, and hard-caps react iterations so the agent
+    # answers within 1-2 (parallel) tool rounds. The two turbo_explicit_*
+    # params are the only pass-throughs: capabilities the user explicitly
+    # summoned this turn (slash skill / plugin expansion); the caller likewise
+    # narrows visible_subagents to the @-mentioned agent only.
+    turbo_mode: bool = False,
+    turbo_explicit_skill_ids: Optional[List[str]] = None,
+    turbo_explicit_mcp_ids: Optional[List[str]] = None,
     ontology_runtime: Optional[Dict[str, Any]] = None,
+    # Per-tool-result context cap override (tokens). The 20k default suits
+    # exploratory chat, but document-heavy workloads (autonomous-loop workers
+    # polishing a 180k-char report) re-send every accumulated tool result on
+    # each ReAct round — with 15-20 rounds/iteration that grows quadratically
+    # to ~1M tokens per iteration. Loop callers pass a tighter cap; the
+    # offloader keeps full content readable on demand from /workspace/.offload.
+    tool_result_limit: Optional[int] = None,
 ) -> Tuple[Agent, List[MCPClient]]:
     """Create and return an AgentScope 2.0 Agent along with its MCP client list.
 
@@ -542,6 +561,46 @@ async def create_agent_executor(
             p_skills, p_mcp = _expand_plugin_bindings(plugin_ids)
             enabled_skill_ids = list(dict.fromkeys(enabled_skill_ids + p_skills))
             enabled_mcp_ids = list(dict.fromkeys(enabled_mcp_ids + p_mcp))
+
+    # ── Turbo mode (极速模式): retrieval-only assembly ──────────────────────
+    # Normalized before any capability resolution so every downstream gate
+    # (skill-bound MCP expansion, subagent merge, update_plan opt-in, file
+    # tools) sees the narrowed grants rather than needing its own turbo check.
+    if turbo_mode:
+        from core.services.system_config import (
+            turbo_manual_invoke_enabled,
+            turbo_mcp_server_ids,
+        )
+
+        if not turbo_manual_invoke_enabled():
+            # Manual summoning disabled by ops: turbo is strictly its own set.
+            turbo_explicit_skill_ids = None
+            turbo_explicit_mcp_ids = None
+            visible_subagents = None
+        # Only explicitly summoned skills survive; without a summon the agent
+        # carries no skills at all (and no skill list enters the prompt).
+        enabled_skill_ids = [
+            s for s in (turbo_explicit_skill_ids or []) if isinstance(s, str) and s.strip()
+        ]
+        top_level_chat = False
+        read_only = True
+        allow_bash = False
+        # The turbo tool surface comes from admin config alone — deliberately
+        # NOT intersected with catalog/user enable-disable state. Explicitly
+        # summoned plugin MCPs are appended on top; MCPs bound to a summoned
+        # skill merge in the shared binding step below.
+        enabled_mcp_ids = list(
+            dict.fromkeys(
+                [
+                    *sorted(turbo_mcp_server_ids()),
+                    *[
+                        m
+                        for m in (turbo_explicit_mcp_ids or [])
+                        if isinstance(m, str) and m.strip()
+                    ],
+                ]
+            )
+        )
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
     if enabled_skill_ids:
@@ -653,7 +712,10 @@ async def create_agent_executor(
     # that produced it was validated against the base grant, and intersecting
     # here means even a stored profile that has outlived a narrowed grant cannot
     # re-widen it.
-    if profile.tool_allowlist is not None:
+    # Turbo's retrieval trio is a product contract, not a learned assembly —
+    # a stored profile allowlist must not re-narrow it (it would silently drop
+    # KB / web_fetch and leave quick lookup search-only).
+    if profile.tool_allowlist is not None and not turbo_mode:
         allowed_tools = set(profile.tool_allowlist)
         current_mcp = (
             enabled_mcp_ids
@@ -980,7 +1042,24 @@ async def create_agent_executor(
     # human in the loop → non-interactive, and §13 rejects /myspace writes
     # outright.
     _interactive: bool = not (isolated or batch_mode)
-    if not disable_tools:
+    if not disable_tools and turbo_mode:
+        # Turbo keeps only cross-turn attachment access (the file-context hook
+        # references this tool for historical attachments); every other native
+        # tool — sandbox/bash/file ops — is out of scope for quick lookup.
+        register_read_artifact(toolkit, user_id=current_user_id)
+        if skill_ids_to_register:
+            # An explicitly summoned skill needs its SKILL.md readable (the
+            # user-message injection tells the model to view_text_file it).
+            # bash/sandbox stay off: a skill that requires code execution gets
+            # explained with a mode-switch suggestion, not executed (see the
+            # turbo prompt).
+            register_sandboxed_view_text_file(
+                toolkit,
+                allowed_skill_dirs,
+                loader,
+                loaded_skill_ids=loaded_skill_ids,
+            )
+    if not disable_tools and not turbo_mode:
         register_sandboxed_view_text_file(
             toolkit,
             allowed_skill_dirs,
@@ -1244,16 +1323,31 @@ async def create_agent_executor(
                 len(_ontology_prompt),
             )
     else:
-        _sp_ctx: Dict[str, Any] = {
-            "tools": tool_schemas,
-            "mcp_servers": enabled_mcp_keys,
-            "enabled_kbs": enabled_kb_ids,
-        }
-        # Project mode: let _build_project_section receive project_name / instructions / files / folder
-        if project_ctx:
-            _sp_ctx.update(project_ctx)
-        system_prompt = build_system_prompt(cfg, ctx=_sp_ctx)
-        _log.info("[factory] +%s system prompt built (%d chars)", _elapsed(), len(system_prompt))
+        if turbo_mode:
+            # Turbo swaps in the standalone prompt (DB "turbo" active version →
+            # fs fallback): the default prompt's tool/workflow sections describe
+            # capabilities this assembly deliberately does not carry.
+            from core.services import prompt_version_service as _pvs_turbo
+
+            system_prompt = _pvs_turbo.render_turbo_system_prompt()
+            _log.info(
+                "[factory] +%s turbo system prompt built (%d chars)",
+                _elapsed(),
+                len(system_prompt),
+            )
+        else:
+            _sp_ctx: Dict[str, Any] = {
+                "tools": tool_schemas,
+                "mcp_servers": enabled_mcp_keys,
+                "enabled_kbs": enabled_kb_ids,
+            }
+            # Project mode: let _build_project_section receive project_name / instructions / files / folder
+            if project_ctx:
+                _sp_ctx.update(project_ctx)
+            system_prompt = build_system_prompt(cfg, ctx=_sp_ctx)
+            _log.info(
+                "[factory] +%s system prompt built (%d chars)", _elapsed(), len(system_prompt)
+            )
 
         _ontology_prompt = render_runtime_prompt(_ontology_runtime)
         if _ontology_prompt:
@@ -1268,7 +1362,7 @@ async def create_agent_executor(
         # ── Inject code-capability system prompt ──
         # Gating: CODE_CAPABILITY_ENABLED=true injects in all modes.
         # Single source of truth render_code_capability_segment (same source as the Config console preview).
-        if code_capability_enabled():
+        if code_capability_enabled() and not turbo_mode:
             try:
                 from core.services import prompt_version_service as _pvs
 
@@ -1412,7 +1506,7 @@ async def create_agent_executor(
             )
             if _selected_provider_cfg:
                 _mode = (chat_mode or "medium").lower()
-                _disable_thinking = _mode == "fast"
+                _disable_thinking = _mode in ("fast", "turbo")
                 _supports_effort = bool(
                     (_selected_provider_cfg.extra or {}).get("supports_reasoning_effort")
                 )
@@ -1620,7 +1714,7 @@ async def create_agent_executor(
     # tool-heavy sessions compressed repeatedly), so it has been relaxed.
     context_config = ContextConfig(
         trigger_ratio=_in_turn_ratio,
-        tool_result_limit=20_000,
+        tool_result_limit=int(tool_result_limit) if tool_result_limit else 20_000,
         compression_prompt=(
             "<system-hint>你一直在处理上述任务但尚未完成，对话历史即将被本摘要替换。"
             "请生成一份【可恢复 ReAct 工作流】的结构化续写摘要，使你能在新的上下文窗口"
@@ -1706,6 +1800,14 @@ async def create_agent_executor(
         _env_iters = _int(_env("CHAT_MAIN_MAX_ITERS"), 0)
         if _env_iters > 0:
             _max_iters = max(3, _env_iters)
+
+    if turbo_mode:
+        # Hard cap for the quick-lookup contract: 1-2 retrieval rounds (each may
+        # fan out parallel calls) plus the final answer. Admin-tunable via
+        # 系统配置「极速模式」turbo.max_iters; wins over profile/env.
+        from core.services.system_config import turbo_max_iters
+
+        _max_iters = min(_max_iters, turbo_max_iters())
 
     # ── Create the Agent (AgentScope 2.0) ──
     # Note: long_term_memory is not passed — mem0 is fully stripped from the SSE

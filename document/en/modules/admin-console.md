@@ -130,7 +130,7 @@ There is also an API-oriented global audit query at `/v1/audit` (`api/routes/v1/
 
 | Route group | File | Credential | Edition | Description |
 |---|---|---|---|---|
-| `/v1/config/users` | `config_users.py` | `CONFIG_TOKEN` | Enterprise Edition (multi_tenancy) | User list / detail / status, password reset, deletion, and the five permission flags (app visibility, lab, API key, self-service skills, self-service MCP) — see [Authentication & Permissions](auth.md) |
+| `/v1/config/users` | `config_users.py` | `CONFIG_TOKEN` | Enterprise Edition (multi_tenancy) | User list / detail / status, password reset, deletion, and feature permissions such as app visibility and ontology validation — see [Authentication & Permissions](auth.md) |
 | `/v1/config/teams` | `config_teams.py` | `CONFIG_TOKEN` | Enterprise Edition (multi_tenancy) | Team CRUD, member add/remove, role assignment |
 | `/v1/config/invites` | `config_invites.py` | `CONFIG_TOKEN` | Enterprise Edition (multi_tenancy) | Invite code batch generation / list / revoke / delete |
 | `/v1/config/security` | `config_security.py` | `CONFIG_TOKEN` | Enterprise Edition (system_config) | Security console (read-only): sandbox, audit logs, system health snapshot |

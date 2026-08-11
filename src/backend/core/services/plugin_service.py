@@ -345,6 +345,8 @@ def _apply_normalized(
 ) -> Dict[str, Any]:
     """Persist a NormalizedPlugin and return the installation result (including the import_report)."""
     install_id = _make_plugin_install_id(np.slug, owner_user_id)
+    existing = db.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).first()
+    previous_component_ids = dict(existing.component_ids or {}) if existing is not None else {}
     ontology_policy = resolve_plugin_import_ontology_validation(db, owner_user_id)
 
     de_skills = set(np.default_enabled.get("skills") or [])
@@ -404,8 +406,43 @@ def _apply_normalized(
     import_report = {"imported": imported, "adapted": adapted, "dropped": np.dropped}
     component_ids = {"skills": skill_ids, "mcp": server_ids, "prompts": []}
 
+    # A plugin update is a replacement of its declared component set. Remove
+    # components that belonged to the previous version but no longer appear in
+    # the new manifest; otherwise retired tools/skills remain visible forever.
+    stale_skill_ids = set(previous_component_ids.get("skills") or []) - set(skill_ids)
+    stale_server_ids = set(previous_component_ids.get("mcp") or []) - set(server_ids)
+    owner_skill_filter = (
+        AdminSkill.owner_user_id == owner_user_id
+        if owner_user_id is not None
+        else AdminSkill.owner_user_id.is_(None)
+    )
+    owner_mcp_filter = (
+        AdminMcpServer.owner_user_id == owner_user_id
+        if owner_user_id is not None
+        else AdminMcpServer.owner_user_id.is_(None)
+    )
+    if stale_skill_ids:
+        (
+            db.query(AdminSkill)
+            .filter(
+                AdminSkill.skill_id.in_(stale_skill_ids),
+                AdminSkill.source_plugin == np.slug,
+                owner_skill_filter,
+            )
+            .delete(synchronize_session=False)
+        )
+    if stale_server_ids:
+        (
+            db.query(AdminMcpServer)
+            .filter(
+                AdminMcpServer.server_id.in_(stale_server_ids),
+                AdminMcpServer.source_plugin == np.slug,
+                owner_mcp_filter,
+            )
+            .delete(synchronize_session=False)
+        )
+
     now = datetime.utcnow()
-    existing = db.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).first()
     fields = dict(
         slug=np.slug,
         name=np.name,

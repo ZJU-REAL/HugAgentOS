@@ -685,8 +685,8 @@ def test_service_versions_activation_and_build_validation(db_session):
 
     db_session.add(
         AdminMcpServer(
-            server_id="ai_chain_information_mcp",
-            display_name="产业知识中心查询",
+            server_id="enterprise_profile_mcp",
+            display_name="企业信息查询",
             description="企业画像与风险查询",
             transport="streamable_http",
             url="https://example.test/mcp",
@@ -706,12 +706,12 @@ def test_service_versions_activation_and_build_validation(db_session):
     )
     assert invalid.valid is False
     missing_issue = next(item for item in invalid.errors if item.code == "missing_required_tools")
-    assert "产业知识中心查询" in missing_issue.message
+    assert "企业信息查询" in missing_issue.message
     assert "get_company" not in missing_issue.message
     assert missing_issue.details["recommended_mcp_servers"] == [
         {
-            "server_id": "ai_chain_information_mcp",
-            "display_name": "产业知识中心查询",
+            "server_id": "enterprise_profile_mcp",
+            "display_name": "企业信息查询",
             "provided_tools": [
                 {"name": "get_company_base_info", "display_name": "企业基本信息"},
                 {"name": "get_company_risk_warning", "display_name": "企业风险预警"},
@@ -720,7 +720,7 @@ def test_service_versions_activation_and_build_validation(db_session):
         }
     ]
     assert invalid.suggestions == [
-        "绑定 MCP“产业知识中心查询”（提供：企业基本信息、企业风险预警、企业搜索）"
+        "绑定 MCP“企业信息查询”（提供：企业基本信息、企业风险预警、企业搜索）"
     ]
 
     valid = OntologyBuildValidator(db_session).validate(
@@ -987,7 +987,10 @@ def test_user_runtime_resolver_preserves_opt_out(db_session):
     user = UserShadow(
         user_id="ontology_user",
         username="ontology user",
-        extra_data={"ontology_enabled": False},
+        extra_data={
+            "ontology_enabled": False,
+            "can_use_ontology_validation": True,
+        },
     )
     db_session.add(user)
     db_session.commit()
@@ -1000,7 +1003,10 @@ def test_user_runtime_resolver_preserves_opt_out(db_session):
     assert opted_in is False
     assert runtime == {"enabled": False, "packs": [], "review_level": "none"}
 
-    user.extra_data = {"ontology_enabled": True}
+    user.extra_data = {
+        "ontology_enabled": True,
+        "can_use_ontology_validation": True,
+    }
     db_session.commit()
     opted_in, runtime = build_user_ontology_runtime(
         user_id=user.user_id,
@@ -1009,6 +1015,25 @@ def test_user_runtime_resolver_preserves_opt_out(db_session):
     )
     assert opted_in is True
     assert runtime["review_level"] == "committee"
+
+    user.extra_data = {
+        "ontology_enabled": True,
+        "can_use_ontology_validation": False,
+    }
+    db_session.commit()
+    opted_in, runtime = build_user_ontology_runtime(
+        user_id=user.user_id,
+        task="分析企业风险",
+        db=db_session,
+    )
+    assert opted_in is False
+    assert runtime == {"enabled": False, "packs": [], "review_level": "none"}
+
+    user.extra_data = {
+        "ontology_enabled": True,
+        "can_use_ontology_validation": True,
+    }
+    db_session.commit()
 
     service.set_pack_flags("enterprise_risk", is_enabled=False)
     opted_in, runtime = build_user_ontology_runtime(
@@ -1064,7 +1089,10 @@ def test_explicit_user_correction_enters_human_review_queue(db_session):
     user = UserShadow(
         user_id="correction_user",
         username="correction user",
-        extra_data={"ontology_enabled": True},
+        extra_data={
+            "ontology_enabled": True,
+            "can_use_ontology_validation": True,
+        },
     )
     db_session.add(user)
     db_session.commit()

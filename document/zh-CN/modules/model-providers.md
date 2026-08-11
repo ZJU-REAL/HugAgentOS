@@ -46,12 +46,12 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 
 ## 动态模型切换（chat_mode）
 
-前端每条消息可带 `chat_mode`（`fast / medium / high / max`），在 reply 开始前由 `core/llm/middlewares.py::DynamicModelMiddleware`（`on_reply`）热切 `agent.model`：
+前端每条消息可带 `chat_mode`（`turbo / fast / medium / high / max`），在 reply 开始前由 `core/llm/middlewares.py::DynamicModelMiddleware`（`on_reply`）热切 `agent.model`：
 
 ```
 chat_mode → hooks._resolve_chat_mode(agent.state)
           → hooks._get_main_model(mode)        # 进程级实例缓存，随 ModelConfigService.version 失效
-   fast   → disable_thinking=True
+   turbo/fast → disable_thinking=True（turbo 另在 agent 装配层裁剪为仅检索工具，见提示词/对话文档）
    medium → 思考开（supports_reasoning_effort 时带 effort=medium）
    high/max → reasoning_effort=high/max（端点须声明支持）
 ```

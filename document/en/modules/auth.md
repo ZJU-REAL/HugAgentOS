@@ -150,6 +150,7 @@ User-granular feature switches are stored in the `users_shadow.metadata` JSON co
 | `can_use_api_key` | off | `PATCH /v1/config/users/{id}/api-key-permission` | Creating / using personal API keys; turning it off immediately invalidates existing keys |
 | `can_add_skill` | off | `PATCH /v1/config/users/{id}/skill-permission` | Self-service private skill upload / authoring in the capability center (`api/routes/v1/me_capabilities.py`) |
 | `can_add_mcp` | off | `PATCH /v1/config/users/{id}/mcp-permission` | Self-service private remote MCP servers (HTTP/SSE) |
+| `can_use_ontology_validation` | off | `PATCH /v1/config/users/{id}/ontology-validation-permission` | The ontology-validation Settings entry, personal switch, and runtime validation; without permission the entry is hidden and a previously enabled preference is ignored |
 | `lab_enabled` | **on** | `PATCH /v1/config/users/{id}/lab-permission` | Lab module entry and access |
 | `allowed_apps` | unrestricted | `PATCH /v1/config/users/{id}/app-permissions` | App visibility; `None` = all enabled apps, list = allowlist (empty list = block all) |
 | `role: super_admin` | none | (written directly into metadata) | Passes the `require_super_admin` dependency; bypasses team role checks |

@@ -1,6 +1,6 @@
 # MCP 工具系统
 
-> 最后更新：2026-08-02
+> 最后更新：2026-08-11
 
 HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://modelcontextprotocol.io) 之上：每一类外部能力（联网搜索、网页抓取、数据库查询、图表生成……）都是一个独立的 MCP Server，统一运行在专用的 `mcp` 容器中，后端通过 streamable-http 协议连接调用。这种设计带来三点好处：
 
@@ -16,7 +16,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 ┌─────────┐  HTTP  ┌───┴────┐   :9100  retrieve_dataset_content（知识库检索）   │
 │ backend │───────▶│streama-│   :9101  query_database（数仓查询，EE）           │
 │ (FastAPI│        │ble-http│   :9102  internet_search（联网搜索）              │
-│  agent) │        │        │   :9103  ai_chain_information_mcp（产业链，EE）   │
+│  agent) │        │        │   :9103  产业知识中心统一 MCP（插件，EE）       │
 └─────────┘        │        │   :9104  generate_chart_tool（图表生成）          │
      │             │        │   :9105  保留（原报告导出 MCP）                  │
  MCPConnectionPool │        │   :9106  web_fetch（网页抓取）                    │
@@ -42,14 +42,16 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 | `retrieve_dataset_content_mcp` | 9100 | `retrieve_dataset_content` / `list_datasets` / `retrieve_local_kb` | 社区版 CE |
 | `query_database_mcp` | 9101 | `query_database` | **商业版 EE** |
 | `internet_search_mcp` | 9102 | `internet_search` | 社区版 CE |
-| `ai_chain_information_mcp` | 9103 | 13 个产业链/企业画像工具（见下） | **商业版 EE** |
+| `ai_chain_information_mcp` | 9103 | 27 个产业链、企业、资讯、政策、报告、专利与技术工具 | **商业版 EE（产业知识中心插件）** |
 | `generate_chart_tool_mcp` | 9104 | `generate_chart_tool` | 社区版 CE |
 | `web_fetch_mcp` | 9106 | `web_fetch` | 社区版 CE |
 | `batch_runner_mcp` | 9107 | `batch_plan` | 社区版 CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` 等 | 社区版 CE（自动化插件提供） |
 | `skill_manager_mcp` | 9112 | `search_marketplace` / `install_from_marketplace` / `register_skill` / `list_my_skills` / `submit_to_marketplace` / `delete_skill` | 社区版 CE |
 
-> 版本边界以 [开源与商业化产品方案](../editions/overview.md) 为准：依赖内网行业数据源（产业知识中心、数据仓库）的两个行业 Server 属商业版（社区版派生树通过 `ce/manifest.yaml` 整目录剔除并从 `catalog.json` 摘除种子），其余 7 个通用工具全部进社区版。
+> 版本边界以 [开源与商业化产品方案](../editions/overview.md) 为准：依赖行业数据源的
+> 产业知识中心插件与数据仓库查询属于商业版。社区版派生树通过 `ce/manifest.yaml`
+> 物理剔除产业插件的 1 个自包含 MCP 和 14 个 Skills；通用工具进入社区版。
 
 ### retrieve_dataset_content — 知识库检索（CE）
 
@@ -74,27 +76,32 @@ cn_only)`：通过 `INTERNET_SEARCH_ENGINE` 选择 Tavily、百度或 LangSearch
 原生支持，LangSearch 会将搜索摘要映射到 `content`。该工具是兜底工具，
 仅在内部知识库、数仓和行业工具都没有结果时使用。
 
-### ai_chain_information_mcp — 产业知识中心查询（商业版 EE）
+### 产业知识中心插件（商业版 EE）
 
-一个分组式 Server，把产业链分析与企业画像 13 个工具收编在同一 MCP 下（插拔粒度保持在 Server 级），实现拆分为 `impl_chain / impl_news / impl_latest / impl_company / impl_entity / impl_rank` 多个模块：
+产业知识中心不再作为一个不可卸载的静态 MCP 提供，而是作为原生插件进入插件市场。
+插件一次安装 1 个 MCP Server 和 14 个工作流 Skills；启停、更新和卸载统一跟随插件
+生命周期。升级数据库会自动安装一次插件并移除旧静态 MCP 行；管理员后续主动卸载后，
+启动不会再次恢复。
 
-| 工具 | 用途 |
-|---|---|
-| `get_chain_information(chain_id)` | 产业链全景分析报告与核心指标 |
-| `get_industry_news(keyword, news_type, chain, region)` | 产业动态资讯 |
-| `get_latest_ai_news()` | AI 领域热点聚合 |
-| `search_company(keyword, top_num)` | 企业模糊搜索 |
-| `get_company_base_info(company_id)` | 企业基础画像 |
-| `get_company_business_analysis(company_id)` | 企业经营分析 |
-| `get_company_tech_insight(company_id)` | 企业技术洞察 |
-| `get_company_funding(company_id)` | 企业融资信息 |
-| `get_industry_hot_companies(...)` | 行业热门企业榜 |
-| `get_industry_hot_products(...)` | 行业热门产品榜 |
-| `get_company_hot_events(...)` | 企业热点事件 |
-| `get_product_detail(...)` | 产品详情 |
-| `get_company_risk_warning(company_id)` | 企业风险预警 |
+统一 MCP 暴露 27 个高价值工具：
 
-**依赖内网"产业知识中心"数据源，属商业版。**
+| 组件 | 工具数 | 能力 |
+|---|---:|---|
+| `ai_chain_information_mcp`（9103） | 27 | 13 个成熟兼容工具；14 个产业目录/简报/竞争力、企业筛选评价、政策/报告、专利和技术路线工作流 |
+
+统一 MCP 包直接保存显式工具函数、详细中文说明、固定接口组合和包内 `common.py`，
+不使用集中式动态注册，也不存在根级产业公共模块。客户端在每次调用时读取
+`industry.url` 和 `industry.auth_token`。管理员仍在**系统配置**或插件详情的管理员配置区
+维护这两个值；插件不声明 `required_secrets`，普通用户安装时不输入 URL 或 Token。
+
+新增工具提供扁平参数，并在智能体可见描述中完整说明适用场景、参数来源、输出板块和相邻
+工具选择。14 个新增工作流的结果只保留 `结果`、可选的 `未获取内容` 和截断时的 `结果说明`；
+13 个成熟工具保留既有业务输出结构，以兼容产业链 Canvas、资讯列表和企业画像等专用渲染器。
+两类结果都不会把接口路径、HTTP 状态与执行计数带入回答上下文。多接口工作流并发执行并保留
+部分成功结果，业务数据仍设置 25,000 字符安全上限。
+
+内部仍审计页面发现的 240 条接口，但能力目录、任意接口调用、地区树、通用实体解析、个人
+资料库、收藏订阅、上游报告工作台和写入操作均不再暴露给智能体。
 
 ### generate_chart_tool — 数据可视化（CE）
 
@@ -168,7 +175,8 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 - **测试与重载**：`POST /{id}/test` 单独试连；`POST /reload-pool` 热重建连接池；
 - **移至 MCP 市场**：把现有远程 HTTP/SSE MCP 生成无凭据的市场快照，
   并停用原全局实例；该服务随后从 MCP 服务管理列表移除，可在市场中复核、
-  编辑展示信息，再按需全局安装。
+  编辑展示信息，再按需全局安装。原服务已配置的 Token 仍加密保留在服务端，
+  作为管理员托管凭据供获准用户安装，市场记录和前端响应都不包含凭据值。
 
 插件提供的 MCP（例如自动化插件的定时任务 MCP）不在 MCP 服务管理列表中
 展示。它们的启停和卸载跟随插件生命周期，统一在插件管理入口操作。
@@ -177,7 +185,7 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 
 普通用户可在能力中心添加**仅自己可见**的远程 MCP（`api/routes/v1/me_capabilities.py`，前缀 `/v1/me`）：
 
-- `POST /v1/me/mcp-servers`：添加私有远程 MCP，**仅支持公网 HTTPS 上的 HTTP/SSE**——用户入口禁止 stdio，避免在服务器执行任意命令；地址会经过 DNS/IP 检查以阻断 localhost、内网、链路本地与保留地址；创建即试连，连不上不落库；
+- `POST /v1/me/mcp-servers`：添加私有远程 MCP，支持公网 HTTP/HTTPS 上的 HTTP/SSE——用户入口禁止 stdio，避免在服务器执行任意命令；地址会经过 DNS/IP 检查以阻断 localhost、内网、链路本地与保留地址；创建即试连，连不上不落库。HTTP 为明文传输，生产环境仍建议使用 HTTPS；
 - `DELETE /v1/me/mcp-servers/{id}`：删除自己的私有 MCP。
 
 实现上复用同一张 `admin_mcp_servers` 表：`owner_user_id` = 当前用户实现 owner 隔离，server_id 自动生成 `umcp_<hex>` 防冲突，`is_stable=False` 不进 warmup 池。HTTP Header 值使用 Fernet 加密后落库，运行时才解密。该功能由管理台的 per-user 权限位 `can_add_mcp` 控制（社区版单租户默认即可放开；商业版由组织管理员按用户授予，见[版本说明](../editions/overview.md)）。
@@ -186,14 +194,12 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 
 系统级市场治理入口位于 `/config → MCP 工具`。与技能管理一致，MCP 服务列表上方直接提供「MCP 市场」和「上架审核」两个按钮并以弹窗承载，不再增加第二层管理页签；`/admin` 内容运营台也不提供重复入口。这里可以上架和全局安装市场条目、审核用户申请、设置可见范围、复检、封禁和移除条目，使用 `CONFIG_TOKEN` 或 `can_system_config` 权限。
 
-能力中心的「MCP 市场」与技能、子智能体、插件市场使用同一套可见范围模型，支持公开、指定用户、团队与角色授权。市场条目本身只保存**无凭据的、已审核版本快照**；安装后生成的 `admin_mcp_servers` 实例才保存安装者自己的凭据：
+能力中心的「MCP 市场」与技能、子智能体、插件市场使用同一套可见范围模型，支持公开、指定用户、团队与角色授权。市场条目本身只保存**无凭据的、已审核版本快照**；管理员发布的条目可以在源 `admin_mcp_servers` 上保留管理员托管凭据，用户安装时由后端加密复制到个人实例，凭据值不会进入市场表或返回前端：
 
-- 用户浏览条目详情、工具列表、输入 Schema、风险等级和所需凭据，并一键安装为仅自己可见的私有 MCP；管理员可以安装为全局 MCP；已安装条目可以再次打开安装框轮换凭据；
+- 用户浏览条目详情、工具列表、输入 Schema 和风险等级，并一键安装为仅自己可见的私有 MCP；若市场认证策略选择“管理员统一配置”且已保存完整 Token，界面显示“管理员托管”并免填安装；选择“用户自行填写”时，每个用户安装时填写自己的 Token 或完成 OAuth；
 - 用户可以把自己已经试连成功的私有 MCP 提交上架，查看待审、通过、驳回状态，并在审核前撤回；从 MCP 市场安装的实例不会再次提供申请入口，后端也拒绝重复上架；
-- 管理端新建远程 HTTP/SSE MCP 时默认执行真实试连并**先上架市场**，不会直接全局生效；管理员复核快照后再从市场全局安装。已有全局远程 MCP 也可上架。StdIO 包含本地命令和依赖，仍直接受全局服务管理，跨环境分发必须走插件市场；
-- 管理员可以编辑市场条目的名称、简介、用户提示、分类、标签与图标；修改会
-  同步到现有安装实例。已审核的端点、认证契约、工具 Schema、风险报告和
-  版本号仍是不可变版本快照，如需变更须重新复检并发布新版本；
+- 管理端新建远程 HTTP/SSE MCP 时可勾选“安装时需要 Token/Auth”，并选择 Token 或 OAuth。Token 可由管理员直接填写，也可留空：填写后用户安装免填，留空后每个用户自行填写；OAuth 由每个用户安装时授权。无管理员凭据导致首次连接返回未授权时，条目仍可先上架，并在用户完成认证后按 `per_install` 模式动态发现工具。远程 MCP 不会直接全局生效；StdIO 仍直接受全局服务管理，跨环境分发必须走插件市场；
+- 管理员可以编辑市场条目的名称、简介、用户提示、分类、标签、图标与认证策略。认证策略明确分为“无需认证”“用户自行填写”“管理员统一配置”；统一 Token 也只在编辑窗口维护，市场列表不再提供“更新全局凭据”。展示信息与管理员统一 Token 的更新会同步到现有安装实例。已审核的端点、工具 Schema、风险报告和版本号仍是版本快照；
 - 管理端支持上架/下架、按用户/团队/角色控制可见范围、人工复检、软删除，以及安全封禁；封禁会立即停用该条目派生出的所有安装实例，解除封禁时恢复这些实例；
 - 工具名或输入 Schema 命中删除、执行、写入等语义时会标记中高风险，高风险安装需要再次明确确认；
 - 后端默认每 6 小时重新连接远程 MCP 并比较工具快照哈希。发生漂移时条目进入 `changed`，暂停新安装，等待管理员复核；周期可用 `MCP_MARKET_REVALIDATE_INTERVAL` 调整。
@@ -212,9 +218,11 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 
 ### 通用认证范式
 
-每个市场版本通过 `auth_config` 声明一个或多个认证方法，统一支持 `none`、`token` 与 `oauth2`；`auth_schema` 只描述安装时需要采集并注入 Header、查询参数或个人端点的字段，并可用 `methods` 限定字段属于哪种方法。旧条目没有 `auth_config` 时会按是否存在认证字段自动推断为 Token 或无认证，保证向后兼容。
+每个市场版本通过 `auth_config` 声明一个或多个认证方法，统一支持 `none`、`token` 与 `oauth2`；`credential_mode` 指定凭据由 `installer`（每个用户）还是 `admin`（管理员统一）提供；`auth_schema` 只描述安装时需要采集并注入 Header、查询参数或个人端点的字段，并可用 `methods` 限定字段属于哪种方法。旧条目没有显式策略时会按是否存在认证字段与管理员源凭据自动推断，保证向后兼容。
 
-OAuth 远程 MCP 按 MCP 授权规范执行受保护资源元数据与授权服务器元数据发现、Authorization Code + PKCE、`state` 校验、RFC 8707 resource 参数，并在提供 DCR 时动态注册客户端；不支持 DCR 的服务由安装界面采集 Client ID/Secret。access token、refresh token、客户端信息与过期时间作为一个加密 bundle 只存入具体安装实例，运行时自动刷新，任何 OAuth 凭据都不会进入市场条目或工具快照。
+管理员在新增或市场编辑窗口选择“管理员统一配置”后，后端会检查源服务是否保存全部必填凭据。满足时，列表与详情仅返回 `credentials_managed_by_admin=true`，安装接口在服务端复用这些值并重新加密到具体安装实例；任何 Token 内容都不会出现在响应中。选择“用户自行填写”后，即使源服务仍保留用于复检的 Token，市场安装也不会复用它。社区用户提交的 MCP 与平台精选模板仍坚持安装者独立认证，不复用发布者凭据。
+
+OAuth 远程 MCP 按 MCP 授权规范执行受保护资源元数据与授权服务器元数据发现、Authorization Code + PKCE、`state` 校验、RFC 8707 resource 参数，并在提供 DCR 时动态注册客户端；不支持 DCR 的服务由安装界面采集 Client ID/Secret。OAuth 的 MCP 端点、授权元数据地址与回调基址均允许公网 HTTP/HTTPS，但 HTTP 会明文传输授权码和 Token，仅建议用于受控测试环境。access token、refresh token、客户端信息与过期时间作为一个加密 bundle 只存入具体安装实例，运行时自动刷新，任何 OAuth 凭据都不会进入市场条目或工具快照。
 
 同源部署会自动使用浏览器当前站点的 `/api/v1/mcp-market/oauth/callback`；前后端跨域部署必须设置 `MCP_OAUTH_PUBLIC_BASE_URL` 为浏览器可访问的 API 基址，避免从请求 `Host` 反射不可信回调地址。
 
@@ -222,7 +230,7 @@ OAuth 远程 MCP 按 MCP 授权规范执行受保护资源元数据与授权服�
 
 ### 数据边界
 
-市场使用四张独立表：`mcp_market_items` 保存条目元数据，`mcp_market_versions` 保存不可变工具快照、风险报告和无密钥认证契约，`mcp_market_submissions` 保存审核申请快照，`mcp_market_installations` 关联条目版本和实际 MCP 实例。任何 Header、Token、OAuth bundle、查询参数 Key 或个人端点都不会进入市场条目、版本或申请；每位安装者必须单独认证，凭据使用 Fernet 加密后只保存在自己的安装实例中。
+市场使用四张独立表：`mcp_market_items` 保存条目元数据，`mcp_market_versions` 保存不可变工具快照、风险报告和无密钥认证契约，`mcp_market_submissions` 保存审核申请快照，`mcp_market_installations` 关联条目版本和实际 MCP 实例。任何 Header、Token、OAuth bundle、查询参数 Key 或个人端点都不会进入市场条目、版本或申请。社区条目与精选模板由安装者独立认证；管理员发布的 Token 条目可从源 `admin_mcp_servers` 读取加密托管凭据，并把凭据重新加密保存到具体安装实例，全程不向前端暴露。
 
 用户市场、认证与运行时刷新位于 `core/` 和 CE 路由，是社区版能力；`/config` 管理端路由与 `components/admin` 仍由 EE 注册表和 CE 派生清单物理剔除。主仓使用 `mcpmkt01`～`mcpmkt04retire` 迁移链，CE 通过独立的 `ce_0003` 与 `ce_0004` 迁移获得相同核心表和退役清理，不依赖任何 `edition_ee` 实现。
 

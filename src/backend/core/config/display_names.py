@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from typing import Dict
 
-from core.config.edition_display_names import edition_tool_display_names
+from core.config.edition_display_names import (
+    edition_mcp_server_descriptions,
+    edition_mcp_server_display_names,
+    edition_tool_display_names,
+)
 
 # ── MCP server-level names ───────────────────────────────────────────────────
 
@@ -18,7 +22,6 @@ MCP_SERVER_DISPLAY_NAMES: Dict[str, str] = {
     "db_query": "数据库直连查询",
     "retrieve_dataset_content": "知识库检索",
     "internet_search": "互联网搜索",
-    "ai_chain_information_mcp": "产业知识中心查询",
     "generate_chart_tool": "数据可视化",
     # (Word capability migrated to the word-editing skill; no longer goes by an MCP tool name)
     # (Excel capability migrated to the excel-editing skill; no longer goes by an MCP tool name)
@@ -26,6 +29,7 @@ MCP_SERVER_DISPLAY_NAMES: Dict[str, str] = {
     # (PDF capability migrated to the pdf-editing skill; no longer goes by an MCP tool name)
     "web_fetch": "网站信息抓取",
     "batch_runner": "批量执行",
+    **edition_mcp_server_display_names(),
 }
 
 # MCP server ID -> one-line feature description (used for capability-center panel description text)
@@ -34,7 +38,6 @@ MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
     "db_query": "通过 DBHub 网关只读直连 MySQL/PostgreSQL/SQL Server/MariaDB/SQLite 等数据库，自动探查表结构并执行 SQL 取数。",
     "retrieve_dataset_content": "从公有/私有知识库中语义检索政策文件、产业报告及用户上传文档，支持混合检索与重排序。",
     "internet_search": "通过互联网实时搜索公开网页、新闻及财经资讯，作为数据库与知识库之外的信息兜底。",
-    "ai_chain_information_mcp": "获取产业链全景分析报告、核心数据指标、产业动态资讯、AI 领域热点聚合及企业画像查询。",
     "generate_chart_tool": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
     # (Word capability migrated to the word-editing skill; no longer goes by an MCP tool name)
     # (Excel capability migrated to the excel-editing skill; no longer goes by an MCP tool name)
@@ -42,6 +45,7 @@ MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
     # (PDF capability migrated to the pdf-editing skill; no longer goes by an MCP tool name)
     "web_fetch": "抓取指定网页 URL 的内容，提取正文文本或 Markdown，支持搜索引擎结果页解析。",
     "batch_runner": "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，用户审阅模板后再逐条执行。",
+    **edition_mcp_server_descriptions(),
 }
 
 # ── Tool function-level names ────────────────────────────────────────────────
@@ -56,6 +60,12 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     "retrieve_dataset_content": "公有知识库检索",
     "retrieve_local_kb": "私有知识库检索",
     "list_datasets": "查看知识库列表",
+    # LLM Wiki / 概念图谱（仅 Wiki-capable 知识库后端下暴露）
+    "wiki_overview": "知识地图总览",
+    "wiki_locate": "知识地图定位",
+    "wiki_read_page": "阅读概念页",
+    "wiki_expand": "展开相关概念",
+    "wiki_fetch_source": "回溯原文出处",
     "internet_search": "互联网搜索",
     "get_chain_information": "产业链分析",
     "get_industry_news": "产业资讯",

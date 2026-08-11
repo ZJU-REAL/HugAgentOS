@@ -62,9 +62,6 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "knowledge_base",
         False,
     ),
-    # industry
-    ("industry.url", None, "产业知识中心 URL", "产业链信息接口地址", "industry", False),
-    ("industry.auth_token", None, "产业知识中心 Token", "产业链信息接口鉴权令牌", "industry", True),
     # file_parser
     ("file_parser.api_url", None, "文件解析 API URL", "PDF/文档解析服务地址", "file_parser", False),
     ("file_parser.timeout", "60", "超时时间(秒)", "文件解析请求超时", "file_parser", False),
@@ -235,6 +232,36 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "auth",
         False,
     ),
+    # turbo —— 极速模式（检索速查）。工具集独立于能力目录（catalog）的启停状态：
+    # 极速模式装配的 MCP 以本组配置为唯一来源，管理台改动 ≤30s 生效、无需重启。
+    (
+        "turbo.mcp_server_ids",
+        "retrieve_dataset_content,internet_search,web_fetch",
+        "极速模式可用工具",
+        "极速模式下装配的 MCP 工具集合（逗号分隔的 server id）。"
+        "该集合不受「能力目录」中 MCP/技能/智能体/插件启停的影响，是极速模式工具面的唯一来源。",
+        "turbo",
+        False,
+    ),
+    (
+        "turbo.manual_invoke_enable",
+        "true",
+        "允许手动呼唤能力",
+        "开启后，用户在极速模式对话框中通过斜杠命令呼唤技能/插件、@ 呼唤子智能体时，"
+        "被呼唤的能力将临时装配到本次请求（仅显式呼唤时可用，不会把全量能力清单注入提示词）。"
+        "关闭后极速模式严格只用上面的工具集合。",
+        "turbo",
+        False,
+    ),
+    (
+        "turbo.max_iters",
+        "4",
+        "迭代轮数上限",
+        "极速模式单次回答的最大 ReAct 迭代轮数（含最终作答轮）。"
+        "上限越小响应越快；默认 4 对应「最多 1-2 轮并行检索 + 直接作答」的产品契约。",
+        "turbo",
+        False,
+    ),
 ] + EDITION_SEED_CONFIGS
 
 # config_key → env var name mapping
@@ -244,8 +271,6 @@ _CONFIG_KEY_TO_ENV: dict[str, str] = {
     "query_database.retry_times": "QUERY_DATABASE_RETRY_TIMES",
     "query_database.max_output_tokens": "QUERY_DATABASE_MAX_OUTPUT_TOKENS",
     "knowledge_base.detail_max_chars": "KB_DETAIL_CONTENT_MAX_CHARS",
-    "industry.url": "INDUSTRY_URL",
-    "industry.auth_token": "INDUSTRY_AUTH_TOKEN",
     "file_parser.api_url": "FILE_PARSER_API_URL",
     "file_parser.timeout": "FILE_PARSER_TIMEOUT",
     "file_parser.lang_list": "FILE_PARSER_LANG_LIST",
@@ -479,6 +504,46 @@ def code_capability_enabled() -> bool:
     except Exception:  # noqa: BLE001 — conservatively disable on config-layer errors
         return False
     return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
+#: 极速模式检索工具集的代码内兜底（配置层异常/为空时使用）。
+DEFAULT_TURBO_MCP_SERVER_IDS = frozenset(
+    {"retrieve_dataset_content", "internet_search", "web_fetch"}
+)
+
+
+def turbo_mcp_server_ids() -> frozenset[str]:
+    """极速模式装配的 MCP server 集合（运行时唯一真源）。
+
+    控制源 = Config 管理台「系统配置 → 极速模式」的 ``turbo.mcp_server_ids``
+    （逗号分隔）。刻意不与能力目录（catalog）的启停求交集——极速模式的工具面
+    是独立的产品契约。配置异常或解析为空时回退到内置检索三件套。
+    """
+    default = ",".join(sorted(DEFAULT_TURBO_MCP_SERVER_IDS))
+    try:
+        raw = SystemConfigService.get_instance().get("turbo.mcp_server_ids", default) or default
+    except Exception:  # noqa: BLE001 — conservatively fall back to the built-in trio
+        return DEFAULT_TURBO_MCP_SERVER_IDS
+    ids = frozenset(part.strip() for part in str(raw).split(",") if part.strip())
+    return ids or DEFAULT_TURBO_MCP_SERVER_IDS
+
+
+def turbo_manual_invoke_enabled() -> bool:
+    """极速模式下是否允许显式呼唤（斜杠技能 / @子智能体 / 插件）临时装配。"""
+    try:
+        val = SystemConfigService.get_instance().get("turbo.manual_invoke_enable", "true")
+    except Exception:  # noqa: BLE001
+        return True
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
+def turbo_max_iters() -> int:
+    """极速模式的 ReAct 迭代硬上限（最小 2，防止配错把回答轮也掐掉）。"""
+    try:
+        val = SystemConfigService.get_instance().get("turbo.max_iters", "4")
+        return max(2, int(str(val).strip()))
+    except Exception:  # noqa: BLE001
+        return 4
 
 
 def auto_plan_entry_enabled() -> bool:

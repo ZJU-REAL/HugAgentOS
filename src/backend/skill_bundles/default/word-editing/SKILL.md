@@ -139,6 +139,17 @@ word-cli <subcmd> --help         # 单个子命令的参数详解
 **5. `create` 默认走 markdown 模式，只有用户**显式**要"目录 / 封面 / 页眉页脚 / 页码 / 多节布局 / 非默认页面尺寸/边距"才升级到 `--content`。**
 用户只说"生成一份 X 报告"、"写一份 Y 通知"、"出一份 Z 方案"——不带额外排版要求——就用 `word-cli create --markdown-file /workspace/draft.md`（推荐，规避 argv 长度和 shell 转义的坑）或者退而用 `word-cli create --markdown "$(cat /workspace/draft.md)"`。**绝对不要**写 `--markdown /workspace/draft.md`——`--markdown` 收的是字面文本，不是路径，否则会把路径字符串本身渲染成 Word 正文（脚本已加 hard fail 拦截，但仍是常踩的坑）。markdown 模式已经自带公文版式（仿宋正文 + 小标宋标题 + 首行缩进 2 字 + 1.5 倍行距 + 两端对齐），还支持 `#`/`##` 标题、`-`/`1.` 列表、` ``` ` 代码块、`| a | b |` 表格、行内 `**bold**`/`*italic*`/链接，覆盖绝大多数公文/报告/通知/方案。要求"图文并茂 / 含表格"也走 markdown（表格用 `|...|`；图片先 `insert_image` op 或者在 markdown 里写 `![](path)`）。**只有**用户原话出现"目录 / TOC / 封面 / 页眉 / 页脚 / 页码 / A3 / 横排 / 分节"等才升级到 `--content` —— 见决策树的"造新文档"分支。
 
+**6. 长文档（正文预计 > 2 万字）必须分章增量写入草稿文件，严禁一次工具调用塞整篇正文。**
+你单次工具调用能携带的文本量受**单次 LLM 输出上限**（约 3 万 token）硬约束——试图在一次
+`bash` heredoc / 一次写文件调用里塞 10 万字正文，参数会被静默截断，产出的 draft.md/docx
+只剩开头 2-3 万字（实测 200 页报告因此反复交付出 30 页残稿；**这不是 word-cli 的限制**，
+word-cli 对 12 万字 markdown 实测无截断）。正确做法：
+- **每次调用只写一章（≤ 1 万字），append 追加**：`bash("cat >> /workspace/draft.md <<'EOF'\n## 第N章 …\n正文…\nEOF")`，逐章推进；
+- **每写完 2-3 章核验一次累计字数**：`bash("wc -m /workspace/draft.md")`，与目标字数对账，缺了立刻补写，不要等到最后才发现少了一半；
+- 全部章节写齐、字数达标后，**一次** `word-cli create --markdown-file /workspace/draft.md` 出 docx；
+- 出完 docx 用 `word-cli read --mode text` 读回并抽查末章存在 + 总字数≈草稿字数，确认无截断再交付；页数要求则再 `convert --to pdf` 后核验页数。
+把"写正文"与"排版出稿"分离：正文分章进 draft.md（多次小调用），排版一次成型（单次 create）。
+
 ---
 
 ## 决策树（90% 场景看这一张图就够）

@@ -154,9 +154,12 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
 
   const submitInstall = useCallback(async () => {
     if (!installTarget) return;
+    const credentialsManaged = installTarget.credentials_managed_by_admin === true;
     const methodId = selectedAuthMethod || installTarget.auth_config?.default_method;
     const method = installTarget.auth_config?.methods?.find((row) => row.id === methodId);
-    const popup = method?.type === 'oauth2' ? window.open('about:blank', '_blank', 'width=720,height=760') : null;
+    const popup = method?.type === 'oauth2' && !credentialsManaged
+      ? window.open('about:blank', '_blank', 'width=720,height=760')
+      : null;
     let values;
     try {
       values = await installForm.validateFields();
@@ -171,7 +174,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     if (oauthAttempt) oauthAttemptRef.current = oauthAttempt;
     try {
       let result: { server_id?: string; action?: string };
-      if (method?.type === 'oauth2') {
+      if (method?.type === 'oauth2' && !credentialsManaged) {
         const started = await startMcpMarketOAuth({
           slug: installTarget.slug,
           auth_method: method.id,
@@ -212,7 +215,9 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
       }
       message.success(result.action === 'installed'
         ? t('「{name}」已安装到 MCP 工具库', { name: installTarget.display_name })
-        : t('「{name}」的凭据已更新', { name: installTarget.display_name }));
+        : credentialsManaged
+          ? t('「{name}」已重新安装', { name: installTarget.display_name })
+          : t('「{name}」的凭据已更新', { name: installTarget.display_name }));
       setItems((current) => current.map((item) => (
         item.slug === installTarget.slug ? { ...item, installed: true } : item
       )));
@@ -246,7 +251,9 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
         startInstall(item);
       }}
     >
-      {item.installed ? t('更新凭据') : canInstall ? t('安装') : t('无安装权限')}
+      {item.installed
+        ? item.credentials_managed_by_admin ? t('重新安装') : t('更新凭据')
+        : canInstall ? t('安装') : t('无安装权限')}
     </Button>
   );
 
@@ -289,7 +296,9 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
             <div className="jx-mcp-marketFacts">
               <span><ApiOutlined /> {detail.transport === 'streamable_http' ? 'Streamable HTTP' : 'SSE'}</span>
               <span><SafetyCertificateOutlined /> {t('最近验证：{time}', { time: detail.last_verified_at ? new Date(detail.last_verified_at).toLocaleString() : '-' })}</span>
-              {detail.requires_auth && <span><KeyOutlined /> {t('安装时需配置凭据')}</span>}
+              {detail.credentials_managed_by_admin
+                ? <span><KeyOutlined /> {t('管理员已配置凭据，安装时无需填写')}</span>
+                : detail.requires_user_credentials && <span><KeyOutlined /> {t('安装时需配置凭据')}</span>}
             </div>
             {detail.risk_level === 'high' && (
               <Alert
@@ -354,7 +363,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                           ? t('安装时发现工具')
                           : `${item.tool_count} ${t('个工具')}`}</span>
                         <span>{item.publisher_name || t('平台')}</span>
-                        {item.requires_auth && <KeyOutlined />}
+                        {item.requires_user_credentials && <KeyOutlined />}
                       </div>
                     </div>
                     {installButton(item)}
@@ -381,11 +390,15 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
         onCancel={cancelInstall}
         onOk={() => void submitInstall()}
         confirmLoading={installing}
-        okText={installTarget?.installed ? t('更新凭据') : t('安装')}
+        okText={installTarget?.installed
+          ? installTarget.credentials_managed_by_admin ? t('重新安装') : t('更新凭据')
+          : t('安装')}
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary">
-          {t('市场不会共享发布者凭据。请填写你自己的认证信息，凭据将加密保存到个人安装实例。')}
+          {installTarget?.credentials_managed_by_admin
+            ? t('该 MCP 使用管理员托管凭据，安装时无需填写 Token；凭据仅由后端使用，不会向用户展示。')
+            : t('市场不会共享发布者凭据。请填写你自己的认证信息，凭据将加密保存到个人安装实例。')}
         </Typography.Paragraph>
         {installTarget?.risk_report.install_notice && (
           <Alert
@@ -396,7 +409,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
           />
         )}
         <Form form={installForm} layout="vertical">
-          {(installTarget?.auth_config?.methods?.length || 0) > 1 && (
+          {!installTarget?.credentials_managed_by_admin && (installTarget?.auth_config?.methods?.length || 0) > 1 && (
             <Form.Item name="auth_method" label={t('认证方式')} rules={[{ required: true }]}>
               <Select options={installTarget?.auth_config.methods.map((method) => ({
                 value: method.id,
@@ -404,7 +417,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               }))} />
             </Form.Item>
           )}
-          {installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.type === 'oauth2' && (
+          {!installTarget?.credentials_managed_by_admin && installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.type === 'oauth2' && (
             <Alert
               type="info"
               showIcon
@@ -413,17 +426,17 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               message={installTarget.auth_config.methods.find((method) => method.id === selectedAuthMethod)?.help_text || t('点击安装后将在新窗口完成 OAuth 登录。')}
             />
           )}
-          {installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.client_id_required && (
+          {!installTarget?.credentials_managed_by_admin && installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.client_id_required && (
             <Form.Item name="oauth_client_id" label="OAuth Client ID" rules={[{ required: true }]}>
               <Input autoComplete="off" />
             </Form.Item>
           )}
-          {installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.client_secret_required && (
+          {!installTarget?.credentials_managed_by_admin && installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.client_secret_required && (
             <Form.Item name="oauth_client_secret" label="OAuth Client Secret" rules={[{ required: true }]}>
               <Input.Password autoComplete="new-password" />
             </Form.Item>
           )}
-          {(installTarget?.auth_schema || []).filter((field) => (
+          {!installTarget?.credentials_managed_by_admin && (installTarget?.auth_schema || []).filter((field) => (
             !field.methods?.length || field.methods.includes(selectedAuthMethod || installTarget?.auth_config?.default_method)
           )).map((field) => (
             <Form.Item

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import socket
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from api.routes.v1 import admin_mcp_servers as admin_mcp_routes
 from core.db.engine import Base
 from core.db.models import (
     AdminMcpServer,
@@ -65,6 +68,87 @@ def _tools(*names: str):
         }
         for name in names
     ]
+
+
+@pytest.mark.asyncio
+async def test_http_probe_uses_stateless_client_without_explicit_close(db, monkeypatch):
+    calls = {"connected": 0, "closed": 0, "is_stateful": None}
+
+    class FakeClient:
+        async def connect(self):
+            calls["connected"] += 1
+
+        async def list_tools(self):
+            return [SimpleNamespace(name="search", description="Search", inputSchema={})]
+
+        async def close(self):
+            calls["closed"] += 1
+
+    def _make_client(name, cfg, *, is_stateful=True, **kwargs):
+        calls["is_stateful"] = is_stateful
+        return FakeClient()
+
+    from core.llm import mcp_pool
+
+    monkeypatch.setattr(mcp_pool, "make_client", _make_client)
+    row = AdminMcpServer(
+        server_id="stateless_probe",
+        display_name="Stateless Probe",
+        transport="streamable_http",
+        url="https://mcp.example.test/mcp",
+        headers={},
+        is_enabled=True,
+    )
+
+    ok, error = await management.probe_mcp_connectivity(row)
+
+    assert ok is True
+    assert error == ""
+    assert calls == {"connected": 0, "closed": 0, "is_stateful": False}
+    assert row.tools_json[0]["name"] == "search"
+
+
+@pytest.mark.asyncio
+async def test_http_probe_surfaces_401_instead_of_cancel_scope_noise(db, monkeypatch):
+    request = httpx.Request("POST", "https://mcp.example.test/mcp")
+    response = httpx.Response(401, request=request)
+    unauthorized = httpx.HTTPStatusError(
+        "401 Unauthorized",
+        request=request,
+        response=response,
+    )
+
+    class FakeClient:
+        async def list_tools(self):
+            raise BaseExceptionGroup(
+                "MCP request failed",
+                [
+                    unauthorized,
+                    asyncio.CancelledError("Cancelled via cancel scope deadbeef"),
+                ],
+            )
+
+    def _make_client(name, cfg, *, is_stateful=True, **kwargs):
+        assert is_stateful is False
+        return FakeClient()
+
+    from core.llm import mcp_pool
+
+    monkeypatch.setattr(mcp_pool, "make_client", _make_client)
+    row = AdminMcpServer(
+        server_id="unauthorized_probe",
+        display_name="Unauthorized Probe",
+        transport="streamable_http",
+        url="https://mcp.example.test/mcp",
+        headers={},
+        is_enabled=True,
+    )
+
+    ok, error = await management.probe_mcp_connectivity(row)
+
+    assert ok is False
+    assert error == "远端 MCP 返回 401 Unauthorized，请检查鉴权设置和 Token"
+    assert "cancel scope" not in error.lower()
 
 
 def _private_server(db, *, owner: str = "u1", server_id: str = "umcp_source"):
@@ -311,6 +395,24 @@ def test_oauth_callback_uses_browser_origin_not_untrusted_host(monkeypatch):
     )
 
 
+def test_oauth_callback_allows_configured_http_in_production(monkeypatch):
+    monkeypatch.setattr(
+        oauth_service,
+        "settings",
+        SimpleNamespace(
+            server=SimpleNamespace(
+                mcp_oauth_public_base_url="http://app.example.test/api",
+                is_prod=True,
+            )
+        ),
+    )
+    request = SimpleNamespace(headers={}, url=SimpleNamespace(netloc="ignored.example.test"))
+
+    assert oauth_service.public_oauth_callback_url(request) == (
+        "http://app.example.test/api/v1/mcp-market/oauth/callback"
+    )
+
+
 def test_legacy_plaintext_headers_are_encrypted_once(db):
     row = _private_server(db)
     row.headers = {"Authorization": "Bearer legacy"}
@@ -335,6 +437,20 @@ async def test_remote_url_security_blocks_private_and_accepts_public_dns(monkeyp
         lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))],
     )
     await validate_remote_mcp_url("https://example.com/mcp")
+
+
+@pytest.mark.asyncio
+async def test_remote_url_security_allows_public_http_when_requested(monkeypatch):
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 80))],
+    )
+
+    await validate_remote_mcp_url("http://example.com/mcp", require_https=False)
+
+    with pytest.raises(BadRequestError, match="本机、内网或保留地址"):
+        await validate_remote_mcp_url("http://127.0.0.1/mcp", require_https=False)
 
 
 @pytest.mark.asyncio
@@ -501,6 +617,45 @@ async def test_submit_snapshots_without_credentials_then_approve(db, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_public_http_marketplace_submit_review_and_install(db, monkeypatch):
+    source = _private_server(db)
+    source.url = "http://8.8.8.8:8082/mcp"
+    db.commit()
+
+    async def _probe(row, db=None):
+        return True, ""
+
+    monkeypatch.setattr(market, "probe_mcp_connectivity", _probe)
+    monkeypatch.setattr(market, "refresh_mcp_caches", lambda: None)
+
+    submitted = await market.submit_to_marketplace(
+        db,
+        source.server_id,
+        owner_user_id="u1",
+        submitter_name="Alice",
+        category="信息检索",
+        version="1.0.0",
+    )
+    reviewed = await market.review_submission(
+        db,
+        submitted["submission_id"],
+        approve=True,
+        reviewed_by="admin",
+    )
+    installed = await market.install_market_item(
+        db,
+        reviewed["slug"],
+        owner_user_id="u2",
+        installed_by="u2",
+        credentials={"Authorization": "Bearer user-two"},
+    )
+
+    row = db.query(AdminMcpServer).filter_by(server_id=installed["server_id"]).one()
+    assert row.url == "http://8.8.8.8:8082/mcp"
+    assert row.owner_user_id == "u2"
+
+
+@pytest.mark.asyncio
 async def test_market_installed_private_server_cannot_submit_again(db):
     item, version = _approved_market(db)
     source = _private_server(db)
@@ -608,20 +763,370 @@ async def test_marketplace_first_admin_source_is_reused_on_global_install(db, mo
     assert source.is_enabled is False
     assert source.extra_config["market_source_only"] is True
     assert db.query(McpMarketInstallation).count() == 0
+    assert published["requires_auth"] is True
+    assert published["credentials_managed_by_admin"] is True
+    assert published["requires_user_credentials"] is False
+    assert "publisher-secret" not in json.dumps(published)
 
     installed = await market.install_market_item(
         db,
         published["slug"],
         owner_user_id=None,
         installed_by="admin",
-        credentials={"Authorization": "Bearer admin-token"},
+        credentials={},
     )
     db.refresh(source)
     assert installed["server_id"] == source.server_id
     assert source.is_enabled is True
     assert "market_source_only" not in source.extra_config
+    assert decrypt_mcp_headers(source.headers)["Authorization"] == "Bearer publisher-secret"
     assert db.query(AdminMcpServer).count() == 1
     assert db.query(McpMarketInstallation).one().server_id == source.server_id
+
+
+@pytest.mark.asyncio
+async def test_user_install_reuses_admin_managed_credentials_without_exposing_them(db, monkeypatch):
+    source = _private_server(db, owner="temporary", server_id="shared_market_source")
+    source.owner_user_id = None
+    db.commit()
+    _patch_probe(monkeypatch)
+
+    published = await market.publish_admin_server(
+        db,
+        source.server_id,
+        category="信息检索",
+        version="1.0.0",
+        link_as_installation=False,
+    )
+    listed = market.get_market_item(
+        db,
+        published["slug"],
+        owner_user_id="u2",
+        viewer_user_id="u2",
+    )
+    assert listed["credentials_managed_by_admin"] is True
+    assert listed["requires_user_credentials"] is False
+    assert "publisher-secret" not in json.dumps(listed)
+
+    installed = await market.install_market_item(
+        db,
+        published["slug"],
+        owner_user_id="u2",
+        installed_by="u2",
+        credentials={},
+    )
+    private_server = db.query(AdminMcpServer).filter_by(server_id=installed["server_id"]).one()
+    assert private_server.owner_user_id == "u2"
+    assert decrypt_mcp_headers(private_server.headers)["Authorization"] == (
+        "Bearer publisher-secret"
+    )
+    assert "publisher-secret" not in str(private_server.headers)
+    db.refresh(source)
+    assert source.is_enabled is False
+    assert source.extra_config["market_source_only"] is True
+
+
+@pytest.mark.asyncio
+async def test_user_install_reuses_admin_managed_query_token(db, monkeypatch):
+    source = _private_server(db, owner="temporary", server_id="query_market_source")
+    source.owner_user_id = None
+    source.url = "https://mcp.example.test/mcp?key=publisher-query-secret&locale=zh-CN"
+    db.commit()
+    _patch_probe(monkeypatch)
+
+    published = await market.publish_admin_server(
+        db,
+        source.server_id,
+        category="信息检索",
+        version="1.0.0",
+        link_as_installation=False,
+    )
+    assert published["credentials_managed_by_admin"] is True
+    assert published["url_origin"] == "https://mcp.example.test"
+    assert "publisher-query-secret" not in json.dumps(published)
+
+    installed = await market.install_market_item(
+        db,
+        published["slug"],
+        owner_user_id="u2",
+        installed_by="u2",
+        credentials={},
+    )
+    private_server = db.query(AdminMcpServer).filter_by(server_id=installed["server_id"]).one()
+    assert private_server.url == "https://mcp.example.test/mcp?locale=zh-CN"
+    assert "publisher-query-secret" not in str(private_server.headers)
+    runtime_url, runtime_headers = materialize_mcp_http_connection(
+        private_server.url,
+        decrypt_mcp_headers(private_server.headers),
+    )
+    assert runtime_url == ("https://mcp.example.test/mcp?locale=zh-CN&key=publisher-query-secret")
+    assert runtime_headers == {"Authorization": "Bearer publisher-secret"}
+
+
+@pytest.mark.asyncio
+async def test_removed_admin_credential_falls_back_to_installer_input(db, monkeypatch):
+    source = _private_server(db, owner="temporary", server_id="unmanaged_market_source")
+    source.owner_user_id = None
+    db.commit()
+    _patch_probe(monkeypatch)
+
+    published = await market.publish_admin_server(
+        db,
+        source.server_id,
+        category="信息检索",
+        version="1.0.0",
+        link_as_installation=False,
+    )
+    source.headers = {}
+    db.commit()
+    listed = market.get_market_item(
+        db,
+        published["slug"],
+        owner_user_id="u2",
+        viewer_user_id="u2",
+    )
+    assert listed["credentials_managed_by_admin"] is False
+    assert listed["requires_user_credentials"] is True
+
+    with pytest.raises(BadRequestError, match="请填写安装凭据"):
+        await market.install_market_item(
+            db,
+            published["slug"],
+            owner_user_id="u2",
+            installed_by="u2",
+            credentials={},
+        )
+
+
+@pytest.mark.asyncio
+async def test_market_edit_can_require_installer_credentials_without_reusing_source(
+    db, monkeypatch
+):
+    source = _private_server(db, owner="temporary", server_id="installer_auth_source")
+    source.owner_user_id = None
+    db.commit()
+    _patch_probe(monkeypatch)
+
+    published = await market.publish_admin_server(
+        db,
+        source.server_id,
+        category="信息检索",
+        version="1.0.0",
+        link_as_installation=False,
+    )
+    updated = market.update_market_item(
+        db,
+        published["slug"],
+        requires_auth=True,
+        credential_mode="installer",
+    )
+    assert updated["requires_auth"] is True
+    assert updated["credentials_managed_by_admin"] is False
+    assert updated["requires_user_credentials"] is True
+    assert updated["auth_config"]["credential_mode"] == "installer"
+    assert decrypt_mcp_headers(source.headers)["Authorization"] == "Bearer publisher-secret"
+
+    with pytest.raises(BadRequestError, match="请填写安装凭据"):
+        await market.install_market_item(
+            db,
+            published["slug"],
+            owner_user_id="u2",
+            installed_by="u2",
+            credentials={},
+        )
+
+
+@pytest.mark.asyncio
+async def test_market_edit_sets_admin_token_and_keeps_it_out_of_responses(db, monkeypatch):
+    source = _private_server(db, owner="temporary", server_id="edited_admin_auth_source")
+    source.owner_user_id = None
+    db.commit()
+    _patch_probe(monkeypatch)
+
+    published = await market.publish_admin_server(
+        db,
+        source.server_id,
+        category="信息检索",
+        version="1.0.0",
+        link_as_installation=False,
+    )
+    updated = market.update_market_item(
+        db,
+        published["slug"],
+        requires_auth=True,
+        credential_mode="admin",
+        managed_credentials={"Authorization": "Bearer centrally-managed"},
+    )
+    assert updated["credentials_managed_by_admin"] is True
+    assert updated["requires_user_credentials"] is False
+    assert updated["auth_config"]["credential_mode"] == "admin"
+    assert "centrally-managed" not in json.dumps(updated)
+    db.refresh(source)
+    assert decrypt_mcp_headers(source.headers)["Authorization"] == ("Bearer centrally-managed")
+    assert "centrally-managed" not in str(source.headers)
+
+    installed = await market.install_market_item(
+        db,
+        published["slug"],
+        owner_user_id="u2",
+        installed_by="u2",
+        credentials={},
+    )
+    private_server = db.query(AdminMcpServer).filter_by(server_id=installed["server_id"]).one()
+    assert decrypt_mcp_headers(private_server.headers)["Authorization"] == (
+        "Bearer centrally-managed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_market_mcp_with_blank_token_requires_each_installer(db, monkeypatch):
+    async def _validate(*args, **kwargs):
+        return None
+
+    async def _fail_probe(*args, **kwargs):
+        return False, "401 Unauthorized"
+
+    monkeypatch.setattr(market, "validate_remote_mcp_url", _validate)
+    monkeypatch.setattr(market, "probe_mcp_connectivity", _fail_probe)
+    monkeypatch.setattr(market, "refresh_mcp_caches", lambda: None)
+    monkeypatch.setattr(admin_mcp_routes, "_probe_connectivity", _fail_probe)
+    monkeypatch.setattr(admin_mcp_routes, "_sync_catalog_from_db", lambda db: None)
+    monkeypatch.setattr(admin_mcp_routes, "_refresh_caches", lambda: None)
+
+    request = admin_mcp_routes.McpServerCreateRequest(
+        server_id="blank_token_mcp",
+        display_name="Blank Token MCP",
+        description="Discovers tools after the user authenticates",
+        transport="streamable_http",
+        url="https://mcp.example.test/mcp",
+        publish_to_marketplace=True,
+        market_requires_auth=True,
+        market_auth_type="token",
+        market_auth_header="Authorization",
+        market_auth_prefix="Bearer ",
+        market_admin_token="",
+    )
+    await admin_mcp_routes.create_mcp_server(request, db)
+
+    listed = market.list_market_items(
+        db,
+        owner_user_id="u2",
+        viewer_user_id="u2",
+    )[
+        "items"
+    ][0]
+    assert listed["requires_auth"] is True
+    assert listed["requires_user_credentials"] is True
+    assert listed["credentials_managed_by_admin"] is False
+    assert listed["supports_admin_credentials"] is True
+    assert listed["auth_config"]["credential_mode"] == "installer"
+    assert listed["risk_report"]["discovery_mode"] == "per_install"
+    assert listed["tool_count"] == 0
+
+    async def _authenticated_probe(row, db=None):
+        assert decrypt_mcp_headers(row.headers)["Authorization"] == "Bearer user-secret"
+        row.tools_json = _tools("search_documents")
+        return True, ""
+
+    monkeypatch.setattr(market, "probe_mcp_connectivity", _authenticated_probe)
+    installed = await market.install_market_item(
+        db,
+        listed["slug"],
+        owner_user_id="u2",
+        installed_by="u2",
+        credentials={"Authorization": "user-secret"},
+    )
+    private_server = db.query(AdminMcpServer).filter_by(server_id=installed["server_id"]).one()
+    assert decrypt_mcp_headers(private_server.headers)["Authorization"] == "Bearer user-secret"
+    assert private_server.tools_json == _tools("search_documents")
+
+
+@pytest.mark.asyncio
+async def test_create_market_mcp_with_admin_token_makes_user_install_tokenless(db, monkeypatch):
+    discovered_tools = _tools("search_documents")
+
+    async def _validate(*args, **kwargs):
+        return None
+
+    async def _probe(row, db=None):
+        row.tools_json = discovered_tools
+        return True, ""
+
+    monkeypatch.setattr(market, "validate_remote_mcp_url", _validate)
+    monkeypatch.setattr(market, "probe_mcp_connectivity", _probe)
+    monkeypatch.setattr(market, "refresh_mcp_caches", lambda: None)
+    monkeypatch.setattr(admin_mcp_routes, "_probe_connectivity", _probe)
+    monkeypatch.setattr(admin_mcp_routes, "_sync_catalog_from_db", lambda db: None)
+    monkeypatch.setattr(admin_mcp_routes, "_refresh_caches", lambda: None)
+
+    request = admin_mcp_routes.McpServerCreateRequest(
+        server_id="admin_token_mcp",
+        display_name="Admin Token MCP",
+        description="Uses one administrator token",
+        transport="streamable_http",
+        url="https://mcp.example.test/mcp",
+        publish_to_marketplace=True,
+        market_requires_auth=True,
+        market_auth_type="token",
+        market_auth_header="Authorization",
+        market_auth_prefix="Bearer ",
+        market_admin_token="central-secret",
+    )
+    await admin_mcp_routes.create_mcp_server(request, db)
+
+    source = db.query(AdminMcpServer).filter_by(server_id="admin_token_mcp").one()
+    assert decrypt_mcp_headers(source.headers)["Authorization"] == "Bearer central-secret"
+    assert "central-secret" not in str(source.headers)
+    listed = market.list_market_items(
+        db,
+        owner_user_id="u2",
+        viewer_user_id="u2",
+    )[
+        "items"
+    ][0]
+    assert listed["credentials_managed_by_admin"] is True
+    assert listed["requires_user_credentials"] is False
+    assert "central-secret" not in json.dumps(listed)
+
+
+@pytest.mark.asyncio
+async def test_create_market_mcp_with_oauth_defers_authorization_to_installer(db, monkeypatch):
+    async def _validate(*args, **kwargs):
+        return None
+
+    async def _fail_probe(*args, **kwargs):
+        return False, "401 Unauthorized"
+
+    monkeypatch.setattr(market, "validate_remote_mcp_url", _validate)
+    monkeypatch.setattr(market, "probe_mcp_connectivity", _fail_probe)
+    monkeypatch.setattr(market, "refresh_mcp_caches", lambda: None)
+    monkeypatch.setattr(admin_mcp_routes, "_probe_connectivity", _fail_probe)
+    monkeypatch.setattr(admin_mcp_routes, "_sync_catalog_from_db", lambda db: None)
+    monkeypatch.setattr(admin_mcp_routes, "_refresh_caches", lambda: None)
+
+    request = admin_mcp_routes.McpServerCreateRequest(
+        server_id="oauth_market_mcp",
+        display_name="OAuth Market MCP",
+        transport="streamable_http",
+        url="https://mcp.example.test/mcp",
+        publish_to_marketplace=True,
+        market_requires_auth=True,
+        market_auth_type="oauth2",
+    )
+    await admin_mcp_routes.create_mcp_server(request, db)
+
+    listed = market.list_market_items(
+        db,
+        owner_user_id="u2",
+        viewer_user_id="u2",
+    )[
+        "items"
+    ][0]
+    assert listed["requires_auth"] is True
+    assert listed["requires_user_credentials"] is True
+    assert listed["auth_config"]["default_method"] == "oauth2"
+    assert listed["auth_config"]["methods"][0]["type"] == "oauth2"
+    assert listed["risk_report"]["discovery_mode"] == "per_install"
 
 
 @pytest.mark.asyncio
@@ -750,6 +1255,7 @@ async def test_curated_templates_seed_once_and_materialize_user_query_key(db, mo
         viewer_user_id="u2",
     )
     assert gitlab_item["auth_config"]["default_method"] == "oauth2"
+    assert gitlab_item["supports_admin_credentials"] is False
     assert {method["type"] for method in gitlab_item["auth_config"]["methods"]} == {
         "oauth2",
         "token",

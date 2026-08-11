@@ -502,7 +502,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          {t('仅支持公网 HTTPS 的远程 HTTP/SSE MCP，添加时会执行地址安全检查和工具发现。该连接仅你自己可见可用，之后可申请上架市场。')}
+          {t('支持公网 HTTP/HTTPS 的远程 HTTP/SSE MCP，添加时会执行地址安全检查和工具发现。HTTP 为明文传输，生产环境建议使用 HTTPS。该连接仅你自己可见可用，之后可申请上架市场。')}
         </Typography.Paragraph>
         <Form form={form} layout="vertical" initialValues={{ transport: 'streamable_http' }}>
           <Form.Item name="display_name" label={t('名称')} rules={[{ required: true, message: t('请输入名称') }]}>
@@ -517,7 +517,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
             />
           </Form.Item>
           <Form.Item name="url" label={t('服务地址 URL')} rules={[{ required: true, message: t('请输入 URL') }]}>
-            <Input placeholder="https://example.com/mcp/" />
+            <Input placeholder="http://example.com:8080/mcp 或 https://example.com/mcp" />
           </Form.Item>
           <Form.Item name="description" label={t('描述（可选）')}>
             <Input.TextArea rows={2} maxLength={2000} placeholder={t('简单说明这个工具的用途')} />

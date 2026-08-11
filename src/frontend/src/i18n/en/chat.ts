@@ -8,6 +8,8 @@ export const CHAT_DICT: Record<string, string> = {
   '追问引用': 'Quoted reference',
   '移除引用': 'Remove quote',
   '请输入你的问题，按Enter发送，Shift+Enter换行': 'Type your message, Enter to send, Shift+Enter for new line',
+  '极速模式': 'Turbo',
+  '政策资讯速查，仅检索工具，秒级直达结果': 'Instant policy & info lookup — retrieval-only tools, answers in seconds',
   '快速模式': 'Fast',
   '适用于大部分情况': 'Suitable for most situations',
   '思考·中': 'Think·Medium',

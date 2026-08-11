@@ -46,6 +46,17 @@ EmitFn = Callable[[Dict[str, Any]], Awaitable[None]]
 _VALID_VERDICTS = (DONE, CONTINUE, OFF_TRACK, NEED_HUMAN)
 
 
+def _reviewer_tool_result_limit() -> int:
+    """Per-tool-result context cap (tokens) for the reviewer agent — see
+    autonomous_loop._loop_tool_result_limit for the measurement that motivated it."""
+    import os
+
+    try:
+        return max(1_000, int(os.getenv("LOOP_TOOL_RESULT_LIMIT", "6000")))
+    except ValueError:
+        return 6_000
+
+
 def _build_review_prompt(
     *,
     objective: str,
@@ -79,6 +90,9 @@ def _build_review_prompt(
         )
     parts.append(
         "\n## 取证步骤\n"
+        "⚠️ 大文件纪律：超过 3 万字符的文件禁止整读——用 `wc -m`、`grep -n/-c`、"
+        "`head`/`tail`/`sed -n 'a,bp'` 统计与抽样取证（如：验证 20 章 → `grep -c '^# 第'`；"
+        "验证字数 → `wc -m`；抽查内容 → 读 2-3 个代表性片段）。证据引用片段即可，不需要全文。\n"
         "1. 先 `ls` / glob 摸清项目里有哪些相关文件（HTML/JS/CSS/组件/数据等）。\n"
         "2. 打开与本需求直接相关的文件，读它的真实内容。\n"
         "3. 对照验收标准逐条判断：内容里是否**确实**出现了需求要求的东西"
@@ -99,12 +113,17 @@ def _build_review_prompt(
     parts.append(
         "\n## 输出（严格 JSON，不要多余文字）\n"
         '{"verdict": "done|continue|off_track|need_human", '
+        '"progress": true|false, '
         '"criteria_hit": ["已确凿满足的验收标准原文", ...], '
         '"evidence": "你**亲自读到**的文件路径 + 关键内容片段/命令输出，作为判定依据", '
         '"feedback": "若未完成：具体还差什么、下一轮该改哪个文件的什么；若完成：一句话结论"}\n'
         "判定纪律：**本轮需求描述的每一项产出都能被你引用到的真实证据支撑时**才输出 done；"
         "证据不足、找不到对应产出、或只有自报没有实物，一律 continue（绝不放水）。"
-        "criteria_hit 只列本轮证据顺带确凿满足的全局标准，列不满不影响 done。"
+        "criteria_hit 只列本轮证据顺带确凿满足的全局标准，列不满不影响 done。\n"
+        "progress 的判定：verdict 为 continue 时，本轮相对上一轮是否有**你亲自证实的实质推进**"
+        "（新增了相关文件、既有产出明显增长、又落地了需求的一部分）→ true；"
+        "原地打转、产出没变化、或你无法从证据确认有推进 → false。"
+        "大体量需求（如长文档逐章撰写）健康推进多轮是正常的——只要每轮确有新产出就如实标 true。"
     )
     return "\n".join(parts)
 
@@ -205,6 +224,9 @@ async def review_requirement(
             isolated=True,                    # independent MCP client, avoid cross-task cancel-scope
             read_only=_spec.read_only,
             allow_bash=_spec.allow_bash,
+            # Same tight tool-result cap as the loop worker: the reviewer greps
+            # the same huge draft files, and evidence only needs excerpts.
+            tool_result_limit=_reviewer_tool_result_limit(),
         )
     except Exception as exc:  # noqa: BLE001 - a reviewer agent that won't start must not drag down the loop
         logger.warning("[loop-review] spawn reviewer failed: %s", exc)
@@ -253,18 +275,52 @@ async def review_requirement(
 
     obj = _parse_json_lenient(text)
     if not isinstance(obj, dict) or obj.get("verdict") not in _VALID_VERDICTS:
-        # Can't parse a structured verdict → conservatively continue (never misjudge as done).
-        logger.info("[loop-review] unparseable verdict, defaulting continue")
-        return await _return({"verdict": CONTINUE, "criteria_hit": [], "evidence": text[:400],
-                              "feedback": "评审未给出可解析的结论，保守继续。"})
+        # One cheap no-tools reformat attempt before giving up: an unparseable
+        # verdict used to burn an ENTIRE extra iteration (~30 min worker rerun +
+        # ~700k tokens on the 200-page workload) just to re-ask the same
+        # question. The reviewer already did the evidence work — only its final
+        # serialization failed, so a single fast-model reformat of its own
+        # words usually recovers the verdict for the cost of one small call.
+        try:
+            from orchestration.loop_evaluator import _judge_once
+
+            _reformatted = await _judge_once(
+                "把下面这段评审结论改写成严格 JSON（只输出 JSON，不要任何多余文字），"
+                "schema: {\"verdict\": \"done|continue|off_track|need_human\", "
+                "\"progress\": true|false, \"criteria_hit\": [\"...\"], "
+                "\"evidence\": \"...\", \"feedback\": \"...\"}。"
+                "verdict/progress 必须忠实于原文的判断，不得自行改判；原文没有明确判断时 "
+                "verdict 用 continue、progress 用 false。\n\n---\n" + text[:6000],
+                model_name=model_name,
+                user_id=user_id,
+            )
+            obj = _parse_json_lenient(_reformatted)
+        except Exception as exc:  # noqa: BLE001 — the rescue call must never break the review
+            logger.warning("[loop-review] verdict reformat rescue failed: %s", exc)
+            obj = None
+        if isinstance(obj, dict) and obj.get("verdict") in _VALID_VERDICTS:
+            logger.info("[loop-review] verdict recovered via reformat rescue")
+        else:
+            # Still unparseable → conservatively continue (never misjudge as done).
+            logger.info("[loop-review] unparseable verdict, defaulting continue")
+            return await _return({"verdict": CONTINUE, "criteria_hit": [], "evidence": text[:400],
+                                  "progress": False,
+                                  "feedback": "评审未给出可解析的结论，保守继续。"})
     # evidence fallback: done but no evidence given → downgrade to continue (prevent empty-evidence leniency).
     evidence = str(obj.get("evidence", "") or "").strip()
     if obj["verdict"] == DONE and not evidence:
         return await _return({"verdict": CONTINUE, "criteria_hit": obj.get("criteria_hit", []),
-                              "evidence": "", "feedback": "评审判定完成但未给出文件证据，视为未确证，继续。"})
+                              "evidence": "", "progress": False,
+                              "feedback": "评审判定完成但未给出文件证据，视为未确证，继续。"})
     return await _return({
         "verdict": obj["verdict"],
         "criteria_hit": obj.get("criteria_hit", []) or [],
         "evidence": evidence,
+        # Material-progress affirmation (missing/parse-failure → False, i.e. the
+        # historical behavior). The driver's stagnation cap only counts rounds
+        # WITHOUT affirmed progress — so a mega-requirement (e.g. a 20-chapter
+        # body written chapter-by-chapter) healthily spanning many rounds is no
+        # longer blocked as "stagnating" at the attempt cap.
+        "progress": bool(obj.get("progress")),
         "feedback": str(obj.get("feedback", "") or "").strip(),
     })

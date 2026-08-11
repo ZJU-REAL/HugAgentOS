@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from core.auth.capabilities import resolve_user_capabilities
 from core.db.models import SystemConfig
+from core.infra.exceptions import AccessDeniedError
 from core.services.user_service import UserService
 from sqlalchemy.orm import Session
 
-
-FORCE_PLUGIN_IMPORT_BUILD_VALIDATION_KEY = (
-    "ontology.force_plugin_import_build_validation"
-)
+FORCE_PLUGIN_IMPORT_BUILD_VALIDATION_KEY = "ontology.force_plugin_import_build_validation"
 
 
 def _as_bool(value: object) -> bool:
@@ -28,6 +27,26 @@ class PluginImportOntologyValidationPolicy:
     @property
     def enabled(self) -> bool:
         return self.forced or self.user_enabled
+
+
+def user_can_use_ontology_validation(db: Session, user_id: str | None) -> bool:
+    """Return the resolved user/team/role capability for personal ontology validation."""
+    return bool(
+        user_id
+        and resolve_user_capabilities(db, str(user_id)).get(
+            "can_use_ontology_validation",
+            False,
+        )
+    )
+
+
+def require_ontology_validation_permission(db: Session, user_id: str | None) -> None:
+    """Reject direct API calls when the ontology-validation capability is absent."""
+    if not user_can_use_ontology_validation(db, user_id):
+        raise AccessDeniedError(
+            message="管理员未开放本体校验功能",
+            reason="can_use_ontology_validation_disabled",
+        )
 
 
 def plugin_import_build_validation_forced(db: Session) -> bool:
@@ -52,8 +71,8 @@ def resolve_plugin_import_ontology_validation(
     """
     forced = plugin_import_build_validation_forced(db)
     user_enabled = False
-    if user_id:
-        user_settings = UserService(db).get_user_settings(user_id)
+    if user_can_use_ontology_validation(db, user_id):
+        user_settings = UserService(db).get_user_settings(str(user_id))
         user_enabled = bool(user_settings.get("ontology_enabled", False))
     return PluginImportOntologyValidationPolicy(
         user_enabled=user_enabled,

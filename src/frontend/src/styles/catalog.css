@@ -2572,17 +2572,19 @@
   box-sizing:border-box;
   display:flex;
   flex-direction:column;
-  gap:14px;
+  gap:18px;
   background:transparent;
 }
 
 /* 内嵌在「我的空间 → 知识库」Tab 里：外层 shell 已经限宽 980 并自带滚动，
    这里去掉自身的限宽/左右内边距/整屏最小高度，跟其它 Tab 的内容左右缘对齐。 */
+/* 顶部留 20px：让「公共/私有知识库」Tab 条与上方那句说明文案拉开距离，
+   与「文件资产」Tab 里 .jx-mySpace-assetBar 的 24px 上边距保持同一套竖向节奏。 */
 .jx-kbView--embedded{
   min-height:0;
   max-width:none;
   margin:0;
-  padding:4px 0 24px;
+  padding:20px 0 24px;
 }
 
 .jx-kbHero{
@@ -2610,7 +2612,7 @@
 
 .jx-kbTabsWrap{
   border-bottom:1px solid rgba(15,23,42,.08);
-  margin-bottom:2px;
+  margin-bottom:4px;
 }
 
 .jx-kbTabs{
@@ -2624,7 +2626,7 @@
   appearance:none;
   border:none;
   background:transparent;
-  padding:0 2px 12px;
+  padding:2px 2px 14px;
   display:inline-flex;
   align-items:center;
   gap:8px;
@@ -4212,6 +4214,11 @@
 @media (max-width: 960px){
   .jx-kbView{
     padding:18px 16px 24px;
+  }
+
+  /* 窄屏下同样保留 embedded 的无左右内边距（否则会比同级 Tab 内容多缩进 16px） */
+  .jx-kbView--embedded{
+    padding:18px 0 24px;
   }
 
   .jx-kbTabs{

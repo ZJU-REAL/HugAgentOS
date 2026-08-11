@@ -14,6 +14,7 @@ import { parseSeparators } from '../../utils/separators';
 import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { useCatalogStore, useEditionStore, useKbStore } from '../../stores';
+import { WikiPanel } from '../kb';
 import { t } from '../../i18n';
 import {
   createKBSpace,
@@ -23,6 +24,8 @@ import {
   getKBChunkChildren,
   getKBDocumentDetail,
   getKBDocuments,
+  getWikiCapability,
+  getWikiStats,
   polishKBDescription,
   previewChunks,
   updateKBSpace,
@@ -144,8 +147,21 @@ function formatCount(value?: number, unit = '') {
   return `${value}${unit}`;
 }
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** 字数优先；后端不提供字数时（如 WeKnora 只给文件字节数）退而显示大小，不编 0 出来 */
 function formatDocWordCount(doc: KBDocument) {
-  return formatCount(doc.word_count, '字');
+  if (typeof doc.word_count === 'number' && !Number.isNaN(doc.word_count)) {
+    return formatCount(doc.word_count, '字');
+  }
+  if (typeof doc.size_bytes === 'number' && doc.size_bytes > 0) {
+    return formatBytes(doc.size_bytes);
+  }
+  return '--';
 }
 
 function getDocumentBadge(name: string) {
@@ -245,6 +261,10 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   ));
   const [detailDescExpanded, setDetailDescExpanded] = useState(false);
   const [detailDescOverflow, setDetailDescOverflow] = useState(false);
+  // LLM Wiki：仅当知识库后端提供这层产物、且当前库确实生成过 Wiki 时才出现入口
+  const [wikiBackendReady, setWikiBackendReady] = useState(false);
+  const [wikiPageCount, setWikiPageCount] = useState(0);
+  const [kbDetailView, setKbDetailView] = useState<'documents' | 'wiki'>('documents');
   const [kbDocPage, setKbDocPage] = useState(1);
   const [kbDocTotal, setKbDocTotal] = useState(0);
   const [docStatusFilter, setDocStatusFilter] = useState<DocStatusFilter>('all');
@@ -326,6 +346,38 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     setKbDocPage(1);
     setKbDocTotal(selectedItem?.document_count || 0);
   }, [selectedItem?.id, selectedItem?.document_count]);
+
+  // 后端能力探测一次即可：provider 换了会重新加载页面
+  useEffect(() => {
+    if (isCE) return;
+    let alive = true;
+    void getWikiCapability().then((cap) => {
+      if (alive) setWikiBackendReady(Boolean(cap.supports_wiki));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [isCE]);
+
+  // 每次进入某个外接知识库时确认它确实生成过 Wiki，避免出现点开就是空的死 Tab。
+  // 本地库（kb_ 前缀）没有这层产物，直接跳过。
+  useEffect(() => {
+    setKbDetailView('documents');
+    setWikiPageCount(0);
+    const kbId = selectedItem?.id;
+    if (!wikiBackendReady || !kbId || kbId.startsWith('kb_')) return;
+    let alive = true;
+    void getWikiStats(kbId)
+      .then((stats) => {
+        if (alive) setWikiPageCount(stats.total_pages || 0);
+      })
+      .catch(() => {
+        if (alive) setWikiPageCount(0);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedItem?.id, wikiBackendReady]);
 
   useEffect(() => {
     saveActiveKbTab(activeTab);
@@ -688,6 +740,8 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     && (!!selectedItem.uploadable || !!selectedItem.editable || !!selectedItem.deletable);
   const selectedItemDisplayName = formatKbDisplayName(selectedItem?.name);
   const currentDocCount = kbDocTotal || selectedItem?.document_count || 0;
+  // 后端支持 + 该库确实有 Wiki 页，两个条件都满足才给入口
+  const hasWiki = wikiBackendReady && wikiPageCount > 0;
   const libraryLoadingCards = Array.from({ length: 10 }, (_, index) => index);
   const docLoadingRows = Array.from({ length: 10 }, (_, index) => index);
 
@@ -969,6 +1023,35 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
               </div>
             </section>
 
+            {/* 有 Wiki 的知识库多一层视图切换：文档是原始资料，Wiki 是它的结构地图 */}
+            {hasWiki && (
+              <section className="jx-kbViewSwitch" role="tablist" aria-label={t('知识库视图')}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={kbDetailView === 'documents'}
+                  className={`jx-kbViewSwitchBtn${kbDetailView === 'documents' ? ' is-active' : ''}`}
+                  onClick={() => setKbDetailView('documents')}
+                >
+                  {t('文档')}
+                  <span className="jx-kbViewSwitchCount">{currentDocCount}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={kbDetailView === 'wiki'}
+                  className={`jx-kbViewSwitchBtn${kbDetailView === 'wiki' ? ' is-active' : ''}`}
+                  onClick={() => setKbDetailView('wiki')}
+                >
+                  {t('知识 Wiki')}
+                  <span className="jx-kbViewSwitchCount">{wikiPageCount.toLocaleString()}</span>
+                </button>
+              </section>
+            )}
+
+            {hasWiki && kbDetailView === 'wiki' ? (
+              <WikiPanel kbId={selectedItem.id} kbName={selectedItemDisplayName} />
+            ) : (
             <section className="jx-kbDocPanel">
               <div className="jx-kbDocPanelHeader">
                 <div className="jx-kbDocFilterTabs" role="tablist" aria-label={t('文档状态筛选')}>
@@ -1153,6 +1236,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                 </div>
               )}
             </section>
+            )}
           </>
         )}
       </div>

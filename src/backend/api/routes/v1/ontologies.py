@@ -14,11 +14,13 @@ from core.db.models import OntologyDraft, OntologyEnforcementEvent, OntologyRevi
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.infra.responses import success_response
 from core.services import UserService
-from core.services.ontology_service import OntologyService
 from core.services.ontology_policy import (
     plugin_import_build_validation_forced,
+    require_ontology_validation_permission,
     set_plugin_import_build_validation_forced,
+    user_can_use_ontology_validation,
 )
+from core.services.ontology_service import OntologyService
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -120,17 +122,17 @@ async def get_ontology_settings(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    settings = UserService(db).get_user_settings(str(user.user_id))
-    selected = settings.get("ontology_pack_ids") or []
+    user_settings = UserService(db).get_user_settings(str(user.user_id))
+    allowed = user_can_use_ontology_validation(db, str(user.user_id))
+    selected = user_settings.get("ontology_pack_ids") or []
     active = OntologyService(db).repo.get_active_versions(selected or None)
     return success_response(
         data={
-            "ontology_enabled": bool(settings.get("ontology_enabled", False)),
+            "allowed": allowed,
+            "ontology_enabled": bool(allowed and user_settings.get("ontology_enabled", False)),
             "ontology_pack_ids": selected,
             "available": bool(active),
-            "plugin_import_build_validation_forced": (
-                plugin_import_build_validation_forced(db)
-            ),
+            "plugin_import_build_validation_forced": (plugin_import_build_validation_forced(db)),
             "active_packs": [
                 {"pack_id": row.pack_id, "version_id": row.version_id, "version": row.version}
                 for row in active
@@ -145,6 +147,7 @@ async def update_ontology_settings(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_ontology_validation_permission(db, str(user.user_id))
     service = OntologyService(db)
     pack_ids = body.ontology_pack_ids or []
     missing = [pack_id for pack_id in pack_ids if service.repo.get_pack(pack_id) is None]
@@ -172,6 +175,8 @@ async def preview_ontology_runtime(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if not user_can_use_ontology_validation(db, str(user.user_id)):
+        return success_response(data={"enabled": False, "packs": [], "review_level": "none"})
     settings = UserService(db).get_user_settings(str(user.user_id))
     if not settings.get("ontology_enabled", False):
         return success_response(data={"enabled": False, "packs": [], "review_level": "none"})
@@ -217,11 +222,7 @@ async def ontology_governance_access(
 )
 async def get_ontology_governance_policy(db: Session = Depends(get_db)):
     return success_response(
-        data={
-            "force_plugin_import_build_validation": (
-                plugin_import_build_validation_forced(db)
-            )
-        }
+        data={"force_plugin_import_build_validation": (plugin_import_build_validation_forced(db))}
     )
 
 
@@ -243,9 +244,7 @@ async def update_ontology_governance_policy(
         db,
         body.force_plugin_import_build_validation,
     )
-    return success_response(
-        data={"force_plugin_import_build_validation": enabled}
-    )
+    return success_response(data={"force_plugin_import_build_validation": enabled})
 
 
 @router.get(

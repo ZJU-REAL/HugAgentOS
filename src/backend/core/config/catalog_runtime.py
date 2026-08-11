@@ -22,6 +22,7 @@ from core.config.catalog_loader import (
     _database_query_capability_available,
     skill_body_from_raw,
 )
+from core.config.edition_display_names import edition_mcp_icons
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -31,9 +32,9 @@ _DEFAULT_MCP_ICONS: Dict[str, str] = {
     "query_database": "/home/mcp/database.svg",
     "retrieve_dataset_content": "/home/mcp/knowledge.svg",
     "internet_search": "/home/mcp/internet.svg",
-    "ai_chain_information_mcp": "/home/mcp/industry-chain.svg",
     "generate_chart_tool": "/home/mcp/data.svg",
     "web_fetch": "/home/mcp/source.svg",
+    **edition_mcp_icons(),
 }
 _DATABASE_QUERY_ENABLED_CONFIG = "database_query.capability_enabled"
 _RUNTIME_DB_CACHE_TTL = 30.0

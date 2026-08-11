@@ -580,6 +580,10 @@ def build_user_ontology_runtime(
         db = SessionLocal()
     assert db is not None
     try:
+        from core.services.ontology_policy import user_can_use_ontology_validation
+
+        if not user_can_use_ontology_validation(db, user_id):
+            return False, disabled_ontology_runtime()
         settings = UserService(db).get_user_settings(user_id)
         opted_in = bool(settings.get("ontology_enabled", False))
         if not opted_in:

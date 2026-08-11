@@ -46,6 +46,15 @@ _PROMPT_PATH = os.path.join(
 )
 
 
+class _StepReplyError(RuntimeError):
+    """A plan step's agent.reply failed (model 400/500, cancelled scope, …).
+
+    Raised out of the per-step reply handler so the generic step-failure path
+    marks the step ``failed`` and emits plan_error — instead of the historical
+    behavior of recording the error text as a successful step result.
+    """
+
+
 def _collect_valid_tool_names(enabled_mcp_ids: Optional[List[str]] = None) -> Optional[set]:
     """Collect all valid MCP tool function names from enabled servers.
 
@@ -310,10 +319,25 @@ async def _prepare_history(
     from core.llm.context_manager import ContextWindowManager
 
     ctx_mgr = ContextWindowManager.for_model(model_name)
-    trimmed = ctx_mgr.trim_history(session_messages)
+    # Plan execution re-sends this history on EVERY step, on top of a large step
+    # instruction, tool schemas, per-step tool results and a 32k output request.
+    # The generic history_budget (window minus ~36k reserves) is tuned for the
+    # single-shot main-chat flow and proved far too generous here: report-writing
+    # chats packed 361k+ real tokens of history into a 393k window and every step
+    # died with a hard 400 (maximum context length exceeded). Cap history at half
+    # the model window so steps always keep real working headroom.
+    budget = min(
+        ctx_mgr.budget.history_budget,
+        int(ctx_mgr.budget.model_context_window * 0.5),
+    )
+    trimmed = ctx_mgr.trim_history(session_messages, max_tokens=budget)
     dropped_count = len(session_messages) - len(trimmed)
     if dropped_count > 0:
-        logger.warning("[plan_mode] context over budget: dropped %d message(s)", dropped_count)
+        logger.warning(
+            "[plan_mode] context over budget (%d tokens): dropped %d message(s)",
+            budget,
+            dropped_count,
+        )
     return trimmed
 
 
@@ -1097,6 +1121,13 @@ async def astream_execute_plan(
                         _err_repr,
                         exc_info=True,
                     )
+                    # A failed reply must surface as a FAILED step. Swallowing it
+                    # into step_text used to mark the step success and let the plan
+                    # report "completed N/N" while every step had actually died
+                    # (e.g. context-length 400s) — keep the MCP clients alive, then
+                    # delegate to the generic step-failure handler below.
+                    _all_mcp_clients.extend(mcp_clients)
+                    raise _StepReplyError(step_text) from _reply_exc
 
                 # Keep MCP clients alive to prevent GC cancel scope crashes.
                 # They'll be terminated after all steps complete.

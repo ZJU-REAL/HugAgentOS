@@ -13,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '../../i18n';
 import { useCanvasStore } from '../../stores';
 import {
+  INDUSTRY_CHAIN_DEFAULT_LEVELS,
+  INDUSTRY_CHAIN_MAX_LEVELS,
   parseIndustryChainOutput,
   type IndustryChainTreeNode,
 } from '../../utils/industryChain';
@@ -50,9 +52,10 @@ const ROW_GAP = 72;
 const WORLD_PADDING = 48;
 const MIN_SCALE = 0.28;
 const MAX_SCALE = 1.8;
-// API hierarchy uses level 0 for the chain root. Nodes through level 3 stay
-// visible initially; branches below a level-3 node open only on demand.
-const DEFAULT_EXPANDED_DEPTH = 3;
+// Root is depth 0. Keep three levels visible initially; "expand all" may reveal
+// the fourth level, while the layout guard prevents fifth-level legacy data.
+const MAX_VISIBLE_DEPTH = INDUSTRY_CHAIN_MAX_LEVELS - 1;
+const DEFAULT_EXPANDED_DEPTH = INDUSTRY_CHAIN_DEFAULT_LEVELS - 1;
 
 function nodeWidth(label: string): number {
   const visualLength = Array.from(label).reduce(
@@ -70,7 +73,7 @@ function createTreeLayout(root: IndustryChainTreeNode, collapsed: Set<string>): 
 
   const visit = (node: IndustryChainTreeNode, depth: number): PositionedNode => {
     maxDepth = Math.max(maxDepth, depth);
-    const children = collapsed.has(node.id) ? [] : node.children;
+    const children = depth >= MAX_VISIBLE_DEPTH || collapsed.has(node.id) ? [] : node.children;
     const childNodes = children.map((child) => visit(child, depth + 1));
     const centerY = childNodes.length > 0
       ? (childNodes[0].y + childNodes[childNodes.length - 1].y + NODE_HEIGHT) / 2

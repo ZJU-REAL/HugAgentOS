@@ -730,12 +730,17 @@ def _build_ctx(
     if ontology_enabled:
         try:
             with SessionLocal() as _ontology_db:
-                ontology_enabled, ontology_runtime = build_ontology_runtime_for_preference(
-                    enabled=True,
-                    task=request.message,
-                    db=_ontology_db,
-                    pack_ids=ontology_pack_ids or None,
-                )
+                from core.services.ontology_policy import user_can_use_ontology_validation
+
+                if user_can_use_ontology_validation(_ontology_db, db_user_id):
+                    ontology_enabled, ontology_runtime = build_ontology_runtime_for_preference(
+                        enabled=True,
+                        task=request.message,
+                        db=_ontology_db,
+                        pack_ids=ontology_pack_ids or None,
+                    )
+                else:
+                    ontology_enabled = False
         except Exception as exc:  # noqa: BLE001
             logger.exception("[ontology] failed to build runtime policy")
             raise ServiceUnavailableError(
@@ -749,7 +754,7 @@ def _build_ctx(
         "chat_id": request.chat_id,
         "workspace_id": workspace_id_value,
         "memory_scope_user_id": memory_scope_user_id_value,
-        "enable_thinking": resolved_chat_mode != "fast",
+        "enable_thinking": resolved_chat_mode not in ("fast", "turbo"),
         "chat_mode": resolved_chat_mode,
         "uploaded_files": current_attachments,
         "historical_files": historical_files,
@@ -1254,7 +1259,7 @@ async def chat_active_run(
             "last_event_offset": run.last_event_offset or 0,
             "kind": kind,
             "plan_id": plan_id,
-            "enable_thinking": resolved_mode != "fast",
+            "enable_thinking": resolved_mode not in ("fast", "turbo"),
         }
     )
 

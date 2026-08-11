@@ -25,6 +25,7 @@ The L3 placeholder-summary fallback for failed compaction calls is provided unif
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import Any, AsyncGenerator, Optional
 
@@ -44,8 +45,12 @@ from core.llm.providers.vendor_models import build_litellm_model, build_native_m
 logger = logging.getLogger(__name__)
 
 
-# See the 1.x comment: read timeout raised separately to 600s, leaving ample time for long tool_call args generation.
-STREAM_READ_TIMEOUT_S: float = 600.0
+# See the 1.x comment: read timeout raised separately (default 600s), leaving ample
+# time for long tool_call args generation. Env-tunable: a hung LLM gateway holds a
+# run for this long per attempt before the client errors and retries — ops can lower
+# it (e.g. 240) when the upstream endpoint is known to be flaky, so retries and the
+# final error surface well within the run's lifetime.
+STREAM_READ_TIMEOUT_S: float = float(os.getenv("LLM_STREAM_READ_TIMEOUT_S", "600"))
 
 
 def _build_chat_template_kwargs(

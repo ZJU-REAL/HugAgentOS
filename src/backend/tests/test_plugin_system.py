@@ -232,7 +232,10 @@ def test_plugin_import_ontology_validation_follows_user_and_force_policy(
         UserShadow(
             user_id=owner,
             username=owner,
-            extra_data={"ontology_enabled": user_enabled},
+            extra_data={
+                "ontology_enabled": user_enabled,
+                "can_use_ontology_validation": user_enabled,
+            },
         )
     )
     db_session.commit()
