@@ -47,10 +47,10 @@ function formatMsgTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-/** Format the total generation time (milliseconds) as "用时 X.Xs"; when over 1 minute, use "用时 N分M秒". */
+/** Format the total generation time (milliseconds) as "用时 X.X秒"; when over 1 minute, use "用时 N分M秒". 单位统一用「秒」。 */
 function formatDuration(ms?: number): string | null {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
-  if (ms < 60_000) return t('用时 {sec}s', { sec: (ms / 1000).toFixed(1) });
+  if (ms < 60_000) return t('用时 {sec}秒', { sec: (ms / 1000).toFixed(1) });
   const min = Math.floor(ms / 60_000);
   const sec = Math.round((ms % 60_000) / 1000);
   return t('用时 {min}分{sec}秒', { min, sec });
@@ -95,7 +95,8 @@ function useLazyExpand(open: boolean) {
 function useExpandFocus(open: boolean, ref: React.RefObject<TextAreaRef | null>) {
   useEffect(() => {
     if (!open) return;
-    const id = window.setTimeout(() => ref.current?.focus({ cursor: 'end' }), EXPAND_FOCUS_DELAY_MS);
+    // preventScroll：原生 focus 会把控件滚入视口，叠加展开动画会把整个列表拽到底部
+    const id = window.setTimeout(() => ref.current?.focus({ cursor: 'end', preventScroll: true }), EXPAND_FOCUS_DELAY_MS);
     return () => window.clearTimeout(id);
   }, [open, ref]);
 }

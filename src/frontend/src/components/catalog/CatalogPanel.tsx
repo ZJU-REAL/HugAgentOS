@@ -266,6 +266,19 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   const [wikiPageCount, setWikiPageCount] = useState(0);
   const [kbDetailView, setKbDetailView] = useState<'documents' | 'wiki'>('documents');
   const [kbDocPage, setKbDocPage] = useState(1);
+  // 后端全库搜索关键词（kbDocQuery 的 300ms 去抖版本）。搜索必须发给后端在全部
+  // 分页范围内检索（问题19：过去只在当前页 20 条里前端过滤），关键词变化时回到第 1 页。
+  const [kbDocSearch, setKbDocSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const next = kbDocQuery.trim();
+      setKbDocSearch((prev) => {
+        if (prev !== next) setKbDocPage(1);
+        return next;
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [kbDocQuery]);
   const [kbDocTotal, setKbDocTotal] = useState(0);
   const [docStatusFilter, setDocStatusFilter] = useState<DocStatusFilter>('all');
   const [kbEditorOpen, setKbEditorOpen] = useState(false);
@@ -459,7 +472,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     setKbDocsLoadingId(kbId);
     void (async () => {
       try {
-        const result: KBDocumentsResponse = await getKBDocuments(kbId, kbDocPage, KB_DOC_PAGE_SIZE);
+        const result: KBDocumentsResponse = await getKBDocuments(kbId, kbDocPage, KB_DOC_PAGE_SIZE, kbDocSearch);
         const totalPages = result.total > 0 ? Math.ceil(result.total / result.page_size) : 0;
         if (result.total > 0 && totalPages > 0 && kbDocPage > totalPages) {
           setKbDocPage(totalPages);
@@ -472,7 +485,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
         setKbDocsLoadingId(null);
       }
     })();
-  }, [selectedId, kbDocPage, applyDocumentsResult, setKbDocsLoadingId]);
+  }, [selectedId, kbDocPage, kbDocSearch, applyDocumentsResult, setKbDocsLoadingId]);
 
   const filteredLibraries = useMemo(() => {
     const query = manageQuery.trim().toLowerCase();
@@ -519,14 +532,14 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     const currentPage = kbDocPage;
     const timer = window.setInterval(async () => {
       try {
-        const result = await getKBDocuments(kbId, currentPage, KB_DOC_PAGE_SIZE);
+        const result = await getKBDocuments(kbId, currentPage, KB_DOC_PAGE_SIZE, kbDocSearch);
         applyDocumentsResult(kbId, result.items, result.total);
       } catch (err) {
         console.warn('KB 文档轮询失败', err);
       }
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [selectedId, kbDocPage, hasProcessingDoc, applyDocumentsResult]);
+  }, [selectedId, kbDocPage, kbDocSearch, hasProcessingDoc, applyDocumentsResult]);
 
   const filteredDocuments = useMemo(() => {
     const query = kbDocQuery.trim().toLowerCase();

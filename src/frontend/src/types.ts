@@ -178,6 +178,9 @@ export interface ToolCall {
   subSteps?: SubagentStep[];
   subagentName?: string;
   scope?: 'ontology_revision' | string;
+  /** 该工具卡片出现时正文（content 累计串）的字符偏移；历史重建按它把文本与
+   *  工具卡片交错还原成流式时的原顺序。旧历史没有该字段 → 退回"工具在前文本在后"。 */
+  contentOffset?: number;
 }
 
 /** §13 MySpace write confirmation decision (literal counterparts of the backend's _myspace_confirm.DECISION_*). */
@@ -436,6 +439,8 @@ export interface ChatItem {
   favorite?: boolean;
   pinned?: boolean;
   businessTopic?: string;
+  /** 用户手动重命名过：自动摘要标题不再覆盖；随会话 metadata.title_manually_set 持久化 */
+  titleManuallySet?: boolean;
   /** Sub-agent binding (set when chat is started from a sub-agent) */
   agentId?: string;
   agentName?: string;

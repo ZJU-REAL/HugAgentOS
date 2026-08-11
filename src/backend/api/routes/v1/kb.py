@@ -403,6 +403,7 @@ async def list_documents(
     kb_id: str = Path(..., description="Local or external knowledge collection ID"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    keyword: Optional[str] = Query(None, description="按标题/文件名搜索（全库范围，再分页）"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -416,7 +417,7 @@ async def list_documents(
         from core.kb.external_provider import is_enabled, list_documents
 
         if is_enabled():
-            result = list_documents(kb_id, page=page, limit=page_size)
+            result = list_documents(kb_id, page=page, limit=page_size, keyword=keyword or "")
             return paginated_response(
                 items=result.get("items", []),
                 page=result.get("page", page),
@@ -432,7 +433,7 @@ async def list_documents(
             message="Access denied", reason="Only the KB space owner can list documents"
         )
 
-    documents, total = kb_repo.list_documents(kb_id, page, page_size)
+    documents, total = kb_repo.list_documents(kb_id, page, page_size, keyword=keyword)
     items = [
         {
             "id": d.document_id,

@@ -300,7 +300,8 @@
   width:6px;
   height:6px;
   border-radius:50%;
-  border:1.5px solid var(--color-fill);
+  /* 常规对话圈点加亮（测试反馈问题10）：原 var(--color-fill) 几乎看不见 */
+  border:1.5px solid var(--color-text-tertiary);
 }
 .jx-searchItemMain{
   flex:1;
@@ -325,6 +326,9 @@
   text-overflow:ellipsis;
   white-space:nowrap;
   display:block;
+  /* 标题与内容摘要之间留出呼吸感（测试反馈问题10） */
+  margin-top:2px;
+  line-height:1.5;
 }
 
 /* 关键词高亮：复用 .jx-searchHighlight（定义在 sidebar.css） */

@@ -133,6 +133,12 @@ class StreamingAgent:
         # Accumulated answer text (for dedup in the <think>-suppression scenario)
         self._raw_text = ""
         self._emitted_answer = ""
+        # 首轮正文累计（enable_thinking 下）：轮次结束时若整轮没有 </think>，
+        # 说明该模型不是"内联思考"形态（结构化 reasoning 通道、或本轮无思考）——
+        # 补发 structured_reasoning 标记，让前端把误缓冲成"思考"的正文流回正文区。
+        self._first_round_text = ""
+        self._round_index = 0
+        self._structured_marker_sent = False
         self._in_thinking = False
         self._reasoning_protocol_emitted = False
         # True between ModelCallStartEvent and ModelCallEndEvent. While a call is
@@ -384,6 +390,8 @@ class StreamingAgent:
             # directly, no accumulate+recompute needed (the frontend parses <think> itself),
             # avoiding an O(n) scan of the full answer on every delta.
             if self._enable_thinking:
+                if self._round_index == 0:
+                    self._first_round_text += delta
                 yield ("text_delta", delta)
                 return
             # Suppression state: <think> may span multiple deltas — accumulate, then strip out the answer after the closing tag.
@@ -492,6 +500,21 @@ class StreamingAgent:
                 "prompt_tokens": int(getattr(ev, "input_tokens", 0) or 0),
                 "completion_tokens": int(getattr(ev, "output_tokens", 0) or 0),
             })
+            # 首轮权威判定：思考模式下整轮正文没有出现 </think> → 该模型不内联思考
+            # （结构化 reasoning 通道，或本轮确实没思考）。补发协议标记，前端据此
+            # 把误当思考缓冲/展示的正文重归正文区（bug：无思考时正文进思考块）。
+            # 只看首轮——混合形态模型工具后省略 <think> 属既有启发式管辖，不在此误判。
+            if (
+                self._enable_thinking
+                and self._round_index == 0
+                and not self._structured_marker_sent
+                and self._first_round_text
+                and "</think>" not in self._first_round_text
+            ):
+                self._structured_marker_sent = True
+                yield ("reasoning_protocol", {"structured_reasoning": True})
+            self._round_index += 1
+            self._first_round_text = ""
             # New model call round → reset answer accumulation (the next text segment computes deltas from scratch)
             self._raw_text = ""
             self._emitted_answer = ""

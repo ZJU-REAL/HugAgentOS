@@ -21,6 +21,7 @@ import asyncio
 import contextlib
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Literal, Optional
@@ -350,6 +351,8 @@ async def _run_workflow(
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
 
     _update_run_status(run_id, status="running", started_at=_utcnow())
+    # 本轮回答总耗时起点 —— 持久化进 extra_data.duration_ms，历史加载后「用时」不再消失
+    _run_started_monotonic = time.monotonic()
 
     offset_counter = 0
 
@@ -364,6 +367,17 @@ async def _run_workflow(
     metadata: Dict[str, Any] = {}
     tool_calls_log: list = []
     _workspace_mod.init_state()
+    # 结构化 reasoning 通道（deepseek 系 reasoning_content/reasoning）的思考增量。
+    # 过去这些只走 SSE thinking 事件、不落库 → 刷新后思考过程无法回放。现在按
+    # 到达顺序以 <think>…</think> 块交错并入 full_response（与内联思考模型的存储
+    # 格式一致），历史重建（buildHistorySegments）即可原位还原思考块。
+    _thinking_parts: List[str] = []
+
+    def _flush_thinking() -> None:
+        nonlocal full_response
+        if _thinking_parts:
+            full_response += "<think>" + "".join(_thinking_parts) + "</think>"
+            _thinking_parts.clear()
 
     try:
         # First frame: run_started — carries run_id / message_id; the frontend uses these to resume / cancel
@@ -441,11 +455,17 @@ async def _run_workflow(
             chunk_type = chunk.get("type")
 
             if chunk_type == "thinking":
-                await _emit(build_thinking_event(chunk, chat_id))
+                _thinking_evt = build_thinking_event(chunk, chat_id)
+                # 只累积真实思考增量；进度提示（message）与 structured_reasoning
+                # 协议标记不落库
+                if _thinking_evt.get("delta"):
+                    _thinking_parts.append(str(_thinking_evt["delta"]))
+                await _emit(_thinking_evt)
 
             elif chunk_type in {"ai_message", "content"}:
                 delta = chunk.get("delta", "")
                 if delta:
+                    _flush_thinking()
                     full_response += delta
                     await _emit(
                         {
@@ -461,6 +481,7 @@ async def _run_workflow(
                 # committee revised it, replace the visible/persisted answer
                 # atomically instead of appending a second full answer.
                 replacement = str(chunk.get("content") or "")
+                _thinking_parts.clear()
                 full_response = replacement
                 await _emit(
                     {
@@ -472,7 +493,13 @@ async def _run_workflow(
                 )
 
             elif chunk_type == "tool_call":
-                await _emit(build_tool_call_event(chunk, chat_id, tool_calls_log))
+                _flush_thinking()
+                _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
+                # 记录该工具卡片出现时正文的累计长度：历史重建按此偏移把
+                # 「文本 ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
+                for _tc in tool_calls_log:
+                    _tc.setdefault("content_offset", len(full_response))
+                await _emit(_tc_evt)
 
             elif chunk_type == "tool_result":
                 await _emit(build_tool_result_event(chunk, chat_id, tool_calls_log))
@@ -599,6 +626,7 @@ async def _run_workflow(
                 await _emit(ontology_event)
 
             elif chunk_type == "meta":
+                _flush_thinking()
                 # Strict workspace gate: pinned list is the sole source of
                 # user-visible artifacts. See chats.py:_stream_sse_response.
                 _ws_pinned = _workspace_mod.get_pinned()
@@ -632,6 +660,7 @@ async def _run_workflow(
                     "citations": metadata.get("citations", []),
                     "message_id": message_id,
                     "workspace_files": _ws_files,
+                    "duration_ms": int((time.monotonic() - _run_started_monotonic) * 1000),
                 }
                 if metadata.get("ontology_governance"):
                     _persist_extra["ontology_governance"] = metadata["ontology_governance"]

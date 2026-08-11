@@ -40,4 +40,22 @@
   .jx-shareMeta {
     animation: none !important;
   }
+
+  /* 分享页自身是 height:100vh + overflow-y:auto 的内部滚动容器，全局又锁了
+     html/body overflow —— 打印时浏览器按视口高度裁剪，只能印出第一页。
+     打印帧全部放开成文档流，让内容自然分页（问题5）。 */
+  html, body, #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .jx-sharePage {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .jx-sharePrintBtn {
+    display: none !important;
+  }
+  .jx-shareMessage {
+    break-inside: avoid;
+  }
 }

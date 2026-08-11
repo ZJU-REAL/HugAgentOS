@@ -54,7 +54,7 @@ export function OntologyGovernanceCard({ governance }: OntologyGovernanceCardPro
         <span>{t('工具门禁')} <strong>{gates.length}</strong>{denied ? ` · ${t('{count} 次拦截', { count: denied })}` : ''}</span>
         <span>{reviewLabel}</span>
         {typeof review.latency_ms === 'number' && (
-          <span>{t('用时 {sec}s', { sec: (review.latency_ms / 1000).toFixed(1) })}</span>
+          <span>{t('用时 {sec}秒', { sec: (review.latency_ms / 1000).toFixed(1) })}</span>
         )}
       </div>
 

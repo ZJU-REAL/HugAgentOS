@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { Modal, message } from 'antd';
 import { t } from '../i18n';
 import { authFetch } from '../api';
-import { nowId } from '../storage';
+import { nowId, registerDeletedChatId } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { triggerPdfDownload, toSafeFileName } from '../utils/export';
 import { SUMMARY_MAX_ROUNDS } from '../utils/constants';
@@ -52,6 +52,7 @@ export function useChatActions(effectiveApiUrl: string) {
         if (effectiveApiUrl && backendSessionIds.has(id)) {
           void authFetch(`${effectiveApiUrl}/v1/chats/${id}`, { method: 'DELETE' }).catch(() => {});
         }
+        registerDeletedChatId(id);
         removeBackendSessionId(id);
         removeLoadedMsgId(id);
         updateStore((prev) => {
@@ -95,13 +96,14 @@ export function useChatActions(effectiveApiUrl: string) {
       if (patch.title !== undefined) backendPatch.title = patch.title;
       if (patch.pinned !== undefined) backendPatch.pinned = patch.pinned;
       if (patch.favorite !== undefined) backendPatch.favorite = patch.favorite;
-      if (patch.businessTopic !== undefined) {
+      if (patch.businessTopic !== undefined || patch.titleManuallySet !== undefined) {
         backendPatch.metadata = {
-          businessTopic: patch.businessTopic,
+          businessTopic: patch.businessTopic ?? latestChat?.businessTopic ?? '综合咨询',
           ...(latestChat?.agentId ? { agent_id: latestChat.agentId } : {}),
           ...(latestChat?.agentName ? { agent_name: latestChat.agentName } : {}),
           ...(latestChat?.planChat ? { plan_chat: true } : {}),
           ...(latestChat?.batchChat ? { batch_chat: true } : {}),
+          ...((patch.titleManuallySet ?? latestChat?.titleManuallySet) ? { title_manually_set: true } : {}),
         };
       }
       if (Object.keys(backendPatch).length > 0) {
@@ -155,8 +157,16 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   function commitRenameChat(id: string) {
-    const nextTitle = editingTitle.trim() || '新对话';
-    patchChat(id, { title: nextTitle });
+    const nextTitle = editingTitle.trim();
+    const original = storeRef.current.chats[id]?.title || '';
+    // 输入为空/纯空格 → 保留原名称（问题7：过去落成字面量「新对话」）
+    if (!nextTitle || nextTitle === original) {
+      setEditingChatId(null);
+      setEditingTitle('');
+      return;
+    }
+    // titleManuallySet：手动重命名后，自动摘要不再覆盖标题（问题13）
+    patchChat(id, { title: nextTitle, titleManuallySet: true });
     setEditingChatId(null);
     setEditingTitle('');
   }
@@ -270,6 +280,8 @@ export function useChatActions(effectiveApiUrl: string) {
   async function generateSummary(chatId: string) {
     const chat = storeRef.current.chats[chatId];
     if (!chat || !effectiveApiUrl) return;
+    // 用户手动重命名过的会话不再用自动摘要覆盖标题（问题13）
+    if (chat.titleManuallySet) return;
     const userMessages = chat.messages.filter(m => m.role === 'user');
     const assistantMessages = chat.messages.filter(m => m.role === 'assistant');
     if (userMessages.length === 0 || assistantMessages.length === 0) return;
