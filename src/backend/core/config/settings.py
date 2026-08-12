@@ -391,6 +391,12 @@ class ServerSettings:
             _int(_env("MCP_MARKET_REVALIDATE_INTERVAL", "21600"), 21600),
         )
     )
+    # Self-service MCP endpoints are public-only by default to preserve the
+    # SSRF boundary. Private deployments may opt in when trusted users need to
+    # connect MCP services hosted on the same LAN or Docker network.
+    mcp_self_service_allow_private_network: bool = field(
+        default_factory=lambda: _bool(_env("MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK", "false"))
+    )
 
     @property
     def is_prod(self) -> bool:

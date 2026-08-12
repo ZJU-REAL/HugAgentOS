@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import sqlalchemy as sa
 from core.db.models import KBDocument, KBSpace
+from core.kb.document_status import classify_document_status, empty_document_status_counts
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -136,6 +137,23 @@ class KBRepository:
         )
 
         return documents, total
+
+    def count_document_statuses(self, kb_id: str, keyword: Optional[str] = None) -> dict[str, int]:
+        """Count indexing states across the full KB, independent of pagination."""
+        query = self.db.query(
+            KBDocument.indexing_status,
+            func.count(KBDocument.document_id),
+        ).filter(KBDocument.kb_id == kb_id, KBDocument.deleted_at.is_(None))
+        if keyword and keyword.strip():
+            like = f"%{keyword.strip()}%"
+            query = query.filter(
+                sa.or_(KBDocument.title.ilike(like), KBDocument.filename.ilike(like))
+            )
+
+        counts = empty_document_status_counts()
+        for status, count in query.group_by(KBDocument.indexing_status).all():
+            counts[classify_document_status(status)] += int(count or 0)
+        return counts
 
     def create_document(self, document_data: Dict[str, Any]) -> KBDocument:
         """Create a new KB document."""

@@ -176,7 +176,8 @@ def test_ce_self_service_skill_and_mcp_do_not_import_admin_routes(
         row.tools_json = [{"name": "example_tool", "description": "", "inputSchema": {}}]
         return True, ""
 
-    async def validate_ok(url, *, require_https):
+    async def validate_ok(url, *, allow_private_network, require_https):
+        assert allow_private_network is False
         assert require_https is False
 
     monkeypatch.setattr(me_capabilities, "probe_mcp_connectivity", probe_ok)

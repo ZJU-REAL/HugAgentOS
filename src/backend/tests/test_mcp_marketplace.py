@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from api.routes.v1 import admin_mcp_servers as admin_mcp_routes
+from api.routes.v1 import me_capabilities as me_capability_routes
 from core.db.engine import Base
 from core.db.models import (
     AdminMcpServer,
@@ -451,6 +452,70 @@ async def test_remote_url_security_allows_public_http_when_requested(monkeypatch
 
     with pytest.raises(BadRequestError, match="本机、内网或保留地址"):
         await validate_remote_mcp_url("http://127.0.0.1/mcp", require_https=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("address", ["127.0.0.1", "10.10.0.8", "172.18.0.12", "192.168.1.9"])
+async def test_remote_url_security_allows_trusted_private_networks_when_enabled(address):
+    await validate_remote_mcp_url(
+        f"http://{address}/mcp",
+        allow_private_network=True,
+        require_https=False,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("address", ["0.0.0.0", "169.254.169.254", "224.0.0.1"])
+async def test_remote_url_security_keeps_high_risk_ranges_blocked_when_private_enabled(address):
+    with pytest.raises(BadRequestError, match="本机、内网或保留地址"):
+        await validate_remote_mcp_url(
+            f"http://{address}/mcp",
+            allow_private_network=True,
+            require_https=False,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow_private_network", [False, True])
+async def test_self_service_mcp_uses_private_network_deployment_setting(
+    db, monkeypatch, allow_private_network
+):
+    validation = {}
+
+    async def _validate(url, **kwargs):
+        validation.update(url=url, **kwargs)
+
+    async def _probe(row, _db):
+        row.tools_json = _tools("search")
+        return True, ""
+
+    monkeypatch.setattr(me_capability_routes, "_require_flag", lambda *args: None)
+    monkeypatch.setattr(me_capability_routes, "validate_remote_mcp_url", _validate)
+    monkeypatch.setattr(me_capability_routes, "probe_mcp_connectivity", _probe)
+    monkeypatch.setattr(
+        me_capability_routes,
+        "settings",
+        SimpleNamespace(
+            server=SimpleNamespace(
+                mcp_self_service_allow_private_network=allow_private_network,
+            )
+        ),
+    )
+
+    await me_capability_routes.create_my_mcp_server(
+        me_capability_routes.CreateUserMcpRequest(
+            display_name="Private MCP",
+            url="http://10.10.0.8/mcp",
+        ),
+        user=SimpleNamespace(user_id="u1"),
+        db=db,
+    )
+
+    assert validation == {
+        "url": "http://10.10.0.8/mcp",
+        "allow_private_network": allow_private_network,
+        "require_https": False,
+    }
 
 
 @pytest.mark.asyncio

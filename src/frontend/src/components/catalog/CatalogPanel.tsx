@@ -32,7 +32,13 @@ import {
   updateKBChunk,
   uploadKBDocument,
 } from '../../api';
-import type { IndexingConfig, KBChunkChild, KBDocumentsResponse } from '../../api';
+import type {
+  IndexingConfig,
+  KBChunkChild,
+  KBDocumentItem,
+  KBDocumentsResponse,
+  KBDocumentStatusCounts,
+} from '../../api';
 import type { KBDocument, KBItem } from '../../types';
 import { formatDateTime } from '../../utils/date';
 import { mdToHtml } from '../../utils/markdown';
@@ -60,6 +66,12 @@ const UPLOAD_CHUNK_METHOD_OPTIONS: UploadChunkMethodOption[] = [
 
 const KB_DOC_PAGE_SIZE = 20;
 const EMPTY_DOCS: KBDocument[] = [];
+const EMPTY_DOC_STATUS_COUNTS: KBDocumentStatusCounts = { indexed: 0, processing: 0, failed: 0 };
+const PROCESSING_DOC_STATUSES = new Set([
+  'processing', 'indexing', 'waiting', 'pending', 'finalizing', 'parsing',
+  'queued', 'queuing', 'waiting_indexing', 'paused',
+]);
+const FAILED_DOC_STATUSES = new Set(['failed', 'error']);
 
 const DOC_FILTERS = [
   { key: 'all', label: t('全部'), countKey: 'total' },
@@ -112,7 +124,7 @@ function parseDocumentTimestamp(rawValue: unknown): number | undefined {
   return undefined;
 }
 
-function mapDocument(raw: any): KBDocument {
+function mapDocument(raw: KBDocumentItem): KBDocument {
   const createdAtRaw = raw?.created_at ?? raw?.uploaded_at ?? raw?.createdAt ?? raw?.uploadedAt;
   const createdAt = parseDocumentTimestamp(createdAtRaw);
   const wordCount = typeof raw?.word_count === 'number'
@@ -145,6 +157,27 @@ function mapDocument(raw: any): KBDocument {
 function formatCount(value?: number, unit = '') {
   if (typeof value !== 'number' || Number.isNaN(value)) return '--';
   return `${value}${unit}`;
+}
+
+function isProcessingStatus(status: string | undefined) {
+  return PROCESSING_DOC_STATUSES.has((status || '').toLowerCase());
+}
+
+function isFailedStatus(status: string | undefined) {
+  return FAILED_DOC_STATUSES.has((status || '').toLowerCase());
+}
+
+function isIndexedStatus(status: string | undefined) {
+  return !isProcessingStatus(status) && !isFailedStatus(status);
+}
+
+function summarizePageStatuses(documents: KBDocument[]): KBDocumentStatusCounts {
+  return documents.reduce<KBDocumentStatusCounts>((counts, doc) => {
+    if (isProcessingStatus(doc.indexing_status)) counts.processing += 1;
+    else if (isFailedStatus(doc.indexing_status)) counts.failed += 1;
+    else counts.indexed += 1;
+    return counts;
+  }, { ...EMPTY_DOC_STATUS_COUNTS });
 }
 
 function formatBytes(bytes: number) {
@@ -280,6 +313,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     return () => window.clearTimeout(timer);
   }, [kbDocQuery]);
   const [kbDocTotal, setKbDocTotal] = useState(0);
+  const [kbDocStatusCounts, setKbDocStatusCounts] = useState<KBDocumentStatusCounts>(EMPTY_DOC_STATUS_COUNTS);
   const [docStatusFilter, setDocStatusFilter] = useState<DocStatusFilter>('all');
   const [kbEditorOpen, setKbEditorOpen] = useState(false);
   const [kbEditorMode, setKbEditorMode] = useState<'create' | 'edit'>('create');
@@ -357,6 +391,10 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
 
   useEffect(() => {
     setKbDocPage(1);
+    setKbDocStatusCounts(EMPTY_DOC_STATUS_COUNTS);
+  }, [selectedItem?.id]);
+
+  useEffect(() => {
     setKbDocTotal(selectedItem?.document_count || 0);
   }, [selectedItem?.id, selectedItem?.document_count]);
 
@@ -455,13 +493,14 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   );
 
   const applyDocumentsResult = useCallback(
-    (kbId: string, items: any[], total: number) => {
+    (kbId: string, items: KBDocumentItem[], total: number, statusCounts?: KBDocumentStatusCounts) => {
       const mapped = items.map(mapDocument);
       const prev = useKbStore.getState().kbDocumentsMap[kbId];
       if (!docsShallowEqual(prev, mapped)) {
         setKbDocumentsMap((p) => ({ ...p, [kbId]: mapped }));
       }
       setKbDocTotal(total);
+      setKbDocStatusCounts(statusCounts ?? summarizePageStatuses(mapped));
     },
     [docsShallowEqual, setKbDocumentsMap],
   );
@@ -478,9 +517,9 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
           setKbDocPage(totalPages);
           return;
         }
-        applyDocumentsResult(kbId, result.items, result.total);
+        applyDocumentsResult(kbId, result.items, result.total, result.status_counts);
       } catch {
-        applyDocumentsResult(kbId, [], 0);
+        applyDocumentsResult(kbId, [], 0, EMPTY_DOC_STATUS_COUNTS);
       } finally {
         setKbDocsLoadingId(null);
       }
@@ -513,16 +552,13 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     documents,
     (doc) => doc.id,
     (doc) => doc.indexing_status ?? '',
-    (prev) => prev === 'processing',
+    (prev) => isProcessingStatus(prev),
     1500,
   );
 
-  const isIndexedStatus = (status: string | undefined) =>
-    status !== 'processing' && status !== 'failed';
-
   // Depend on a boolean rather than the array: the reference changes after each polling write-back, but as long as there is still processing, the effect won't restart.
   const hasProcessingDoc = useMemo(
-    () => documents.some((doc) => doc.indexing_status === 'processing'),
+    () => documents.some((doc) => isProcessingStatus(doc.indexing_status)),
     [documents],
   );
 
@@ -533,7 +569,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     const timer = window.setInterval(async () => {
       try {
         const result = await getKBDocuments(kbId, currentPage, KB_DOC_PAGE_SIZE, kbDocSearch);
-        applyDocumentsResult(kbId, result.items, result.total);
+        applyDocumentsResult(kbId, result.items, result.total, result.status_counts);
       } catch (err) {
         console.warn('KB 文档轮询失败', err);
       }
@@ -544,7 +580,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   const filteredDocuments = useMemo(() => {
     const query = kbDocQuery.trim().toLowerCase();
     return documents.filter((doc) => {
-      if (docStatusFilter === 'processing' && doc.indexing_status !== 'processing') return false;
+      if (docStatusFilter === 'processing' && !isProcessingStatus(doc.indexing_status)) return false;
       if (docStatusFilter === 'indexed' && !isIndexedStatus(doc.indexing_status)) return false;
       if (!query) return true;
       return `${doc.title} ${doc.desc || ''} ${doc.content || ''}`.toLowerCase().includes(query);
@@ -552,11 +588,12 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   }, [documents, kbDocQuery, docStatusFilter]);
 
   const detailStats = useMemo(() => {
-    const total = kbDocTotal || selectedItem?.document_count || 0;
-    const indexed = documents.filter((doc) => isIndexedStatus(doc.indexing_status)).length;
-    const processing = documents.filter((doc) => doc.indexing_status === 'processing').length;
-    return { total, indexed, processing };
-  }, [documents, kbDocTotal, selectedItem]);
+    return {
+      total: kbDocTotal,
+      indexed: kbDocStatusCounts.indexed,
+      processing: kbDocStatusCounts.processing,
+    };
+  }, [kbDocStatusCounts, kbDocTotal]);
 
   const docEmptyDescription = (() => {
     if (documents.length === 0) return t('该知识库暂无文档');
@@ -653,7 +690,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     setKbDocsLoadingId(selectedItem.id);
     try {
       const result = await getKBDocuments(selectedItem.id, kbDocPage, KB_DOC_PAGE_SIZE);
-      applyDocumentsResult(selectedItem.id, result.items, result.total);
+      applyDocumentsResult(selectedItem.id, result.items, result.total, result.status_counts);
       await refreshCatalog();
     } catch (err: any) {
       message.error(err?.message || t('刷新文档列表失败'));
@@ -734,7 +771,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
       }
       setKbDocPage(1);
       const result = await getKBDocuments(selectedItem.id, 1, KB_DOC_PAGE_SIZE);
-      applyDocumentsResult(selectedItem.id, result.items, result.total);
+      applyDocumentsResult(selectedItem.id, result.items, result.total, result.status_counts);
       await refreshCatalog();
       closeUploadDocModal();
       message.success(`${uploadDocFileList.length} ${t('个文档已上传，正在后台索引')}`);
@@ -1160,11 +1197,11 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                       <div className="jx-kbDocCellMuted">{formatDocWordCount(doc)}</div>
                       <div className="jx-kbDocCellMuted">{formatDateTime(doc.created_at)}</div>
                       <div>
-                        {doc.indexing_status === 'processing' ? (
+                        {isProcessingStatus(doc.indexing_status) ? (
                           <span className="jx-kbStatusPill jx-kbStatusPill-processing">
                             <LoadingOutlined /> {t('索引中')}
                           </span>
-                        ) : doc.indexing_status === 'failed' ? (
+                        ) : isFailedStatus(doc.indexing_status) ? (
                           <span className="jx-kbStatusPill jx-kbStatusPill-failed">{t('索引失败')}</span>
                         ) : (
                           <span className="jx-kbStatusPill jx-kbStatusPill-success">{t('索引完成')}</span>
@@ -1172,7 +1209,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                       </div>
                       <div className="jx-kbDocActions">
                         <span className="jx-kbDocActionSlot">
-                          {selectedItem.editable && doc.indexing_status === 'failed' ? (
+                          {selectedItem.editable && isFailedStatus(doc.indexing_status) ? (
                             <Button
                               type="text"
                               icon={<ThunderboltOutlined />}

@@ -65,6 +65,13 @@ export interface KBDocumentsResponse {
   page: number;
   page_size: number;
   has_more: boolean;
+  status_counts?: KBDocumentStatusCounts;
+}
+
+export interface KBDocumentStatusCounts {
+  indexed: number;
+  processing: number;
+  failed: number;
 }
 
 export interface SessionListResponse {
@@ -819,13 +826,21 @@ export async function healthCheck(): Promise<HealthResponse> {
 
 export interface KBDocumentItem {
   id: string;
+  document_id?: string;
   title: string;
+  name?: string;
+  filename?: string;
   desc?: string;
   word_count?: number;
+  size?: number;
+  size_bytes?: number;
   indexing_status?: string;
   enabled?: boolean;
   data_source_type?: string;
-  created_at?: number;
+  created_at?: number | string;
+  uploaded_at?: number | string;
+  createdAt?: number | string;
+  uploadedAt?: number | string;
   content?: string;
 }
 
@@ -840,7 +855,7 @@ export async function getKBDocuments(
     const wrapped = await apiRequest<unknown>(
       `/v1/catalog/kb/${kbId}/documents?page=${page}&page_size=${pageSize}${kw}`,
     );
-    const data = unwrapData<PaginatedData<KBDocumentItem>>(wrapped);
+    const data = unwrapData<PaginatedData<KBDocumentItem> & { status_counts?: KBDocumentStatusCounts }>(wrapped);
     const items = Array.isArray(data.items) ? data.items : [];
     const pagination = data.pagination;
     return {
@@ -849,6 +864,7 @@ export async function getKBDocuments(
       page: typeof pagination?.page === 'number' ? pagination.page : page,
       page_size: typeof pagination?.page_size === 'number' ? pagination.page_size : pageSize,
       has_more: Boolean(pagination?.has_next),
+      status_counts: data.status_counts,
     };
   } catch {
     return {
@@ -1974,6 +1990,45 @@ export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise
   });
 }
 
+export interface IndustryNodeCompany {
+  id: string;
+  name: string;
+  province?: string | null;
+  city?: string | null;
+  area?: string | null;
+  belong_area?: string | null;
+  labels: string[];
+  legal_person?: string | null;
+  establish_date?: string | null;
+  registered_capital?: string | null;
+  confidence: number;
+}
+
+export interface IndustryNodeCompaniesResponse {
+  chain_id: string;
+  node_id: string;
+  items: IndustryNodeCompany[];
+  pagination: Pagination;
+}
+
+export async function getIndustryNodeCompanies(
+  chainId: string,
+  nodeId: string,
+  page = 1,
+  pageSize = 10,
+  signal?: AbortSignal,
+): Promise<IndustryNodeCompaniesResponse> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/industry/chains/${encodeURIComponent(chainId)}/nodes/${encodeURIComponent(nodeId)}/companies`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ page, page_size: pageSize }),
+      signal,
+    },
+  );
+  return unwrapData<IndustryNodeCompaniesResponse>(wrapped);
+}
+
 // ── File upload API ─────────────────────────────────────────────
 
 export interface UploadedFile {
@@ -2310,6 +2365,7 @@ export const api = {
   logout,
   listChatShares,
   authFetch,
+  getIndustryNodeCompanies,
   uploadFile,
   overwriteFile,
   getArtifacts,

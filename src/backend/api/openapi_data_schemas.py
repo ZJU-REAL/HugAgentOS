@@ -594,6 +594,14 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
             "page": {"type": "integer"},
             "page_size": {"type": "integer"},
             "total": {"type": "integer"},
+            "status_counts": {
+                "type": "object",
+                "properties": {
+                    "indexed": {"type": "integer"},
+                    "processing": {"type": "integer"},
+                    "failed": {"type": "integer"},
+                },
+            },
         },
     },
     ("GET", "/v1/catalog/kb/{kb_id}/documents/{document_id}"): _ref("KBDocumentDetail"),
