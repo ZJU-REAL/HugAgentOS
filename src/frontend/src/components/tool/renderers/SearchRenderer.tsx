@@ -1,6 +1,6 @@
 import React from 'react';
 import { GlobalOutlined, SearchOutlined } from '@ant-design/icons';
-import { citeTag, coerceOutput, preview } from './utils';
+import { coerceOutput, preview } from './utils';
 import { staggerStyle } from '../../../utils/motionTokens';
 import { t } from '../../../i18n';
 
