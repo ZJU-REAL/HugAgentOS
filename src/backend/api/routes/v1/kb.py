@@ -418,13 +418,23 @@ async def list_documents(
 
         if is_enabled():
             result = list_documents(kb_id, page=page, limit=page_size, keyword=keyword or "")
-            return paginated_response(
+            response = paginated_response(
                 items=result.get("items", []),
                 page=result.get("page", page),
                 page_size=result.get("page_size", page_size),
                 total_items=result.get("total", 0),
                 message="Documents retrieved successfully",
             )
+            from core.kb.external_provider import count_document_statuses
+
+            status_counts = count_document_statuses(
+                kb_id,
+                keyword=keyword or "",
+                initial_result=result,
+            )
+            if status_counts is not None:
+                response["data"]["status_counts"] = status_counts
+            return response
         raise ResourceNotFoundError(resource_type="kb_space", resource_id=kb_id)
 
     # Public KBs (created in the admin console, owned by the system principal) are readable by all logged-in users
@@ -448,13 +458,15 @@ async def list_documents(
         }
         for d in documents
     ]
-    return paginated_response(
+    response = paginated_response(
         items=items,
         page=page,
         page_size=page_size,
         total_items=total,
         message="Documents retrieved successfully",
     )
+    response["data"]["status_counts"] = kb_repo.count_document_statuses(kb_id, keyword=keyword)
+    return response
 
 
 @router.get("/{kb_id}/documents/{document_id}", summary="获取知识库文档详情")

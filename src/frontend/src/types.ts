@@ -960,7 +960,7 @@ export interface KBDocument {
   title: string;
   desc?: string;
   content?: string;
-  indexing_status?: string;  // "processing" | "completed" | "failed"
+  indexing_status?: string;  // normalized local/external indexing status
   word_count?: number;
   size_bytes?: number;
   created_at?: number;

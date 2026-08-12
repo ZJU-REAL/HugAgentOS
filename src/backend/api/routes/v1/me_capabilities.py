@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
+from core.config.settings import settings
 from core.db.engine import get_db
 from core.db.models import AdminMcpServer, AdminSkill
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
@@ -92,10 +93,14 @@ async def create_my_mcp_server(
 
     if not body.url.strip():
         raise BadRequestError(message="url 不能为空")
-    # Public HTTP endpoints are allowed for controlled/test deployments.  The
-    # shared validator still blocks loopback, private, link-local, and reserved
-    # targets; HTTPS remains the recommended production transport.
-    await validate_remote_mcp_url(body.url, require_https=False)
+    # Public HTTP endpoints are allowed for controlled/test deployments.
+    # Private-network targets remain blocked unless a trusted private deployment
+    # explicitly opts in; HTTPS remains the recommended production transport.
+    await validate_remote_mcp_url(
+        body.url,
+        allow_private_network=settings.server.mcp_self_service_allow_private_network,
+        require_https=False,
+    )
 
     # Auto-generate a globally unique server_id to avoid collisions with public MCPs / other users
     server_id = f"umcp_{uuid.uuid4().hex[:16]}"

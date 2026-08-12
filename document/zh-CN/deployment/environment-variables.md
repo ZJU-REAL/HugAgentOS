@@ -161,6 +161,7 @@
 |---|---|---|---|
 | `MCP_HOST` | `mcp`（compose 默认） | MCP 容器主机名；本地调试可设 `127.0.0.1` | CE |
 | `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | MCP 市场远程工具快照复检周期（秒，最小 `300`） | CE |
+| `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | 是否允许用户自助添加回环、RFC1918 或 IPv6 ULA 地址上的 MCP；仅应在用户可信的私有化环境开启，云元数据/链路本地等高风险地址仍会拦截，私有地址也不能由用户申请上架市场 | CE |
 | `INTERNET_SEARCH_ENGINE` | `tavily`（compose 默认） | 联网搜索引擎：`tavily` / `baidu` / `langsearch` | CE |
 | `TAVILY_API_KEY` | （空） | Tavily Search API Key；选择 Tavily 时必填 | CE |
 | `BAIDU_API_KEY` | （空） | 百度搜索 API Key；选择百度时必填 | CE |

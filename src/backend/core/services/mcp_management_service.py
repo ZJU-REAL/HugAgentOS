@@ -31,6 +31,12 @@ _SYNTHETIC_DNS_PROXY_NETWORKS = (
     ipaddress.ip_network("fc00::/18"),
     ipaddress.ip_network("fdfe:dcba:9876::/48"),
 )
+_MCP_PRIVATE_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+)
 _PUBLIC_DOH_ENDPOINTS = (
     "https://cloudflare-dns.com/dns-query",
     "https://dns.google/resolve",
@@ -238,6 +244,20 @@ def _is_synthetic_dns_proxy_ip(address: str) -> bool:
     )
 
 
+def _is_allowed_private_mcp_ip(address: str) -> bool:
+    """Allow only loopback, RFC1918, and IPv6 ULA when private MCPs are enabled.
+
+    Link-local/cloud-metadata, multicast, unspecified, and other reserved ranges
+    stay blocked even in trusted private deployments.
+    """
+    ip = ipaddress.ip_address(address)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return ip.is_loopback or any(
+        ip.version == network.version and ip in network for network in _MCP_PRIVATE_NETWORKS
+    )
+
+
 async def _resolve_public_dns_via_doh(hostname: str) -> set[str]:
     """Resolve a fake-IP hostname through fixed public DoH endpoints.
 
@@ -291,7 +311,8 @@ async def validate_remote_mcp_url(
 
     Resolution is checked as well as the literal host so public-looking DNS names
     cannot point at loopback, RFC1918, link-local, or cloud metadata addresses.
-    Admin-only publishing may explicitly allow private network targets.
+    Trusted deployments may explicitly allow loopback/RFC1918/ULA targets;
+    link-local/cloud-metadata and other reserved ranges always remain blocked.
     """
     value = (url or "").strip()
     parsed = urlparse(value)
@@ -306,13 +327,15 @@ async def validate_remote_mcp_url(
         and not allow_private_network
     ):
         raise BadRequestError(message="MCP 服务地址不能指向本机或内网")
-    if allow_private_network:
-        return
     try:
         literal = ipaddress.ip_address(parsed.hostname)
     except ValueError:
         literal = None
-    if literal is not None and _is_forbidden_ip(str(literal)):
+    if (
+        literal is not None
+        and _is_forbidden_ip(str(literal))
+        and not (allow_private_network and _is_allowed_private_mcp_ip(str(literal)))
+    ):
         raise BadRequestError(message="MCP 服务地址不能指向本机、内网或保留地址")
 
     port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
@@ -328,10 +351,13 @@ async def validate_remote_mcp_url(
         raise BadRequestError(message="MCP 服务域名解析到了本机、内网或保留地址")
     synthetic_addresses = {address for address in addresses if _is_synthetic_dns_proxy_ip(address)}
     if any(
-        _is_forbidden_ip(address) and address not in synthetic_addresses for address in addresses
+        _is_forbidden_ip(address)
+        and address not in synthetic_addresses
+        and not (allow_private_network and _is_allowed_private_mcp_ip(address))
+        for address in addresses
     ):
         raise BadRequestError(message="MCP 服务域名解析到了本机、内网或保留地址")
-    if synthetic_addresses:
+    if synthetic_addresses and not allow_private_network:
         public_addresses = await _resolve_public_dns_via_doh(parsed.hostname)
         if not public_addresses or any(_is_forbidden_ip(address) for address in public_addresses):
             raise BadRequestError(message="MCP 服务域名公共 DNS 安全复核失败")

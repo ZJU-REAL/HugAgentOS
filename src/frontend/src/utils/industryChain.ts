@@ -1,6 +1,8 @@
 export interface IndustryChainTreeNode {
   id: string;
   label: string;
+  nodeId?: string;
+  companyCount?: number;
   children: IndustryChainTreeNode[];
 }
 
@@ -10,6 +12,7 @@ export interface IndustryChainMetric {
 }
 
 export interface IndustryChainViewModel {
+  chainId: string;
   title: string;
   description: string;
   tree: IndustryChainTreeNode | null;
@@ -78,7 +81,20 @@ function normalizeNode(
       .filter((child): child is IndustryChainTreeNode => child !== null)
     : [];
 
-  return { id: path, label, children };
+  const rawNodeId = record['节点ID'] ?? record.nodeId ?? record.id;
+  const nodeId = rawNodeId == null ? '' : String(rawNodeId).trim();
+  const rawCompanyCount = record['企业数'] ?? record.companyCount ?? record.companyNum;
+  const parsedCompanyCount = typeof rawCompanyCount === 'number'
+    ? rawCompanyCount
+    : Number(rawCompanyCount);
+
+  return {
+    id: path,
+    label,
+    ...(nodeId ? { nodeId } : {}),
+    ...(Number.isFinite(parsedCompanyCount) ? { companyCount: parsedCompanyCount } : {}),
+    children,
+  };
 }
 
 function countNodes(node: IndustryChainTreeNode | null): number {
@@ -106,6 +122,7 @@ export function parseIndustryChainOutput(
   const unwrapped = unwrapOutput(output);
   if (typeof unwrapped === 'string') {
     return {
+      chainId: '',
       title: fallbackTitle || '产业链图谱',
       description: '',
       tree: null,
@@ -121,6 +138,7 @@ export function parseIndustryChainOutput(
   const overview = asRecord(sections['产业链概况']) ?? {};
   const tree = normalizeNode(sections['产业链图谱'], 'root');
   const titleValue = toDisplayValue(overview['名称']);
+  const chainIdValue = toDisplayValue(overview['产业链ID'] ?? overview.chainId);
   const descriptionValue = toDisplayValue(overview['描述']);
   const metricRecord = asRecord(overview['关键指标']) ?? {};
   const metrics = Object.entries(metricRecord)
@@ -131,6 +149,9 @@ export function parseIndustryChainOutput(
     .filter((metric): metric is IndustryChainMetric => metric !== null);
 
   return {
+    chainId: chainIdValue == null
+      ? (/^industry_[\w-]+$/i.test(fallbackTitle) ? fallbackTitle : '')
+      : String(chainIdValue),
     title: titleValue == null ? (tree?.label || fallbackTitle || '产业链图谱') : String(titleValue),
     description: descriptionValue == null ? '' : String(descriptionValue),
     tree,

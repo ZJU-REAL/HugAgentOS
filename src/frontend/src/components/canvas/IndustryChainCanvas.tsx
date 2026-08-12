@@ -3,13 +3,20 @@ import {
   CloseOutlined,
   CompressOutlined,
   ExpandOutlined,
+  ExportOutlined,
   MinusOutlined,
   PlusOutlined,
+  TeamOutlined,
   ZoomInOutlined,
   ZoomOutOutlined,
 } from '@ant-design/icons';
+import { Empty, Pagination, Spin, Tag } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import {
+  getIndustryNodeCompanies,
+  type IndustryNodeCompaniesResponse,
+} from '../../api';
 import { t } from '../../i18n';
 import { useCanvasStore } from '../../stores';
 import {
@@ -46,12 +53,21 @@ interface ViewTransform {
   scale: number;
 }
 
+interface WorldBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const NODE_HEIGHT = 44;
 const COLUMN_GAP = 260;
 const ROW_GAP = 72;
 const WORLD_PADDING = 48;
 const MIN_SCALE = 0.28;
 const MAX_SCALE = 1.8;
+const AUTO_VIEW_DURATION_MS = 340;
+const COMPANY_DETAIL_URL = 'https://ningboi.com/analysis/knowledge/company';
 // Root is depth 0. Keep three levels visible initially; "expand all" may reveal
 // the fourth level, while the layout guard prevents fifth-level legacy data.
 const MAX_VISIBLE_DEPTH = INDUSTRY_CHAIN_MAX_LEVELS - 1;
@@ -139,10 +155,59 @@ function clampScale(scale: number): number {
   return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
 }
 
+function fitBoundsToViewport(
+  bounds: WorldBounds,
+  viewportWidth: number,
+  viewportHeight: number,
+  padding = 56,
+  maximumScale = 1,
+): ViewTransform {
+  const availableWidth = Math.max(1, viewportWidth - padding * 2);
+  const availableHeight = Math.max(1, viewportHeight - padding * 2);
+  const scale = clampScale(Math.min(
+    availableWidth / Math.max(1, bounds.width),
+    availableHeight / Math.max(1, bounds.height),
+    maximumScale,
+  ));
+  return {
+    scale,
+    x: (viewportWidth - bounds.width * scale) / 2 - bounds.x * scale,
+    y: (viewportHeight - bounds.height * scale) / 2 - bounds.y * scale,
+  };
+}
+
+function subtreeBounds(layout: TreeLayout, root: IndustryChainTreeNode): WorldBounds | null {
+  const subtreeIds = new Set<string>();
+  const visit = (node: IndustryChainTreeNode) => {
+    subtreeIds.add(node.id);
+    node.children.forEach(visit);
+  };
+  visit(root);
+
+  const nodes = layout.nodes.filter((positioned) => subtreeIds.has(positioned.node.id));
+  if (nodes.length === 0) return null;
+  const inset = 28;
+  const left = Math.min(...nodes.map((node) => node.x)) - inset;
+  const top = Math.min(...nodes.map((node) => node.y)) - inset;
+  const right = Math.max(...nodes.map((node) => node.x + node.width)) + inset;
+  const bottom = Math.max(...nodes.map((node) => node.y + node.height)) + inset;
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+function companyDetailUrl(companyId: string): string {
+  return `${COMPANY_DETAIL_URL}?id=${encodeURIComponent(companyId)}`;
+}
+
 export function IndustryChainCanvas() {
   const target = useCanvasStore((state) => state.industryChainTarget);
   const closeCanvas = useCanvasStore((state) => state.closeCanvas);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const companyPanelRef = useRef<HTMLElement>(null);
   const didInitialPositionRef = useRef(false);
   const panRef = useRef<{
     pointerId: number;
@@ -151,12 +216,23 @@ export function IndustryChainCanvas() {
     originX: number;
     originY: number;
   } | null>(null);
+  const companyRequestRef = useRef<AbortController | null>(null);
+  const autoViewFrameRef = useRef<number | null>(null);
+  const autoViewTimerRef = useRef<number | null>(null);
+  const panelTransitionFrameRef = useRef<number | null>(null);
+  const viewBeforeCompanyPanelRef = useRef<ViewTransform | null>(null);
+  const pendingLayoutFocusRef = useRef<IndustryChainTreeNode | 'fit-all' | null>(null);
   // null means the user has not changed expansion yet, so the tree can derive
   // its default collapsed branches as soon as the asynchronous result arrives.
   const [collapsed, setCollapsed] = useState<Set<string> | null>(null);
   const [view, setView] = useState<ViewTransform>({ x: 24, y: 24, scale: 1 });
   const [dragging, setDragging] = useState(false);
+  const [viewAnimating, setViewAnimating] = useState(false);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [selectedNode, setSelectedNode] = useState<IndustryChainTreeNode | null>(null);
+  const [companies, setCompanies] = useState<IndustryNodeCompaniesResponse | null>(null);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [companiesError, setCompaniesError] = useState('');
 
   const model = useMemo(
     () => parseIndustryChainOutput(target?.output, target?.chainName),
@@ -174,22 +250,78 @@ export function IndustryChainCanvas() {
     [effectiveCollapsed, model.tree],
   );
 
-  const fitToView = useCallback(() => {
-    if (!layout || !viewportRef.current) return;
+  const animateToView = useCallback((nextView: ViewTransform) => {
+    if (autoViewFrameRef.current != null) {
+      window.cancelAnimationFrame(autoViewFrameRef.current);
+    }
+    if (autoViewTimerRef.current != null) {
+      window.clearTimeout(autoViewTimerRef.current);
+    }
+    setViewAnimating(true);
+    autoViewFrameRef.current = window.requestAnimationFrame(() => {
+      setView(nextView);
+      autoViewFrameRef.current = null;
+      autoViewTimerRef.current = window.setTimeout(() => {
+        setViewAnimating(false);
+        autoViewTimerRef.current = null;
+      }, AUTO_VIEW_DURATION_MS);
+    });
+  }, []);
+
+  const getFittedView = useCallback((): ViewTransform | null => {
+    if (!layout || !viewportRef.current) return null;
     const rect = viewportRef.current.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const padding = 56;
+    if (!rect.width || !rect.height) return null;
+    return fitBoundsToViewport(
+      { x: 0, y: 0, width: layout.width, height: layout.height },
+      rect.width,
+      rect.height,
+    );
+  }, [layout]);
+
+  const fitToView = useCallback(() => {
+    const nextView = getFittedView();
+    if (nextView) animateToView(nextView);
+  }, [animateToView, getFittedView]);
+
+  const focusSelectedNodeAlongsideCompanyPanel = useCallback((
+    selectedLeaf: IndustryChainTreeNode,
+    previousScale: number,
+  ) => {
+    if (!layout || !viewportRef.current || !companyPanelRef.current) return;
+    const viewport = viewportRef.current;
+    const body = viewport.parentElement;
+    if (!body) return;
+    const bodyRect = body.getBoundingClientRect();
+    const panelRect = companyPanelRef.current.getBoundingClientRect();
+    if (!bodyRect.width || !bodyRect.height) return;
+    const panelOverlaysGraph = window.matchMedia('(max-width: 820px)').matches;
+    const finalViewportWidth = panelOverlaysGraph
+      ? bodyRect.width
+      : Math.max(1, bodyRect.width - panelRect.width);
+    const positionedLeaf = layout.nodes.find((item) => item.node.id === selectedLeaf.id);
+    if (!positionedLeaf) return;
+    const nodeFitScale = (finalViewportWidth - 56) / positionedLeaf.width;
     const scale = clampScale(Math.min(
-      (rect.width - padding * 2) / layout.width,
-      (rect.height - padding * 2) / layout.height,
+      Math.max(previousScale, 0.82),
+      nodeFitScale,
       1,
     ));
-    setView({
+    const focusX = finalViewportWidth * 0.64;
+    animateToView({
       scale,
-      x: (rect.width - layout.width * scale) / 2,
-      y: (rect.height - layout.height * scale) / 2,
+      x: focusX - (positionedLeaf.x + positionedLeaf.width / 2) * scale,
+      y: bodyRect.height / 2 - (positionedLeaf.y + positionedLeaf.height / 2) * scale,
     });
-  }, [layout]);
+  }, [animateToView, layout]);
+
+  const focusVisibleSubtree = useCallback((node: IndustryChainTreeNode) => {
+    if (!layout || !viewportRef.current) return;
+    const rect = viewportRef.current.getBoundingClientRect();
+    const bounds = subtreeBounds(layout, node);
+    if (!bounds || !rect.width || !rect.height) return;
+    animateToView(fitBoundsToViewport(bounds, rect.width, rect.height, 48));
+  }, [animateToView, layout]);
 
   const focusRoot = useCallback(() => {
     if (!layout || !viewportRef.current) return;
@@ -224,6 +356,26 @@ export function IndustryChainCanvas() {
     const frame = window.requestAnimationFrame(focusRoot);
     return () => window.cancelAnimationFrame(frame);
   }, [focusRoot, layout]);
+
+  useEffect(() => {
+    if (!layout || !pendingLayoutFocusRef.current) return undefined;
+    const focusTarget = pendingLayoutFocusRef.current;
+    pendingLayoutFocusRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (focusTarget === 'fit-all') fitToView();
+      else focusVisibleSubtree(focusTarget);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [fitToView, focusVisibleSubtree, layout]);
+
+  useEffect(() => () => {
+    companyRequestRef.current?.abort();
+    if (autoViewFrameRef.current != null) window.cancelAnimationFrame(autoViewFrameRef.current);
+    if (autoViewTimerRef.current != null) window.clearTimeout(autoViewTimerRef.current);
+    if (panelTransitionFrameRef.current != null) {
+      window.cancelAnimationFrame(panelTransitionFrameRef.current);
+    }
+  }, []);
 
   const zoomAtCenter = useCallback((factor: number) => {
     const viewport = viewportRef.current;
@@ -293,18 +445,90 @@ export function IndustryChainCanvas() {
     if (node.children.length === 0) return;
     setCollapsed((current) => {
       const next = new Set(current ?? defaultCollapsed);
-      if (next.has(node.id)) next.delete(node.id);
-      else next.add(node.id);
+      if (next.has(node.id)) {
+        next.delete(node.id);
+        pendingLayoutFocusRef.current = node;
+      } else {
+        next.add(node.id);
+      }
       return next;
     });
   }, [defaultCollapsed]);
 
   const collapseAll = useCallback(() => {
     if (!model.tree) return;
+    pendingLayoutFocusRef.current = 'fit-all';
     setCollapsed(new Set(allBranchIds(model.tree).filter((id) => id !== model.tree?.id)));
   }, [model.tree]);
 
-  const expandAll = useCallback(() => setCollapsed(new Set()), []);
+  const expandAll = useCallback(() => {
+    pendingLayoutFocusRef.current = 'fit-all';
+    setCollapsed(new Set());
+  }, []);
+
+  const loadNodeCompanies = useCallback(async (node: IndustryChainTreeNode, page: number) => {
+    if (!model.chainId || !node.nodeId) {
+      setCompanies(null);
+      setCompaniesError(t('当前图谱缺少节点标识，暂时无法查询关联企业'));
+      return;
+    }
+    companyRequestRef.current?.abort();
+    const controller = new AbortController();
+    companyRequestRef.current = controller;
+    setCompaniesLoading(true);
+    setCompaniesError('');
+    try {
+      const result = await getIndustryNodeCompanies(
+        model.chainId,
+        node.nodeId,
+        page,
+        10,
+        controller.signal,
+      );
+      if (!controller.signal.aborted) setCompanies(result);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setCompanies(null);
+        setCompaniesError(error instanceof Error ? error.message : t('关联企业加载失败'));
+      }
+    } finally {
+      if (!controller.signal.aborted) setCompaniesLoading(false);
+    }
+  }, [model.chainId]);
+
+  const openNodeCompanies = useCallback((node: IndustryChainTreeNode) => {
+    if (node.children.length > 0) return;
+    const panelWasClosed = selectedNode === null;
+    setSelectedNode(node);
+    setCompanies(null);
+    void loadNodeCompanies(node, 1);
+    if (panelWasClosed) {
+      viewBeforeCompanyPanelRef.current = view;
+      if (panelTransitionFrameRef.current != null) {
+        window.cancelAnimationFrame(panelTransitionFrameRef.current);
+      }
+      panelTransitionFrameRef.current = window.requestAnimationFrame(() => {
+        panelTransitionFrameRef.current = null;
+        focusSelectedNodeAlongsideCompanyPanel(node, view.scale);
+      });
+    }
+  }, [focusSelectedNodeAlongsideCompanyPanel, loadNodeCompanies, selectedNode, view]);
+
+  const closeNodeCompanies = useCallback(() => {
+    companyRequestRef.current?.abort();
+    setSelectedNode(null);
+    setCompanies(null);
+    setCompaniesError('');
+    setCompaniesLoading(false);
+    if (panelTransitionFrameRef.current != null) {
+      window.cancelAnimationFrame(panelTransitionFrameRef.current);
+      panelTransitionFrameRef.current = null;
+    }
+    const previousView = viewBeforeCompanyPanelRef.current;
+    viewBeforeCompanyPanelRef.current = null;
+    if (previousView) animateToView(previousView);
+    else window.requestAnimationFrame(fitToView);
+  }, [animateToView, fitToView]);
 
   const handleMinimapClick = useCallback((event: React.MouseEvent<SVGSVGElement>) => {
     if (!layout || !viewportRef.current) return;
@@ -371,7 +595,7 @@ export function IndustryChainCanvas() {
         </div>
       )}
 
-      <div className="jx-industryChain-body">
+      <div className={`jx-industryChain-body${selectedNode ? ' has-company-panel' : ''}`}>
         {isLoading ? (
           <div className="jx-canvas-loading">
             <div className="jx-canvas-spinner" />
@@ -392,7 +616,7 @@ export function IndustryChainCanvas() {
             onPointerCancel={handlePointerUp}
           >
             <div
-              className="jx-industryChain-world"
+              className={`jx-industryChain-world${viewAnimating ? ' is-view-animating' : ''}`}
               style={{
                 width: layout.width,
                 height: layout.height,
@@ -417,11 +641,13 @@ export function IndustryChainCanvas() {
               </svg>
               {layout.nodes.map((positioned) => {
                 const branch = positioned.node.children.length > 0;
+                const selectableLeaf = !branch && !!positioned.node.nodeId;
                 const isCollapsed = effectiveCollapsed.has(positioned.node.id);
+                const isSelected = selectedNode?.id === positioned.node.id;
                 return (
                   <div
                     key={positioned.node.id}
-                    className={`jx-industryChain-node jx-industryChain-node--depth${Math.min(positioned.depth, 2)}`}
+                    className={`jx-industryChain-node jx-industryChain-node--depth${Math.min(positioned.depth, 2)}${branch ? ' is-expandable' : ''}${selectableLeaf ? ' is-selectable' : ''}${isSelected ? ' is-selected' : ''}`}
                     style={{
                       left: positioned.x,
                       top: positioned.y,
@@ -431,10 +657,30 @@ export function IndustryChainCanvas() {
                     role="treeitem"
                     aria-level={positioned.depth + 1}
                     aria-expanded={branch ? !isCollapsed : undefined}
+                    aria-selected={selectableLeaf ? isSelected : undefined}
+                    tabIndex={branch || selectableLeaf ? 0 : undefined}
+                    onClick={() => {
+                      if (branch) toggleNode(positioned.node);
+                      else if (selectableLeaf) openNodeCompanies(positioned.node);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if ((branch || selectableLeaf) && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        if (branch) toggleNode(positioned.node);
+                        else openNodeCompanies(positioned.node);
+                      }
+                    }}
                     title={positioned.node.label}
                   >
                     <span className="jx-industryChain-nodeAccent" aria-hidden="true" />
                     <span className="jx-industryChain-nodeLabel">{positioned.node.label}</span>
+                    {selectableLeaf && (
+                      <span className="jx-industryChain-nodeCompanies" title={t('查看关联企业')}>
+                        <TeamOutlined />
+                        {positioned.node.companyCount ?? ''}
+                      </span>
+                    )}
                     {branch && (
                       <button
                         className="jx-industryChain-nodeToggle"
@@ -501,6 +747,97 @@ export function IndustryChainCanvas() {
 
             <div className="jx-industryChain-hint">{t('拖拽移动 · 滚轮缩放')}</div>
           </div>
+        )}
+
+        {selectedNode && (
+          <section
+            ref={companyPanelRef}
+            className="jx-industryChain-companyPanel"
+            aria-label={t('{name}关联企业', { name: selectedNode.label })}
+          >
+            <header className="jx-industryChain-companyHeader">
+              <div>
+                <span><TeamOutlined />{t('企业列表')}</span>
+                <strong>{selectedNode.label}</strong>
+                <small>
+                  {companies
+                    ? t('共 {n} 家关联企业', { n: companies.pagination.total_items })
+                    : selectedNode.companyCount != null
+                      ? t('共 {n} 家关联企业', { n: selectedNode.companyCount })
+                      : t('正在查询关联企业')}
+                </small>
+              </div>
+              <button onClick={closeNodeCompanies} title={t('关闭企业列表')} aria-label={t('关闭企业列表')}>
+                <CloseOutlined />
+              </button>
+            </header>
+
+            <div className="jx-industryChain-companyColumns" aria-hidden="true">
+              <span>{t('企业名称')}</span>
+              <span>{t('资质标签')}</span>
+              <span>{t('所属地区')}</span>
+            </div>
+
+            <div className="jx-industryChain-companyBody" aria-live="polite">
+              {companiesLoading ? (
+                <div className="jx-industryChain-companyState"><Spin />{t('正在加载企业列表…')}</div>
+              ) : companiesError ? (
+                <div className="jx-industryChain-companyState is-error">
+                  <span>{companiesError}</span>
+                  <button onClick={() => void loadNodeCompanies(selectedNode, companies?.pagination.page ?? 1)}>
+                    {t('重新加载')}
+                  </button>
+                </div>
+              ) : !companies || companies.items.length === 0 ? (
+                <div className="jx-industryChain-companyState"><Empty description={t('该节点暂无关联企业')} /></div>
+              ) : (
+                <div className="jx-industryChain-companyList">
+                  {companies.items.map((company) => (
+                    <a
+                      key={company.id}
+                      className="jx-industryChain-companyRow"
+                      href={companyDetailUrl(company.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={t('在新窗口查看{name}企业详情', { name: company.name })}
+                    >
+                      <div className="jx-industryChain-companyName">
+                        <span className="jx-industryChain-companyNameTitle">
+                          <strong title={company.name}>{company.name}</strong>
+                          <ExportOutlined title={t('查看企业详情')} />
+                        </span>
+                        <small>
+                          {[company.establish_date, company.registered_capital].filter(Boolean).join(' · ') || t('暂无工商摘要')}
+                        </small>
+                      </div>
+                      <div className="jx-industryChain-companyTags">
+                        {company.labels.length > 0
+                          ? company.labels.slice(0, 3).map((label) => <Tag key={label} color="orange">{label}</Tag>)
+                          : <span>—</span>}
+                        {company.labels.length > 3 && <small>+{company.labels.length - 3}</small>}
+                      </div>
+                      <div className="jx-industryChain-companyRegion" title={company.belong_area || ''}>
+                        {company.belong_area || [company.province, company.city].filter(Boolean).join('') || '—'}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {companies && companies.pagination.total_pages > 1 && (
+              <footer className="jx-industryChain-companyPagination">
+                <Pagination
+                  current={companies.pagination.page}
+                  pageSize={companies.pagination.page_size}
+                  total={companies.pagination.total_items}
+                  showSizeChanger={false}
+                  size="small"
+                  onChange={(page) => void loadNodeCompanies(selectedNode, page)}
+                />
+              </footer>
+            )}
+          </section>
         )}
       </div>
     </aside>

@@ -116,6 +116,19 @@ counts to the agent's answer context.
 Multi-endpoint workflows remain concurrent and preserve partial success under
 a 25,000-character business-data limit.
 
+The industry-chain Canvas reads stable node IDs preserved by
+`get_chain_information`. Clicking a leaf node loads its related companies through
+an authenticated backend endpoint protected by the `industry_tools` entitlement;
+the browser receives company names, qualification tags, regions, establishment
+dates, and registered capital without receiving the upstream URL or token. Agents
+can use `ikc_screen_enterprises` for the same flow: omit all filters to page through
+every company on the node, or provide region, age, capital, or label filters.
+When the company panel opens, the map keeps a large scale and focuses the selected
+leaf node with limited upstream context instead of shrinking to show every node.
+Closing the panel restores the previous view. Expanding a branch focuses the newly
+visible nodes so they stay inside the viewport. Each company row opens the
+corresponding upstream company profile in a new tab.
+
 The internal audit still records all 240 endpoints discovered in the web app,
 but capability inventory, arbitrary endpoint invocation, region trees, generic
 entity resolution, personal libraries, collections/subscriptions, report

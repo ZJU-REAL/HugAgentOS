@@ -161,6 +161,7 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 |---|---|---|---|
 | `MCP_HOST` | `mcp` (compose default) | MCP container hostname; set `127.0.0.1` for local debugging | CE |
 | `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | Remote MCP marketplace snapshot revalidation interval in seconds (minimum `300`) | CE |
+| `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | Allow users to add MCP endpoints on loopback, RFC1918, or IPv6 ULA addresses; enable only in trusted private deployments. Cloud-metadata/link-local ranges stay blocked, and users cannot submit private endpoints to the marketplace | CE |
 | `INTERNET_SEARCH_ENGINE` | `tavily` (compose default) | Internet search engine: `tavily` / `baidu` / `langsearch` | CE |
 | `TAVILY_API_KEY` | (empty) | Tavily Search API key; required when Tavily is selected | CE |
 | `BAIDU_API_KEY` | (empty) | Baidu search API key; required when Baidu is selected | CE |
