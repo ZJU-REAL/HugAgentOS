@@ -24,6 +24,7 @@ from core.llm.mcp_manager import close_clients
 from core.llm.mcp_pool import MCPConnectionPool
 from core.llm.middlewares import (
     ActingToolCallIdMiddleware,
+    CitationAnchorMiddleware,
     AgentRuntimeState,
     DynamicModelMiddleware,
     FileContextMiddleware,
@@ -1853,6 +1854,7 @@ async def create_agent_executor(
         # almost all traffic takes.
         StallInterventionMiddleware(profile.intervention_rules),
         OntologyGateMiddleware(_ontology_runtime),  # on_acting: zero-LLM L-a contract gate
+        CitationAnchorMiddleware(),  # on_acting: 证据锚点——工具结果回给模型前发号回注 cite_id
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
     ]
     if not batch_mode:

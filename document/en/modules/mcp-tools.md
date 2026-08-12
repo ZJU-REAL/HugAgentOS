@@ -179,6 +179,49 @@ The shared layer (root of `mcp_servers/`):
 
 Two iron rules: **stdout is reserved for the MCP protocol** (business logs go to stderr; server.py wraps calls in `contextlib.redirect_stdout` as a backstop), and **be tolerant of malformed LLM-generated arguments** (e.g. auto-unpacking when a dict lands in a string parameter).
 
+## Declaring citations from a tool (`__citations__`)
+
+The platform's [citation system](chat.md) (evidence anchors) automatically extracts citable
+items from every tool result before it reaches the model, allocates session-unique anchors
+(`e1`, `e2`, …) and injects `cite_id` back into the result — **every tool is citable by
+default**, with zero citation code. Extraction granularity, however, depends on the backend
+recognizing your return shape, so when developing a new tool (in-house or MCP) follow this
+priority order:
+
+1. **Result should be citable with precise granularity → return a `__citations__` field
+   in your JSON (recommended)**:
+
+   ```json
+   {
+     "result": "…business payload…",
+     "__citations__": [
+       {"title": "Source title", "url": "https://…", "snippet": "key excerpt", "source_type": "internet"},
+       {"title": "Second source"}
+     ]
+   }
+   ```
+
+   - Entry order matches the result body (`item_index` records the declared order);
+   - `title` is strongly recommended (falls back to the tool display name); `url` /
+     `snippet` / `source_type` are optional;
+   - the middleware (`CitationAnchorMiddleware`) **adopts the declaration verbatim** and
+     injects `"cite_id": "eN"` into each entry in place; the model copies the id as-is.
+2. **Standard list shape → one registry line**: list-style tools returning
+   `{"items": [{"title": …, "content": …}]}` just need an `items_paths` + field-alias
+   entry in `orchestration/citation_anchor.py::TOOL_SPECS` — per-item numbering with no
+   tool code change.
+3. **Do nothing → automatic fallback**: a generic heuristic finds the unique dict-array
+   field at the top level (or one level under `result`) and numbers items; when nothing is
+   recognizable the whole result becomes a single anchor.
+4. **Operational tools (file writes / publish / CRUD receipts) → add to `SKIP_TOOLS`**:
+   such results have no citation value; registering them avoids pointless anchor noise.
+
+Note: `__citations__` and `cite_id` are **platform-level conventions**, not MCP protocol
+fields; third-party MCP servers can use them too (just return JSON). Injection happens
+before the result enters the model context and before persistence; the frontend tool cards
+render `cite_id` as per-item chips that match the `[anchor text](cite:eN)` references in
+the answer body.
+
 ## Backend client: connection pool & bare-name restoration
 
 The backend connects through AgentScope 2.0's `MCPClient`, centred on two files:

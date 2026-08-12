@@ -1700,6 +1700,18 @@ export async function setPluginEnabled(installId: string, enabled: boolean): Pro
   });
 }
 
+// Edit my imported/private plugin's display metadata (name/category/icon are UI
+// config — the Agent Plugins standard plugin.json carries no display fields).
+export async function setInstalledPluginMeta(
+  installId: string,
+  meta: { display_name?: string; category?: string; icon?: string },
+): Promise<void> {
+  await apiRequest(`/v1/plugins/installed/${encodeURIComponent(installId)}/meta`, {
+    method: 'PATCH',
+    body: JSON.stringify(meta),
+  });
+}
+
 export interface LarkAppInitStatus {
   configured: boolean;
   app_id: string | null;

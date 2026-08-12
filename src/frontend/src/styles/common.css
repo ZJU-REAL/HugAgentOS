@@ -170,35 +170,123 @@
   border-radius:2px;
 }
 
-/* ── 引用角标（CitationBadge）──
-   注意：角标在 markdown portal + DOM 移植机制下渲染，禁用 motion 组件，
-   hover 反馈一律 CSS-only；不加入场动画（流式重渲染会反复重放）。 */
-.jx-citBadge{
+/* ── 证据锚点内联标注（[锚文本](cite:eN) 形态）──
+   **刻意不做成超链接**：cite:eN 不是可跳转地址，蓝字+下划线会诱导用户期待跳转、
+   点进空白页。改成"选中态"观感——灰色实心底 + 加粗，被引用的文字一眼可辨；
+   交互靠悬浮卡片与点击详情。处于 portal + DOM 移植路径：禁止 motion 组件，
+   hover 全走 CSS。 */
+.jx-citeRef{
   cursor:pointer;
-  color:#808080;
-  font-weight:400;
-  font-size:.72em;
-  background:#F5F6F7;
-  border:1px solid #E3E6EA;
-  border-radius:4px;
-  padding:0 4px;
+  /* 胶囊 chip：只用极浅底，不描边——正文里往往连续出现多条，描边会积成噪点 */
+  background:rgba(15,23,42,.05);
+  border-radius:999px;
+  color:var(--color-text-tertiary);
+  font-size:.855em;
+  font-weight:500;
+  /* 压住行高：chip 比正文小，若继承 1.74 的行高会把整行行盒撑高、段落忽宽忽窄 */
+  line-height:1.45;
+  padding:1px 8px;
   margin:0 1px;
-  user-select:none;
-  vertical-align:super;
-  line-height:1;
-  display:inline-flex;
-  align-items:center;
-  gap:2px;
+  /* 保持 inline：长锚文本仍能自然折行；clone 让折行两段都带底 */
+  -webkit-box-decoration-break:clone;
+  box-decoration-break:clone;
   transition:color var(--motion-duration-fast) var(--motion-ease-standard),
-             background-color var(--motion-duration-fast) var(--motion-ease-standard),
-             border-color var(--motion-duration-fast) var(--motion-ease-standard),
-             transform var(--motion-duration-fast) var(--motion-ease-standard);
+             background-color var(--motion-duration-fast) var(--motion-ease-standard);
 }
-.jx-citBadge:hover{
-  color:var(--color-primary);
+.jx-citeRef:hover{
   background:var(--color-primary-light);
-  border-color:rgba(18,109,255,.32);
-  transform:translateY(-1px);
+  color:var(--color-primary);
+}
+.jx-citeRef:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:1px;
+}
+/* 来源类型小图标：与文字基线对齐，弱化到不喧宾夺主 */
+.jx-citeRef-icon{
+  width:10px;
+  height:10px;
+  object-fit:contain;
+  vertical-align:-1px;
+  margin-right:4px;
+  opacity:.5;
+}
+.jx-citeRef:hover .jx-citeRef-icon{ opacity:.85; }
+
+/* ── 引用来源悬浮卡（角标与内联标注共用）── */
+.jx-citPopover .ant-popover-inner{
+  border-radius:var(--radius-md);
+  padding:0;
+  overflow:hidden;
+}
+.jx-citPopover .ant-popover-inner-content{ padding:0; }
+.jx-citCard{
+  max-width:320px;
+  padding:12px 14px;
+  font-size:13px;
+  cursor:pointer;
+}
+.jx-citCard--missing{
+  color:var(--color-text-placeholder);
+  font-size:12px;
+  cursor:default;
+}
+.jx-citCard-head{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  margin-bottom:6px;
+}
+.jx-citCard-source{
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  font-weight:600;
+}
+.jx-citCard-anchor{
+  margin-left:auto;
+  padding:0 5px;
+  border-radius:var(--radius-xs);
+  background:var(--color-primary-light);
+  color:var(--color-primary);
+  font-family:var(--font-family-number);
+  font-size:11px;
+  font-weight:600;
+  line-height:16px;
+}
+.jx-citCard-title{
+  color:var(--color-text);
+  font-weight:600;
+  line-height:1.5;
+  margin-bottom:6px;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.jx-citCard-snippet{
+  font-size:12px;
+  color:var(--color-text-tertiary);
+  line-height:1.6;
+  border-left:2px solid var(--color-border);
+  padding-left:8px;
+}
+.jx-citCard-foot{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:8px;
+  font-size:11px;
+}
+.jx-citCard-domain{
+  color:var(--color-text-placeholder);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-citCard-action{
+  margin-left:auto;
+  color:var(--color-primary);
+  font-weight:600;
+  white-space:nowrap;
 }
 
 /* ── App loading skeleton（首屏认证/Catalog 加载）───────────── */

@@ -110,6 +110,8 @@ export const TOOL_DICT: Record<string, string> = {
   '…还有 {n} 条消息': '…{n} more messages',
   '无结果': 'No result',
   '未知文件': 'Unknown file',
+  // ToolOutputRenderer.tsx（通用列表兜底渲染）
+  '第 {n} 条': 'Item {n}',
   // ToolResultPanel.tsx
   // CitationBadge.tsx
   '互联网': 'Internet',
@@ -117,6 +119,7 @@ export const TOOL_DICT: Record<string, string> = {
   '来源': 'Source',
   '点击打开原文链接': 'Click to open source link',
   '点击查看全文': 'Click to read full text',
+  '打开原文 →': 'Open source →',
   '点击此卡片打开原文 →': 'Click to open source →',
   '点击此卡片查看全文 →': 'Click to read full text →',
   '引用 {citId} 未找到': 'Citation {citId} not found',

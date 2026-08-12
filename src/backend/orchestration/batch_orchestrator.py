@@ -355,18 +355,19 @@ async def _run_item_via_workflow(
     from core.config.display_names import TOOL_DISPLAY_NAMES
     from core.llm import workspace as _workspace_mod
     from core.llm.message_compat import extract_text_from_chat_response
-    from orchestration.citations import extract_citations_with_offset
+    from orchestration.citation_anchor import (
+        AnchorAllocator,
+        attach_allocator,
+        collect_citation_dicts,
+    )
     from orchestration.streaming import StreamingAgent
 
     tool_calls_log: List[Dict[str, Any]] = []
     artifacts: List[Dict[str, Any]] = []
     citations: List[Dict[str, Any]] = []
-    # When the same tool is called multiple times within one item, citation ids restart
-    # from 1 (see the ``<tool_name>-<index>`` naming in routing/citations.py). Without an
-    # offset, ``internet_search-1`` would appear repeatedly in the citations list, and
-    # downstream id-based lookup/dedup would mis-locate or drop entries. The main chat path
-    # (routing/workflow.py) uses the same extract_citations_with_offset helper; shared here.
-    citation_offsets: Dict[str, int] = {}
+    # 证据锚点：每个批量 item 一个独立发号器（item 间互不续号，item 内全局唯一）；
+    # 中间件在结果回给模型前注号并登记，这里按 tool_id 精确取回
+    _anchor_allocator = AnchorAllocator()
     from core.services.ontology_service import build_user_ontology_runtime
 
     ontology_enabled, ontology_runtime = build_user_ontology_runtime(
@@ -402,6 +403,8 @@ async def _run_item_via_workflow(
         sandbox_session_id="",
         ontology_runtime=ontology_runtime,
     )
+    # 证据锚点：发号器绑到 agent，中间件与本函数共享同一计数器
+    attach_allocator(agent, _anchor_allocator)
     streaming_agent = StreamingAgent(agent, clients)
 
     # In a ReAct loop the agent emits multiple rounds of text deltas:
@@ -471,13 +474,8 @@ async def _run_item_via_workflow(
                 for ref in refs:
                     ref["tool_name"] = tool_name or ""
                 _extend_collected_artifacts(artifacts, refs)
-                # Citations (KB hits, internet search). The offset logic shares
-                # extract_citations_with_offset with the main chat path, avoiding
-                # id collisions when the same tool is called multiple times.
-                cit_items = extract_citations_with_offset(
-                    tool_name, tool_id, tool_result_json, citation_offsets
-                )
-                citations.extend([c.to_dict() for c in cit_items])
+                # Citations (KB hits, internet search)：按 tool_id 从发号器注册表精确取
+                citations.extend(collect_citation_dicts(tool_id, _anchor_allocator))
             elif event_type == "error":
                 if isinstance(payload, BaseException):
                     raise payload

@@ -1,6 +1,6 @@
 import React from 'react';
 import { GlobalOutlined, SearchOutlined } from '@ant-design/icons';
-import { coerceOutput, preview } from './utils';
+import { citeTag, coerceOutput, preview } from './utils';
 import { staggerStyle } from '../../../utils/motionTokens';
 import { t } from '../../../i18n';
 
@@ -10,6 +10,7 @@ interface SearchItem {
   url: string;
   domain: string;
   snippet: string;
+  citeId: string;
 }
 
 function parseSearchResult(out: unknown): { query: string; results: SearchItem[] } {
@@ -27,6 +28,7 @@ function parseSearchResult(out: unknown): { query: string; results: SearchItem[]
       url,
       domain,
       snippet: String(r?.content || r?.snippet || ''),
+      citeId: String(r?.cite_id || ''),
     };
   });
   return { query, results };
@@ -64,6 +66,7 @@ export function renderInternetSearchInline(out: unknown): React.ReactNode {
             >
               <div className="jx-tr-searchCardTitle">{r.title}</div>
               <div className="jx-tr-searchCardFooter">
+                {r.citeId && <span className="jx-tr-citeTag">{r.citeId}</span>}
                 {/* Inline icon instead of an external favicon service: offline/intranet
                     deployments can't reach one, and it would leak visited domains. */}
                 {r.domain && <GlobalOutlined className="jx-tr-searchCardFavicon" style={{ fontSize: 12 }} />}
@@ -89,6 +92,7 @@ export function renderInternetSearch(out: unknown): React.ReactNode {
           <div className="jx-tr-searchHeader">
             <span className="jx-tr-kbIdx">{idx + 1}</span>
             <span className="jx-tr-searchTitle">{r.title}</span>
+            {r.citeId && <span className="jx-tr-citeTag">{r.citeId}</span>}
           </div>
           {r.snippet && <div className="jx-tr-searchSnippet">{preview(r.snippet)}</div>}
           {r.domain && <div className="jx-tr-searchFooter"><span className="jx-tr-searchDomain">{r.domain}</span></div>}

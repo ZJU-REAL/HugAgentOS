@@ -7,7 +7,7 @@ export {
   SUMMARY_MAX_ROUNDS, isCatalogKind, type CatalogKind,
 } from './constants';
 export {
-  getContextualCitations, getCitationItemIndex, getCitationOutputSlice,
+  getCitationItemIndex, getCitationOutputSlice,
   coerceToolOutput, normalizeMaybeId,
 } from './citations';
 export { buildHistorySegments } from './segments';

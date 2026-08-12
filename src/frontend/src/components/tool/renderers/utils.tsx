@@ -1,6 +1,15 @@
+import React from 'react';
 import type { ToolCall } from '../../../types';
 
 export const PREVIEW_LEN = 90;
+
+/** 证据锚点小徽章：条目自带 cite_id（后端中间件注入）时展示，让用户把
+ *  正文里的 [锚文本](cite:e7) 与工具卡片里的具体条目肉眼对上。 */
+export function citeTag(item: unknown): React.ReactNode {
+  const cid = (item && typeof item === 'object') ? String((item as any).cite_id || '') : '';
+  if (!/^e\d+$/.test(cid)) return null;
+  return <span className="jx-tr-citeTag" title={`引用锚点 ${cid}`}>{cid}</span>;
+}
 export const preview = (s: string) => s.length > PREVIEW_LEN ? s.slice(0, PREVIEW_LEN) + '…' : s;
 
 /** Parse tool output as JSON if possible; return the raw value otherwise. */

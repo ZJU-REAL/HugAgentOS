@@ -16,7 +16,7 @@ import {
   EditOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import { extractArtifactOutputs } from '../../utils/fileParser';
-import { getContextualCitations, getCitationOutputSlice, resolveConversationCitations } from '../../utils/citations';
+import { getCitationOutputSlice, resolveConversationCitations } from '../../utils/citations';
 import { ToolRunShell } from '../tool/ToolRunShell';
 import type { ShellStep } from '../tool/ToolRunShell';
 import { ToolProgressInline } from '../tool/ToolProgressInline';
@@ -858,8 +858,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                 if (seg.type === 'text') {
                   const textContent = seg.content || '';
                   if (!textContent && !m.isStreaming) return null;
-                  const msgCitations = getContextualCitations(m.citations ?? [], m.segments, m.toolCalls, segIdx);
-                  const effectiveCitations = resolveConversationCitations(textContent, msgCitations, chatMessages, m.ts);
+                  const effectiveCitations = resolveConversationCitations(textContent, m.citations ?? [], chatMessages, m.ts);
                   // OFF mode keeps the inline StreamWaitIndicator under the
                   // text bubble; ON mode handles waits inside the shell so
                   // we suppress the indicator entirely.

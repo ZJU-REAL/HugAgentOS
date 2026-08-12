@@ -1197,6 +1197,25 @@
   flex:1;
   min-width:0;
 }
+
+/* ── 证据锚点徽章（工具卡片条目上的 cite_id 标识，与正文引用编号对应）── */
+.jx-tr-citeTag{
+  display:inline-flex;
+  align-items:center;
+  margin-left:6px;
+  padding:0 5px;
+  border-radius:4px;
+  background:var(--color-primary-light);
+  border:1px solid rgba(18,109,255,.28);
+  color:var(--color-primary);
+  font-size:10px;
+  font-weight:600;
+  font-family:var(--font-family-number);
+  line-height:16px;
+  flex-shrink:0;
+  user-select:none;
+  vertical-align:middle;
+}
 .jx-tr-kbPreview{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;}
 .jx-tr-kbMore{
   font-size:11px;

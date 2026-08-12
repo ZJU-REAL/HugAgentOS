@@ -156,6 +156,41 @@ mcp_servers/<name>_mcp/
 
 两条铁律：**stdout 保留给 MCP 协议**（业务日志一律走 stderr，server.py 里用 `contextlib.redirect_stdout` 兜底）；**对 LLM 生成的畸形参数保持容错**（如 dict 误塞进字符串参数时自动拆包）。
 
+## 工具引用声明（`__citations__`）
+
+平台的[引用系统](chat.md)（证据锚点）会在每个工具结果回给模型前自动提取可引用条目、
+分配全会话唯一锚点（`e1`、`e2`、…）并把 `cite_id` 回注进结果——**任何工具默认可引用**，
+不写一行引用代码也能工作。但提取粒度取决于后端认不认识你的返回结构，因此开发新工具
+（自研工具或 MCP tool）时遵循以下优先级：
+
+1. **结果需要被引用、且希望精确控制粒度 → 返回 JSON 里带 `__citations__` 字段（推荐）**：
+
+   ```json
+   {
+     "result": "……业务数据本体……",
+     "__citations__": [
+       {"title": "来源标题", "url": "https://…", "snippet": "关键摘录", "source_type": "internet"},
+       {"title": "第二个来源"}
+     ]
+   }
+   ```
+
+   - 条目顺序与结果正文对应（`item_index` 按声明顺序记录）；
+   - `title` 必填倾向（缺省回退工具显示名），`url` / `snippet` / `source_type` 可选；
+   - 中间件（`CitationAnchorMiddleware`）会**优先采用**该声明，就地为每条注入
+     `"cite_id": "eN"`，模型引用时原样复制。
+2. **标准列表结构 → 加一行注册表配置**：结果形如 `{"items": [{"title": …, "content": …}]}`
+   的列表型工具，在 `orchestration/citation_anchor.py::TOOL_SPECS` 里登记
+   `items_paths` + 字段别名即可逐条编号，不改工具代码。
+3. **什么都不做 → 自动兜底**：通用启发式能识别顶层（或 `result` 下一层）唯一的
+   字典数组字段并逐条编号；彻底认不出时整份结果作为 1 个锚点。
+4. **操作型工具（写文件 / 发布 / 增删改回执）→ 加进 `SKIP_TOOLS`**：这类结果没有
+   引用价值，登记跳过名单可免去无意义的锚点噪音。
+
+注意：`__citations__` 与 `cite_id` 是**平台层约定**，不是 MCP 协议字段；第三方 MCP
+Server 同样适用（返回 JSON 即可）。回注发生在结果进模型上下文与落库之前，前端工具卡片
+会把 `cite_id` 渲染成条目徽章，与正文 `[锚文本](cite:eN)` 引用一一对应。
+
 ## 后端客户端：连接池与裸名还原
 
 后端基于 AgentScope 2.0 的 `MCPClient` 连接 MCP Server，核心在两个文件：

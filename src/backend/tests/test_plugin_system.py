@@ -808,3 +808,217 @@ def test_route_import_and_uninstall_e2e(tmp_path, db_session):
         )
     finally:
         app.dependency_overrides.clear()
+
+
+# ── Agent Plugins standard package (agent-plugins.org 1.0.0) ─────────────────
+
+
+def _make_standard_plugin(root: Path) -> Path:
+    """Build an Agent Plugins standard package: closed-schema plugin.json +
+    extensions["org.hugagent"] + standalone mcp.json with type discriminators."""
+    pdir = root / "std-toolkit"
+    pdir.mkdir(parents=True)
+    (pdir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                "name": "std-toolkit",
+                "version": "1.2.3",
+                "description": "An Agent Plugins standard demo package",
+                "author": {"name": "Acme", "url": "https://acme.example"},
+                "keywords": ["demo"],
+                "extensions": {
+                    "org.hugagent": {
+                        "connection": "lark",
+                        "required_secrets": [{"key": "api_key", "label": "API Key"}],
+                        "admin_config": {
+                            "mode": "any",
+                            "fields": [{"key": "std.url", "label": "URL", "secret": False}],
+                        },
+                        "mcp": {
+                            "std-remote": {
+                                "display_name": "标准远程",
+                                "description": "标准 streamable-http server",
+                                "tools": [{"name": "ping", "description": "ping"}],
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sk = pdir / "skills" / "std-skill"
+    sk.mkdir(parents=True)
+    (sk / "SKILL.md").write_text(
+        "---\nname: std-skill\ndescription: Standard demo skill\n---\n\n"
+        "Data lives in ${PLUGIN_ROOT}/data, cache in ${PLUGIN_DATA}.\n",
+        encoding="utf-8",
+    )
+    (pdir / "mcp.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+                "mcpServers": {
+                    "std-remote": {
+                        "type": "streamable-http",
+                        "url": "https://mcp.example.com/mcp",
+                    },
+                    "std-local": {
+                        "type": "stdio",
+                        "command": "node",
+                        "args": ["server.js"],
+                        "cwd": "${PLUGIN_ROOT}/srv",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    # A client-specific reverse-domain namespace dir must be ignored, not imported
+    other = pdir / "com.example.client" / "hooks"
+    other.mkdir(parents=True)
+    (other / "hooks.json").write_text("{}", encoding="utf-8")
+    return pdir
+
+
+def test_normalize_standard_plugin(tmp_path):
+    np = pi.normalize_plugin_dir(_make_standard_plugin(tmp_path))
+    assert np.kind == "native"
+    assert np.slug == "std-toolkit"
+    assert np.version == "1.2.3"
+    # Platform fields come from the extension namespace
+    assert np.connection == "lark"
+    assert np.admin_config and np.admin_config["fields"][0]["key"] == "std.url"
+    assert [s["key"] for s in np.required_secrets] == ["api_key"]
+    # mcp.json type discriminator wins; ext metadata overlays display fields
+    by_name = {m.name: m for m in np.mcp}
+    remote = by_name["std-remote"]
+    assert remote.transport == "streamable_http" and not remote.needs_runtime
+    assert remote.display_name == "标准远程"
+    assert [t["name"] for t in remote.tools] == ["ping"]
+    local = by_name["std-local"]
+    assert local.transport == "stdio" and local.needs_runtime
+    assert local.cwd and "${PLUGIN_ROOT}" not in local.cwd
+    # default_enabled derives from the filesystem: skills + remote MCP on, stdio off
+    assert np.default_enabled["skills"] == ["std-skill"]
+    assert np.default_enabled["mcp"] == ["std-remote"]
+
+
+def test_standard_plugin_import_persists_cwd_and_meta(tmp_path, db_session):
+    pdir = _make_standard_plugin(tmp_path)
+    ps.import_plugin(db_session, pdir, owner_user_id=OWNER, secrets={"api_key": "k"})
+    # Standard path variables (${PLUGIN_ROOT}/${PLUGIN_DATA}) rewritten at persist time
+    sk = (
+        db_session.query(AdminSkill)
+        .filter(AdminSkill.source_plugin == "std-toolkit")
+        .first()
+    )
+    assert "${PLUGIN_ROOT}" not in sk.skill_content
+    assert "${PLUGIN_DATA}" not in sk.skill_content
+    assert "/workspace/skills/" in sk.skill_content
+    servers = {
+        m.server_id: m
+        for m in db_session.query(AdminMcpServer)
+        .filter(AdminMcpServer.source_plugin == "std-toolkit")
+        .all()
+    }
+    local = next(m for sid, m in servers.items() if m.transport == "stdio")
+    assert (local.extra_config or {}).get("cwd", "").endswith("/srv")
+    assert local.is_enabled is False  # stdio installed disabled
+    remote = next(m for sid, m in servers.items() if m.transport == "streamable_http")
+    assert remote.display_name == "标准远程"
+    assert [t["name"] for t in (remote.tools_json or [])] == ["ping"]
+
+
+def test_legacy_topfield_manifest_still_imports(tmp_path):
+    """Legacy native manifests with platform fields at the top level keep working."""
+    pdir = tmp_path / "legacy-pack"
+    pdir.mkdir()
+    (pdir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "legacy-pack",
+                "display_name": "旧版包",
+                "category": "效率工具",
+                "connection": "dingtalk",
+                "mcpServers": {
+                    "old-remote": {"transport": "streamable_http", "url": "http://x/mcp/"}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sk = pdir / "skills" / "legacy-skill"
+    sk.mkdir(parents=True)
+    (sk / "SKILL.md").write_text(
+        "---\nname: legacy-skill\ndescription: legacy demo\n---\n\nBody.\n", encoding="utf-8"
+    )
+    np = pi.normalize_plugin_dir(pdir)
+    assert np.name == "旧版包" and np.category == "效率工具"
+    assert np.connection == "dingtalk"
+    assert np.mcp[0].transport == "streamable_http"
+
+
+# ── Display metadata is UI configuration (market meta + installed meta) ──────
+
+
+def test_market_meta_seed_override_and_install(db_session):
+    # Seed applies without any override
+    meta = ps.resolve_market_meta(db_session, "automation")
+    assert meta["display_name"] == "定时任务管理"
+    # Admin override wins over the seed and flows into the market list
+    ps.set_market_meta(db_session, "automation", display_name="自动化任务", category="效率")
+    meta = ps.resolve_market_meta(db_session, "automation")
+    assert meta["display_name"] == "自动化任务" and meta["category"] == "效率"
+    items = {it["slug"]: it for it in ps.list_plugins(db_session, owner_user_id=None, include_disabled=True)}
+    assert items["automation"]["name"] == "自动化任务"
+    # Install picks up the effective metadata for the installed record
+    ps.install_plugin(db_session, "automation", owner_user_id=None)
+    row = (
+        db_session.query(InstalledPlugin)
+        .filter(InstalledPlugin.install_id == "automation@global")
+        .first()
+    )
+    assert row.name == "自动化任务"
+    # Clearing the override falls back to the seed
+    ps.set_market_meta(db_session, "automation", display_name="", category="")
+    assert ps.resolve_market_meta(db_session, "automation")["display_name"] == "定时任务管理"
+
+
+def test_market_meta_rejects_unknown_slug(db_session):
+    with pytest.raises(Exception):
+        ps.set_market_meta(db_session, "no-such-plugin", display_name="x")
+
+
+def test_installed_meta_owner_guard(tmp_path, db_session):
+    pdir = _make_standard_plugin(tmp_path)
+    res = ps.import_plugin(db_session, pdir, owner_user_id=OWNER, secrets={"api_key": "k"})
+    install_id = res["install_id"]
+    out = ps.set_installed_plugin_meta(
+        db_session, install_id, owner_user_id=OWNER, display_name="我的工具箱", category="效率"
+    )
+    assert out["name"] == "我的工具箱" and out["category"] == "效率"
+    with pytest.raises(BadRequestError):
+        ps.set_installed_plugin_meta(
+            db_session, install_id, owner_user_id="someone_else", display_name="劫持"
+        )
+
+
+def test_market_meta_icon_validation(db_session):
+    # Library path and uploaded data-URI are accepted
+    ps.set_market_meta(db_session, "automation", icon="/home/mcp/internet.svg")
+    assert ps.resolve_market_meta(db_session, "automation")["icon"] == "/home/mcp/internet.svg"
+    ps.set_market_meta(db_session, "automation", icon="data:image/svg+xml;base64,PHN2Zy8+")
+    assert ps.resolve_market_meta(db_session, "automation")["icon"].startswith("data:image/")
+    # Non-image data URIs and arbitrary text are rejected
+    with pytest.raises(BadRequestError):
+        ps.set_market_meta(db_session, "automation", icon="data:text/html;base64,eA==")
+    with pytest.raises(BadRequestError):
+        ps.set_market_meta(db_session, "automation", icon="not-an-icon")
+    # Oversized data URIs are rejected
+    with pytest.raises(BadRequestError):
+        ps.set_market_meta(db_session, "automation", icon="data:image/png;base64," + "A" * 300_000)
+    # Empty clears the override
+    ps.set_market_meta(db_session, "automation", icon="")
+    assert "icon" not in ps.resolve_market_meta(db_session, "automation")

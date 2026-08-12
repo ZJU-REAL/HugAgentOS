@@ -291,6 +291,10 @@ export const CATALOG_DICT: Record<string, string> = {
   '仅支持 SVG / PNG / JPG / WebP 图标': 'Only SVG / PNG / JPG / WebP icons are supported',
   '图标已选用': 'Icon selected',
   '读取图标失败': 'Failed to read icon',
+  '选择插件图标': 'Choose plugin icon',
+  '插件图标': 'Plugin icons',
+  '应用图标': 'App icons',
+  '图标过大，请控制在 {n}KB 以内': 'Icon too large — keep it under {n}KB',
 
   // 外接知识库的 LLM Wiki 视图
   // 知识库授权页在 provider_label 缺失时的兜底展示名
@@ -433,6 +437,17 @@ export const CATALOG_DICT: Record<string, string> = {
   '请联系管理员在「插件库」中为本插件开通相关配置（{items}）。':
     'Please ask an administrator to configure this plugin in the Plugin Library ({items}).',
   '账号连接': 'Account connection',
+
+  // ── 插件展示信息编辑（名称/分类/图标为界面配置，标准 plugin.json 不携带） ──
+  '编辑展示信息': 'Edit display info',
+  '编辑展示信息（名称/分类/图标）': 'Edit display info (name/category/icon)',
+  '编辑展示信息：{name}': 'Edit display info: {name}',
+  '展示信息已保存': 'Display info saved',
+  '标准插件清单（plugin.json）不携带展示字段；名称、分类与图标在此配置。清空即恢复默认。':
+    'The standard plugin manifest (plugin.json) carries no display fields; configure name, category and icon here. Clear a field to restore the default.',
+  '留空保持不变': 'Leave blank to keep unchanged',
+  '如：效率工具 / 办公协同': 'e.g. Productivity / Collaboration',
+  '如：效率工具': 'e.g. Productivity',
 
   // ── 市场可见范围（技能/插件/子智能体市场共用） ──
   '可见范围': 'Visibility scope',

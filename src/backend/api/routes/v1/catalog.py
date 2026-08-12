@@ -131,10 +131,12 @@ def _plugin_component_ids(db) -> tuple:
     Union of two sources — both are required:
     1. **DB install source**: ``AdminSkill/AdminMcpServer.source_plugin`` is non-null —
        written dynamically when a user installs a plugin.
-    2. **Built-in manifest declaration**: ``components`` in
-       ``plugin_bundles/{default,marketplace}/*/plugin.json`` — MCPs of built-in plugins
-       (e.g. automation / skill-manager) go through ``_ports.py`` → catalog.json and
-       statically bubble up as first-class entries; the DB has no ``source_plugin`` row
+    2. **Built-in bundle scan**: skills/MCP provided by
+       ``plugin_bundles/{default,marketplace}/*`` (derived from each bundle's
+       ``skills/*/`` dirs + MCP declarations; the Agent Plugins standard manifest
+       has no ``components`` list) — MCPs of built-in plugins (e.g. automation /
+       skill-manager) go through ``_ports.py`` → catalog.json and statically
+       bubble up as first-class entries; the DB has no ``source_plugin`` row
        for them, so source 1 alone cannot remove them.
 
     Filters **display** only; does not affect the enablement resolution of

@@ -30,6 +30,81 @@ type FilePreviewPayload = {
   extra?: Record<string, unknown>;
 };
 
+// ── 通用列表渲染器 ──────────────────────────────────────────────
+// 与后端 orchestration/citation_anchor.py 共用同一套字段别名约定：
+// 没有专属渲染器的工具，只要结果里能认出"字典数组"列表（带 cite_id 或
+// 标题类字段），就渲染成标准卡片列表，而不是裸 JSON。
+const GENERIC_LIST_KEYS = ['items', 'results', 'events', 'pages', 'records', 'entries', 'data', 'list', 'rows', 'docs'];
+const GENERIC_TITLE_KEYS = ['title', '标题', '文件名称', '企业名称', '产品名称', 'name', '名称', 'document_name'];
+const GENERIC_SNIPPET_KEYS = ['content', '文件内容', 'snippet', '摘要', 'summary', 'description', 'abstract', 'text'];
+
+function firstStr(item: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = item[k];
+    if ((typeof v === 'string' || typeof v === 'number') && String(v).trim()) return String(v);
+  }
+  return '';
+}
+
+function findGenericList(raw: unknown): Array<Record<string, unknown>> | null {
+  let out = raw;
+  if (typeof out === 'string') {
+    try { out = JSON.parse(out); } catch { return null; }
+  }
+  if (!out || typeof out !== 'object' || Array.isArray(out)) return null;
+  const scopes: Array<Record<string, unknown>> = [out as Record<string, unknown>];
+  const inner = (out as any).result;
+  if (inner && typeof inner === 'object' && !Array.isArray(inner)) scopes.push(inner);
+  for (const scope of scopes) {
+    for (const key of GENERIC_LIST_KEYS) {
+      const val = scope[key];
+      if (Array.isArray(val) && val.length > 0 && val.every(x => x && typeof x === 'object' && !Array.isArray(x))) {
+        const items = val as Array<Record<string, unknown>>;
+        // 至少要认得出锚点或标题，否则宁可显示原始 JSON
+        if (items.some(it => it.cite_id || firstStr(it, GENERIC_TITLE_KEYS))) return items;
+      }
+    }
+  }
+  return null;
+}
+
+function renderGenericList(
+  items: Array<Record<string, unknown>>,
+  setDetailModal: (modal: { title: string; body: React.ReactNode } | null) => void,
+): React.ReactNode {
+  return (
+    <div className="jx-tr-kbList">
+      {items.map((item, idx) => {
+        const title = firstStr(item, GENERIC_TITLE_KEYS) || t('第 {n} 条', { n: idx + 1 });
+        const snippet = firstStr(item, GENERIC_SNIPPET_KEYS);
+        const citeId = typeof item.cite_id === 'string' ? item.cite_id : '';
+        const openDetail = () => setDetailModal({
+          title,
+          body: (
+            <pre className="jx-tr-jsonBlock" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {JSON.stringify(item, null, 2)}
+            </pre>
+          ),
+        });
+        return (
+          <div key={idx} className="jx-tr-kbItem jx-tr-kbItem--clickable" onClick={openDetail} title={t('点击查看详情')}>
+            <div className="jx-tr-kbDocName">
+              <span className="jx-tr-kbIdx">{idx + 1}</span>
+              {title}
+              {citeId && <span className="jx-tr-citeTag">{citeId}</span>}
+            </div>
+            {snippet && (
+              <div className="jx-tr-kbPreview">
+                <div className="jx-tr-kbContent">{snippet.length > 90 ? snippet.slice(0, 90) + '…' : snippet}</div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function formatBytes(n?: number | null): string {
   if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '';
   return t('{n} 字', { n: n.toLocaleString('zh-CN') });
@@ -387,14 +462,31 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
     );
   }
 
+  // 通用列表兜底：认得出"字典数组 + 标题/锚点"的未知工具 → 标准卡片列表
+  const genericItems = findGenericList(out);
+  if (genericItems) {
+    return (
+      <div className="jx-tr-db">
+        <div className="jx-tr-dbHeader success">{t('工具执行完成')}</div>
+        {renderGenericList(genericItems, setDetailModal)}
+      </div>
+    );
+  }
+
   // fallback — show actual content instead of hiding it
   const fallbackStr = typeof out === 'string' ? out
     : (typeof out === 'object' && out !== null) ? JSON.stringify(out, null, 2)
     : String(out ?? '');
   if (fallbackStr && fallbackStr.length > 0) {
+    // 整体型锚点（后端整份注号）：把 cite_id 提到头部徽章，别让它像乱码字段
+    const wholeCiteId = (out && typeof out === 'object' && typeof (out as any).cite_id === 'string')
+      ? String((out as any).cite_id) : '';
     return (
       <div className="jx-tr-db">
-        <div className="jx-tr-dbHeader success">{t('工具执行完成')}</div>
+        <div className="jx-tr-dbHeader success">
+          {t('工具执行完成')}
+          {wholeCiteId && <span className="jx-tr-citeTag">{wholeCiteId}</span>}
+        </div>
         <pre className="jx-tr-jsonBlock" style={{ maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
           {fallbackStr}
         </pre>

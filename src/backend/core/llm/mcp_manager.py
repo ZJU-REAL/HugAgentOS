@@ -63,7 +63,7 @@ class BareNameMCPClient(MCPClient):
 
     AgentScope 2.0's ``MCPTool`` adapter rewrites the outward-facing name to
     ``mcp__<server>__<tool>``, but this project's display-name mapping
-    (core/config/display_names), citation extraction (orchestration/citations
+    (core/config/display_names), citation extraction (orchestration/citation_anchor
     dispatches on bare names like ``internet_search``), catalog gating, tool
     references in system prompts and SKILL.md, and frontend icons/panels/renderers
     are all built on the 1.x bare names. ``MCPTool.__call__`` actually calls the

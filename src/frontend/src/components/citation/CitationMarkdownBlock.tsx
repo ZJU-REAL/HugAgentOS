@@ -1,9 +1,30 @@
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import CitationHtmlBlock from './CitationHtmlBlock';
+import CitationHtmlBlock, { type CitationMarker } from './CitationHtmlBlock';
 import { mdToHtml, ensureKatexLoaded, hasLatex, hasMermaid } from '../../utils/markdown';
 import { MermaidBlock, extractMermaidCharts } from '../chat/MermaidBlock';
 import type { CitationItem } from '../../types';
+
+// 引用标记统一正则（三种形态并行识别）：
+//   [ref:tool-N]           旧格式（历史消息）        → group 1
+//   [锚文本](cite:eN)      证据锚点主格式            → group 2(label) + 3(id)
+//   [[eN]]                 obsidian 双链容错          → group 4
+// 工厂而非共享常量：带 /g 的正则会把 lastIndex 带到下一次调用，
+// 共享一个实例时 test() 与 replace() 会互相污染、漏匹配。
+const markerRe = () => /\[ref:([\w]+-\d+)\]|\[([^[\]]*)\]\(cite:(e\d+)\)|\[\[(e\d+)\]\]/g;
+// 流式输出中被截断的尾部半截标记（渲染前剪掉，防闪烁）
+const PARTIAL_TAIL_RE = /\[ref:[^\]]*$|\[[^[\]]*\]\(cite:[^)]*$|\[\[e?\d*\]?$/;
+// 这些锚文本视为"纯句末标注"→ 渲染成紧凑角标而非文字链接
+const BADGE_LABELS = new Set(['', '来源', 'source', '#']);
+
+function markerParts(m: RegExpExecArray | RegExpMatchArray): { id: string; label: string } {
+  if (m[1]) return { id: m[1], label: '' };
+  if (m[3]) {
+    const raw = (m[2] || '').trim();
+    return { id: m[3], label: BADGE_LABELS.has(raw) ? '' : raw };
+  }
+  return { id: m[4] || '', label: '' };
+}
 
 const EMPTY_MERMAID: Array<{ element: HTMLElement; chart: string }> = [];
 
@@ -54,15 +75,22 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
   const [mermaidCharts, setMermaidCharts] = useState(EMPTY_MERMAID);
   const [, setLatexReady] = useState(false);
 
-  // Always strip unmatched [ref:...] markers
+  // Strip streaming-truncated tails, then resolve unmatched markers:
+  // 命中 citations 的保留原样；未命中的旧格式/裸标整体剥掉，未命中的
+  // [锚文本](cite:eN) 保留锚文本（退化为普通文字，信息不丢）。
   const normalizedText = useMemo(() => {
-    const stripped = messageIsStreaming ? text.replace(/\[ref:[^\]]*$/, '') : text;
-    return stripped.replace(/\[ref:([\w]+-\d+)\]/g, (match, id) =>
-      citations.find(c => c.id === id) ? match : ''
-    );
+    const stripped = messageIsStreaming ? text.replace(PARTIAL_TAIL_RE, '') : text;
+    return stripped.replace(markerRe(), (match, ...groups) => {
+      const { id, label } = markerParts([match, groups[0], groups[1], groups[2], groups[3]] as unknown as RegExpMatchArray);
+      if (citations.find(c => c.id === id)) return match;
+      return label;
+    });
   }, [text, messageIsStreaming, citations]);
 
-  const hasCit = citations.length > 0 && /\[ref:[\w]+-\d+\]/.test(normalizedText);
+  const hasCit = useMemo(
+    () => citations.length > 0 && markerRe().test(normalizedText),
+    [citations, normalizedText],
+  );
 
   // Memoize the HTML output so the same string reference is reused across renders,
   // ensuring React skips the DOM update for dangerouslySetInnerHTML.
@@ -127,12 +155,12 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     );
   }
 
-  const citIds: string[] = [];
+  const markers: CitationMarker[] = [];
   const tokenPrefix = 'JXCITTOKEN';
   const tokenSuffix = 'JXCITEND';
-  const withTokens = normalizedText.replace(/\[ref:([\w]+-\d+)\]/g, (_: string, id: string) => {
-    citIds.push(id);
-    return `${tokenPrefix}${citIds.length - 1}${tokenSuffix}`;
+  const withTokens = normalizedText.replace(markerRe(), (match, ...groups) => {
+    markers.push(markerParts([match, groups[0], groups[1], groups[2], groups[3]] as unknown as RegExpMatchArray));
+    return `${tokenPrefix}${markers.length - 1}${tokenSuffix}`;
   });
   const htmlBase = isMarkdown ? mdToHtml(withTokens) : withTokens;
   const html = htmlBase.replace(
@@ -146,7 +174,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
       <div className={className} ref={containerRef as RefObject<HTMLDivElement>}>
         <CitationHtmlBlock
           html={html}
-          citIds={citIds}
+          markers={markers}
           citations={citations}
           onCitationAction={onCitationAction}
         />
@@ -161,7 +189,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     <span className={className} ref={containerRef as RefObject<HTMLSpanElement>}>
       <CitationHtmlBlock
         html={html}
-        citIds={citIds}
+        markers={markers}
         citations={citations}
         onCitationAction={onCitationAction}
       />

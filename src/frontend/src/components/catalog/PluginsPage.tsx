@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Switch, Tag, Input, Typography, Button, Modal, Form, Popconfirm, message, Empty, Spin, Dropdown, Alert } from 'antd';
 import {
-  SearchOutlined, LeftOutlined, DeleteOutlined, AppstoreOutlined, PlusOutlined, DownOutlined,
-  AppstoreAddOutlined, UploadOutlined, ApiOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, StopOutlined,
+  SearchOutlined, LeftOutlined, DeleteOutlined, PlusOutlined, DownOutlined,
+  AppstoreAddOutlined, EditOutlined, UploadOutlined, ApiOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
 import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore } from '../../stores';
@@ -16,9 +16,10 @@ import { LarkConnect } from '../settings/LarkConnect';
 import { EmailConnect } from '../settings/EmailConnect';
 import { YidaConnect } from '../settings/YidaConnect';
 import { LarkAppInitCard } from './LarkAppInitCard';
+import { PluginAvatar, PluginIconPicker } from './PluginIconPicker';
 import {
   listPlugins, listInstalledPlugins, getInstalledPluginDetail,
-  installPlugin, importPlugin, uninstallPlugin, setPluginEnabled,
+  installPlugin, importPlugin, uninstallPlugin, setPluginEnabled, setInstalledPluginMeta,
 } from '../../api';
 import type {
   PluginListItem, InstalledPluginItem, InstalledPluginDetail,
@@ -34,12 +35,8 @@ function normSecret(s: string | PluginRequiredSecret): PluginRequiredSecret {
   return typeof s === 'string' ? { key: s, label: s, required: true } : s;
 }
 
-function PluginIcon({ size = 36 }: { size?: number }) {
-  return (
-    <div className="jx-mcp-iconWrap jx-mcp-iconFallback" style={{ width: size, height: size }}>
-      <AppstoreOutlined style={{ color: '#6366f1' }} />
-    </div>
-  );
+function PluginIcon({ icon, size = 36 }: { icon?: string | null; size?: number }) {
+  return <PluginAvatar icon={icon} size={size} />;
 }
 
 function sourceLabel(source?: string): string | null {
@@ -103,6 +100,38 @@ export function PluginsPage() {
       usePluginStore.getState().fetchInstalled(true),
     ]);
   }, [refresh, fetchCatalog]);
+
+  // ── Display metadata edit (my imported/private plugins only; name/category are
+  // UI config — the Agent Plugins standard plugin.json carries no display fields) ──
+  const [metaTarget, setMetaTarget] = useState<InstalledPluginItem | null>(null);
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [metaForm] = Form.useForm();
+
+  const openMeta = useCallback((p: InstalledPluginItem) => {
+    setMetaTarget(p);
+    metaForm.setFieldsValue({ display_name: p.name || '', category: p.category || '', icon: p.icon || '' });
+  }, [metaForm]);
+
+  const submitMeta = useCallback(async () => {
+    if (!metaTarget) return;
+    const values = await metaForm.validateFields().catch(() => null);
+    if (!values) return;
+    setMetaBusy(true);
+    try {
+      await setInstalledPluginMeta(metaTarget.install_id, {
+        display_name: values.display_name ?? '',
+        category: values.category ?? '',
+        icon: values.icon ?? '',
+      });
+      message.success(t('展示信息已保存'));
+      setMetaTarget(null);
+      await afterChange();
+    } catch (e) {
+      message.error((e as Error).message || t('保存失败'));
+    } finally {
+      setMetaBusy(false);
+    }
+  }, [metaTarget, metaForm, afterChange]);
 
   // ── Navigation ──
   const openInstalled = useCallback(async (installId: string) => {
@@ -341,7 +370,7 @@ export function PluginsPage() {
           <button className="jx-mcp-backBtn jx-mcp-backBtn--inline" onClick={backToList}>
             <LeftOutlined style={{ fontSize: 14 }} />
           </button>
-          <PluginIcon size={28} />
+          <PluginIcon icon={d.icon} size={28} />
           <span className="jx-mcp-detailName">{d.name}</span>
           <span className="jx-mcp-version" style={{ marginLeft: 4 }}>v{d.version}</span>
           {srcLabel && <Tag color="purple" style={{ marginLeft: 6 }}>{srcLabel}</Tag>}
@@ -522,7 +551,7 @@ export function PluginsPage() {
               <div key={p.install_id} className="jx-mcp-card jx-card-lift" style={staggerStyle(idx)}
                 onClick={() => void openInstalled(p.install_id)}>
                 <div className="jx-mcp-cardTop">
-                  <PluginIcon />
+                  <PluginIcon icon={p.icon} />
                   <div className="jx-mcp-cardNameGroup">
                     <span className="jx-mcp-cardName">{p.name}</span>
                     {!isCE && p.is_global && <Tag color="gold">{t('管理员')}</Tag>}
@@ -535,6 +564,10 @@ export function PluginsPage() {
                     <Switch size="small" checked={p.enabled !== false}
                       onChange={(v) => void handleToggle(p.install_id, v)}
                       checkedChildren={t('启用')} unCheckedChildren={t('停用')} />
+                    {!p.is_global && (
+                      <Button type="text" size="small" icon={<EditOutlined />}
+                        title={t('编辑展示信息')} onClick={(e) => { e.stopPropagation(); openMeta(p); }} />
+                    )}
                     {!p.is_global && (
                       <Popconfirm title={t('确定卸载该插件？其技能与 MCP 将一并移除')}
                         okText={t('卸载')} cancelText={t('取消')} okButtonProps={{ danger: true }}
@@ -552,6 +585,23 @@ export function PluginsPage() {
         )}
       </Spin>
 
+      {/* Display metadata edit modal (my imported/private plugins) */}
+      <Modal open={!!metaTarget} title={t('编辑展示信息：{name}', { name: metaTarget?.name || '' })}
+        onCancel={() => setMetaTarget(null)} onOk={() => void submitMeta()} confirmLoading={metaBusy}
+        okText={t('保存')} width={440} destroyOnClose>
+        <Form form={metaForm} layout="vertical">
+          <Form.Item name="icon" label={t('图标')}>
+            <PluginIconPicker />
+          </Form.Item>
+          <Form.Item name="display_name" label={t('展示名称')}>
+            <Input maxLength={60} />
+          </Form.Item>
+          <Form.Item name="category" label={t('分类')}>
+            <Input maxLength={30} placeholder={t('如：效率工具')} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* Plugin marketplace modal (only openable by those with permission; modeled on the skill library's skill marketplace) */}
       <Modal open={marketOpen} title={t('插件市场')} onCancel={() => setMarketOpen(false)}
         footer={null} width={760} styles={{ body: { maxHeight: '62vh', overflow: 'auto' } }}>
@@ -562,7 +612,7 @@ export function PluginsPage() {
             {shownMarket.map((p) => (
               <div key={p.slug} className="jx-mcp-card">
                 <div className="jx-mcp-cardTop">
-                  <PluginIcon />
+                  <PluginIcon icon={p.icon} />
                   <div className="jx-mcp-cardNameGroup">
                     <span className="jx-mcp-cardName">{p.name}</span>
                     {p.category && <Tag>{p.category}</Tag>}

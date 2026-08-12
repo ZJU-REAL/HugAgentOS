@@ -83,7 +83,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 ```
 data: {"type":"tool_call","tool_name":"internet_search","tool_display_name":"联网搜索","tool_args":{"query":"北京 集成电路 产业"},"tool_id":"call_abc"}
 
-data: {"type":"tool_result","tool_name":"internet_search","result":{...},"tool_id":"call_abc","citations":[{"id":"internet_search-1","title":"...","url":"...","snippet":"...","source_type":"internet"}]}
+data: {"type":"tool_result","tool_name":"internet_search","result":{...},"tool_id":"call_abc","citations":[{"id":"e1","title":"...","url":"...","snippet":"...","source_type":"internet","item_index":0}]}
 
 data: {"type":"content","event":"ai_message","delta":"根据检索结果……","chat_id":"chat_x"}
 
@@ -94,13 +94,16 @@ data: [DONE]
 
 `meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`orchestration/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。本体事件在前端汇总为独立的“领域本体治理”模块，不再写入或显示在“思考过程”中。模型草稿保持逐 token 流式展示；委员会仅在实际修订答案时发送一次 `content_replace`，前端原位替换正文，数据库只保存评审后的最终答案。`ontology_governance` 随助手消息持久化，刷新历史会话后仍可回显。
 
-## 引用系统（Citations）
+## 引用系统（Citations · 证据锚点）
 
-引用让回答里的每个事实可溯源到具体工具结果，链路分三段：
+引用让回答里的每个事实可溯源到具体工具结果。编号权收归后端唯一真源——模型只**复制**编号、不做任何计算，链路分四段：
 
-1. **提示词约定**：系统提示词（`prompts/prompt_text/default/system/40_format.system.md` 的兜底版本，运行时以 DB 激活版本为准）要求模型引用工具数据时输出 `[ref:工具名-序号]` 标记，如 `[ref:internet_search-1]`、多来源并列 `[ref:tool1-N][ref:tool2-M]`。
-2. **后端抽取**：每个 `tool_result` 事件经 `orchestration/citations.py` 归一化为 `CitationItem`（`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type`）。同一回合内同一工具被多次调用时，`extract_citations_with_offset()` 用 per-turn 偏移表保证 id 不重复。CE 的 `_SOURCE_TYPE_MAP` 只内置 `internet`、`knowledge_base` 和 `database`；未知远程 MCP 结果不做行业结构猜测，前端统一展示通用 JSON。商业版 EE 另行扩展行业引用类型。
-3. **前端渲染**：citations 随 `tool_result` 与 `meta` 事件下发并随消息持久化；`src/frontend/src/utils/citations.ts` 用 `/\[ref:([\w]+-\d+)\]/g` 解析正文标记，`components/citation/CitationBadge.tsx` 渲染为可点击角标，`CitationMarkdownBlock` / `CitationHtmlBlock` 负责正文内嵌展示。
+1. **发号回注（后端中间件）**：`core/llm/middlewares.py::CitationAnchorMiddleware` 挂在 AgentScope 2.0 的 `on_acting` 钩子上，在工具结果回给模型前调用 `orchestration/citation_anchor.py` 完成 提取 → 发号 → 回注：为每条可引用条目分配会话内单调唯一的锚点 id（`e1`、`e2`、…，跨工具、跨调用、跨轮不重复，新一轮从该会话历史消息的最大锚点续号），并把 `"cite_id": "e7"` 就地写进结果 JSON（纯文本结果在文末追加 `[cite_id: e7]` 行）。**发号器绑在 agent 实例上**（`attach_allocator()` / `resolve_allocator()`）——编排层与中间件由此共享同一个计数器；ContextVar 只作子智能体链路的兜底，因为 `astream_chat_workflow` 是 async generator，其上下文与 agent 实际执行所在的 task 并不互通。提取按四层降级：工具自声明 `__citations__` → 工具规格注册表（`TOOL_SPECS` 配置，列表路径 + 中英字段别名）→ 通用启发式（唯一字典数组字段）→ 整份结果 1 个锚点；操作型工具（写文件、pin 等，`SKIP_TOOLS`）直接放行。任何异常原样放行、绝不阻断对话。
+2. **提示词约定**：系统提示词（`prompts/prompt_text/default/system/40_format.system.md` 的兜底版本，运行时以 DB 激活版本为准）只需一条与工具数量无关的通用规则：把结果里标注的 `cite_id` 原样复制进 `[锚文本](cite:e7)`（或句末 `[来源](cite:e7)`），禁止自行编号。
+3. **编排层消费**：每个 `tool_result` 事件经 `collect_citation_dicts()` 按 `tool_id` 从发号器注册表精确取 `CitationItem`（`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type` / `item_index`）；发号器缺位（旧对话回放等）时回退 `orchestration/citations.py` 的旧偏移提取。`source_type` 取值：CE 内置 `internet`、`knowledge_base`、`database`；`industry_news`、`ai_news`、`chain_info`、`company_profile` 等行业引用类型由商业版 EE 扩展。
+4. **前端渲染**：citations 随 `tool_result` 与 `meta` 事件下发并随消息持久化（落库的就是注号后的结果，回放/分享与生成时编号一致）。`components/citation/CitationMarkdownBlock.tsx` 并行识别三种标记——`[锚文本](cite:eN)`（渲染为带悬浮出处卡片的文字链接）、`[[eN]]`（obsidian 双链容错）、旧格式 `[ref:工具名-序号]`（历史消息，渲染为角标）；工具卡片条目上同步显示 `cite_id` 小徽章（`jx-tr-citeTag`），没有专属渲染器的工具由通用列表渲染器兜底成标准卡片。
+
+**工具开发约定**：需要精确控制引用粒度的工具（自研或 MCP），在返回 JSON 里带 `__citations__` 字段——`[{"title": "...", "url": "...", "snippet": "...", "source_type": "..."}, …]`，条目顺序与结果正文对应；中间件优先采用并就地注入 `cite_id`。未自声明的工具按注册表配置或启发式提取，最差整份结果 1 个锚点——**任何工具默认可引用**。详见《[MCP 工具](mcp-tools.md)》的引用声明一节。
 
 ## 计划模式（Plan Mode）
 

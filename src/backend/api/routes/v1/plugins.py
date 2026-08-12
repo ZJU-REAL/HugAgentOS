@@ -11,6 +11,7 @@ POST   /v1/plugins/{slug}/install           install from the plugin marketplace 
 POST   /v1/plugins/import                   upload a .zip to import an external plugin (native/CC/Codex)
 DELETE /v1/plugins/installed/{id}           uninstall
 PATCH  /v1/plugins/installed/{id}/enable    overall on/off switch
+PATCH  /v1/plugins/installed/{id}/meta      edit my imported plugin's display metadata (name/category/icon)
 
 Permissions: browsing/viewing details is open to all logged-in users; **both installing from the
 marketplace and importing a zip require ``can_import_plugin``** (same as the skill marketplace's
@@ -179,6 +180,33 @@ async def uninstall_plugin(
 ):
     result = ps.uninstall_plugin(db, install_id, owner_user_id=str(user.user_id))
     return success_response(data=result)
+
+
+class InstalledMetaRequest(BaseModel):
+    display_name: Optional[str] = Field(None, description="展示名")
+    category: Optional[str] = Field(None, description="分类")
+    icon: Optional[str] = Field(None, description="图标；空串=清除")
+
+
+@router.patch("/installed/{install_id}/meta", summary="修改我导入插件的展示信息")
+async def set_installed_meta(
+    install_id: str,
+    body: InstalledMetaRequest,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """展示信息（名称/分类/图标）是界面配置：用户自己导入/安装的私有插件由用户在此
+    配置；管理员全局插件走 admin 接口，普通用户不可改。"""
+    return success_response(
+        data=ps.set_installed_plugin_meta(
+            db,
+            install_id,
+            owner_user_id=str(user.user_id),
+            display_name=body.display_name,
+            category=body.category,
+            icon=body.icon,
+        )
+    )
 
 
 class EnableRequest(BaseModel):
