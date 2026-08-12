@@ -11,15 +11,6 @@ export const PANEL_TOOL_NAMES = new Set([
   'retrieve_local_kb',
   'list_datasets',
   'internet_search',
-  'get_industry_news',
-  'get_latest_ai_news',
-  'get_chain_information',
-  'search_company',
-  'get_company_base_info',
-  'get_company_business_analysis',
-  'get_company_tech_insight',
-  'get_company_funding',
-  'get_company_risk_warning',
 ]);
 
 /** Icons for each tool (under /icons/) */
@@ -30,15 +21,6 @@ export const TOOL_ICONS: Record<string, string> = {
   list_datasets: '/icons/knowledge.png',
   internet_search: '/icons/internet.png',
   web_fetch: '/icons/internet-mcp.svg',
-  get_industry_news: '/icons/news.png',
-  get_latest_ai_news: '/icons/ai-news.png',
-  get_chain_information: '/icons/industry-chain.png',
-  search_company: '/icons/industry-chain.png',
-  get_company_base_info: '/icons/industry-chain.png',
-  get_company_business_analysis: '/icons/industry-chain.png',
-  get_company_tech_insight: '/icons/industry-chain.png',
-  get_company_funding: '/icons/industry-chain.png',
-  get_company_risk_warning: '/icons/industry-chain.png',
 };
 
 /**

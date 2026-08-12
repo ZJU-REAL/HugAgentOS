@@ -99,7 +99,7 @@ data: [DONE]
 引用让回答里的每个事实可溯源到具体工具结果，链路分三段：
 
 1. **提示词约定**：系统提示词（`prompts/prompt_text/default/system/40_format.system.md` 的兜底版本，运行时以 DB 激活版本为准）要求模型引用工具数据时输出 `[ref:工具名-序号]` 标记，如 `[ref:internet_search-1]`、多来源并列 `[ref:tool1-N][ref:tool2-M]`。
-2. **后端抽取**：每个 `tool_result` 事件经 `orchestration/citations.py` 归一化为 `CitationItem`（`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type`）。同一回合内同一工具被多次调用时，`extract_citations_with_offset()` 用 per-turn 偏移表保证 id 不重复。`source_type` 取值由 `_SOURCE_TYPE_MAP` 决定：`internet`、`knowledge_base`、`database`、`industry_news`、`ai_news`、`chain_info`、`company_profile`（后三类来自行业工具，**商业版 EE**）。
+2. **后端抽取**：每个 `tool_result` 事件经 `orchestration/citations.py` 归一化为 `CitationItem`（`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type`）。同一回合内同一工具被多次调用时，`extract_citations_with_offset()` 用 per-turn 偏移表保证 id 不重复。CE 的 `_SOURCE_TYPE_MAP` 只内置 `internet`、`knowledge_base` 和 `database`；未知远程 MCP 结果不做行业结构猜测，前端统一展示通用 JSON。商业版 EE 另行扩展行业引用类型。
 3. **前端渲染**：citations 随 `tool_result` 与 `meta` 事件下发并随消息持久化；`src/frontend/src/utils/citations.ts` 用 `/\[ref:([\w]+-\d+)\]/g` 解析正文标记，`components/citation/CitationBadge.tsx` 渲染为可点击角标，`CitationMarkdownBlock` / `CitationHtmlBlock` 负责正文内嵌展示。
 
 ## 计划模式（Plan Mode）

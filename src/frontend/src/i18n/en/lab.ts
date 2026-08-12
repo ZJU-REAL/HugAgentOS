@@ -232,7 +232,7 @@ export const LAB_DICT: Record<string, string> = {
 
   // ── AgentFormFields ───────────────────────────────────────────
   '请输入智能体名称': 'Please enter an agent name',
-  '如：产业链分析师': 'e.g.: Industry Chain Analyst',
+  '如：数据分析师': 'e.g.: Data Analyst',
   '一句话描述智能体的用途，限 20 字': 'One-sentence description of the agent (max 20 chars)',
   '角色设定 (System Prompt)': 'Role Prompt (System Prompt)',
   '请输入角色设定': 'Please enter a role prompt',

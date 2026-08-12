@@ -487,12 +487,6 @@ class PromptSettings:
 
 
 @dataclass(frozen=True)
-class IndustrySettings:
-    url: str = field(default_factory=lambda: _env("INDUSTRY_URL", ""))
-    auth_token: str = field(default_factory=lambda: _env("INDUSTRY_AUTH_TOKEN", ""))
-
-
-@dataclass(frozen=True)
 class SandboxSettings:
     """Sandbox provider configuration.
 
@@ -931,7 +925,6 @@ class AppSettings:
     routing: RoutingSettings = field(default_factory=RoutingSettings)
     compaction: CompactionSettings = field(default_factory=CompactionSettings)
     prompt: PromptSettings = field(default_factory=PromptSettings)
-    industry: IndustrySettings = field(default_factory=IndustrySettings)
     sandbox: SandboxSettings = field(default_factory=SandboxSettings)
     edition: EditionSettings = field(default_factory=EditionSettings)
     gateway: GatewaySettings = field(default_factory=GatewaySettings)

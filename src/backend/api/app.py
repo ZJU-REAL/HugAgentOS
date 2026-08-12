@@ -66,7 +66,6 @@ async def lifespan(app: FastAPI):
     await _startup_mcp_market_monitor()
     await _startup_seed_default_plugins()
     await _startup_recover_datasource_sidecars()
-    await _startup_seed_ontologies()
     await _startup_preload()
     await _startup_automation_scheduler()
     await _startup_distillation_scheduler()
@@ -799,63 +798,6 @@ async def _shutdown_datasource_sidecar_recovery():
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-
-
-async def _startup_seed_ontologies():
-    """Seed or stage the latest built-in enterprise-risk Domain Pack.
-
-    A fresh database activates the bundled version. Existing installations get
-    a new immutable draft and keep their current active version until an
-    administrator explicitly activates the update.
-    """
-    try:
-        import json
-        from pathlib import Path
-
-        from core.db.engine import SessionLocal
-        from core.services.ontology_service import OntologyService
-
-        pack_path = (
-            Path(__file__).resolve().parents[1]
-            / "configs"
-            / "ontology_packs"
-            / "enterprise_risk_v1.json"
-        )
-        with SessionLocal() as db:
-            service = OntologyService(db)
-            document = json.loads(pack_path.read_text(encoding="utf-8"))
-            pack_id = str(document["pack_id"])
-            version_name = str(document["version"])
-            if service.repo.get_pack_version(pack_id, version_name) is not None:
-                return
-            is_fresh = service.repo.get_pack(pack_id) is None
-            if not is_fresh and service.repo.get_working_draft(pack_id) is not None:
-                logger.info(
-                    "[startup] built-in ontology update deferred because a working draft exists: %s@%s",
-                    pack_id,
-                    version_name,
-                )
-                return
-            service.create_version(
-                document,
-                actor_id="system_seed",
-                activate=is_fresh,
-            )
-            if is_fresh:
-                service.set_pack_flags(pack_id, is_enabled=True, is_default=True)
-                logger.info(
-                    "[startup] built-in ontology seeded and activated: %s@%s",
-                    pack_id,
-                    version_name,
-                )
-            else:
-                logger.info(
-                    "[startup] built-in ontology update staged as draft: %s@%s",
-                    pack_id,
-                    version_name,
-                )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[startup] ontology seed failed: %s", exc)
 
 
 async def _startup_preload():

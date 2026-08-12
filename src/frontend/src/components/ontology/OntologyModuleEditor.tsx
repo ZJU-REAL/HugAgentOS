@@ -920,7 +920,7 @@ export function OntologyModuleEditor({
                       return (
                         <Col xs={24} md={10}>
                           <Form.Item name={[field.name, 'target', 'output_tag']} label={t('输出标签')} rules={[{ required: true, whitespace: true }]}>
-                            <Input placeholder="enterprise_risk_report" />
+                            <Input placeholder="quality_review_report" />
                           </Form.Item>
                         </Col>
                       );
@@ -929,7 +929,7 @@ export function OntologyModuleEditor({
                       <>
                         <Col xs={24} md={kind === 'tool_parameter' ? 6 : 10}>
                           <Form.Item name={[field.name, 'target', 'tool']} label={t('工具标识')} rules={[{ required: true, whitespace: true }]}>
-                            <Input placeholder="get_company_risk_warning" />
+                            <Input placeholder="check_record_quality" />
                           </Form.Item>
                         </Col>
                         {kind === 'tool_parameter' && (
@@ -1084,7 +1084,7 @@ export function OntologyModuleEditor({
                           </Col>
                           <Col xs={24} md={9}>
                             <Form.Item name={[triggerField.name, 'tags_any']} label={t('任一治理标签')}>
-                              <Select mode="tags" tokenSeparators={[',', '，']} placeholder="ontology:RiskReport" />
+                              <Select mode="tags" tokenSeparators={[',', '，']} placeholder="ontology:QualityReport" />
                             </Form.Item>
                           </Col>
                           <Col xs={24} md={2} className="jx-ontologyEditor-propertyRemove">

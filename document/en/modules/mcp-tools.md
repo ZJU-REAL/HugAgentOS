@@ -79,7 +79,7 @@ cn_only)` selects Tavily, Baidu, or LangSearch through
 All three providers return normalized `title / url / content` fields. Only
 Tavily natively supports `topic`, `search_depth`, and raw-page content.
 LangSearch maps its generated summary to `content`. The agent uses this tool
-only as a fallback when internal knowledge bases, the warehouse, and industry
+only as a fallback when user-configured knowledge bases and other specialized
 tools return no results.
 
 ### Industry Knowledge Center plugin (Enterprise EE)
@@ -109,14 +109,16 @@ Each new tool exposes flat parameters and a detailed agent-visible description
 covering its use cases, inputs, output panels, and selection against adjacent
 tools. The 14 new workflows return only `结果` (business results), optional
 `未获取内容` (unavailable panels), and `结果说明` when truncation occurs. The
-13 mature tools retain their established business response shapes so the
-industry-chain Canvas, news lists, and company-profile renderers remain
-compatible. Neither group exposes endpoint paths, HTTP status, or execution
-counts to the agent's answer context.
+13 mature tools retain their established business response shapes. The EE
+frontend provides the industry-chain Canvas, news lists, and company-profile
+renderers. The CE derivation physically removes those renderers, the industry
+API client, and related assets. User-added remote MCP tools use the generic JSON
+card in CE, even when they reuse an EE tool name. Neither group exposes endpoint
+paths, HTTP status, or execution counts to the agent's answer context.
 Multi-endpoint workflows remain concurrent and preserve partial success under
 a 25,000-character business-data limit.
 
-The industry-chain Canvas reads stable node IDs preserved by
+In EE, the industry-chain Canvas reads stable node IDs preserved by
 `get_chain_information`. Clicking a leaf node loads its related companies through
 an authenticated backend endpoint protected by the `industry_tools` entitlement;
 the browser receives company names, qualification tags, regions, establishment

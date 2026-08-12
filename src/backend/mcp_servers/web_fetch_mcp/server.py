@@ -45,7 +45,7 @@ async def web_fetch(
     - **何时调我**: ① 由搜索类技能（如"中文网页搜索"）的 SKILL.md 指令显式要求调用;
       ② 用户明确要求"抓取"/"爬取"/"打开"某个具体 URL 并提取正文。
     - **何时不要调我**: 用户没明确给 URL、也没在执行某个搜索技能时, 不要自行去抓网页。
-      要找资料先走 retrieve_dataset_content / get_industry_news 等内部工具。
+      要找资料先走 retrieve_dataset_content / internet_search 等检索工具。
     - 与 internet_search 的取舍: internet_search 返回的是搜索结果列表（标题+摘要+url）;
       我返回的是单个页面的正文。一般是"先 internet_search 拿到 url, 再 web_fetch 取
       正文"的两步流程。

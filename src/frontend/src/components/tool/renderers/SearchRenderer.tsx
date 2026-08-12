@@ -4,7 +4,6 @@ import { coerceOutput, preview } from './utils';
 import { staggerStyle } from '../../../utils/motionTokens';
 import { t } from '../../../i18n';
 
-type SetDetailModal = (modal: { title: string; body: React.ReactNode } | null) => void;
 
 interface SearchItem {
   title: string;
@@ -95,73 +94,6 @@ export function renderInternetSearch(out: unknown): React.ReactNode {
           {r.domain && <div className="jx-tr-searchFooter"><span className="jx-tr-searchDomain">{r.domain}</span></div>}
         </a>
       ))}
-    </div>
-  );
-}
-
-export function renderIndustryNews(out: unknown, setDetailModal: SetDetailModal): React.ReactNode {
-  const empty = (msg: string) => <div className="jx-tr-empty">{msg}</div>;
-  const data = (typeof out === 'object' && out !== null ? out : {}) as any;
-  const items: any[] = Array.isArray(data?.items) ? data.items : [];
-  if (items.length === 0) return empty(t('暂无产业资讯'));
-  return (
-    <div className="jx-tr-newsList">
-      {items.map((item: any, idx: number) => {
-        const title = String(item['标题'] || item.title || '');
-        const summary = String(item['摘要'] || item.summary || '');
-        const tags = [item['标签'], item['对应产业链'], item['地区']].filter(Boolean).map(String);
-        const openDetail = () => setDetailModal({
-          title: title || t('资讯详情'),
-          body: (
-            <div>
-              {tags.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>{tags.map((tag, ti) => <span key={ti} className="jx-tr-newsTag">{tag}</span>)}</div>}
-              <div className="jx-tr-detailBody">{summary || t('暂无摘要')}</div>
-            </div>
-          ),
-        });
-        return (
-          <div key={idx} className="jx-tr-newsItem jx-tr-newsItem--clickable" onClick={openDetail} title={t('点击查看详情')}>
-            {title && <div className="jx-tr-newsTitle">{title}</div>}
-            {summary && <div className="jx-tr-newsSummary">{preview(summary)}</div>}
-            {tags.length > 0 && <div className="jx-tr-newsTags">{tags.map((tag, ti) => <span key={ti} className="jx-tr-newsTag">{tag}</span>)}</div>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-export function renderLatestAiNews(out: unknown, setDetailModal: SetDetailModal): React.ReactNode {
-  const empty = (msg: string) => <div className="jx-tr-empty">{msg}</div>;
-  const data = (typeof out === 'object' && out !== null ? out : {}) as any;
-  const items: any[] = Array.isArray(data?.items) ? data.items : [];
-  if (items.length === 0) return empty(t('暂无 AI 热点'));
-  return (
-    <div className="jx-tr-aiNewsList">
-      {items.map((item: any, idx: number) => {
-        const date = String(item['时间'] || item.date || '');
-        const title = String(item['标题'] || item.title || '');
-        const summary = String(item['摘要'] || item.summary || '');
-        const shortDate = date.length >= 10 ? date.slice(5, 10) : date.slice(0, 5);
-        const openDetail = () => setDetailModal({
-          title: title || t('AI 热点'),
-          body: (
-            <div>
-              {date && <div style={{ fontSize: 11, color: 'rgba(18,109,255,.65)', fontWeight: 700, marginBottom: 8 }}>{date}</div>}
-              <div className="jx-tr-detailBody">{summary || t('暂无摘要')}</div>
-            </div>
-          ),
-        });
-        return (
-          <div key={idx} className="jx-tr-aiNewsItem jx-tr-aiNewsItem--clickable" onClick={openDetail} title={t('点击查看详情')}>
-            {shortDate && <div className="jx-tr-aiNewsDate">{shortDate}</div>}
-            <div className="jx-tr-aiNewsContent">
-              {title && <div className="jx-tr-aiNewsTitle">{title}</div>}
-              {summary && <div className="jx-tr-aiNewsSummary">{preview(summary)}</div>}
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }

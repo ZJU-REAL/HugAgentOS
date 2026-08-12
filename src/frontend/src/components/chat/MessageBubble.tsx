@@ -457,24 +457,6 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
       return;
     }
 
-    if (toolName === 'get_industry_news') {
-      const data = (typeof output === 'object' && output !== null ? output : {}) as any;
-      const item = Array.isArray(data?.items) ? data.items[0] : undefined;
-      const title = String(item?.['标题'] || item?.title || citation.title || t('资讯详情'));
-      const summary = String(item?.['摘要'] || item?.summary || citation.snippet || '');
-      const tags = [item?.['标签'], item?.['对应产业链'], item?.['地区']].filter(Boolean).map(String);
-      setDetailModal({
-        title,
-        body: (
-          <div>
-            {tags.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>{tags.map((tag, ti) => <span key={ti} className="jx-tr-newsTag">{tag}</span>)}</div>}
-            <div className="jx-tr-detailBody">{summary || t('暂无摘要')}</div>
-          </div>
-        ),
-      });
-      return;
-    }
-
     // fallback
     const title = citation.title || t('引用详情');
     const snippet = citation.snippet || t('暂无内容');

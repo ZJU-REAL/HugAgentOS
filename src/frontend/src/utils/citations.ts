@@ -114,19 +114,6 @@ function getFallbackCitationOutput(citation: CitationItem): { toolName: string; 
           }],
         },
       };
-    case 'get_industry_news':
-    case 'get_latest_ai_news':
-      return {
-        toolName: citation.tool_name,
-        output: {
-          items: [{
-            标题: citation.title,
-            摘要: citation.snippet,
-            链接: citation.url,
-            url: citation.url,
-          }],
-        },
-      };
     default:
       return {
         toolName: citation.tool_name,
@@ -178,7 +165,7 @@ export function getCitationOutputSlice(
     return { toolName: 'internet_search', output: compactSearchResult };
   }
 
-  if (citation.tool_name === 'retrieve_dataset_content' || citation.tool_name === 'get_industry_news' || citation.tool_name === 'get_latest_ai_news') {
+  if (citation.tool_name === 'retrieve_dataset_content') {
     const data = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as any;
     const items: any[] = Array.isArray(data?.items) ? data.items : [];
     const picked = items[citationIndex] ?? items[0];

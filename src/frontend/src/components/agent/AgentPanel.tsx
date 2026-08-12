@@ -40,8 +40,6 @@ const AGENT_ICON_MAP: Record<string, string> = {
   '数据分析': '/home/agent-icons/data-analysis.svg',
   '政策解读': '/home/agent-icons/policy.svg',
   '信息提取': '/home/agent-icons/info-extract.svg',
-  '企业画像': '/home/agent-icons/company-profile.svg',
-  '产业链分析': '/home/agent-icons/industry-chain.svg',
   '材料分析': '/home/agent-icons/material-analysis.svg',
   '流程指引': '/home/agent-icons/process-guide.svg',
 };

@@ -67,19 +67,6 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     "wiki_expand": "展开相关概念",
     "wiki_fetch_source": "回溯原文出处",
     "internet_search": "互联网搜索",
-    "get_chain_information": "产业链分析",
-    "get_industry_news": "产业资讯",
-    "get_latest_ai_news": "AI 热点聚合",
-    "get_industry_hot_companies": "领域热门企业榜",
-    "get_industry_hot_products": "领域热门产品榜",
-    "get_company_hot_events": "企业舆情事件",
-    "get_product_detail": "产品情报详情",
-    "search_company": "企业搜索",
-    "get_company_base_info": "企业基本信息",
-    "get_company_business_analysis": "企业经营分析",
-    "get_company_tech_insight": "企业技术洞察",
-    "get_company_funding": "企业资金穿透",
-    "get_company_risk_warning": "企业风险预警",
     "generate_chart_tool": "数据可视化",
     # (Word capability migrated to the word-editing skill, see src/backend/skill_bundles/word-editing/)
     # The MCP layer no longer exposes word_mcp; the scripts/*.py CLIs inside the skill are the single entry point.
@@ -89,10 +76,6 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # The MCP layer no longer exposes ppt_mcp; the skill's scripts/ppt-cli is the single entry point.
     # (PDF capability migrated to the pdf-editing skill, see src/backend/skill_bundles/pdf-editing/)
     # The MCP layer no longer exposes pdf_mcp; the skill's scripts/pdf-cli is the single entry point.
-    # Industry-chain bundle sub-tools (legacy workflow.py mapping)
-    "get_ai_chain_information": "区块链信息查询",
-    "get_latest_ai_chain_info": "最新区块链动态",
-    "get_ai_chain_news": "区块链新闻搜索",
     # Batch execution
     "batch_plan": "批量执行计划",
     # Built-in tools

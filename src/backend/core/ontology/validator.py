@@ -242,7 +242,7 @@ def select_concepts(
     normalized = task.casefold()
     # English words can be tokenized by boundaries.  Chinese text cannot be
     # treated as one giant ``[\u4e00-\u9fff]+`` token: doing so made a task such
-    # as “企业风险分析” match no concept at all.  Concept names and aliases are
+    # as “数据质量分析” match no concept at all.  Concept names and aliases are
     # therefore also checked directly as substrings of the task.
     terms = set(re.findall(r"[a-z0-9_]+", normalized))
     scored: list[tuple[int, Any]] = []

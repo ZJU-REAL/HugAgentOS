@@ -1990,45 +1990,6 @@ export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise
   });
 }
 
-export interface IndustryNodeCompany {
-  id: string;
-  name: string;
-  province?: string | null;
-  city?: string | null;
-  area?: string | null;
-  belong_area?: string | null;
-  labels: string[];
-  legal_person?: string | null;
-  establish_date?: string | null;
-  registered_capital?: string | null;
-  confidence: number;
-}
-
-export interface IndustryNodeCompaniesResponse {
-  chain_id: string;
-  node_id: string;
-  items: IndustryNodeCompany[];
-  pagination: Pagination;
-}
-
-export async function getIndustryNodeCompanies(
-  chainId: string,
-  nodeId: string,
-  page = 1,
-  pageSize = 10,
-  signal?: AbortSignal,
-): Promise<IndustryNodeCompaniesResponse> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/industry/chains/${encodeURIComponent(chainId)}/nodes/${encodeURIComponent(nodeId)}/companies`,
-    {
-      method: 'POST',
-      body: JSON.stringify({ page, page_size: pageSize }),
-      signal,
-    },
-  );
-  return unwrapData<IndustryNodeCompaniesResponse>(wrapped);
-}
-
 // ── File upload API ─────────────────────────────────────────────
 
 export interface UploadedFile {
@@ -2365,7 +2326,6 @@ export const api = {
   logout,
   listChatShares,
   authFetch,
-  getIndustryNodeCompanies,
   uploadFile,
   overwriteFile,
   getArtifacts,

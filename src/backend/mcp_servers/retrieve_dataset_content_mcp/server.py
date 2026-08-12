@@ -594,7 +594,7 @@ _WIKI_READ_PAGE_DESCRIPTION = """读取某个 Wiki 概念页的完整内容与�
 取回的原文分块。
 
 Args:
-    slug: 页面标识，形如 `entity/ningbo-city` 或 `concept/xin-yong`。
+    slug: 页面标识，形如 `entity/example-city` 或 `concept/xin-yong`。
     dataset_id: 知识库 ID（留空自动选用当前可用的知识库）。
 
 Returns:

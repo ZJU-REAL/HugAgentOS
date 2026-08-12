@@ -105,7 +105,7 @@ def build_task_set() -> List[LlmTask]:
                 task_id=f"report-{i:02d}",
                 family="industry_report",
                 prompt=(
-                    f"任务：生成第 {i + 1} 期新能源汽车产业链周报。"
+                    f"任务：生成第 {i + 1} 期新能源汽车市场周报。"
                     "要求报告中出现的企业主体必须准确，并附可追溯的数据来源。\n"
                     "可用工具：company_verify（企业主体核验）、db_query（产业数据查询）、"
                     "chart_render（图表渲染）、doc_export（文档导出）。"

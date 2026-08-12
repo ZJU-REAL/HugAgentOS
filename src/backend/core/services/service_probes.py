@@ -187,7 +187,7 @@ async def test_langsearch(api_key: str) -> dict:
 async def test_service_group(group_key: str) -> dict:
     """Run one connectivity test for a group (reading the current SystemConfigService config).
 
-    Supports knowledge_base / industry / file_parser / internet_search; other groups return
+    Supports knowledge_base / file_parser / internet_search; other groups return
     "unsupported". Shared by service_configs (EE) and me_system (CE).
     """
     from core.services.system_config import SystemConfigService
@@ -202,12 +202,6 @@ async def test_service_group(group_key: str) -> dict:
         if not url:
             return {"success": False, "error": "URL 未配置", "latency_ms": 0}
         return await test_external_knowledge(url, api_key or "")
-
-    if group_key == "industry":
-        url = svc.get("industry.url")
-        if not url:
-            return {"success": False, "error": "URL 未配置", "latency_ms": 0}
-        return await test_http_health(url)
 
     if group_key == "file_parser":
         url = svc.get("file_parser.api_url")

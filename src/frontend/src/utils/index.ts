@@ -22,14 +22,6 @@ export {
   type InternetSearchEngine,
   type InternetSearchEngineMeta,
 } from './internetSearchConfig';
-export {
-  getIndustryChainNameFromInput,
-  parseIndustryChainOutput,
-  type IndustryChainMetric,
-  type IndustryChainTreeNode,
-  type IndustryChainViewModel,
-} from './industryChain';
-
 export { getFileIconSrc, getFolderIconSrc } from './fileIcon';
 export {
   PreviewFileTooLargeError,

@@ -59,7 +59,6 @@ export interface HomepageShortcut {
 
 export const DEFAULT_HOMEPAGE_SHORTCUTS: HomepageShortcut[] = [
   { id: 'knowledge', enabled: true, label: '知识检索', icon: '/home/company-research.svg', url: '' },
-  { id: 'portrait',  enabled: true, label: '企业画像', icon: '/home/company-profile.svg', url: '' },
   { id: 'policy',    enabled: true, label: '政策对比', icon: '/home/icon3.svg',            url: '' },
   { id: 'compare',   enabled: true, label: '材料对比', icon: '/home/icon1.svg',            url: '' },
   { id: 'data',      enabled: true, label: '数据分析', icon: '/home/icon2.svg',            url: '' },

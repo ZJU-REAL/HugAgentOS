@@ -22,7 +22,7 @@ class CitationItem:
     url: str
     snippet: str
     source_type: (
-        str  # internet | knowledge_base | database | industry_news | ai_news | chain_info | unknown
+        str  # internet | knowledge_base | database | unknown
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -34,15 +34,6 @@ _SOURCE_TYPE_MAP: Dict[str, str] = {
     "retrieve_dataset_content": "knowledge_base",
     "retrieve_local_kb": "knowledge_base",
     "query_database": "database",
-    "get_industry_news": "industry_news",
-    "get_latest_ai_news": "ai_news",
-    "get_chain_information": "chain_info",
-    "search_company": "company_profile",
-    "get_company_base_info": "company_profile",
-    "get_company_business_analysis": "company_profile",
-    "get_company_tech_insight": "company_profile",
-    "get_company_funding": "company_profile",
-    "get_company_risk_warning": "company_profile",
 }
 
 
@@ -77,19 +68,6 @@ def extract_citations(
             return _local_kb(tool_id, source_type, result)
         if tool_name == "query_database":
             return _database(tool_id, source_type, result)
-        if tool_name in {"get_industry_news", "get_latest_ai_news"}:
-            return _news(tool_name, tool_id, source_type, result)
-        if tool_name == "get_chain_information":
-            return _chain_info(tool_id, source_type, result)
-        if tool_name in {
-            "search_company",
-            "get_company_base_info",
-            "get_company_business_analysis",
-            "get_company_tech_insight",
-            "get_company_funding",
-            "get_company_risk_warning",
-        }:
-            return _company_profile(tool_name, tool_id, source_type, result)
     except Exception:
         pass
     return []
@@ -226,108 +204,6 @@ def _database(tool_id: Optional[str], source_type: str, data: dict) -> List[Cita
             title="数据库查询结果",
             url="",
             snippet=snippet[:3000],
-            source_type=source_type,
-        )
-    ]
-
-
-def _news(
-    tool_name: str,
-    tool_id: Optional[str],
-    source_type: str,
-    data: dict,
-) -> List[CitationItem]:
-    items = data.get("items", [])
-    out: List[CitationItem] = []
-    for i, item in enumerate(items, 1):
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("标题") or item.get("title") or "资讯")[:120]
-        url = str(item.get("url") or item.get("链接") or "")
-        summary = str(item.get("摘要") or item.get("summary") or "")
-        time_str = str(item.get("时间") or "")
-        snippet = (f"[{time_str}] {summary}" if time_str else summary)[:3000]
-        out.append(
-            CitationItem(
-                id=f"{tool_name}-{i}",
-                tool_name=tool_name,
-                tool_id=tool_id,
-                title=title,
-                url=url,
-                snippet=snippet,
-                source_type=source_type,
-            )
-        )
-    return out
-
-
-def _chain_info(tool_id: Optional[str], source_type: str, data: dict) -> List[CitationItem]:
-    return [
-        CitationItem(
-            id="get_chain_information-1",
-            tool_name="get_chain_information",
-            tool_id=tool_id,
-            title="产业链分析报告",
-            url="",
-            snippet="产业链深度全景分析数据",
-            source_type=source_type,
-        )
-    ]
-
-
-_COMPANY_TOOL_TITLES: Dict[str, str] = {
-    "search_company": "企业搜索",
-    "get_company_base_info": "企业基本信息",
-    "get_company_business_analysis": "企业经营分析",
-    "get_company_tech_insight": "企业技术洞察",
-    "get_company_funding": "企业资金穿透",
-    "get_company_risk_warning": "企业风险预警",
-}
-
-
-def _company_profile(
-    tool_name: str,
-    tool_id: Optional[str],
-    source_type: str,
-    data: dict,
-) -> List[CitationItem]:
-    if tool_name == "search_company":
-        items = data.get("items", [])
-        out: List[CitationItem] = []
-        for i, item in enumerate(items, 1):
-            if not isinstance(item, dict):
-                continue
-            title = str(item.get("企业名称") or "企业")[:120]
-            snippet_parts = [
-                item.get("法定代表人", ""),
-                item.get("注册资金", ""),
-                item.get("企业状态", ""),
-            ]
-            snippet = " · ".join(str(p) for p in snippet_parts if p)[:300]
-            out.append(
-                CitationItem(
-                    id=f"search_company-{i}",
-                    tool_name=tool_name,
-                    tool_id=tool_id,
-                    title=title,
-                    url="",
-                    snippet=snippet,
-                    source_type=source_type,
-                )
-            )
-        return out
-
-    # Other 5 tools: single citation
-    title = _COMPANY_TOOL_TITLES.get(tool_name, "企业画像")
-    snippet = json.dumps(data, ensure_ascii=False)[:500] if data else ""
-    return [
-        CitationItem(
-            id=f"{tool_name}-1",
-            tool_name=tool_name,
-            tool_id=tool_id,
-            title=title,
-            url="",
-            snippet=snippet,
             source_type=source_type,
         )
     ]

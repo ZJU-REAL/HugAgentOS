@@ -1,6 +1,6 @@
 # CE 构建管线
 
-> 最后更新：2026-07-23
+> 最后更新：2026-08-12
 
 社区版（CE）不是独立分支，而是由主仓（EE，唯一开发真源）经 `scripts/build_ce.py` **确定性派生**的子集树，输出到 `dist/ce/`。核心约束是**白名单铁律：EE 专属代码在 CE 树里物理不存在**——不是注释掉、不是 if 关掉，而是文件层面删除。整条管线的唯一输入是 `ce/manifest.yaml`。
 
@@ -29,6 +29,8 @@ glob 模式（相对仓库根），命中即不拷贝。覆盖：
 - **后端 EE 模块**：完整的 `edition_ee/**` 实现根（团队/RBAC、SSO、License 验签与闸门、EE ORM、Dify 集成），以及云存储（`core/storage/s3.py`、`oss.py`）、持久沙箱 provider、记忆审计、技能蒸馏等 EE 服务；
 - **EE 路由**：`api/routes/v1/admin_*.py`、`config_*.py`、`audit.py`、`auth.py`、`team_files.py`、`service_configs.py`、`data_sources.py`、`db_metadata.py`、`gateway_*.py`；
 - **行业 MCP**：`mcp_servers/query_database_mcp/**`、`ai_chain_information_mcp/**`；
+- **行业专属前端与种子**：产业链 Canvas、资讯 / 企业画像渲染器、行业 API 客户端、图标资源，
+  以及依赖企业画像工具的内置本体示例包；
 - **主仓 alembic 链整体**（`alembic/versions/**`，CE 用 overlay 的独立链，见下文）；
 - **10 个行业 / 品牌技能**（`skill_bundles/marketplace/` 下，前 5 个硬依赖 EE 行业 MCP，后 5 个含品牌域文案）；
 - **EE 强耦合测试**、`tests/licensing/**`；
@@ -55,9 +57,13 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `catalog_json` | `core/config/catalog.json` | 去掉 EE MCP 种子（`database_query`、`query_database`、`ai_chain_information_mcp`） |
 | `package_json` | `src/frontend/package.json` | 改名 `hugagent-ui`；删商业 License 预设 `@univerjs/preset-sheets-advanced` 与死依赖 `pptxgenjs`；固定 `@univerjs/icons=1.1.1`，避免无主仓 lockfile 时与 Univer 0.19 发生导出契约不兼容 |
 | `requirements` | `requirements.txt` | 删云存储 / 持久沙箱依赖（boto3 / oss2 / opensandbox）；neo4j / mem0ai 移入独立档 `requirements-mem0.txt`（无 Docker 一键安装器会默认安装该档） |
-| `docker_compose` | `docker-compose.yml` | 删 opensandbox / litellm 服务及 depends_on；`script-runner` 摘掉 profile 转默认启动；整树摘除被排除组件的 env 注入（`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` 前缀）；把后端版本、认证与 SSO 默认值固定为 CE 本地会话模式，前端构建默认固定为 CE |
+| `docker_compose` | `docker-compose.yml` | 删 opensandbox / litellm 服务及 depends_on；`script-runner` 摘掉 profile 转默认启动；整树摘除被排除组件的 env 注入（含 `OPENSANDBOX_` / `S3_` / `INDUSTRY_` / `COMPANY_` 等前缀）；把后端版本、认证与 SSO 默认值固定为 CE 本地会话模式，前端构建默认固定为 CE |
 | `frontend_lock` | `package-lock.json` + 前端 Dockerfile | 删 lock（与裁剪后的 package.json 必然失同步）、`npm ci` 改 `npm install` |
 | `repository_resources` | 内置商业字体的构建与源码引用 | 从 CE Dockerfile 删除字体复制/安装段，并清除后端的仓库字体目录回退引用；生成后由禁止产物门禁再次检查 |
+| `text_ranges` | 前后端共享源码中的版本专属分支 | 按精确标记删除产业链工具映射、专属引用提取、Canvas 状态、提示词和样式；标记缺失或数量变化时直接失败，防止上游重构后静默回流 |
+
+CE 前端不按工具名猜测远程 MCP 的业务结构。用户接入的远程 HTTP/SSE MCP 输出统一进入
+通用 JSON 卡片；产业链、资讯和企业画像专属展示只存在于商业版 EE。
 
 ### 4. `split` — 文件内 user/admin 混合端点的 CE 子集断言
 
@@ -87,7 +93,6 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 | `src/backend/mcp_servers/_ports.py` | 7 个通用工具的端口表（EE 行业工具与已退役端口标注 reserved） |
 | `src/frontend/default.conf.template` | CE 前端 Nginx 模板，移除 `/gateway/**` 反代与 litellm upstream |
 | `src/frontend/src/main.tsx` | CE 入口：只挂主应用 / API 文档 / 分享预览，不挂 /admin、/config |
-| `src/frontend/src/updates.ts` | CE 版本说明数据 |
 | `.claude/skills/hugagent-{backend,frontend}-dev/…` | 项目开发 skill 的 CE 版 SKILL.md 与 references（剔除 admin 面板 / EE 路由注册等商业版段落） |
 
 > License、Team/RBAC、EE ORM 与 Dify 的实现根均在 `edition_ee/**`，CE 不提供同名实现 stub；派生树内对 `edition_ee` 的 import 探测必须返回不存在。
@@ -107,7 +112,7 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 [1/7] 拷贝     git ls-files --cached 为白名单，减 exclude 与默认忽略
 [1/7] 改名     按 manifest.renames 执行可选路径迁移（当前配置为空）
 [2/7] 变换     manifest.transforms 整树文本替换（二进制免扫；其他产品线品牌字面量告警）
-[3/7] 裁剪     manifest.prunes 五个 pruner
+[3/7] 裁剪     依次执行 manifest.prunes 中声明的全部 pruner
 [4/7] overlay  先断言 split 文件在 overlay 中存在，再整树叠加（跳过 __pycache__/pyc）
 [4/7] 禁止产物 断言 EE 路径、表名、外键和运行时源码商业符号均为 0 命中；
               测试目录只允许保存“不得出现”的负向契约断言

@@ -39,7 +39,10 @@ under **Settings → Ontology Governance**. EE administrators continue to use
 An imported version starts as a working draft unless explicitly activated. Each Domain Pack can
 have only one working draft, which administrators can update repeatedly. Publishing locks the
 draft as an official version and activates it. Activation does not rewrite historical audit
-evidence. Fresh databases include an enterprise-risk example pack.
+evidence. CE doesn't bundle a business-domain pack, so a general-purpose
+distribution never carries tool IDs or workflows for one industry. Instance
+administrators import a Domain Pack that matches their installed tools. EE can
+ship packs for its commercial capabilities.
 
 A workflow can define both kinds of entry point:
 
@@ -47,9 +50,9 @@ A workflow can define both kinds of entry point:
 - `asset_triggers` activates it when an invoked tool, skill, or sub-agent matches an asset ID or a
   governed ontology tag.
 
-Governed asset tags use `ontology:ConceptId`. For example, tagging a risk-query tool or report
-skill with `ontology:RiskReport` activates the corresponding workflow when that asset is actually
-invoked, even if the user never says a configured phrase such as “risk profile.” Ordinary display
+Governed asset tags use `ontology:ConceptId`. For example, tagging a data-check tool or report
+skill with `ontology:QualityReport` activates the corresponding workflow when that asset is actually
+invoked, even if the user never says a configured phrase such as "quality review." Ordinary display
 tags do not activate ontology workflows.
 
 ### Provide selectable tags
@@ -58,9 +61,9 @@ For a tag to appear in the skill or sub-agent selector, the Domain Pack must dec
 concept and its asset-trigger relationship. Defining the concept alone does not make it a runtime
 trigger tag.
 
-1. Define the concept in `concepts`, such as `RiskReport`.
+1. Define the concept in `concepts`, such as `QualityReport`.
 2. Select the asset kind in the target workflow's `asset_triggers`, and add
-   `ontology:RiskReport` to `tags_any`.
+   `ontology:QualityReport` to `tags_any`.
 3. Activate the Domain Pack version. The skill and sub-agent forms then display the tag, linked
    workflows, and review levels.
 
@@ -69,15 +72,15 @@ The following example makes one tag available to both skills and sub-agents:
 ```json
 {
   "concepts": [
-    {"id": "RiskReport", "name": "Risk report", "definition": "Enterprise risk report"}
+    {"id": "QualityReport", "name": "Quality report", "definition": "Data quality review report"}
   ],
   "workflows": [
     {
-      "id": "enterprise_risk_analysis",
+      "id": "quality_review",
       "review_level": "committee",
       "asset_triggers": [
-        {"kind": "skill", "tags_any": ["ontology:RiskReport"]},
-        {"kind": "subagent", "tags_any": ["ontology:RiskReport"]}
+        {"kind": "skill", "tags_any": ["ontology:QualityReport"]},
+        {"kind": "subagent", "tags_any": ["ontology:QualityReport"]}
       ]
     }
   ]
@@ -283,8 +286,7 @@ must verify under **Settings → Ontology Governance** that a pack is enabled,
 selected as the default, and has an active version. EE administrators perform
 the same check in Content Management.
 
-Bundled enterprise-risk updates preserve immutable versions. A fresh database activates the
-latest bundled version. When an existing database has no working draft, it stages the update as a
-draft and keeps the currently active version. If a working draft exists, staging waits until that
-draft is published or discarded. An administrator must review and explicitly publish the staged
-draft before its asset triggers enter runtime.
+CE upgrades don't write or replace business-domain packs. Imported Domain Pack
+updates still preserve immutable versions: an administrator reviews the working
+draft and explicitly publishes it before its asset triggers enter runtime. Packs
+shipped with EE use the same draft and publication flow.
