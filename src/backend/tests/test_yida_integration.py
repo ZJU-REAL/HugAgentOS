@@ -292,15 +292,17 @@ async def test_yida_run_in_sandbox_heals_stale_sandbox(monkeypatch):
 
 
 def test_yida_plugin_declares_connection():
-    """plugin.json declares connection=yida → the frontend plugin detail page renders the YidaConnect panel."""
-    import json as _json
+    """plugin.json declares connection=yida (extensions["org.hugagent"], Agent Plugins standard)
+    → the frontend plugin detail page renders the YidaConnect panel."""
     import pathlib
+
+    from core.services.plugin_importer import normalize_plugin_dir
 
     p = (
         pathlib.Path(__file__).resolve().parents[1]
-        / "plugin_bundles" / "marketplace" / "yida" / "plugin.json"
+        / "plugin_bundles" / "marketplace" / "yida"
     )
-    assert _json.loads(p.read_text(encoding="utf-8")).get("connection") == "yida"
+    assert normalize_plugin_dir(p).connection == "yida"
 
 
 # ── Marketplace plugin installability ────────────────────────────────────

@@ -29,6 +29,31 @@ logger = logging.getLogger(__name__)
 
 SKILL_MD_NAME = "SKILL.md"
 
+# Agent Plugins (agent-plugins.org) reverse-domain extension namespace for this
+# platform. Standard-compliant manifests keep plugin.json top-level fields to the
+# closed spec schema and carry platform-specific data (connection / admin_config /
+# required_secrets / MCP display metadata) under extensions["org.hugagent"].
+# Lowercase on purpose: lowercase technical identifiers survive the CE brand
+# transform unchanged.
+EXTENSION_NAMESPACE = "org.hugagent"
+
+
+def manifest_extensions(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """This platform's extension namespace object from a manifest ({} when absent)."""
+    ext = manifest.get("extensions")
+    if isinstance(ext, dict):
+        ns = ext.get(EXTENSION_NAMESPACE)
+        if isinstance(ns, dict):
+            return ns
+    return {}
+
+
+def _ext_or_top(manifest: Dict[str, Any], ext: Dict[str, Any], key: str) -> Any:
+    """Read a platform field: extensions namespace first, legacy top-level as fallback."""
+    if key in ext:
+        return ext.get(key)
+    return manifest.get(key)
+
 
 # ── Unified intermediate representation ──────────────────────────────────────
 
@@ -50,6 +75,7 @@ class NormalizedMcp:
     url: Optional[str] = None
     env_vars: Dict[str, str] = field(default_factory=dict)
     headers: Dict[str, str] = field(default_factory=dict)
+    cwd: Optional[str] = None       # stdio working directory (Agent Plugins standard field)
     needs_runtime: bool = False     # stdio → True: installed but disabled by default; enable only once the runtime is in place
     note: str = ""
     tools: List[Dict[str, Any]] = field(default_factory=list)  # tool list the manifest may declare (display only, [{name,description}])
@@ -116,16 +142,18 @@ def _read_json(path: Path) -> Dict[str, Any]:
 
 def _rewrite_path_vars(text: str, *, skill_sandbox_dir: Optional[str] = None,
                        plugin_sandbox_dir: str = "/workspace/plugins") -> str:
-    """Rewrite CC/Codex path variables to this platform's sandbox paths.
+    """Rewrite Agent Plugins / CC / Codex path variables to this platform's sandbox paths.
 
-    ${CLAUDE_PLUGIN_ROOT} / ${CODEX_PLUGIN_ROOT} → skill sandbox directory (in skill context) or the plugin directory
-    ${CLAUDE_PLUGIN_DATA} → <root>/.data
+    ${PLUGIN_ROOT} (Agent Plugins standard) / ${CLAUDE_PLUGIN_ROOT} / ${CODEX_PLUGIN_ROOT}
+                           → skill sandbox directory (in skill context) or the plugin directory
+    ${PLUGIN_DATA} (Agent Plugins standard) / ${CLAUDE_PLUGIN_DATA} → <root>/.data
     ${CLAUDE_PROJECT_DIR}  → /workspace
     ${user_config.X}       → ${X} (environment variable / secret)
     ${ENV_VAR}             → kept as-is
     """
     root = skill_sandbox_dir or plugin_sandbox_dir
     out = text
+    out = out.replace("${PLUGIN_ROOT}", root).replace("${PLUGIN_DATA}", f"{root}/.data")
     out = out.replace("${CLAUDE_PLUGIN_ROOT}", root).replace("${CODEX_PLUGIN_ROOT}", root)
     out = out.replace("${CLAUDE_PLUGIN_DATA}", f"{root}/.data").replace("${CODEX_PLUGIN_DATA}", f"{root}/.data")
     out = out.replace("${CLAUDE_PROJECT_DIR}", "/workspace").replace("${CODEX_PROJECT_DIR}", "/workspace")
@@ -167,7 +195,8 @@ def _discover_skills(plugin_dir: Path) -> List[NormalizedSkill]:
 # ── MCP auto-discovery ───────────────────────────────────────────────────────
 
 def _find_mcp_map(plugin_dir: Path, manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """Merge all MCP definition sources: root .mcp.json, mcp/servers.json, and mcpServers inside the manifest."""
+    """Merge all MCP definition sources: root mcp.json (Agent Plugins standard),
+    root .mcp.json (CC/Codex), mcp/servers.json, and mcpServers inside the manifest."""
     merged: Dict[str, Any] = {}
 
     def _merge(obj: Any) -> None:
@@ -179,13 +208,14 @@ def _find_mcp_map(plugin_dir: Path, manifest: Dict[str, Any]) -> Dict[str, Any]:
                 if isinstance(v, dict):
                     merged[str(k)] = v
 
-    # 1) Root .mcp.json (CC / Codex)
-    p = plugin_dir / ".mcp.json"
-    if p.is_file():
-        try:
-            _merge(json.loads(p.read_text(encoding="utf-8")))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("plugin .mcp.json broken: %s", exc)
+    # 1) Root mcp.json (Agent Plugins standard) / .mcp.json (CC / Codex)
+    for fname in ("mcp.json", ".mcp.json"):
+        p = plugin_dir / fname
+        if p.is_file():
+            try:
+                _merge(json.loads(p.read_text(encoding="utf-8")))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("plugin %s broken: %s", fname, exc)
     # 2) native: mcp/servers.json (array form [{server_id, ...}])
     p2 = plugin_dir / "mcp" / "servers.json"
     if p2.is_file():
@@ -205,16 +235,23 @@ def _find_mcp_map(plugin_dir: Path, manifest: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
-    """Single MCP definition → NormalizedMcp (incl. transport inference + path variable rewriting)."""
+    """Single MCP definition → NormalizedMcp (incl. transport resolution + path variable rewriting).
+
+    Transport: the Agent Plugins standard ``type`` discriminator wins
+    (``stdio`` / ``streamable-http`` / ``sse``; legacy ``transport`` with
+    underscores is accepted too); without a recognized type, fall back to
+    inference (url present → HTTP, otherwise stdio).
+    """
     url = raw.get("url")
     command = raw.get("command")
-    raw_type = str(raw.get("type") or raw.get("transport") or "").lower()
+    raw_type = str(raw.get("type") or raw.get("transport") or "").lower().replace("-", "_")
 
-    if url:
+    if url and raw_type != "stdio":
         transport = "sse" if raw_type == "sse" else "streamable_http"
         needs_runtime = False
         note = ""
     else:
+        # Explicit type=stdio, or no url (incl. malformed HTTP entries without url — safe fallback: install disabled)
         transport = "stdio"
         needs_runtime = True
         note = "stdio MCP：需运行时（node/python 等）+ 文件物化，默认装上即禁用"
@@ -222,8 +259,9 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
     env_vars = dict(raw.get("env") or raw.get("env_vars") or {})
     headers = dict(raw.get("headers") or {})
     args = list(raw.get("args") or [])
+    cwd = raw.get("cwd")
 
-    # Path variable rewriting (text values of command/args/url/env/headers)
+    # Path variable rewriting (text values of command/args/url/env/headers/cwd)
     plugin_dir_ph = f"/workspace/plugins/{name}"
     if command:
         command = _rewrite_path_vars(str(command), plugin_sandbox_dir=plugin_dir_ph)
@@ -232,6 +270,7 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
         url = _rewrite_path_vars(str(url), plugin_sandbox_dir=plugin_dir_ph)
     env_vars = {k: _rewrite_path_vars(str(v), plugin_sandbox_dir=plugin_dir_ph) for k, v in env_vars.items()}
     headers = {k: _rewrite_path_vars(str(v), plugin_sandbox_dir=plugin_dir_ph) for k, v in headers.items()}
+    cwd = _rewrite_path_vars(str(cwd), plugin_sandbox_dir=plugin_dir_ph) if cwd else None
 
     return NormalizedMcp(
         name=name,
@@ -243,6 +282,7 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
         url=url,
         env_vars=env_vars,
         headers=headers,
+        cwd=cwd,
         needs_runtime=needs_runtime,
         note=note,
         tools=[
@@ -255,13 +295,18 @@ def _normalize_mcp_entry(name: str, raw: Dict[str, Any]) -> NormalizedMcp:
 
 # ── userConfig / required_secrets normalization ──────────────────────────────
 
-def _normalize_required_secrets(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _normalize_required_secrets(
+    manifest: Dict[str, Any], ext: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
     """Normalize native required_secrets / CC userConfig / Codex userConfig into
     [{key, label, required}] (the shape marketplace _inject_secrets expects).
+
+    Standard-compliant manifests declare required_secrets under the extension
+    namespace; legacy top-level declarations are still honored.
     """
     out: List[Dict[str, Any]] = []
     # native: ["api_key", ...] or [{key,label,required}]
-    rs = manifest.get("required_secrets")
+    rs = _ext_or_top(manifest, ext or {}, "required_secrets")
     if isinstance(rs, list):
         for item in rs:
             if isinstance(item, str):
@@ -341,13 +386,16 @@ def _slugify(value: str) -> str:
     return s or "plugin"
 
 
-def _normalize_admin_config(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _normalize_admin_config(
+    manifest: Dict[str, Any], ext: Optional[Dict[str, Any]] = None
+) -> Optional[Dict[str, Any]]:
     """Normalize the ``admin_config`` in the plugin manifest (admin-level provider credential declaration).
 
     Shape: {"mode":"any|all","group":...,"hint":...,"fields":[{key,label,secret,description}]}.
-    Missing or empty fields → None (this plugin needs no admin config).
+    Missing or empty fields → None (this plugin needs no admin config). Read from
+    the extension namespace first, legacy top-level as fallback.
     """
-    ac = manifest.get("admin_config")
+    ac = _ext_or_top(manifest, ext or {}, "admin_config")
     if not isinstance(ac, dict):
         return None
     raw_fields = ac.get("fields")
@@ -377,11 +425,21 @@ def _normalize_admin_config(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]
 
 
 def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
-    """Read any plugin directory (native/CC/Codex) into a unified NormalizedPlugin."""
+    """Read any plugin directory (native/CC/Codex) into a unified NormalizedPlugin.
+
+    "native" means an Agent Plugins standard package (plugin.json restricted to
+    the closed spec schema, platform fields under extensions["org.hugagent"],
+    MCP in a standalone mcp.json). Legacy native manifests with platform fields
+    at the top level keep working as a compatibility fallback.
+    """
     kind, manifest_path = detect_manifest(plugin_dir)
     manifest = _read_json(manifest_path)
+    ext = manifest_extensions(manifest)
 
     slug = _slugify(str(manifest.get("name") or plugin_dir.name))
+    # Standard manifests carry no display fields (display_name/category/icon are
+    # UI-configured, seeded/overridden at the service layer); legacy top-level
+    # values are still honored for imported packages.
     name = str(manifest.get("display_name") or manifest.get("name") or slug)
     version = str(manifest.get("version") or "1.0.0")
     description = str(manifest.get("description") or "")
@@ -392,11 +450,22 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
 
     skills = _discover_skills(plugin_dir)
     mcp_map = _find_mcp_map(plugin_dir, manifest)
+    # Per-server display metadata (display_name/description/tools) lives in the
+    # extension namespace under "mcp" — the standard mcp.json only carries
+    # transport config. Overlay fills gaps; transport config always wins.
+    ext_mcp_meta = ext.get("mcp") if isinstance(ext.get("mcp"), dict) else {}
+    for srv_name, meta in ext_mcp_meta.items():
+        if isinstance(meta, dict) and srv_name in mcp_map:
+            merged = dict(mcp_map[srv_name])
+            for k in ("display_name", "description", "tools"):
+                if k in meta and k not in merged:
+                    merged[k] = meta[k]
+            mcp_map[srv_name] = merged
     mcp = [_normalize_mcp_entry(n, raw) for n, raw in sorted(mcp_map.items())]
 
-    required_secrets = _normalize_required_secrets(manifest)
-    admin_config = _normalize_admin_config(manifest)
-    connection = manifest.get("connection")
+    required_secrets = _normalize_required_secrets(manifest, ext)
+    admin_config = _normalize_admin_config(manifest, ext)
+    connection = _ext_or_top(manifest, ext, "connection")
     connection = str(connection).strip() if connection else None
     dropped = _collect_dropped(plugin_dir, manifest, kind)
 

@@ -32,7 +32,12 @@ from core.ontology.validator import (
 )
 from core.services.ontology_service import resolve_runtime_asset_tags
 from core.services.project_scope import edition_project_context_keys
-from orchestration.citations import extract_citations_with_offset
+from orchestration.citation_anchor import (
+    AnchorAllocator,
+    anchor_start_for_chat,
+    attach_allocator,
+    collect_citation_dicts,
+)
 from orchestration.streaming import StreamingAgent
 
 # Project mode: extracted from chats.py's ctx and passed through to agent_factory so the system prompt renders the project section.
@@ -318,7 +323,7 @@ def _capture_nested_ontology_evidence(
     payload: Dict[str, Any],
     trace: List[Dict[str, Any]],
     citations: List[Dict[str, Any]],
-    citation_offsets: Dict[str, int],
+    allocator: Optional[AnchorAllocator] = None,
 ) -> List[Dict[str, Any]]:
     """Merge trusted ``call_subagent`` bypass events into the outer review trace."""
     sub_type = str(payload.get("sub_type") or "")
@@ -345,13 +350,7 @@ def _capture_nested_ontology_evidence(
         return []
 
     result = _parse_tool_result_value(payload.get("output"))
-    cit_items = extract_citations_with_offset(
-        tool_name,
-        tool_id,
-        result,
-        citation_offsets,
-    )
-    cit_dicts = [item.to_dict() for item in cit_items]
+    cit_dicts = collect_citation_dicts(tool_id, allocator)
     citations.extend(cit_dicts)
     trace.append(
         {
@@ -408,7 +407,8 @@ def _ontology_repair_prompt(payload: Dict[str, Any]) -> str:
         "并重新生成、交付修正后的文件。没有获得证据的风险项只能表述为‘待核验’、"
         "‘暂无数据支撑’或‘无法判断’，绝不能反向断言为‘不存在’、‘没有风险’或‘风险为零’。"
         "在输出终稿和生成文件前，必须在内部逐条检查‘确定性违规’中的每个条件：若要求"
-        "最低长度，终稿必须达到该长度；若要求引用，相关事实后必须包含真实 `[ref:工具名-序号]`"
+        "最低长度，终稿必须达到该长度；若要求引用，相关事实后必须包含真实引用标记"
+        "（从工具结果复制 cite_id，写成 `[锚文本](cite:eN)`）"
         "且按规则补齐参考资料；若要求区分事实、推断和待核验项，可在同一句中用分号和简短标签"
         "表达，不得省略。先确定唯一的合格终稿，再把完全相同的正文写入用户要求的文件，"
         "不得先生成文件后又输出一份更短、缺引用或结论不同的候选正文。"
@@ -416,8 +416,8 @@ def _ontology_repair_prompt(payload: Dict[str, Any]) -> str:
         " `<ontology_revision>完整候选答案</ontology_revision>` 中。"
         "在正式输出最终正文前，不要复述、引用或示例化这组标签，也不要用省略号代替正文。"
         "标签内必须是可独立阅读、内容完整的修订答案；若无法修订，则原样放入当前完整答案。"
-        "事实、推断和待核验项必须明确区分；引用已有或新增工具结果时使用"
-        " `[ref:工具名-序号]`。\n"
+        "事实、推断和待核验项必须明确区分；引用已有或新增工具结果时，把工具结果里"
+        "标注的 cite_id 原样复制进 `[锚文本](cite:eN)`，禁止自行编号。\n"
         f"用户最初指令：{json.dumps(original_task, ensure_ascii=False)[:12000]}\n"
         f"待修订原始输出：{json.dumps(current_answer, ensure_ascii=False)[:12000]}\n"
         f"修复轮次：{payload.get('attempt', 1)}\n"
@@ -439,8 +439,8 @@ async def _run_ontology_repair_round(
     runtime: Dict[str, Any],
     trace: List[Dict[str, Any]],
     citations: List[Dict[str, Any]],
-    citation_offsets: Dict[str, int],
-    event_cursor: int,
+    allocator: Optional[AnchorAllocator] = None,
+    event_cursor: int = 0,
     subagent_log_id: Optional[str] = None,
     event_sink: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> Tuple[str, List[Dict[str, Any]], int, int]:
@@ -596,13 +596,7 @@ async def _run_ontology_repair_round(
             tool_name = str(event_payload.get("name") or "unknown")
             tool_id = str(event_payload.get("id") or "")
             result = _parse_tool_result_value(event_payload.get("content"))
-            cit_items = extract_citations_with_offset(
-                tool_name,
-                tool_id,
-                result,
-                citation_offsets,
-            )
-            cit_dicts = [item.to_dict() for item in cit_items]
+            cit_dicts = collect_citation_dicts(tool_id, allocator)
             citations.extend(cit_dicts)
             trace.append(
                 {
@@ -629,7 +623,7 @@ async def _run_ontology_repair_round(
                 event_payload or {},
                 trace,
                 citations,
-                citation_offsets,
+                allocator,
             )
             sub_type = str((event_payload or {}).get("sub_type") or "")
             if sub_type in {"start", "thinking", "content", "tool_call", "tool_result", "end"}:
@@ -1460,9 +1454,15 @@ async def _astream_subagent_direct(
     full_response = ""
     displayed_tools: set[str] = set()
     all_citations: List[Dict[str, Any]] = []
-    citation_offsets: Dict[str, int] = {}
     _ontology_event_cursor = 0
     _ontology_trace: List[Dict[str, Any]] = []
+    # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
+    # 中间件与本函数由此共享同一个计数器
+    _anchor_allocator = AnchorAllocator(
+        await asyncio.to_thread(
+            anchor_start_for_chat, str(context.get("chat_id") or "") or None
+        )
+    )
 
     try:
         yield {"type": "thinking", "message": "正在连接子智能体..."}
@@ -1505,6 +1505,11 @@ async def _astream_subagent_direct(
         )
 
         logger.info("[subagent] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000)
+
+        # 证据锚点：把发号器绑到 agent 上（中间件与本函数由此共享同一个计数器；
+        # 仅靠 ContextVar 不行——本函数是 async generator，与 agent 执行所在的
+        # task 上下文不互通）
+        attach_allocator(agent, _anchor_allocator)
 
         # ── Frozen-block injection: user identity (always injected) + memory snapshot (loaded only when persistent memory is on) ───
         _identity_block = await build_user_identity_block(_mem0_user_id)
@@ -1702,10 +1707,7 @@ async def _astream_subagent_direct(
                                 "query", result_data.get("question", "")
                             )
 
-                    cit_items = extract_citations_with_offset(
-                        tool_name, tool_id, tool_result_json, citation_offsets
-                    )
-                    cit_dicts = [c.to_dict() for c in cit_items]
+                    cit_dicts = collect_citation_dicts(tool_id, _anchor_allocator)
                     all_citations.extend(cit_dicts)
                     _ontology_trace.append(
                         {
@@ -1752,7 +1754,7 @@ async def _astream_subagent_direct(
                             payload or {},
                             _ontology_trace,
                             all_citations,
-                            citation_offsets,
+                            _anchor_allocator,
                         )
                         yield {
                             "type": "subagent_event",
@@ -1832,7 +1834,7 @@ async def _astream_subagent_direct(
                 runtime=_ontology_runtime,
                 trace=_ontology_trace,
                 citations=all_citations,
-                citation_offsets=citation_offsets,
+                allocator=_anchor_allocator,
                 event_cursor=_ontology_event_cursor,
                 subagent_log_id=_direct_log_id,
                 event_sink=repair_event_queue.put,
@@ -2210,12 +2212,18 @@ async def astream_chat_workflow(
     full_response = ""
     displayed_tools: set[str] = set()
     all_citations: List[Dict[str, Any]] = []
-    citation_offsets: Dict[str, int] = {}
     _ontology_runtime = _request_ontology_runtime
     _ontology_event_cursor = 0
     _ontology_trace: List[Dict[str, Any]] = []
     _last_plan: Optional[Dict[str, Any]] = None
     _stream_errored = False
+    # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
+    # 中间件与本函数由此共享同一个计数器
+    _anchor_allocator = AnchorAllocator(
+        await asyncio.to_thread(
+            anchor_start_for_chat, str(context.get("chat_id") or "") or None
+        )
+    )
 
     try:
         import time as _time
@@ -2352,6 +2360,11 @@ async def astream_chat_workflow(
         )
 
         logger.info("[workflow] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000)
+
+        # 证据锚点：把发号器绑到 agent 上（中间件与本函数由此共享同一个计数器；
+        # 仅靠 ContextVar 不行——本函数是 async generator，与 agent 执行所在的
+        # task 上下文不互通）
+        attach_allocator(agent, _anchor_allocator)
 
         # ── Inject the per-turn sub-agent constraint into the current user message ──
         # Keeps it OUT of the system prompt so the LLM provider's prefix cache
@@ -2639,10 +2652,7 @@ async def astream_chat_workflow(
                             )
 
                     # Citations
-                    cit_items = extract_citations_with_offset(
-                        tool_name, tool_id, tool_result_json, citation_offsets
-                    )
-                    cit_dicts = [c.to_dict() for c in cit_items]
+                    cit_dicts = collect_citation_dicts(tool_id, _anchor_allocator)
                     all_citations.extend(cit_dicts)
                     _ontology_trace.append(
                         {
@@ -2775,7 +2785,7 @@ async def astream_chat_workflow(
                             payload or {},
                             _ontology_trace,
                             all_citations,
-                            citation_offsets,
+                            _anchor_allocator,
                         )
                         yield {
                             "type": "subagent_event",
@@ -2855,7 +2865,7 @@ async def astream_chat_workflow(
                 runtime=_ontology_runtime,
                 trace=_ontology_trace,
                 citations=all_citations,
-                citation_offsets=citation_offsets,
+                allocator=_anchor_allocator,
                 event_cursor=_ontology_event_cursor,
                 event_sink=repair_event_queue.put,
             )

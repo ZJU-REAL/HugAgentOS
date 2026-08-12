@@ -1,69 +1,12 @@
-import type { CitationItem, MessageSegment, ToolCall, ChatMessage } from '../types';
+import type { CitationItem, ToolCall, ChatMessage } from '../types';
 import { t } from '../i18n';
 
-/**
- * getContextualCitations: disambiguate duplicate citation IDs when the same tool
- * is called multiple times in one turn.
- *
- * For a text segment at position `segIdx` in the segments array, this function
- * determines which preceding tool call is the most relevant for each tool name,
- * then picks the citation from that specific call (matched via tool_id).
- *
- * When segments are unavailable (legacy rendering path), returns all citations as-is.
- */
-export function getContextualCitations(
-  allCitations: CitationItem[],
-  segments: MessageSegment[] | undefined,
-  toolCalls: ToolCall[] | undefined,
-  currentSegIdx: number,
-): CitationItem[] {
-  if (!allCitations || allCitations.length === 0) return [];
-  if (!segments || !toolCalls || segments.length === 0) return allCitations;
-
-  const idSet = new Set<string>();
-  let hasDuplicates = false;
-  for (const c of allCitations) {
-    if (idSet.has(c.id)) { hasDuplicates = true; break; }
-    idSet.add(c.id);
+export function getCitationItemIndex(citationId: string, citation?: CitationItem): number {
+  // 证据锚点引用自带精确下标（后端发号时记录），优先使用
+  if (citation && typeof citation.item_index === 'number' && citation.item_index >= 0) {
+    return citation.item_index;
   }
-  if (!hasDuplicates) return allCitations;
-
-  const latestToolIdByName = new Map<string, string>();
-  for (let i = currentSegIdx - 1; i >= 0; i--) {
-    const seg = segments[i];
-    if (seg.type === 'tool' && seg.toolIndex != null) {
-      const tc = toolCalls[seg.toolIndex];
-      if (tc && tc.id && !latestToolIdByName.has(tc.name)) {
-        latestToolIdByName.set(tc.name, tc.id);
-      }
-    }
-  }
-
-  const citationGroups = new Map<string, CitationItem[]>();
-  for (const cit of allCitations) {
-    const group = citationGroups.get(cit.id) || [];
-    group.push(cit);
-    citationGroups.set(cit.id, group);
-  }
-
-  const result: CitationItem[] = [];
-  for (const [, group] of citationGroups) {
-    if (group.length === 1) {
-      result.push(group[0]);
-      continue;
-    }
-    const toolName = group[0].tool_name;
-    const latestToolId = latestToolIdByName.get(toolName);
-    const match = latestToolId
-      ? group.find(c => c.tool_id === latestToolId)
-      : undefined;
-    result.push(match || group[group.length - 1]);
-  }
-
-  return result;
-}
-
-export function getCitationItemIndex(citationId: string): number {
+  // 旧格式 "tool-N"：末段序号转 0-based；锚点 id（"e7"）无旧序号语义 → 0
   const idx = Number(citationId.split('-').pop() || '1');
   return Number.isInteger(idx) && idx > 0 ? idx - 1 : 0;
 }
@@ -126,7 +69,7 @@ export function getCitationOutputSlice(
   citation: CitationItem,
   toolCalls?: ChatMessage['toolCalls']
 ): { toolName: string; output: unknown } {
-  const citationIndex = getCitationItemIndex(citation.id);
+  const citationIndex = getCitationItemIndex(citation.id, citation);
   const citationToolId = normalizeMaybeId(citation.tool_id);
 
   const targetTool = (
@@ -209,12 +152,13 @@ export function resolveConversationCitations(
 ): CitationItem[] {
   if (!text) return messageCitations;
 
-  // Find all [ref:xxx-N] markers in the text
-  const markerPattern = /\[ref:([\w]+-\d+)\]/g;
+  // Find all citation markers in the text:
+  // 旧格式 [ref:tool-N] + 证据锚点 [锚文本](cite:eN) + 双链容错 [[eN]]
+  const markerPattern = /\[ref:([\w]+-\d+)\]|\[[^[\]]*\]\(cite:(e\d+)\)|\[\[(e\d+)\]\]/g;
   const referencedIds = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = markerPattern.exec(text)) !== null) {
-    referencedIds.add(match[1]);
+    referencedIds.add(match[1] || match[2] || match[3]);
   }
 
   if (referencedIds.size === 0) return messageCitations;

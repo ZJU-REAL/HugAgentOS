@@ -1,6 +1,6 @@
 import React from 'react';
 import { authFetch } from '../../../api';
-import { PREVIEW_LEN, preview } from './utils';
+import { PREVIEW_LEN, citeTag, preview } from './utils';
 import { t } from '../../../i18n';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
@@ -42,7 +42,7 @@ export function renderRetrieveDatasetContent(out: unknown, setDetailModal: SetDe
         };
         return (
           <div key={idx} className="jx-tr-kbItem jx-tr-kbItem--clickable" onClick={openDetail} title={t('点击查看全文')}>
-            <div className="jx-tr-kbDocName"><span className="jx-tr-kbIdx">{idx + 1}</span>{docName}</div>
+            <div className="jx-tr-kbDocName"><span className="jx-tr-kbIdx">{idx + 1}</span>{docName}{citeTag(item)}</div>
             {content && (
               <div className="jx-tr-kbPreview">
                 <div className="jx-tr-kbContent">{preview(content)}</div>
@@ -72,7 +72,7 @@ export function renderRetrieveLocalKB(out: unknown, setDetailModal: SetDetailMod
         };
         return (
           <div key={idx} className="jx-tr-kbItem jx-tr-kbItem--clickable" onClick={openDetail} title={t('点击查看全文')}>
-            <div className="jx-tr-kbDocName"><span className="jx-tr-kbIdx">{idx + 1}</span>{docName}</div>
+            <div className="jx-tr-kbDocName"><span className="jx-tr-kbIdx">{idx + 1}</span>{docName}{citeTag(item)}</div>
             {content && (
               <div className="jx-tr-kbPreview">
                 <div className="jx-tr-kbContent">{preview(content)}</div>

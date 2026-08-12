@@ -20,10 +20,13 @@ export default function CitationBadge({
   citId,
   citations,
   onCitationAction,
+  anchorLabel,
 }: {
   citId: string;
   citations: CitationItem[];
   onCitationAction?: (citation: CitationItem) => void;
+  /** 锚文本（[锚文本](cite:eN) 写法）；历史消息的旧标记没有锚文本，退化为来源标题 */
+  anchorLabel?: string;
 }) {
   const cit = citations.find(c => c.id === citId);
   const iconPath = cit ? (CITATION_ICON[cit.source_type] || null) : null;
@@ -31,7 +34,10 @@ export default function CitationBadge({
   const iconEl = (size: number) => iconPath
     ? <img src={iconPath} alt={label} style={{ width: size, height: size, verticalAlign: 'middle', objectFit: 'contain' }} />
     : <span style={{ fontSize: size }}>📄</span>;
-  const indexPart = citId.split('-').pop() || '';
+  // chip 内的来源小图标（无图标的来源类型不占位，避免出现空白方块）
+  const chipIcon = iconPath
+    ? <img className="jx-citeRef-icon" src={iconPath} alt="" aria-hidden />
+    : null;
   const isInternet = cit?.source_type === 'internet';
   const canOpenDetail = !!cit && !!onCitationAction;
   const openDetail = () => {
@@ -39,9 +45,22 @@ export default function CitationBadge({
     onCitationAction(cit);
   };
 
+  const domain = (() => {
+    if (!cit?.url) return '';
+    try { return new URL(cit.url).hostname.replace(/^www\./, ''); } catch { return cit.url.slice(0, 40); }
+  })();
+
+  // 没有锚文本时（历史 [ref:] 标记、或模型写成 [来源](cite:eN)）用来源标题占位，
+  // 截断以免整条标题撑在正文中间
+  const fallbackLabel = (() => {
+    const title = (cit?.title || '').trim();
+    if (!title) return label;
+    return title.length > 14 ? `${title.slice(0, 14)}…` : title;
+  })();
+
   const hoverContent = cit ? (
     <div
-      style={{ maxWidth: 300, fontSize: 13, cursor: canOpenDetail ? 'pointer' : 'default' }}
+      className="jx-citCard"
       role={canOpenDetail ? 'button' : undefined}
       tabIndex={canOpenDetail ? 0 : undefined}
       onClick={canOpenDetail ? openDetail : undefined}
@@ -51,49 +70,70 @@ export default function CitationBadge({
           openDetail();
         }
       } : undefined}
-      title={canOpenDetail ? (isInternet ? t('点击打开原文链接') : t('点击查看全文')) : undefined}
     >
-      <div style={{ fontWeight: 600, marginBottom: 4, color: '#808080', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-        {iconEl(14)} {label}
+      <div className="jx-citCard-head">
+        {iconEl(13)}
+        <span className="jx-citCard-source">{label}</span>
+        <span className="jx-citCard-anchor">{citId}</span>
       </div>
-      <div style={{ marginBottom: cit.snippet ? 6 : 0, fontWeight: 600, color: isInternet ? '#126DFF' : '#262626' }}>
-        {cit.title}
-      </div>
+      <div className="jx-citCard-title">{cit.title}</div>
       {cit.snippet && (
-        <div style={{ fontSize: 12, color: '#808080', lineHeight: 1.6, borderLeft: '3px solid #DBE9FF', paddingLeft: 8 }}>
-          {cit.snippet.length > 160 ? cit.snippet.slice(0, 160) + '…' : cit.snippet}
+        <div className="jx-citCard-snippet">
+          {cit.snippet.length > 180 ? cit.snippet.slice(0, 180) + '…' : cit.snippet}
         </div>
       )}
-      {isInternet && cit.url && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#B3B3B3' }}>
-          🔗 {(() => { try { return new URL(cit.url).hostname; } catch { return cit.url.slice(0, 40); } })()}
-        </div>
-      )}
-      {(cit.snippet || cit.url) && (
-        <div style={{ marginTop: 6, fontSize: 11, color: '#126DFF' }}>
-          {isInternet ? t('点击此卡片打开原文 →') : t('点击此卡片查看全文 →')}
+      {(domain || canOpenDetail) && (
+        <div className="jx-citCard-foot">
+          {domain && <span className="jx-citCard-domain">{domain}</span>}
+          {canOpenDetail && (
+            <span className="jx-citCard-action">
+              {isInternet && cit.url ? t('打开原文 →') : t('查看全文 →')}
+            </span>
+          )}
         </div>
       )}
     </div>
   ) : (
-    <div style={{ color: '#B3B3B3', fontSize: 12 }}>{t('引用 {citId} 未找到', { citId })}</div>
+    <div className="jx-citCard jx-citCard--missing">{t('引用 {citId} 未找到', { citId })}</div>
   );
 
-  // Styles live in common.css's .jx-citBadge — the badge sits on the markdown portal + DOM transplant path,
-  // so motion components must never be used (remount flicker); all hover feedback goes through CSS.
+  // Styles live in common.css (.jx-citeRef / .jx-citCard) — these sit on the markdown portal +
+  // DOM transplant path, so motion components must never be used (remount flicker); all hover
+  // feedback goes through CSS.
+  //
+  // 内联锚点刻意**不做成超链接样式**：`cite:eN` 不是可跳转地址，蓝字+下划线会诱导用户
+  // 期待跳转。改成"选中态"观感——灰色实心底 + 加粗，被引用的文字一眼可辨。
+  // 全局只有这一种形态：历史消息的旧标记没有锚文本，退化为来源标题。
   const badgeEl = (
-    <sup className="jx-citBadge">
-      {iconEl(11)}{indexPart}
-    </sup>
+    <span
+      className="jx-citeRef"
+      role="button"
+      tabIndex={0}
+      aria-label={cit ? `${label}：${cit.title}` : citId}
+      onClick={canOpenDetail ? openDetail : undefined}
+      onKeyDown={canOpenDetail ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openDetail();
+        }
+      } : undefined}
+    >
+      {chipIcon}
+      {anchorLabel || fallbackLabel}
+    </span>
   );
 
   return (
     <Popover
       content={hoverContent}
       trigger="hover"
+      // 优先在上方展示；上方空间不够时 antd 的 autoAdjustOverflow 会自动翻到下方
       placement="top"
+      arrow={{ pointAtCenter: true }}
       // During streaming output, the cursor sweeping across the text no longer causes cascading popover flickers
       mouseEnterDelay={0.15}
+      mouseLeaveDelay={0.1}
+      overlayClassName="jx-citPopover"
       overlayStyle={{ zIndex: 9999 }}
     >
       {badgeEl}

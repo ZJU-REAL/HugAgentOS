@@ -59,7 +59,9 @@ from core.services.ontology_policy import resolve_plugin_import_ontology_validat
 from core.services.plugin_importer import (
     NormalizedPlugin,
     NormalizedSkill,
+    _ext_or_top,
     _rewrite_path_vars,
+    manifest_extensions,
     normalize_plugin_dir,
 )
 from sqlalchemy.orm import Session
@@ -87,6 +89,136 @@ DEFAULT_BOOTSTRAP_PLUGIN_SLUGS: Tuple[str, ...] = (
     "sites",
 )
 DEFAULT_BOOTSTRAP_MARKER_ID = "default_plugins_bootstrap_v1"
+
+# ── Plugin market display metadata (display_name / category / icon) ──────────
+# The Agent Plugins standard manifest carries no display fields — display
+# metadata is UI configuration: admins edit it per market plugin in the admin
+# console (stored as ContentBlock overrides), users edit their own imported
+# plugins on the installed record. The seeds below are only the initial
+# defaults for the builtin bundles (same pattern as marketplace_service's
+# DEFAULT_SKILL_MARKET); entries for EE-only bundles are inert in CE (their
+# bundle dirs are excluded from the CE tree).
+PLUGIN_MARKET_META_BLOCK_ID = "plugin_market_meta"
+
+BUILTIN_PLUGIN_MARKET_META: Dict[str, Dict[str, Any]] = {
+    "automation": {"display_name": "定时任务管理", "category": "效率工具"},
+    "dingtalk": {"display_name": "钉钉工作台", "category": "办公协同"},
+    "email": {"display_name": "电子邮箱", "category": "办公协同"},
+    "feishu-cli": {"display_name": "飞书工作台", "category": "办公协同"},
+    "firecrawl": {"display_name": "Firecrawl·网页抓取检索", "category": "信息处理"},
+    "industry-knowledge-center": {"display_name": "产业知识中心", "category": "产业智能"},
+    "sample-translator": {"display_name": "示例·快速翻译", "category": "办公效率"},
+    "security-manager": {"display_name": "安全管理·系统自察", "category": "信息处理"},
+    "sites": {"display_name": "站点·对话建站", "category": "信息处理"},
+    "skill-manager": {"display_name": "技能管理", "category": "效率工具"},
+    "yida": {"display_name": "宜搭低代码平台", "category": "办公协同"},
+}
+
+_META_KEYS = ("display_name", "category", "icon")
+
+# Icon value forms: built-in library path (/home/...), http(s) URL, or an inline
+# data-URI from the picker's upload (raw image ≤80KB client-side → ≤~110KB base64).
+MAX_ICON_LEN = 200_000
+MAX_ICON_URL_LEN = 500
+
+
+def _validate_icon(icon: str) -> str:
+    """Validate an icon value from the UI picker; returns the stripped value ('' = clear)."""
+    icon = (icon or "").strip()
+    if not icon:
+        return ""
+    if icon.startswith("data:"):
+        if not icon.startswith("data:image/"):
+            raise BadRequestError(message="图标 data URI 必须是 image 类型")
+        if len(icon) > MAX_ICON_LEN:
+            raise BadRequestError(message="图标过大（上传原图请控制在 80KB 以内）")
+        return icon
+    if not (icon.startswith("/") or icon.startswith("http://") or icon.startswith("https://")):
+        raise BadRequestError(message="图标须从图标库选择或上传（不支持任意文本）")
+    if len(icon) > MAX_ICON_URL_LEN:
+        raise BadRequestError(message="图标地址过长")
+    return icon
+
+
+def _market_meta_overrides(db: Optional[Session]) -> Dict[str, Dict[str, Any]]:
+    """Admin display-metadata overrides for market plugins ({slug: {display_name, category, icon}})."""
+    if db is None:
+        return {}
+    row = db.query(ContentBlock).filter(ContentBlock.id == PLUGIN_MARKET_META_BLOCK_ID).first()
+    payload = row.payload if row is not None and isinstance(row.payload, dict) else {}
+    return {k: v for k, v in payload.items() if isinstance(v, dict)}
+
+
+def resolve_market_meta(db: Optional[Session], slug: str) -> Dict[str, Any]:
+    """Effective display metadata for one market plugin: DB override → builtin seed."""
+    meta = dict(BUILTIN_PLUGIN_MARKET_META.get(slug) or {})
+    override = _market_meta_overrides(db).get(slug) or {}
+    for k in _META_KEYS:
+        v = override.get(k)
+        if isinstance(v, str) and v.strip():
+            meta[k] = v.strip()
+    return meta
+
+
+def _overlay_market_meta(item: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    """Apply effective display metadata onto a market list/detail dict (in place)."""
+    if meta.get("display_name"):
+        item["name"] = meta["display_name"]
+    if meta.get("category"):
+        item["category"] = meta["category"]
+    if meta.get("icon"):
+        item["icon"] = meta["icon"]
+
+
+def set_market_meta(
+    db: Session,
+    slug: str,
+    *,
+    display_name: Optional[str] = None,
+    category: Optional[str] = None,
+    icon: Optional[str] = None,
+    updated_by: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Admin: set a market plugin's display metadata (display_name/category/icon).
+
+    Only provided fields are written; passing an empty string clears the
+    override (falls back to the builtin seed). The slug must exist in the
+    market (filesystem bundle or uploaded DB package).
+    """
+    if _resolve_plugin_dir(slug) is None and _market_row(db, slug) is None:
+        raise ResourceNotFoundError("plugin", slug)
+    row = db.query(ContentBlock).filter(ContentBlock.id == PLUGIN_MARKET_META_BLOCK_ID).first()
+    payload = dict(row.payload or {}) if row is not None else {}
+    entry = dict(payload.get(slug) or {})
+    if icon is not None:
+        icon = _validate_icon(icon)
+    for key, val in (("display_name", display_name), ("category", category), ("icon", icon)):
+        if val is None:
+            continue
+        val = val.strip()
+        if val:
+            entry[key] = val
+        else:
+            entry.pop(key, None)
+    if entry:
+        payload[slug] = entry
+    else:
+        payload.pop(slug, None)
+    if row is not None:
+        row.payload = payload
+        flag_modified(row, "payload")
+        row.updated_by = updated_by or "admin"
+    else:
+        db.add(
+            ContentBlock(
+                id=PLUGIN_MARKET_META_BLOCK_ID,
+                payload=payload,
+                updated_by=updated_by or "admin",
+            )
+        )
+    db.commit()
+    logger.info("plugin_market_meta_set: slug=%s keys=%s", slug, sorted(entry.keys()))
+    return {"slug": slug, **resolve_market_meta(db, slug)}
 
 
 def _iter_plugin_dirs():
@@ -321,6 +453,9 @@ def _apply_mcp(
         source_plugin=slug,
         updated_at=now,
     )
+    if getattr(mc, "cwd", None):
+        # stdio working directory (Agent Plugins standard field) — kept for when the runtime lands
+        fields["extra_config"] = {"cwd": mc.cwd}
     if existing is not None:
         for key, val in fields.items():
             setattr(existing, key, val)
@@ -443,13 +578,16 @@ def _apply_normalized(
         )
 
     now = datetime.utcnow()
+    # Display metadata for the installed record: UI-configured market metadata
+    # (DB override → builtin seed) wins over whatever the manifest carried.
+    market_meta = resolve_market_meta(db, np.slug)
     fields = dict(
         slug=np.slug,
-        name=np.name,
+        name=market_meta.get("display_name") or np.name,
         version=np.version,
         description=np.description,
-        category=np.category,
-        icon=np.icon,
+        category=market_meta.get("category") or np.category,
+        icon=market_meta.get("icon") or np.icon,
         owner_user_id=owner_user_id,
         source=source,
         component_ids=component_ids,
@@ -515,35 +653,39 @@ def _refresh_after_change(owner_user_id: Optional[str]) -> None:
 
 
 def builtin_plugin_component_ids() -> Tuple[set, set]:
-    """Component ids declared in plugin.json by builtin plugin bundles (``plugin_bundles/{default,marketplace}``).
+    """Component ids provided by builtin plugin bundles (``plugin_bundles/{default,marketplace}``).
 
-    Returns ``(skill_ids, mcp_ids)`` — the union of all plugin manifests'
-    ``components.skills`` / ``components.mcp``. Even when **not installed**,
-    these components already bubble up as first-class entries via static paths
-    (e.g. MCP via ``_ports.py`` → catalog.json), so this is used to remove them
-    from the "skill library / MCP tool library" and show them only under
-    "Plugins", complementing the DB installation source
+    Returns ``(skill_ids, mcp_ids)``, derived by scanning each bundle's
+    ``skills/*/`` directories and its MCP declarations (standard ``mcp.json`` /
+    legacy ``.mcp.json`` / manifest-inline) — the Agent Plugins standard
+    manifest carries no ``components`` list, the filesystem is the truth. Even
+    when **not installed**, these components already bubble up as first-class
+    entries via static paths (e.g. MCP via ``_ports.py`` → catalog.json), so
+    this is used to remove them from the "skill library / MCP tool library" and
+    show them only under "Plugins", complementing the DB installation source
     (``AdminMcpServer.source_plugin`` non-empty). Pure filesystem scan, no DB
     dependency.
     """
     import json
 
+    from core.services.plugin_importer import _find_mcp_map
+
     skill_ids: set = set()
     mcp_ids: set = set()
     for child in _iter_plugin_dirs():
+        skills_root = child / "skills"
+        if skills_root.is_dir():
+            for c in skills_root.iterdir():
+                if c.is_dir() and (c / "SKILL.md").is_file():
+                    skill_ids.add(c.name)
         try:
             m = json.loads((child / "plugin.json").read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
-            continue
-        comps = m.get("components") if isinstance(m, dict) else None
-        if not isinstance(comps, dict):
-            continue
-        for sid in comps.get("skills") or []:
-            if isinstance(sid, str) and sid:
-                skill_ids.add(sid)
-        for mid in comps.get("mcp") or []:
-            if isinstance(mid, str) and mid:
-                mcp_ids.add(mid)
+            m = {}
+        try:
+            mcp_ids.update(_find_mcp_map(child, m if isinstance(m, dict) else {}).keys())
+        except Exception:  # noqa: BLE001
+            pass
     return skill_ids, mcp_ids
 
 
@@ -551,7 +693,12 @@ def builtin_plugin_component_ids() -> Tuple[set, set]:
 
 
 def _scan_native_manifest(plugin_dir: Path) -> Optional[Dict[str, Any]]:
-    """Lightweight read of a builtin plugin bundle's display metadata (no full normalize)."""
+    """Lightweight read of a builtin plugin bundle's metadata (no full normalize).
+
+    Standard manifests carry no display fields — display metadata is overlaid
+    later from resolve_market_meta; platform fields are read from the extension
+    namespace (legacy top-level as fallback).
+    """
     import json
 
     mp = plugin_dir / "plugin.json"
@@ -563,12 +710,14 @@ def _scan_native_manifest(plugin_dir: Path) -> Optional[Dict[str, Any]]:
         return None
     if not isinstance(m, dict) or not m.get("name"):
         return None
+    ext = manifest_extensions(m)
     skills_root = plugin_dir / "skills"
     skills_count = (
         sum(1 for c in skills_root.iterdir() if c.is_dir() and (c / "SKILL.md").is_file())
         if skills_root.is_dir()
         else 0
     )
+    admin_config = _ext_or_top(m, ext, "admin_config")
     return {
         "slug": _sanitize_id(str(m.get("name")), 100),
         "name": str(m.get("display_name") or m.get("name")),
@@ -577,9 +726,9 @@ def _scan_native_manifest(plugin_dir: Path) -> Optional[Dict[str, Any]]:
         "category": str(m.get("category") or ""),
         "icon": m.get("icon"),
         "skills_count": skills_count,
-        "required_secrets": list(m.get("required_secrets") or []),
-        "has_admin_config": isinstance(m.get("admin_config"), dict)
-        and bool((m.get("admin_config") or {}).get("fields")),
+        "required_secrets": list(_ext_or_top(m, ext, "required_secrets") or []),
+        "has_admin_config": isinstance(admin_config, dict)
+        and bool((admin_config or {}).get("fields")),
     }
 
 
@@ -606,6 +755,15 @@ def list_plugins(
             continue
         items.append(_market_meta_dict(row))
         seen_slugs.add(row.slug)
+    # Display metadata is UI configuration: DB override → builtin seed → manifest fallback
+    overrides = _market_meta_overrides(db)
+    for it in items:
+        meta = dict(BUILTIN_PLUGIN_MARKET_META.get(it["slug"]) or {})
+        for k in _META_KEYS:
+            v = (overrides.get(it["slug"]) or {}).get(k)
+            if isinstance(v, str) and v.strip():
+                meta[k] = v.strip()
+        _overlay_market_meta(it, meta)
     # Subtract skills the admin removed from the marketplace (aggregated once per slug) so skills_count reflects the real offering
     excl_by_slug: Dict[str, set] = {}
     for ex_slug, ex_name in db.query(
@@ -896,7 +1054,7 @@ def _connection_for_slug(slug: str) -> Optional[str]:
         import json
 
         m = json.loads((plugin_dir / "plugin.json").read_text(encoding="utf-8"))
-        conn = m.get("connection")
+        conn = _ext_or_top(m, manifest_extensions(m), "connection")
         return str(conn).strip() if conn else None
     except Exception:  # noqa: BLE001
         return None
@@ -911,7 +1069,7 @@ def _has_admin_config_for_slug(slug: str) -> bool:
         import json
 
         m = json.loads((plugin_dir / "plugin.json").read_text(encoding="utf-8"))
-        ac = m.get("admin_config")
+        ac = _ext_or_top(m, manifest_extensions(m), "admin_config")
         return isinstance(ac, dict) and bool(ac.get("fields"))
     except Exception:  # noqa: BLE001
         return False
@@ -1032,7 +1190,9 @@ def get_plugin_detail(slug: str, db: Optional[Session] = None) -> Dict[str, Any]
     detail.
     """
     np = _normalize_market_plugin(slug, db)
-    return _normalized_to_detail(np, excluded=get_market_skill_exclusions(db, slug))
+    detail = _normalized_to_detail(np, excluded=get_market_skill_exclusions(db, slug))
+    _overlay_market_meta(detail, resolve_market_meta(db, slug))
+    return detail
 
 
 def exclude_market_skill(
@@ -1544,3 +1704,41 @@ def set_plugin_enabled_for_user(
 
     _refresh_after_change(user_id)
     return {"install_id": install_id, "enabled": enabled}
+
+
+def set_installed_plugin_meta(
+    db: Session,
+    install_id: str,
+    *,
+    owner_user_id: Optional[str],
+    display_name: Optional[str] = None,
+    category: Optional[str] = None,
+    icon: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Edit an installed plugin's display metadata (display_name/category/icon).
+
+    Display metadata is UI configuration, not manifest data: a user edits their
+    own imported/private plugins here; global installs are edited by the admin
+    (owner_user_id=None via the admin route). Only provided fields change; an
+    empty icon/category clears it, display_name never becomes empty.
+    """
+    row = db.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).first()
+    if row is None:
+        raise ResourceNotFoundError("installed_plugin", install_id)
+    if row.owner_user_id != owner_user_id:
+        raise BadRequestError(message="无权修改该插件")
+    if display_name is not None and display_name.strip():
+        row.name = display_name.strip()
+    if category is not None:
+        row.category = category.strip()
+    if icon is not None:
+        row.icon = _validate_icon(icon) or None
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    return {
+        "install_id": row.install_id,
+        "slug": row.slug,
+        "name": row.name,
+        "category": row.category or "",
+        "icon": row.icon,
+    }

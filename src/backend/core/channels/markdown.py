@@ -23,8 +23,13 @@ from __future__ import annotations
 import re
 from typing import List
 
-# Citation markers: [ref:internet_search-1] etc. (id shape: see orchestration/citations.py)
+# 历史消息里的旧引用标记 [ref:internet_search-1]（新格式见 orchestration/citation_anchor.py）
 _REF_RE = re.compile(r"\[ref:[^\[\]]{1,64}\]")
+
+# 证据锚点引用（orchestration/citation_anchor.py）：
+#   [锚文本](cite:e7) → 保留锚文本；[[e7]] / (cite:e7) 裸标 → 整体剥离
+_CITE_LINK_RE = re.compile(r"\[([^\[\]]{0,120})\]\(cite:e\d+\)")
+_CITE_BARE_RE = re.compile(r"\[\[e\d+\]\]|\(cite:e\d+\)")
 
 # Code fence lines (start with ``` / ~~~, may carry a language tag)
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
@@ -34,11 +39,23 @@ _TABLE_SEP_CELL_RE = re.compile(r":?-+:?")
 
 
 def strip_citation_markers(text: str) -> str:
-    """Strip [ref:xxx-N] citation markers from LLM output (IM channels cannot render them; pure noise)."""
+    """Strip citation markers from LLM output (IM channels cannot render them; pure noise).
+
+    旧格式 ``[ref:xxx-N]`` 整体剥离；新证据锚点 ``[锚文本](cite:eN)`` 保留锚文本、
+    剥掉链接（IM 里退化成普通文字），裸标 ``[[eN]]``/``(cite:eN)`` 整体剥离。
+    """
     text = text or ""
-    if "[ref:" not in text:
-        return text
-    return _REF_RE.sub("", text)
+    if "[ref:" in text:
+        text = _REF_RE.sub("", text)
+    if "cite:e" in text or "[[e" in text:
+        # 纯句末标注（"来源"/"source"/空）没有正文价值 → 整体剥离；
+        # 有实义锚文本的保留文字本身
+        text = _CITE_LINK_RE.sub(
+            lambda m: "" if m.group(1).strip() in {"", "来源", "source", "#"} else m.group(1),
+            text,
+        )
+        text = _CITE_BARE_RE.sub("", text)
+    return text
 
 
 def strip_inline_thinking(text: str) -> str:

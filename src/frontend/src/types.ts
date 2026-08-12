@@ -96,13 +96,15 @@ export type CitationSourceType =
   | 'unknown';
 
 export interface CitationItem {
-  id: string;            // e.g. "internet_search-1", "retrieve_dataset_content-2"
+  id: string;            // 证据锚点 "e7"；旧格式 "internet_search-1"（历史消息）
   tool_name: string;
   tool_id?: string;
   title: string;
   url: string;
   snippet: string;
   source_type: CitationSourceType;
+  /** 条目在该次工具结果列表中的 0-based 下标；整体型为 -1（锚点引用专有） */
+  item_index?: number;
 }
 
 export type UpdateCategory = '模型迭代' | '信息处理' | '应用上新' | '体验优化';

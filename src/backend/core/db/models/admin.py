@@ -445,7 +445,8 @@ class InstalledPlugin(Base):
     version = Column(String(50), nullable=False, default="1.0.0")
     description = Column(Text, default="")
     category = Column(String(64), default="")
-    icon = Column(String(500))
+    # Library path / URL / inline data-URI (uploaded custom icons, capped at ~200KB by the service layer)
+    icon = Column(Text)
     # NULL = global plugin (installed by admin, visible to all users); non-null = a user's private install.
     owner_user_id = Column(String(64), nullable=True)
     # builtin (built-in package) / imported_claude (imported CC plugin) / imported_codex (imported Codex plugin)
@@ -492,7 +493,8 @@ class PluginMarketPackage(Base):
     version = Column(String(50), nullable=False, default="1.0.0")
     description = Column(Text, default="")
     category = Column(String(64), default="")
-    icon = Column(String(500))
+    # Library path / URL / inline data-URI (uploaded custom icons, capped at ~200KB by the service layer)
+    icon = Column(Text)
     # Package kind: native / claude / codex (determined by normalize), display only
     kind = Column(String(16), nullable=False, default="native")
     skills_count = Column(Integer, nullable=False, default=0)

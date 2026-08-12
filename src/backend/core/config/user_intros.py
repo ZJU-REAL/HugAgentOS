@@ -245,7 +245,7 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 ## 输出示例
 - 命中片段 + 文档标题 + 来源链接
 - 综合多份材料后的归纳答复
-- [ref:retrieve_dataset_content-N] 格式的引用标注
+- `[锚文本](cite:eN)` 格式的证据锚点引用标注
 - 检索覆盖范围说明（哪些知识库被检索）
 """,
     "internet_search": """\

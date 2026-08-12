@@ -333,7 +333,11 @@ async def _run_worker_iteration(
     tool_calls = 0
     trace: List[Dict[str, Any]] = []
     citations: List[Dict[str, Any]] = []
-    citation_offsets: Dict[str, int] = {}
+    # 证据锚点：每轮 worker 一个独立发号器，绑到 agent 上与中间件共享
+    from orchestration.citation_anchor import AnchorAllocator, attach_allocator
+
+    _anchor_allocator = AnchorAllocator()
+    attach_allocator(agent, _anchor_allocator)
     from core.ontology.validator import requires_output_review
 
     runtime = ontology_runtime or {"enabled": False, "packs": [], "review_level": "none"}
@@ -407,16 +411,10 @@ async def _run_worker_iteration(
                         else tool_content
                     )
                     if isinstance(parsed_result, dict):
-                        from orchestration.citations import extract_citations_with_offset
+                        from orchestration.citation_anchor import collect_citation_dicts
 
                         citations.extend(
-                            item.to_dict()
-                            for item in extract_citations_with_offset(
-                                tool_name or "unknown",
-                                tool_id or "",
-                                parsed_result,
-                                citation_offsets,
-                            )
+                            collect_citation_dicts(tool_id or "", _anchor_allocator)
                         )
                 except (json.JSONDecodeError, TypeError, ValueError):
                     pass

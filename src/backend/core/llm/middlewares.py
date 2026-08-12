@@ -29,7 +29,7 @@ from agentscope.event import ToolCallEndEvent
 from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, ToolResultState
 from agentscope.middleware import MiddlewareBase
 from agentscope.state import AgentState
-from agentscope.tool._response import ToolChunk
+from agentscope.tool._response import ToolChunk, ToolResponse
 from core.llm.hooks import (
     _FILE_ID_RE,
     _GOAL_ANCHOR_INTERVAL,
@@ -92,6 +92,81 @@ class ActingToolCallIdMiddleware(MiddlewareBase):
                     CURRENT_TOOL_CALL_ID.reset(token)
                 except Exception:  # noqa: BLE001
                     pass
+
+
+class CitationAnchorMiddleware(MiddlewareBase):
+    """on_acting: 统一证据锚点——工具结果回给模型前完成 提取 → 发号 → cite_id 回注。
+
+    协议依据（agentscope 2.0 toolkit.call_tool）：中间 ToolChunk 是增量、最后一个
+    yield 是**累积完整**的 ToolResponse；SSE 侧（orchestration/streaming.py）只在
+    ToolResultEndEvent 时把 delta 累积成一条 tool_result，不实时消费中间增量。
+    因此这里缓冲中间块，在最终 ToolResponse 上注号后：
+      1) 合成一个携带完整注号文本的 ToolChunk（SSE 累积到的就是注号后文本）；
+      2) 用注号文本替换 ToolResponse.content（模型上下文 / 落库拿到同一份）。
+    两侧看到的 cite_id 因此严格一致。跳过名单、非纯文本内容、非 SUCCESS 状态、
+    任何异常 → 原样放行（引用功能降级，绝不影响工具本身）。
+    """
+
+    async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):  # noqa: ANN001
+        from orchestration.citation_anchor import (
+            SKIP_TOOLS,
+            annotate_tool_result,
+            resolve_allocator,
+        )
+
+        tool_call = input_kwargs.get("tool_call")
+        tool_name = str(getattr(tool_call, "name", "") or "")
+        tool_id = str(getattr(tool_call, "id", "") or "")
+        if not tool_name or tool_name in SKIP_TOOLS:
+            async for item in next_handler(**input_kwargs):
+                yield item
+            return
+
+        buffered: list = []
+        final: ToolResponse | None = None
+        async for item in next_handler(**input_kwargs):
+            if isinstance(item, ToolResponse):
+                final = item
+                break  # per call_tool protocol the ToolResponse is the last yield
+            buffered.append(item)
+
+        if final is None:
+            for item in buffered:
+                yield item
+            return
+
+        annotated = False
+        if final.state == ToolResultState.SUCCESS:
+            try:
+                blocks = list(final.content or [])
+                text_blocks = [b for b in blocks if isinstance(b, TextBlock)]
+                if text_blocks and len(text_blocks) == len(blocks):
+                    # 发号器绑在 agent 上（run 入口注入）；缺失时就地建并绑定，
+                    # 保证编号在该 agent 的整条流里唯一
+                    allocator = resolve_allocator(agent)
+                    full_text = "".join((b.text or "") for b in text_blocks)
+                    new_text, items = annotate_tool_result(
+                        tool_name, tool_id, full_text, allocator
+                    )
+                    if items:
+                        allocator.register(tool_id, items)
+                        final.content = [TextBlock(type="text", text=new_text)]
+                        yield ToolChunk(
+                            content=[TextBlock(type="text", text=new_text)],
+                            state=final.state,
+                            metadata=dict(final.metadata or {}),
+                        )
+                        annotated = True
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "[citation-anchor] middleware annotate failed tool=%s", tool_name,
+                    exc_info=True,
+                )
+
+        if not annotated:
+            for item in buffered:
+                yield item
+        yield final
 
 
 class AgentRuntimeState(AgentState):

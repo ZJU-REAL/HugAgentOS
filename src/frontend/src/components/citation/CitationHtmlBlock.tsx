@@ -13,26 +13,32 @@ import type { CitationItem } from '../../types';
  *   so React portals never detach. Only surrounding text nodes are updated.
  * - When new citations appear (citIds changes), we do a full DOM replacement and update portals.
  */
+export interface CitationMarker {
+  id: string;
+  /** 锚文本（[锚文本](cite:eN) 写法）；空串 = 角标形态 */
+  label: string;
+}
+
 export default function CitationHtmlBlock({
   html,
-  citIds,
+  markers,
   citations,
   onCitationAction,
 }: {
   html: string;
-  citIds: string[];
+  markers: CitationMarker[];
   citations: CitationItem[];
   onCitationAction?: (citation: CitationItem) => void;
 }) {
   const divRef = useRef<HTMLDivElement>(null);
-  const [portals, setPortals] = useState<Array<{ el: HTMLElement; id: string }>>([]);
+  const [portals, setPortals] = useState<Array<{ el: HTMLElement; marker: CitationMarker }>>([]);
   const prevCitIdsKeyRef = useRef('');
 
   useEffect(() => {
     const container = divRef.current;
     if (!container) return;
 
-    const citIdsKey = citIds.join('\0');
+    const citIdsKey = markers.map(m => `${m.id}${m.label}`).join('\0');
 
     if (citIdsKey !== '' && citIdsKey === prevCitIdsKeyRef.current) {
       const existingSpans = new Map<string, HTMLElement>();
@@ -53,11 +59,11 @@ export default function CitationHtmlBlock({
       prevCitIdsKeyRef.current = citIdsKey;
       container.innerHTML = html;
       const spans = Array.from(container.querySelectorAll<HTMLElement>('[data-jxcit]'));
-      const next: Array<{ el: HTMLElement; id: string }> = [];
+      const next: Array<{ el: HTMLElement; marker: CitationMarker }> = [];
       spans.forEach(span => {
         const idx = parseInt(span.getAttribute('data-jxcit') ?? '-1', 10);
-        const id = citIds[idx];
-        if (id) next.push({ el: span, id });
+        const marker = markers[idx];
+        if (marker) next.push({ el: span, marker });
       });
       setPortals(next);
     }
@@ -65,13 +71,14 @@ export default function CitationHtmlBlock({
 
   return (
     <div ref={divRef} style={{ display: 'contents' }}>
-      {portals.map(({ el, id }, idx) =>
+      {portals.map(({ el, marker }, idx) =>
         createPortal(
           <CitationBadge
-            key={`${id}-${idx}`}
-            citId={id}
+            key={`${marker.id}-${idx}`}
+            citId={marker.id}
             citations={citations}
             onCitationAction={onCitationAction}
+            anchorLabel={marker.label || undefined}
           />,
           el
         )

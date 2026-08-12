@@ -11,6 +11,15 @@ marked.setOptions({
 marked.use({
   renderer: {
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
+      // 证据锚点 [锚文本](cite:eN) 借用了 markdown 链接语法，但它**不是可跳转链接**
+      // （cite: 不是有效协议，点进去是空白页）。对话区由 CitationMarkdownBlock 在
+      // 进 marked 之前就换成占位符、交给 React 渲染带悬浮卡的标注；这里兜住所有
+      // 直接调 mdToHtml 的路径（PDF 导出等），渲染成同款静态标注而非 <a>。
+      const citeMatch = /^cite:(e\d+)$/i.exec(href || '');
+      if (citeMatch) {
+        const anchorId = citeMatch[1];
+        return `<span class="jx-citeRef" data-cite="${anchorId}">${text}<sup class="jx-citeRef-idx">${anchorId.slice(1)}</sup></span>`;
+      }
       const titleAttr = title ? ` title="${title}"` : '';
       return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
     },

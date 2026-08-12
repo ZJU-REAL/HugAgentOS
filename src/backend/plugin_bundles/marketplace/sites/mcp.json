@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "site_publish": {
+      "type": "streamable-http",
+      "url": "http://mcp:9113/mcp/"
+    }
+  }
+}

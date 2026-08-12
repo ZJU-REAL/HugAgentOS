@@ -54,6 +54,9 @@ function buildChatExportHtml(chatTitle: string, messages: ChatMessage[]): string
         .pdf-msg h1, .pdf-msg h2, .pdf-msg h3, .pdf-msg h4 { margin: 10px 0 6px; }
         .pdf-msg blockquote { border-left: 3px solid #ddd; padding-left: 12px; color: #666; margin: 8px 0; }
         .pdf-msg strong { font-weight: 700; }
+        /* 证据锚点：导出件里是静态标注（无悬浮卡），保持与对话区一致的脚注观感 */
+        .pdf-msg .jx-citeRef { color: #808080; font-weight: 600; }
+        .pdf-msg .jx-citeRef-idx { color: #b3b3b3; font-size: 9px; vertical-align: super; margin-left: 1px; }
       </style>
       <h2 style="text-align:center; color:#1a1a1a; margin-bottom:24px; font-size:18px;">${title}</h2>
   `;
