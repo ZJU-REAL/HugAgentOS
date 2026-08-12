@@ -21,6 +21,13 @@ const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim
 // re-renders but reset on page refresh, exactly like the store marks.
 const inflightMsgLoads = new Set<string>();
 
+// Per-chat failed message-load attempts. A non-2xx / network failure used to
+// leave the chat stuck on the skeleton until the user switched away and back;
+// now we self-retry a few times with backoff (bumpSessionLoadEpoch re-fires
+// the lazy-load effect), then give up until the next manual visit.
+const msgLoadRetryCounts = new Map<string, number>();
+const MSG_LOAD_MAX_RETRIES = 3;
+
 // Convert a backend message item (from GET /v1/chats/{id}/messages) into a
 // frontend ChatMessage. Pure — used by both the preload path (during initial
 // session fetch) and the lazy-load path (when switching into a never-loaded
@@ -50,6 +57,9 @@ function parseHistoryMessage(m: any): ChatMessage {
           ? { subagentName: tc.subagent_name ?? tc.subagentName }
           : {}),
         ...(typeof tc.scope === 'string' ? { scope: tc.scope } : {}),
+        ...(typeof (tc.content_offset ?? tc.contentOffset) === 'number'
+          ? { contentOffset: (tc.content_offset ?? tc.contentOffset) }
+          : {}),
       }))
     : undefined;
   const revisionToolCalls = allToolCalls?.filter((tool) => tool.scope === 'ontology_revision') ?? [];
@@ -215,6 +225,8 @@ function parseHistoryMessage(m: any): ChatMessage {
     ...(histPluginName && { pluginName: histPluginName }),
     ...(histMentionName && { mentionName: histMentionName }),
     ...(typeof m.message_id === 'string' && m.message_id && { messageId: m.message_id }),
+    ...(m.role === 'assistant' && typeof m.metadata?.duration_ms === 'number' && m.metadata.duration_ms >= 0
+      && { durationMs: m.metadata.duration_ms }),
   } as ChatMessage;
 }
 
@@ -379,9 +391,17 @@ export function useChatInit() {
         for (const s of items) {
           const id: string = s.chat_id;
           const meta = (s.metadata || {}) as any;
+          // 手动重命名保护：后端已带 title_manually_set 直接用；本地改过名但还没
+          // 同步到后端（流式期间改名后刷新）→ 保留本地标题，后续流结束时自动补同步
+          const localManual = localSnapshot.chats[id]?.titleManuallySet === true;
+          const backendManual = meta.title_manually_set === true;
+          const preservedTitle = !backendManual && localManual && localSnapshot.chats[id]?.title
+            ? localSnapshot.chats[id].title
+            : (s.title || '新对话');
           chats[id] = {
             id,
-            title: s.title || '新对话',
+            title: preservedTitle,
+            ...(backendManual || localManual ? { titleManuallySet: true } : {}),
             createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
             updatedAt: s.updated_at ? new Date(s.updated_at).getTime() : Date.now(),
             messages: [],
@@ -447,9 +467,11 @@ export function useChatInit() {
           const isFreshLogin = typeof window !== 'undefined'
             && window.sessionStorage.getItem(LOGIN_LANDING_KEY) === '1';
           const allChats = { ...chats };
-          const targetChatId = isFreshLogin
-            ? nowId('chat')
-            : (allChats[prevChatId] ? prevChatId : nowId('chat'));
+          // 恢复目标：非新登录一律保留原会话 id（问题14/17）。后端已有 → 恢复
+          // 历史；后端没有（正在流式输出首条消息、或本地空会话）→ 保留同一 id：
+          // 空会话渲染出来就是空首页，与生成新 id 的 UX 等价，但指针稳定——
+          // 不会把新 id 写回共享 localStorage 去覆盖别的标签页的恢复目标。
+          const targetChatId = isFreshLogin ? nowId('chat') : (prevChatId || nowId('chat'));
           if (isFreshLogin) setPanel('chat');
           setCurrentChatId(targetChatId);
           // Bump epoch so the lazy-load messages effect re-fires even when
@@ -612,6 +634,7 @@ export function useChatInit() {
           const newChatItem: ChatItem = {
             id: s.chat_id,
             title: s.title || '新对话',
+            ...(meta.title_manually_set === true ? { titleManuallySet: true } : {}),
             createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
             updatedAt: s.updated_at ? new Date(s.updated_at).getTime() : Date.now(),
             messages: [],
@@ -704,6 +727,7 @@ export function useChatInit() {
             useChatStore.getState().setContextCompaction(chatId, contextCompaction);
           }
           loaded = true;
+          msgLoadRetryCounts.delete(chatId);
           addLoadedMsgId(chatId);
           updateStore(prev => {
             const c = prev.chats[chatId];
@@ -737,7 +761,20 @@ export function useChatInit() {
           }
         }
       } catch {
-        /* fall through — lock released below so the next visit retries */
+        // HTTP/网络失败：有限次自动重试（问题16：历史对话长时间停在骨架屏）。
+        // 超过上限后放弃，等用户下次切入该会话再试。
+        if (!cancelled) {
+          const attempts = (msgLoadRetryCounts.get(chatId) || 0) + 1;
+          msgLoadRetryCounts.set(chatId, attempts);
+          if (attempts <= MSG_LOAD_MAX_RETRIES) {
+            window.setTimeout(() => {
+              const st = useChatStore.getState();
+              if (st.currentChatId === chatId && !st.loadedMsgIds.has(chatId)) {
+                st.bumpSessionLoadEpoch();
+              }
+            }, 1500 * attempts);
+          }
+        }
       } finally {
         inflightMsgLoads.delete(chatId);
         // Switch-back race: if the user already navigated back to this chat

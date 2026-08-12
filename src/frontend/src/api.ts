@@ -833,10 +833,12 @@ export async function getKBDocuments(
   kbId: string,
   page = 1,
   pageSize = 20,
+  keyword?: string,
 ): Promise<KBDocumentsResponse> {
   try {
+    const kw = keyword?.trim() ? `&keyword=${encodeURIComponent(keyword.trim())}` : '';
     const wrapped = await apiRequest<unknown>(
-      `/v1/catalog/kb/${kbId}/documents?page=${page}&page_size=${pageSize}`,
+      `/v1/catalog/kb/${kbId}/documents?page=${page}&page_size=${pageSize}${kw}`,
     );
     const data = unwrapData<PaginatedData<KBDocumentItem>>(wrapped);
     const items = Array.isArray(data.items) ? data.items : [];

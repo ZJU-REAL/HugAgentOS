@@ -15,6 +15,30 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 
+def _visible_message_text(content: str) -> str:
+    """assistant 消息 content 的可见正文（剥离 <think> 思考段）。
+
+    存储格式（多轮工具调用）：``思考1</think>可见文本<think>思考2</think>…最终正文``；
+    也可能只有裸 ``</think>`` 分隔（开标签被服务栈吞掉）。规则与前端
+    ``utils/segments.ts`` 的历史重建一致：每个 ``</think>`` 之前、上一个
+    ``<think>`` 之后的内容是思考；其余是可见正文。
+    """
+    if "</think>" not in content and "<think>" not in content:
+        return content
+    parts = content.split("</think>")
+    out: List[str] = []
+    for i, part in enumerate(parts):
+        if i == len(parts) - 1:
+            # 最后一段：若有未闭合的 <think>，其后是（被截断的）思考
+            out.append(part.split("<think>", 1)[0])
+        else:
+            idx = part.find("<think>")
+            if idx >= 0:
+                out.append(part[:idx])
+            # 无开标签 → 整段是思考，丢弃
+    return " ".join(x for x in out if x.strip()).strip()
+
+
 class ChatSessionRepository:
     """Repository for chat session operations."""
 
@@ -135,9 +159,13 @@ class ChatSessionRepository:
         }
 
         if scope == "all":
-            # Content-only matching chat_ids (exclude ones already matched by title)
+            # Content-only matching chat_ids (exclude ones already matched by title).
+            # SQL ilike 只做粗筛：assistant 消息的 content 里混有 <think> 思考文本
+            # （代码字段/英文/路径等），不应参与搜索（问题11）。粗筛命中后在
+            # Python 层剥掉思考、只对可见正文复核，摘要同样基于可见正文生成。
             content_id_set: set[str] = set()
-            content_rows = (
+            content_snippet_source: Dict[str, str] = {}
+            candidate_rows = (
                 self.db.query(ChatMessage.chat_id)
                 .join(ChatSession, ChatMessage.chat_id == ChatSession.chat_id)
                 .filter(
@@ -148,10 +176,31 @@ class ChatSessionRepository:
                 .distinct()
                 .all()
             )
-            content_id_set = {row[0] for row in content_rows} - title_id_set
+            q_lower = query.lower()
+            for (cid,) in candidate_rows:
+                if cid in title_id_set:
+                    continue
+                msgs = (
+                    self.db.query(ChatMessage.content)
+                    .filter(
+                        ChatMessage.chat_id == cid,
+                        ChatMessage.role.in_(["user", "assistant"]),
+                        ChatMessage.content.ilike(like_pattern),
+                    )
+                    .order_by(ChatMessage.created_at)
+                    .limit(20)
+                    .all()
+                )
+                for (raw,) in msgs:
+                    visible = _visible_message_text(raw or "")
+                    if q_lower in visible.lower():
+                        content_id_set.add(cid)
+                        content_snippet_source[cid] = visible
+                        break
             all_ids = title_id_set | content_id_set
         else:
             content_id_set = set()
+            content_snippet_source = {}
             all_ids = title_id_set
 
         total = len(all_ids)
@@ -192,19 +241,10 @@ class ChatSessionRepository:
             matched_snippet: Optional[str] = None
 
             if match_type == "content":
-                msg = (
-                    self.db.query(ChatMessage)
-                    .filter(
-                        ChatMessage.chat_id == s.chat_id,
-                        ChatMessage.role.in_(["user", "assistant"]),
-                        ChatMessage.content.ilike(like_pattern),
-                    )
-                    .order_by(ChatMessage.created_at)
-                    .first()
-                )
-                if msg and msg.content:
-                    # Center the snippet around the keyword
-                    content = msg.content.replace("\n", " ")
+                snippet_source = content_snippet_source.get(s.chat_id)
+                if snippet_source:
+                    # Center the snippet around the keyword（基于剥离思考后的可见正文）
+                    content = snippet_source.replace("\n", " ")
                     lower_content = content.lower()
                     idx = lower_content.find(query.lower())
                     if idx == -1:

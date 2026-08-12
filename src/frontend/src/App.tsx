@@ -397,6 +397,13 @@ export default function App() {
     return rawSend(text);
   };
 
+  // 编辑重发同样是显式"带我去底部"的意图（点击编辑区按钮会被下面的捕获监听
+  // 预置为脱离跟随，这里在真正发送时复位，恢复流式跟随）。
+  const editAndResendFollow = (messageIndex: number, newContent: string) => {
+    userScrolledUpRef.current = false;
+    return editAndResend(messageIndex, newContent);
+  };
+
   // Cross-panel first message: the project-page composer stuffs the message into
   // chatStore.pendingFirstMessage; after jumping to the chat panel, this effect
   // auto-sends + clears it once currentChatId matches.
@@ -420,8 +427,24 @@ export default function App() {
       if (isAutoScrollingRef.current) return;
       userScrolledUpRef.current = distanceFromBottom(content) > SCROLL_FOLLOW_THRESHOLD;
     };
+    // 流式输出时列表每帧都在长高，用户一个滚轮往上（几十 px）还没越过
+    // SCROLL_FOLLOW_THRESHOLD 就被 ResizeObserver 拽回底部，表现为"锁死在底部
+    // 滚不上去"。滚轮向上 / 触摸拖动是明确的用户意图，直接置位脱离跟随，
+    // 不等距离阈值。回到底部（scroll 监听）或再次发送会自然复位。
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) userScrolledUpRef.current = true;
+    };
+    const handleTouchMove = () => {
+      if (distanceFromBottom(content) > 1) userScrolledUpRef.current = true;
+    };
     content.addEventListener('scroll', handleScroll, { passive: true });
-    return () => content.removeEventListener('scroll', handleScroll);
+    content.addEventListener('wheel', handleWheel, { passive: true });
+    content.addEventListener('touchmove', handleTouchMove, { passive: true });
+    return () => {
+      content.removeEventListener('scroll', handleScroll);
+      content.removeEventListener('wheel', handleWheel);
+      content.removeEventListener('touchmove', handleTouchMove);
+    };
   }, []);
 
   // Chat switch: reset follow state and smooth-scroll to the bottom (keeping the
@@ -479,7 +502,9 @@ export default function App() {
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      if (target.closest('.jx-plan-stepHeader, .jx-plan-stepsToggle, .jx-tcr-header, .jx-trs-head')) {
+      // .jx-msgActionBtn / .jx-editMessage：点「编辑消息」展开编辑框、点「取消」收起
+      // 都会播放高度动画，ResizeObserver 会误判为流式增高而滚到底部 —— 预置脱离跟随。
+      if (target.closest('.jx-plan-stepHeader, .jx-plan-stepsToggle, .jx-tcr-header, .jx-trs-head, .jx-msgActionBtn, .jx-editMessage')) {
         userScrolledUpRef.current = true;
       }
     };
@@ -780,7 +805,7 @@ export default function App() {
                   handleFileSelect={handleFileSelect}
                   removeFile={removeFile}
                   regenerate={regenerate}
-                  editAndResend={editAndResend}
+                  editAndResend={editAndResendFollow}
                   inputRef={inputRef}
                   fileInputRef={fileInputRef}
                   chatListRef={chatListRef}

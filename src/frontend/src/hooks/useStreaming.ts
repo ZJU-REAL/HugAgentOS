@@ -106,6 +106,28 @@ export function useStreaming(
     setUploadedFiles(uploadedFiles.filter((_, i) => i !== index));
   }
 
+  /** 流式期间用户手动重命名过、但当时后端会话尚未创建（PATCH 被跳过）——
+   *  流结束、会话已在后端后补一次同步（问题13）。幂等，多调无害。 */
+  function syncManualTitleToBackend(chatId: string) {
+    const chat = useChatStore.getState().store.chats[chatId];
+    if (!chat?.titleManuallySet || !chat.title || !effectiveApiUrl) return;
+    void authFetch(`${effectiveApiUrl}/v1/chats/${chatId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: chat.title,
+        metadata: {
+          businessTopic: chat.businessTopic || '综合咨询',
+          ...(chat.agentId ? { agent_id: chat.agentId } : {}),
+          ...(chat.agentName ? { agent_name: chat.agentName } : {}),
+          ...(chat.planChat ? { plan_chat: true } : {}),
+          ...(chat.batchChat ? { batch_chat: true } : {}),
+          title_manually_set: true,
+        },
+      }),
+    }).catch(() => { /* 下次流结束还会再试 */ });
+  }
+
   async function send(directMessage?: string) {
     const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeMention, setActiveMention } = useChatStore.getState();
     const { catalog } = useCatalogStore.getState();
@@ -340,6 +362,7 @@ export function useStreaming(
 
       addBackendSessionId(currentChatId);
       addLoadedMsgId(currentChatId);
+      syncManualTitleToBackend(currentChatId);
 
       setTimeout(() => generateSummary(currentChatId), 500);
       setTimeout(() => generateClassification(currentChatId), 800);
@@ -438,9 +461,11 @@ export function useStreaming(
       removeSendingChatId(streamChatId);
       // Clean up activeRun — the SSE has hit [DONE] / errored / been interrupted
       useChatStore.getState().clearActiveRun(streamChatId);
-      setUploadedFiles([]);
-      setUploadingFiles(new Set());
-      fileUploadMap.current.clear();
+      // NOTE: do NOT clear uploadedFiles / fileUploadMap here. This round's
+      // attachments were already cleared right after they were assembled
+      // (before the request), so anything present now was uploaded by the
+      // user DURING streaming for the next question — wiping it here made
+      // those attachments silently vanish when the stream ended.
     }
   }
 
@@ -463,6 +488,7 @@ export function useStreaming(
     await processChatStream(response, { chatId, enableThinking, pendingNotice });
     useChatStore.getState().addBackendSessionId(chatId);
     useChatStore.getState().addLoadedMsgId(chatId);
+    syncManualTitleToBackend(chatId);
     setTimeout(() => generateSummary(chatId), 500);
     setTimeout(() => generateClassification(chatId), 800);
   }
@@ -501,7 +527,14 @@ export function useStreaming(
   /** Edit a user message and regenerate */
   async function editAndResend(messageIndex: number, newContent: string) {
     const { sending, addSendingChatId, removeSendingChatId, currentChatId, truncateMessagesFrom, setEditingMessageTs } = useChatStore.getState();
-    if (sending || !newContent.trim()) return;
+    if (!newContent.trim()) return;
+    if (sending) {
+      // 正在流式输出时点「发送」：先停止当前回答再编辑重发（对齐主流产品行为），
+      // 而不是静默吞掉点击。abort 触发本地 AbortError → 原流的 finally 清理
+      // sendingChatIds；等一拍让清理落地后继续。
+      abort(currentChatId);
+      await new Promise((res) => setTimeout(res, 250));
+    }
     const streamChatId = currentChatId;
     addSendingChatId(streamChatId);
     setEditingMessageTs(null);
@@ -676,13 +709,40 @@ export function useStreaming(
     // during the active-run round-trip.
     if (useChatStore.getState().sendingChatIds.has(chatId)) return;
 
-    const { addSendingChatId, removeSendingChatId } = useChatStore.getState();
-
+    // activeRun 在锁外登记：即使本标签页没拿到跟随权，停止按钮也能取消该 run
     useChatStore.getState().setActiveRun(chatId, {
       runId: active.run_id,
       messageId: active.message_id,
       lastOffset: active.last_event_offset || 0,
     });
+
+    // ── 跨标签页互斥：同一 run 只允许一个标签页跟随 SSE ──
+    // 过去复制标签页/多开时两个标签页同时 follow 同一 run，各自用不同的
+    // placeholderTs 建气泡，互相覆盖 localStorage，产生重复/半截气泡与
+    // "回答无对应问题"（问题17）。Web Locks 随标签页关闭自动释放。
+    const runLockName = `hugagent_run_follow_${active.run_id}`;
+    const activeRun = active;
+    const doFollowRun = () => followActiveRun(chatId, activeRun, uid);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const locksApi = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
+    if (locksApi?.request) {
+      await locksApi.request(runLockName, { ifAvailable: true }, async (lock: unknown) => {
+        if (!lock) return; // 另一个标签页正在跟随该 run
+        if (useChatStore.getState().sendingChatIds.has(chatId)) return;
+        await doFollowRun();
+      });
+    } else {
+      await doFollowRun();
+    }
+  }
+
+  /** 实际跟随一个后台 run 的 SSE（plan / loop / 普通对话三种分支）。 */
+  async function followActiveRun(
+    chatId: string,
+    active: NonNullable<Awaited<ReturnType<typeof getActiveChatRun>>>,
+    uid: string | undefined,
+  ) {
+    const { addSendingChatId, removeSendingChatId } = useChatStore.getState();
 
     // Plan mode: live-replay the plan event stream (plan_step_* / tool_call / tool_result /
     // plan_complete), fully continuous with the pre-refresh progress.

@@ -3,7 +3,7 @@ import { Modal, Input, Select, Tooltip } from 'antd';
 import type { InputRef } from 'antd';
 import { t } from '../../i18n';
 import {
-  SearchOutlined, CloseOutlined, EditOutlined, PushpinFilled,
+  SearchOutlined, CloseOutlined, EditOutlined,
 } from '@ant-design/icons';
 import { useUIStore, useChatStore, useAutomationChatStore } from '../../stores';
 import type { HistoryTimeFilter } from '../../stores/uiStore';
@@ -202,9 +202,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
         className={`jx-searchItem${isActive ? ' active' : ''}`}
         onClick={opts?.onClick ?? (() => void handlePickItem(item))}
       >
-        {item.pinned && (
-          <span className="jx-searchItemPin"><PushpinFilled /></span>
-        )}
+        {/* 置顶图标不在搜索结果中展示（测试反馈问题10）；置顶状态在侧栏已有标识 */}
         <ItemTypeIcon item={item} />
         <div className="jx-searchItemMain">
           <span className="jx-searchItemTitle">

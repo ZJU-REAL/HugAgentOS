@@ -70,6 +70,16 @@ def sanitize_chat_preview(content: Optional[str], max_len: int = 200) -> str:
         return ""
 
     text = str(content)
+    # assistant \u6d88\u606f\u7684 content \u5728\u5e93\u91cc\u662f\u300c\u601d\u80031</think>\u601d\u80032</think>\u6b63\u6587\u300d\u7684\u539f\u59cb\u4e32\uff0c
+    # \u5361\u7247\u6458\u8981\u53ea\u8981\u6700\u7ec8\u6b63\u6587\u2014\u2014\u53d6\u6700\u540e\u4e00\u4e2a </think> \u4e4b\u540e\u7684\u90e8\u5206\uff0c\u5e76\u5265\u6389\u53ef\u80fd\u6b8b\u7559\u7684
+    # \u672a\u95ed\u5408 <think> \u8d77\u59cb\u6bb5\uff08\u622a\u65ad\u573a\u666f\uff09\uff0c\u907f\u514d\u6536\u85cf\u5361\u7247\u5c55\u793a\u601d\u8003\u8fc7\u7a0b/\u6807\u7b7e\uff08\u95ee\u98988\uff09\u3002
+    if "</think>" in text:
+        tail = text.rsplit("</think>", 1)[-1]
+        # \u5168\u662f\u601d\u8003\u6ca1\u6709\u6b63\u6587\u7684\u6781\u7aef\u60c5\u51b5\uff1a\u9000\u56de\u53bb\u6807\u7b7e\u540e\u7684\u539f\u6587\uff0c\u522b\u8ba9\u6458\u8981\u53d8\u6210\u7a7a\u767d
+        text = tail if tail.strip() else re.sub(r"</?think>", " ", text)
+    if "<think>" in text:
+        head = text.split("<think>", 1)[0]
+        text = head if head.strip() else re.sub(r"</?think>", " ", text)
     text = text.replace("\ufeff", "").replace("\u200b", "")
     text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text)
     text = re.sub(r"\s+", " ", text).strip()

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -1306,6 +1307,17 @@ async def _stream_sse_response(
         pending_message_id = f"msg_{uuid.uuid4().hex[:16]}"
         metadata: dict = {}
         tool_calls_log: list = []
+        # 本轮回答总耗时起点 —— 持久化进 extra_data.duration_ms
+        _stream_started_monotonic = time.monotonic()
+        # 结构化 reasoning 思考增量：按到达顺序以 <think>…</think> 块交错并入
+        # full_response 落库（与内联思考模型一致），刷新后思考过程可回放。
+        _thinking_parts: list = []
+
+        def _flush_thinking() -> None:
+            nonlocal full_response
+            if _thinking_parts:
+                full_response += "<think>" + "".join(_thinking_parts) + "</think>"
+                _thinking_parts.clear()
         # Per-run workspace state — pin_to_workspace tool reads/writes this.
         _workspace_mod.init_state()
 
@@ -1316,18 +1328,28 @@ async def _stream_sse_response(
         ):
             chunk_type = chunk.get("type")
             if chunk_type == "thinking":
-                yield f"data: {json.dumps(build_thinking_event(chunk, chat_id), ensure_ascii=False)}\n\n"
+                _thinking_evt = build_thinking_event(chunk, chat_id)
+                if _thinking_evt.get("delta"):
+                    _thinking_parts.append(str(_thinking_evt["delta"]))
+                yield f"data: {json.dumps(_thinking_evt, ensure_ascii=False)}\n\n"
             elif chunk_type in {"ai_message", "content"}:
                 delta = chunk.get("delta", "")
                 if delta:
+                    _flush_thinking()
                     full_response += delta
                     yield f"data: {json.dumps({'type': 'content', 'event': 'ai_message', 'delta': delta, 'chat_id': chat_id}, ensure_ascii=False)}\n\n"
             elif chunk_type == "content_replace":
+                _thinking_parts.clear()
                 full_response = str(chunk.get("content") or "")
                 event = {**chunk, "chat_id": chat_id}
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call":
+                _flush_thinking()
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
+                # 记录该工具卡片出现时正文的累计长度：历史重建按此偏移把
+                # 「文本 ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
+                for _tc in tool_calls_log:
+                    _tc.setdefault("content_offset", len(full_response))
                 yield f"data: {json.dumps(_tc_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_result":
                 _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
@@ -1366,6 +1388,7 @@ async def _stream_sse_response(
                 event = {**chunk, "chat_id": chat_id}
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             elif chunk_type == "meta":
+                _flush_thinking()
                 pending_message_id = f"msg_{uuid.uuid4().hex[:16]}"
                 # Strict workspace gate: the agent's pin_to_workspace calls
                 # are the SOLE source of user-visible artifacts. We always
@@ -1402,6 +1425,7 @@ async def _stream_sse_response(
                     "warnings": metadata.get("warnings", []),
                     "citations": metadata.get("citations", []),
                     "workspace_files": metadata.get("workspace_files", []),
+                    "duration_ms": int((time.monotonic() - _stream_started_monotonic) * 1000),
                 }
                 if metadata.get("ontology_governance"):
                     _persist_extra["ontology_governance"] = metadata["ontology_governance"]

@@ -219,7 +219,7 @@ export const CHAT_DICT: Record<string, string> = {
   'Mermaid 渲染失败': 'Mermaid render failed',
   '加载图表中...': 'Loading diagram...',
   '发送后将以该模式在本项目内开始对话；点击取消': 'Send in this mode to start a conversation in this project; click to cancel',
-  '用时 {sec}s': 'Took {sec}s',
+  '用时 {sec}秒': 'Took {sec}s',
   '用时 {min}分{sec}秒': 'Took {min}m {sec}s',
   '本次回答整体生成耗时': 'Total generation time for this response',
   '这条消息包含无法显示的旧格式数据，已跳过异常内容。': 'This message contains legacy data that cannot be displayed. The invalid content was skipped.',

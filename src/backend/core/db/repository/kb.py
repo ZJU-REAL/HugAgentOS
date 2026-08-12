@@ -115,12 +115,17 @@ class KBRepository:
         )
 
     def list_documents(
-        self, kb_id: str, page: int = 1, page_size: int = 20
+        self, kb_id: str, page: int = 1, page_size: int = 20, keyword: Optional[str] = None
     ) -> tuple[List[KBDocument], int]:
-        """List documents in a KB space."""
+        """List documents in a KB space, optionally filtered by title/filename keyword."""
         query = self.db.query(KBDocument).filter(
             KBDocument.kb_id == kb_id, KBDocument.deleted_at.is_(None)
         )
+        if keyword and keyword.strip():
+            like = f"%{keyword.strip()}%"
+            query = query.filter(
+                sa.or_(KBDocument.title.ilike(like), KBDocument.filename.ilike(like))
+            )
 
         total = query.count()
         documents = (

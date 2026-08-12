@@ -102,11 +102,60 @@ function trimForPersistence(store: ChatStore): ChatStore {
   return storeMutated ? { ...store, chats: nextChats } : store;
 }
 
+/** 本标签页本会话里删除过的 chat id：合并写盘时不许它们从磁盘"复活"。 */
+const sessionDeletedChatIds = new Set<string>();
+
+export function registerDeletedChatId(id: string) {
+  sessionDeletedChatIds.add(id);
+}
+
+/** 由 chatStore 注册：返回本标签页正在流式输出的 chat id 集合。
+ *  合并写盘时这些会话一律以本内存版本为准（磁盘上可能是别的标签页的旧影子）。 */
+let streamingIdsProvider: (() => Set<string>) | null = null;
+export function setStreamingIdsProvider(fn: () => Set<string>) {
+  streamingIdsProvider = fn;
+}
+
+/**
+ * 按会话粒度合并两棵聊天树：同一 chat 取 updatedAt 较新者（相同时取 preferred 侧）。
+ * 过去写盘是"整棵树全量覆盖"——两个标签页各持一份旧快照互相抹掉对方的新消息/
+ * 新会话，切标签页（visibilitychange→flush）就稳定触发（问题17 串台的主因之一）。
+ */
+export function mergeChatStores(
+  preferred: ChatStore,
+  other: ChatStore,
+  opts?: { preferAllIds?: Set<string> },
+): ChatStore {
+  const chats: ChatStore['chats'] = {};
+  const ids = new Set([...Object.keys(preferred.chats || {}), ...Object.keys(other.chats || {})]);
+  for (const id of ids) {
+    if (sessionDeletedChatIds.has(id)) continue;
+    const a = preferred.chats[id];
+    const b = other.chats[id];
+    if (!a) { chats[id] = b; continue; }
+    if (!b) { chats[id] = a; continue; }
+    if (opts?.preferAllIds?.has(id)) { chats[id] = a; continue; }
+    chats[id] = (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a;
+  }
+  // order 语义 ≈ 最近使用顺序；合并后按 updatedAt 降序重建，
+  // 原 order 中未知的 id（已被删除/过滤）自然剔除。
+  const order = Object.values(chats)
+    .sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))
+    .map((c) => c.id);
+  return { chats, order };
+}
+
 function performSave(userId: string, store: ChatStore) {
   const key = userScopedKey(STORAGE_KEY, userId);
   if (!key) return;
   try {
-    localStorage.setItem(key, JSON.stringify(trimForPersistence(store)));
+    // 合并写：先读磁盘上（可能来自其他标签页的）最新快照，按会话粒度合并后再写，
+    // 本内存快照没动过的会话不会覆盖掉其他标签页刚写入的新内容。
+    const disk = loadChatStore(userId);
+    const merged = mergeChatStores(store, disk, {
+      preferAllIds: streamingIdsProvider ? streamingIdsProvider() : undefined,
+    });
+    localStorage.setItem(key, JSON.stringify(trimForPersistence(merged)));
   } catch {
     // ignore quota errors
   }

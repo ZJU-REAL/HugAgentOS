@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ChatItem, ChatMessage, ChatStore as ChatStoreData, ContextCompactionState, PlanProgressState } from '../types';
-import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys } from '../storage';
+import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, STORAGE_KEY } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
@@ -39,6 +39,14 @@ function loadCurrentChatId(userId: string | null | undefined) {
   if (typeof window === 'undefined') return nowId('chat');
   const key = userScopedKey(CURRENT_CHAT_KEY, userId);
   if (!key) return nowId('chat');
+  // 标签页私有优先：sessionStorage 与本标签页同生共死（浏览器"复制标签页"会带
+  // 一份副本，恰好落在同一会话上）。多个标签页各自恢复自己的会话，不再共抢
+  // localStorage 里的单一指针互相覆盖（问题17 串台的一环）；localStorage 只作为
+  // 新开标签页的兜底。
+  try {
+    const tabLocal = window.sessionStorage.getItem(key);
+    if (tabLocal) return tabLocal;
+  } catch { /* sessionStorage 不可用时退回 localStorage */ }
   return window.localStorage.getItem(key) || nowId('chat');
 }
 
@@ -46,6 +54,7 @@ function saveCurrentChatId(userId: string | null | undefined, chatId: string) {
   if (typeof window === 'undefined') return;
   const key = userScopedKey(CURRENT_CHAT_KEY, userId);
   if (!key) return;
+  try { window.sessionStorage.setItem(key, chatId); } catch { /* ignore */ }
   window.localStorage.setItem(key, chatId);
 }
 
@@ -264,7 +273,10 @@ interface ChatState {
   clearForLogout: () => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = create<ChatState>((set, get) => {
+  // 合并写盘时：本标签页正在流式输出的会话一律以本内存版本为准
+  setStreamingIdsProvider(() => get().sendingChatIds);
+  return ({
   // currentUserId stays null until hydrateForUser runs after login. While null,
   // the store is empty and all save helpers no-op — avoids any chance of
   // writing one user's data under a key that a later user could read.
@@ -715,6 +727,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteChat: (id) => {
     const { store, currentChatId, currentUserId } = get();
+    registerDeletedChatId(id);
     const rest = { ...store.chats };
     delete rest[id];
     const nextCompactions = { ...get().contextCompactions };
@@ -840,4 +853,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       contextCompactions: {},
     });
   },
-}));
+});
+});
+
+// ── 跨标签页同步：另一个标签页写入会话数据时，把它按会话粒度合并进本页内存 ──
+// storage 事件只在"其他"标签页触发（写入方不触发），不会自激振荡；合并结果
+// 不回写磁盘（磁盘上已是并集），避免写风暴。本页正在流式输出的会话保留本页版本。
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e: StorageEvent) => {
+    const st = useChatStore.getState();
+    const uid = st.currentUserId;
+    if (!uid || !e.newValue) return;
+    if (e.key !== userScopedKey(STORAGE_KEY, uid)) return;
+    let incoming: ChatStoreData | null = null;
+    try {
+      const parsed = JSON.parse(e.newValue);
+      if (parsed && typeof parsed === 'object') {
+        incoming = { chats: parsed.chats || {}, order: parsed.order || [] };
+      }
+    } catch { /* 损坏的快照直接忽略 */ }
+    if (!incoming) return;
+    const merged = mergeChatStores(st.store, incoming, { preferAllIds: st.sendingChatIds });
+    useChatStore.setState({ store: merged, storeRef: merged });
+  });
+}

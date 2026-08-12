@@ -219,6 +219,31 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   // Once a structured reasoning event is observed (e.g. DeepSeek v4 `reasoning_content`), pin
   // the stripper's phase to body — from then on content is no longer treated as buffered thinking.
   let structuredReasoning = false;
+  // 隐式思考段追踪：思考模式下、未见任何 <think>/</think> 标签时，正文流被"假定为
+  // 思考"塞进思考段（兼容吞开标签的部署）。结构化 reasoning 模型无思考输出时，这个
+  // 假定会把整段正文误关进思考块。记录这些"假定"产生的段索引；一旦出现 </think>
+  // 证实假定成立就清空；反之收到 structured_reasoning 标记 / 流结束仍无标签时，把
+  // 它们重归类回正文。
+  const implicitThinkSegIdxs = new Set<number>();
+  let sawThinkCloseTag = false;
+
+  const reclassifyImplicitThinking = (): boolean => {
+    if (sawThinkCloseTag || implicitThinkSegIdxs.size === 0) return false;
+    for (const i of implicitThinkSegIdxs) {
+      const seg = segments[i];
+      if (seg?.type === 'thinking' && seg.content) {
+        segments[i] = { type: 'text', content: seg.content };
+      }
+    }
+    implicitThinkSegIdxs.clear();
+    // full 与 thinking 按重归类后的段重建（与 appendTextSeg 的顺序累加语义一致）
+    full = segments.filter((s) => s.type === 'text').map((s) => s.content || '').join('');
+    thinking.length = 0;
+    for (const s of segments) {
+      if (s.type === 'thinking' && s.content) thinking.push({ content: s.content, timestamp: Date.now() });
+    }
+    return true;
+  };
 
   const getPartialTagLen = (text: string, tag: string): number => {
     for (let len = Math.min(tag.length - 1, text.length); len >= 1; len--) {
@@ -336,6 +361,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           const safeLen = parseBuffer.length - partialLen;
           if (safeLen > 0) {
             appendThinkContent(parseBuffer.slice(0, safeLen), true);
+            // 该思考内容是"假定"出来的（本轮还没见到任何 think 标签）——记录段索引
+            if (!sawThinkCloseTag) implicitThinkSegIdxs.add(segments.length - 1);
             parseBuffer = parseBuffer.slice(safeLen);
           }
           break;
@@ -343,6 +370,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         if (closeIdx > 0) appendThinkContent(parseBuffer.slice(0, closeIdx), true);
         parseBuffer = parseBuffer.slice(closeIdx + 8);
         thinkingPhaseActive = false;
+        // 出现真实 </think>：假定成立，此前的隐式思考段确属思考
+        sawThinkCloseTag = true;
+        implicitThinkSegIdxs.clear();
       } else {
         const openIdx = parseBuffer.indexOf('<think>');
         const closeIdx = parseBuffer.indexOf('</think>');
@@ -352,6 +382,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         if (closeIdx >= 0 && (openIdx === -1 || closeIdx < openIdx)) {
           if (closeIdx > 0) appendThinkContent(parseBuffer.slice(0, closeIdx), true);
           parseBuffer = parseBuffer.slice(closeIdx + 8);
+          sawThinkCloseTag = true;
+          implicitThinkSegIdxs.clear();
           continue;
         }
         if (openIdx === -1) {
@@ -1022,6 +1054,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               parseBuffer = '';
             }
             thinkingPhaseActive = false;
+            // 后端首轮判定：整轮没有 </think> → 此前"假定为思考"的正文段全部重归正文
+            // （修复：无思考输出时整段回答被关进思考块）
+            if (reclassifyImplicitThinking()) appendOrUpdate(true);
           }
           if (obj.delta) {
             structuredReasoning = true;
@@ -1226,13 +1261,17 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   // ── Unified wind-down: whether normal end/abort/exception, the bubble must leave the streaming state ──
   finalizeRunningTools();
   if (parseBuffer) {
-    if (thinkingPhaseActive) {
+    if (thinkingPhaseActive && sawThinkCloseTag) {
       appendThinkContent(parseBuffer, true);
     } else {
+      // 整条流从未出现 </think>：残余缓冲是正文，不是思考（结构化 reasoning
+      // 模型无思考输出的场景；旧行为会把它并进思考块）
       appendTextSeg(parseBuffer);
     }
     parseBuffer = '';
   }
+  // 兜底：老后端/回放流没有首轮协议标记时，流结束仍无任何 think 标签 → 重归类
+  reclassifyImplicitThinking();
   deferredThinkingText = restoreDeferredThinkingTextFragment(segments, deferredThinkingText);
   const isMd = /\n|```|\*\*|^\s*#\s/m.test(full);
   useChatStore.getState().updateStore((prev) => {
