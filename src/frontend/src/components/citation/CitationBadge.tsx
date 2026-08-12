@@ -6,20 +6,12 @@ const CITATION_ICON: Record<string, string> = {
   internet:       '/icons/internet.png',
   knowledge_base: '/icons/knowledge.png',
   database:       '/icons/database.png',
-  industry_news:  '/icons/news.png',
-  ai_news:        '/icons/ai-news.png',
-  chain_info:        '/icons/industry-chain.png',
-  company_profile:   '/icons/industry-chain.png',
 };
 
 const CITATION_LABEL: Record<string, string> = {
   internet:       t('互联网'),
   knowledge_base: t('知识库'),
   database:       t('数据库'),
-  industry_news:  t('产业资讯'),
-  ai_news:        t('AI 动态'),
-  chain_info:        t('产业链'),
-  company_profile:   t('企业画像'),
 };
 
 export { CITATION_ICON, CITATION_LABEL };

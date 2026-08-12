@@ -3,12 +3,7 @@ import { Tag } from 'antd';
 import { CheckCircleOutlined } from '@ant-design/icons';
 import { useUIStore } from '../../stores';
 import { renderRetrieveDatasetContent, renderRetrieveLocalKB } from './renderers/KBRenderer';
-import { renderInternetSearch, renderIndustryNews, renderLatestAiNews } from './renderers/SearchRenderer';
-import {
-  renderSearchCompany, renderCompanyBaseInfo, renderCompanyBusinessAnalysis,
-  renderCompanyTechInsight, renderCompanyFunding, renderCompanyRiskWarning,
-} from './renderers/CompanyRenderer';
-import { renderIndustryChain } from './renderers/IndustryChainRenderer';
+import { renderInternetSearch } from './renderers/SearchRenderer';
 import { mdToHtml } from '../../utils/markdown';
 import { t } from '../../i18n';
 
@@ -229,16 +224,16 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
                     setDetailModal({
                       title: name || t('知识库详情'),
                       body: (
-                        <div className="jx-tr-chainDetailWrap">
-                          <div className="jx-tr-companyInfoKV">
-                            <div className="jx-tr-companyInfoRow"><span className="jx-tr-companyInfoKey">ID</span><span className="jx-tr-companyInfoVal" style={{ fontFamily: 'monospace', fontSize: 12 }}>{item[idKey] || '—'}</span></div>
-                            <div className="jx-tr-companyInfoRow"><span className="jx-tr-companyInfoKey">{t('名称')}</span><span className="jx-tr-companyInfoVal">{name}</span></div>
-                            <div className="jx-tr-companyInfoRow"><span className="jx-tr-companyInfoKey">{t('类型')}</span><span className="jx-tr-companyInfoVal">{item.type === 'public' ? t('公有知识库') : t('私有知识库')}</span></div>
-                            <div className="jx-tr-companyInfoRow"><span className="jx-tr-companyInfoKey">{t('简介')}</span><span className="jx-tr-companyInfoVal">{desc}</span></div>
-                            <div className="jx-tr-companyInfoRow"><span className="jx-tr-companyInfoKey">{t('文档数量')}</span><span className="jx-tr-companyInfoVal">{docCount}</span></div>
+                        <div className="jx-tr-detailScroll">
+                          <div className="jx-tr-detailKV">
+                            <div className="jx-tr-detailKVRow"><span className="jx-tr-detailKVKey">ID</span><span className="jx-tr-detailKVValue" style={{ fontFamily: 'monospace', fontSize: 12 }}>{item[idKey] || '—'}</span></div>
+                            <div className="jx-tr-detailKVRow"><span className="jx-tr-detailKVKey">{t('名称')}</span><span className="jx-tr-detailKVValue">{name}</span></div>
+                            <div className="jx-tr-detailKVRow"><span className="jx-tr-detailKVKey">{t('类型')}</span><span className="jx-tr-detailKVValue">{item.type === 'public' ? t('公有知识库') : t('私有知识库')}</span></div>
+                            <div className="jx-tr-detailKVRow"><span className="jx-tr-detailKVKey">{t('简介')}</span><span className="jx-tr-detailKVValue">{desc}</span></div>
+                            <div className="jx-tr-detailKVRow"><span className="jx-tr-detailKVKey">{t('文档数量')}</span><span className="jx-tr-detailKVValue">{docCount}</span></div>
                             {docTitles.length > 0 && (
-                              <div className="jx-tr-companyInfoRow"><span className="jx-tr-companyInfoKey">{t('文档列表')}</span>
-                                <div className="jx-tr-companyInfoVal">
+                              <div className="jx-tr-detailKVRow"><span className="jx-tr-detailKVKey">{t('文档列表')}</span>
+                                <div className="jx-tr-detailKVValue">
                                   {docTitles.map((docTitle, i) => <div key={i} style={{ padding: '2px 0', borderBottom: '1px solid rgba(0,0,0,.06)' }}>{i + 1}. {docTitle}</div>)}
                                 </div>
                               </div>
@@ -276,22 +271,6 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
   if (toolName === 'retrieve_dataset_content') return renderRetrieveDatasetContent(out, setDetailModal);
   if (toolName === 'retrieve_local_kb') return renderRetrieveLocalKB(out, setDetailModal);
   if (toolName === 'internet_search') return renderInternetSearch(out);
-  if (toolName === 'get_industry_news') return renderIndustryNews(out, setDetailModal);
-  if (toolName === 'get_latest_ai_news') return renderLatestAiNews(out, setDetailModal);
-
-  if (toolName === 'get_chain_information') {
-    if (!out) return empty(t('无分析数据'));
-    return renderIndustryChain(out, setDetailModal);
-  }
-
-  // ── Company profile tools ────────────────────────────────────────────────
-  if (toolName === 'search_company') return renderSearchCompany(out, setDetailModal);
-  if (toolName === 'get_company_base_info') return renderCompanyBaseInfo(out, setDetailModal);
-  if (toolName === 'get_company_business_analysis') return renderCompanyBusinessAnalysis(out, setDetailModal);
-  if (toolName === 'get_company_tech_insight') return renderCompanyTechInsight(out, setDetailModal);
-  if (toolName === 'get_company_funding') return renderCompanyFunding(out, setDetailModal);
-  if (toolName === 'get_company_risk_warning') return renderCompanyRiskWarning(out, setDetailModal);
-
   // ── Chart/export/scrape and similar tools ──────────────────────────────────────────
   if (toolName === 'generate_chart_tool') {
     return (

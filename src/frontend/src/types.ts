@@ -93,10 +93,6 @@ export type CitationSourceType =
   | 'internet'
   | 'knowledge_base'
   | 'database'
-  | 'industry_news'
-  | 'ai_news'
-  | 'chain_info'
-  | 'company_profile'
   | 'unknown';
 
 export interface CitationItem {

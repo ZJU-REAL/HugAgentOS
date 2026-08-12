@@ -62,12 +62,6 @@ function getRowLabel(
         const items = Array.isArray(out) ? out : out?.items;
         return { prefix: t('本地知识库'), value: '', count: Array.isArray(items) ? items.length : undefined };
       }
-      case 'get_industry_news':
-        return { prefix: t('产业资讯'), value: '', count: Array.isArray(out?.items) ? out.items.length : undefined };
-      case 'get_latest_ai_news':
-        return { prefix: t('AI 热点资讯'), value: '', count: Array.isArray(out?.items) ? out.items.length : undefined };
-      case 'search_company':
-        return { prefix: t('企业搜索'), value: '', count: Array.isArray(out?.items) ? out.items.length : undefined };
       case 'list_datasets': {
         const n =
           (Array.isArray(out?.public_datasets) ? out.public_datasets.length : 0) +
@@ -103,12 +97,6 @@ function getRowLabel(
       }
       case 'list_favorite_chats': return { prefix: t('获取收藏会话'), value: '' };
       case 'get_chat_messages': return { prefix: t('读取会话记录'), value: '' };
-      case 'get_chain_information': return { prefix: t('产业链分析'), value: '' };
-      case 'get_company_base_info': return { prefix: t('企业基本信息'), value: '' };
-      case 'get_company_business_analysis': return { prefix: t('企业经营分析'), value: '' };
-      case 'get_company_tech_insight': return { prefix: t('企业技术洞察'), value: '' };
-      case 'get_company_funding': return { prefix: t('资金穿透分析'), value: '' };
-      case 'get_company_risk_warning': return { prefix: t('风险预警'), value: '' };
       case 'query_database': return { prefix: t('数据库查询'), value: '' };
       case 'bash': {
         const cmd = (tool.input as any)?.command || '';
@@ -169,9 +157,6 @@ function getRunningCodeLabel(tool: ToolCall): { prefix: string; value: string } 
 function StepIcon({ name }: { name: string }) {
   const map: Record<string, ComponentType<{ className?: string }>> = {
     internet_search: SearchOutlined,
-    get_industry_news: SearchOutlined,
-    get_latest_ai_news: SearchOutlined,
-    search_company: SearchOutlined,
     web_fetch: GlobalOutlined,
     view_text_file: FileTextOutlined,
     Write: EditOutlined,

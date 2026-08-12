@@ -16,29 +16,17 @@ export interface OntologyPanelTarget {
   messageTs: number;
 }
 
-export interface IndustryChainPanelTarget {
-  chatId: string;
-  toolId?: string;
-  chainName?: string;
-  status: 'loading' | 'success' | 'error';
-  output?: unknown;
-  error?: string;
-}
-
-export type RightSidebarView = 'file' | 'ontology' | 'industry_chain' | 'empty';
+export type RightSidebarView = 'file' | 'ontology' | 'empty';
 
 interface CanvasState {
   isOpen: boolean;
   activeView: RightSidebarView;
   artifact: CanvasArtifact | null;
   ontologyTarget: OntologyPanelTarget | null;
-  industryChainTarget: IndustryChainPanelTarget | null;
   /** Incremented only by openCanvas — used to detect "new file opened" vs "same file saved" */
   openSeq: number;
   openCanvas: (artifact: CanvasArtifact) => void;
   openOntology: (target: OntologyPanelTarget) => void;
-  openIndustryChain: (target: IndustryChainPanelTarget) => void;
-  updateIndustryChain: (patch: Partial<IndustryChainPanelTarget>) => void;
   openSidebar: () => void;
   closeCanvas: () => void;
   resetSidebar: () => void;
@@ -51,7 +39,6 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   activeView: 'empty',
   artifact: null,
   ontologyTarget: null,
-  industryChainTarget: null,
   openSeq: 0,
   openCanvas: (artifact) => set((s) => ({
     isOpen: true,
@@ -64,16 +51,6 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     activeView: 'ontology',
     ontologyTarget,
   }),
-  openIndustryChain: (industryChainTarget) => set({
-    isOpen: true,
-    activeView: 'industry_chain',
-    industryChainTarget,
-  }),
-  updateIndustryChain: (patch) => set((state) => ({
-    industryChainTarget: state.industryChainTarget
-      ? { ...state.industryChainTarget, ...patch }
-      : null,
-  })),
   openSidebar: () => set({ isOpen: true }),
   // Keep the selected content while collapsed so the top-right toggle can
   // restore the same view. Chat/panel changes call resetSidebar explicitly.
@@ -83,7 +60,6 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     activeView: 'empty',
     artifact: null,
     ontologyTarget: null,
-    industryChainTarget: null,
   }),
   updateArtifact: (patch) => set((state) => ({
     artifact: state.artifact ? { ...state.artifact, ...patch } : null,

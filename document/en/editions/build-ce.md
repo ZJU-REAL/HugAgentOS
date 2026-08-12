@@ -1,6 +1,6 @@
 # CE Build Pipeline
 
-> Last updated: 2026-07-23
+> Last updated: 2026-08-12
 
 The Community Edition (CE) is not a separate branch. It is a subset tree **deterministically derived** from the main repo (EE, the single development source of truth) by `scripts/build_ce.py`, written to `dist/ce/`. The core constraint is the **whitelist iron rule: EE-only code is physically absent from the CE tree** — not commented out, not flag-disabled, but removed at the file level. The pipeline's only input is `ce/manifest.yaml`.
 
@@ -29,6 +29,9 @@ Glob patterns (relative to the repo root); a match means the file is never copie
 - **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/storage/s3.py`, `oss.py`), persistent sandbox providers, memory audit, skill distillation, and other EE services;
 - **EE routes**: `api/routes/v1/admin_*.py`, `config_*.py`, `audit.py`, `auth.py`, `team_files.py`, `service_configs.py`, `data_sources.py`, `db_metadata.py`, `gateway_*.py`;
 - **Industry MCP servers**: `mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
+- **Industry-specific frontend code and seeds**: the industry-chain Canvas,
+  news and company-profile renderers, industry API client, icon assets, and the
+  bundled ontology example that depends on company-profile tools;
 - **The entire main-repo alembic chain** (`alembic/versions/**` — CE uses an independent chain from the overlay, see below);
 - **10 industry/branded skills** (under `skill_bundles/marketplace/`; the first 5 hard-depend on EE industry MCPs, the other 5 contain branded domain copy);
 - **EE-coupled tests** and `tests/licensing/**`;
@@ -55,9 +58,14 @@ Content edits that plain text substitution cannot express, implemented in `build
 | `catalog_json` | `core/config/catalog.json` | drops the EE MCP seeds (`database_query`, `query_database`, `ai_chain_information_mcp`) |
 | `package_json` | `src/frontend/package.json` | renames to `hugagent-ui`; drops the commercially licensed `@univerjs/preset-sheets-advanced` and dead dependency `pptxgenjs`; pins `@univerjs/icons=1.1.1` to preserve the Univer 0.19 export contract when the main-repo lockfile is absent |
 | `requirements` | `requirements.txt` | drops cloud storage / persistent-sandbox deps (boto3 / oss2 / opensandbox); moves neo4j / mem0ai into the separate `requirements-mem0.txt` (installed by default by the no-Docker installer) |
-| `docker_compose` | `docker-compose.yml` | removes the opensandbox / litellm services and their depends_on; un-profiles `script-runner` so it starts by default; strips env injections of excluded components tree-wide (`OPENSANDBOX_` / `CUBE_` / `S3_` / `OSS_` / `MODEL_GATEWAY_` / `LITELLM_` prefixes); pins backend edition, authentication, and SSO defaults to CE local-session mode and pins the frontend build default to CE |
+| `docker_compose` | `docker-compose.yml` | removes the opensandbox / litellm services and their depends_on; un-profiles `script-runner` so it starts by default; strips environment variables for excluded components, including `OPENSANDBOX_`, `S3_`, `INDUSTRY_`, and `COMPANY_`; pins backend edition, authentication, and SSO defaults to CE local-session mode and pins the frontend build default to CE |
 | `frontend_lock` | `package-lock.json` + frontend Dockerfile | deletes the lock (inevitably out of sync with the pruned package.json) and rewrites `npm ci` to `npm install` |
 | `repository_resources` | build and source references to bundled commercial fonts | removes the font-copy/install stanzas from CE Dockerfiles and the backend fallback to the repository font directory; a forbidden-artifact gate verifies the generated tree again |
+| `text_ranges` | edition-specific branches in shared backend and frontend files | removes industry tool mappings, dedicated citation extraction, Canvas state, prompts, and styles using exact markers; a missing or changed marker fails the build so an upstream refactor cannot silently restore the feature |
+
+The CE frontend doesn't infer a business schema from a remote MCP tool name.
+Outputs from user-added HTTP/SSE MCP servers use the generic JSON card.
+Industry-chain, news, and company-profile presentation remains an EE feature.
 
 ### 4. `split` — assertion for files mixing user + admin endpoints
 
@@ -87,7 +95,6 @@ Content edits that plain text substitution cannot express, implemented in `build
 | `src/backend/mcp_servers/_ports.py` | Port table for the 7 general tools (EE industry-tool and retired ports marked reserved) |
 | `src/frontend/default.conf.template` | CE frontend Nginx template with `/gateway/**` proxying and the litellm upstream removed |
 | `src/frontend/src/main.tsx` | CE entry: mounts only the main app / API docs / share preview — no /admin, no /config |
-| `src/frontend/src/updates.ts` | CE release-notes data |
 | `.claude/skills/hugagent-{backend,frontend}-dev/…` | CE versions of the project dev skills' SKILL.md and references (admin-console / EE router-registration sections stripped) |
 
 > License, Team/RBAC, EE ORM, and Dify implementations all live under `edition_ee/**`. CE supplies no same-name implementation stubs; module discovery for `edition_ee` must report that it is absent.
@@ -110,7 +117,7 @@ personal profile without retaining commercial fields or tool names.
 [1/7] Rename    apply optional path migrations from manifest.renames (currently empty)
 [2/7] Transform manifest.transforms tree-wide text rewrites (binaries skipped; source-code
                 literals from other product lines produce a warning)
-[3/7] Prune     the five pruners in manifest.prunes
+[3/7] Prune     run every pruner declared in manifest.prunes
 [4/7] Overlay   first assert the split files exist in the overlay, then layer the whole tree
                 (skipping __pycache__/pyc)
 [4/7] Forbidden assert zero EE paths, table names, foreign keys, and commercial runtime-source

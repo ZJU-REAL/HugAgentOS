@@ -312,27 +312,6 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
     assert invalidated == [True]
 
 
-def test_ce_bundles_compilable_default_ontology_pack():
-    from core.ontology.schemas import OntologyPackDocument
-    from core.ontology.validator import build_runtime_payload
-
-    pack_path = (
-        Path(__file__).resolve().parents[1]
-        / "configs"
-        / "ontology_packs"
-        / "enterprise_risk_v1.json"
-    )
-    document = OntologyPackDocument.model_validate(
-        json.loads(pack_path.read_text(encoding="utf-8"))
-    )
-
-    runtime = build_runtime_payload([document], "请生成企业风险画像")
-
-    assert runtime["enabled"] is True
-    assert runtime["packs"]
-    assert runtime["asset_tags"] == {"tool": {}, "skill": {}, "subagent": {}}
-
-
 def test_ce_schema_keeps_ontology_control_plane_tables():
     import core.db.models  # noqa: F401  register all model metadata
     from core.db.engine import Base

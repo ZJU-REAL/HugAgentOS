@@ -83,7 +83,7 @@ def build_task_set() -> List[BenchmarkTask]:
         tasks.append(
             BenchmarkTask(
                 task_id=f"report-{i:02d}",
-                prompt=f"生成第 {i + 1} 期新能源汽车产业链周报，需核验企业主体并附可追溯来源",
+                prompt=f"生成第 {i + 1} 期新能源汽车市场周报，需核验关键信息并附可追溯来源",
                 required_tools=("company_verify", "db_query", "chart_render", "doc_export"),
                 ordering_constraint=("company_verify", "db_query"),
                 family="industry_report",

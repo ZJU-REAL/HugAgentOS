@@ -130,7 +130,7 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
         label={t('名称')}
         rules={[{ required: true, message: t('请输入智能体名称') }]}
       >
-        <Input placeholder={t('如：产业链分析师')} maxLength={50} />
+        <Input placeholder={t('如：数据分析师')} maxLength={50} />
       </Form.Item>
 
       <Form.Item name="description" label={t('简介')}>

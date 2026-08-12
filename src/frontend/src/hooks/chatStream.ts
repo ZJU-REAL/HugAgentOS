@@ -4,7 +4,6 @@ import { toFileConfirmInfo, toDesignPickInfo } from '../api';
 import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState } from '../utils/contextUsage';
-import { getIndustryChainNameFromInput } from '../utils/industryChain';
 import {
   appendStreamTextSegment,
   appendThinkingContentBeforeTrailingText,
@@ -41,11 +40,6 @@ function maybeRefreshCatalogAfterTool(toolName: string, status: string): void {
   if (SKILL_LIBRARY_MUTATING_TOOLS.some((n) => name.includes(n))) {
     void useCatalogStore.getState().fetchCatalog();
   }
-}
-
-function canOpenIndustryChainForChat(chatId: string): boolean {
-  return useChatStore.getState().currentChatId === chatId
-    && useCatalogStore.getState().panel === 'chat';
 }
 
 /** Unified handling of the site-design pick-one-of-three SSE event (shared by the live stream
@@ -807,12 +801,10 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           const rawName = getEventToolRawName(eventObj);
           const displayName = getEventToolDisplayName(eventObj);
           let activeToolId = eventToolId;
-          let activeToolName = rawName;
           if (existingIndex >= 0) {
             const existing = toolCalls[existingIndex];
             toolCalls[existingIndex] = { ...existing, name: rawName || existing.name, displayName: displayName || existing.displayName, input: toolInput ?? existing.input, status: 'running' };
             activeToolId = normalizeToolId(toolCalls[existingIndex].id);
-            activeToolName = toolCalls[existingIndex].name;
           } else {
             activeToolId = eventToolId || `tool_${Date.now()}_${toolCalls.length}`;
             toolCalls.push({ id: activeToolId, name: rawName || t('工具调用'), displayName, input: toolInput, status: 'running', timestamp: Date.now() });
@@ -822,14 +814,6 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               deferredThinkingText,
             );
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
-          }
-          if (activeToolName === 'get_chain_information' && canOpenIndustryChainForChat(chatId)) {
-            useCanvasStore.getState().openIndustryChain({
-              chatId,
-              toolId: activeToolId,
-              chainName: getIndustryChainNameFromInput(toolInput),
-              status: 'loading',
-            });
           }
           appendOrUpdate(true);
           return;
@@ -856,26 +840,6 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
           }
           maybeRefreshCatalogAfterTool(confirmToolName, status || 'success');
-          if (confirmToolName === 'get_chain_information' && canOpenIndustryChainForChat(chatId)) {
-            const completedTool = toolIndex >= 0 ? toolCalls[toolIndex] : toolCalls[toolCalls.length - 1];
-            const toolId = normalizeToolId(completedTool?.id);
-            const canvas = useCanvasStore.getState();
-            const patch = {
-              chatId,
-              toolId,
-              chainName: getIndustryChainNameFromInput(completedTool?.input),
-              status,
-              output: output ?? completedTool?.output,
-              ...(status === 'error'
-                ? { error: String(eventObj.error || t('产业链分析失败')) }
-                : { error: undefined }),
-            } as const;
-            const targetMatches = canvas.activeView === 'industry_chain'
-              && canvas.industryChainTarget?.chatId === chatId
-              && (!canvas.industryChainTarget.toolId || canvas.industryChainTarget.toolId === toolId);
-            if (targetMatches) canvas.updateIndustryChain(patch);
-            else canvas.openIndustryChain(patch);
-          }
           // Arrival of choose_design's tool_result = the pick is complete (clicked/skipped/
           // timed out). Whether this stream is live or a replay (replay re-emits design_pick
           // events, but the pick result only shows up in this tool_result), dismiss the pick

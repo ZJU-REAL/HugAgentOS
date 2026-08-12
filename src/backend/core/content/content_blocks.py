@@ -192,13 +192,6 @@ DEFAULT_HOMEPAGE_SHORTCUTS: list[dict[str, Any]] = [
         "icon": "/home/company-research.svg",
         "url": "",
     },
-    {
-        "id": "portrait",
-        "enabled": True,
-        "label": "企业画像",
-        "icon": "/home/company-profile.svg",
-        "url": "",
-    },
     {"id": "policy", "enabled": True, "label": "政策对比", "icon": "/home/icon3.svg", "url": ""},
     {"id": "compare", "enabled": True, "label": "材料对比", "icon": "/home/icon1.svg", "url": ""},
     {"id": "data", "enabled": True, "label": "数据分析", "icon": "/home/icon2.svg", "url": ""},
