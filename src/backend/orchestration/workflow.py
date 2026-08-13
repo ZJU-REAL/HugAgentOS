@@ -116,6 +116,40 @@ def _extract_skill_id_from_path(path: str) -> str:
     return ""
 
 
+def _synthesize_missing_tool_call(
+    tool_id: str, tool_name: str, displayed_tools: set
+) -> Optional[Dict[str, Any]]:
+    """Build the ``tool_call`` event a tool never got, or ``None`` if it already has one.
+
+    ``_tool_args_ready`` holds back the tool card while streamed args are still
+    incomplete, but it cannot tell "not written yet" from "there is nothing to
+    write": a zero-argument tool (``get_latest_ai_news`` and friends) keeps
+    empty args forever, so its card is suppressed for the whole run. Without a
+    card the frontend has nothing to attach the result to and — with tools
+    running in parallel — binds it onto whichever sibling is still running,
+    making the call vanish from the tool list and briefly corrupting the
+    sibling's output. Emitting the missing call right before its result keeps
+    every executed tool visible, in order.
+
+    The caller must pass the already-resolved (post skill-load override) tool
+    name, and must have skipped tools that intentionally render no card.
+    """
+    if not tool_id or tool_id in displayed_tools:
+        return None
+    displayed_tools.add(tool_id)
+    display_name = (
+        "加载技能" if tool_name == "load_skill" else TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
+    )
+    return {
+        "type": "tool_call",
+        "tool_name": tool_name,
+        "tool_display_name": display_name,
+        "tool_args": {},
+        "input": {},
+        "tool_id": tool_id,
+    }
+
+
 def _ontology_review_event_context(runtime: Dict[str, Any]) -> Dict[str, Any]:
     committee_size = max(
         (int(pack.get("config", {}).get("committee_size", 3)) for pack in runtime.get("packs", [])),
@@ -1670,6 +1704,21 @@ async def _astream_subagent_direct(
                         tool_name = "load_skill"
                     else:
                         _direct_tool_count += 1
+
+                    _missing_call = _synthesize_missing_tool_call(
+                        tool_id, tool_name, displayed_tools
+                    )
+                    if _missing_call is not None:
+                        _ontology_trace.append(
+                            {
+                                "type": "tool_call",
+                                "tool_id": tool_id,
+                                "tool_name": tool_name,
+                                "input": {},
+                            }
+                        )
+                        yield _missing_call
+
                     tool_content = payload.get("content", "")
 
                     try:
@@ -2615,6 +2664,21 @@ async def astream_chat_workflow(
                     )
                     if is_skill_result:
                         tool_name = "load_skill"
+
+                    _missing_call = _synthesize_missing_tool_call(
+                        tool_id, tool_name, displayed_tools
+                    )
+                    if _missing_call is not None:
+                        _ontology_trace.append(
+                            {
+                                "type": "tool_call",
+                                "tool_id": tool_id,
+                                "tool_name": tool_name,
+                                "input": {},
+                            }
+                        )
+                        yield _missing_call
+
                     tool_content = payload.get("content", "")
 
                     # Parse tool result

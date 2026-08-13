@@ -447,8 +447,16 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       if (directIndex >= 0) return directIndex;
     }
     const eventToolName = getEventToolRawName(obj);
-    const byNameIndex = findLastRunningToolIndex(eventToolName);
-    if (byNameIndex >= 0) return byNameIndex;
+    if (eventToolName) {
+      const byNameIndex = findLastRunningToolIndex(eventToolName);
+      if (byNameIndex >= 0) return byNameIndex;
+    }
+    // Last resort — bind to whatever is still running — only for events that
+    // carry no tool_id at all. An id that matched nothing means the result
+    // belongs to a card we never created (a tool_call event we never got); with
+    // tools running in parallel, grabbing an unrelated running card would file
+    // this output under the wrong tool and hide the real call entirely.
+    if (eventToolId) return -1;
     return findLastRunningToolIndex();
   };
 
