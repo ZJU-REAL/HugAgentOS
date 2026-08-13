@@ -8,6 +8,7 @@ import {
   appendStreamTextSegment,
   appendThinkingContentBeforeTrailingText,
   deferThinkingTextFragmentBeforeTool,
+  liftTrailingSegmentsAboveFinalText,
   restoreDeferredThinkingTextFragment,
   type DeferredThinkingTextFragment,
 } from '../utils/streamSegments';
@@ -609,6 +610,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     }
     reclassifyImplicitThinking();
     deferredThinkingText = restoreDeferredThinkingTextFragment(segments, deferredThinkingText);
+    // 冻结气泡前收尾：工具卡/思考块不留在最终答案之后（与历史重建同一规则）
+    liftTrailingSegmentsAboveFinalText(segments);
 
     const previousAssistantMessageId = typeof eventObj.previous_assistant_message_id === 'string'
       ? eventObj.previous_assistant_message_id
@@ -1419,6 +1422,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   // 兜底：老后端/回放流没有首轮协议标记时，流结束仍无任何 think 标签 → 重归类
   reclassifyImplicitThinking();
   deferredThinkingText = restoreDeferredThinkingTextFragment(segments, deferredThinkingText);
+  // 收尾统一规则：工具卡/思考块不留在最终答案之后（与历史重建一致，刷新前后不跳变）
+  liftTrailingSegmentsAboveFinalText(segments);
   const isMd = /\n|```|\*\*|^\s*#\s/m.test(full);
   useChatStore.getState().updateStore((prev) => {
     const c = prev.chats[chatId];

@@ -143,10 +143,9 @@ function tool(toolIndex: number): MessageSegment {
 }
 
 {
-  // Persisted offsets are not a valid rendering coordinate: backend content
-  // includes reasoning markup and the live UI may merge streamed fragments.
-  // History must keep the visible answer as one Markdown block instead of
-  // splitting it around every tool call.
+  // Without persisted offsets (legacy history), there is no reliable cut
+  // point, so the fallback keeps the visible answer as one Markdown block
+  // instead of guessing splits around every tool call.
   const phases = [
     '我来',
     '帮你查找最新的自进化相关文章。首先让我确认一下当前可访问的项目。',
@@ -167,6 +166,88 @@ function tool(toolIndex: number): MessageSegment {
     'tool', 'tool', 'tool', 'tool', 'tool', 'text',
   ]);
   assert.equal(segments?.at(-1)?.content, content);
+}
+
+{
+  // With persisted contentOffset, history restores the original streaming
+  // interleave: text ↔ tool cards in chronological order, thinking blocks
+  // split inside each slice.
+  const content = '<think>先想</think>先查一下。<think>再想</think>查到了，继续。最终结论。';
+  const off0 = content.indexOf('<think>再想');
+  const off1 = content.indexOf('最终结论。');
+  const toolCalls = [
+    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: off0 },
+    { id: 'tool-1', name: 'demo', status: 'success' as const, contentOffset: off1 },
+  ];
+  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  assert.deepEqual(segments, [
+    { type: 'thinking', content: '先想' },
+    { type: 'text', content: '先查一下。' },
+    tool(0),
+    { type: 'thinking', content: '再想' },
+    { type: 'text', content: '查到了，继续。' },
+    tool(1),
+    { type: 'text', content: '最终结论。' },
+  ]);
+  assert.equal(cleanContent, '最终结论。');
+}
+
+{
+  // Offset path mirrors the live defer rule: a single Han character stranded
+  // right before a tool card is merged into the narration after it, so the
+  // refreshed history matches what the live stream rendered.
+  const content = '第一步完成。数仓确认无误，输出结果。';
+  const toolCalls = [
+    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: '第一步完成。'.length },
+    { id: 'tool-1', name: 'demo', status: 'success' as const, contentOffset: '第一步完成。数'.length },
+  ];
+  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  assert.deepEqual(segments, [
+    { type: 'text', content: '第一步完成。' },
+    tool(0),
+    tool(1),
+    { type: 'text', content: '数仓确认无误，输出结果。' },
+  ]);
+  assert.equal(cleanContent, '数仓确认无误，输出结果。');
+}
+
+{
+  // Real-world corruption from structured reasoning: the tail of a thinking
+  // sentence ("。") arrives after the first answer token and was persisted as
+  // `答<think>。</think>案` — a think block puncturing the visible sentence.
+  // History rebuild must mirror the live merge rule: fold the late tail into
+  // the previous thinking block and rejoin the sentence seamlessly.
+  const content = '<think>整理今日资讯</think>内部<think>。</think>产业资讯数据源今日暂时无法返回。';
+  const toolCalls = [
+    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: 0 },
+  ];
+  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  assert.deepEqual(segments, [
+    tool(0),
+    { type: 'thinking', content: '整理今日资讯。' },
+    { type: 'text', content: '内部产业资讯数据源今日暂时无法返回。' },
+  ]);
+  assert.equal(cleanContent, '内部产业资讯数据源今日暂时无法返回。');
+}
+
+{
+  // Artifact pseudo-cards (appended from metadata.artifacts without offsets)
+  // must not knock the whole message back to the stacked fallback — they sort
+  // to the end while real tool calls keep their recorded interleave.
+  const content = '先查询。查询完成，结论如下。';
+  const toolCalls = [
+    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: '先查询。'.length },
+    { id: 'artifact_f1', name: '附件', status: 'success' as const },
+  ];
+  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  // 工具/附件卡不允许落在正文末尾之后：排尾的附件卡挪到最终答案上方
+  assert.deepEqual(segments, [
+    { type: 'text', content: '先查询。' },
+    tool(0),
+    tool(1),
+    { type: 'text', content: '查询完成，结论如下。' },
+  ]);
+  assert.equal(cleanContent, '查询完成，结论如下。');
 }
 
 {

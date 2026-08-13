@@ -7,6 +7,9 @@ export interface DeferredThinkingTextFragment {
 
 const SINGLE_HAN_CHARACTER = /^\p{Script=Han}$/u;
 
+/** 是否是「单个汉字」碎片——流式 defer 与历史重建共用同一判定。 */
+export const isSingleHanCharacter = (text: string): boolean => SINGLE_HAN_CHARACTER.test(text);
+
 /**
  * Thinking-capable models occasionally emit the first character of their next
  * sentence in the same model round as a tool call. When that happens between
@@ -80,6 +83,18 @@ export function appendThinkingContentBeforeTrailingText(
     content: (thinking.content || '') + content,
   };
   return true;
+}
+
+/**
+ * 硬规则：工具卡/思考块不允许落在最终答案之后。把最后一个文本段之后的段
+ * 整体挪到它前面（保持相对顺序）。流收尾与历史重建共用，保证刷新前后一致。
+ */
+export function liftTrailingSegmentsAboveFinalText(segments: MessageSegment[]): void {
+  const lastTextIdx = segments.map((s) => s.type).lastIndexOf('text');
+  if (lastTextIdx !== -1 && lastTextIdx < segments.length - 1) {
+    const trailing = segments.splice(lastTextIdx + 1);
+    segments.splice(lastTextIdx, 0, ...trailing);
+  }
 }
 
 /** Restore a held fragment at its original position if no later body arrived. */

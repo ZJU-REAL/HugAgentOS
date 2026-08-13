@@ -180,6 +180,11 @@ export interface ToolCall {
   subSteps?: SubagentStep[];
   subagentName?: string;
   scope?: 'ontology_revision' | string;
+  /**
+   * 该工具卡片出现时，持久化正文（含 <think> 标记）的累计字符偏移。
+   * 历史重建按此偏移把「文本 ↔ 工具卡片」按流式原顺序交错还原。
+   */
+  contentOffset?: number;
 }
 
 /** §13 MySpace write confirmation decision (literal counterparts of the backend's _myspace_confirm.DECISION_*). */

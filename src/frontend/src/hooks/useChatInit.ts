@@ -61,6 +61,9 @@ function parseHistoryMessage(m: any): ChatMessage {
           ? { subagentName: tc.subagent_name ?? tc.subagentName }
           : {}),
         ...(typeof tc.scope === 'string' ? { scope: tc.scope } : {}),
+        ...(typeof (tc.content_offset ?? tc.contentOffset) === 'number'
+          ? { contentOffset: (tc.content_offset ?? tc.contentOffset) }
+          : {}),
       }))
     : undefined;
   const revisionToolCalls = allToolCalls?.filter((tool) => tool.scope === 'ontology_revision') ?? [];

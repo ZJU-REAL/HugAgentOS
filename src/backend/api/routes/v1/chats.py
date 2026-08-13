@@ -1317,9 +1317,25 @@ async def _stream_sse_response(
 
         def _flush_thinking() -> None:
             nonlocal full_response
-            if _thinking_parts:
-                full_response += "<think>" + "".join(_thinking_parts) + "</think>"
-                _thinking_parts.clear()
+            if not _thinking_parts:
+                return
+            block = "".join(_thinking_parts)
+            _thinking_parts.clear()
+            close = "</think>"
+            last_close = full_response.rfind(close)
+            # 结构化 reasoning 的尾部增量可能在正文已开始后才到达（正文首 token
+            # 已出、思考收尾的"。"后到）。实时侧把它并回前一个思考块
+            # （appendThinkingContentBeforeTrailingText），落库遵循同一规则——
+            # 否则 <think> 块会把正文句子从中间切开，刷新后与实时展示不一致。
+            if last_close != -1 and full_response[last_close + len(close):].strip():
+                full_response = full_response[:last_close] + block + full_response[last_close:]
+                # 中段插入使其后的坐标整体右移，已记录的 content_offset 同步平移
+                for _tc in tool_calls_log:
+                    off = _tc.get("content_offset")
+                    if isinstance(off, int) and off > last_close:
+                        _tc["content_offset"] = off + len(block)
+                return
+            full_response += "<think>" + block + close
         # Per-run workspace state — pin_to_workspace tool reads/writes this.
         _workspace_mod.init_state()
 
@@ -1343,11 +1359,20 @@ async def _stream_sse_response(
             elif chunk_type == "content_replace":
                 _thinking_parts.clear()
                 full_response = str(chunk.get("content") or "")
+                # 整体替换后，先前记录的 content_offset 指向旧草稿坐标系，
+                # 已无意义——清掉，让历史重建走「合并正文」兜底而不是错切。
+                for _tc in tool_calls_log:
+                    _tc.pop("content_offset", None)
                 event = {**chunk, "chat_id": chat_id}
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call":
                 _flush_thinking()
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
+                # 记录该工具卡片出现时正文的累计长度（含 <think> 标记，与持久化
+                # content 同一坐标系）：历史重建按此偏移把「文本 ↔ 工具卡片」按
+                # 流式原顺序交错（问题15：刷新后内容与实时不一致）。
+                for _tc in tool_calls_log:
+                    _tc.setdefault("content_offset", len(full_response))
                 yield f"data: {json.dumps(_tc_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call_start":
                 _flush_thinking()
@@ -1358,6 +1383,11 @@ async def _stream_sse_response(
                 yield f"data: {json.dumps(_td_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_result":
                 _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
+                # attach_tool_result 可能刚补录了一个没有 tool_call 事件的条目：
+                # 此刻就补记 offset，否则它要等下一个 tool_call 才拿到（晚一个
+                # 叙述段），最后一个工具则永远缺失 → 整条消息退化成堆叠展示。
+                for _tc in tool_calls_log:
+                    _tc.setdefault("content_offset", len(full_response))
                 yield f"data: {json.dumps(_tr_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "heartbeat":
                 yield ": heartbeat\n\n"
