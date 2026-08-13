@@ -174,6 +174,9 @@ async def _make_judge_agent(model_name: Optional[str], user_id: str):
         enabled_skill_ids=[],  # Required; otherwise the all-skills fallback lets the pure-text agent run tools
         chat_mode="fast",
         model_name=model_name,
+        # 与评审员/规划器同一个后台可配角色（模型管理 → 自主循环评审与规划）；
+        # 未配置时回落 main_agent。
+        model_role="loop_reviewer",
         current_user_id=user_id,
     )
     return agent, clients

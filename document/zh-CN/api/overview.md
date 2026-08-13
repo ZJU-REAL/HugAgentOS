@@ -109,9 +109,11 @@ curl -N http://localhost:3000/api/v1/chats/stream \
 | `run_started` | 流的第一帧 | `run_id`（用于续播/取消）、`message_id`、`chat_id` |
 | `thinking` | 推理/思考阶段 | `message`（阶段提示）或 `delta`（思考增量文本） |
 | `content` | 正文文本增量 | `event: "ai_message"`、`delta`、`chat_id` |
-| `tool_call` | Agent 发起工具调用 | `tool_name`、`tool_display_name`、`tool_args`、`tool_id`、`subagent_name?` |
+| `tool_call_start` | 模型开始构造工具调用 | `tool_name`、`tool_display_name`、`tool_id` |
+| `tool_call_delta` | 工具参数 JSON 增量（后端合批后下发） | `tool_name`、`tool_id`、`arguments_delta` |
+| `tool_call` | 参数完整、即将执行工具 | `tool_name`、`tool_display_name`、`tool_args`、`tool_id`、`subagent_name?` |
 | `tool_result` | 工具返回结果 | `tool_name`、`result`（JSON）、`tool_id`、`citations`（引用项列表） |
-| `tool_pending` | 模型缓冲工具参数/调用启动间隙 | `reason`（如 `tool_call_start` / `llm_buffering`） |
+| `tool_pending` | 提供商未暴露可解析增量时的等待兜底 | `reason`（如 `llm_buffering`） |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | `confirm_id`、`op`、`logical_path`、`message`、`expired`；流不结束，用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后续跑 |
 | `batch_confirm` | 批量执行计划等待用户确认 | `plan_id`、`total`、`preview`、`default_template`、`placeholder_keys`；确认走 `POST /v1/batch/{plan_id}/confirm` |
 | `meta` | 回答结束的收尾帧 | `route`、`sources`、`artifacts`、`citations`、`warnings`、`is_markdown`、`message_id`、`workspace_files` |
@@ -123,6 +125,12 @@ curl -N http://localhost:3000/api/v1/chats/stream \
 data: {"type": "run_started", "run_id": "run_9f8e7d", "message_id": "msg_001", "chat_id": "chat_abc123"}
 
 data: {"type": "thinking", "message": "正在分析您的问题...", "chat_id": "chat_abc123"}
+
+data: {"type": "tool_call_start", "tool_name": "internet_search", "tool_display_name": "联网搜索", "tool_id": "call_01", "chat_id": "chat_abc123"}
+
+data: {"type": "tool_call_delta", "tool_name": "internet_search", "tool_id": "call_01", "arguments_delta": "{\"query\":\"北京 ", "chat_id": "chat_abc123"}
+
+data: {"type": "tool_call_delta", "tool_name": "internet_search", "tool_id": "call_01", "arguments_delta": "今天 天气\"}", "chat_id": "chat_abc123"}
 
 data: {"type": "tool_call", "tool_name": "internet_search", "tool_display_name": "联网搜索", "tool_args": {"query": "北京 今天 天气"}, "tool_id": "call_01", "chat_id": "chat_abc123"}
 

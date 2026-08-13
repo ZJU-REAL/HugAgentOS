@@ -1,7 +1,7 @@
 """Lock the SSE event-builder output shared by the chat route and the
 background run executor (core.chat.tool_log).
 
-These three builders were extracted from the two near-identical SSE loops in
+These builders are shared by the two near-identical SSE loops in
 ``api/routes/v1/chats.py`` and ``orchestration/chat_run_executor.py``. The
 tests pin the exact event dicts + log side-effects so the two call sites stay
 byte-identical and a future change can't silently diverge them.
@@ -9,7 +9,9 @@ byte-identical and a future change can't silently diverge them.
 
 from core.chat.tool_log import (
     build_thinking_event,
+    build_tool_call_delta_event,
     build_tool_call_event,
+    build_tool_call_start_event,
     build_tool_result_event,
 )
 
@@ -28,6 +30,40 @@ def test_thinking_event_message_fallback():
         "type": "thinking",
         "chat_id": "c1",
         "message": "正在思考...",
+    }
+
+
+def test_tool_call_start_and_delta_are_transient_wire_events():
+    start = build_tool_call_start_event(
+        {
+            "tool_name": "bash",
+            "tool_display_name": "Bash",
+            "tool_id": "t1",
+        },
+        "c1",
+    )
+    assert start == {
+        "type": "tool_call_start",
+        "tool_name": "bash",
+        "tool_display_name": "Bash",
+        "tool_id": "t1",
+        "chat_id": "c1",
+    }
+
+    delta = build_tool_call_delta_event(
+        {
+            "tool_name": "bash",
+            "tool_id": "t1",
+            "arguments_delta": '{"command":"ec',
+        },
+        "c1",
+    )
+    assert delta == {
+        "type": "tool_call_delta",
+        "tool_name": "bash",
+        "tool_id": "t1",
+        "arguments_delta": '{"command":"ec',
+        "chat_id": "c1",
     }
 
 

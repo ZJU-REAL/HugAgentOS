@@ -3,6 +3,7 @@ import { t } from '../i18n';
 import { createLoop, startLoop, resumeLoop } from '../api';
 import { useChatStore } from '../stores';
 import { isThinkingMode } from '../stores/chatStore';
+import { useModelCapabilitiesStore } from '../stores/modelCapabilitiesStore';
 import { useLoopStore } from '../stores/loopStore';
 import type { LoopPlanReq } from '../stores/loopStore';
 import { processChatStream } from './chatStream';
@@ -141,7 +142,16 @@ export async function sendLoopMode(
     // boolean — the backend sets reasoning_effort accordingly.
     const chatMode = useChatStore.getState().chatMode;
     const enableThinking = isThinkingMode(chatMode);
-    const resp = await startLoop(loop.loop_id, { enable_thinking: enableThinking, chat_mode: chatMode }, ac.signal);
+    // worker 模型跟随用户在会话里选定的模型（与普通聊天同源），不再永远默认模型
+    const modelCaps = useModelCapabilitiesStore.getState();
+    const selectedModelProviderId = modelCaps.capabilities.user_model_switch_enabled
+      ? modelCaps.selectedModelProviderId
+      : null;
+    const resp = await startLoop(loop.loop_id, {
+      enable_thinking: enableThinking,
+      chat_mode: chatMode,
+      ...(selectedModelProviderId ? { model_provider_id: selectedModelProviderId } : {}),
+    }, ac.signal);
     if (!resp.ok) throw new Error(t('循环启动失败: {status}', { status: resp.status }));
     const outcome = await processLoopStream(resp, currentChatId, enableThinking);
     // The unified stream processor digests AbortError into a normal wrap-up (the bubble is
@@ -190,7 +200,15 @@ export async function continueLoop(
   try {
     const chatMode = useChatStore.getState().chatMode;
     const enableThinking = isThinkingMode(chatMode);
-    const resp = await resumeLoop(loopId, { enable_thinking: enableThinking, chat_mode: chatMode }, ac.signal);
+    const modelCaps = useModelCapabilitiesStore.getState();
+    const selectedModelProviderId = modelCaps.capabilities.user_model_switch_enabled
+      ? modelCaps.selectedModelProviderId
+      : null;
+    const resp = await resumeLoop(loopId, {
+      enable_thinking: enableThinking,
+      chat_mode: chatMode,
+      ...(selectedModelProviderId ? { model_provider_id: selectedModelProviderId } : {}),
+    }, ac.signal);
     if (!resp.ok) throw new Error(t('循环启动失败: {status}', { status: resp.status }));
     const outcome = await processLoopStream(resp, targetId, enableThinking);
     if (outcome.aborted) useLoopStore.getState().finishLivePlan('cancelled');

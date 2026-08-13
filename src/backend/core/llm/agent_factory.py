@@ -478,6 +478,10 @@ async def create_agent_executor(
     isolated: bool = False,
     max_iters: Optional[int] = None,
     plan_mode: bool = False,
+    # model_role: 指定按「模型管理 → 角色分配」的哪个角色解析默认模型（如
+    # "loop_reviewer"）。优先级低于用户显式选择的 model_provider_id/model_name，
+    # 高于 main_agent 兜底；plan_mode=True 等价于 model_role="plan_agent"。
+    model_role: Optional[str] = None,
     batch_mode: bool = False,
     # top_level_chat: whether this construction is a "top-level interactive main
     # conversation capable of hosting plan mode" — astream_chat_workflow passes
@@ -571,6 +575,8 @@ async def create_agent_executor(
         from core.services.system_config import (
             turbo_manual_invoke_enabled,
             turbo_mcp_server_ids,
+            turbo_plugin_ids,
+            turbo_skill_ids,
         )
 
         if not turbo_manual_invoke_enabled():
@@ -578,11 +584,30 @@ async def create_agent_executor(
             turbo_explicit_skill_ids = None
             turbo_explicit_mcp_ids = None
             visible_subagents = None
-        # Only explicitly summoned skills survive; without a summon the agent
-        # carries no skills at all (and no skill list enters the prompt).
-        enabled_skill_ids = [
-            s for s in (turbo_explicit_skill_ids or []) if isinstance(s, str) and s.strip()
-        ]
+        # Admin-configured turbo plugins, expanded into their component skills +
+        # MCPs. A plugin is the installable/removable unit — some capabilities
+        # (e.g. a crawler, a ticket system) ship only as a plugin and have no
+        # loose MCP row to pick, so without this they were unreachable in turbo.
+        turbo_plugin_skill_ids, turbo_plugin_mcp_ids = _expand_plugin_bindings(
+            list(turbo_plugin_ids())
+        )
+        # Skills in turbo = admin-configured set (turbo.skill_ids + those bundled
+        # with a configured plugin) + the ones explicitly summoned this turn.
+        # With none of the three the agent carries no skills at all (and no skill
+        # list enters the prompt) — the original quick-lookup contract.
+        enabled_skill_ids = list(
+            dict.fromkeys(
+                [
+                    *turbo_skill_ids(),
+                    *[s for s in turbo_plugin_skill_ids if isinstance(s, str) and s.strip()],
+                    *[
+                        s
+                        for s in (turbo_explicit_skill_ids or [])
+                        if isinstance(s, str) and s.strip()
+                    ],
+                ]
+            )
+        )
         top_level_chat = False
         read_only = True
         allow_bash = False
@@ -594,6 +619,7 @@ async def create_agent_executor(
             dict.fromkeys(
                 [
                     *sorted(turbo_mcp_server_ids()),
+                    *[m for m in turbo_plugin_mcp_ids if isinstance(m, str) and m.strip()],
                     *[
                         m
                         for m in (turbo_explicit_mcp_ids or [])
@@ -1539,7 +1565,7 @@ async def create_agent_executor(
                 )
         except Exception as exc:
             _log.warning("[factory] selected model resolve failed: %s, falling back", exc)
-    _mode_role = "plan_agent" if plan_mode else None
+    _mode_role = model_role or ("plan_agent" if plan_mode else None)
     if default_model is None and _mode_role:
         try:
             from core.services.model_config import ModelConfigService

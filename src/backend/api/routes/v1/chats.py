@@ -58,7 +58,9 @@ router = APIRouter(prefix="/v1/chats", tags=["Sessions"])
 # the route handlers below stay unchanged.
 from core.chat.tool_log import (  # noqa: E402
     build_thinking_event,
+    build_tool_call_delta_event,
     build_tool_call_event,
+    build_tool_call_start_event,
     build_tool_result_event,
 )
 from core.services.artifact_service import persist_artifacts as _persist_artifacts  # noqa: E402
@@ -1351,6 +1353,13 @@ async def _stream_sse_response(
                 for _tc in tool_calls_log:
                     _tc.setdefault("content_offset", len(full_response))
                 yield f"data: {json.dumps(_tc_evt, ensure_ascii=False)}\n\n"
+            elif chunk_type == "tool_call_start":
+                _flush_thinking()
+                _ts_evt = build_tool_call_start_event(chunk, chat_id)
+                yield f"data: {json.dumps(_ts_evt, ensure_ascii=False)}\n\n"
+            elif chunk_type == "tool_call_delta":
+                _td_evt = build_tool_call_delta_event(chunk, chat_id)
+                yield f"data: {json.dumps(_td_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_result":
                 _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
                 yield f"data: {json.dumps(_tr_evt, ensure_ascii=False)}\n\n"

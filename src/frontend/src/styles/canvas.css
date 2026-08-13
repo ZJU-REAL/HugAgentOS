@@ -6,6 +6,29 @@
   width: 58%;
 }
 
+.jx-canvasPanelSlot {
+  min-width: 0;
+  border-left: 1px solid rgba(15, 23, 42, .08);
+  background: #fff;
+}
+
+.jx-appMainLayout.is-canvasFullscreen .jx-canvasPanelSlot {
+  width: 100% !important;
+  max-width: none !important;
+  flex: 1 1 100% !important;
+}
+
+.jx-appMainLayout.is-canvasFullscreen .jx-canvasPanelSlot > .jx-canvas,
+.jx-appMainLayout.is-canvasFullscreen .jx-canvasPanelSlot > .jx-rightSidebar {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+.jx-appMainLayout.is-canvasFullscreen .jx-canvas-dragHandle {
+  display: none;
+}
+
 .jx-rightSidebarSlot > .jx-rightSidebar {
   width: 100%;
   max-width: none;
@@ -20,9 +43,136 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid var(--color-border);
+  border-left: 0;
   background: var(--bg);
   box-shadow: none;
+}
+
+/* ── Browser-style workspace tabs ── */
+.jx-canvasTabs {
+  display: flex;
+  min-height: 48px;
+  padding: 8px 10px;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(15, 23, 42, .08);
+  background: rgba(255, 255, 255, .98);
+}
+
+.jx-canvasTab {
+  display: flex;
+  width: clamp(132px, 34%, 220px);
+  min-width: 0;
+  height: 32px;
+  padding: 0 6px 0 10px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, .055);
+  color: var(--color-text-secondary);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .025);
+}
+
+.jx-canvasTab:focus-visible {
+  outline: 2px solid var(--color-primary-disabled);
+  outline-offset: 1px;
+}
+
+.jx-canvasTab-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  font-size: 14px;
+}
+
+.jx-canvasTab-icon img {
+  width: 17px;
+  height: 17px;
+}
+
+.jx-canvasTab-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-canvasTab-close {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.jx-canvasTab-close:hover,
+.jx-canvasTab-close:focus-visible {
+  outline: none;
+  background: var(--color-bg-gray);
+  color: var(--color-text);
+}
+
+.jx-canvasTab-close:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-primary-disabled);
+}
+
+.jx-canvasTabs-spacer {
+  min-width: 8px;
+  height: 100%;
+  flex: 1;
+}
+
+.jx-canvasTabs-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.jx-canvasTabs-action {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.jx-canvasTabs-action:hover,
+.jx-canvasTabs-action:focus-visible {
+  outline: none;
+  background: var(--color-bg-gray);
+  color: var(--color-text);
+}
+
+.jx-canvasTabs-action:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-primary-disabled);
 }
 
 .jx-rightSidebar-body {
@@ -158,7 +308,7 @@
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-left: 1px solid rgba(15, 23, 42, .07);
+  border-left: 0;
   box-shadow: -4px 0 24px rgba(18, 109, 255, .05);
   overflow: hidden;
   /* 入场/出场由 App.tsx 的 motion SlidePanel 接管（CSS 入场动画已删，避免双播）。
@@ -190,11 +340,6 @@
 /* docx: A4 page width + comfortable margin */
 .jx-canvas--docx {
   width: 900px;
-}
-
-.jx-canvas--expanded {
-  width: 80vw;
-  min-width: 680px;
 }
 
 /* ── 内容加载完成淡入（docx / text 等渲染器就绪时） ── */
@@ -244,7 +389,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 6px 14px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(15, 23, 42, .06);
   background: rgba(255, 255, 255, .92);
@@ -260,8 +405,8 @@
 }
 
 .jx-canvas-fileIcon {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -270,9 +415,9 @@
 
 .jx-canvas-fileMeta {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   min-width: 0;
-  gap: 1px;
+  flex: 1;
 }
 
 .jx-canvas-fileName {
@@ -283,13 +428,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.3;
-}
-
-.jx-canvas-fileSize {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  font-family: var(--font-family-number);
-  line-height: 1.2;
 }
 
 /* ── Header actions ── */

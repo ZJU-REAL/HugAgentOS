@@ -107,6 +107,7 @@ export default function App() {
     refreshDeploymentMode();
   }, [refreshDeploymentMode]);
   const canvasOpen = useCanvasStore((s) => s.isOpen);
+  const canvasFullscreen = useCanvasStore((s) => s.isFullscreen);
   const rightSidebarView = useCanvasStore((s) => s.activeView);
   const closeCanvas = useCanvasStore((s) => s.closeCanvas);
   const openRightSidebar = useCanvasStore((s) => s.openSidebar);
@@ -689,7 +690,8 @@ export default function App() {
         onSelectSearchResult={handleSelectSearchResult}
       />
 
-      <Layout className="jx-appMainLayout" style={{ overflow: 'hidden', background: '#ffffff' }}>
+      <Layout className={`jx-appMainLayout${canvasFullscreen ? ' is-canvasFullscreen' : ''}`} style={{ overflow: 'hidden', background: '#ffffff' }}>
+        <div className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}`}>
         {!showChatHeader && (
           <header className="jx-mobileHeader">
             <button
@@ -702,15 +704,15 @@ export default function App() {
             </button>
           </header>
         )}
-        {panel === 'chat' && !isEmptyChat && (
-          <Tooltip title={canvasOpen ? t('收起右侧面板') : t('展开右侧面板')} placement="bottomRight">
+        {panel === 'chat' && !isEmptyChat && !canvasOpen && (
+          <Tooltip title={t('展开右侧面板')} placement="bottomRight">
             <Button
               type="text"
-              className={`jx-rightSidebarToggle${canvasOpen ? ' is-open' : ''}`}
+              className="jx-rightSidebarToggle"
               icon={<InsertRowRightOutlined />}
               onClick={handleRightSidebarToggle}
-              aria-label={canvasOpen ? t('收起右侧面板') : t('展开右侧面板')}
-              aria-pressed={canvasOpen}
+              aria-label={t('展开右侧面板')}
+              aria-pressed="false"
             />
           </Tooltip>
         )}
@@ -840,16 +842,6 @@ export default function App() {
           <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && (panel === 'chat' || panel === 'project_detail')} panelKey="prompt-hub">
             <PromptHubPanel />
           </SlidePanel>
-          <SlidePanel
-            show={canvasOpen}
-            panelKey="canvas"
-            className={rightSidebarView === 'file' ? undefined : 'jx-rightSidebarSlot'}
-            x={30}
-            duration={0.28}
-          >
-            <RightSidebarPanel />
-          </SlidePanel>
-
           {/* Automation run timeline — persistent panel (not mutually exclusive with SlidePanels).
             * During exit store.activeGroup is already null; RunTimelinePanel falls back to a
             * snapshot internally to render the last frame. */}
@@ -857,6 +849,17 @@ export default function App() {
             <RunTimelinePanel />
           </SlidePanel>
         </div>
+        </div>
+
+        <SlidePanel
+          show={canvasOpen}
+          panelKey="canvas"
+          className={`jx-canvasPanelSlot${rightSidebarView === 'file' ? '' : ' jx-rightSidebarSlot'}${canvasFullscreen ? ' is-fullscreen' : ''}`}
+          x={30}
+          duration={0.28}
+        >
+          <RightSidebarPanel />
+        </SlidePanel>
       </Layout>
 
       {/* Global modals */}

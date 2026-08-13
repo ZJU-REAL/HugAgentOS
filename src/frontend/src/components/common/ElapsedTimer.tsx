@@ -16,8 +16,7 @@ function fmt(totalSec: number): string {
 /**
  * Live "elapsed since startTs" counter, formatted M:SS, ticking every second.
  * Used to give the user a sense of progress while the model/tool is working
- * (the underlying model does not stream tool arguments, so there is no
- * finer-grained signal available).
+ * alongside any available argument or result deltas.
  */
 export function ElapsedTimer({ startTs, className }: ElapsedTimerProps) {
   const [now, setNow] = useState(() => Date.now());

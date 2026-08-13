@@ -1,7 +1,8 @@
-"""Unit tests for Yida (yida / openyida CLI) plugin integration: settings switch, login-state
-persistent-volume degradation, path rules, marketplace plugin installability, SKILL.md host-adaptation
-regression pins. No dependency on real Yida / a real sandbox — QR-scan login and CLI orchestration
-are in-conversation behaviors, left for verification on a real machine."""
+"""Shared Yida plugin, connection service, path, and SKILL.md regression tests.
+
+No dependency on real Yida or a real sandbox. EE persistent-sandbox state tests
+live in ``tests/sandbox/test_yida_ee_persistence.py``.
+"""
 
 import pytest
 from sqlalchemy import create_engine
@@ -31,19 +32,6 @@ def test_settings_yida_arch_flag():
     assert settings.sandbox.yida_creds_bind_mount_enabled is True
 
 
-# ── Login-state volume degradation ──────────────────────────────────────
-def test_yida_volume_degrades_without_host_storage():
-    from core.sandbox._opensandbox_internals import _make_yida_creds_volumes
-    # No local HOST_STORAGE_PATH → quietly return an empty list (the sandbox is still created; login state just doesn't persist across sessions)
-    assert _make_yida_creds_volumes("u1") == []
-
-
-def test_yida_volume_rejects_bad_user_id():
-    from core.sandbox._opensandbox_internals import _make_yida_creds_volumes
-    assert _make_yida_creds_volumes("") == []
-    assert _make_yida_creds_volumes("../etc/passwd") == []
-
-
 def test_yida_cache_dir_path():
     from core.sandbox._common import yida_cache_dir, yida_workspace_dir
     p = yida_cache_dir("u_abc")
@@ -51,15 +39,6 @@ def test_yida_cache_dir_path():
     assert p.parent.name == "yida_cache"
     # The sandbox bind source is the workspace subdirectory (the whole Yida working directory persists with the volume)
     assert yida_workspace_dir("u_abc") == p / "workspace"
-
-
-def test_yida_workspace_mount_is_fixed():
-    """Regression pin: the sandbox mount point must match the fixed working directory the SKILL.md
-    prescribes — the skill forces `cd /home/ubuntu/yida-workspace` before running openyida; if the
-    mount point changes, login state detaches from the persistent volume. cube inject/return and the
-    script-runner compose mount all reuse the same path."""
-    from core.sandbox._opensandbox_internals import _YIDA_WORKSPACE_MOUNT
-    assert _YIDA_WORKSPACE_MOUNT == "/home/ubuntu/yida-workspace"
 
 
 def test_yida_shared_workspace_dir_path():
@@ -71,68 +50,7 @@ def test_yida_shared_workspace_dir_path():
     assert p.parent.parent.name == "yida_cache"
 
 
-# ── Safe unpacking of cube return payloads ───────────────────────────────
-def _make_tar_b64(members: list[tuple[str, bytes]]) -> str:
-    import base64
-    import io
-    import tarfile
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        for name, data in members:
-            import time as _t
-
-            info = tarfile.TarInfo(name=name)
-            info.size = len(data)
-            info.mtime = int(_t.time())
-            tar.addfile(info, io.BytesIO(data))
-    return base64.b64encode(buf.getvalue()).decode("ascii")
-
-
-def test_cube_extract_yida_state_accepts_only_cache_json(tmp_path):
-    """cube return-payload unpacking whitelist: only write .cache/<basename>.json regular files;
-    reject path traversal, subdirectory smuggling and non-json members — the returned content comes
-    from the sandbox (a model-controllable environment) and must be treated as untrusted input."""
-    from core.sandbox.cube_provider import CubeSandboxProvider
-
-    raw = _make_tar_b64([
-        (".cache/cookies-public.json", b'{"csrf_token":"x"}'),
-        (".cache/openyida-envs.json", b'{"current":"public"}'),
-        (".cache/../../etc/evil.json", b"pwn"),          # path traversal
-        (".cache/sub/dir.json", b"nested"),               # subdirectory smuggling
-        (".cache/notes.txt", b"txt"),                     # non-json
-        ("outside.json", b"outside"),                     # not under .cache/
-    ])
-    n = CubeSandboxProvider._extract_yida_state(raw, tmp_path)
-    assert n == 2
-    assert (tmp_path / ".cache" / "cookies-public.json").read_bytes() == b'{"csrf_token":"x"}'
-    assert (tmp_path / ".cache" / "openyida-envs.json").exists()
-    # All traversal/smuggling members were rejected
-    extracted = sorted(p.name for p in (tmp_path / ".cache").iterdir())
-    assert extracted == ["cookies-public.json", "openyida-envs.json"]
-    assert not (tmp_path.parent / "etc").exists()
-
-
-def test_cube_extract_yida_state_rejects_symlink(tmp_path):
-    import io
-    import tarfile
-    import base64
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        info = tarfile.TarInfo(name=".cache/cookies-public.json")
-        info.type = tarfile.SYMTYPE
-        info.linkname = "/etc/passwd"
-        tar.addfile(info)
-    raw = base64.b64encode(buf.getvalue()).decode("ascii")
-
-    from core.sandbox.cube_provider import CubeSandboxProvider
-
-    assert CubeSandboxProvider._extract_yida_state(raw, tmp_path) == 0
-    assert not (tmp_path / ".cache" / "cookies-public.json").exists()
-
-
-# ── Connection panel service (yida_service: login executes via the sandbox, the cookie file is the source of truth) ──
+# ── Connection panel service (cookie cache + real read-only liveness reconciliation) ──
 def test_yida_extract_result_json():
     from core.services.yida_service import extract_result_json
 
@@ -174,6 +92,72 @@ def test_yida_service_status_lifecycle(tmp_path, monkeypatch):
     assert svc.get_status("u1")["status"] == "connected"
     # Invalid user_id → disconnected immediately (never touching the filesystem)
     assert svc.get_status("../etc")["status"] == "disconnected"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("verdict", "expected_status"),
+    [("valid", "connected"), ("invalid", "disconnected"), ("unknown", "connected")],
+)
+async def test_yida_probe_status_reconciles_real_login(
+    tmp_path, monkeypatch, verdict, expected_status
+):
+    """Only a definite server rejection disconnects; transient probe failures keep local state."""
+    import json as _json
+    import os
+
+    import core.services.yida_service as ys
+
+    monkeypatch.setattr(ys, "_host_workspace_dir", lambda uid: tmp_path / uid / "workspace")
+    ys._PENDING.clear()
+    svc = ys.YidaService()
+    cache = tmp_path / "u1" / "workspace" / ".cache"
+    cache.mkdir(parents=True)
+    cookie_file = cache / "cookies-public.json"
+    cookie_file.write_text('{"cookies":[]}', encoding="utf-8")
+    first_mtime_ns = cookie_file.stat().st_mtime_ns
+
+    async def fake_run(user_id, command, timeout):  # noqa: ARG001
+        assert command == ys._PROBE_COMMAND
+        return _json.dumps({"verdict": verdict}), 0
+
+    monkeypatch.setattr(svc, "_run_in_sandbox", fake_run)
+    result = await svc.probe_status("u1")
+    assert result["status"] == expected_status
+    assert cookie_file.exists()  # an invalid probe marks this version stale; it does not destroy data
+
+    if verdict == "valid":
+        meta = _json.loads((tmp_path / "u1" / "connection.json").read_text(encoding="utf-8"))
+        assert meta["status"] == "connected"
+        assert meta["last_verified_at"]
+    elif verdict == "invalid":
+        meta = _json.loads((tmp_path / "u1" / "connection.json").read_text(encoding="utf-8"))
+        assert meta["status"] == "disconnected"
+        assert meta["invalidated_cookie_mtime_ns"] == first_mtime_ns
+        assert svc.get_status("u1")["status"] == "disconnected"
+
+        # A subsequent in-chat or panel QR login overwrites the cookie.  The
+        # newer version becomes connected without requiring the old marker to
+        # be manually cleared.
+        cookie_file.write_text('{"cookies":[{"name":"new"}]}', encoding="utf-8")
+        os.utime(cookie_file, ns=(first_mtime_ns + 1_000_000, first_mtime_ns + 1_000_000))
+        assert svc.get_status("u1")["status"] == "connected"
+    else:
+        assert not (tmp_path / "u1" / "connection.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_yida_probe_without_cookie_does_not_start_sandbox(tmp_path, monkeypatch):
+    import core.services.yida_service as ys
+
+    monkeypatch.setattr(ys, "_host_workspace_dir", lambda uid: tmp_path / uid / "workspace")
+    svc = ys.YidaService()
+
+    async def should_not_run(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("a disconnected user must not start a probe sandbox")
+
+    monkeypatch.setattr(svc, "_run_in_sandbox", should_not_run)
+    assert (await svc.probe_status("u1"))["status"] == "disconnected"
 
 
 @pytest.mark.asyncio

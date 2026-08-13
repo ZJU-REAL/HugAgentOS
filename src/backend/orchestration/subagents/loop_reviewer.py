@@ -64,6 +64,7 @@ def _build_review_prompt(
     acceptance_criteria: List[str],
     worker_summary: str,
     second_pass: bool,
+    machine_evidence: str = "",
 ) -> str:
     criteria = "\n".join(f"- {c}" for c in acceptance_criteria) or "- （无显式验收标准，按需求描述核验）"
     parts = [
@@ -82,6 +83,12 @@ def _build_review_prompt(
         "continue 的理由；只有当本轮需求本身就是最终交付（或明确引用了某条全局标准）时，"
         "才逐条核对对应标准。",
     ]
+    if machine_evidence.strip():
+        parts.append(
+            "\n## 机检结果（driver 亲自执行的只读命令，**可信的客观证据**）\n"
+            f"{machine_evidence.strip()[:600]}\n"
+            "机检只证明命令层面的达标（存在/数量/构建），内容质量与语义仍需你亲自核验。"
+        )
     if worker_summary.strip():
         parts.append(
             "\n## 执行 agent 的自述（**仅作线索，不是证据**）\n"
@@ -136,6 +143,7 @@ async def review_requirement(
     worker_summary: str,
     session_id: str,
     user_id: str,
+    machine_evidence: str = "",
     project_ctx: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
     model_name: Optional[str] = None,
@@ -198,6 +206,7 @@ async def review_requirement(
         acceptance_criteria=acceptance_criteria,
         worker_summary=worker_summary,
         second_pass=second_pass,
+        machine_evidence=machine_evidence,
     )
     try:
         # Reuse the platform-registered builtin reviewer (builtin.reviewer) —
@@ -217,6 +226,9 @@ async def review_requirement(
             user_agent=build_builtin_runtime_profile(_spec, None),
             current_user_id=user_id,
             model_name=model_name,
+            # 评审模型可在「模型管理 → 角色分配 → 自主循环评审与规划」独立配置；
+            # 显式 model_name（evaluator_model）优先，角色未配置回落 main_agent。
+            model_role="loop_reviewer",
             sandbox_session_id=session_id,   # key: same sandbox as the worker → reads real output
             project_ctx=project_ctx,          # key: scope to the project folder (where site source lives)
             chat_id=chat_id,

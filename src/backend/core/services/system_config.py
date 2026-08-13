@@ -244,6 +244,26 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         False,
     ),
     (
+        "turbo.skill_ids",
+        "",
+        "极速模式可用技能",
+        "极速模式下装配的技能集合（逗号分隔的 skill id）。"
+        "极速模式没有 bash / 沙箱 / 文件写入，选纯文本类技能（写作模板、话术规范等）效果最好；"
+        "需要代码执行的技能只会被读到说明、无法执行。同样不受「能力目录」启停影响。",
+        "turbo",
+        False,
+    ),
+    (
+        "turbo.plugin_ids",
+        "",
+        "极速模式可用插件",
+        "极速模式下装配的插件集合（逗号分隔的 install_id）。"
+        "插件是「技能 + 工具」的能力包，选中后其全部工具与技能一并在极速模式生效；"
+        "与上面的 MCP 工具集合合并去重，同样不受「能力目录」启停影响。",
+        "turbo",
+        False,
+    ),
+    (
         "turbo.manual_invoke_enable",
         "true",
         "允许手动呼唤能力",
@@ -526,6 +546,34 @@ def turbo_mcp_server_ids() -> frozenset[str]:
         return DEFAULT_TURBO_MCP_SERVER_IDS
     ids = frozenset(part.strip() for part in str(raw).split(",") if part.strip())
     return ids or DEFAULT_TURBO_MCP_SERVER_IDS
+
+
+def turbo_skill_ids() -> tuple[str, ...]:
+    """极速模式装配的技能集合（``AdminSkill.skill_id`` / 内置技能 id 列表）。
+
+    控制源 = Config 管理台「系统配置 → 极速模式」的 ``turbo.skill_ids``（逗号
+    分隔）。与用户本轮显式呼唤的技能合并去重。默认空 —— 不选就没有技能，
+    极速模式的系统提示词里也就不出现技能清单。
+    """
+    try:
+        raw = SystemConfigService.get_instance().get("turbo.skill_ids", "") or ""
+    except Exception:  # noqa: BLE001 — 配置层异常时按「没配技能」处理
+        return ()
+    return tuple(dict.fromkeys(part.strip() for part in str(raw).split(",") if part.strip()))
+
+
+def turbo_plugin_ids() -> tuple[str, ...]:
+    """极速模式装配的插件集合（``InstalledPlugin.install_id`` 列表）。
+
+    控制源 = Config 管理台「系统配置 → 极速模式」的 ``turbo.plugin_ids``（逗号
+    分隔）。插件是「技能 + 工具」的能力包，装配时由 agent_factory 展开成其组件
+    技能 / MCP，与 ``turbo.mcp_server_ids`` 合并去重。默认空 —— 不选就没有插件。
+    """
+    try:
+        raw = SystemConfigService.get_instance().get("turbo.plugin_ids", "") or ""
+    except Exception:  # noqa: BLE001 — 配置层异常时按「没配插件」处理
+        return ()
+    return tuple(dict.fromkeys(part.strip() for part in str(raw).split(",") if part.strip()))
 
 
 def turbo_manual_invoke_enabled() -> bool:

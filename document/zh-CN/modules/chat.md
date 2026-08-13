@@ -1,6 +1,6 @@
 # 对话与智能体编排
 
-> 最后更新：2026-07-30
+> 最后更新：2026-08-12
 
 对话是 HugAgentOS 的核心链路：一条用户消息经过 FastAPI 路由、运行时上下文装配、流式编排器，最终由 AgentScope 2.0 的 ReActAgent 驱动多轮「思考 → 调工具 → 观察」循环，并以 SSE 事件流实时推送到前端。本篇按真实代码走一遍端到端流程，并展开引用系统、计划模式、子智能体、会话摘要、会话分享、上下文压缩与超长结果 offload 等子能力。
 
@@ -25,7 +25,7 @@ orchestration/workflow.py::astream_chat_workflow()
    │   │     MCP 连接池 + 技能注册 + 文件工具 + 系统提示词 + 中间件 → Agent
    │   ├─ core/llm/context_manager.py          历史按 token 预算裁剪
    │   └─ orchestration/streaming.py::StreamingAgent.stream()
-   │         消费 agent.reply_stream()，把 25 种细粒度事件映射为 8 类 SSE 事件
+   │         消费 agent.reply_stream()，归并 25 种细粒度事件并保留工具参数增量
    ▼
 SSE follower：chat_run_executor.follow_run_as_sse()
        XRANGE 重放 + XREAD 续播 → data: {...}\n\n → 浏览器
@@ -59,18 +59,20 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 ## SSE 事件类型与负载
 
-`orchestration/streaming.py::StreamingAgent` 把 AgentScope 2.0 `reply_stream` 的细粒度事件归并为内部 8 类，`workflow.py` 与 `chats.py::_stream_sse_response` 再补充会话级字段后落到 wire 上。前端实际收到的事件：
+`orchestration/streaming.py::StreamingAgent` 把 AgentScope 2.0 `reply_stream` 的细粒度事件归并为内部事件；工具参数小分片按 256 字符或 50ms 合批，兼顾实时可见与 SSE 事件量。`workflow.py` 与 `chats.py::_stream_sse_response` 再补充会话级字段后落到 wire 上。前端实际收到的事件：
 
 | `type` | 含义 | 关键字段 |
 |---|---|---|
 | `thinking` | 思考过程（增量或阶段提示） | `delta` / `message` |
 | `content` | 回答正文增量 | `event: "ai_message"`, `delta`, `chat_id` |
 | `content_replace` | 本体评审修订了已流式展示的草稿时，原位替换最终答案 | `content`, `reason: "ontology_review"`, `chat_id` |
-| `tool_call` | 一次工具调用（参数已完整） | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`，调子智能体时附 `subagent_name` |
+| `tool_call_start` | 开始构造一次工具调用；前端按稳定 ID 创建一张卡片 | `tool_name`, `tool_display_name`, `tool_id` |
+| `tool_call_delta` | 工具参数 JSON 增量；前端在同一卡片中追加 | `tool_name`, `tool_id`, `arguments_delta` |
+| `tool_call` | 工具参数已完整、即将执行 | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`，调子智能体时附 `subagent_name` |
 | `tool_result` | 工具调用结果 | `tool_name`, `result`, `tool_id`, `citations[]` |
 | `subagent_event` | 子智能体内部过程，挂在父 `call_subagent` 卡片下 | `parent_tool_id`, `sub_type`, `agent_name`，以及内部工具或内容字段 |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | 本体治理状态，不属于模型思考 | 工作流、门禁决策、委员会状态与结论 |
-| `tool_pending` | 工具已开始、参数仍在流式生成 | `tool_name` |
+| `tool_pending` | 提供商没有暴露可解析参数增量时的等待兜底 | `reason` |
 | `batch_confirm` | 批量计划生成完毕，等待用户确认（人审门） | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | 确认上下文；用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后工具原地续跑 |
 | `compaction_notice` | 上一轮结束后已生成新的上下文压缩检查点 | `chat_id`, `context_compaction`（覆盖边界、摘要基线 token 数） |
@@ -81,6 +83,12 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 流以 `data: [DONE]` 结束。示例帧：
 
 ```
+data: {"type":"tool_call_start","tool_name":"internet_search","tool_display_name":"联网搜索","tool_id":"call_abc"}
+
+data: {"type":"tool_call_delta","tool_name":"internet_search","arguments_delta":"{\"query\":\"北京 集成","tool_id":"call_abc"}
+
+data: {"type":"tool_call_delta","tool_name":"internet_search","arguments_delta":"电路 产业\"}","tool_id":"call_abc"}
+
 data: {"type":"tool_call","tool_name":"internet_search","tool_display_name":"联网搜索","tool_args":{"query":"北京 集成电路 产业"},"tool_id":"call_abc"}
 
 data: {"type":"tool_result","tool_name":"internet_search","result":{...},"tool_id":"call_abc","citations":[{"id":"e1","title":"...","url":"...","snippet":"...","source_type":"internet","item_index":0}]}

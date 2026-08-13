@@ -345,7 +345,9 @@ async def _run_workflow(
     from core.chat.tool_log import (
         attach_subagent_step,
         build_thinking_event,
+        build_tool_call_delta_event,
         build_tool_call_event,
+        build_tool_call_start_event,
         build_tool_result_event,
     )
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
@@ -500,6 +502,13 @@ async def _run_workflow(
                 for _tc in tool_calls_log:
                     _tc.setdefault("content_offset", len(full_response))
                 await _emit(_tc_evt)
+
+            elif chunk_type == "tool_call_start":
+                _flush_thinking()
+                await _emit(build_tool_call_start_event(chunk, chat_id))
+
+            elif chunk_type == "tool_call_delta":
+                await _emit(build_tool_call_delta_event(chunk, chat_id))
 
             elif chunk_type == "tool_result":
                 await _emit(build_tool_result_event(chunk, chat_id, tool_calls_log))
@@ -1266,6 +1275,7 @@ async def start_autonomous_loop_run(
     goal_spec: Dict[str, Any],
     budget: Dict[str, Any],
     model_name: Optional[str] = None,
+    model_provider_id: Optional[str] = None,
     evaluator_model: Optional[str] = None,
     worker_max_iters: int = 15,
     hitl_enabled: bool = False,
@@ -1284,6 +1294,7 @@ async def start_autonomous_loop_run(
         "goal_spec": goal_spec,
         "budget": budget,
         "model_name": model_name,
+        "model_provider_id": model_provider_id,
         "evaluator_model": evaluator_model,
         "worker_max_iters": worker_max_iters,
         "hitl_enabled": hitl_enabled,
@@ -1295,6 +1306,24 @@ async def start_autonomous_loop_run(
         "is_resume": is_resume,
         "project_id": project_id,
     }
+    # 启动参数跟 loop 持久化（而非只活在本次请求里）：崩溃/重启后的续跑——无论 API
+    # resume 还是启动自动续跑——都能还原同一套模型/评审模型/轮数/思考档位，不再悄悄
+    # 降级到默认值。
+    try:
+        from core.services.loop_service import LoopService as _LoopSvc
+
+        with SessionLocal() as db:
+            _LoopSvc(db).save_start_params(loop_id, {
+                "model_name": model_name,
+                "model_provider_id": model_provider_id,
+                "evaluator_model": evaluator_model,
+                "worker_max_iters": worker_max_iters,
+                "hitl_enabled": hitl_enabled,
+                "enable_thinking": enable_thinking,
+                "chat_mode": chat_mode,
+            })
+    except Exception:  # noqa: BLE001 - 参数存档失败不阻塞启动
+        logger.warning("loop start_params persist failed", exc_info=True)
     run = _create_run_record(chat_id=chat_id, user_id=user_id, request_payload=request_payload)
     _register_run_task(
         run.run_id,
@@ -1307,6 +1336,7 @@ async def start_autonomous_loop_run(
             goal_spec=goal_spec,
             budget=budget,
             model_name=model_name,
+            model_provider_id=model_provider_id,
             evaluator_model=evaluator_model,
             worker_max_iters=worker_max_iters,
             hitl_enabled=hitl_enabled,
@@ -1371,8 +1401,9 @@ async def _run_autonomous_loop_workflow(
     goal_spec: Dict[str, Any],
     budget: Dict[str, Any],
     model_name: Optional[str],
-    evaluator_model: Optional[str],
-    worker_max_iters: int,
+    model_provider_id: Optional[str] = None,
+    evaluator_model: Optional[str] = None,
+    worker_max_iters: int = 15,
     hitl_enabled: bool = False,
     enable_thinking: bool = False,
     chat_mode: Optional[str] = None,
@@ -1456,10 +1487,13 @@ async def _run_autonomous_loop_workflow(
         objective=goal_spec.get("objective", ""),
         acceptance_criteria=goal_spec.get("acceptance_criteria", []) or [],
     )
+    # 预算去一等公民化：缺省一律 0（不限）。「能完成任务」优先——停止条件回归
+    # 账本全通过/停滞无解/用户取消；防失控由 LOOP_HARD_MAX_ITERS 硬后备兜底。
+    # 显式传正数的旧 loop 行（历史数据）仍按其预算执行。
     bud = LoopBudget(
-        max_iters=int(budget.get("max_iters", 50)),
-        max_wall_clock_s=float(budget.get("max_wall_clock_s", 6 * 3600)),
-        max_tokens=int(budget.get("max_tokens", 10_000_000)),
+        max_iters=int(budget.get("max_iters", 0) or 0),
+        max_wall_clock_s=float(budget.get("max_wall_clock_s", 0) or 0),
+        max_tokens=int(budget.get("max_tokens", 0) or 0),
     )
     # Project binding: resolve project_ctx and bind the loop's chat session to
     # that project — this scopes the worker's/reviewer's file tools to the
@@ -1515,6 +1549,15 @@ async def _run_autonomous_loop_workflow(
         with SessionLocal() as db:
             _LoopSvc(db).save_ledger(loop_id, led)
 
+    def _poll_steering() -> List[str]:
+        """每轮开工前取走用户运行中追加的指令（POST /v1/loops/{id}/steer）。"""
+        try:
+            with SessionLocal() as db:
+                return _LoopSvc(db).consume_steering(loop_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("loop consume_steering failed", exc_info=True)
+            return []
+
     try:
         await _emit(
             {
@@ -1554,7 +1597,10 @@ async def _run_autonomous_loop_workflow(
             goal_spec=gs,
             budget=bud,
             model_name=model_name,
-            evaluator_model=evaluator_model or "fast",
+            model_provider_id=model_provider_id,
+            # 评审/规划模型：显式指定 > 「模型管理 → 角色分配 → loop_reviewer」>
+            # main_agent。不再硬编码 "fast"——评审质量值得一个后台可配的位置。
+            evaluator_model=evaluator_model,
             worker_max_iters=worker_max_iters,
             session_id=session_id,
             hitl_enabled=hitl_enabled,
@@ -1564,6 +1610,7 @@ async def _run_autonomous_loop_workflow(
             is_cancelled=lambda: is_run_cancelled(run_id),
             load_ledger=_load_ledger,
             save_ledger=_save_ledger,
+            poll_steering=_poll_steering,
             project_ctx=project_ctx,
             chat_id=chat_id,
             # Carried explicitly so the loop resolves *this* tenant's
@@ -1950,19 +1997,22 @@ async def recover_orphan_runs() -> int:
 
 
 async def resume_running_loops() -> int:
-    """At startup, resume autonomous loops interrupted by a crash/restart (M4 checkpoint resume).
+    """启动对账 + 按需自动续跑：进程重启后收养/归位孤儿自主循环。
 
-    The persistent sandbox files (feature_list.json/handoffs.md) still exist
-    (same session) → re-invoke start_autonomous_loop_run with the same loop_id,
-    and the driver automatically resumes from feature_list.json. Only orphan
-    loops with status='running' are resumed; 'awaiting_human'/terminal states
-    are left alone. Off by default (LOOP_AUTO_RESUME=false) to avoid accidental
-    re-runs in shared environments.
+    进程刚起来时不存在任何活跃 task，因此 status='running' 的 loop 全是孤儿。
+    对每一个孤儿：
+
+    - ``LOOP_AUTO_RESUME=true`` → 用**持久化的启动参数**（agent_loops.extra_data.
+      start_params：模型/评审模型/轮数/思考档位）原样续跑——账本在 DB 有镜像、
+      沙箱有 feature_list.json，driver 自动断点续跑，不再悄悄降级到默认模型。
+    - 关闭（默认）→ 状态归位为 ``interrupted``（可续跑），不再留下永远 running 的
+      僵尸行（历史坑：僵尸 running 行既误导列表页、又让 cancel 无处下手）。
+
+    'awaiting_human'/终态一律不动。
     """
-    if os.getenv("LOOP_AUTO_RESUME", "false").strip().lower() not in ("1", "true", "yes"):
-        return 0
     from core.db.models import AgentLoop
 
+    auto = os.getenv("LOOP_AUTO_RESUME", "false").strip().lower() in ("1", "true", "yes")
     resumed = 0
     with SessionLocal() as db:
         loops = db.query(AgentLoop).filter(AgentLoop.status == "running").all()
@@ -1974,10 +2024,24 @@ async def resume_running_loops() -> int:
                 dict(x.goal_spec or {}),
                 dict(x.budget or {}),
                 (x.extra_data or {}).get("project_id"),
+                dict((x.extra_data or {}).get("start_params") or {}),
             )
             for x in loops
         ]
-    for loop_id, chat_id, user_id, goal_spec, budget, project_id in specs:
+
+    if not auto:
+        if specs:
+            from core.services.loop_service import LoopService as _LoopSvc
+
+            with SessionLocal() as db:
+                for loop_id, *_rest in specs:
+                    _LoopSvc(db).mark_interrupted(
+                        loop_id, reason="服务重启导致运行中断，可点击「继续」从断点续跑"
+                    )
+            logger.info("[startup] orphan loops marked interrupted: %d", len(specs))
+        return 0
+
+    for loop_id, chat_id, user_id, goal_spec, budget, project_id, params in specs:
         if not chat_id:
             continue
         try:
@@ -1987,6 +2051,13 @@ async def resume_running_loops() -> int:
                 user_id=user_id,
                 goal_spec=goal_spec,
                 budget=budget,
+                model_name=params.get("model_name"),
+                model_provider_id=params.get("model_provider_id"),
+                evaluator_model=params.get("evaluator_model"),
+                worker_max_iters=int(params.get("worker_max_iters") or 15),
+                hitl_enabled=bool(params.get("hitl_enabled")),
+                enable_thinking=bool(params.get("enable_thinking")),
+                chat_mode=params.get("chat_mode"),
                 project_id=project_id,
                 is_resume=True,
             )
@@ -2077,6 +2148,19 @@ async def reap_stale_runs() -> int:
         if began_at is not None and began_at.tzinfo is None:  # SQLite stores naive UTC
             began_at = began_at.replace(tzinfo=timezone.utc)
         hard_expired = began_at is not None and began_at < hard_cutoff
+        payload = row.request_payload if isinstance(row.request_payload, dict) else {}
+
+        # 自主循环豁免统一年龄硬顶：loop 的使命就是「跑到任务完成为止」（去预算化），
+        # 且它有自己的停滞护栏/熔断/硬后备轮数。进程内 task 还活着的 loop 绝不按
+        # 年龄杀（历史竞态：6h 硬顶 == loop 旧默认预算，跑满预算的健康 loop 在优雅
+        # 收尾前被硬顶抢杀，报错还误导为「无响应」）。孤儿 loop（进程重启遗留）
+        # 走下面的静默判据正常清理。
+        if hard_expired and payload.get("kind") == "autonomous_loop":
+            task = _active_runs.get(rid)
+            if task is not None and not task.done():
+                logger.info("chat_run_stale_skip_loop_inprocess", run_id=rid)
+                continue
+            hard_expired = False  # 孤儿 loop：不按年龄硬杀，交给静默判据
 
         if not hard_expired:
             # A run whose asyncio task is alive in THIS process is never a

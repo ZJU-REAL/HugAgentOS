@@ -35,6 +35,28 @@
 }
 .jx-appMainLayout{
   position:relative;
+  flex-direction:row;
+  min-width:0;
+}
+.jx-primaryPane{
+  position:relative;
+  display:flex;
+  flex:1 1 0;
+  min-width:0;
+  height:100%;
+  flex-direction:column;
+  overflow:hidden;
+  transition:flex-basis var(--motion-duration-slow) var(--motion-ease-brand-out),
+    opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-primaryPane.is-canvasOpen .jx-chatTopbar{
+  padding-right:16px;
+}
+.jx-appMainLayout.is-canvasFullscreen .jx-primaryPane{
+  width:0;
+  flex:0 0 0;
+  opacity:0;
+  pointer-events:none;
 }
 .jx-rightSidebarToggle.ant-btn{
   position:absolute;

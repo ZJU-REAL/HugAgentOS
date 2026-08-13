@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import {
   CloseOutlined,
@@ -22,7 +22,7 @@ import { useChatStore, useUIStore } from '../../stores';
 import { ElapsedTimer } from '../common';
 import { renderToolOutputBody } from './ToolOutputRenderer';
 import { ThinkingStepRow } from './ThinkingStepRow';
-import { extractCodeFromInput } from '../../utils/codeExecParser';
+import { extractCodeFromInput, extractCodeFromStreamingArgs } from '../../utils/codeExecParser';
 import { CodeView } from './renderers/CodeView';
 import { MySpaceBodyContent } from './renderers/MySpaceRenderer';
 import { renderInternetSearchInline } from './renderers/SearchRenderer';
@@ -194,13 +194,14 @@ interface ToolCallRowProps {
 }
 
 export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
-  // Collapsed by default (including while a code tool is running) — only
-  // expands when the user explicitly clicks to open it.
-  const [expanded, setExpanded] = useState(false);
+  // null follows the automatic streaming default; the first user toggle turns
+  // this into an explicit preference so later deltas cannot force the row open.
+  const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null);
   const toolDisplayNames = useChatStore((s) => s.toolDisplayNames);
   const setDetailModal = useUIStore((s) => s.setDetailModal);
 
   const effectiveStatus = computeEffectiveStatus(tool, isStreaming);
+  const running = effectiveStatus === 'running';
   const parsed = useMemo(() => coerceOutput(tool.output), [tool.output]);
 
   const displayName =
@@ -216,6 +217,15 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
     () => (isLiveCode ? extractCodeFromInput(tool.name, tool.input) : null),
     [isLiveCode, tool.name, tool.input],
   );
+  const liveArgumentText = running && typeof tool.inputText === 'string'
+    ? tool.inputText
+    : '';
+  const streamedCode = useMemo(
+    () => (liveArgumentText
+      ? extractCodeFromStreamingArgs(tool.name, liveArgumentText)
+      : null),
+    [liveArgumentText, tool.name],
+  );
 
   const { prefix, value, count } = useMemo(
     () => (isLiveCode
@@ -224,24 +234,16 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
     [isLiveCode, tool, parsed, displayName],
   );
 
-  const running = effectiveStatus === 'running';
   const hasOutput = !!tool.output;
   // Command/code is viewable while running for code tools.
   const liveInputView = isLiveCode && !!liveCode?.code;
   // Sub-agent card: its internal thinking/tool/content sub-steps hang under this card and should be collapsible.
   const hasSubSteps = Array.isArray(tool.subSteps) && tool.subSteps.length > 0;
-  const canExpand = (hasOutput && !running) || liveInputView || hasSubSteps;
-  const toggle = () => { if (canExpand) setExpanded((v) => !v); };
-
-  // Auto-expand once when sub-steps first appear, so the streaming process is visible by default; afterwards the user can collapse it
-  // and it won't be force-expanded again by later sub-steps (auto-opens only once, remembered via a ref).
-  const autoOpenedRef = useRef(false);
-  useEffect(() => {
-    if (hasSubSteps && !autoOpenedRef.current) {
-      autoOpenedRef.current = true;
-      setExpanded(true);
-    }
-  }, [hasSubSteps]);
+  // Argument streaming is collapsed by default. Parent sub-agent cards keep
+  // their established auto-open behaviour so nested progress stays visible.
+  const expanded = expandedOverride ?? hasSubSteps;
+  const canExpand = (hasOutput && !running) || liveInputView || !!liveArgumentText || hasSubSteps;
+  const toggle = () => { if (canExpand) setExpandedOverride(!expanded); };
 
   const renderBody = () => {
     if (!tool.output) return null;
@@ -258,12 +260,13 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
     }
   };
 
-  // The model buffers tool-call args server-side, so `liveCode.code` arrives
-  // fully-formed (not token-by-token) — this is a static view, not a typing
-  // animation.
   const expandedBody = liveInputView && liveCode
     ? <CodeView code={liveCode.code} language={liveCode.language} className="jx-tcr-liveCode" />
-    : hasOutput ? renderBody() : null;
+    : streamedCode?.code
+      ? <CodeView code={streamedCode.code} language={streamedCode.language} className="jx-tcr-liveCode" />
+      : liveArgumentText
+        ? <CodeView code={liveArgumentText} language="json" className="jx-tcr-liveCode" />
+        : hasOutput ? renderBody() : null;
 
   return (
     <div className={`jx-tcr${effectiveStatus === 'error' ? ' jx-tcr--error' : ''}`}>
@@ -318,6 +321,7 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
                     name: s.name || 'tool',
                     displayName: s.displayName,
                     input: s.input,
+                    inputText: s.inputText,
                     output: s.output,
                     status: s.status,
                   }}
@@ -346,7 +350,7 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
         </div>
       )}
 
-      {(liveInputView || hasOutput) && (
+      {(liveInputView || liveArgumentText || hasOutput) && (
         <div className={`jx-expandWrap${expanded ? ' jx-expandWrap--open' : ''}`}>
           <div className="jx-tcr-body">
             {expanded && expandedBody}

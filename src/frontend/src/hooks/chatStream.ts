@@ -19,7 +19,8 @@ import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegm
  *
  * Send, regenerate/edit-resend, reconnect replay (follow), batch cancel-and-resume, and
  * autonomous loop (loop start/resume/follow) **all** go through this one processor: the same
- * event vocabulary (content/thinking/tool_call/tool_result/meta/…), the same <think> stripping
+ * event vocabulary (content/thinking/tool_call_start/tool_call_delta/tool_call/tool_result/meta/…),
+ * the same <think> stripping
  * state machine, and the same bubble rendering pipeline.
  *
  * Path-specific events (e.g. the autonomous loop's loop_started/loop_plan/…) are intercepted via
@@ -56,8 +57,8 @@ function applyDesignPickEvent(chatId: string, obj: Record<string, unknown>) {
 }
 
 /**
- * Handle one `subagent_event`: attach the sub-agent's internal thinking/tool_call/tool_result/
- * content sub-steps under the call_subagent tool card that spawned it.
+ * Handle one `subagent_event`: attach the sub-agent's internal thinking/tool_call_delta/
+ * tool_call/tool_result/content sub-steps under the call_subagent tool card that spawned it.
  *
  * Association prefers the backend-provided `parent_tool_id` (ActingToolCallIdMiddleware
  * guarantees accuracy); when missing, falls back to "the most recent call_subagent card".
@@ -96,6 +97,14 @@ function applySubagentEvent(toolCalls: ToolCall[], eo: Record<string, unknown>):
     const input = (eo.input === null || eo.input === undefined) ? undefined : eo.input;
     // No status included → an existing matched step keeps its status (success/error is not reset to running)
     upsertToolStep(norm(eo.tool_id), norm(eo.tool_name), input !== undefined ? { input } : {}, 'running');
+  } else if (subType === 'tool_call_delta') {
+    const delta = norm(eo.arguments_delta);
+    if (delta) {
+      const tid = norm(eo.tool_id);
+      const si = tid ? steps.findIndex((x) => x.kind === 'tool' && x.toolId === tid) : -1;
+      const inputText = (si >= 0 ? steps[si].inputText || '' : '') + delta;
+      upsertToolStep(tid, norm(eo.tool_name), { inputText }, 'running');
+    }
   } else if (subType === 'tool_result') {
     const status: SubagentStep['status'] = norm(eo.status) === 'error' ? 'error' : 'success';
     const patch: Partial<SubagentStep> = { status };
@@ -724,7 +733,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           return;
         }
 
-        if (ontologyRevisionTool && (eventType === 'tool_use' || eventType === 'tool_call' || eventType === 'tool_start')) {
+        if (ontologyRevisionTool && (eventType === 'tool_use' || eventType === 'tool_call_start' || eventType === 'tool_call' || eventType === 'tool_start')) {
           const revision = ensureOntologyRevision();
           revision.toolPending = false;
           const eventToolId = getEventToolId(eventObj);
@@ -750,6 +759,34 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               timestamp: Date.now(),
               scope: 'ontology_revision',
             }];
+          }
+          appendOrUpdate(true, allCitations);
+          return;
+        }
+
+        if (ontologyRevisionTool && eventType === 'tool_call_delta') {
+          const revision = ensureOntologyRevision();
+          revision.toolPending = false;
+          const eventToolId = getEventToolId(eventObj);
+          const delta = typeof eventObj.arguments_delta === 'string' ? eventObj.arguments_delta : '';
+          const index = eventToolId
+            ? revision.toolCalls.findIndex((tool) => normalizeToolId(tool.id) === eventToolId)
+            : -1;
+          if (index < 0) {
+            revision.toolCalls = [...revision.toolCalls, {
+              id: eventToolId || `ontology_tool_${Date.now()}_${revision.toolCalls.length}`,
+              name: getEventToolRawName(eventObj) || t('工具调用'),
+              inputText: delta,
+              status: 'running',
+              timestamp: Date.now(),
+              scope: 'ontology_revision',
+            }];
+          } else if (delta) {
+            revision.toolCalls[index] = {
+              ...revision.toolCalls[index],
+              inputText: (revision.toolCalls[index].inputText || '') + delta,
+              status: 'running',
+            };
           }
           appendOrUpdate(true, allCitations);
           return;
@@ -802,7 +839,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           return;
         }
 
-        if (eventType === 'tool_use' || eventType === 'tool_call' || eventType === 'tool_start') {
+        if (eventType === 'tool_use' || eventType === 'tool_call_start' || eventType === 'tool_call' || eventType === 'tool_start') {
           const eventToolId = getEventToolId(eventObj);
           const existingIndex = eventToolId ? toolCalls.findIndex((tool) => normalizeToolId(tool.id) === eventToolId) : -1;
           const toolInput = eventObj.input ?? eventObj.args ?? eventObj.tool_args ?? eventObj.arguments;
@@ -822,6 +859,37 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               deferredThinkingText,
             );
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
+          }
+          appendOrUpdate(true);
+          return;
+        }
+
+        if (eventType === 'tool_call_delta') {
+          const eventToolId = getEventToolId(eventObj);
+          const delta = typeof eventObj.arguments_delta === 'string' ? eventObj.arguments_delta : '';
+          const index = eventToolId
+            ? toolCalls.findIndex((tool) => normalizeToolId(tool.id) === eventToolId)
+            : -1;
+          if (index < 0) {
+            toolCalls.push({
+              id: eventToolId || `tool_${Date.now()}_${toolCalls.length}`,
+              name: getEventToolRawName(eventObj) || t('工具调用'),
+              inputText: delta,
+              status: 'running',
+              timestamp: Date.now(),
+            });
+            deferredThinkingText = deferThinkingTextFragmentBeforeTool(
+              segments,
+              enableThinking,
+              deferredThinkingText,
+            );
+            segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
+          } else if (delta) {
+            toolCalls[index] = {
+              ...toolCalls[index],
+              inputText: (toolCalls[index].inputText || '') + delta,
+              status: 'running',
+            };
           }
           appendOrUpdate(true);
           return;

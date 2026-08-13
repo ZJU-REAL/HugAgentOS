@@ -194,12 +194,35 @@
 
 /* ── Code/command view inside the running tool card ── */
 .jx-tcr-liveCode {
+  --ce-code-bg: var(--color-bg-gray);
+  --ce-code-border: var(--color-border);
+  --ce-line-num: var(--color-text-placeholder);
+  --ce-line-border: rgba(71, 84, 103, 0.12);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--color-bg-gray);
 }
 .jx-tcr-liveCode .jx-ce-codeWrap {
   max-height: 260px;
+}
+.jx-tcr-liveCode .jx-ce-codeBar {
+  background: var(--color-fill-hover);
+  border-bottom-color: rgba(71, 84, 103, 0.12);
+}
+.jx-tcr-liveCode .jx-ce-langDot {
+  background: var(--color-fill-heavy) !important;
+}
+.jx-tcr-liveCode .jx-ce-code,
+.jx-tcr-liveCode .jx-ce-code .hljs,
+.jx-tcr-liveCode .jx-ce-code .hljs * {
+  color: var(--color-text-secondary) !important;
+}
+.jx-tcr-liveCode .jx-ce-codeWrap::-webkit-scrollbar-thumb {
+  background: rgba(71, 84, 103, 0.16);
+}
+.jx-tcr-liveCode .jx-ce-codeWrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 84, 103, 0.28);
 }
 
 /* ── Elapsed timer (running tool card + pending indicator) ── */

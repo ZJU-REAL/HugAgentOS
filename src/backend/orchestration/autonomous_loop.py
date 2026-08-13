@@ -40,11 +40,17 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.infra.logging import get_logger
 from orchestration.loop_evaluator import (
+    CONTINUE,
     DONE,
     NEED_HUMAN,
     GoalSpec,
     decompose_requirements,
     extract_acceptance_criteria,
+)
+from orchestration.loop_planner import (
+    plan_requirements,
+    replan_remaining,
+    scout_workspace,
 )
 from orchestration.subagents.loop_reviewer import review_requirement
 
@@ -52,6 +58,56 @@ logger = get_logger(__name__)
 
 EmitFn = Callable[[Dict[str, Any]], Awaitable[None]]
 CancelFn = Callable[[], bool]
+SteeringFn = Callable[[], List[str]]
+
+
+def _env_int(name: str, default: int, *, floor: int = 1) -> int:
+    import os
+
+    try:
+        return max(floor, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+# 去预算化后的防死循环硬后备（不是预算——预算默认不设；这是「循环失控」的最后保险丝，
+# 远大于任何正常任务的轮数）。连续基础设施故障轮的熔断阈值同理。
+def _hard_max_iters() -> int:
+    return _env_int("LOOP_HARD_MAX_ITERS", 500)
+
+
+def _max_consecutive_infra() -> int:
+    return _env_int("LOOP_MAX_CONSECUTIVE_INFRA", 6)
+
+
+def _max_replans() -> int:
+    return _env_int("LOOP_MAX_REPLANS", 2, floor=0)
+
+
+def _wrapup_enabled() -> bool:
+    import os
+
+    return os.getenv("LOOP_WRAPUP", "true").strip().lower() in ("1", "true", "yes")
+
+
+def _build_wrapup_prompt(objective: str, ledger: Dict[str, Any], in_project: bool) -> str:
+    done = [r for r in ledger["requirements"] if r.get("passes")]
+    undone = [r for r in ledger["requirements"] if not r.get("passes")]
+    where = "项目文件夹" if in_project else "/workspace"
+    return (
+        "# 收尾交付（最后一轮，不再评审）\n"
+        f"自主任务到此收尾。总目标：\n{objective}\n\n"
+        "## 已完成并通过评审的需求\n"
+        + ("\n".join(f"- {r['id']}: {r['description']}" for r in done) or "（无）")
+        + "\n\n## 未完成的需求\n"
+        + ("\n".join(f"- {r['id']}: {r['description']}" for r in undone) or "（无）")
+        + f"\n\n## 你的任务\n1. 检查 {where} 里的现有成果，把**已完成部分**整合成对用户"
+        "可直接使用的交付形态（该合并的合并、该注册 artifact 的注册"
+        + ("、站点有改动就 publish_site 发新版" if in_project else "")
+        + "）。\n2. 用中文给用户写一段简明收尾说明：交付了什么、在哪里取用、"
+        "未完成的部分还差什么、建议下一步。**如实说明，不得声称未完成的已完成。**\n"
+        "3. 只整合与说明，不要开工做新需求。"
+    )
 
 # Loop thresholds come from the active orchestration profile, resolved **per
 # run** and **per tenant** (core.evolution.policies projects the profile onto
@@ -89,10 +145,14 @@ def _loop_tool_result_limit() -> int:
 
 @dataclass
 class LoopBudget:
-    max_iters: int = 50
-    max_wall_clock_s: float = 6 * 3600.0
-    max_tokens: int = 10_000_000
-    max_subagents: int = 20  # reserved
+    """预算已降级为**可选约束**：字段 <=0 一律视为「不限」，且默认全部不限——
+    循环的停止条件回归「账本全部通过 / 停滞无解 / 用户取消」（能完成任务比省预算重要）。
+    显式传正数仍然生效（想限就限）；防失控由 LOOP_HARD_MAX_ITERS 硬后备兜底。"""
+
+    max_iters: int = 0
+    max_wall_clock_s: float = 0.0
+    max_tokens: int = 0
+    max_subagents: int = 0  # reserved
 
     def snapshot(self) -> Dict[str, Any]:
         return asdict(self)
@@ -178,6 +238,16 @@ async def _git_checkpoint(session_id: str, user_id: str, msg: str) -> Optional[s
     return out.strip() if code == 0 and out.strip() else None
 
 
+async def _git_worktree_changed(session_id: str, user_id: str) -> bool:
+    """本轮工作区相对上个 checkpoint 是否真有改动（机检失败轮的客观推进信号）。"""
+    code, out, _ = await _sbx_exec(
+        f"cd {_WORKSPACE} && git rev-parse --git-dir >/dev/null 2>&1 || exit 42; "
+        "git status --porcelain 2>/dev/null | head -1",
+        session_id=session_id, user_id=user_id,
+    )
+    return code == 0 and bool(out.strip())
+
+
 async def _git_diff_stat(session_id: str, user_id: str) -> str:
     code, out, _ = await _sbx_exec(
         f"cd {_WORKSPACE} && git rev-parse --git-dir >/dev/null 2>&1 || exit 42; "
@@ -188,14 +258,26 @@ async def _git_diff_stat(session_id: str, user_id: str) -> str:
 
 
 # ── Requirement ledger feature_list.json (driver-owned; worker may not delete or modify) ───────────────────
-def _new_ledger(objective: str, requirements: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _init_req_fields(requirements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """补齐需求条目的运行时字段（新建账本与重规划后的新条目共用）。"""
     for r in requirements:
         r.setdefault("passes", False)
         r.setdefault("evidence", "")
-        r.setdefault("attempts", 0)   # total iterations attempted for this item (strategy change / hard ceiling)
-        r.setdefault("stalls", 0)     # consecutive rounds WITHOUT reviewer-affirmed material progress (stagnation cap)
-        r.setdefault("blocked", False)  # stagnating at the stall cap (or runaway at the hard ceiling) → mark skipped, avoids a single-item infinite loop
-    return {"objective": objective, "iteration": 0, "requirements": requirements}
+        r.setdefault("attempts", 0)
+        r.setdefault("stalls", 0)
+        r.setdefault("blocked", False)
+        r.setdefault("check_cmd", "")
+        r.setdefault("last_feedback", "")
+    return requirements
+
+
+def _new_ledger(objective: str, requirements: List[Dict[str, Any]]) -> Dict[str, Any]:
+    # 字段语义：attempts=总尝试轮数（防失控硬上限）；stalls=连续无实质推进轮数
+    # （停滞判定与停滞告警都看它）；blocked=搁置；check_cmd=只读机检命令（driver
+    # 亲自执行，exit 0=客观达标，空=纯语义需求）；last_feedback=本需求最近一次
+    # 评审/机检反馈（重规划输入；不跨需求泄漏）。
+    return {"objective": objective, "iteration": 0,
+            "requirements": _init_req_fields(requirements)}
 
 
 async def _read_ledger(
@@ -292,6 +374,7 @@ async def _run_worker_iteration(
     session_id: str,
     user_id: str,
     model_name: Optional[str],
+    model_provider_id: Optional[str] = None,
     worker_max_iters: int,
     enable_thinking: bool,
     chat_mode: Optional[str],
@@ -315,6 +398,7 @@ async def _run_worker_iteration(
     agent, clients = await create_agent_executor(
         current_user_id=user_id,
         model_name=model_name,
+        model_provider_id=model_provider_id,  # 用户在会话里选定的模型跟随 loop（不再固定默认模型）
         sandbox_session_id=session_id,  # key: same session → files persist across iterations
         project_ctx=project_ctx,        # key: bind to the user-selected project (site source workspace)
         chat_id=chat_id,
@@ -379,6 +463,25 @@ async def _run_worker_iteration(
             elif et == "thinking_delta":
                 if emit:
                     await emit({"type": "thinking", "delta": payload})
+            elif et == "tool_call_start":
+                if emit:
+                    await emit(
+                        {
+                            "type": "tool_call_start",
+                            "tool_name": payload.get("name"),
+                            "tool_id": payload.get("id"),
+                        }
+                    )
+            elif et == "tool_call_delta":
+                if emit and payload.get("delta"):
+                    await emit(
+                        {
+                            "type": "tool_call_delta",
+                            "tool_name": payload.get("name"),
+                            "tool_id": payload.get("id"),
+                            "arguments_delta": payload.get("delta"),
+                        }
+                    )
             elif et == "tool_call":
                 tool_calls += 1
                 trace.append(
@@ -479,6 +582,7 @@ def _build_requirement_prompt(
     feedback: str,
     strategy_change: bool,
     in_project: bool,
+    steering: Optional[List[str]] = None,
 ) -> str:
     """One requirement at a time: feed only the current requirement to the worker (Claude Code does one feature at a time)."""
     if in_project:
@@ -509,9 +613,20 @@ def _build_requirement_prompt(
             f"\n## 🎯 本轮唯一目标：完成需求 {req['id']}\n{req['description']}\n\n"
             "**只做这一条**。不要提前做别的需求、不要改需求账本——把这一条扎实做到位、"
             "落进真实文件（会有一个独立评审员打开你产出的文件逐条核验，光声称做了没用）。"
+            + (
+                f"\n本需求还有一条机检命令（driver 会亲自执行，退出码 0 才算数）：\n"
+                f"`{req['check_cmd']}`\n完工前自己先跑一遍确认能过。"
+                if req.get("check_cmd")
+                else ""
+            )
         ),
         workspace_note,
     ]
+    if steering:
+        parts.append(
+            "\n## 📣 用户临时指令（最高优先级，本轮必须遵循）\n"
+            + "\n".join(f"- {s}" for s in steering)
+        )
     if handoff:
         parts.append(f"\n## 上一轮交接（git diff + 摘要）\n{handoff}")
     if feedback:
@@ -562,6 +677,7 @@ async def run_autonomous_loop(
     goal_spec: GoalSpec,
     budget: LoopBudget,
     model_name: Optional[str] = None,
+    model_provider_id: Optional[str] = None,
     evaluator_model: Optional[str] = None,
     worker_max_iters: int = 15,
     session_id: Optional[str] = None,
@@ -572,6 +688,7 @@ async def run_autonomous_loop(
     is_cancelled: Optional[CancelFn] = None,
     load_ledger: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
     save_ledger: Optional[Callable[[Dict[str, Any]], None]] = None,
+    poll_steering: Optional[SteeringFn] = None,
     project_ctx: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
     tenant_id: str = "default",
@@ -620,6 +737,7 @@ async def run_autonomous_loop(
     feedback = ""
     tokens_spent = 0
     seq = 0
+    consecutive_infra = 0  # 连续零产出/异常轮计数（熔断用），健康轮清零
     final_score: Optional[float] = None
     # Acceptance criteria: fed to the reviewer sub-agent to verify the real output item by item (extracted once before the run, stored in the ledger, reused on resume).
     criteria: List[str] = list(goal_spec.acceptance_criteria or [])
@@ -671,10 +789,28 @@ async def run_autonomous_loop(
                                for r in ledger["requirements"]]})
     else:
         await _git_init(session, user_id)
-        reqs = await decompose_requirements(
-            goal_spec=goal_spec, model_name=evaluator_model or "fast", user_id=user_id,
+        # 规划器 v2：只读侦察员先摸真实工作区/项目 → 规划模型据实拆账本（含可选机检命令）。
+        # 侦察/规划任一环节失败都退回旧 decompose 链路，绝不因规划升级而拖垮循环。
+        survey = ""
+        try:
+            survey = await scout_workspace(
+                objective=goal_spec.objective, session_id=session, user_id=user_id,
+                project_ctx=project_ctx, chat_id=chat_id, model_name=evaluator_model,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[loop %s] scout failed: %s", loop_id, exc)
+        if survey:
+            await _emit(emit, {"type": "loop_scouted", "survey": survey[:800]})
+        reqs = await plan_requirements(
+            goal_spec=goal_spec, survey=survey, model_name=evaluator_model, user_id=user_id,
         )
+        if not reqs:
+            reqs = await decompose_requirements(
+                goal_spec=goal_spec, model_name=evaluator_model or "fast", user_id=user_id,
+            )
         ledger = _new_ledger(goal_spec.objective, reqs)
+        if survey:
+            ledger["survey"] = survey  # 存档给重规划用（重拆时无需再侦察一遍）
         await _persist_ledger(ledger)
         await _write_file(
             f"{_WORKSPACE}/PROGRESS.md",
@@ -703,11 +839,15 @@ async def run_autonomous_loop(
         await _persist_ledger(ledger)
 
     def _budget_left() -> Optional[str]:
-        if seq >= budget.max_iters:
+        # 预算是可选约束：<=0 一律不限（默认）。「能完成任务」优先于省预算——
+        # 唯一的无条件上限是防死循环的硬后备 LOOP_HARD_MAX_ITERS。
+        if seq >= _hard_max_iters():
+            return f"触发防失控硬后备（{_hard_max_iters()} 轮）——请检查任务是否根本无法收敛"
+        if budget.max_iters > 0 and seq >= budget.max_iters:
             return f"达到最大迭代数 {budget.max_iters}"
-        if time.monotonic() - t0 >= budget.max_wall_clock_s:
+        if budget.max_wall_clock_s > 0 and time.monotonic() - t0 >= budget.max_wall_clock_s:
             return f"达到最大墙钟 {budget.max_wall_clock_s}s"
-        if tokens_spent >= budget.max_tokens:
+        if budget.max_tokens > 0 and tokens_spent >= budget.max_tokens:
             return f"达到 token 预算 {budget.max_tokens}"
         return None
 
@@ -741,61 +881,123 @@ async def run_autonomous_loop(
 
         seq += 1
         ledger["iteration"] = seq
+        # 用户临时指令（steer）：每轮开工前取一次队列，注入本轮 worker prompt（最高优先级）。
+        steering: List[str] = []
+        if poll_steering:
+            try:
+                steering = [s for s in (poll_steering() or []) if str(s).strip()]
+            except Exception as exc:  # noqa: BLE001 - steering 读取失败不拖垮循环
+                logger.warning("[loop %s] poll_steering failed: %s", loop_id, exc)
+        if steering:
+            await _emit(emit, {"type": "loop_steering_consumed", "seq": seq,
+                               "messages": [s[:200] for s in steering]})
         await _emit(emit, {"type": "iteration_started", "seq": seq,
                            "requirement_id": req["id"], "progress": _progress_frac(ledger)})
         logger.info("[loop %s] iter %d req=%s (%s)", loop_id, seq, req["id"], _progress_frac(ledger))
 
         # 1) Worker runs one iteration (fresh context, fed only the current requirement)
-        strategy_change = int(req.get("attempts", 0)) >= strategy_change_after
+        # 停滞告警看 stalls（连续无实质推进轮数）而非 attempts：健康推进多轮的大需求
+        # （如 20 章正文逐章写）不能每轮被怂恿「换根本不同的方法」推翻半成品——
+        # 这与 2026-08-10 的 progress/stall 修复必须同一口径。
+        strategy_change = int(req.get("stalls", 0)) >= strategy_change_after
         prompt = _build_requirement_prompt(
             objective=goal_spec.objective, ledger=ledger, req=req, seq=seq,
             handoff=handoff, feedback=feedback, strategy_change=strategy_change,
-            in_project=in_project,
+            in_project=in_project, steering=steering,
         )
-        work = await _run_worker_iteration(
-            prompt=prompt, session_id=session, user_id=user_id, model_name=model_name,
-            worker_max_iters=worker_max_iters, enable_thinking=enable_thinking,
-            chat_mode=chat_mode, emit=emit, is_cancelled=is_cancelled,
-            project_ctx=project_ctx, chat_id=chat_id,
-            ontology_enabled=ontology_enabled,
-            ontology_runtime=ontology_runtime,
-        )
+        # Per-iteration 异常隔离：worker 内任何未被流层吞掉的异常（网关断流抛错、
+        # AgentScope 内部错、沙箱协议外异常）只废掉**本轮**，绝不冒泡杀死整个多小时
+        # run。异常轮与零产出轮同待遇：不计 attempt、退避重试；连续多轮才熔断。
+        try:
+            work = await _run_worker_iteration(
+                prompt=prompt, session_id=session, user_id=user_id, model_name=model_name,
+                model_provider_id=model_provider_id,
+                worker_max_iters=worker_max_iters, enable_thinking=enable_thinking,
+                chat_mode=chat_mode, emit=emit, is_cancelled=is_cancelled,
+                project_ctx=project_ctx, chat_id=chat_id,
+                ontology_enabled=ontology_enabled,
+                ontology_runtime=ontology_runtime,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[loop %s] iter %d worker raised: %s", loop_id, seq, exc, exc_info=True)
+            work = {"text": "", "tokens": 0, "tool_calls": 0, "_infra_error": str(exc)[:200]}
         tokens_spent += work["tokens"]
         if is_cancelled and is_cancelled():
             status, reason = "cancelled", "外部取消"
             break
 
         # Infrastructure-failure guard: a worker round that produced NOTHING
-        # (no tool calls, no text, no tokens) is an environment outage — e.g.
-        # an LLM-gateway blip fast-fails every call — not evidence about the
-        # requirement. Charging it as an attempt/stall let a 10-minute gateway
-        # outage burn 6 empty rounds and block a requirement that was one
-        # healthy iteration from passing (observed on the 200-page rerun).
-        # Back off briefly and retry; the wall-clock/iteration budgets still
-        # bound a permanent outage.
+        # (no tool calls, no text, no tokens) — or raised — is an environment
+        # outage, not evidence about the requirement. Not counted as an
+        # attempt/stall; back off and retry. A permanent outage is bounded by
+        # the consecutive-infra circuit breaker (LOOP_MAX_CONSECUTIVE_INFRA).
         if not work["tokens"] and not work["tool_calls"] and not str(work.get("text") or "").strip():
+            consecutive_infra += 1
+            if consecutive_infra >= _max_consecutive_infra():
+                status = "failed"
+                reason = (
+                    f"连续 {consecutive_infra} 轮零产出/异常（疑似模型网关或沙箱持续故障），"
+                    "已熔断。排除环境故障后可「继续」从断点续跑。"
+                )
+                break
             logger.warning(
-                "[loop %s] iter %d req=%s produced nothing (infra failure?) — "
-                "not counted as attempt; backing off 30s", loop_id, seq, req["id"],
+                "[loop %s] iter %d req=%s produced nothing (infra failure %d/%d) — "
+                "not counted as attempt; backing off 30s",
+                loop_id, seq, req["id"], consecutive_infra, _max_consecutive_infra(),
             )
             await _emit(emit, {"type": "iteration_evaluated", "seq": seq,
                                "requirement_id": req["id"], "verdict": "infra_retry",
                                "tool_calls": 0, "tokens": 0,
-                               "reason": "本轮无任何产出（疑似模型/网关故障），不计入尝试，稍后重试"})
+                               "reason": "本轮无任何产出（疑似模型/网关故障），不计入尝试，稍后重试"
+                                         + (f"：{work.get('_infra_error')}" if work.get("_infra_error") else "")})
             await asyncio.sleep(30)
             continue
 
+        consecutive_infra = 0
         req["attempts"] = int(req.get("attempts", 0)) + 1
 
-        # 2) Read-only reviewer sub-agent: independently opens the **real produced files** to verify this requirement (never trusts the worker's self-report).
-        review = await review_requirement(
-            objective=goal_spec.objective, requirement_desc=req["description"],
-            acceptance_criteria=criteria, worker_summary=work["text"],
-            session_id=session, user_id=user_id,
-            project_ctx=project_ctx, chat_id=chat_id,
-            model_name=evaluator_model or model_name,
-            requirement_id=req["id"], emit=emit,
-        )
+        # 2) 混合验收（Codex「退出码是金标准」+ 语义评审兜底）：
+        #    a. 需求带机检命令 → driver **亲自**在沙箱执行（worker 无法作弊）。
+        #       机检失败 → 直接反馈命令输出、不烧一次评审 agent（省一整个评审员运行）；
+        #       推进信号退化为「工作区是否真有新改动」。
+        #    b. 机检通过/无机检 → 只读评审员亲验真实产出（never trust self-report）。
+        check_cmd = str(req.get("check_cmd") or "").strip()
+        check_passed: Optional[bool] = None
+        machine_evidence = ""
+        if check_cmd:
+            _code, _out, _err = await _sbx_exec(
+                check_cmd, session_id=session, user_id=user_id, timeout=90,
+            )
+            check_passed = _code == 0
+            _check_tail = (_out or _err or "").strip()[-500:]
+            machine_evidence = (
+                f"driver 已执行机检命令 `{check_cmd}`，退出码 {_code}"
+                + (f"，输出尾部：{_check_tail}" if _check_tail else "")
+            )
+            await _emit(emit, {"type": "loop_check", "seq": seq, "requirement_id": req["id"],
+                               "cmd": check_cmd, "exit_code": _code, "passed": check_passed})
+
+        if check_passed is False:
+            progressed = await _git_worktree_changed(session, user_id)
+            review = {
+                "verdict": CONTINUE,
+                "criteria_hit": [],
+                "evidence": machine_evidence,
+                "progress": progressed,
+                "feedback": f"机检未通过：{machine_evidence}。修复到该命令退出码为 0 再收工。",
+            }
+        else:
+            review = await review_requirement(
+                objective=goal_spec.objective, requirement_desc=req["description"],
+                acceptance_criteria=criteria, worker_summary=work["text"],
+                machine_evidence=machine_evidence,
+                session_id=session, user_id=user_id,
+                project_ctx=project_ctx, chat_id=chat_id,
+                model_name=evaluator_model or model_name,
+                requirement_id=req["id"], emit=emit,
+            )
         verdict = review.get("verdict")
         evidence = review.get("evidence", "")
 
@@ -809,23 +1011,34 @@ async def run_autonomous_loop(
         logger.info("[loop %s] iter %d req=%s verdict=%s (attempt %d)",
                     loop_id, seq, req["id"], verdict, req["attempts"])
 
-        # 3) Decide the flip (passes: false→true); only the driver may flip — "done" must also pass an independent second-pass re-check.
+        # 3) Decide the flip (passes: false→true); only the driver may flip.
+        #    二次复核降频：机检已过（有客观退出码佐证）且不是收官需求 → 一次语义评审即可翻牌；
+        #    纯语义需求、或翻牌即整环完成的收官需求 → 仍加独立二次复核（防提前收工）。
         passed = False
         if verdict == DONE:
-            confirm = await review_requirement(
-                objective=goal_spec.objective, requirement_desc=req["description"],
-                acceptance_criteria=criteria, worker_summary=work["text"],
-                session_id=session, user_id=user_id,
-                project_ctx=project_ctx, chat_id=chat_id,
-                model_name=evaluator_model or model_name, second_pass=True,
-                requirement_id=req["id"], emit=emit,
+            flip_completes = all(
+                r.get("passes") or r.get("blocked") or r["id"] == req["id"]
+                for r in ledger["requirements"]
             )
-            if confirm.get("verdict") == DONE:
+            need_confirm = (check_passed is not True) or flip_completes
+            if not need_confirm:
                 passed = True
-                evidence = confirm.get("evidence") or evidence
             else:
-                rec["reason"] += "（二次复核未通过，继续）"
-                logger.info("[loop %s] req %s done 被二次复核驳回", loop_id, req["id"])
+                confirm = await review_requirement(
+                    objective=goal_spec.objective, requirement_desc=req["description"],
+                    acceptance_criteria=criteria, worker_summary=work["text"],
+                    machine_evidence=machine_evidence,
+                    session_id=session, user_id=user_id,
+                    project_ctx=project_ctx, chat_id=chat_id,
+                    model_name=evaluator_model or model_name, second_pass=True,
+                    requirement_id=req["id"], emit=emit,
+                )
+                if confirm.get("verdict") == DONE:
+                    passed = True
+                    evidence = confirm.get("evidence") or evidence
+                else:
+                    rec["reason"] += "（二次复核未通过，继续）"
+                    logger.info("[loop %s] req %s done 被二次复核驳回", loop_id, req["id"])
 
         # 4) HITL: reviewer requests human confirmation (optional per-loop; CE default logs and continues)
         if not passed and verdict == NEED_HUMAN and hitl_enabled:
@@ -874,16 +1087,55 @@ async def run_autonomous_loop(
                     await _emit(emit, {"type": "loop_awaiting_human", "seq": seq, "reason": reason})
                     break
                 req["blocked"] = True
+                req["last_feedback"] = str(review.get("feedback", "") or "")[:400]
                 await _emit(emit, {"type": "loop_stagnation", "seq": seq,
                                    "requirement_id": req["id"], "attempts": req["attempts"],
                                    "stalls": req["stalls"]})
                 logger.info("[loop %s] req %s blocked after %d attempts (%d consecutive stalls)",
                             loop_id, req["id"], req["attempts"], req["stalls"])
-        feedback = review.get("feedback", "")
+                # 重规划：需求被搁置说明原拆法/方向可能有问题——对剩余未完成部分重拆
+                # （已通过项不动），而不是一条条 blocked 到只剩「部分完成」。次数有护栏。
+                if int(ledger.get("replans", 0) or 0) < _max_replans():
+                    new_reqs = await replan_remaining(
+                        goal_spec=goal_spec, ledger=ledger,
+                        survey=str(ledger.get("survey", "") or ""),
+                        model_name=evaluator_model, user_id=user_id,
+                    )
+                    if new_reqs:
+                        ledger["replans"] = int(ledger.get("replans", 0) or 0) + 1
+                        ledger["requirements"] = _init_req_fields(new_reqs)
+                        feedback = ""
+                        handoff = ""
+                        await _persist_ledger(ledger)
+                        await _emit(emit, {"type": "loop_replanned", "seq": seq,
+                                           "replans": ledger["replans"]})
+                        await _emit(emit, {"type": "loop_plan", "objective": goal_spec.objective,
+                                           "requirements": [
+                                               {"id": r["id"], "description": r["description"],
+                                                "passes": bool(r.get("passes"))}
+                                               for r in ledger["requirements"]]})
+                        logger.info("[loop %s] REPLANNED (#%d): %d requirements",
+                                    loop_id, ledger["replans"], len(ledger["requirements"]))
+                        continue
+
+        # 评审反馈只属于**当前需求**：翻牌后清空，绝不把上一条需求的反馈当成下一条的
+        # 「评审反馈」注入（历史缺陷：R1 通过后 R2 首轮带着 R1 的结论开工）。
+        if passed:
+            feedback = ""
+        else:
+            feedback = review.get("feedback", "")
+            req["last_feedback"] = feedback[:400]
 
         # 6) Handoff + persist ledger/progress (for resume). git diff takes precedence over the text summary.
         git_diff = await _git_diff_stat(session, user_id)
-        handoff = await _make_handoff(work["text"], evidence, git_diff)
+        if passed:
+            # 交接同理按需求隔离：下一条需求只需要知道「上一条已完成」+ 改动面，
+            # 不需要上一条的工作细节自述。
+            handoff = f"【上一需求 {req['id']} 已完成并通过评审】"
+            if git_diff:
+                handoff += f"\n【其改动 git diff --stat】\n{git_diff}"
+        else:
+            handoff = await _make_handoff(work["text"], evidence, git_diff)
         await asyncio.gather(
             _persist_ledger(ledger),
             _write_file(
@@ -898,6 +1150,30 @@ async def run_autonomous_loop(
                 session_id=session, user_id=user_id,
             ),
         )
+
+    # 收尾交付轮：部分完成收场（停滞搁置/显式预算耗尽/硬后备触发）时，用现有成果
+    # 做一轮「尽力交付」——整合已完成部分、如实列出未竟事项，而不是把半成品散件直接
+    # 甩给用户。取消/失败/等待人工不做（前两者用户要么不想要、要么环境坏了）。
+    if status == "budget_exhausted" and _wrapup_enabled():
+        _done_n = sum(1 for r in ledger["requirements"] if r.get("passes"))
+        if _done_n and not (is_cancelled and is_cancelled()):
+            await _emit(emit, {"type": "loop_wrapup_started",
+                               "progress": _progress_frac(ledger)})
+            try:
+                wrap = await _run_worker_iteration(
+                    prompt=_build_wrapup_prompt(goal_spec.objective, ledger, in_project),
+                    session_id=session, user_id=user_id, model_name=model_name,
+                    model_provider_id=model_provider_id,
+                    worker_max_iters=max(6, worker_max_iters // 2),
+                    enable_thinking=enable_thinking, chat_mode=chat_mode,
+                    emit=emit, is_cancelled=is_cancelled,
+                    project_ctx=project_ctx, chat_id=chat_id,
+                    ontology_enabled=ontology_enabled,
+                    ontology_runtime=ontology_runtime,
+                )
+                tokens_spent += wrap["tokens"]
+            except Exception as exc:  # noqa: BLE001 - 收尾失败不改变终态
+                logger.warning("[loop %s] wrapup iteration failed: %s", loop_id, exc)
 
     # Convergence/exit: flush the final ledger (sandbox + DB).
     await _persist_ledger(ledger)

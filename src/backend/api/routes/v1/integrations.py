@@ -122,9 +122,11 @@ class _YidaPollRequest(BaseModel):
 
 @router.get("/yida/status", summary="查询宜搭连接状态")
 async def yida_status(
+    probe: bool = Query(False, description="true 时向宜搭发起只读请求，实时核对登录态"),
     user: UserContext = Depends(get_current_user),
 ):
-    data = YidaService().get_status(str(user.user_id))
+    svc = YidaService()
+    data = await svc.probe_status(str(user.user_id)) if probe else svc.get_status(str(user.user_id))
     return success_response(data=data)
 
 

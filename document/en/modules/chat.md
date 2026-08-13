@@ -1,6 +1,6 @@
 # Chat & Agent Orchestration
 
-> Last updated: July 30, 2026
+> Last updated: August 12, 2026
 
 Chat is the core pipeline of HugAgentOS: a user message travels through the FastAPI route, runtime-context assembly, and the streaming orchestrator, then an AgentScope 2.0 ReActAgent drives multi-turn "think → call tool → observe" loops whose events are pushed to the frontend in real time over SSE. This page walks the end-to-end flow as it exists in the code, then covers the citation system, plan mode, sub-agents, conversation summarization, chat sharing, context compression, and oversized-tool-result offloading.
 
@@ -25,7 +25,7 @@ orchestration/workflow.py::astream_chat_workflow()
    │   │     MCP pool + skill registration + file tools + system prompt + middlewares → Agent
    │   ├─ core/llm/context_manager.py          trim history to the token budget
    │   └─ orchestration/streaming.py::StreamingAgent.stream()
-   │         consumes agent.reply_stream(), maps 25 fine-grained events to 8 SSE event kinds
+   │         consumes agent.reply_stream(), coalesces 25 event kinds while preserving tool-argument deltas
    ▼
 SSE follower: chat_run_executor.follow_run_as_sse()
        XRANGE replay + XREAD tail → data: {...}\n\n → browser
@@ -59,18 +59,20 @@ Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (k
 
 ## SSE event types and payloads
 
-`orchestration/streaming.py::StreamingAgent` collapses AgentScope 2.0 `reply_stream` events into 8 internal kinds; `workflow.py` and `chats.py::_stream_sse_response` enrich them with chat-level fields before they hit the wire. Events as the frontend sees them:
+`orchestration/streaming.py::StreamingAgent` coalesces AgentScope 2.0 `reply_stream` events into internal events. Tiny tool-argument fragments are batched at 256 characters or 50ms, keeping them visible without recreating an SSE event storm. `workflow.py` and `chats.py::_stream_sse_response` enrich them with chat-level fields before they hit the wire. Events as the frontend sees them:
 
 | `type` | Meaning | Key fields |
 |---|---|---|
 | `thinking` | Reasoning (delta or stage hint) | `delta` / `message` |
 | `content` | Answer text delta | `event: "ai_message"`, `delta`, `chat_id` |
 | `content_replace` | Replaces the streamed draft in place when ontology review revises the final answer | `content`, `reason: "ontology_review"`, `chat_id` |
-| `tool_call` | A tool invocation (args complete) | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, plus `subagent_name` for sub-agent calls |
+| `tool_call_start` | Tool-call construction starts; the frontend opens one card by stable ID | `tool_name`, `tool_display_name`, `tool_id` |
+| `tool_call_delta` | Incremental argument JSON appended to the same card | `tool_name`, `tool_id`, `arguments_delta` |
+| `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, plus `subagent_name` for sub-agent calls |
 | `tool_result` | Tool invocation result | `tool_name`, `result`, `tool_id`, `citations[]` |
 | `subagent_event` | Child execution details nested under the parent `call_subagent` card | `parent_tool_id`, `sub_type`, `agent_name`, plus child tool or content fields |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | Ontology-governance state, separate from model reasoning | workflow activation, gate decision, and committee status or verdict |
-| `tool_pending` | Tool started, args still streaming | `tool_name` |
+| `tool_pending` | Waiting fallback when the provider exposes no parseable argument deltas | `reason` |
 | `batch_confirm` | Batch plan generated, awaiting user confirmation (human gate) | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | A tool is suspended awaiting confirmation of a MySpace write | confirmation context; the tool resumes in place after an out-of-band `POST /v1/chats/{chat_id}/file-confirm` |
 | `compaction_notice` | A new context-compaction checkpoint was created after the previous turn | `chat_id`, `context_compaction` (coverage boundary and replacement-summary token count) |
@@ -81,6 +83,12 @@ Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (k
 The stream terminates with `data: [DONE]`. Example frames:
 
 ```
+data: {"type":"tool_call_start","tool_name":"internet_search","tool_display_name":"Web Search","tool_id":"call_abc"}
+
+data: {"type":"tool_call_delta","tool_name":"internet_search","arguments_delta":"{\"query\":\"Beijing ","tool_id":"call_abc"}
+
+data: {"type":"tool_call_delta","tool_name":"internet_search","arguments_delta":"IC industry\"}","tool_id":"call_abc"}
+
 data: {"type":"tool_call","tool_name":"internet_search","tool_display_name":"Web Search","tool_args":{"query":"Beijing IC industry"},"tool_id":"call_abc"}
 
 data: {"type":"tool_result","tool_name":"internet_search","result":{...},"tool_id":"call_abc","citations":[{"id":"e1","title":"...","url":"...","snippet":"...","source_type":"internet","item_index":0}]}

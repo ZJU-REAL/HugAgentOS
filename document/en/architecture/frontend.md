@@ -83,7 +83,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 
 | Hook | Responsibility |
 |---|---|
-| `useStreaming` | The main SSE consumer: exposes `send` / `abort` / `regenerate` / `editAndResend` / `resumeRunIfAny`; parses `content/thinking/tool_call/tool_result/tool_progress/meta/error` events, maintains text segments and the tool timeline, supports run resumption |
+| `useStreaming` | The main SSE consumer: exposes `send` / `abort` / `regenerate` / `editAndResend` / `resumeRunIfAny`; parses `content/thinking/tool_call_start/tool_call_delta/tool_call/tool_result/tool_progress/meta/error` events, maintains text segments and the tool timeline, supports run resumption |
 | `useChatActions` | Session-management actions: create / delete / rename / pin & favorite / export / share / summary & classification |
 | `useChatInit` | Session initialization and active-run recovery on app start |
 | `usePlanMode` | Plan-mode SSE consumer (shared by first execution and resume) |
@@ -121,7 +121,7 @@ useStreaming.send
    │ 2. fetch POST /v1/chats/stream (attachments carry only file_id/name/mime_type)
    │ parses data: {json} line by line
    │ ├─ content/thinking → appended into segments (utils/segments.ts)
-   │ ├─ tool_call/tool_result → tool timeline (components/tool/)
+   │ ├─ tool_call_start/tool_call_delta/tool_call/tool_result → update the tool timeline in place by tool_id (components/tool/)
    │ ├─ file_confirm/batch_confirm → confirm bar / modal (hard pause)
    │ └─ meta → citation sources and artifact list written onto the message
    ▼

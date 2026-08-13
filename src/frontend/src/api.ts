@@ -3200,8 +3200,8 @@ function _coerceYidaStatus(data: JsonObject): YidaStatus {
   };
 }
 
-export async function getYidaStatus(): Promise<YidaStatus> {
-  const wrapped = await apiRequest<unknown>('/v1/integrations/yida/status');
+export async function getYidaStatus(probe = false): Promise<YidaStatus> {
+  const wrapped = await apiRequest<unknown>(`/v1/integrations/yida/status${probe ? '?probe=true' : ''}`);
   return _coerceYidaStatus(unwrapData<JsonObject>(wrapped));
 }
 
@@ -3263,7 +3263,7 @@ export async function getLoopIterations(loopId: string): Promise<LoopIterationIt
  *  is only a fallback boolean for legacy clients. */
 export async function startLoop(
   loopId: string,
-  body: { model_name?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
+  body: { model_name?: string; model_provider_id?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
   signal?: AbortSignal,
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/loops/${encodeURIComponent(loopId)}/start`, {
@@ -3276,7 +3276,7 @@ export async function startLoop(
 
 export async function resumeLoop(
   loopId: string,
-  body: { model_name?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
+  body: { model_name?: string; model_provider_id?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
   signal?: AbortSignal,
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/loops/${encodeURIComponent(loopId)}/resume`, {
@@ -3285,6 +3285,15 @@ export async function resumeLoop(
     body: JSON.stringify(body),
     signal,
   });
+}
+
+/** 运行中追加一条用户指令：driver 下一轮 worker 开工前取走并以最高优先级注入 prompt。 */
+export async function steerLoop(loopId: string, message: string): Promise<boolean> {
+  const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}/steer`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+  return (unwrapData<{ queued: boolean }>(wrapped) || { queued: false }).queued;
 }
 
 export async function cancelLoop(loopId: string): Promise<boolean> {

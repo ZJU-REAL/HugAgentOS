@@ -263,7 +263,7 @@ class AgentLoop(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('created','running','paused','awaiting_human','completed',"
-            "'budget_exhausted','failed','cancelled')",
+            "'budget_exhausted','failed','cancelled','interrupted')",
             name="agent_loops_status_check",
         ),
         Index("idx_agent_loops_user_id", "user_id"),

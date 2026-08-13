@@ -171,11 +171,15 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
     ? m.segments.filter(s => s.type === 'text').map(s => s.content || '').join('\n\n') || m.content
     : m.content;
   // Drives the "正在准备调用工具" pending step inside the ToolRunShell — the
-  // configured LLM buffers tool-call args server-side, so when the message is
+  // Some LLM providers still buffer tool-call args server-side, so when the message is
   // streaming and goes silent (or backend has fired `tool_pending`) we want
   // *some* signal that work is still happening. Replaces the old free-floating
   // StreamWaitIndicator below the text bubble.
-  const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${m.segments?.length ?? 0}`;
+  const streamedArgsLength = (m.toolCalls || []).reduce(
+    (total, tool) => total + (tool.inputText?.length || 0),
+    0,
+  );
+  const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${m.segments?.length ?? 0}`;
   // Anchor the stall clock to the message's persisted `lastActivityTs` so the
   // "正在准备调用工具…" timer keeps counting from the real start even after a
   // session switch or page refresh remounts this component.
