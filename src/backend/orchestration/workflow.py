@@ -65,9 +65,7 @@ def _extract_project_ctx(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {k: context.get(k) for k in _PROJECT_CTX_KEYS}
 
 
-def _resolve_agent_model_runtime(
-    agent: Any, fallback_model_name: Any = ""
-) -> Tuple[str, int]:
+def _resolve_agent_model_runtime(agent: Any, fallback_model_name: Any = "") -> Tuple[str, int]:
     """Return the effective model name and context window baked into an agent.
 
     AgentScope chat models expose the upstream name as ``.model``. Some provider
@@ -1186,9 +1184,7 @@ def run_chat_workflow(
         )
 
     _workflow_turbo = (
-        _direct_user_agent is None
-        and _workflow_chat_mode == "turbo"
-        and not _workflow_batch_chat
+        _direct_user_agent is None and _workflow_chat_mode == "turbo" and not _workflow_batch_chat
     )
     if _workflow_turbo:
         # 极速模式下子智能体仅在本轮被显式委派/@ 时入场（此路径无文本 @ 解析）。
@@ -1243,9 +1239,7 @@ def run_chat_workflow(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[workflow] set agent.state failed: %s", exc)
 
-            _actual_model, _ctx_window = _resolve_agent_model_runtime(
-                agent, _workflow_model_name
-            )
+            _actual_model, _ctx_window = _resolve_agent_model_runtime(agent, _workflow_model_name)
 
             # PreTurn compaction safety net (symmetric with the streaming path
             # — both workflow entry points protect themselves, and future new
@@ -1268,9 +1262,7 @@ def run_chat_workflow(
             if history and history[-1].get("role") in ("user", "human"):
                 history.pop()
 
-            _ctx_mgr = ContextWindowManager(
-                ContextBudget(model_context_window=_ctx_window)
-            )
+            _ctx_mgr = ContextWindowManager(ContextBudget(model_context_window=_ctx_window))
             history = _ctx_mgr.trim_history(history)
 
             if history:
@@ -1525,9 +1517,7 @@ async def _astream_subagent_direct(
     # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
     # 中间件与本函数由此共享同一个计数器
     _anchor_allocator = AnchorAllocator(
-        await asyncio.to_thread(
-            anchor_start_for_chat, str(context.get("chat_id") or "") or None
-        )
+        await asyncio.to_thread(anchor_start_for_chat, str(context.get("chat_id") or "") or None)
     )
 
     try:
@@ -1603,12 +1593,8 @@ async def _astream_subagent_direct(
         # checkpoint system of its own); over budget it is trimmed directly to
         # the token budget (layer-C compression of oversized user messages
         # still happens inside manage_context).
-        _actual_model, _ctx_window = _resolve_agent_model_runtime(
-            agent, _stream_model_name
-        )
-        ctx_manager = ContextWindowManager(
-            ContextBudget(model_context_window=_ctx_window)
-        )
+        _actual_model, _ctx_window = _resolve_agent_model_runtime(agent, _stream_model_name)
+        ctx_manager = ContextWindowManager(ContextBudget(model_context_window=_ctx_window))
         trimmed, dropped_messages = ctx_manager.manage_context(session_messages)
         if dropped_messages:
             logger.warning(
@@ -1661,6 +1647,9 @@ async def _astream_subagent_direct(
 
                 elif event_type == "reasoning_protocol":
                     yield {"type": "thinking", **payload}
+
+                elif event_type == "steer_applied":
+                    yield {"type": "steer_applied", **(payload or {})}
 
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
@@ -1827,6 +1816,7 @@ async def _astream_subagent_direct(
                         "result": tool_result_json,
                         "tool_id": tool_id,
                         "citations": cit_dicts,
+                        "status": payload.get("status", "success"),
                     }
 
                 elif event_type in ("heartbeat", "model_progress"):
@@ -2134,9 +2124,7 @@ def _assemble_episode_background(
 
         bundle = getattr(agent, "_jx_asset_bundle", None) if agent is not None else None
 
-        sink = TraceSink(
-            run_id=run_id, message_id=message_id, chat_id=chat_id, user_id=user_id
-        )
+        sink = TraceSink(run_id=run_id, message_id=message_id, chat_id=chat_id, user_id=user_id)
         # The rendered memory block has already discarded ids, scores and ranks;
         # this is the only place they still exist.
         retrieval = get_last_retrieval(memory_task)
@@ -2160,9 +2148,7 @@ def _assemble_episode_background(
         if selection is not None:
             from core.evolution.events import EV_SKILL_SELECTED
 
-            sink.append(
-                EV_SKILL_SELECTED, selection.to_event_payload(), asset_kind="skill"
-            )
+            sink.append(EV_SKILL_SELECTED, selection.to_event_payload(), asset_kind="skill")
         sink.flush()
 
         # Stamp the user's contribution choice onto the episode. Doing it at
@@ -2322,9 +2308,7 @@ async def astream_chat_workflow(
     # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
     # 中间件与本函数由此共享同一个计数器
     _anchor_allocator = AnchorAllocator(
-        await asyncio.to_thread(
-            anchor_start_for_chat, str(context.get("chat_id") or "") or None
-        )
+        await asyncio.to_thread(anchor_start_for_chat, str(context.get("chat_id") or "") or None)
     )
 
     try:
@@ -2517,9 +2501,7 @@ async def astream_chat_workflow(
         # object do we fall back to resolve — unconfigured raises, fail loud,
         # never silently run with the wrong window.
         # preturn and manage_context below share the same value.
-        _actual_model, _ctx_window = _resolve_agent_model_runtime(
-            agent, _stream_model_name
-        )
+        _actual_model, _ctx_window = _resolve_agent_model_runtime(agent, _stream_model_name)
         try:
             from core.services.compaction_service import maybe_run_pre_turn_compaction
 
@@ -2603,6 +2585,9 @@ async def astream_chat_workflow(
 
                 elif event_type == "reasoning_protocol":
                     yield {"type": "thinking", **payload}
+
+                elif event_type == "steer_applied":
+                    yield {"type": "steer_applied", **(payload or {})}
 
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
@@ -2819,6 +2804,7 @@ async def astream_chat_workflow(
                         "result": tool_result_json,
                         "tool_id": tool_id,
                         "citations": cit_dicts,
+                        "status": payload.get("status", "success"),
                         **({"subagent_name": _tr_sa_name} if _tr_sa_name else {}),
                     }
 

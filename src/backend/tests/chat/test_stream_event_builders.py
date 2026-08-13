@@ -86,12 +86,14 @@ def test_tool_call_event_and_log_upsert():
         "chat_id": "c1",
     }
     # The builder upserts the tool_call into the log (without chat_id/type).
-    assert log == [{
-        "tool_name": "bash",
-        "tool_display_name": "Bash",
-        "tool_args": {"command": "ls"},
-        "tool_id": "t1",
-    }]
+    assert log == [
+        {
+            "tool_name": "bash",
+            "tool_display_name": "Bash",
+            "tool_args": {"command": "ls"},
+            "tool_id": "t1",
+        }
+    ]
 
 
 def test_tool_call_event_subagent_passthrough():
@@ -120,6 +122,7 @@ def test_tool_result_event_and_log_attach():
         "tool_id": "t1",
         "chat_id": "c1",
         "citations": [{"n": 1}],
+        "status": "success",
     }
     # The result is attached onto the matching log entry.
     assert log[0]["result"] == {"stdout": "ok"}
@@ -131,3 +134,19 @@ def test_tool_result_event_defaults_when_missing():
     assert evt["result"] == {}
     assert evt["citations"] == []
     assert "subagent_name" not in evt
+
+
+def test_interrupted_tool_result_keeps_neutral_status():
+    log = [{"tool_name": "bash", "tool_id": "t1"}]
+    evt = build_tool_result_event(
+        {
+            "tool_id": "t1",
+            "tool_name": "bash",
+            "result": {"message": "interrupted by steer"},
+            "status": "interrupted",
+        },
+        "c1",
+        log,
+    )
+    assert evt["status"] == "interrupted"
+    assert log[0]["status"] == "interrupted"

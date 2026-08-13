@@ -453,12 +453,15 @@ async def _run_item_via_workflow(
                 tool_name = payload.get("name", "unknown")
                 tool_args = payload.get("args", {})
                 tool_id = payload.get("id", "")
-                _upsert_tool_call(tool_calls_log, {
-                    "tool_name": tool_name,
-                    "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
-                    "tool_args": tool_args if isinstance(tool_args, dict) else {},
-                    "tool_id": tool_id,
-                })
+                _upsert_tool_call(
+                    tool_calls_log,
+                    {
+                        "tool_name": tool_name,
+                        "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
+                        "tool_args": tool_args if isinstance(tool_args, dict) else {},
+                        "tool_id": tool_id,
+                    },
+                )
             elif event_type == "tool_result":
                 tool_name = payload.get("name", "unknown")
                 tool_id = payload.get("id", "")

@@ -88,6 +88,17 @@ def build_tool_result_event(chunk: dict, chat_id: str, tool_calls_log: list) -> 
     tid = chunk.get("tool_id")
     tn = chunk.get("tool_name")
     res = chunk.get("result", {})
+    raw_status = str(chunk.get("status") or "success").lower()
+    # A steer interrupts the pending tool *before* execution so the model can
+    # re-plan with the user's new instruction.  It is a normal control-flow
+    # boundary, not a failed tool call: preserve the distinct status for audit
+    # and let the UI render it neutrally instead of showing a red error cross.
+    if raw_status == "interrupted":
+        status = "interrupted"
+    elif raw_status in {"error", "denied"}:
+        status = "error"
+    else:
+        status = "success"
     evt: Dict[str, Any] = {
         "type": "tool_result",
         "tool_name": tn,
@@ -95,12 +106,13 @@ def build_tool_result_event(chunk: dict, chat_id: str, tool_calls_log: list) -> 
         "tool_id": tid,
         "chat_id": chat_id,
         "citations": chunk.get("citations", []),
+        "status": status,
     }
     if chunk.get("subagent_name"):
         evt["subagent_name"] = chunk["subagent_name"]
     if chunk.get("scope"):
         evt["scope"] = chunk["scope"]
-    attach_tool_result(tool_calls_log, tid, tn, res)
+    attach_tool_result(tool_calls_log, tid, tn, res, status=status)
     return evt
 
 
@@ -118,22 +130,29 @@ def upsert_tool_call(tool_calls_log: list, tc: dict) -> None:
     tool_calls_log.append(tc)
 
 
-def attach_tool_result(tool_calls_log: list, tid: str, tn: str, res: Any) -> None:
+def attach_tool_result(
+    tool_calls_log: list,
+    tid: str,
+    tn: str,
+    res: Any,
+    *,
+    status: str = "success",
+) -> None:
     """Attach a tool_result to the matching tool_call entry in the log."""
     for tc in tool_calls_log:
         if tid and tc.get("tool_id") == tid:
-            tc["result"], tc["status"] = res, "success"
+            tc["result"], tc["status"] = res, status
             return
         if tn and tc.get("tool_name") == tn and "result" not in tc:
-            tc["result"], tc["status"] = res, "success"
+            tc["result"], tc["status"] = res, status
             return
     if tid or tn:
-        tool_calls_log.append({"tool_name": tn, "tool_id": tid, "result": res, "status": "success"})
+        tool_calls_log.append({"tool_name": tn, "tool_id": tid, "result": res, "status": status})
 
 
 # Persistence caps for sub-agent sub-steps (prevent a single call_subagent's sub_steps from growing unbounded and bloating the message row).
-_SUBSTEP_OUTPUT_CAP = 16000   # max characters stored per sub-tool result
-_SUBSTEP_MAX_STEPS = 200      # max sub-steps stored per call_subagent card
+_SUBSTEP_OUTPUT_CAP = 16000  # max characters stored per sub-tool result
+_SUBSTEP_MAX_STEPS = 200  # max sub-steps stored per call_subagent card
 
 
 def _upsert_tool_step(steps: list, tid: Any, name: str, patch: dict) -> None:
@@ -145,8 +164,9 @@ def _upsert_tool_step(steps: list, tid: Any, name: str, patch: dict) -> None:
                 s["name"] = name
             return
     if len(steps) < _SUBSTEP_MAX_STEPS:
-        steps.append({"kind": "tool", "toolId": tid, "name": name or "tool",
-                      "status": "running", **patch})
+        steps.append(
+            {"kind": "tool", "toolId": tid, "name": name or "tool", "status": "running", **patch}
+        )
 
 
 def attach_subagent_step(tool_calls_log: list, parent_tool_id: str, ev: dict) -> None:
@@ -179,16 +199,18 @@ def attach_subagent_step(tool_calls_log: list, parent_tool_id: str, ev: dict) ->
 
     if st == "tool_call":
         inp = ev.get("input")
-        _upsert_tool_step(steps, ev.get("tool_id"), ev.get("tool_name"),
-                          {"input": inp} if inp is not None else {})
+        _upsert_tool_step(
+            steps, ev.get("tool_id"), ev.get("tool_name"), {"input": inp} if inp is not None else {}
+        )
 
     elif st == "tool_result":
         out = ev.get("output")
         if isinstance(out, str) and len(out) > _SUBSTEP_OUTPUT_CAP:
             out = out[:_SUBSTEP_OUTPUT_CAP] + "…（已截断）"
         status = "error" if ev.get("status") == "error" else "success"
-        _upsert_tool_step(steps, ev.get("tool_id"), ev.get("tool_name"),
-                          {"output": out, "status": status})
+        _upsert_tool_step(
+            steps, ev.get("tool_id"), ev.get("tool_name"), {"output": out, "status": status}
+        )
 
     elif st == "thinking":
         delta = ev.get("delta") or ""

@@ -11,6 +11,7 @@ export {
   coerceToolOutput, normalizeMaybeId,
 } from './citations';
 export { buildHistorySegments } from './segments';
+export { getToolRunInitialOpen } from './toolRunState';
 export { uploadFileToOSS, normalizeArtifactOutput, extractArtifactOutputs, attachArtifactsToToolCalls } from './fileParser';
 export { formatDateTime } from './date';
 export { resolvePlanModeActive, shouldRestorePlanModeFromHistory } from './chatMode';

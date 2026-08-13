@@ -8,6 +8,7 @@ import {
   appendStreamTextSegment,
   appendThinkingContentBeforeTrailingText,
   deferThinkingTextFragmentBeforeTool,
+  liftTrailingSegmentsAboveFinalText,
   restoreDeferredThinkingTextFragment,
   type DeferredThinkingTextFragment,
 } from '../utils/streamSegments';
@@ -524,7 +525,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     return changed;
   };
 
-  const placeholderTs = Date.now();
+  let placeholderTs = Date.now();
   const autoOpenOntologySidebar = () => {
     if (ontologySidebarAutoOpened) return;
     ontologySidebarAutoOpened = true;
@@ -534,7 +535,11 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     if (useCatalogStore.getState().panel !== 'chat') return;
     useCanvasStore.getState().openOntology({ chatId, messageTs: placeholderTs });
   };
-  const appendOrUpdate = (streaming: boolean, cits?: CitationItem[]) => {
+  const appendOrUpdate = (
+    streaming: boolean,
+    cits?: CitationItem[],
+    persistedMessageId?: string,
+  ) => {
     useChatStore.getState().updateStore((prev) => {
       const c = prev.chats[chatId];
       const msgs = [...(c?.messages || [])];
@@ -547,7 +552,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           ? (pendingNotice || '')
           : full
       );
-      const isMd = streaming && (body.includes('\n') || body.includes('```') || body.includes('**') || /^\s*#\s/m.test(body));
+      const isMd = body.includes('\n') || body.includes('```') || body.includes('**') || /^\s*#\s/m.test(body);
       const updatedMsg: Partial<ChatMessage> & { content: string; isMarkdown: boolean; isStreaming: boolean } = {
         content: body,
         isMarkdown: isMd,
@@ -576,6 +581,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         // it survives a session switch / refresh remount (see useStallDetector).
         lastActivityTs: Date.now(),
       };
+      if (persistedMessageId) updatedMsg.messageId = persistedMessageId;
+      if (!streaming) updatedMsg.durationMs = Date.now() - placeholderTs;
       if (cits !== undefined) updatedMsg.citations = cits.length > 0 ? cits : undefined;
       if (metaFollowUps.length > 0) updatedMsg.followUpQuestions = metaFollowUps;
 
@@ -591,6 +598,100 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       const nextChat: ChatItem = { ...(c as ChatItem), messages: msgs };
       return { chats: { ...prev.chats, [chatId]: nextChat }, order: prev.order };
     });
+  };
+
+  const applySteerBoundary = (eventObj: Record<string, unknown>) => {
+    // Finish any half-buffered inline-reasoning token before freezing the
+    // current assistant bubble. The next model iteration starts a fresh bubble.
+    if (parseBuffer) {
+      if (thinkingPhaseActive && sawThinkCloseTag) appendThinkContent(parseBuffer, true);
+      else appendTextSeg(parseBuffer);
+      parseBuffer = '';
+    }
+    reclassifyImplicitThinking();
+    deferredThinkingText = restoreDeferredThinkingTextFragment(segments, deferredThinkingText);
+    // 冻结气泡前收尾：工具卡/思考块不留在最终答案之后（与历史重建同一规则）
+    liftTrailingSegmentsAboveFinalText(segments);
+
+    const previousAssistantMessageId = typeof eventObj.previous_assistant_message_id === 'string'
+      ? eventObj.previous_assistant_message_id
+      : undefined;
+    const nextAssistantMessageId = typeof eventObj.next_assistant_message_id === 'string'
+      ? eventObj.next_assistant_message_id
+      : undefined;
+    const steerMessageId = typeof eventObj.message_id === 'string'
+      ? eventObj.message_id
+      : undefined;
+    const steerMessage = typeof eventObj.message === 'string' ? eventObj.message.trim() : '';
+    const hasAssistantOutput = full.length > 0
+      || toolCalls.length > 0
+      || thinking.length > 0
+      || segments.length > 0;
+
+    if (hasAssistantOutput) {
+      appendOrUpdate(false, allCitations, previousAssistantMessageId);
+    }
+
+    let steerMessageTs = Date.now();
+    useChatStore.getState().updateStore((prev) => {
+      const chat = prev.chats[chatId];
+      if (!chat) return prev;
+      const messages = [...chat.messages];
+      let assistantIndex = messages.findIndex(
+        (item) => item.role === 'assistant' && item.ts === placeholderTs,
+      );
+      if (!hasAssistantOutput && assistantIndex >= 0) {
+        messages.splice(assistantIndex, 1);
+        assistantIndex -= 1;
+      }
+
+      const existingUserIndex = steerMessageId
+        ? messages.findIndex((item) => item.messageId === steerMessageId)
+        : -1;
+      if (existingUserIndex >= 0) {
+        steerMessageTs = messages[existingUserIndex].ts;
+      } else if (steerMessage) {
+        steerMessageTs = Math.max(Date.now(), placeholderTs + 1);
+        const userMessage: ChatMessage = {
+          role: 'user',
+          content: steerMessage,
+          isMarkdown: false,
+          ts: steerMessageTs,
+          messageId: steerMessageId,
+        };
+        messages.splice(assistantIndex >= 0 ? assistantIndex + 1 : messages.length, 0, userMessage);
+      }
+
+      return {
+        ...prev,
+        chats: {
+          ...prev.chats,
+          [chatId]: { ...chat, messages, updatedAt: Date.now() },
+        },
+      };
+    });
+
+    // The queue card has now become a real chronological user message.
+    useChatStore.getState().setQueuedMessage(chatId, null);
+
+    full = '';
+    toolCalls = [];
+    thinking.length = 0;
+    segments.length = 0;
+    ontologyGovernance = undefined;
+    evolutionSummary = undefined;
+    metaMessageId = nextAssistantMessageId;
+    metaFollowUps = [];
+    allCitations = [];
+    metaWorkspaceFiles = null;
+    parseBuffer = '';
+    deferredThinkingText = undefined;
+    toolPending = false;
+    implicitThinkSegIdxs.clear();
+    sawThinkCloseTag = false;
+    thinkingPhaseActive = enableThinking && !structuredReasoning;
+    placeholderTs = Math.max(Date.now(), steerMessageTs + 1);
+    appendOrUpdate(true);
   };
 
   const hookApi: ChatStreamApi = {
@@ -630,6 +731,10 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           if (runId) {
             useChatStore.getState().setActiveRun(chatId, { runId, messageId });
           }
+          return;
+        }
+        if (eventType === 'steer_applied') {
+          applySteerBoundary(eventObj);
           return;
         }
         if (eventType === 'compaction_notice') {
@@ -897,7 +1002,11 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
         if (eventType === 'tool_result' || eventType === 'tool_end') {
           const toolIndex = findToolCallIndex(eventObj);
-          const status: 'success' | 'error' = obj.error ? 'error' : 'success';
+          const status: ToolCall['status'] = obj.error || eventObj.status === 'error'
+            ? 'error'
+            : eventObj.status === 'interrupted'
+              ? 'interrupted'
+              : 'success';
           const output = eventObj.output ?? eventObj.result;
 
           let resultDisplayName: string | undefined;
@@ -1313,6 +1422,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   // 兜底：老后端/回放流没有首轮协议标记时，流结束仍无任何 think 标签 → 重归类
   reclassifyImplicitThinking();
   deferredThinkingText = restoreDeferredThinkingTextFragment(segments, deferredThinkingText);
+  // 收尾统一规则：工具卡/思考块不留在最终答案之后（与历史重建一致，刷新前后不跳变）
+  liftTrailingSegmentsAboveFinalText(segments);
   const isMd = /\n|```|\*\*|^\s*#\s/m.test(full);
   useChatStore.getState().updateStore((prev) => {
     const c = prev.chats[chatId];

@@ -366,6 +366,11 @@ async def _run_workflow(
     from core.llm import workspace as _workspace_mod
 
     full_response = ""
+    # A steer starts a new visible assistant segment in the same backend run.
+    # Each segment gets its own message id so persisted history stays in the
+    # same chronological order the user saw while streaming.
+    current_message_id = message_id
+    latest_user_message = raw_user_message
     metadata: Dict[str, Any] = {}
     tool_calls_log: list = []
     _workspace_mod.init_state()
@@ -377,9 +382,25 @@ async def _run_workflow(
 
     def _flush_thinking() -> None:
         nonlocal full_response
-        if _thinking_parts:
-            full_response += "<think>" + "".join(_thinking_parts) + "</think>"
-            _thinking_parts.clear()
+        if not _thinking_parts:
+            return
+        block = "".join(_thinking_parts)
+        _thinking_parts.clear()
+        close = "</think>"
+        last_close = full_response.rfind(close)
+        # 结构化 reasoning 的尾部增量可能在正文已开始后才到达（正文首 token
+        # 已出、思考收尾的"。"后到）。实时侧把它并回前一个思考块
+        # （appendThinkingContentBeforeTrailingText），落库遵循同一规则——
+        # 否则 <think> 块会把正文句子从中间切开，刷新后与实时展示不一致。
+        if last_close != -1 and full_response[last_close + len(close):].strip():
+            full_response = full_response[:last_close] + block + full_response[last_close:]
+            # 中段插入使其后的坐标整体右移，已记录的 content_offset 同步平移
+            for _tc in tool_calls_log:
+                off = _tc.get("content_offset")
+                if isinstance(off, int) and off > last_close:
+                    _tc["content_offset"] = off + len(block)
+            return
+        full_response += "<think>" + block + close
 
     try:
         # First frame: run_started — carries run_id / message_id; the frontend uses these to resume / cancel
@@ -485,6 +506,10 @@ async def _run_workflow(
                 replacement = str(chunk.get("content") or "")
                 _thinking_parts.clear()
                 full_response = replacement
+                # 整体替换后，先前记录的 content_offset 指向旧草稿坐标系，
+                # 已无意义——清掉，让历史重建走「合并正文」兜底而不是错切。
+                for _tc in tool_calls_log:
+                    _tc.pop("content_offset", None)
                 await _emit(
                     {
                         "type": "content_replace",
@@ -494,11 +519,103 @@ async def _run_workflow(
                     }
                 )
 
+            elif chunk_type == "steer_applied":
+                _flush_thinking()
+                steer_id = str(chunk.get("steer_id") or "")[:64]
+                steer_message = str(chunk.get("message") or "").strip()
+                steer_message_id = (
+                    f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{run_id}:{steer_id}').hex[:16]}"
+                    if steer_id
+                    else f"msg_{uuid.uuid4().hex[:16]}"
+                )
+                next_assistant_message_id = (
+                    f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{run_id}:{steer_id}:assistant').hex[:16]}"
+                    if steer_id
+                    else f"msg_{uuid.uuid4().hex[:16]}"
+                )
+                had_assistant_output = bool(full_response or tool_calls_log)
+                if steer_message:
+                    # Close the visible assistant segment before inserting the
+                    # user's steer. Persisting in this order is what keeps a
+                    # refresh from moving every mid-run user message above the
+                    # whole assistant response.
+                    with SessionLocal() as db:
+                        chat_service = ChatService(db)
+                        if had_assistant_output:
+                            chat_service.add_message(
+                                chat_id=chat_id,
+                                role="assistant",
+                                content=full_response,
+                                model=model_name,
+                                tool_calls=tool_calls_log if tool_calls_log else None,
+                                message_id=current_message_id,
+                                extra_data={
+                                    "timestamp": now_iso(),
+                                    "is_markdown": bool(
+                                        "\n" in full_response
+                                        or "```" in full_response
+                                        or "**" in full_response
+                                    ),
+                                    "message_id": current_message_id,
+                                    "run_id": run_id,
+                                    "steer_segment": True,
+                                    "duration_ms": int(
+                                        (time.monotonic() - _run_started_monotonic) * 1000
+                                    ),
+                                },
+                            )
+                        # Persist once the middleware has actually injected the
+                        # instruction. A deterministic id makes replay safe.
+                        chat_service.upsert_message(
+                            chat_id=chat_id,
+                            role="user",
+                            content=steer_message,
+                            message_id=steer_message_id,
+                            extra_data={
+                                "timestamp": now_iso(),
+                                "steer": True,
+                                "run_id": run_id,
+                                "steer_id": steer_id,
+                            },
+                        )
+                    latest_user_message = steer_message
+                await _emit(
+                    {
+                        "type": "steer_applied",
+                        "chat_id": chat_id,
+                        "run_id": run_id,
+                        "steer_id": steer_id,
+                        "message": steer_message,
+                        "message_id": steer_message_id,
+                        "previous_assistant_message_id": (
+                            current_message_id if had_assistant_output else None
+                        ),
+                        "next_assistant_message_id": next_assistant_message_id,
+                        "had_assistant_output": had_assistant_output,
+                    }
+                )
+                current_message_id = next_assistant_message_id
+                # The workflow reads this dict again when it emits the final
+                # evolution/memory settlement marker, so keep that marker bound
+                # to the post-steer assistant segment too.
+                context["message_id"] = current_message_id
+                full_response = ""
+                tool_calls_log = []
+                _thinking_parts.clear()
+                metadata = {}
+                try:
+                    from core.services.log_service import set_current_message_id
+
+                    set_current_message_id(current_message_id)
+                except Exception:  # pragma: no cover - logging must never fail a run
+                    pass
+
             elif chunk_type == "tool_call":
                 _flush_thinking()
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
-                # 记录该工具卡片出现时正文的累计长度：历史重建按此偏移把
-                # 「文本 ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
+                # 记录该工具卡片出现时正文的累计长度（含 <think> 标记，与持久化
+                # content 同一坐标系）：历史重建按此偏移把「文本 ↔ 工具卡片」按
+                # 流式原顺序交错（问题15：刷新后内容与实时不一致）。
                 for _tc in tool_calls_log:
                     _tc.setdefault("content_offset", len(full_response))
                 await _emit(_tc_evt)
@@ -511,7 +628,13 @@ async def _run_workflow(
                 await _emit(build_tool_call_delta_event(chunk, chat_id))
 
             elif chunk_type == "tool_result":
-                await _emit(build_tool_result_event(chunk, chat_id, tool_calls_log))
+                _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
+                # attach_tool_result 可能刚补录了一个没有 tool_call 事件的条目：
+                # 此刻就补记 offset，否则它要等下一个 tool_call 才拿到（晚一个
+                # 叙述段），最后一个工具则永远缺失 → 整条消息退化成堆叠展示。
+                for _tc in tool_calls_log:
+                    _tc.setdefault("content_offset", len(full_response))
+                await _emit(_tr_evt)
 
             elif chunk_type in ("heartbeat", "model_progress"):
                 # Neither is written to the stream. heartbeat = transport
@@ -648,7 +771,7 @@ async def _run_workflow(
                     "warnings": chunk.get("warnings", []),
                     "is_markdown": chunk.get("is_markdown", False),
                     "chat_id": chat_id,
-                    "message_id": message_id,
+                    "message_id": current_message_id,
                     "citations": chunk.get("citations", []),
                     "workspace_files": _ws_files,
                     "ontology_governance": chunk.get("ontology_governance"),
@@ -667,7 +790,7 @@ async def _run_workflow(
                     "artifacts": metadata.get("artifacts", []),
                     "warnings": metadata.get("warnings", []),
                     "citations": metadata.get("citations", []),
-                    "message_id": message_id,
+                    "message_id": current_message_id,
                     "workspace_files": _ws_files,
                     "duration_ms": int((time.monotonic() - _run_started_monotonic) * 1000),
                 }
@@ -684,7 +807,7 @@ async def _run_workflow(
                         model=model_name,
                         tool_calls=tool_calls_log if tool_calls_log else None,
                         usage=usage_payload,
-                        message_id=message_id,
+                        message_id=current_message_id,
                         extra_data=_persist_extra,
                     )
                     # Build a ProjectScope from the workflow context and pass it
@@ -718,9 +841,9 @@ async def _run_workflow(
                 if not seen_batch_confirm:
                     _spawn_followup_task(
                         chat_id=chat_id,
-                        user_msg=raw_user_message,
+                        user_msg=latest_user_message,
                         response=full_response,
-                        msg_id=message_id,
+                        msg_id=current_message_id,
                     )
 
                 # End-of-turn compaction: when real token usage crosses the
@@ -766,7 +889,7 @@ async def _run_workflow(
                     role="assistant",
                     content="",
                     model=model_name,
-                    message_id=message_id,
+                    message_id=current_message_id,
                     error={"error": str(exc), "timestamp": _utcnow().isoformat()},
                 )
         except Exception:
@@ -1313,15 +1436,18 @@ async def start_autonomous_loop_run(
         from core.services.loop_service import LoopService as _LoopSvc
 
         with SessionLocal() as db:
-            _LoopSvc(db).save_start_params(loop_id, {
-                "model_name": model_name,
-                "model_provider_id": model_provider_id,
-                "evaluator_model": evaluator_model,
-                "worker_max_iters": worker_max_iters,
-                "hitl_enabled": hitl_enabled,
-                "enable_thinking": enable_thinking,
-                "chat_mode": chat_mode,
-            })
+            _LoopSvc(db).save_start_params(
+                loop_id,
+                {
+                    "model_name": model_name,
+                    "model_provider_id": model_provider_id,
+                    "evaluator_model": evaluator_model,
+                    "worker_max_iters": worker_max_iters,
+                    "hitl_enabled": hitl_enabled,
+                    "enable_thinking": enable_thinking,
+                    "chat_mode": chat_mode,
+                },
+            )
     except Exception:  # noqa: BLE001 - 参数存档失败不阻塞启动
         logger.warning("loop start_params persist failed", exc_info=True)
     run = _create_run_record(chat_id=chat_id, user_id=user_id, request_payload=request_payload)

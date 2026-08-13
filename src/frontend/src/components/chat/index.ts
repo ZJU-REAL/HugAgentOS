@@ -1,6 +1,7 @@
 export { ChatArea } from './ChatArea';
 export { MessageBubble } from './MessageBubble';
 export { InputArea } from './InputArea';
+export { QueuedMessageCard } from './QueuedMessageCard';
 export { ContextGauge } from './ContextGauge';
 export { FileConfirmBar } from './FileConfirmBar';
 export { DesignPickerCard } from './DesignPickerCard';

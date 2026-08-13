@@ -47,7 +47,11 @@ function parseHistoryMessage(m: any): ChatMessage {
         ),
         input: tc.tool_args ?? tc.arguments ?? tc.input,
         output: tc.result ?? tc.output,
-        status: (tc.status === 'error' ? 'error' : 'success') as 'success' | 'error',
+        status: (tc.status === 'error'
+          ? 'error'
+          : tc.status === 'interrupted'
+            ? 'interrupted'
+            : 'success') as 'success' | 'error' | 'interrupted',
         timestamp: tc.timestamp,
         // sub-agent internal process (thinking + tool calls) — replayed from the DB after refresh
         ...(Array.isArray(tc.sub_steps ?? tc.subSteps)

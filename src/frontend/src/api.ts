@@ -575,6 +575,34 @@ export async function cancelChatRun(runId: string, userId?: string, chatId?: str
   });
 }
 
+/** Queue a user instruction for the live agent's next pre-tool boundary. */
+export async function steerChatRun(
+  runId: string,
+  steerId: string,
+  content: string,
+  chatId?: string,
+): Promise<void> {
+  await apiRequest<unknown>(`/v1/chat-runs/${encodeURIComponent(runId)}/steer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
+    body: JSON.stringify({ steer_id: steerId, message: content }),
+  });
+}
+
+/** Withdraw an instruction that has not yet reached a tool boundary. */
+export async function withdrawChatRunSteer(
+  runId: string,
+  steerId: string,
+  chatId?: string,
+): Promise<boolean> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chat-runs/${encodeURIComponent(runId)}/steer/${encodeURIComponent(steerId)}`,
+    { method: 'DELETE', headers: { ...chatTargetHeaders(chatId) } },
+  );
+  const data = unwrapData<{ removed?: boolean }>(wrapped);
+  return data?.removed === true;
+}
+
 /**
  * Discover whether a chat has an in-flight backend run (for resume after refresh).
  * Returns null if no active run.

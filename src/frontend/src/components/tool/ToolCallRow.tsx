@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import {
-  CloseOutlined,
   LoadingOutlined,
   SearchOutlined,
   GlobalOutlined,
@@ -269,7 +268,7 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
         : hasOutput ? renderBody() : null;
 
   return (
-    <div className={`jx-tcr${effectiveStatus === 'error' ? ' jx-tcr--error' : ''}`}>
+    <div className="jx-tcr">
       <div
         className={`jx-tcr-header${expanded ? ' jx-tcr-header--open' : ''}`}
         role={canExpand ? 'button' : undefined}
@@ -290,8 +289,7 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
           className={`jx-tcr-status${isStreaming ? ' jx-anim-statusIn' : ''}`}
         >
           {effectiveStatus === 'running' && <LoadingOutlined spin className="jx-tcr-icon jx-tcr-icon--running" />}
-          {effectiveStatus === 'success' && <StepIcon name={tool.name} />}
-          {effectiveStatus === 'error' && <CloseOutlined className="jx-tcr-icon jx-tcr-icon--error" />}
+          {effectiveStatus !== 'running' && <StepIcon name={tool.name} />}
         </span>
         <span className="jx-tcr-label">
           <span className="jx-tcr-prefix">{prefix}</span>

@@ -77,7 +77,6 @@ export const TOOL_DICT: Record<string, string> = {
   '获取智能体列表': 'Get Agent List',
   '获取 MCP 工具': 'Get MCP Tools',
   // ToolRunShell.tsx
-  '已完成（含失败）': 'Done (with errors)',
   '{n} 个步骤': '{n} steps',
   '{n}秒': '{n}s',
   '{m}分{s}秒': '{m}m {s}s',

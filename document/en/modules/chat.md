@@ -42,8 +42,28 @@ Every sent message creates a `ChatRun` and a background task (`orchestration/cha
 | Resume after refresh / disconnect | `GET /v1/chats/stream/{run_id}?from_offset=N` |
 | Probe for an in-flight run | `GET /v1/chats/{chat_id}/active-run` |
 | Cancel a run (kills the background task) | `POST /v1/chat-runs/{run_id}/cancel` |
+| Add an instruction at the next safe ReAct boundary | `POST /v1/chat-runs/{run_id}/steer` |
+| Withdraw an instruction that hasn't taken effect | `DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` |
 
 Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (keeps nginx `proxy_read_timeout` and other proxies from cutting the stream); an inactivity watchdog fails the run if the workflow produces no chunk for 600 s (`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`); a periodic reaper collects over-age running runs; `recover_orphan_runs()` cleans up leftovers at startup.
+
+### Mid-run follow-ups, Steer, and the stop shortcut
+
+While a regular chat is generating, the composer continues accepting the next
+message. Sending it creates a queued card above the composer. You can edit the
+card from its more menu or delete it. If you don't select **Steer**, the client
+sends the message as the next turn after the current answer finishes.
+
+When you select **Steer**, Redis hands the plain-text instruction to the active
+run. If the instruction arrives while a tool is running, `SteerMiddleware`
+atomically consumes it after that tool result enters the context and before the
+next model call, appends the real user message, and lets the model replan. If
+the instruction arrives earlier, the middleware interrupts the old tool call
+before it starts and enters the same replanning flow. A `steer_applied` SSE
+event confirms delivery. Messages containing attachments, skills, plugins, or
+sub-agents wait and send normally after the current answer. Pressing `Esc`
+cancels the run for the chat visible on the current page. If a card editor or
+dialog already consumes `Esc`, it doesn't stop the run.
 
 ### Agent construction highlights (core/llm/agent_factory.py)
 
@@ -52,7 +72,7 @@ Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (k
 - **MCP tools**: after the three-layer filter of catalog + per-user overrides + request context (see [Capability Center](catalog.md)), stable servers reuse the process-level connection pool (`core/llm/mcp_pool.py`); per-request servers (e.g. `retrieve_dataset_content`, which needs per-request HTTP headers) are spawned fresh; the user's self-added private MCP servers are merged in with owner isolation.
 - **Skills**: registered as AgentScope Agent Skills via `core/agent_skills/loader.py`, with `view_text_file` allow-listed to read SKILL.md files (see [Agent Skills](agent-skills.md)).
 - **File / sandbox tools**: `bash`, `sandbox_put_artifact`, `sandbox_get_artifact` are always registered; Read/Edit/Write/Glob/Grep/Delete/Move/mkdir plus the MySpace tools are gated by `CODE_CAPABILITY_ENABLED` and share one `ReadStateTracker` to keep the "must Read before Edit" invariant.
-- **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `WorkspacePinHintMiddleware`, `GoalAnchorReminderMiddleware`, `FinishPinGuardMiddleware`.
+- **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `GoalAnchorReminderMiddleware`, `FinishPinGuardMiddleware`.
 - **Context compression**: `ContextConfig(trigger_ratio=0.6, tool_result_limit=20000)` plus a structured Chinese compression prompt designed to produce a *resumable ReAct workflow* summary; if the compression call itself fails, `JxOpenAIChatModel.generate_structured_output` returns an L3 synthetic summary so the reply never crashes.
 - **Permissions**: every registered tool gets a native `PermissionRule(ALLOW)` seed, preserving AgentScope's built-in dangerous-operation checks (no blanket BYPASS).
 - **Iteration caps**: main agent defaults to `max_iters=50`, isolated sub-agents to 10.
@@ -69,7 +89,8 @@ Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (k
 | `tool_call_start` | Tool-call construction starts; the frontend opens one card by stable ID | `tool_name`, `tool_display_name`, `tool_id` |
 | `tool_call_delta` | Incremental argument JSON appended to the same card | `tool_name`, `tool_id`, `arguments_delta` |
 | `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, plus `subagent_name` for sub-agent calls |
-| `tool_result` | Tool invocation result | `tool_name`, `result`, `tool_id`, `citations[]` |
+| `tool_result` | Tool invocation result | `tool_name`, `result`, `tool_id`, `status`, `citations[]` |
+| `steer_applied` | A mid-run instruction entered the ReAct context | `steer_id`, `message`, `message_id`, `chat_id` |
 | `subagent_event` | Child execution details nested under the parent `call_subagent` card | `parent_tool_id`, `sub_type`, `agent_name`, plus child tool or content fields |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | Ontology-governance state, separate from model reasoning | workflow activation, gate decision, and committee status or verdict |
 | `tool_pending` | Waiting fallback when the provider exposes no parseable argument deltas | `reason` |
@@ -111,6 +132,12 @@ If the committee changes the answer, the backend sends one `content_replace`
 event, the frontend replaces the body in place, and the database stores only
 the reviewed final answer. It persists `ontology_governance` with the assistant
 message so the module remains available after a history refresh.
+
+History replay recognizes both reasoning protocols. Inline-reasoning models may
+emit `reasoning</think>body`, while the backend normalizes a structured reasoning
+field to `<think>reasoning</think>body`. The frontend places reasoning and tool
+calls in one process area and renders all visible body text as one continuous
+Markdown block. History rendering doesn't split the body at character offsets.
 
 ## Citation system (Evidence Anchors)
 
@@ -280,4 +307,4 @@ The same orchestration foundation also powers: response regeneration (`POST /v1/
 | Oversized-result offloading | `src/backend/core/llm/offloader.py` |
 | Chat sharing | `src/backend/api/routes/v1/chat_shares.py` |
 | Follow-up generation | `src/backend/orchestration/followups.py` |
-| Frontend stream parsing | `src/frontend/src/hooks/chatStream.ts` |
+| Frontend stream parsing / follow-up queue | `src/frontend/src/hooks/chatStream.ts`, `useStreaming.ts`, `components/chat/QueuedMessageCard.tsx` |

@@ -24,15 +24,16 @@ from core.llm.mcp_manager import close_clients
 from core.llm.mcp_pool import MCPConnectionPool
 from core.llm.middlewares import (
     ActingToolCallIdMiddleware,
-    CitationAnchorMiddleware,
     AgentRuntimeState,
+    CitationAnchorMiddleware,
     DynamicModelMiddleware,
     FileContextMiddleware,
     FinishPinGuardMiddleware,
     GoalAnchorReminderMiddleware,
     IterBudgetReminderMiddleware,
-    StallInterventionMiddleware,
     OntologyGateMiddleware,
+    StallInterventionMiddleware,
+    SteerMiddleware,
     WorkspacePinHintMiddleware,
 )
 from core.llm.providers.registry import get_spec, split_provider_extra
@@ -40,9 +41,9 @@ from core.llm.tool_collector import ToolCollector
 from core.llm.tools import (
     ReadStateTracker,
     register_bash,
+    register_channel_attachment,
     register_delete,
     register_edit,
-    register_channel_attachment,
     register_get_data_context,
     register_glob,
     register_grep,
@@ -730,9 +731,7 @@ async def create_agent_executor(
             if not route.task_types or str(chat_mode or "chat") in route.task_types
         }
         visible_subagents = [
-            agent
-            for agent in visible_subagents
-            if str(agent.get("agent_id") or "") in routed
+            agent for agent in visible_subagents if str(agent.get("agent_id") or "") in routed
         ]
 
     # The profile's tool allowlist, applied. It can only narrow: the candidate
@@ -752,7 +751,9 @@ async def create_agent_executor(
         enabled_mcp_ids = [mcp_id for mcp_id in current_mcp if mcp_id in allowed_tools]
         _log.info(
             "[factory] profile %s narrowed MCP servers %d → %d",
-            profile.profile_id, len(current_mcp), len(enabled_mcp_ids),
+            profile.profile_id,
+            len(current_mcp),
+            len(enabled_mcp_ids),
         )
 
     # ── Runtime Binder (GCE ticket 03) ──────────────────────────────────────
@@ -1025,9 +1026,7 @@ async def create_agent_executor(
         # evolution-authored ids — but the exposure gate is applied here anyway
         # rather than relying on that. A gate that only covers the paths we
         # happened to think of is not a gate.
-        skill_ids_to_register = _filter_skill_ids_for_user(
-            skill_ids_to_register, current_user_id
-        )
+        skill_ids_to_register = _filter_skill_ids_for_user(skill_ids_to_register, current_user_id)
     # Note: a subagent's (user_agent) enabled_skill_ids is always a list ([]
     # when unconfigured) and never hits the None fallback above — i.e. "a
     # subagent with no skills configured has no skills"; strictly per its own
@@ -1864,6 +1863,7 @@ async def create_agent_executor(
         model_pinned=_subagent_model_pinned,
         user_id=current_user_id,
         chat_id=chat_id,
+        run_id=run_id,
         ontology_enabled=bool(_ontology_runtime.get("enabled")),
         ontology_runtime=_ontology_runtime,
         permission_context=PermissionContext(),
@@ -1872,6 +1872,7 @@ async def create_agent_executor(
     _middlewares: list = [
         DynamicModelMiddleware(),  # on_reply: switch models by chat_mode
         FileContextMiddleware(),  # on_reply: inject file context
+        SteerMiddleware(),  # on_acting/on_reasoning: inject queued user steer before tool I/O
         WorkspacePinHintMiddleware(),  # on_reasoning: remind to pin
         IterBudgetReminderMiddleware(),  # on_reasoning: inject a wrap-up reminder near max_iters
         # on_acting: the active profile's intervention rules, applied to *this*

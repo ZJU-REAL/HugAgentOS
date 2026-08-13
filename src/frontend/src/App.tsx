@@ -334,9 +334,25 @@ export default function App() {
   } = useChatActions(effectiveApiUrl);
 
   // ── Streaming hook ──
-  const { send: rawSend, abort, handleFileSelect, removeFile, regenerate, editAndResend, resumeRunIfAny, cancelAndResumeBatch, continueLoop } = useStreaming(
+  const { send: rawSend, abort, activateQueuedMessage, discardQueuedMessage, handleFileSelect, removeFile, regenerate, editAndResend, resumeRunIfAny, cancelAndResumeBatch, continueLoop } = useStreaming(
     effectiveApiUrl, generateSummary, generateClassification,
   );
+
+  // Codex-style stop shortcut: Escape only targets the chat currently visible
+  // in this tab. Popup/menu handlers can preventDefault first and retain their
+  // normal close behavior without accidentally cancelling the run.
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      if (useCatalogStore.getState().panel !== 'chat') return;
+      const state = useChatStore.getState();
+      if (!state.sendingChatIds.has(state.currentChatId)) return;
+      event.preventDefault();
+      abort(state.currentChatId);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [abort]);
 
   // ── Fetch the project list once after login: used to resolve names for the chat-header
   //    "project name / title" breadcrumb (sessions from the backend only carry projectId;
@@ -800,6 +816,8 @@ export default function App() {
                 <ChatArea
                   send={send}
                   abort={abort}
+                  activateQueuedMessage={activateQueuedMessage}
+                  discardQueuedMessage={discardQueuedMessage}
                   continueLoop={continueLoop}
                   exportChatRecord={exportChatRecord}
                   createChatShare={createChatShare}

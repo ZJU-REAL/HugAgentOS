@@ -42,8 +42,16 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | 刷新/断线后续播 | `GET /v1/chats/stream/{run_id}?from_offset=N` |
 | 探测会话进行中的 run | `GET /v1/chats/{chat_id}/active-run` |
 | 取消 run（真正杀后台任务） | `POST /v1/chat-runs/{run_id}/cancel` |
+| 在下一次安全 ReAct 边界追加指令 | `POST /v1/chat-runs/{run_id}/steer` |
+| 撤回尚未生效的追加指令 | `DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` |
 
 防御机制：静默 15 秒写一行 `: heartbeat` SSE 注释（防 nginx `proxy_read_timeout` 掐流）；workflow 600 秒无任何 chunk 触发看门狗判 failed（`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`）；周期 reaper 把超龄 running run 收成 failed；启动钩子 `recover_orphan_runs()` 清理重启遗留。
+
+### 运行中追加、Steer 与快捷停止
+
+普通对话正在生成时，输入框仍可接收下一条消息。发送后，消息先显示在输入框上方的待发送卡片中；用户可通过更多菜单编辑，也可删除。若不执行 **Steer**，当前回答结束后会自动把这条消息作为下一轮发送。
+
+选择 **Steer** 后，后端通过 Redis 把纯文本指令交给当前 run。若指令在工具执行期间到达，`SteerMiddleware` 会在该轮工具结果进入上下文后、下一轮模型推理前原子消费并插入真实用户消息，让模型立即重新规划；若指令更早到达，则在下一批工具开始前中止尚未执行的旧工具调用，再进入同一重规划流程。`steer_applied` SSE 事件确认指令已生效。包含附件、技能、插件或子智能体的消息不会走中途注入，而是在当前回答结束后正常发送。按 `Esc` 会取消当前页面正在显示的会话 run；编辑卡片或弹窗已消费 `Esc` 时，不会误停任务。
 
 ### Agent 构建要点（core/llm/agent_factory.py）
 
@@ -52,7 +60,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 - **MCP 工具**：经 catalog + 用户覆盖 + 请求上下文三层过滤后（见 [能力目录](catalog.md)），stable 服务复用进程级连接池（`core/llm/mcp_pool.py`），per-request 服务（如 `retrieve_dataset_content` 需带每请求 HTTP header）每次新建；用户自助添加的私有 MCP 按 owner 现查合入。
 - **技能**：经 `core/agent_skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
 - **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控，共享同一个 `ReadStateTracker` 维持「先 Read 才能 Edit」不变量。
-- **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`WorkspacePinHintMiddleware`、`GoalAnchorReminderMiddleware`、`FinishPinGuardMiddleware`。
+- **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`GoalAnchorReminderMiddleware`、`FinishPinGuardMiddleware`。
 - **上下文压缩**：`ContextConfig(trigger_ratio=0.6, tool_result_limit=20000)` + 结构化中文「可恢复 ReAct 工作流」压缩提示词；压缩调用失败时由 `JxOpenAIChatModel.generate_structured_output` 返回 L3 占位摘要兜底。
 - **权限**：所有已注册工具 seed 原生 `PermissionRule(ALLOW)`，保留 AgentScope 内置工具的危险操作检查（不使用一刀切 BYPASS）。
 - **迭代上限**：主智能体默认 `max_iters=50`，隔离子智能体默认 10。
@@ -69,7 +77,8 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | `tool_call_start` | 开始构造一次工具调用；前端按稳定 ID 创建一张卡片 | `tool_name`, `tool_display_name`, `tool_id` |
 | `tool_call_delta` | 工具参数 JSON 增量；前端在同一卡片中追加 | `tool_name`, `tool_id`, `arguments_delta` |
 | `tool_call` | 工具参数已完整、即将执行 | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`，调子智能体时附 `subagent_name` |
-| `tool_result` | 工具调用结果 | `tool_name`, `result`, `tool_id`, `citations[]` |
+| `tool_result` | 工具调用结果 | `tool_name`, `result`, `tool_id`, `status`, `citations[]` |
+| `steer_applied` | 运行中追加指令已注入 ReAct 上下文 | `steer_id`, `message`, `message_id`, `chat_id` |
 | `subagent_event` | 子智能体内部过程，挂在父 `call_subagent` 卡片下 | `parent_tool_id`, `sub_type`, `agent_name`，以及内部工具或内容字段 |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | 本体治理状态，不属于模型思考 | 工作流、门禁决策、委员会状态与结论 |
 | `tool_pending` | 提供商没有暴露可解析参数增量时的等待兜底 | `reason` |
@@ -101,6 +110,10 @@ data: [DONE]
 ```
 
 `meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`orchestration/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。本体事件在前端汇总为独立的“领域本体治理”模块，不再写入或显示在“思考过程”中。模型草稿保持逐 token 流式展示；委员会仅在实际修订答案时发送一次 `content_replace`，前端原位替换正文，数据库只保存评审后的最终答案。`ontology_governance` 随助手消息持久化，刷新历史会话后仍可回显。
+
+历史回放先识别两种思考协议：内联思考模型可能只输出
+`reasoning</think>正文`，结构化 reasoning 字段则由后端归一化为
+`<think>reasoning</think>正文`。前端把思考与工具调用放入统一过程区，并把全部可见正文合并为一个连续的 Markdown 块；历史渲染不再按正文字符位置切分。
 
 ## 引用系统（Citations · 证据锚点）
 
@@ -219,4 +232,4 @@ data: [DONE]
 | 超长结果 offload | `src/backend/core/llm/offloader.py` |
 | 会话分享 | `src/backend/api/routes/v1/chat_shares.py` |
 | 追问生成 | `src/backend/orchestration/followups.py` |
-| 前端流式解析 | `src/frontend/src/hooks/chatStream.ts` |
+| 前端流式解析 / 追加消息 | `src/frontend/src/hooks/chatStream.ts`，`useStreaming.ts`，`components/chat/QueuedMessageCard.tsx` |

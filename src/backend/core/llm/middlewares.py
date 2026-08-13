@@ -145,9 +145,7 @@ class CitationAnchorMiddleware(MiddlewareBase):
                     # 保证编号在该 agent 的整条流里唯一
                     allocator = resolve_allocator(agent)
                     full_text = "".join((b.text or "") for b in text_blocks)
-                    new_text, items = annotate_tool_result(
-                        tool_name, tool_id, full_text, allocator
-                    )
+                    new_text, items = annotate_tool_result(tool_name, tool_id, full_text, allocator)
                     if items:
                         allocator.register(tool_id, items)
                         final.content = [TextBlock(type="text", text=new_text)]
@@ -159,7 +157,8 @@ class CitationAnchorMiddleware(MiddlewareBase):
                         annotated = True
             except Exception:  # noqa: BLE001
                 logger.warning(
-                    "[citation-anchor] middleware annotate failed tool=%s", tool_name,
+                    "[citation-anchor] middleware annotate failed tool=%s",
+                    tool_name,
                     exc_info=True,
                 )
 
@@ -182,6 +181,7 @@ class AgentRuntimeState(AgentState):
     model_pinned: bool = False
     user_id: str | None = None
     chat_id: str | None = None
+    run_id: str | None = None
     enable_thinking: bool = True
     chat_mode: str | None = None
     uploaded_files: List[dict] = Field(default_factory=list)
@@ -189,6 +189,10 @@ class AgentRuntimeState(AgentState):
     user_message_text: str = ""
     ontology_enabled: bool = False
     ontology_runtime: dict = Field(default_factory=dict)
+    # Set by SteerMiddleware immediately before the next reasoning round.  The
+    # streaming adapter turns it into one ``steer_applied`` event, then clears
+    # it. Keeping this on the typed runtime state avoids process-global queues.
+    steer_delivery: dict | None = None
 
     def apply_request_context(self, context: dict, user_message_text: str) -> None:
         """Populate per-request runtime fields from the request ``context`` dict (replaces the 1.x agent._jx_context).
@@ -201,6 +205,7 @@ class AgentRuntimeState(AgentState):
         self.model_provider_id = str(context.get("model_provider_id", "") or "")
         self.user_id = str(context.get("user_id", "") or "") or None
         self.chat_id = str(context.get("chat_id", "") or "") or None
+        self.run_id = str(context.get("run_id", "") or "") or None
         self.enable_thinking = bool(context.get("enable_thinking", True))
         cm = str(context.get("chat_mode") or "").lower() or None
         if cm:
@@ -211,6 +216,94 @@ class AgentRuntimeState(AgentState):
         self.ontology_enabled = bool(context.get("ontology_enabled", False))
         runtime = context.get("ontology_runtime")
         self.ontology_runtime = runtime if isinstance(runtime, dict) else {}
+
+
+class SteerMiddleware(MiddlewareBase):
+    """Deliver a queued user instruction at the next safe ReAct boundary.
+
+    ``on_reasoning`` is the primary insertion point: AgentScope calls it after
+    the previous tool results have entered context and immediately before the
+    next model call. ``on_acting`` is the earlier fallback for a steer that
+    arrives while the model is constructing its next tool call; it marks that
+    not-yet-started tool batch interrupted so the next reasoning round can
+    replan. Both paths preserve a valid assistant-tool-result-user order.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._delivery: dict | None = None
+        self._interrupted_tools = False
+
+    async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):  # noqa: ANN001
+        run_id = str(getattr(agent.state, "run_id", "") or "")
+        if not run_id:
+            async for item in next_handler(**input_kwargs):
+                yield item
+            return
+
+        async with self._lock:
+            if self._delivery is None:
+                from core.services.chat_steer_service import take_pending_steer
+
+                self._delivery = await take_pending_steer(run_id)
+                self._interrupted_tools = self._delivery is not None
+            delivery = self._delivery
+
+        if delivery is None:
+            async for item in next_handler(**input_kwargs):
+                yield item
+            return
+
+        notice = "用户追加了新指令；本工具调用已在执行前中止，等待模型按新指令重新规划。"
+        block = TextBlock(type="text", text=notice)
+        yield ToolChunk(content=[block], state=ToolResultState.INTERRUPTED)
+        yield ToolResponse(content=[block], state=ToolResultState.INTERRUPTED)
+
+    async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):  # noqa: ANN001
+        run_id = str(getattr(agent.state, "run_id", "") or "")
+        async with self._lock:
+            # A steer can arrive while a long-running tool is executing. There
+            # is no later on_acting hook in that round, so poll again here,
+            # after AgentScope saved the tool result and before it starts the
+            # next model call. This is the normal "insert after this tool"
+            # path; without it the steer waits until another tool call (or the
+            # whole run) finishes.
+            if self._delivery is None and run_id:
+                from core.services.chat_steer_service import take_pending_steer
+
+                self._delivery = await take_pending_steer(run_id)
+            delivery = self._delivery
+            interrupted_tools = self._interrupted_tools
+            self._delivery = None
+            self._interrupted_tools = False
+
+        if delivery is not None:
+            message = str(delivery.get("message") or "").strip()
+            if message:
+                agent.state.context.append(
+                    Msg(
+                        name="user",
+                        role="user",
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text=(
+                                    "[用户在当前执行中追加的新指令]\n"
+                                    f"{message}\n"
+                                    + (
+                                        "请立即按这条新指令调整后续计划；不要继续已经被中止的旧工具调用。"
+                                        if interrupted_tools
+                                        else "请立即按这条新指令调整后续计划；上一轮工具结果已经完成，可按需使用。"
+                                    )
+                                ),
+                            )
+                        ],
+                    )
+                )
+                agent.state.steer_delivery = dict(delivery)
+
+        async for item in next_handler(**input_kwargs):
+            yield item
 
 
 class OntologyGateMiddleware(MiddlewareBase):
@@ -834,8 +927,10 @@ class StallInterventionMiddleware(MiddlewareBase):
         tool_call = input_kwargs.get("tool_call")
         tool_name = str(getattr(tool_call, "name", "") or "")
         try:
-            signature = (tool_name, json.dumps(getattr(tool_call, "input", None), sort_keys=True,
-                                               default=str))
+            signature = (
+                tool_name,
+                json.dumps(getattr(tool_call, "input", None), sort_keys=True, default=str),
+            )
         except Exception:  # noqa: BLE001
             signature = (tool_name, "")
 
@@ -882,7 +977,8 @@ class StallInterventionMiddleware(MiddlewareBase):
         applicable = [
             rule
             for rule in self._rules
-            if self._signals.get(getattr(rule, "signal", ""), 0) >= int(getattr(rule, "threshold", 0) or 0)
+            if self._signals.get(getattr(rule, "signal", ""), 0)
+            >= int(getattr(rule, "threshold", 0) or 0)
             and int(getattr(rule, "threshold", 0) or 0) > 0
         ]
         if not applicable:
@@ -935,7 +1031,9 @@ class StallInterventionMiddleware(MiddlewareBase):
                 ],
             )
         )
-        logger.info("[stall-intervention] %s >= %s -> %s", signal, getattr(rule, "threshold", 0), action)
+        logger.info(
+            "[stall-intervention] %s >= %s -> %s", signal, getattr(rule, "threshold", 0), action
+        )
 
 
 # ── FinishPinGuard ─────────────────────────────────────────────────────────
@@ -969,6 +1067,7 @@ class FinishPinGuardMiddleware(MiddlewareBase):
 
 __all__ = [
     "AgentRuntimeState",
+    "SteerMiddleware",
     "DynamicModelMiddleware",
     "FileContextMiddleware",
     "WorkspacePinHintMiddleware",

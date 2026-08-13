@@ -66,8 +66,8 @@ def test_unknown_tool_falls_back_to_its_raw_name():
 
 def test_persisted_log_entry_is_complete_instead_of_the_bare_fallback():
     """Without the synthesized call the log entry came from attach_tool_result's
-    append branch — no display name, no args, and (downstream) no content_offset,
-    which knocked the whole message off the offset-ordered history replay."""
+    append branch with no display name or args, leaving an incomplete history
+    card that could not be matched to the original call."""
     log: list = []
     upsert_tool_call(log, {"tool_name": "sibling", "tool_display_name": "同伴", "tool_args": {"a": 1}, "tool_id": "sib"})
 
