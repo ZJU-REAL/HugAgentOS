@@ -83,6 +83,8 @@ function BatchPanelsForChat({ chatId }: { chatId: string }) {
 interface ChatAreaProps {
   send: (text?: string) => void;
   abort?: () => void;
+  activateQueuedMessage?: (chatId?: string) => Promise<void>;
+  discardQueuedMessage?: (chatId?: string) => Promise<void>;
   continueLoop?: (chatId?: string) => void;
   exportChatRecord: (id: string) => Promise<void>;
   createChatShare: (
@@ -102,7 +104,7 @@ interface ChatAreaProps {
 }
 
 export function ChatArea({
-  send, abort, continueLoop, exportChatRecord, createChatShare, onCapabilityClick, handleFileSelect, removeFile,
+  send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, exportChatRecord, createChatShare, onCapabilityClick, handleFileSelect, removeFile,
   regenerate, editAndResend,
   inputRef, fileInputRef, chatListRef, messagesEndRef,
 }: ChatAreaProps) {
@@ -354,6 +356,8 @@ export function ChatArea({
                 fileInputRef={fileInputRef}
                 send={() => send()}
                 abort={abort}
+                activateQueuedMessage={activateQueuedMessage}
+                discardQueuedMessage={discardQueuedMessage}
                 continueLoop={continueLoop}
                 handleFileSelect={handleFileSelect}
                 removeFile={removeFile}
@@ -589,6 +593,8 @@ export function ChatArea({
             fileInputRef={fileInputRef}
             send={() => send()}
             abort={abort}
+            activateQueuedMessage={activateQueuedMessage}
+            discardQueuedMessage={discardQueuedMessage}
             continueLoop={continueLoop}
             handleFileSelect={handleFileSelect}
             removeFile={removeFile}

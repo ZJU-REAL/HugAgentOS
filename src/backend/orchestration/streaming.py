@@ -49,10 +49,9 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from agentscope.agent import Agent
 from agentscope.mcp import MCPClient
 from agentscope.message import Msg
-
-from core.services import log_service as log_writer
 from core.infra.logging import LogContext
 from core.llm.message_compat import session_to_msgs
+from core.services import log_service as log_writer
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +112,7 @@ def _strip_thinking_answer(raw: str, enable_thinking: bool, in_thinking: bool) -
         return raw, False
     last_end = raw.rfind("</think>")
     if last_end != -1:
-        return raw[last_end + len("</think>"):], False
+        return raw[last_end + len("</think>") :], False
     if "<think>" in raw or in_thinking:
         return "", True
     return raw, False
@@ -232,11 +231,12 @@ class StreamingAgent:
         user_msg: Optional[Msg] = None
         if last_user_content:
             from core.llm.message_compat import _wrap_content
-            user_msg = Msg(name="user", role="user",
-                           content=_wrap_content(last_user_content))
+
+            user_msg = Msg(name="user", role="user", content=_wrap_content(last_user_content))
 
         # myspace write-confirmation gate (in-house ContextVar, distinct from 2.0 native HITL)
         from core.llm.tools import _myspace_confirm as _mc
+
         _confirm_chat_id = st.chat_id or None
 
         def _drain_confirm_signals() -> list:
@@ -258,6 +258,7 @@ class StreamingAgent:
         # Subagent streaming bypass: register this run's event_q so call_subagent (separate thread)
         # can deliver the subagent's thinking/tool_call/... events back into this main queue in real time.
         from core.llm import _subagent_stream
+
         _subagent_stream.attach(st.chat_id, asyncio.get_running_loop(), event_q)
 
         async def _produce():
@@ -266,6 +267,7 @@ class StreamingAgent:
                     await event_q.put(("ev", ev))
             except BaseException as e:  # noqa: BLE001
                 import traceback
+
                 logger.error("Agent reply_stream failed: %r\n%s", e, traceback.format_exc())
                 await event_q.put(("err", e))
             finally:
@@ -319,6 +321,14 @@ class StreamingAgent:
                     yield ("subagent_event", payload)
                     continue
                 # kind == "ev"
+                steer_delivery = getattr(agent.state, "steer_delivery", None)
+                if isinstance(steer_delivery, dict):
+                    # SteerMiddleware appends the user instruction immediately
+                    # before this next reasoning round. Emit one acknowledgement
+                    # before mapping ModelCallStart so the queued-card UI can
+                    # switch from "waiting" to "applied" deterministically.
+                    agent.state.steer_delivery = None
+                    yield ("steer_applied", dict(steer_delivery))
                 reasoning_protocol = self._take_reasoning_protocol()
                 if reasoning_protocol is not None:
                     yield ("reasoning_protocol", reasoning_protocol)
@@ -352,23 +362,25 @@ class StreamingAgent:
                 try:
                     _started_mono = _rec.get("started_monotonic")
                     _dur = int((time.monotonic() - _started_mono) * 1000) if _started_mono else None
-                    log_writer.schedule_tool_call_write({
-                        # user_id/chat_id are taken explicitly from agent.state — contextvars are
-                        # unreliable in the stream() generator frame (the agent runs in the context
-                        # snapshot of _produce's create_task, while tool results are written in the
-                        # generator's consumer frame; the two contexts don't sync), so _context_ids
-                        # cannot be relied on.
-                        "user_id": st.user_id or None,
-                        "chat_id": st.chat_id or None,
-                        "tool_name": _rec.get("tool_name", "unknown"),
-                        "tool_call_id": _tid,
-                        "tool_args": _rec.get("tool_args"),
-                        "tool_result": None,
-                        "status": "failed",
-                        "error_message": "no tool_result received (stream ended)",
-                        "duration_ms": _dur,
-                        "started_at": _rec.get("started_at"),
-                    })
+                    log_writer.schedule_tool_call_write(
+                        {
+                            # user_id/chat_id are taken explicitly from agent.state — contextvars are
+                            # unreliable in the stream() generator frame (the agent runs in the context
+                            # snapshot of _produce's create_task, while tool results are written in the
+                            # generator's consumer frame; the two contexts don't sync), so _context_ids
+                            # cannot be relied on.
+                            "user_id": st.user_id or None,
+                            "chat_id": st.chat_id or None,
+                            "tool_name": _rec.get("tool_name", "unknown"),
+                            "tool_call_id": _tid,
+                            "tool_args": _rec.get("tool_args"),
+                            "tool_result": None,
+                            "status": "failed",
+                            "error_message": "no tool_result received (stream ended)",
+                            "duration_ms": _dur,
+                            "started_at": _rec.get("started_at"),
+                        }
+                    )
                 except Exception:
                     logger.debug("pending tool_call flush failed", exc_info=True)
             self._pending_tool_calls.clear()
@@ -379,6 +391,7 @@ class StreamingAgent:
             except Exception:
                 pass
             if not prod_task.done():
+
                 async def _wait():
                     try:
                         await asyncio.wait_for(asyncio.shield(prod_task), timeout=10)
@@ -390,6 +403,7 @@ class StreamingAgent:
                             pass
                     except Exception:
                         pass
+
                 asyncio.create_task(_wait())
 
     async def _map_event(self, ev: Any) -> AsyncIterator[Tuple[str, Any]]:
@@ -415,8 +429,9 @@ class StreamingAgent:
             )
             if answer and answer != self._emitted_answer:
                 out = (
-                    answer[len(self._emitted_answer):]
-                    if answer.startswith(self._emitted_answer) else answer
+                    answer[len(self._emitted_answer) :]
+                    if answer.startswith(self._emitted_answer)
+                    else answer
                 )
                 if out:
                     yield ("text_delta", out)
@@ -484,6 +499,7 @@ class StreamingAgent:
                     {"name": name, "id": tid, "delta": pending_delta},
                 )
             import json
+
             try:
                 args = json.loads(args_str) if args_str else {}
             except json.JSONDecodeError:
@@ -493,6 +509,7 @@ class StreamingAgent:
                 rec["tool_args"] = args
             try:
                 from orchestration.tool_callbacks import note_tool_call
+
                 note_tool_call(self.__dict__.setdefault("_tool_warn_state", {}), name, args)
             except Exception:  # noqa: BLE001
                 pass
@@ -501,36 +518,52 @@ class StreamingAgent:
 
         if nm == "ToolResultTextDeltaEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
-            self._tool_result_buf[tid] = self._tool_result_buf.get(tid, "") + (getattr(ev, "delta", "") or "")
+            self._tool_result_buf[tid] = self._tool_result_buf.get(tid, "") + (
+                getattr(ev, "delta", "") or ""
+            )
             return
 
         if nm == "ToolResultEndEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
             content = self._tool_result_buf.pop(tid, "")
-            state = str(getattr(ev, "state", "") or "")
+            raw_state = getattr(ev, "state", "") or ""
+            state = str(getattr(raw_state, "value", raw_state) or "")
             pending = self._pending_tool_calls.pop(tid, None)
-            name = (getattr(ev, "tool_call_name", "") or (pending or {}).get("tool_name")
-                    or self._tool_name_buf.get(tid) or "unknown")
+            name = (
+                getattr(ev, "tool_call_name", "")
+                or (pending or {}).get("tool_name")
+                or self._tool_name_buf.get(tid)
+                or "unknown"
+            )
             try:
-                is_error = state == "error" or _looks_like_tool_error(content)
+                is_error = state in {"error", "denied", "interrupted"} or _looks_like_tool_error(
+                    content
+                )
                 started_mono = pending.get("started_monotonic") if pending else None
-                duration_ms = int((time.monotonic() - started_mono) * 1000) if started_mono else None
-                log_writer.schedule_tool_call_write({
-                    # See the matching comment in _produce: carry user_id/chat_id explicitly, never rely on contextvars.
-                    "user_id": self.agent.state.user_id or None,
-                    "chat_id": self.agent.state.chat_id or None,
-                    "tool_name": (pending or {}).get("tool_name") or name,
-                    "tool_call_id": tid,
-                    "tool_args": (pending or {}).get("tool_args"),
-                    "tool_result": content,
-                    "status": "failed" if is_error else "success",
-                    "error_message": content if is_error else None,
-                    "duration_ms": duration_ms,
-                    "started_at": (pending or {}).get("started_at"),
-                })
+                duration_ms = (
+                    int((time.monotonic() - started_mono) * 1000) if started_mono else None
+                )
+                log_writer.schedule_tool_call_write(
+                    {
+                        # See the matching comment in _produce: carry user_id/chat_id explicitly, never rely on contextvars.
+                        "user_id": self.agent.state.user_id or None,
+                        "chat_id": self.agent.state.chat_id or None,
+                        "tool_name": (pending or {}).get("tool_name") or name,
+                        "tool_call_id": tid,
+                        "tool_args": (pending or {}).get("tool_args"),
+                        "tool_result": content,
+                        "status": "failed" if is_error else "success",
+                        "error_message": content if is_error else None,
+                        "duration_ms": duration_ms,
+                        "started_at": (pending or {}).get("started_at"),
+                    }
+                )
             except Exception:  # noqa: BLE001
                 logger.debug("tool_call log persist failed", exc_info=True)
-            yield ("tool_result", {"name": name, "id": tid, "content": content})
+            yield (
+                "tool_result",
+                {"name": name, "id": tid, "content": content, "status": state},
+            )
             return
 
         if nm == "ModelCallStartEvent":
@@ -540,10 +573,12 @@ class StreamingAgent:
 
         if nm == "ModelCallEndEvent":
             self._model_call_inflight = False
-            self._usage_records.append({
-                "prompt_tokens": int(getattr(ev, "input_tokens", 0) or 0),
-                "completion_tokens": int(getattr(ev, "output_tokens", 0) or 0),
-            })
+            self._usage_records.append(
+                {
+                    "prompt_tokens": int(getattr(ev, "input_tokens", 0) or 0),
+                    "completion_tokens": int(getattr(ev, "output_tokens", 0) or 0),
+                }
+            )
             # 首轮权威判定：思考模式下整轮正文没有出现 </think> → 该模型不内联思考
             # （结构化 reasoning 通道，或本轮确实没思考）。补发协议标记，前端据此
             # 把误当思考缓冲/展示的正文重归正文区（bug：无思考时正文进思考块）。
@@ -568,14 +603,20 @@ class StreamingAgent:
         if nm == "RequireUserConfirmEvent":
             # 2.0 native HITL (distinct from the myspace gate); our tools default to ALLOW, so this rarely triggers.
             try:
-                yield ("file_confirm", {
-                    "reply_id": getattr(ev, "reply_id", ""),
-                    "tool_calls": [
-                        {"id": getattr(tc, "id", ""), "name": getattr(tc, "name", ""),
-                         "input": getattr(tc, "input", "")}
-                        for tc in (getattr(ev, "tool_calls", []) or [])
-                    ],
-                })
+                yield (
+                    "file_confirm",
+                    {
+                        "reply_id": getattr(ev, "reply_id", ""),
+                        "tool_calls": [
+                            {
+                                "id": getattr(tc, "id", ""),
+                                "name": getattr(tc, "name", ""),
+                                "input": getattr(tc, "input", ""),
+                            }
+                            for tc in (getattr(ev, "tool_calls", []) or [])
+                        ],
+                    },
+                )
             except Exception:  # noqa: BLE001
                 pass
             return
@@ -593,6 +634,7 @@ class StreamingAgent:
     async def shutdown(self):
         """Close transient (per-request) MCP clients."""
         from core.llm.mcp_manager import close_clients
+
         try:
             await close_clients(self.mcp_clients)
         except Exception as exc:

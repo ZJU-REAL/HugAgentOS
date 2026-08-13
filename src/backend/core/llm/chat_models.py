@@ -35,12 +35,13 @@ from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase, ChatResponse, OpenAIChatModel
 from agentscope.tool._types import ToolChoice
-
-from prompts.prompt_config import ModelConfig
-
-from core.llm.providers._fallback import L3_SYNTHETIC_METADATA, StructuredFallbackMixin  # noqa: F401
+from core.llm.providers._fallback import (  # noqa: F401
+    L3_SYNTHETIC_METADATA,
+    StructuredFallbackMixin,
+)
 from core.llm.providers.registry import get_spec, split_provider_extra
 from core.llm.providers.vendor_models import build_litellm_model, build_native_model
+from prompts.prompt_config import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,77 @@ logger = logging.getLogger(__name__)
 # it (e.g. 240) when the upstream endpoint is known to be flaky, so retries and the
 # final error surface well within the run's lifetime.
 STREAM_READ_TIMEOUT_S: float = float(os.getenv("LLM_STREAM_READ_TIMEOUT_S", "600"))
+
+_MULTIMODAL_CONTENT_TYPES = frozenset(
+    {
+        "audio",
+        "image",
+        "image_url",
+        "input_audio",
+        "input_image",
+    }
+)
+
+
+def _is_multimodal_unsupported_error(exc: Exception) -> bool:
+    """Whether an OpenAI-compatible endpoint explicitly rejected media input."""
+    message = str(exc).lower()
+    if "not a multimodal model" in message:
+        return True
+    mentions_media = any(word in message for word in ("image", "audio", "multimodal"))
+    rejects_media = any(
+        phrase in message
+        for phrase in (
+            "does not support",
+            "doesn't support",
+            "not supported",
+            "unsupported",
+        )
+    )
+    return mentions_media and rejects_media
+
+
+def _without_multimodal_content(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Copy formatted messages while replacing unsupported media blocks with text."""
+    sanitized: list[dict[str, Any]] = []
+    removed = 0
+    fallback_text = (
+        "<system-reminder>工具返回了图片或音频，但当前模型不支持直接读取该媒体。"
+        "请依据工具结果中已有的文字、元数据和图注继续完成回答，不要因此中止。</system-reminder>"
+    )
+
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            sanitized.append(message)
+            continue
+
+        kept: list[Any] = []
+        removed_from_message = 0
+        for block in content:
+            block_type = str(block.get("type", "")).lower() if isinstance(block, dict) else ""
+            if block_type in _MULTIMODAL_CONTENT_TYPES:
+                removed += 1
+                removed_from_message += 1
+            else:
+                kept.append(block)
+
+        if not removed_from_message:
+            sanitized.append(message)
+            continue
+
+        # AgentScope promotes multimodal tool outputs into a synthetic
+        # ``system-reminder`` user message. Its remaining identifier prose is
+        # meaningless once the media block is removed, so replace the whole
+        # reminder. For ordinary user messages, retain their accompanying text
+        # and append the same explicit degradation notice.
+        if message.get("name") == "system-reminder":
+            kept = [{"type": "text", "text": fallback_text}]
+        else:
+            kept.append({"type": "text", "text": fallback_text})
+        sanitized.append({**message, "content": kept})
+
+    return sanitized, removed
 
 
 def _build_chat_template_kwargs(
@@ -173,12 +245,32 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
             kwargs["stream_options"] = {"include_usage": True}
 
         start_datetime = datetime.now()
-        response = await client.chat.completions.create(**kwargs)
+        try:
+            response = await client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            # MCP tools may return image DataBlocks alongside useful JSON text
+            # (for example get_paper_figures). AgentScope promotes those blocks
+            # into an OpenAI image_url message for the next ReAct round. A
+            # text-only compatible endpoint rejects the whole request with a
+            # 400, which used to terminate the run immediately after the tool
+            # succeeded. Preserve multimodal input by default; only after an
+            # endpoint explicitly rejects it, retry once with the media blocks
+            # removed while retaining the tool's text/metadata/captions.
+            if not _is_multimodal_unsupported_error(exc):
+                raise
+            fallback_messages, removed = _without_multimodal_content(formatted_messages)
+            if not removed:
+                raise
+            logger.warning(
+                "Model %s rejected multimodal input; retrying without %d media block(s)",
+                model_name,
+                removed,
+            )
+            kwargs["messages"] = fallback_messages
+            response = await client.chat.completions.create(**kwargs)
 
         audio_cfg = kwargs.get("audio")
-        audio_fmt = (
-            audio_cfg.get("format", "wav") if isinstance(audio_cfg, dict) else "wav"
-        )
+        audio_fmt = audio_cfg.get("format", "wav") if isinstance(audio_cfg, dict) else "wav"
         if self.stream:
             return self._parse_stream_response(start_datetime, response, audio_fmt)
         return self._parse_completion_response(start_datetime, response, audio_fmt)
@@ -328,6 +420,7 @@ def _resolve_or_dummy(role_key: str):
     """Resolve config from DB, return None if not available."""
     try:
         from core.services.model_config import ModelConfigService
+
         return ModelConfigService.get_instance().resolve(role_key)
     except Exception as exc:
         logger.warning("ModelConfigService unavailable for role '%s': %s", role_key, exc)

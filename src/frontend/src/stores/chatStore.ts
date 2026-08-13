@@ -13,6 +13,14 @@ export const SITES_PLUGIN_SLUG = 'sites';
 
 export type ChatMode = 'turbo' | 'fast' | 'medium' | 'high' | 'max';
 
+export interface QueuedChatMessage {
+  id: string;
+  content: string;
+  createdAt: number;
+  status: 'queued' | 'steering' | 'applied';
+  appliedMessageId?: string;
+}
+
 const VALID_CHAT_MODES: readonly ChatMode[] = ['turbo', 'fast', 'medium', 'high', 'max'];
 
 /** Read the admin-configured "default chat mode". Prefer the chat_mode field; fall back to
@@ -157,6 +165,9 @@ interface ChatState {
    *  This is what the stop button cancels. Decoupled from `sendingChatIds`
    *  (which only reflects the current tab's local SSE connection). */
   activeRuns: Record<string, { runId: string; messageId: string; lastOffset?: number }>;
+  /** One unsent/steering composer message per chat. Kept out of persisted chat
+   *  history until it is actually sent or acknowledged by the running agent. */
+  queuedMessages: Record<string, QueuedChatMessage>;
   /** chatId → whether a compaction_notice event was received. After the previous turn ended the
    *  backend compacted earlier context; it notifies once on this turn's first frame. The UI shows
    *  a dismissible banner (not persisted). */
@@ -239,6 +250,11 @@ interface ChatState {
   truncateMessagesFrom: (chatId: string, ts: number) => void;
   setActiveRun: (chatId: string, info: { runId: string; messageId: string; lastOffset?: number }) => void;
   clearActiveRun: (chatId: string) => void;
+  setQueuedMessage: (chatId: string, queued: QueuedChatMessage | null) => void;
+  updateQueuedMessage: (
+    chatId: string,
+    updater: (queued: QueuedChatMessage) => QueuedChatMessage,
+  ) => void;
   /** Mark that a chat received a compaction notice (SSE compaction_notice event) */
   setCompactionNotice: (chatId: string) => void;
   /** User dismissed the compaction banner */
@@ -312,6 +328,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   editingMessageTs: null,
   sessionLoadEpoch: 0,
   activeRuns: {},
+  queuedMessages: {},
   compactionNotices: {},
   contextCompactions: {},
   planProgress: {},
@@ -487,6 +504,17 @@ export const useChatStore = create<ChatState>((set, get) => {
     const next = { ...s.activeRuns };
     delete next[chatId];
     return { activeRuns: next };
+  }),
+  setQueuedMessage: (chatId, queued) => set((s) => {
+    const next = { ...s.queuedMessages };
+    if (queued) next[chatId] = queued;
+    else delete next[chatId];
+    return { queuedMessages: next };
+  }),
+  updateQueuedMessage: (chatId, updater) => set((s) => {
+    const current = s.queuedMessages[chatId];
+    if (!current) return { queuedMessages: s.queuedMessages };
+    return { queuedMessages: { ...s.queuedMessages, [chatId]: updater(current) } };
   }),
   setCompactionNotice: (chatId) => set((s) => ({
     compactionNotices: { ...s.compactionNotices, [chatId]: true },
@@ -732,8 +760,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     delete rest[id];
     const nextCompactions = { ...get().contextCompactions };
     const nextNotices = { ...get().compactionNotices };
+    const nextQueued = { ...get().queuedMessages };
     delete nextCompactions[id];
     delete nextNotices[id];
+    delete nextQueued[id];
     const next: ChatStoreData = {
       chats: rest,
       order: store.order.filter((oid) => oid !== id),
@@ -743,6 +773,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       storeRef: next,
       contextCompactions: nextCompactions,
       compactionNotices: nextNotices,
+      queuedMessages: nextQueued,
     });
     saveChatStoreDebounced(currentUserId, next);
     if (currentChatId === id) {
@@ -814,6 +845,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
+      queuedMessages: {},
       compactionNotices: {},
       contextCompactions: {},
       chatMode: adminDefaultChatMode(),
@@ -849,6 +881,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
+      queuedMessages: {},
       compactionNotices: {},
       contextCompactions: {},
     });

@@ -26,6 +26,7 @@ import { DropOverlay } from '../common/DropOverlay';
 import LocalApprovalPill from './LocalApprovalPill';
 import DeploymentSwitcher from './DeploymentSwitcher';
 import { ContextGauge } from './ContextGauge';
+import { QueuedMessageCard } from './QueuedMessageCard';
 import { t } from '../../i18n';
 
 interface InputAreaProps {
@@ -33,6 +34,8 @@ interface InputAreaProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   send: () => void;
   abort?: () => void;
+  activateQueuedMessage?: (chatId?: string) => Promise<void>;
+  discardQueuedMessage?: (chatId?: string) => Promise<void>;
   continueLoop?: (chatId?: string) => void;
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement | null>) => void;
   removeFile: (index: number) => void;
@@ -189,7 +192,7 @@ function clearEditorIfOnlyBrowserEmptyNodes(editor: HTMLElement) {
 // ── Component ───────────────────────────────────────────────────────────
 
 export function InputArea({
-  inputRef, fileInputRef, send, abort, continueLoop, handleFileSelect, removeFile,
+  inputRef, fileInputRef, send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, handleFileSelect, removeFile,
   placeholder = t('请输入你的问题，按Enter发送，Shift+Enter换行'),
   mobilePlaceholder,
   rows: _rows = 3,
@@ -205,6 +208,7 @@ export function InputArea({
     activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeMention, setActiveMention,
     planMode, setPlanMode, loopMode, setLoopMode, currentChat, enterChatMode,
     currentChatId, bindChatProject, unbindChatProject,
+    queuedMessages, updateQueuedMessage, activeRuns,
   } = useChatStore();
   // Autonomous-loop capability bit (enabled by default): without permission the "autonomous loop" toggle is hidden
   const loopCapEnabled = useAuthStore((s) => s.authUser?.can_run_autonomous_loop);
@@ -593,6 +597,28 @@ export function InputArea({
   const showPlaceholder = !input.trim() && !activeMention && !activeSkill && !activePlugin && !isComposing;
 
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
+  // A project-detail composer starts a separate chat and deliberately ignores
+  // the currently selected chat's run state; do not leak that chat's queue
+  // into this independent composer either.
+  const queuedMessage = forceSendMode ? undefined : queuedMessages[currentChatId];
+  const canSteerQueued = !!activeRuns[currentChatId]?.runId
+    && !hasAttachments
+    && !activeSkill
+    && !activePlugin
+    && !activeMention;
+
+  // A terminal run can race with the steer response. Never leave the card in
+  // an impossible "waiting for a tool boundary" state once this chat is idle.
+  useEffect(() => {
+    if (!sending && queuedMessage?.status === 'steering') {
+      updateQueuedMessage(currentChatId, (current) => ({
+        ...current,
+        status: 'queued',
+      }));
+    }
+  }, [currentChatId, queuedMessage?.status, sending, updateQueuedMessage]);
+
+  const showStopButton = sending && !input.trim();
 
   // 拖文件到输入区直接作为附件上传，复用点击"浏览"的同一条 handleFileSelect 管线
   // （它只读 e.target.files，合成一个最小 change 事件即可）。
@@ -609,6 +635,29 @@ export function InputArea({
       {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
           本地项目在本机），不在项目内提供切换入口 */}
       {!projectComposer && <LoopPlanBar onContinue={continueLoop} />}
+      <AnimatePresence initial={false}>
+        {queuedMessage && (
+          <motion.div
+            key={queuedMessage.id}
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            transition={{ duration: DUR.fast, ease: EASE.brandOut }}
+          >
+            <QueuedMessageCard
+              queued={queuedMessage}
+              running={sending}
+              canSteer={canSteerQueued}
+              onSteer={() => { void activateQueuedMessage?.(currentChatId); }}
+              onDelete={() => { void discardQueuedMessage?.(currentChatId); }}
+              onEdit={(content) => updateQueuedMessage(currentChatId, (current) => ({
+                ...current,
+                content,
+              }))}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       {hasAttachments && (
         <div className="jx-inputAttachments">
           <AnimatePresence initial={false}>
@@ -1113,18 +1162,18 @@ export function InputArea({
               </>
             );
           })()}
-          {/* Send ↔ abort: single button + icon crossfade (button hover/active scaling is
-              done in CSS, motion only animates the inner icon, so they never conflict) */}
+          {/* While a run is active, an empty composer keeps the stop button; typing switches
+              back to send so Enter/click can queue a follow-up without cancelling the run. */}
           <button
             className="jx-sendBtn"
-            onClick={() => { if (sending) { abort?.(); } else { send(); } }}
-            disabled={!sending && uploadingFiles.size > 0}
-            aria-label={sending ? t('中止') : t('发送')}
+            onClick={() => { if (showStopButton) { abort?.(); } else { send(); } }}
+            disabled={!showStopButton && uploadingFiles.size > 0}
+            aria-label={showStopButton ? t('中止') : t('发送')}
           >
             <AnimatePresence mode="wait" initial={false}>
               <motion.img
-                key={sending ? 'stop' : 'send'}
-                src={sending ? '/home/stop.svg' : '/home/send.svg'}
+                key={showStopButton ? 'stop' : 'send'}
+                src={showStopButton ? '/home/stop.svg' : '/home/send.svg'}
                 alt=""
                 className="jx-sendIcon"
                 initial={{ scale: 0.6, opacity: 0, rotate: -90 }}

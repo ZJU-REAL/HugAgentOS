@@ -1348,10 +1348,6 @@ async def _stream_sse_response(
             elif chunk_type == "tool_call":
                 _flush_thinking()
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
-                # 记录该工具卡片出现时正文的累计长度：历史重建按此偏移把
-                # 「文本 ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
-                for _tc in tool_calls_log:
-                    _tc.setdefault("content_offset", len(full_response))
                 yield f"data: {json.dumps(_tc_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call_start":
                 _flush_thinking()

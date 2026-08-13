@@ -8,11 +8,6 @@
   display: block;
   width: 100%;
 }
-.jx-tcr--error .jx-tcr-prefix,
-.jx-tcr--error .jx-tcr-value {
-  color: var(--color-error);
-}
-
 /* ── Header row (full-width, click anywhere to toggle) ── */
 .jx-tcr-header {
   display: flex;
@@ -51,9 +46,6 @@
 }
 .jx-tcr-icon--running {
   color: rgba(15, 23, 42, 0.55);
-}
-.jx-tcr-icon--error {
-  color: rgba(15, 23, 42, 0.68);
 }
 /* Per-step category glyph (replaces the generic success tick) — quiet,
    thin-stroked, no fill; the kind of step is the signal, not "✓". */
@@ -310,8 +302,8 @@
   outline-offset: 1px;
 }
 
-/* ── Status mark: brand logo (animated draw → settled) for run/done,
-   a refined glyph for errors. A soft halo + a one-shot ring on completion
+/* ── Status mark: brand logo (animated draw → settled) for run/done.
+   A soft halo + a one-shot ring on completion
    give the batch a richer, branded focal point instead of a bare tick. ── */
 .jx-trs-mark {
   position: relative;
@@ -364,11 +356,6 @@
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.08); }
 }
-.jx-trs-mark--error {
-  color: rgba(15, 23, 42, 0.72);
-  box-shadow: inset 0 0 0 1.5px rgba(15, 23, 42, 0.22);
-}
-
 .jx-trs-title {
   font-size: 13.5px;
   font-weight: 500;

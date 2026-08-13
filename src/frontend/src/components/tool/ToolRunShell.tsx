@@ -6,9 +6,10 @@ import { ThinkingStepRow } from './ThinkingStepRow';
 import { PendingStepRow } from './PendingStepRow';
 import { computeEffectiveStatus } from './renderers/utils';
 import { t } from '../../i18n';
+import { getToolRunInitialOpen } from '../../utils/toolRunState';
 
 /** Aggregate status of a contiguous step batch. */
-type ShellStatus = 'running' | 'success' | 'error';
+type ShellStatus = 'running' | 'success';
 
 
 /**
@@ -93,8 +94,11 @@ interface ToolRunShellProps {
  * steps so the user sees one unified "agent run" card instead of separate
  * "thinking process / tool call" entries in the message flow.
  */
-export function ToolRunShell({ steps, isStreaming, holdOpenUntilText: _holdOpenUntilText }: ToolRunShellProps) {
+export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
   const [mountTs] = useState(() => Date.now());
+  // A live run opens on first mount and stays as the user left it. After a
+  // refresh, historical runs mount with isStreaming=false and start folded.
+  const [open, setOpen] = useState(() => getToolRunInitialOpen(isStreaming));
 
   const tools = steps.flatMap((s) => (s.kind === 'tool' ? [s.tool] : []));
   const toolStatuses = tools.map((t) => computeEffectiveStatus(t, isStreaming));
@@ -102,11 +106,7 @@ export function ToolRunShell({ steps, isStreaming, holdOpenUntilText: _holdOpenU
   const anyThinkingActive = steps.some((s) => s.kind === 'thinking' && s.active);
   const anyPending = steps.some((s) => s.kind === 'pending');
   const running = anyToolRunning || anyThinkingActive || anyPending;
-  const status: ShellStatus = running
-    ? 'running'
-    : toolStatuses.includes('error')
-      ? 'error'
-      : 'success';
+  const status: ShellStatus = running ? 'running' : 'success';
 
   const tsList = tools
     .map((t) => t.timestamp)
@@ -114,13 +114,7 @@ export function ToolRunShell({ steps, isStreaming, holdOpenUntilText: _holdOpenU
   const startTs = tsList.length ? Math.min(...tsList) : mountTs;
   const endTs = tsList.length ? Math.max(...tsList) : mountTs;
 
-  const [override, setOverride] = useState<boolean | null>(null);
-  // 工具调度过程默认展开（含运行中与已完成/历史消息），用户可逐卡手动折叠；
-  // 此前的策略是回答正文开始后自动折叠、历史一律折叠，过程默认不可见。
-  const open = override ?? true;
-
-  const title =
-    running ? t('执行中') : status === 'error' ? t('已完成（含失败）') : t('已完成');
+  const title = running ? t('执行中') : t('已完成');
 
   // History / non-streaming renders are static: the `--static` modifier kills
   // the shell + step-row + title entrance animations (see tool.css), so
@@ -131,20 +125,14 @@ export function ToolRunShell({ steps, isStreaming, holdOpenUntilText: _holdOpenU
         type="button"
         className={`jx-trs-head${open ? ' jx-trs-head--open' : ''}`}
         aria-expanded={open}
-        onClick={() => setOverride(!open)}
+        onClick={() => setOpen((value) => !value)}
       >
         <span className={`jx-trs-mark jx-trs-mark--${status}`} aria-hidden="true">
-          {status === 'error' ? (
-            <svg viewBox="0 0 16 16" width="14" height="14">
-              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-            </svg>
-          ) : (
-            <BrandLoader
-              size={18}
-              done={status === 'success'}
-              label={status === 'success' ? t('已完成') : t('执行中')}
-            />
-          )}
+          <BrandLoader
+            size={18}
+            done={status === 'success'}
+            label={status === 'success' ? t('已完成') : t('执行中')}
+          />
         </span>
         {/* keyed remount → 0.15s fade when In progress ↔ Done flips */}
         <span key={title} className="jx-trs-title">{title}</span>

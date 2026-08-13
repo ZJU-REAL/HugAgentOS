@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { message } from 'antd';
 import { t } from '../i18n';
-import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
+import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
@@ -13,6 +13,7 @@ import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
 import type { ChatItem, ChatMessage } from '../types';
+import type { QueuedChatMessage } from '../stores/chatStore';
 
 export function useStreaming(
   effectiveApiUrl: string,
@@ -104,6 +105,222 @@ export function useStreaming(
       removeUploadingFile(removedFile);
     }
     setUploadedFiles(uploadedFiles.filter((_, i) => i !== index));
+  }
+
+  function queueDuringRun(directMessage?: string) {
+    const state = useChatStore.getState();
+    const content = (directMessage ?? state.input).trim();
+    if (!content) return;
+    const chat = state.currentChat();
+    if (state.planMode || state.loopMode || chat?.planChat || chat?.batchChat) {
+      message.info(t('当前运行模式暂不支持追加消息'));
+      return;
+    }
+    if (state.queuedMessages[state.currentChatId]) {
+      message.info(t('已有一条待发送消息，请先编辑或删除'));
+      return;
+    }
+    const queued: QueuedChatMessage = {
+      id: `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      content,
+      createdAt: Date.now(),
+      status: 'queued',
+    };
+    state.setQueuedMessage(state.currentChatId, queued);
+    if (directMessage === undefined) state.setInput('');
+  }
+
+  function sendQueuedAsNextTurn(chatId: string, queued: QueuedChatMessage) {
+    const store = useChatStore.getState();
+    const staleController = abortControllersRef.current.get(chatId);
+    if (staleController) {
+      staleController.abort();
+      abortControllersRef.current.delete(chatId);
+    }
+    store.removeSendingChatId(chatId);
+    store.clearActiveRun(chatId);
+    store.setQueuedMessage(chatId, null);
+
+    if (store.currentChatId !== chatId) {
+      store.setQueuedMessage(chatId, { ...queued, status: 'queued' });
+      return;
+    }
+
+    window.setTimeout(() => {
+      const latest = useChatStore.getState();
+      if (latest.currentChatId !== chatId || latest.sendingChatIds.has(chatId)) {
+        latest.setQueuedMessage(chatId, { ...queued, status: 'queued' });
+        return;
+      }
+      void smartSend(queued.content);
+    }, 0);
+  }
+
+  function settleQueuedMessageAfterRun(
+    chatId: string,
+    assistantTs?: number,
+    autoSend = true,
+  ) {
+    const store = useChatStore.getState();
+    const queued = store.queuedMessages[chatId];
+    if (!queued) return;
+
+    if (queued.status === 'applied') {
+      commitAppliedQueuedMessage(chatId, queued, assistantTs);
+      store.setQueuedMessage(chatId, null);
+      return;
+    }
+
+    if (autoSend && store.currentChatId === chatId) {
+      sendQueuedAsNextTurn(chatId, queued);
+      return;
+    }
+
+    if (queued.status === 'steering') {
+      store.updateQueuedMessage(chatId, (current) => ({
+        ...current,
+        status: 'queued',
+      }));
+    }
+  }
+
+  async function activateQueuedMessage(chatId?: string) {
+    const state = useChatStore.getState();
+    const targetId = chatId || state.currentChatId;
+    const queued = state.queuedMessages[targetId];
+    if (!queued || queued.status === 'applied') return;
+
+    if (!state.sendingChatIds.has(targetId)) {
+      state.setQueuedMessage(targetId, null);
+      if (state.currentChatId === targetId) await smartSend(queued.content);
+      return;
+    }
+
+    const activeRun = state.activeRuns[targetId];
+    if (!activeRun?.runId) {
+      message.info(t('任务正在启动，请稍后再试'));
+      return;
+    }
+
+    // The visible answer may have finished a moment before the local SSE
+    // finally block clears `sendingChatIds`. Confirm the run is still live so
+    // an instruction is not queued against a run that has no next tool call.
+    let liveRun: Awaited<ReturnType<typeof getActiveChatRun>> | undefined;
+    try {
+      liveRun = await getActiveChatRun(
+        targetId,
+        useAuthStore.getState().authUser?.user_id,
+      );
+    } catch {
+      // A transient probe failure should not turn a live steer into a duplicate
+      // ordinary message; continue with the locally tracked run.
+    }
+    const currentQueued = useChatStore.getState().queuedMessages[targetId];
+    if (!currentQueued || currentQueued.id !== queued.id) {
+      // The old stream may have settled and started this queued message while
+      // the active-run probe was in flight. Do not cancel or send it twice.
+      return;
+    }
+    if (liveRun === null) {
+      sendQueuedAsNextTurn(targetId, currentQueued);
+      return;
+    }
+
+    const runId = liveRun?.run_id || activeRun.runId;
+    if (liveRun?.run_id && liveRun.run_id !== activeRun.runId) {
+      state.setActiveRun(targetId, {
+        runId: liveRun.run_id,
+        messageId: liveRun.message_id,
+        lastOffset: liveRun.last_event_offset || 0,
+      });
+    }
+
+    state.updateQueuedMessage(targetId, (current) => ({ ...current, status: 'steering' }));
+    try {
+      await steerChatRun(runId, currentQueued.id, currentQueued.content, targetId);
+    } catch (error) {
+      let stillLive: Awaited<ReturnType<typeof getActiveChatRun>> | undefined;
+      try {
+        stillLive = await getActiveChatRun(
+          targetId,
+          useAuthStore.getState().authUser?.user_id,
+        );
+      } catch {
+        // Keep the queued card actionable when the status probe also fails.
+      }
+      if (stillLive === null) {
+        const latestQueued = useChatStore.getState().queuedMessages[targetId];
+        if (latestQueued) sendQueuedAsNextTurn(targetId, latestQueued);
+        return;
+      }
+      useChatStore.getState().updateQueuedMessage(targetId, (current) => ({
+        ...current,
+        status: 'queued',
+      }));
+      message.error(t('立即开始失败：{msg}', { msg: (error as Error).message || String(error) }));
+    }
+  }
+
+  async function discardQueuedMessage(chatId?: string) {
+    const state = useChatStore.getState();
+    const targetId = chatId || state.currentChatId;
+    const queued = state.queuedMessages[targetId];
+    if (!queued || queued.status === 'applied') return;
+    const activeRun = state.activeRuns[targetId];
+    if (queued.status === 'steering' && activeRun?.runId) {
+      try {
+        const removed = await withdrawChatRunSteer(activeRun.runId, queued.id, targetId);
+        if (!removed) {
+          message.info(t('指令已经生效，无法撤回'));
+          return;
+        }
+      } catch (error) {
+        message.error(t('撤回失败：{msg}', { msg: (error as Error).message || String(error) }));
+        return;
+      }
+    }
+    useChatStore.getState().setQueuedMessage(targetId, null);
+  }
+
+  function commitAppliedQueuedMessage(
+    chatId: string,
+    queued: QueuedChatMessage,
+    assistantTs?: number,
+  ) {
+    useChatStore.getState().updateStore((prev) => {
+      const chat = prev.chats[chatId];
+      if (!chat) return prev;
+      const messages = [...chat.messages];
+      if (queued.appliedMessageId && messages.some((item) => item.messageId === queued.appliedMessageId)) {
+        return prev;
+      }
+      const userMessage: ChatMessage = {
+        role: 'user',
+        content: queued.content,
+        isMarkdown: false,
+        ts: Date.now(),
+        messageId: queued.appliedMessageId,
+      };
+      let assistantIndex = assistantTs === undefined
+        ? -1
+        : messages.findIndex((item) => item.role === 'assistant' && item.ts === assistantTs);
+      if (assistantIndex < 0) {
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          if (messages[index].role === 'assistant') {
+            assistantIndex = index;
+            break;
+          }
+        }
+      }
+      messages.splice(assistantIndex >= 0 ? assistantIndex : messages.length, 0, userMessage);
+      return {
+        ...prev,
+        chats: {
+          ...prev.chats,
+          [chatId]: { ...chat, messages, updatedAt: Date.now() },
+        },
+      };
+    });
   }
 
   /** 流式期间用户手动重命名过、但当时后端会话尚未创建（PATCH 被跳过）——
@@ -278,6 +495,7 @@ export function useStreaming(
       };
     });
 
+    let streamOutcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
     try {
       const enabledKbIds = (catalog.kb || [])
         .filter((x) => !!x.enabled)
@@ -359,6 +577,7 @@ export function useStreaming(
         chatId: streamChatId,
         enableThinking: isThinkingMode(chatMode),
       });
+      streamOutcome = outcome;
 
       addBackendSessionId(currentChatId);
       addLoadedMsgId(currentChatId);
@@ -461,6 +680,11 @@ export function useStreaming(
       removeSendingChatId(streamChatId);
       // Clean up activeRun — the SSE has hit [DONE] / errored / been interrupted
       useChatStore.getState().clearActiveRun(streamChatId);
+      settleQueuedMessageAfterRun(
+        streamChatId,
+        streamOutcome?.placeholderTs,
+        streamOutcome !== undefined,
+      );
       // NOTE: do NOT clear uploadedFiles / fileUploadMap here. This round's
       // attachments were already cleared right after they were assembled
       // (before the request), so anything present now was uploaded by the
@@ -485,12 +709,13 @@ export function useStreaming(
     pendingNotice?: string,
     enableThinking: boolean = false,
   ) {
-    await processChatStream(response, { chatId, enableThinking, pendingNotice });
+    const outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice });
     useChatStore.getState().addBackendSessionId(chatId);
     useChatStore.getState().addLoadedMsgId(chatId);
     syncManualTitleToBackend(chatId);
     setTimeout(() => generateSummary(chatId), 500);
     setTimeout(() => generateClassification(chatId), 800);
+    return outcome;
   }
 
   /** Regenerate the last assistant response */
@@ -577,7 +802,11 @@ export function useStreaming(
   }
 
   async function smartSend(directMessage?: string) {
-    const { planMode, loopMode } = useChatStore.getState();
+    const { planMode, loopMode, sending } = useChatStore.getState();
+    if (sending) {
+      queueDuringRun(directMessage);
+      return;
+    }
     if (planMode) {
       return sendPlanMode(effectiveApiUrl, abortControllersRef, fileUploadMap, generateSummary, directMessage);
     }
@@ -821,11 +1050,12 @@ export function useStreaming(
 
     const abortController = new AbortController();
     abortControllersRef.current.set(chatId, abortController);
+    let streamOutcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
 
     try {
       const r = await followChatRun(active.run_id, active.last_event_offset || 0, abortController.signal, uid, chatId);
       if (!r.ok || !r.body) return;
-      await processRegenerateStream(r, chatId, undefined, !!active.enable_thinking);
+      streamOutcome = await processRegenerateStream(r, chatId, undefined, !!active.enable_thinking);
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         // Resume failure is handled silently — UX-wise it's equivalent to "the task runs in the background and the final message arrives via the next refresh"
@@ -834,6 +1064,11 @@ export function useStreaming(
       abortControllersRef.current.delete(chatId);
       removeSendingChatId(chatId);
       useChatStore.getState().clearActiveRun(chatId);
+      settleQueuedMessageAfterRun(
+        chatId,
+        streamOutcome?.placeholderTs,
+        streamOutcome !== undefined,
+      );
     }
   }
 
@@ -901,5 +1136,18 @@ export function useStreaming(
     return continueLoopImpl(abortControllersRef, chatId);
   }
 
-  return { send: smartSend, abort, handleFileSelect, removeFile, fileUploadMap, regenerate, editAndResend, resumeRunIfAny, cancelAndResumeBatch, continueLoop };
+  return {
+    send: smartSend,
+    abort,
+    activateQueuedMessage,
+    discardQueuedMessage,
+    handleFileSelect,
+    removeFile,
+    fileUploadMap,
+    regenerate,
+    editAndResend,
+    resumeRunIfAny,
+    cancelAndResumeBatch,
+    continueLoop,
+  };
 }

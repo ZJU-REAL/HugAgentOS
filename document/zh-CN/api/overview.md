@@ -1,6 +1,6 @@
 # API 总览
 
-> 最后更新：2026-07-28
+> 最后更新：2026-08-12
 
 HugAgentOS 后端是一个 FastAPI 应用，所有业务接口挂在 `/v1/*` 前缀下。生产部署中 Nginx 把 `/api/` 前缀剥掉后转发给后端（见 `src/frontend/default.conf.template`），因此**浏览器侧的完整路径是 `/api/v1/...`**，直接访问后端容器则是 `/v1/...`。本文示例统一使用本地开发地址 `http://localhost:3000/api`。
 
@@ -112,7 +112,8 @@ curl -N http://localhost:3000/api/v1/chats/stream \
 | `tool_call_start` | 模型开始构造工具调用 | `tool_name`、`tool_display_name`、`tool_id` |
 | `tool_call_delta` | 工具参数 JSON 增量（后端合批后下发） | `tool_name`、`tool_id`、`arguments_delta` |
 | `tool_call` | 参数完整、即将执行工具 | `tool_name`、`tool_display_name`、`tool_args`、`tool_id`、`subagent_name?` |
-| `tool_result` | 工具返回结果 | `tool_name`、`result`（JSON）、`tool_id`、`citations`（引用项列表） |
+| `tool_result` | 工具返回结果 | `tool_name`、`result`（JSON）、`tool_id`、`status`、`citations`（引用项列表） |
+| `steer_applied` | 追加指令已在安全 ReAct 边界注入 | `steer_id`、`message`、`message_id`、`chat_id` |
 | `tool_pending` | 提供商未暴露可解析增量时的等待兜底 | `reason`（如 `llm_buffering`） |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | `confirm_id`、`op`、`logical_path`、`message`、`expired`；流不结束，用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后续跑 |
 | `batch_confirm` | 批量执行计划等待用户确认 | `plan_id`、`total`、`preview`、`default_template`、`placeholder_keys`；确认走 `POST /v1/batch/{plan_id}/confirm` |
@@ -145,7 +146,7 @@ data: [DONE]
 
 正文中的 `[ref:tool_name-N]` 引用标记由 `orchestration/citations.py` 解析为 `citations` 项，前端据此渲染角标（见 [对话模块](../modules/chat.md)）。
 
-### 续播与取消
+### 续播、Steer 与取消
 
 回答在后台 run 中执行，SSE 只是「跟随」——断开连接不会终止生成：
 
@@ -157,9 +158,15 @@ curl -N "http://localhost:3000/api/v1/chats/stream/run_9f8e7d?from_offset=0" \
 # 主动取消生成
 curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/cancel \
   -H "Authorization: Bearer sk-jx-xxxxxxxx"
+
+# 在下一次安全 ReAct 边界追加纯文本指令
+curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steer \
+  -H "Authorization: Bearer sk-jx-xxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"steer_id":"steer_001","message":"先不要下载，改为比较两个方案"}'
 ```
 
-续播校验 run 归属：非属主返回 403、run 不存在返回 404。`GET /v1/chats/{chat_id}/active-run` 可查询某会话当前是否有进行中的 run（前端刷新页面后据此重连）。run 静默超过 `CHAT_RUN_INACTIVITY_TIMEOUT_SEC`（默认 600 秒）会被判定为僵死并终止。
+续播、Steer 和取消都会校验 run 归属：非属主返回 403、run 不存在返回 404。Steer 只支持进行中的普通对话 run；指令通过 Redis 交给执行进程。若工具正在执行，指令会在该工具结果进入上下文后、下一轮模型推理前注入；若下一批工具尚未开始，则先中止旧调用再注入。两种路径都以 `steer_applied` 事件确认。`DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` 可撤回尚未被消费的指令。`GET /v1/chats/{chat_id}/active-run` 可查询某会话当前是否有进行中的 run（前端刷新页面后据此重连）。run 静默超过 `CHAT_RUN_INACTIVITY_TIMEOUT_SEC`（默认 600 秒）会被判定为僵死并终止。
 
 ### 其他 SSE 端点
 
@@ -186,7 +193,7 @@ curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/cancel \
 | 分组 | 模块（`api/routes/v1/`） | 前缀 | 代表端点 | 鉴权 |
 |---|---|---|---|---|
 | 会话与消息 | `chats.py` | `/v1/chats` | `POST /stream`（SSE）、`GET /stream/{run_id}`（续播）、`POST /send`（非流式）、`GET /`、`GET /{chat_id}/messages`、`POST /{chat_id}/share` | 用户 |
-| 会话与消息 | `chat_runs.py` | `/v1/chat-runs` | `POST /{run_id}/cancel` | 用户 |
+| 会话与消息 | `chat_runs.py` | `/v1/chat-runs` | `POST /{run_id}/cancel`、`POST /{run_id}/steer`、`DELETE /{run_id}/steer/{steer_id}` | 用户 |
 | 会话与消息 | `chat_shares.py` | `/v1/chat-shares` | `POST /`、`GET /{share_id}`、`POST /{share_id}/revoke` | 用户 |
 | 会话与消息 | `summary.py` | `/v1/summary` | `POST /`（会话标题摘要） | 用户 |
 | 会话与消息 | `classify.py` | `/v1/classify` | `POST /`（业务主题分类） | 用户 |

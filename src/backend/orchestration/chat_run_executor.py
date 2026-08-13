@@ -366,6 +366,11 @@ async def _run_workflow(
     from core.llm import workspace as _workspace_mod
 
     full_response = ""
+    # A steer starts a new visible assistant segment in the same backend run.
+    # Each segment gets its own message id so persisted history stays in the
+    # same chronological order the user saw while streaming.
+    current_message_id = message_id
+    latest_user_message = raw_user_message
     metadata: Dict[str, Any] = {}
     tool_calls_log: list = []
     _workspace_mod.init_state()
@@ -494,13 +499,100 @@ async def _run_workflow(
                     }
                 )
 
+            elif chunk_type == "steer_applied":
+                _flush_thinking()
+                steer_id = str(chunk.get("steer_id") or "")[:64]
+                steer_message = str(chunk.get("message") or "").strip()
+                steer_message_id = (
+                    f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{run_id}:{steer_id}').hex[:16]}"
+                    if steer_id
+                    else f"msg_{uuid.uuid4().hex[:16]}"
+                )
+                next_assistant_message_id = (
+                    f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{run_id}:{steer_id}:assistant').hex[:16]}"
+                    if steer_id
+                    else f"msg_{uuid.uuid4().hex[:16]}"
+                )
+                had_assistant_output = bool(full_response or tool_calls_log)
+                if steer_message:
+                    # Close the visible assistant segment before inserting the
+                    # user's steer. Persisting in this order is what keeps a
+                    # refresh from moving every mid-run user message above the
+                    # whole assistant response.
+                    with SessionLocal() as db:
+                        chat_service = ChatService(db)
+                        if had_assistant_output:
+                            chat_service.add_message(
+                                chat_id=chat_id,
+                                role="assistant",
+                                content=full_response,
+                                model=model_name,
+                                tool_calls=tool_calls_log if tool_calls_log else None,
+                                message_id=current_message_id,
+                                extra_data={
+                                    "timestamp": now_iso(),
+                                    "is_markdown": bool(
+                                        "\n" in full_response
+                                        or "```" in full_response
+                                        or "**" in full_response
+                                    ),
+                                    "message_id": current_message_id,
+                                    "run_id": run_id,
+                                    "steer_segment": True,
+                                    "duration_ms": int(
+                                        (time.monotonic() - _run_started_monotonic) * 1000
+                                    ),
+                                },
+                            )
+                        # Persist once the middleware has actually injected the
+                        # instruction. A deterministic id makes replay safe.
+                        chat_service.upsert_message(
+                            chat_id=chat_id,
+                            role="user",
+                            content=steer_message,
+                            message_id=steer_message_id,
+                            extra_data={
+                                "timestamp": now_iso(),
+                                "steer": True,
+                                "run_id": run_id,
+                                "steer_id": steer_id,
+                            },
+                        )
+                    latest_user_message = steer_message
+                await _emit(
+                    {
+                        "type": "steer_applied",
+                        "chat_id": chat_id,
+                        "run_id": run_id,
+                        "steer_id": steer_id,
+                        "message": steer_message,
+                        "message_id": steer_message_id,
+                        "previous_assistant_message_id": (
+                            current_message_id if had_assistant_output else None
+                        ),
+                        "next_assistant_message_id": next_assistant_message_id,
+                        "had_assistant_output": had_assistant_output,
+                    }
+                )
+                current_message_id = next_assistant_message_id
+                # The workflow reads this dict again when it emits the final
+                # evolution/memory settlement marker, so keep that marker bound
+                # to the post-steer assistant segment too.
+                context["message_id"] = current_message_id
+                full_response = ""
+                tool_calls_log = []
+                _thinking_parts.clear()
+                metadata = {}
+                try:
+                    from core.services.log_service import set_current_message_id
+
+                    set_current_message_id(current_message_id)
+                except Exception:  # pragma: no cover - logging must never fail a run
+                    pass
+
             elif chunk_type == "tool_call":
                 _flush_thinking()
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
-                # 记录该工具卡片出现时正文的累计长度：历史重建按此偏移把
-                # 「文本 ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
-                for _tc in tool_calls_log:
-                    _tc.setdefault("content_offset", len(full_response))
                 await _emit(_tc_evt)
 
             elif chunk_type == "tool_call_start":
@@ -648,7 +740,7 @@ async def _run_workflow(
                     "warnings": chunk.get("warnings", []),
                     "is_markdown": chunk.get("is_markdown", False),
                     "chat_id": chat_id,
-                    "message_id": message_id,
+                    "message_id": current_message_id,
                     "citations": chunk.get("citations", []),
                     "workspace_files": _ws_files,
                     "ontology_governance": chunk.get("ontology_governance"),
@@ -667,7 +759,7 @@ async def _run_workflow(
                     "artifacts": metadata.get("artifacts", []),
                     "warnings": metadata.get("warnings", []),
                     "citations": metadata.get("citations", []),
-                    "message_id": message_id,
+                    "message_id": current_message_id,
                     "workspace_files": _ws_files,
                     "duration_ms": int((time.monotonic() - _run_started_monotonic) * 1000),
                 }
@@ -684,7 +776,7 @@ async def _run_workflow(
                         model=model_name,
                         tool_calls=tool_calls_log if tool_calls_log else None,
                         usage=usage_payload,
-                        message_id=message_id,
+                        message_id=current_message_id,
                         extra_data=_persist_extra,
                     )
                     # Build a ProjectScope from the workflow context and pass it
@@ -718,9 +810,9 @@ async def _run_workflow(
                 if not seen_batch_confirm:
                     _spawn_followup_task(
                         chat_id=chat_id,
-                        user_msg=raw_user_message,
+                        user_msg=latest_user_message,
                         response=full_response,
-                        msg_id=message_id,
+                        msg_id=current_message_id,
                     )
 
                 # End-of-turn compaction: when real token usage crosses the
@@ -766,7 +858,7 @@ async def _run_workflow(
                     role="assistant",
                     content="",
                     model=model_name,
-                    message_id=message_id,
+                    message_id=current_message_id,
                     error={"error": str(exc), "timestamp": _utcnow().isoformat()},
                 )
         except Exception:
@@ -1313,15 +1405,18 @@ async def start_autonomous_loop_run(
         from core.services.loop_service import LoopService as _LoopSvc
 
         with SessionLocal() as db:
-            _LoopSvc(db).save_start_params(loop_id, {
-                "model_name": model_name,
-                "model_provider_id": model_provider_id,
-                "evaluator_model": evaluator_model,
-                "worker_max_iters": worker_max_iters,
-                "hitl_enabled": hitl_enabled,
-                "enable_thinking": enable_thinking,
-                "chat_mode": chat_mode,
-            })
+            _LoopSvc(db).save_start_params(
+                loop_id,
+                {
+                    "model_name": model_name,
+                    "model_provider_id": model_provider_id,
+                    "evaluator_model": evaluator_model,
+                    "worker_max_iters": worker_max_iters,
+                    "hitl_enabled": hitl_enabled,
+                    "enable_thinking": enable_thinking,
+                    "chat_mode": chat_mode,
+                },
+            )
     except Exception:  # noqa: BLE001 - 参数存档失败不阻塞启动
         logger.warning("loop start_params persist failed", exc_info=True)
     run = _create_run_record(chat_id=chat_id, user_id=user_id, request_payload=request_payload)
