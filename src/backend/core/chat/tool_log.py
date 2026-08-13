@@ -26,6 +26,39 @@ def build_thinking_event(chunk: dict, chat_id: str) -> Dict[str, Any]:
     return evt
 
 
+def build_tool_call_start_event(chunk: dict, chat_id: str) -> Dict[str, Any]:
+    """Build the transient event that opens one tool card by stable id.
+
+    Start/delta events are transport state only. They intentionally do not
+    mutate ``tool_calls_log``; the completed ``tool_call`` remains the single
+    persisted source of truth.
+    """
+    evt: Dict[str, Any] = {
+        "type": "tool_call_start",
+        "tool_name": chunk.get("tool_name"),
+        "tool_display_name": chunk.get("tool_display_name"),
+        "tool_id": chunk.get("tool_id"),
+        "chat_id": chat_id,
+    }
+    if chunk.get("scope"):
+        evt["scope"] = chunk["scope"]
+    return evt
+
+
+def build_tool_call_delta_event(chunk: dict, chat_id: str) -> Dict[str, Any]:
+    """Build one incremental JSON-argument fragment for an open tool card."""
+    evt: Dict[str, Any] = {
+        "type": "tool_call_delta",
+        "tool_name": chunk.get("tool_name"),
+        "tool_id": chunk.get("tool_id"),
+        "arguments_delta": chunk.get("arguments_delta", ""),
+        "chat_id": chat_id,
+    }
+    if chunk.get("scope"):
+        evt["scope"] = chunk["scope"]
+    return evt
+
+
 def build_tool_call_event(chunk: dict, chat_id: str, tool_calls_log: list) -> Dict[str, Any]:
     """Build the ``tool_call`` SSE event and upsert it into ``tool_calls_log``.
 

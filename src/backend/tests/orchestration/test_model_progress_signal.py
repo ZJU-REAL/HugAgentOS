@@ -1,10 +1,9 @@
-"""model_progress liveness signal tests.
+"""Tool-call delta batching and model_progress liveness tests.
 
-During long tool-call-argument generation the model streams ToolCallDeltaEvent
-for minutes while StreamingAgent._map_event yields nothing downstream; the run
-inactivity watchdog then saw pure silence and killed a healthy run. stream()
-now emits a throttled ("model_progress", None) when upstream events keep
-arriving but none maps to an SSE event.
+Small argument fragments are buffered briefly to avoid an SSE storm. While a
+fragment has not crossed either flush threshold, ``model_progress`` still keeps
+the run watchdog alive; flushed fragments become visible ``tool_call_delta``
+events and the completed JSON is emitted exactly once as ``tool_call``.
 """
 
 import asyncio
@@ -32,6 +31,11 @@ class ToolCallDeltaEvent:  # noqa: D101
         self.delta = delta
 
 
+class ToolCallEndEvent:  # noqa: D101
+    def __init__(self, tid="t1"):
+        self.tool_call_id = tid
+
+
 def _fake_agent(events):
     async def reply_stream(inputs=None):
         for ev in events:
@@ -55,12 +59,12 @@ async def _collect(agent):
 
 
 @pytest.mark.asyncio
-async def test_swallowed_deltas_emit_model_progress(monkeypatch):
+async def test_small_buffered_deltas_emit_model_progress_until_flushed(monkeypatch):
     monkeypatch.setattr(streaming_mod, "_MODEL_PROGRESS_MIN_INTERVAL_S", 0.0)
     events = [ToolCallStartEvent()] + [ToolCallDeltaEvent(delta="chunk") for _ in range(5)]
     out = await _collect(_fake_agent(events))
     types = [t for t, _ in out]
-    assert "tool_pending" in types
+    assert "tool_call_start" in types
     assert types.count("model_progress") == 5
 
 
@@ -71,6 +75,25 @@ async def test_throttle_suppresses_model_progress():
     out = await _collect(_fake_agent(events))
     types = [t for t, _ in out]
     assert types.count("model_progress") == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_arguments_stream_as_bounded_deltas_then_one_final_call(monkeypatch):
+    monkeypatch.setattr(streaming_mod, "_TOOL_CALL_DELTA_FLUSH_CHARS", 8)
+    monkeypatch.setattr(streaming_mod, "_TOOL_CALL_DELTA_FLUSH_INTERVAL_S", 999.0)
+    events = [
+        ToolCallStartEvent(),
+        ToolCallDeltaEvent(delta='{"command"'),
+        ToolCallDeltaEvent(delta=':"echo ok"}'),
+        ToolCallEndEvent(),
+    ]
+    out = await _collect(_fake_agent(events))
+
+    assert out[0] == ("tool_call_start", {"name": "bash", "id": "t1"})
+    deltas = [payload["delta"] for kind, payload in out if kind == "tool_call_delta"]
+    assert "".join(deltas) == '{"command":"echo ok"}'
+    calls = [payload for kind, payload in out if kind == "tool_call"]
+    assert calls == [{"name": "bash", "args": {"command": "echo ok"}, "id": "t1"}]
 
 
 def _slow_model_agent(pre_events, silence_s):

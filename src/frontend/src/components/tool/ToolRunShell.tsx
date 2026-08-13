@@ -31,8 +31,8 @@ function formatDuration(totalSec: number): string {
 /**
  * Total-elapsed counter for a step batch.
  *
- * While running it ticks live from the batch start (the model does not stream
- * tool args, so a wall-clock counter is the only progress signal available).
+ * While running it ticks live from the batch start alongside streamed tool
+ * arguments and results when the selected model/provider exposes them.
  * Once done it shows a stable span derived from the first→last tool
  * timestamps, so a reloaded/historical message renders the same value every
  * time instead of drifting with a frozen wall clock.

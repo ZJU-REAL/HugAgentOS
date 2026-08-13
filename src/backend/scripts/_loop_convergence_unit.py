@@ -1,13 +1,13 @@
-"""Deterministic unit check: exit paths of the requirement ledger + read-only review sub-agent (no script verification, no numeric score).
+"""Deterministic unit check: exit paths of the requirement ledger + read-only review sub-agent.
 
-After the refactor, every card the loop flips relies on the driver-spawned read-only review sub-agent
-(review_requirement) personally verifying the real output — and done must also pass an independent second
-review. This test does not run a real LLM/sandbox/git: it stubs out the worker iteration, requirement
-decomposition, reviewer, sandbox read/write and git, feeds only fixed verdicts, and verifies three exits:
-all-passed completed / a single requirement exhausting its attempts blocked→budget_exhausted / done rejected
-by the second review not flipping the card. Completes in <1s.
-
-Run: docker exec hugagent-backend python -m scripts._loop_convergence_unit
+驱动器 v2（去预算化 + 规划器侦察/重规划 + 混合验收）后的收敛冒烟：不跑真实
+LLM/沙箱/git，桩掉 worker/规划/评审/沙箱，验证三条出口：
+  A. 全部需求通过 → completed（无机检需求翻牌仍需二次复核）；
+  B. 单需求连续无推进 → stalls 到停滞上限 → blocked →（重规划桩返回 None）→
+     budget_exhausted 部分完成；
+  C. done 被二次复核驳回 → 不翻牌，直至 blocked。
+完成 <1s。Run: docker exec hugagent-backend python -m scripts._loop_convergence_unit
+（正式回归见 tests/orchestration/test_autonomous_loop_driver.py）
 """
 import asyncio
 
@@ -16,12 +16,19 @@ from orchestration.autonomous_loop import LoopBudget, run_autonomous_loop
 from orchestration.loop_evaluator import CONTINUE, DONE, GoalSpec
 
 
+class _StubPolicy:
+    version = "unit"
+    strategy_change_after = 2
+    max_attempts_per_requirement = 6
+    budget_multiplier = 1.0
+
+
 async def _fake_worker(**kwargs):
     return {"text": "stub work", "tokens": 10, "tool_calls": 1}
 
 
 def _make_fake_review(verdicts):
-    """Return preset verdicts in call order; done items carry non-empty evidence (otherwise the driver downgrades them to continue)."""
+    """按调用顺序回放判定；done 带非空证据（否则 driver 会降级为 continue）。"""
     calls = {"i": 0}
 
     async def _fake_review(**kwargs):
@@ -30,12 +37,13 @@ def _make_fake_review(verdicts):
         v = verdicts[min(i, len(verdicts) - 1)]
         return {"verdict": v, "criteria_hit": ["stub"],
                 "evidence": "reviewer 读到 /proj/index.html 含目标内容" if v == DONE else "",
+                "progress": False,
                 "feedback": "stub 反馈"}
 
     return _fake_review, calls
 
 
-def _fake_decompose_n(n):
+def _fake_plan_n(n):
     async def _fake(**kwargs):
         return [{"id": f"R{i}", "description": f"stub 需求{i}"} for i in range(1, n + 1)]
     return _fake
@@ -57,62 +65,80 @@ async def _noop_read_file(path, **kwargs):
     return ""  # → _read_ledger returns None → fresh init every time
 
 
+async def _noop_scout(**kwargs):
+    return ""
+
+
+async def _noop_replan(**kwargs):
+    return None
+
+
+async def _worktree_clean(*a, **kwargs):
+    return False
+
+
 def _patch_common():
     al._run_worker_iteration = _fake_worker
     al._sbx_exec = _sbx_noop
     al._write_file = _noop_write_file
     al._read_file = _noop_read_file
+    al._git_worktree_changed = _worktree_clean
     al.extract_acceptance_criteria = _noop_criteria
+    al.scout_workspace = _noop_scout
+    al.replan_remaining = _noop_replan
+    al._resolve_loop_policy = lambda **kw: _StubPolicy()
+
+    import core.services.ontology_service as osvc
+
+    osvc.build_user_ontology_runtime = lambda **kw: (
+        False, {"enabled": False, "packs": [], "review_level": "none"})
+
+
+_MAX_ATTEMPTS = _StubPolicy.max_attempts_per_requirement
 
 
 async def main() -> None:
     _patch_common()
 
-    # ── Scenario A: 3 requirements, review returns done on the 2nd try for each (continue first), and
-    #   all done pass the second review → all-passed completed.
-    #   Per requirement: worker→review(continue) in round 1; worker→review(done)+confirm(done) flips in round 2.
-    al.decompose_requirements = _fake_decompose_n(3)
-    # Sequence (driver calls review in order per requirement; after done it calls confirm):
-    #   R1: continue, done, confirm-done → passed (3 calls)
-    #   R2: same; R3: same
+    # ── Scenario A: 3 需求，每条第 2 轮 done 且二次复核通过 → completed。
+    al.plan_requirements = _fake_plan_n(3)
     seq = []
     for _ in range(3):
-        seq += [CONTINUE, DONE, DONE]  # DONE immediately followed by confirm's DONE
+        seq += [CONTINUE, DONE, DONE]  # done 后紧跟二次复核的 done
     al.review_requirement, _ = _make_fake_review(seq)
     resA = await run_autonomous_loop(
         loop_id="convA", user_id="unit", goal_spec=GoalSpec(objective="stub", acceptance_criteria=["c"]),
-        budget=LoopBudget(max_iters=20, max_wall_clock_s=60, max_tokens=10_000_000),
+        budget=LoopBudget(),  # 默认不限预算
         session_id="loop-convA",
     )
     print(f"[A] status={resA.status} iters={resA.iterations} final={resA.final_score} reason={resA.reason}")
     assert resA.status == "completed", resA.status
     assert resA.final_score == 1.0, resA.final_score
 
-    # ── Scenario B: 1 requirement that always returns continue → attempts exhausted (_MAX_ATTEMPTS_PER_REQ) → blocked → budget_exhausted.
-    al.decompose_requirements = _fake_decompose_n(1)
+    # ── Scenario B: 1 需求永远 continue（无推进）→ stalls 到上限 → blocked → budget_exhausted。
+    al.plan_requirements = _fake_plan_n(1)
     al.review_requirement, _ = _make_fake_review([CONTINUE])
     resB = await run_autonomous_loop(
         loop_id="convB", user_id="unit", goal_spec=GoalSpec(objective="stub2", acceptance_criteria=["c"]),
-        budget=LoopBudget(max_iters=50, max_wall_clock_s=60, max_tokens=10_000_000),
+        budget=LoopBudget(),
         session_id="loop-convB",
     )
     print(f"[B] status={resB.status} iters={resB.iterations} final={resB.final_score}")
     assert resB.status == "budget_exhausted", resB.status
-    assert resB.iterations == al._MAX_ATTEMPTS_PER_REQ, resB.iterations
+    assert resB.iterations == _MAX_ATTEMPTS, resB.iterations
     assert resB.final_score == 0.0, resB.final_score
 
-    # ── Scenario C: review reports done but the **second review rejects** (confirm=continue) → card not flipped, until attempts are exhausted and blocked.
-    al.decompose_requirements = _fake_decompose_n(1)
-    #   Each round: review→DONE, confirm→CONTINUE (rejected) → not passed. The sequence alternates.
+    # ── Scenario C: done 被二次复核驳回 → 不翻牌，直至 blocked。
+    al.plan_requirements = _fake_plan_n(1)
     al.review_requirement, _ = _make_fake_review([DONE, CONTINUE])
     resC = await run_autonomous_loop(
         loop_id="convC", user_id="unit", goal_spec=GoalSpec(objective="stub3", acceptance_criteria=["c"]),
-        budget=LoopBudget(max_iters=50, max_wall_clock_s=60, max_tokens=10_000_000),
+        budget=LoopBudget(),
         session_id="loop-convC",
     )
     print(f"[C] status={resC.status} iters={resC.iterations}")
     assert resC.status == "budget_exhausted", "done 被二次复核驳回不应翻牌"
-    assert resC.iterations == al._MAX_ATTEMPTS_PER_REQ, resC.iterations
+    assert resC.iterations == _MAX_ATTEMPTS, resC.iterations
 
     print("CONVERGENCE_UNIT_OK")
 

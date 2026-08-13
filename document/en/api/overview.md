@@ -109,9 +109,11 @@ The request body is a `ChatRequest` (`src/backend/api/schemas.py`): `chat_id` an
 | `run_started` | First frame of the stream | `run_id` (for resume/cancel), `message_id`, `chat_id` |
 | `thinking` | Reasoning phase | `message` (phase hint) or `delta` (incremental thinking text) |
 | `content` | Answer text delta | `event: "ai_message"`, `delta`, `chat_id` |
-| `tool_call` | Agent invokes a tool | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, `subagent_name?` |
+| `tool_call_start` | The model starts constructing a tool call | `tool_name`, `tool_display_name`, `tool_id` |
+| `tool_call_delta` | Incremental tool-argument JSON (batched by the backend) | `tool_name`, `tool_id`, `arguments_delta` |
+| `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, `subagent_name?` |
 | `tool_result` | Tool returns | `tool_name`, `result` (JSON), `tool_id`, `citations` (citation items) |
-| `tool_pending` | Model is buffering tool args / between call start and args | `reason` (e.g. `tool_call_start` / `llm_buffering`) |
+| `tool_pending` | Waiting fallback when the provider exposes no parseable deltas | `reason` (e.g. `llm_buffering`) |
 | `file_confirm` | A tool is suspended awaiting user confirmation of a "My Space" write | `confirm_id`, `op`, `logical_path`, `message`, `expired`; the stream stays open — the user confirms out-of-band via `POST /v1/chats/{chat_id}/file-confirm` and the tool resumes |
 | `batch_confirm` | A batch-execution plan awaits user confirmation | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys`; confirm via `POST /v1/batch/{plan_id}/confirm` |
 | `meta` | Final wrap-up frame of an answer | `route`, `sources`, `artifacts`, `citations`, `warnings`, `is_markdown`, `message_id`, `workspace_files` |
@@ -123,6 +125,12 @@ The request body is a `ChatRequest` (`src/backend/api/schemas.py`): `chat_id` an
 data: {"type": "run_started", "run_id": "run_9f8e7d", "message_id": "msg_001", "chat_id": "chat_abc123"}
 
 data: {"type": "thinking", "message": "Analyzing your question...", "chat_id": "chat_abc123"}
+
+data: {"type": "tool_call_start", "tool_name": "internet_search", "tool_display_name": "Web Search", "tool_id": "call_01", "chat_id": "chat_abc123"}
+
+data: {"type": "tool_call_delta", "tool_name": "internet_search", "tool_id": "call_01", "arguments_delta": "{\"query\":\"Beijing ", "chat_id": "chat_abc123"}
+
+data: {"type": "tool_call_delta", "tool_name": "internet_search", "tool_id": "call_01", "arguments_delta": "weather today\"}", "chat_id": "chat_abc123"}
 
 data: {"type": "tool_call", "tool_name": "internet_search", "tool_display_name": "Web Search", "tool_args": {"query": "Beijing weather today"}, "tool_id": "call_01", "chat_id": "chat_abc123"}
 

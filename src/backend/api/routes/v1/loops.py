@@ -39,9 +39,12 @@ class GoalSpecIn(BaseModel):
 
 
 class BudgetIn(BaseModel):
-    max_iters: int = 50
-    max_wall_clock_s: float = 6 * 3600.0
-    max_tokens: int = 10_000_000
+    # 预算默认不限（<=0 = 不设上限）：循环的停止条件是「账本全部通过 / 停滞无解 /
+    # 用户取消」，能完成任务优先于省预算；防失控由 LOOP_HARD_MAX_ITERS 硬后备兜底。
+    # 显式传正数仍然生效。
+    max_iters: int = 0
+    max_wall_clock_s: float = 0.0
+    max_tokens: int = 0
 
 
 class CreateLoopReq(BaseModel):
@@ -60,6 +63,10 @@ class CreateLoopReq(BaseModel):
 
 class StartLoopReq(BaseModel):
     model_name: Optional[str] = None
+    # 用户在会话里选定的模型供应商（与普通聊天同源）——worker 跟随它，不再永远默认模型。
+    model_provider_id: Optional[str] = None
+    # 评审/规划模型：不传则走「模型管理 → 角色分配 → 自主循环评审与规划(loop_reviewer)」，
+    # 未配置角色再回落 main_agent。
     evaluator_model: Optional[str] = None
     worker_max_iters: int = 15
     hitl_enabled: bool = False
@@ -168,11 +175,31 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
         loop.chat_id = chat_id
         db.commit()
 
+    # 续跑不丢参：请求缺省的字段回读该 loop 持久化的启动参数（上次 start 存档），
+    # 崩溃/重启后的「继续」不再悄悄降级到默认模型/默认评审模型/默认轮数。
+    saved = LoopService(db).get_start_params(loop_id) if is_resume else {}
+    model_name = req.model_name or saved.get("model_name")
+    evaluator_model = req.evaluator_model or saved.get("evaluator_model")
+    raw_provider_id = req.model_provider_id or saved.get("model_provider_id")
+    worker_max_iters = req.worker_max_iters if req.worker_max_iters != 15 else int(
+        saved.get("worker_max_iters") or req.worker_max_iters
+    )
+    hitl_enabled = req.hitl_enabled or bool(saved.get("hitl_enabled"))
+
+    # 与普通聊天同一套模型选择权限闸：未开放切换/不在可选列表的 provider 一律忽略。
+    from core.services.user_model_selection import resolve_user_model_provider_id
+
+    model_provider_id = resolve_user_model_provider_id(
+        db, raw_provider_id, user_id=user.user_id
+    )
+
     # chat_mode is the single source of truth for the thinking level; the
     # enable_thinking bool is only a legacy-client fallback.
     chat_mode = (req.chat_mode or "").strip().lower() or None
     if chat_mode not in (None, "turbo", "fast", "medium", "high", "max"):
         chat_mode = None
+    if chat_mode is None and is_resume:
+        chat_mode = (saved.get("chat_mode") or "").strip().lower() or None
     enable_thinking = (chat_mode not in ("fast", "turbo")) if chat_mode else req.enable_thinking
     # The project the loop is bound to (stored in metadata at creation) — the
     # worker/reviewer scope to the project folder based on it.
@@ -183,10 +210,11 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
         user_id=user.user_id,
         goal_spec=loop.goal_spec or {},
         budget=loop.budget or {},
-        model_name=req.model_name,
-        evaluator_model=req.evaluator_model,
-        worker_max_iters=req.worker_max_iters,
-        hitl_enabled=req.hitl_enabled,
+        model_name=model_name,
+        model_provider_id=model_provider_id,
+        evaluator_model=evaluator_model,
+        worker_max_iters=worker_max_iters,
+        hitl_enabled=hitl_enabled,
         enable_thinking=enable_thinking,
         chat_mode=chat_mode,
         is_resume=is_resume,
@@ -227,6 +255,30 @@ async def resume_loop(
     return await _launch_loop(loop_id, req, db, user, is_resume=True)
 
 
+class SteerLoopReq(BaseModel):
+    message: str
+
+
+@router.post("/{loop_id}/steer", summary="运行中追加指令（下一轮 worker 开工前生效）")
+async def steer_loop(
+    loop_id: str,
+    req: SteerLoopReq,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+):
+    """把一条用户指令排进 loop 的 steering 队列；driver 每轮开工前取走并以最高优先级
+    注入 worker prompt——不用取消重来就能中途转向（对齐 Codex /goal 的 steer 能力）。"""
+    svc = LoopService(db)
+    loop = svc.get_loop(loop_id, user_id=user.user_id)
+    if not loop:
+        raise HTTPException(status_code=404, detail="loop not found")
+    if loop.status not in ("running", "created", "interrupted", "awaiting_human"):
+        raise HTTPException(status_code=400, detail=f"loop 已终态（{loop.status}），无法追加指令")
+    if not svc.push_steering(loop_id, req.message):
+        raise HTTPException(status_code=400, detail="指令为空")
+    return success_response({"queued": True})
+
+
 @router.post("/{loop_id}/cancel", summary="取消循环")
 async def cancel_loop(
     loop_id: str,
@@ -235,10 +287,19 @@ async def cancel_loop(
 ):
     # Normalize chat_id consistently with _launch_loop: prefer loop.chat_id,
     # otherwise loopchat_{id}.
-    loop = LoopService(db).get_loop(loop_id, user_id=user.user_id)
-    chat_id = (loop.chat_id if loop else None) or f"loopchat_{loop_id}"
+    svc = LoopService(db)
+    loop = svc.get_loop(loop_id, user_id=user.user_id)
+    if not loop:
+        raise HTTPException(status_code=404, detail="loop not found")
+    chat_id = loop.chat_id or f"loopchat_{loop_id}"
     run = chat_run_executor.get_active_run_for_chat(chat_id)
     if not run:
-        raise HTTPException(status_code=404, detail="no active run for loop")
+        # 无活跃 run（崩溃遗留/已中断）：把 loop 状态归位而不是 404——历史缺陷是
+        # 僵尸 running 行永远取消不掉。
+        if loop.status in ("running", "interrupted", "created", "awaiting_human"):
+            loop.status = "cancelled"
+            db.commit()
+            return success_response({"cancelled": True, "note": "无活跃任务，已直接归位为 cancelled"})
+        return success_response({"cancelled": False, "status": loop.status})
     ok = await chat_run_executor.cancel_run(run.run_id, user_id=user.user_id)
     return success_response({"cancelled": ok})

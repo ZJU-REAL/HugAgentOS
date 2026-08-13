@@ -80,7 +80,60 @@ class LoopService:
             .all()
         )
 
+    # ── 启动参数持久化（续跑不丢参：模型/评审模型/轮数/思考档位跟 loop 走，而非跟请求走） ──
+    def save_start_params(self, loop_id: str, params: Dict[str, Any]) -> None:
+        loop = self.get_loop(loop_id)
+        if not loop:
+            return
+        meta = dict(loop.extra_data or {})
+        meta["start_params"] = {k: v for k, v in params.items() if v not in (None, "")}
+        loop.extra_data = meta
+        loop.updated_at = _now()
+        self.db.commit()
+
+    def get_start_params(self, loop_id: str) -> Dict[str, Any]:
+        loop = self.get_loop(loop_id)
+        params = ((loop.extra_data or {}).get("start_params") if loop else None) or {}
+        return dict(params) if isinstance(params, dict) else {}
+
+    # ── steering 队列（用户运行中追加指令；driver 每轮开工前取走并清空） ──────────
+    def push_steering(self, loop_id: str, message: str) -> bool:
+        loop = self.get_loop(loop_id)
+        if not loop or not message.strip():
+            return False
+        meta = dict(loop.extra_data or {})
+        queue = list(meta.get("steering") or [])
+        queue.append(message.strip()[:2000])
+        meta["steering"] = queue[-10:]  # 只保留最近 10 条，防队列无限膨胀
+        loop.extra_data = meta
+        loop.updated_at = _now()
+        self.db.commit()
+        return True
+
+    def consume_steering(self, loop_id: str) -> List[str]:
+        loop = self.get_loop(loop_id)
+        if not loop:
+            return []
+        meta = dict(loop.extra_data or {})
+        queue = list(meta.get("steering") or [])
+        if queue:
+            meta["steering"] = []
+            loop.extra_data = meta
+            self.db.commit()
+        return queue
+
     # ── State transitions / audit ───────────────────────────────────────────────
+    def mark_interrupted(self, loop_id: str, reason: str = "") -> None:
+        """进程重启后对账：running 但已无活跃 run 的 loop 归位为 interrupted（可续跑）。"""
+        loop = self.get_loop(loop_id)
+        if not loop or loop.status != "running":
+            return
+        loop.status = "interrupted"
+        if reason:
+            loop.result_summary = reason[:2000]
+        loop.updated_at = _now()
+        self.db.commit()
+
     def mark_running(self, loop_id: str, *, workspace_session: Optional[str] = None) -> None:
         loop = self.get_loop(loop_id)
         if not loop:

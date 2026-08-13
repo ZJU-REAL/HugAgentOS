@@ -241,6 +241,25 @@
 }
 @keyframes loop-review-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
 .loop-planbar-hint { padding: 4px 12px 10px; color: var(--text-muted, #8a94a6); }
+.loop-status-interrupted { background: #fef3c7; color: #b45309; }
+.loop-planbar-steer {
+  display: flex; align-items: center; gap: 6px; padding: 4px 12px 10px;
+}
+.loop-planbar-steer-input {
+  flex: 1; min-width: 0; font-size: 12px; line-height: 1.4;
+  padding: 5px 10px; border-radius: 16px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-color, #fff); color: var(--text-color, #1f2328);
+  outline: none;
+}
+.loop-planbar-steer-input:focus { border-color: var(--primary-color, #4f46e5); }
+.loop-planbar-steer-send {
+  flex-shrink: 0; border: none; cursor: pointer; white-space: nowrap;
+  font-size: 12px; font-weight: 600; line-height: 1;
+  padding: 6px 12px; border-radius: 16px;
+  background: var(--primary-color, #4f46e5); color: #fff;
+}
+.loop-planbar-steer-send:disabled { opacity: .45; cursor: default; }
 
 @media (max-width: 768px) {
   .loop-panel {

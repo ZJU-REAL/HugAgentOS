@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { message } from 'antd';
 import { t } from '../../i18n';
+import { steerLoop } from '../../api';
 import { useChatStore } from '../../stores';
 import { useLoopStore } from '../../stores/loopStore';
 import './loop.css';
@@ -7,9 +9,10 @@ import './loop.css';
 const STATUS_LABEL: Record<string, string> = {
   running: '进行中',
   completed: '已达成',
-  budget_exhausted: '预算用尽',
+  budget_exhausted: '部分完成',
   cancelled: '已取消',
   awaiting_human: '待人工',
+  interrupted: '已中断',
   failed: '失败',
 };
 
@@ -27,6 +30,23 @@ export default function LoopPlanBar({ onContinue }: LoopPlanBarProps) {
   const livePlan = useLoopStore((s) => s.livePlan);
   const clearLivePlan = useLoopStore((s) => s.clearLivePlan);
   const [collapsed, setCollapsed] = useState(false);
+  const [steerText, setSteerText] = useState('');
+  const [steerSending, setSteerSending] = useState(false);
+
+  const sendSteer = async (loopId: string) => {
+    const msg = steerText.trim();
+    if (!msg || steerSending) return;
+    setSteerSending(true);
+    try {
+      await steerLoop(loopId, msg);
+      setSteerText('');
+      message.success(t('指令已排队，下一轮开工时生效'));
+    } catch (e) {
+      message.error(t('追加指令失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setSteerSending(false);
+    }
+  };
 
   if (!livePlan || livePlan.chatId !== currentChatId) return null;
 
@@ -88,6 +108,23 @@ export default function LoopPlanBar({ onContinue }: LoopPlanBarProps) {
       )}
       {!collapsed && total === 0 && running && (
         <div className="loop-planbar-hint">{t('正在拆解目标为需求清单…')}</div>
+      )}
+      {!collapsed && running && !!loopId && (
+        <div className="loop-planbar-steer">
+          <input
+            className="loop-planbar-steer-input"
+            value={steerText}
+            placeholder={t('运行中追加指令（下一轮开工前生效，无需取消重来）')}
+            onChange={(e) => setSteerText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void sendSteer(loopId); }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            className="loop-planbar-steer-send"
+            disabled={!steerText.trim() || steerSending}
+            onClick={(e) => { e.stopPropagation(); void sendSteer(loopId); }}
+          >{steerSending ? '…' : t('追加')}</button>
+        </div>
       )}
     </div>
   );

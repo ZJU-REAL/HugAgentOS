@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shlex
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -58,6 +59,59 @@ _CORP_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 # once more; a negligible cost.
 _PENDING: Dict[str, Dict[str, Any]] = {}
 _PENDING_TTL_S = 10 * 60
+
+# ``openyida login --check-only`` / ``agent-capabilities`` only validate that
+# the local cookie cache is structurally complete.  An expired server-side
+# session therefore still looks connected.  The status-panel probe uses the
+# same read-only app-list endpoint as ``openyida app-list``, but calls the low
+# level HTTP helper directly so an invalid cookie is reported instead of
+# triggering openyida's automatic browser-login fallback.  The script prints
+# only a three-state verdict and never prints credentials or response data.
+_PROBE_SCRIPT = """
+const utils = require('/opt/node/v22.2.0/lib/node_modules/openyida/lib/core/utils');
+(async () => {
+  try {
+    const cookieData = utils.loadCookieData();
+    const cookies = cookieData && Array.isArray(cookieData.cookies) ? cookieData.cookies : [];
+    if (!cookieData || cookies.length === 0) {
+      process.stdout.write(JSON.stringify({verdict: 'invalid'}));
+      return;
+    }
+    const info = utils.extractInfoFromCookies(cookies);
+    const csrfToken = cookieData.csrf_token || cookieData.csrfToken ||
+      cookieData._csrf_token || info.csrfToken || '';
+    const userId = cookieData.user_id || cookieData.userId ||
+      cookieData.staffId || info.userId || '';
+    if (!csrfToken || !userId) {
+      process.stdout.write(JSON.stringify({verdict: 'invalid'}));
+      return;
+    }
+    const result = await utils.httpGet(
+      utils.resolveBaseUrl(cookieData),
+      '/query/app/getAppList.json',
+      {
+        _api: 'nattyFetch',
+        _mock: 'false',
+        pageIndex: 1,
+        pageSize: 1,
+        creator: userId,
+        _csrf_token: csrfToken,
+        _stamp: Date.now(),
+      },
+      cookies,
+      {silentStatus: true},
+    );
+    const verdict = result && (result.__needLogin || result.__csrfExpired)
+      ? 'invalid'
+      : (result && result.success === true ? 'valid' : 'unknown');
+    process.stdout.write(JSON.stringify({verdict}));
+  } catch (_) {
+    process.stdout.write(JSON.stringify({verdict: 'unknown'}));
+  }
+})();
+""".strip()
+_PROBE_COMMAND = f"node -e {shlex.quote(_PROBE_SCRIPT)}"
+_EXPIRED_ERROR = "宜搭登录态已失效，请重新扫码连接"
 
 
 def extract_result_json(stdout: str) -> Optional[Dict[str, Any]]:
@@ -92,6 +146,16 @@ def _host_workspace_dir(user_id: str) -> Path:
 
 def _cookie_files(ws: Path) -> list[Path]:
     return sorted((ws / ".cache").glob("cookies*.json")) if (ws / ".cache").is_dir() else []
+
+
+def _latest_cookie_mtime_ns(ws: Path) -> int:
+    latest = 0
+    for cookie_file in _cookie_files(ws):
+        try:
+            latest = max(latest, cookie_file.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return latest
 
 
 def _connection_meta_path(user_id: str) -> Path:
@@ -220,16 +284,83 @@ class YidaService:
                 _PENDING.pop(uid, None)
             else:
                 return self._pending_response(pending)
-        if _cookie_files(_host_workspace_dir(uid)):
+        workspace = _host_workspace_dir(uid)
+        cookie_mtime_ns = _latest_cookie_mtime_ns(workspace)
+        if cookie_mtime_ns:
             meta = _load_meta(uid)
+            invalidated_cookie_mtime_ns = int(meta.get("invalidated_cookie_mtime_ns") or 0)
+            if (
+                meta.get("status") == "disconnected"
+                and invalidated_cookie_mtime_ns >= cookie_mtime_ns
+            ):
+                return {
+                    "status": "disconnected",
+                    "error": meta.get("last_error") or _EXPIRED_ERROR,
+                    "last_verified_at": meta.get("last_verified_at"),
+                }
             return {
                 "status": "connected",
                 "corp_id": meta.get("corp_id"),
                 "yida_user_id": meta.get("user_id"),
                 "base_url": meta.get("base_url"),
                 "connected_at": meta.get("connected_at"),
+                "last_verified_at": meta.get("last_verified_at"),
             }
         return {"status": "disconnected"}
+
+    async def probe_status(self, user_id: str) -> Dict[str, Any]:
+        """Reconcile the local cookie-file state with a real, read-only Yida request.
+
+        ``valid`` refreshes verification metadata; ``invalid`` records which
+        exact cookie version was rejected so ordinary status reads also become
+        disconnected.  A later QR login overwrites the cookie and its newer
+        mtime automatically clears that invalidation.  ``unknown`` (network,
+        timeout, CLI/image mismatch) keeps the local state unchanged to avoid
+        logging users out because of a transient failure.
+        """
+        uid = safe_user_id(user_id)
+        if not uid:
+            return {"status": "disconnected"}
+        local_status = self.get_status(uid)
+        if local_status.get("status") in {"pending", "corp_selection"}:
+            return local_status
+
+        workspace = _host_workspace_dir(uid)
+        cookie_mtime_ns = _latest_cookie_mtime_ns(workspace)
+        if not cookie_mtime_ns:
+            return {"status": "disconnected"}
+
+        stdout, rc = await self._run_in_sandbox(uid, _PROBE_COMMAND, timeout=35)
+        data = extract_result_json(stdout)
+        verdict = data.get("verdict") if data and rc == 0 else "unknown"
+        now = int(time.time())
+        meta = _load_meta(uid)
+        if verdict == "valid":
+            _save_meta(
+                uid,
+                {
+                    **meta,
+                    "status": "connected",
+                    "last_verified_at": now,
+                    "last_error": None,
+                    "invalidated_cookie_mtime_ns": 0,
+                },
+            )
+        elif verdict == "invalid":
+            _save_meta(
+                uid,
+                {
+                    **meta,
+                    "status": "disconnected",
+                    "last_verified_at": now,
+                    "last_error": _EXPIRED_ERROR,
+                    "invalidated_cookie_mtime_ns": cookie_mtime_ns,
+                },
+            )
+            logger.info("[yida] 真实探活确认登录态失效 user=%s", uid)
+        else:
+            logger.info("[yida] 真实探活无法判定，保留本地状态 user=%s rc=%s", uid, rc)
+        return self.get_status(uid)
 
     # ── Three-stage login ───────────────────────────────────────────────
 

@@ -83,7 +83,7 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 
 | Hook | 职责 |
 |---|---|
-| `useStreaming` | SSE 主消费器：暴露 `send` / `abort` / `regenerate` / `editAndResend` / `resumeRunIfAny`，解析 `content/thinking/tool_call/tool_result/tool_progress/meta/error` 事件，维护文本分段与工具时间线，支持 run 续播 |
+| `useStreaming` | SSE 主消费器：暴露 `send` / `abort` / `regenerate` / `editAndResend` / `resumeRunIfAny`，解析 `content/thinking/tool_call_start/tool_call_delta/tool_call/tool_result/tool_progress/meta/error` 事件，维护文本分段与工具时间线，支持 run 续播 |
 | `useChatActions` | 会话管理动作封装：新建 / 删除 / 重命名 / 置顶收藏 / 导出 / 分享 / 摘要与分类 |
 | `useChatInit` | 应用启动时的会话初始化与活动 run 恢复 |
 | `usePlanMode` | 计划模式 SSE 消费器（首次执行与续播共用） |
@@ -121,7 +121,7 @@ useStreaming.send
    │ 2. fetch POST /v1/chats/stream（附件只携带 file_id/name/mime_type）
    │ 逐行解析 data: {json}
    │ ├─ content/thinking → segments 分段追加（utils/segments.ts）
-   │ ├─ tool_call/tool_result → 工具时间线（components/tool/）
+   │ ├─ tool_call_start/tool_call_delta/tool_call/tool_result → 按 tool_id 原位更新工具时间线（components/tool/）
    │ ├─ file_confirm/batch_confirm → 确认条 / 弹窗（真挂起）
    │ └─ meta → 引用源、产物列表写入消息
    ▼

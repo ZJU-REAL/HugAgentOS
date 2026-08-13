@@ -7,6 +7,7 @@ import {
   deferThinkingTextFragmentBeforeTool,
   restoreDeferredThinkingTextFragment,
 } from '../src/utils/streamSegments';
+import { extractCodeFromStreamingArgs } from '../src/utils/codeExecParser';
 
 function tool(toolIndex: number): MessageSegment {
   return { type: 'tool', toolIndex };
@@ -87,6 +88,24 @@ function tool(toolIndex: number): MessageSegment {
 
   assert.equal(deferred, undefined);
   assert.deepEqual(segments, [tool(0), { type: 'text', content: '数' }, tool(1)]);
+}
+
+{
+  // A Write call is not valid JSON until its final delta, but escaped newlines
+  // must already render as real multi-line code in the folded tool preview.
+  const partial = '{"file_path":"src/demo.ts","content":"const a = 1;\\nconst b = 2;\\n';
+  assert.deepEqual(extractCodeFromStreamingArgs('Write', partial), {
+    code: 'const a = 1;\nconst b = 2;\n',
+    language: 'typescript',
+  });
+}
+
+{
+  const partial = '{"command":"printf \\"first\\\\nsecond\\"';
+  assert.deepEqual(extractCodeFromStreamingArgs('bash', partial), {
+    code: 'printf "first\\nsecond"',
+    language: 'bash',
+  });
 }
 
 console.log('chat stream segment tests passed');

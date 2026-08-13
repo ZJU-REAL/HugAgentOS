@@ -1,17 +1,18 @@
 """Streaming agent wrapper for AgentScope 2.0.
 
 Consumes ``agent.reply_stream(...)`` (replaces the 1.x msg_queue) and maps the 25
-fine-grained EventType into our 8 SSE events:
+fine-grained EventType into the internal events consumed by ``workflow.py``:
 - ("text_delta", str)      - incremental answer text
 - ("thinking_delta", str)  - incremental reasoning
-- ("tool_pending", dict)   - tool call started (args still streaming)
+- ("tool_call_start", dict)- tool call started (args still streaming)
+- ("tool_call_delta", dict)- incremental tool-call argument JSON
 - ("tool_call", dict)      - tool invocation complete
 - ("tool_result", dict)    - tool invocation result
 - ("file_confirm", dict)   - myspace write confirmation (in-house ContextVar gate, distinct from native HITL)
 - ("heartbeat", None)      - silence heartbeat (queue empty ≥3s: the model produced nothing at all)
 - ("model_progress", None) - throttled liveness signal, emitted in two situations. (a) upstream events
-                             keep arriving but none maps to an SSE event (tool-call args / suppressed
-                             thinking streaming); (b) a model call is in flight (ModelCallStart seen,
+                             keep arriving but none maps to an SSE event (throttled tool-call args /
+                             suppressed thinking streaming); (b) a model call is in flight (ModelCallStart seen,
                              no end yet) and the queue is silent — a hung/slow LLM endpoint produces
                              zero events per attempt, and without this signal the run inactivity
                              watchdog killed healthy-but-waiting runs as "卡死" instead of letting the
@@ -69,6 +70,14 @@ _MODEL_PROGRESS_MIN_INTERVAL_S = 5.0
 # heartbeat (or model_progress while a model call is in flight). Module-level for
 # testability.
 _QUEUE_POLL_INTERVAL_S = 3.0
+
+# Tool-call argument deltas can arrive one or two characters at a time. Sending
+# every upstream fragment recreates the historical SSE storm (hundreds of
+# events for a single heredoc), while swallowing all fragments hides a model
+# capability the UI can render. Flush when either threshold is crossed to
+# preserve visible streaming without forwarding every tiny fragment.
+_TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 0.05
+_TOOL_CALL_DELTA_FLUSH_CHARS = 256
 
 
 def _looks_like_tool_error(content: str) -> bool:
@@ -128,6 +137,9 @@ class StreamingAgent:
         # tool_id → name (recorded at ToolCallStart), tool_id → accumulated args string (ToolCallDelta)
         self._tool_name_buf: Dict[str, str] = {}
         self._tool_args_buf: Dict[str, str] = {}
+        # tool_id → not-yet-emitted argument delta / last flush timestamp
+        self._tool_delta_emit_buf: Dict[str, str] = {}
+        self._tool_delta_last_emit: Dict[str, float] = {}
         # tool_id → accumulated result text (ToolResultTextDelta)
         self._tool_result_buf: Dict[str, str] = {}
         # Accumulated answer text (for dedup in the <think>-suppression scenario)
@@ -360,6 +372,8 @@ class StreamingAgent:
                 except Exception:
                     logger.debug("pending tool_call flush failed", exc_info=True)
             self._pending_tool_calls.clear()
+            self._tool_delta_emit_buf.clear()
+            self._tool_delta_last_emit.clear()
             try:
                 _log_ctx.__exit__(None, None, None)
             except Exception:
@@ -421,24 +435,54 @@ class StreamingAgent:
             name = getattr(ev, "tool_call_name", "") or "unknown"
             self._tool_name_buf[tid] = name
             self._tool_args_buf[tid] = ""
+            self._tool_delta_emit_buf[tid] = ""
+            self._tool_delta_last_emit[tid] = time.monotonic()
             self._pending_tool_calls[tid] = {
                 "tool_name": name,
                 "tool_args": None,
                 "started_monotonic": time.monotonic(),
                 "started_at": datetime.now(timezone.utc),
             }
-            yield ("tool_pending", {"reason": "tool_call_start", "tool_name": name})
+            yield ("tool_call_start", {"name": name, "id": tid})
             return
 
         if nm == "ToolCallDeltaEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
-            self._tool_args_buf[tid] = self._tool_args_buf.get(tid, "") + (getattr(ev, "delta", "") or "")
+            delta = getattr(ev, "delta", "") or ""
+            if not delta:
+                return
+            self._tool_args_buf[tid] = self._tool_args_buf.get(tid, "") + delta
+            pending_delta = self._tool_delta_emit_buf.get(tid, "") + delta
+            self._tool_delta_emit_buf[tid] = pending_delta
+            now = time.monotonic()
+            last_emit = self._tool_delta_last_emit.get(tid, now)
+            if (
+                len(pending_delta) >= _TOOL_CALL_DELTA_FLUSH_CHARS
+                or now - last_emit >= _TOOL_CALL_DELTA_FLUSH_INTERVAL_S
+            ):
+                self._tool_delta_emit_buf[tid] = ""
+                self._tool_delta_last_emit[tid] = now
+                yield (
+                    "tool_call_delta",
+                    {
+                        "name": self._tool_name_buf.get(tid, "unknown"),
+                        "id": tid,
+                        "delta": pending_delta,
+                    },
+                )
             return
 
         if nm == "ToolCallEndEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
             name = self._tool_name_buf.pop(tid, "unknown")
             args_str = self._tool_args_buf.pop(tid, "")
+            pending_delta = self._tool_delta_emit_buf.pop(tid, "")
+            self._tool_delta_last_emit.pop(tid, None)
+            if pending_delta:
+                yield (
+                    "tool_call_delta",
+                    {"name": name, "id": tid, "delta": pending_delta},
+                )
             import json
             try:
                 args = json.loads(args_str) if args_str else {}

@@ -163,14 +163,16 @@ RAG 则提供支撑决策所需的文档与证据。
 |---|---|---|
 | `content`（`event: ai_message`） | 正文文本增量 | `chats.py::_stream_sse_response` |
 | `thinking` | 深度思考增量 | `core/chat/tool_log.py::build_thinking_event` |
-| `tool_call` | 工具调用开始（名称 + 参数） | `core/chat/tool_log.py` |
+| `tool_call_start` | 工具调用开始（稳定 ID + 名称） | `core/chat/tool_log.py` |
+| `tool_call_delta` | 合批后的工具参数 JSON 增量 | `core/chat/tool_log.py` |
+| `tool_call` | 工具参数完整、即将执行 | `core/chat/tool_log.py` |
 | `tool_result` | 工具执行结果（含引用、产物卡片载荷） | `core/chat/tool_log.py` + `orchestration/tool_payloads.py` |
 | `tool_progress` | 长工具的进度上报 | `chats.py` |
 | `batch_confirm` / `file_confirm` | 批量执行确认、「我的空间」写操作确认（真挂起门控） | `chats.py` |
 | `meta` | 末尾元信息：路由、引用源、产物列表等 | `orchestration/workflow.py` |
 | `error` | 错误事件（随后立即 `[DONE]`） | `chats.py` |
 
-前端 `src/frontend/src/hooks/useStreaming.ts` 按 `type` 分发，把文本、工具时间线、引用增量渲染进消息气泡。
+前端 `src/frontend/src/hooks/useStreaming.ts` 按 `type` 分发，并按 `tool_id` 把 start、delta、最终调用与结果原位合并为一张工具卡片。
 
 ## 容器拓扑
 

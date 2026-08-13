@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  CloseOutlined, DownloadOutlined, ExpandOutlined, CompressOutlined, SaveOutlined,
+  DownloadOutlined, SaveOutlined,
   CheckOutlined, FileExclamationOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
@@ -10,6 +10,7 @@ import { useCanvasStore } from '../../stores/canvasStore';
 import type { CanvasArtifact } from '../../stores/canvasStore';
 import { UniverSpreadsheet } from './UniverSpreadsheet';
 import { CitationMarkdownBlock } from '../citation';
+import { CanvasTabBar } from './CanvasTabBar';
 import type { UniverSpreadsheetHandle } from './UniverSpreadsheet';
 import { authFetch, overwriteFile } from '../../api';
 import {
@@ -45,13 +46,6 @@ function getFileCategory(artifact: CanvasArtifact): 'docx' | 'xlsx' | 'pdf' | 'p
 
 function getFileIcon(artifact: CanvasArtifact) {
   return <img src={getFileIconSrc(artifact.name)} width="20" height="20" alt="" aria-hidden="true" />;
-}
-
-function formatSize(bytes?: number): string {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function previewErrorMessage(error: unknown, fallback: string): string {
@@ -364,7 +358,6 @@ function LargeFileRenderer({
 
 export function CanvasPanel() {
   const { isOpen, activeView, artifact, closeCanvas, updateArtifact, openSeq } = useCanvasStore();
-  const [expanded, setExpanded] = useState(false);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   // Drag-resize in progress: kills the width transition (frame-accurate follow)
   // and mounts a full-screen transparent mask so iframes (PDF/HTML preview)
@@ -534,23 +527,28 @@ export function CanvasPanel() {
   return (
     <div
       ref={panelRef}
-      className={`jx-canvas jx-canvas--${category} ${expanded ? 'jx-canvas--expanded' : ''}${dragging ? ' jx-canvas--dragging' : ''}`}
-      style={dragWidth && !expanded ? { width: dragWidth } : undefined}
+      className={`jx-canvas jx-canvas--${category}${dragging ? ' jx-canvas--dragging' : ''}`}
+      style={dragWidth ? { width: dragWidth } : undefined}
     >
       {/* Drag handle */}
       <div className="jx-canvas-dragHandle" onMouseDown={handleDragStart} />
       {/* 拖拽期间的全屏透明遮罩：防 iframe 吞 mousemove */}
       {dragging && <div className="jx-canvas-dragMask" />}
+      <CanvasTabBar
+        title={artifact.name}
+        icon={getFileIcon(artifact)}
+        closeLabel={t('关闭预览')}
+        onClose={handleClose}
+      />
       {/* Header */}
       <div className="jx-canvas-header">
         <div className="jx-canvas-header-left">
           <span className="jx-canvas-fileIcon">{getFileIcon(artifact)}</span>
           <div className="jx-canvas-fileMeta">
-            <span className="jx-canvas-fileName">
+            <span className="jx-canvas-fileName" title={artifact.name}>
               {artifact.name}
               {isXlsx && xlsxDirty && <span className="jx-canvas-editedBadge jx-anim-statusIn">({t('已编辑')})</span>}
             </span>
-            {artifact.size && <span className="jx-canvas-fileSize">{formatSize(artifact.size)}</span>}
           </div>
         </div>
         <div className="jx-canvas-header-actions">
@@ -568,12 +566,6 @@ export function CanvasPanel() {
           )}
           <button className="jx-canvas-actionBtn" onClick={handleDownload} title={t('下载文件')}>
             <DownloadOutlined />
-          </button>
-          <button className="jx-canvas-actionBtn" onClick={() => setExpanded(!expanded)} title={expanded ? t('收起') : t('展开')}>
-            {expanded ? <CompressOutlined /> : <ExpandOutlined />}
-          </button>
-          <button className="jx-canvas-actionBtn jx-canvas-closeBtn" onClick={handleClose} title={t('关闭预览')}>
-            <CloseOutlined />
           </button>
         </div>
       </div>

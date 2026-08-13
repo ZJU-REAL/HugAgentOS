@@ -123,7 +123,7 @@ def _synthesize_missing_tool_call(
 
     ``_tool_args_ready`` holds back the tool card while streamed args are still
     incomplete, but it cannot tell "not written yet" from "there is nothing to
-    write": a zero-argument tool (``get_latest_ai_news`` and friends) keeps
+    write": a zero-argument tool (for example, a parameterless status probe) keeps
     empty args forever, so its card is suppressed for the whole run. Without a
     card the frontend has nothing to attach the result to and — with tools
     running in parallel — binds it onto whichever sibling is still running,
@@ -601,6 +601,30 @@ async def _run_ontology_repair_round(
             await _publish(
                 {"type": "ontology_revision_thinking", "delta": str(event_payload or "")}
             )
+        elif event_type == "tool_call_start":
+            tool_name = str(event_payload.get("name") or "unknown")
+            if tool_name != "update_plan":
+                await _publish(
+                    {
+                        "type": "tool_call_start",
+                        "tool_name": tool_name,
+                        "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
+                        "tool_id": str(event_payload.get("id") or ""),
+                        "scope": "ontology_revision",
+                    }
+                )
+        elif event_type == "tool_call_delta":
+            tool_name = str(event_payload.get("name") or "unknown")
+            if tool_name != "update_plan" and event_payload.get("delta"):
+                await _publish(
+                    {
+                        "type": "tool_call_delta",
+                        "tool_name": tool_name,
+                        "tool_id": str(event_payload.get("id") or ""),
+                        "arguments_delta": str(event_payload.get("delta") or ""),
+                        "scope": "ontology_revision",
+                    }
+                )
         elif event_type == "tool_call":
             tool_name = str(event_payload.get("name") or "unknown")
             tool_id = str(event_payload.get("id") or "")
@@ -660,7 +684,15 @@ async def _run_ontology_repair_round(
                 allocator,
             )
             sub_type = str((event_payload or {}).get("sub_type") or "")
-            if sub_type in {"start", "thinking", "content", "tool_call", "tool_result", "end"}:
+            if sub_type in {
+                "start",
+                "thinking",
+                "content",
+                "tool_call",
+                "tool_call_delta",
+                "tool_result",
+                "end",
+            }:
                 await _publish(
                     {
                         "type": "subagent_event",
@@ -1633,6 +1665,26 @@ async def _astream_subagent_direct(
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
 
+                elif event_type == "tool_call_start":
+                    tool_name = payload.get("name", "unknown")
+                    if tool_name != "update_plan":
+                        yield {
+                            "type": "tool_call_start",
+                            "tool_name": tool_name,
+                            "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
+                            "tool_id": payload.get("id", ""),
+                        }
+
+                elif event_type == "tool_call_delta":
+                    tool_name = payload.get("name", "unknown")
+                    if tool_name != "update_plan" and payload.get("delta"):
+                        yield {
+                            "type": "tool_call_delta",
+                            "tool_name": tool_name,
+                            "tool_id": payload.get("id", ""),
+                            "arguments_delta": payload.get("delta", ""),
+                        }
+
                 elif event_type == "tool_call":
                     tool_name = payload.get("name", "unknown")
                     tool_id = payload.get("id", "")
@@ -1779,9 +1831,10 @@ async def _astream_subagent_direct(
 
                 elif event_type in ("heartbeat", "model_progress"):
                     # heartbeat = transport keep-alive; model_progress = the
-                    # model is still streaming (tool-call args etc.) though
-                    # nothing maps to an SSE event — forwarded so the run
-                    # watchdog counts activity (it excludes only heartbeat).
+                    # model is still streaming while a small argument batch or
+                    # another suppressed event has nothing renderable yet —
+                    # forwarded so the run watchdog counts activity (it
+                    # excludes only heartbeat).
                     yield {"type": event_type}
 
                 elif event_type == "tool_pending":
@@ -2554,6 +2607,26 @@ async def astream_chat_workflow(
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
 
+                elif event_type == "tool_call_start":
+                    tool_name = payload.get("name", "unknown")
+                    if tool_name != "update_plan":
+                        yield {
+                            "type": "tool_call_start",
+                            "tool_name": tool_name,
+                            "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
+                            "tool_id": payload.get("id", ""),
+                        }
+
+                elif event_type == "tool_call_delta":
+                    tool_name = payload.get("name", "unknown")
+                    if tool_name != "update_plan" and payload.get("delta"):
+                        yield {
+                            "type": "tool_call_delta",
+                            "tool_name": tool_name,
+                            "tool_id": payload.get("id", ""),
+                            "arguments_delta": payload.get("delta", ""),
+                        }
+
                 elif event_type == "tool_call":
                     tool_name = payload.get("name", "unknown")
                     tool_id = payload.get("id", "")
@@ -2825,9 +2898,10 @@ async def astream_chat_workflow(
 
                 elif event_type in ("heartbeat", "model_progress"):
                     # heartbeat = transport keep-alive; model_progress = the
-                    # model is still streaming (tool-call args etc.) though
-                    # nothing maps to an SSE event — forwarded so the run
-                    # watchdog counts activity (it excludes only heartbeat).
+                    # model is still streaming while a small argument batch or
+                    # another suppressed event has nothing renderable yet —
+                    # forwarded so the run watchdog counts activity (it
+                    # excludes only heartbeat).
                     yield {"type": event_type}
 
                 elif event_type == "tool_pending":

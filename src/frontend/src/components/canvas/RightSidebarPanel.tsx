@@ -4,12 +4,14 @@ import { t } from '../../i18n';
 import { useCanvasStore } from '../../stores';
 import { ContentErrorBoundary } from '../common';
 import { CanvasPanel } from './CanvasPanel';
+import { CanvasTabBar } from './CanvasTabBar';
 import { OntologySidebarPanel } from './OntologySidebarPanel';
 
 export function RightSidebarPanel() {
   const activeView = useCanvasStore((state) => state.activeView);
   const artifact = useCanvasStore((state) => state.artifact);
   const ontologyTarget = useCanvasStore((state) => state.ontologyTarget);
+  const closeCanvas = useCanvasStore((state) => state.closeCanvas);
 
   if (activeView === 'file' && artifact) return <CanvasPanel />;
   // No evolution view: what a turn learned is now shown, and edited, inline on
@@ -20,6 +22,12 @@ export function RightSidebarPanel() {
         resetKey={`ontology:${ontologyTarget?.chatId ?? ''}:${ontologyTarget?.messageTs ?? ''}`}
         fallback={(
           <aside className="jx-rightSidebar jx-rightSidebar--ontology" role="alert">
+            <CanvasTabBar
+              title={t('本体校验')}
+              icon={<InsertRowRightOutlined />}
+              closeLabel={t('收起右侧面板')}
+              onClose={closeCanvas}
+            />
             <div className="jx-rightSidebar-empty">
               <strong>{t('本体校验结果暂时无法显示')}</strong>
               <span>{t('当前会话仍可继续使用，请稍后重新打开结果。')}</span>
@@ -34,6 +42,12 @@ export function RightSidebarPanel() {
 
   return (
     <aside className="jx-rightSidebar jx-rightSidebar--blank" aria-label={t('右侧面板')}>
+      <CanvasTabBar
+        title={t('右侧面板')}
+        icon={<InsertRowRightOutlined />}
+        closeLabel={t('收起右侧面板')}
+        onClose={closeCanvas}
+      />
       <div className="jx-rightSidebar-body">
         <div className="jx-rightSidebar-empty">
           <InsertRowRightOutlined />

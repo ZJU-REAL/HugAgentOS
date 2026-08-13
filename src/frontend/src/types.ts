@@ -158,6 +158,8 @@ export interface SubagentStep {
   name?: string;
   displayName?: string;
   input?: any;
+  /** Incremental JSON argument text while the model is constructing the call. */
+  inputText?: string;
   output?: any;
   status?: 'running' | 'success' | 'error';
   // When kind === 'thinking' | 'content': the accumulated text
@@ -169,6 +171,8 @@ export interface ToolCall {
   name: string;
   displayName?: string;
   input?: any;
+  /** Incremental JSON argument text retained for the live tool-call view. */
+  inputText?: string;
   output?: any;
   status?: 'pending' | 'running' | 'success' | 'error';
   timestamp?: number;

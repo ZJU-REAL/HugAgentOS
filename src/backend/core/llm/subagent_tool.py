@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 # a single task — avoiding the cross-task RuntimeError.
 _subagent_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="subagent")
 
+_TOOL_CALL_DELTA_FLUSH_INTERVAL_S = 0.05
+_TOOL_CALL_DELTA_FLUSH_CHARS = 256
+
 
 def _shared_ontology_runtime(agent_ref: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Return the parent request's ontology runtime without copying it.
@@ -55,6 +58,8 @@ class _SubMapper:
     def __init__(self) -> None:
         self._names: Dict[str, str] = {}  # tool_id → name
         self._args: Dict[str, str] = {}  # tool_id → accumulated args JSON string
+        self._arg_emit_buf: Dict[str, str] = {}  # tool_id → not-yet-emitted delta
+        self._arg_last_emit: Dict[str, float] = {}
         self._results: Dict[str, str] = {}  # tool_id → accumulated result text
         # Inline thinking (<think>…</think>) splitting: the deepseek/qwen family models
         # commonly used by sub-agents inline the reasoning chain in the body deltas, and
@@ -118,6 +123,8 @@ class _SubMapper:
             name = getattr(ev, "tool_call_name", "") or "unknown"
             self._names[tid] = name
             self._args[tid] = ""
+            self._arg_emit_buf[tid] = ""
+            self._arg_last_emit[tid] = time.monotonic()
             out.append(
                 {
                     "sub_type": "tool_call",
@@ -130,12 +137,43 @@ class _SubMapper:
 
         elif nm == "ToolCallDeltaEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
-            self._args[tid] = self._args.get(tid, "") + (getattr(ev, "delta", "") or "")
+            delta = getattr(ev, "delta", "") or ""
+            if delta:
+                self._args[tid] = self._args.get(tid, "") + delta
+                pending_delta = self._arg_emit_buf.get(tid, "") + delta
+                self._arg_emit_buf[tid] = pending_delta
+                now = time.monotonic()
+                last_emit = self._arg_last_emit.get(tid, now)
+                if (
+                    len(pending_delta) >= _TOOL_CALL_DELTA_FLUSH_CHARS
+                    or now - last_emit >= _TOOL_CALL_DELTA_FLUSH_INTERVAL_S
+                ):
+                    self._arg_emit_buf[tid] = ""
+                    self._arg_last_emit[tid] = now
+                    out.append(
+                        {
+                            "sub_type": "tool_call_delta",
+                            "tool_id": tid,
+                            "tool_name": self._names.get(tid, "unknown"),
+                            "arguments_delta": pending_delta,
+                        }
+                    )
 
         elif nm == "ToolCallEndEvent":
             tid = getattr(ev, "tool_call_id", "") or ""
             name = self._names.get(tid, "unknown")
-            args_str = self._args.get(tid, "")
+            args_str = self._args.pop(tid, "")
+            pending_delta = self._arg_emit_buf.pop(tid, "")
+            self._arg_last_emit.pop(tid, None)
+            if pending_delta:
+                out.append(
+                    {
+                        "sub_type": "tool_call_delta",
+                        "tool_id": tid,
+                        "tool_name": name,
+                        "arguments_delta": pending_delta,
+                    }
+                )
             try:
                 args = json.loads(args_str) if args_str else {}
             except json.JSONDecodeError:
@@ -158,6 +196,7 @@ class _SubMapper:
             tid = getattr(ev, "tool_call_id", "") or ""
             content = self._results.pop(tid, "")
             name = getattr(ev, "tool_call_name", "") or self._names.get(tid, "unknown")
+            self._names.pop(tid, None)
             state = str(getattr(ev, "state", "") or "")
             out.append(
                 {
@@ -288,12 +327,9 @@ def _run_subagent_in_thread(
             # to sub-steps and bypass-forwarded via emit.
             final_msg = None
             mapper = _SubMapper()
-            # Throttled liveness: during long tool-call-argument generation the
-            # sub-agent's upstream events all buffer inside _SubMapper (ToolCallDelta /
-            # ToolResultTextDelta / unclassified thinking) and emit is never called —
-            # the parent run's inactivity watchdog then saw pure silence and killed a
-            # healthy run mid-generation (the main-path StreamingAgent got this fix as
-            # ("model_progress", None); nested subagents were the known remaining gap).
+            # Throttled liveness remains useful while small argument fragments
+            # are waiting for a batch flush, tool results are being accumulated,
+            # or leading text is still being classified as thinking/content.
             _last_progress = time.monotonic()
             async for chunk in agent._reply(inputs=user_msg):
                 if isinstance(chunk, Msg):

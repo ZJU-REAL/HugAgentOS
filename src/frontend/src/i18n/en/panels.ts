@@ -79,6 +79,8 @@ export const PANELS_DICT: Record<string, string> = {
   '随模型输出实时更新': 'Updates live with the model output',
   '收起右侧面板': 'Collapse right panel',
   '展开右侧面板': 'Expand right panel',
+  '全屏': 'Full screen',
+  '退出全屏': 'Exit full screen',
   '暂无本体校验结果': 'No ontology validation result yet',
   '本体校验开始后，结果会在这里实时显示。': 'Results will stream here when ontology validation starts.',
   '右侧面板': 'Right panel',

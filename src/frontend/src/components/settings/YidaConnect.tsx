@@ -35,10 +35,10 @@ export function YidaConnect() {
   const pollingRef = useRef(false);   // sequential long-polling in progress
   const cancelledRef = useRef(false); // stop the loop on component unmount / disconnect
 
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (probe = false, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      setStatus(await getYidaStatus());
+      setStatus(await getYidaStatus(probe));
     } catch {
       if (!silent) message.error(t('获取宜搭连接状态失败'));
     } finally {
@@ -48,9 +48,18 @@ export function YidaConnect() {
 
   useEffect(() => {
     cancelledRef.current = false;
-    void refresh();
+    void refresh(true);
     return () => { cancelledRef.current = true; };
   }, [refresh]);
+
+  // Cookie files can outlive their server-side Yida sessions.  While this
+  // panel is visible, periodically use the backend's read-only real probe so
+  // an expired session does not keep displaying a false "connected" state.
+  useEffect(() => {
+    if (status?.status !== 'connected') return undefined;
+    const timer = setInterval(() => { void refresh(true, true); }, 60000);
+    return () => clearInterval(timer);
+  }, [status?.status, refresh]);
 
   // Sequential long-polling: each time wait for the backend to return (internally blocking in the sandbox waiting for a scan), then immediately start the next,
   // until connected / corp_selection / a stop condition.
@@ -167,7 +176,7 @@ export function YidaConnect() {
               {pending || corpSelection ? t('重新发起') : t('连接宜搭账号')}
             </Button>
           )}
-          <Button icon={<ReloadOutlined />} onClick={() => refresh()} loading={loading}>{t('刷新状态')}</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => refresh(true)} loading={loading}>{t('刷新状态')}</Button>
         </div>
       </div>
 

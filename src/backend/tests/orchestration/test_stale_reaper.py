@@ -246,6 +246,55 @@ async def test_finalize_run_wins_on_live_run(reaper_env):
     assert _get_run(session_factory, "run_live").status == "completed"
 
 
+# ─── 自主循环豁免年龄硬顶（去预算化配套） ──────────────────────────────────────
+
+
+async def test_hard_expired_loop_with_live_task_survives(reaper_env, monkeypatch):
+    """自主循环的使命是跑到任务完成为止：进程内 task 存活的 loop run 即使超过
+    CHAT_RUN_HARD_MAX_AGE_SEC 也不得按年龄硬杀（历史竞态：6h 硬顶 == loop 旧默认
+    预算，跑满预算的健康 loop 在优雅收尾前被硬顶抢杀）。"""
+    session_factory, _ = reaper_env
+    _insert_run(
+        session_factory,
+        "run_loop_live",
+        age_sec=executor._HARD_MAX_AGE_SEC + 3600,
+        kind="autonomous_loop",
+    )
+
+    task = asyncio.create_task(asyncio.sleep(3600))
+    monkeypatch.setitem(executor._active_runs, "run_loop_live", task)
+
+    assert await executor.reap_stale_runs() == 0
+    assert _get_run(session_factory, "run_loop_live").status == "running"
+    assert not task.cancelled()
+    task.cancel()
+
+
+async def test_hard_expired_orphan_loop_reaped_by_quiet_rule_only(reaper_env):
+    """孤儿 loop（进程重启遗留、无活跃 task）不按年龄硬杀，但静默判据照常清理。"""
+    session_factory, fake_redis = reaper_env
+    _insert_run(
+        session_factory,
+        "run_loop_orphan",
+        age_sec=executor._HARD_MAX_AGE_SEC + 3600,
+        kind="autonomous_loop",
+    )
+    # 流最近还在写 → 不是僵尸，跳过
+    fake_redis.seed(executor._stream_key("run_loop_orphan"), _now_ms() - 5_000)
+    assert await executor.reap_stale_runs() == 0
+    assert _get_run(session_factory, "run_loop_orphan").status == "running"
+
+    # 流静默超阈值 → 按「无活动」清理（而非年龄硬顶），错误文案是 stalled
+    fake_redis.seed(
+        executor._stream_key("run_loop_orphan"),
+        _now_ms() - int(executor._STALE_QUIET_SEC * 1000) - 60_000,
+    )
+    assert await executor.reap_stale_runs() == 1
+    run = _get_run(session_factory, "run_loop_orphan")
+    assert run.status == "failed"
+    assert "stalled" in run.error_message
+
+
 async def test_is_run_cancelled_true_for_any_terminal_status(reaper_env):
     session_factory, _ = reaper_env
     for status, expected in [

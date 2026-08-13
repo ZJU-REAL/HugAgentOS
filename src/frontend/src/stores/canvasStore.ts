@@ -20,6 +20,7 @@ export type RightSidebarView = 'file' | 'ontology' | 'empty';
 
 interface CanvasState {
   isOpen: boolean;
+  isFullscreen: boolean;
   activeView: RightSidebarView;
   artifact: CanvasArtifact | null;
   ontologyTarget: OntologyPanelTarget | null;
@@ -29,6 +30,8 @@ interface CanvasState {
   openOntology: (target: OntologyPanelTarget) => void;
   openSidebar: () => void;
   closeCanvas: () => void;
+  setCanvasFullscreen: (isFullscreen: boolean) => void;
+  toggleCanvasFullscreen: () => void;
   resetSidebar: () => void;
   /** Update artifact metadata without re-triggering content reload */
   updateArtifact: (patch: Partial<CanvasArtifact>) => void;
@@ -36,6 +39,7 @@ interface CanvasState {
 
 export const useCanvasStore = create<CanvasState>((set) => ({
   isOpen: false,
+  isFullscreen: false,
   activeView: 'empty',
   artifact: null,
   ontologyTarget: null,
@@ -54,9 +58,14 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   openSidebar: () => set({ isOpen: true }),
   // Keep the selected content while collapsed so the top-right toggle can
   // restore the same view. Chat/panel changes call resetSidebar explicitly.
-  closeCanvas: () => set({ isOpen: false }),
+  closeCanvas: () => set({ isOpen: false, isFullscreen: false }),
+  setCanvasFullscreen: (isFullscreen) => set({ isFullscreen }),
+  toggleCanvasFullscreen: () => set((state) => ({
+    isFullscreen: !state.isFullscreen,
+  })),
   resetSidebar: () => set({
     isOpen: false,
+    isFullscreen: false,
     activeView: 'empty',
     artifact: null,
     ontologyTarget: null,

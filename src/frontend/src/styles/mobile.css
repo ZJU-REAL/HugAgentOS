@@ -537,6 +537,32 @@
     overflow:hidden !important;
   }
 
+  .jx-primaryPane{
+    width:100%;
+    max-width:100%;
+    flex:1 1 auto;
+  }
+
+  .jx-canvasPanelSlot{
+    position:absolute;
+    inset:0;
+    z-index:50;
+    width:100% !important;
+    max-width:none !important;
+    height:100%;
+  }
+
+  .jx-canvasPanelSlot > .jx-canvas,
+  .jx-canvasPanelSlot > .jx-rightSidebar{
+    width:100% !important;
+    min-width:0 !important;
+    max-width:none !important;
+  }
+
+  .jx-canvasTabs-fullscreen{
+    display:none;
+  }
+
   .jx-appShell > .jx-sider{
     position:fixed !important;
     inset:0 auto 0 0;

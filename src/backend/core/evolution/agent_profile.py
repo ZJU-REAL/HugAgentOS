@@ -391,6 +391,58 @@ def pick_profile(
     return ranked[0][2]
 
 
+def _profile_from_row(row: Any) -> AgentProfile:
+    """The profile a stored row describes, with the columns believed over payload.
+
+    ``profile_id`` / ``version`` / ``task_types`` / ``scope`` exist as real
+    columns *and* inside ``payload`` (:meth:`AgentProfile.to_dict` writes them),
+    so for anything published through :mod:`core.evolution.activation` the two
+    agree and this is a no-op. They stop agreeing for a row written by hand or
+    by a seeding script, and reading only ``payload`` then fails open in the
+    worst possible direction: a missing ``task_types`` parses as ``[]``, which
+    :meth:`AgentProfile.applies_to` treats as *every* task type, and a missing
+    ``scope`` parses as ``{}``, which :func:`_scope_rank` treats as *every*
+    subject. A profile published for one task type silently governs every run —
+    reported under the id ``builtin``, because that is what
+    :meth:`AgentProfile.from_dict` falls back to, so the log line naming the
+    culprit names the deployment default instead.
+
+    The two narrowing fields resolve to whichever side is non-empty rather than
+    to the column unconditionally: an empty column against a populated payload
+    is the same widening failure with the sides swapped. When both are populated
+    and disagree the column wins — it is what the activation uniqueness check and
+    the console read — and the disagreement is logged, because it means something
+    wrote this row outside the activation path.
+    """
+    raw = dict(row.payload or {})
+
+    # Identity: the column is the primary key and NOT NULL, so it is always the
+    # more trustworthy of the two, and a wrong id here is what makes a bad
+    # profile untraceable in the logs.
+    raw["profile_id"] = row.profile_id
+    raw["version"] = row.version
+
+    col_types = [str(t) for t in (row.task_types or [])]
+    payload_types = [str(t) for t in (raw.get("task_types") or [])]
+    if col_types and payload_types and set(col_types) != set(payload_types):
+        logger.warning(
+            "[agent-profile] %s: task_types column %s != payload %s, using column",
+            row.profile_id, col_types, payload_types,
+        )
+    raw["task_types"] = col_types or payload_types
+
+    col_scope = dict(row.scope or {})
+    payload_scope = dict(raw.get("scope") or {})
+    if col_scope and payload_scope and col_scope != payload_scope:
+        logger.warning(
+            "[agent-profile] %s: scope column %s != payload %s, using column",
+            row.profile_id, col_scope, payload_scope,
+        )
+    raw["scope"] = col_scope or payload_scope
+
+    return AgentProfile.from_dict(raw)
+
+
 def load_active_profile(
     *,
     task_type: str = "chat",
@@ -416,7 +468,7 @@ def load_active_profile(
                 .order_by(EvolutionAgentProfile.updated_at.desc())
                 .all()
             )
-            profiles = [AgentProfile.from_dict(row.payload or {}) for row in rows]
+            profiles = [_profile_from_row(row) for row in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning("[agent-profile] load failed, using built-in: %s", exc)
         return builtin_profile()
