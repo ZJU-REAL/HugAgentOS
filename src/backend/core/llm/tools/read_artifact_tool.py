@@ -122,18 +122,9 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
     ) -> ToolResponse:
         """读取已上传文件的完整解析文本（按字符分页）。
 
-        ⚠️ 重要：每轮对话每个 file_id **累计最多读取 50000 字符**。超出后会
-        被拒绝；请缩小读取范围，或使用当前已启用的专用文件处理能力。
-
-        **Excel/表格类文件优先级**：
-        1. **多 sheet 工作簿** → 先看返回的 `sheet_names`，再用 `sheet_name`
-           精准读单个 sheet（如 `read_artifact(file_id, sheet_name='2024Q3')`）
-        2. **抽查特定行/区域** → 用本工具，但请精准指定 offset/limit
-        3. **不要**为了"看清全表"反复翻页 —— 全表通常远超 50K 预算
-
-        **PPT/演示文稿**：
-        1. **看整体大纲** → 不传 slide_index，返回所有页文本（按页分段）
-        2. **细看某一页** → 传 `slide_index`（0 起算，参考 `slide_count`）
+        ⚠️ 每轮对话每个 file_id **累计最多读 50000 字符**，超出即被拒绝。所以要精准
+        取用：xlsx 先看返回的 `sheet_names` 再按 `sheet_name` 读单表，pptx 用
+        `slide_index` 读单页，**不要**为"看全表"反复翻页——全表通常远超预算。
 
         Args:
             file_id (`str`):

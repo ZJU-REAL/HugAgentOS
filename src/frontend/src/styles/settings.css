@@ -1482,3 +1482,31 @@
   flex-wrap: wrap;
   gap: var(--space-xs);
 }
+
+/* ── 设置 → 模式选择（用户自建私有模式）────────────────────────────── */
+.jx-modeMine-head{
+  display:flex;
+  align-items:flex-start;
+  gap:16px;
+  margin-bottom:14px;
+}
+.jx-modeMine-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+/* 一条一卡：左边是"这个模式是什么"，右边是操作。不用表格——设置弹窗宽度有限，
+   表格挤到最后每列都只剩两个字。 */
+.jx-modeMine-item{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  padding:12px 14px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:12px;
+  background:#fff;
+  transition:border-color .14s ease;
+}
+.jx-modeMine-item:hover{ border-color:rgba(15,23,42,.16); }
+.jx-modeMine-body{ min-width:0; flex:1; }

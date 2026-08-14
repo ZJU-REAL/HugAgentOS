@@ -48,6 +48,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + 
 | [记忆系统](modules/memory.md) | L1/L2/L3 三层记忆、脱敏、审计、mem0 基础设施 |
 | [领域本体治理与校验](modules/ontology-harness.md) | CE 设置页治理、Domain Pack、工具门禁、交付前评审与人审演进 |
 | [知识库](modules/knowledge-base.md) | 自建知识库（混合检索）与 Dify 外接、公共库管理 |
+| [知识库 Wiki](modules/knowledge-base-wiki.md) | LLM 抽取实体与概念、生成互链条目页与概念图谱 |
 | [对象存储](modules/storage.md) | local / s3 / oss 三后端、产物仓、文件链路 |
 | [项目空间与我的空间](modules/projects-myspace.md) | 项目工作区、个人/团队文件夹、文件入上下文 |
 | [认证与权限](modules/auth.md) | AUTH_MODE 三模式、SSO、权限位、管理凭证 |

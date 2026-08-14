@@ -615,6 +615,35 @@ def register_subagent_tool(
     toolkit.register_tool_function(call_subagent, namesake_strategy="skip")
 
 
+def _collapse_ids(ids: List[str], *, min_group: int = 3) -> str:
+    """Render an id list, folding same-prefix families into ``prefix-*（N 个）``.
+
+    A bundle installs skills under auto-generated slugs
+    (``industry-knowledge-center-enterprise-prof-ea63ac18``); sixteen of them
+    inline is ~700 characters of the system prompt on every request, and the
+    hash suffixes carry no routing signal — the router picks a sub-agent by
+    what family of work it can do, then delegates by agent_id. Folding keeps
+    that signal at a fraction of the prefill cost. Families smaller than
+    ``min_group`` are listed in full, so short lists render exactly as before.
+    """
+    groups: Dict[str, List[str]] = {}
+    for raw in ids:
+        sid = str(raw)
+        # Family = first three dash-separated tokens (bundle slugs are
+        # ``<bundle-name>-<topic>-<hash>``); shorter ids group under themselves.
+        parts = sid.split("-")
+        key = "-".join(parts[:3]) if len(parts) > 3 else sid
+        groups.setdefault(key, []).append(sid)
+
+    out: List[str] = []
+    for key, members in groups.items():
+        if len(members) >= min_group:
+            out.append(f"{key}-*（{len(members)} 个）")
+        else:
+            out.extend(members)
+    return ", ".join(out)
+
+
 def _get_tools_desc(agent_info: Dict[str, Any]) -> str:
     """Return the effective, role-filtered capability summary shown to the router."""
     mcp_ids = agent_info.get("mcp_server_ids") or []
@@ -640,11 +669,11 @@ def _get_tools_desc(agent_info: Dict[str, Any]) -> str:
             "Read/Glob/Grep" if read_only else "Read/Edit/Write/Glob/Grep/Delete/Move/CreateFolder"
         )
     if skill_ids:
-        capabilities.append("技能：" + ", ".join(skill_ids))
+        capabilities.append("技能：" + _collapse_ids(skill_ids))
     if mcp_ids:
-        capabilities.append("MCP：" + ", ".join(mcp_ids))
+        capabilities.append("MCP：" + _collapse_ids(mcp_ids))
     if kb_ids:
-        capabilities.append("知识库：" + ", ".join(kb_ids))
+        capabilities.append("知识库：" + _collapse_ids(kb_ids))
     return "；".join(capabilities)
 
 

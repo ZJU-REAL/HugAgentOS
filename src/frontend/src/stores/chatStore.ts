@@ -35,9 +35,25 @@ function adminDefaultChatMode(): ChatMode {
   return defaults?.thinking_mode ? 'medium' : 'fast';
 }
 
+/** 重置对话时同时把「极速开关」和「思考强度」拉回管理端默认——只写 chatMode 会让
+ *  lastStandardMode 留着上一段对话的档位，退出极速时跳回一个用户没选过的强度。 */
+function applyDefaultChatMode(): { chatMode: ChatMode; lastStandardMode: ThinkingEffort } {
+  const mode = adminDefaultChatMode();
+  return { chatMode: mode, lastStandardMode: mode === 'turbo' ? 'fast' : mode };
+}
+
 /** chatMode → whether thinking mode is active (used as the equivalent for hooks/UI toggle buttons). */
 export function isThinkingMode(mode: ChatMode): boolean {
   return mode !== 'fast' && mode !== 'turbo';
+}
+
+/** 「标准模式」下可选的思考强度档位；chatMode 除 turbo 外的取值就是它。 */
+export type ThinkingEffort = Exclude<ChatMode, 'turbo'>;
+
+/** 极速模式（turbo）与标准模式互斥：UI 把这一位拆成对话框上方的独立开关，
+ *  思考强度则挂到右侧模型位上，但落到线上仍是同一个 chat_mode 字段。 */
+export function isTurboMode(mode: ChatMode): boolean {
+  return mode === 'turbo';
 }
 
 const CURRENT_CHAT_KEY = 'hugagent_current_chat_id';
@@ -108,8 +124,15 @@ interface ChatState {
   sendingChatIds: Set<string>;
   /** Set of thinking block IDs that are expanded */
   expandedThinking: Set<string>;
-  /** Chat mode: fast / thinking-medium / thinking-high / thinking-max */
+  /** Chat mode: turbo / fast / thinking-medium / thinking-high / thinking-max */
   chatMode: ChatMode;
+  /** 关掉「极速模式」时要回到的标准档。极速是个独立开关，用户在它之前挑的思考强度
+   *  不该被吞掉——退出极速要回到原来那一档，而不是一律掉回 fast。 */
+  lastStandardMode: ThinkingEffort;
+  /** 当前对话选中的模式 slug（chat_modes.slug）。standard=标准、turbo=极速，
+   *  以及管理员/用户自建的模式。发送时作为 mode_slug 上行，决定这段对话的工具面
+   *  与专属提示词；chatMode 只管思考强度，两者正交。 */
+  modeSlug: string;
   /** Tool result detail panel state */
   toolResultPanel: {
     key: string;
@@ -194,6 +217,7 @@ interface ChatState {
   removeSendingChatId: (id: string) => void;
   toggleThinking: (id: string) => void;
   setChatMode: (v: ChatMode) => void;
+  setModeSlug: (v: string) => void;
   setToolResultPanel: (panel: ChatState['toolResultPanel']) => void;
   setCopiedMsg: (ts: number | null) => void;
   setChatsLoading: (v: boolean) => void;
@@ -234,6 +258,10 @@ interface ChatState {
    *  - Default (app center): reuse the current chat in place if it's empty, otherwise create a
    *    new chat in that mode. */
   enterChatMode: (mode: 'plan' | 'batch', opts?: { inPlace?: boolean }) => void;
+  /** Leave plan / batch mode on the current chat and continue as an ordinary conversation.
+   *  The historical planChat / batchChat classification is kept (plan cards and batch history
+   *  stay recognisable); only the composer/routing flag is turned off. */
+  exitChatMode: (mode: 'plan' | 'batch') => void;
   /** Enter "site building" mode (Lab → Sites): create a new siteChat session and switch to the
    *  main chat, fully reusing the main-chat composer (attachments / projects / "+" menu).
    *  Mutually exclusive with plan / batch. */
@@ -305,6 +333,8 @@ export const useChatStore = create<ChatState>((set, get) => {
   sendingChatIds: new Set(),
   expandedThinking: new Set(),
   chatMode: 'fast',
+  lastStandardMode: 'fast',
+  modeSlug: 'standard',
   toolResultPanel: null,
   copiedMsg: null,
   chatsLoading: false,
@@ -392,7 +422,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (next.has(id)) next.delete(id); else next.add(id);
     set({ expandedThinking: next });
   },
-  setChatMode: (v) => set({ chatMode: v }),
+  setChatMode: (v) => set(v === 'turbo' ? { chatMode: v } : { chatMode: v, lastStandardMode: v }),
+  setModeSlug: (v) => set({ modeSlug: v || 'standard' }),
   setToolResultPanel: (panel) => set({ toolResultPanel: panel }),
   setCopiedMsg: (ts) => set({ copiedMsg: ts }),
   setChatsLoading: (v) => set({ chatsLoading: v }),
@@ -645,8 +676,10 @@ export const useChatStore = create<ChatState>((set, get) => {
       nextChat.planChat = true;
       nextChat.planModeActive = true;
       delete nextChat.batchChat;
+      delete nextChat.batchModeActive;
     } else {
       nextChat.batchChat = true;
+      nextChat.batchModeActive = true;
       delete nextChat.planChat;
       delete nextChat.planModeActive;
     }
@@ -661,10 +694,33 @@ export const useChatStore = create<ChatState>((set, get) => {
     set({
       currentChatId: targetId,
       planMode: planChat,
+      // Plan / batch and the autonomous loop are mutually exclusive: leaving loopMode on would
+      // keep a stale composer intent that resurfaces the moment plan/batch is closed again.
+      loopMode: false,
       currentPlanId: null,
       toolResultPanel: null,
       sending: sendingChatIds.has(targetId),
     });
+  },
+
+  exitChatMode: (mode) => {
+    if (mode === 'plan') {
+      // setPlanMode already persists planModeActive = false on the current chat.
+      get().setPlanMode(false);
+      return;
+    }
+    const { currentChatId, currentUserId, store } = get();
+    const chat = store.chats[currentChatId];
+    if (!chat) return;
+    const next: ChatStoreData = {
+      ...store,
+      chats: {
+        ...store.chats,
+        [currentChatId]: { ...chat, batchModeActive: false },
+      },
+    };
+    set({ store: next, storeRef: next });
+    saveChatStoreDebounced(currentUserId, next);
   },
 
   enterSiteMode: (opts) => {
@@ -701,6 +757,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     delete nextChat.planChat;
     delete nextChat.planModeActive;
     delete nextChat.batchChat;
+    delete nextChat.batchModeActive;
     // Bind the site source-code project → messages are sent with project_id automatically, and agent file tools operate inside the project folder.
     if (projectId) {
       nextChat.projectId = projectId;
@@ -749,7 +806,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       planMode: false,
       currentPlanId: null,
       loopMode: false,
-      chatMode: adminDefaultChatMode(),
+      ...applyDefaultChatMode(),
+      modeSlug: 'standard',
     });
   },
 
@@ -848,7 +906,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       queuedMessages: {},
       compactionNotices: {},
       contextCompactions: {},
-      chatMode: adminDefaultChatMode(),
+      ...applyDefaultChatMode(),
+      modeSlug: 'standard',
     });
   },
 

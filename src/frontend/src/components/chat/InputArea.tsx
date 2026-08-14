@@ -1,19 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Dropdown, Switch } from 'antd';
+import { Dropdown } from 'antd';
 import { AnimatePresence, motion } from 'motion/react';
 import { DUR, EASE } from '../../utils/motionTokens';
 import {
   FileImageOutlined, FileTextOutlined, CloudDownloadOutlined,
   AppstoreOutlined, FolderOutlined, FolderOpenOutlined, FolderAddOutlined, RobotOutlined,
-  OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SwapOutlined, SyncOutlined,
-  LaptopOutlined,
+  OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined,
+  LaptopOutlined, CloseOutlined,
 } from '@ant-design/icons';
-import { useChatStore, useFileStore, useUIStore, useModelCapabilitiesStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
+import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
 import type { UserAgentItem } from '../../stores/agentStore';
-import type { ChatMode } from '../../stores/chatStore';
 import { FileAttachmentCard, MySpaceImportModal } from '../file';
 import CreateProjectModal from '../projects/CreateProjectModal';
 import { getApiUrl, createLocalProject } from '../../api';
@@ -21,10 +20,15 @@ import type { InstalledPluginItem } from '../../types';
 import { AgentMentionPopup, useAgentMention } from '../agent';
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
+import { resolveBatchModeActive } from '../../utils/chatMode';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
 import { DropOverlay } from '../common/DropOverlay';
+import { ChipChevron } from '../common/ChipChevron';
+import { IconPlus } from '../common/DshIcons';
 import LocalApprovalPill from './LocalApprovalPill';
 import DeploymentSwitcher from './DeploymentSwitcher';
+import ChatModeSwitch from './ChatModeSwitch';
+import ModelEffortChip from './ModelEffortChip';
 import { ContextGauge } from './ContextGauge';
 import { QueuedMessageCard } from './QueuedMessageCard';
 import { t } from '../../i18n';
@@ -189,6 +193,45 @@ function clearEditorIfOnlyBrowserEmptyNodes(editor: HTMLElement) {
   }
 }
 
+// ── Mode chip ───────────────────────────────────────────────────────────
+
+/** The "you are in plan / batch / loop mode" chip in the composer bar. The chip body is a pure
+ *  status indicator; the ✕ badge pinned to its top-right corner is the one way to leave the mode
+ *  (the "+" menu only turns modes on, so this ✕ must always be reachable). */
+function ModeChip({
+  icon, label, title, closeLabel, onClose,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  closeLabel: string;
+  onClose: () => void;
+}) {
+  return (
+    <motion.span
+      className="jx-composerChip jx-planModeBtn jx-modeChip active"
+      role="status"
+      title={title}
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: DUR.fast, ease: EASE.brandOut }}
+    >
+      {icon}
+      <span className="jx-composerChip-label">{label}</span>
+      <motion.button
+        type="button"
+        className="jx-modeChip-close"
+        whileTap={{ scale: 0.88 }}
+        onClick={onClose}
+        aria-label={closeLabel}
+        title={closeLabel}
+      >
+        <CloseOutlined />
+      </motion.button>
+    </motion.span>
+  );
+}
+
 // ── Component ───────────────────────────────────────────────────────────
 
 export function InputArea({
@@ -203,10 +246,10 @@ export function InputArea({
   activeMode = null,
 }: InputAreaProps) {
   const {
-    input, setInput, sending: storeSending, chatMode, setChatMode,
+    input, setInput, sending: storeSending,
     quotedFollowUp, setQuotedFollowUp,
     activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeMention, setActiveMention,
-    planMode, setPlanMode, loopMode, setLoopMode, currentChat, enterChatMode,
+    planMode, loopMode, setLoopMode, currentChat, enterChatMode, exitChatMode,
     currentChatId, bindChatProject, unbindChatProject,
     queuedMessages, updateQueuedMessage, activeRuns,
   } = useChatStore();
@@ -233,31 +276,23 @@ export function InputArea({
   useEffect(() => { void usePluginStore.getState().fetchInstalled(); }, []);
   const sending = forceSendMode ? false : storeSending;
   const { uploadedFiles, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
-  // Whether the main model supports reasoning_effort (the high/max tiers are controlled by the admin model provider's extra_config switch)
-  const supportsReasoningEffort = useModelCapabilitiesStore(
-    (s) => s.capabilities.supports_reasoning_effort,
-  );
-  const userModelSwitchEnabled = useModelCapabilitiesStore(
-    (s) => s.capabilities.user_model_switch_enabled,
-  );
-  const selectableModels = useModelCapabilitiesStore(
-    (s) => s.capabilities.user_selectable_models,
-  );
-  const selectedModelProviderId = useModelCapabilitiesStore((s) => s.selectedModelProviderId);
-  const setSelectedModelProviderId = useModelCapabilitiesStore((s) => s.setSelectedModelProviderId);
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const _currentChat = currentChat();
-  const isPlanChat = !!_currentChat?.planChat;
-  const isBatchChat = !!_currentChat?.batchChat;
+  // Batch mode as the composer currently runs it — the persistent batchChat marker is only its
+  // default, so a chat the user took out of batch mode no longer counts as one here.
+  const batchModeOn = resolveBatchModeActive(_currentChat);
   const isSiteChat = !!_currentChat?.siteChat;
   // Whether the "autonomous loop" entry is shown: normal chat (not plan/batch/project page)
   // + has the loop capability bit + has lab permission. When eligible it no longer occupies
   // the toolbar but is tucked into the "+" attachment menu, visible to lab users only.
   const showLoopEntry =
-    !isPlanChat && !isBatchChat && !projectComposer && loopCapEnabled !== false && labEnabled !== false;
+    !planMode && !batchModeOn && !projectComposer && loopCapEnabled !== false && labEnabled !== false;
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [mySpaceImportOpen, setMySpaceImportOpen] = useState(false);
+  // 工具条各下拉的展开态：只用于让 chip 亮起 + 箭头翻转，让"按钮/浮层"读起来是一体的
+  const [projectOpen, setProjectOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   // Module C: no My Space in local mode → hide "从我的空间导入".
   const activeLocalMode = useDeploymentModeStore((s) => s.activeLocal);
   const provisionMode = useDeploymentModeStore((s) => s.provisionMode);
@@ -509,17 +544,34 @@ export function InputArea({
     bindChatProject(currentChatId, projectId, projectName);
   }
 
-  /** Enter plan / batch-execution mode from the "+" menu. The project page customizes this
-   *  via the onEnterMode prop (defer chat creation until send, no navigation); the default
-   *  switches the current chat to that mode in place — no new chat, no navigation, the
-   *  current conversation becomes plan/batch mode where it is (avoids bouncing the whole
-   *  chat back to the home page). */
+  /** Whether the composer currently runs in this mode (main composer: live composer state;
+   *  project composer: the pending selection passed in via activeMode). */
+  function isModeOn(mode: 'plan' | 'batch') {
+    if (projectComposer) return activeMode === mode;
+    return mode === 'plan' ? planMode : batchModeOn;
+  }
+
+  /** Enter plan / batch-execution mode from the "+" menu. The project page customizes this via
+   *  the onEnterMode prop (defer chat creation until send, no navigation); the default switches
+   *  the current chat to that mode in place — no new chat, no navigation (avoids bouncing the
+   *  whole chat back to the home page). */
   function onEnterMode(mode: 'plan' | 'batch') {
     if (onEnterModeProp) {
       onEnterModeProp(mode);
       return;
     }
     enterChatMode(mode, { inPlace: true });
+  }
+
+  /** Close a running mode from the ✕ on its composer chip — the single, always-visible way out.
+   *  On the project page the pending selection is owned by the parent, so hand the toggle back
+   *  to it (onEnterModeProp flips the already-selected mode off). */
+  function onCloseMode(mode: 'plan' | 'batch') {
+    if (onEnterModeProp) {
+      onEnterModeProp(mode);
+      return;
+    }
+    exitChatMode(mode);
   }
 
   // ── Keyboard ──
@@ -703,13 +755,13 @@ export function InputArea({
           <button type="button" className="jx-inputQuoteRemove" onClick={() => setQuotedFollowUp(null)} aria-label={t('移除引用')}>×</button>
         </div>
       )}
-      {/* 运行位置（云端/本机）胶囊：对话框上方独立一行，仅桌面双模式渲染 */}
-      {!projectComposer && (
-        <div className="jx-runTargetRow">
-          <DeploymentSwitcher />
-        </div>
-      )}
-      <div className={`jx-composerWrap${isPlanChat && planMode ? ' jx-composerWrap--plan' : ''}`}>
+      {/* 对话框上方独立一行：标准/极速二选一（常驻）+ 运行位置胶囊（仅桌面双模式）。
+          极速与否决定整段对话的工具面和提示词，值得摆在框外常驻可见，而不是藏进下拉。 */}
+      <div className="jx-runTargetRow">
+        <ChatModeSwitch />
+        {!projectComposer && <DeploymentSwitcher />}
+      </div>
+      <div className={`jx-composerWrap${planMode ? ' jx-composerWrap--plan' : ''}`}>
         {!disableMention && (
           <AgentMentionPopup input={input} visible={mentionVisible} selectedIndex={mIdx} onSelect={onMentionSelect} onHover={setMIdx} />
         )}
@@ -757,67 +809,155 @@ export function InputArea({
         )}
 
         <div className="jx-composerBar">
+          {/* ➕：附件与能力入口，坐在工具条最左（参考稿把 add 放在左下角，
+              和右下角的发送形成一对，输入区两端各一个圆钮）*/}
           {(() => {
-            const MODE_META: Record<ChatMode, { title: string; desc: string; label: string }> = {
-              turbo:  { title: t('极速模式'),   desc: t('政策资讯速查，仅检索工具，秒级直达结果'), label: t('极速模式') },
-              fast:   { title: t('快速模式'),   desc: t('适用于大部分情况'),              label: t('快速模式') },
-              medium: { title: t('思考·中'),    desc: t('默认思考强度，兼顾速度与质量'),  label: t('思考·中') },
-              high:   { title: t('思考·高'),    desc: t('更深入推理，处理复杂分析'),      label: t('思考·高') },
-              max:    { title: t('思考·超高'),  desc: t('研究级别的专家智能体'),          label: t('思考·超高') },
-            };
-            // Multi-tier models show 5 items; models without multi-tier support show
-            // "turbo / fast / thinking" (thinking maps to medium — turbo/fast don't need effort tiers)
-            const modeKeys: ChatMode[] = supportsReasoningEffort
-              ? ['turbo', 'fast', 'medium', 'high', 'max']
-              : ['turbo', 'fast', 'medium'];
-            // Without multi-tier support, display high/max as medium
-            const effectiveMode: ChatMode = supportsReasoningEffort
-              ? chatMode
-              : (chatMode === 'fast' || chatMode === 'turbo' ? chatMode : 'medium');
-            const isThinking = effectiveMode !== 'fast' && effectiveMode !== 'turbo';
-            const currentMeta = MODE_META[effectiveMode];
-            const btnLabel = supportsReasoningEffort ? currentMeta.label : (isThinking ? t('思考模式') : currentMeta.label);
-            const items = modeKeys.map((key) => {
-              const meta = MODE_META[key];
-              const isCurrent = effectiveMode === key;
-              const optionTitle = !supportsReasoningEffort && key === 'medium' ? t('思考模式') : meta.title;
-              return {
-                key,
-                label: (
-                  <div className="jx-modeOption">
-                    <div className="jx-modeOptionHead">
-                      <span className="jx-modeOptionTitle">{optionTitle}</span>
-                      {isCurrent && <img src="/home/check.svg" alt="" className="jx-modeCheckIcon" />}
-                    </div>
-                    <div className="jx-modeOptionDesc">{meta.desc}</div>
-                  </div>
-                ),
-                onClick: () => setChatMode(key),
-              };
-            });
+            // Mode entries (plan / batch), shared by the main menu and the project-page
+            // projectComposer, each gated by allowed_apps. A chat can retain historical plan
+            // cards after the user returns to ordinary conversation, so the main menu must use
+            // the active composer mode rather than the persistent planChat classification.
+            // The menu only turns a mode **on** and marks the one already running; turning it
+            // off is the job of the ✕ on the mode chip down in the composer bar.
+            const planActive = isModeOn('plan');
+            const batchActive = isModeOn('batch');
+            const activeSuffix = projectComposer ? t('（已选）') : t('（已开启）');
+            const modeItems = [
+              ...(isAppAllowed('plan_mode') ? [{
+                key: 'mode-plan',
+                icon: <OrderedListOutlined />,
+                label: planActive ? t('计划模式{suffix}', { suffix: activeSuffix }) : t('计划模式'),
+                onClick: () => onEnterMode('plan'),
+              }] : []),
+              ...(isAppAllowed('batch_runner') ? [{
+                key: 'mode-batch',
+                icon: <ThunderboltOutlined />,
+                label: batchActive ? t('批量执行{suffix}', { suffix: activeSuffix }) : t('批量执行'),
+                onClick: () => onEnterMode('batch'),
+              }] : []),
+            ];
+            const items = [
+              { key: 'image', icon: <FileImageOutlined />, label: t('上传图片'), onClick: () => imageInputRef.current?.click() },
+              { key: 'file', icon: <FileTextOutlined />, label: t('上传文件'), onClick: () => fileInputRef.current?.click() },
+              { type: 'divider' as const },
+              ...modeItems,
+              ...(showLoopEntry ? [{
+                key: 'mode-loop',
+                icon: <SyncOutlined />,
+                label: loopMode ? t('自主循环{suffix}', { suffix: activeSuffix }) : t('自主循环'),
+                onClick: () => setLoopMode(true),
+              }] : []),
+              ...((modeItems.length > 0 || showLoopEntry) ? [{ type: 'divider' as const }] : []),
+              ...(!disableMention ? [{
+                key: 'agents',
+                icon: <RobotOutlined />,
+                label: t('@子智能体'),
+                children: (() => {
+                  const enabled = (agents || []).filter((a) => a.is_enabled);
+                  if (enabled.length === 0) {
+                    return [{ key: 'agents-empty', label: t('暂无可用子智能体'), disabled: true }];
+                  }
+                  return enabled.map((a) => ({
+                    key: `agent-${a.agent_id}`,
+                    label: a.name,
+                    onClick: () => onPickAgentFromMenu(a),
+                  }));
+                })(),
+              }] : []),
+              {
+                key: 'skills',
+                icon: <AppstoreOutlined />,
+                label: t('技能'),
+                children: (() => {
+                  const enabled = (skills || []).filter((s) => s.enabled);
+                  if (enabled.length === 0) {
+                    return [{ key: 'skills-empty', label: t('暂无可用技能'), disabled: true }];
+                  }
+                  return enabled.map((s) => ({
+                    key: `skill-${s.id}`,
+                    label: s.name,
+                    onClick: () => onPickSkillFromMenu(s.id, s.name),
+                  }));
+                })(),
+              },
+              {
+                key: 'plugins',
+                icon: <ApiOutlined />,
+                label: t('插件'),
+                children: (() => {
+                  if (installedPlugins.length === 0) {
+                    return [{ key: 'plugins-empty', label: t('暂无已安装插件'), disabled: true }];
+                  }
+                  return installedPlugins.map((p) => ({
+                    key: `plugin-${p.install_id}`,
+                    label: p.name,
+                    onClick: () => onPickPluginFromMenu(p),
+                  }));
+                })(),
+              },
+              ...(activeLocalMode
+                ? []
+                : [
+                    { type: 'divider' as const },
+                    {
+                      key: 'myspace',
+                      icon: <CloudDownloadOutlined />,
+                      label: t('从我的空间导入'),
+                      onClick: () => setMySpaceImportOpen(true),
+                    },
+                  ]),
+            ];
             return (
-              <Dropdown
-                menu={{ items, selectedKeys: [effectiveMode] }}
-                trigger={['click']}
-                placement="topLeft"
-                overlayClassName="jx-modeMenu"
-              >
-                <button
-                  className={`jx-modeDropBtn${isThinking ? ' thinking' : ''}`}
-                  aria-label={t('当前为{label}，点击切换', { label: btnLabel })}
+              <>
+                <Dropdown
+                  trigger={['click']}
+                  placement="topRight"
+                  overlayClassName="jx-attachMenu"
+                  onOpenChange={(open) => {
+                    setAttachOpen(open);
+                    if (!open) return;
+                    if (!disableMention && agents.length === 0) void fetchAgents();
+                  }}
+                  menu={{ items }}
                 >
-                  <img src={isThinking ? '/home/thinking.svg' : '/home/quick.svg'} alt="" className="jx-modeIcon" />
-                  <span>{btnLabel}</span>
-                  <img src="/home/arrow-down.svg" alt="" className="jx-modeArrow" />
-                </button>
-              </Dropdown>
+                  <button
+                    type="button"
+                    className={`jx-attachBtn${attachOpen ? ' open' : ''}`}
+                    title={t('添加文件')}
+                    aria-label={t('添加文件')}
+                  >
+                    <IconPlus size={16} className="jx-attachIcon" />
+                  </button>
+                </Dropdown>
+                <MySpaceImportModal open={mySpaceImportOpen} onClose={() => setMySpaceImportOpen(false)} />
+                {/* Toolbar "create personal project" in-place modal: after a successful
+                    creation, automatically binds the current chat to the new project
+                    (not rendered on the project page — the project selector dropdown is
+                    hidden there and the chat is fixed to the current project) */}
+                {!projectComposer && (
+                  <CreateProjectModal
+                    onCreated={(pid) => {
+                      const created = useProjectStore.getState().list.find((p) => p.project_id === pid);
+                      bindChatProject(currentChatId, pid, created?.name || t('项目'));
+                    }}
+                  />
+                )}
+              </>
             );
           })()}
 
-          {!isCE && (
-            <button className="jx-promptHubBtn" onClick={() => setPromptHubOpen(!promptHubOpen)} aria-label={t('提示词中心')}>
+
+          {/* 提示词中心：社区版没有这个能力；商业版按 Config「权限配置 → 应用可见范围」
+              的 prompt_hub 位放行（allowed_apps 为空 = 不限制，等同全员可见）。 */}
+          {!isCE && isAppAllowed('prompt_hub') && (
+            <button
+              type="button"
+              className={`jx-composerChip jx-promptHubBtn${promptHubOpen ? ' active' : ''}`}
+              onClick={() => setPromptHubOpen(!promptHubOpen)}
+              aria-label={t('提示词中心')}
+              aria-pressed={promptHubOpen}
+            >
               <img src="/home/prompt.svg" alt="" className="jx-promptHubIcon" />
-              <span>{t('提示词中心')}</span>
+              <span className="jx-composerChip-label">{t('提示词中心')}</span>
             </button>
           )}
 
@@ -906,12 +1046,15 @@ export function InputArea({
                 trigger={['click']}
                 placement="topLeft"
                 overlayClassName="jx-projectMenu"
-                onOpenChange={(open) => { if (open && projects.length === 0) void fetchProjects(); }}
+                onOpenChange={(open) => {
+                  setProjectOpen(open);
+                  if (open && projects.length === 0) void fetchProjects();
+                }}
                 menu={{ items: projectMenuItems }}
               >
                 <button
                   type="button"
-                  className={`jx-projectDropBtn${boundProjectId ? ' bound' : ''}`}
+                  className={`jx-composerChip jx-projectDropBtn${boundProjectId ? ' bound' : ''}${projectOpen ? ' open' : ''}`}
                   aria-label={boundProjectId
                     ? t('本对话属于项目「{name}」，点击切换', { name: boundProjectName })
                     : t('选择项目，当前为默认（不归属项目）')}
@@ -920,8 +1063,8 @@ export function InputArea({
                   {boundProjectId
                     ? <FolderOpenOutlined className="jx-projectDropIcon" />
                     : <FolderOutlined className="jx-projectDropIcon" />}
-                  <span className="jx-projectDropName">{boundProjectId ? boundProjectName : t('默认')}</span>
-                  <img src="/home/arrow-down.svg" alt="" className="jx-modeArrow" />
+                  <span className="jx-projectDropName jx-composerChip-label">{boundProjectId ? boundProjectName : t('默认')}</span>
+                  <ChipChevron />
                 </button>
               </Dropdown>
             );
@@ -929,239 +1072,60 @@ export function InputArea({
 
       {!projectComposer && <LocalApprovalPill />}
 
-          {isPlanChat && (
-            <motion.button
-              className={`jx-planModeBtn${planMode ? ' active' : ''}`}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => setPlanMode(!planMode)}
-              aria-label={t('计划模式')}
-              title={planMode ? t('关闭计划模式：切换为普通对话') : t('开启计划模式：AI 将自动分解任务为多步骤并逐步执行')}
-            >
-              <OrderedListOutlined className="jx-planModeIcon" />
-              <span>{t('计划模式')}</span>
-            </motion.button>
+          {/* Mode chips report "you are in this mode" and carry their own ✕ at the top-right —
+              that ✕ is the way out, so an accidentally started mode is always one click from
+              being cancelled. The chip only renders while its mode is actually running; a plan
+              chat keeping its historical plan cards shows nothing once back to normal chat. */}
+          {!projectComposer && planMode && (
+            <ModeChip
+              icon={<OrderedListOutlined className="jx-planModeIcon" />}
+              label={t('计划模式')}
+              title={t('计划模式：AI 将自动分解任务为多步骤并逐步执行')}
+              closeLabel={t('关闭计划模式：切换为普通对话')}
+              onClose={() => onCloseMode('plan')}
+            />
           )}
 
-          {isBatchChat && (
-            <div
-              className="jx-planModeBtn active"
-              role="status"
-              aria-label={t('批量执行模式')}
+          {!projectComposer && batchModeOn && (
+            <ModeChip
+              icon={<ThunderboltOutlined className="jx-planModeIcon" />}
+              label={t('批量执行')}
               title={t('批量执行模式：描述要批量处理的对象与任务，AI 会自动生成可确认的执行计划')}
-            >
-              <ThunderboltOutlined className="jx-planModeIcon" />
-              <span>{t('批量执行')}</span>
-            </div>
+              closeLabel={t('关闭批量执行：切换为普通对话')}
+              onClose={() => onCloseMode('batch')}
+            />
           )}
-
 
           {showLoopEntry && loopMode && (
-            <motion.button
-              className="jx-planModeBtn active"
-              whileTap={{ scale: 0.96 }}
-              onClick={() => setLoopMode(false)}
-              aria-label={t('自主循环')}
-              title={t('关闭自主循环：切换为普通对话')}
-            >
-              <SyncOutlined className="jx-planModeIcon" />
-              <span>{t('自主循环')}</span>
-            </motion.button>
+            <ModeChip
+              icon={<SyncOutlined className="jx-planModeIcon" />}
+              label={t('自主循环')}
+              title={t('自主循环：描述一个可验证目标，AI 会反复迭代、自我修正，达标或触预算即停')}
+              closeLabel={t('关闭自主循环：切换为普通对话')}
+              onClose={() => setLoopMode(false)}
+            />
           )}
 
           {projectComposer && activeMode && (
-            <motion.button
-              type="button"
-              className="jx-planModeBtn active"
-              whileTap={{ scale: 0.96 }}
-              onClick={() => onEnterMode(activeMode)}
-              aria-label={activeMode === 'plan' ? t('计划模式') : t('批量执行')}
-              title={t('发送后将以该模式在本项目内开始对话；点击取消')}
-            >
-              {activeMode === 'plan'
+            <ModeChip
+              icon={activeMode === 'plan'
                 ? <OrderedListOutlined className="jx-planModeIcon" />
                 : <ThunderboltOutlined className="jx-planModeIcon" />}
-              <span>{activeMode === 'plan' ? t('计划模式') : t('批量执行')}</span>
-            </motion.button>
+              label={activeMode === 'plan' ? t('计划模式') : t('批量执行')}
+              title={t('发送后将以该模式在本项目内开始对话')}
+              closeLabel={t('取消该模式')}
+              onClose={() => onCloseMode(activeMode)}
+            />
           )}
 
           <div className="jx-composerSpacer" style={{ flex: 1 }} />
 
-          {userModelSwitchEnabled && selectableModels.length > 0 && (() => {
-            const currentModel = selectableModels.find((m) => m.provider_id === selectedModelProviderId)
-              || selectableModels.find((m) => m.is_default)
-              || selectableModels[0];
-            const items = selectableModels.map((model) => ({
-              key: model.provider_id,
-              label: (
-                <div className="jx-modelOption">
-                  <div className="jx-modelOptionHead">
-                    <span className="jx-modelOptionTitle">{model.display_name}</span>
-                    {model.provider_id === currentModel.provider_id && (
-                      <img src="/home/check.svg" alt="" className="jx-modeCheckIcon" />
-                    )}
-                  </div>
-                  <div className="jx-modelOptionDesc">{model.model_name || model.provider}</div>
-                </div>
-              ),
-              onClick: () => setSelectedModelProviderId(model.provider_id),
-            }));
-            return (
-              <Dropdown
-                trigger={['click']}
-                placement="topRight"
-                overlayClassName="jx-modelMenu"
-                menu={{ items, selectedKeys: [currentModel.provider_id] }}
-              >
-                <button
-                  type="button"
-                  className="jx-modelDropBtn"
-                  aria-label={t('当前模型：{name}，点击切换', { name: currentModel.display_name })}
-                  title={t('切换模型')}
-                >
-                  <SwapOutlined className="jx-modelDropIcon" />
-                  <span className="jx-modelDropText">{currentModel.display_name}</span>
-                </button>
-              </Dropdown>
-            );
-          })()}
+          {/* 模型 + 思考强度：两级菜单，收起态一个 chip 同时报出两者 */}
+          <ModelEffortChip />
 
           {/* Context-usage ring: estimated context-window occupancy for the current conversation */}
           <ContextGauge />
 
-          {(() => {
-            // Mode entries (plan / batch), shared by the main menu and the project-page
-            // projectComposer, each gated by allowed_apps. A chat can retain historical plan
-            // cards after the user returns to ordinary conversation, so the main menu must use
-            // the active composer mode rather than the persistent planChat classification.
-            const planActive = projectComposer ? activeMode === 'plan' : planMode;
-            const batchActive = projectComposer ? activeMode === 'batch' : isBatchChat;
-            const activeSuffix = projectComposer ? t('（已选）') : t('（已开启）');
-            const modeItems = [
-              ...(isAppAllowed('plan_mode') ? [{
-                key: 'mode-plan',
-                icon: <OrderedListOutlined />,
-                label: planActive ? t('计划模式{suffix}', { suffix: activeSuffix }) : t('计划模式'),
-                onClick: () => onEnterMode('plan'),
-              }] : []),
-              ...(isAppAllowed('batch_runner') ? [{
-                key: 'mode-batch',
-                icon: <ThunderboltOutlined />,
-                label: batchActive ? t('批量执行{suffix}', { suffix: activeSuffix }) : t('批量执行'),
-                onClick: () => onEnterMode('batch'),
-              }] : []),
-            ];
-            const items = [
-              { key: 'image', icon: <FileImageOutlined />, label: t('上传图片'), onClick: () => imageInputRef.current?.click() },
-              { key: 'file', icon: <FileTextOutlined />, label: t('上传文件'), onClick: () => fileInputRef.current?.click() },
-              { type: 'divider' as const },
-              ...modeItems,
-              ...(showLoopEntry ? [{
-                key: 'mode-loop',
-                icon: <SyncOutlined />,
-                label: (
-                  <span className="jx-attachMenu-toggleRow">
-                    <span>{t('自主循环')}</span>
-                    <Switch size="small" checked={loopMode} />
-                  </span>
-                ),
-                onClick: () => setLoopMode(!loopMode),
-              }] : []),
-              ...((modeItems.length > 0 || showLoopEntry) ? [{ type: 'divider' as const }] : []),
-              ...(!disableMention ? [{
-                key: 'agents',
-                icon: <RobotOutlined />,
-                label: t('@子智能体'),
-                children: (() => {
-                  const enabled = (agents || []).filter((a) => a.is_enabled);
-                  if (enabled.length === 0) {
-                    return [{ key: 'agents-empty', label: t('暂无可用子智能体'), disabled: true }];
-                  }
-                  return enabled.map((a) => ({
-                    key: `agent-${a.agent_id}`,
-                    label: a.name,
-                    onClick: () => onPickAgentFromMenu(a),
-                  }));
-                })(),
-              }] : []),
-              {
-                key: 'skills',
-                icon: <AppstoreOutlined />,
-                label: t('技能'),
-                children: (() => {
-                  const enabled = (skills || []).filter((s) => s.enabled);
-                  if (enabled.length === 0) {
-                    return [{ key: 'skills-empty', label: t('暂无可用技能'), disabled: true }];
-                  }
-                  return enabled.map((s) => ({
-                    key: `skill-${s.id}`,
-                    label: s.name,
-                    onClick: () => onPickSkillFromMenu(s.id, s.name),
-                  }));
-                })(),
-              },
-              {
-                key: 'plugins',
-                icon: <ApiOutlined />,
-                label: t('插件'),
-                children: (() => {
-                  if (installedPlugins.length === 0) {
-                    return [{ key: 'plugins-empty', label: t('暂无已安装插件'), disabled: true }];
-                  }
-                  return installedPlugins.map((p) => ({
-                    key: `plugin-${p.install_id}`,
-                    label: p.name,
-                    onClick: () => onPickPluginFromMenu(p),
-                  }));
-                })(),
-              },
-              ...(activeLocalMode
-                ? []
-                : [
-                    { type: 'divider' as const },
-                    {
-                      key: 'myspace',
-                      icon: <CloudDownloadOutlined />,
-                      label: t('从我的空间导入'),
-                      onClick: () => setMySpaceImportOpen(true),
-                    },
-                  ]),
-            ];
-            return (
-              <>
-                <Dropdown
-                  trigger={['click']}
-                  placement="topRight"
-                  overlayClassName="jx-attachMenu"
-                  onOpenChange={(open) => {
-                    if (!open) return;
-                    if (!disableMention && agents.length === 0) void fetchAgents();
-                  }}
-                  menu={{ items }}
-                >
-                  <button
-                    className="jx-attachBtn"
-                    title={t('添加文件')}
-                    aria-label={t('添加文件')}
-                  >
-                    <img src="/home/attachment.svg" alt="" className="jx-attachIcon" />
-                  </button>
-                </Dropdown>
-                <MySpaceImportModal open={mySpaceImportOpen} onClose={() => setMySpaceImportOpen(false)} />
-                {/* Toolbar "create personal project" in-place modal: after a successful
-                    creation, automatically binds the current chat to the new project
-                    (not rendered on the project page — the project selector dropdown is
-                    hidden there and the chat is fixed to the current project) */}
-                {!projectComposer && (
-                  <CreateProjectModal
-                    onCreated={(pid) => {
-                      const created = useProjectStore.getState().list.find((p) => p.project_id === pid);
-                      bindChatProject(currentChatId, pid, created?.name || t('项目'));
-                    }}
-                  />
-                )}
-              </>
-            );
-          })()}
           {/* While a run is active, an empty composer keeps the stop button; typing switches
               back to send so Enter/click can queue a follow-up without cancelling the run. */}
           <button

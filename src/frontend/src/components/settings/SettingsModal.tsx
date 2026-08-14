@@ -9,6 +9,7 @@ import {
   KeyOutlined, LinkOutlined, LockOutlined, LogoutOutlined, MessageOutlined, RobotOutlined,
   UserOutlined,
   SafetyCertificateOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSettingsStore, useAuthStore, useCatalogStore, useUIStore, useEditionStore, usePluginStore } from '../../stores';
@@ -38,6 +39,7 @@ import { SystemModelPanel } from './SystemModelPanel';
 import { SystemServicePanel } from './SystemServicePanel';
 import { MyLogsPanel } from './MyLogsPanel';
 import { PasswordManagementPanel } from './PasswordManagementPanel';
+import { ChatModesPanel } from './ChatModesPanel';
 import { FactsList } from '../memory/FactsList';
 import { OntologyManager } from '../ontology';
 import { getLang, setLang, t, type Lang } from '../../i18n';
@@ -63,6 +65,8 @@ const CHANNELS_SECTION: SectionDef = { id: 'channels', label: t('我的机器人
 const SYS_MODEL_SECTION: SectionDef = { id: 'sysmodel', label: t('模型服务'), icon: <DeploymentUnitOutlined /> };
 const SYS_SERVICE_SECTION: SectionDef = { id: 'sysservice', label: t('服务配置'), icon: <ApiOutlined /> };
 const MY_LOGS_SECTION: SectionDef = { id: 'mylogs', label: t('我的日志'), icon: <FileTextOutlined /> };
+// 自定义对话模式：由 can_manage_chat_modes 权限位放行（Config「用户/团队/角色权限」里开）
+const CHAT_MODES_SECTION: SectionDef = { id: 'chatmodes', label: t('模式选择'), icon: <ExperimentOutlined /> };
 
 const AVATAR_CROP_SIZE = 320;
 const AVATAR_OUTPUT_SIZE = 256;
@@ -127,6 +131,7 @@ export default function SettingsPage() {
   const apiKeyEnabled = authUser?.can_use_api_key === true;
   const channelBotEnabled = authUser?.can_create_channel_bot === true;
   const ontologyValidationAllowed = authUser?.can_use_ontology_validation === true;
+  const chatModesAllowed = authUser?.can_manage_chat_modes === true;
   // Organization management is exposed only when the edition capability is active.
   const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenancy : true));
   // CE personal system settings: shown only in the community edition (EE uses the /config system console), and only when the backend probe permits it —
@@ -168,10 +173,11 @@ export default function SettingsPage() {
     if (isCE) base = [base[0], PASSWORD_SECTION, ...base.slice(1)];
     if (apiKeyEnabled) base = [...base, API_KEY_SECTION];
     if (channelBotEnabled) base = [...base, CHANNELS_SECTION];
+    if (chatModesAllowed) base = [...base, CHAT_MODES_SECTION];
     if (isCE && sysAccess) base = [...base, SYS_MODEL_SECTION, SYS_SERVICE_SECTION];
     if (isCE) base = [...base, MY_LOGS_SECTION];
     return base;
-  }, [apiKeyEnabled, channelBotEnabled, multiTenancy, isCE, ontologyGovernanceAccess, ontologyValidationAllowed, sysAccess]);
+  }, [apiKeyEnabled, channelBotEnabled, chatModesAllowed, multiTenancy, isCE, ontologyGovernanceAccess, ontologyValidationAllowed, sysAccess]);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [savingNickname, setSavingNickname] = useState(false);
@@ -899,6 +905,8 @@ export default function SettingsPage() {
         )}
 
         {/* ── My logs (CE: the user's own call logs and usage) ──────────────── */}
+        {chatModesAllowed && activeSection === 'chatmodes' && <ChatModesPanel />}
+
         {isCE && activeSection === 'mylogs' && (
           <section id="section-mylogs" className="jx-settings-section">
             <h3 className="jx-settings-section-title">{t('我的日志')}</h3>

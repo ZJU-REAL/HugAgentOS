@@ -759,6 +759,7 @@ def _build_ctx(
         "memory_scope_user_id": memory_scope_user_id_value,
         "enable_thinking": resolved_chat_mode not in ("fast", "turbo"),
         "chat_mode": resolved_chat_mode,
+        "mode_slug": request.mode_slug or "",
         "uploaded_files": current_attachments,
         "historical_files": historical_files,
         "memory_enabled": memory_enabled,

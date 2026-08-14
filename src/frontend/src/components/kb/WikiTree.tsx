@@ -7,8 +7,8 @@ import type { WikiFolder, WikiPageBrief } from '../../types';
 /**
  * Wiki 目录树：逐层懒加载。
  *
- * 全库两千多页，一次性拉平整棵树必然卡；WeKnora 的 folders 接口本来就按 parent_id
- * 分层返回，并给了**递归**的 page_count 与 has_children，正好支持「展开才加载」。
+ * 大库有几千页，一次性拉平整棵树必然卡；folders 接口本来就按 parent_id 分层返回，
+ * 并给了**递归**的 page_count 与 has_children，正好支持「展开才加载」。
  * 每个目录展开后先列子目录、再列该目录直属的页面。
  */
 

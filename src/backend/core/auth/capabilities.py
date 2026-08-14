@@ -55,6 +55,8 @@ BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "can_switch_model": False,
     "can_use_ontology_validation": False,
     "can_run_autonomous_loop": True,  # long-running autonomous loop (open in CE, enabled by default, can be disabled per user/team)
+    # 自定义对话模式：授予后「设置 → 模式选择」出现，可自建仅本人可见的模式
+    "can_manage_chat_modes": False,
     "can_system_config": False,
     "can_content_manage": False,
     # Security management plugin (security-manager): authorization flag for the agent side

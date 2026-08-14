@@ -419,6 +419,9 @@ export function useChatInit() {
               ? { planModeActive: localSnapshot.chats[id].planModeActive }
               : {}),
             batchChat: meta.batch_chat === true ? true : undefined,
+            ...(typeof localSnapshot.chats[id]?.batchModeActive === 'boolean'
+              ? { batchModeActive: localSnapshot.chats[id].batchModeActive }
+              : {}),
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,
             // When the backend session hasn't bound project_id (e.g. bound locally via the input-box dropdown, not yet persisted with a message),
@@ -444,9 +447,12 @@ export function useChatInit() {
             const mergedServerChats: Record<string, ChatItem> = {};
             for (const [id, serverChat] of Object.entries(chats)) {
               const active = prev.chats[id]?.planModeActive;
-              mergedServerChats[id] = typeof active === 'boolean'
-                ? { ...serverChat, planModeActive: active }
-                : serverChat;
+              const batchActive = prev.chats[id]?.batchModeActive;
+              mergedServerChats[id] = {
+                ...serverChat,
+                ...(typeof active === 'boolean' ? { planModeActive: active } : {}),
+                ...(typeof batchActive === 'boolean' ? { batchModeActive: batchActive } : {}),
+              };
             }
             const preserved: Record<string, ChatItem> = {};
             const preservedOrder: string[] = [];
@@ -652,6 +658,9 @@ export function useChatInit() {
               ? { planModeActive: prev.chats[s.chat_id].planModeActive }
               : {}),
             batchChat: meta.batch_chat === true ? true : undefined,
+            ...(typeof prev.chats[s.chat_id]?.batchModeActive === 'boolean'
+              ? { batchModeActive: prev.chats[s.chat_id].batchModeActive }
+              : {}),
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,
             // Same as above: when the backend hasn't bound project_id, keep the local binding to avoid falling back to the default project on refresh.

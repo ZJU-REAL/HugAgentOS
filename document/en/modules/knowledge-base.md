@@ -41,6 +41,22 @@ In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` ret
 
 ## Self-hosted knowledge bases
 
+### Index modes: RAG / Wiki
+
+Two index modes can be selected when creating a knowledge base, stored in `kb_spaces.metadata.index_modes`:
+
+| Selection | `index_modes` | Chunking | Vectors / Milvus | Wiki generation |
+|---|---|---|---|---|
+| RAG retrieval only (default) | `["rag"]` | ✅ | ✅ | ❌ |
+| Wiki graph only | `["wiki"]` | ✅ | ❌ | ✅ |
+| Both → **LLM-Wiki knowledge base** | `["rag","wiki"]` | ✅ | ✅ | ✅ |
+
+> All three modes write chunks to `kb_chunks`. Wiki citation works at chunk level and
+> source lookup fetches chunks by ID, so it cannot exist without chunking — "Wiki only"
+> skips vectorization, not chunking.
+
+Legacy knowledge bases have no such key in their metadata, so they read back as RAG-only, matching the indexes they already have. See [Knowledge Base Wiki](./knowledge-base-wiki.md).
+
 ### Data model
 
 ORM definitions live in `src/backend/core/db/models/knowledge.py`:
@@ -50,6 +66,8 @@ ORM definitions live in `src/backend/core/db/models/knowledge.py`:
 | `kb_spaces` | KB space: owner (`user_id`), `visibility` (private/public), `chunk_method`, document count / size stats |
 | `kb_documents` | Documents: storage_key, checksum, `indexing_status` (processing / completed / failed) |
 | `kb_chunks` | **Parent chunk** text (returned to the LLM on retrieval), with `tags` and related `questions` |
+
+The three Wiki tables (`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`) are defined in `core/db/models/kb_wiki.py`; see [Knowledge Base Wiki](./knowledge-base-wiki.md).
 
 Child chunks never touch the relational DB — they are vectorized into the Milvus collection `hugagent_kb_private` (`core/kb/kb_vector.py`); every row carries `user_id` / `kb_id` for ownership isolation, and `row_type` distinguishes chunk rows from question rows.
 
@@ -92,6 +110,8 @@ User-facing routes are prefixed `/v1/catalog/kb` (`src/backend/api/routes/v1/kb.
 | POST | `/v1/catalog/kb/{kb_id}/documents` | Upload a document (100MB cap, indexed in background) |
 | GET | `/v1/catalog/kb/{kb_id}/documents[/{id}]` | Document list / detail |
 | POST | `/v1/catalog/kb/{kb_id}/documents/{id}/reindex` | Re-index |
+| POST | `/v1/catalog/kb/{kb_id}/wiki/rebuild` | Backfill the Wiki for existing documents (edit permission) |
+| GET | `/v1/catalog/kb/{kb_id}/wiki/*` | Wiki read surface, see [Knowledge Base Wiki](./knowledge-base-wiki.md) |
 | GET / PATCH | `/v1/catalog/kb/{kb_id}/chunks[/{chunk_id}]` | Chunk list / edit tags and questions |
 
 Business logic is centralized in `core/services/kb_service.py::KBService`.

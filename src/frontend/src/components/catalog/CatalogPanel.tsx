@@ -15,6 +15,7 @@ import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { useCatalogStore, useEditionStore, useKbStore } from '../../stores';
 import { WikiPanel } from '../kb';
+import IndexModePicker from '../kb/IndexModePicker';
 import { t } from '../../i18n';
 import {
   createKBSpace,
@@ -25,6 +26,8 @@ import {
   getKBDocumentDetail,
   getKBDocuments,
   getWikiCapability,
+  getKBWikiStatus,
+  rebuildKBWiki,
   getWikiStats,
   polishKBDescription,
   previewChunks,
@@ -39,7 +42,7 @@ import type {
   KBDocumentsResponse,
   KBDocumentStatusCounts,
 } from '../../api';
-import type { KBDocument, KBItem } from '../../types';
+import type { KBDocument, KBIndexMode, KBItem, WikiGranularity } from '../../types';
 import { formatDateTime } from '../../utils/date';
 import { mdToHtml } from '../../utils/markdown';
 import { EASE, staggerStyle } from '../../utils/motionTokens';
@@ -186,7 +189,7 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** 字数优先；后端不提供字数时（如 WeKnora 只给文件字节数）退而显示大小，不编 0 出来 */
+/** 字数优先；后端只给文件字节数、不给字数时，退而显示大小，不编 0 出来 */
 function formatDocWordCount(doc: KBDocument) {
   if (typeof doc.word_count === 'number' && !Number.isNaN(doc.word_count)) {
     return formatCount(doc.word_count, '字');
@@ -297,6 +300,8 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   // LLM Wiki：仅当知识库后端提供这层产物、且当前库确实生成过 Wiki 时才出现入口
   const [wikiBackendReady, setWikiBackendReady] = useState(false);
   const [wikiPageCount, setWikiPageCount] = useState(0);
+  const [wikiGenerating, setWikiGenerating] = useState(false);
+  const [wikiRebuilding, setWikiRebuilding] = useState(false);
   const [kbDetailView, setKbDetailView] = useState<'documents' | 'wiki'>('documents');
   const [kbDocPage, setKbDocPage] = useState(1);
   // 后端全库搜索关键词（kbDocQuery 的 300ms 去抖版本）。搜索必须发给后端在全部
@@ -322,6 +327,11 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   const [kbEditorLoading, setKbEditorLoading] = useState(false);
   const [kbEditorPolishing, setKbEditorPolishing] = useState(false);
   const [kbEditorVisibility, setKbEditorVisibility] = useState<'private' | 'public'>('private');
+  // 索引方式：默认仅 RAG，与历史知识库一致
+  const [kbEditorIndexModes, setKbEditorIndexModes] = useState<KBIndexMode[]>(['rag']);
+  const [kbEditorGranularity, setKbEditorGranularity] = useState<WikiGranularity>('standard');
+  const [kbEditorExtractionHint, setKbEditorExtractionHint] = useState('');
+  const [kbEditorContentHint, setKbEditorContentHint] = useState('');
   const detailDescRef = useRef<HTMLParagraphElement | null>(null);
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const tabButtonRefs = useRef<Partial<Record<KBTabKey, HTMLButtonElement | null>>>({});
@@ -398,9 +408,8 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     setKbDocTotal(selectedItem?.document_count || 0);
   }, [selectedItem?.id, selectedItem?.document_count]);
 
-  // 后端能力探测一次即可：provider 换了会重新加载页面
+  // 平台级探测：外接后端支持 Wiki，或库里存在任一开了 Wiki 的自建库，都算就绪
   useEffect(() => {
-    if (isCE) return;
     let alive = true;
     void getWikiCapability().then((cap) => {
       if (alive) setWikiBackendReady(Boolean(cap.supports_wiki));
@@ -408,15 +417,21 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     return () => {
       alive = false;
     };
-  }, [isCE]);
+  }, []);
 
-  // 每次进入某个外接知识库时确认它确实生成过 Wiki，避免出现点开就是空的死 Tab。
-  // 本地库（kb_ 前缀）没有这层产物，直接跳过。
+  // 进入某个知识库时确认它确实有 Wiki 产物，避免出现点开就是空的死 Tab。
+  // 自建库还要同时拿生成进度：刚建好的库页数为 0，但正在生成——这时也要给入口，
+  // 否则用户会以为功能没生效。
   useEffect(() => {
     setKbDetailView('documents');
     setWikiPageCount(0);
+    setWikiGenerating(false);
     const kbId = selectedItem?.id;
-    if (!wikiBackendReady || !kbId || kbId.startsWith('kb_')) return;
+    if (!kbId) return;
+    // 能力位缺省即「不具备」——按来源反推会给没有 Wiki 的外接库开出一个死 Tab
+    const capable = Boolean(selectedItem?.capabilities?.wiki);
+    if (!wikiBackendReady || !capable) return;
+
     let alive = true;
     void getWikiStats(kbId)
       .then((stats) => {
@@ -425,10 +440,30 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
       .catch(() => {
         if (alive) setWikiPageCount(0);
       });
+    if (selectedItem?.source === 'local') {
+      void getKBWikiStatus(kbId).then((status) => {
+        if (alive) setWikiGenerating(Boolean(status.generating));
+      });
+    }
     return () => {
       alive = false;
     };
-  }, [selectedItem?.id, wikiBackendReady]);
+  }, [selectedItem?.id, selectedItem?.capabilities?.wiki, selectedItem?.source, wikiBackendReady]);
+
+  // 生成期间轮询：页数会随生成推进增长，Tab 上的计数要跟着动
+  useEffect(() => {
+    const kbId = selectedItem?.id;
+    if (!wikiGenerating || !kbId || selectedItem?.source !== 'local') return;
+    const timer = window.setInterval(() => {
+      void getKBWikiStatus(kbId).then((status) => {
+        setWikiGenerating(Boolean(status.generating));
+      });
+      void getWikiStats(kbId)
+        .then((stats) => setWikiPageCount(stats.total_pages || 0))
+        .catch(() => undefined);
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [wikiGenerating, selectedItem?.id, selectedItem?.source]);
 
   useEffect(() => {
     saveActiveKbTab(activeTab);
@@ -620,6 +655,10 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     setKbEditorMode('create');
     setKbEditorName('');
     setKbEditorDesc('');
+    setKbEditorIndexModes(['rag']);
+    setKbEditorGranularity('standard');
+    setKbEditorExtractionHint('');
+    setKbEditorContentHint('');
     // Default to whichever one is permitted; if both are, default to private
     setKbEditorVisibility(canCreatePrivateKb ? 'private' : 'public');
     setKbEditorOpen(true);
@@ -629,6 +668,10 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     setKbEditorMode('edit');
     setKbEditorName(item.name || '');
     setKbEditorDesc(item.desc || '');
+    setKbEditorIndexModes(item.index_modes?.length ? item.index_modes : ['rag']);
+    setKbEditorGranularity('standard');
+    setKbEditorExtractionHint('');
+    setKbEditorContentHint('');
     setKbEditorOpen(true);
   };
 
@@ -643,15 +686,39 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
 
     setKbEditorLoading(true);
     try {
+      const wikiConfig = kbEditorIndexModes.includes('wiki')
+        ? {
+            granularity: kbEditorGranularity,
+            extraction_instructions: kbEditorExtractionHint.trim() || undefined,
+            content_instructions: kbEditorContentHint.trim() || undefined,
+          }
+        : undefined;
       if (kbEditorMode === 'create') {
-        await createKBSpace(name, description || undefined, undefined, undefined, kbEditorVisibility);
+        await createKBSpace(
+          name,
+          description || undefined,
+          undefined,
+          undefined,
+          kbEditorVisibility,
+          kbEditorIndexModes,
+          wikiConfig,
+        );
         message.success(t('知识库已创建'));
       } else if (selectedItem) {
+        const hadWiki = Boolean(selectedItem.capabilities?.wiki);
         await updateKBSpace(selectedItem.id, {
           name,
           description: description || '',
+          index_modes: kbEditorIndexModes,
+          wiki_config: wikiConfig,
         });
-        message.success(t('知识库信息已更新'));
+        // 新勾选 Wiki 时不会自动补建已有文档——那会实打实消耗模型额度，
+        // 得由用户显式触发一次重新生成
+        if (!hadWiki && kbEditorIndexModes.includes('wiki')) {
+          message.success(t('已开启 Wiki；点击「生成 Wiki」可为已有文档补建条目页'));
+        } else {
+          message.success(t('知识库信息已更新'));
+        }
       }
       await refreshCatalog();
       closeKbEditor();
@@ -659,6 +726,21 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
       message.error(err?.message || (kbEditorMode === 'create' ? t('创建失败') : t('更新失败')));
     } finally {
       setKbEditorLoading(false);
+    }
+  };
+
+  const handleRebuildWiki = async () => {
+    const kbId = selectedItem?.id;
+    if (!kbId) return;
+    setWikiRebuilding(true);
+    try {
+      const result = await rebuildKBWiki(kbId);
+      message.success(t('已排入生成队列，共 {n} 篇文档').replace('{n}', String(result.documents)));
+      setWikiGenerating(true);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : t('生成 Wiki 失败'));
+    } finally {
+      setWikiRebuilding(false);
     }
   };
 
@@ -790,8 +872,17 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     && (!!selectedItem.uploadable || !!selectedItem.editable || !!selectedItem.deletable);
   const selectedItemDisplayName = formatKbDisplayName(selectedItem?.name);
   const currentDocCount = kbDocTotal || selectedItem?.document_count || 0;
-  // 后端支持 + 该库确实有 Wiki 页，两个条件都满足才给入口
-  const hasWiki = wikiBackendReady && wikiPageCount > 0;
+  // 有页可看、或正在生成，都给入口——生成中的空 Tab 会显示进度而不是空白
+  const hasWiki = wikiBackendReady && (wikiPageCount > 0 || wikiGenerating);
+  // 开了 Wiki、有文档、却既没有页也没在生成 → 需要用户手动触发一次补建
+  const canGenerateWiki = Boolean(
+    selectedItem?.capabilities?.wiki
+      && selectedItem?.source === 'local'
+      && selectedItem?.editable
+      && currentDocCount > 0
+      && !wikiPageCount
+      && !wikiGenerating,
+  );
   const libraryLoadingCards = Array.from({ length: 10 }, (_, index) => index);
   const docLoadingRows = Array.from({ length: 10 }, (_, index) => index);
 
@@ -1073,6 +1164,22 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
               </div>
             </section>
 
+            {/* 开了 Wiki 但一页都还没有：给个入口让用户为已有文档补建，
+                否则「建库后才勾上 Wiki」这条路径会卡在空白页上无从下手 */}
+            {canGenerateWiki && (
+              <section className="jx-kbWikiPrompt">
+                <span>{t('该知识库已开启 Wiki，但尚未为已有文档生成条目页。')}</span>
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={wikiRebuilding}
+                  onClick={() => void handleRebuildWiki()}
+                >
+                  {t('生成 Wiki')}
+                </Button>
+              </section>
+            )}
+
             {/* 有 Wiki 的知识库多一层视图切换：文档是原始资料，Wiki 是它的结构地图 */}
             {hasWiki && (
               <section className="jx-kbViewSwitch" role="tablist" aria-label={t('知识库视图')}>
@@ -1094,7 +1201,9 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                   onClick={() => setKbDetailView('wiki')}
                 >
                   {t('知识 Wiki')}
-                  <span className="jx-kbViewSwitchCount">{wikiPageCount.toLocaleString()}</span>
+                  <span className="jx-kbViewSwitchCount">
+                    {wikiGenerating && wikiPageCount === 0 ? t('生成中') : wikiPageCount.toLocaleString()}
+                  </span>
                 </button>
               </section>
             )}
@@ -1330,6 +1439,19 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
               onChange={(e) => setKbEditorName(e.target.value)}
               placeholder={t('请输入知识库名称')}
               maxLength={255}
+            />
+          </div>
+          <div className="jx-kbEditorField">
+            <IndexModePicker
+              value={kbEditorIndexModes}
+              onChange={setKbEditorIndexModes}
+              granularity={kbEditorGranularity}
+              onGranularityChange={setKbEditorGranularity}
+              extractionInstructions={kbEditorExtractionHint}
+              onExtractionInstructionsChange={setKbEditorExtractionHint}
+              contentInstructions={kbEditorContentHint}
+              onContentInstructionsChange={setKbEditorContentHint}
+              disabled={kbEditorLoading}
             />
           </div>
           <div className="jx-kbEditorField">

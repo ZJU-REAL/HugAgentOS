@@ -5,7 +5,7 @@ import {
 } from '@ant-design/icons';
 import { t } from '../../i18n';
 import { getFileIconSrc } from '../../utils/fileIcon';
-import { Button, message, Modal } from 'antd';
+import { Button, message } from 'antd';
 import { useCanvasStore } from '../../stores/canvasStore';
 import type { CanvasArtifact } from '../../stores/canvasStore';
 import { UniverSpreadsheet } from './UniverSpreadsheet';
@@ -357,8 +357,10 @@ function LargeFileRenderer({
 /* ── Main Panel ── */
 
 export function CanvasPanel() {
-  const { isOpen, activeView, artifact, closeCanvas, updateArtifact, openSeq } = useCanvasStore();
-  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const {
+    isOpen, activeView, artifact, updateArtifact, openSeq,
+    activeTabId, setTabDirty, panelWidth, setPanelWidth,
+  } = useCanvasStore();
   // Drag-resize in progress: kills the width transition (frame-accurate follow)
   // and mounts a full-screen transparent mask so iframes (PDF/HTML preview)
   // can't swallow mousemove events mid-drag.
@@ -379,6 +381,12 @@ export function CanvasPanel() {
     setXlsxDirty(false);
     xlsxLoadUrlRef.current = null;
   }, [openSeq]);
+
+  // 未保存状态提给 store：页签栏在关闭页签 / 切页签 / 收起面板前据此确认，
+  // 因为这三条路径都会把本面板连同编辑缓冲一起卸载。
+  useEffect(() => {
+    if (activeTabId) setTabDirty(activeTabId, xlsxDirty);
+  }, [activeTabId, setTabDirty, xlsxDirty]);
 
   // Intercept Ctrl+S to prevent browser "Save Page" and trigger xlsx save instead
   useEffect(() => {
@@ -401,7 +409,7 @@ export function CanvasPanel() {
     const onMove = (ev: MouseEvent) => {
       const delta = startX - ev.clientX; // dragging left = wider
       const newWidth = Math.max(400, Math.min(startWidth + delta, window.innerWidth * 0.85));
-      setDragWidth(newWidth);
+      setPanelWidth(newWidth);
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
@@ -415,7 +423,7 @@ export function CanvasPanel() {
     setDragging(true);
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-  }, []);
+  }, [setPanelWidth]);
 
   if (!isOpen || activeView !== 'file' || !artifact) return null;
 
@@ -477,21 +485,6 @@ export function CanvasPanel() {
     }
   };
 
-  const handleClose = () => {
-    if (isXlsx && xlsxDirty) {
-      Modal.confirm({
-        title: t('有未保存的修改'),
-        content: t('关闭后编辑内容将丢失，确定关闭？'),
-        okText: t('关闭'),
-        cancelText: t('取消'),
-        okButtonProps: { danger: true },
-        onOk: closeCanvas,
-      });
-      return;
-    }
-    closeCanvas();
-  };
-
   const renderContent = () => {
     if (previewTooLarge && previewLimitBytes !== null) {
       return (
@@ -528,18 +521,13 @@ export function CanvasPanel() {
     <div
       ref={panelRef}
       className={`jx-canvas jx-canvas--${category}${dragging ? ' jx-canvas--dragging' : ''}`}
-      style={dragWidth ? { width: dragWidth } : undefined}
+      style={panelWidth ? { width: panelWidth } : undefined}
     >
       {/* Drag handle */}
       <div className="jx-canvas-dragHandle" onMouseDown={handleDragStart} />
       {/* 拖拽期间的全屏透明遮罩：防 iframe 吞 mousemove */}
       {dragging && <div className="jx-canvas-dragMask" />}
-      <CanvasTabBar
-        title={artifact.name}
-        icon={getFileIcon(artifact)}
-        closeLabel={t('关闭预览')}
-        onClose={handleClose}
-      />
+      <CanvasTabBar />
       {/* Header */}
       <div className="jx-canvas-header">
         <div className="jx-canvas-header-left">

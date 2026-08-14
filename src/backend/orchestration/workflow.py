@@ -58,6 +58,44 @@ _PROJECT_CTX_KEYS = (
 ) + edition_project_context_keys()
 
 
+def _mode_visible_subagents(spec, visible, mentioned_ids):
+    """收窄模式下最终可见的子智能体 = 模式圈定的那批 ∪ 本轮被显式 @ 的那个。
+
+    模式没圈任何子智能体时维持原契约：只有本轮被呼唤的那个能入场（极速模式一直
+    是这么做的）。圈了就以模式名单为准，再并上本轮呼唤的，免得用户 @ 了一个模式
+    里没列的智能体时那次呼唤被无声吞掉。
+    """
+    allowed = {a for a in (getattr(spec, "agent_ids", ()) or ()) if isinstance(a, str) and a.strip()}
+    wanted = {str(m) for m in (mentioned_ids or []) if m}
+    keep = allowed | wanted
+    if not keep:
+        return []
+    return [item for item in (visible or []) if str((item or {}).get("agent_id") or "") in keep]
+
+
+def _resolve_mode_spec(context: dict):
+    """从 context 解析这段对话的模式装配契约。
+
+    线上字段是 ``mode_slug``；老客户端只发 ``chat_mode='turbo'``，按极速模式解析，
+    所以升级期间新旧前端都能跑。解析失败返回 None（= 标准模式，不收窄）。
+    """
+    slug = str(context.get("mode_slug", "") or "").strip()
+    if not slug and str(context.get("chat_mode", "") or "").lower() == "turbo":
+        slug = "turbo"
+    if not slug:
+        return None
+    try:
+        from core.db.engine import SessionLocal
+        from core.services.chat_mode_service import ChatModeService
+
+        with SessionLocal() as db:
+            spec = ChatModeService(db).resolve(slug, str(context.get("user_id", "") or "") or None)
+        return spec
+    except Exception:  # noqa: BLE001 — 模式是增强不是边界，解析炸了也要让对话跑起来
+        logger.warning("[workflow] 模式解析失败 slug=%s，按标准模式继续", slug, exc_info=True)
+        return None
+
+
 def _extract_project_ctx(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Extract project-related fields from the workflow context. Returns None when there is no project_id."""
     if not context.get("project_id"):
@@ -1183,17 +1221,20 @@ def run_chat_workflow(
             disabled_agent_ids=_disabled_builtin_ids,
         )
 
+    _workflow_mode_spec = _resolve_mode_spec(context)
     _workflow_turbo = (
-        _direct_user_agent is None and _workflow_chat_mode == "turbo" and not _workflow_batch_chat
+        _direct_user_agent is None
+        and not _workflow_batch_chat
+        and _workflow_mode_spec is not None
+        and _workflow_mode_spec.restricted
     )
     if _workflow_turbo:
-        # 极速模式下子智能体仅在本轮被显式委派/@ 时入场（此路径无文本 @ 解析）。
+        # 收窄模式：可见子智能体 = 模式圈定的那批 ∪ 本轮被显式委派/@ 的那个
+        # （此路径无文本 @ 解析）。
         _turbo_delegated = str(_explicit_agent_id or _mention_agent_id or "")
-        _visible_subagents = [
-            item
-            for item in _visible_subagents
-            if _turbo_delegated and str(item.get("agent_id") or "") == _turbo_delegated
-        ]
+        _visible_subagents = _mode_visible_subagents(
+            _workflow_mode_spec, _visible_subagents, [_turbo_delegated]
+        )
 
     async def _run():
         agent, mcp_clients = await create_agent_executor(
@@ -1207,6 +1248,7 @@ def run_chat_workflow(
             model_provider_id=_workflow_model_provider_id,
             chat_mode=_workflow_chat_mode,
             turbo_mode=_workflow_turbo,
+            mode_spec=_workflow_mode_spec,
             turbo_explicit_skill_ids=(
                 _explicit_skill_ids_from_context(context) if _workflow_turbo else None
             ),
@@ -2386,21 +2428,20 @@ async def astream_chat_workflow(
         _batch_chat = bool(context.get("batch_chat", False))
         # 极速模式：配置化检索工具集 + 独立 turbo 提示词 + 迭代硬上限。
         # plan/batch 会话有自己的编排语义，不进入极速裁剪。
+        _stream_mode_spec = _resolve_mode_spec(context)
         _turbo_chat = (
-            str(context.get("chat_mode", "") or "").lower() == "turbo"
+            _stream_mode_spec is not None
+            and _stream_mode_spec.restricted
             and not _plan_chat
             and not _batch_chat
         )
         if _turbo_chat:
-            # 手动呼唤是极速模式下子智能体的唯一入场券：只把本轮被 @/显式
-            # 委派命中的那一个传给 factory（系统提示词也就只渲染这一行），
-            # 没有呼唤则完全不带子智能体。
-            _mentioned_set = {str(m) for m in (_mentioned_ids or []) if m}
-            _visible_subagents = [
-                item
-                for item in _visible_subagents
-                if str(item.get("agent_id") or "") in _mentioned_set
-            ]
+            # 收窄模式下子智能体不再只靠手动呼唤入场：模式自己圈定的那批常驻，
+            # 本轮被 @/显式委派命中的那个并上去（系统提示词也就只渲染这几行）。
+            # 模式没圈人时退回原契约——只有被呼唤的那个能进。
+            _visible_subagents = _mode_visible_subagents(
+                _stream_mode_spec, _visible_subagents, _mentioned_ids
+            )
         agent, mcp_clients = await create_agent_executor(
             agent_spec=None,
             enabled_skill_ids=enabled_skill_ids,
@@ -2412,6 +2453,7 @@ async def astream_chat_workflow(
             model_provider_id=str(context.get("model_provider_id", "") or ""),
             chat_mode=str(context.get("chat_mode", "") or ""),
             turbo_mode=_turbo_chat,
+            mode_spec=_stream_mode_spec,
             # 显式呼唤透传：斜杠技能 / 插件展开的 skill_ids 与 mcp_ids。
             # 仅 turbo 模式消费；能力说明仍走 user message 注入，不进全量清单。
             turbo_explicit_skill_ids=(

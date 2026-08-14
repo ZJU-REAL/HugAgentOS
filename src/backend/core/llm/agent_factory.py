@@ -521,6 +521,12 @@ async def create_agent_executor(
     turbo_mode: bool = False,
     turbo_explicit_skill_ids: Optional[List[str]] = None,
     turbo_explicit_mcp_ids: Optional[List[str]] = None,
+    # mode_spec: 对话模式的装配契约（core/services/chat_mode_service.ChatModeSpec）。
+    # 「模式」把原来写死的极速模式泛化成一张表：工具面 / 技能 / 插件 / 提示词 kind /
+    # 迭代上限都由它给。turbo_mode 现在的含义是"这个模式要收窄工具面"，收窄成什么
+    # 由 mode_spec 说了算。缺省（老调用方没传）时退回历史的 turbo.* 配置键读取，
+    # 保证升级期间不 regress。
+    mode_spec: Optional[Any] = None,
     ontology_runtime: Optional[Dict[str, Any]] = None,
     # Per-tool-result context cap override (tokens). The 20k default suits
     # exploratory chat, but document-heavy workloads (autonomous-loop workers
@@ -573,14 +579,26 @@ async def create_agent_executor(
     # (skill-bound MCP expansion, subagent merge, update_plan opt-in, file
     # tools) sees the narrowed grants rather than needing its own turbo check.
     if turbo_mode:
-        from core.services.system_config import (
-            turbo_manual_invoke_enabled,
-            turbo_mcp_server_ids,
-            turbo_plugin_ids,
-            turbo_skill_ids,
-        )
+        if mode_spec is not None:
+            # 模式表是真源：这四个取值全部来自 chat_modes 那一行。
+            _mode_manual_invoke = bool(getattr(mode_spec, "manual_invoke_enabled", True))
+            _mode_mcp_ids = list(getattr(mode_spec, "mcp_server_ids", ()) or ())
+            _mode_skill_ids = list(getattr(mode_spec, "skill_ids", ()) or ())
+            _mode_plugin_ids = list(getattr(mode_spec, "plugin_ids", ()) or ())
+        else:
+            from core.services.system_config import (
+                turbo_manual_invoke_enabled,
+                turbo_mcp_server_ids,
+                turbo_plugin_ids,
+                turbo_skill_ids,
+            )
 
-        if not turbo_manual_invoke_enabled():
+            _mode_manual_invoke = turbo_manual_invoke_enabled()
+            _mode_mcp_ids = sorted(turbo_mcp_server_ids())
+            _mode_skill_ids = list(turbo_skill_ids())
+            _mode_plugin_ids = list(turbo_plugin_ids())
+
+        if not _mode_manual_invoke:
             # Manual summoning disabled by ops: turbo is strictly its own set.
             turbo_explicit_skill_ids = None
             turbo_explicit_mcp_ids = None
@@ -590,7 +608,7 @@ async def create_agent_executor(
         # (e.g. a crawler, a ticket system) ship only as a plugin and have no
         # loose MCP row to pick, so without this they were unreachable in turbo.
         turbo_plugin_skill_ids, turbo_plugin_mcp_ids = _expand_plugin_bindings(
-            list(turbo_plugin_ids())
+            list(_mode_plugin_ids)
         )
         # Skills in turbo = admin-configured set (turbo.skill_ids + those bundled
         # with a configured plugin) + the ones explicitly summoned this turn.
@@ -599,7 +617,7 @@ async def create_agent_executor(
         enabled_skill_ids = list(
             dict.fromkeys(
                 [
-                    *turbo_skill_ids(),
+                    *_mode_skill_ids,
                     *[s for s in turbo_plugin_skill_ids if isinstance(s, str) and s.strip()],
                     *[
                         s
@@ -619,7 +637,7 @@ async def create_agent_executor(
         enabled_mcp_ids = list(
             dict.fromkeys(
                 [
-                    *sorted(turbo_mcp_server_ids()),
+                    *_mode_mcp_ids,
                     *[m for m in turbo_plugin_mcp_ids if isinstance(m, str) and m.strip()],
                     *[
                         m
@@ -867,18 +885,25 @@ async def create_agent_executor(
     # id (holds uniformly for DB / built-in / private / market skills), and when
     # view_text_file reads it, _resolve_skill_path maps back to the backend
     # file.
+    # One line per skill instead of a five-tag XML block. The old shape spent
+    # ~120 characters per skill on scaffolding plus a verbatim second copy of
+    # the id inside <dir> — with 20+ skills installed that was ~2.5k characters
+    # (≈1k tokens) of pure redundancy re-prefilled on every request and every
+    # ReAct round. The directory is stated once as a template here because the
+    # basename is always the skill id (holds for DB / built-in / private /
+    # market skills alike, per the note above).
     _SKILL_INSTRUCTION_TEMPLATE = (
         "# 技能（Agent Skills）\n"
         "以下是当前可用的技能列表。**技能不是工具，不能直接调用。**\n"
-        "当用户请求匹配某技能的描述时，你**必须先**使用 `view_text_file` 工具读取该技能 "
-        "`<dir>` 目录下的 `SKILL.md` 文件，然后严格按其中指令执行。\n"
+        "当用户请求匹配某技能的描述时，你**必须先**使用 `view_text_file` 工具读取"
+        "`/workspace/skills/<技能名>/SKILL.md`（`<技能名>` 原样取下方列表的技能名），"
+        "然后严格按其中指令执行。\n"
         "**禁止跳过加载步骤直接调用 MCP 工具。**\n\n"
-        "# 可用技能：{% for skill in skills %}\n"
-        "<skill>\n"
-        "<name>{{ skill.name }}</name>\n"
-        "<description>{{ skill.description }}</description>\n"
-        "<dir>/workspace/skills/{{ skill.dir.rstrip('/').split('/')[-1] }}</dir>\n"
-        "</skill>{% endfor %}"
+        "# 可用技能（`技能名`：适用场景）：{% for skill in skills %}\n"
+        "- `{{ skill.dir.rstrip('/').split('/')[-1] }}`"
+        "{% if skill.name and skill.name != skill.dir.rstrip('/').split('/')[-1] %}"
+        "（{{ skill.name }}）{% endif %}"
+        "：{{ skill.description }}{% endfor %}"
     )
 
     # Human confirmation for the scheduled-task plugin (borrowed from the §13
@@ -1287,10 +1312,12 @@ async def create_agent_executor(
                 register_get_data_context(toolkit, _eligible_ds)
 
     # ── Phase 4: Build system prompt (DB parts pre-fetched) ──
+    _log.info("[factory] +%s tools registered", _elapsed())
     _agent_ref: Optional[Dict] = None
 
     _ontology_runtime = ontology_runtime if isinstance(ontology_runtime, dict) else {}
     skill_metadata = loader.load_all_metadata()
+    _log.info("[factory] +%s skill metadata loaded (%d)", _elapsed(), len(skill_metadata or {}))
     for skill_id in skill_ids_to_register or []:
         metadata = skill_metadata.get(skill_id)
         register_runtime_asset_tags(
@@ -1330,6 +1357,7 @@ async def create_agent_executor(
     # (consistent with 1.x: subagent tools are registered after
     # get_json_schemas, so they don't enter the system_prompt's tool list).
     tool_schemas = await _build_toolkit().get_tool_schemas()
+    _log.info("[factory] +%s tool schemas computed (%d)", _elapsed(), len(tool_schemas or []))
     if user_agent is not None:
         system_prompt = build_subagent_system_prompt(
             user_agent,
@@ -1349,17 +1377,44 @@ async def create_agent_executor(
                 len(_ontology_prompt),
             )
     else:
+        # ── 模式自带的专属提示词 ──
+        # 手写正文优先于绑定的版本池分类；两者都空则该模式没配提示词。
+        # 这段刻意放在 turbo 分支**之外**：收窄与否（tool_scope）和"要不要换提示词"
+        # 是两件正交的事——一个不收窄工具面的模式（比如给标准模式换个口吻）同样该
+        # 能配自己的提示词。之前把它写在 turbo 分支里，非收窄模式配了也不生效。
+        _mode_prompt = ""
+        if mode_spec is not None:
+            from core.services import prompt_version_service as _pvs_mode
+
+            _mode_prompt_text = getattr(mode_spec, "prompt_text", None)
+            _mode_prompt_kind = getattr(mode_spec, "prompt_kind", None)
+            if _mode_prompt_text:
+                _mode_prompt = str(_mode_prompt_text)
+            elif _mode_prompt_kind and _mode_prompt_kind != "turbo":
+                _mode_prompt = _pvs_mode.render_system_prompt_of_kind(_mode_prompt_kind)
+
         if turbo_mode:
             # Turbo swaps in the standalone prompt (DB "turbo" active version →
             # fs fallback): the default prompt's tool/workflow sections describe
             # capabilities this assembly deliberately does not carry.
             from core.services import prompt_version_service as _pvs_turbo
 
-            system_prompt = _pvs_turbo.render_turbo_system_prompt()
+            # 收窄模式没配专属提示词时退回历史的 turbo 正文——极速模式绑的就是它。
+            system_prompt = _mode_prompt or _pvs_turbo.render_turbo_system_prompt()
             _log.info(
                 "[factory] +%s turbo system prompt built (%d chars)",
                 _elapsed(),
                 len(system_prompt),
+            )
+        elif _mode_prompt:
+            # 不收窄的模式配了专属提示词：整段替换默认装配（和收窄模式同一语义），
+            # 但工具/技能面不动——那是 tool_scope 管的事。
+            system_prompt = _mode_prompt
+            _log.info(
+                "[factory] +%s mode system prompt built (%d chars, slug=%s)",
+                _elapsed(),
+                len(system_prompt),
+                getattr(mode_spec, "slug", "?"),
             )
         else:
             _sp_ctx: Dict[str, Any] = {
@@ -1833,7 +1888,8 @@ async def create_agent_executor(
         # 系统配置「极速模式」turbo.max_iters; wins over profile/env.
         from core.services.system_config import turbo_max_iters
 
-        _max_iters = min(_max_iters, turbo_max_iters())
+        _mode_iters = getattr(mode_spec, "max_iters", None) if mode_spec else None
+        _max_iters = min(_max_iters, int(_mode_iters) if _mode_iters else turbo_max_iters())
 
     # ── Create the Agent (AgentScope 2.0) ──
     # Note: long_term_memory is not passed — mem0 is fully stripped from the SSE

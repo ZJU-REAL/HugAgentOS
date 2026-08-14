@@ -44,6 +44,26 @@ router = APIRouter(prefix="/v1/catalog", tags=["Catalog"])
 logger = logging.getLogger(__name__)
 
 
+def _index_modes_of(space) -> List[str]:
+    """自建知识库的索引模式；解析失败按仅 RAG（历史库的语义）。"""
+    try:
+        from core.kb.wiki.config import index_modes_of
+
+        return index_modes_of(space)
+    except Exception:  # noqa: BLE001
+        return ["rag"]
+
+
+def _kb_capabilities(space) -> Dict[str, bool]:
+    """索引模式 → 能力位，字段与外接知识库的 capabilities 同构。"""
+    try:
+        from core.kb.wiki_router import capabilities_for_local_kb
+
+        return capabilities_for_local_kb(space)
+    except Exception:  # noqa: BLE001
+        return {"vector": True, "keyword": True, "wiki": False, "graph": False}
+
+
 def _load_owned_capability_items(db, user_id: str) -> tuple:
     """Load a user's self-added private skills / MCPs and convert them to catalog items (owner='self').
 
@@ -359,6 +379,10 @@ async def get_catalog_items(
             continue
         tag = str(extra.get("tag") or "").strip()
         tags = [tag] if tag else []
+        modes = _index_modes_of(space)
+        capabilities = _kb_capabilities(space)
+        if capabilities.get("wiki"):
+            tags = [*tags, "LLM Wiki"]
         private_kb_items.append(
             {
                 "id": space.kb_id,
@@ -372,6 +396,9 @@ async def get_catalog_items(
                 "visibility": space.visibility,
                 "is_public": space.visibility == "public",
                 "chunk_method": space.chunk_method or "semantic",
+                "index_modes": modes,
+                # 前端据此决定是否渲染 Wiki / 图谱入口，与外接知识库的字段同构
+                "capabilities": capabilities,
                 "document_count": space.document_count or 0,
                 "total_size_bytes": space.total_size_bytes or 0,
                 "detail": (f"### {space.name}\n\n" f"{space.description or '暂无简介'}\n"),
@@ -417,6 +444,10 @@ async def get_catalog_items(
                 level = levels.get(space.kb_id, "view")
                 # Keep only the admin-defined tag; visibility grants are not exposed as labels.
                 tag = str(extra.get("tag") or "").strip()
+                shared_tags = [tag] if tag else []
+                shared_caps = _kb_capabilities(space)
+                if shared_caps.get("wiki"):
+                    shared_tags = [*shared_tags, "LLM Wiki"]
                 public_local_kb_items.append(
                     {
                         "id": space.kb_id,
@@ -431,10 +462,12 @@ async def get_catalog_items(
                         "is_public": space.visibility == "public",
                         "access_level": level,
                         "chunk_method": space.chunk_method or "semantic",
+                        "index_modes": _index_modes_of(space),
+                        "capabilities": shared_caps,
                         "document_count": space.document_count or 0,
                         "total_size_bytes": space.total_size_bytes or 0,
                         "detail": (f"### {space.name}\n\n" f"{space.description or '暂无简介'}\n"),
-                        "tags": [tag] if tag else [],
+                        "tags": shared_tags,
                         "system_managed": False,
                         "pinned": False,
                         **level_to_caps(level),
@@ -443,6 +476,14 @@ async def get_catalog_items(
         except Exception as exc:
             logger.warning("Failed to load shared KB spaces: %s", exc)
     public_local_kb_items.sort(key=lambda item: item.get("name", ""))
+
+    # 显式标注来源，别让前端靠 kb_id 前缀猜。前缀是存储细节，不该成为跨端契约；
+    # 能力位（capabilities.wiki 等）缺省视为「不具备」，而不是按来源反推。
+    for item in public_kb_items:
+        item.setdefault("source", "external")
+        item.setdefault("capabilities", {})
+    for item in public_local_kb_items + private_kb_items:
+        item["source"] = "local"
 
     kb_items: List[Dict[str, Any]] = public_kb_items + public_local_kb_items + private_kb_items
 

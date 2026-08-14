@@ -77,6 +77,44 @@ export const CATALOG_DICT: Record<string, string> = {
   'AI润色': 'AI Polish',
   '私有知识库已创建': 'Private knowledge base created',
   '知识库信息已更新': 'Knowledge base updated',
+  // 索引模式与 Wiki 生成
+  '索引方式': 'Index mode',
+  'LLM-Wiki 知识库': 'LLM-Wiki knowledge base',
+  '按语义找原文': 'Find source text by meaning',
+  '向量 + 关键词混合检索。提问时按语义召回相关的原文片段，是问答的默认底座。':
+    'Hybrid vector + keyword retrieval. Recalls relevant source passages semantically — the default basis for Q&A.',
+  'Wiki': 'Wiki',
+  '自动整理成知识地图': 'Auto-organised into a knowledge map',
+  '用大模型从原文抽出实体与概念，为每个条目生成带出处的页面并互相链接，可按目录树与概念图谱浏览。生成在索引完成后异步进行，会消耗模型用量。':
+    'Uses an LLM to extract entities and concepts from the source, generating a sourced page per item with links between them, browsable as a directory tree and concept graph. Generation runs asynchronously after indexing and consumes model usage.',
+  '抽取粒度': 'Extraction granularity',
+  '聚焦': 'Focused',
+  '标准': 'Standard',
+  '穷举': 'Exhaustive',
+  '每篇只抽 3-7 个核心主题。索引最干净，成本最低。':
+    'Only 3-7 core topics per document. Cleanest index, lowest cost.',
+  '核心主题 + 有独立段落展开的实体概念。推荐。':
+    'Core topics plus entities and concepts with a dedicated block of content. Recommended.',
+  '见名即收，适合当术语表。条目最多，成本最高。':
+    'Everything named; suits a glossary. Most items, highest cost.',
+  '自定义抽取要求': 'Custom instructions',
+  '抽取哪些内容': 'What to extract',
+  '例：重点关注补助金额、申报条件与责任部门，忽略排版说明':
+    'e.g. Focus on subsidy amounts, eligibility criteria and responsible departments; ignore formatting notes',
+  '条目页怎么写': 'How pages should read',
+  '例：每页开头先给一句话结论，正文用条款式短句':
+    'e.g. Open each page with a one-sentence conclusion; use short clause-style statements',
+  '这些要求只影响抽什么、怎么写；出处标注与事实接地由系统保证，不受影响。':
+    'These only affect what is extracted and how it reads; citation and factual grounding are guaranteed by the system and unaffected.',
+  '仅 Wiki：文档照常分块（出处回溯依赖分块），但不建向量索引，该库不参与语义检索。':
+    'Wiki only: documents are still chunked (source lookup depends on chunks) but no vector index is built, so this base is excluded from semantic retrieval.',
+  '生成 Wiki': 'Generate Wiki',
+  '生成 Wiki 失败': 'Failed to generate Wiki',
+  '该知识库已开启 Wiki，但尚未为已有文档生成条目页。':
+    'Wiki is enabled for this knowledge base, but pages have not been generated for existing documents yet.',
+  '已开启 Wiki；点击「生成 Wiki」可为已有文档补建条目页':
+    'Wiki enabled. Click "Generate Wiki" to backfill pages for existing documents',
+  '已排入生成队列，共 {n} 篇文档': 'Queued for generation: {n} document(s)',
   '创建失败': 'Create failed',
   '更新失败': 'Update failed',
   '请先输入知识库名称': 'Please enter a knowledge base name first',

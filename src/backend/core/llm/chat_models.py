@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from time import perf_counter as _perf_counter
 from typing import Any, AsyncGenerator, Optional
 
 import httpx
@@ -125,6 +126,101 @@ def _without_multimodal_content(messages: list[dict[str, Any]]) -> tuple[list[di
     return sanitized, removed
 
 
+# Off unless someone creates the marker file inside the container:
+#   docker exec <backend> touch /tmp/jx-wire-dump
+# Then the next model call writes its exact request body to /tmp/jx-wire.json.
+# A marker file rather than an env var so it can be flipped on a running
+# container without a restart — the point is to capture what a live
+# conversation actually sends when a first token comes back slow.
+_WIRE_DUMP_MARKER = "/tmp/jx-wire-dump"
+_WIRE_DUMP_PATH = "/tmp/jx-wire.json"
+
+
+def _dump_wire_payload(kwargs: dict) -> None:
+    """Write the outgoing request body to disk when the marker file exists."""
+    try:
+        if not os.path.exists(_WIRE_DUMP_MARKER):
+            return
+        import json as _json
+
+        with open(_WIRE_DUMP_PATH, "w") as handle:
+            _json.dump(
+                {
+                    "messages": kwargs.get("messages"),
+                    "tools": kwargs.get("tools"),
+                    "extra_body": kwargs.get("extra_body"),
+                    "params": {
+                        k: v
+                        for k, v in kwargs.items()
+                        if k not in ("messages", "tools", "extra_body")
+                    },
+                },
+                handle,
+                ensure_ascii=False,
+            )
+    except Exception:  # pragma: no cover - diagnostics must never break a run
+        logger.debug("[wire] payload dump failed", exc_info=True)
+
+
+def _collapse_nullable(node: Any) -> Any:
+    """Rewrite ``anyOf: [T, {"type": "null"}]`` in place as plain ``T``.
+
+    Pydantic renders every ``Optional[str] = None`` parameter that way, which
+    costs roughly 45 characters per optional field while saying nothing the
+    sibling ``default: null`` doesn't already say. Across a 64-tool surface
+    that is real prefill on every request and every ReAct round.
+    """
+    if isinstance(node, dict):
+        variants = node.get("anyOf")
+        if (
+            isinstance(variants, list)
+            and len(variants) == 2
+            and {"type": "null"} in variants
+        ):
+            other = next((v for v in variants if v != {"type": "null"}), None)
+            if isinstance(other, dict):
+                node.pop("anyOf")
+                for key, value in other.items():
+                    node.setdefault(key, value)
+        for value in list(node.values()):
+            _collapse_nullable(value)
+    elif isinstance(node, list):
+        for value in node:
+            _collapse_nullable(value)
+    return node
+
+
+def _slim_tool_schemas(tools: list[dict]) -> list[dict]:
+    """Strip prefill-only waste from tool schemas without changing their meaning.
+
+    Two transforms, both purely syntactic:
+      * nullable unions collapsed (see :func:`_collapse_nullable`);
+      * descriptions run through ``inspect.cleandoc``, which drops the uniform
+        indentation every Python docstring inherits from its ``def`` body while
+        preserving relative indentation inside examples.
+
+    Measured on this deployment's 64-tool surface: 28,049 → 26,888 prompt
+    tokens (-4.1%), paid back on every round of every run. The model sees the
+    same names, types, constraints and prose.
+    """
+    import copy
+    import inspect
+
+    slimmed = _collapse_nullable(copy.deepcopy(tools))
+    for tool in slimmed:
+        fn = tool.get("function")
+        if not isinstance(fn, dict):
+            continue
+        if isinstance(fn.get("description"), str):
+            fn["description"] = inspect.cleandoc(fn["description"])
+        props = (fn.get("parameters") or {}).get("properties")
+        if isinstance(props, dict):
+            for prop in props.values():
+                if isinstance(prop, dict) and isinstance(prop.get("description"), str):
+                    prop["description"] = inspect.cleandoc(prop["description"])
+    return slimmed
+
+
 def _build_chat_template_kwargs(
     *,
     disable_thinking: bool,
@@ -186,19 +282,30 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
     def _build_client(self):
         import openai
 
+        # Built once per model instance: the SDK client is a thin wrapper over
+        # the shared httpx client, but it is re-created on every ReAct round
+        # otherwise, which re-parses the base_url and re-builds the auth headers
+        # for each of the 15-20 rounds a tool-heavy run makes.
+        cached = getattr(self, "_openai_client", None)
+        if cached is not None:
+            return cached
+
         if self._azure:
-            return openai.AsyncAzureOpenAI(
+            client = openai.AsyncAzureOpenAI(
                 api_key=self.credential.api_key.get_secret_value(),
                 azure_endpoint=self.credential.base_url,
                 api_version=self._azure.get("api_version", ""),
                 http_client=self._http_client,
             )
-        return openai.AsyncClient(
-            api_key=self.credential.api_key.get_secret_value(),
-            organization=self.credential.organization,
-            base_url=self.credential.base_url,
-            http_client=self._http_client,
-        )
+        else:
+            client = openai.AsyncClient(
+                api_key=self.credential.api_key.get_secret_value(),
+                organization=self.credential.organization,
+                base_url=self.credential.base_url,
+                http_client=self._http_client,
+            )
+        self._openai_client = client
+        return client
 
     async def _call_api(  # type: ignore[override]
         self,
@@ -236,7 +343,7 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
 
         fmt_tools, fmt_tool_choice = self._format_tools(tools, tool_choice)
         if fmt_tools:
-            kwargs["tools"] = fmt_tools
+            kwargs["tools"] = _slim_tool_schemas(fmt_tools)
             if not self.parameters.parallel_tool_calls:
                 kwargs["parallel_tool_calls"] = False
         if fmt_tool_choice is not None:
@@ -246,7 +353,25 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
 
         start_datetime = datetime.now()
         try:
+            # Prefill size is the dominant TTFT term against a gateway without
+            # prefix caching, and it is invisible from the outside — this line
+            # is what lets a slow first token be attributed to the payload
+            # (system prompt + tool schemas) rather than to the network.
+            _t_req = _perf_counter()
+            _dump_wire_payload(kwargs)
+            if logger.isEnabledFor(logging.INFO):
+                import json as _json
+
+                logger.info(
+                    "[wire] OUT model=%s msgs=%d msg_chars=%d tools=%d tool_chars=%d",
+                    model_name,
+                    len(kwargs.get("messages") or []),
+                    len(_json.dumps(kwargs.get("messages") or [], ensure_ascii=False)),
+                    len(kwargs.get("tools") or []),
+                    len(_json.dumps(kwargs.get("tools") or [], ensure_ascii=False)),
+                )
             response = await client.chat.completions.create(**kwargs)
+            logger.info("[wire] response headers in %.0fms", (_perf_counter() - _t_req) * 1000)
         except Exception as exc:
             # MCP tools may return image DataBlocks alongside useful JSON text
             # (for example get_paper_figures). AgentScope promotes those blocks
@@ -276,16 +401,56 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
         return self._parse_completion_response(start_datetime, response, audio_fmt)
 
 
+# Shared per-event-loop, per-timeout httpx clients. A model instance is built
+# fresh on every chat turn (``create_agent_executor`` → ``make_chat_model``), so
+# a client constructed per instance meant a brand-new connection pool per turn:
+# every turn paid a full TCP handshake to the gateway on the critical path
+# before the first prefill byte moved (measured ~0.7-1.4s through a local TUN
+# proxy, ~1 RTT on a clean link), and the client was never closed — sockets to
+# the gateway grew monotonically (3 → 8 over three turns). Caching by
+# (loop, timeout) keeps keep-alive connections warm across turns while staying
+# correct under pytest-asyncio, which runs each test on its own loop and would
+# otherwise inherit a pool bound to a closed one.
+_HTTP_CLIENTS: dict[tuple[int, float], httpx.AsyncClient] = {}
+
+# Keep enough idle sockets for concurrent runs (main agent + subagents + memory
+# extraction all talk to the same gateway) without letting an idle pool pin
+# connections open forever against a gateway that culls them.
+_POOL_LIMITS = httpx.Limits(
+    max_connections=int(os.getenv("LLM_HTTP_MAX_CONNECTIONS", "100")),
+    max_keepalive_connections=int(os.getenv("LLM_HTTP_MAX_KEEPALIVE", "40")),
+    keepalive_expiry=float(os.getenv("LLM_HTTP_KEEPALIVE_EXPIRY_S", "300")),
+)
+
+
 def _make_http_client(timeout: int) -> httpx.AsyncClient:
+    import asyncio
+
     base_t = float(timeout) if timeout else 120.0
-    return httpx.AsyncClient(
+    try:
+        loop_key = id(asyncio.get_running_loop())
+    except RuntimeError:
+        # No running loop (sync construction in scripts/tests) — don't cache,
+        # since we can't tell which loop will end up driving this client.
+        loop_key = 0
+
+    key = (loop_key, base_t)
+    client = _HTTP_CLIENTS.get(key)
+    if client is not None and not client.is_closed:
+        return client
+
+    client = httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=base_t,
             read=max(base_t, STREAM_READ_TIMEOUT_S),
             write=base_t,
             pool=base_t,
-        )
+        ),
+        limits=_POOL_LIMITS,
     )
+    if loop_key:
+        _HTTP_CLIENTS[key] = client
+    return client
 
 
 def _make_openai_compatible(

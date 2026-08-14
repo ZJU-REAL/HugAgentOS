@@ -21,6 +21,7 @@ from core.auth.backend import UserContext, get_current_user
 from core.config.settings import settings
 from core.content.file_validation import validate_kb_file
 from core.content.kb_processing import update_document_status, vectorise_document_background
+from core.kb.wiki.config import index_modes_of, normalize_index_modes
 from core.db.engine import get_db
 from core.infra.exceptions import (
     AccessDeniedError,
@@ -237,6 +238,15 @@ async def create_kb_space(
     if request.indexing_config:
         metadata["indexing_config"] = request.indexing_config.model_dump()
 
+    # 索引模式：rag（向量检索）/ wiki（LLM Wiki 图谱），两者同选即 LLM-Wiki 知识库。
+    # 三种组合都会分块——wiki 省掉的是向量化，不是分块（引文标注要 chunk id、
+    # 回溯原文要按 chunk 直取）。
+    metadata["index_modes"] = normalize_index_modes(request.index_modes)
+    if request.wiki_config:
+        metadata["wiki_config"] = {
+            k: v for k, v in request.wiki_config.model_dump().items() if v is not None
+        }
+
     from core.services.kb_edition import initial_visibility_grants
 
     initial_grants = initial_visibility_grants(db, user.user_id, visibility)
@@ -279,13 +289,19 @@ async def update_kb_space(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """更新指定知识库空间的名称与简介。仅空间所有者可操作；空间不存在或无权访问时返回 404。"""
+    """更新指定知识库空间的名称、简介与索引模式。仅空间所有者可操作；空间不存在或无权访问时返回 404。
+
+    改索引模式不会自动补建索引：新勾选 Wiki 后要调 `POST /{kb_id}/wiki/rebuild`
+    才会把已有文档排进生成队列。
+    """
     kb_service = KBService(db)
     space = kb_service.update_space(
         kb_id=kb_id,
         user_id=user.user_id,
         name=request.name,
         description=request.description,
+        index_modes=request.index_modes,
+        wiki_config=(request.wiki_config.model_dump() if request.wiki_config else None),
     )
     if not space:
         raise ResourceNotFoundError(resource_type="kb_space", resource_id=kb_id)
@@ -390,6 +406,7 @@ async def upload_document(
         chunk_method=_effective_chunk_method,
         db_url=os.getenv("DATABASE_URL", ""),
         indexing_config=_indexing_config,
+        index_modes=index_modes_of(kb_space),
     )
 
     return created_response(
@@ -621,6 +638,7 @@ async def reindex_document(
         chunk_method=_reindex_chunk_method,
         db_url=os.getenv("DATABASE_URL", ""),
         indexing_config=_idx_cfg,
+        index_modes=index_modes_of(kb_space),
     )
 
     return success_response(

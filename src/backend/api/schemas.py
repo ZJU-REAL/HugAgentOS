@@ -45,6 +45,15 @@ class ChatRequest(BaseModel):
         description="用户端模型切换选择的模型供应商 ID；仅在后台开关开启且供应商为 active chat 时生效",
         max_length=64,
     )
+    mode_slug: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "对话模式标识（chat_modes.slug）：standard=标准、turbo=极速，以及管理员/用户"
+            "自建的模式。决定这段对话的工具面、技能、插件与专属提示词。"
+            "留空按 standard 处理；老客户端只发 chat_mode='turbo' 时后端按极速解析。"
+        ),
+    )
     chat_mode: Optional[ChatMode] = Field(
         default=None,
         description=(

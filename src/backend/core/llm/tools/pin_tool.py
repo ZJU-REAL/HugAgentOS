@@ -38,49 +38,30 @@ def register_pin_to_workspace(
     from core.services.project_scope import ProjectScope  # noqa: F401 - re-import for closure
 
     async def pin_to_workspace(file_ids: list[str]) -> ToolResponse:
-        """将一组文件加入"工作区"——**唯一**让文件出现在对话区给用户看到的方式。
+        """把文件交付到对话区——**唯一**让用户看到文件的方式。
 
-        ⚠️ **强制规则，适用于任何工具产生的任何文件类型**：
-        - 工具产生的文件**默认隐藏**，不会自动出现在对话区。
-        - **只有**通过本工具 pin 过的文件才会作为附件展示给用户。
-        - 没 pin = 用户看不到，哪怕你已经成功生成了文件。
+        凡用户要求生成/导出文件（文档、图片、PPT、Excel、PDF、CSV、压缩包、音视频、
+        任何二进制产物），生成完**必须**调本工具收尾：没 pin = 用户看不到。纯文字
+        回答不调。
 
-        **何时必须调用**：用户要求生成/产出**任何**可交付文件时（文档、图片、
-        PPT、Excel、PDF、CSV、压缩包、音视频……），完成生成后**必须**调用一次
-        本工具，把所有要交付给用户的最终文件 ID 一次性传入。这是一个
-        **收尾步骤**，不是可选项。
+        **一次传完所有产物**：同时给 Word+Excel+图表就一次
+        ``pin_to_workspace(file_ids=["fid_a","fid_b","fid_c"])``，不要分三次；单个也传
+        列表。中间稿（编辑链里的临时文件、调试草图）不要 pin。重复调用会累加、已 pin
+        的自动去重，个别 ID 失败不影响其余文件交付。
 
-        **一次传入所有文件，不要分多次调用**：
-        - 同时输出 Word + Excel + 图表？→ ``pin_to_workspace(file_ids=["fid_word","fid_xlsx","fid_png"])``
-          一次搞定，**不要**调用三次
-        - 单个文件？→ 也用列表：``pin_to_workspace(file_ids=["fid_only"])``
-        - 重复调用会累加（已 pin 的去重），但应当一次性 pin 完。
-
-        覆盖场景（不限于以下，凡涉及"产出文件"都适用）：
-        - **Word/PPT/Excel/PDF 技能产物**：``word-cli`` / ``ppt-cli`` /
-          ``excel-cli`` / ``pdf-cli`` 生成或编辑后，经 ``sandbox_get_artifact``
-          登记得到的最终 ``file_id``；中间稿不 pin
-        - **PDF**：``pdf-cli merge`` / ``pdf-cli split`` / ``pdf-cli create`` /
-          ``pdf-cli reformat`` 等子命令返回的最终结果
-        - **图表 / 图像**：代码执行（``bash`` 跑 Python/可视化脚本）生成
-          的最终图片、可视化文件；调试中的草图不 pin
-        - **数据导出**：技能脚本经 ``bash`` + ``sandbox_get_artifact`` 登记的
-          .csv / .json / .zip 等结果文件
-        - **基于用户上传文件的加工产物**：pin 加工结果，不 pin 用户原文件
-
-        如果用户没要求文件输出（纯文字回答），就不要调用本工具。
+        **file_id 从哪来**：沙盒里生成的文件先 ``sandbox_get_artifact`` 登记拿 ID；
+        ``generate_chart_tool`` 等工具和 word/ppt/excel/pdf-cli 直接返回 ID；用户上传或
+        我的空间里的文件用 ``list_myspace_files`` 拿 ID。**只传 ID，不要传路径或文件名**
+        （含 ``/`` 或 ``.docx`` 就是错的）。
 
         Args:
             file_ids (`List[str]`):
-                要固定的 artifact 文件 ID 列表。每个 ID 来自前面任意工具返回
-                结果中的 ``file_id`` 字段，或用户上传文件的 ``ua_*`` ID。
-                即使只 pin 一个文件也必须传列表（如 ``["fid_xxx"]``）。
+                artifact 文件 ID 列表，取自前面工具返回的 ``file_id``，或用户上传
+                文件的 ``ua_*`` ID。只 pin 一个也要传列表（``["fid_xxx"]``）。
 
         Returns:
-            JSON: ``{ok: true, pinned: [{file_id, name, already_pinned}, ...],
-                     failed: [{file_id, error}, ...], pinned_count}``。
-            ``ok`` 为 false 仅在入参完全无效时；部分 file_id 无效不会让 ok=false，
-            它们会出现在 ``failed`` 字段里。
+            JSON: ``{ok, pinned: [{file_id, name, already_pinned}], failed: [{file_id, error}], pinned_count}``。
+            ``ok=false`` 仅在入参完全无效时；个别 ID 失败只出现在 ``failed`` 里。
         """
         import json as _json
 

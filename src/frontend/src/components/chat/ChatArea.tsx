@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Select, message } from 'antd';
 import { BookOutlined, FileTextOutlined, PieChartOutlined } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
@@ -15,6 +15,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { usePageConfigStore, type HomepageShortcut } from '../../stores/pageConfigStore';
 import { usePageConfig } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
+import { resolveBatchModeActive } from '../../utils/chatMode';
 
 // Enter/exit animation params for the back-to-bottom button (module-level constants — ChatArea
 // re-renders frequently with the message stream, so avoid rebuilding the object inside the render body)
@@ -177,6 +178,17 @@ export function ChatArea({
     setQuotedFollowUp(null);
   }, [currentChatId]);
 
+  // Stable identity on purpose: ChatShareBanner rebuilds its loader whenever this
+  // prop changes and refetches on that loader, so an inline arrow here made the
+  // banner re-request GET /v1/chats/{id} on *every* ChatArea render. During
+  // streaming that is many renders a second, and the duplicate requests saturate
+  // the browser's six-connection HTTP/1.1 budget — the next message's SSE request
+  // then sat stalled for up to ~3.2s before it was even put on the wire.
+  const handleShareLevelChange = useCallback(
+    (lvl: 'admin' | 'edit' | 'read' | null) => setShareAccessLevel(lvl),
+    [],
+  );
+
   // Proactively fetch the access level when switching sessions — even if ChatShareBanner
   // is not mounted because it hit the hasNoMessages early-return branch, we still need to know the read level to hide the input box.
   useEffect(() => {
@@ -270,7 +282,7 @@ export function ChatArea({
       ? (agentDetail?.description || agentDetail?.welcome_message || t('专业子智能体'))
       : cfgHeroSubtitle;
   const suggestedQuestions = isAgentChat ? (agentDetail?.suggested_questions || []) : [];
-  const isBatchChat = !!chat?.batchChat;
+  const isBatchChat = resolveBatchModeActive(chat);
   const inputPlaceholder = isSiteChat
     ? t('描述你想要的网站，例如：一个展示咖啡馆菜单与营业时间的单页网站')
     : isAgentChat
@@ -519,7 +531,7 @@ export function ChatArea({
       </AnimatePresence>
       <ChatShareBanner
         chatId={currentChatId}
-        onLevelChange={(lvl) => setShareAccessLevel(lvl)}
+        onLevelChange={handleShareLevelChange}
       />
       {!!compactionNotices[currentChatId] && (
         <div className="jx-compactionNotice" role="status">

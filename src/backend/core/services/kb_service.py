@@ -1,16 +1,20 @@
 """Knowledge base business logic."""
 
+import logging
 import os
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.content.kb_processing import vectorise_document_background
 from core.db.models import KBChunk, KBDocument, UserShadow
+from core.kb.wiki.config import index_modes_of
 from core.db.repository import ArtifactRepository, AuditLogRepository, KBRepository
 from core.services.artifact_edition import can_access_artifact
 from core.storage import get_storage
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 # Fixed owner for admin-managed public knowledge bases. Public KB spaces are owned
 # by this synthetic system account so that admin endpoints can reuse the ownership-
@@ -281,6 +285,7 @@ class KBService:
             chunk_method=space.chunk_method or "semantic",
             db_url=os.getenv("DATABASE_URL", ""),
             indexing_config=None,
+            index_modes=index_modes_of(space),
         )
 
         self.audit_repo.create(
@@ -433,7 +438,24 @@ class KBService:
             }
         )
 
+        self._enqueue_wiki_retract(space, document_id)
         return True
+
+    def _enqueue_wiki_retract(self, space: Any, document_id: str) -> None:
+        """文档被删后，把它从 Wiki 血缘里摘掉。
+
+        best-effort：Wiki 是原文的衍生物，摘除失败不该让删除本身回滚——残留的引用
+        会在下一次收尾时被当作死链清掉。
+        """
+        try:
+            from core.kb.wiki.config import wiki_enabled
+            from core.kb.wiki.jobs import enqueue_retract
+
+            if space is None or not wiki_enabled(space):
+                return
+            enqueue_retract(self.db, space.kb_id, [document_id])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("文档 %s 的 Wiki 血缘摘除入队失败: %s", document_id, exc)
 
     def create_space(
         self,
@@ -508,8 +530,15 @@ class KBService:
         user_id: str,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        index_modes: Optional[List[str]] = None,
+        wiki_config: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Update an existing KB space."""
+        """Update an existing KB space.
+
+        ``index_modes`` / ``wiki_config`` 落在 metadata 里。改索引模式**不会**自动
+        补建索引：新勾选 wiki 后要调重新生成接口，才会把已有文档排进生成队列——
+        这一步会实打实消耗模型额度，不该在改配置时悄悄发生。
+        """
         space = self.repo.get_space(kb_id)
         if space and self._is_system_managed_space(space):
             self.audit_repo.create(
@@ -541,6 +570,19 @@ class KBService:
             update_data["name"] = name
         if description is not None:
             update_data["description"] = description
+
+        if index_modes is not None or wiki_config is not None:
+            from core.kb.wiki.config import normalize_index_modes
+
+            metadata = dict(space.extra_data or {}) if space else {}
+            if index_modes is not None:
+                metadata["index_modes"] = normalize_index_modes(index_modes)
+            if wiki_config is not None:
+                merged = dict(metadata.get("wiki_config") or {})
+                merged.update({k: v for k, v in wiki_config.items() if v is not None})
+                metadata["wiki_config"] = merged
+            # 列名是 metadata，但 ORM 属性叫 extra_data——仓储层是 setattr，必须用属性名
+            update_data["extra_data"] = metadata
 
         updated = self.repo.update_space(kb_id, update_data)
         if not updated:

@@ -18,6 +18,11 @@ export interface AppConfig {
 
 /**
  * Built-in apps (not in app_config, but participate in user app-permission filtering).
+ *
+ * 注意：这个列表同时是 **权限位注册表**——Config 权限配置（用户/团队/角色）的
+ * "应用可见范围" 勾选项就来自它（见 hooks/useAppsCatalog.ts）。所以有些条目并不
+ * 陈列在应用中心宫格里（automation 走侧边栏一级入口、prompt_hub 是输入框上的入口），
+ * 留在这里纯粹是为了让管理员能按用户/团队开关它。
  */
 export const BUILTIN_APPS: AppItem[] = [
   {
@@ -46,6 +51,15 @@ export const BUILTIN_APPS: AppItem[] = [
       '对一组对象（Excel 行 / 多份文档 / 文本枚举）批量执行同一任务，AI 自动生成可确认的执行计划并逐条处理',
     url: '',
     icon: '/home/random-icons/Frame 460.svg',
+  },
+  {
+    id: 'prompt_hub',
+    enabled: true,
+    name: '提示词中心',
+    description:
+      '输入框上的提示词模板库入口，按场景挑选提示词直接填入对话；关掉后该入口对用户隐藏',
+    url: '',
+    icon: '/home/prompt.svg',
   },
 ];
 

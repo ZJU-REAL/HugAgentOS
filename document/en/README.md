@@ -48,6 +48,7 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 | [Memory System](modules/memory.md) | L1/L2/L3 layered memory, sanitization, audit, mem0 infrastructure |
 | [Domain Ontology Governance and Validation](modules/ontology-harness.md) | CE Settings governance, Domain Packs, tool gates, pre-delivery review, and governed evolution |
 | [Knowledge Base](modules/knowledge-base.md) | Self-hosted KB (hybrid retrieval) and Dify integration, public KB admin |
+| [Knowledge Base Wiki](modules/knowledge-base-wiki.md) | LLM-extracted entities and concepts as interlinked pages and a concept graph |
 | [Object Storage](modules/storage.md) | local / s3 / oss backends, artifact store, file pipelines |
 | [Projects & My Space](modules/projects-myspace.md) | Project workspaces, personal/team folders, files into context |
 | [Authentication & Permissions](modules/auth.md) | Three AUTH_MODEs, SSO, permission bits, admin credentials |

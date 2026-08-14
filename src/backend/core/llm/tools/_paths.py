@@ -64,9 +64,8 @@ def canonicalize_ws_path(path: str) -> str:
 # per request. Core: sandbox first; touch /myspace only when the user
 # explicitly asks.
 PATH_POLICY_DOC = (
-    "【路径】默认在沙盒 ``/workspace/`` 工作（临时、用户看不到、可随意增删改）；"
-    "**仅当用户明确要操作他的「我的空间」/已存文件/要保存留档时**才读写 "
-    "``/myspace/``，否则不主动写改删它。完整规则见系统提示词「路径策略」。"
+    "【路径】默认写沙盒 ``/workspace/``；``/myspace/`` 仅在用户明确要求时读写"
+    "（完整规则见系统提示词「路径策略」）。"
 )
 
 

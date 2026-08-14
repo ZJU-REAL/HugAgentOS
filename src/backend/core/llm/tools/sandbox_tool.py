@@ -398,10 +398,20 @@ def register_bash(
     # then fell back to ``excel_create_workbook`` for a PPT request). Register
     # an alias under the upper-cased name so either form resolves to the same
     # sandbox executor.
+    # The alias carries a one-line description rather than a copy of ``bash``'s:
+    # the full text is ~950 chars of schema that would be prefilled twice on
+    # every request against a gateway without prefix caching, and repeating the
+    # guidance under two names also invites the model to treat them as two
+    # different tools. The name is the whole point of this registration.
     async def Bash(command: str, timeout: int = 60) -> ToolResponse:  # noqa: N802
         return await bash(command=command, timeout=timeout)
 
-    Bash.__doc__ = bash.__doc__
+    Bash.__doc__ = (
+        "Alias of `bash` — identical behaviour and arguments. Prefer `bash`.\n\n"
+        "Args:\n"
+        "    command (`str`): 完整 shell 命令字符串。\n"
+        "    timeout (`int`): 单次命令最大执行秒数。默认 60，硬上限 120。\n"
+    )
     toolkit.register_tool_function(Bash, namesake_strategy="override")
     logger.info("[factory] Registered bash tool (chat_id=%s) [alias: Bash]", chat_id)
 
@@ -465,12 +475,8 @@ def register_sandbox_put_artifact(
         )
 
     sandbox_put_artifact.__doc__ = (
-        "把已存在的 artifact（用户上传文件，或之前 bash/工具产出的文件）的字节\n"
-        "拷贝到沙盒指定路径。\n\n"
-        "典型流程：\n"
-        "1. 用户上传了 data.csv → 拿到 file_id 'ua_abc123'\n"
-        "2. sandbox_put_artifact(artifact_id='ua_abc123', dest_path='/workspace/in.csv')\n"
-        "3. bash(command='cd /workspace && python analyze.py /workspace/in.csv ...')\n\n"
+        "把已存在的 artifact（用户上传的、或之前产出的文件）拷贝到沙盒路径，\n"
+        "供 bash/脚本读取处理。\n\n"
         "Args:\n"
         "    artifact_id (`str`): artifact 的 file_id（如 ua_xxx）。必须属于当前用户。\n"
         "    dest_path (`str`): 沙盒里的目标绝对路径，必须以 /workspace/ 开头，\n"
@@ -587,15 +593,9 @@ def register_sandbox_get_artifact(
             tmp_path.unlink(missing_ok=True)
 
     sandbox_get_artifact.__doc__ = (
-        "把沙盒里的某个文件读出来，登记为持久 artifact，并返回 file_id。\n\n"
-        "⚠️ **拿到 file_id ≠ 已交付**。本工具只是把沙盒文件登记进 artifact 存储，\n"
-        "返回的 url（如 /files/xxx）默认对用户隐藏——直到你再调一次\n"
-        '`pin_to_workspace(file_ids=["<file_id>"])`，文件才会作为附件出现在对话区。\n'
-        "**禁止**把 file_id 或 url 直接写进正文当下载链接，那对用户不可见。\n\n"
-        "典型流程：bash 跑完生成脚本，脚本把结果写到 /workspace/out.xlsx：\n"
-        "  1) sandbox_get_artifact(src_path='/workspace/out.xlsx') → 得到 file_id\n"
-        "  2) pin_to_workspace(file_ids=['<file_id>']) → 文件交付给用户\n"
-        "多份产物一次性 pin（同一 file_ids 列表里塞所有 id），不要分次调。\n\n"
+        "把沙盒文件登记为持久 artifact 并返回 file_id。\n\n"
+        "⚠️ **拿到 file_id ≠ 已交付**——还要再调 `pin_to_workspace` 文件才对用户可见；\n"
+        "交付链路的完整规则见系统提示词「文件产物与『我的空间』操作」。\n\n"
         "Args:\n"
         "    src_path (`str`): 沙盒里的源文件绝对路径，必须以 /workspace/ 开头。\n"
         "    name (`str`, 可选): 用户面向的文件名。不传则取 src_path 的 basename。\n\n"

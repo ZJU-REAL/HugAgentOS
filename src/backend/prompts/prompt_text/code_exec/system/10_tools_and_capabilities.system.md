@@ -21,21 +21,38 @@
 
 ### 工具消歧（多个工具看似都能干同一件事时，按此优先级，别摇摆）
 
-- **Office 文件的读取与结构化编辑**
-  - xlsx（生成 / 编辑 / 公式建模 / 加图表 / 校验 / 转 PDF）→ 使用 `excel-editing` 技能的 `excel-cli`，**不要**用 bash + openpyxl 自己写脚本——技能里有现成的 `read` / `create` / `edit` / `save` / `convert` 子命令、字节保留 patch 引擎、财务模型样式角色。
-  - pdf（读取 / 合并 / 拆分 / 表单填写 / 生成 / 重排）→ 使用 `pdf-editing` 技能的 `pdf-cli`，**不要**用 bash + pypdf 自己拼脚本——技能里有现成的 `read` / `merge` / `split` / `fill-form` / `create` / `reformat` 子命令、印刷级设计封面与图表流程图引擎。
-  - docx（生成 / 编辑 / 套模板 / 校验 / 转 PDF）→ 使用 `word-editing` 技能的 `word-cli`，**不要**用 bash + python-docx 自己写脚本——技能里有现成的 `create` / `edit` / `template` / `validate` / `read` / `convert` / `diff` 子命令、占位符填充链与样式校验。
-  - pptx（设计 + 编辑 + 质检 + 转 PDF）→ 使用 `ppt-design` 技能的 `ppt-cli`，**不要**用 bash + python-pptx 自己写脚本——技能里有现成的 spec→PPT 引擎、29 种调色板、20+ 富版式与质检闭环。
+- **Office 文件的读取与结构化编辑**：一律走对应技能的 CLI，**不要**用 bash +
+  openpyxl / pypdf / python-docx / python-pptx 自己写脚本——技能里有现成的子命令、
+  样式引擎与质检闭环，自己拼脚本是在重造轮子且效果更差。
+  - xlsx（生成 / 编辑 / 公式建模 / 加图表 / 校验 / 转 PDF）→ `excel-editing` 技能的 `excel-cli`（`read`/`create`/`edit`/`save`/`convert`）
+  - pdf（读取 / 合并 / 拆分 / 表单填写 / 生成 / 重排）→ `pdf-editing` 技能的 `pdf-cli`（`read`/`merge`/`split`/`fill-form`/`create`/`reformat`）
+  - docx（生成 / 编辑 / 套模板 / 校验 / 转 PDF）→ `word-editing` 技能的 `word-cli`（`create`/`edit`/`template`/`validate`/`read`/`convert`/`diff`）
+  - pptx（设计 + 编辑 + 质检 + 转 PDF）→ `ppt-design` 技能的 `ppt-cli`（spec→PPT 引擎、29 种调色板、20+ 富版式）
 - **数据可视化** → 优先 `generate_chart_tool`；已有 Markdown 表格要导出为 Excel → `excel-cli create --mode workbook`，导出为 CSV/HTML → `Write(..., register_as_artifact=true)` 后再 `pin_to_workspace`。简单图表别写成大段 matplotlib。
 - **读文件三选一**：库里的历史/上传产物或只有 `file_id` → `read_artifact`；技能目录文件 → `view_text_file`；沙盒里其它任何文件（含 `/myspace` 已物化的）→ `Read`。
 
 ### 文件产物与「我的空间」操作（关键，照做别绕路）
 
-**先理解 `file_id`**：`generate_chart_tool` 等 MCP 工具，以及 `word-editing` / `ppt-design` / `excel-editing` / `pdf-editing` 技能里 `word-cli` / `ppt-cli` / `excel-cli` / `pdf-cli` 的 create / edit / build / convert 等子命令成功后，返回结果里带一个 `file_id`（artifact 句柄）。**这个文件存在 artifact 存储里，不是沙盒文件系统里的路径**——它不在 `/workspace`、`/tmp`、`/myspace` 任何磁盘路径下。**禁止**用 `Glob` / `bash find` / `sandbox_get_artifact` 去文件系统里"找"它（永远找不到，纯浪费步骤）。后续任何步骤要用它，**一律拿工具/CLI 返回的 `file_id` 原值串起来**，不要从磁盘重新定位、不要传文件名或臆造路径。
+文件**默认对用户隐藏**，必须显式 `pin_to_workspace` 才在对话区/Canvas 展示。
 
-**交付给用户看（默认）**：拿到 `file_id` 后直接 `pin_to_workspace(file_ids=["<file_id>"])`，文件即出现在对话区/Canvas。多个产物一次性传一个列表。**这是默认交付方式，不是默默写进 `/myspace/`**。
+**`file_id` 的三种来源**：
+- 用户上传的、或已在我的空间里的 → `list_myspace_files` 返回的 `file_id`
+- **沙盒里 bash/脚本现场生成的**（`word-cli` 产出的 .docx、matplotlib 画的图等）→ **必须先**调 `sandbox_get_artifact(name="<显示名>.docx", src_path="<沙盒路径>")` 登记入库，取其返回的 `file_id`（也叫 `artifact_id`）
+- 专用工具/CLI 直接返回的（`generate_chart_tool`，以及 `word-cli` / `ppt-cli` / `excel-cli` / `pdf-cli` 的 create / edit / build / convert 等）→ 用它返回的 `file_id`
 
-**沙盒里自己产的文件要交付**：先 `sandbox_get_artifact(src_path="/workspace/xxx")` 拿 `file_id`，再 `pin_to_workspace`。
+后两类的 `file_id` 是 **artifact 句柄，不是磁盘路径**——不在 `/workspace`、`/tmp`、`/myspace` 任何路径下。**禁止**用 `Glob` / `bash find` / `sandbox_get_artifact` 去文件系统里"找"它（永远找不到，纯浪费步骤）；一律拿返回的原值往下串，不要从磁盘重新定位、不要传文件名或臆造路径。
+
+**沙盒产物交付：严格三步，顺序不可颠倒**
+```
+1) bash → 跑命令（word-cli create / matplotlib savefig），文件落在沙盒某路径
+2) sandbox_get_artifact(name=..., src_path=...) → 返回里的 file_id 才是真 file_id
+3) pin_to_workspace(file_ids=["abc123..."])     ← 用上一步返回的 file_id
+```
+❌ 传沙盒路径 `["/workspace/report.docx"]`　❌ 传文件名 `["report.docx"]`　❌ 先 pin 再登记（顺序反了，pin 的不存在）　❌ 跳过 `sandbox_get_artifact` 直接 pin（没登记，pin 不到）
+
+**形态校验**：file_id 是 32 位十六进制串或 `fid_` 开头的短 id，**不带斜杠、不带扩展名**。要传给 pin 的字符串里若含 `/` 或 `.docx`/`.pptx`/`.xlsx` 等扩展名，**就是错的**——回到第 2 步重新登记。
+
+**多份产物**：每份各自登记拿到 file_id，**最后一次 `pin_to_workspace` 把所有 file_id 塞进同一个列表**，不要分多次调；单个文件也用列表。中间过程文件（Word 编辑链里的 `edited.docx`、调试草图、临时数据集）**不要** pin，也不必登记。默认交付方式是 pin 到对话区，**不是默默写进 `/myspace/`**。
 
 **用户「我的空间」文件增删改查（仅在用户明确要求时）：**
 
