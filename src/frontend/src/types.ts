@@ -456,6 +456,14 @@ export interface ChatItem {
    *  (plan chats start with plan mode enabled); false records that the user switched back
    *  to ordinary conversation while retaining the historical plan cards. */
   planModeActive?: boolean;
+  /** Thinking-effort tier chosen for this chat. Undefined = never explicitly chosen;
+   *  restore keeps the current session tier (a refresh falls back to the admin default).
+   *  Persisted with the chat record so a refresh / chat switch restores it. */
+  thinkingEffort?: 'turbo' | 'fast' | 'medium' | 'high' | 'max';
+  /** Pending quoted follow-up in the composer (not yet sent with a message). Persisted
+   *  with the chat record and restored on refresh / chat switch; cleared on send. The
+   *  quote already attached to a sent message lives on ChatMessage.quotedFollowUp. */
+  pendingQuote?: { text: string; ts: number };
   /** Whether this chat was created via the batch-execution ("批量执行") entry from the App Center */
   batchChat?: boolean;
   /** Whether this chat was created via the site-building ("站点建站") entry (Lab → Sites) */

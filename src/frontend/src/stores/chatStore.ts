@@ -87,6 +87,54 @@ function savePendingScrollMessageTs(userId: string | null | undefined, ts: numbe
   window.localStorage.setItem(key, String(ts));
 }
 
+const QUEUED_MESSAGES_KEY = 'hugagent_queued_messages';
+
+/** Queued-message persistence: only entries with status==='queued' are stored.
+ *  A 'steering'/'applied' instruction has already been handed to the backend run
+ *  (steerChatRun) — restoring it after a refresh would deliver it twice. A 'queued'
+ *  entry simply comes back as the pending card: a resumed run picks it up when it
+ *  settles, otherwise the user sends or deletes it manually. */
+function loadQueuedMessages(userId: string | null | undefined): Record<string, QueuedChatMessage> {
+  if (typeof window === 'undefined') return {};
+  const key = userScopedKey(QUEUED_MESSAGES_KEY, userId);
+  if (!key) return {};
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, QueuedChatMessage>;
+    const out: Record<string, QueuedChatMessage> = {};
+    for (const [chatId, q] of Object.entries(parsed || {})) {
+      if (q && q.status === 'queued' && typeof q.content === 'string' && q.content) out[chatId] = q;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveQueuedMessages(
+  userId: string | null | undefined,
+  map: Record<string, QueuedChatMessage>,
+) {
+  if (typeof window === 'undefined') return;
+  const key = userScopedKey(QUEUED_MESSAGES_KEY, userId);
+  if (!key) return;
+  const persistable = Object.entries(map).filter(([, q]) => q?.status === 'queued');
+  try {
+    if (persistable.length === 0) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify(Object.fromEntries(persistable)));
+  } catch { /* localStorage unavailable — keep the in-memory state, skip persistence */ }
+}
+
+/** Restore the thinking-effort tier recorded on a chat. Returns {} when the chat has
+ *  no record (legacy data / never explicitly chosen) so the current tier is kept —
+ *  switching chats must not swallow a tier the user just picked. */
+function restoredEffort(chat?: ChatItem): Partial<{ chatMode: ChatMode }> {
+  const saved = chat?.thinkingEffort;
+  if (!saved || !(VALID_CHAT_MODES as readonly string[]).includes(saved)) return {};
+  return { chatMode: saved };
+}
+
 interface ChatState {
   /** ID of the currently authenticated user. Null until `hydrateForUser` is
    *  called after login. All localStorage reads/writes are scoped by this id
@@ -366,6 +414,10 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentChatId: id,
       sending: get().sendingChatIds.has(id),
       planMode: resolvePlanModeActive(chat),
+      // Thinking effort and pending quote follow the chat record; effort with no
+      // record keeps the current tier.
+      ...restoredEffort(chat),
+      quotedFollowUp: chat?.pendingQuote || null,
       // Autonomous loop is a "one-shot composer intent" and does not persist with the chat —
       // switching to any chat resets to a normal conversation, so a loop mode left on in the
       // previous chat doesn't carry over into a new/other chat.
@@ -392,7 +444,22 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (next.has(id)) next.delete(id); else next.add(id);
     set({ expandedThinking: next });
   },
-  setChatMode: (v) => set({ chatMode: v }),
+  setChatMode: (v) => {
+    const { currentChatId, currentUserId, store } = get();
+    const chat = store.chats[currentChatId];
+    if (!chat) {
+      // No chat record yet (before the first message): keep the UI state only;
+      // the send path stamps the current tier when it creates the record.
+      set({ chatMode: v });
+      return;
+    }
+    const next: ChatStoreData = {
+      ...store,
+      chats: { ...store.chats, [currentChatId]: { ...chat, thinkingEffort: v } },
+    };
+    set({ chatMode: v, store: next, storeRef: next });
+    saveChatStoreDebounced(currentUserId, next);
+  },
   setToolResultPanel: (panel) => set({ toolResultPanel: panel }),
   setCopiedMsg: (ts) => set({ copiedMsg: ts }),
   setChatsLoading: (v) => set({ chatsLoading: v }),
@@ -441,7 +508,23 @@ export const useChatStore = create<ChatState>((set, get) => {
     savePendingScrollMessageTs(get().currentUserId, ts);
     set({ pendingScrollMessageTs: ts });
   },
-  setQuotedFollowUp: (quote) => set({ quotedFollowUp: quote }),
+  setQuotedFollowUp: (quote) => {
+    const { currentChatId, currentUserId, store } = get();
+    const chat = store.chats[currentChatId];
+    if (!chat) {
+      set({ quotedFollowUp: quote });
+      return;
+    }
+    const nextChat: ChatItem = { ...chat };
+    if (quote) nextChat.pendingQuote = quote;
+    else delete nextChat.pendingQuote;
+    const next: ChatStoreData = {
+      ...store,
+      chats: { ...store.chats, [currentChatId]: nextChat },
+    };
+    set({ quotedFollowUp: quote, store: next, storeRef: next });
+    saveChatStoreDebounced(currentUserId, next);
+  },
   setActiveSkill: (skill) => set({ activeSkill: skill }),
   setActivePlugin: (plugin) => set({ activePlugin: plugin }),
   setActiveMention: (mention) => set({ activeMention: mention }),
@@ -505,17 +588,23 @@ export const useChatStore = create<ChatState>((set, get) => {
     delete next[chatId];
     return { activeRuns: next };
   }),
-  setQueuedMessage: (chatId, queued) => set((s) => {
-    const next = { ...s.queuedMessages };
-    if (queued) next[chatId] = queued;
-    else delete next[chatId];
-    return { queuedMessages: next };
-  }),
-  updateQueuedMessage: (chatId, updater) => set((s) => {
-    const current = s.queuedMessages[chatId];
-    if (!current) return { queuedMessages: s.queuedMessages };
-    return { queuedMessages: { ...s.queuedMessages, [chatId]: updater(current) } };
-  }),
+  setQueuedMessage: (chatId, queued) => {
+    set((s) => {
+      const next = { ...s.queuedMessages };
+      if (queued) next[chatId] = queued;
+      else delete next[chatId];
+      return { queuedMessages: next };
+    });
+    saveQueuedMessages(get().currentUserId, get().queuedMessages);
+  },
+  updateQueuedMessage: (chatId, updater) => {
+    set((s) => {
+      const current = s.queuedMessages[chatId];
+      if (!current) return { queuedMessages: s.queuedMessages };
+      return { queuedMessages: { ...s.queuedMessages, [chatId]: updater(current) } };
+    });
+    saveQueuedMessages(get().currentUserId, get().queuedMessages);
+  },
   setCompactionNotice: (chatId) => set((s) => ({
     compactionNotices: { ...s.compactionNotices, [chatId]: true },
   })),
@@ -663,6 +752,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       planMode: planChat,
       currentPlanId: null,
       toolResultPanel: null,
+      quotedFollowUp: nextChat.pendingQuote || null,
       sending: sendingChatIds.has(targetId),
     });
   },
@@ -722,6 +812,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       toolResultPanel: null,
       input: '',
+      quotedFollowUp: nextChat.pendingQuote || null,
       activeSkill: null,
       // "Sites" plugin installed → activate it automatically (site-builder skill + site_publish tool delivered with this turn).
       activePlugin: sitesActivePlugin,
@@ -776,6 +867,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       queuedMessages: nextQueued,
     });
     saveChatStoreDebounced(currentUserId, next);
+    saveQueuedMessages(currentUserId, nextQueued);
     if (currentChatId === id) {
       const newId = next.order[0] || nowId('chat');
       const nextChat = next.chats[newId];
@@ -783,11 +875,12 @@ export const useChatStore = create<ChatState>((set, get) => {
       set({
         currentChatId: newId,
         planMode: resolvePlanModeActive(nextChat),
+        ...restoredEffort(nextChat),
         loopMode: false,
         currentPlanId: null,
         shareSelectionMode: false,
         selectedShareMessageTs: new Set(),
-        quotedFollowUp: null,
+        quotedFollowUp: nextChat?.pendingQuote || null,
         activeSkill: null,
         activePlugin: null,
         activeMention: null,
@@ -836,7 +929,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       loadedMsgIds: new Set(),
       shareSelectionMode: false,
       selectedShareMessageTs: new Set(),
-      quotedFollowUp: null,
+      quotedFollowUp: store.chats[currentChatId]?.pendingQuote || null,
       activeSkill: null,
       activePlugin: null,
       activeMention: null,
@@ -845,10 +938,14 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
-      queuedMessages: {},
+      // Only 'queued' entries are restored; 'steering'/'applied' ones already live
+      // with the backend run and must not be replayed.
+      queuedMessages: loadQueuedMessages(userId),
       compactionNotices: {},
       contextCompactions: {},
       chatMode: adminDefaultChatMode(),
+      // Restore the chat's recorded thinking effort over the admin default.
+      ...restoredEffort(store.chats[currentChatId]),
     });
   },
 

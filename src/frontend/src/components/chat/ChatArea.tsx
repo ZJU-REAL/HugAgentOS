@@ -119,7 +119,6 @@ export function ChatArea({
     store, currentChatId, setInput, planMode,
     shareSelectionMode, selectedShareMessageTs,
     pendingScrollMessageTs, setPendingScrollMessageTs,
-    setQuotedFollowUp,
     clearShareSelection,
     chatsLoading,
     backendSessionIds, loadedMsgIds,
@@ -174,7 +173,9 @@ export function ChatArea({
 
   useEffect(() => {
     useChatStore.getState().clearShareSelection();
-    setQuotedFollowUp(null);
+    // The pending quote is no longer cleared here: it is persisted with the chat
+    // record (ChatItem.pendingQuote), and every chat-switch path in chatStore
+    // restores or clears it from that record.
   }, [currentChatId]);
 
   // Proactively fetch the access level when switching sessions — even if ChatShareBanner

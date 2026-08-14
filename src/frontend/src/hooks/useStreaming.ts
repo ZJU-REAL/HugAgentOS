@@ -488,6 +488,10 @@ export function useStreaming(
         updatedAt: Date.now(),
         title: c?.title && c.title !== '新对话' ? c.title : msg.slice(0, 18) || '新对话',
         businessTopic: inferredTopic,
+        // Stamp the current thinking effort on send: before the first message there is
+        // no chat record for setChatMode to write to, so record it here — otherwise a
+        // refresh / chat switch cannot restore it.
+        thinkingEffort: useChatStore.getState().chatMode,
       };
       return {
         chats: { ...prev.chats, [currentChatId]: nextChat },
