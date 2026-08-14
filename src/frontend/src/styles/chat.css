@@ -566,6 +566,46 @@
   40% { transform:translateY(-2px); opacity:1; }
 }
 
+/* ── 轮级运行状态"深度拥抱中…"——首字/首个工具前的 logo 动图 + 灰阶流光文字，
+   代替过早出现的"执行中 / 正在准备调用工具"空壳卡片。
+   灰阶渐变与 .jx-tcr-prefix--shimmer 同一套；字号加大加粗突出轮级地位，
+   与既有"系统在工作"指示器视觉同源 ── */
+.jx-turnStatus{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  align-self:flex-start;
+  min-height:26px;
+  padding:2px 0;
+  font-size:14px;
+  font-weight:600;
+  white-space:nowrap;
+}
+/* logo 动图与运行中的工具壳同款轻呼吸 */
+.jx-turnStatus .jx-brandLoader{
+  animation:jx-trs-breathe 1.8s ease-in-out infinite;
+}
+.jx-turnStatus-label{
+  /* 中灰而非近黑：slate-400 打底、slate-600 做流光高亮，加粗后仍显轻盈 */
+  background:linear-gradient(90deg,
+    rgba(148, 163, 184, 0.70) 0%,
+    rgba(71, 85, 105, 0.90) 50%,
+    rgba(148, 163, 184, 0.70) 100%);
+  background-size:200% 100%;
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+  color:transparent;
+  animation:jx-kf-shimmer 1.6s linear infinite;
+}
+.jx-turnStatus-clock{
+  margin-left:2px;
+  font-size:12px;
+  font-weight:400;
+  font-variant-numeric:tabular-nums;
+  color:var(--color-text-placeholder);
+}
+
 
 /* ── 上传文件预览卡片（输入区 & 用户消息） ──────── */
 .jx-fileCard{

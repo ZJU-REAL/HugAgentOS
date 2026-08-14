@@ -4,7 +4,7 @@ import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScope
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
-import { resolvePlanModeActive } from '../utils/chatMode';
+import { resolveModeSlug, resolvePlanModeActive } from '../utils/chatMode';
 
 /** Fixed slug of the site-building plugin (plugin_bundles/marketplace/sites). Site-building
  *  capability (publish_site tool + site-builder guidance skill) is provided by it — removed from
@@ -101,6 +101,55 @@ function savePendingScrollMessageTs(userId: string | null | undefined, ts: numbe
     return;
   }
   window.localStorage.setItem(key, String(ts));
+}
+
+const QUEUED_MESSAGES_KEY = 'hugagent_queued_messages';
+
+/** 排队消息持久化：**只存 status==='queued' 的**。steering/applied 的指令已经交给
+ *  后端 run（steerChatRun），刷新后恢复成待发送会重复下发；queued 的恢复成待发送
+ *  卡片即可——有续播 run 就等它结束自动接管，没有就留给用户点发送/删除。 */
+function loadQueuedMessages(userId: string | null | undefined): Record<string, QueuedChatMessage> {
+  if (typeof window === 'undefined') return {};
+  const key = userScopedKey(QUEUED_MESSAGES_KEY, userId);
+  if (!key) return {};
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, QueuedChatMessage>;
+    const out: Record<string, QueuedChatMessage> = {};
+    for (const [chatId, q] of Object.entries(parsed || {})) {
+      if (q && q.status === 'queued' && typeof q.content === 'string' && q.content) out[chatId] = q;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveQueuedMessages(
+  userId: string | null | undefined,
+  map: Record<string, QueuedChatMessage>,
+) {
+  if (typeof window === 'undefined') return;
+  const key = userScopedKey(QUEUED_MESSAGES_KEY, userId);
+  if (!key) return;
+  const persistable = Object.entries(map).filter(([, q]) => q?.status === 'queued');
+  try {
+    if (persistable.length === 0) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify(Object.fromEntries(persistable)));
+  } catch { /* localStorage 不可用时放弃持久化，不影响内存态 */ }
+}
+
+/** 恢复对话记录上的思考强度档。没记录（老数据 / 没显式选过）返回 {}——沿用当前
+ *  会话档位，避免切一次对话就把用户刚选的档位吞掉。 */
+function restoredEffort(
+  chat?: ChatItem,
+): Partial<{ chatMode: ChatMode; lastStandardMode: ThinkingEffort }> {
+  const saved = chat?.thinkingEffort;
+  if (!saved || !(VALID_CHAT_MODES as readonly string[]).includes(saved)) return {};
+  return saved === 'turbo'
+    ? { chatMode: saved }
+    : { chatMode: saved, lastStandardMode: saved };
 }
 
 interface ChatState {
@@ -396,6 +445,11 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentChatId: id,
       sending: get().sendingChatIds.has(id),
       planMode: resolvePlanModeActive(chat),
+      // 模式跟着对话走：切到哪段对话就恢复它记录上的模式，没记录的按标准模式。
+      modeSlug: resolveModeSlug(chat),
+      // 思考强度与待发送引用同理随对话记录恢复；强度没记录时沿用当前档位。
+      ...restoredEffort(chat),
+      quotedFollowUp: chat?.pendingQuote || null,
       // Autonomous loop is a "one-shot composer intent" and does not persist with the chat —
       // switching to any chat resets to a normal conversation, so a loop mode left on in the
       // previous chat doesn't carry over into a new/other chat.
@@ -422,8 +476,41 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (next.has(id)) next.delete(id); else next.add(id);
     set({ expandedThinking: next });
   },
-  setChatMode: (v) => set(v === 'turbo' ? { chatMode: v } : { chatMode: v, lastStandardMode: v }),
-  setModeSlug: (v) => set({ modeSlug: v || 'standard' }),
+  setChatMode: (v) => {
+    const ui = v === 'turbo'
+      ? { chatMode: v }
+      : { chatMode: v, lastStandardMode: v as ThinkingEffort };
+    const { currentChatId, currentUserId, store } = get();
+    const chat = store.chats[currentChatId];
+    if (!chat) {
+      // 记录还没建（首条消息前）：先记 UI 态，useStreaming 建记录时补落。
+      set(ui);
+      return;
+    }
+    const next: ChatStoreData = {
+      ...store,
+      chats: { ...store.chats, [currentChatId]: { ...chat, thinkingEffort: v } },
+    };
+    set({ ...ui, store: next, storeRef: next });
+    saveChatStoreDebounced(currentUserId, next);
+  },
+  setModeSlug: (v) => {
+    const slug = v || 'standard';
+    const { currentChatId, currentUserId, store } = get();
+    const chat = store.chats[currentChatId];
+    if (!chat) {
+      // 对话记录还没建（首条消息前）：先记 UI 态，useStreaming 建记录时会把
+      // 当前 modeSlug 落进去。
+      set({ modeSlug: slug });
+      return;
+    }
+    const next: ChatStoreData = {
+      ...store,
+      chats: { ...store.chats, [currentChatId]: { ...chat, modeSlug: slug } },
+    };
+    set({ modeSlug: slug, store: next, storeRef: next });
+    saveChatStoreDebounced(currentUserId, next);
+  },
   setToolResultPanel: (panel) => set({ toolResultPanel: panel }),
   setCopiedMsg: (ts) => set({ copiedMsg: ts }),
   setChatsLoading: (v) => set({ chatsLoading: v }),
@@ -472,7 +559,23 @@ export const useChatStore = create<ChatState>((set, get) => {
     savePendingScrollMessageTs(get().currentUserId, ts);
     set({ pendingScrollMessageTs: ts });
   },
-  setQuotedFollowUp: (quote) => set({ quotedFollowUp: quote }),
+  setQuotedFollowUp: (quote) => {
+    const { currentChatId, currentUserId, store } = get();
+    const chat = store.chats[currentChatId];
+    if (!chat) {
+      set({ quotedFollowUp: quote });
+      return;
+    }
+    const nextChat: ChatItem = { ...chat };
+    if (quote) nextChat.pendingQuote = quote;
+    else delete nextChat.pendingQuote;
+    const next: ChatStoreData = {
+      ...store,
+      chats: { ...store.chats, [currentChatId]: nextChat },
+    };
+    set({ quotedFollowUp: quote, store: next, storeRef: next });
+    saveChatStoreDebounced(currentUserId, next);
+  },
   setActiveSkill: (skill) => set({ activeSkill: skill }),
   setActivePlugin: (plugin) => set({ activePlugin: plugin }),
   setActiveMention: (mention) => set({ activeMention: mention }),
@@ -536,17 +639,23 @@ export const useChatStore = create<ChatState>((set, get) => {
     delete next[chatId];
     return { activeRuns: next };
   }),
-  setQueuedMessage: (chatId, queued) => set((s) => {
-    const next = { ...s.queuedMessages };
-    if (queued) next[chatId] = queued;
-    else delete next[chatId];
-    return { queuedMessages: next };
-  }),
-  updateQueuedMessage: (chatId, updater) => set((s) => {
-    const current = s.queuedMessages[chatId];
-    if (!current) return { queuedMessages: s.queuedMessages };
-    return { queuedMessages: { ...s.queuedMessages, [chatId]: updater(current) } };
-  }),
+  setQueuedMessage: (chatId, queued) => {
+    set((s) => {
+      const next = { ...s.queuedMessages };
+      if (queued) next[chatId] = queued;
+      else delete next[chatId];
+      return { queuedMessages: next };
+    });
+    saveQueuedMessages(get().currentUserId, get().queuedMessages);
+  },
+  updateQueuedMessage: (chatId, updater) => {
+    set((s) => {
+      const current = s.queuedMessages[chatId];
+      if (!current) return { queuedMessages: s.queuedMessages };
+      return { queuedMessages: { ...s.queuedMessages, [chatId]: updater(current) } };
+    });
+    saveQueuedMessages(get().currentUserId, get().queuedMessages);
+  },
   setCompactionNotice: (chatId) => set((s) => ({
     compactionNotices: { ...s.compactionNotices, [chatId]: true },
   })),
@@ -699,6 +808,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       loopMode: false,
       currentPlanId: null,
       toolResultPanel: null,
+      quotedFollowUp: nextChat.pendingQuote || null,
       sending: sendingChatIds.has(targetId),
     });
   },
@@ -779,6 +889,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       toolResultPanel: null,
       input: '',
+      quotedFollowUp: nextChat.pendingQuote || null,
       activeSkill: null,
       // "Sites" plugin installed → activate it automatically (site-builder skill + site_publish tool delivered with this turn).
       activePlugin: sitesActivePlugin,
@@ -834,6 +945,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       queuedMessages: nextQueued,
     });
     saveChatStoreDebounced(currentUserId, next);
+    saveQueuedMessages(currentUserId, nextQueued);
     if (currentChatId === id) {
       const newId = next.order[0] || nowId('chat');
       const nextChat = next.chats[newId];
@@ -841,11 +953,13 @@ export const useChatStore = create<ChatState>((set, get) => {
       set({
         currentChatId: newId,
         planMode: resolvePlanModeActive(nextChat),
+        modeSlug: resolveModeSlug(nextChat),
+        ...restoredEffort(nextChat),
         loopMode: false,
         currentPlanId: null,
         shareSelectionMode: false,
         selectedShareMessageTs: new Set(),
-        quotedFollowUp: null,
+        quotedFollowUp: nextChat?.pendingQuote || null,
         activeSkill: null,
         activePlugin: null,
         activeMention: null,
@@ -894,7 +1008,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       loadedMsgIds: new Set(),
       shareSelectionMode: false,
       selectedShareMessageTs: new Set(),
-      quotedFollowUp: null,
+      quotedFollowUp: store.chats[currentChatId]?.pendingQuote || null,
       activeSkill: null,
       activePlugin: null,
       activeMention: null,
@@ -903,11 +1017,14 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
-      queuedMessages: {},
+      // 只恢复 queued 状态的排队消息；steering/applied 的已交给后端 run，不重放。
+      queuedMessages: loadQueuedMessages(userId),
       compactionNotices: {},
       contextCompactions: {},
       ...applyDefaultChatMode(),
-      modeSlug: 'standard',
+      // 刷新/重新进入时恢复当前对话记录上的模式与思考强度，不再一律掉回默认。
+      modeSlug: resolveModeSlug(store.chats[currentChatId]),
+      ...restoredEffort(store.chats[currentChatId]),
     });
   },
 

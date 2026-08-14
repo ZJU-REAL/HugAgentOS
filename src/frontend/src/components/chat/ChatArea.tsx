@@ -120,7 +120,6 @@ export function ChatArea({
     store, currentChatId, setInput, planMode,
     shareSelectionMode, selectedShareMessageTs,
     pendingScrollMessageTs, setPendingScrollMessageTs,
-    setQuotedFollowUp,
     clearShareSelection,
     chatsLoading,
     backendSessionIds, loadedMsgIds,
@@ -175,7 +174,8 @@ export function ChatArea({
 
   useEffect(() => {
     useChatStore.getState().clearShareSelection();
-    setQuotedFollowUp(null);
+    // 引用追问不再在这里清空：它已随对话记录持久化（ChatItem.pendingQuote），
+    // 切对话时由 chatStore 的各切换路径恢复/清空。
   }, [currentChatId]);
 
   // Stable identity on purpose: ChatShareBanner rebuilds its loader whenever this

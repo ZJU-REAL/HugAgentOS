@@ -52,6 +52,8 @@ class ChatModeIn(BaseModel):
     plugin_ids: Optional[List[str]] = None
     agent_ids: Optional[List[str]] = Field(None, description="这个模式下可入场的子智能体")
     manual_invoke_enabled: Optional[bool] = None
+    #: 收窄模式下是否保留沙箱代码执行与文件工具；all 作用域不看这个位。
+    code_exec_enabled: Optional[bool] = None
     max_iters: Optional[int] = None
     default_effort: Optional[str] = Field(None, description="fast / medium / high / max")
     effort_locked: Optional[bool] = None
@@ -77,6 +79,7 @@ def _mode_to_dict(row: ChatMode) -> Dict[str, Any]:
         "plugin_ids": row.plugin_ids or [],
         "agent_ids": row.agent_ids or [],
         "manual_invoke_enabled": bool(row.manual_invoke_enabled),
+        "code_exec_enabled": bool(getattr(row, "code_exec_enabled", False)),
         "max_iters": row.max_iters,
         "default_effort": row.default_effort,
         "effort_locked": bool(row.effort_locked),

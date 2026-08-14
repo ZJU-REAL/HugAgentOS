@@ -594,8 +594,12 @@ def register_sandbox_get_artifact(
 
     sandbox_get_artifact.__doc__ = (
         "把沙盒文件登记为持久 artifact 并返回 file_id。\n\n"
-        "⚠️ **拿到 file_id ≠ 已交付**——还要再调 `pin_to_workspace` 文件才对用户可见；\n"
-        "交付链路的完整规则见系统提示词「文件产物与『我的空间』操作」。\n\n"
+        "⚠️ **拿到 file_id ≠ 已交付**：本工具只做登记，返回的 url 默认对用户隐藏，\n"
+        "必须再调 `pin_to_workspace(file_ids=[...])` 文件才作为附件出现在对话区。\n"
+        "**禁止**把 file_id 或 url 写进正文当下载链接——那对用户不可见。\n\n"
+        "沙盒产物交付是**严格三步、顺序不可颠倒**：\n"
+        "  1) bash 跑命令生成文件 → 2) sandbox_get_artifact 登记拿 file_id\n"
+        "  → 3) pin_to_workspace 交付。跳过第 2 步直接 pin 路径或文件名必然失败。\n\n"
         "Args:\n"
         "    src_path (`str`): 沙盒里的源文件绝对路径，必须以 /workspace/ 开头。\n"
         "    name (`str`, 可选): 用户面向的文件名。不传则取 src_path 的 basename。\n\n"

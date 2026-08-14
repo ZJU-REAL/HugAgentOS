@@ -578,13 +578,19 @@ async def create_agent_executor(
     # Normalized before any capability resolution so every downstream gate
     # (skill-bound MCP expansion, subagent merge, update_plan opt-in, file
     # tools) sees the narrowed grants rather than needing its own turbo check.
+    #
+    # _turbo_code_exec: 收窄模式保留代码执行（chat_modes.code_exec_enabled）。
+    # 收窄的是 MCP/技能/插件面，沙箱与文件工具照常注册——"收窄=无代码"只是
+    # 内置极速模式的契约，不是所有收窄模式的。
+    _turbo_code_exec = False
     if turbo_mode:
         if mode_spec is not None:
-            # 模式表是真源：这四个取值全部来自 chat_modes 那一行。
+            # 模式表是真源：这几个取值全部来自 chat_modes 那一行。
             _mode_manual_invoke = bool(getattr(mode_spec, "manual_invoke_enabled", True))
             _mode_mcp_ids = list(getattr(mode_spec, "mcp_server_ids", ()) or ())
             _mode_skill_ids = list(getattr(mode_spec, "skill_ids", ()) or ())
             _mode_plugin_ids = list(getattr(mode_spec, "plugin_ids", ()) or ())
+            _turbo_code_exec = bool(getattr(mode_spec, "code_exec_enabled", False))
         else:
             from core.services.system_config import (
                 turbo_manual_invoke_enabled,
@@ -628,8 +634,9 @@ async def create_agent_executor(
             )
         )
         top_level_chat = False
-        read_only = True
-        allow_bash = False
+        if not _turbo_code_exec:
+            read_only = True
+            allow_bash = False
         # The turbo tool surface comes from admin config alone — deliberately
         # NOT intersected with catalog/user enable-disable state. Explicitly
         # summoned plugin MCPs are appended on top; MCPs bound to a summoned
@@ -1093,7 +1100,7 @@ async def create_agent_executor(
     # human in the loop → non-interactive, and §13 rejects /myspace writes
     # outright.
     _interactive: bool = not (isolated or batch_mode)
-    if not disable_tools and turbo_mode:
+    if not disable_tools and turbo_mode and not _turbo_code_exec:
         # Turbo keeps only cross-turn attachment access (the file-context hook
         # references this tool for historical attachments); every other native
         # tool — sandbox/bash/file ops — is out of scope for quick lookup.
@@ -1110,7 +1117,9 @@ async def create_agent_executor(
                 loader,
                 loaded_skill_ids=loaded_skill_ids,
             )
-    if not disable_tools and not turbo_mode:
+    # 收窄模式开了代码执行位（_turbo_code_exec）就走完整原生工具注册：MCP/技能面
+    # 仍按模式收窄（上面已经归一），但沙箱/文件/产物工具与标准模式同一套。
+    if not disable_tools and (not turbo_mode or _turbo_code_exec):
         register_sandboxed_view_text_file(
             toolkit,
             allowed_skill_dirs,
@@ -1393,10 +1402,13 @@ async def create_agent_executor(
             elif _mode_prompt_kind and _mode_prompt_kind != "turbo":
                 _mode_prompt = _pvs_mode.render_system_prompt_of_kind(_mode_prompt_kind)
 
-        if turbo_mode:
+        if turbo_mode and not _turbo_code_exec:
             # Turbo swaps in the standalone prompt (DB "turbo" active version →
             # fs fallback): the default prompt's tool/workflow sections describe
             # capabilities this assembly deliberately does not carry.
+            # （开了代码执行位的收窄模式不进这条：装配确实带沙箱/文件工具，
+            # turbo 正文"秒级检索、不执行代码"的叙事反而是错的——没配专属
+            # 提示词时走默认装配，工具段按实际 toolkit 动态生成。）
             from core.services import prompt_version_service as _pvs_turbo
 
             # 收窄模式没配专属提示词时退回历史的 turbo 正文——极速模式绑的就是它。
@@ -1443,7 +1455,7 @@ async def create_agent_executor(
         # ── Inject code-capability system prompt ──
         # Gating: CODE_CAPABILITY_ENABLED=true injects in all modes.
         # Single source of truth render_code_capability_segment (same source as the Config console preview).
-        if code_capability_enabled() and not turbo_mode:
+        if code_capability_enabled() and (not turbo_mode or _turbo_code_exec):
             try:
                 from core.services import prompt_version_service as _pvs
 
@@ -1889,7 +1901,12 @@ async def create_agent_executor(
         from core.services.system_config import turbo_max_iters
 
         _mode_iters = getattr(mode_spec, "max_iters", None) if mode_spec else None
-        _max_iters = min(_max_iters, int(_mode_iters) if _mode_iters else turbo_max_iters())
+        if _mode_iters:
+            _max_iters = min(_max_iters, int(_mode_iters))
+        elif not _turbo_code_exec:
+            _max_iters = min(_max_iters, turbo_max_iters())
+        # else: 开了代码执行位且模式没配上限 → 不套极速的检索档硬顶（默认 4 轮
+        # 会把跑代码的任务掐死），按 profile/env 的常规上限走。
 
     # ── Create the Agent (AgentScope 2.0) ──
     # Note: long_term_memory is not passed — mem0 is fully stripped from the SSE

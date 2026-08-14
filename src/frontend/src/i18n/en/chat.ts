@@ -255,6 +255,7 @@ export const CHAT_DICT: Record<string, string> = {
   '暂无提示词，请在管理后台添加': 'No prompts yet. Add some in the admin console.',
   '正在准备调用工具': 'Preparing tool call',
   '正在准备调用工具…': 'Preparing tool call…',
+  '深度拥抱中…': 'Deep hugging…',
   'Mermaid 渲染失败': 'Mermaid render failed',
   '加载图表中...': 'Loading diagram...',
   '用时 {sec}秒': 'Took {sec}s',

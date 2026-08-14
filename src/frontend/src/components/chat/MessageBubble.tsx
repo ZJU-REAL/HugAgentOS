@@ -23,6 +23,7 @@ import { ToolProgressInline } from '../tool/ToolProgressInline';
 import { anyToolRunning } from '../tool/renderers/utils';
 import { ThinkingInline } from './ThinkingInline';
 import { StreamWaitIndicator } from './StreamWaitIndicator';
+import { TurnStatusIndicator } from './TurnStatusIndicator';
 import { EvolutionCard } from './EvolutionCard';
 import { OntologyReviewTrigger } from './OntologyReviewTrigger';
 import { useStallDetector } from '../../hooks';
@@ -896,13 +897,12 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
               });
 
               if (virtualPending) {
+                // No real tool run to attach to (turn start, or the model went
+                // silent again after finishing a run + text) — a light turn-level
+                // shimmer label beats a hollow "执行中" shell card here: we don't
+                // even know yet whether a tool will be called.
                 rendered.push(
-                  <ToolRunShell
-                    key={virtualPending.key}
-                    steps={[{ kind: 'pending', startTs: virtualPending.startTs, key: virtualPending.key }]}
-                    isStreaming={m.isStreaming}
-                    holdOpenUntilText={true}
-                  />,
+                  <TurnStatusIndicator key={virtualPending.key} startTs={virtualPending.startTs} />,
                 );
               }
 
@@ -934,11 +934,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
             )}
             {m.isStreaming && !m.content ? (
               dispatchProcessVisible ? (
-                <ToolRunShell
-                  steps={[{ kind: 'pending', startTs: stall.since, key: `${m.ts}-legacy-pending` }]}
-                  isStreaming={m.isStreaming}
-                  holdOpenUntilText={true}
-                />
+                <TurnStatusIndicator startTs={stall.since} />
               ) : (
                 <ThinkingInline content="" thinkKey={`${m.ts}-legacy-placeholder`} isActive={true} />
               )

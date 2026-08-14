@@ -370,6 +370,7 @@ export interface ChatModeDetail extends ChatModeOption {
   plugin_ids: string[];
   agent_ids: string[];
   manual_invoke_enabled: boolean;
+  code_exec_enabled: boolean;
   max_iters: number | null;
   prompt_kind: string | null;
   prompt_text: string | null;

@@ -33,26 +33,11 @@
 
 ### 文件产物与「我的空间」操作（关键，照做别绕路）
 
-文件**默认对用户隐藏**，必须显式 `pin_to_workspace` 才在对话区/Canvas 展示。
-
-**`file_id` 的三种来源**：
-- 用户上传的、或已在我的空间里的 → `list_myspace_files` 返回的 `file_id`
-- **沙盒里 bash/脚本现场生成的**（`word-cli` 产出的 .docx、matplotlib 画的图等）→ **必须先**调 `sandbox_get_artifact(name="<显示名>.docx", src_path="<沙盒路径>")` 登记入库，取其返回的 `file_id`（也叫 `artifact_id`）
-- 专用工具/CLI 直接返回的（`generate_chart_tool`，以及 `word-cli` / `ppt-cli` / `excel-cli` / `pdf-cli` 的 create / edit / build / convert 等）→ 用它返回的 `file_id`
-
-后两类的 `file_id` 是 **artifact 句柄，不是磁盘路径**——不在 `/workspace`、`/tmp`、`/myspace` 任何路径下。**禁止**用 `Glob` / `bash find` / `sandbox_get_artifact` 去文件系统里"找"它（永远找不到，纯浪费步骤）；一律拿返回的原值往下串，不要从磁盘重新定位、不要传文件名或臆造路径。
-
-**沙盒产物交付：严格三步，顺序不可颠倒**
-```
-1) bash → 跑命令（word-cli create / matplotlib savefig），文件落在沙盒某路径
-2) sandbox_get_artifact(name=..., src_path=...) → 返回里的 file_id 才是真 file_id
-3) pin_to_workspace(file_ids=["abc123..."])     ← 用上一步返回的 file_id
-```
-❌ 传沙盒路径 `["/workspace/report.docx"]`　❌ 传文件名 `["report.docx"]`　❌ 先 pin 再登记（顺序反了，pin 的不存在）　❌ 跳过 `sandbox_get_artifact` 直接 pin（没登记，pin 不到）
-
-**形态校验**：file_id 是 32 位十六进制串或 `fid_` 开头的短 id，**不带斜杠、不带扩展名**。要传给 pin 的字符串里若含 `/` 或 `.docx`/`.pptx`/`.xlsx` 等扩展名，**就是错的**——回到第 2 步重新登记。
-
-**多份产物**：每份各自登记拿到 file_id，**最后一次 `pin_to_workspace` 把所有 file_id 塞进同一个列表**，不要分多次调；单个文件也用列表。中间过程文件（Word 编辑链里的 `edited.docx`、调试草图、临时数据集）**不要** pin，也不必登记。默认交付方式是 pin 到对话区，**不是默默写进 `/myspace/`**。
+交付链路（登记 → pin）的规则写在 `sandbox_get_artifact` 与 `pin_to_workspace` 各自的
+工具说明里，按那里执行即可。这里只讲跨工具的一条：**工具/CLI 返回的 `file_id` 是
+artifact 句柄，不是磁盘路径**——它不在 `/workspace`、`/tmp`、`/myspace` 下，**禁止**用
+`Glob` / `bash find` 去文件系统里"找"它（永远找不到，纯浪费步骤），一律拿返回的原值往
+下串。默认交付方式是 pin 到对话区，**不是默默写进 `/myspace/`**。
 
 **用户「我的空间」文件增删改查（仅在用户明确要求时）：**
 
