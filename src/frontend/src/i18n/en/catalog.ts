@@ -79,6 +79,7 @@ export const CATALOG_DICT: Record<string, string> = {
   '知识库信息已更新': 'Knowledge base updated',
   // 索引模式与 Wiki 生成
   '索引方式': 'Index mode',
+  '选填': 'Optional',
   'LLM-Wiki 知识库': 'LLM-Wiki knowledge base',
   '按语义找原文': 'Find source text by meaning',
   '向量 + 关键词混合检索。提问时按语义召回相关的原文片段，是问答的默认底座。':
