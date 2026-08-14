@@ -71,6 +71,10 @@ function getRowLabel(
         const sn = (tool.input as any)?.skill_name || (tool.input as any)?.name || '';
         return { prefix: t('激活技能：'), value: sn || '' };
       }
+      case 'load_plugin': {
+        const pn = (tool.input as any)?.plugin || '';
+        return { prefix: t('加载插件：'), value: String(pn) };
+      }
       case 'view_text_file': {
         const fp = (tool.input as any)?.file_name || (tool.input as any)?.path || '';
         const fn = fp ? String(fp).split('/').pop() || '' : '';
@@ -166,6 +170,7 @@ function StepIcon({ name }: { name: string }) {
     list_datasets: DatabaseOutlined,
     query_database: DatabaseOutlined,
     load_skill: ThunderboltOutlined,
+    load_plugin: ThunderboltOutlined,
     get_skills: ThunderboltOutlined,
     get_mcp_tools: ThunderboltOutlined,
     call_subagent: RobotOutlined,

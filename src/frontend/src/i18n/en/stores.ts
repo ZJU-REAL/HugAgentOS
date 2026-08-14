@@ -47,6 +47,7 @@ export const STORES_DICT: Record<string, string> = {
   // constants — tool name overrides
   '读取文件': 'Read File',
   '加载技能': 'Load Skill',
+  '加载插件': 'Load Plugin',
   '浏览我的空间': 'Browse My Space',
   '导入文件到工作区': 'Import File to Workspace',
   '浏览收藏会话': 'Browse Favorite Chats',

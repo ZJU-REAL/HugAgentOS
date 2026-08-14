@@ -56,6 +56,8 @@ export const TOOL_DICT: Record<string, string> = {
   '本地知识库': 'Local KB',
   '知识库列表': 'KB List',
   '激活技能：': 'Skill: ',
+  '加载插件：': 'Plugin: ',
+  '插件已加载': 'Plugin loaded',
   '读取文件：': 'Read file: ',
   '生成图表': 'Generate Chart',
   '生成 Word 文档': 'Generate Word',

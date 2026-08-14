@@ -39,6 +39,7 @@ export const TOOL_NAME_OVERRIDES: Record<string, string> = {
   view_text_file: t('读取文件'),
   call_subagent: t('调用子智能体'),
   load_skill: t('加载技能'),
+  load_plugin: t('加载插件'),
   // MySpace tools
   list_myspace_files: t('浏览我的空间'),
   stage_myspace_file: t('导入文件到工作区'),
