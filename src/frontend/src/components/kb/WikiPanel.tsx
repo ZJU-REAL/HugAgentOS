@@ -34,7 +34,7 @@ import { WikiTree } from './WikiTree';
  * 用户在这里浏览的是这张地图，而事实与出处始终回到原文——所以每页底部都有
  * 「原文出处」，顺 chunk_refs 按 ID 直取，不做二次检索。
  *
- * 侧栏结构对齐 WeKnora 自己的组织方式：
+ * 侧栏结构：
  *   索引总览 —— 虚拟视图，按类型分节列出代表条目
  *   知识 Tab —— 合并 entity/concept/synthesis/comparison，走**多层目录树**
  *   摘要 Tab —— 一篇文档一页，服务端对该类型不提供目录，故走平铺列表

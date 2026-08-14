@@ -178,8 +178,14 @@ def vectorise_document_background(
     chunk_method: str,
     db_url: str,
     indexing_config: Optional[dict] = None,
+    index_modes: Optional[list[str]] = None,
 ) -> None:
-    """Background task: parse document -> build parent-child chunks -> write to Milvus + DB."""
+    """Background task: parse document -> build parent-child chunks -> write to Milvus + DB.
+
+    按知识库的索引模式分两路：``rag`` 决定要不要向量化并写 Milvus，``wiki`` 决定
+    索引完成后要不要排 Wiki 生成作业。**分块（KBChunk）两种模式都要写**——Wiki 的
+    引文标注按 chunk 走、回溯原文按 chunk 直取，脱离分块无从谈起。
+    """
     try:
         from core.kb.kb_parser import parse_and_chunk
         from core.kb.kb_vector import (
@@ -189,6 +195,14 @@ def vectorise_document_background(
         )
         from core.db.engine import SessionLocal
         from core.db.models import KBChunk
+
+        # 调用方手上都有 KBSpace，能传就传：批量上传时每篇再开一次 session 去
+        # 重读同一行，会和并发的索引任务一起把连接池顶满（实测 39 篇并发上传
+        # 时出现 QueuePool 超时导致索引失败）。
+        if index_modes is None:
+            index_modes = _resolve_index_modes(kb_id)
+        want_vectors = "rag" in index_modes
+        want_wiki = "wiki" in index_modes
 
         cfg = indexing_config or {}
         parent_size = cfg.get("parent_chunk_size", 1024)
@@ -215,18 +229,24 @@ def vectorise_document_background(
         )
         logger.info("Parsed %d parent chunks for document %s", len(parent_chunks), document_id)
 
-        get_or_create_collection()
-
-        if parent_child:
-            embed_texts = [child.content for pc in parent_chunks for child in pc.children]
-        else:
-            embed_texts = [pc.content for pc in parent_chunks]
-
-        if not embed_texts:
+        if not parent_chunks:
             logger.warning("No chunks produced for document %s", document_id)
             return
 
-        dense_vecs = embed_batch(embed_texts)
+        dense_vecs: list = []
+        if want_vectors:
+            get_or_create_collection()
+            if parent_child:
+                embed_texts = [child.content for pc in parent_chunks for child in pc.children]
+            else:
+                embed_texts = [pc.content for pc in parent_chunks]
+            dense_vecs = embed_batch(embed_texts)
+        else:
+            # 仅 Wiki 模式：分块照写，跳过向量化与 Milvus 写入
+            logger.info(
+                "Document %s: kb %s 未启用向量检索，跳过向量化（index_modes=%s）",
+                document_id, kb_id, index_modes,
+            )
 
         milvus_rows: list[dict] = []
         vec_idx = 0
@@ -254,6 +274,9 @@ def vectorise_document_background(
                     char_end=pc.char_end,
                 )
                 db.add(db_chunk)
+
+                if not want_vectors:
+                    continue
 
                 if parent_child:
                     for child in pc.children:
@@ -306,7 +329,7 @@ def vectorise_document_background(
             upsert_rows(milvus_rows[i:i + BATCH])
         logger.info("Upserted %d chunk vectors to Milvus for document %s", len(milvus_rows), document_id)
 
-        if auto_questions > 0:
+        if auto_questions > 0 and want_vectors:
             db2 = SessionLocal()
             try:
                 chunks_with_questions = db2.query(KBChunk).filter(
@@ -334,6 +357,38 @@ def vectorise_document_background(
         update_document_status(document_id, "completed")
         logger.info("Indexing completed for document %s", document_id)
 
+        if want_wiki:
+            _enqueue_wiki_ingest(kb_id, document_id)
+
     except Exception as exc:
         logger.error("Background vectorisation failed for document %s: %s", document_id, exc, exc_info=True)
         update_document_status(document_id, "failed", error=f"{type(exc).__name__}: {exc}")
+
+
+def _resolve_index_modes(kb_id: str) -> list[str]:
+    """读该知识库的索引模式。查不到按仅 RAG 处理——历史库都是这个语义。"""
+    try:
+        from core.db.engine import SessionLocal
+        from core.kb.wiki.config import index_modes_for_kb
+
+        with SessionLocal() as db:
+            return index_modes_for_kb(db, kb_id)
+    except Exception as exc:
+        logger.warning("解析知识库 %s 的索引模式失败，按仅 RAG 处理: %s", kb_id, exc)
+        return ["rag"]
+
+
+def _enqueue_wiki_ingest(kb_id: str, document_id: str) -> None:
+    """索引完成后把文档排进 Wiki 生成队列。
+
+    入队失败不能反过来把文档判成索引失败——分块和向量都已经写好了，检索本身是
+    可用的，Wiki 缺了可以之后用重新生成接口补。
+    """
+    try:
+        from core.db.engine import SessionLocal
+        from core.kb.wiki.jobs import enqueue_ingest
+
+        with SessionLocal() as db:
+            enqueue_ingest(db, kb_id, [document_id])
+    except Exception as exc:
+        logger.warning("文档 %s 排入 Wiki 生成队列失败: %s", document_id, exc)

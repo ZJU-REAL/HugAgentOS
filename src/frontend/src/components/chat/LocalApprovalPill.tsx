@@ -7,6 +7,7 @@ import {
   type LocalApprovalMode,
 } from '../../api';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { ChipChevron } from '../common/ChipChevron';
 import LocalPermissionsModal from './LocalPermissionsModal';
 
 // 图标与工具行其他入口保持同一套 antd 线性风格（单色、随文字色），不用彩色 emoji。
@@ -29,6 +30,7 @@ export default function LocalApprovalPill() {
   const localCapable = activeLocal || provisionMode === 'dual';
   const [approval, setApproval] = useState<LocalApprovalMode | null>(null);
   const [permOpen, setPermOpen] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
 
   useEffect(() => {
     if (isDesktop && localCapable) {
@@ -78,17 +80,18 @@ export default function LocalApprovalPill() {
         trigger={['click']}
         placement="topLeft"
         overlayClassName="jx-modeMenu jx-approvalMenu"
+        onOpenChange={setApprovalOpen}
         menu={{ items }}
       >
         <button
           type="button"
-          className="jx-projectDropBtn jx-approvalPillBtn"
+          className={`jx-composerChip jx-projectDropBtn jx-approvalPillBtn${approvalOpen ? ' open' : ''}`}
           title="本机操作权限档（对本机文件操作的严格度）"
           aria-label={`本机操作权限：${APPROVAL_META[approval].label}，点击切换`}
         >
           <span className="jx-approvalPillIcon">{APPROVAL_META[approval].icon}</span>
-          <span className="jx-projectDropName">{APPROVAL_META[approval].label}</span>
-          <img src="/home/arrow-down.svg" alt="" className="jx-modeArrow" />
+          <span className="jx-projectDropName jx-composerChip-label">{APPROVAL_META[approval].label}</span>
+          <ChipChevron />
         </button>
       </Dropdown>
       <LocalPermissionsModal open={permOpen} onClose={() => setPermOpen(false)} />

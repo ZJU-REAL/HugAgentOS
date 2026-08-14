@@ -29,7 +29,114 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-VALID_KINDS = ("system", "code_exec", "distillation", "plan_mode", "subagents", "turbo")
+#: 内置 kind：各自对应一段固定的运行时装配位置，有文件系统兜底，不可删。
+BUILTIN_KINDS = ("system", "code_exec", "distillation", "plan_mode", "subagents", "turbo")
+
+#: 兼容别名。历史上这个名字既是"内置清单"也是"合法性白名单"；自定义 kind 出现后
+#: 两者分家了——校验一律走 :func:`is_valid_kind`，这里只保留内置那批。
+VALID_KINDS = BUILTIN_KINDS
+
+
+def list_custom_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
+    """管理员自建的 kind（``[{"key","label"}]``）。
+
+    存在版本池同一个 ContentBlock 的 ``custom_kinds`` 下——它们和内置 kind 共用
+    versions/active 两张表，差别只在于没有文件系统兜底、可以删。
+    「对话模式」就是靠这个扩展的：管理员在提示词管理新开一个 tab，模式那边就能绑它。
+    """
+    payload = _load_payload(db)
+    out: List[Dict[str, str]] = []
+    for item in payload.get("custom_kinds") or []:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if key and key not in BUILTIN_KINDS:
+            out.append({"key": key, "label": str(item.get("label") or key)})
+    return out
+
+
+def all_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
+    """内置 + 自定义的完整 kind 清单，供管理端渲染 tab 与模式绑定下拉。"""
+    labels = {
+        "system": "系统提示词",
+        "turbo": "极速模式",
+        "plan_mode": "计划模式",
+        "code_exec": "代码执行",
+        "distillation": "蒸馏",
+        "subagents": "子智能体",
+    }
+    items = [
+        {"key": k, "label": labels.get(k, k), "builtin": True} for k in BUILTIN_KINDS
+    ]
+    items += [{**c, "builtin": False} for c in list_custom_kinds(db)]
+    return items
+
+
+def is_valid_kind(kind: str, db: Optional[Session] = None) -> bool:
+    if kind in BUILTIN_KINDS:
+        return True
+    return any(c["key"] == kind for c in list_custom_kinds(db))
+
+
+def create_custom_kind(
+    key: str, label: str, db: Optional[Session] = None, updated_by: str = "admin"
+) -> Dict[str, str]:
+    """新开一个 kind（tab），并给它建一个空的 ``default`` 版本并激活。
+
+    没有初始版本的 kind 在管理端会是个点进去什么都没有的空 tab，所以这里顺手建上，
+    管理员进去直接就能写正文。
+    """
+    cleaned = "".join(
+        ch if (ch.isalnum() and ch.isascii()) or ch in "-_" else "_" for ch in (key or "").strip().lower()
+    ).strip("-_")
+    if not cleaned:
+        raise ValueError("kind key required")
+    if cleaned in BUILTIN_KINDS:
+        raise ValueError(f"「{cleaned}」是内置 kind，不能重复创建")
+    payload = _clone(_load_payload(db))
+    customs = payload.setdefault("custom_kinds", [])
+    if any(str((c or {}).get("key")) == cleaned for c in customs):
+        raise ValueError(f"kind「{cleaned}」已存在")
+    customs.append({"key": cleaned, "label": (label or cleaned).strip()[:60]})
+
+    # 空的初始版本：一个可编辑的 part，内容留空由管理员填。
+    versions = payload.setdefault("versions", [])
+    now = datetime.now(timezone.utc).isoformat()
+    versions.append(
+        {
+            "kind": cleaned,
+            "id": "default",
+            "name": (label or cleaned).strip()[:60],
+            "description": "",
+            "parts": [{"part_id": cleaned, "display_name": label or cleaned, "content": ""}],
+            "created_at": now,
+            "updated_at": now,
+            "updated_by": updated_by,
+        }
+    )
+    payload.setdefault("active", {})[cleaned] = "default"
+    _save_payload(payload, db=db, updated_by=updated_by)
+    return {"key": cleaned, "label": (label or cleaned).strip()[:60]}
+
+
+def delete_custom_kind(key: str, db: Optional[Session] = None) -> bool:
+    """删掉一个自定义 kind 及其全部版本。内置 kind 拒绝删除。
+
+    注意：绑了这个 kind 的对话模式会退回默认提示词装配（``render_system_prompt_of_kind``
+    取不到就返回空串，装配侧按"没配提示词"处理），不会让对话起不来。
+    """
+    if key in BUILTIN_KINDS:
+        raise ValueError("内置 kind 不可删除")
+    payload = _clone(_load_payload(db))
+    customs = payload.get("custom_kinds") or []
+    remaining = [c for c in customs if str((c or {}).get("key")) != key]
+    if len(remaining) == len(customs):
+        return False
+    payload["custom_kinds"] = remaining
+    payload["versions"] = [v for v in (payload.get("versions") or []) if v.get("kind") != key]
+    (payload.get("active") or {}).pop(key, None)
+    _save_payload(payload, db=db)
+    return True
 
 # Process-local cache for the payload, invalidated on write.
 _payload_cache: Optional[Dict[str, Any]] = None
@@ -273,7 +380,7 @@ def list_versions(kind: Optional[str] = None, db: Optional[Session] = None) -> L
 def get_version(
     kind: str, version_id: str, db: Optional[Session] = None
 ) -> Optional[Dict[str, Any]]:
-    if kind not in VALID_KINDS:
+    if not is_valid_kind(kind, db):
         return None
     payload = _load_payload(db)
     active = payload.get("active") or {}
@@ -287,7 +394,7 @@ def get_version(
 
 def get_active_version(kind: str, db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
     """Return the active version for a kind, or None if not found / DB empty."""
-    if kind not in VALID_KINDS:
+    if not is_valid_kind(kind, db):
         return None
     payload = _load_payload(db)
     active_id = (payload.get("active") or {}).get(kind)
@@ -310,7 +417,7 @@ def upsert_version(
     db: Optional[Session] = None,
     updated_by: str = "admin",
 ) -> Dict[str, Any]:
-    if kind not in VALID_KINDS:
+    if not is_valid_kind(kind, db):
         raise ValueError(f"invalid kind: {kind}")
     if not version_id:
         raise ValueError("version_id required")
@@ -369,7 +476,7 @@ def upsert_version(
 
 
 def delete_version(kind: str, version_id: str, db: Optional[Session] = None) -> None:
-    if kind not in VALID_KINDS:
+    if not is_valid_kind(kind, db):
         raise ValueError(f"invalid kind: {kind}")
     payload = _clone(_load_payload(db))
     active = payload.get("active") or {}
@@ -385,7 +492,7 @@ def delete_version(kind: str, version_id: str, db: Optional[Session] = None) -> 
 
 
 def activate_version(kind: str, version_id: str, db: Optional[Session] = None) -> None:
-    if kind not in VALID_KINDS:
+    if not is_valid_kind(kind, db):
         raise ValueError(f"invalid kind: {kind}")
     payload = _clone(_load_payload(db))
     versions: List[Dict[str, Any]] = payload.get("versions") or []
@@ -644,6 +751,19 @@ def render_code_capability_segment(db: Optional[Session] = None) -> str:
         if parts:
             return "\n\n".join(parts)
     return ""
+
+
+def render_system_prompt_of_kind(kind: str, db: Optional[Session] = None) -> str:
+    """渲染任意 kind 的激活提示词，取不到返回空串。
+
+    「对话模式」允许官方模式各自绑定一个版本池 kind（极速模式绑的就是 ``turbo``）。
+    这里刻意不做兜底文案——绑了个空 kind 就该退回默认装配，而不是套用极速的话术。
+    """
+    try:
+        return render_active_prompt(kind, db=db) or ""
+    except Exception:
+        logger.debug("render active prompt of kind=%s failed", kind, exc_info=True)
+        return ""
 
 
 def render_turbo_system_prompt(db: Optional[Session] = None) -> str:

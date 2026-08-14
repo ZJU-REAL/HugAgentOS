@@ -3,7 +3,7 @@
  *
  * SVG 里没法用 CSS 变量，只能给具体色值；图（ConceptGraph）、图例与右侧详情面板
  * 三处都要用同一份，所以单独成文件——放进组件文件会破坏 fast refresh。
- * 色相沿用 WeKnora 自身的分类语义，避免两边看同一个库时对不上号。
+ * 色相按页面类型固定，自建库与外接库共用一套，避免看不同来源的库时对不上号。
  */
 export interface GraphTypeStyle {
   fill: string;

@@ -40,6 +40,22 @@ HugAgentOS 的知识库提供两种形态，可同时启用、在能力中心统
 
 ## 自建知识库
 
+### 索引模式：RAG / Wiki
+
+建库时可勾选两种索引方式，存在 `kb_spaces.metadata.index_modes`：
+
+| 勾选 | `index_modes` | 分块 | 向量 / Milvus | Wiki 生成 |
+|---|---|---|---|---|
+| 仅 RAG 检索（默认） | `["rag"]` | ✅ | ✅ | ❌ |
+| 仅 Wiki 图谱 | `["wiki"]` | ✅ | ❌ | ✅ |
+| 两者都选 → **LLM-Wiki 知识库** | `["rag","wiki"]` | ✅ | ✅ | ✅ |
+
+> 三种模式都会分块写 `kb_chunks`。Wiki 的引文标注按分块走、回溯原文按分块直取，
+> 脱离分块无从谈起——「仅 Wiki」省掉的是向量化，不是分块。
+
+历史知识库的 metadata 里没有这个键，读出来即缺省的仅 RAG，与它们已建好的索引一致。
+详见 [知识库 Wiki](./knowledge-base-wiki.md)。
+
 ### 数据模型
 
 ORM 定义在 `src/backend/core/db/models/knowledge.py`：
@@ -49,6 +65,8 @@ ORM 定义在 `src/backend/core/db/models/knowledge.py`：
 | `kb_spaces` | 知识库空间：owner（`user_id`）、`visibility`（private/public）、`chunk_method`、文档数 / 容量统计 |
 | `kb_documents` | 文档：storage_key、checksum、`indexing_status`（processing / completed / failed） |
 | `kb_chunks` | **父块**原文（检索命中后返回给 LLM），含标签 `tags` 与关联问题 `questions` |
+
+Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`）定义在 `core/db/models/kb_wiki.py`，见 [知识库 Wiki](./knowledge-base-wiki.md)。
 
 子块不入关系库——向量化后写 Milvus collection `hugagent_kb_private`（`core/kb/kb_vector.py`），每行带 `user_id` / `kb_id` 字段做归属隔离，`row_type` 区分 chunk 行与 question 行。
 
@@ -91,6 +109,8 @@ ORM 定义在 `src/backend/core/db/models/knowledge.py`：
 | POST | `/v1/catalog/kb/{kb_id}/documents` | 上传文档（上限 100MB，后台索引） |
 | GET | `/v1/catalog/kb/{kb_id}/documents[/{id}]` | 文档列表 / 详情 |
 | POST | `/v1/catalog/kb/{kb_id}/documents/{id}/reindex` | 重新索引 |
+| POST | `/v1/catalog/kb/{kb_id}/wiki/rebuild` | 为已有文档补建 Wiki（需编辑权限） |
+| GET | `/v1/catalog/kb/{kb_id}/wiki/*` | Wiki 读取面，见 [知识库 Wiki](./knowledge-base-wiki.md) |
 | GET / PATCH | `/v1/catalog/kb/{kb_id}/chunks[/{chunk_id}]` | 分块列表 / 编辑标签与问题 |
 
 业务逻辑集中在 `core/services/kb_service.py::KBService`。

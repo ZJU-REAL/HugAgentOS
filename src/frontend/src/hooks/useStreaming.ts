@@ -5,6 +5,7 @@ import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, 
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
+import { resolveBatchModeActive } from '../utils/chatMode';
 import { useChatStore, useAuthStore, useCatalogStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
@@ -112,7 +113,7 @@ export function useStreaming(
     const content = (directMessage ?? state.input).trim();
     if (!content) return;
     const chat = state.currentChat();
-    if (state.planMode || state.loopMode || chat?.planChat || chat?.batchChat) {
+    if (state.planMode || state.loopMode || resolveBatchModeActive(chat)) {
       message.info(t('当前运行模式暂不支持追加消息'));
       return;
     }
@@ -507,7 +508,7 @@ export function useStreaming(
 
       const currentChat = useChatStore.getState().store.chats[currentChatId];
       const agentId = (currentChat as any)?.agentId || undefined;
-      const batchChat = !!(currentChat as any)?.batchChat;
+      const batchChat = resolveBatchModeActive(currentChat);
       const modelCaps = useModelCapabilitiesStore.getState();
       const selectedModelProviderId = modelCaps.capabilities.user_model_switch_enabled
         ? modelCaps.selectedModelProviderId
@@ -539,6 +540,7 @@ export function useStreaming(
           model_name: 'qwen',
           ...(selectedModelProviderId ? { model_provider_id: selectedModelProviderId } : {}),
           chat_mode: chatMode,
+          mode_slug: useChatStore.getState().modeSlug,
           attachments: attachments.map(({ name, mime_type, file_id }) => ({
             name,
             mime_type,

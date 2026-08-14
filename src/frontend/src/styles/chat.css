@@ -869,9 +869,10 @@ a.jx-fileCard--link:hover{
   right:0;
   display:flex;
   align-items:center;
-  gap:8px;
+  /* chip 自带左右内衬，间距靠内衬撑开即可；gap 再给 8 会把工具条拉得松散 */
+  gap:4px;
   height:50px;
-  padding:8px 16px 12px;
+  padding:8px 12px 12px;
   background:#fff;
   border-bottom-left-radius:16px;
   border-bottom-right-radius:16px;
@@ -891,38 +892,107 @@ a.jx-fileCard--link:hover{
 .jx-composerBar > *{
   pointer-events:auto;
 }
-/* 窄容器（项目页 composer）防溢出：长文本下拉可收缩省略，附件/发送钮永不被顶出框外 */
-.jx-composerBar{ min-width:0; }
-.jx-composerBar .jx-modelDropBtn,
+/* 窄容器（项目页 composer）防溢出：长文本下拉可收缩省略，附件/发送钮永不被顶出框外。
+   容器查询而不是媒体查询：同一个 composer 在首页/对话页/项目页宽度差很多，
+   要按"这条工具栏自己有多宽"降级，而不是按视口宽度。 */
+.jx-composerBar{ min-width:0; container-type:inline-size; }
+.jx-composerBar .jx-modelEffortBtn,
 .jx-composerBar .jx-projectDropBtn{ flex-shrink:1; min-width:0; overflow:hidden; }
-.jx-composerBar .jx-modelDropText,
 .jx-composerBar .jx-projectDropName{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-/* attach 前弹性间隔：attach+send 恒靠右、优先保住不被挤出 */
-.jx-composerBar .jx-attachBtn{ margin-left:auto; }
 
-/* ── Mode dropdown button (left side) ── */
-.jx-modeDropBtn{
-  min-height:30px;
-  height:30px;
-  padding:7px 12px;
-  border:1px solid #E3E6EA;
-  border-radius:8px;
-  background:transparent;
-  display:flex;
-  align-items:center;
-  gap:5px;
-  cursor:pointer;
-  color:rgba(15,23,42,.62);
-  font-size:13px;
-  font-weight:500;
-  outline:none;
-  white-space:nowrap;
-  transition:color .18s ease;
+/* 逐级降级：先收「提示词中心」的字，再收项目名与模式名——这几个都有图标顶着，
+   功能一个不少，只是不再抢横向空间。模型/思考强度位是唯一没有图标可替代的
+   （名字本身就是它的值），所以只压缩不隐藏。 */
+@container (max-width: 620px){
+  .jx-promptHubBtn .jx-composerChip-label{ display:none; }
+  .jx-promptHubBtn{ padding:0 7px; }
 }
-.jx-modeIcon{ width:16px; height:16px; flex-shrink:0; }
-.jx-modeArrow{ width:12px; height:12px; opacity:1; flex-shrink:0; filter:brightness(0) saturate(100%) invert(80%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(90%) contrast(90%); }
-.jx-modeDropBtn:hover{ color:rgba(15,23,42,.88); }
-.jx-modeDropBtn.thinking{ color:#111827; font-weight:500; }
+@container (max-width: 500px){
+  .jx-projectDropBtn .jx-composerChip-label,
+  .jx-planModeBtn .jx-composerChip-label{ display:none; }
+  .jx-projectDropBtn svg.jx-modeArrow{ display:none; }
+  .jx-projectDropBtn,
+  .jx-planModeBtn{ padding:0 7px; }
+  .jx-modelEffortBtn{ max-width:150px; }
+}
+@container (max-width: 400px){
+  .jx-modelEffortAside{ display:none; }
+  .jx-modelEffortBtn{ max-width:112px; }
+}
+
+/* ── 工具条 chip 基座 ────────────────────────────────────────────────
+   参考无边框 chip 体系：默认只有文字 + 图标，hover / 展开才浮出一块底色；
+   "选中/开启"用淡色块填充表达，而不是给每个按钮描一圈 1px 边框——一排方框
+   会把输入框底部切成生硬的控件条，chip 化之后整条工具栏读起来是一个整体。*/
+.jx-composerBar{
+  --jx-chip-h:28px;
+  --jx-chip-fg:rgba(15,23,42,.60);
+  --jx-chip-fg-strong:rgba(15,23,42,.88);
+  --jx-chip-hover:rgba(15,23,42,.055);
+  --jx-chip-active-bg:rgba(18,109,255,.10);
+  --jx-chip-active-hover:rgba(18,109,255,.16);
+  --jx-chip-active-fg:#0B57D0;
+}
+.jx-composerChip{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  flex-shrink:0;
+  min-width:0;
+  max-width:220px;
+  height:var(--jx-chip-h, 28px);
+  min-height:var(--jx-chip-h, 28px);
+  padding:0 6px 0 8px;
+  border:none;
+  border-radius:999px;
+  background:transparent;
+  color:var(--jx-chip-fg, rgba(15,23,42,.60));
+  font-size:13px;
+  line-height:20px;
+  font-weight:500;
+  white-space:nowrap;
+  cursor:pointer;
+  outline:none;
+  transition:background-color .14s ease, color .14s ease;
+}
+.jx-composerChip-label{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-composerChip:hover,
+.jx-composerChip.open{
+  background:var(--jx-chip-hover, rgba(15,23,42,.055));
+  color:var(--jx-chip-fg-strong, rgba(15,23,42,.88));
+}
+.jx-composerChip:focus-visible{
+  box-shadow:0 0 0 2px rgba(18,109,255,.28);
+}
+.jx-composerChip:disabled{ opacity:.5; cursor:default; }
+/* 选中 / 开启态：淡蓝色块 + 主色文字，同一套质感覆盖项目绑定、计划模式、
+   批量执行、自主循环、提示词中心——用户一眼能扫出"哪几个是开着的"。 */
+.jx-composerChip.active,
+.jx-composerChip.bound{
+  background:var(--jx-chip-active-bg, rgba(18,109,255,.10));
+  color:var(--jx-chip-active-fg, #0B57D0);
+}
+.jx-composerChip.active:hover,
+.jx-composerChip.bound:hover,
+.jx-composerChip.bound.open{
+  background:var(--jx-chip-active-hover, rgba(18,109,255,.16));
+  color:var(--jx-chip-active-fg, #0B57D0);
+}
+
+/* 箭头跟随 chip 文字色（inline SVG，currentColor），展开时翻转 180° ——
+   让"按钮亮起 + 箭头朝上 + 浮层展开"是同一个动作的三个面。 */
+.jx-modeArrow{ width:12px; height:12px; flex-shrink:0; }
+img.jx-modeArrow{ opacity:1; filter:brightness(0) saturate(100%) invert(80%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(90%) contrast(90%); }
+svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease, opacity .14s ease; }
+.jx-composerChip:hover svg.jx-modeArrow{ opacity:.7; }
+.jx-composerChip.open svg.jx-modeArrow{ transform:rotate(180deg); opacity:.85; }
+
 .jx-dispatchDropBtn{
   min-height:30px;
   height:30px;
@@ -952,57 +1022,168 @@ a.jx-fileCard--link:hover{
   min-width:96px;
 }
 
-/* ── Attachment button ── */
+/* ── ➕ 附件/能力入口（工具条最左）──
+   参考稿把 add 放在输入区左下角、发送放右下角，两端各一个圆钮把工具条框住。
+   实心浅底（不是 hover 才出现）——它是这排里唯一的"加东西"入口，值得一直有形。 */
 .jx-attachBtn{
   appearance:none;
   border:none;
-  background:transparent;
-  padding:4px;
+  padding:0;
+  width:28px;
+  height:28px;
+  border-radius:999px;
+  background:var(--jx-chip-hover, rgba(15,23,42,.055));
   cursor:pointer;
   display:flex;
   align-items:center;
   justify-content:center;
   flex-shrink:0;
   margin-right:4px;
-  transition:opacity .15s;
-  filter:brightness(0) saturate(100%) invert(13%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(13%) contrast(90%);
-  opacity:1;
+  transition:background-color .14s ease;
 }
-.jx-attachBtn:hover{ opacity:.75; }
-.jx-attachIcon{ width:22px; height:22px; }
+.jx-attachBtn:hover,
+.jx-attachBtn.open{ background:rgba(15,23,42,.11); }
+.jx-attachIcon{
+  width:16px;
+  height:16px;
+  opacity:.85;
+  transition:opacity .14s ease;
+  filter:brightness(0) saturate(100%) invert(13%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(13%) contrast(90%);
+}
+.jx-attachBtn:hover .jx-attachIcon,
+.jx-attachBtn.open .jx-attachIcon{ opacity:1; }
 
-/* ── User-selectable model dropdown (near attachment button) ── */
-.jx-modelDropBtn{
-  min-height:30px;
-  height:30px;
-  max-width:180px;
-  padding:6px 10px;
-  border:1px solid #E3E6EA;
-  border-radius:8px;
-  background:transparent;
+/* ── 模型 + 思考强度位（工具条右侧，两级菜单）── */
+.jx-modelEffort{ position:relative; min-width:0; flex-shrink:1; }
+.jx-modelEffortBtn{ max-width:230px; }
+/* 思考强度贴在模型名右侧，弱一档：一个 chip 报两件事，主次要分得开 */
+.jx-modelEffortAside{
+  flex:0 0 auto;
+  color:rgba(15,23,42,.42);
+  font-weight:400;
+}
+.jx-composerChip.open .jx-modelEffortAside{ color:rgba(15,23,42,.55); }
+/* 极速模式下没有可挑的模型/强度时的只读占位：不给 hover 反馈，别装成能点 */
+.jx-modelEffortStatic{
+  cursor:default;
+  color:rgba(15,23,42,.42);
+  font-weight:400;
+}
+.jx-modelEffortStatic:hover{ background:transparent; color:rgba(15,23,42,.42); }
+.jx-modelEffortStaticIcon{ font-size:13px; color:var(--color-warning, #F8AB42); }
+.jx-modelEffortMenu{
+  position:absolute;
+  right:0;
+  bottom:calc(100% + 8px);
+  z-index:20;
+  display:flex;
+  flex-direction:column;
+  width:max(240px, 100%);
+  max-height:min(360px, 60vh);
+  overflow:hidden;
+  padding:4px;
+  border:1px solid rgba(15,23,42,.06);
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
+}
+/* 一级 cell：左标签 + 右当前值 + 右尖角，一行说清"这是什么、现在是什么" */
+.jx-menuCell{
+  appearance:none;
   display:flex;
   align-items:center;
-  gap:6px;
+  gap:8px;
+  width:100%;
+  height:40px;
+  padding:0 10px;
+  border:none;
+  border-radius:10px;
+  background:transparent;
+  color:rgba(15,23,42,.88);
+  font-size:14px;
+  line-height:22px;
+  text-align:left;
   cursor:pointer;
-  color:rgba(15,23,42,.66);
-  font-size:13px;
-  font-weight:500;
-  outline:none;
-  white-space:nowrap;
-  transition:color .18s ease, border-color .18s ease;
+  transition:background-color .12s ease;
 }
-.jx-modelDropBtn:hover{
-  color:rgba(15,23,42,.9);
-  border-color:rgba(15,23,42,.22);
-}
-.jx-modelDropIcon{
-  font-size:15px;
-  flex-shrink:0;
-}
-.jx-modelDropText{
+.jx-menuCell:hover:not(:disabled){ background:rgba(15,23,42,.05); }
+.jx-menuCell:disabled{ cursor:default; color:rgba(15,23,42,.35); }
+.jx-menuCell-label{ flex:1 1 auto; min-width:0; white-space:nowrap; }
+.jx-menuCell-value{
+  flex:0 1 auto;
   min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
+  white-space:nowrap;
+  color:rgba(15,23,42,.45);
+}
+.jx-menuCell-chevron{ flex:0 0 auto; font-size:11px; color:rgba(15,23,42,.35); }
+/* 二级返回行：尖角左转，读起来是"退回上一层" */
+.jx-menuBack{
+  appearance:none;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  width:100%;
+  padding:6px 10px 5px;
+  border:none;
+  background:transparent;
+  color:rgba(15,23,42,.42);
+  font-size:12px;
+  line-height:18px;
+  font-weight:500;
+  text-align:left;
+  cursor:pointer;
+  border-radius:8px;
+}
+.jx-menuBack:hover{ background:rgba(15,23,42,.04); color:rgba(15,23,42,.7); }
+.jx-menuBack-chevron{ font-size:10px; transform:rotate(180deg); }
+/* 单层形态（没有可退回的上一级）：同一行位置改成纯标题，不做成可点的返回 */
+.jx-menuPaneTitle{
+  padding:7px 10px 4px;
+  color:rgba(15,23,42,.42);
+  font-size:12px;
+  line-height:18px;
+  font-weight:500;
+}
+.jx-menuPaneList{ min-height:0; overflow-y:auto; }
+.jx-menuOption{
+  appearance:none;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:100%;
+  min-height:38px;
+  padding:6px 10px;
+  border:none;
+  border-radius:10px;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+  transition:background-color .12s ease;
+}
+.jx-menuOption:hover{ background:rgba(15,23,42,.05); }
+.jx-menuOption-copy{ display:flex; flex-direction:column; flex:1; min-width:0; gap:2px; }
+/* 单行行式（模型列表）：标题直接占满，不套 copy 列 */
+.jx-menuOption--oneLine{ min-height:34px; }
+.jx-menuOption--oneLine > .jx-menuOption-title{ flex:1; }
+.jx-menuOption-title{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:14px;
+  line-height:20px;
+  font-weight:500;
+  color:#1e293b;
+}
+.jx-menuOption-desc{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  line-height:18px;
+  color:rgba(15,23,42,.45);
 }
 
 /* ── Context-usage ring (beside the model selector) ── */
@@ -1123,85 +1304,36 @@ a.jx-fileCard--link:hover{
   color:var(--color-text-placeholder, #B3B3B3);
 }
 
-/* ── 项目选择下拉（工具栏，提示词中心右侧）── */
-.jx-projectDropBtn{
-  min-height:30px;
-  height:30px;
-  padding:7px 12px;
-  border:1px solid #E3E6EA;
-  border-radius:8px;
-  background:transparent;
-  display:flex;
-  align-items:center;
-  gap:5px;
-  cursor:pointer;
-  color:rgba(15,23,42,.62);
-  font-size:13px;
-  font-weight:500;
-  outline:none;
-  white-space:nowrap;
-  min-width:0;
-  transition:color .18s ease, border-color .18s ease, background .18s ease;
-}
-.jx-projectDropBtn:hover{
-  color:rgba(15,23,42,.88);
-  border-color:rgba(15,23,42,.22);
-}
-/* 已绑定项目：灰底填充胶囊 + 近黑文字（低饱和、贴近参考稿的选中质感） */
-.jx-projectDropBtn.bound{
-  color:rgba(15,23,42,.88);
-  border-color:transparent;
-  background:#F0F1F3;
-}
-.jx-projectDropBtn.bound:hover{
-  color:#0F172A;
-  border-color:transparent;
-  background:#E9EBEE;
-}
-.jx-projectDropBtn.bound .jx-modeArrow{
-  filter:brightness(0) saturate(100%) invert(30%);
-  opacity:.7;
-}
-.jx-projectDropIcon{ font-size:14px; flex-shrink:0; }
+/* ── 项目选择下拉（工具栏，提示词中心右侧）──
+   基座在 .jx-composerChip；这里只补项目特有的图标/宽度与"已绑定"的图标配色。*/
+.jx-projectDropIcon{ font-size:14px; flex-shrink:0; opacity:.85; }
+.jx-projectDropBtn.bound .jx-projectDropIcon{ opacity:1; }
 .jx-projectDropName{
   min-width:0;
-  max-width:132px;
+  max-width:140px;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
 /* 项目下拉菜单：分组标题「项目」+ 选项行（folder 图标 + 名称 + 选中勾） */
 .jx-projectMenu .ant-dropdown-menu{
-  min-width:216px;
-  max-width:280px;
-  padding:6px;
-  border-radius:12px;
-  border:none;
-  box-shadow:0 8px 24px rgba(15,23,42,.14);
-}
-.jx-projectMenu .ant-dropdown-menu-item-group-title{
-  padding:6px 10px 4px;
-  font-size:12px;
-  color:rgba(15,23,42,.45);
-}
-.jx-projectMenu .ant-dropdown-menu-item{
-  border-radius:8px;
-  padding:7px 10px;
+  min-width:240px;
+  max-width:300px;
 }
 .jx-projectMenu .ant-dropdown-menu-item-group-list{
   margin:0;
-  max-height:280px;
+  max-height:288px;
   overflow-y:auto;
 }
 .jx-projectOption{
   display:flex;
   align-items:center;
-  gap:8px;
+  gap:10px;
   min-width:0;
 }
 .jx-projectOptionIcon{
-  font-size:14px;
-  color:rgba(15,23,42,.55);
+  font-size:15px;
+  color:rgba(15,23,42,.5);
   flex-shrink:0;
 }
 .jx-projectOptionName{
@@ -1210,8 +1342,8 @@ a.jx-fileCard--link:hover{
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  font-size:13px;
-  color:#262626;
+  font-size:14px;
+  color:#1e293b;
 }
 
 /* ── Send button (SVG is already a 34px blue circle) ── */
@@ -1232,90 +1364,88 @@ a.jx-fileCard--link:hover{
 .jx-sendBtn:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
 .jx-sendIcon{ width:34px; height:34px; }
 
-/* ── Mode dropdown menu ── */
-.jx-modeMenu .ant-dropdown-menu{
+/* ── 工具条浮层的统一外壳 ────────────────────────────────────────────
+   模式 / 模型 / 项目 / 权限档四个下拉共用同一张"卡片"：14px 圆角、一层极浅
+   描边 + 两级投影、4px 内衬，行是 10px 圆角的软块。选中不靠底色高亮，只靠
+   行尾一枚勾——这样 hover（临时）和 selected（状态）不会互相打架。 */
+.jx-modeMenu .ant-dropdown-menu,
+.jx-projectMenu .ant-dropdown-menu,
+.jx-attachMenu .ant-dropdown-menu{
   padding:4px;
-  border-radius:10px;
-  border:none;
-  box-shadow:0 8px 24px rgba(15,23,42,.14);
-  min-width:180px;
+  border-radius:14px;
+  border:1px solid rgba(15,23,42,.06);
+  box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
+  min-width:220px;
 }
-.jx-modeMenu .ant-dropdown-menu-item{
+.jx-modeMenu .ant-dropdown-menu-item,
+.jx-projectMenu .ant-dropdown-menu-item{
   min-height:auto;
-  border-radius:8px;
+  border-radius:10px;
   font-size:14px;
   color:rgba(15,23,42,.82);
-  padding:8px 12px;
+  padding:7px 10px;
+  transition:background-color .12s ease;
 }
 .jx-modeMenu .ant-dropdown-menu-item:hover,
-.jx-modeMenu .ant-dropdown-menu-item-active{
+.jx-modeMenu .ant-dropdown-menu-item-active,
+.jx-projectMenu .ant-dropdown-menu-item:hover,
+.jx-projectMenu .ant-dropdown-menu-item-active{
   background:rgba(15,23,42,.05) !important;
   color:#111827;
 }
-.jx-modeMenu .ant-dropdown-menu-item-selected{
+.jx-modeMenu .ant-dropdown-menu-item-selected,
+.jx-projectMenu .ant-dropdown-menu-item-selected{
   background:transparent !important;
   color:#111827;
 }
-/* Mode option with description */
+/* 分组标题：比选项小一号、弱一档，只做分区不抢视线 */
+.jx-modeMenu .ant-dropdown-menu-item-group-title,
+.jx-projectMenu .ant-dropdown-menu-item-group-title{
+  padding:7px 10px 4px;
+  font-size:12px;
+  line-height:18px;
+  font-weight:500;
+  color:rgba(15,23,42,.42);
+}
+/* 四段选择器：antd v5 自己的分隔线规则是 `.ant-dropdown .ant-dropdown-menu
+   .ant-dropdown-menu-item-divider`（0,3,0），两段写法压不过它 */
+.jx-modeMenu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-divider,
+.jx-projectMenu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-divider,
+.jx-attachMenu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-divider{
+  margin:4px 8px;
+  background:rgba(15,23,42,.07);
+}
+
+/* Mode option with description（权限档下拉仍在用） */
 .jx-modeOption{
   display:flex;
   flex-direction:column;
   gap:2px;
-  padding:2px 0;
+  padding:1px 0;
 }
 .jx-modeOptionHead{
   display:flex;
   align-items:center;
-  gap:6px;
-}
-.jx-modeOptionTitle{
-  font-weight:500;
-  font-size:14px;
-  color:#1e293b;
-  flex:1;
-}
-.jx-modeCheckIcon{ width:14px; height:14px; flex-shrink:0; }
-.jx-modeOptionDesc{
-  font-size:12px;
-  color:rgba(15,23,42,.45);
-}
-.jx-modelMenu .ant-dropdown-menu-item:hover,
-.jx-modelMenu .ant-dropdown-menu-item-active{
-  background:rgba(15,23,42,.05) !important;
-  color:#111827;
-}
-.jx-modelMenu .ant-dropdown-menu-item-selected{
-  background:transparent !important;
-  color:#111827;
-}
-.jx-modelOption{
-  display:flex;
-  flex-direction:column;
-  gap:2px;
-  min-width:180px;
-  max-width:280px;
-  padding:2px 0;
-}
-.jx-modelOptionHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
   gap:8px;
 }
-.jx-modelOptionTitle{
+.jx-modeOptionTitle{
+  flex:1;
   min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  font-size:14px;
   font-weight:500;
+  font-size:14px;
+  line-height:20px;
   color:#1e293b;
 }
-.jx-modelOptionDesc{
+.jx-modeCheckIcon{ width:14px; height:14px; flex-shrink:0; }
+.jx-modeOptionDesc{
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
   font-size:12px;
+  line-height:18px;
   color:rgba(15,23,42,.45);
 }
 
@@ -1324,8 +1454,6 @@ a.jx-fileCard--link:hover{
 .jx-modeDropBtnArrow{ display:none; }
 
 @media (max-width: 640px){
-  .jx-modeDropBtn{ padding:0 2px 0 4px; font-size:12px; }
-  .jx-modelDropBtn{ max-width:118px; padding:4px 8px; font-size:12px; }
   .jx-sendIcon{ width:30px; height:30px; }
 }
 
@@ -1420,7 +1548,7 @@ a.jx-fileCard--link:hover{
   position:absolute;
   bottom:0; left:0; right:0;
   height:50px;
-  padding:8px 16px 12px;
+  padding:8px 12px 12px;
   background:#fff;
   border-bottom-left-radius:20px;
   border-bottom-right-radius:20px;
@@ -2277,73 +2405,84 @@ textarea.jx-composer{
   }
 }
 
-/* ── Prompt Hub button (in composer bar) ── */
-.jx-promptHubBtn{
-  min-height:30px;
-  height:30px;
-  padding:7px 12px;
-  border:1px solid #E3E6EA;
-  border-radius:8px;
-  background:transparent;
-  display:flex;
-  align-items:center;
-  gap:5px;
-  cursor:pointer;
-  color:rgba(15,23,42,.62);
-  font-size:13px;
-  font-weight:500;
-  outline:none;
-  white-space:nowrap;
-  transition:color .18s ease, border-color .18s ease;
-}
-.jx-promptHubBtn:hover{
-  color:rgba(15,23,42,.88);
-  border-color:rgba(15,23,42,.22);
-}
+/* ── Prompt Hub button (in composer bar) ──
+   基座在 .jx-composerChip；开着提示词中心面板时它自己也进"选中"填充态。 */
 .jx-promptHubIcon{
-  width:16px;
-  height:16px;
+  width:15px;
+  height:15px;
   flex-shrink:0;
+  opacity:.85;
 }
+.jx-promptHubBtn.active .jx-promptHubIcon{ opacity:1; }
 
-/* ── Plan Mode Button ── */
-.jx-planModeBtn{
-  appearance:none;
-  min-height:30px;
-  height:30px;
-  padding:7px 12px;
-  border:1px solid transparent;
-  border-radius:8px;
-  background:transparent;
-  display:flex;
-  align-items:center;
-  cursor:pointer;
-  color:rgba(15,23,42,.42);
-  font-size:13px;
-  font-weight:500;
-  outline:none;
-  white-space:nowrap;
-  transition:color .18s ease, border-color .18s ease;
-  pointer-events:auto;
-}
+/* ── Plan / 批量 / 自主循环 状态 chip ──
+   基座同样在 .jx-composerChip；带图标（原来桌面端是藏起来的，图标一露出来，
+   "这是个模式而不是普通按钮"才立得住），active 走统一的淡蓝填充。 */
+.jx-planModeBtn{ pointer-events:auto; }
 .jx-planModeIcon{
-  display:none;
+  display:inline-flex;
+  font-size:14px;
+  flex-shrink:0;
+  opacity:.9;
 }
-.jx-planModeBtn:hover{
-  color:rgba(15,23,42,.88);
-  border-color:rgba(15,23,42,.22);
+/* 模式 chip 的"开启态"走中性灰而不是主色蓝：它只是告诉你当前在哪个模式，
+   不该比输入的内容还响。就地改写 chip 的三个 active 变量即可，.jx-composerChip.active
+   仍读同一组变量，不用逐条覆盖；✕ 走 currentColor，会跟着一起变灰。 */
+.jx-modeChip{
+  --jx-chip-active-bg:rgba(15,23,42,.06);
+  --jx-chip-active-hover:rgba(15,23,42,.085);
+  --jx-chip-active-fg:rgba(15,23,42,.72);
 }
-/* 激活态：灰底填充胶囊 + 近黑文字，与项目选中态同一套质感 */
-.jx-planModeBtn.active{
-  color:rgba(15,23,42,.88);
-  border-color:transparent;
-  font-weight:500;
-  background:#F0F1F3;
+/* 模式 chip 是纯状态显示（span，不可点），hover 不该有"能按"的假反馈 */
+.jx-modeChip:hover{
+  background:var(--jx-chip-active-bg);
+  color:var(--jx-chip-active-fg);
 }
-.jx-planModeBtn.active:hover{
-  color:#0F172A;
-  border-color:transparent;
-  background:#E9EBEE;
+/* 关闭 ✕：贴在 chip 右上角内侧，不描边、不加投影、不做实心徽标——它是"退出这个
+   模式"的收尾动作，不该比模式名本身还抢眼。静息态压到很淡，hover / 键盘聚焦时
+   才提亮；触屏没有 hover，单独抬一档保证可见。热区比图形大一圈，好点中。 */
+.jx-modeChip{
+  position:relative;
+  cursor:default;
+  /* 给右上角的 ✕ 留出自己的留白，避免压在模式名上 */
+  padding-right:16px;
+}
+.jx-modeChip-close{
+  position:absolute;
+  top:2px;
+  right:3px;
+  display:grid;
+  place-items:center;
+  width:12px;
+  height:12px;
+  padding:0;
+  border:none;
+  border-radius:50%;
+  background:transparent;
+  color:currentColor;
+  font-size:8px;
+  line-height:1;
+  opacity:.3;
+  cursor:pointer;
+  transition:opacity .18s ease;
+}
+.jx-modeChip-close::after{
+  /* 图形 12px、热区 24px */
+  content:'';
+  position:absolute;
+  inset:-6px;
+}
+.jx-modeChip:hover .jx-modeChip-close,
+.jx-modeChip-close:focus-visible{ opacity:.75; }
+/* 只提亮，不给底色——✕ 本身不该长出一个"按钮"来 */
+.jx-modeChip-close:hover{ opacity:1; }
+.jx-modeChip-close:focus-visible{ outline:1px solid rgba(15,23,42,.35); outline-offset:1px; }
+/* 触屏没有 hover 可依赖 */
+@media (pointer:coarse){
+  .jx-modeChip-close{ opacity:.5; }
+}
+@media (prefers-reduced-motion: reduce){
+  .jx-modeChip-close{ transition:none; }
 }
 
 /* 站点建站空态右上角「我的站点」入口 */
@@ -3134,34 +3273,30 @@ textarea.jx-composer{
 }
 
 /* ── Attach dropdown menu ── */
+/* 卡片外壳走上面工具条浮层的统一规则；这里只调它自己的行密度与图标。 */
 .jx-attachMenu .ant-dropdown-menu {
-  padding: 4px;
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(15,23,42,.14);
-  min-width: 160px;
+  min-width: 200px;
 }
-.jx-attachMenu .ant-dropdown-menu-item {
-  border-radius: var(--radius-sm);
+.jx-attachMenu .ant-dropdown-menu-item,
+.jx-attachMenu .ant-dropdown-menu-submenu-title {
+  border-radius: 10px;
   font-size: 14px;
-  color: var(--color-text-secondary);
-  gap: 8px;
-  padding: 8px 12px;
+  color: rgba(15,23,42,.82);
+  gap: 10px;
+  padding: 8px 10px;
+  transition: background-color .12s ease;
 }
-.jx-attachMenu .ant-dropdown-menu-item:hover {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
+.jx-attachMenu .ant-dropdown-menu-item:hover,
+.jx-attachMenu .ant-dropdown-menu-submenu-title:hover {
+  background: rgba(15,23,42,.05);
+  color: #111827;
 }
-.jx-attachMenu .ant-dropdown-menu-item .anticon {
+.jx-attachMenu .ant-dropdown-menu-item .anticon,
+.jx-attachMenu .ant-dropdown-menu-submenu-title .anticon {
   font-size: 15px;
+  color: rgba(15,23,42,.5);
 }
 /* 「自主循环」菜单项：名称在左、开关贴右 */
-.jx-attachMenu-toggleRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 132px;
-}
 /* 子菜单浮层（技能 / 添加到项目）单独挂载，不继承 overlayClassName。
  * 限高 + 内部滚动，避免项目/技能很多时浮层超出视口。 */
 .ant-dropdown-menu-submenu-popup .ant-dropdown-menu {
@@ -3887,7 +4022,79 @@ textarea.jx-composer{
 }
 
 /* ── Run-target switcher（混合架构：对话框上方的 云端/本机 胶囊）──────────── */
-.jx-runTargetRow { display: flex; justify-content: flex-start; padding: 0 4px; }
+.jx-runTargetRow { display: flex; align-items: center; gap: 8px; justify-content: flex-start; padding: 0 4px; }
+
+/* ── 对话框上方：模式选择位 ──
+   照参考稿的 AgentPresetSeat：平时透明，只有标识 + 当前模式名 + 箭头，hover /
+   展开才浮出底色。它比工具条里的 chip 高一层（决定整段对话的工具面和提示词），
+   所以摆在框外常驻，但视觉重量刻意压得比输入框轻。 */
+.jx-modeSeat{ position:relative; margin-bottom:6px; }
+.jx-modeSeatBtn{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  max-width:min(100%, 260px);
+  min-height:28px;
+  padding:0 8px;
+  border:none;
+  border-radius:16px;
+  background:transparent;
+  color:rgba(15,23,42,.75);
+  font-size:13px;
+  line-height:20px;
+  font-weight:500;
+  white-space:nowrap;
+  cursor:pointer;
+  transition:background-color .14s ease, color .14s ease;
+}
+.jx-modeSeatBtn:hover,
+.jx-modeSeatBtn.open{
+  background:rgba(15,23,42,.055);
+  color:rgba(15,23,42,.92);
+}
+.jx-modeSeatBtn:focus-visible{ outline:none; box-shadow:0 0 0 2px rgba(18,109,255,.28); }
+.jx-modeSeatIcon{ flex:none; color:currentColor; }
+.jx-modeSeatLabel{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+/* 非标准模式：标识走暖色，一眼看出"这段对话不在默认档上" */
+.jx-modeSeatBtn.turbo{ color:rgba(15,23,42,.88); }
+.jx-modeSeatBtn.turbo .jx-modeSeatIcon{ color:var(--color-warning, #F8AB42); }
+.jx-modeSeatBtn svg.jx-modeArrow{ color:currentColor; opacity:.45; transition:transform .16s ease, opacity .14s ease; }
+.jx-modeSeatBtn:hover svg.jx-modeArrow{ opacity:.65; }
+.jx-modeSeatBtn.open svg.jx-modeArrow{ transform:rotate(180deg); opacity:.8; }
+/* 菜单向上弹：对话页里这一位贴着屏幕底部的输入框，向下弹会伸出视口、
+   把列表尾部的模式裁掉（模式一多必现）。向上空间永远够——上面是整个消息区；
+   首页空态它会盖住欢迎语一角，可接受。 */
+.jx-modeSeatMenu{
+  position:absolute;
+  left:0;
+  bottom:calc(100% + 6px);
+  z-index:30;
+  display:flex;
+  flex-direction:column;
+  width:max(280px, 100%);
+  max-height:min(360px, 60vh);
+  overflow-y:auto;
+  padding:4px;
+  border:1px solid rgba(15,23,42,.06);
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
+}
+/* 模式描述是选择依据，不像模型名那样能省——允许折行 */
+.jx-modeSeatMenu .jx-menuOption-desc{ white-space:normal; }
+/* 私有模式的「我的」角标：和官方模式区分开，但不喧宾夺主 */
+.jx-modeSeatTag{
+  margin-left:6px;
+  padding:0 5px;
+  border-radius:4px;
+  background:rgba(18,109,255,.10);
+  color:#0B57D0;
+  font-size:11px;
+  line-height:16px;
+  font-weight:500;
+  vertical-align:1px;
+}
 .jx-runTargetRow .jx-deploySwitcher { margin: 0 0 6px; justify-content: flex-start; }
 /* 胶囊在对话框上方：菜单向上弹，避免遮住输入框 */
 .jx-runTargetRow .jx-deploySwitcherMenu { top: auto; bottom: calc(100% + 6px); left: 0; transform: none; }

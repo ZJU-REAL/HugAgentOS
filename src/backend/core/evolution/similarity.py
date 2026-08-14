@@ -232,9 +232,14 @@ def _ngrams(text: str, n: int = 3) -> set:
     return {cleaned[i : i + n] for i in range(len(cleaned) - n + 1)}
 
 
-def lexical_similarity(a: str, b: str) -> float:
-    """Jaccard overlap of character n-grams."""
-    ga, gb = _ngrams(a), _ngrams(b)
+def lexical_similarity(a: str, b: str, n: int = 3) -> float:
+    """Jaccard overlap of character n-grams.
+
+    ``n`` defaults to 3 (unchanged for existing callers). Short surfaces — entity
+    and concept names rather than whole questions — want ``n=2``: trigrams over a
+    four-character name leave too few grams to overlap on.
+    """
+    ga, gb = _ngrams(a, n), _ngrams(b, n)
     if not ga or not gb:
         return 0.0
     intersection = len(ga & gb)

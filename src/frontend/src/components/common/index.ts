@@ -9,3 +9,4 @@ export { LangToggleButton } from './LangToggleButton';
 export { VisibilityScopeModal } from './VisibilityScopeModal';
 export { OntologyBuildValidationModal } from './OntologyBuildValidationModal';
 export { OntologyTagSelect } from './OntologyTagSelect';
+export { ChipChevron } from './ChipChevron';

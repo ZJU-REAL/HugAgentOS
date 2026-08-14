@@ -12,20 +12,30 @@
   background: #fff;
 }
 
-.jx-appMainLayout.is-canvasFullscreen .jx-canvasPanelSlot {
+/* 全屏：面板脱离文档流盖住整个主区，而不是把主区挤成 0 宽。
+   收起时 AnimatePresence 渲染的是上一帧的退出节点，.is-fullscreen 仍在它身上，
+   所以它保持满屏原地淡出、聊天区在下面直接恢复；否则面板会先缩回停靠宽度
+   （看起来「先收到中间、再收到右边」）再滑出。 */
+.jx-canvasPanelSlot.is-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
   width: 100% !important;
   max-width: none !important;
   flex: 1 1 100% !important;
 }
 
-.jx-appMainLayout.is-canvasFullscreen .jx-canvasPanelSlot > .jx-canvas,
-.jx-appMainLayout.is-canvasFullscreen .jx-canvasPanelSlot > .jx-rightSidebar {
-  width: 100% !important;
+/* width:auto（而非 100%）：宽度过渡对 auto 不插值，进/出全屏就是干净的一步到位，
+   不会出现面板一边横向伸缩一边滑动的半截动画。 */
+.jx-canvasPanelSlot.is-fullscreen > .jx-canvas,
+.jx-canvasPanelSlot.is-fullscreen > .jx-rightSidebar {
+  width: auto !important;
   min-width: 0 !important;
   max-width: none !important;
+  flex: 1 1 auto !important;
 }
 
-.jx-appMainLayout.is-canvasFullscreen .jx-canvas-dragHandle {
+.jx-canvasPanelSlot.is-fullscreen .jx-canvas-dragHandle {
   display: none;
 }
 
@@ -61,24 +71,60 @@
   background: rgba(255, 255, 255, .98);
 }
 
+/* 页签条：多页签时横向滚动，滚动条隐藏（活动页签由 JS 滚进可视区） */
+.jx-canvasTabs-list {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.jx-canvasTabs-list::-webkit-scrollbar {
+  display: none;
+}
+
 .jx-canvasTab {
   display: flex;
-  width: clamp(132px, 34%, 220px);
-  min-width: 0;
+  min-width: 108px;
+  max-width: 220px;
   height: 32px;
-  padding: 0 6px 0 10px;
+  padding: 0 4px 0 10px;
   align-items: center;
   gap: 7px;
+  flex: 0 1 176px;
   border: 0;
   border-radius: 8px;
-  background: rgba(15, 23, 42, .055);
+  background: transparent;
   color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease;
+}
+
+.jx-canvasTab:hover {
+  background: rgba(15, 23, 42, .035);
+}
+
+.jx-canvasTab.is-active {
+  background: rgba(15, 23, 42, .055);
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .025);
 }
 
 .jx-canvasTab:focus-visible {
   outline: 2px solid var(--color-primary-disabled);
   outline-offset: 1px;
+}
+
+/* 未保存标记：页签窄到藏掉文件名时，这个点仍然提示「关掉会丢改动」 */
+.jx-canvasTab-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-primary);
 }
 
 .jx-canvasTab-icon {
@@ -101,12 +147,16 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--color-text);
+  color: var(--color-text-secondary);
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.jx-canvasTab.is-active .jx-canvasTab-title {
+  color: var(--color-text);
 }
 
 .jx-canvasTab-close {

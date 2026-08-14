@@ -25,6 +25,9 @@ ROLE_DEFINITIONS: dict[str, dict] = {
     "code_exec":  {"label": "代码执行推理", "type": "chat"},
     # 自主循环的评审员/规划器共用此角色（后台模型管理页可独立指定；未配置时回落 main_agent）。
     "loop_reviewer": {"label": "自主循环评审与规划", "type": "chat"},
+    # 知识库 Wiki 生成（实体/概念抽取、引文标注、页面撰写）。这是纯离线批处理，
+    # 调用量随文档量线性增长，通常应当单配一个便宜模型；未配置时回落 main_agent。
+    "kb_wiki": {"label": "知识库 Wiki 实体抽取", "type": "chat"},
 }
 
 

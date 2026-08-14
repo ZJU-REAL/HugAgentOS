@@ -725,6 +725,197 @@
 
 /* ── 知识库详情内的「文档 / 知识 Wiki」视图切换 ─────────────────────────────── */
 
+
+/* ── 建库时的索引方式选择 ────────────────────────────────────────────────
+   建库是高频轻量动作，这一区只承载「两张卡 + 一个粒度」的信息量：
+   解释性文字收进 tooltip，自定义要求收进折叠区。 */
+
+.jx-idxMode {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jx-idxModeHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-idxModeBadge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.jx-idxModeCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.jx-idxModeCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.jx-idxModeCard:hover:not(:disabled) {
+  border-color: var(--color-primary-hover);
+  background: var(--color-primary-light);
+}
+
+.jx-idxModeCard.is-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.jx-idxModeCard:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.jx-idxModeIcon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  font-size: 15px;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-gray);
+}
+
+.jx-idxModeCard.is-active .jx-idxModeIcon {
+  color: var(--color-primary);
+  background: #fff;
+}
+
+.jx-idxModeText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.jx-idxModeTitle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.jx-idxModeInfo {
+  font-size: 12px;
+  color: var(--color-text-placeholder);
+}
+
+.jx-idxModeInfo:hover {
+  color: var(--color-primary);
+}
+
+.jx-idxModeTagline {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jx-idxModeWiki {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-gray);
+}
+
+.jx-idxModeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jx-idxModeRowLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.jx-idxModeToggle {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.jx-idxModeToggle:hover {
+  color: var(--color-primary);
+}
+
+.jx-idxModeOptional {
+  margin-left: 6px;
+  color: var(--color-text-placeholder);
+}
+
+.jx-idxModeAdvanced {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jx-idxModeField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jx-idxModeField label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.jx-idxModeNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-tertiary);
+}
+
+/* 已开 Wiki 但还没生成过条目页时的提示条 */
+   给用户一个明确的下一步动作，而不是把他们丢在一个空白 Tab 前面 */
+.jx-kbWikiPrompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-gray);
+  font-size: 13px;
+  color: var(--color-text-secondary, #666);
+}
+
 .jx-kbViewSwitch {
   display: inline-flex;
   gap: 2px;

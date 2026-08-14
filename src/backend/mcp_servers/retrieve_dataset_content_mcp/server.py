@@ -439,13 +439,18 @@ async def retrieve_local_kb(
     return {"items": result}
 
 
-# ── LLM Wiki / 概念图谱工具（仅 Wiki-capable 后端暴露） ──────────────────────
+# ── LLM Wiki / 概念图谱工具 ──────────────────────────────────────────────────
 #
 # 这五个工具服务于同一条单向链：定位 → 展开 → 顺血缘取原文。Wiki 是知识库的
 # 地图，不是第二个检索源——它负责把范围收窄，答案和出处仍来自原文分块。
 #
-# dify / fastgpt / 社区版下没有这层产物，工具会被 list_tools 整体过滤掉，模型
-# 看不到它们的存在（见文件末尾的 _list_tools_filtered）。
+# 两类知识库都支持：自建库（kb_ 前缀，勾了 Wiki 索引模式）与提供该能力的外接
+# 后端。平台上一个 Wiki 源都没有时，工具会被 list_tools 整体过滤掉，模型看不到
+# 它们的存在（见文件末尾的 _list_tools_filtered）。
+#
+# 注意显隐门控是**平台级**而非按用户：list_tools 拿不到请求头，无法按当前用户
+# 可见的库来裁剪。越权由每次调用时的权限校验兜底——工具可见，但对无权的库返回
+# access_denied。
 
 _WIKI_TOOL_NAMES = frozenset(
     {
@@ -463,18 +468,32 @@ _WIKI_LANE = _BlockingLane(name="wiki", max_workers=3)
 
 async def _run_wiki(tool: str, call, *, empty: Dict[str, Any]) -> Dict[str, Any]:
     """统一跑 wiki 工具：限流 + 超时 + 异常兜底，失败时返回结构化 error。"""
-    from mcp_servers.retrieve_dataset_content_mcp.wiki_impl import WikiUnsupportedError
+    from mcp_servers.retrieve_dataset_content_mcp.wiki_impl import (
+        WikiAccessDeniedError,
+        WikiUnsupportedError,
+    )
 
     try:
         return await _WIKI_LANE.run(call, timeout=_WIKI_TOOL_TIMEOUT_SECONDS)
+    except WikiAccessDeniedError as exc:
+        _LOGGER.warning("%s 越权访问被拒: %s", tool, exc)
+        return {
+            **empty,
+            "error": {
+                "code": "access_denied",
+                "tool": tool,
+                "message": "无权访问该知识库",
+                "retryable": False,
+            },
+        }
     except WikiUnsupportedError as exc:
-        _LOGGER.warning("%s called on a non-wiki backend: %s", tool, exc)
+        _LOGGER.warning("%s 调用到不具备 Wiki 能力的知识库: %s", tool, exc)
         return {
             **empty,
             "error": {
                 "code": "unsupported_backend",
                 "tool": tool,
-                "message": "当前知识库后端不提供 Wiki 能力",
+                "message": "该知识库不提供 Wiki 能力",
                 "retryable": False,
             },
         }
@@ -528,6 +547,8 @@ async def wiki_overview(
         dataset_id=dataset_id,
         limit=limit,
         allowed_dataset_ids=_get_header(ctx, _HDR_ALLOWED_DATASET_IDS),
+        allowed_kb_ids=_get_header(ctx, _HDR_ALLOWED_KB_IDS),
+        current_user_id=_get_header(ctx, _HDR_CURRENT_USER_ID),
     )
     return await _run_wiki("wiki_overview", call, empty={"hub_pages": []})
 
@@ -581,6 +602,8 @@ async def wiki_locate(
         dataset_id=dataset_id,
         limit=limit,
         allowed_dataset_ids=_get_header(ctx, _HDR_ALLOWED_DATASET_IDS),
+        allowed_kb_ids=_get_header(ctx, _HDR_ALLOWED_KB_IDS),
+        current_user_id=_get_header(ctx, _HDR_CURRENT_USER_ID),
     )
     return await _run_wiki("wiki_locate", call, empty={"pages": []})
 
@@ -620,6 +643,8 @@ async def wiki_read_page(
         slug,
         dataset_id=dataset_id,
         allowed_dataset_ids=_get_header(ctx, _HDR_ALLOWED_DATASET_IDS),
+        allowed_kb_ids=_get_header(ctx, _HDR_ALLOWED_KB_IDS),
+        current_user_id=_get_header(ctx, _HDR_CURRENT_USER_ID),
     )
     return await _run_wiki("wiki_read_page", call, empty={})
 
@@ -663,6 +688,8 @@ async def wiki_expand(
         depth=depth,
         limit=limit,
         allowed_dataset_ids=_get_header(ctx, _HDR_ALLOWED_DATASET_IDS),
+        allowed_kb_ids=_get_header(ctx, _HDR_ALLOWED_KB_IDS),
+        current_user_id=_get_header(ctx, _HDR_CURRENT_USER_ID),
     )
     return await _run_wiki("wiki_expand", call, empty={"nodes": [], "edges": []})
 
@@ -710,6 +737,8 @@ async def wiki_fetch_source(
         dataset_id=dataset_id,
         max_chunks=max_chunks,
         allowed_dataset_ids=_get_header(ctx, _HDR_ALLOWED_DATASET_IDS),
+        allowed_kb_ids=_get_header(ctx, _HDR_ALLOWED_KB_IDS),
+        current_user_id=_get_header(ctx, _HDR_CURRENT_USER_ID),
     )
     return await _run_wiki("wiki_fetch_source", call, empty={"items": []})
 
@@ -724,9 +753,10 @@ _ORIGINAL_LIST_TOOLS = mcp.list_tools
 
 
 async def _list_tools_filtered():
-    """Wiki 工具只在支持的后端上出现在工具清单里。
+    """平台上没有任何 Wiki 源时，把 Wiki 工具从清单里摘掉。
 
-    每次 list_tools 都重新判定，所以在管理台切换知识库后端后无需重启 mcp 容器。
+    每次 list_tools 都重新判定，所以切换知识库后端、或新建了一个开 Wiki 的自建库
+    之后，无需重启 mcp 容器。
     """
     tools = await _ORIGINAL_LIST_TOOLS()
     try:

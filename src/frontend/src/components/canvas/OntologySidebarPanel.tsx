@@ -10,7 +10,6 @@ const AUTO_FOLLOW_THRESHOLD = 72;
 
 export function OntologySidebarPanel() {
   const target = useCanvasStore((state) => state.ontologyTarget);
-  const closeCanvas = useCanvasStore((state) => state.closeCanvas);
   const dispatchProcessVisible = useUIStore((state) => state.dispatchProcessVisible);
   const message = useChatStore((state) => {
     if (!target) return undefined;
@@ -48,12 +47,7 @@ export function OntologySidebarPanel() {
 
   return (
     <aside className="jx-rightSidebar jx-rightSidebar--ontology" aria-label={t('本体校验侧边栏')}>
-      <CanvasTabBar
-        title={t('本体校验')}
-        icon={<SafetyCertificateOutlined />}
-        closeLabel={t('收起右侧面板')}
-        onClose={closeCanvas}
-      />
+      <CanvasTabBar />
       <div ref={bodyRef} className="jx-rightSidebar-body" onScroll={handleScroll} aria-live="polite">
         {message?.ontologyGovernance && target ? (
           <OntologyRevisionPanel

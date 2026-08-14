@@ -2,7 +2,9 @@ import { useRef, useState } from 'react';
 import { Modal, Input, Typography, message } from 'antd';
 import { useKbStore } from '../../stores';
 import { createKBSpace } from '../../api';
+import type { KBIndexMode, WikiGranularity } from '../../types';
 import { t } from '../../i18n';
+import IndexModePicker from './IndexModePicker';
 
 interface CreateKBModalProps {
   onCreated?: () => void;
@@ -19,6 +21,12 @@ export default function CreateKBModal({ onCreated }: CreateKBModalProps) {
     setCreateKBDesc,
     setCreateKBLoading,
   } = useKbStore();
+
+  // 索引方式：默认仅 RAG，与历史知识库的行为一致
+  const [indexModes, setIndexModes] = useState<KBIndexMode[]>(['rag']);
+  const [granularity, setGranularity] = useState<WikiGranularity>('standard');
+  const [extractionInstructions, setExtractionInstructions] = useState('');
+  const [contentInstructions, setContentInstructions] = useState('');
 
   // Empty-name submit: status=error persists until the user edits it, shake plays once
   const [nameError, setNameError] = useState(false);
@@ -43,9 +51,27 @@ export default function CreateKBModal({ onCreated }: CreateKBModalProps) {
         if (!createKBName.trim()) { triggerNameInvalid(); message.warning(t('请输入知识库名称')); return; }
         setCreateKBLoading(true);
         try {
-          await createKBSpace(createKBName.trim(), createKBDesc.trim() || undefined);
+          await createKBSpace(
+            createKBName.trim(),
+            createKBDesc.trim() || undefined,
+            undefined,
+            undefined,
+            undefined,
+            indexModes,
+            indexModes.includes('wiki')
+              ? {
+                  granularity,
+                  extraction_instructions: extractionInstructions.trim() || undefined,
+                  content_instructions: contentInstructions.trim() || undefined,
+                }
+              : undefined,
+          );
           message.success(t('知识库创建成功'));
           closeCreateKBModal();
+          setIndexModes(['rag']);
+          setGranularity('standard');
+          setExtractionInstructions('');
+          setContentInstructions('');
           onCreated?.();
         } catch (err: any) {
           message.error(err.message || t('创建失败'));
@@ -80,6 +106,17 @@ export default function CreateKBModal({ onCreated }: CreateKBModalProps) {
             showCount
           />
         </div>
+        <IndexModePicker
+          value={indexModes}
+          onChange={setIndexModes}
+          granularity={granularity}
+          onGranularityChange={setGranularity}
+          extractionInstructions={extractionInstructions}
+          onExtractionInstructionsChange={setExtractionInstructions}
+          contentInstructions={contentInstructions}
+          onContentInstructionsChange={setContentInstructions}
+          disabled={createKBLoading}
+        />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {t('分块方法可在上传文档时逐文件选择')}
         </Typography.Text>

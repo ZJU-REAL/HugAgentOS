@@ -384,7 +384,7 @@
     border-bottom-right-radius:20px;
   }
 
-  .jx-projectDetail-inputWrap .jx-modeDropBtn{
+  .jx-projectDetail-inputWrap .jx-modelEffortBtn{
     min-width:0;
     max-width:116px;
     padding-inline:9px;
@@ -816,8 +816,15 @@
     margin-top:clamp(10px, 2dvh, 16px);
   }
 
+  /* 这行原来只有桌面端的运行位置胶囊，移动端整行藏掉；现在它还装着
+     「标准/极速」二选一，得留着——只压紧、居中，别吃掉输入框的高度。 */
   .jx-emptyPage--main .jx-homeInput .jx-runTargetRow{
-    display:none !important;
+    justify-content:center;
+    padding:0;
+  }
+
+  .jx-emptyPage--main .jx-homeInput .jx-chatModeSwitch{
+    margin-bottom:8px;
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap{
@@ -860,34 +867,12 @@
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-attachBtn{
-    order:1;
-    margin:0 2px 0 0;
-    padding:3px;
+    margin:0 4px 0 0;
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-attachIcon{
-    width:21px;
-    height:21px;
-  }
-
-  .jx-emptyPage--main .jx-homeInput .jx-modeDropBtn{
-    order:2;
-    width:30px;
-    min-width:30px;
-    height:30px;
-    min-height:30px;
-    flex:0 0 30px;
-    justify-content:center;
-    margin:0;
-    padding:0;
-    border-color:transparent;
-    border-radius:8px;
-    color:#141923;
-  }
-
-  .jx-emptyPage--main .jx-homeInput .jx-modeIcon{
-    width:15px;
-    height:15px;
+    width:17px;
+    height:17px;
   }
 
   /* Mobile composer controls keep every capability available, but collapse
@@ -898,9 +883,7 @@
     padding-left:10px;
   }
 
-  .jx-modeDropBtn,
   .jx-promptHubBtn,
-  .jx-modelDropBtn,
   .jx-planModeBtn{
     width:30px;
     min-width:30px;
@@ -912,10 +895,7 @@
     padding:0;
   }
 
-  .jx-modeDropBtn > span,
-  .jx-modeDropBtn .jx-modeArrow,
   .jx-promptHubBtn > span,
-  .jx-modelDropText,
   .jx-planModeBtn > span{
     display:none;
   }
@@ -925,8 +905,20 @@
     font-size:16px;
   }
 
-  .jx-modelDropBtn{
-    border-color:transparent;
+  /* 模型/思考强度位没有可替代的图标（名字本身就是它的值），窄屏只压不藏 */
+  .jx-modelEffortBtn{
+    max-width:104px;
+    padding:0 4px 0 8px;
+  }
+
+  .jx-modelEffortAside{
+    display:none;
+  }
+
+  /* 上方的标准/极速分段器在窄屏收成图标 + 短字 */
+  .jx-chatModeSwitch-opt{
+    padding:0 10px;
+    font-size:12px;
   }
 
   .jx-projectDropBtn,
@@ -944,13 +936,9 @@
     background:transparent;
   }
 
-  .jx-emptyPage--main .jx-homeInput .jx-projectDropBtn{
-    order:3;
-  }
-
   .jx-projectDropBtn.bound{
     border-color:transparent;
-    background:#eef2f7;
+    background:var(--jx-chip-active-bg, rgba(18,109,255,.10));
   }
 
   .jx-projectDropBtn .jx-projectDropName,
@@ -984,14 +972,6 @@
     overflow:hidden;
     text-overflow:ellipsis;
     white-space:nowrap;
-  }
-
-  .jx-emptyPage--main .jx-homeInput .jx-composerSpacer{
-    order:4;
-  }
-
-  .jx-emptyPage--main .jx-homeInput .jx-sendBtn{
-    order:5;
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-sendIcon{

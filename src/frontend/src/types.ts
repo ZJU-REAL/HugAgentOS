@@ -456,8 +456,14 @@ export interface ChatItem {
    *  (plan chats start with plan mode enabled); false records that the user switched back
    *  to ordinary conversation while retaining the historical plan cards. */
   planModeActive?: boolean;
-  /** Whether this chat was created via the batch-execution ("批量执行") entry from the App Center */
+  /** Historical classification: this chat was created/used via the batch-execution ("批量执行")
+   *  entry. Like planChat it survives the user leaving the mode, so batch history stays
+   *  recognisable; it does not by itself decide how the next message is sent. */
   batchChat?: boolean;
+  /** Explicit composer preference for this chat. Undefined preserves the legacy default
+   *  (batch chats start in batch mode); false records that the user closed the mode from
+   *  the composer chip / "+" menu and continues as an ordinary conversation. */
+  batchModeActive?: boolean;
   /** Whether this chat was created via the site-building ("站点建站") entry (Lab → Sites) */
   siteChat?: boolean;
   /** Automation task ID — set on virtual sidebar entries for automation tasks */
@@ -979,6 +985,30 @@ export interface KBChunk {
   questions: string[];
 }
 
+/** 索引模式：rag 建向量检索，wiki 建 LLM Wiki 图谱；两者同选即 LLM-Wiki 知识库。 */
+export type KBIndexMode = 'rag' | 'wiki';
+
+/** 知识库能力位。自建库由索引模式投影而来，外接库由后端上报，两者字段同构。 */
+export interface KBCapabilities {
+  vector?: boolean;
+  keyword?: boolean;
+  wiki?: boolean;
+  graph?: boolean;
+}
+
+/** Wiki 抽取粒度：条目数量与生成成本随档位单调上升。 */
+export type WikiGranularity = 'focused' | 'standard' | 'exhaustive';
+
+export interface WikiConfig {
+  granularity?: WikiGranularity;
+  language?: string;
+  max_llm_calls?: number;
+  /** 抽取要求：这个库里什么算重要的条目。只影响抽什么，出处与接地规则由系统保证 */
+  extraction_instructions?: string;
+  /** 撰写要求：条目页的语气与结构。只影响怎么写，出处与接地规则由系统保证 */
+  content_instructions?: string;
+}
+
 export interface KBItem extends CatalogItemBase {
   provider?: string;
   version?: string;
@@ -989,11 +1019,27 @@ export interface KBItem extends CatalogItemBase {
   is_public?: boolean;
   document_count?: number;
   chunk_method?: string;
+  /** 知识库来源：自建库还是外接后端。由后端显式标注，前端不要靠 id 前缀推断 */
+  source?: 'local' | 'external';
+  index_modes?: KBIndexMode[];
+  capabilities?: KBCapabilities;
   system_managed?: boolean;
   pinned?: boolean;
   editable?: boolean;
   deletable?: boolean;
   uploadable?: boolean;
+}
+
+/** 单个知识库的 Wiki 状态：能力位 + 生成进度。 */
+export interface KBWikiStatus {
+  kb_id: string;
+  supports_wiki: boolean;
+  generating?: boolean;
+  running?: number;
+  pending?: number;
+  failed?: number;
+  progress?: { stage?: string; done?: number; total?: number };
+  last_error?: string | null;
 }
 
 export interface ChunkPreviewChild {
@@ -1429,7 +1475,7 @@ export interface LoopIterationItem {
   decided_by?: string;
 }
 
-// ── 外接知识库的 LLM Wiki / 概念图谱（仅 WeKnora 后端提供） ──────────────────
+// ── 知识库的 LLM Wiki / 概念图谱（自建库与具备该能力的外接后端共用） ──────────
 
 export type WikiPageType =
   | 'concept'

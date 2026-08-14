@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
     await _startup_recover_datasource_sidecars()
     await _startup_preload()
     await _startup_automation_scheduler()
+    await _startup_kb_wiki_worker()
     await _startup_distillation_scheduler()
     await _startup_evolution_scheduler()
     await _startup_memory_ttl_scheduler()
@@ -77,6 +78,7 @@ async def lifespan(app: FastAPI):
     yield
     # ── shutdown ──
     await _shutdown_stale_run_reaper()
+    await _shutdown_kb_wiki_worker()
     await _shutdown_channel_manager()
     await _shutdown_datasource_sidecar_recovery()
     await _shutdown_mcp_market_monitor()
@@ -930,6 +932,39 @@ async def _startup_automation_scheduler():
         logger.warning("[startup] Automation scheduler failed to start: %s", exc)
 
 
+async def _startup_kb_wiki_worker():
+    """Start the knowledge-base Wiki generation worker.
+
+    Wiki 生成是分钟级到小时级的长任务，作业状态落在 kb_wiki_jobs 表上，worker 认领
+    后写心跳。启动时会自动接手上次进程留下的僵尸作业，不需要额外的恢复步骤。
+    """
+    if not _env_flag("KB_WIKI_ENABLED", True):
+        logger.info("[startup] KB wiki worker disabled")
+        return
+    try:
+        from core.kb.wiki.worker import WikiIngestWorker
+
+        global _kb_wiki_worker
+        _kb_wiki_worker = WikiIngestWorker()
+        await _kb_wiki_worker.start()
+        from core.infra import runtime_state
+
+        runtime_state.register("kb_wiki_worker", _kb_wiki_worker)
+    except Exception as exc:
+        logger.warning("[startup] KB wiki worker failed to start: %s", exc)
+
+
+async def _shutdown_kb_wiki_worker():
+    global _kb_wiki_worker
+    if _kb_wiki_worker is None:
+        return
+    try:
+        await _kb_wiki_worker.stop()
+    except Exception as exc:
+        logger.warning("[shutdown] KB wiki worker stop failed: %s", exc)
+    _kb_wiki_worker = None
+
+
 async def _startup_channel_manager():
     """Start the inbound channel bot long connections (owner service-account model)."""
     if not _env_flag("CHANNEL_BOTS_ENABLED", True):
@@ -947,6 +982,7 @@ async def _startup_channel_manager():
 
 
 _automation_scheduler = None
+_kb_wiki_worker = None
 _distillation_scheduler = None
 _idle_reaper_task = None
 

@@ -4,7 +4,7 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, EvolutionSummary, KBChunk, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, EvolutionSummary, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
@@ -344,6 +344,69 @@ export interface UserSelectableModel {
   supports_reasoning_effort: boolean;
   /** Real context window (tokens) for this model; 0/undefined when the admin hasn't configured it. */
   context_length?: number;
+}
+
+/** 对话模式（输入框上方那枚模式位）。装配细节留在服务端，这里只拿展示与策略。 */
+export interface ChatModeOption {
+  slug: string;
+  name: string;
+  description: string;
+  is_builtin: boolean;
+  is_private: boolean;
+  /** 选中该模式时思考强度跟随切到这一档 */
+  default_effort: 'fast' | 'medium' | 'high' | 'max';
+  /** 锁死则用户改不了强度（极速模式即如此） */
+  effort_locked: boolean;
+}
+
+/** 模式的完整可写形态（Config 台 / 用户设置页编辑用）。 */
+export interface ChatModeDetail extends ChatModeOption {
+  id: string;
+  enabled: boolean;
+  sort_order: number;
+  tool_scope: 'all' | 'restricted';
+  mcp_server_ids: string[];
+  skill_ids: string[];
+  plugin_ids: string[];
+  agent_ids: string[];
+  manual_invoke_enabled: boolean;
+  max_iters: number | null;
+  prompt_kind: string | null;
+  prompt_text: string | null;
+}
+
+/** 当前用户可用的模式：启用的官方模式 + 本人私有模式。 */
+export async function listChatModes(): Promise<ChatModeOption[]> {
+  const wrapped = await apiRequest<unknown>('/v1/chat-modes');
+  const data = unwrapData<JsonObject>(wrapped);
+  return (Array.isArray(data?.modes) ? data.modes : []) as ChatModeOption[];
+}
+
+/** 我自建的私有模式（需 can_manage_chat_modes）。 */
+export async function listMyChatModes(): Promise<ChatModeDetail[]> {
+  const wrapped = await apiRequest<unknown>('/v1/chat-modes/mine');
+  const data = unwrapData<JsonObject>(wrapped);
+  return (Array.isArray(data?.modes) ? data.modes : []) as ChatModeDetail[];
+}
+
+export async function createMyChatMode(body: Partial<ChatModeDetail>): Promise<ChatModeDetail> {
+  const wrapped = await apiRequest<unknown>('/v1/chat-modes/mine', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  return unwrapData<ChatModeDetail>(wrapped);
+}
+
+export async function updateMyChatMode(id: string, body: Partial<ChatModeDetail>): Promise<ChatModeDetail> {
+  const wrapped = await apiRequest<unknown>(`/v1/chat-modes/mine/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+  return unwrapData<ChatModeDetail>(wrapped);
+}
+
+export async function deleteMyChatMode(id: string): Promise<void> {
+  await apiRequest<unknown>(`/v1/chat-modes/mine/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
@@ -942,6 +1005,8 @@ export async function createKBSpace(
   chunkMethod?: string,
   indexingConfig?: IndexingConfig,
   visibility?: 'private' | 'public',
+  indexModes?: KBIndexMode[],
+  wikiConfig?: WikiConfig,
 ): Promise<Record<string, unknown>> {
   const wrapped = await apiRequest<unknown>('/v1/catalog/kb', {
     method: 'POST',
@@ -951,6 +1016,8 @@ export async function createKBSpace(
       chunk_method: chunkMethod || 'semantic',
       indexing_config: indexingConfig || undefined,
       visibility: visibility || 'private',
+      index_modes: indexModes && indexModes.length ? indexModes : undefined,
+      wiki_config: wikiConfig || undefined,
     }),
   });
   return unwrapData<Record<string, unknown>>(wrapped);
@@ -958,13 +1025,36 @@ export async function createKBSpace(
 
 export async function updateKBSpace(
   kbId: string,
-  payload: { name?: string; description?: string },
+  payload: {
+    name?: string;
+    description?: string;
+    index_modes?: KBIndexMode[];
+    wiki_config?: WikiConfig;
+  },
 ): Promise<Record<string, unknown>> {
   const wrapped = await apiRequest<unknown>(`/v1/catalog/kb/${kbId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
   return unwrapData<Record<string, unknown>>(wrapped);
+}
+
+/** 单库 Wiki 状态：是否具备 Wiki 能力 + 生成进度。无权访问时返回 supports_wiki:false。 */
+export async function getKBWikiStatus(kbId: string): Promise<KBWikiStatus> {
+  try {
+    const wrapped = await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/capability`);
+    return unwrapData<KBWikiStatus>(wrapped);
+  } catch {
+    return { kb_id: kbId, supports_wiki: false };
+  }
+}
+
+/** 把该库全部已索引文档重新排进 Wiki 生成队列（建库后才勾 Wiki、或想换粒度重来）。 */
+export async function rebuildKBWiki(kbId: string): Promise<{ job_id: string; documents: number }> {
+  const wrapped = await apiRequest<unknown>(`/v1/catalog/kb/${kbId}/wiki/rebuild`, {
+    method: 'POST',
+  });
+  return unwrapData<{ job_id: string; documents: number }>(wrapped);
 }
 
 export async function polishKBDescription(
@@ -1792,6 +1882,8 @@ export interface AuthUser extends EditionAuthUserFields {
   can_add_agent?: boolean;
   /** Whether the user may run the autonomous loop (the "autonomous loop" toggle in chat mode, default true) */
   can_run_autonomous_loop?: boolean;
+  /** Whether the user may create their own private chat modes (设置 → 模式选择, default false) */
+  can_manage_chat_modes?: boolean;
   /** Whether the user may create private knowledge bases (default false; visible only to the owner) */
   can_create_private_kb?: boolean;
   /** Whether the user may create public knowledge bases (default false; visible to everyone by default, can be further restricted by grants) */
@@ -4159,10 +4251,11 @@ import type {
   WikiStats,
 } from './types';
 
-// ── 外接知识库的 LLM Wiki / 概念图谱 ─────────────────────────────────────────
+// ── 知识库的 LLM Wiki / 概念图谱 ─────────────────────────────────────────────
 //
-// 只有具备 Wiki 能力的后端（当前为 WeKnora）提供这层结构化产物。前端先调
-// getWikiCapability 探测，为假时整个 Wiki 入口不渲染，避免出现注定 404 的按钮。
+// 两类知识库都可能有这层结构化产物：勾选了 Wiki 索引模式的自建库，以及提供该
+// 能力的外接后端。前端先调 getWikiCapability 做平台级探测，再看单个知识库的
+// capabilities.wiki——两级都为真才渲染入口，避免出现注定 404 的按钮。
 
 export async function getWikiCapability(): Promise<WikiCapability> {
   try {

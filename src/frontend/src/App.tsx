@@ -17,6 +17,7 @@ import type { PanelKey } from './types';
 import { listSidebarAutomations, getPendingConfirm, listPendingConfirms, searchSessions } from './api';
 import type { SearchResultItem } from './api';
 import { TOPIC_TAG_COLORS } from './utils/constants';
+import { resolvePlanModeActive } from './utils/chatMode';
 import { SCROLL_FOLLOW_THRESHOLD, distanceFromBottom, scrollElementToBottom } from './utils/scroll';
 import { EASE, SLIDE_EASE } from './utils/motionTokens';
 import { CollapseHeight } from './components/common/CollapseHeight';
@@ -772,7 +773,9 @@ export default function App() {
             {chat?.agentName && (
               <Tag className="jx-headerTopicTag" color="blue">{chat.agentName}</Tag>
             )}
-            {(chat as any)?.planChat && (
+            {/* Follows the live composer mode, not the historical planChat marker: once the user
+                closes plan mode the header must stop claiming the chat is still in it. */}
+            {resolvePlanModeActive(chat) && (
               <Tag className="jx-headerTopicTag" color="blue">{t('计划模式')}</Tag>
             )}
             {chat?.businessTopic && (
