@@ -793,7 +793,7 @@
   gap:16px;
   padding:12px 14px;
   background:var(--color-bg-container);
-  border:1px solid rgba(203,213,225,.72);
+  border:1px solid color-mix(in srgb, var(--color-fill) 72%, transparent);
   border-radius:16px;
   box-shadow:0 6px 18px rgba(15,23,42,.05);
   max-width:460px;
@@ -819,9 +819,9 @@
   align-items:center;
   justify-content:center;
   flex-shrink:0;
-  background:linear-gradient(180deg, #fbfdff 0%, #f2f6fc 100%);
-  border:1px solid rgba(203,213,225,.72);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
+  background:linear-gradient(180deg, var(--color-bg-layout) 0%, var(--color-fill-hover) 100%);
+  border:1px solid color-mix(in srgb, var(--color-fill) 72%, transparent);
+  box-shadow:inset 0 1px 0 color-mix(in srgb, var(--color-bg-container) 85%, transparent);
 }
 .jx-dlCard-fileIcon{
   object-fit:contain;
@@ -835,7 +835,7 @@
 .jx-dlCard-name{
   font-weight:600;
   font-size:14px;
-  color:rgba(17,24,39,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -859,7 +859,7 @@
   height:36px;
   padding:0 14px;
   border-radius:10px;
-  border:1px solid rgba(191,219,254,.95);
+  border:1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
   background:var(--color-primary-light);
   color:var(--color-primary);
   font-size:14px;
@@ -869,8 +869,8 @@
 }
 .jx-dlCard-btn:hover{
   background:var(--color-primary-bg);
-  border-color:#93c5fd;
-  color:#1d4ed8;
+  border-color:var(--color-primary-disabled);
+  color:var(--color-primary-active);
 }
 
 /* ── 图片卡片（ChatGPT 风格：裸图 + hover 内嵌操作） ─────────── */

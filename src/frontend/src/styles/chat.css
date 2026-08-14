@@ -615,7 +615,7 @@
   gap:10px;
   padding:10px 12px;
   background:var(--color-bg-container);
-  border:1px solid rgba(203,213,225,.72);
+  border:1px solid color-mix(in srgb, var(--color-fill) 72%, transparent);
   border-radius:14px;
   min-width:180px;
   max-width:260px;
