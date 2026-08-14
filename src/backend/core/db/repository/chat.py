@@ -15,6 +15,25 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 
+def _strip_nul(value: Any) -> Any:
+    """递归剥离 ``\\u0000``——PostgreSQL 的 text/JSONB 不接受 NUL 字符。
+
+    工具结果里混入字面 NUL 并不罕见（PDF 提取文本、二进制味的网页正文），
+    一旦原样进入 content / tool_calls 等字段，INSERT 会被
+    ``UntranslatableCharacter`` 整条拒绝、消息丢失。这里是消息落库的唯一
+    收口，普通对话 / 定时任务 / 自主循环全部经过。
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "") if "\x00" in value else value
+    if isinstance(value, list):
+        return [_strip_nul(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_nul(v) for v in value)
+    if isinstance(value, dict):
+        return {_strip_nul(k): _strip_nul(v) for k, v in value.items()}
+    return value
+
+
 def _visible_message_text(content: str) -> str:
     """assistant 消息 content 的可见正文（剥离 <think> 思考段）。
 
@@ -348,7 +367,7 @@ class ChatMessageRepository:
 
     def create(self, message_data: Dict[str, Any]) -> ChatMessage:
         """Create a new chat message."""
-        message = ChatMessage(**message_data)
+        message = ChatMessage(**_strip_nul(message_data))
         message.created_at = datetime.utcnow()
         self.db.add(message)
         self.db.commit()
@@ -366,7 +385,7 @@ class ChatMessageRepository:
         if not message:
             return None
         for key, value in update_data.items():
-            setattr(message, key, value)
+            setattr(message, key, _strip_nul(value))
         self.db.commit()
         self.db.refresh(message)
         return message
@@ -377,7 +396,7 @@ class ChatMessageRepository:
         if not message:
             return None
         merged = dict(message.extra_data or {})
-        merged.update(patch)
+        merged.update(_strip_nul(patch))
         message.extra_data = merged
         self.db.commit()
         self.db.refresh(message)
