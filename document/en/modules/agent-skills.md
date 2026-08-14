@@ -84,6 +84,19 @@ All skills — built-in and DB/admin-imported — are exposed inside the sandbox
 - DB skills are materialized into the same directory on demand (`loader._materialize_skill_files`);
 - the remote cube sandbox has no host mounts, so skill files matching `/workspace/skills` are pushed into the sandbox at runtime instead (`CUBE_SKILL_PREPUSH*` settings).
 
+### Progressive Plugin Loading
+
+Installed plugins' components (skills + MCP tools) **no longer enter every request wholesale**: during main-chat assembly the plugin's skill lines and tool JSON Schemas are removed from the context, the system prompt keeps only a one-line "plugin directory" entry (slug + description), and a `load_plugin` tool is registered. When the model decides a user request matches a plugin's description it calls `load_plugin` to activate it — only then are its MCP servers connected and its skills registered, becoming usable from the next step. This flattens the TTFT growth that installing many plugins used to cause.
+
+Key points:
+
+- **Sticky per chat**: activation is persisted in the session metadata (`chat_sessions.metadata.activated_plugins`); subsequent turns of the same chat assemble the plugin normally with no re-activation. Explicitly invoking a plugin (`/` slash, `+` menu) counts as activation.
+- **Byte-stable directory**: the directory is sorted by slug and independent of activation state; with provider-side prefix caching an activation pays for a cache rebuild only on the activation turn and the following one, after which the prefix is stable again.
+- **Scope**: main-chat assembly and sub-agents. A sub-agent's bound plugins are deferred the same way, but activation lives only within that run and is never persisted (sub-agent runs are short-lived and isolated; writing under the parent chat's key would leak the activation into the main agent's assembly). Plugins pinned by a restricted chat mode stay eagerly loaded (a deliberate admin narrowing); plugins with stdio-transport MCP components are not deferred.
+- **Kill switch**: set `PLUGIN_PROGRESSIVE_LOADING=false` to revert to eager assembly.
+
+Implementation: `core/llm/plugin_loader.py` (deferral resolution / directory rendering / activation tool) plus the assembly hook in `core/llm/agent_factory.py`.
+
 ## The Skill Marketplace
 
 The marketplace is an installable skill library with two sources — curated presets and community submissions — implemented in `core/services/marketplace_service.py`.

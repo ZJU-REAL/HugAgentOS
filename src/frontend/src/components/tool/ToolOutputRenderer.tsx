@@ -219,6 +219,25 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
   // Load skill: render the same detail as the capability center, avoiding stuffing the full SKILL.md into the card
   if (toolName === 'load_skill') return renderLoadSkill(out);
 
+  // Load plugin: the activation summary is human-readable markdown-ish text
+  // (新增工具/技能列表) — render it as formatted content, never as a JSON dump
+  if (toolName === 'load_plugin') {
+    const raw = typeof out === 'string'
+      ? out
+      : (out && typeof out === 'object' && typeof (out as any).result === 'string')
+        ? (out as any).result
+        : (out && typeof out === 'object' && typeof (out as any).text === 'string')
+          ? (out as any).text
+          : String(out ?? '');
+    if (!raw.trim()) return empty(t('暂无详情'));
+    return (
+      <div className="jx-tr-db">
+        <div className="jx-tr-dbHeader success">{t('插件已加载')}</div>
+        <div className="jx-md jx-tr-skillBody" dangerouslySetInnerHTML={{ __html: mdToHtml(raw) }} />
+      </div>
+    );
+  }
+
   // Load/read file: compact metadata card + short preview, avoiding stuffing the whole file into the card
   if (toolName === 'view_text_file' || toolName === 'read_artifact' || toolName === 'Read') {
     return renderFilePreview(out);

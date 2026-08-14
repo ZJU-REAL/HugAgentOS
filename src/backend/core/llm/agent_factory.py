@@ -521,6 +521,15 @@ async def create_agent_executor(
     turbo_mode: bool = False,
     turbo_explicit_skill_ids: Optional[List[str]] = None,
     turbo_explicit_mcp_ids: Optional[List[str]] = None,
+    # invoked_skill_ids / invoked_mcp_ids: capabilities the user explicitly
+    # summoned THIS turn（斜杠技能 / 插件 chip 展开的 skill_ids/mcp_ids），mode
+    # 无关。Consumed by progressive plugin loading: an explicitly invoked
+    # plugin must not be deferred (its user-message injection promises the
+    # capability is active), and the invocation is persisted as a sticky
+    # activation for the chat. turbo_explicit_* remain the turbo-only narrowing
+    # pass-throughs.
+    invoked_skill_ids: Optional[List[str]] = None,
+    invoked_mcp_ids: Optional[List[str]] = None,
     # mode_spec: 对话模式的装配契约（core/services/chat_mode_service.ChatModeSpec）。
     # 「模式」把原来写死的极速模式泛化成一张表：工具面 / 技能 / 插件 / 提示词 kind /
     # 迭代上限都由它给。turbo_mode 现在的含义是"这个模式要收窄工具面"，收窄成什么
@@ -562,6 +571,12 @@ async def create_agent_executor(
         )
 
     # ── Sub-agent overrides ──────────────────────────────────────────
+    # _subagent_progressive: the sub-agent's bound plugins, progressively
+    # loaded — deferred here, directory + load_plugin injected in the subagent
+    # prompt branch below. Activation is in-run only (no sticky persistence:
+    # sub-agent runs are short-lived and isolated, and writing under the parent
+    # chat's key would leak the activation into the main agent's assembly).
+    _subagent_progressive = None
     if user_agent is not None:
         # Override capability bindings from user_agent config
         enabled_mcp_ids = list(user_agent.mcp_server_ids or [])
@@ -570,7 +585,38 @@ async def create_agent_executor(
         # Expand bound plugins into their component skills + MCPs (a plugin = a detachable capability bundle). Merge with the loose bindings, deduplicated.
         plugin_ids = user_agent.plugin_ids or []
         if plugin_ids:
+            from core.llm import plugin_loader as _plug_sub
+
+            if not disable_tools and _plug_sub.progressive_plugin_loading_enabled():
+                try:
+
+                    def _resolve_bound():
+                        # Same ownership/release narrowing the eager expansion
+                        # would have received via _filter_skill_ids_for_user.
+                        return _plug_sub.resolve_bound_progressive_plugins(
+                            list(plugin_ids),
+                            skill_filter=lambda sids: _filter_skill_ids_for_user(
+                                sids, current_user_id
+                            ),
+                        )
+
+                    _subagent_progressive = await asyncio.to_thread(_resolve_bound)
+                    if not _subagent_progressive.directory:
+                        _subagent_progressive = None
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning(
+                        "[factory] subagent progressive plugin resolve failed（回退全量装配）: %s",
+                        exc,
+                    )
+                    _subagent_progressive = None
             p_skills, p_mcp = _expand_plugin_bindings(plugin_ids)
+            if _subagent_progressive is not None:
+                # Deferred components stay out of the assembly; stdio-transport
+                # plugins (absent from deferred_*) still expand eagerly.
+                p_skills = [
+                    s for s in p_skills if s not in _subagent_progressive.deferred_skill_ids
+                ]
+                p_mcp = [m for m in p_mcp if m not in _subagent_progressive.deferred_mcp_ids]
             enabled_skill_ids = list(dict.fromkeys(enabled_skill_ids + p_skills))
             enabled_mcp_ids = list(dict.fromkeys(enabled_mcp_ids + p_mcp))
 
@@ -658,6 +704,59 @@ async def create_agent_executor(
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
     if enabled_skill_ids:
         enabled_skill_ids = _filter_skill_ids_for_user(enabled_skill_ids, current_user_id)
+
+    # ── Progressive plugin loading（渐进式插件加载）────────────────────────
+    # Main-path only: a sub-agent's plugin binding is the owner's deliberate
+    # configuration and a restricted mode's plugin set is the admin's deliberate
+    # narrowing — both stay eager. Here, installed plugins' components are
+    # removed from this run's enabled sets and replaced by a one-line directory
+    # entry + a `load_plugin` activation tool (see core/llm/plugin_loader.py).
+    # Deferral happens BEFORE the skill-bound-MCP merge below so a deferred
+    # skill doesn't pull its bound MCP servers into the assembly either.
+    _progressive = None
+    if (
+        not disable_tools
+        and not turbo_mode
+        and user_agent is None
+        and current_user_id
+    ):
+        from core.llm import plugin_loader as _plug
+
+        if _plug.progressive_plugin_loading_enabled():
+            try:
+                # Normalize the None fallbacks to their concrete resolutions
+                # (identical sources to the later phases) so the subtraction
+                # below has explicit lists to operate on.
+                if enabled_skill_ids is None:
+                    enabled_skill_ids = _filter_skill_ids_for_user(
+                        _effective_main_available_skills(), current_user_id
+                    )
+                if not isinstance(enabled_mcp_ids, list):
+                    enabled_mcp_ids = [
+                        x for x in get_enabled_ids("mcp") if isinstance(x, str) and x.strip()
+                    ]
+                _progressive = await asyncio.to_thread(
+                    _plug.resolve_progressive_plugins,
+                    user_id=str(current_user_id),
+                    chat_id=chat_id,
+                    enabled_skill_ids=enabled_skill_ids,
+                    enabled_mcp_ids=enabled_mcp_ids,
+                    invoked_skill_ids=invoked_skill_ids,
+                    invoked_mcp_ids=invoked_mcp_ids,
+                )
+                if _progressive.deferred_skill_ids:
+                    enabled_skill_ids = [
+                        s for s in enabled_skill_ids if s not in _progressive.deferred_skill_ids
+                    ]
+                if _progressive.deferred_mcp_ids:
+                    enabled_mcp_ids = [
+                        m for m in enabled_mcp_ids if m not in _progressive.deferred_mcp_ids
+                    ]
+                if not _progressive.directory:
+                    _progressive = None
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("[factory] progressive plugin resolve failed（回退全量装配）: %s", exc)
+                _progressive = None
 
     # A skill's MCP binding is an explicit capability grant, just like a sub-agent binding.
     # Merge only the MCPs declared by enabled skills; unrelated disabled MCPs remain disabled.
@@ -1323,6 +1422,10 @@ async def create_agent_executor(
     # ── Phase 4: Build system prompt (DB parts pre-fetched) ──
     _log.info("[factory] +%s tools registered", _elapsed())
     _agent_ref: Optional[Dict] = None
+    # Progressive plugin runtime holder — filled in stages: registered with the
+    # collector below, then completed after the real Toolkit / AgentRuntimeState
+    # exist (the load_plugin closure mutates both at activation time).
+    _plugin_runtime: Optional[Dict[str, Any]] = None
 
     _ontology_runtime = ontology_runtime if isinstance(ontology_runtime, dict) else {}
     skill_metadata = loader.load_all_metadata()
@@ -1354,12 +1457,21 @@ async def create_agent_executor(
 
     def _build_toolkit() -> Toolkit:
         # ``toolkit`` here is still the ToolCollector; construct the real Toolkit from the current collection state.
+        #
+        # "Skill" (AgentScope's builtin SkillViewer) is hidden unconditionally —
+        # distinct from the ontology forbidden_tools above. The Toolkit injects
+        # its schema on every request whenever any skill is registered, but this
+        # stack loads skills exclusively through view_text_file (sandbox↔backend
+        # path mapping, {baseDir} substitution, runtime hint, skill_call
+        # observability). A model that called Skill instead would bypass all of
+        # that and receive backend-path content unusable in the sandbox — so the
+        # schema is pure per-round prefill waste plus a wrong door.
         return OntologyFilteredToolkit(
             tools=toolkit.function_tools,
             mcps=[*mcp_clients, *http_clients],
             skills_or_loaders=toolkit.skill_loaders or None,
             skill_instruction_template=_SKILL_INSTRUCTION_TEMPLATE,
-            hidden_tools=_ontology_hidden_tools,
+            hidden_tools={*_ontology_hidden_tools, "Skill"},
         )
 
     # Compute schemas first in the "subagent tools not yet registered" state
@@ -1384,6 +1496,44 @@ async def create_agent_executor(
                 "[factory] +%s subagent ontology contract injected (%d chars)",
                 _elapsed(),
                 len(_ontology_prompt),
+            )
+
+        # ── Progressive plugin directory + load_plugin tool (sub-agent) ──
+        # Bound plugins deferred in the override block above; in-run activation
+        # only (persist=False — see the note there).
+        if _subagent_progressive is not None:
+            from core.llm import plugin_loader as _plug
+
+            _plugin_dir_section = _plug.build_plugin_directory_section(
+                _subagent_progressive.directory
+            )
+            if _plugin_dir_section:
+                system_prompt += "\n\n" + _plugin_dir_section
+            _plugin_runtime = {
+                "activated_slugs": set(),
+                "connected_keys": set(enabled_mcp_keys),
+                "toolkit": None,
+                "permission_context": None,
+                "close_list": None,
+                "persist": False,
+                "loader": loader,
+                "chat_id": chat_id,
+                "user_id": current_user_id,
+                "enabled_kb_ids": enabled_kb_ids,
+                "channel_origin": channel_origin,
+                "reranker_enabled": reranker_enabled,
+                "confirm_gate": _mcp_confirm_should_gate,
+                "ontology_runtime": _ontology_runtime,
+            }
+            _plug.register_load_plugin(
+                toolkit, _subagent_progressive.deferred_by_slug(), _plugin_runtime
+            )
+            _log.info(
+                "[factory] +%s subagent progressive plugins: %d deferred (skills=%d, mcp=%d)",
+                _elapsed(),
+                len(_subagent_progressive.deferred),
+                len(_subagent_progressive.deferred_skill_ids),
+                len(_subagent_progressive.deferred_mcp_ids),
             )
     else:
         # ── 模式自带的专属提示词 ──
@@ -1469,6 +1619,44 @@ async def create_agent_executor(
                     _elapsed(),
                     len(_code_exec_text),
                 )
+
+        # ── Progressive plugin directory + load_plugin tool ──
+        # The directory section is byte-stable per user (sorted by slug,
+        # independent of activation state) so an activation never perturbs this
+        # part of the prefix; only the tools/skills it adds do, once.
+        if _progressive is not None:
+            from core.llm import plugin_loader as _plug
+
+            _plugin_dir_section = _plug.build_plugin_directory_section(_progressive.directory)
+            if _plugin_dir_section:
+                system_prompt += "\n\n" + _plugin_dir_section
+            _plugin_runtime = {
+                "activated_slugs": set(_progressive.activated_slugs),
+                "connected_keys": set(enabled_mcp_keys),
+                "toolkit": None,  # the real Toolkit, filled after construction
+                "permission_context": None,  # filled after AgentRuntimeState exists
+                "close_list": None,  # filled right before return
+                "loader": loader,
+                "chat_id": chat_id,
+                "user_id": current_user_id,
+                "enabled_kb_ids": enabled_kb_ids,
+                "channel_origin": channel_origin,
+                "reranker_enabled": reranker_enabled,
+                "confirm_gate": _mcp_confirm_should_gate,
+                "ontology_runtime": _ontology_runtime,
+            }
+            _plug.register_load_plugin(
+                toolkit, _progressive.deferred_by_slug(), _plugin_runtime
+            )
+            _log.info(
+                "[factory] +%s progressive plugins: %d in directory, %d deferred "
+                "(skills=%d, mcp=%d)",
+                _elapsed(),
+                len(_progressive.directory),
+                len(_progressive.deferred),
+                len(_progressive.deferred_skill_ids),
+                len(_progressive.deferred_mcp_ids),
+            )
 
         # ── Inject batch execution hint (App Center batch-execution sessions only) ──
         if batch_mode:
@@ -1981,6 +2169,12 @@ async def create_agent_executor(
         for n in _all_tool_names
     }
 
+    # Complete the progressive-plugin runtime holder now that the real Toolkit
+    # and the permission context exist (load_plugin mutates both mid-run).
+    if _plugin_runtime is not None:
+        _plugin_runtime["toolkit"] = toolkit
+        _plugin_runtime["permission_context"] = _state.permission_context
+
     # Offloader: when compressing/truncating overlong tool results, spill the
     # overflow to the sandbox at /workspace/.offload/ (rather than silently
     # discarding it); the model can read it back on demand via Read/bash. Only
@@ -2049,4 +2243,8 @@ async def create_agent_executor(
     # pooled stable clients stay open for reuse (closing them would defeat the
     # pool and hand dead clients to the next request).
     all_transient = [*transient_mcp_clients, *http_clients]
+    # Clients connected by a mid-run load_plugin activation are appended to this
+    # same list object, so the caller's close_clients() teardown covers them.
+    if _plugin_runtime is not None:
+        _plugin_runtime["close_list"] = all_transient
     return agent, all_transient

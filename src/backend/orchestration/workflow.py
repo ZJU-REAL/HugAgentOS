@@ -1257,6 +1257,10 @@ def run_chat_workflow(
                 if _workflow_turbo
                 else None
             ),
+            # 渐进式插件加载：本轮显式呼唤的能力不得被延迟（用户消息注入已承诺
+            # 其可用），并作为会话级激活落库。
+            invoked_skill_ids=_explicit_skill_ids_from_context(context),
+            invoked_mcp_ids=[m for m in (context.get("mcp_ids") or []) if isinstance(m, str)],
             memory_enabled=_workflow_mem_enabled,
             batch_mode=_workflow_batch_chat if _direct_user_agent is None else False,
             user_agent=_direct_user_agent,
@@ -2464,6 +2468,10 @@ async def astream_chat_workflow(
                 if _turbo_chat
                 else None
             ),
+            # 渐进式插件加载：本轮显式呼唤的能力不得被延迟（用户消息注入已承诺
+            # 其可用），并作为会话级激活落库。
+            invoked_skill_ids=_explicit_skill_ids_from_context(context),
+            invoked_mcp_ids=[m for m in (context.get("mcp_ids") or []) if isinstance(m, str)],
             memory_enabled=_mem0_enabled,
             visible_subagents=_visible_subagents if _visible_subagents else None,
             plan_mode=_plan_chat,

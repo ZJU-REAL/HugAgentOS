@@ -84,6 +84,19 @@
 - DB 技能按需物化到同一目录（`loader._materialize_skill_files`）；
 - 远端 cube 沙箱无 host mount，改为运行时把命中 `/workspace/skills` 的技能文件推送进沙箱（`CUBE_SKILL_PREPUSH` 系列配置）。
 
+### 插件的渐进式加载（Progressive Plugin Loading）
+
+已安装插件的组件（技能 + MCP 工具）默认**不再全量进入每轮请求**：主对话装配时，插件的技能行与工具 JSON Schema 从上下文中剔除，系统提示词只保留一行「插件目录」条目（插件标识 + 描述），并注册 `load_plugin` 工具。模型判断用户请求匹配某插件的描述时调用 `load_plugin` 激活它——此时才连接其 MCP server、注册其技能，下一步即可使用。这把安装大量插件带来的首字延迟（TTFT）膨胀压回常数级。
+
+要点：
+
+- **会话粘滞**：激活写入会话元数据（`chat_sessions.metadata.activated_plugins`），同一会话后续轮次该插件直接常规装配，无需重复激活；显式呼唤插件（`/` 斜杠、`+` 菜单）视同激活。
+- **目录字节稳定**：插件目录按标识排序、不随激活状态变化，配合模型侧前缀缓存（prefix caching），激活行为只在激活当轮与下一轮各付一次缓存重建，之后前缀重新稳定。
+- **范围**：主对话链路 + 子智能体。子智能体绑定的插件同样延迟加载，但激活只在该次运行内生效、不落库（子智能体运行短暂且相互隔离，落到父会话的键上会把激活泄漏进主智能体装配）；收窄模式（对话模式）圈定的插件保持全量装配（那是管理员的显式圈定）；组件含 stdio 形态 MCP 的插件不延迟。
+- **开关**：环境变量 `PLUGIN_PROGRESSIVE_LOADING=false` 可整体回退到全量装配。
+
+实现：`core/llm/plugin_loader.py`（延迟解析 / 目录渲染 / 激活工具）+ `core/llm/agent_factory.py` 装配接入。
+
 ## 技能市场（Skill Marketplace）
 
 技能市场是"预置 + 社区"双来源的可安装技能库，核心服务在 `core/services/marketplace_service.py`。
