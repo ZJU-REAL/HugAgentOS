@@ -456,6 +456,16 @@ export interface ChatItem {
    *  (plan chats start with plan mode enabled); false records that the user switched back
    *  to ordinary conversation while retaining the historical plan cards. */
   planModeActive?: boolean;
+  /** 这段对话选中的模式 slug（chat_modes.slug）。undefined = 标准模式。随对话记录
+   *  持久化（localStorage），刷新/切对话时由 resolveModeSlug 恢复，不然模式位每次
+   *  都掉回标准模式。 */
+  modeSlug?: string;
+  /** 这段对话选中的思考强度档（chatMode）。undefined = 没显式选过，恢复时沿用当前
+   *  会话档位（刷新则回管理端默认）。与 modeSlug 同一套持久化机制。 */
+  thinkingEffort?: 'turbo' | 'fast' | 'medium' | 'high' | 'max';
+  /** 输入区待发送的引用追问块（还没随消息发出去的那个）。随对话记录持久化，
+   *  刷新/切对话时恢复；发送即清。消息上已发出的引用在 ChatMessage.quotedFollowUp。 */
+  pendingQuote?: { text: string; ts: number };
   /** Historical classification: this chat was created/used via the batch-execution ("批量执行")
    *  entry. Like planChat it survives the user leaving the mode, so batch history stays
    *  recognisable; it does not by itself decide how the next message is sent. */

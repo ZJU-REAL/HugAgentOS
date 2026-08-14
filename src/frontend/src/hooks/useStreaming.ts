@@ -6,7 +6,7 @@ import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMo
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
 import { resolveBatchModeActive } from '../utils/chatMode';
-import { useChatStore, useAuthStore, useCatalogStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
+import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
 import { processChatStream } from './chatStream';
@@ -489,6 +489,10 @@ export function useStreaming(
         updatedAt: Date.now(),
         title: c?.title && c.title !== '新对话' ? c.title : msg.slice(0, 18) || '新对话',
         businessTopic: inferredTopic,
+        // 发送即落当前模式与思考强度：首条消息前 setModeSlug/setChatMode 没有记录
+        // 可写，这里补上，刷新/切对话后模式位和强度档才恢复得回来。
+        modeSlug: useChatStore.getState().modeSlug,
+        thinkingEffort: useChatStore.getState().chatMode,
       };
       return {
         chats: { ...prev.chats, [currentChatId]: nextChat },
@@ -527,6 +531,11 @@ export function useStreaming(
           ?.runTarget === 'local';
       if (isLocalProject(effectiveProjectId) || runTargetLocal) registerLocalChat(currentChatId);
 
+      // 锁死强度的模式按模式默认档上行：切回历史对话恢复模式时，chatMode 可能
+      // 还停在别的对话选的档位，不能把它带进锁档模式（显式选模式时 ChatModeSwitch
+      // 也是切到默认档，这里保持同一语义）。
+      const activeModeSpec = useChatModeStore.getState().modeOf(useChatStore.getState().modeSlug);
+      const wireChatMode = activeModeSpec.effort_locked ? activeModeSpec.default_effort : chatMode;
       const r = await authFetch(`${effectiveApiUrl}/v1/chats/stream`, {
         method: 'POST',
         headers: {
@@ -539,7 +548,7 @@ export function useStreaming(
           message: wireMsg,
           model_name: 'qwen',
           ...(selectedModelProviderId ? { model_provider_id: selectedModelProviderId } : {}),
-          chat_mode: chatMode,
+          chat_mode: wireChatMode,
           mode_slug: useChatStore.getState().modeSlug,
           attachments: attachments.map(({ name, mime_type, file_id }) => ({
             name,

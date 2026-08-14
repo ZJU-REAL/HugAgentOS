@@ -116,6 +116,7 @@ export function ChatModesPanel() {
       plugin_ids: [],
       agent_ids: [],
       manual_invoke_enabled: true,
+      code_exec_enabled: false,
       max_iters: null,
       default_effort: 'fast',
       effort_locked: false,
@@ -220,6 +221,7 @@ export function ChatModesPanel() {
                   <Tag>{row.tool_scope === 'all' ? t('不收窄') : t('MCP {n}', { n: row.mcp_server_ids.length })}</Tag>
                   {row.tool_scope === 'restricted' && <Tag>{t('技能 {n}', { n: row.skill_ids.length })}</Tag>}
                   {row.tool_scope === 'restricted' && <Tag>{t('插件 {n}', { n: row.plugin_ids.length })}</Tag>}
+                  {row.tool_scope === 'restricted' && row.code_exec_enabled && <Tag color="geekblue">{t('代码执行')}</Tag>}
                   <Tag>{t(EFFORT_OPTIONS.find(o => o.value === row.default_effort)?.label || row.default_effort)}</Tag>
                 </Space>
               </div>
@@ -326,6 +328,14 @@ export function ChatModesPanel() {
                 />
               </Form.Item>
               <Form.Item name="manual_invoke_enabled" label={t('允许显式呼唤')} valuePropName="checked" extra={t('开启后，你本轮用 / 技能、@子智能体、插件呼唤的能力仍可临时用上，不受上面清单限制。')}>
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                name="code_exec_enabled"
+                label={t('保留代码执行')}
+                valuePropName="checked"
+                extra={t('开启后这个模式仍能执行代码、读写文件；关闭则纯检索问答，不执行代码。')}
+              >
                 <Switch />
               </Form.Item>
               <Form.Item name="max_iters" label={t('迭代上限')} extra={t('留空表示不额外收紧。最小 2。')}>

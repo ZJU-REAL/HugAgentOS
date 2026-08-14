@@ -22,3 +22,8 @@ export function resolveBatchModeActive(chat?: BatchModeChat): boolean {
 export function shouldRestorePlanModeFromHistory(chat?: PlanModeChat): boolean {
   return chat?.planModeActive !== false;
 }
+
+/** 这段对话的模式 slug：记录上没有（老数据 / 没显式选过）= 标准模式。 */
+export function resolveModeSlug(chat?: Pick<ChatItem, 'modeSlug'>): string {
+  return chat?.modeSlug || 'standard';
+}

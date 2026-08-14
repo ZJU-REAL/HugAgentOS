@@ -77,6 +77,11 @@ class ChatMode(Base):
     agent_ids = Column(JSONType, nullable=False, default=list)
     #: 是否允许用户本轮显式呼唤（/技能、@子智能体、插件）临时装配到这个模式里。
     manual_invoke_enabled = Column(Boolean, nullable=False, default=True)
+    #: 收窄模式（restricted）下是否保留沙箱代码执行与文件工具（bash / 读写文件 /
+    #: 产物进出等原生内置工具）。历史上"收窄=一律无代码"是极速模式的私货，泛化成
+    #: 模式表后要让建模式的人自己选。``all`` 作用域不看这个位（本就全量装配，仍受
+    #: 全局 ``sandbox.code_capability_enable`` 总开关约束）。
+    code_exec_enabled = Column(Boolean, nullable=False, default=False)
     #: ReAct 迭代硬上限；NULL = 不额外收紧，走全局默认。
     max_iters = Column(Integer, nullable=True)
 

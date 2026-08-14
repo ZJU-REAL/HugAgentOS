@@ -32,10 +32,10 @@
 
 | 色值 | 用途 |
 |------|------|
-| `#262626` | 强调文字、正文标题 |
-| `#4D4D4D` | 次强调、大段正文内容 |
-| `#808080` | 次要信息 |
-| `#B3B3B3` | 置灰/说明文字 |
+| `#101828` | 强调文字、正文标题 |
+| `#475467` | 次强调、大段正文内容 |
+| `#667085` | 次要信息 |
+| `#98A2B3` | 置灰/说明文字 |
 | `#FFFFFF` | 纯白文字（深色背景上） |
 
 ### 1.4 语义色 — 成功 (Success Green)
@@ -95,9 +95,10 @@
 | Windows | 微软雅黑 | 正常 (400) / 加粗 (700) |
 | 特殊数字/汉字 | 钉钉进步体 / DingTalk Sans | 正常 (400) |
 
-**CSS font-family 推荐写法：**
+**CSS font-family 推荐写法（与 variables.css 实现一致，系统栈优先）：**
 ```css
-font-family: "PingFang SC", "Microsoft YaHei", "微软雅黑", "DingTalk Sans", sans-serif;
+font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+  "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
 ```
 
 ### 2.2 字号层级
@@ -162,12 +163,12 @@ font-family: "PingFang SC", "Microsoft YaHei", "微软雅黑", "DingTalk Sans", 
 
 系统使用**大圆角**表达 AI、时尚、亲近的品牌感。
 
-| 圆角值 | 用途 | 示例 |
-|--------|------|------|
-| 4px | 小面积元素 | 标签、小卡片 |
-| 8px | 常用组件 | 按钮、输入框、下拉框、菜单 |
-| 12px | 分割模块 | 卡片视图、背景卡片 |
-| 20px | 大容器 | 弹窗、大输入框 |
+| 圆角值 | 变量 | 用途 | 示例 |
+|--------|------|------|------|
+| 6px | `--radius-xs` | 小面积元素 | 标签、小卡片 |
+| 10px | `--radius-sm` | 常用组件 | 按钮、输入框、下拉框、菜单 |
+| 16px | `--radius-md` | 分割模块 | 卡片视图、背景卡片 |
+| 24px | `--radius-lg` | 大容器 | 弹窗、大输入框 |
 
 ---
 
@@ -348,10 +349,10 @@ font-family: "PingFang SC", "Microsoft YaHei", "微软雅黑", "DingTalk Sans", 
   --color-bg-gray: #F5F6F7;
 
   /* 文字 */
-  --color-text: #262626;
-  --color-text-secondary: #4D4D4D;
-  --color-text-tertiary: #808080;
-  --color-text-placeholder: #B3B3B3;
+  --color-text: #101828;
+  --color-text-secondary: #475467;
+  --color-text-tertiary: #667085;
+  --color-text-placeholder: #98A2B3;
   --color-text-white: #FFFFFF;
 
   /* 成功 */
@@ -386,10 +387,10 @@ font-family: "PingFang SC", "Microsoft YaHei", "微软雅黑", "DingTalk Sans", 
   --color-icon-orange: #F8AB42;
 
   /* 圆角 */
-  --radius-xs: 4px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
 
   /* 间距 */
   --space-xs: 4px;
@@ -398,8 +399,9 @@ font-family: "PingFang SC", "Microsoft YaHei", "微软雅黑", "DingTalk Sans", 
   --space-lg: 20px;
   --space-xl: 40px;
 
-  /* 字体 */
-  --font-family: "PingFang SC", "Microsoft YaHei", "微软雅黑", sans-serif;
+  /* 字体（系统栈优先） */
+  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --font-family-number: "DingTalk Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
 
   /* 字号 */
@@ -426,18 +428,18 @@ const theme = {
     colorWarning: '#F8AB42',
     colorError: '#FC5D5D',
     colorInfo: '#126DFF',
-    colorText: '#262626',
-    colorTextSecondary: '#4D4D4D',
-    colorTextTertiary: '#808080',
-    colorTextQuaternary: '#B3B3B3',
+    colorText: '#101828',
+    colorTextSecondary: '#475467',
+    colorTextTertiary: '#667085',
+    colorTextQuaternary: '#98A2B3',
     colorBorder: '#E3E6EA',
     colorBorderSecondary: '#D8DBE2',
     colorBgContainer: '#FFFFFF',
     colorBgLayout: '#F5F6F7',
-    borderRadius: 8,
-    borderRadiusLG: 12,
-    borderRadiusSM: 4,
-    fontFamily: '"PingFang SC", "Microsoft YaHei", "微软雅黑", sans-serif',
+    borderRadius: 10,
+    borderRadiusLG: 16,
+    borderRadiusSM: 6,
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
     fontSize: 14,
     fontSizeSM: 12,
     fontSizeLG: 16,

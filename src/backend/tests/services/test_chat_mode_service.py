@@ -192,3 +192,22 @@ def test_private_mode_cannot_bind_prompt_kind(db):
     # 更新也一样
     row2 = svc.update(row.id, {"prompt_kind": "turbo"}, owner_user_id="u1")
     assert row2.prompt_kind is None
+
+
+def test_code_exec_flag_roundtrip(db):
+    """收窄模式的代码执行位：默认关（与历史"收窄=无代码"行为一致），显式开则
+    进 spec——agent 工厂据此保留沙箱/文件工具。"""
+    svc = ChatModeService(db)
+    # 默认关
+    row = svc.create({"name": "纯检索", "slug": "retrieval-only"}, owner_user_id="u1")
+    assert bool(row.code_exec_enabled) is False
+    assert svc.resolve("retrieval-only", "u1").code_exec_enabled is False
+    # 显式开 + 更新可关回
+    row2 = svc.create(
+        {"name": "带代码", "slug": "with-code", "code_exec_enabled": True},
+        owner_user_id="u1",
+    )
+    assert bool(row2.code_exec_enabled) is True
+    assert svc.resolve("with-code", "u1").code_exec_enabled is True
+    row3 = svc.update(row2.id, {"code_exec_enabled": False}, owner_user_id="u1")
+    assert bool(row3.code_exec_enabled) is False

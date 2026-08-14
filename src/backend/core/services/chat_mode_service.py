@@ -54,6 +54,8 @@ class ChatModeSpec:
     plugin_ids: Tuple[str, ...] = ()
     agent_ids: Tuple[str, ...] = ()
     manual_invoke_enabled: bool = True
+    #: 收窄模式下是否保留沙箱代码执行与文件工具；``all`` 作用域不看这个位。
+    code_exec_enabled: bool = False
     max_iters: Optional[int] = None
     default_effort: str = "fast"
     effort_locked: bool = False
@@ -71,6 +73,7 @@ STANDARD_SPEC = ChatModeSpec(
     slug=SLUG_STANDARD,
     name="标准模式",
     tool_scope=TOOL_SCOPE_ALL,
+    code_exec_enabled=True,
     default_effort="fast",
 )
 
@@ -181,6 +184,7 @@ class ChatModeService:
             plugin_ids=tuple(_as_id_list(row.plugin_ids)),
             agent_ids=tuple(_as_id_list(row.agent_ids)),
             manual_invoke_enabled=bool(row.manual_invoke_enabled),
+            code_exec_enabled=bool(getattr(row, "code_exec_enabled", False)),
             max_iters=row.max_iters,
             default_effort=row.default_effort or "fast",
             effort_locked=bool(row.effort_locked),
@@ -288,6 +292,8 @@ class ChatModeService:
                 out[key] = _as_id_list(payload.get(key))
         if creating or "manual_invoke_enabled" in payload:
             out["manual_invoke_enabled"] = bool(payload.get("manual_invoke_enabled", True))
+        if creating or "code_exec_enabled" in payload:
+            out["code_exec_enabled"] = bool(payload.get("code_exec_enabled", False))
         if creating or "max_iters" in payload:
             raw = payload.get("max_iters")
             try:
@@ -625,6 +631,8 @@ class ChatModeService:
                     plugin_ids=[],
                     agent_ids=[],
                     manual_invoke_enabled=True,
+                    # all 作用域不看这个位，置 True 只为语义自洽：标准模式本就带代码能力。
+                    code_exec_enabled=True,
                     max_iters=None,
                     default_effort="fast",
                     effort_locked=False,
@@ -679,6 +687,8 @@ class ChatModeService:
             "plugin_ids": plugin_ids,
             "agent_ids": [],
             "manual_invoke_enabled": manual,
+            # 极速的产品契约就是"检索直达、不执行代码"，保持关。
+            "code_exec_enabled": False,
             "max_iters": iters,
             # 极速那条链路本就不思考，强度锁死——不是"默认不思考但可以改"。
             "default_effort": "fast",
