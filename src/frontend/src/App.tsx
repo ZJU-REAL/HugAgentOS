@@ -707,7 +707,7 @@ export default function App() {
         onSelectSearchResult={handleSelectSearchResult}
       />
 
-      <Layout className={`jx-appMainLayout${canvasFullscreen ? ' is-canvasFullscreen' : ''}`} style={{ overflow: 'hidden', background: '#ffffff' }}>
+      <Layout className={`jx-appMainLayout${canvasFullscreen ? ' is-canvasFullscreen' : ''}`} style={{ overflow: 'hidden', background: 'var(--color-bg-base)' }}>
         <div className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}`}>
         {!showChatHeader && (
           <header className="jx-mobileHeader">

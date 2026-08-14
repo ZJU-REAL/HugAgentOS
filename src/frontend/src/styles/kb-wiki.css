@@ -18,7 +18,7 @@
   flex-direction: column;
   gap: 10px;
   padding: var(--space-md) var(--space-lg);
-  background: linear-gradient(135deg, var(--color-primary-light) 0%, #fff 62%);
+  background: linear-gradient(135deg, var(--color-primary-light) 0%, var(--color-bg-container) 62%);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
@@ -35,7 +35,7 @@
   display: inline-flex;
   padding: 3px;
   gap: 2px;
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--color-bg-container) 72%, transparent);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
@@ -61,7 +61,7 @@
 
 .jx-wikiTab.is-active {
   color: var(--color-primary);
-  background: #fff;
+  background: var(--color-bg-container);
   box-shadow: 0 1px 4px rgba(18, 109, 255, 0.14);
 }
 
@@ -91,7 +91,7 @@
   padding: 3px 10px;
   font-size: 12px;
   color: var(--color-text-tertiary);
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--color-bg-container) 80%, transparent);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xs);
 }
@@ -124,7 +124,7 @@
   flex-direction: column;
   gap: 10px;
   padding: var(--space-md);
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   max-height: 720px;
@@ -289,15 +289,15 @@
   background: var(--color-bg-gray);
 }
 
-.jx-wikiTypeTag--entity { color: #126DFF; background: #DBE9FF; }
-.jx-wikiTypeTag--concept { color: #02B589; background: #DFF5EE; }
+.jx-wikiTypeTag--entity { color: var(--color-primary); background: var(--color-primary-bg); }
+.jx-wikiTypeTag--concept { color: var(--color-success); background: #DFF5EE; }
 .jx-wikiTypeTag--summary { color: #C77B14; background: #FEF0DC; }
 .jx-wikiTypeTag--index { color: #7C5CFC; background: #EDE9FE; }
 
 /* ── 阅读区 ───────────────────────────────────────────────────────────────── */
 
 .jx-wikiReader {
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   min-height: 480px;
@@ -511,7 +511,7 @@
 
 .jx-wikiSourceItem {
   padding: 10px 12px;
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
@@ -538,7 +538,7 @@
   flex-direction: column;
   gap: var(--space-sm);
   padding: var(--space-md);
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
@@ -671,7 +671,7 @@
   padding: 10px var(--space-md);
   flex-wrap: wrap;
   border-top: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--color-bg-container) 70%, transparent);
 }
 
 .jx-wikiGraphLegendItem {
@@ -765,7 +765,7 @@
   text-align: left;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--color-bg-container);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
@@ -800,7 +800,7 @@
 
 .jx-idxModeCard.is-active .jx-idxModeIcon {
   color: var(--color-primary);
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 .jx-idxModeText {
@@ -913,7 +913,7 @@
   border-radius: var(--radius-sm);
   background: var(--color-bg-gray);
   font-size: 13px;
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary, var(--color-text-secondary));
 }
 
 .jx-kbViewSwitch {
@@ -944,7 +944,7 @@
 
 .jx-kbViewSwitchBtn.is-active {
   color: var(--color-primary);
-  background: #fff;
+  background: var(--color-bg-container);
   box-shadow: 0 1px 4px rgba(18, 109, 255, 0.14);
 }
 
@@ -1145,7 +1145,7 @@
   gap: 4px;
   padding: 10px 12px;
   text-align: left;
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1234,7 +1234,7 @@
   flex-wrap: wrap;
   max-width: calc(100% - 24px);
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   backdrop-filter: blur(6px);
@@ -1271,7 +1271,7 @@
   display: flex;
   flex-direction: column;
   max-height: 660px;
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow: hidden;

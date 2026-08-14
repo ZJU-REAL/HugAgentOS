@@ -2,7 +2,7 @@
 .jx-md{
   font-size:14.5px;
   line-height:1.74;
-  color:rgba(31,35,40,.84);
+  color:var(--color-text);
   letter-spacing:.004em;
 }
 
@@ -14,7 +14,7 @@
   font-weight:600;
   margin:12px 0 6px;
   line-height:1.44;
-  color:rgba(15,23,42,.94);
+  color:var(--color-text);
 }
 .jx-md h1:first-child,
 .jx-md h2:first-child,
@@ -30,12 +30,12 @@
 }
 .jx-md h3{
   font-size:15px;
-  color:rgba(15,23,42,.88);
+  color:var(--color-text);
   margin-bottom:4px;
 }
 .jx-md h4{
   font-size:13px;
-  color:rgba(15,23,42,.70);
+  color:var(--color-text-secondary);
   margin-bottom:4px;
 }
 
@@ -55,7 +55,7 @@
 .jx-md li{
   line-height:1.74;
   margin:0;
-  color:rgba(31,35,40,.82);
+  color:var(--color-text);
 }
 .jx-md li > p{
   margin:0;
@@ -75,7 +75,7 @@
 
 /* Code blocks with syntax highlighting style */
 .jx-md pre{
-  background:#f7f8fa;
+  background:var(--color-bg-layout);
   padding:11px 14px;
   border-radius:12px;
   overflow:auto;
@@ -85,7 +85,7 @@
 }
 .jx-md code{
   background:rgba(15,23,42,.05);
-  color:rgba(15,23,42,.82);
+  color:var(--color-text-secondary);
   padding:2px 6px;
   border-radius:6px;
   font-size:12.5px;
@@ -94,7 +94,7 @@
 }
 .jx-md pre code{
   background:transparent;
-  color:rgba(31,35,40,.90);
+  color:var(--color-text);
   padding:0;
   font-weight:400;
 }
@@ -106,7 +106,7 @@
   margin:10px 0;
   background:rgba(18,109,255,.035);
   border-radius:10px;
-  color:rgba(31,35,40,.82);
+  color:var(--color-text);
   font-style:normal;
 }
 
@@ -127,38 +127,38 @@
   text-align:left;
 }
 .jx-md th{
-  background:#f3f6f9;
+  background:var(--color-bg-gray);
   font-weight:900;
   font-size:12px;
-  color:rgba(15,23,42,.85);
+  color:var(--color-text-secondary);
   text-transform:uppercase;
   letter-spacing:0.3px;
 }
 .jx-md td{
   font-size:12px;
-  color:rgba(31,35,40,.85);
+  color:var(--color-text);
 }
 .jx-md tr:nth-child(even) td{
-  background:#f8fafc;
+  background:var(--color-bg-layout);
 }
 
 /* Links */
 .jx-md a{
-  color:rgba(15,23,42,.88);
+  color:var(--color-text);
   text-decoration:none;
   font-weight:600;
-  border-bottom:1px solid rgba(15,23,42,.25);
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 25%, transparent);
   transition:all 0.2s ease;
 }
 .jx-md a:hover{
-  color:rgba(15,23,42,.98);
-  border-bottom-color:rgba(15,23,42,.5);
+  color:var(--color-text);
+  border-bottom-color:color-mix(in srgb, var(--color-text) 50%, transparent);
 }
 
 /* Strong/Bold text */
 .jx-md strong{
   font-weight:900;
-  color:rgba(15,23,42,.95);
+  color:var(--color-text);
 }
 
 /* Horizontal rule */
@@ -294,14 +294,14 @@
   display:flex;
   height:100vh;
   width:100vw;
-  background:#fff;
+  background:var(--color-bg-container);
 }
 .jx-appLoading-sidebar{
   width:260px;
   flex:0 0 260px;
   padding:16px 12px;
   border-right:1px solid var(--color-border);
-  background:#F4F5F7;
+  background:var(--color-bg-gray);
   display:flex;
   flex-direction:column;
   gap:12px;

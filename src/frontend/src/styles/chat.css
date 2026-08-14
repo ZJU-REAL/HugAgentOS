@@ -1,6 +1,6 @@
 .jx-topbar{
   position:sticky;top:0;z-index:5;
-  background:rgba(255,255,255,.55);
+  background:color-mix(in srgb, var(--color-bg-container) 55%, transparent);
   backdrop-filter: blur(12px);
   box-shadow:
     0 1px 2px rgba(17,24,39,.04),
@@ -29,8 +29,8 @@
   gap:10px;
   padding:8px 58px 8px 16px;
   flex-shrink:0;
-  border-bottom:1px solid rgba(15,23,42,.06);
-  background:rgba(255,255,255,.85);
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  background:color-mix(in srgb, var(--color-bg-container) 85%, transparent);
   backdrop-filter:blur(8px);
 }
 .jx-appMainLayout{
@@ -89,7 +89,7 @@
   min-width:0;
   font-size:14px;
   font-weight:700;
-  color:#1e293b;
+  color:var(--color-text);
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
@@ -103,16 +103,16 @@
   flex-shrink:0;
   font-size:14px;
   font-weight:600;
-  color:rgba(15,23,42,.5);
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
   cursor:pointer;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
   transition:color .15s ease;
 }
-.jx-chatTopbarProject:hover{ color:#0F172A; }
+.jx-chatTopbarProject:hover{ color:var(--color-text); }
 .jx-chatTopbarProjectSep{
-  color:#94a3b8;
+  color:var(--color-text-placeholder);
   font-weight:600;
 }
 
@@ -137,7 +137,7 @@
    * 这里临时长出的滚动条会把居中的 .jx-panel 挤左又弹回（每次切换面板都水平抖一下）。
    * 预留两侧槽位后滚动条出现/消失不再改变布局宽度。 */
   scrollbar-gutter: stable both-edges;
-  background:#ffffff;
+  background:var(--color-bg-container);
 }
 
 .jx-panel{
@@ -192,11 +192,11 @@
 .jx-shareSelectionTitle{
   font-size:15px;
   font-weight:600;
-  color:#1e293b;
+  color:var(--color-text);
 }
 .jx-shareSelectionCount{
   font-size:13px;
-  color:rgba(15,23,42,.55);
+  color:color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 .jx-shareSelectionActions{
   display:flex;
@@ -215,24 +215,24 @@
   transition:all .18s ease;
 }
 .jx-shareSelectionPrimaryBtn{
-  background:#126dff;
-  color:#fff;
+  background:var(--color-primary);
+  color:var(--color-text-white);
   font-weight:600;
 }
 .jx-shareSelectionPrimaryBtn:hover:not(:disabled){
-  background:#0f5fe0;
+  background:var(--color-primary-active);
 }
 .jx-shareSelectionPrimaryBtn:disabled{
   opacity:.45;
   cursor:not-allowed;
 }
 .jx-shareSelectionSecondaryBtn{
-  background:#fff;
-  color:#334155;
-  border:1px solid rgba(15,23,42,.09);
+  background:var(--color-bg-container);
+  color:var(--color-text);
+  border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
 }
 .jx-shareSelectionSecondaryBtn:hover{
-  background:#f8fafc;
+  background:var(--color-bg-layout);
 }
 /* 消息行：竖向堆叠（不再是头像+内容横排） */
 .jx-msg{
@@ -282,21 +282,21 @@
   height:18px;
   margin:0;
   border-radius:5px;
-  border:1px solid #aeb9c8;
-  background:#ffffff;
+  border:1px solid var(--color-fill-deep);
+  background:var(--color-bg-container);
   box-shadow:0 1px 2px rgba(15, 23, 42, .04);
   cursor:pointer;
   position:relative;
   transition:border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 .jx-shareCheckbox:hover{
-  border-color:#8ea6c7;
-  background:#ffffff;
+  border-color:var(--color-fill-deep);
+  background:var(--color-bg-container);
   box-shadow:0 1px 3px rgba(15, 23, 42, .08);
 }
 .jx-shareCheckbox:checked{
-  border-color:#4f7cff;
-  background:#4f7cff;
+  border-color:var(--color-primary);
+  background:var(--color-primary);
   box-shadow:0 2px 6px rgba(79, 124, 255, .22);
 }
 .jx-shareCheckbox:checked::after{
@@ -306,7 +306,7 @@
   top:2px;
   width:4px;
   height:9px;
-  border:solid #fff;
+  border:solid var(--color-text-white);
   border-width:0 2px 2px 0;
   transform:rotate(45deg);
 }
@@ -342,13 +342,13 @@
   cursor:text;
   padding:10px 14px;
   border-radius:18px 18px 4px 18px;
-  border:1px solid rgba(15,23,42,.09);
-  background:rgba(240,242,245,.96);
+  border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
+  background:color-mix(in srgb, var(--color-fill-hover) 96%, transparent);
   line-height:1.74;
   font-size:14px;
   white-space:pre-wrap;
   word-break:break-word;
-  color:rgba(15,23,42,.80);
+  color:color-mix(in srgb, var(--color-text) 80%, transparent);
   box-shadow:0 1px 3px rgba(15,23,42,.045);
   display:inline-block;
   letter-spacing:.003em;
@@ -361,9 +361,9 @@
 }
 /* User bubble 颜色（浅灰 ChatGPT 风格，已在上面默认） */
 .jx-bubble.user{
-  background:rgba(242,244,247,.92);
-  color:rgba(15,23,42,.78);
-  border-color:rgba(15,23,42,.075);
+  background:color-mix(in srgb, var(--color-fill-hover) 92%, transparent);
+  color:color-mix(in srgb, var(--color-text) 78%, transparent);
+  border-color:color-mix(in srgb, var(--color-text) 7.5%, transparent);
   box-shadow:0 1px 3px rgba(15,23,42,.04);
   font-size:15px;
   line-height:1.78;
@@ -375,19 +375,19 @@
   margin-bottom:10px;
   padding:8px 10px;
   border-radius:12px;
-  background:rgba(255,255,255,.46);
-  border:1px solid rgba(15,23,42,.08);
+  background:color-mix(in srgb, var(--color-bg-container) 46%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 .jx-userQuoteLabel{
   font-size:11px;
   font-weight:600;
-  color:rgba(100,116,139,.88);
+  color:color-mix(in srgb, var(--color-text-tertiary) 88%, transparent);
   line-height:1;
 }
 .jx-userQuoteText{
   font-size:12px;
   line-height:1.55;
-  color:rgba(71,85,105,.88);
+  color:color-mix(in srgb, var(--color-text-secondary) 88%, transparent);
   display:-webkit-box;
   -webkit-line-clamp:2;
   -webkit-box-orient:vertical;
@@ -407,7 +407,7 @@
   font-size:15.5px;
   line-height:1.82;
   letter-spacing:.004em;
-  color:rgba(15,23,42,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   font-weight:400;
   text-rendering:optimizeLegibility;
   -webkit-font-smoothing:antialiased;
@@ -439,7 +439,7 @@
   line-height:1.46;
   letter-spacing:0;
   font-weight:600;
-  color:rgba(15,23,42,.94);
+  color:color-mix(in srgb, var(--color-text) 94%, transparent);
 }
 .jx-msg.assistant .jx-bubble h1:first-child,
 .jx-msg.assistant .jx-bubble h2:first-child,
@@ -453,7 +453,7 @@
 .jx-msg.assistant .jx-bubble h4{
   font-size:14.5px;
   font-weight:600;
-  color:rgba(15,23,42,.74);
+  color:color-mix(in srgb, var(--color-text) 74%, transparent);
 }
 .jx-msg.assistant .jx-bubble ul,
 .jx-msg.assistant .jx-bubble ol{
@@ -463,7 +463,7 @@
 .jx-msg.assistant .jx-bubble li{
   margin:0;
   line-height:1.8;
-  color:rgba(15,23,42,.84);
+  color:color-mix(in srgb, var(--color-text) 84%, transparent);
 }
 .jx-msg.assistant .jx-bubble ul > li + li,
 .jx-msg.assistant .jx-bubble ol > li + li{
@@ -471,7 +471,7 @@
 }
 .jx-msg.assistant .jx-bubble strong{
   font-weight:600;
-  color:rgba(15,23,42,.94);
+  color:color-mix(in srgb, var(--color-text) 94%, transparent);
 }
 .jx-msg.assistant .jx-bubble blockquote{
   margin:14px 0;
@@ -479,7 +479,7 @@
   border-left-width:2px;
   border-radius:10px;
   font-style:normal;
-  color:rgba(30,41,59,.80);
+  color:color-mix(in srgb, var(--color-text-secondary) 80%, transparent);
 }
 .jx-msg.assistant .jx-bubble code{
   font-size:12.5px;
@@ -488,16 +488,16 @@
 .jx-msg.assistant .jx-bubble pre{
   margin:14px 0;
   border-radius:12px;
-  border-color:rgba(15,23,42,.07);
+  border-color:color-mix(in srgb, var(--color-text) 7%, transparent);
   box-shadow:none;
-  background:#f7f8fa;
+  background:var(--color-bg-layout);
 }
 .jx-msg.assistant .jx-bubble table{
   margin:14px 0;
 }
 .jx-msg.assistant .jx-bubble a{
-  color:rgba(15,23,42,.86);
-  border-bottom-color:rgba(15,23,42,.18);
+  color:color-mix(in srgb, var(--color-text) 86%, transparent);
+  border-bottom-color:color-mix(in srgb, var(--color-text) 18%, transparent);
 }
 /* 流式占位：保留三点动画，无外框 */
 .jx-msg.assistant .jx-bubble.streaming{
@@ -509,7 +509,7 @@
 
 /* User 气泡流式状态 */
 .jx-bubble.user.streaming{
-  border-color:rgba(15,23,42,.14);
+  border-color:color-mix(in srgb, var(--color-text) 14%, transparent);
 }
 
 /* ── 流式打字光标：尾随圆点呼吸（非竖线闪烁——markdown 全量重渲染会重置相位，
@@ -542,7 +542,7 @@
 .jx-msgContent::selection,
 .jx-msgContent *::selection{
   background:rgba(148,163,184,.30);
-  color:#0f172a;
+  color:var(--color-text);
 }
 .jx-streamingIndicator{
   display:inline-flex;
@@ -614,7 +614,7 @@
   align-items:center;
   gap:10px;
   padding:10px 12px;
-  background:#fff;
+  background:var(--color-bg-container);
   border:1px solid rgba(203,213,225,.72);
   border-radius:14px;
   min-width:180px;
@@ -640,14 +640,14 @@
 .jx-fileCard-name{
   font-size:13px;
   font-weight:500;
-  color:#1E293B;
+  color:var(--color-text);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
 }
 .jx-fileCard-type{
   font-size:11px;
-  color:#6B7280;
+  color:var(--color-text-secondary);
   margin-top:2px;
 }
 .jx-fileCard-close{
@@ -657,9 +657,9 @@
   width:20px;
   height:20px;
   background:#374151;
-  border:2px solid #fff;
+  border:2px solid var(--color-bg-container);
   border-radius:50%;
-  color:#fff;
+  color:var(--color-text-white);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -679,7 +679,7 @@ a.jx-fileCard--link{
 }
 a.jx-fileCard--link:hover{
   box-shadow:0 10px 24px rgba(15,23,42,.08);
-  border-color:#cbd5e1;
+  border-color:var(--color-fill);
   transform:translateY(-1px);
 }
 /* Image thumbnail inside file card */
@@ -692,7 +692,7 @@ a.jx-fileCard--link:hover{
 }
 .jx-fileCard-dlIcon{
   font-size:13px;
-  color:#94A3B8;
+  color:var(--color-text-placeholder);
   flex-shrink:0;
   margin-left:2px;
 }
@@ -711,18 +711,18 @@ a.jx-fileCard--link:hover{
   min-height:52px;
   margin-bottom:10px;
   padding:9px 10px 9px 13px;
-  border:1px solid rgba(15,23,42,.10);
+  border:1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
   border-radius:14px;
-  background:#fff;
+  background:var(--color-bg-container);
   box-shadow:0 5px 18px rgba(15,23,42,.055);
 }
 .jx-queuedMessage--steering{
-  border-color:rgba(51,65,85,.22);
-  background:#fff;
+  border-color:color-mix(in srgb, var(--color-text-secondary) 22%, transparent);
+  background:var(--color-bg-container);
 }
 .jx-queuedMessage--applied{
   border-color:rgba(34,197,94,.20);
-  background:#fff;
+  background:var(--color-bg-container);
 }
 .jx-queuedMessage-main{
   display:flex;
@@ -733,13 +733,13 @@ a.jx-fileCard--link:hover{
 }
 .jx-queuedMessage-indicator{
   flex-shrink:0;
-  color:#94a3b8;
+  color:var(--color-text-placeholder);
   font-size:18px;
   line-height:1.45;
 }
 .jx-queuedMessage-content{
   min-width:0;
-  color:#1e293b;
+  color:var(--color-text);
   font-size:14px;
   line-height:1.45;
   display:-webkit-box;
@@ -753,11 +753,11 @@ a.jx-fileCard--link:hover{
   flex:1;
   min-width:0;
   resize:vertical;
-  border:1px solid rgba(51,65,85,.28);
+  border:1px solid color-mix(in srgb, var(--color-text-secondary) 28%, transparent);
   border-radius:9px;
   padding:7px 9px;
-  background:#fff;
-  color:#1e293b;
+  background:var(--color-bg-container);
+  color:var(--color-text);
   font:inherit;
   font-size:14px;
   line-height:1.45;
@@ -785,13 +785,13 @@ a.jx-fileCard--link:hover{
   min-height:30px;
   padding:0 11px;
   border-radius:9px;
-  background:#f1f5f9;
-  color:#1f2937;
+  background:var(--color-fill-hover);
+  color:var(--color-text);
   font-size:13px;
   font-weight:650;
 }
 .jx-queuedMessage-steer:hover:not(:disabled){
-  background:#e2e8f0;
+  background:var(--color-fill);
 }
 .jx-queuedMessage-steer:active:not(:disabled),
 .jx-queuedMessage-iconBtn:active:not(:disabled){
@@ -814,11 +814,11 @@ a.jx-fileCard--link:hover{
   padding:0;
   border-radius:9px;
   background:transparent;
-  color:#64748b;
+  color:var(--color-text-tertiary);
 }
 .jx-queuedMessage-iconBtn:hover:not(:disabled){
-  background:#f1f5f9;
-  color:#1e293b;
+  background:var(--color-fill-hover);
+  color:var(--color-text);
 }
 .jx-queuedMessage-iconBtn:disabled{
   cursor:not-allowed;
@@ -861,7 +861,7 @@ a.jx-fileCard--link:hover{
 .jx-inputQuoteText{
   min-width:0;
   flex:1;
-  color:#334155;
+  color:var(--color-text);
   font-size:13px;
   line-height:1.45;
   display:-webkit-box;
@@ -873,7 +873,7 @@ a.jx-fileCard--link:hover{
   appearance:none;
   border:none;
   background:transparent;
-  color:#94a3b8;
+  color:var(--color-text-placeholder);
   width:22px;
   height:22px;
   border-radius:999px;
@@ -887,7 +887,7 @@ a.jx-fileCard--link:hover{
 }
 .jx-inputQuoteRemove:hover{
   background:rgba(148,163,184,.12);
-  color:#475569;
+  color:var(--color-text-secondary);
 }
 /* 用户消息中文件卡片靠右对齐 */
 .jx-userAttachments{
@@ -913,7 +913,7 @@ a.jx-fileCard--link:hover{
   gap:4px;
   height:50px;
   padding:8px 12px 12px;
-  background:#fff;
+  background:var(--color-bg-container);
   border-bottom-left-radius:16px;
   border-bottom-right-radius:16px;
   pointer-events:none;
@@ -926,7 +926,7 @@ a.jx-fileCard--link:hover{
   right:0;
   top:-12px;
   height:12px;
-  background:linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%);
+  background:linear-gradient(to bottom, transparent 0%, var(--color-bg-container) 100%);
   pointer-events:none;
 }
 .jx-composerBar > *{
@@ -966,12 +966,12 @@ a.jx-fileCard--link:hover{
    会把输入框底部切成生硬的控件条，chip 化之后整条工具栏读起来是一个整体。*/
 .jx-composerBar{
   --jx-chip-h:28px;
-  --jx-chip-fg:rgba(15,23,42,.60);
-  --jx-chip-fg-strong:rgba(15,23,42,.88);
-  --jx-chip-hover:rgba(15,23,42,.055);
-  --jx-chip-active-bg:rgba(18,109,255,.10);
-  --jx-chip-active-hover:rgba(18,109,255,.16);
-  --jx-chip-active-fg:#0B57D0;
+  --jx-chip-fg:color-mix(in srgb, var(--color-text) 60%, transparent);
+  --jx-chip-fg-strong:color-mix(in srgb, var(--color-text) 88%, transparent);
+  --jx-chip-hover:color-mix(in srgb, var(--color-text) 5.5%, transparent);
+  --jx-chip-active-bg:color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --jx-chip-active-hover:color-mix(in srgb, var(--color-primary) 16%, transparent);
+  --jx-chip-active-fg:var(--color-primary-active);
 }
 .jx-composerChip{
   appearance:none;
@@ -987,7 +987,7 @@ a.jx-fileCard--link:hover{
   border:none;
   border-radius:999px;
   background:transparent;
-  color:var(--jx-chip-fg, rgba(15,23,42,.60));
+  color:var(--jx-chip-fg, color-mix(in srgb, var(--color-text) 60%, transparent));
   font-size:13px;
   line-height:20px;
   font-weight:500;
@@ -1005,7 +1005,7 @@ a.jx-fileCard--link:hover{
 .jx-composerChip:hover,
 .jx-composerChip.open{
   background:var(--jx-chip-hover, rgba(15,23,42,.055));
-  color:var(--jx-chip-fg-strong, rgba(15,23,42,.88));
+  color:var(--jx-chip-fg-strong, color-mix(in srgb, var(--color-text) 88%, transparent));
 }
 .jx-composerChip:focus-visible{
   box-shadow:0 0 0 2px rgba(18,109,255,.28);
@@ -1016,13 +1016,13 @@ a.jx-fileCard--link:hover{
 .jx-composerChip.active,
 .jx-composerChip.bound{
   background:var(--jx-chip-active-bg, rgba(18,109,255,.10));
-  color:var(--jx-chip-active-fg, #0B57D0);
+  color:var(--jx-chip-active-fg, var(--color-primary-active));
 }
 .jx-composerChip.active:hover,
 .jx-composerChip.bound:hover,
 .jx-composerChip.bound.open{
   background:var(--jx-chip-active-hover, rgba(18,109,255,.16));
-  color:var(--jx-chip-active-fg, #0B57D0);
+  color:var(--jx-chip-active-fg, var(--color-primary-active));
 }
 
 /* 箭头跟随 chip 文字色（inline SVG，currentColor），展开时翻转 180° ——
@@ -1037,14 +1037,14 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   min-height:30px;
   height:30px;
   padding:7px 12px;
-  border:1px solid #E3E6EA;
+  border:1px solid var(--color-border);
   border-radius:8px;
   background:transparent;
   display:flex;
   align-items:center;
   gap:5px;
   cursor:pointer;
-  color:rgba(15,23,42,.62);
+  color:color-mix(in srgb, var(--color-text) 62%, transparent);
   font-size:13px;
   font-weight:500;
   outline:none;
@@ -1052,7 +1052,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   transition:border-color .18s ease;
 }
 .jx-dispatchDropBtn:hover{
-  border-color:rgba(15,23,42,.22);
+  border-color:color-mix(in srgb, var(--color-text) 22%, transparent);
 }
 .jx-dispatchOptionHead{
   display:flex;
@@ -1082,7 +1082,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   transition:background-color .14s ease;
 }
 .jx-attachBtn:hover,
-.jx-attachBtn.open{ background:rgba(15,23,42,.11); }
+.jx-attachBtn.open{ background:color-mix(in srgb, var(--color-text) 11%, transparent); }
 .jx-attachIcon{
   width:16px;
   height:16px;
@@ -1092,6 +1092,10 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-attachBtn:hover .jx-attachIcon,
 .jx-attachBtn.open .jx-attachIcon{ opacity:1; }
+/* 图标是 SVG 资产靠 filter 上色（基础滤镜压成近黑），深色下反转为浅色 */
+:root[data-theme='dark'] .jx-attachIcon{
+  filter:brightness(0) saturate(100%) invert(92%);
+}
 
 /* ── 模型 + 思考强度位（工具条右侧，两级菜单）── */
 .jx-modelEffort{ position:relative; min-width:0; flex-shrink:1; }
@@ -1099,18 +1103,18 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 /* 思考强度贴在模型名右侧，弱一档：一个 chip 报两件事，主次要分得开 */
 .jx-modelEffortAside{
   flex:0 0 auto;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   font-weight:400;
 }
-.jx-composerChip.open .jx-modelEffortAside{ color:rgba(15,23,42,.55); }
+.jx-composerChip.open .jx-modelEffortAside{ color:color-mix(in srgb, var(--color-text) 55%, transparent); }
 /* 极速模式下没有可挑的模型/强度时的只读占位：不给 hover 反馈，别装成能点 */
 .jx-modelEffortStatic{
   cursor:default;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   font-weight:400;
 }
-.jx-modelEffortStatic:hover{ background:transparent; color:rgba(15,23,42,.42); }
-.jx-modelEffortStaticIcon{ font-size:13px; color:var(--color-warning, #F8AB42); }
+.jx-modelEffortStatic:hover{ background:transparent; color:color-mix(in srgb, var(--color-text) 42%, transparent); }
+.jx-modelEffortStaticIcon{ font-size:13px; color:var(--color-warning, var(--color-warning)); }
 .jx-modelEffortMenu{
   position:absolute;
   right:0;
@@ -1122,9 +1126,9 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   max-height:min(360px, 60vh);
   overflow:hidden;
   padding:4px;
-  border:1px solid rgba(15,23,42,.06);
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   border-radius:14px;
-  background:#fff;
+  background:var(--color-bg-container);
   box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
 }
 /* 一级 cell：左标签 + 右当前值 + 右尖角，一行说清"这是什么、现在是什么" */
@@ -1139,7 +1143,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   border:none;
   border-radius:10px;
   background:transparent;
-  color:rgba(15,23,42,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   font-size:14px;
   line-height:22px;
   text-align:left;
@@ -1147,7 +1151,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   transition:background-color .12s ease;
 }
 .jx-menuCell:hover:not(:disabled){ background:rgba(15,23,42,.05); }
-.jx-menuCell:disabled{ cursor:default; color:rgba(15,23,42,.35); }
+.jx-menuCell:disabled{ cursor:default; color:color-mix(in srgb, var(--color-text) 35%, transparent); }
 .jx-menuCell-label{ flex:1 1 auto; min-width:0; white-space:nowrap; }
 .jx-menuCell-value{
   flex:0 1 auto;
@@ -1155,9 +1159,9 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  color:rgba(15,23,42,.45);
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
 }
-.jx-menuCell-chevron{ flex:0 0 auto; font-size:11px; color:rgba(15,23,42,.35); }
+.jx-menuCell-chevron{ flex:0 0 auto; font-size:11px; color:color-mix(in srgb, var(--color-text) 35%, transparent); }
 /* 二级返回行：尖角左转，读起来是"退回上一层" */
 .jx-menuBack{
   appearance:none;
@@ -1168,7 +1172,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   padding:6px 10px 5px;
   border:none;
   background:transparent;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   font-size:12px;
   line-height:18px;
   font-weight:500;
@@ -1176,12 +1180,12 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   cursor:pointer;
   border-radius:8px;
 }
-.jx-menuBack:hover{ background:rgba(15,23,42,.04); color:rgba(15,23,42,.7); }
+.jx-menuBack:hover{ background:rgba(15,23,42,.04); color:color-mix(in srgb, var(--color-text) 70%, transparent); }
 .jx-menuBack-chevron{ font-size:10px; transform:rotate(180deg); }
 /* 单层形态（没有可退回的上一级）：同一行位置改成纯标题，不做成可点的返回 */
 .jx-menuPaneTitle{
   padding:7px 10px 4px;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   font-size:12px;
   line-height:18px;
   font-weight:500;
@@ -1215,7 +1219,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   font-size:14px;
   line-height:20px;
   font-weight:500;
-  color:#1e293b;
+  color:var(--color-text);
 }
 .jx-menuOption-desc{
   overflow:hidden;
@@ -1223,7 +1227,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   white-space:nowrap;
   font-size:12px;
   line-height:18px;
-  color:rgba(15,23,42,.45);
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
 }
 
 /* ── Context-usage ring (beside the model selector) ── */
@@ -1244,19 +1248,19 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   display:block;
   transform:rotate(-90deg); /* start the arc at 12 o'clock */
 }
-.jx-ctxGauge-track{ stroke:#E9ECF1; }
+.jx-ctxGauge-track{ stroke:var(--color-border); }
 .jx-ctxGauge-fill{
-  stroke:var(--color-success, #02B589);
+  stroke:var(--color-success, var(--color-success));
   transition:stroke-dasharray .35s ease, stroke .25s ease;
 }
-.jx-ctxGauge[data-level="warn"] .jx-ctxGauge-fill{ stroke:var(--color-warning, #F8AB42); }
-.jx-ctxGauge[data-level="high"] .jx-ctxGauge-fill{ stroke:var(--color-error, #FC5D5D); }
+.jx-ctxGauge[data-level="warn"] .jx-ctxGauge-fill{ stroke:var(--color-warning, var(--color-warning)); }
+.jx-ctxGauge[data-level="high"] .jx-ctxGauge-fill{ stroke:var(--color-error, var(--color-error)); }
 
 /* ── Context-usage hover breakdown ── */
 .jx-ctxPop{
   width:250px;
   font-size:13px;
-  color:var(--color-text-secondary, #4D4D4D);
+  color:var(--color-text-secondary, var(--color-text-secondary));
 }
 .jx-ctxPop-head{
   display:flex;
@@ -1268,11 +1272,11 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 .jx-ctxPop-title{
   font-size:13px;
   font-weight:600;
-  color:var(--color-text, #262626);
+  color:var(--color-text, var(--color-text));
 }
 .jx-ctxPop-model{
   font-size:12px;
-  color:var(--color-text-tertiary, #808080);
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
   max-width:132px;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -1288,14 +1292,14 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   font-size:22px;
   font-weight:700;
   line-height:1;
-  color:var(--color-success, #02B589);
+  color:var(--color-success, var(--color-success));
   font-variant-numeric:tabular-nums;
 }
-.jx-ctxPop-big[data-level="warn"]{ color:var(--color-warning, #F8AB42); }
-.jx-ctxPop-big[data-level="high"]{ color:var(--color-error, #FC5D5D); }
+.jx-ctxPop-big[data-level="warn"]{ color:var(--color-warning, var(--color-warning)); }
+.jx-ctxPop-big[data-level="high"]{ color:var(--color-error, var(--color-error)); }
 .jx-ctxPop-frac{
   font-size:12px;
-  color:var(--color-text-tertiary, #808080);
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
   font-variant-numeric:tabular-nums;
 }
 .jx-ctxPop-bar{
@@ -1303,7 +1307,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   height:8px;
   border-radius:999px;
   overflow:hidden;
-  background:#EEF1F5;
+  background:var(--color-fill-hover);
   margin-bottom:12px;
 }
 .jx-ctxPop-seg{ height:100%; }
@@ -1325,23 +1329,23 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-ctxPop-label{
   flex:1;
-  color:var(--color-text-secondary, #4D4D4D);
+  color:var(--color-text-secondary, var(--color-text-secondary));
 }
 .jx-ctxPop-val{
   font-variant-numeric:tabular-nums;
-  color:var(--color-text, #262626);
+  color:var(--color-text, var(--color-text));
   font-weight:500;
 }
 .jx-ctxPop-share{
   width:38px;
   text-align:right;
-  color:var(--color-text-tertiary, #808080);
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
   font-variant-numeric:tabular-nums;
 }
 .jx-ctxPop-note{
   margin-top:10px;
   font-size:11px;
-  color:var(--color-text-placeholder, #B3B3B3);
+  color:var(--color-text-placeholder, var(--color-text-placeholder));
 }
 
 /* ── 项目选择下拉（工具栏，提示词中心右侧）──
@@ -1373,7 +1377,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-projectOptionIcon{
   font-size:15px;
-  color:rgba(15,23,42,.5);
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
   flex-shrink:0;
 }
 .jx-projectOptionName{
@@ -1383,7 +1387,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   text-overflow:ellipsis;
   white-space:nowrap;
   font-size:14px;
-  color:#1e293b;
+  color:var(--color-text);
 }
 
 /* ── Send button (SVG is already a 34px blue circle) ── */
@@ -1413,7 +1417,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 .jx-attachMenu .ant-dropdown-menu{
   padding:4px;
   border-radius:14px;
-  border:1px solid rgba(15,23,42,.06);
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
   min-width:220px;
 }
@@ -1422,7 +1426,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   min-height:auto;
   border-radius:10px;
   font-size:14px;
-  color:rgba(15,23,42,.82);
+  color:color-mix(in srgb, var(--color-text) 82%, transparent);
   padding:7px 10px;
   transition:background-color .12s ease;
 }
@@ -1431,12 +1435,12 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 .jx-projectMenu .ant-dropdown-menu-item:hover,
 .jx-projectMenu .ant-dropdown-menu-item-active{
   background:rgba(15,23,42,.05) !important;
-  color:#111827;
+  color:var(--color-text);
 }
 .jx-modeMenu .ant-dropdown-menu-item-selected,
 .jx-projectMenu .ant-dropdown-menu-item-selected{
   background:transparent !important;
-  color:#111827;
+  color:var(--color-text);
 }
 /* 分组标题：比选项小一号、弱一档，只做分区不抢视线 */
 .jx-modeMenu .ant-dropdown-menu-item-group-title,
@@ -1445,7 +1449,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   font-size:12px;
   line-height:18px;
   font-weight:500;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
 }
 /* 四段选择器：antd v5 自己的分隔线规则是 `.ant-dropdown .ant-dropdown-menu
    .ant-dropdown-menu-item-divider`（0,3,0），两段写法压不过它 */
@@ -1477,7 +1481,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   font-weight:500;
   font-size:14px;
   line-height:20px;
-  color:#1e293b;
+  color:var(--color-text);
 }
 .jx-modeCheckIcon{ width:14px; height:14px; flex-shrink:0; }
 .jx-modeOptionDesc{
@@ -1486,7 +1490,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   white-space:nowrap;
   font-size:12px;
   line-height:18px;
-  color:rgba(15,23,42,.45);
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
 }
 
 /* legacy compat */
@@ -1540,14 +1544,18 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   pointer-events:none;
   user-select:none;
 }
+/* 装饰底图是浅色 PNG 资产，暗色下压暗到近隐 */
+:root[data-theme='dark'] .jx-heroBgImg{
+  opacity:.10;
+}
 .jx-heroTitle{
   position:relative; z-index:1;
-  font-size:44px; font-weight:500; color:black;
+  font-size:44px; font-weight:500; color:var(--color-text);
   margin:0 0 2px; line-height:1.2; text-align:center;
 }
 .jx-heroSubtitle{
   position:relative; z-index:1;
-  font-size:16px; font-weight:400; color:#808080;
+  font-size:16px; font-weight:400; color:var(--color-text-tertiary);
   margin:0; text-align:center;
 }
 
@@ -1561,10 +1569,10 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-homeInput .jx-composerWrap{
   position:relative; width:100%; margin-bottom:0;
-  border:1px solid #99C0FF;
+  border:1px solid var(--color-primary-disabled);
   border-radius:20px;
   box-shadow:0px 2px 14px 1px rgba(102,150,227,0.15);
-  background:#fff;
+  background:var(--color-bg-container);
 }
 .jx-homeInput .jx-composer{
   width:100% !important;
@@ -1581,7 +1589,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   height:100% !important;
   padding:16px 16px 50px 16px !important;
   font-size:16px !important;
-  color:#262626 !important;
+  color:var(--color-text) !important;
   resize:none !important;
 }
 .jx-homeInput .jx-composerBar{
@@ -1589,7 +1597,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   bottom:0; left:0; right:0;
   height:50px;
   padding:8px 12px 12px;
-  background:#fff;
+  background:var(--color-bg-container);
   border-bottom-left-radius:20px;
   border-bottom-right-radius:20px;
 }
@@ -1598,7 +1606,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   position:absolute;
   left:0; right:0; top:-12px;
   height:12px;
-  background:linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%);
+  background:linear-gradient(to bottom, transparent 0%, var(--color-bg-container) 100%);
   pointer-events:none;
 }
 
@@ -1610,13 +1618,13 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   overflow:hidden;
 }
 .jx-quickPill{
-  appearance:none; border:none; background:#F5F6F7;
+  appearance:none; border:none; background:var(--color-bg-gray);
   border-radius:12px; height:40px; padding:0 12px;
-  font-size:14px; font-weight:400; color:#262626;
+  font-size:14px; font-weight:400; color:var(--color-text);
   cursor:pointer; transition:background .18s;
   white-space:nowrap; display:flex; align-items:center;
 }
-.jx-quickPill:hover{ background:#EBEDEE; }
+.jx-quickPill:hover{ background:var(--color-fill-hover); }
 
 /* 5 Capability cards — 60px below pills */
 .jx-capCards{
@@ -1636,7 +1644,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   padding:4px 10px;
   border-radius:10px;
   background:rgba(15,23,42,.56);
-  color:#fff;
+  color:var(--color-text-white);
   font-size:12px;
   font-weight:400;
   line-height:1.2;
@@ -1647,7 +1655,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-capCard:hover .jx-capCardIcon{ transform:translateY(-2px); }
 .jx-capCardIcon{ width:56px; height:56px; transition:transform .18s; }
-.jx-capCardLabel{ font-size:14px; font-weight:400; color:black; letter-spacing:0.28px; }
+.jx-capCardLabel{ font-size:14px; font-weight:400; color:var(--color-text); letter-spacing:0.28px; }
 
 @keyframes jxCapToastFade{
   0%{ opacity:0; transform:translateX(-50%) translateY(4px); }
@@ -1658,7 +1666,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 
 /* AI Disclaimer — at page bottom */
 .jx-aiDisclaimer{
-  font-size:12px; color:rgba(15,23,42,.35);
+  font-size:12px; color:color-mix(in srgb, var(--color-text) 35%, transparent);
   text-align:center; padding:16px 0 12px;
   flex-shrink:0; width:100%;
 }
@@ -1670,11 +1678,11 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   gap:8px;
   height:48px;
   padding:0 24px;
-  background:#EBF2FF;
+  background:var(--color-primary-light);
   border-radius:8px;
   margin:12px 16px 0;
   font-size:14px;
-  color:#262626;
+  color:var(--color-text);
   font-weight:400;
   flex-shrink:0;
 }
@@ -1686,7 +1694,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   flex:1;
 }
 .jx-recommendBanner-link{
-  color:#126DFF;
+  color:var(--color-primary);
   font-weight:500;
   cursor:pointer;
   margin-left:4px;
@@ -1707,12 +1715,12 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   display:flex;
   align-items:center;
   justify-content:center;
-  color:#808080;
+  color:var(--color-text-tertiary);
   transition:color .15s;
   flex-shrink:0;
 }
 .jx-recommendBanner-close:hover{
-  color:#555;
+  color:var(--color-text-secondary);
 }
 
 /* legacy — kept so nothing breaks */
@@ -1720,12 +1728,12 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   text-align:center;
   font-size:13px;
   line-height:1.9;
-  color:rgba(31,35,40,.72);
+  color:color-mix(in srgb, var(--color-text) 72%, transparent);
 }
 .jx-emptyIntro strong{color:var(--color-primary)}
 .jx-emptyGuide{
   border:1px solid rgba(18,109,255,.16);
-  background:rgba(255,255,255,.86);
+  background:color-mix(in srgb, var(--color-bg-container) 86%, transparent);
   border-radius:14px;
   padding:12px;
 }
@@ -1782,14 +1790,14 @@ textarea.jx-composer,
   padding-bottom:50px !important; /* 为底部操作栏留空间 */
   resize:none !important;
   font-size:16px !important;
-  color:#262626 !important;
+  color:var(--color-text) !important;
 }
 .jx-composer .ant-input::placeholder,
 .jx-composer textarea::placeholder,
 textarea.jx-composer::placeholder,
 .jx-composer.ant-input::placeholder{
   font-size:16px !important;
-  color:#B3B3B3 !important;
+  color:var(--color-text-placeholder) !important;
 }
 /* 隐藏 textarea 右下角 resize 把手 */
 .jx-composer textarea,
@@ -1814,10 +1822,10 @@ textarea.jx-composer{
   align-items:center;
   gap:8px;
   padding:6px 12px;
-  background:#F6F8FB;
-  border-bottom:1px solid #ECEFF3;
+  background:var(--color-bg-layout);
+  border-bottom:1px solid var(--color-border);
   font-size:12px;
-  color:#5A6477;
+  color:var(--color-text-secondary);
 }
 .jx-chatShareBanner--owner{
   justify-content:flex-end;
@@ -1826,15 +1834,15 @@ textarea.jx-composer{
   flex:1 1 auto;
 }
 .jx-chatShareBanner-owner{
-  color:#7C8595;
+  color:var(--color-text-tertiary);
 }
 .jx-chatShareReadonly{
   padding:14px 16px;
   margin-top:8px;
   text-align:center;
-  background:#F6F8FB;
-  color:#7C8595;
-  border:1px dashed #DADFE7;
+  background:var(--color-bg-layout);
+  color:var(--color-text-tertiary);
+  border:1px dashed var(--color-border);
   border-radius:8px;
   font-size:13px;
 }
@@ -1845,10 +1853,10 @@ textarea.jx-composer{
   align-items:center;
   gap:8px;
   padding:6px 12px;
-  background:var(--color-primary-light, #EBF2FF);
-  border-bottom:1px solid var(--color-border, #E3E6EA);
+  background:var(--color-primary-light, var(--color-primary-light));
+  border-bottom:1px solid var(--color-border, var(--color-border));
   font-size:12px;
-  color:var(--color-text-tertiary, #808080);
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
 }
 .jx-compactionNotice-text{
   flex:1 1 auto;
@@ -1861,12 +1869,12 @@ textarea.jx-composer{
   font-size:14px;
   line-height:1;
   padding:2px 6px;
-  color:var(--color-text-tertiary, #808080);
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
   border-radius:var(--radius-xs, 4px);
 }
 .jx-compactionNotice-close:hover{
-  background:var(--color-primary-bg, #DBE9FF);
-  color:var(--color-text-secondary, #4D4D4D);
+  background:var(--color-primary-bg, var(--color-primary-bg));
+  color:var(--color-text-secondary, var(--color-text-secondary));
 }
 
 .jx-chatFooter{
@@ -1877,7 +1885,7 @@ textarea.jx-composer{
   display:flex;
   flex-direction:column;
   /* 实色背景防止滚动内容从底部透出；顶部渐变见 ::before */
-  background:#fff;
+  background:var(--color-bg-container);
 }
 .jx-inputArea{
   position:relative;
@@ -1896,7 +1904,7 @@ textarea.jx-composer{
   top:-24px;
   height:24px;
   pointer-events:none;
-  background:linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%);
+  background:linear-gradient(to bottom, transparent 0%, var(--color-bg-container) 100%);
 }
 /* In empty state, input width matches design */
 .jx-emptyWrap .jx-inputArea,
@@ -1915,9 +1923,9 @@ textarea.jx-composer{
 .jx-composerWrap{
   position:relative;
   margin-bottom:10px;
-  border:1px solid rgba(15,23,42,.12);
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
   border-radius:16px;
-  background:#fff;
+  background:var(--color-bg-container);
   transition:border-color var(--motion-duration-fast) var(--motion-ease-standard),
              box-shadow var(--motion-duration-normal) var(--motion-ease-standard);
 }
@@ -1948,8 +1956,8 @@ textarea.jx-composer{
   width:36px;
   height:36px;
   border-radius:50%;
-  border:1px solid rgba(15,23,42,.12);
-  background:#fff;
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
+  background:var(--color-bg-container);
   box-shadow:0 4px 14px rgba(15,23,42,.10);
   cursor:pointer;
   display:flex;
@@ -1961,8 +1969,8 @@ textarea.jx-composer{
   /* 出入场由 motion（AnimatePresence）接管，CSS 不再播入场，防双播 */
 }
 .jx-scrollToBottomBtn:hover{
-  background:#f8fafc;
-  border-color:rgba(15,23,42,.22);
+  background:var(--color-bg-layout);
+  border-color:color-mix(in srgb, var(--color-text) 22%, transparent);
   box-shadow:0 6px 16px rgba(15,23,42,.14);
 }
 .jx-scrollToBottomIcon{
@@ -1986,8 +1994,8 @@ textarea.jx-composer{
   display:inline-flex;align-items:center;gap:8px;
   padding:7px 10px;border-radius:999px;
   border:1px solid rgba(17,24,39,.10);
-  background:rgba(255,255,255,.85);
-  color:rgba(31,35,40,.74);
+  background:color-mix(in srgb, var(--color-bg-container) 85%, transparent);
+  color:color-mix(in srgb, var(--color-text) 74%, transparent);
   font-size:12px; font-weight:700;
   outline:none;
   box-shadow:none;
@@ -2024,7 +2032,7 @@ textarea.jx-composer{
   padding:0 10px;
   font-size:12px;
   font-weight:400;
-  color:rgba(15,23,42,.45);
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
   letter-spacing:0.03em;
 }
 .jx-historyGroupList{
@@ -2035,7 +2043,7 @@ textarea.jx-composer{
 .jx-historyEmpty{
   padding:24px 8px;
   font-size:12px;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   text-align:center;
 }
 .jx-historyItem{
@@ -2053,11 +2061,11 @@ textarea.jx-composer{
   position:relative;
 }
 .jx-historyItem:hover{
-  background:#EBEDEE;
+  background:var(--color-fill-hover);
   border-color:transparent;
 }
 .jx-historyItem.active{
-  background:#fff;
+  background:var(--color-bg-container);
   border-color:transparent;
 }
 .jx-historyMain{
@@ -2072,18 +2080,18 @@ textarea.jx-composer{
   min-width:0;
   font-size:14px;
   font-weight:500;
-  color:rgba(15,23,42,.76);
+  color:color-mix(in srgb, var(--color-text) 76%, transparent);
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
   line-height:1.2;
 }
 .jx-historyItem:hover .jx-historyTitle{
-  color:rgba(15,23,42,.90);
+  color:color-mix(in srgb, var(--color-text) 90%, transparent);
 }
 .jx-historyItem.active .jx-historyTitle{
   font-weight:400;
-  color:#0f172a;
+  color:var(--color-text);
 }
 .jx-historyEditInput{
   flex:1;
@@ -2134,13 +2142,13 @@ textarea.jx-composer{
   display:flex; align-items:center; justify-content:center;
   cursor:pointer;
   font-size:13px;
-  color:rgba(15,23,42,.48);
+  color:color-mix(in srgb, var(--color-text) 48%, transparent);
   padding:0;
   transition:background .15s ease, color .15s ease;
 }
 .jx-historyMoreBtn:hover{
-  background:#F0F2F5;
-  color:#333;
+  background:var(--color-fill-hover);
+  color:var(--color-text);
 }
 
 
@@ -2161,7 +2169,7 @@ textarea.jx-composer{
   padding:8px 14px;
   border:1px solid var(--color-border);
   border-radius:20px;
-  background:#fff;
+  background:var(--color-bg-container);
   color:var(--color-text);
   font-size:14px;
   line-height:1.5;
@@ -2177,7 +2185,7 @@ textarea.jx-composer{
   background:#f0f5ff;
 }
 .jx-followUpBtn:active{
-  background:#e6f0ff;
+  background:var(--color-primary-light);
 }
 .jx-followUpBtn:disabled{
   opacity:.5;
@@ -2191,7 +2199,7 @@ textarea.jx-composer{
 .jx-followUpArrow{
   flex-shrink:0;
   font-size:14px;
-  color:#999;
+  color:var(--color-text-placeholder);
   transition:color .2s ease;
 }
 .jx-followUpBtn:hover .jx-followUpArrow{
@@ -2238,7 +2246,7 @@ textarea.jx-composer{
   display:inline-flex;
   align-items:center;
   font-size:12px;
-  color:rgba(31,35,40,.45);
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
   margin-right:2px;
   white-space:nowrap;
   user-select:none;
@@ -2249,7 +2257,7 @@ textarea.jx-composer{
   align-items:center;
   flex:0 0 auto;
   font-size:11px;
-  color:rgba(31,35,40,.34);
+  color:color-mix(in srgb, var(--color-text) 34%, transparent);
   white-space:nowrap;
   user-select:none;
 }
@@ -2260,10 +2268,10 @@ textarea.jx-composer{
   width:28px;
   height:28px;
   border-radius:7px;
-  border:1px solid rgba(15,23,42,.10);
-  background:rgba(255,255,255,.85);
+  border:1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
+  background:color-mix(in srgb, var(--color-bg-container) 85%, transparent);
   backdrop-filter:blur(4px);
-  color:rgba(31,35,40,.50);
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
   font-size:13px;
   cursor:pointer;
   transition:all .15s ease;
@@ -2271,9 +2279,9 @@ textarea.jx-composer{
   padding:0;
 }
 .jx-msgActionBtn:hover{
-  color:rgba(31,35,40,.85);
-  background:#fff;
-  border-color:rgba(15,23,42,.18);
+  color:color-mix(in srgb, var(--color-text) 85%, transparent);
+  background:var(--color-bg-container);
+  border-color:color-mix(in srgb, var(--color-text) 18%, transparent);
   box-shadow:0 2px 8px rgba(15,23,42,.08);
 }
 .jx-msgActionBtn.copied{
@@ -2292,7 +2300,7 @@ textarea.jx-composer{
   background:rgba(252,93,93,.06);
 }
 .jx-msgActionBtn.active-share{
-  color:#126dff;
+  color:var(--color-primary);
   border-color:rgba(18,109,255,.30);
   background:rgba(18,109,255,.06);
 }
@@ -2304,9 +2312,9 @@ textarea.jx-composer{
   align-items:center;
   gap:3px;
   padding:5px;
-  border:1px solid rgba(148,163,184,.18);
+  border:1px solid color-mix(in srgb, var(--color-text-placeholder) 18%, transparent);
   border-radius:14px;
-  background:rgba(255,255,255,.96);
+  background:color-mix(in srgb, var(--color-bg-container) 96%, transparent);
   box-shadow:0 10px 24px rgba(15,23,42,.10);
   backdrop-filter:blur(10px);
   /* 入场动画必须纯 CSS（portal + fixed，motion transform 祖先会破坏定位）；
@@ -2328,13 +2336,13 @@ textarea.jx-composer{
   align-items:center;
   justify-content:center;
   gap:6px;
-  color:#64748b;
+  color:var(--color-text-tertiary);
   cursor:pointer;
   transition:background .16s ease, color .16s ease, transform .16s ease;
 }
 .jx-selectionToolbarBtn:hover{
   background:rgba(148,163,184,.08);
-  color:#475569;
+  color:var(--color-text-secondary);
   transform:translateY(-1px);
 }
 .jx-selectionToolbarBtn.copied{
@@ -2355,8 +2363,8 @@ textarea.jx-composer{
 .jx-dislikeFeedback{
   margin-top:8px;
   padding:12px 14px;
-  background:#fff;
-  border:1px solid rgba(15,23,42,.12);
+  background:var(--color-bg-container);
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
   border-radius:10px;
   box-shadow:0 4px 16px rgba(15,23,42,.08);
   max-width:480px;
@@ -2364,7 +2372,7 @@ textarea.jx-composer{
 .jx-dislikeFeedback-title{
   font-size:13px;
   font-weight:600;
-  color:#1e293b;
+  color:var(--color-text);
   margin:0 0 8px 0;
 }
 .jx-dislikeFeedback-input{
@@ -2469,9 +2477,9 @@ textarea.jx-composer{
    不该比输入的内容还响。就地改写 chip 的三个 active 变量即可，.jx-composerChip.active
    仍读同一组变量，不用逐条覆盖；✕ 走 currentColor，会跟着一起变灰。 */
 .jx-modeChip{
-  --jx-chip-active-bg:rgba(15,23,42,.06);
-  --jx-chip-active-hover:rgba(15,23,42,.085);
-  --jx-chip-active-fg:rgba(15,23,42,.72);
+  --jx-chip-active-bg:color-mix(in srgb, var(--color-text) 6%, transparent);
+  --jx-chip-active-hover:color-mix(in srgb, var(--color-text) 8.5%, transparent);
+  --jx-chip-active-fg:color-mix(in srgb, var(--color-text) 72%, transparent);
 }
 /* 模式 chip 是纯状态显示（span，不可点），hover 不该有"能按"的假反馈 */
 .jx-modeChip:hover{
@@ -2516,7 +2524,7 @@ textarea.jx-composer{
 .jx-modeChip-close:focus-visible{ opacity:.75; }
 /* 只提亮，不给底色——✕ 本身不该长出一个"按钮"来 */
 .jx-modeChip-close:hover{ opacity:1; }
-.jx-modeChip-close:focus-visible{ outline:1px solid rgba(15,23,42,.35); outline-offset:1px; }
+.jx-modeChip-close:focus-visible{ outline:1px solid color-mix(in srgb, var(--color-text) 35%, transparent); outline-offset:1px; }
 /* 触屏没有 hover 可依赖 */
 @media (pointer:coarse){
   .jx-modeChip-close{ opacity:.5; }
@@ -2538,7 +2546,7 @@ textarea.jx-composer{
   padding:0 14px;
   border:1px solid var(--color-border);
   border-radius:8px;
-  background:#fff;
+  background:var(--color-bg-container);
   color:var(--color-text-secondary);
   font-size:13px;
   font-weight:500;
@@ -2574,8 +2582,8 @@ textarea.jx-composer{
 }
 .jx-promptHub-header{
   padding:14px 16px 12px;
-  border-bottom:1px solid rgba(15,23,42,.07);
-  background:#fff;
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
+  background:var(--color-bg-container);
   flex-shrink:0;
   display:flex;
   flex-direction:column;
@@ -2589,7 +2597,7 @@ textarea.jx-composer{
 .jx-promptHub-title{
   font-size:15px;
   font-weight:700;
-  color:#1e293b;
+  color:var(--color-text);
 }
 .jx-promptHub-search{
   border-radius:8px !important;
@@ -2608,20 +2616,20 @@ textarea.jx-composer{
 .jx-promptHub-empty{
   text-align:center;
   padding:40px 0;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   font-size:13px;
 }
 .jx-promptHub-card{
   padding:12px 14px;
   border-radius:10px;
-  border:1px solid rgba(15,23,42,.08);
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
   background:#f8f9fa;
   cursor:pointer;
   transition:all .18s ease;
 }
 .jx-promptHub-card:hover{
   border-color:rgba(18,109,255,.25);
-  background:#f0f7ff;
+  background:var(--color-primary-light);
   box-shadow:0 2px 8px rgba(18,109,255,.08);
 }
 .jx-promptHub-card.selected{
@@ -2631,12 +2639,12 @@ textarea.jx-composer{
 .jx-promptHub-cardTitle{
   font-size:14px;
   font-weight:600;
-  color:#1e293b;
+  color:var(--color-text);
   margin-bottom:6px;
 }
 .jx-promptHub-cardContent{
   font-size:13px;
-  color:rgba(15,23,42,.55);
+  color:color-mix(in srgb, var(--color-text) 55%, transparent);
   line-height:1.6;
   display:-webkit-box;
   -webkit-line-clamp:4;
@@ -2655,7 +2663,7 @@ textarea.jx-composer{
 }
 .jx-promptHub-card--skeleton:hover{
   background:#f8f9fa;
-  border-color:rgba(15,23,42,.08);
+  border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
   box-shadow:none;
 }
 .jx-promptHub-skTitle{
@@ -2699,14 +2707,14 @@ textarea.jx-composer{
     max(14px, env(safe-area-inset-left));
   background:
     radial-gradient(circle at top, rgba(18,109,255,.08), transparent 34%),
-    linear-gradient(180deg, #f8fbff 0%, #ffffff 42%, #f8fafc 100%);
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 42%, var(--color-bg-layout) 100%);
   -webkit-text-size-adjust:100%;
 }
 .jx-shareCard{
   width:min(920px, 100%);
   margin:0 auto;
-  background:rgba(255,255,255,.92);
-  border:1px solid rgba(15,23,42,.04);
+  background:color-mix(in srgb, var(--color-bg-container) 92%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-text) 4%, transparent);
   border-radius:14px;
   box-shadow:0 24px 60px rgba(15,23,42,.08);
   padding:32px;
@@ -2726,20 +2734,20 @@ textarea.jx-composer{
   justify-content:center;
   text-align:center;
   gap:12px;
-  color:#334155;
+  color:var(--color-text);
 }
 .jx-shareStateTitle{
   font-size:28px;
   font-weight:700;
-  color:#0f172a;
+  color:var(--color-text);
 }
 .jx-shareStateDesc{
   font-size:15px;
-  color:rgba(15,23,42,.56);
+  color:color-mix(in srgb, var(--color-text) 56%, transparent);
 }
 .jx-shareHeader{
   padding-bottom:24px;
-  border-bottom:1px solid rgba(15,23,42,.04);
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 4%, transparent);
 }
 .jx-shareHeaderTop{
   display:flex;
@@ -2776,14 +2784,14 @@ textarea.jx-composer{
 .jx-shareEyebrow{
   font-size:13px;
   letter-spacing:.01em;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   font-weight:500;
 }
 .jx-sharePrintBtn{
   appearance:none;
-  border:1px solid rgba(15,23,42,.10);
-  background:#fff;
-  color:#334155;
+  border:1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
+  background:var(--color-bg-container);
+  color:var(--color-text);
   border-radius:10px;
   height:36px;
   padding:0 14px;
@@ -2793,14 +2801,14 @@ textarea.jx-composer{
 }
 .jx-sharePrintBtn:hover{
   border-color:rgba(18,109,255,.24);
-  color:#126dff;
-  background:#f8fbff;
+  color:var(--color-primary);
+  background:var(--color-bg-layout);
 }
 .jx-shareTitle{
   margin:8px 0 6px;
   font-size:28px;
   line-height:1.24;
-  color:#0f172a;
+  color:var(--color-text);
   font-weight:650;
 }
 .jx-shareMeta{
@@ -2808,7 +2816,7 @@ textarea.jx-composer{
   flex-wrap:wrap;
   gap:10px 18px;
   font-size:12px;
-  color:rgba(15,23,42,.48);
+  color:color-mix(in srgb, var(--color-text) 48%, transparent);
 }
 .jx-shareMetaId{
   margin-left:auto;
@@ -2825,9 +2833,9 @@ textarea.jx-composer{
 .jx-shareFootnote{
   margin-top:28px;
   padding-top:14px;
-  border-top:1px solid rgba(15,23,42,.04);
+  border-top:1px solid color-mix(in srgb, var(--color-text) 4%, transparent);
   font-size:12px;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   text-align:center;
 }
 .jx-shareMessage{
@@ -2877,13 +2885,13 @@ textarea.jx-composer{
 .jx-shareMessageLabel{
   font-size:12px;
   font-weight:600;
-  color:rgba(15,23,42,.50);
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
   letter-spacing:.02em;
 }
 .jx-shareMessageBody{
   font-size:14px;
   line-height:1.78;
-  color:#0f172a;
+  color:var(--color-text);
   min-width:0;
   overflow-wrap:anywhere;
   word-break:break-word;
@@ -2892,7 +2900,7 @@ textarea.jx-composer{
   font-size:13.5px;
   line-height:1.9;
   letter-spacing:.01em;
-  color:rgba(15,23,42,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
 }
 .jx-shareMessageBody table{
   display:table;
@@ -2928,7 +2936,7 @@ textarea.jx-composer{
   margin:1em 0 .45em;
   line-height:1.4;
   letter-spacing:.015em;
-  color:#0f172a;
+  color:var(--color-text);
 }
 .jx-shareMessageBody h1{
   font-size:19px;
@@ -2962,17 +2970,17 @@ textarea.jx-composer{
 }
 .jx-shareMessage.assistant .jx-shareMessageBody strong{
   font-weight:630;
-  color:#111827;
+  color:var(--color-text);
 }
 .jx-shareMessage.assistant .jx-shareMessageBody em{
   font-style:normal;
-  color:rgba(30,41,59,.78);
+  color:color-mix(in srgb, var(--color-text-secondary) 78%, transparent);
 }
 .jx-shareMessage.assistant .jx-shareMessageBody blockquote{
   margin:.75em 0;
   padding:.2em 0 .2em .85em;
-  border-left:2px solid rgba(148,163,184,.32);
-  color:rgba(51,65,85,.82);
+  border-left:2px solid color-mix(in srgb, var(--color-text-placeholder) 32%, transparent);
+  color:color-mix(in srgb, var(--color-text-secondary) 82%, transparent);
 }
 .jx-shareMessage.assistant .jx-shareMessageBody code{
   font-size:.92em;
@@ -2992,18 +3000,18 @@ textarea.jx-composer{
 }
 .jx-shareMessage.assistant .jx-shareMessageBody hr{
   border:none;
-  border-top:1px solid rgba(15,23,42,.06);
+  border-top:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   margin:1em 0;
 }
 .jx-shareMessageBody.user{
   padding:12px 14px;
   border-radius:18px;
-  background:#f1f5f9;
-  border:1px solid rgba(15,23,42,.06);
+  background:var(--color-fill-hover);
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
 }
 .jx-shareMessageTime{
   font-size:12px;
-  color:rgba(15,23,42,.38);
+  color:color-mix(in srgb, var(--color-text) 38%, transparent);
   text-align:right;
   white-space:nowrap;
 }
@@ -3099,10 +3107,10 @@ textarea.jx-composer{
   left: 16px;
   max-height: 200px;
   min-width: 140px;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid #E3E6EA;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   box-shadow: 0 -2px 12px rgba(0,0,0,.08);
   z-index: 50;
@@ -3126,15 +3134,15 @@ textarea.jx-composer{
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  color: #262626;
+  color: var(--color-text);
   transition: background .12s;
 }
 .jx-mentionPopup-item:hover,
 .jx-mentionPopup-item.active {
-  background: #EBF2FF;
+  background: var(--color-primary-light);
 }
 .jx-mentionPopup-at {
-  color: #126DFF;
+  color: var(--color-primary);
   font-weight: 600;
 }
 .jx-mentionPopup-name {
@@ -3148,10 +3156,10 @@ textarea.jx-composer{
   left: 16px;
   max-height: 200px;
   min-width: 160px;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid #E3E6EA;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   box-shadow: 0 -2px 12px rgba(0,0,0,.08);
   z-index: 50;
@@ -3175,7 +3183,7 @@ textarea.jx-composer{
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  color: #262626;
+  color: var(--color-text);
   transition: background .12s;
 }
 .jx-slashPopup-item:hover,
@@ -3210,7 +3218,7 @@ textarea.jx-composer{
   /* padding-bottom 给绝对定位的 .jx-composerBar (50px) 让位 */
   padding: 16px 16px 60px 16px;
   font-size: 16px;
-  color: #262626;
+  color: var(--color-text);
   line-height: 1.5715;
   outline: none;
   white-space: pre-wrap;
@@ -3233,7 +3241,7 @@ textarea.jx-composer{
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow: hidden;
-  color: #B3B3B3;
+  color: var(--color-text-placeholder);
   pointer-events: none;
 }
 .jx-composerPlaceholder::before {
@@ -3257,8 +3265,8 @@ textarea.jx-composer{
   white-space: nowrap;
 }
 .jx-editorChip--mention {
-  background: #EBF2FF;
-  color: #126DFF;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
 }
 .jx-editorChip--skill {
   background: #e0f2fe;
@@ -3296,8 +3304,8 @@ textarea.jx-composer{
   line-height: 1.4;
 }
 .jx-msgChip--mention {
-  background: #EBF2FF;
-  color: #126DFF;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
 }
 .jx-msgChip--skill {
   background: #e0f2fe;
@@ -3321,7 +3329,7 @@ textarea.jx-composer{
 .jx-attachMenu .ant-dropdown-menu-submenu-title {
   border-radius: 10px;
   font-size: 14px;
-  color: rgba(15,23,42,.82);
+  color: color-mix(in srgb, var(--color-text) 82%, transparent);
   gap: 10px;
   padding: 8px 10px;
   transition: background-color .12s ease;
@@ -3329,12 +3337,12 @@ textarea.jx-composer{
 .jx-attachMenu .ant-dropdown-menu-item:hover,
 .jx-attachMenu .ant-dropdown-menu-submenu-title:hover {
   background: rgba(15,23,42,.05);
-  color: #111827;
+  color: var(--color-text);
 }
 .jx-attachMenu .ant-dropdown-menu-item .anticon,
 .jx-attachMenu .ant-dropdown-menu-submenu-title .anticon {
   font-size: 15px;
-  color: rgba(15,23,42,.5);
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
 }
 /* 「自主循环」菜单项：名称在左、开关贴右 */
 /* 子菜单浮层（技能 / 添加到项目）单独挂载，不继承 overlayClassName。
@@ -3488,7 +3496,7 @@ textarea.jx-composer{
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  background: #fff;
+  background: var(--color-bg-container);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
@@ -3523,7 +3531,7 @@ textarea.jx-composer{
 .jx-spaceImportPreview-body {
   flex: 1;
   overflow: auto;
-  background: #fff;
+  background: var(--color-bg-container);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -3619,7 +3627,7 @@ textarea.jx-composer{
   height: 96px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-bg) 100%);
-  color: #fff;
+  color: var(--color-text-white);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3647,7 +3655,7 @@ textarea.jx-composer{
   flex: 1;
   width: 100%;
   border: none;
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 /* text / json --------------------------------------------------- */
@@ -3655,7 +3663,7 @@ textarea.jx-composer{
   flex: 1;
   margin: 0;
   padding: 16px 20px;
-  background: #fafbfc;
+  background: var(--color-bg-layout);
   font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.65;
@@ -3698,7 +3706,7 @@ textarea.jx-composer{
   font-size: 12.5px;
 }
 .jx-spaceImportPreview-md pre {
-  background: #fafbfc;
+  background: var(--color-bg-layout);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -3744,7 +3752,7 @@ textarea.jx-composer{
   flex: 1;
   overflow: auto;
   padding: 12px;
-  background: #fff;
+  background: var(--color-bg-container);
 }
 .jx-spaceImportPreview-limitNotice {
   position: sticky;
@@ -3784,7 +3792,7 @@ textarea.jx-composer{
 }
 .jx-spaceImportPreview-table tr:nth-child(even) td,
 .jx-spaceImportPreview-tableWrap table tr:nth-child(even) td {
-  background: #fafbfc;
+  background: var(--color-bg-layout);
 }
 
 /* xlsx sheet tabs ----------------------------------------------- */
@@ -3800,7 +3808,7 @@ textarea.jx-composer{
   gap: 4px;
   padding: 8px 12px 0;
   border-bottom: 1px solid var(--color-border);
-  background: #fff;
+  background: var(--color-bg-container);
   overflow-x: auto;
   flex-shrink: 0;
 }
@@ -3830,7 +3838,7 @@ textarea.jx-composer{
 .jx-mermaid {
   margin: 12px 0;
   padding: 16px;
-  background: #FAFBFC;
+  background: var(--color-bg-layout);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   overflow-x: auto;
@@ -3960,7 +3968,7 @@ textarea.jx-composer{
 .jx-editMessage {
   margin-top: 8px;
   padding: 8px;
-  background: var(--color-fill-bg);
+  background: var(--color-fill-hover);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
@@ -4080,7 +4088,7 @@ textarea.jx-composer{
   border:none;
   border-radius:16px;
   background:transparent;
-  color:rgba(15,23,42,.75);
+  color:color-mix(in srgb, var(--color-text) 75%, transparent);
   font-size:13px;
   line-height:20px;
   font-weight:500;
@@ -4091,14 +4099,14 @@ textarea.jx-composer{
 .jx-modeSeatBtn:hover,
 .jx-modeSeatBtn.open{
   background:rgba(15,23,42,.055);
-  color:rgba(15,23,42,.92);
+  color:color-mix(in srgb, var(--color-text) 92%, transparent);
 }
 .jx-modeSeatBtn:focus-visible{ outline:none; box-shadow:0 0 0 2px rgba(18,109,255,.28); }
 .jx-modeSeatIcon{ flex:none; color:currentColor; }
 .jx-modeSeatLabel{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
 /* 非标准模式：标识走暖色，一眼看出"这段对话不在默认档上" */
-.jx-modeSeatBtn.turbo{ color:rgba(15,23,42,.88); }
-.jx-modeSeatBtn.turbo .jx-modeSeatIcon{ color:var(--color-warning, #F8AB42); }
+.jx-modeSeatBtn.turbo{ color:color-mix(in srgb, var(--color-text) 88%, transparent); }
+.jx-modeSeatBtn.turbo .jx-modeSeatIcon{ color:var(--color-warning, var(--color-warning)); }
 .jx-modeSeatBtn svg.jx-modeArrow{ color:currentColor; opacity:.45; transition:transform .16s ease, opacity .14s ease; }
 .jx-modeSeatBtn:hover svg.jx-modeArrow{ opacity:.65; }
 .jx-modeSeatBtn.open svg.jx-modeArrow{ transform:rotate(180deg); opacity:.8; }
@@ -4116,9 +4124,9 @@ textarea.jx-composer{
   max-height:min(360px, 60vh);
   overflow-y:auto;
   padding:4px;
-  border:1px solid rgba(15,23,42,.06);
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   border-radius:14px;
-  background:#fff;
+  background:var(--color-bg-container);
   box-shadow:0 12px 32px rgba(15,23,42,.12), 0 2px 6px rgba(15,23,42,.05);
 }
 /* 模式描述是选择依据，不像模型名那样能省——允许折行 */
@@ -4129,7 +4137,7 @@ textarea.jx-composer{
   padding:0 5px;
   border-radius:4px;
   background:rgba(18,109,255,.10);
-  color:#0B57D0;
+  color:var(--color-primary-active);
   font-size:11px;
   line-height:16px;
   font-weight:500;
@@ -4144,7 +4152,7 @@ textarea.jx-composer{
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px; border-radius: 999px;
   border: 1px solid var(--color-border, #e5e6eb);
-  background: var(--color-fill-bg, #f7f8fa);
+  background: var(--color-bg-layout);
   color: var(--color-text, #1d2129);
   font-size: 13px; cursor: pointer; line-height: 1; transition: background .15s;
 }
@@ -4166,7 +4174,7 @@ textarea.jx-composer{
   padding: 8px 10px; border: 0; background: transparent; border-radius: 8px;
   cursor: pointer; text-align: left; color: var(--color-text, #1d2129);
 }
-.jx-deploySwitcherItem:hover { background: var(--color-fill-bg, #f2f3f5); }
+.jx-deploySwitcherItem:hover { background: var(--color-fill-hover); }
 .jx-deploySwitcherItemIcon { font-size: 16px; line-height: 1.2; margin-top: 2px; color: var(--color-text-secondary, #4e5969); }
 .jx-deploySwitcherItemBody { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .jx-deploySwitcherItemTitle { font-size: 14px; font-weight: 500; }
@@ -4175,14 +4183,14 @@ textarea.jx-composer{
 .jx-deploySwitcherDivider { height: 1px; margin: 6px 8px; background: var(--color-border, #e5e6eb); }
 .jx-deploySwitcherItem--action .jx-deploySwitcherItemIcon { color: var(--color-primary, #165dff); font-weight: 700; }
 .jx-deploySwitcherFooter { width: 100%; padding: 8px 10px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; text-align: left; font-size: 13px; color: var(--color-text-secondary, #4e5969); }
-.jx-deploySwitcherFooter:hover { background: var(--color-fill-bg, #f2f3f5); }
+.jx-deploySwitcherFooter:hover { background: var(--color-fill-hover); }
 
 /* Local permissions modal (ticket #06) */
 .jx-localPermOverlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
 .jx-localPermModal { width: 520px; max-width: 92vw; max-height: 82vh; overflow: auto; background: var(--color-bg-white, #fff); color: var(--color-text, #1d2129); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }
 .jx-localPermHead { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; font-size: 16px; font-weight: 600; border-bottom: 1px solid var(--color-border, #e5e6eb); }
 .jx-localPermClose { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--color-text-tertiary, #86909c); }
-.jx-localPermSection { padding: 14px 18px; border-bottom: 1px solid var(--color-border, #f0f1f3); }
+.jx-localPermSection { padding: 14px 18px; border-bottom: 1px solid var(--color-border, var(--color-border)); }
 .jx-localPermSectionTitle { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
 .jx-localPermHint { font-size: 12px; color: var(--color-text-secondary, #86909c); margin-bottom: 10px; }
 .jx-localPermEmpty { font-size: 13px; color: var(--color-text-tertiary, #86909c); padding: 6px 0; }
@@ -4197,10 +4205,10 @@ textarea.jx-composer{
 /* 项目框旁的本机操作权限档胶囊（桌面壳本机模式） */
 .jx-approvalPillBtn .jx-approvalPillIcon { font-size: 13px; line-height: 1; flex-shrink: 0; }
 .jx-approvalMenu .ant-dropdown-menu { min-width: 248px; }
-.jx-approvalMenu .ant-dropdown-menu-item-group-title { font-size: 12px; color: rgba(15,23,42,.45); padding: 6px 12px 2px; }
-.jx-approvalDetailEntry { font-size: 13px; color: rgba(15,23,42,.62); }
-.jx-cloudPrompt { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border, #e5e6eb); background: var(--color-fill-bg, #f7f8fa); font-size: 13px; }
+.jx-approvalMenu .ant-dropdown-menu-item-group-title { font-size: 12px; color: color-mix(in srgb, var(--color-text) 45%, transparent); padding: 6px 12px 2px; }
+.jx-approvalDetailEntry { font-size: 13px; color: color-mix(in srgb, var(--color-text) 62%, transparent); }
+.jx-cloudPrompt { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border, #e5e6eb); background: var(--color-bg-layout); font-size: 13px; }
 .jx-cloudPromptText { color: var(--color-text-secondary, #4e5969); }
 .jx-cloudPromptYes, .jx-cloudPromptNo { border: 0; border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
-.jx-cloudPromptYes { background: var(--color-primary, #165dff); color: #fff; }
+.jx-cloudPromptYes { background: var(--color-primary, #165dff); color: var(--color-text-white); }
 .jx-cloudPromptNo { background: transparent; color: var(--color-text, #1d2129); border: 1px solid var(--color-border, #c9cdd4); }

@@ -14,7 +14,7 @@
   align-items: center;
   gap: 8px;
   margin-top: 18px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -38,7 +38,7 @@
   font-family: var(--font-family);
   font-size: 16px;
   font-weight: 400;
-  color: #7b8697;
+  color: var(--color-text-tertiary);
   cursor: pointer;
   transition: color 0.18s ease;
 }
@@ -49,11 +49,11 @@
 
 /* 下划线由 motion layoutId 共享滑动接管（.jx-mySpace-tabInk--sub），不再用 ::after */
 .jx-mySpace-subTab:hover {
-  color: #394556;
+  color: var(--color-text-secondary);
 }
 
 .jx-mySpace-subTab.active {
-  color: #1c2430;
+  color: var(--color-text);
   font-weight: 500;
 }
 
@@ -80,7 +80,7 @@
   font-family: var(--font-family);
   font-size: 14px;
   font-weight: 400;
-  color: #7b8697;
+  color: var(--color-text-tertiary);
   cursor: pointer;
   transition: color 0.18s ease;
 }
@@ -91,11 +91,11 @@
 
 /* 下划线由 motion layoutId 共享滑动接管（.jx-mySpace-tabInk--filter），不再用 ::after */
 .jx-mySpace-filterTab:hover {
-  color: #394556;
+  color: var(--color-text-secondary);
 }
 
 .jx-mySpace-filterTab.active {
-  color: #1c2430;
+  color: var(--color-text);
   font-weight: 500;
 }
 
@@ -116,7 +116,7 @@
   min-width: 220px;
   max-width: 280px;
   padding: 8px 12px 8px 0;
-  border-right: 1px solid rgba(15, 23, 42, 0.06);
+  border-right: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   overflow: auto;
 }
 
@@ -135,7 +135,7 @@
   gap: 12px;
   padding: 0 2px 14px;
   margin-bottom: 12px;
-  border-bottom: 1px dashed rgba(15, 23, 42, 0.08);
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
 .jx-team-workspace-actions {
@@ -167,7 +167,7 @@
   padding: 48px 24px;
   text-align: center;
   gap: 12px;
-  color: #64748b;
+  color: var(--color-text-tertiary);
 }
 
 .jx-team-workspace-hint-icon {
@@ -178,21 +178,21 @@
   height: 72px;
   border-radius: 16px;
   background: rgba(15, 23, 42, 0.04);
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
   margin-bottom: 4px;
 }
 
 .jx-team-workspace-hint-title {
   font-size: 15px;
   font-weight: 500;
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 .jx-team-workspace-hint-desc {
   font-size: 13px;
   line-height: 1.7;
   max-width: 320px;
-  color: #7b8697;
+  color: var(--color-text-tertiary);
 }
 
 
@@ -215,13 +215,13 @@
 .jx-team-scopeTree-title {
   font-size: 12px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--color-text-tertiary);
   letter-spacing: 0.6px;
 }
 
 .jx-team-scopeTree-hint {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
 }
 
 .jx-team-scopeTree-body.ant-tree {
@@ -247,12 +247,12 @@
 
 .jx-team-scopeTree-body .ant-tree-node-content-wrapper:hover {
   background: rgba(15, 23, 42, 0.04);
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 .jx-team-scopeTree-body .ant-tree-node-selected {
   background: rgba(18, 109, 255, 0.10) !important;
-  color: #1c2430;
+  color: var(--color-text);
   font-weight: 500;
 }
 
@@ -306,7 +306,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
@@ -315,7 +315,7 @@
 .jx-team-tree-more:hover,
 .jx-team-tree-more:focus-visible {
   background: rgba(15, 23, 42, 0.08);
-  color: #1e293b;
+  color: var(--color-text);
   outline: none;
 }
 
@@ -331,7 +331,7 @@
 .jx-team-tree-more[aria-expanded='true'] {
   opacity: 1;
   background: rgba(15, 23, 42, 0.08);
-  color: #1e293b;
+  color: var(--color-text);
 }
 
 
@@ -351,7 +351,7 @@
 }
 
 .jx-team-breadcrumb .ant-breadcrumb-separator {
-  color: rgba(15, 23, 42, 0.25);
+  color: color-mix(in srgb, var(--color-text) 25%, transparent);
 }
 
 
@@ -360,13 +360,13 @@
 .jx-team-folder-input {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid rgba(15, 23, 42, 0.14);
+  border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
   border-radius: 6px;
   font-size: 14px;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   margin-top: 10px;
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 .jx-team-folder-input:focus {
@@ -382,8 +382,8 @@
   overflow: auto;
   border-radius: 8px;
   padding: 10px 6px;
-  background: #fafbfc;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: var(--color-bg-layout);
+  border: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
 }
 
 .jx-team-moveTree .ant-tree-node-content-wrapper {
@@ -417,7 +417,7 @@
     max-height: 240px;
     padding: 12px 0;
     border-right: none;
-    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   }
 
   .jx-team-workspace-toolbar {
@@ -439,7 +439,7 @@
     max-height: 240px;
     padding: 12px 0;
     border-right: none;
-    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   }
 
   .jx-team-workspace-toolbar {

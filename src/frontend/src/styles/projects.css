@@ -6,7 +6,7 @@
   /* 预留两侧滚动条槽位：内容增减导致滚动条出现/消失时，
    * margin:auto 居中的 shell 不再左右平移（列表↔详情切换时的水平抖动） */
   scrollbar-gutter: stable both-edges;
-  background: #fff;
+  background: var(--color-bg-container);
   padding: 32px 40px 80px;
 }
 
@@ -74,7 +74,7 @@
 
 /* Card */
 .jx-projectCard {
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 16px 18px;
@@ -140,7 +140,7 @@
   overflow: auto;
   /* 同 .jx-projects：滚动条槽位常驻，详情页加载完成出现滚动条时内容不平移 */
   scrollbar-gutter: stable both-edges;
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 .jx-projectDetail--loading {
@@ -277,7 +277,7 @@
 
 .jx-projectRail-card {
   position: relative; /* FilesCard 拖拽上传高亮层的定位锚点 */
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 16px;

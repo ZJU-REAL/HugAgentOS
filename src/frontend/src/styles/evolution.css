@@ -4,12 +4,12 @@
 .jx-evolutionCard {
   margin-top: 12px;
   padding: 14px 16px;
-  border: 1px solid var(--jx-border, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: var(--jx-surface-2, #fafafa);
+  background: var(--color-bg-layout);
 }
 
-.jx-evolutionCard.is-failed { border-color: var(--jx-danger-border, #fecaca); }
+.jx-evolutionCard.is-failed { border-color: var(--color-error-bg); }
 
 .jx-evolutionCard-head {
   display: flex;
@@ -25,13 +25,13 @@
   gap: 8px;
   font-weight: 600;
   font-size: 13px;
-  color: var(--jx-text, #111827);
+  color: var(--color-text);
 }
 
 .jx-evolutionCard-gain {
   font-weight: 700;
   font-size: 15px;
-  color: var(--jx-primary, #2563eb);
+  color: var(--color-primary);
 }
 
 .jx-evolutionCard-entries {
@@ -48,9 +48,9 @@
   align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--jx-border, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--jx-surface, #fff);
+  background: var(--color-bg-container);
 }
 
 .jx-evolutionCard-entry.is-busy { opacity: .6; pointer-events: none; }
@@ -78,7 +78,7 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.55;
-  color: var(--jx-text, #111827);
+  color: var(--color-text);
   overflow-wrap: anywhere;
 }
 
@@ -88,22 +88,22 @@
   gap: 4px 12px;
   margin: 4px 0 0;
   font-size: 11px;
-  color: var(--jx-text-secondary, #6b7280);
+  color: var(--color-text-tertiary);
 }
 
 .jx-evolutionCard-entryError {
   margin: 4px 0 0;
   font-size: 11px;
-  color: var(--jx-danger, #b91c1c);
+  color: var(--color-error);
 }
 
 .jx-evolutionCard-editor {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid var(--jx-primary, #2563eb);
+  border: 1px solid var(--color-primary);
   border-radius: 8px;
-  background: var(--jx-surface, #fff);
-  color: var(--jx-text, #111827);
+  background: var(--color-bg-container);
+  color: var(--color-text);
   font: inherit;
   font-size: 13px;
   line-height: 1.55;
@@ -123,12 +123,12 @@
   padding: 2px 6px;
   border-radius: 6px;
   font-size: 12px;
-  color: var(--jx-text-secondary, #6b7280);
+  color: var(--color-text-tertiary);
   cursor: pointer;
 }
 .jx-evolutionCard-entryActions button:hover:not(:disabled) {
-  background: var(--jx-surface-2, #f3f4f6);
-  color: var(--jx-primary, #2563eb);
+  background: var(--color-fill-hover);
+  color: var(--color-primary);
 }
 .jx-evolutionCard-entryActions button:disabled { cursor: default; opacity: .5; }
 
@@ -137,14 +137,14 @@
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: var(--jx-danger, #b91c1c);
+  color: var(--color-error);
 }
-.jx-evolutionCard-error small { color: var(--jx-text-secondary, #6b7280); }
+.jx-evolutionCard-error small { color: var(--color-text-tertiary); }
 
 /* ── Settings: contribution details card ─────────────────────────────────── */
 
 .jx-evoContrib-loading { display: grid; place-items: center; padding: 40px 0; }
-.jx-evoContrib-error { color: var(--jx-danger, #b91c1c); font-size: 13px; padding: 16px 0; }
+.jx-evoContrib-error { color: var(--color-error); font-size: 13px; padding: 16px 0; }
 
 .jx-evoContrib-stats {
   display: grid;
@@ -155,27 +155,27 @@
 .jx-evoContrib-stat {
   display: flex; flex-direction: column; gap: 2px;
   padding: 12px;
-  border: 1px solid var(--jx-border, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--jx-surface-2, #fafafa);
+  background: var(--color-bg-layout);
 }
 .jx-evoContrib-stat strong { font-size: 20px; font-weight: 700; line-height: 1.2; }
-.jx-evoContrib-stat span { font-size: 11px; color: var(--jx-text-secondary, #6b7280); }
+.jx-evoContrib-stat span { font-size: 11px; color: var(--color-text-tertiary); }
 
 .jx-evoContrib-list { display: flex; flex-direction: column; gap: 10px; }
 
 .jx-evoContrib-row {
   padding: 12px 14px;
-  border: 1px solid var(--jx-border, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--jx-surface, #fff);
+  background: var(--color-bg-container);
 }
 .jx-evoContrib-rowHead { display: flex; align-items: center; gap: 8px; }
-.jx-evoContrib-rowIcon { color: var(--jx-primary, #2563eb); }
+.jx-evoContrib-rowIcon { color: var(--color-primary); }
 .jx-evoContrib-rowKind { font-size: 13px; font-weight: 600; margin-right: auto; }
 .jx-evoContrib-rowSummary {
   margin: 8px 0 0; font-size: 12px;
-  color: var(--jx-text-secondary, #6b7280);
+  color: var(--color-text-tertiary);
   overflow-wrap: anywhere;
 }
 
@@ -184,30 +184,30 @@
 .jx-evoContrib-chain {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
   margin-top: 10px; padding-top: 10px;
-  border-top: 1px dashed var(--jx-border, #e5e7eb);
+  border-top: 1px dashed var(--color-border);
   font-size: 11.5px;
 }
 .jx-evoContrib-chainNode {
   padding: 2px 8px; border-radius: 999px;
-  background: var(--jx-surface-2, #f3f4f6);
-  color: var(--jx-text-secondary, #6b7280);
+  background: var(--color-fill-hover);
+  color: var(--color-text-tertiary);
 }
 .jx-evoContrib-chainNode.is-terminal {
   background: rgba(37, 99, 235, .10); color: #1d4ed8; font-weight: 600;
 }
-.jx-evoContrib-chainArrow { color: var(--jx-primary, #2563eb); }
+.jx-evoContrib-chainArrow { color: var(--color-primary); }
 
 .jx-evoContrib-empty {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 32px 20px; text-align: center;
-  border: 1px dashed var(--jx-border, #e5e7eb); border-radius: 12px;
+  border: 1px dashed var(--color-border); border-radius: 12px;
 }
 .jx-evoContrib-empty strong { font-size: 13px; }
-.jx-evoContrib-empty span { font-size: 12px; color: var(--jx-text-secondary, #6b7280); max-width: 380px; }
+.jx-evoContrib-empty span { font-size: 12px; color: var(--color-text-tertiary); max-width: 380px; }
 
 .jx-evoContrib-note {
   margin: 16px 0 0; font-size: 11.5px;
-  color: var(--jx-text-secondary, #9ca3af); line-height: 1.6;
+  color: var(--color-text-placeholder); line-height: 1.6;
 }
 
 @media (max-width: 640px) {
@@ -220,14 +220,14 @@
 
 .jx-evoApproval-item {
   padding: 14px 16px;
-  border: 1px solid var(--jx-border, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: var(--jx-surface, #fff);
+  background: var(--color-bg-container);
   box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
   transition: border-color .18s ease, box-shadow .18s ease;
 }
 .jx-evoApproval-item:hover {
-  border-color: color-mix(in srgb, var(--jx-primary, #2563eb) 24%, var(--jx-border, #e5e7eb));
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
   box-shadow: 0 6px 18px rgba(15, 23, 42, .055);
 }
 .jx-evoApproval-head { display: flex; align-items: flex-start; gap: 10px; }
@@ -239,22 +239,22 @@
 .jx-evoApproval-title { font-size: 13.5px; font-weight: 650; overflow-wrap: anywhere; }
 .jx-evoApproval-subtitle {
   font-size: 11.5px; line-height: 1.5;
-  color: var(--jx-text-secondary, #6b7280);
+  color: var(--color-text-tertiary);
 }
 
 .jx-evoApproval-finding {
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px;
   align-items: baseline; margin-top: 10px; padding: 9px 10px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--jx-primary, #2563eb) 5%, var(--jx-surface-2, #f8fafc));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-bg-layout));
 }
 .jx-evoApproval-finding > span {
   font-size: 10.5px; font-weight: 650; letter-spacing: .02em;
-  color: var(--jx-primary, #2563eb); white-space: nowrap;
+  color: var(--color-primary); white-space: nowrap;
 }
 .jx-evoApproval-finding p {
   margin: 0; font-size: 12px; line-height: 1.55;
-  color: var(--jx-text-secondary, #6b7280); overflow-wrap: anywhere;
+  color: var(--color-text-tertiary); overflow-wrap: anywhere;
 }
 
 /* The concrete change: a skill's body, or the memory ops that will run.
@@ -265,15 +265,15 @@
 .jx-evoApproval-toggle {
   height: 26px !important; padding: 0 6px !important;
   margin-left: -6px;
-  font-size: 12px !important; color: var(--jx-primary, #2563eb) !important;
+  font-size: 12px !important; color: var(--color-primary) !important;
 }
-.jx-evoApproval-toggle:hover { background: color-mix(in srgb, var(--jx-primary, #2563eb) 8%, transparent) !important; }
+.jx-evoApproval-toggle:hover { background: color-mix(in srgb, var(--color-primary) 8%, transparent) !important; }
 
 .jx-evoApproval-detailPanel {
   display: flex; flex-direction: column; gap: 12px;
   margin-top: 6px; padding: 13px 14px;
-  border: 1px solid var(--jx-border, #e5e7eb); border-radius: 10px;
-  background: var(--jx-surface-2, #fafafa);
+  border: 1px solid var(--color-border); border-radius: 10px;
+  background: var(--color-bg-layout);
   animation: jx-evoApproval-reveal .18s ease-out;
 }
 @keyframes jx-evoApproval-reveal {
@@ -284,45 +284,45 @@
 .jx-evoApproval-detailPanel section > strong { font-size: 11.5px; font-weight: 650; }
 .jx-evoApproval-detailPanel section > p {
   margin: 0; font-size: 12px; line-height: 1.6;
-  color: var(--jx-text-secondary, #6b7280);
+  color: var(--color-text-tertiary);
 }
 .jx-evoApproval-detailSteps {
   display: flex; flex-direction: column; gap: 7px;
   margin: 0; padding-left: 22px; font-size: 12px;
 }
 .jx-evoApproval-detailSteps li { padding-left: 2px; }
-.jx-evoApproval-detailSteps li > span { color: var(--jx-text, #111827); }
+.jx-evoApproval-detailSteps li > span { color: var(--color-text); }
 .jx-evoApproval-detailSteps code {
   margin-left: 7px; padding: 1px 5px; border-radius: 4px;
-  background: color-mix(in srgb, var(--jx-text, #111827) 6%, transparent);
-  color: var(--jx-text-secondary, #6b7280); font-size: 10.5px;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--color-text-tertiary); font-size: 10.5px;
 }
 .jx-evoApproval-scope {
   display: flex; align-items: center; gap: 6px;
-  padding-top: 10px; border-top: 1px dashed var(--jx-border, #e5e7eb);
-  font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+  padding-top: 10px; border-top: 1px dashed var(--color-border);
+  font-size: 11.5px; color: var(--color-text-tertiary);
 }
 .jx-evoApproval-scope svg { color: #059669; }
 
 .jx-evoApproval-desc {
   margin: 6px 0 0; font-size: 12px;
-  color: var(--jx-text-secondary, #6b7280); overflow-wrap: anywhere;
+  color: var(--color-text-tertiary); overflow-wrap: anywhere;
 }
 
 .jx-evoApproval-tools {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  margin-top: 6px; font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+  margin-top: 6px; font-size: 11.5px; color: var(--color-text-tertiary);
 }
 .jx-evoApproval-tools code {
   padding: 1px 6px; border-radius: 5px;
-  background: var(--jx-surface-2, #f3f4f6); font-size: 11px;
+  background: var(--color-fill-hover); font-size: 11px;
 }
 
 .jx-evoApproval-doc {
   margin: 8px 0 0; padding: 10px 12px;
   max-height: 320px; overflow: auto;
-  border: 1px solid var(--jx-border, #e5e7eb); border-radius: 8px;
-  background: var(--jx-surface-2, #fafafa);
+  border: 1px solid var(--color-border); border-radius: 8px;
+  background: var(--color-bg-layout);
   font-size: 12px; line-height: 1.6; white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -332,9 +332,9 @@
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
   font-size: 12px;
 }
-.jx-evoApproval-opText { color: var(--jx-text, #111827); overflow-wrap: anywhere; }
+.jx-evoApproval-opText { color: var(--color-text); overflow-wrap: anywhere; }
 .jx-evoApproval-ops em {
-  font-style: normal; font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+  font-style: normal; font-size: 11.5px; color: var(--color-text-tertiary);
 }
 
 .jx-evoApproval-steps {
@@ -344,22 +344,22 @@
 .jx-evoApproval-step {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 8px 4px 5px; border-radius: 999px;
-  background: var(--jx-surface-2, #f3f4f6);
-  color: var(--jx-text, #111827);
+  background: var(--color-fill-hover);
+  color: var(--color-text);
 }
 .jx-evoApproval-stepIndex {
   display: inline-grid; place-items: center; width: 16px; height: 16px;
-  border-radius: 50%; background: var(--jx-surface, #fff);
-  color: var(--jx-primary, #2563eb); font-size: 9.5px; font-weight: 700;
+  border-radius: 50%; background: var(--color-bg-container);
+  color: var(--color-primary); font-size: 9.5px; font-weight: 700;
 }
-.jx-evoApproval-arrow { color: var(--jx-primary, #2563eb); }
+.jx-evoApproval-arrow { color: var(--color-primary); }
 
 .jx-evoApproval-meta {
   display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; gap: 8px;
   margin-top: 10px; padding-top: 10px;
-  border-top: 1px dashed var(--jx-border, #e5e7eb);
-  font-size: 11.5px; color: var(--jx-text-secondary, #6b7280);
+  border-top: 1px dashed var(--color-border);
+  font-size: 11.5px; color: var(--color-text-tertiary);
 }
 
 .jx-evoApproval-empty {
@@ -367,16 +367,16 @@
   padding: 26px 18px; text-align: center;
 }
 .jx-evoApproval-empty strong { font-size: 13px; }
-.jx-evoApproval-empty span { font-size: 12px; color: var(--jx-text-secondary, #6b7280); max-width: 400px; }
+.jx-evoApproval-empty span { font-size: 12px; color: var(--color-text-tertiary); max-width: 400px; }
 
 .jx-evoApproval-loading {
   display: flex; align-items: center; justify-content: center; gap: 9px;
-  min-height: 96px; color: var(--jx-text-secondary, #6b7280); font-size: 12px;
+  min-height: 96px; color: var(--color-text-tertiary); font-size: 12px;
 }
 
 .jx-evoApproval-note {
   margin: 12px 0 0; font-size: 11.5px;
-  color: var(--jx-text-secondary, #9ca3af);
+  color: var(--color-text-placeholder);
 }
 
 @media (max-width: 640px) {
@@ -395,8 +395,8 @@
 }
 .jx-evoPrefs-label { display: flex; flex-direction: column; gap: 2px; min-width: 190px; flex: 1; }
 .jx-evoPrefs-label > span { font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
-.jx-evoPrefs-label small { font-size: 11.5px; color: var(--jx-text-secondary, #6b7280); }
-.jx-evoPrefs-hint { color: var(--jx-text-secondary, #9ca3af); font-size: 12px; }
+.jx-evoPrefs-label small { font-size: 11.5px; color: var(--color-text-tertiary); }
+.jx-evoPrefs-hint { color: var(--color-text-placeholder); font-size: 12px; }
 
 .jx-evoPrefs-mechs { display: flex; flex-direction: column; gap: 8px; min-width: 260px; }
 .jx-evoPrefs-mech {
@@ -404,7 +404,7 @@
   gap: 8px; cursor: pointer;
 }
 .jx-evoPrefs-mechName { font-size: 12.5px; font-weight: 600; }
-.jx-evoPrefs-mech small { font-size: 11px; color: var(--jx-text-secondary, #9ca3af); }
+.jx-evoPrefs-mech small { font-size: 11px; color: var(--color-text-placeholder); }
 
 .jx-evoPrefs-ontology { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .jx-evoPrefs-packSelect { min-width: 200px; }
@@ -428,19 +428,19 @@
 .jx-evoConsole-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .jx-evoConsole-stat {
   display: flex; flex-direction: column; gap: 2px;
-  padding: 14px; border: 1px solid var(--jx-border, #e5e7eb);
-  border-radius: 10px; background: var(--jx-surface-2, #fafafa);
+  padding: 14px; border: 1px solid var(--color-border);
+  border-radius: 10px; background: var(--color-bg-layout);
 }
 .jx-evoConsole-stat strong { font-size: 22px; font-weight: 700; line-height: 1.2; }
-.jx-evoConsole-stat span { font-size: 11.5px; color: var(--jx-text-secondary, #6b7280); }
+.jx-evoConsole-stat span { font-size: 11.5px; color: var(--color-text-tertiary); }
 
 .jx-evoConsole-funnel { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .jx-evoConsole-funnelItem { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
-.jx-evoConsole-muted { color: var(--jx-text-secondary, #9ca3af); font-size: 12px; }
+.jx-evoConsole-muted { color: var(--color-text-placeholder); font-size: 12px; }
 
 .jx-evoConsole-note {
   margin: 4px 0 0; font-size: 11.5px;
-  color: var(--jx-text-secondary, #9ca3af); line-height: 1.6;
+  color: var(--color-text-placeholder); line-height: 1.6;
 }
 
 /* Capability health + orchestration: the "subtraction" side of the console. */
@@ -455,7 +455,7 @@
    asset ids alone cannot say so. */
 .jx-evoConsole-healthHint {
   font-size: 11.5px; font-weight: 400; line-height: 1.6;
-  color: var(--jx-text-secondary, #9ca3af);
+  color: var(--color-text-placeholder);
 }
 
 @media (max-width: 900px) {
@@ -466,9 +466,9 @@
    the page — a console showing an empty funnel with no explanation is how
    "misconfigured" gets mistaken for "nothing to learn". */
 .jx-evoConsole-blocked {
-  border: 1px solid var(--jx-danger, #dc2626); border-left-width: 3px;
+  border: 1px solid var(--color-error); border-left-width: 3px;
   border-radius: 8px; padding: 14px 18px;
-  background: var(--jx-danger-bg, #fef2f2);
+  background: var(--color-error-light);
 }
 .jx-evoConsole-blocked strong { font-size: 14px; }
 .jx-evoConsole-blocked p { margin: 6px 0 8px; font-size: 12.5px; line-height: 1.65; }
@@ -480,14 +480,14 @@
    arrives hours later — it is a footnote to the turn, not its headline. */
 .jx-evolutionCard-contrib {
   margin-top: 10px; padding-top: 10px;
-  border-top: 1px dashed var(--jx-border, #e5e7eb);
+  border-top: 1px dashed var(--color-border);
 }
 .jx-evolutionCard-contribHead {
-  font-size: 11.5px; font-weight: 600; color: var(--jx-text-secondary, #6b7280);
+  font-size: 11.5px; font-weight: 600; color: var(--color-text-tertiary);
 }
 .jx-evolutionCard-contrib ul { margin: 6px 0 0; padding-left: 18px; }
 .jx-evolutionCard-contrib li {
-  font-size: 11.5px; line-height: 1.7; color: var(--jx-text-secondary, #6b7280);
+  font-size: 11.5px; line-height: 1.7; color: var(--color-text-tertiary);
 }
 .jx-evolutionCard-contrib em {
   font-style: normal; margin-left: 6px; opacity: .75;

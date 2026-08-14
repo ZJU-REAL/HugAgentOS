@@ -21,13 +21,13 @@
 .jx-mcp-title {
   font-size: 20px;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--color-text);
   margin: 0 0 6px;
 }
 
 .jx-mcp-subtitle {
   font-size: 14px;
-  color: #999;
+  color: var(--color-text-placeholder);
   font-weight: 400;
   margin: 0;
 }
@@ -44,8 +44,8 @@
   padding: 6px 12px;
   width: 224px;
   height: 32px;
-  background: #fff;
-  border: 1px solid #E3E6EA;
+  background: var(--color-bg-container);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   cursor: pointer;
   box-sizing: border-box;
@@ -53,14 +53,14 @@
 
 .jx-mcp-searchPlaceholder {
   font-size: 14px;
-  color: #B3B3B3;
+  color: var(--color-text-placeholder);
 }
 
 .jx-mcp-searchInput {
   width: 224px;
   height: 32px;
   border-radius: 8px;
-  border-color: #E3E6EA;
+  border-color: var(--color-border);
   /* 假搜索框 → 真 Input 切换淡入（技能库 / MCP 库共用） */
   animation: jx-kf-fadeIn 150ms var(--motion-ease-standard) backwards;
 }
@@ -78,9 +78,9 @@
    入场 stagger 由容器 .jx-anim-stagger + 子项 --stagger-i 提供 */
 .jx-mcp-card {
   padding: 16px 20px;
-  border: 1px solid #E3E6EA;
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--color-bg-container);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -89,7 +89,7 @@
 }
 
 .jx-mcp-card:hover {
-  border-color: #c0cadb;
+  border-color: var(--color-fill);
   box-shadow: 0 2px 8px rgba(0,0,0,.04);
 }
 
@@ -154,7 +154,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg, #f8fafc);
+  background: var(--bg, var(--color-bg-layout));
   color: var(--primary);
   font-size: 20px;
 }
@@ -223,7 +223,7 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg, #f8fafc);
+  background: var(--bg, var(--color-bg-layout));
 }
 
 .jx-mcp-marketTool .ant-typography {
@@ -246,7 +246,7 @@
   overflow: auto;
   border-radius: 8px;
   background: #111827;
-  color: #e5e7eb;
+  color: var(--color-border);
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -264,7 +264,7 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 1px solid #E3E6EA;
+  border: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -279,10 +279,10 @@
 }
 
 .jx-mcp-iconFallback {
-  background: #f0f2f5;
+  background: var(--color-fill-hover);
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--color-text-secondary);
 }
 
 .jx-mcp-cardNameGroup {
@@ -294,7 +294,7 @@
 .jx-mcp-cardName {
   font-size: 16px;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--color-text);
   overflow-wrap: anywhere;
 }
 
@@ -311,7 +311,7 @@
 
 .jx-mcp-cardDesc {
   font-size: 14px;
-  color: #999;
+  color: var(--color-text-placeholder);
   line-height: 1.6;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -341,7 +341,7 @@
   padding: 6px 0;
   margin-right: 16px;
   margin-top: 4px;
-  color: #999;
+  color: var(--color-text-placeholder);
   font-size: 14px;
   display: inline-flex;
   align-items: center;
@@ -350,7 +350,7 @@
 }
 
 .jx-mcp-backBtn:hover {
-  color: #1a1a1a;
+  color: var(--color-text);
 }
 
 .jx-mcp-detailContent {
@@ -399,12 +399,12 @@
 .jx-mcp-detailName {
   font-size: 20px;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--color-text);
 }
 
 .jx-mcp-version {
   font-size: 12px;
-  color: #B3B3B3;
+  color: var(--color-text-placeholder);
   font-weight: 400;
 }
 
@@ -418,20 +418,20 @@
 
 .jx-mcp-enableLabel {
   font-size: 14px;
-  color: #1a1a1a;
+  color: var(--color-text);
 }
 
 .jx-mcp-divider {
   border: none;
-  border-top: 1px solid #E3E6EA;
+  border-top: 1px solid var(--color-border);
   margin: 20px 0;
 }
 
 /* ── Explain card ───────────────────────────────────────────────── */
 
 .jx-mcp-explainCard {
-  background: #F5F5F5;
-  border: 1px solid #E3E6EA;
+  background: var(--color-bg-gray);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 24px;
@@ -449,12 +449,12 @@
 .jx-mcp-explainLabel {
   font-size: 14px;
   font-weight: 500;
-  color: #000;
+  color: var(--color-text);
 }
 
 .jx-mcp-explainValue {
   font-size: 14px;
-  color: #1a1a1a;
+  color: var(--color-text);
   font-weight: 400;
   line-height: 1.5;
 }
@@ -468,13 +468,13 @@
 .jx-mcp-bodyTitle {
   font-size: 16px;
   font-weight: 500;
-  color: #000;
+  color: var(--color-text);
   margin: 0 0 8px;
 }
 
 .jx-mcp-bodyDesc {
   font-size: 14px;
-  color: #555;
+  color: var(--color-text-secondary);
   line-height: 1.75;
   margin: 0 0 20px;
 }
@@ -486,16 +486,16 @@
 .jx-mcp-detailBody .jx-md {
   font-size: 14px;
   line-height: 1.78;
-  color: rgba(31,35,40,.90);
+  color: color-mix(in srgb, var(--color-text) 90%, transparent);
 }
 
 .jx-mcp-detailBody .jx-md h1 { font-size: 20px; }
 .jx-mcp-detailBody .jx-md h2 { font-size: 17px; }
-.jx-mcp-detailBody .jx-md h3 { font-size: 15px; font-weight: 500; color: #000; }
+.jx-mcp-detailBody .jx-md h3 { font-size: 15px; font-weight: 500; color: var(--color-text); }
 .jx-mcp-detailBody .jx-md p { margin: 0 0 12px; }
 .jx-mcp-detailBody .jx-md ul,
 .jx-mcp-detailBody .jx-md ol { margin: 8px 0; padding-left: 24px; }
-.jx-mcp-detailBody .jx-md li { line-height: 2; color: #555; }
+.jx-mcp-detailBody .jx-md li { line-height: 2; color: var(--color-text-secondary); }
 .jx-mcp-detailBody .jx-md li + li { margin-top: 2px; }
 
 .jx-mcp-toolsList {
@@ -505,7 +505,7 @@
 
 .jx-mcp-toolsList li {
   font-size: 14px;
-  color: #555;
+  color: var(--color-text-secondary);
   line-height: 2;
 }
 
@@ -525,12 +525,12 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: #fff;
+  background: var(--color-bg-container);
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 16px 0 14px;
-  border-bottom: 1px solid #E3E6EA;
+  border-bottom: 1px solid var(--color-border);
   box-shadow: 0 2px 6px rgba(15,23,42,.04);
 }
 

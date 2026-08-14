@@ -5,7 +5,7 @@
   transition: background var(--motion-duration-fast) var(--motion-ease-standard);
 }
 .ant-list-item:hover {
-  background: #fafafa;
+  background: var(--color-bg-layout);
 }
 
 /* Message card left border highlight */
@@ -19,7 +19,7 @@
 }
 .jx-cfgSessionItem.active,
 .jx-cfgSessionItem.active:hover {
-  background: #E6F4FF;
+  background: var(--color-primary-light);
 }
 
 /* 消息卡入场瀑布（每次选中会话重挂一次；--stagger-i 由 staggerStyle(i, 6) 写入，封顶 6 档防长列表拖尾） */
@@ -57,5 +57,5 @@
 }
 .jx-col-resize-handle:hover::after,
 .jx-col-resize-handle:active::after {
-  background: var(--jx-primary, #1677ff);
+  background: var(--color-primary);
 }

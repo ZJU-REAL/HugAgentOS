@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { UpdateEntry, UpdateCategory, FileConfirmInfo, DesignPickInfo } from '../types';
 import type { SearchResultItem } from '../api';
 import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
+import { loadThemeMode, saveThemeMode, type ThemeMode } from '../theme';
 
 export type HistoryTimeFilter = 'all' | 'today' | '7d' | '30d';
 export type UpdateFilter = '全部' | UpdateCategory;
@@ -52,6 +53,11 @@ interface UIState {
   promptHubOpen: boolean;
   dispatchProcessVisible: boolean;
 
+  // ── 主题（深色模式）──
+  // 只存用户档位（system/light/dark）；实际深浅由 AppThemeProvider 结合系统外观解析，
+  // DOM 落地与「跟随系统」监听也在那里，这里只管状态与持久化。
+  themeMode: ThemeMode;
+
   // ── §13 My Space write confirmation ──
   // Stores one **FIFO queue** per chatId: a single round of parallel tool calls can concurrently register N distinct
   // pending confirmations, which must all be queued and popped one by one — click one, the next appears — never overwritten
@@ -87,6 +93,8 @@ interface UIState {
 
   setPromptHubOpen: (v: boolean) => void;
   setDispatchProcessVisible: (v: boolean) => void;
+
+  setThemeMode: (mode: ThemeMode) => void;
 
   // Enqueue an item (deduped by confirmId; ignored if already in the queue).
   enqueuePendingConfirm: (chatId: string, info: FileConfirmInfo) => void;
@@ -126,6 +134,8 @@ export const useUIStore = create<UIState>((set) => ({
 
   promptHubOpen: false,
   dispatchProcessVisible: loadDispatchProcessVisible(),
+
+  themeMode: loadThemeMode(),
 
   pendingConfirm: {},
   pendingDesignPick: {},
@@ -236,5 +246,10 @@ export const useUIStore = create<UIState>((set) => ({
       }
     }
     set({ dispatchProcessVisible: v });
+  },
+
+  setThemeMode: (mode) => {
+    saveThemeMode(mode);
+    set({ themeMode: mode });
   },
 }));

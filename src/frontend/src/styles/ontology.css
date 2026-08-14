@@ -92,7 +92,7 @@
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.78);
+  background: color-mix(in srgb, var(--color-bg-container) 78%, transparent);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -372,7 +372,7 @@
   padding: 9px 10px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
-  background: rgba(255, 255, 255, .7);
+  background: color-mix(in srgb, var(--color-bg-container) 70%, transparent);
 }
 
 .jx-ontologyPassResult-summary span,
@@ -450,7 +450,7 @@
   padding: 4px 18px 18px;
   overflow-x: hidden;
   overflow-y: visible;
-  color: rgba(15, 23, 42, .86);
+  color: color-mix(in srgb, var(--color-text) 86%, transparent);
 }
 
 .jx-ontologyRevision-documentHead {
@@ -586,7 +586,7 @@
   padding: 10px 10px 10px 38px;
   border: 1px solid rgba(95, 68, 14, .11);
   border-radius: 9px;
-  background: rgba(255, 255, 255, .82);
+  background: color-mix(in srgb, var(--color-bg-container) 82%, transparent);
 }
 
 .jx-ontologyManualReview-index {
@@ -640,7 +640,7 @@
   gap: 12px;
   padding: 12px 14px;
   border-top: 1px solid rgba(21, 45, 74, .09);
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 .jx-ontologyRevision-actions > span {
@@ -791,7 +791,7 @@
   border: 1px solid var(--color-border);
   border-left-width: 3px;
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 .jx-ontologyValidation-issue--error { border-left-color: var(--color-error); }
@@ -910,7 +910,7 @@
   place-items: center;
   flex: 0 0 52px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-text-white);
   box-shadow: 0 10px 24px rgba(18, 109, 255, .22);
   font-size: 24px;
 }
@@ -935,7 +935,7 @@
   padding: 12px 16px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--color-bg-container);
   box-shadow: var(--shadow-card);
 }
 
@@ -958,7 +958,7 @@
   padding: 0 18px 18px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--color-bg-container);
   box-shadow: var(--shadow-card);
 }
 
@@ -1263,7 +1263,7 @@
   padding: 12px 12px 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 .jx-ontologyEditor-propertyRemove {

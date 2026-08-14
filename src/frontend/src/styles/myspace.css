@@ -7,7 +7,7 @@
   position: relative; /* 拖拽上传高亮层的定位锚点 */
   height: 100%;
   overflow: hidden;
-  background: #fff;
+  background: var(--color-bg-container);
   container-type: inline-size;
   container-name: myspace;
 }
@@ -30,7 +30,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -54,7 +54,7 @@
   font-family: var(--font-family);
   font-size: 20px;
   font-weight: 400;
-  color: #7b8697;
+  color: var(--color-text-tertiary);
   cursor: pointer;
   transition: color 0.18s ease;
 }
@@ -64,11 +64,11 @@
 }
 
 .jx-mySpace-tab:hover {
-  color: #394556;
+  color: var(--color-text-secondary);
 }
 
 .jx-mySpace-tab.active {
-  color: #1c2430;
+  color: var(--color-text);
   font-weight: 500;
 }
 
@@ -98,8 +98,8 @@
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: #ff5c5c;
-  color: #fff;
+  background: var(--color-error);
+  color: var(--color-text-white);
   font-size: 12px;
   line-height: 20px;
   text-align: center;
@@ -116,7 +116,7 @@
 
 .jx-mySpace-desc {
   margin: 0;
-  color: #7b8697;
+  color: var(--color-text-tertiary);
   font-size: 14px;
   line-height: 1.7;
 }
@@ -139,8 +139,8 @@
 .jx-mySpace-assetChip {
   appearance: none;
   border: 1px solid transparent;
-  background: #f1f3f6;
-  color: #5f6c7f;
+  background: var(--color-fill-hover);
+  color: var(--color-text-secondary);
   border-radius: 10px;
   padding: 7px 14px;
   font-size: 14px;
@@ -150,8 +150,8 @@
 }
 
 .jx-mySpace-assetChip:hover {
-  color: #334155;
-  background: #edf1f7;
+  color: var(--color-text);
+  background: var(--color-fill-hover);
 }
 
 .jx-mySpace-assetChip.active {
@@ -174,7 +174,7 @@
 .jx-mySpace-sourceFilter .ant-select-selector {
   height: 40px !important;
   border-radius: 12px !important;
-  border-color: rgba(148, 163, 184, 0.28) !important;
+  border-color: color-mix(in srgb, var(--color-text-placeholder) 28%, transparent) !important;
   box-shadow: none !important;
   padding: 0 14px !important;
 }
@@ -189,7 +189,7 @@
   max-width: 100%;
   height: 40px;
   border-radius: 12px;
-  border-color: rgba(148, 163, 184, 0.28);
+  border-color: color-mix(in srgb, var(--color-text-placeholder) 28%, transparent);
   box-shadow: none;
   padding: 0 12px;
 }
@@ -255,7 +255,7 @@
   gap: 8px;
   padding: 18px 30px;
   border-radius: 14px;
-  background: #fff;
+  background: var(--color-bg-container);
   color: var(--color-primary);
   font-size: 14px;
   box-shadow:
@@ -291,7 +291,7 @@
   display: inline-flex;
   align-items: baseline;
   flex-shrink: 0;
-  color: #7b8697;
+  color: var(--color-text-tertiary);
   font-size: 12px;
   font-family: var(--font-family-number);
 }
@@ -329,7 +329,7 @@
   top: 0;
   z-index: 2;
   min-height: 44px;
-  background: #fff;
+  background: var(--color-bg-container);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
 }
@@ -356,7 +356,7 @@
 .jx-mySpace-docTable-col--size,
 .jx-mySpace-docTable-col--source,
 .jx-mySpace-docTable-col--time {
-  color: #8a94a3;
+  color: var(--color-text-tertiary);
 }
 
 .jx-mySpace-docTable-col--actions {
@@ -367,7 +367,7 @@
 }
 
 .jx-mySpace-docTable-header .jx-mySpace-docTable-col {
-  color: #7b8697;
+  color: var(--color-text-tertiary);
   font-size: 14px;
   font-weight: 500;
 }
@@ -395,7 +395,7 @@
 }
 
 .jx-mySpace-docRow:hover {
-  background: #f8fafc;
+  background: var(--color-bg-layout);
 }
 
 .jx-mySpace-docRow--checked {
@@ -419,7 +419,7 @@
   width: 16px;
   height: 16px;
   border-radius: 5px;
-  border-color: #c7d0dc;
+  border-color: var(--color-fill);
 }
 
 .jx-mySpace-docRow .ant-checkbox-checked .ant-checkbox-inner,
@@ -449,7 +449,7 @@
   white-space: nowrap;
   font-size: 14px;
   font-weight: 400;
-  color: #283241;
+  color: var(--color-text);
   transition: color 0.16s ease;
 }
 
@@ -461,7 +461,7 @@
 .jx-mySpace-docRow-meta,
 .jx-mySpace-docRow-time {
   font-size: 14px;
-  color: #465262;
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
@@ -471,10 +471,10 @@
   gap: 4px;
   flex-shrink: 0;
   padding: 3px 8px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid color-mix(in srgb, var(--color-text-placeholder) 22%, transparent);
   border-radius: 999px;
-  background: #fff;
-  color: #64748b;
+  background: var(--color-bg-container);
+  color: var(--color-text-tertiary);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
@@ -500,7 +500,7 @@
 
 .jx-mySpace-kbUsageItem {
   font-size: 13px;
-  color: #475569;
+  color: var(--color-text-secondary);
 }
 
 .jx-mySpace-moreBtn {
@@ -510,7 +510,7 @@
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  color: #8a94a3;
+  color: var(--color-text-tertiary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -527,8 +527,8 @@
 }
 
 .jx-mySpace-moreBtn:hover {
-  background: #edf2f7;
-  color: #334155;
+  background: var(--color-fill-hover);
+  color: var(--color-text);
 }
 
 /* 出入场由 motion（AnimatePresence + x:'-50%'）接管：
@@ -547,7 +547,7 @@
   padding: 10px 16px;
   border-radius: 18px;
   border: 1px solid rgba(226, 232, 240, 0.96);
-  background: #fff;
+  background: var(--color-bg-container);
   box-shadow:
     0 2px 10px rgba(15, 23, 42, 0.06),
     0 18px 42px rgba(15, 23, 42, 0.12);
@@ -555,7 +555,7 @@
 
 .jx-mySpace-bulkBar-count {
   margin-right: 2px;
-  color: #7b8697;
+  color: var(--color-text-tertiary);
   font-size: 14px;
   white-space: nowrap;
 }
@@ -571,12 +571,12 @@
   height: 34px;
   padding: 0 16px;
   border: 1px solid rgba(203, 213, 225, 0.9);
-  background: #fff;
+  background: var(--color-bg-container);
   border-radius: 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #334155;
+  color: var(--color-text);
   font-size: 14px;
   font-family: var(--font-family);
   cursor: pointer;
@@ -600,12 +600,12 @@
 }
 
 .jx-mySpace-bulkBar-btn--cancel {
-  color: #7b8697;
+  color: var(--color-text-tertiary);
 }
 
 .jx-mySpace-bulkBar-btn--cancel:hover {
-  color: #475569;
-  background: #f8fafc;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-layout);
   border-color: rgba(203, 213, 225, 0.92);
 }
 
@@ -707,17 +707,17 @@
 }
 
 .jx-mySpace-imgOverlay .jx-mySpace-actionBtn {
-  color: #fff;
+  color: var(--color-text-white);
   font-size: 16px;
 }
 
 .jx-mySpace-imgOverlay .jx-mySpace-actionBtn:hover {
-  color: #fff;
+  color: var(--color-text-white);
   background: rgba(255, 255, 255, .2);
 }
 
 .jx-mySpace-imgOverlay .jx-mySpace-actionBtn--danger:hover {
-  color: #fff;
+  color: var(--color-text-white);
   background: rgba(220, 53, 69, .6);
 }
 
@@ -731,7 +731,7 @@
   padding: 18px 20px;
   border-radius: 18px;
   border: 1px solid rgba(226, 232, 240, 0.9);
-  background: #fff;
+  background: var(--color-bg-container);
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 12px 28px rgba(15, 23, 42, 0.04);
@@ -755,20 +755,20 @@
 }
 
 .jx-mySpace-favSource {
-  color: #1f2937;
+  color: var(--color-text);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.6;
 }
 
 .jx-mySpace-favTime {
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .jx-mySpace-favPreview {
-  color: #64748b;
+  color: var(--color-text-tertiary);
   font-size: 14px;
   line-height: 1.75;
   display: -webkit-box;
@@ -790,12 +790,12 @@
   height: 34px;
   padding: 0 14px;
   border-radius: 10px;
-  color: #475569;
-  background: #f8fafc;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-layout);
 }
 
 .jx-mySpace-favActions .jx-mySpace-actionBtn:hover {
-  background: #eef4ff;
+  background: var(--color-primary-light);
   color: var(--color-primary);
 }
 
@@ -810,7 +810,7 @@
 
 .jx-mySpace-kbPickerText {
   margin-bottom: 12px;
-  color: #475569;
+  color: var(--color-text-secondary);
   font-size: 14px;
   line-height: 1.7;
 }
@@ -827,7 +827,7 @@
   min-height: 320px;
   border: 1px dashed rgba(203, 213, 225, 0.9);
   border-radius: 20px;
-  background: #fff;
+  background: var(--color-bg-container);
   text-align: center;
   animation: jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) both;
 }
@@ -844,13 +844,13 @@
 }
 
 .jx-mySpace-emptyText {
-  color: #475569;
+  color: var(--color-text-secondary);
   font-size: 16px;
 }
 
 .jx-mySpace-emptyHint {
   margin-top: 6px;
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
   font-size: 13px;
 }
 
@@ -864,7 +864,7 @@
 
 .jx-mySpace-noMore {
   padding: 20px 0 0;
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
   font-size: 13px;
   text-align: center;
 }
@@ -960,7 +960,7 @@
 }
 
 .jx-mySpace-notifActions-label {
-  color: #64748b;
+  color: var(--color-text-tertiary);
   font-size: 13px;
 }
 
@@ -978,7 +978,7 @@
   margin-bottom: 10px;
   border-radius: 16px;
   border: 1px solid rgba(226, 232, 240, 0.9);
-  background: #fff;
+  background: var(--color-bg-container);
   cursor: pointer;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
@@ -1011,13 +1011,13 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ff5c5c;
+  background: var(--color-error);
 }
 
 /* 未读点涟漪：只给列表前 3 个未读卡片挂 .jx-anim-ripple（motion.css 原语，
    compositor-only，替代原 box-shadow 呼吸动画） */
 .jx-mySpace-notifDot.jx-anim-ripple {
-  --ripple-color: #ff5c5c;
+  --ripple-color: var(--color-error);
   --ripple-dur: 2s;
 }
 
@@ -1034,13 +1034,13 @@
 }
 
 .jx-mySpace-notifCard-name {
-  color: #1f2937;
+  color: var(--color-text);
   font-size: 14px;
   font-weight: 500;
 }
 
 .jx-mySpace-notifCard-summary {
-  color: #64748b;
+  color: var(--color-text-tertiary);
   font-size: 14px;
   line-height: 1.7;
   display: -webkit-box;
@@ -1051,7 +1051,7 @@
 
 .jx-mySpace-notifCard-time {
   margin-top: 8px;
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
   font-size: 12px;
 }
 
@@ -1062,7 +1062,7 @@
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  color: #94a3b8;
+  color: var(--color-text-placeholder);
   opacity: 0;
   cursor: pointer;
   transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease;

@@ -789,4 +789,11 @@ export const SETTINGS_DICT: Record<string, string> = {
   '删除模式「{name}」？': 'Delete mode "{name}"?',
   '保存失败：{msg}': 'Save failed: {msg}',
   '删除失败：{msg}': 'Delete failed: {msg}',
+
+  // ── 外观 / 深色模式 ──
+  '外观': 'Appearance',
+  '切换界面深浅配色，选择跟随系统时自动匹配系统外观': 'Switch between light and dark color schemes; "Follow system" matches your OS appearance automatically',
+  '跟随系统': 'Follow system',
+  '浅色': 'Light',
+  '深色': 'Dark',
 };
