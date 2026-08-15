@@ -23,7 +23,7 @@
 }
 .jx-apidoc-groupItem.active,
 .jx-apidoc-groupItem.active:hover {
-  background: #E6F0FF;
+  background: var(--color-primary-light);
   border-left-color: var(--color-primary);
   color: var(--color-primary);
 }
@@ -31,7 +31,7 @@
 /* 中栏：接口条目 */
 .jx-apidoc-epItem {
   padding: 10px 12px;
-  border-bottom: 1px solid #F0F0F0;
+  border-bottom: 1px solid var(--color-border);
 }
 .jx-apidoc-epItem.active,
 .jx-apidoc-epItem.active:hover {

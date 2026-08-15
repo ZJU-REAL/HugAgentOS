@@ -42,21 +42,21 @@
 }
 /* Monochrome: status is conveyed by icon shape, not colour. */
 .jx-tcr-icon--success {
-  color: rgba(15, 23, 42, 0.42);
+  color: color-mix(in srgb, var(--color-text) 42%, transparent);
 }
 .jx-tcr-icon--running {
-  color: rgba(15, 23, 42, 0.55);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 /* Per-step category glyph (replaces the generic success tick) — quiet,
    thin-stroked, no fill; the kind of step is the signal, not "✓". */
 .jx-tcr-icon--step {
-  color: rgba(15, 23, 42, 0.4);
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
   font-size: 13px;
   stroke-width: 0;
   transition: color 0.15s ease;
 }
 .jx-tcr-header[role="button"]:hover .jx-tcr-icon--step {
-  color: rgba(15, 23, 42, 0.6);
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
 }
 /* Fallback marker for tools with no category icon — a small hollow ring */
 .jx-tcr-dot {
@@ -200,7 +200,7 @@
 }
 .jx-tcr-liveCode .jx-ce-codeBar {
   background: var(--color-fill-hover);
-  border-bottom-color: rgba(71, 84, 103, 0.12);
+  border-bottom-color: color-mix(in srgb, var(--color-text-secondary) 12%, transparent);
 }
 .jx-tcr-liveCode .jx-ce-langDot {
   background: var(--color-fill-heavy) !important;
@@ -290,7 +290,7 @@
   border-radius: 7px;
   font: inherit;
   text-align: left;
-  color: rgba(15, 23, 42, 0.72);
+  color: color-mix(in srgb, var(--color-text) 72%, transparent);
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -298,7 +298,7 @@
   background: rgba(15, 23, 42, 0.035);
 }
 .jx-trs-head:focus-visible {
-  outline: 2px solid rgba(15, 23, 42, 0.18);
+  outline: 2px solid color-mix(in srgb, var(--color-text) 18%, transparent);
   outline-offset: 1px;
 }
 
@@ -341,7 +341,7 @@
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  border: 1.5px solid rgba(15, 23, 42, 0.28);
+  border: 1.5px solid color-mix(in srgb, var(--color-text) 28%, transparent);
   animation: jx-trs-ring 0.55s ease-out forwards;
 }
 @keyframes jx-trs-ring {
@@ -360,21 +360,21 @@
   font-size: 13.5px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  color: rgba(15, 23, 42, 0.78);
+  color: color-mix(in srgb, var(--color-text) 78%, transparent);
 }
 .jx-trs-sep {
-  color: rgba(15, 23, 42, 0.25);
+  color: color-mix(in srgb, var(--color-text) 25%, transparent);
   font-size: 12px;
 }
 .jx-trs-dur {
   font-family: var(--font-family-number);
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
-  color: rgba(15, 23, 42, 0.5);
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
 }
 .jx-trs-steps {
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.38);
+  color: color-mix(in srgb, var(--color-text) 38%, transparent);
 }
 /* Thin chevron, pushed to the right edge */
 .jx-trs-chev {
@@ -382,8 +382,8 @@
   height: 7px;
   margin-left: auto;
   flex-shrink: 0;
-  border-right: 1.5px solid rgba(15, 23, 42, 0.4);
-  border-bottom: 1.5px solid rgba(15, 23, 42, 0.4);
+  border-right: 1.5px solid color-mix(in srgb, var(--color-text) 40%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--color-text) 40%, transparent);
   transform: rotate(-45deg);
   transition: transform 0.2s ease;
 }
@@ -391,7 +391,7 @@
   transform: rotate(45deg);
 }
 .jx-trs-head:hover .jx-trs-chev {
-  border-color: rgba(15, 23, 42, 0.62);
+  border-color: color-mix(in srgb, var(--color-text) 62%, transparent);
 }
 
 /* ── Expanded body: grid-rows collapse animation + thin guide line ── */
@@ -412,7 +412,7 @@
   gap: 1px;
   margin: 3px 0 2px 17px;
   padding-left: 13px;
-  border-left: 1px solid rgba(15, 23, 42, 0.08);
+  border-left: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
 /* Rows nested in the shell stay quiet; the shell owns the structure */
@@ -424,7 +424,7 @@
 }
 .jx-trs-body .jx-tcr-value {
   background: rgba(15, 23, 42, 0.04);
-  color: rgba(15, 23, 42, 0.7);
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -445,18 +445,18 @@
   gap: 6px;
   padding: 5px 10px;
   background: rgba(248, 250, 252, 0.9);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
   border-radius: 7px;
   overflow: hidden;
 }
 .jx-tr-searchQueryIcon {
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.40);
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
   flex-shrink: 0;
 }
 .jx-tr-searchQueryText {
   font-size: 12px;
-  color: rgba(15, 23, 42, 0.72);
+  color: color-mix(in srgb, var(--color-text) 72%, transparent);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -466,7 +466,7 @@
 .jx-tr-searchQueryCount {
   font-size: 11px;
   font-weight: 700;
-  color: rgba(15, 23, 42, 0.38);
+  color: color-mix(in srgb, var(--color-text) 38%, transparent);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -505,8 +505,8 @@
   flex-shrink: 0;
   width: 160px;
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, 0.09);
+  background: var(--color-bg-container);
+  border: 1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
   border-radius: 10px;
   text-decoration: none;
   color: inherit;
@@ -531,7 +531,7 @@
 .jx-tr-searchCardTitle {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(15, 23, 42, 0.88);
+  color: color-mix(in srgb, var(--color-text) 88%, transparent);
   line-height: 1.45;
   flex: 1;
   display: -webkit-box;
@@ -557,7 +557,7 @@
 }
 .jx-tr-searchCardDomain {
   font-size: 10.5px;
-  color: rgba(15, 23, 42, 0.38);
+  color: color-mix(in srgb, var(--color-text) 38%, transparent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -569,8 +569,8 @@
   width:360px;
   min-width:300px;
   flex-shrink:0;
-  border-left:1px solid rgba(15,23,42,.08);
-  background:#fff;
+  border-left:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  background:var(--color-bg-container);
   display:flex;
   flex-direction:column;
   height:100%;
@@ -579,8 +579,8 @@
 }
 .jx-trp-header{
   padding:11px 14px 10px;
-  border-bottom:1px solid rgba(15,23,42,.07);
-  background:#fff;
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
+  background:var(--color-bg-container);
   flex-shrink:0;
 }
 .jx-trp-headerRow{
@@ -600,7 +600,7 @@
 .jx-trp-title{
   font-size:14px;
   font-weight:700;
-  color:rgba(15,23,42,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -608,7 +608,7 @@
 }
 .jx-trp-summary{
   font-size:11px;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   margin-top:3px;
   padding-left:22px;
   white-space:nowrap;
@@ -625,14 +625,14 @@
   display:flex;
   align-items:center;
   justify-content:center;
-  color:rgba(15,23,42,.44);
+  color:color-mix(in srgb, var(--color-text) 44%, transparent);
   transition:background .15s,color .15s;
   flex-shrink:0;
   font-size:13px;
 }
 .jx-trp-close:hover{
   background:rgba(15,23,42,.07);
-  color:rgba(15,23,42,.8);
+  color:color-mix(in srgb, var(--color-text) 80%, transparent);
 }
 .jx-trp-body{
   flex:1;
@@ -659,7 +659,7 @@
   border-color:rgba(18,109,255,.22);
 }
 .jx-panelOpenIcon{
-  color:rgba(15,23,42,.36);
+  color:color-mix(in srgb, var(--color-text) 36%, transparent);
   font-size:12px !important;
   transition:color .15s;
 }
@@ -673,7 +673,7 @@
 
 /* Tool Calls Section */
 .jx-toolCallsSection{
-  background:linear-gradient(180deg, rgba(239,246,255,.92) 0%, rgba(255,255,255,.96) 100%);
+  background:linear-gradient(180deg, rgba(239,246,255,.92) 0%, color-mix(in srgb, var(--color-bg-container) 96%, transparent) 100%);
   border:1px solid rgba(18,109,255,.18);
   border-radius:14px;
   padding:10px;
@@ -701,7 +701,7 @@
   gap:8px;
 }
 .jx-toolCallItem{
-  background:#fff;
+  background:var(--color-bg-container);
   border:1px solid rgba(18,109,255,.14);
   border-radius:12px;
   box-shadow:0 6px 18px rgba(17,24,39,.04);
@@ -729,7 +729,7 @@
   gap:8px;
   font-weight:700;
   font-size:13px;
-  color:rgba(31, 35, 40, 0.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
 }
 .jx-toolCallStatusIcon{
   font-size:14px;
@@ -776,7 +776,7 @@
 }
 .jx-expandIcon{
   font-size:10px;
-  color:rgba(31, 35, 40, 0.55);
+  color:color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
 /* ── 文件下载卡片 ─────────────────────────────── */
@@ -792,8 +792,8 @@
   justify-content:space-between;
   gap:16px;
   padding:12px 14px;
-  background:#fff;
-  border:1px solid rgba(203,213,225,.72);
+  background:var(--color-bg-container);
+  border:1px solid color-mix(in srgb, var(--color-fill) 72%, transparent);
   border-radius:16px;
   box-shadow:0 6px 18px rgba(15,23,42,.05);
   max-width:460px;
@@ -801,7 +801,7 @@
 }
 .jx-dlCard:hover{
   box-shadow:0 10px 24px rgba(15,23,42,.08);
-  border-color:rgba(148,163,184,.9);
+  border-color:color-mix(in srgb, var(--color-text-placeholder) 90%, transparent);
   transform:translateY(-1px);
 }
 .jx-dlCard-left{
@@ -819,9 +819,9 @@
   align-items:center;
   justify-content:center;
   flex-shrink:0;
-  background:linear-gradient(180deg, #fbfdff 0%, #f2f6fc 100%);
-  border:1px solid rgba(203,213,225,.72);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
+  background:linear-gradient(180deg, var(--color-bg-layout) 0%, var(--color-fill-hover) 100%);
+  border:1px solid color-mix(in srgb, var(--color-fill) 72%, transparent);
+  box-shadow:inset 0 1px 0 color-mix(in srgb, var(--color-bg-container) 85%, transparent);
 }
 .jx-dlCard-fileIcon{
   object-fit:contain;
@@ -835,7 +835,7 @@
 .jx-dlCard-name{
   font-weight:600;
   font-size:14px;
-  color:rgba(17,24,39,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -844,7 +844,7 @@
 }
 .jx-dlCard-size{
   font-size:12px;
-  color:#7b8698;
+  color:var(--color-text-tertiary);
 }
 .jx-dlCard-actions{
   display:flex;
@@ -859,18 +859,18 @@
   height:36px;
   padding:0 14px;
   border-radius:10px;
-  border:1px solid rgba(191,219,254,.95);
-  background:#edf4ff;
-  color:#2563eb;
+  border:1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background:var(--color-primary-light);
+  color:var(--color-primary);
   font-size:14px;
   font-weight:500;
   text-decoration:none;
   transition:background .15s ease, border-color .15s ease, color .15s ease;
 }
 .jx-dlCard-btn:hover{
-  background:#e0edff;
-  border-color:#93c5fd;
-  color:#1d4ed8;
+  background:var(--color-primary-bg);
+  border-color:var(--color-primary-disabled);
+  color:var(--color-primary-active);
 }
 
 /* ── 图片卡片（ChatGPT 风格：裸图 + hover 内嵌操作） ─────────── */
@@ -885,7 +885,7 @@
   cursor:zoom-in;
 }
 .jx-imgCard:focus-visible{
-  outline:2px solid rgba(15,23,42,.30);
+  outline:2px solid color-mix(in srgb, var(--color-text) 30%, transparent);
   outline-offset:2px;
 }
 .jx-imgCard-img{
@@ -929,7 +929,7 @@
   backdrop-filter:blur(10px);
   -webkit-backdrop-filter:blur(10px);
   border:1px solid rgba(255,255,255,.18);
-  color:#fff;
+  color:var(--color-text-white);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -941,7 +941,7 @@
 .jx-imgCard-overlayBtn:hover{
   background:rgba(0,0,0,.75);
   transform:scale(1.08);
-  color:#fff;
+  color:var(--color-text-white);
 }
 
 /* ── 图片全屏预览 ── */
@@ -1006,7 +1006,7 @@
   width:min(82vh, 90vw);
   height:auto;
   max-height:none;
-  background:#fff;
+  background:var(--color-bg-container);
   border-radius:8px;
   padding:16px;
   box-sizing:border-box;
@@ -1034,7 +1034,7 @@
   border-radius:8px;
   background:transparent;
   border:none;
-  color:#fff;
+  color:var(--color-text-white);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -1053,7 +1053,7 @@
 .jx-imagePreviewZoomLabel{
   min-width:46px;
   text-align:center;
-  color:#fff;
+  color:var(--color-text-white);
   font-size:12px;
   font-variant-numeric:tabular-nums;
   user-select:none;
@@ -1095,7 +1095,7 @@
   max-height:400px;
   margin:0;
   font-family:'Consolas', 'Monaco', 'Courier New', monospace;
-  color:rgba(31, 35, 40, 0.92);
+  color:color-mix(in srgb, var(--color-text) 92%, transparent);
 }
 .jx-toolCode::-webkit-scrollbar{width:8px; height:8px}
 .jx-toolCode::-webkit-scrollbar-track{background:rgba(248, 250, 252, 1); border-radius:4px}
@@ -1108,7 +1108,7 @@
 /* 摘要行 — 显示在 header 折叠状态下 */
 .jx-toolCallSummary{
   font-size:11px;
-  color:rgba(15,23,42,.42);
+  color:color-mix(in srgb, var(--color-text) 42%, transparent);
   margin-left:6px;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -1121,7 +1121,7 @@
 /* 通用空态 */
 .jx-tr-empty{
   font-size:12px;
-  color:rgba(15,23,42,.40);
+  color:color-mix(in srgb, var(--color-text) 40%, transparent);
   padding:12px 4px;
   text-align:center;
 }
@@ -1133,11 +1133,11 @@
   border-radius:4px;
   margin-bottom:8px;
   background:rgba(248,250,252,1);
-  color:rgba(15,23,42,.72);
+  color:color-mix(in srgb, var(--color-text) 72%, transparent);
 }
-.jx-tr-dbHeader.success{color:rgba(15,23,42,.55);background:rgba(15,23,42,.035);border:1px solid rgba(15,23,42,.07);}
-.jx-tr-dbHeader.error{color:rgba(15,23,42,.72);background:rgba(15,23,42,.05);border:1px solid rgba(15,23,42,.12);}
-.jx-tr-dbText{font-size:12px;line-height:1.65;white-space:pre-wrap;color:rgba(15,23,42,.78);}
+.jx-tr-dbHeader.success{color:color-mix(in srgb, var(--color-text) 55%, transparent);background:rgba(15,23,42,.035);border:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);}
+.jx-tr-dbHeader.error{color:color-mix(in srgb, var(--color-text) 72%, transparent);background:rgba(15,23,42,.05);border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);}
+.jx-tr-dbText{font-size:12px;line-height:1.65;white-space:pre-wrap;color:color-mix(in srgb, var(--color-text) 78%, transparent);}
 .jx-tr-dbText.error{color:#991b1b;}
 
 .jx-tr-tableWrap{overflow-x:auto;border-radius:6px;border:1px solid rgba(18,109,255,.14);}
@@ -1155,7 +1155,7 @@
 .jx-tr-table td{
   padding:5px 10px;
   border-bottom:1px solid rgba(18,109,255,.08);
-  color:rgba(15,23,42,.82);
+  color:color-mix(in srgb, var(--color-text) 82%, transparent);
   max-width:180px;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -1163,7 +1163,7 @@
 }
 .jx-tr-table tr:last-child td{border-bottom:none;}
 .jx-tr-table tr:nth-child(even) td{background:rgba(248,250,252,.6);}
-.jx-tr-moreHint{font-size:11px;color:rgba(15,23,42,.38);padding:6px 10px;text-align:center;border-top:1px solid rgba(18,109,255,.08);}
+.jx-tr-moreHint{font-size:11px;color:color-mix(in srgb, var(--color-text) 38%, transparent);padding:6px 10px;text-align:center;border-top:1px solid rgba(18,109,255,.08);}
 
 /* ── 知识库检索 ─────────────────────── */
 .jx-tr-kbList{display:flex;flex-direction:column;}
@@ -1181,7 +1181,7 @@
 .jx-tr-kbDocName{
   font-size:12.5px;
   font-weight:700;
-  color:rgba(15,23,42,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   display:flex;
   align-items:center;
   gap:6px;
@@ -1195,14 +1195,14 @@
   height:18px;
   border-radius:50%;
   background:var(--color-primary);
-  color:#fff;
+  color:var(--color-text-white);
   font-size:10px;
   font-weight:700;
   flex-shrink:0;
 }
 .jx-tr-kbContent{
   font-size:12px;
-  color:rgba(15,23,42,.60);
+  color:color-mix(in srgb, var(--color-text) 60%, transparent);
   line-height:1.55;
   flex:1;
   min-width:0;
@@ -1266,13 +1266,13 @@
 .jx-tr-searchTitle{
   font-size:12.5px;
   font-weight:700;
-  color:rgba(15,23,42,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   text-decoration:none;
   line-height:1.4;
   flex:1;
   min-width:0;
 }
-.jx-tr-searchSnippet{font-size:12px;color:rgba(15,23,42,.54);line-height:1.5;margin-bottom:5px;}
+.jx-tr-searchSnippet{font-size:12px;color:color-mix(in srgb, var(--color-text) 54%, transparent);line-height:1.5;margin-bottom:5px;}
 .jx-tr-searchFooter{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;}
 .jx-tr-searchDomain{
   font-size:10px;
@@ -1288,7 +1288,7 @@
 .jx-tr-detailBody{
   font-size:13px;
   line-height:1.75;
-  color:rgba(15,23,42,.82);
+  color:color-mix(in srgb, var(--color-text) 82%, transparent);
   white-space:pre-wrap;
   word-break:break-word;
   max-height:60vh;
@@ -1299,8 +1299,8 @@
 .jx-tr-detailScroll{max-height:62vh;overflow-y:auto;padding:2px 0;}
 .jx-tr-detailKV{display:flex;flex-direction:column;gap:5px;}
 .jx-tr-detailKVRow{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;line-height:1.55;}
-.jx-tr-detailKVKey{color:rgba(15,23,42,.45);flex-shrink:0;min-width:110px;white-space:nowrap;}
-.jx-tr-detailKVValue{color:rgba(15,23,42,.82);flex:1;min-width:0;}
+.jx-tr-detailKVKey{color:color-mix(in srgb, var(--color-text) 45%, transparent);flex-shrink:0;min-width:110px;white-space:nowrap;}
+.jx-tr-detailKVValue{color:color-mix(in srgb, var(--color-text) 82%, transparent);flex:1;min-width:0;}
 
 /* ── 技能激活 ───────────────────────── */
 .jx-tr-skillBadge{
@@ -1318,7 +1318,7 @@
 /* 加载技能：能力中心同款的紧凑详情卡 */
 .jx-tr-skillCard{padding:10px 12px;display:flex;flex-direction:column;gap:8px;}
 .jx-tr-skillHead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
-.jx-tr-skillName{font-size:14px;font-weight:600;color:var(--color-text-primary);}
+.jx-tr-skillName{font-size:14px;font-weight:600;color:var(--color-text);}
 .jx-tr-skillVersion{font-size:12px;color:var(--color-text-tertiary);font-weight:400;}
 .jx-tr-skillDesc{margin:0;font-size:12px;color:var(--color-text-secondary);line-height:1.55;}
 .jx-tr-skillTags{display:flex;flex-wrap:wrap;gap:4px;}
@@ -1326,12 +1326,12 @@
 .jx-tr-skillBody{
   font-size:13px;
   line-height:1.65;
-  color:var(--color-text-primary);
+  color:var(--color-text);
   max-height:320px;
   overflow:auto;
   padding:8px 10px;
   background:rgba(15,23,42,.025);
-  border:1px solid rgba(15,23,42,.06);
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   border-radius:6px;
 }
 .jx-tr-skillBody p:first-child{margin-top:0;}
@@ -1352,11 +1352,11 @@
   margin:0;
   padding:8px 10px;
   background:rgba(15,23,42,.025);
-  border:1px solid rgba(15,23,42,.06);
+  border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   border-radius:6px;
   font-size:12px;
   line-height:1.55;
-  color:var(--color-text-primary);
+  color:var(--color-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space:pre-wrap;
   word-break:break-all;
@@ -1382,7 +1382,7 @@
 .jx-tr-capList{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
 .jx-tr-capItem{
   font-size:12px;
-  color:rgba(15,23,42,.76);
+  color:color-mix(in srgb, var(--color-text) 76%, transparent);
   padding:4px 8px;
   background:rgba(248,250,252,.95);
   border:1px solid rgba(18,109,255,.12);
@@ -1405,7 +1405,7 @@
   max-height:280px;
   margin:0;
   font-family:'Consolas','Monaco','Courier New',monospace;
-  color:rgba(31,35,40,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   white-space:pre;
 }
 .jx-tr-jsonBlock::-webkit-scrollbar{width:6px;height:6px;}
@@ -1417,12 +1417,12 @@
 .jx-thinkingSection{
   background:transparent;
   border:none;
-  border-left:2px solid rgba(148,163,184,.34);
+  border-left:2px solid color-mix(in srgb, var(--color-text-placeholder) 34%, transparent);
   border-radius:0;
   padding:4px 0 4px 10px;
 }
 .jx-thinkingSection .jx-sectionHeader{
-  color:rgba(71,85,105,.88);
+  color:color-mix(in srgb, var(--color-text-secondary) 88%, transparent);
 }
 .jx-thinkingList{
   display:flex;
@@ -1446,19 +1446,19 @@
   user-select:none;
 }
 .jx-thinkingHeader:hover{
-  color:rgba(15,23,42,.92);
+  color:color-mix(in srgb, var(--color-text) 92%, transparent);
 }
 .jx-thinkingTitle{
   font-weight:600;
   font-size:13px;
-  color:rgba(71,85,105,.90);
+  color:color-mix(in srgb, var(--color-text-secondary) 90%, transparent);
 }
 .jx-thinkingBody{
   padding:4px 0 0;
   border-top:none;
   font-size:13px;
   line-height:1.7;
-  color:rgba(71,85,105,.90);
+  color:color-mix(in srgb, var(--color-text-secondary) 90%, transparent);
   white-space:pre-wrap;
   margin-top:0;
   font-style:normal;
@@ -1466,7 +1466,7 @@
 
 /* ── 新版思考块（DeepSeek 风格，内联展示） ── */
 .jx-thinkingBlock{
-  border-left:2px solid rgba(148,163,184,.34);
+  border-left:2px solid color-mix(in srgb, var(--color-text-placeholder) 34%, transparent);
   background:transparent;
   border-radius:0;
   overflow:visible;
@@ -1484,10 +1484,10 @@
   transition:color .18s ease;
 }
 .jx-thinkingBlockHeader:hover{
-  color:rgba(15,23,42,.90);
+  color:color-mix(in srgb, var(--color-text) 90%, transparent);
 }
 .jx-thinkingBlockHeader:focus-visible{
-  outline:2px solid rgba(15,23,42,.20);
+  outline:2px solid color-mix(in srgb, var(--color-text) 20%, transparent);
   outline-offset:2px;
   border-radius:6px;
 }
@@ -1498,15 +1498,15 @@
 }
 .jx-thinkingIcon{
   font-size:13px;
-  color:rgba(100,116,139,.88);
+  color:color-mix(in srgb, var(--color-text-tertiary) 88%, transparent);
 }
 .jx-thinkingLabel{
   font-size:13px;
   font-weight:500;
-  color:rgba(71,85,105,.90);
+  color:color-mix(in srgb, var(--color-text-secondary) 90%, transparent);
 }
 .jx-thinkingBlockHeader .jx-expandIcon{
-  color:rgba(100,116,139,.72);
+  color:color-mix(in srgb, var(--color-text-tertiary) 72%, transparent);
   font-size:10px;
 }
 /* ── Thinking body expand (uses .jx-expandWrap from variables.css) ── */
@@ -1515,7 +1515,7 @@
   padding:5px 0 0;
   font-size:13px;
   line-height:1.72;
-  color:rgba(71,85,105,.92);
+  color:color-mix(in srgb, var(--color-text-secondary) 92%, transparent);
   font-style:normal;
   white-space:pre-wrap;
   word-break:break-word;
@@ -1532,7 +1532,7 @@
 .jx-thinkingSpinner{
   width:12px;
   height:12px;
-  border:2px solid rgba(148,163,184,.50);
+  border:2px solid color-mix(in srgb, var(--color-text-placeholder) 50%, transparent);
   border-top-color:rgba(71,85,105,.86);
   border-radius:50%;
   animation:jxThinkSpin .8s linear infinite;
@@ -1581,11 +1581,11 @@
   border:none;
 }
 .jx-inlineSummary:hover .jx-inlineSummaryText{
-  color:rgba(51,65,85,.72);
+  color:color-mix(in srgb, var(--color-text-secondary) 72%, transparent);
 }
 .jx-inlineSummaryText{
   font-size:12.5px;
-  color:rgba(148,163,184,.85);
+  color:color-mix(in srgb, var(--color-text-placeholder) 85%, transparent);
   font-weight:400;
   white-space:nowrap;
   overflow:hidden;
@@ -1595,12 +1595,12 @@
 }
 .jx-inlineSummaryArrow{
   font-size:9px;
-  color:rgba(148,163,184,.60);
+  color:color-mix(in srgb, var(--color-text-placeholder) 60%, transparent);
   flex-shrink:0;
   transition:color .15s;
 }
 .jx-inlineSummary:hover .jx-inlineSummaryArrow{
-  color:rgba(100,116,139,.75);
+  color:color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
 }
 
 /* ── Tool timeline (Canvas panel body) ─── */
@@ -1640,7 +1640,7 @@
   left:-15px;top:12px;
   width:8px;height:8px;
   border-radius:50%;
-  border:2px solid #fff;
+  border:2px solid var(--color-bg-container);
   box-shadow:0 0 0 1px rgba(148,163,184,.30);
 }
 .jx-toolTimelineDot--running{
@@ -1661,19 +1661,19 @@
 .jx-toolTimelineName{
   font-size:12.5px;
   font-weight:600;
-  color:rgba(15,23,42,.88);
+  color:color-mix(in srgb, var(--color-text) 88%, transparent);
   margin-bottom:2px;
 }
 .jx-toolTimelineSummary{
   font-size:11px;
-  color:rgba(100,116,139,.75);
+  color:color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
 }
 .jx-toolTimelineChevron{
   font-size:10px;
-  color:rgba(100,116,139,.45);
+  color:color-mix(in srgb, var(--color-text-tertiary) 45%, transparent);
   flex-shrink:0;
   margin-top:3px;
   transition:transform .2s ease;
@@ -1689,7 +1689,7 @@
 .jx-thinkingDetailBody{
   font-size:13px;
   line-height:1.72;
-  color:rgba(71,85,105,.92);
+  color:color-mix(in srgb, var(--color-text-secondary) 92%, transparent);
   white-space:pre-wrap;
   word-break:break-word;
 }
@@ -1701,7 +1701,7 @@
 .jx-tr-fallbackText{
   font-size:13px;
   line-height:1.6;
-  color:rgba(71,85,105,.85);
+  color:color-mix(in srgb, var(--color-text-secondary) 85%, transparent);
   white-space:pre-wrap;
   word-break:break-word;
   padding:6px 0;
@@ -1716,7 +1716,7 @@
 
 /* ── Card Container ── */
 .jx-ce-card{
-  background:#fff;
+  background:var(--color-bg-container);
   border:1px solid rgba(18,109,255,.14);
   border-radius:12px;
   box-shadow:0 2px 8px rgba(17,24,39,.03);
@@ -1818,7 +1818,7 @@
 .jx-ce-card,
 .jx-cap{
   --ce-mono:'Menlo','Consolas','Monaco','Liberation Mono','Courier New',monospace;
-  --ce-code-bg:#f6f8fa;
+  --ce-code-bg:var(--color-bg-layout);
   --ce-code-border:rgba(18,109,255,.10);
   --ce-line-num:#b0b8c4;
   --ce-line-border:rgba(18,109,255,.06);
@@ -1997,7 +1997,7 @@
   border-radius:var(--radius-sm);
   overflow:hidden;
   border:1px solid var(--color-border);
-  background:#fff;
+  background:var(--color-bg-container);
 }
 .jx-ce-outputBar{
   display:flex;
@@ -2064,7 +2064,7 @@
   border-radius:var(--radius-sm);
   overflow:hidden;
   border:1px solid var(--color-border);
-  background:#fff;
+  background:var(--color-bg-container);
   transition:box-shadow .15s,border-color .15s;
 }
 .jx-ce-imageCard:hover{
@@ -2359,12 +2359,12 @@
 .jx-confirmBar-btn:disabled{ opacity:.55; cursor:not-allowed; }
 .jx-confirmBar-btnIcon{ font-size:11px; }
 .jx-confirmBar-btn--primary{
-  color:#fff; background:var(--color-primary); border-color:var(--color-primary);
+  color:var(--color-text-white); background:var(--color-primary); border-color:var(--color-primary);
 }
 .jx-confirmBar-btn--primary:not(:disabled):hover{ background:var(--color-primary-hover); border-color:var(--color-primary-hover); }
 .jx-confirmBar-btn--primary:not(:disabled):active{ background:var(--color-primary-active); }
 .jx-confirmBar-btn--soft{
-  color:var(--color-primary); background:#fff; border-color:var(--color-primary-bg);
+  color:var(--color-primary); background:var(--color-bg-container); border-color:var(--color-primary-bg);
 }
 .jx-confirmBar-btn--soft:not(:disabled):hover{ background:var(--color-primary-light); border-color:var(--color-primary); }
 .jx-confirmBar-btn--ghost{
@@ -2422,7 +2422,7 @@
   border:1px solid var(--color-border);
   border-radius:var(--radius-sm);
   overflow:hidden;
-  background:#fff;
+  background:var(--color-bg-container);
   transition:border-color .15s, box-shadow .15s;
 }
 .jx-designPicker-option--selected .jx-designPicker-thumbWrap{
@@ -2436,14 +2436,14 @@
 .jx-designPicker-check{
   position:absolute; top:6px; right:6px;
   color:var(--color-primary); font-size:18px;
-  background:#fff; border-radius:50%; line-height:1;
+  background:var(--color-bg-container); border-radius:50%; line-height:1;
 }
 .jx-designPicker-pickBtn{
   font-size:13px; font-weight:500;
   padding:6px 10px;
   border-radius:var(--radius-sm);
   border:1px solid var(--color-primary-bg);
-  color:var(--color-primary); background:#fff;
+  color:var(--color-primary); background:var(--color-bg-container);
   cursor:pointer;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   transition:background .15s, border-color .15s;

@@ -20,7 +20,7 @@
 .jx-automation-sectionTitle {
   font-size: 13px;
   font-weight: 500;
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary, var(--color-text-secondary));
   margin-bottom: 8px;
   padding-left: 4px;
 }
@@ -33,8 +33,8 @@
   gap: 12px;
   padding: 14px 16px;
   border-radius: 10px;
-  background: var(--color-bg-card, #fff);
-  border: 1px solid var(--color-border-light, #f0f0f0);
+  background: var(--color-bg-container);
+  border: 1px solid var(--color-border);
   margin-bottom: 8px;
   cursor: pointer;
   transition: box-shadow 0.2s, border-color 0.2s;
@@ -60,7 +60,7 @@
 .jx-automation-card-name {
   font-size: 14px;
   font-weight: 500;
-  color: var(--color-text-primary, #1a1a1a);
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -72,19 +72,19 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--color-text-tertiary, #999);
+  color: var(--color-text-tertiary, var(--color-text-placeholder));
   flex-wrap: wrap;
 }
 
 .jx-automation-card-sep {
   width: 1px;
   height: 12px;
-  background: var(--color-border-light, #e5e5e5);
+  background: var(--color-border);
   flex-shrink: 0;
 }
 
 .jx-automation-card-type {
-  background: var(--color-fill-light, #f5f5f5);
+  background: var(--color-fill-light, var(--color-bg-gray));
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 11px;
@@ -106,8 +106,8 @@
 
 .jx-automation-cronPreview {
   font-size: 12px;
-  color: var(--color-text-secondary, #666);
-  background: var(--color-fill-light, #f5f5f5);
+  color: var(--color-text-secondary, var(--color-text-secondary));
+  background: var(--color-fill-light, var(--color-bg-gray));
   padding: 6px 12px;
   border-radius: 6px;
   margin-top: 4px;
@@ -138,11 +138,11 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  color: #B3B3B3;
+  color: var(--color-text-placeholder);
   font-size: 14px;
   transition: color .12s;
 }
-.jx-automation-detail-backBtn:hover { color: #1a1a1a; }
+.jx-automation-detail-backBtn:hover { color: var(--color-text); }
 
 .jx-automation-detail-content {
   flex: 1;
@@ -162,13 +162,13 @@
   padding: 10px 14px;
   margin-bottom: 16px;
   border-radius: 10px;
-  background: rgba(235, 242, 255, 0.96);
-  border: 1px solid #D7E3F4;
+  background: color-mix(in srgb, var(--color-primary-light) 96%, transparent);
+  border: 1px solid var(--color-border);
   backdrop-filter: blur(8px);
 }
 .jx-automation-detail-editBar-text {
   font-size: 13px;
-  color: #3F536E;
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 .jx-automation-detail-editBar-actions {
@@ -187,13 +187,13 @@
   width: 44px;
   height: 44px;
   border-radius: 8px;
-  border: 1px solid #E3E6EA;
+  border: 1px solid var(--color-border);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: #FFFFFF;
+  background: var(--color-bg-container);
 }
 .jx-automation-detail-iconWrap img {
   width: 28px;
@@ -203,7 +203,7 @@
 .jx-automation-detail-name {
   font-size: 20px;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--color-text);
   max-width: 480px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -215,24 +215,24 @@
   padding: 1px 6px;
   border-radius: 4px;
   flex-shrink: 0;
-  color: #808080;
-  background: #F5F6F7;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-gray);
   line-height: 1.5;
   transition: color .25s var(--motion-ease-standard), background-color .25s var(--motion-ease-standard);
 }
 .jx-automation-detail-badge.is-active {
-  color: #02B589;
-  background: #E0F7EF;
+  color: var(--color-success);
+  background: var(--color-success-bg);
 }
 .jx-automation-detail-badge.is-paused {
-  color: #F8AB42;
-  background: #FFF3E0;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
 }
 .jx-automation-detail-badge.is-disabled,
 .jx-automation-detail-badge.is-completed,
 .jx-automation-detail-badge.is-expired {
-  color: #808080;
-  background: #F5F6F7;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-gray);
 }
 
 .jx-automation-detail-runSwitch {
@@ -244,7 +244,7 @@
 }
 .jx-automation-detail-runSwitch-label {
   font-size: 13px;
-  color: #4D4D4D;
+  color: var(--color-text-secondary);
 }
 
 /* ── Meta row ────────────────────────────────────────── */
@@ -255,11 +255,11 @@
   margin-top: 10px;
   margin-bottom: 18px;
   font-size: 12px;
-  color: #808080;
+  color: var(--color-text-tertiary);
   flex-wrap: wrap;
 }
 .jx-automation-detail-metaRow-sep {
-  color: #D8DBE2;
+  color: var(--color-fill);
 }
 
 /* ── Error alert ────────────────────────────────────────── */
@@ -270,7 +270,7 @@
 /* ── Divider ────────────────────────────────────────── */
 .jx-automation-detail-divider {
   border: none;
-  border-top: 1px solid #E3E6EA;
+  border-top: 1px solid var(--color-border);
   margin: 0 0 20px;
 }
 
@@ -283,9 +283,9 @@
 }
 
 .jx-automation-detail-section {
-  border: 1px solid #E5EAF0;
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: #FFFFFF;
+  background: var(--color-bg-container);
   padding: 18px 20px 20px;
 }
 
@@ -301,7 +301,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: #1F2937;
+  color: var(--color-text);
 }
 
 .jx-automation-detail-grid {
@@ -314,8 +314,8 @@
   min-width: 0;
   padding: 14px 16px;
   border-radius: 10px;
-  background: #FAFBFC;
-  border: 1px solid #ECEFF3;
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
 }
 
 .jx-automation-detail-field.is-multiline {
@@ -327,19 +327,19 @@
   font-size: 12px;
   font-weight: 600;
   letter-spacing: .2px;
-  color: #7B8794;
+  color: var(--color-text-tertiary);
 }
 
 .jx-automation-detail-fieldValue {
   font-size: 14px;
   line-height: 1.75;
-  color: #374151;
+  color: var(--color-text);
   word-break: break-word;
   white-space: pre-wrap;
 }
 
 .jx-automation-detail-fieldValue.is-muted {
-  color: #9CA3AF;
+  color: var(--color-text-placeholder);
 }
 
 /* ── Run list ────────────────────────────────────────── */
@@ -355,10 +355,10 @@
   padding: 10px 4px;
   border-bottom: 1px solid #F1F3F6;
   font-size: 13px;
-  color: #374151;
+  color: var(--color-text);
 }
 .jx-automation-detail-runRow:last-child { border-bottom: none; }
-.jx-automation-detail-runRow:hover { background: #F7F9FC; }
+.jx-automation-detail-runRow:hover { background: var(--color-bg-layout); }
 
 .jx-automation-runDot {
   width: 8px;
@@ -369,22 +369,22 @@
 /* 运行中扩散涟漪：组件层挂 .jx-anim-ripple（motion.css 原语，compositor-only），
    这里只调色与扩散倍数（8px 圆点 ×2.5 ≈ 原 6px box-shadow 扩散幅度） */
 .jx-automation-runDot.is-running {
-  background: #126DFF;
+  background: var(--color-primary);
   --ripple-color: var(--color-primary);
   --ripple-scale: 2.5;
 }
-.jx-automation-runDot.is-success { background: #02B589; }
-.jx-automation-runDot.is-failed  { background: #FC5D5D; }
+.jx-automation-runDot.is-success { background: var(--color-success); }
+.jx-automation-runDot.is-failed  { background: var(--color-error); }
 
 .jx-automation-detail-runRow-time {
   flex-shrink: 0;
-  color: #4D4D4D;
+  color: var(--color-text-secondary);
   width: 150px;
 }
 
 .jx-automation-detail-runRow-duration {
   flex-shrink: 0;
-  color: #808080;
+  color: var(--color-text-tertiary);
   width: 60px;
 }
 
@@ -394,12 +394,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #4D4D4D;
+  color: var(--color-text-secondary);
 }
 
 .jx-automation-detail-runRow-error {
   flex-basis: 100%;
-  color: #FC5D5D;
+  color: var(--color-error);
   font-size: 12px;
   padding-left: 20px;
   line-height: 1.6;
@@ -408,7 +408,7 @@
 
 .jx-automation-detail-runEmpty {
   font-size: 13px;
-  color: #9CA3AF;
+  color: var(--color-text-placeholder);
   padding: 20px 4px;
   text-align: center;
 }
@@ -432,7 +432,7 @@
   padding: 12px;
   border: 1px solid rgba(229, 234, 240, 0.96);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
   backdrop-filter: blur(12px);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   pointer-events: auto;
@@ -456,8 +456,8 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px;
-  background: #FAFBFC;
-  border: 1px solid #ECEFF3;
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
 }
 
@@ -469,16 +469,16 @@
 
 .jx-schedule-selector-label {
   font-size: 13px;
-  color: #4D4D4D;
+  color: var(--color-text-secondary);
   min-width: 64px;
   flex-shrink: 0;
 }
 
 .jx-schedule-selector-preview {
   font-size: 12px;
-  color: #3F536E;
-  background: #F3F7FC;
-  border: 1px solid #D7E3F4;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
   padding: 6px 10px;
   border-radius: 6px;
 }
@@ -499,13 +499,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-text, #262626);
+  color: var(--color-text, var(--color-text));
 }
 
 .jx-automation-planOption-steps {
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--color-text-tertiary, #808080);
+  color: var(--color-text-tertiary, var(--color-text-tertiary));
   font-variant-numeric: tabular-nums;
 }
 
@@ -520,10 +520,10 @@
     rgba(18, 109, 255, 0.045) 0%,
     rgba(18, 109, 255, 0.00) 72%
   );
-  border: 1px solid var(--color-border, #E3E6EA);
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 1px 0 color-mix(in srgb, var(--color-bg-container) 90%, transparent),
     0 1px 2px rgba(15, 23, 42, 0.04);
   --fadeInUp-distance: 6px;
   animation: jx-kf-fadeInUp 280ms var(--motion-ease-brand-out) backwards;
@@ -536,7 +536,7 @@
   gap: 10px;
   padding: 32px 16px;
   font-size: 13px;
-  color: var(--color-text-tertiary, #808080);
+  color: var(--color-text-tertiary, var(--color-text-tertiary));
 }
 
 .jx-automation-planFrame-label {
@@ -544,13 +544,13 @@
   top: -9px;
   left: 18px;
   padding: 2px 10px;
-  background: #fff;
-  color: var(--color-primary, #126DFF);
+  background: var(--color-bg-container);
+  color: var(--color-primary, var(--color-primary));
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  border: 1px solid var(--color-primary-light, #EBF2FF);
+  border: 1px solid var(--color-primary-light, var(--color-primary-light));
   border-radius: 999px;
   line-height: 1.6;
 }
@@ -580,7 +580,7 @@
   width: 4px;
 }
 .jx-automation-planFrame-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-fill, #D8DBE2);
+  background: var(--color-fill, var(--color-fill));
   border-radius: 2px;
 }
 .jx-automation-planFrame-scroll::-webkit-scrollbar-thumb:hover {
@@ -592,8 +592,8 @@
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
-  color: var(--color-primary, #126DFF);
-  background: var(--color-primary-light, #EBF2FF);
+  color: var(--color-primary, var(--color-primary));
+  background: var(--color-primary-light, var(--color-primary-light));
   padding: 6px 12px;
   border-radius: 999px;
   line-height: 1.6;
@@ -617,7 +617,7 @@
 /* ── Automation Skeleton ─────────────────────────────────── */
 .jx-automation-card--skeleton {
   pointer-events: none;
-  border-color: var(--color-border-light, #f0f0f0) !important;
+  border-color: var(--color-border) !important;
   box-shadow: none !important;
 }
 .jx-automation-skSectionTitle {
@@ -731,7 +731,7 @@
   height: 28px;
   border-radius: 50%;
   border: 1px solid var(--color-border);
-  background: #fff;
+  background: var(--color-bg-container);
   color: var(--color-text-tertiary);
   font-size: 12px;
   display: inline-flex;
@@ -775,7 +775,7 @@
   padding: 18px 20px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  background: #fff;
+  background: var(--color-bg-container);
   cursor: pointer;
   /* 位移/时长交给 motion.css 的 .jx-card-lift 原语（含 reduced-motion 降级），这里只管配色 */
 }
@@ -896,7 +896,7 @@
   padding: 14px 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
-  background: #fff;
+  background: var(--color-bg-container);
   margin-bottom: 8px;
   cursor: pointer;
 }

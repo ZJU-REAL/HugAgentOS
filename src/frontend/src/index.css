@@ -14,6 +14,7 @@ body {
   min-height: 100vh;
 }
 
+/* 错误边界页可能在主样式加载失败时渲染，颜色用 var(fallback) 双保险 */
 .jx-appError {
   min-height: 100vh;
   display: grid;
@@ -22,22 +23,22 @@ body {
   padding: 32px;
   background:
     radial-gradient(circle at 15% 12%, rgba(69, 112, 255, 0.12), transparent 32%),
-    #f6f8fc;
-  color: #182033;
+    var(--color-bg-layout, #f6f8fc);
+  color: var(--color-text, #182033);
 }
 
 .jx-appError-card {
   width: min(460px, 100%);
   box-sizing: border-box;
   padding: 36px;
-  border: 1px solid rgba(24, 32, 51, 0.08);
+  border: 1px solid var(--color-border, rgba(24, 32, 51, 0.08));
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 18px 60px rgba(31, 47, 82, 0.12);
+  background: var(--color-bg-container, rgba(255, 255, 255, 0.96));
+  box-shadow: var(--shadow-card, 0 18px 60px rgba(31, 47, 82, 0.12));
 }
 
 .jx-appError-code {
-  color: #5570c9;
+  color: var(--color-primary, #5570c9);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -51,7 +52,7 @@ body {
 
 .jx-appError-card p {
   margin: 0;
-  color: #5d6577;
+  color: var(--color-text-secondary, #5d6577);
   line-height: 1.7;
 }
 
@@ -60,13 +61,13 @@ body {
   padding: 10px 20px;
   border: 0;
   border-radius: 10px;
-  background: #3157d5;
-  color: #fff;
+  background: var(--color-primary, #3157d5);
+  color: var(--color-text-white, #fff);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 
 .jx-appError-card button:hover {
-  background: #2748b7;
+  background: var(--color-primary-hover, #2748b7);
 }

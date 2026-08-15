@@ -7,8 +7,8 @@
 
 /* 校验失败：红色系一次性高亮（卡片背景为白，结束色回到白） */
 @keyframes admin-flash-error {
-  0%   { background-color: #FFF1F0; }
-  100% { background-color: #fff; }
+  0%   { background-color: var(--color-error-light); }
+  100% { background-color: var(--color-bg-container); }
 }
 
 /* 计数徽标 0→n 的一次性脉冲 */
@@ -27,7 +27,7 @@
 
 /* 上移/下移落点闪烁，600ms 后由组件清除类 */
 .row-just-moved > td {
-  --flash-color: #E6F0FF;
+  --flash-color: var(--color-primary-light);
   animation: jx-kf-flash 0.6s ease-out;
 }
 
@@ -42,7 +42,7 @@
 
 /* 非表格容器（抽屉里的片段卡等）的同语义落点闪烁 */
 .admin-flash-once {
-  --flash-color: #E6F0FF;
+  --flash-color: var(--color-primary-light);
   animation: jx-kf-flash 0.6s ease-out;
 }
 
@@ -97,9 +97,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-container);
   transition:
     border-color 0.15s var(--motion-ease-standard),
     transform 0.12s var(--motion-ease-standard);
@@ -110,8 +110,8 @@
 }
 .admin-icon-cell--active,
 .admin-icon-cell--active:hover {
-  border-color: #126DFF;
-  box-shadow: inset 0 0 0 1px #126DFF;
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
 /* ── 长任务日志：run 进行中底部呼吸光标 ─────────────────────── */
@@ -122,7 +122,7 @@
   height: 14px;
   margin-left: 2px;
   vertical-align: -2px;
-  background: #dcdcdc;
+  background: var(--color-fill);
   animation: admin-caret 1s ease-in-out infinite;
 }
 
@@ -155,4 +155,10 @@
 .jx-modal-scrollhide::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+/* ── 深色模式覆盖 ── */
+/* IconPicker 图标格 hover 边（基础值 #bfbfbf 非令牌）在暗底上过亮，换语义色 */
+:root[data-theme='dark'] .admin-icon-cell:hover {
+  border-color: var(--color-fill-deep);
 }

@@ -22,9 +22,9 @@
     gap:10px;
     min-height:64px;
     padding:10px 12px;
-    border:1px solid rgba(255,255,255,.88);
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 88%, transparent);
     border-radius:18px;
-    background:rgba(255,255,255,.84);
+    background:color-mix(in srgb, var(--color-bg-container) 84%, transparent);
     box-shadow:0 10px 28px rgba(42,61,94,.08),inset 0 0 0 .5px rgba(15,23,42,.035);
     backdrop-filter:saturate(180%) blur(22px);
     -webkit-backdrop-filter:saturate(180%) blur(22px);
@@ -34,10 +34,10 @@
     width:36px;
     height:36px;
     padding:0;
-    border:1px solid rgba(15,23,42,.06);
+    border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
     border-radius:50%;
-    background:rgba(255,255,255,.82);
-    color:#475467;
+    background:color-mix(in srgb, var(--color-bg-container) 82%, transparent);
+    color:var(--color-text-secondary);
     justify-content:center;
     box-shadow:0 4px 12px rgba(42,61,94,.055);
   }
@@ -101,9 +101,9 @@
   .jx-abilityCenter .jx-sk-metaCard{
     margin-bottom:14px;
     padding:18px 16px;
-    border:1px solid rgba(15,23,42,.055);
+    border:1px solid color-mix(in srgb, var(--color-text) 5.5%, transparent);
     border-radius:18px;
-    background:rgba(255,255,255,.88);
+    background:color-mix(in srgb, var(--color-bg-container) 88%, transparent);
     box-shadow:0 8px 24px rgba(42,61,94,.055);
   }
 
@@ -165,9 +165,9 @@
   .jx-projects-actions .ant-select-selector{
     min-height:42px !important;
     padding:5px 12px !important;
-    border-color:rgba(15,23,42,.08) !important;
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent) !important;
     border-radius:14px !important;
-    background:rgba(255,255,255,.82) !important;
+    background:color-mix(in srgb, var(--color-bg-container) 82%, transparent) !important;
     box-shadow:0 4px 14px rgba(42,61,94,.045) !important;
   }
 
@@ -183,9 +183,9 @@
   .jx-projects-searchInput.ant-input-affix-wrapper{
     width:100%;
     min-height:44px;
-    border-color:rgba(15,23,42,.08);
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
     border-radius:14px;
-    background:rgba(255,255,255,.84);
+    background:color-mix(in srgb, var(--color-bg-container) 84%, transparent);
     box-shadow:0 5px 16px rgba(42,61,94,.045);
   }
 
@@ -196,7 +196,7 @@
   .jx-projects-sectionTitle{
     margin-top:4px;
     padding:0 4px;
-    color:#667085;
+    color:var(--color-text-tertiary);
     font-size:13px;
     font-weight:600;
   }
@@ -204,7 +204,7 @@
   .jx-projects-grid{
     display:block;
     overflow:hidden;
-    border:1px solid rgba(15,23,42,.065);
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius:20px;
     background:var(--jx-mobile-surface);
     box-shadow:var(--jx-mobile-shadow);
@@ -330,7 +330,7 @@
     width:40px;
     height:40px;
     border-radius:50%;
-    background:rgba(255,255,255,.72);
+    background:color-mix(in srgb, var(--color-bg-container) 72%, transparent);
   }
 
   .jx-projectDetail-titleRow > .ant-tag{
@@ -359,9 +359,9 @@
 
   .jx-projectDetail-inputWrap .jx-composerWrap{
     overflow:visible;
-    border-color:rgba(15,23,42,.08);
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
     border-radius:20px;
-    background:rgba(255,255,255,.9);
+    background:color-mix(in srgb, var(--color-bg-container) 90%, transparent);
     box-shadow:0 10px 30px rgba(42,61,94,.075);
   }
 
@@ -409,7 +409,7 @@
     gap:0;
     margin-top:4px;
     overflow:hidden;
-    border:1px solid rgba(15,23,42,.065);
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius:18px;
     background:var(--jx-mobile-surface);
     box-shadow:0 8px 24px rgba(42,61,94,.05);
@@ -422,7 +422,7 @@
     gap:10px;
     padding:14px 16px 11px;
     border-bottom:1px solid var(--jx-mobile-line);
-    color:#667085;
+    color:var(--color-text-tertiary);
   }
 
   .jx-projectDetail-chatListTitle .ant-radio-group{
@@ -475,7 +475,7 @@
   .jx-projectRail-card{
     padding:16px;
     gap:10px;
-    border-color:rgba(15,23,42,.065);
+    border-color:color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius:18px;
     background:var(--jx-mobile-surface);
     box-shadow:0 8px 24px rgba(42,61,94,.05);
@@ -572,7 +572,7 @@
     max-width:min(280px, 84vw) !important;
     height:100dvh !important;
     flex:0 0 min(280px, 84vw) !important;
-    border-right:1px solid rgba(15,23,42,.08);
+    border-right:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
     border-bottom:none;
     box-shadow:18px 0 44px rgba(15,23,42,.16);
     transform:translateX(0);
@@ -623,7 +623,7 @@
     height:58px;
     align-items:center;
     padding:0 18px;
-    background:#fff;
+    background:var(--color-bg-container);
     box-sizing:border-box;
   }
 
@@ -637,13 +637,13 @@
     border:0;
     border-radius:8px;
     background:transparent;
-    color:#111827;
+    color:var(--color-text);
     font-size:24px;
     cursor:pointer;
   }
 
   .jx-mobileMenuBtn:active{
-    background:#f2f4f7;
+    background:var(--color-fill-hover);
   }
 
   .jx-mobileMenuBtn:focus-visible{
@@ -760,7 +760,7 @@
 
   .jx-mobileQuickTasksLabel{
     margin:0 0 12px 1px;
-    color:#4b5563;
+    color:var(--color-text-secondary);
     font-size:14px;
     font-weight:400;
     line-height:20px;
@@ -783,7 +783,7 @@
     padding:0 8px;
     border:1px solid #d7deea;
     border-radius:7px;
-    background:#fff;
+    background:var(--color-bg-container);
     color:#141923;
     font-size:13px;
     font-weight:400;
@@ -796,7 +796,7 @@
   .jx-mobileQuickTask:hover,
   .jx-mobileQuickTask:focus-visible{
     border-color:#8db9ff;
-    background:#f8fbff;
+    background:var(--color-bg-layout);
   }
 
   .jx-mobileQuickTask:active{
@@ -1024,12 +1024,12 @@
  * restrained translucent material; content stays opaque and high-contrast. */
 @media (max-width: 960px){
   :root{
-    --jx-mobile-canvas:#F5F7FB;
-    --jx-mobile-surface:rgba(255,255,255,.94);
-    --jx-mobile-material:rgba(255,255,255,.76);
-    --jx-mobile-line:rgba(15,23,42,.075);
-    --jx-mobile-label:#101828;
-    --jx-mobile-secondary:#667085;
+    --jx-mobile-canvas:var(--color-bg-layout);
+    --jx-mobile-surface:color-mix(in srgb, var(--color-bg-container) 94%, transparent);
+    --jx-mobile-material:color-mix(in srgb, var(--color-bg-container) 76%, transparent);
+    --jx-mobile-line:color-mix(in srgb, var(--color-text) 7.5%, transparent);
+    --jx-mobile-label:var(--color-text);
+    --jx-mobile-secondary:var(--color-text-tertiary);
     --jx-mobile-radius:22px;
     --jx-mobile-control-radius:18px;
     --jx-mobile-shadow:0 12px 34px rgba(42,61,94,.075),0 1px 2px rgba(15,23,42,.035);
@@ -1079,10 +1079,10 @@
     width:42px;
     height:42px;
     flex:0 0 42px;
-    border:1px solid rgba(255,255,255,.86);
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 86%, transparent);
     border-radius:50%;
     background:var(--jx-mobile-material);
-    color:#101828;
+    color:var(--color-text);
     font-size:21px;
     box-shadow:0 7px 20px rgba(42,61,94,.07),inset 0 0 0 .5px rgba(15,23,42,.045);
     backdrop-filter:saturate(180%) blur(18px);
@@ -1091,7 +1091,7 @@
   }
 
   .jx-mobileMenuBtn:active{
-    background:rgba(255,255,255,.94);
+    background:color-mix(in srgb, var(--color-bg-container) 94%, transparent);
     transform:scale(.96);
   }
 
@@ -1099,7 +1099,7 @@
     min-height:64px;
     padding:10px 16px;
     background:rgba(245,247,251,.84);
-    border-bottom:1px solid rgba(15,23,42,.05);
+    border-bottom:1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
     backdrop-filter:saturate(180%) blur(22px);
     -webkit-backdrop-filter:saturate(180%) blur(22px);
   }
@@ -1113,9 +1113,9 @@
 
   .ant-dropdown .ant-dropdown-menu,
   .ant-popover .ant-popover-inner{
-    border:1px solid rgba(255,255,255,.82);
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 82%, transparent);
     border-radius:16px;
-    background:rgba(255,255,255,.9);
+    background:color-mix(in srgb, var(--color-bg-container) 90%, transparent);
     box-shadow:var(--shadow-dropdown);
     backdrop-filter:saturate(180%) blur(24px);
     -webkit-backdrop-filter:saturate(180%) blur(24px);
@@ -1163,8 +1163,8 @@
   }
 
   .ant-btn-primary{
-    border-color:#126DFF;
-    background:#126DFF;
+    border-color:var(--color-primary);
+    background:var(--color-primary);
   }
 
   .ant-input,
@@ -1172,8 +1172,8 @@
   .ant-select-selector,
   .ant-input-number,
   textarea.ant-input{
-    border-color:rgba(15,23,42,.105);
-    background:rgba(255,255,255,.88);
+    border-color:color-mix(in srgb, var(--color-text) 10.5%, transparent);
+    background:color-mix(in srgb, var(--color-bg-container) 88%, transparent);
     box-shadow:none !important;
   }
 
@@ -1186,9 +1186,9 @@
 
   .ant-modal-content,
   .ant-drawer-content{
-    border:1px solid rgba(255,255,255,.78);
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 78%, transparent);
     border-radius:22px;
-    background:rgba(255,255,255,.94);
+    background:color-mix(in srgb, var(--color-bg-container) 94%, transparent);
     box-shadow:0 24px 70px rgba(28,43,68,.18);
     backdrop-filter:saturate(170%) blur(24px);
     -webkit-backdrop-filter:saturate(170%) blur(24px);
@@ -1221,7 +1221,7 @@
     align-items:center;
     gap:4px;
     padding:4px;
-    border:1px solid rgba(255,255,255,.9);
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 90%, transparent);
     border-radius:24px;
     background:var(--jx-mobile-material);
     box-shadow:0 10px 30px rgba(42,61,94,.065),inset 0 0 0 .5px rgba(15,23,42,.045);
@@ -1242,7 +1242,7 @@
   }
 
   .jx-agentLibraryPage .jx-agentPage-search.ant-input-affix-wrapper-focused{
-    background:rgba(255,255,255,.72);
+    background:color-mix(in srgb, var(--color-bg-container) 72%, transparent);
     box-shadow:none !important;
   }
 
@@ -1267,7 +1267,7 @@
   .jx-agentLibraryPage .jx-agentPage-grid{
     display:block;
     overflow:hidden;
-    border:1px solid rgba(15,23,42,.07);
+    border:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
     border-radius:var(--jx-mobile-radius);
     background:var(--jx-mobile-surface);
     box-shadow:var(--jx-mobile-shadow);
@@ -1303,7 +1303,7 @@
     height:52px;
     border:0;
     border-radius:16px;
-    background:#EEF4FF;
+    background:var(--color-primary-light);
   }
 
   .jx-agentLibraryPage .jx-agentCard-iconWrap img{
@@ -1336,14 +1336,14 @@
     padding:2px 8px;
     border-radius:999px;
     background:#F1F4F8;
-    color:#667085;
+    color:var(--color-text-tertiary);
     font-size:11px;
     line-height:18px;
   }
 
   .jx-agentLibraryPage .jx-agentCard-badge.on{
-    background:#EAF2FF;
-    color:#126DFF;
+    background:var(--color-primary-light);
+    color:var(--color-primary);
   }
 
   .jx-agentLibraryPage .jx-agentCard-ops{
@@ -1372,10 +1372,10 @@
   .jx-agentCreatePage-back{
     min-width:40px;
     min-height:40px;
-    border:1px solid rgba(255,255,255,.86);
+    border:1px solid color-mix(in srgb, var(--color-bg-container) 86%, transparent);
     border-radius:20px;
     background:var(--jx-mobile-material);
-    color:#344054;
+    color:var(--color-text-secondary);
     box-shadow:0 6px 18px rgba(42,61,94,.06);
     backdrop-filter:saturate(180%) blur(18px);
     -webkit-backdrop-filter:saturate(180%) blur(18px);
@@ -1399,7 +1399,7 @@
 
   .jx-agentLibraryPage .jx-agentDetail-section,
   .jx-agentCreatePage-card{
-    border:1px solid rgba(15,23,42,.065);
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius:20px;
     background:var(--jx-mobile-surface);
     box-shadow:var(--jx-mobile-shadow);
@@ -1410,7 +1410,7 @@
     gap:0;
     overflow:hidden;
     border-radius:14px;
-    background:#F7F8FA;
+    background:var(--color-bg-layout);
   }
 
   .jx-agentLibraryPage .jx-agentDetail-field{
@@ -1466,7 +1466,7 @@
   .jx-labPage .jx-agentPage-grid{
     display:block;
     overflow:hidden;
-    border:1px solid rgba(15,23,42,.065);
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius:var(--jx-mobile-radius);
     background:var(--jx-mobile-surface);
     box-shadow:var(--jx-mobile-shadow);
@@ -1519,7 +1519,7 @@
   .jx-abilityCenter .jx-mcp-grid{
     display:block;
     overflow:hidden;
-    border:1px solid rgba(15,23,42,.065);
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius:var(--jx-mobile-radius);
     background:var(--jx-mobile-surface);
     box-shadow:var(--jx-mobile-shadow);
@@ -1552,7 +1552,7 @@
     overflow:hidden;
     gap:0;
     padding:0;
-    border:1px solid rgba(15,23,42,.065);
+    border:1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius:var(--jx-mobile-radius);
     background:var(--jx-mobile-surface);
     box-shadow:var(--jx-mobile-shadow);
@@ -1585,18 +1585,18 @@
 
   .jx-mobileQuickTask{
     height:36px;
-    border-color:rgba(15,23,42,.08);
+    border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
     border-radius:14px;
-    background:rgba(255,255,255,.78);
+    background:color-mix(in srgb, var(--color-bg-container) 78%, transparent);
     box-shadow:0 4px 14px rgba(42,61,94,.04);
     backdrop-filter:saturate(170%) blur(16px);
     -webkit-backdrop-filter:saturate(170%) blur(16px);
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap{
-    border-color:rgba(15,23,42,.09);
+    border-color:color-mix(in srgb, var(--color-text) 9%, transparent);
     border-radius:24px;
-    background:rgba(255,255,255,.9);
+    background:color-mix(in srgb, var(--color-bg-container) 90%, transparent);
     box-shadow:0 14px 40px rgba(42,61,94,.09),0 1px 2px rgba(15,23,42,.035);
     backdrop-filter:saturate(180%) blur(22px);
     -webkit-backdrop-filter:saturate(180%) blur(22px);

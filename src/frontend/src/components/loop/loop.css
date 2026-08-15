@@ -18,28 +18,30 @@
   min-height: 0;
   height: calc(100vh - 150px);
   font-size: 14px;
-  color: var(--text-primary, #1f2328);
-  background: var(--bg-primary, #fff);
-  border: 1px solid var(--border-color, #e1e4e8);
+  color: var(--color-text);
+  background: var(--color-bg-container);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   overflow: hidden;
 }
 .loop-sidebar {
   width: 340px;
-  border-right: 1px solid var(--border-color, #e1e4e8);
+  border-right: 1px solid var(--color-border);
   padding: 16px;
   overflow-y: auto;
   flex-shrink: 0;
 }
 .loop-sidebar h3 { margin: 8px 0; font-size: 15px; }
-.loop-sidebar label { display: block; margin: 8px 0 3px; font-size: 12px; color: #666; }
+.loop-sidebar label { display: block; margin: 8px 0 3px; font-size: 12px; color: var(--color-text-secondary); }
 .loop-sidebar textarea,
 .loop-sidebar input {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid var(--border-color, #d0d7de);
+  border: 1px solid var(--color-fill);
   border-radius: 6px;
   padding: 6px 8px;
+  background: var(--color-bg-container);
+  color: var(--color-text);
   font-family: inherit;
   font-size: 13px;
 }
@@ -49,28 +51,28 @@
   border: none; border-radius: 6px; padding: 7px 14px; cursor: pointer;
   font-size: 13px; margin-top: 10px;
 }
-.loop-btn.primary { background: #2563eb; color: #fff; }
-.loop-btn.danger { background: #dc2626; color: #fff; }
+.loop-btn.primary { background: var(--color-primary); color: var(--color-text-white); }
+.loop-btn.danger { background: var(--color-error); color: var(--color-text-white); }
 .loop-list { margin-top: 8px; }
 .loop-list-item {
-  border: 1px solid var(--border-color, #e1e4e8); border-radius: 8px;
+  border: 1px solid var(--color-border); border-radius: 8px;
   padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
 }
-.loop-list-item.active { border-color: #2563eb; background: rgba(37,99,235,0.06); }
+.loop-list-item.active { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
 .loop-title { font-weight: 600; font-size: 13px; }
-.loop-status { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; margin: 3px 0; background: #eee; }
+.loop-status { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; margin: 3px 0; background: var(--color-fill-hover); }
 .loop-status.s-completed { background: #dcfce7; color: #166534; }
 .loop-status.s-running { background: #dbeafe; color: #1e40af; }
 .loop-status.s-budget_exhausted { background: #fef9c3; color: #854d0e; }
 .loop-status.s-failed { background: #fee2e2; color: #991b1b; }
 .loop-status.s-awaiting_human { background: #fae8ff; color: #86198f; }
-.loop-meta { font-size: 11px; color: #888; }
+.loop-meta { font-size: 11px; color: var(--color-text-tertiary); }
 
 .loop-main { flex: 1; padding: 20px; overflow-y: auto; }
-.loop-empty, .loop-dim { color: #999; }
+.loop-empty, .loop-dim { color: var(--color-text-placeholder); }
 .loop-header { display: flex; justify-content: space-between; align-items: center; }
-.loop-goal { background: #f6f8fa; border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
-.loop-budget { font-size: 12px; color: #666; margin-top: 4px; }
+.loop-goal { background: var(--color-bg-layout); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.loop-budget { font-size: 12px; color: var(--color-text-secondary); margin-top: 4px; }
 .loop-stream {
   background: #0d1117; color: #c9d1d9; border-radius: 8px; padding: 12px;
   font-family: ui-monospace, monospace; font-size: 12.5px; max-height: 300px; overflow-y: auto;
@@ -81,9 +83,9 @@
 .loop-done { color: #3fb950; font-weight: 600; }
 .loop-err { color: #f85149; }
 .loop-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
-.loop-table th, .loop-table td { border: 1px solid var(--border-color, #e1e4e8); padding: 5px 8px; text-align: left; }
-.loop-table th { background: #f6f8fa; }
-.loop-reason-cell { max-width: 320px; white-space: pre-wrap; color: #555; }
+.loop-table th, .loop-table td { border: 1px solid var(--color-border); padding: 5px 8px; text-align: left; }
+.loop-table th { background: var(--color-bg-layout); }
+.loop-reason-cell { max-width: 320px; white-space: pre-wrap; color: var(--color-text-secondary); }
 .loop-tableWrap { max-width: 100%; overflow-x: auto; }
 
 @media (max-width: 768px) {
@@ -120,7 +122,7 @@
     width: 100%;
     padding: 14px;
     border-right: 0;
-    border-bottom: 1px solid var(--border-color, #e1e4e8);
+    border-bottom: 1px solid var(--color-border);
     overflow: visible;
     box-sizing: border-box;
   }
@@ -166,24 +168,18 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .loop-panel { background: #0d1117; color: #c9d1d9; }
-  .loop-sidebar, .loop-table th, .loop-goal { background: #161b22; }
-  .loop-sidebar textarea, .loop-sidebar input { background: #0d1117; color: #c9d1d9; border-color: #30363d; }
-}
-
 /* ── 对话内「计划条」（输入框上方，取代第 N 轮表格）───────────────────── */
 .loop-planbar {
-  border: 1px solid var(--border-color, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: var(--card-bg, #fafbfc);
+  background: var(--color-bg-layout);
   margin: 0 0 8px;
   overflow: hidden;
   font-size: 13px;
 }
 .loop-planbar-running {
-  border-color: var(--primary-color, #4f46e5);
-  box-shadow: 0 0 0 1px var(--primary-color, #4f46e5) inset;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary) inset;
 }
 .loop-planbar-head {
   display: flex; align-items: center; gap: 8px;
@@ -193,34 +189,34 @@
 .loop-planbar-title {
   flex: 1; min-width: 0; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  color: var(--text-color, #1f2328);
+  color: var(--color-text);
 }
 .loop-planbar-status {
   flex-shrink: 0; font-size: 12px; font-weight: 600;
   padding: 1px 8px; border-radius: 20px;
-  background: var(--tag-bg, #eef2ff); color: var(--primary-color, #4f46e5);
+  background: var(--color-primary-light); color: var(--color-primary);
 }
 .loop-status-completed { background: #dcfce7; color: #16a34a; }
 .loop-status-budget_exhausted { background: #fef3c7; color: #b45309; }
 .loop-status-cancelled, .loop-status-failed { background: #fee2e2; color: #dc2626; }
-.loop-planbar-caret { flex-shrink: 0; color: var(--text-muted, #8a94a6); font-size: 11px; }
+.loop-planbar-caret { flex-shrink: 0; color: var(--color-text-placeholder); font-size: 11px; }
 .loop-planbar-continue {
   flex-shrink: 0; border: none; cursor: pointer; white-space: nowrap;
   font-size: 12px; font-weight: 600; line-height: 1;
   padding: 3px 10px; border-radius: 20px;
-  background: var(--primary-color, #4f46e5); color: #fff;
+  background: var(--color-primary); color: var(--color-text-white);
 }
 .loop-planbar-continue:hover { filter: brightness(1.08); }
 .loop-planbar-close {
   flex-shrink: 0; border: none; background: transparent; cursor: pointer;
-  color: var(--text-muted, #8a94a6); font-size: 16px; line-height: 1; padding: 0 2px;
+  color: var(--color-text-placeholder); font-size: 16px; line-height: 1; padding: 0 2px;
 }
-.loop-planbar-close:hover { color: var(--text-color, #1f2328); }
+.loop-planbar-close:hover { color: var(--color-text); }
 .loop-planbar-progress {
-  height: 3px; background: var(--border-color, #e5e7eb); overflow: hidden;
+  height: 3px; background: var(--color-border); overflow: hidden;
 }
 .loop-planbar-progress-fill {
-  height: 100%; background: var(--primary-color, #4f46e5);
+  height: 100%; background: var(--color-primary);
   transition: width .4s ease;
 }
 .loop-planbar-list { list-style: none; margin: 0; padding: 6px 12px 10px; }
@@ -228,19 +224,19 @@
   display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; line-height: 1.5;
 }
 .loop-planbar-mark { flex-shrink: 0; width: 14px; text-align: center; font-size: 12px; }
-.loop-planbar-desc { color: var(--text-color, #1f2328); }
+.loop-planbar-desc { color: var(--color-text); }
 .loop-item-done .loop-planbar-mark { color: #16a34a; }
-.loop-item-done .loop-planbar-desc { color: var(--text-muted, #8a94a6); text-decoration: line-through; }
-.loop-item-active .loop-planbar-mark { color: var(--primary-color, #4f46e5); }
+.loop-item-done .loop-planbar-desc { color: var(--color-text-placeholder); text-decoration: line-through; }
+.loop-item-active .loop-planbar-mark { color: var(--color-primary); }
 .loop-item-active .loop-planbar-desc { font-weight: 600; }
-.loop-item-todo .loop-planbar-mark { color: var(--text-muted, #b6bdc9); }
+.loop-item-todo .loop-planbar-mark { color: var(--color-text-placeholder); }
 .loop-planbar-reviewing {
   flex-shrink: 0; margin-left: 6px; font-size: 11px; font-weight: 600;
-  color: var(--primary-color, #4f46e5); white-space: nowrap;
+  color: var(--color-primary); white-space: nowrap;
   animation: loop-review-pulse 1.2s ease-in-out infinite;
 }
 @keyframes loop-review-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
-.loop-planbar-hint { padding: 4px 12px 10px; color: var(--text-muted, #8a94a6); }
+.loop-planbar-hint { padding: 4px 12px 10px; color: var(--color-text-placeholder); }
 .loop-status-interrupted { background: #fef3c7; color: #b45309; }
 .loop-planbar-steer {
   display: flex; align-items: center; gap: 6px; padding: 4px 12px 10px;
@@ -248,16 +244,16 @@
 .loop-planbar-steer-input {
   flex: 1; min-width: 0; font-size: 12px; line-height: 1.4;
   padding: 5px 10px; border-radius: 16px;
-  border: 1px solid var(--border-color, #e5e7eb);
-  background: var(--bg-color, #fff); color: var(--text-color, #1f2328);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-container); color: var(--color-text);
   outline: none;
 }
-.loop-planbar-steer-input:focus { border-color: var(--primary-color, #4f46e5); }
+.loop-planbar-steer-input:focus { border-color: var(--color-primary); }
 .loop-planbar-steer-send {
   flex-shrink: 0; border: none; cursor: pointer; white-space: nowrap;
   font-size: 12px; font-weight: 600; line-height: 1;
   padding: 6px 12px; border-radius: 16px;
-  background: var(--primary-color, #4f46e5); color: #fff;
+  background: var(--color-primary); color: var(--color-text-white);
 }
 .loop-planbar-steer-send:disabled { opacity: .45; cursor: default; }
 
@@ -271,9 +267,9 @@
 
   .loop-sidebar,
   .loop-main {
-    border: 1px solid rgba(15,23,42,.065);
+    border: 1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius: 20px;
-    background: rgba(255,255,255,.94);
+    background: color-mix(in srgb, var(--color-bg-container) 94%, transparent);
     box-shadow: 0 12px 34px rgba(42,61,94,.075), 0 1px 2px rgba(15,23,42,.035);
   }
 
@@ -287,7 +283,7 @@
 
   .loop-sidebar h3,
   .loop-header h2 {
-    color: #101828;
+    color: var(--color-text);
     font-weight: 700;
     letter-spacing: -.025em;
   }
@@ -296,16 +292,16 @@
   .loop-budget,
   .loop-meta,
   .loop-dim {
-    color: #667085;
+    color: var(--color-text-tertiary);
   }
 
   .loop-sidebar textarea,
   .loop-sidebar input {
     min-height: 44px;
-    border-color: rgba(15,23,42,.1);
+    border-color: color-mix(in srgb, var(--color-text) 10%, transparent);
     border-radius: 12px;
-    background: #F7F8FA;
-    color: #101828;
+    background: var(--color-bg-layout);
+    color: var(--color-text);
     font-size: 14px;
   }
 
@@ -320,14 +316,14 @@
   }
 
   .loop-btn.primary {
-    background: #126DFF;
+    background: var(--color-primary);
   }
 
   .loop-list {
     overflow: hidden;
-    border: 1px solid rgba(15,23,42,.065);
+    border: 1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius: 14px;
-    background: #F7F8FA;
+    background: var(--color-bg-layout);
   }
 
   .loop-list-item {
@@ -338,7 +334,7 @@
   }
 
   .loop-list-item + .loop-list-item {
-    border-top: 1px solid rgba(15,23,42,.075);
+    border-top: 1px solid color-mix(in srgb, var(--color-text) 7.5%, transparent);
   }
 
   .loop-list-item.active {
@@ -348,8 +344,8 @@
 
   .loop-goal {
     border-radius: 14px;
-    background: #F7F8FA;
-    color: #344054;
+    background: var(--color-bg-layout);
+    color: var(--color-text-secondary);
   }
 
   .loop-stream {

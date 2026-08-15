@@ -43,6 +43,7 @@ import { ChatModesPanel } from './ChatModesPanel';
 import { FactsList } from '../memory/FactsList';
 import { OntologyManager } from '../ontology';
 import { getLang, setLang, t, type Lang } from '../../i18n';
+import type { ThemeMode } from '../../theme';
 
 interface SectionDef {
   id: string;
@@ -99,7 +100,7 @@ function getCropBounds(imageWidth: number, imageHeight: number, zoom: number) {
 }
 
 export default function SettingsPage() {
-  const { dispatchProcessVisible, setDispatchProcessVisible } = useUIStore();
+  const { dispatchProcessVisible, setDispatchProcessVisible, themeMode, setThemeMode } = useUIStore();
   const {
     memoryEnabled,
     memoryWriteEnabled,
@@ -670,6 +671,27 @@ export default function SettingsPage() {
                 { value: 'en', label: 'English' },
               ]}
               onChange={(v) => setLang(v as Lang)}
+            />
+          </div>
+
+          <div className="jx-settings-divider" />
+
+          <div className="jx-settings-row">
+            <div className="jx-settings-rowLeft">
+              <span className="jx-settings-rowLabel">{t('外观')}</span>
+              <span className="jx-settings-rowDesc">
+                {t('切换界面深浅配色，选择跟随系统时自动匹配系统外观')}
+              </span>
+            </div>
+            <Select
+              value={themeMode}
+              style={{ width: 140 }}
+              options={[
+                { value: 'system', label: t('跟随系统') },
+                { value: 'light', label: t('浅色') },
+                { value: 'dark', label: t('深色') },
+              ]}
+              onChange={(v) => setThemeMode(v as ThemeMode)}
             />
           </div>
         </div>

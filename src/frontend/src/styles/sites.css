@@ -18,7 +18,7 @@
   justify-content: space-between;
   gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
-  background: #fff;
+  background: var(--color-bg-container);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
@@ -249,9 +249,9 @@
   .jx-sites-list {
     overflow: hidden;
     gap: 0;
-    border: 1px solid rgba(15,23,42,.065);
+    border: 1px solid color-mix(in srgb, var(--color-text) 6.5%, transparent);
     border-radius: 22px;
-    background: rgba(255,255,255,.94);
+    background: color-mix(in srgb, var(--color-bg-container) 94%, transparent);
     box-shadow: 0 12px 34px rgba(42,61,94,.075), 0 1px 2px rgba(15,23,42,.035);
   }
 
@@ -263,18 +263,18 @@
   }
 
   .jx-sites-card + .jx-sites-card {
-    border-top: 1px solid rgba(15,23,42,.075);
+    border-top: 1px solid color-mix(in srgb, var(--color-text) 7.5%, transparent);
   }
 
   .jx-sites-cardTitle {
-    color: #101828;
+    color: var(--color-text);
     font-size: 17px;
     font-weight: 650;
     line-height: 1.4;
   }
 
   .jx-sites-cardMeta {
-    color: #667085;
+    color: var(--color-text-tertiary);
     font-size: 13px;
   }
 

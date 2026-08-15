@@ -19,6 +19,18 @@
   --color-fill-hover:#EEF1F5;
   --color-bg-gray:#F4F6F9;
 
+  /* ── 背景语义层（深色模式的主开关：页面/容器/弹层/灰底布局四级） ── */
+  --color-bg-base:#FFFFFF;      /* 页面底色 */
+  --color-bg-container:#FFFFFF; /* 卡片、面板、输入区等容器 */
+  --color-bg-elevated:#FFFFFF;  /* 弹层、下拉、tooltip 等悬浮面（antd 侧对应 appTheme 的 colorBgElevated，自研浮层引用此令牌） */
+  --color-bg-layout:#F5F7FB;    /* 灰底布局区（侧边栏底、分区底） */
+
+  /* ── 滚动条（深浅只换令牌值，选择器共用下方全局规则） ── */
+  --scrollbar-tint:rgba(100,116,139,.14);
+  --scrollbar-thumb:rgba(100,116,139,.10);
+  --scrollbar-thumb-hover:rgba(100,116,139,.18);
+  --scrollbar-thumb-drag:rgba(100,116,139,.30);
+
   /* ── 文字 ── */
   --color-text:#101828;
   --color-text-secondary:#475467;
@@ -130,6 +142,89 @@
   --shadow1:0 10px 30px rgba(18,109,255,0.10);
 }
 
+/* ══════════════════════════════════════════
+   深色模式覆盖块
+   data-theme="dark" 由 index.html 防闪烁脚本 / src/theme.ts 打在 <html> 上。
+   只重定义颜色/阴影令牌，几何与 motion 令牌两个主题共用。
+   ══════════════════════════════════════════ */
+:root[data-theme="dark"]{
+  color-scheme:dark;
+
+  /* 主色在暗底上整体提亮一档，透明蓝替代浅蓝底 */
+  --color-primary:#3E8BFF;
+  --color-primary-hover:#5FA0FF;
+  --color-primary-active:#2E7BF0;
+  --color-primary-disabled:#28497E;
+  --color-primary-bg:rgba(62,139,255,.20);
+  --color-primary-light:rgba(62,139,255,.12);
+
+  --color-fill-heavy:#77828F;
+  --color-fill-deep:#66707E;
+  --color-fill:#333D4B;
+  --color-border:#2B3442;
+  --color-fill-hover:#252D39;
+  --color-bg-gray:#1B212B;
+
+  --color-bg-base:#0F141B;
+  --color-bg-container:#161C25;
+  --color-bg-elevated:#1C2330;
+  --color-bg-layout:#12171F;
+
+  --scrollbar-tint:rgba(148,163,184,.22);
+  --scrollbar-thumb:rgba(148,163,184,.16);
+  --scrollbar-thumb-hover:rgba(148,163,184,.26);
+  --scrollbar-thumb-drag:rgba(148,163,184,.40);
+
+  --color-text:#E8ECF4;
+  --color-text-secondary:#B3BDCD;
+  --color-text-tertiary:#8792A4;
+  --color-text-placeholder:#5F6B7D;
+
+  --color-success:#22C79D;
+  --color-success-hover:#3ADFB6;
+  --color-success-active:#12B58C;
+  --color-success-disabled:rgba(34,199,157,.35);
+  --color-success-bg:rgba(34,199,157,.16);
+  --color-success-light:rgba(34,199,157,.10);
+
+  /* warning 主三档与浅色相同，仅淡色底翻转 */
+  --color-warning-disabled:rgba(248,171,66,.35);
+  --color-warning-bg:rgba(248,171,66,.16);
+  --color-warning-light:rgba(248,171,66,.10);
+
+  --color-error:#FF6B6B;
+  --color-error-hover:#FF8585;
+  --color-error-disabled:rgba(255,107,107,.35);
+  --color-error-bg:rgba(255,107,107,.16);
+  --color-error-light:rgba(255,107,107,.10);
+
+  --color-icon-blue:#3E8BFF;
+  --color-icon-red:#FF6B6B;
+  --color-icon-purple:#9578FF;
+  --color-icon-green:#22C79D;
+
+  /* 暗底上阴影加深，靠边框分层为主 */
+  --shadow-card:
+    0 1px 2px rgba(0,0,0,.40),
+    0 8px 24px rgba(0,0,0,.32);
+  --shadow-card-hover:
+    0 2px 5px rgba(0,0,0,.45),
+    0 16px 38px rgba(0,0,0,.40);
+  --shadow-dropdown:
+    0 2px 8px rgba(0,0,0,.45),
+    0 20px 48px rgba(0,0,0,.55);
+
+  /* Legacy aliases：引用同块语义令牌，调色板改动自动跟随 */
+  --bg:var(--color-bg-container);
+  --text:var(--color-text);
+  --muted:rgba(232,236,244,.62);
+  --border:var(--color-border);
+  --primary:var(--color-primary);
+  --primary2:var(--color-primary-hover);
+  --accent:var(--color-primary-active);
+  --shadow1:0 10px 30px rgba(0,0,0,.35);
+}
+
 html,body,#root{height:100%}
 /* 全高 SPA 外壳：所有滚动都发生在内部容器（jx-content 等），文档本身不滚动。
  * 不锁 document 的话，附加到 <body> 的浮层（如下拉子菜单）超出视口时会让文档
@@ -139,28 +234,28 @@ body{
   margin:0;
   display:block !important;
   place-items:initial !important;
-  background:#FFFFFF;
+  background:var(--color-bg-base);
   color:var(--color-text);
   font-family:var(--font-family);
 }
 
-/* ── 全局滚动条基础样式 ── */
+/* ── 全局滚动条基础样式（深色由上方令牌翻转，不加选择器） ── */
 *{
   scrollbar-width:thin;
-  scrollbar-color:rgba(100,116,139,.14) transparent;
+  scrollbar-color:var(--scrollbar-tint) transparent;
 }
 *::-webkit-scrollbar{width:4px;height:4px;}
 *::-webkit-scrollbar-track{background:transparent;}
 *::-webkit-scrollbar-thumb{
-  background:rgba(100,116,139,.10);
+  background:var(--scrollbar-thumb);
   border-radius:999px;
   transition:background .3s;
 }
 *:hover::-webkit-scrollbar-thumb{
-  background:rgba(100,116,139,.18);
+  background:var(--scrollbar-thumb-hover);
 }
 *::-webkit-scrollbar-thumb:hover{
-  background:rgba(100,116,139,.30);
+  background:var(--scrollbar-thumb-drag);
 }
 /* 代码区域保留稍宽的滚动条 */
 pre::-webkit-scrollbar,

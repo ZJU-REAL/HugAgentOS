@@ -8,8 +8,8 @@
 
 .jx-canvasPanelSlot {
   min-width: 0;
-  border-left: 1px solid rgba(15, 23, 42, .08);
-  background: #fff;
+  border-left: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  background: var(--color-bg-container);
 }
 
 /* 全屏：面板脱离文档流盖住整个主区，而不是把主区挤成 0 宽。
@@ -67,8 +67,8 @@
   gap: 4px;
   flex-shrink: 0;
   overflow: hidden;
-  border-bottom: 1px solid rgba(15, 23, 42, .08);
-  background: rgba(255, 255, 255, .98);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  background: color-mix(in srgb, var(--color-bg-container) 98%, transparent);
 }
 
 /* 页签条：多页签时横向滚动，滚动条隐藏（活动页签由 JS 滚进可视区） */
@@ -357,7 +357,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--color-bg-container);
   border-left: 0;
   box-shadow: -4px 0 24px rgba(18, 109, 255, .05);
   overflow: hidden;
@@ -441,8 +441,8 @@
   gap: 12px;
   padding: 6px 14px;
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(15, 23, 42, .06);
-  background: rgba(255, 255, 255, .92);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
   backdrop-filter: blur(10px);
 }
 
@@ -517,7 +517,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 
@@ -610,7 +610,7 @@
 /* ══ DOCX Renderer ══ */
 .jx-canvas-docx {
   padding: 0;
-  background: #fff;
+  background: var(--color-bg-container);
   min-height: 100%;
 }
 .jx-canvas-docx .docx-wrapper,
@@ -633,7 +633,7 @@
   border-radius: 0;
   box-shadow: none !important;
   margin-bottom: 0 !important;
-  color: rgba(15, 23, 42, .88);
+  color: color-mix(in srgb, var(--color-text) 88%, transparent);
   font-family: var(--font-family) !important;
   line-height: 1.84;
   overflow: hidden;
@@ -650,7 +650,7 @@
 .jx-canvas-docx section.jx-canvas-docx-wrapper p,
 .jx-canvas-docx section.jx-canvas-docx-wrapper li,
 .jx-canvas-docx section.jx-canvas-docx-wrapper td {
-  color: rgba(30, 41, 59, .86);
+  color: color-mix(in srgb, var(--color-text-secondary) 86%, transparent);
   font-size: 15.5px !important;
   font-weight: 400 !important;
   line-height: 1.84 !important;
@@ -678,7 +678,7 @@
 .jx-canvas-docx section.docx p[style*="font-size:24"],
 .jx-canvas-docx section.docx p[style*="font-size: 22"],
 .jx-canvas-docx section.docx p[style*="font-size:22"] {
-  color: rgba(15, 23, 42, .96) !important;
+  color: color-mix(in srgb, var(--color-text) 96%, transparent) !important;
   font-weight: 600 !important;
   line-height: 1.5 !important;
   letter-spacing: 0 !important;
@@ -710,7 +710,7 @@
 .jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-subtitle {
   margin: 26px 0 10px !important;
   font-size: 18px !important;
-  color: rgba(15, 23, 42, .92) !important;
+  color: color-mix(in srgb, var(--color-text) 92%, transparent) !important;
   font-weight: 600 !important;
   line-height: 1.5 !important;
 }
@@ -743,7 +743,7 @@
 .jx-canvas-docx section.jx-canvas-docx-wrapper strong,
 .jx-canvas-docx section.jx-canvas-docx-wrapper b {
   font-weight: 600 !important;
-  color: rgba(15, 23, 42, .94) !important;
+  color: color-mix(in srgb, var(--color-text) 94%, transparent) !important;
 }
 
 .jx-canvas-docx section.docx p.jx-docx-meta,
@@ -754,7 +754,7 @@
 .jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta strong {
   font-size: 15px !important;
   line-height: 1.72 !important;
-  color: rgba(51, 65, 85, .82) !important;
+  color: color-mix(in srgb, var(--color-text-secondary) 82%, transparent) !important;
 }
 
 .jx-canvas-docx section.docx p.jx-docx-meta,
@@ -791,7 +791,7 @@
 .jx-canvas-docx section.docx th,
 .jx-canvas-docx section.jx-canvas-docx-wrapper th {
   background: rgba(248, 250, 252, .9) !important;
-  color: rgba(15, 23, 42, .9) !important;
+  color: rgba(15, 23, 42, .9) !important; /* 纸面浅底固定，文字不随主题翻转 */
   font-weight: 600 !important;
 }
 
@@ -799,8 +799,8 @@
 .jx-canvas-docx section.jx-canvas-docx-wrapper blockquote {
   margin: 16px 0 !important;
   padding: 8px 0 8px 14px !important;
-  border-left: 2px solid rgba(148, 163, 184, .45) !important;
-  color: rgba(71, 85, 105, .92) !important;
+  border-left: 2px solid color-mix(in srgb, var(--color-text-placeholder) 45%, transparent) !important;
+  color: color-mix(in srgb, var(--color-text-secondary) 92%, transparent) !important;
 }
 
 .jx-canvas-docx section.docx p:last-child,
@@ -827,7 +827,7 @@
   display: flex;
   gap: 0;
   padding: 0 12px;
-  background: #fff;
+  background: var(--color-bg-container);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   overflow-x: auto;
@@ -865,7 +865,7 @@
   border-collapse: collapse;
   font-size: 12px;
   font-family: var(--font-family-number);
-  background: #fff;
+  background: var(--color-bg-container);
   border-radius: var(--radius-xs);
   overflow: hidden;
   width: max-content;
@@ -920,7 +920,7 @@
 .jx-canvas-text {
   padding: 16px;
   min-height: 100%;
-  background: #fff;
+  background: var(--color-bg-container);
 }
 .jx-canvas-text-pre {
   margin: 0;
@@ -937,7 +937,7 @@
 .jx-canvas-markdown {
   min-height: 100%;
   padding: 28px clamp(24px, 5vw, 56px) 48px;
-  background: #fff;
+  background: var(--color-bg-container);
   overflow-wrap: anywhere;
 }
 
@@ -947,7 +947,7 @@
   width: 100%;
   height: 100%;
   border: none;
-  background: #fff;
+  background: var(--color-bg-container);
 }
 
 /* ══ Artifact card preview button (in MessageBubble) ══ */
@@ -959,18 +959,18 @@
   padding: 0 14px;
   border: 1px solid rgba(203,213,225,.9);
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-bg-container);
   font-size: 14px;
   font-weight: 500;
-  color: #475569;
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: background .15s, border-color .15s, color .15s;
   white-space: nowrap;
 }
 .jx-dlCard-previewBtn:hover {
-  background: #f8fafc;
-  border-color: rgba(148,163,184,.95);
-  color: #0f172a;
+  background: var(--color-bg-layout);
+  border-color: color-mix(in srgb, var(--color-text-placeholder) 95%, transparent);
+  color: var(--color-text);
 }
 
 /* ══ Univer Spreadsheet Container ══ */
