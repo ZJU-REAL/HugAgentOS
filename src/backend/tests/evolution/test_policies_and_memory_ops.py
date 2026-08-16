@@ -22,8 +22,13 @@ def test_builtin_profile_reproduces_todays_constants():
     policy = PL.policy_from_profile(AP.builtin_profile())
     assert policy.max_attempts_per_requirement == 6
     assert policy.strategy_change_after == 2
-    # The main ReAct agent's existing cap, unchanged.
-    assert AP.builtin_profile().max_react_turns == 50
+    # The main ReAct agent has no turn cap; the built-in profile must not
+    # reintroduce one behind the runtime's back.
+    assert AP.builtin_profile().max_react_turns == AP.UNBOUNDED_REACT_TURNS
+    # A profile published without an explicit turn budget stays unbounded too —
+    # a missing key must not become an invented ceiling.
+    unspecified = AP.AgentProfile.from_dict({"profile_id": "p"})
+    assert unspecified.max_react_turns == AP.UNBOUNDED_REACT_TURNS
 
 
 def test_longer_stall_escalates_rather_than_repeating_the_mild_response():

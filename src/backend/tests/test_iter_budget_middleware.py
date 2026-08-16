@@ -143,3 +143,39 @@ def test_force_text_kill_switch(monkeypatch):
     agent = _fake_agent(max_iters=10, cur_iter=9)
     out = _force(mw, agent, {"tool_choice": None})
     assert out.get("tool_choice") is None
+
+
+# ── Turn-budget hint (static policy, injected only where a budget exists) ──
+
+
+def test_turn_budget_hint_states_the_actual_number():
+    from core.llm.agent_factory import _render_turn_budget_hint
+
+    hint = _render_turn_budget_hint(12)
+    assert "12 轮" in hint
+    # The point of the hint is the parallel fan-out strategy, not the scary
+    # number — one that only announces a limit makes the model cautious
+    # rather than efficient.
+    assert "并行" in hint
+
+
+def test_turn_budget_hint_is_byte_stable():
+    """Prefix-cache safety: same budget → same bytes, every request."""
+    from core.llm.agent_factory import _render_turn_budget_hint
+
+    assert _render_turn_budget_hint(30) == _render_turn_budget_hint(30)
+
+
+def test_unbounded_profile_is_valid_and_bad_bounds_are_not():
+    from core.evolution import agent_profile as AP
+
+    unbounded = AP.builtin_profile()
+    assert unbounded.max_react_turns == AP.UNBOUNDED_REACT_TURNS
+    ok, problems = AP.validate_profile(unbounded)
+    assert ok, problems
+
+    fenced = AP.builtin_profile()
+    fenced.max_react_turns = 1  # below MIN_REACT_TURNS, and not the 0 sentinel
+    ok, problems = AP.validate_profile(fenced)
+    assert ok is False
+    assert any("最大轮数" in p for p in problems)
