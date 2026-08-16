@@ -136,7 +136,7 @@
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--surface, #fff);
+  background: var(--color-bg-container);
   cursor: pointer;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
