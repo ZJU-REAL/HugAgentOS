@@ -1,4 +1,27 @@
 /* ══════════════════════════════════════════════════════════════════════════
+   工具卡专属口音色（全局语义令牌之外的两族，浅/深各一档）
+
+   · indigo  —— 企业画像卡片族（搜索卡、时间线、专利榜）的靛蓝口音，浅色值 #4338CA
+                与历史硬编码 rgb(67,56,202) 完全相同，故 color-mix 出来的 tint 像素等价。
+   · 状态深字 —— 「深字 + 浅底」徽章配对色（成功/失败/警告）。浅色档保留原设计的深字，
+                深色档翻转成浅字，否则暗底上是一坨几乎不可见的墨绿/暗红。
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --jx-tool-indigo:#4338CA;
+  --jx-tool-ok-text:#166534;
+  --jx-tool-err-text:#991B1B;
+  --jx-tool-warn-text:#92400E;
+  --jx-tool-warn-strong:#D97706;
+}
+:root[data-theme="dark"]{
+  --jx-tool-indigo:#9C95FF;
+  --jx-tool-ok-text:#6EE7A8;
+  --jx-tool-err-text:#FF9E9E;
+  --jx-tool-warn-text:#F0B86A;
+  --jx-tool-warn-strong:#F5B24A;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    Unified LobeHub-style Tool Call Row (.jx-tcr-*)
    Compact single-line: ✓ prefix + bold value + (count) + ▼/▶
    ══════════════════════════════════════════════════════════════════════════ */
@@ -23,10 +46,10 @@
   cursor: pointer;
 }
 .jx-tcr-header[role="button"]:hover {
-  background: rgba(0, 0, 0, 0.03);
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
 }
 .jx-tcr-header[role="button"]:focus-visible {
-  outline: 2px solid rgba(18, 109, 255, 0.30);
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
   outline-offset: 1px;
 }
 
@@ -65,7 +88,7 @@
   height: 7px;
   flex-shrink: 0;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1.4px rgba(15, 23, 42, 0.3);
+  box-shadow: inset 0 0 0 1.4px color-mix(in srgb, var(--color-text) 30%, transparent);
 }
 
 /* ── Label: prefix + chip value + count  (NOT flex:1 — arrow sits next to text) ── */
@@ -83,15 +106,15 @@
   max-width: calc(100% - 40px);
 }
 .jx-tcr-prefix {
-  color: rgba(0, 0, 0, 0.65);
+  color: color-mix(in srgb, var(--color-text) 65%, transparent);
   flex-shrink: 0;
 }
 /* "正在准备调用工具…" 等待文字流光 — 单色灰阶，参数缓冲空窗期的活性信号 */
 .jx-tcr-prefix--shimmer {
   background: linear-gradient(90deg,
-    rgba(15, 23, 42, 0.40) 0%,
-    rgba(15, 23, 42, 0.88) 50%,
-    rgba(15, 23, 42, 0.40) 100%);
+    color-mix(in srgb, var(--color-text) 40%, transparent) 0%,
+    color-mix(in srgb, var(--color-text) 88%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 40%, transparent) 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -103,9 +126,9 @@
 .jx-tcr-value {
   display: inline-block;
   padding: 0 6px;
-  background: rgba(0, 0, 0, 0.045);
+  background: color-mix(in srgb, var(--color-text) 4.5%, transparent);
   border-radius: 4px;
-  color: rgba(0, 0, 0, 0.82);
+  color: color-mix(in srgb, var(--color-text) 82%, transparent);
   font-weight: 400;
   max-width: 100%;
   overflow: hidden;
@@ -113,7 +136,7 @@
   white-space: nowrap;
 }
 .jx-tcr-count {
-  color: rgba(0, 0, 0, 0.45);
+  color: color-mix(in srgb, var(--color-text) 45%, transparent);
   flex-shrink: 0;
 }
 
@@ -126,7 +149,7 @@
   flex-shrink: 0;
   border-style: solid;
   border-width: 4px 0 4px 5px;
-  border-color: transparent transparent transparent rgba(0, 0, 0, 0.35);
+  border-color: transparent transparent transparent color-mix(in srgb, var(--color-text) 35%, transparent);
   transition: transform 0.18s ease, border-color 0.15s;
   margin-left: 2px;
 }
@@ -134,7 +157,7 @@
   transform: rotate(90deg);
 }
 .jx-tcr-header[role="button"]:hover .jx-tcr-arrow {
-  border-left-color: rgba(0, 0, 0, 0.55);
+  border-left-color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
 /* ── Expanded body (uses .jx-expandWrap from variables.css) ── */
@@ -189,7 +212,7 @@
   --ce-code-bg: var(--color-bg-gray);
   --ce-code-border: var(--color-border);
   --ce-line-num: var(--color-text-placeholder);
-  --ce-line-border: rgba(71, 84, 103, 0.12);
+  --ce-line-border: color-mix(in srgb, var(--color-text-secondary) 12%, transparent);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -211,10 +234,10 @@
   color: var(--color-text-secondary) !important;
 }
 .jx-tcr-liveCode .jx-ce-codeWrap::-webkit-scrollbar-thumb {
-  background: rgba(71, 84, 103, 0.16);
+  background: color-mix(in srgb, var(--color-text-secondary) 16%, transparent);
 }
 .jx-tcr-liveCode .jx-ce-codeWrap::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 84, 103, 0.28);
+  background: color-mix(in srgb, var(--color-text-secondary) 28%, transparent);
 }
 
 /* ── Elapsed timer (running tool card + pending indicator) ── */
@@ -295,7 +318,7 @@
   transition: background 0.15s ease;
 }
 .jx-trs-head:hover {
-  background: rgba(15, 23, 42, 0.035);
+  background: color-mix(in srgb, var(--color-text) 3.5%, transparent);
 }
 .jx-trs-head:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-text) 18%, transparent);
@@ -324,15 +347,15 @@
   border-radius: 50%;
   background: radial-gradient(
     circle at 50% 50%,
-    rgba(18, 109, 255, 0.14) 0%,
-    rgba(18, 109, 255, 0) 70%
+    color-mix(in srgb, var(--color-primary) 14%, transparent) 0%,
+    transparent 70%
   );
 }
 .jx-trs-mark--success::before {
   background: radial-gradient(
     circle at 50% 50%,
-    rgba(15, 23, 42, 0.10) 0%,
-    rgba(15, 23, 42, 0) 70%
+    color-mix(in srgb, var(--color-text) 10%, transparent) 0%,
+    transparent 70%
   );
 }
 /* One-shot expanding ring the moment the batch settles */
@@ -423,7 +446,7 @@
   font-size: 13px;
 }
 .jx-trs-body .jx-tcr-value {
-  background: rgba(15, 23, 42, 0.04);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
   color: color-mix(in srgb, var(--color-text) 70%, transparent);
 }
 
@@ -444,7 +467,7 @@
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  background: rgba(248, 250, 252, 0.9);
+  background: color-mix(in srgb, var(--color-bg-gray) 90%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
   border-radius: 7px;
   overflow: hidden;
@@ -479,7 +502,7 @@
   padding-bottom: 6px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, 0.20) transparent;
+  scrollbar-color: var(--scrollbar-thumb-hover) transparent;
 }
 .jx-tr-searchCardsWrap::-webkit-scrollbar {
   height: 4px;
@@ -488,7 +511,7 @@
   background: transparent;
 }
 .jx-tr-searchCardsWrap::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.20);
+  background: var(--scrollbar-thumb-hover);
   border-radius: 3px;
 }
 
@@ -517,7 +540,7 @@
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
 }
 .jx-tr-searchCard:hover {
-  border-color: rgba(18, 109, 255, 0.25);
+  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
   box-shadow: 0 4px 12px rgba(18, 109, 255, 0.10);
   transform: translateY(-1px);
   text-decoration: none;
@@ -631,7 +654,7 @@
   font-size:13px;
 }
 .jx-trp-close:hover{
-  background:rgba(15,23,42,.07);
+  background:color-mix(in srgb, var(--color-text) 7%, transparent);
   color:color-mix(in srgb, var(--color-text) 80%, transparent);
 }
 .jx-trp-body{
@@ -649,14 +672,14 @@
   cursor:pointer;
 }
 .jx-toolCallItem--panel .jx-toolCallHeader{
-  background:rgba(248,250,252,.6);
+  background:color-mix(in srgb, var(--color-bg-gray) 60%, transparent);
 }
 .jx-toolCallItem--panel.active .jx-toolCallHeader{
-  background:rgba(18,109,255,.07);
-  border-color:rgba(18,109,255,.22);
+  background:color-mix(in srgb, var(--color-primary) 7%, transparent);
+  border-color:color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 .jx-toolCallItem--panel.active{
-  border-color:rgba(18,109,255,.22);
+  border-color:color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 .jx-panelOpenIcon{
   color:color-mix(in srgb, var(--color-text) 36%, transparent);
@@ -673,8 +696,8 @@
 
 /* Tool Calls Section */
 .jx-toolCallsSection{
-  background:linear-gradient(180deg, rgba(239,246,255,.92) 0%, color-mix(in srgb, var(--color-bg-container) 96%, transparent) 100%);
-  border:1px solid rgba(18,109,255,.18);
+  background:linear-gradient(180deg, color-mix(in srgb, var(--color-primary-light) 92%, transparent) 0%, color-mix(in srgb, var(--color-bg-container) 96%, transparent) 100%);
+  border:1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
   border-radius:14px;
   padding:10px;
   box-shadow:0 10px 24px rgba(18,109,255,.08);
@@ -685,7 +708,7 @@
   gap:8px;
   font-weight:900;
   font-size:13px;
-  color:rgba(67, 56, 202, 0.90);
+  color:color-mix(in srgb, var(--jx-tool-indigo) 90%, transparent);
   margin-bottom:8px;
   user-select:none;
 }
@@ -702,7 +725,7 @@
 }
 .jx-toolCallItem{
   background:var(--color-bg-container);
-  border:1px solid rgba(18,109,255,.14);
+  border:1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);
   border-radius:12px;
   box-shadow:0 6px 18px rgba(17,24,39,.04);
   overflow:clip;
@@ -717,10 +740,10 @@
   user-select:none;
 }
 .jx-toolCallHeader:hover{
-  background:rgba(18,109,255,.08);
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
 }
 .jx-toolCallHeader:focus-visible{
-  outline:2px solid rgba(18,109,255,.35);
+  outline:2px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
   outline-offset:-2px;
 }
 .jx-toolCallTitle{
@@ -761,16 +784,16 @@
 }
 .jx-toolCallStatusTag.running{
   color:var(--color-primary);
-  background:rgba(18,109,255,.16);
-  border-color:rgba(18,109,255,.32);
+  background:color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-color:color-mix(in srgb, var(--color-primary) 32%, transparent);
 }
 .jx-toolCallStatusTag.success{
-  color:#166534;
+  color:var(--jx-tool-ok-text);
   background:rgba(34,197,94,.16);
   border-color:rgba(34,197,94,.32);
 }
 .jx-toolCallStatusTag.error{
-  color:#991b1b;
+  color:var(--jx-tool-err-text);
   background:rgba(239,68,68,.14);
   border-color:rgba(239,68,68,.26);
 }
@@ -1070,7 +1093,7 @@
 
 .jx-toolCallBody{
   padding:10px 12px 12px 12px;
-  border-top:1px solid rgba(18,109,255,.14);
+  border-top:1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);
   -webkit-user-select:text;
   user-select:text;
 }
@@ -1080,12 +1103,12 @@
 .jx-toolSectionLabel{
   font-weight:700;
   font-size:12px;
-  color:rgba(18, 109, 255, 0.92);
+  color:color-mix(in srgb, var(--color-primary) 92%, transparent);
   margin-bottom:6px;
 }
 .jx-toolCode{
-  background:rgba(248, 250, 252, 1);
-  border:1px solid rgba(17, 24, 39, 0.10);
+  background:var(--color-bg-gray);
+  border:1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
   border-radius:8px;
   padding:10px;
   font-size:12px;
@@ -1098,9 +1121,9 @@
   color:color-mix(in srgb, var(--color-text) 92%, transparent);
 }
 .jx-toolCode::-webkit-scrollbar{width:8px; height:8px}
-.jx-toolCode::-webkit-scrollbar-track{background:rgba(248, 250, 252, 1); border-radius:4px}
-.jx-toolCode::-webkit-scrollbar-thumb{background:rgba(100, 116, 139, 0.35); border-radius:4px}
-.jx-toolCode::-webkit-scrollbar-thumb:hover{background:rgba(100, 116, 139, 0.50)}
+.jx-toolCode::-webkit-scrollbar-track{background:var(--color-bg-gray); border-radius:4px}
+.jx-toolCode::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-drag); border-radius:4px}
+.jx-toolCode::-webkit-scrollbar-thumb:hover{background:var(--scrollbar-thumb-drag)}
 
 
 /* ── 工具结果结构化渲染（Tool Result Renderers）────────────────── */
@@ -1132,29 +1155,29 @@
   padding:4px 8px;
   border-radius:4px;
   margin-bottom:8px;
-  background:rgba(248,250,252,1);
+  background:var(--color-bg-gray);
   color:color-mix(in srgb, var(--color-text) 72%, transparent);
 }
-.jx-tr-dbHeader.success{color:color-mix(in srgb, var(--color-text) 55%, transparent);background:rgba(15,23,42,.035);border:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);}
-.jx-tr-dbHeader.error{color:color-mix(in srgb, var(--color-text) 72%, transparent);background:rgba(15,23,42,.05);border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);}
+.jx-tr-dbHeader.success{color:color-mix(in srgb, var(--color-text) 55%, transparent);background:color-mix(in srgb, var(--color-text) 3.5%, transparent);border:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);}
+.jx-tr-dbHeader.error{color:color-mix(in srgb, var(--color-text) 72%, transparent);background:color-mix(in srgb, var(--color-text) 5%, transparent);border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);}
 .jx-tr-dbText{font-size:12px;line-height:1.65;white-space:pre-wrap;color:color-mix(in srgb, var(--color-text) 78%, transparent);}
-.jx-tr-dbText.error{color:#991b1b;}
+.jx-tr-dbText.error{color:var(--jx-tool-err-text);}
 
-.jx-tr-tableWrap{overflow-x:auto;border-radius:6px;border:1px solid rgba(18,109,255,.14);}
+.jx-tr-tableWrap{overflow-x:auto;border-radius:6px;border:1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);}
 .jx-tr-table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.4;}
 .jx-tr-table th{
-  background:rgba(18,109,255,.07);
+  background:color-mix(in srgb, var(--color-primary) 7%, transparent);
   color:var(--color-primary);
   font-weight:700;
   padding:6px 10px;
   text-align:left;
-  border-bottom:1px solid rgba(18,109,255,.16);
+  border-bottom:1px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
   white-space:nowrap;
   font-size:11.5px;
 }
 .jx-tr-table td{
   padding:5px 10px;
-  border-bottom:1px solid rgba(18,109,255,.08);
+  border-bottom:1px solid color-mix(in srgb, var(--color-primary) 8%, transparent);
   color:color-mix(in srgb, var(--color-text) 82%, transparent);
   max-width:180px;
   overflow:hidden;
@@ -1162,14 +1185,14 @@
   white-space:nowrap;
 }
 .jx-tr-table tr:last-child td{border-bottom:none;}
-.jx-tr-table tr:nth-child(even) td{background:rgba(248,250,252,.6);}
-.jx-tr-moreHint{font-size:11px;color:color-mix(in srgb, var(--color-text) 38%, transparent);padding:6px 10px;text-align:center;border-top:1px solid rgba(18,109,255,.08);}
+.jx-tr-table tr:nth-child(even) td{background:color-mix(in srgb, var(--color-bg-gray) 60%, transparent);}
+.jx-tr-moreHint{font-size:11px;color:color-mix(in srgb, var(--color-text) 38%, transparent);padding:6px 10px;text-align:center;border-top:1px solid color-mix(in srgb, var(--color-primary) 8%, transparent);}
 
 /* ── 知识库检索 ─────────────────────── */
 .jx-tr-kbList{display:flex;flex-direction:column;}
 .jx-tr-kbItem{
   padding:8px 4px;
-  border-bottom:1px solid rgba(18,109,255,.09);
+  border-bottom:1px solid color-mix(in srgb, var(--color-primary) 9%, transparent);
   border-radius:4px;
 }
 .jx-tr-kbItem:last-child{border-bottom:none;}
@@ -1177,7 +1200,7 @@
   cursor:pointer;
   transition:background .15s;
 }
-.jx-tr-kbItem--clickable:hover{background:rgba(18,109,255,.04);}
+.jx-tr-kbItem--clickable:hover{background:color-mix(in srgb, var(--color-primary) 4%, transparent);}
 .jx-tr-kbDocName{
   font-size:12.5px;
   font-weight:700;
@@ -1216,7 +1239,7 @@
   padding:0 5px;
   border-radius:4px;
   background:var(--color-primary-light);
-  border:1px solid rgba(18,109,255,.28);
+  border:1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
   color:var(--color-primary);
   font-size:10px;
   font-weight:600;
@@ -1237,7 +1260,7 @@
 
 .jx-tr-kbScore{
   font-size:10px;
-  color:rgba(18,109,255,.55);
+  color:color-mix(in srgb, var(--color-primary) 55%, transparent);
   margin-top:2px;
 }
 
@@ -1261,7 +1284,7 @@
   text-decoration:none !important;
   color:inherit;
 }
-.jx-tr-searchItem--link:hover{background:rgba(18,109,255,.04);}
+.jx-tr-searchItem--link:hover{background:color-mix(in srgb, var(--color-primary) 4%, transparent);}
 .jx-tr-searchHeader{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
 .jx-tr-searchTitle{
   font-size:12.5px;
@@ -1278,9 +1301,9 @@
   font-size:10px;
   padding:1px 7px;
   border-radius:999px;
-  background:rgba(18,109,255,.10);
+  background:color-mix(in srgb, var(--color-primary) 10%, transparent);
   color:var(--color-primary);
-  border:1px solid rgba(18,109,255,.22);
+  border:1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
   white-space:nowrap;
 }
 
@@ -1308,7 +1331,7 @@
   align-items:center;
   gap:8px;
   font-size:12px;
-  color:#166534;
+  color:var(--jx-tool-ok-text);
   padding:8px 10px;
   background:rgba(34,197,94,.07);
   border:1px solid rgba(34,197,94,.20);
@@ -1330,7 +1353,7 @@
   max-height:320px;
   overflow:auto;
   padding:8px 10px;
-  background:rgba(15,23,42,.025);
+  background:color-mix(in srgb, var(--color-text) 2.5%, transparent);
   border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   border-radius:6px;
 }
@@ -1344,14 +1367,14 @@
   color:var(--color-text-tertiary);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   word-break:break-all;
-  background:rgba(15,23,42,.03);
+  background:color-mix(in srgb, var(--color-text) 3%, transparent);
   border-radius:4px;
   padding:2px 6px;
 }
 .jx-tr-filePreview{
   margin:0;
   padding:8px 10px;
-  background:rgba(15,23,42,.025);
+  background:color-mix(in srgb, var(--color-text) 2.5%, transparent);
   border:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
   border-radius:6px;
   font-size:12px;
@@ -1384,8 +1407,8 @@
   font-size:12px;
   color:color-mix(in srgb, var(--color-text) 76%, transparent);
   padding:4px 8px;
-  background:rgba(248,250,252,.95);
-  border:1px solid rgba(18,109,255,.12);
+  background:color-mix(in srgb, var(--color-bg-gray) 95%, transparent);
+  border:1px solid color-mix(in srgb, var(--color-primary) 12%, transparent);
   border-radius:4px;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -1394,8 +1417,8 @@
 
 /* ── 通用 JSON 展示（兜底） ─────────── */
 .jx-tr-jsonBlock{
-  background:rgba(248,250,252,1);
-  border:1px solid rgba(17,24,39,.09);
+  background:var(--color-bg-gray);
+  border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
   border-radius:6px;
   padding:10px;
   font-size:11.5px;
@@ -1409,8 +1432,8 @@
   white-space:pre;
 }
 .jx-tr-jsonBlock::-webkit-scrollbar{width:6px;height:6px;}
-.jx-tr-jsonBlock::-webkit-scrollbar-track{background:rgba(248,250,252,1);}
-.jx-tr-jsonBlock::-webkit-scrollbar-thumb{background:rgba(100,116,139,.30);border-radius:3px;}
+.jx-tr-jsonBlock::-webkit-scrollbar-track{background:var(--color-bg-gray);}
+.jx-tr-jsonBlock::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-drag);border-radius:3px;}
 
 
 /* Thinking Section — 旧版兼容样式（历史消息） */
@@ -1526,14 +1549,14 @@
   overflow-y:auto;
 }
 .jx-thinkingContent::-webkit-scrollbar{width:5px}
-.jx-thinkingContent::-webkit-scrollbar-thumb{background:rgba(148,163,184,.60);border-radius:3px}
+.jx-thinkingContent::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-drag);border-radius:3px}
 
 /* 思考中旋转动画 */
 .jx-thinkingSpinner{
   width:12px;
   height:12px;
   border:2px solid color-mix(in srgb, var(--color-text-placeholder) 50%, transparent);
-  border-top-color:rgba(71,85,105,.86);
+  border-top-color:color-mix(in srgb, var(--color-text-secondary) 86%, transparent);
   border-radius:50%;
   animation:jxThinkSpin .8s linear infinite;
   flex-shrink:0;
@@ -1565,6 +1588,13 @@
 @keyframes jxBrandSettle{
   from{opacity:0;transform:scale(.85);}
   to  {opacity:1;transform:scale(1);}
+}
+/* 深色下把「已完成」定格标记提亮一档。
+   它是一张单一色值（slate-400 #94A3B8）铺满的 PNG，CSS 改不了图里的颜色，只能上滤镜；
+   ×1.15 后约 #AABBD4，与旁边的浅色文字同一亮度带，仍明显区别于运行中的品牌蓝动图。
+   ⚠️ 只作用于 --done：运行中的动图保持原样，不要给 .jx-brandLoader 本体加滤镜。 */
+:root[data-theme="dark"] .jx-brandLoader--done{
+  filter:brightness(1.15);
 }
 
 /* ── Inline summary row ────────────────── */
@@ -1602,6 +1632,16 @@
 .jx-inlineSummary:hover .jx-inlineSummaryArrow{
   color:color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
 }
+/* 深色下这行「已深度思考 N 秒 / 已调用 N 个工具」的折叠摘要要抬一档。
+   浅色档用 --color-text-placeholder 是对的（安静、不抢正文）；但深色档该令牌是 #5F6B7D，
+   本职是输入框占位符，拿来当说明文字压在暗底上只有 2.65 的对比度（箭头 1.94），低于可读下限。
+   换成 --color-text-tertiary 后约 4.9 / 3.5，仍是最安静的一档，但看得清。浅色不动。 */
+:root[data-theme="dark"] .jx-inlineSummaryText{
+  color:color-mix(in srgb, var(--color-text-tertiary) 92%, transparent);
+}
+:root[data-theme="dark"] .jx-inlineSummaryArrow{
+  color:color-mix(in srgb, var(--color-text-tertiary) 70%, transparent);
+}
 
 /* ── Tool timeline (Canvas panel body) ─── */
 .jx-toolTimeline{
@@ -1616,7 +1656,7 @@
   position:absolute;
   left:5px;top:8px;bottom:8px;
   width:2px;
-  background:rgba(148,163,184,.22);
+  background:color-mix(in srgb, var(--color-text-placeholder) 42%, transparent);
   border-radius:1px;
 }
 .jx-toolTimelineStep{
@@ -1630,7 +1670,7 @@
   transition:background .12s;
 }
 .jx-toolTimelineStep:hover{
-  background:rgba(241,245,249,.7);
+  background:color-mix(in srgb, var(--color-bg-gray) 70%, transparent);
 }
 .jx-toolTimelineStep.active{
   background:rgba(59,130,246,.06);
@@ -1717,7 +1757,7 @@
 /* ── Card Container ── */
 .jx-ce-card{
   background:var(--color-bg-container);
-  border:1px solid rgba(18,109,255,.14);
+  border:1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);
   border-radius:12px;
   box-shadow:0 2px 8px rgba(17,24,39,.03);
   overflow:hidden;
@@ -1738,7 +1778,7 @@
   user-select:none;
 }
 .jx-ce-cardHeader:hover{
-  background:rgba(18,109,255,.04);
+  background:color-mix(in srgb, var(--color-primary) 4%, transparent);
 }
 .jx-ce-cardHeaderLeft{
   display:flex;
@@ -1796,7 +1836,7 @@
   opacity:1;
 }
 .jx-ce-cardActionBtn:hover{
-  background:rgba(18,109,255,.08);
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
   color:var(--color-primary);
 }
 .jx-ce-cardArrow{
@@ -1807,7 +1847,7 @@
 
 /* Card body */
 .jx-ce-cardBody{
-  border-top:1px solid rgba(18,109,255,.08);
+  border-top:1px solid color-mix(in srgb, var(--color-primary) 8%, transparent);
   padding:10px 12px 12px;
   display:flex;
   flex-direction:column;
@@ -1819,9 +1859,9 @@
 .jx-cap{
   --ce-mono:'Menlo','Consolas','Monaco','Liberation Mono','Courier New',monospace;
   --ce-code-bg:var(--color-bg-layout);
-  --ce-code-border:rgba(18,109,255,.10);
-  --ce-line-num:#b0b8c4;
-  --ce-line-border:rgba(18,109,255,.06);
+  --ce-code-border:color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --ce-line-num:var(--color-text-placeholder);
+  --ce-line-border:color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
 /* ── Code Section ── */
@@ -1838,7 +1878,7 @@
   align-items:center;
   justify-content:space-between;
   padding:5px 10px;
-  background:rgba(18,109,255,.03);
+  background:color-mix(in srgb, var(--color-primary) 3%, transparent);
   border-bottom:1px solid var(--ce-line-border);
   min-height:30px;
 }
@@ -1888,7 +1928,7 @@
   transition:background .12s,color .12s;
 }
 .jx-ce-barBtn:hover{
-  background:rgba(18,109,255,.08);
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
   color:var(--color-primary);
 }
 .jx-ce-barBtn--copied{
@@ -1905,8 +1945,8 @@
   overflow:auto;
 }
 /* width set by global variables.css (6px for code areas); only override color */
-.jx-ce-codeWrap::-webkit-scrollbar-thumb{background:rgba(18,109,255,.12);}
-.jx-ce-codeWrap::-webkit-scrollbar-thumb:hover{background:rgba(18,109,255,.22);}
+.jx-ce-codeWrap::-webkit-scrollbar-thumb{background:color-mix(in srgb, var(--color-primary) 12%, transparent);}
+.jx-ce-codeWrap::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb, var(--color-primary) 22%, transparent);}
 
 /* Line numbers */
 .jx-ce-lineNums{
@@ -2029,7 +2069,7 @@
 }
 .jx-ce-stdout::-webkit-scrollbar{width:5px;}
 .jx-ce-stdout::-webkit-scrollbar-track{background:transparent;}
-.jx-ce-stdout::-webkit-scrollbar-thumb{background:rgba(0,0,0,.06);border-radius:3px;}
+.jx-ce-stdout::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:3px;}
 
 .jx-ce-stderr{
   margin:0;
@@ -2069,7 +2109,7 @@
 }
 .jx-ce-imageCard:hover{
   box-shadow:var(--shadow-card-hover);
-  border-color:rgba(18,109,255,.18);
+  border-color:color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 .jx-ce-imageThumb{
   display:block;
@@ -2170,7 +2210,7 @@
   opacity:1;
 }
 .jx-ce-filePreviewBtn:hover{
-  background:rgba(18,109,255,.08);
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
   color:var(--color-primary);
 }
 
@@ -2223,7 +2263,7 @@
   transition:background .12s;
 }
 .jx-ms-listItem:hover{
-  background:rgba(18,109,255,.04);
+  background:color-mix(in srgb, var(--color-primary) 4%, transparent);
 }
 .jx-ms-fileIcon{
   font-size:13px;
@@ -2266,7 +2306,7 @@
   padding:4px 6px;
   border-radius:6px;
 }
-.jx-ms-msgItem--user{ background:rgba(18,109,255,.04); }
+.jx-ms-msgItem--user{ background:color-mix(in srgb, var(--color-primary) 4%, transparent); }
 .jx-ms-msgRole{
   font-size:11px;
   font-weight:600;

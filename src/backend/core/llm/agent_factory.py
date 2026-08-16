@@ -80,6 +80,7 @@ _BATCH_MODE_HINT = (
     "确认后系统会自动逐条执行并把结果实时推送给用户，无需你重复调用。\n"
     "若请求确实只针对单一对象/单一概念，再走普通回答即可。\n"
 )
+
 from orchestration.registry import AgentSpec
 
 load_dotenv()
@@ -90,6 +91,32 @@ load_dotenv()
 # cancel-scope warnings that come with each failed cleanup.
 _HTTP_MCP_FAIL_AT: Dict[str, float] = {}
 _HTTP_MCP_FAIL_COOLDOWN_S = 60.0
+
+
+def _render_turn_budget_hint(max_iters: int) -> str:
+    """Tell an agent that *does* have a turn budget how to spend it.
+
+    Stating the budget up front is cheaper than shouting about it at the end:
+    the wrap-up reminder (:class:`IterBudgetReminderMiddleware`) can only ask a
+    loop that already burned its rounds one tool at a time to salvage
+    something, while this changes how the rounds get spent in the first place.
+    Parallel fan-out within one round is the lever — a round is one reasoning
+    step, not one tool call, so the budget binds serial round-trips, never the
+    total number of tool calls.
+
+    Only rendered where a bound actually exists (sub-agents, turbo, custom
+    agents, an explicit operator cap). The main agent is unbounded and must not
+    be told otherwise — a false scarcity claim would make it cut work short.
+    """
+    return (
+        "\n\n## 轮次预算\n"
+        f"本次运行最多 {max_iters} 轮「推理 → 工具调用」。一轮里可以同时发起任意多个"
+        "工具调用，所以受限的是串行往返次数，不是工具调用总数。\n"
+        "- 先想清楚需要哪些信息，再**在同一轮里并行发起**全部彼此独立的调用"
+        "（一次读多个文件、一次检索多个关键词），不要一轮只调一个。\n"
+        "- 只有后一步的参数确实要等前一步的结果时，才分成下一轮。\n"
+        "- 同一个操作连续失败两次就换思路或如实报告，不要用剩余轮次反复重试。\n"
+    )
 
 
 def _effective_mcp_server_keys(
@@ -2053,13 +2080,29 @@ async def create_agent_executor(
     # toolkit.get_agent_skill_prompt(), so no separate hook is needed.
 
     # ── Resolve agent name and max_iters ──
-    _DEFAULT_MAIN_ITERS = 50
+    #
+    # **The main agent has no turn cap.** A fixed round ceiling bounds the wrong
+    # axis: what a long task actually exhausts is context, not rounds, and any
+    # number picked here is simultaneously too low for report-scale work and too
+    # high to catch a genuine runaway. Neither of the two things a cap was
+    # supposed to buy needs it:
+    #   - runaway protection lives in the chat-run watchdog, which can see
+    #     wall-clock and output (CHAT_RUN_INACTIVITY_TIMEOUT_SEC /
+    #     CHAT_RUN_MAX_AGE_SEC / CHAT_RUN_HARD_MAX_AGE_SEC reap silent and
+    #     immortal runs regardless of how many rounds they took);
+    #   - context exhaustion is handled by compaction.
+    # ``_UNBOUNDED_ITERS`` is a loop backstop, not a budget — AgentScope's
+    # ReActConfig needs an int, and this one sits far above any real turn.
+    #
+    # Bounded budgets survive only where the bound is a deliberate contract:
+    # sub-agents (a delegated task that must come back), turbo's quick-lookup
+    # cap, a custom agent's own ``max_iters``, a published profile's turn
+    # budget, and the CHAT_MAIN_MAX_ITERS opt-in for operators who do want the
+    # main agent fenced.
+    _UNBOUNDED_ITERS = 100_000
     _DEFAULT_SUBAGENT_ITERS = 10
     _agent_name = "hugagent_agent"
-    # The active profile's turn budget governs the main agent. The built-in
-    # profile carries the same 50 this used, so resolution is a no-op until a
-    # profile is published.
-    _max_iters = profile.max_react_turns if user_agent is None else _DEFAULT_MAIN_ITERS
+    _max_iters = _UNBOUNDED_ITERS
     if max_iters is not None:
         _max_iters = max_iters
     elif user_agent is not None:
@@ -2067,15 +2110,20 @@ async def create_agent_executor(
             f"subagent_{user_agent.agent_id}" if isolated else f"agent_{user_agent.agent_id}"
         )
         _max_iters = user_agent.max_iters or (
-            _DEFAULT_SUBAGENT_ITERS if isolated else _DEFAULT_MAIN_ITERS
+            _DEFAULT_SUBAGENT_ITERS if isolated else _UNBOUNDED_ITERS
         )
     elif isolated:
         _max_iters = _DEFAULT_SUBAGENT_ITERS
     else:
-        # Main-agent env override for long-running tasks. Wins over the profile
-        # value: the profile validation range tops out at 80 turns, far below
-        # what e.g. a multi-hour report-generation run needs (container restart
-        # required to change, like all env config).
+        # Both main-agent caps are opt-in and absent by default: the built-in
+        # profile now carries 0 ("no cap"), so profile resolution only bounds the
+        # loop when someone publishes a profile that deliberately sets a turn
+        # budget. The env override still wins over it — the profile validation
+        # range tops out at 80 turns, far below what e.g. a multi-hour
+        # report-generation run needs (container restart required to change,
+        # like all env config).
+        if profile.max_react_turns:
+            _max_iters = profile.max_react_turns
         from core.config.settings import _env, _int
 
         _env_iters = _int(_env("CHAT_MAIN_MAX_ITERS"), 0)
@@ -2095,6 +2143,13 @@ async def create_agent_executor(
             _max_iters = min(_max_iters, turbo_max_iters())
         # else: 开了代码执行位且模式没配上限 → 不套极速的检索档硬顶（默认 4 轮
         # 会把跑代码的任务掐死），按 profile/env 的常规上限走。
+
+    # Budget spending policy, injected only where a budget exists. Appended last
+    # so it sees the final number after every narrowing above (turbo included);
+    # skipped without tools, where "spend your rounds on parallel calls" has
+    # nothing to describe.
+    if _max_iters < _UNBOUNDED_ITERS and not disable_tools:
+        system_prompt += _render_turn_budget_hint(_max_iters)
 
     # ── Create the Agent (AgentScope 2.0) ──
     # Note: long_term_memory is not passed — mem0 is fully stripped from the SSE

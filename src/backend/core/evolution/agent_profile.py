@@ -90,8 +90,13 @@ ALLOWED_ACTIONS = (
 # out-of-range value hides the fact that something proposed it.
 MIN_BUDGET_MULTIPLIER = 0.25
 MAX_BUDGET_MULTIPLIER = 3.0
+# 0 is the default and means "no turn cap" — the main agent is unbounded unless
+# a published profile deliberately fences it. Any other value must land in the
+# band below; the band starts at 3 because a 1-2 turn main agent cannot finish a
+# single tool round-trip.
 MIN_REACT_TURNS = 3
 MAX_REACT_TURNS = 80
+UNBOUNDED_REACT_TURNS = 0
 MIN_MEMORY_BUDGET_MS = 100
 MAX_MEMORY_BUDGET_MS = 5000
 MIN_LOOP_ATTEMPTS = 2
@@ -178,7 +183,10 @@ class AgentProfile:
     subagent_routes: List[SubagentRoute] = field(default_factory=list)
 
     memory_budget_ms: int = 600
-    max_react_turns: int = 50
+    # 0 = 不限（默认）。See UNBOUNDED_REACT_TURNS: the main agent's round ceiling
+    # was removed, so a turn budget here is an opt-in narrowing a published
+    # profile performs deliberately, not a floor every profile inherits.
+    max_react_turns: int = UNBOUNDED_REACT_TURNS
     budget_multiplier: float = 1.0
     reviewer_checkpoints: List[str] = field(default_factory=list)
     intervention_rules: List[InterventionRule] = field(default_factory=list)
@@ -225,7 +233,10 @@ class AgentProfile:
                 SubagentRoute.from_dict(r) for r in (raw.get("subagent_routes") or [])
             ],
             memory_budget_ms=int(raw.get("memory_budget_ms") or 600),
-            max_react_turns=int(raw.get("max_react_turns") or 20),
+            # Missing key → unbounded, not an invented ceiling: a profile
+            # published for unrelated reasons (tool allowlist, memory budget)
+            # must not silently re-fence the main loop.
+            max_react_turns=int(raw.get("max_react_turns") or UNBOUNDED_REACT_TURNS),
             budget_multiplier=float(raw.get("budget_multiplier") or 1.0),
             reviewer_checkpoints=[str(c) for c in (raw.get("reviewer_checkpoints") or [])],
             intervention_rules=[
@@ -253,11 +264,10 @@ def builtin_profile() -> AgentProfile:
         version="v0",
         tool_allowlist=None,
         memory_budget_ms=600,
-        # The main agent's existing cap, reproduced exactly. Installing profile
-        # resolution must change nothing until a profile is published; a
-        # "sensible default" here would be a behaviour change disguised as a
-        # refactor.
-        max_react_turns=50,
+        # The main agent's runtime default, reproduced exactly — which is now
+        # "no cap". This field only bounds the loop when a published profile
+        # sets it on purpose.
+        max_react_turns=UNBOUNDED_REACT_TURNS,
         budget_multiplier=1.0,
         loop_max_attempts_per_requirement=6,
         loop_strategy_change_after=2,
@@ -323,9 +333,12 @@ def validate_profile(
             f"预算倍数 {profile.budget_multiplier} 超出 "
             f"[{MIN_BUDGET_MULTIPLIER}, {MAX_BUDGET_MULTIPLIER}]"
         )
-    if not (MIN_REACT_TURNS <= profile.max_react_turns <= MAX_REACT_TURNS):
+    if profile.max_react_turns != UNBOUNDED_REACT_TURNS and not (
+        MIN_REACT_TURNS <= profile.max_react_turns <= MAX_REACT_TURNS
+    ):
         problems.append(
-            f"最大轮数 {profile.max_react_turns} 超出 [{MIN_REACT_TURNS}, {MAX_REACT_TURNS}]"
+            f"最大轮数 {profile.max_react_turns} 超出 "
+            f"[{MIN_REACT_TURNS}, {MAX_REACT_TURNS}]（{UNBOUNDED_REACT_TURNS} 表示不限）"
         )
     if not (MIN_MEMORY_BUDGET_MS <= profile.memory_budget_ms <= MAX_MEMORY_BUDGET_MS):
         problems.append(

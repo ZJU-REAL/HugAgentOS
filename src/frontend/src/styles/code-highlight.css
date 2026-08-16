@@ -1,0 +1,112 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   highlight.js 深色调色板（github-dark）
+
+   App.tsx 全局 `import 'highlight.js/styles/github.css'` 引入的是**固定浅色**主题，
+   其中 `.hljs{color:#24292e;background:#ffffff}` 会给 <code> 元素本身刷一块白底深字，
+   盖住外层容器（气泡 pre / 工具卡展开体 / JSON 块）已经做好的深色底 —— 深色模式下
+   凡是渲染代码块的地方都会出现「白块 + 黑字」。
+
+   这里按 github-dark 的官方色板重写同一批 token 类，选择器统一带 `:root[data-theme="dark"]`
+   前缀：特异性 (0,2,0) 高于 github.css 的 (0,1,0)，因此不依赖两份 CSS 的注入先后顺序。
+   底色一律 transparent —— 让容器自己的语义令牌底透出来，代码块才能和卡片融为一体。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="dark"] .hljs{
+  color:#C9D1D9;
+  background:transparent;
+}
+
+/* prettylights-syntax-keyword */
+:root[data-theme="dark"] .hljs-doctag,
+:root[data-theme="dark"] .hljs-keyword,
+:root[data-theme="dark"] .hljs-meta .hljs-keyword,
+:root[data-theme="dark"] .hljs-template-tag,
+:root[data-theme="dark"] .hljs-template-variable,
+:root[data-theme="dark"] .hljs-type,
+:root[data-theme="dark"] .hljs-variable.language_{
+  color:#FF7B72;
+}
+
+/* prettylights-syntax-entity */
+:root[data-theme="dark"] .hljs-title,
+:root[data-theme="dark"] .hljs-title.class_,
+:root[data-theme="dark"] .hljs-title.class_.inherited__,
+:root[data-theme="dark"] .hljs-title.function_{
+  color:#D2A8FF;
+}
+
+/* prettylights-syntax-constant */
+:root[data-theme="dark"] .hljs-attr,
+:root[data-theme="dark"] .hljs-attribute,
+:root[data-theme="dark"] .hljs-literal,
+:root[data-theme="dark"] .hljs-meta,
+:root[data-theme="dark"] .hljs-number,
+:root[data-theme="dark"] .hljs-operator,
+:root[data-theme="dark"] .hljs-variable,
+:root[data-theme="dark"] .hljs-selector-attr,
+:root[data-theme="dark"] .hljs-selector-class,
+:root[data-theme="dark"] .hljs-selector-id{
+  color:#79C0FF;
+}
+
+/* prettylights-syntax-string */
+:root[data-theme="dark"] .hljs-regexp,
+:root[data-theme="dark"] .hljs-string,
+:root[data-theme="dark"] .hljs-meta .hljs-string{
+  color:#A5D6FF;
+}
+
+/* prettylights-syntax-variable */
+:root[data-theme="dark"] .hljs-built_in,
+:root[data-theme="dark"] .hljs-symbol{
+  color:#FFA657;
+}
+
+/* prettylights-syntax-comment */
+:root[data-theme="dark"] .hljs-comment,
+:root[data-theme="dark"] .hljs-code,
+:root[data-theme="dark"] .hljs-formula{
+  color:#8B949E;
+}
+
+/* prettylights-syntax-entity-tag */
+:root[data-theme="dark"] .hljs-name,
+:root[data-theme="dark"] .hljs-quote,
+:root[data-theme="dark"] .hljs-selector-tag,
+:root[data-theme="dark"] .hljs-selector-pseudo{
+  color:#7EE787;
+}
+
+:root[data-theme="dark"] .hljs-subst{
+  color:#C9D1D9;
+}
+
+/* prettylights-syntax-markup-heading */
+:root[data-theme="dark"] .hljs-section{
+  color:#58A6FF;
+  font-weight:bold;
+}
+
+/* prettylights-syntax-markup-list */
+:root[data-theme="dark"] .hljs-bullet{
+  color:#F2CC60;
+}
+
+:root[data-theme="dark"] .hljs-emphasis{
+  color:#C9D1D9;
+  font-style:italic;
+}
+:root[data-theme="dark"] .hljs-strong{
+  color:#C9D1D9;
+  font-weight:bold;
+}
+
+/* diff 增删行：底色本身就是深色，直接沿用 github-dark */
+:root[data-theme="dark"] .hljs-addition{
+  color:#AFF5B4;
+  background-color:#033A16;
+}
+:root[data-theme="dark"] .hljs-deletion{
+  color:#FFDCD7;
+  background-color:#67060C;
+}

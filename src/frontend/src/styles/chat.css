@@ -598,12 +598,31 @@
   color:transparent;
   animation:jx-kf-shimmer 1.6s linear infinite;
 }
+/* 深色下把流光方向掰回来：上面那条渐变是「slate-400 打底 + slate-600 高光」，
+   靠"把字压暗"做高光——浅色底成立，暗底上就完全反了，高光处 (#475569) 对比度不到 2，
+   于是「深度拥抱中…」会朝着看不见的方向脉动。深色档改成暗→亮，高光才是最亮的一点。 */
+:root[data-theme="dark"] .jx-turnStatus-label{
+  background-image:linear-gradient(90deg,
+    color-mix(in srgb, var(--color-text) 52%, transparent) 0%,
+    color-mix(in srgb, var(--color-text) 96%, transparent) 50%,
+    color-mix(in srgb, var(--color-text) 52%, transparent) 100%);
+  background-size:200% 100%;
+  /* ⚠️ 必须用 background-image 而不是 background 简写：简写会把 background-clip 一并
+     重置回 border-box，这行字正是靠 clip:text 把渐变裁进字形的，重置后整行会变成一块
+     实心灰方块、文字消失（已踩）。这两行是保险，即便将来改回简写也不至于塌掉。 */
+  -webkit-background-clip:text;
+  background-clip:text;
+}
 .jx-turnStatus-clock{
   margin-left:2px;
   font-size:12px;
   font-weight:400;
   font-variant-numeric:tabular-nums;
   color:var(--color-text-placeholder);
+}
+/* 与折叠摘要同理：placeholder 令牌在深色档只有 2.65 对比度，计时数字看不清 */
+:root[data-theme="dark"] .jx-turnStatus-clock{
+  color:var(--color-text-tertiary);
 }
 
 
@@ -4162,8 +4181,8 @@ textarea.jx-composer{
 .jx-deploySwitcherMenu {
   position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
   min-width: 288px; z-index: 50; padding: 6px;
-  background: var(--color-bg-white, #fff);
-  border: 1px solid var(--color-border, #e5e6eb);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.14);
 }
 .jx-deploySwitcherGroup {
@@ -4187,7 +4206,7 @@ textarea.jx-composer{
 
 /* Local permissions modal (ticket #06) */
 .jx-localPermOverlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
-.jx-localPermModal { width: 520px; max-width: 92vw; max-height: 82vh; overflow: auto; background: var(--color-bg-white, #fff); color: var(--color-text, #1d2129); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }
+.jx-localPermModal { width: 520px; max-width: 92vw; max-height: 82vh; overflow: auto; background: var(--color-bg-elevated); color: var(--color-text); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }
 .jx-localPermHead { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; font-size: 16px; font-weight: 600; border-bottom: 1px solid var(--color-border, #e5e6eb); }
 .jx-localPermClose { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--color-text-tertiary, #86909c); }
 .jx-localPermSection { padding: 14px 18px; border-bottom: 1px solid var(--color-border, var(--color-border)); }
@@ -4201,7 +4220,7 @@ textarea.jx-composer{
 .jx-localPermAdd { margin-top: 8px; border: 1px dashed var(--color-border, #c9cdd4); background: transparent; color: var(--color-primary, #165dff); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
 .jx-localPermPolicyRow { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; }
 .jx-localPermPolicyLabel { font-size: 13px; }
-.jx-localPermSelect { font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--color-border, #c9cdd4); background: var(--color-bg-white, #fff); color: var(--color-text, #1d2129); }
+.jx-localPermSelect { font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg-container); color: var(--color-text); }
 /* 项目框旁的本机操作权限档胶囊（桌面壳本机模式） */
 .jx-approvalPillBtn .jx-approvalPillIcon { font-size: 13px; line-height: 1; flex-shrink: 0; }
 .jx-approvalMenu .ant-dropdown-menu { min-width: 248px; }
