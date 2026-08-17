@@ -6,8 +6,10 @@ Keep it focused: one tool per folder.
 
 from __future__ import annotations
 
+import random
 import re
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
@@ -56,13 +58,47 @@ def _get_httpx_client() -> httpx.Client:
     return _httpx_client
 
 
+# 上游限流退避：批量作业会把搜索打到并发上限，实测 LangSearch 有超过三成请求直接 429
+# （239 次调用里 86 次），而一次 429 就让整轮子智能体判定"未取得证据"、该工作项记 failed。
+# 单次请求的成本远低于重跑整项，所以这里必须自己扛住短时限流，别把它冒泡成业务失败。
+_RETRY_STATUSES = (429, 500, 502, 503, 504)
+_MAX_RETRIES = 3
+
+
+def _post_with_backoff(url: str, *, headers: dict, json: dict) -> httpx.Response:
+    """POST 搜索上游，遇限流/瞬时 5xx 按 Retry-After 或指数退避重试。
+
+    抖动是必需的：作业里 N 个并发工作项会被同一个 429 同时弹回，不抖动就会整齐划一地
+    再撞一次，退避等于没做。
+    """
+    delay = 1.0
+    last: httpx.Response | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        resp = _get_httpx_client().post(url, headers=headers, json=json)
+        if resp.status_code not in _RETRY_STATUSES:
+            return resp
+        last = resp
+        if attempt == _MAX_RETRIES:
+            break
+        wait = delay
+        after = resp.headers.get("Retry-After")
+        if after:
+            try:
+                wait = max(wait, float(after))
+            except ValueError:
+                pass
+        time.sleep(min(wait, 20.0) + random.uniform(0, 0.75))
+        delay *= 2
+    return last if last is not None else resp
+
+
 def _baidu_search(query: str, max_results: int = 5) -> dict:
     """Call Baidu AI Search API and return results in Tavily-compatible format."""
     api_key = (get_runtime_value("BAIDU_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError("BAIDU_API_KEY is missing")
 
-    resp = _get_httpx_client().post(
+    resp = _post_with_backoff(
         BAIDU_SEARCH_URL,
         headers={
             "Content-Type": "application/json",
@@ -105,7 +141,7 @@ def _langsearch_search(query: str, max_results: int = 5) -> dict:
         raise RuntimeError("LANGSEARCH_API_KEY is missing")
 
     count = min(max(max_results, 1), 10)
-    resp = _get_httpx_client().post(
+    resp = _post_with_backoff(
         LANGSEARCH_SEARCH_URL,
         headers={
             "Authorization": f"Bearer {api_key}",
