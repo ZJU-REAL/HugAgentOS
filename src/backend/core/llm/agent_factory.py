@@ -1771,6 +1771,11 @@ async def create_agent_executor(
             system_prompt += _BATCH_MODE_HINT
             _log.info("[factory] +%s batch mode hint injected", _elapsed())
 
+        # ── Inject workflow-mode hint (user explicitly entered workflow mode) ──
+        if workflow_mode:
+            system_prompt += _WORKFLOW_MODE_HINT
+            _log.info("[factory] +%s workflow mode hint injected", _elapsed())
+
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:
             from core.llm.builtin_subagents import refresh_builtin_subagents

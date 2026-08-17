@@ -2,6 +2,7 @@ import type { ChatItem } from '../types';
 
 type PlanModeChat = Pick<ChatItem, 'planChat' | 'planModeActive'>;
 type BatchModeChat = Pick<ChatItem, 'batchChat' | 'batchModeActive'>;
+type WorkflowModeChat = Pick<ChatItem, 'workflowChat' | 'workflowModeActive'>;
 
 /** Resolve the composer routing mode independently from the chat's historical plan marker. */
 export function resolvePlanModeActive(chat?: PlanModeChat): boolean {

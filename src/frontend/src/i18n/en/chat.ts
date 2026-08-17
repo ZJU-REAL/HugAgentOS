@@ -283,6 +283,7 @@ export const CHAT_DICT: Record<string, string> = {
   '删除失败，请重试': 'Delete failed — please retry',
   '松开即可添加为附件': 'Release to attach the files',
   // Job bar: the background batch job running above the composer.
+  '模式': 'Mode',
   '后台作业': 'Background job',
   '批量作业': 'Batch job',
   '失败 {n}': '{n} failed',

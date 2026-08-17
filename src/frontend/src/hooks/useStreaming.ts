@@ -5,7 +5,7 @@ import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, 
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
-import { resolveBatchModeActive } from '../utils/chatMode';
+import { resolveBatchModeActive, resolveWorkflowModeActive } from '../utils/chatMode';
 import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
@@ -340,6 +340,7 @@ export function useStreaming(
           ...(chat.agentName ? { agent_name: chat.agentName } : {}),
           ...(chat.planChat ? { plan_chat: true } : {}),
           ...(chat.batchChat ? { batch_chat: true } : {}),
+          ...(chat.workflowChat ? { workflow_chat: true } : {}),
           title_manually_set: true,
         },
       }),
@@ -513,6 +514,7 @@ export function useStreaming(
       const currentChat = useChatStore.getState().store.chats[currentChatId];
       const agentId = (currentChat as any)?.agentId || undefined;
       const batchChat = resolveBatchModeActive(currentChat);
+      const workflowChat = resolveWorkflowModeActive(currentChat);
       const modelCaps = useModelCapabilitiesStore.getState();
       const selectedModelProviderId = modelCaps.capabilities.user_model_switch_enabled
         ? modelCaps.selectedModelProviderId
@@ -572,6 +574,7 @@ export function useStreaming(
             mention_name: currentMention.name,
           } : {}),
           ...(batchChat ? { batch_chat: true } : {}),
+          ...(workflowChat ? { workflow_chat: true } : {}),
           // Project mount: read from the chat's own projectId (the frontend binds it when
           // creating/fetching the session). When the chat has no bound project, fall back to
           // useProjectStore.currentProjectId — this only applies to the first message sent while

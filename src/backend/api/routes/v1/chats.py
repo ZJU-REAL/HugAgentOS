@@ -788,6 +788,7 @@ def _build_ctx(
         "plugin_name": request.plugin_name,
         "plan_chat": request.plan_chat,
         "batch_chat": request.batch_chat,
+        "workflow_chat": request.workflow_chat,
         "disable_batch_plan": request.disable_batch_plan,
         **project_ctx,
     }
@@ -803,6 +804,7 @@ def _ensure_chat_session(
     agent_name: Optional[str] = None,
     plan_chat: bool = False,
     batch_chat: bool = False,
+    workflow_chat: bool = False,
     project_id: Optional[str] = None,
 ):
     extra_data: Dict[str, Any] = {"chat_id": chat_id}
@@ -814,6 +816,8 @@ def _ensure_chat_session(
         extra_data["plan_chat"] = True
     if batch_chat:
         extra_data["batch_chat"] = True
+    if workflow_chat:
+        extra_data["workflow_chat"] = True
     # Prefer the edition-aware access resolver before creating a session.
     pair = chat_service.get_session_with_access(chat_id, user_id)
     if pair is not None:
@@ -849,6 +853,9 @@ def _ensure_chat_session(
         dirty = True
     if batch_chat and not existing_meta.get("batch_chat"):
         merged["batch_chat"] = True
+        dirty = True
+    if workflow_chat and not existing_meta.get("workflow_chat"):
+        merged["workflow_chat"] = True
         dirty = True
     if dirty:
         chat_service.update_session(chat_id, user_id, {"extra_data": merged})
@@ -928,6 +935,7 @@ async def chat_send(
             agent_name=_agent_name,
             plan_chat=request.plan_chat,
             batch_chat=request.batch_chat,
+            workflow_chat=request.workflow_chat,
             project_id=request.project_id,
         )
         # Link orphan artifacts (uploaded before session existed) to this chat
@@ -1129,6 +1137,7 @@ async def chat_stream(
         agent_name=_agent_name_stream,
         plan_chat=request.plan_chat,
         batch_chat=request.batch_chat,
+        workflow_chat=request.workflow_chat,
         project_id=request.project_id,
     )
 

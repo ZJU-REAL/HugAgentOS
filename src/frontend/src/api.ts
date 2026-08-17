@@ -253,6 +253,7 @@ function toChatItem(raw: JsonObject): ChatItem {
     agentName: typeof metadata.agent_name === 'string' ? metadata.agent_name : undefined,
     planChat: metadata.plan_chat === true ? true : undefined,
     batchChat: metadata.batch_chat === true ? true : undefined,
+    workflowChat: metadata.workflow_chat === true ? true : undefined,
     projectId: typeof raw.project_id === 'string' && raw.project_id ? raw.project_id : undefined,
   };
 }
