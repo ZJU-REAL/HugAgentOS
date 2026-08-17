@@ -105,7 +105,7 @@ export function LarkAppInitCard() {
               <img
                 src={status.qr_data_uri}
                 alt={t('飞书应用配置二维码')}
-                style={{ width: 160, height: 160, background: '#fff', padding: 8, borderRadius: 8 }}
+                style={{ width: 160, height: 160, background: 'var(--color-bg-container)', padding: 8, borderRadius: 8 }}
               />
             )}
             <Space direction="vertical" size={8} style={{ flex: 1, minWidth: 200 }}>

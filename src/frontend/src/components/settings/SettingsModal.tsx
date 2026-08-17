@@ -1166,7 +1166,7 @@ function renderProfileTab(profile: import('../../types').MemoryProfile | null) {
       </div>
       <div
         style={{
-          padding: 12, background: '#FAFAFA', borderRadius: 6,
+          padding: 12, background: 'var(--color-bg-gray)', borderRadius: 6,
           maxHeight: 400, overflow: 'auto', fontSize: 13, lineHeight: 1.7,
         }}
         dangerouslySetInnerHTML={{ __html: mdToHtml(profile.content_md) }}

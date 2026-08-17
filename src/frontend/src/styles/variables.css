@@ -69,6 +69,27 @@
   --color-icon-green:#02B589;
   --color-icon-orange:#F8AB42;
 
+  /* ── 分类色（tint pair：浅底 + 同色系深字）──
+   * 用途：技能 / 插件 / 模式 这类**只为区分类别**的胶囊、chip、徽标。
+   * 语义色（成功/警告/错误/主色）已有 --color-*-bg + --color-* 成对令牌，够用就别来这儿取。
+   * 为什么必须成对给：单给一个浅底色，深色模式下就是一块白斑——历史上 slash 命令面板、
+   * 技能/插件 chip 全踩过。深色档的对应值在文件末尾 :root[data-theme='dark'] 块里改写，
+   * 底变暗、字提亮，两边一起维护。 */
+  --color-tint-purple-bg:#EDE9FE;
+  --color-tint-purple:#6D28D9;
+  --color-tint-cyan-bg:#E0F2FE;
+  --color-tint-cyan:#0369A1;
+  --color-tint-teal-bg:#CCFBF1;
+  --color-tint-teal:#0F766E;
+  --color-tint-amber-bg:#FEF3C7;
+  --color-tint-amber:#B45309;
+  --color-tint-green-bg:#DCFCE7;
+  --color-tint-green:#166534;
+  --color-tint-red-bg:#FEE2E2;
+  --color-tint-red:#991B1B;
+  --color-tint-blue-bg:#DBEAFE;
+  --color-tint-blue:#1E40AF;
+
   /* ── 圆角 (4 级) ── */
   --radius-xs:6px;
   --radius-sm:10px;
@@ -202,6 +223,24 @@
   --color-icon-red:#FF6B6B;
   --color-icon-purple:#9578FF;
   --color-icon-green:#22C79D;
+
+  /* 分类色深色档：底翻成低透明度同色（透出容器底、不做白斑），字提亮到暗底可读 */
+  --color-tint-purple-bg:rgba(149,120,255,.18);
+  --color-tint-purple:#B9A5FF;
+  --color-tint-cyan-bg:rgba(56,170,255,.18);
+  --color-tint-cyan:#7CC7FF;
+  /* teal 与 green 在浅色档是两个可分辨的色相（青绿 vs 正绿），深色档也必须分开——
+     否则两个不同类别的胶囊在暗底下变成同一个颜色，令牌名给的区分承诺就落空了。 */
+  --color-tint-teal-bg:rgba(45,212,191,.18);
+  --color-tint-teal:#5EE7D5;
+  --color-tint-amber-bg:rgba(248,171,66,.18);
+  --color-tint-amber:#FFC97A;
+  --color-tint-green-bg:rgba(74,222,128,.18);
+  --color-tint-green:#86E5A0;
+  --color-tint-red-bg:rgba(255,107,107,.18);
+  --color-tint-red:#FF9A9A;
+  --color-tint-blue-bg:rgba(62,139,255,.20);
+  --color-tint-blue:#8FB9FF;
 
   /* 暗底上阴影加深，靠边框分层为主 */
   --shadow-card:

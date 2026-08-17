@@ -383,7 +383,7 @@ export function MyLogsPanel() {
                   <Tag color="blue">{stepItem.tool_calls_count ?? 0} {t('工具')}</Tag>
                 </Space>
                 {stepItem.output_content && (
-                  <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#555' }}>
+                  <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--color-text-secondary)' }}>
                     {stepItem.output_content.slice(0, 400)}
                     {stepItem.output_content.length > 400 ? '…' : ''}
                   </Paragraph>

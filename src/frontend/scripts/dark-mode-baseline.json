@@ -1,0 +1,178 @@
+{
+  "src/ApiDocApp.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/agent/AgentFormFields.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/agent/AgentMarketplaceModal.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/agent/AgentPanel.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/apidoc/ApiDocPanel.tsx": {
+    "js-inline-color": 6
+  },
+  "src/components/batch/BatchProgressPanel.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/catalog/CatalogPanel.tsx": {
+    "js-inline-color": 2
+  },
+  "src/components/catalog/LarkAppInitCard.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/catalog/McpPage.tsx": {
+    "js-inline-color": 2
+  },
+  "src/components/catalog/PluginIconPicker.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/catalog/PluginsPage.tsx": {
+    "js-inline-color": 11
+  },
+  "src/components/catalog/SkillMarketplaceModal.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/catalog/SkillsPage.tsx": {
+    "js-inline-color": 2
+  },
+  "src/components/chat/PromptHubPanel.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/common/DshIcons.tsx": {
+    "js-inline-color": 4
+  },
+  "src/components/common/MarketPickerModal.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/kb/ConceptGraph.tsx": {
+    "js-inline-color": 2
+  },
+  "src/components/kb/ReindexModal.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/kb/wikiGraphTheme.ts": {
+    "js-inline-color": 14
+  },
+  "src/components/lab/AutomationDetailPage.tsx": {
+    "js-inline-color": 3
+  },
+  "src/components/loop/loop.css": {
+    "css-literal-color": 4
+  },
+  "src/components/memory/FactsList.tsx": {
+    "js-inline-color": 4
+  },
+  "src/components/myspace/ImageGrid.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/onboarding/FirstRunSetup.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/ontology/OntologyManager.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/projects/ProjectCard.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/projects/ProjectDetailPanel.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/projects/ProjectMemoriesModal.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/settings/SettingsModal.tsx": {
+    "js-inline-color": 5
+  },
+  "src/components/share/ShareRecordsPage.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/sidebar/SearchModal.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/sidebar/Sidebar.tsx": {
+    "js-inline-color": 2
+  },
+  "src/components/tool/ToolOutputRenderer.tsx": {
+    "js-inline-color": 8
+  },
+  "src/components/tool/ToolResultPanel.tsx": {
+    "js-inline-color": 2
+  },
+  "src/components/tool/renderers/KBRenderer.tsx": {
+    "js-inline-color": 1
+  },
+  "src/components/tool/renderers/MySpaceRenderer.tsx": {
+    "js-inline-color": 4
+  },
+  "src/stores/authStore.ts": {
+    "js-inline-color": 1
+  },
+  "src/styles/admin.css": {
+    "css-literal-color": 1
+  },
+  "src/styles/automation-timeline.css": {
+    "css-literal-color": 6
+  },
+  "src/styles/automation.css": {
+    "css-literal-color": 8
+  },
+  "src/styles/canvas.css": {
+    "css-literal-color": 10
+  },
+  "src/styles/catalog.css": {
+    "css-literal-color": 115
+  },
+  "src/styles/chat.css": {
+    "css-literal-color": 112
+  },
+  "src/styles/common.css": {
+    "css-literal-color": 8
+  },
+  "src/styles/evolution.css": {
+    "css-literal-color": 7
+  },
+  "src/styles/kb-wiki.css": {
+    "css-literal-color": 5
+  },
+  "src/styles/mcp.css": {
+    "css-literal-color": 3
+  },
+  "src/styles/mobile.css": {
+    "css-literal-color": 34,
+    "css-var-literal-color": 1
+  },
+  "src/styles/myspace.css": {
+    "css-literal-color": 37
+  },
+  "src/styles/onboarding.css": {
+    "css-literal-color": 35
+  },
+  "src/styles/ontology.css": {
+    "css-literal-color": 36
+  },
+  "src/styles/plan.css": {
+    "css-literal-color": 8
+  },
+  "src/styles/search-modal.css": {
+    "css-literal-color": 4
+  },
+  "src/styles/settings.css": {
+    "css-literal-color": 22
+  },
+  "src/styles/sidebar.css": {
+    "css-literal-color": 34
+  },
+  "src/styles/sites.css": {
+    "css-literal-color": 1
+  },
+  "src/styles/team-folder.css": {
+    "css-literal-color": 10
+  },
+  "src/styles/tool.css": {
+    "css-literal-color": 32,
+    "css-var-literal-color": 5
+  }
+}

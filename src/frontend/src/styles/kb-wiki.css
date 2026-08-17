@@ -290,9 +290,9 @@
 }
 
 .jx-wikiTypeTag--entity { color: var(--color-primary); background: var(--color-primary-bg); }
-.jx-wikiTypeTag--concept { color: var(--color-success); background: #DFF5EE; }
-.jx-wikiTypeTag--summary { color: #C77B14; background: #FEF0DC; }
-.jx-wikiTypeTag--index { color: #7C5CFC; background: #EDE9FE; }
+.jx-wikiTypeTag--concept { color: var(--color-tint-teal); background: var(--color-tint-teal-bg); }
+.jx-wikiTypeTag--summary { color: var(--color-tint-amber); background: var(--color-tint-amber-bg); }
+.jx-wikiTypeTag--index { color: var(--color-tint-purple); background: var(--color-tint-purple-bg); }
 
 /* ── 阅读区 ───────────────────────────────────────────────────────────────── */
 

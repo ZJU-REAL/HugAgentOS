@@ -114,7 +114,7 @@ export default function AppCenterPanel() {
                       width: 28,
                       height: 28,
                       borderRadius: '50%',
-                      background: '#E3E6EA',
+                      background: 'var(--color-border)',
                     }}
                   />
                 )}

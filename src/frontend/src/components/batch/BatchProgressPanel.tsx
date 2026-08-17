@@ -77,7 +77,7 @@ function BatchItemBubble({ item }: {
           {item.status === 'success' ? (
             <CheckCircleFilled style={{ color: '#52c41a' }} />
           ) : (
-            <CloseCircleFilled style={{ color: '#cf1322' }} />
+            <CloseCircleFilled style={{ color: 'var(--color-error)' }} />
           )}
           <span>{t('第 {n} 项', { n: item.index + 1 })}</span>
           {item.retry_count > 0 && (
@@ -114,7 +114,7 @@ function BatchItemBubble({ item }: {
           )}
         </Space>
       ) : (
-        <div style={{ color: '#cf1322' }}>{item.error || t('执行失败')}</div>
+        <div style={{ color: 'var(--color-error)' }}>{item.error || t('执行失败')}</div>
       )}
     </Card>
   );
@@ -242,7 +242,7 @@ export function BatchProgressPanel({ planId }: Props) {
           <span
             key={animEnabled ? `${done}-${success}-${failed}` : 'stats'}
             className={animEnabled ? 'jx-anim-fadeIn' : undefined}
-            style={{ color: '#666', fontSize: 12 }}
+            style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}
           >
             {t('{done}/{total}（成功 {success}，跳过 {failed}）', { done, total, success, failed })}
           </span>
@@ -261,7 +261,7 @@ export function BatchProgressPanel({ planId }: Props) {
       />
 
       {plan.errorMsg && (
-        <div style={{ color: '#cf1322', fontSize: 12, marginTop: 6 }}>
+        <div style={{ color: 'var(--color-error)', fontSize: 12, marginTop: 6 }}>
           {t('错误：{msg}', { msg: plan.errorMsg })}
         </div>
       )}
