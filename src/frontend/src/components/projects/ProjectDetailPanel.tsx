@@ -48,7 +48,8 @@ export default function ProjectDetailPanel({ projectId, onBack, handleFileSelect
   const setCurrentChatId = useChatStore((state) => state.setCurrentChatId);
   const updateStore = useChatStore((state) => state.updateStore);
   const setPendingFirstMessage = useChatStore((state) => state.setPendingFirstMessage);
-  const [pendingMode, setPendingMode] = useState<'plan' | 'batch' | null>(null);
+  // 'workflow' 是工作流模式（批量作业）——少了它，InputArea 的 onEnterMode 回调类型对不上，tsc 直接编不过
+  const [pendingMode, setPendingMode] = useState<'plan' | 'batch' | 'workflow' | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 

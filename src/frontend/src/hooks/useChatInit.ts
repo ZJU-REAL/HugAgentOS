@@ -422,6 +422,10 @@ export function useChatInit() {
             ...(typeof localSnapshot.chats[id]?.batchModeActive === 'boolean'
               ? { batchModeActive: localSnapshot.chats[id].batchModeActive }
               : {}),
+            workflowChat: meta.workflow_chat === true ? true : undefined,
+            ...(typeof localSnapshot.chats[id]?.workflowModeActive === 'boolean'
+              ? { workflowModeActive: localSnapshot.chats[id].workflowModeActive }
+              : {}),
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,
             // When the backend session hasn't bound project_id (e.g. bound locally via the input-box dropdown, not yet persisted with a message),

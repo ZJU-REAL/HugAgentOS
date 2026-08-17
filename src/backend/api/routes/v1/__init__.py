@@ -32,6 +32,11 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("myspace_folders", "router"),
     ("batch", "router"),
     ("internal_batch", "router"),
+    # 作业编排：沙箱里的作业脚本经 internal_jobs 回调后端（建台账、派子智能体、报终态），
+    # jobs 是给人看的只读进度视图（输入框上方那条状态条）。两条都必须在——CE 的
+    # agent_factory 已经注册了 run_job 工具，少了回调路由，作业会在第一发回调 404 当场死掉。
+    ("internal_jobs", "router"),
+    ("jobs", "router"),
     ("internal_sites", "router"),
     ("projects", "router"),
     ("api_keys", "router"),

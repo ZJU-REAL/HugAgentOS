@@ -5,7 +5,7 @@ import { DUR, EASE } from '../../utils/motionTokens';
 import {
   FileImageOutlined, FileTextOutlined, CloudDownloadOutlined,
   AppstoreOutlined, FolderOutlined, FolderOpenOutlined, FolderAddOutlined, RobotOutlined,
-  OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined,
+  OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined, PartitionOutlined,
   LaptopOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
@@ -20,7 +20,7 @@ import type { InstalledPluginItem } from '../../types';
 import { AgentMentionPopup, useAgentMention } from '../agent';
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
-import { resolveBatchModeActive } from '../../utils/chatMode';
+import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
 import { DropOverlay } from '../common/DropOverlay';
 import { ChipChevron } from '../common/ChipChevron';
@@ -60,9 +60,9 @@ interface InputAreaProps {
   /** Custom "enter plan/batch mode" behavior. The project page passes this in: defer
    *  chat creation until send, no navigation; when omitted, falls back to the default
    *  enterChatMode (switches the current chat in place). */
-  onEnterMode?: (mode: 'plan' | 'batch') => void;
+  onEnterMode?: (mode: 'plan' | 'batch' | 'workflow') => void;
   /** Currently selected mode (projectComposer project page only; drives the "selected" marker and the indicator pill). */
-  activeMode?: 'plan' | 'batch' | null;
+  activeMode?: 'plan' | 'batch' | 'workflow' | null;
 }
 
 // ── Attachment card keys ────────────────────────────────────────────────
@@ -282,6 +282,7 @@ export function InputArea({
   // Batch mode as the composer currently runs it — the persistent batchChat marker is only its
   // default, so a chat the user took out of batch mode no longer counts as one here.
   const batchModeOn = resolveBatchModeActive(_currentChat);
+  const workflowModeOn = resolveWorkflowModeActive(_currentChat);
   const isSiteChat = !!_currentChat?.siteChat;
   // Whether the "autonomous loop" entry is shown: normal chat (not plan/batch/project page)
   // + has the loop capability bit + has lab permission. When eligible it no longer occupies
@@ -336,13 +337,20 @@ export function InputArea({
   // popup rendering, keeping selectedIndex consistent.
   const slashEntries = useMemo<SlashEntry[]>(() => {
     const q = input.startsWith('/') ? input.slice(1).toLowerCase() : '';
+    // 模式命令排在最前：它切换的是这段对话怎么跑，比挑一个技能更"重"，也更常被找。
+    // 工作流模式必须由用户显式触发——不触发就不注册 run_job、不注入批量提示词。
+    const modeEntries: SlashEntry[] = (
+      [{ id: 'workflow', name: 'workflow', hint: t('工作流模式：批量作业') }] as const
+    )
+      .filter((m) => !q || m.id.includes(q) || m.hint.toLowerCase().includes(q))
+      .map((m) => ({ kind: 'mode' as const, id: m.id, name: m.name, hint: m.hint }));
     const pluginEntries: SlashEntry[] = installedPlugins
       .filter((p) => !q || p.name.toLowerCase().includes(q))
       .map((p) => ({ kind: 'plugin' as const, id: p.install_id, name: p.name, plugin: p }));
     const skillEntries: SlashEntry[] = (skills || [])
       .filter((s) => s.enabled && (!q || s.name.toLowerCase().includes(q)))
       .map((s) => ({ kind: 'skill' as const, id: s.id, name: s.name }));
-    return [...pluginEntries, ...skillEntries];
+    return [...modeEntries, ...pluginEntries, ...skillEntries];
   }, [input, installedPlugins, skills]);
 
   // Object URLs for uploaded image files — revoked when files change
@@ -498,6 +506,17 @@ export function InputArea({
     applySkill(skillId, skillName);
   }
 
+  /** 选中 / 面板里的模式命令（如 /workflow）：把已输入的 "/xxx" 抹掉，直接开启该模式。
+   *  与技能/插件不同——模式不插 chip，它改的是这段对话怎么跑，开启状态由输入框上方的模式条表示。 */
+  function onSlashSelectMode(modeId: string) {
+    const ed = editorRef.current;
+    if (ed) removeQueryAtCursor(ed, '/');
+    setInput('');
+    if (ed) setEditorPlainText(ed, '');
+    setSlashVisible(false);
+    if (modeId === 'workflow') onEnterMode('workflow');
+  }
+
   /** Pick a skill from the "+" menu: move the caret to the end first, then insert the chip (the editor may not have focus when the menu closes). */
   function onPickSkillFromMenu(skillId: string, skillName: string) {
     const ed = editorRef.current;
@@ -546,16 +565,18 @@ export function InputArea({
 
   /** Whether the composer currently runs in this mode (main composer: live composer state;
    *  project composer: the pending selection passed in via activeMode). */
-  function isModeOn(mode: 'plan' | 'batch') {
+  function isModeOn(mode: 'plan' | 'batch' | 'workflow') {
     if (projectComposer) return activeMode === mode;
-    return mode === 'plan' ? planMode : batchModeOn;
+    if (mode === 'plan') return planMode;
+    if (mode === 'workflow') return workflowModeOn;
+    return batchModeOn;
   }
 
   /** Enter plan / batch-execution mode from the "+" menu. The project page customizes this via
    *  the onEnterMode prop (defer chat creation until send, no navigation); the default switches
    *  the current chat to that mode in place — no new chat, no navigation (avoids bouncing the
    *  whole chat back to the home page). */
-  function onEnterMode(mode: 'plan' | 'batch') {
+  function onEnterMode(mode: 'plan' | 'batch' | 'workflow') {
     if (onEnterModeProp) {
       onEnterModeProp(mode);
       return;
@@ -566,7 +587,7 @@ export function InputArea({
   /** Close a running mode from the ✕ on its composer chip — the single, always-visible way out.
    *  On the project page the pending selection is owned by the parent, so hand the toggle back
    *  to it (onEnterModeProp flips the already-selected mode off). */
-  function onCloseMode(mode: 'plan' | 'batch') {
+  function onCloseMode(mode: 'plan' | 'batch' | 'workflow') {
     if (onEnterModeProp) {
       onEnterModeProp(mode);
       return;
@@ -585,7 +606,8 @@ export function InputArea({
       e.preventDefault();
       const sel = slashEntries[sIdx] || slashEntries[0];
       if (sel) {
-        if (sel.kind === 'plugin' && sel.plugin) onSlashSelectPlugin(sel.plugin);
+        if (sel.kind === 'mode') onSlashSelectMode(sel.id);
+        else if (sel.kind === 'plugin' && sel.plugin) onSlashSelectPlugin(sel.plugin);
         else onSlashSelect(sel.id, sel.name);
       }
       return;
@@ -770,7 +792,8 @@ export function InputArea({
           visible={slashVisible}
           selectedIndex={sIdx}
           onSelect={(entry) => {
-            if (entry.kind === 'plugin' && entry.plugin) onSlashSelectPlugin(entry.plugin);
+            if (entry.kind === 'mode') onSlashSelectMode(entry.id);
+            else if (entry.kind === 'plugin' && entry.plugin) onSlashSelectPlugin(entry.plugin);
             else onSlashSelect(entry.id, entry.name);
           }}
           onHover={setSIdx}
@@ -820,6 +843,7 @@ export function InputArea({
             // off is the job of the ✕ on the mode chip down in the composer bar.
             const planActive = isModeOn('plan');
             const batchActive = isModeOn('batch');
+            const workflowActive = isModeOn('workflow');
             const activeSuffix = projectComposer ? t('（已选）') : t('（已开启）');
             const modeItems = [
               ...(isAppAllowed('plan_mode') ? [{
@@ -834,6 +858,15 @@ export function InputArea({
                 label: batchActive ? t('批量执行{suffix}', { suffix: activeSuffix }) : t('批量执行'),
                 onClick: () => onEnterMode('batch'),
               }] : []),
+              // 工作流模式：面对成百上千个同构工作项时，让智能体写一段作业脚本交后台并发跑。
+              // 与计划模式/批量执行一样是**用户显式触发**的模式——不进入就不注册 run_job、
+              // 不注入批量提示词，普通问答完全不受影响。
+              {
+                key: 'mode-workflow',
+                icon: <PartitionOutlined />,
+                label: workflowActive ? t('工作流模式{suffix}', { suffix: activeSuffix }) : t('工作流模式'),
+                onClick: () => onEnterMode('workflow'),
+              },
             ];
             const items = [
               { key: 'image', icon: <FileImageOutlined />, label: t('上传图片'), onClick: () => imageInputRef.current?.click() },
@@ -1093,6 +1126,16 @@ export function InputArea({
               title={t('批量执行模式：描述要批量处理的对象与任务，AI 会自动生成可确认的执行计划')}
               closeLabel={t('关闭批量执行：切换为普通对话')}
               onClose={() => onCloseMode('batch')}
+            />
+          )}
+
+          {!projectComposer && workflowModeOn && (
+            <ModeChip
+              icon={<PartitionOutlined className="jx-planModeIcon" />}
+              label={t('工作流模式')}
+              title={t('工作流模式：面对成百上千个同类工作项时，AI 会写一段作业脚本交给后台并发处理，进度记在台账上，中断可续跑')}
+              closeLabel={t('关闭工作流模式：切换为普通对话')}
+              onClose={() => onCloseMode('workflow')}
             />
           )}
 

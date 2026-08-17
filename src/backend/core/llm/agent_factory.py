@@ -31,6 +31,7 @@ from core.llm.middlewares import (
     FinishPinGuardMiddleware,
     GoalAnchorReminderMiddleware,
     IterBudgetReminderMiddleware,
+    JobLedgerReminderMiddleware,
     OntologyGateMiddleware,
     StallInterventionMiddleware,
     SteerMiddleware,
@@ -79,6 +80,61 @@ _BATCH_MODE_HINT = (
     "调用 `batch_plan` 后立即结束本回合，等待用户在弹窗中确认；\n"
     "确认后系统会自动逐条执行并把结果实时推送给用户，无需你重复调用。\n"
     "若请求确实只针对单一对象/单一概念，再走普通回答即可。\n"
+)
+
+# 工作流模式提示段 —— 只在用户显式进入工作流模式时拼进系统提示（与 _BATCH_MODE_HINT 同源做法）。
+# 不进入这个模式时，下面这一整套批量规则**完全不存在**，普通问答不受任何干扰。
+_WORKFLOW_MODE_HINT = (
+    "\n\n## 工作流模式（用户已主动进入）\n"
+    "用户显式进入了工作流模式，明确希望用**批量作业**的方式处理任务。你有 `run_job` 工具。\n"
+    "\n"
+    "### 什么时候必须用\n"
+    "当任务是「对 N 个**同构**工作项做同一件事」——补全表格某列、逐份审阅文档、逐个文件改代码、"
+    "逐条数据打标——且 N 较多（经验刻度 ~20 起，真正的判据是：对象彼此独立、处理逻辑同构、总量大）"
+    "时，**禁止在对话主循环里逐项处理**。主循环每一轮都要重发全部累积历史，成本随进度二次方增长，"
+    "必然做不完。\n"
+    "\n"
+    "### 怎么做（三步）\n"
+    "1. 用 `write` 把作业脚本写进沙箱（例如 `/workspace/jobs/fill.py`）。脚本是普通 Python，"
+    "开头 `from hugagent_job import ledger, agent, job, log`，SDK 由系统注入：\n"
+    "   - `ledger.seed(items)` 建台账（每项给 key 与 payload 两个字段），按 key 幂等；\n"
+    "   - `job.map(items, fn, concurrency=8)` 并发跑，**fn 返回 dict 会自动逐项落账**"
+    "（返回 None 表示你自己 update 过了；抛异常自动记 failed）。落账要取台账主键，"
+    "默认按 `key`→`item_key`→`id`→`seq` 在 item 里找，都没有就用 `job.map(..., key=\"字段名\")` "
+    "显式指定——**别让 seed 用的 key 和 map 传的对象对不上**；\n"
+    "   - `agent(prompt, schema=..., tools=[...], item_key=...)` 派子智能体做每项的模型判断；\n"
+    "   - `ledger.pending()` / `ledger.stats()` / `job.budget()` / `log(...)`。\n"
+    "   其余一切用标准 Python：抓网页、解析、写 Excel、`subprocess` 跑校验命令。\n"
+    "   **能机检的验收就别烧模型**——`mypy` / `pytest` / 一段校验函数都比 `agent()` 便宜得多。\n"
+    "   ⚠️ `agent()` 在工具全挂/配额打爆/超时时会**抛异常**，不要 try/except 把它转写成"
+    "「未查询到」——那是把环境故障固化成数据。让异常抛出去，该项会记 failed 留在台账等续跑。\n"
+    "   同理：真的查无请用 `_status` 标 `not_found`，**不要**把占位串写进结果字段。\n"
+    "2. `run_job(action=\"start\", script_path=..., name=...)` 提交。\n"
+    "3. 作业结束后 `run_job(action=\"export\", job_id=...)` 把台账导成沙箱里的 JSONL，"
+    "再用 bash/python 读它写产物。\n"
+    "\n"
+    "### 两条硬规矩\n"
+    "- **不要轮询**：`wait=True`（默认）会一直等到作业结束，中途不占推理轮次；`wait=False` 时"
+    "作业每隔一段时间会**主动叫醒你播报进度**（默认 15 分钟，`progress_wake_sec` 可调），"
+    "跑完还会再叫你一次做交付——所以你直接结束本轮回复即可，反复调 `status` 纯属浪费。"
+    "**小时级作业请用 `wait=False`**：阻塞一小时既看不到进度也没法中途干预。"
+    "用户那边有独立的作业状态条实时显示进度，不需要你复述作业还活着。\n"
+    "- **被进度唤醒时只汇报、不干活**：那一轮只需一两句话转述进度，"
+    "**不要**重复提交作业（它还在跑）、不要 `export`、不要把逐项结果读进对话。"
+    "确实要换脚本重跑，用 `run_job(action=\"start\", on_conflict=\"replace\")`——"
+    "它会先停掉旧作业；默认的拦截只是不让你**意外**叠加两份，不是不让重跑。\n"
+    "- **用户说停就立刻停**：用户说「停止任务/别跑了/取消」时，"
+    "马上 `run_job(action=\"cancel\", job_id=...)` 把作业停掉再回话，"
+    "**不要**先解释、不要反问要不要保留进度——台账已经落库，随时可以 `resume` 续跑。"
+    "不知道 job_id 就先 `run_job(action=\"status\")` 查，别让作业在用户喊停后还在烧预算。\n"
+    "- **逐项结果不进对话**：要用结果就 `export` 成文件再脚本处理。\n"
+    "\n"
+    "### 交付纪律\n"
+    "台账里还剩多少是**可查证的事实**。不得以「边际收益递减」「消耗较大」为由在只完成一部分时"
+    "转向交付；确实未做完，必须报出分母、已完成数与未覆盖清单，并给出续跑方式"
+    "（`run_job(action=\"resume\", job_id=...)`，已完成的项不会重做）。\n"
+    "「查无 / 待定 / 失败」只能落在独立的状态字段，**不得**把占位串写进原始数据位——"
+    "一旦写入，「哪些还没做」就不再可判定。\n"
 )
 
 from orchestration.registry import AgentSpec
@@ -511,6 +567,10 @@ async def create_agent_executor(
     # 高于 main_agent 兜底；plan_mode=True 等价于 model_role="plan_agent"。
     model_role: Optional[str] = None,
     batch_mode: bool = False,
+    # workflow_mode: 工作流模式（用户显式触发：斜杠命令 /workflow 或 + 菜单选「工作流模式」）。
+    # 只有它为 True 才注册 run_job 并注入作业脚本写法——与计划模式/批量执行同属"用户触发的
+    # 模式"，不触发就完全不存在，普通问答不会被无关的批量规则干扰。
+    workflow_mode: bool = False,
     # top_level_chat: whether this construction is a "top-level interactive main
     # conversation capable of hosting plan mode" — astream_chat_workflow passes
     # True explicitly after determining (has chat_id, not
@@ -1424,6 +1484,27 @@ async def create_agent_executor(
         # assistant message. See core/llm/workspace.py for the per-run state.
         register_pin_to_workspace(toolkit, scope=_proj_scope)
 
+        # ── Phase 3.85: run_job（工作流模式的作业编排面） ──
+        # **用户显式触发才注册**（workflow_mode）：斜杠命令 /workflow 或 + 菜单选「工作流
+        # 模式」。与计划模式/批量执行同属用户触发的模式——不触发就完全不存在，普通问答的
+        # 工具面与提示词一点都不受影响。
+        # 触发之后它才是这段对话的原生能力（不走 catalog 开关、关不掉）：面对 N 个同构
+        # 工作项时，主循环逐项处理会让每一轮重发全部历史（成本随进度二次方增长，做不完
+        # 就自行收工）。run_job 把循环体交给沙箱脚本，模型调用由后端代持凭据派出——
+        # 脚本因此拿不到任何 key。isolated=True 的子作业不注册，杜绝 job 套 job。
+        if workflow_mode and not isolated and _sbx_sess:
+            from core.llm.tools.job_tool import register_run_job
+
+            register_run_job(
+                toolkit,
+                user_id=current_user_id or "",
+                chat_id=chat_id,
+                sandbox_session_id=_sbx_sess,
+                allowed_tools=sorted(enabled_mcp_keys or []),
+                model_name=model_name,
+                model_provider_id=model_provider_id,
+            )
+
         # ── Phase 3.9: get_data_context (the "data dictionary" tool for direct-DB data retrieval) ──
         # Three gates combined: (1) a direct DB server is enabled this run
         # (db_query / es_query); (2) the external NL2SQL black box is excluded
@@ -1689,6 +1770,11 @@ async def create_agent_executor(
         if batch_mode:
             system_prompt += _BATCH_MODE_HINT
             _log.info("[factory] +%s batch mode hint injected", _elapsed())
+
+        # ── Inject workflow-mode hint (user explicitly entered workflow mode) ──
+        if workflow_mode:
+            system_prompt += _WORKFLOW_MODE_HINT
+            _log.info("[factory] +%s workflow mode hint injected", _elapsed())
 
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:
@@ -2020,9 +2106,18 @@ async def create_agent_executor(
     # the overestimate, but in practice it triggered too early (compression
     # kicked in while real occupancy was far below the threshold, and
     # tool-heavy sessions compressed repeatedly), so it has been relaxed.
+    from core.config.settings import _env as _cfg_env
+    from core.config.settings import _int as _cfg_int
+
     context_config = ContextConfig(
         trigger_ratio=_in_turn_ratio,
-        tool_result_limit=int(tool_result_limit) if tool_result_limit else 20_000,
+        # 单条工具结果进上下文的上限（超出部分 offloader 落盘到 /workspace/.offload，
+        # 模型按需读回）。保持 20k 不再收紧：批量场景已由 run_job 接走（逐项结果根本
+        # 不进主上下文），主对话这边继续保留完整的单条可读性更划算。需要时用
+        # CHAT_TOOL_RESULT_LIMIT 按部署调。
+        tool_result_limit=int(tool_result_limit)
+        if tool_result_limit
+        else _cfg_int(_cfg_env("CHAT_TOOL_RESULT_LIMIT"), 20_000),
         compression_prompt=(
             "<system-hint>你一直在处理上述任务但尚未完成，对话历史即将被本摘要替换。"
             "请生成一份【可恢复 ReAct 工作流】的结构化续写摘要，使你能在新的上下文窗口"
@@ -2200,6 +2295,14 @@ async def create_agent_executor(
         CitationAnchorMiddleware(),  # on_acting: 证据锚点——工具结果回给模型前发号回注 cite_id
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
     ]
+    # on_reasoning: 会话里有未收敛的批量作业时，每轮把台账数字回灌进上下文。
+    # 进度是外部事实（job_items 表），不是模型的记忆——不主动回灌，隔十几轮之后就会
+    # 退化成"边际收益递减，先交付吧"（568 行只补 66 行正是这么停的）。
+    # 子作业内部不挂（isolated），避免嵌套噪声。
+    if workflow_mode and not isolated and chat_id:
+        _middlewares.append(
+            JobLedgerReminderMiddleware(chat_id=chat_id, user_id=current_user_id)
+        )
     if not batch_mode:
         _middlewares.append(GoalAnchorReminderMiddleware(chat_id=chat_id, batch_mode=False))
     _middlewares.append(FinishPinGuardMiddleware(batch_mode=batch_mode))

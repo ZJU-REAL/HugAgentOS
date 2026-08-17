@@ -884,6 +884,88 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
         )
 
 
+# ── JobLedgerReminder ──────────────────────────────────────────────────────
+class JobLedgerReminderMiddleware(MiddlewareBase):
+    """本会话存在未收敛的批量作业时，每轮把台账状态回灌进上下文。
+
+    为什么要 harness 主动回灌，而不是指望模型记着：进度是**外部事实**，写在
+    ``job_items`` 表里，不在模型的记忆里。模型隔了十几轮之后对"还剩多少没做"的印象
+    只会越来越糊，最后就演变成"边际收益递减，先交付吧"——上一轮 568 行只补 66 行
+    就是这么停的。
+
+    每轮注入一条 ``<system-reminder>``，内容是可查证的数字（总计/已完成/待办/失败）
+    和明确的下一步。同一轮只注入一次；台账已收敛（待办与失败都为 0）就不再打扰。
+    """
+
+    def __init__(self, *, chat_id: Optional[str], user_id: Optional[str]) -> None:
+        self._chat_id = chat_id or ""
+        self._user_id = user_id or ""
+        self._last_key: tuple | None = None
+
+    async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):
+        try:
+            self._maybe_remind(agent)
+        except Exception as exc:  # noqa: BLE001 —— 提醒失败绝不该拖垮主链路
+            logger.warning("[job_ledger] reminder failed: %s", exc)
+        async for evt in next_handler(**input_kwargs):
+            yield evt
+
+    def _maybe_remind(self, agent: Agent) -> None:
+        if not self._chat_id:
+            return
+        key = (getattr(agent.state, "reply_id", "") or "", int(getattr(agent.state, "cur_iter", 0) or 0))
+        if key == self._last_key:
+            return
+
+        from core.db.engine import SessionLocal
+        from core.db.models import Job
+        from core.services.job_service import JobService
+
+        with SessionLocal() as db:
+            jobs = (
+                db.query(Job)
+                .filter(Job.chat_id == self._chat_id, Job.user_id == self._user_id)
+                .order_by(Job.created_at.desc())
+                .limit(3)
+                .all()
+            )
+            if not jobs:
+                return
+            svc = JobService(db)
+            lines = []
+            for job in jobs:
+                stats = svc.stats(job.job_id)
+                unsettled = int(stats.get("pending", 0)) + int(stats.get("failed", 0))
+                if unsettled <= 0 and job.status in ("completed", "cancelled"):
+                    continue
+                lines.append(
+                    f"- 作业「{job.name or job.job_id}」（{job.job_id}，状态 {job.status}）："
+                    f"总计 {stats.get('total', 0)}，已完成 {stats.get('done', 0)}，"
+                    f"查无 {stats.get('not_found', 0)}，待办 {stats.get('pending', 0)}，"
+                    f"失败 {stats.get('failed', 0)}"
+                )
+        if not lines:
+            return
+
+        self._last_key = key
+        reminder = (
+            "本会话有尚未结算完的批量作业（数字取自台账，是可查证的事实，不是估计）：\n"
+            + "\n".join(lines)
+            + "\n\n还有待办或失败项时：用 run_job(action='resume', job_id=...) 续跑"
+            "（已完成的项不会重做），或先查 run_job(action='status', job_id=...) 看明细。"
+            "**不得**把未完成当作完成来交付；确实要收尾，也必须如实报出分母、完成数与未覆盖清单。"
+        )
+        agent.state.context.append(
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    TextBlock(type="text", text=f"<system-reminder>\n{reminder}\n</system-reminder>")
+                ],
+            )
+        )
+
+
 # ── StallIntervention ──────────────────────────────────────────────────────
 class StallInterventionMiddleware(MiddlewareBase):
     """Apply the active profile's intervention rules to the **ReAct loop**.

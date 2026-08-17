@@ -2219,6 +2219,36 @@ async def _stream_last_write_ms(run_id: str) -> Optional[int]:
         return None
 
 
+def _chat_has_live_job(chat_id: Optional[str], now: datetime) -> bool:
+    """这个会话是否挂着**还在推进**的批量作业（跨进程可见的活性证据）。
+
+    判据是 ``jobs.updated_at`` 在静默窗口内前进过：作业每完成一次子调用都会写 usage，
+    onupdate 随之推进 updated_at。只要作业还在动，这个 run 就不是僵尸——哪怕它的
+    asyncio task 属于另一个进程（多 worker / 多副本），也哪怕主链路一个流事件都没有。
+
+    作业本身有 max_seconds 墙钟预算与熔断，所以这条豁免不会让 run 永生。
+    """
+    if not chat_id:
+        return False
+    try:
+        from core.db.models import Job
+
+        cutoff = now - timedelta(seconds=_STALE_QUIET_SEC)
+        with SessionLocal() as db:
+            return (
+                db.query(Job.job_id)
+                .filter(
+                    Job.chat_id == chat_id,
+                    Job.status.in_(("pending", "running")),
+                    Job.updated_at >= cutoff,
+                )
+                .first()
+                is not None
+            )
+    except Exception:  # noqa: BLE001 —— 证据查不到就按原判据走，绝不因此放过真僵尸
+        return False
+
+
 async def reap_stale_runs() -> int:
     """Periodic safety net: fail 'running' runs that show no sign of life.
 
@@ -2287,6 +2317,15 @@ async def reap_stale_runs() -> int:
                 logger.info("chat_run_stale_skip_loop_inprocess", run_id=rid)
                 continue
             hard_expired = False  # 孤儿 loop：不按年龄硬杀，交给静默判据
+
+        # 工作流模式的批量作业：run 卡在 run_job(wait=True) 里等作业，期间主链路一个
+        # 流事件都不产生（逐项结果按设计不进对话），"流静默"判据必然误判。进程内 task
+        # 豁免只在本进程有效——多 worker / 多副本部署里，另一个进程看不到这个 task，
+        # 照样会把健康的长作业杀掉。所以这里用**跨进程可见的证据**：DB 里这个会话是否
+        # 还有正在推进的作业（每次子调用都会 add_usage → jobs.updated_at 前进）。
+        if _chat_has_live_job(cid, now):
+            logger.info("chat_run_stale_skip_live_job", run_id=rid, chat_id=cid)
+            continue
 
         if not hard_expired:
             # A run whose asyncio task is alive in THIS process is never a
