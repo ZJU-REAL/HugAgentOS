@@ -255,7 +255,7 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
             表格以柔和 cross-fade 呈现；禁止对 Univer canvas 本身做 transform。 */}
         <div
           className={`jx-canvas-loading jx-canvas-univerOverlay${loading ? '' : ' jx-canvas-univerOverlay--done'}`}
-          style={{ position: 'absolute', inset: 0, zIndex: 10, background: '#fff' }}
+          style={{ position: 'absolute', inset: 0, zIndex: 10, background: 'var(--color-bg-container)' }}
         >
           <div className="jx-canvas-spinner" />
           <span>{t('正在加载电子表格...')}</span>

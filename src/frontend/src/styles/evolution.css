@@ -68,9 +68,9 @@
   line-height: 18px;
   white-space: nowrap;
 }
-.jx-evolutionCard-layer.is-l1 { background: rgba(37, 99, 235, .10); color: #1d4ed8; }
-.jx-evolutionCard-layer.is-l2 { background: rgba(16, 185, 129, .12); color: #047857; }
-.jx-evolutionCard-layer.is-l3 { background: rgba(139, 92, 246, .12); color: #6d28d9; }
+.jx-evolutionCard-layer.is-l1 { background: rgba(37, 99, 235, .10); color: var(--color-primary); }
+.jx-evolutionCard-layer.is-l2 { background: rgba(16, 185, 129, .12); color: var(--color-success); }
+.jx-evolutionCard-layer.is-l3 { background: rgba(139, 92, 246, .12); color: var(--color-tint-purple); }
 
 .jx-evolutionCard-entryBody { flex: 1 1 auto; min-width: 0; }
 
@@ -193,7 +193,7 @@
   color: var(--color-text-tertiary);
 }
 .jx-evoContrib-chainNode.is-terminal {
-  background: rgba(37, 99, 235, .10); color: #1d4ed8; font-weight: 600;
+  background: rgba(37, 99, 235, .10); color: var(--color-primary); font-weight: 600;
 }
 .jx-evoContrib-chainArrow { color: var(--color-primary); }
 

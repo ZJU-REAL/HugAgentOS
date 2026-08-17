@@ -1758,12 +1758,12 @@
 }
 .jx-agentCard-badge.on {
   color: var(--color-primary);
-  background: #DBEAFE;
+  background: var(--color-tint-blue-bg);
 }
 
 .jx-agentCard-badge--builtin {
-  color: #8A5A00;
-  background: #FFF4D6;
+  color: var(--color-tint-amber);
+  background: var(--color-tint-amber-bg);
 }
 
 /* Edit / delete — visible on hover */
@@ -1879,7 +1879,7 @@
 }
 .jx-agentDetail-badge.on {
   color: var(--color-primary);
-  background: #DBEAFE;
+  background: var(--color-tint-blue-bg);
 }
 
 /* 启用 switch row — pushed to the right */
@@ -2216,8 +2216,8 @@
 }
 
 .jx-agentDetail-historyDetailTag.is-after {
-  background: #E6F4EA;
-  color: #2F7A4B;
+  background: var(--color-tint-green-bg);
+  color: var(--color-tint-green);
 }
 
 .jx-agentDetail-historyDetailText {
@@ -2291,16 +2291,16 @@
 }
 
 .jx-agentDetail-iconBtn.danger.ant-btn {
-  border-color: #F1D4D4;
-  color: #E07272;
-  background: #FFFDFD;
+  border-color: color-mix(in srgb, var(--color-error) 30%, transparent);
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 4%, transparent);
 }
 
 .jx-agentDetail-iconBtn.danger.ant-btn:hover,
 .jx-agentDetail-iconBtn.danger.ant-btn:focus {
-  border-color: #EAB8B8;
-  color: #D84E4E;
-  background: #FFF7F7;
+  border-color: color-mix(in srgb, var(--color-error) 45%, transparent);
+  color: var(--color-error-active);
+  background: var(--color-error-light);
 }
 
 .jx-agentCardSkeleton {
@@ -2827,19 +2827,19 @@
 .jx-kbPill-blue{
   background:var(--color-primary-light);
   border-color:var(--color-primary-bg);
-  color:#4f87c2;
+  color:var(--color-primary);
 }
 
 .jx-kbPill-green{
-  background:#f3fbf5;
-  border-color:#dbeedd;
-  color:#72a667;
+  background:var(--color-tint-green-bg);
+  border-color:color-mix(in srgb, var(--color-tint-green) 30%, transparent);
+  color:var(--color-tint-green);
 }
 
 .jx-kbPill-orange{
-  background:#fff4e8;
-  border-color:#ffdcbc;
-  color:#c97a2b;
+  background:var(--color-tint-amber-bg);
+  border-color:color-mix(in srgb, var(--color-tint-amber) 30%, transparent);
+  color:var(--color-tint-amber);
 }
 
 .jx-kbEnabledTag.ant-tag{
@@ -3052,7 +3052,7 @@
 
 .jx-kbDetailDescToggle.ant-btn:hover,
 .jx-kbDetailDescToggle.ant-btn:focus{
-  color:#4d6fb2;
+  color:var(--color-primary);
 }
 
 .jx-kbDetailActions{
@@ -3104,13 +3104,13 @@
 }
 
 .jx-kbSyncInlineStatus.is-active{
-  color:#c97a2b;
-  background:#fff4e8;
-  border-color:#ffdcbc;
+  color:var(--color-tint-amber);
+  background:var(--color-tint-amber-bg);
+  border-color:color-mix(in srgb, var(--color-tint-amber) 30%, transparent);
 }
 
 .jx-kbSyncInlineStatus.is-inactive{
-  color:#9a6b00;
+  color:var(--color-tint-amber);
   background:rgba(255,248,235,.92);
   border-color:rgba(245,158,11,.14);
 }
@@ -3225,14 +3225,14 @@
   font-size:13px;
   line-height:1.4;
   font-weight:600;
-  color:#8a5a20;
+  color:var(--color-tint-amber);
   margin-bottom:2px;
 }
 
 .jx-kbRulesPopoverItem{
   font-size:12px;
   line-height:1.6;
-  color:#6b4f2c;
+  color:var(--color-tint-amber);
   white-space:nowrap;
 }
 
@@ -3345,7 +3345,7 @@
   padding:0 8px;
   border-radius:999px;
   border-color:var(--color-primary-disabled);
-  color:#2f66f5;
+  color:var(--color-primary);
   background:var(--color-primary-light);
   box-shadow:none;
   font-size:12px;
@@ -3355,9 +3355,9 @@
 
 .jx-kbEditorPolishBtn:hover,
 .jx-kbEditorPolishBtn:focus{
-  color:#1d4ed8;
-  border-color:#9ebcff;
-  background:#e7efff;
+  color:var(--color-primary-active);
+  border-color:color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background:var(--color-primary-bg);
 }
 
 .jx-kbEditorCount{
@@ -3402,12 +3402,12 @@
 }
 
 .jx-kbDocFilterTab.is-active{
-  background:#E8F0FF;
+  background:var(--color-primary-light);
   color:var(--color-primary);
 }
 
 .jx-kbDocFilterTab.is-active:hover{
-  background:#DBE6FF;
+  background:var(--color-primary-bg);
 }
 
 .jx-kbDocFilterTabLabel{
@@ -3484,7 +3484,7 @@
   justify-content:flex-end;
   padding:14px 18px 18px;
   border-top:1px solid var(--color-border);
-  background:linear-gradient(180deg, rgba(248,250,252,.92) 0%, #fff 55%);
+  background:linear-gradient(180deg, var(--color-bg-layout) 0%, var(--color-bg-container) 55%);
 }
 
 .jx-kbDocPagination .ant-pagination{
@@ -3612,8 +3612,8 @@
 }
 
 .jx-kbPagerSizeDropdown .ant-select-item-option-selected{
-  background:#edf4fc;
-  color:#5f7ea8;
+  background:var(--color-primary-light);
+  color:var(--color-primary);
   font-weight:500;
 }
 
@@ -3763,21 +3763,21 @@
 }
 
 .jx-kbStatusPill-success{
-  background:#f0fdf4;
-  border-color:#d9f5df;
-  color:#34a77a;
+  background:var(--color-tint-green-bg);
+  border-color:color-mix(in srgb, var(--color-tint-green) 30%, transparent);
+  color:var(--color-tint-green);
 }
 
 .jx-kbStatusPill-processing{
   background:var(--color-primary-light);
   border-color:var(--color-primary-bg);
-  color:#4f87c2;
+  color:var(--color-primary);
 }
 
 .jx-kbStatusPill-failed{
-  background:#fff1f0;
-  border-color:#ffd9d6;
-  color:#e76a61;
+  background:var(--color-tint-red-bg);
+  border-color:color-mix(in srgb, var(--color-tint-red) 30%, transparent);
+  color:var(--color-tint-red);
 }
 
 .jx-kbDocActions{
@@ -3915,8 +3915,8 @@
 
 .jx-kbUploadDragger.ant-upload-wrapper .ant-upload-drag{
   border-radius:16px;
-  border:1px dashed #d8e1ec;
-  background:linear-gradient(180deg,#fcfdff 0%,#f8fbff 100%);
+  border:1px dashed var(--color-border);
+  background:linear-gradient(180deg, var(--color-bg-container) 0%, var(--color-bg-layout) 100%);
   padding:16px 22px;
   min-height:150px;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
@@ -3990,7 +3990,7 @@
 }
 
 .jx-kbUploadSelectDropdown .ant-select-item-option-active{
-  background:#f7faff !important;
+  background:var(--color-bg-layout) !important;
 }
 
 .jx-kbUploadOption{
@@ -4028,8 +4028,8 @@
   min-height:24px;
   padding:0 8px;
   border-radius:999px;
-  background:#fff7db;
-  color:#9a6b00;
+  background:var(--color-tint-amber-bg);
+  color:var(--color-tint-amber);
   font-size:12px;
   line-height:1;
 }
@@ -4383,9 +4383,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #FFF7E6;
-  color: #B26A00;
-  border: 1px solid #FFE7BA;
+  background: var(--color-tint-amber-bg);
+  color: var(--color-tint-amber);
+  border: 1px solid color-mix(in srgb, var(--color-tint-amber) 30%, transparent);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 12.5px;
@@ -4408,7 +4408,7 @@
   overflow-x: auto;
 }
 .jx-mk-detailBody pre {
-  background: #f4f5f7;
+  background: var(--color-bg-gray);
   border-radius: 6px;
   padding: 10px 12px;
   overflow-x: auto;
@@ -4466,7 +4466,7 @@
   border-radius: 9px;
   object-fit: cover;
   flex: 0 0 40px;
-  background: #F3F6FF;
+  background: var(--color-primary-light);
 }
 .jx-mk-icon--letter {
   display: flex;
@@ -4506,7 +4506,7 @@
   color: var(--color-text-tertiary);
 }
 .jx-mk-catTag {
-  background: #F2F4F8;
+  background: var(--color-bg-gray);
   color: var(--color-text-secondary);
   font-size: 11px;
 }
@@ -4555,7 +4555,18 @@
 }
 
 /* ── 技能图标选择器 ── */
-.jx-skillAvatar { user-select: none; }
+/* 技能头像：身份色由组件以 --jx-skillAvatar-accent 传入（每类技能一个固定色相，
+   属于品牌资产不随主题变），底色与字色在这里推导。深色档单独提亮一档——
+   #455A64 这类深板岩色直接压在暗底上等于看不见。 */
+.jx-skillAvatar {
+  user-select: none;
+  background: color-mix(in srgb, var(--jx-skillAvatar-accent, var(--color-primary)) 12%, transparent);
+  color: var(--jx-skillAvatar-accent, var(--color-primary));
+}
+:root[data-theme='dark'] .jx-skillAvatar {
+  background: color-mix(in srgb, var(--jx-skillAvatar-accent, var(--color-primary)) 24%, transparent);
+  color: color-mix(in srgb, var(--jx-skillAvatar-accent, var(--color-primary)) 40%, #FFFFFF);
+}
 .jx-iconPicker-trigger {
   display: inline-flex;
   align-items: center;
@@ -4592,7 +4603,7 @@
   cursor: pointer;
   transition: all .1s;
 }
-.jx-iconPicker-cell:hover { background: #F2F6FF; }
+.jx-iconPicker-cell:hover { background: var(--color-primary-light); }
 .jx-iconPicker-cell.active { border-color: var(--color-primary); background: var(--color-primary-light); }
 .jx-iconPicker-actions {
   display: flex;

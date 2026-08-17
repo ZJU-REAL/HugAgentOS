@@ -1892,9 +1892,10 @@
   background:var(--color-fill-deep);
   flex-shrink:0;
 }
-.jx-ce-langDot[data-lang="python"]{background:#3572A5;}
-.jx-ce-langDot[data-lang="javascript"]{background:#f1e05a;}
-.jx-ce-langDot[data-lang="bash"],.jx-ce-langDot[data-lang="sh"]{background:#4EAA25;}
+/* 语言点用 GitHub linguist 的语言身份色，是"这门语言的颜色"而不是主题色，两档一致 */
+.jx-ce-langDot[data-lang="python"]{background:#3572A5;} /* dark-ok */
+.jx-ce-langDot[data-lang="javascript"]{background:#f1e05a;} /* dark-ok */
+.jx-ce-langDot[data-lang="bash"],.jx-ce-langDot[data-lang="sh"]{background:#4EAA25;} /* dark-ok */
 .jx-ce-langLabel{
   font-size:11px;
   font-weight:600;

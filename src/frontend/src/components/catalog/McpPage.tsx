@@ -253,8 +253,8 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
           <span className="jx-mcp-detailName">{selectedItem.name}</span>
           <Tag className="jx-mcp-enabledTag"
             style={selectedItem.enabled
-              ? { background: '#DBE9FF', color: '#126DFF', border: 'none' }
-              : { background: '#F5F6F7', color: '#B3B3B3', border: 'none' }
+              ? { background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: 'none' }
+              : { background: 'var(--color-bg-gray)', color: 'var(--color-text-placeholder)', border: 'none' }
             }>
             {selectedItem.enabled ? t('已启用') : t('未启用')}
           </Tag>
@@ -352,13 +352,13 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
                 <span className="jx-mcp-cardName">{item.name}</span>
                 <Tag className="jx-mcp-enabledTag"
                   style={item.enabled
-                    ? { background: '#DBE9FF', color: '#126DFF', border: 'none' }
-                    : { background: '#F5F6F7', color: '#B3B3B3', border: 'none' }
+                    ? { background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: 'none' }
+                    : { background: 'var(--color-bg-gray)', color: 'var(--color-text-placeholder)', border: 'none' }
                   }>
                   {item.enabled ? t('已启用') : t('未启用')}
                 </Tag>
                 {item.owner === 'self' && (
-                  <Tag style={{ background: '#EBF2FF', color: '#126DFF', border: 'none' }}>{t('我的')}</Tag>
+                  <Tag style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)', border: 'none' }}>{t('我的')}</Tag>
                 )}
                 {item.owner === 'self' && (() => {
                   const submission = submissionByServer.get(item.id);

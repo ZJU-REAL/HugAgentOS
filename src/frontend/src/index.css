@@ -22,7 +22,7 @@ body {
   box-sizing: border-box;
   padding: 32px;
   background:
-    radial-gradient(circle at 15% 12%, rgba(69, 112, 255, 0.12), transparent 32%),
+    radial-gradient(circle at 15% 12%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 32%),
     var(--color-bg-layout, #f6f8fc);
   color: var(--color-text, #182033);
 }

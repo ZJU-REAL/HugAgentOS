@@ -608,17 +608,39 @@
 }
 
 /* ══ DOCX Renderer ══ */
+
+/* dark-ok-begin: Word 预览是一张**纸**，不是界面的一部分——docx-preview 会把文档自带的
+   行内颜色（绝大多数是黑字）直接写在元素上，纸面因此必须恒为浅色，否则深色档下黑字压深底、
+   整份文档不可读。
+   做法是把纸张根做成「主题孤岛」：在这里把主题令牌就地钉回浅色值，纸内所有引用令牌的规则
+   （正文、表头、标题、链接……）随之自动解析成浅色。
+   这比逐条 background 上标 dark-ok 深一层——纸内新增样式不必再记得豁免，后续批量令牌化
+   改动也不会把纸内的某一条文字色悄悄翻成深色档的浅字（曾因此让表头白字压白底）。 */
 .jx-canvas-docx {
+  --color-text:#101828;
+  --color-text-secondary:#475467;
+  --color-text-tertiary:#667085;
+  --color-text-placeholder:#98A2B3;
+  --color-bg-base:#FFFFFF;
+  --color-bg-container:#FFFFFF;
+  --color-bg-elevated:#FFFFFF;
+  --color-bg-layout:#F5F7FB;
+  --color-bg-gray:#F4F6F9;
+  --color-border:#E3E8EF;
+  --color-fill:#DDE3EC;
+  --color-fill-hover:#EEF1F5;
+
   padding: 0;
   background: var(--color-bg-container);
   min-height: 100%;
 }
+/* dark-ok-end */
 .jx-canvas-docx .docx-wrapper,
 .jx-canvas-docx .jx-canvas-docx-wrapper,
 .jx-canvas-docx .jx-canvas-docx-wrapper-wrapper {
   padding: 0 !important;
   margin: 0 !important;
-  background: #fff !important;
+  background: var(--color-bg-container) !important;
 }
 /* section: library uses our className as the section class, so match both */
 .jx-canvas-docx section.docx,
@@ -628,7 +650,7 @@
   max-width: none;
   width: 100%;
   padding: 28px 36px 44px !important;
-  background: #fff !important;
+  background: var(--color-bg-container) !important;
   border: none !important;
   border-radius: 0;
   box-shadow: none !important;
@@ -790,8 +812,8 @@
 
 .jx-canvas-docx section.docx th,
 .jx-canvas-docx section.jx-canvas-docx-wrapper th {
-  background: rgba(248, 250, 252, .9) !important;
-  color: rgba(15, 23, 42, .9) !important; /* 纸面浅底固定，文字不随主题翻转 */
+  background: var(--color-bg-layout) !important;
+  color: var(--color-text) !important; /* 纸内令牌已被上面的主题孤岛钉成浅色值 */
   font-weight: 600 !important;
 }
 

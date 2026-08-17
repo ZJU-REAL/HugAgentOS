@@ -23,7 +23,7 @@ export default function ApiDocApp() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{
-        background: '#fff',
+        background: 'var(--color-bg-container)',
         borderBottom: '1px solid #E3E6EA',
         display: 'flex',
         alignItems: 'center',
@@ -32,7 +32,7 @@ export default function ApiDocApp() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Title level={5} style={{ margin: 0 }}>
-            <ProfileOutlined style={{ marginRight: 8, color: '#126DFF' }} />
+            <ProfileOutlined style={{ marginRight: 8, color: 'var(--color-primary)' }} />
             {docTitle}
           </Title>
           <Divider type="vertical" />
@@ -69,7 +69,7 @@ export default function ApiDocApp() {
           </Button>
         </div>
       </Header>
-      <Content style={{ background: '#fff', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+      <Content style={{ background: 'var(--color-bg-container)', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
         <ApiDocPanel onReloadRef={reloadRef} />
       </Content>
     </Layout>

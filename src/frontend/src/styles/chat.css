@@ -821,8 +821,8 @@ a.jx-fileCard--link:hover{
   opacity:.58;
 }
 .jx-queuedMessage--applied .jx-queuedMessage-steer{
-  background:#dcfce7;
-  color:#15803d;
+  background:var(--color-success-bg);
+  color:var(--color-success);
 }
 .jx-queuedMessage-iconBtn{
   display:inline-flex;
@@ -2201,10 +2201,10 @@ textarea.jx-composer{
 .jx-followUpBtn:hover{
   border-color:var(--color-primary);
   color:var(--color-primary);
-  background:#f0f5ff;
+  background:var(--color-primary-light);
 }
 .jx-followUpBtn:active{
-  background:var(--color-primary-light);
+  background:var(--color-primary-bg);
 }
 .jx-followUpBtn:disabled{
   opacity:.5;
@@ -2591,7 +2591,7 @@ textarea.jx-composer{
   min-width:320px;
   flex-shrink:0;
   border:none;
-  background:linear-gradient(26deg, #FFFFFF 0%, #FFFFFF 100%);
+  background:var(--color-bg-container);
   display:flex;
   flex-direction:column;
   height:100%;
@@ -2642,7 +2642,7 @@ textarea.jx-composer{
   padding:12px 14px;
   border-radius:10px;
   border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
-  background:#f8f9fa;
+  background:var(--color-bg-gray);
   cursor:pointer;
   transition:all .18s ease;
 }
@@ -2652,8 +2652,8 @@ textarea.jx-composer{
   box-shadow:0 2px 8px rgba(18,109,255,.08);
 }
 .jx-promptHub-card.selected{
-  border-color:rgba(18,109,255,.45);
-  background:#eff6ff;
+  border-color:color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background:var(--color-primary-bg);
 }
 .jx-promptHub-cardTitle{
   font-size:14px;
@@ -2678,10 +2678,10 @@ textarea.jx-composer{
 .jx-promptHub-card--skeleton{
   pointer-events:none;
   cursor:default;
-  background:#f8f9fa;
+  background:var(--color-bg-gray);
 }
 .jx-promptHub-card--skeleton:hover{
-  background:#f8f9fa;
+  background:var(--color-bg-gray);
   border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
   box-shadow:none;
 }
@@ -2724,6 +2724,8 @@ textarea.jx-composer{
     max(14px, env(safe-area-inset-right))
     max(24px, env(safe-area-inset-bottom))
     max(14px, env(safe-area-inset-left));
+  /* dark-ok: 分享页锁定浅色（forceLight + index.html boot script 的 share 判断），
+     对外分享链接不跟随访客主题，这里的浅色渐变是刻意的 */
   background:
     radial-gradient(circle at top, rgba(18,109,255,.08), transparent 34%),
     linear-gradient(180deg, #f8fbff 0%, #ffffff 42%, var(--color-bg-layout) 100%);
@@ -3207,7 +3209,7 @@ textarea.jx-composer{
 }
 .jx-slashPopup-item:hover,
 .jx-slashPopup-item.active {
-  background: #E0F2FE;
+  background: var(--color-tint-cyan-bg);
 }
 .jx-slashPopup-name {
   font-weight: 500;
@@ -3218,15 +3220,15 @@ textarea.jx-composer{
   line-height: 1;
   padding: 2px 6px;
   border-radius: 4px;
-  background: #EDE9FE;
-  color: #6D28D9;
+  background: var(--color-tint-purple-bg);
+  color: var(--color-tint-purple);
 }
 .jx-slashPopup-icon {
   font-size: 13px;
   flex-shrink: 0;
 }
-.jx-slashPopup-icon--plugin { color: #6D28D9; }
-.jx-slashPopup-icon--skill { color: #f59e0b; }
+.jx-slashPopup-icon--plugin { color: var(--color-tint-purple); }
+.jx-slashPopup-icon--skill { color: var(--color-warning); }
 
 
 /* ── ContentEditable editor — replaces textarea ── */
@@ -3288,13 +3290,13 @@ textarea.jx-composer{
   color: var(--color-primary);
 }
 .jx-editorChip--skill {
-  background: #e0f2fe;
+  background: var(--color-tint-cyan-bg);
   color: var(--color-primary);
 }
 /* 插件 chip 与技能 chip 视觉区分：紫色底 */
 .jx-editorChip--plugin {
-  background: #EDE9FE;
-  color: #6D28D9;
+  background: var(--color-tint-purple-bg);
+  color: var(--color-tint-purple);
 }
 .jx-editorChip-prefix {
   font-weight: 700;
@@ -3327,13 +3329,13 @@ textarea.jx-composer{
   color: var(--color-primary);
 }
 .jx-msgChip--skill {
-  background: #e0f2fe;
+  background: var(--color-tint-cyan-bg);
   color: var(--color-primary);
 }
 /* 插件 chip 与技能 chip 视觉区分：紫色底 */
 .jx-msgChip--plugin {
-  background: #EDE9FE;
-  color: #6D28D9;
+  background: var(--color-tint-purple-bg);
+  color: var(--color-tint-purple);
 }
 .jx-msgChip-prefix {
   font-weight: 700;
@@ -3606,12 +3608,13 @@ textarea.jx-composer{
   align-items: center;
   justify-content: center;
   padding: 20px;
+  /* 透明区棋盘格：格子与底色都走令牌，深色下自然翻成深灰棋盘 */
   background:
-    linear-gradient(45deg, #f3f4f6 25%, transparent 25%) 0 0 / 16px 16px,
-    linear-gradient(-45deg, #f3f4f6 25%, transparent 25%) 0 8px / 16px 16px,
-    linear-gradient(45deg, transparent 75%, #f3f4f6 75%) 8px -8px / 16px 16px,
-    linear-gradient(-45deg, transparent 75%, #f3f4f6 75%) 8px 0 / 16px 16px,
-    #fff;
+    linear-gradient(45deg, var(--color-fill-hover) 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, var(--color-fill-hover) 25%, transparent 25%) 0 8px / 16px 16px,
+    linear-gradient(45deg, transparent 75%, var(--color-fill-hover) 75%) 8px -8px / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, var(--color-fill-hover) 75%) 8px 0 / 16px 16px,
+    var(--color-bg-container);
 }
 .jx-spaceImportPreview-image img {
   max-width: 100%;
@@ -3692,7 +3695,7 @@ textarea.jx-composer{
   overflow: auto;
 }
 .jx-spaceImportPreview-text--json {
-  color: #1e3a8a;
+  color: var(--color-primary);
 }
 
 /* markdown ------------------------------------------------------- */

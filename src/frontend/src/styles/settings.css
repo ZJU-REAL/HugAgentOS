@@ -153,10 +153,10 @@
   border-radius: 50%;
   background: currentColor;
 }
-.jx-conn-badge--connected   { background: #E7F7EF; color: #0A9D52; }
-.jx-conn-badge--pending     { background: #FFF7E6; color: #D48806; }
-.jx-conn-badge--error       { background: #FFF1F0; color: #CF1322; }
-.jx-conn-badge--disconnected{ background: #F0F1F3; color: var(--color-text-tertiary); }
+.jx-conn-badge--connected   { background: var(--color-tint-green-bg); color: var(--color-tint-green); }
+.jx-conn-badge--pending     { background: var(--color-tint-amber-bg); color: var(--color-tint-amber); }
+.jx-conn-badge--error       { background: var(--color-tint-red-bg); color: var(--color-tint-red); }
+.jx-conn-badge--disconnected{ background: var(--color-bg-gray); color: var(--color-text-tertiary); }
 .jx-conn-account {
   font-size: 13px;
   color: var(--color-text-secondary);
@@ -281,14 +281,14 @@
   line-height: 1.6;
 }
 .jx-conn-note--warning {
-  background: #FFFBE6;
-  border: 1px solid #FFE58F;
-  color: #ad6800;
+  background: var(--color-tint-amber-bg);
+  border: 1px solid color-mix(in srgb, var(--color-tint-amber) 40%, transparent);
+  color: var(--color-tint-amber);
 }
 .jx-conn-note--error {
-  background: #FFF1F0;
-  border: 1px solid #FFCCC7;
-  color: #cf1322;
+  background: var(--color-tint-red-bg);
+  border: 1px solid color-mix(in srgb, var(--color-tint-red) 40%, transparent);
+  color: var(--color-tint-red);
 }
 
 /* API-Key 面板：card 本身 padding:0（由内部 row 自管），这里给面板留出内边距，

@@ -249,7 +249,7 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                     {bot.channel_type === 'weixin' ? t('微信号') : 'App ID'}: {bot.app_id}
                   </div>
                   {bot.status === 'error' && bot.last_error && (
-                    <div className="jx-conn-desc" style={{ color: '#d4380d', fontSize: 12 }}>{bot.last_error}</div>
+                    <div className="jx-conn-desc" style={{ color: 'var(--color-error)', fontSize: 12 }}>{bot.last_error}</div>
                   )}
                   {canObserve && (
                     <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>

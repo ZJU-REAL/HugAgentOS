@@ -61,11 +61,11 @@
 .loop-list-item.active { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
 .loop-title { font-weight: 600; font-size: 13px; }
 .loop-status { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; margin: 3px 0; background: var(--color-fill-hover); }
-.loop-status.s-completed { background: #dcfce7; color: #166534; }
-.loop-status.s-running { background: #dbeafe; color: #1e40af; }
-.loop-status.s-budget_exhausted { background: #fef9c3; color: #854d0e; }
-.loop-status.s-failed { background: #fee2e2; color: #991b1b; }
-.loop-status.s-awaiting_human { background: #fae8ff; color: #86198f; }
+.loop-status.s-completed { background: var(--color-tint-green-bg); color: var(--color-tint-green); }
+.loop-status.s-running { background: var(--color-tint-blue-bg); color: var(--color-tint-blue); }
+.loop-status.s-budget_exhausted { background: var(--color-tint-amber-bg); color: var(--color-tint-amber); }
+.loop-status.s-failed { background: var(--color-tint-red-bg); color: var(--color-tint-red); }
+.loop-status.s-awaiting_human { background: var(--color-tint-purple-bg); color: var(--color-tint-purple); }
 .loop-meta { font-size: 11px; color: var(--color-text-tertiary); }
 
 .loop-main { flex: 1; padding: 20px; overflow-y: auto; }
@@ -73,15 +73,17 @@
 .loop-header { display: flex; justify-content: space-between; align-items: center; }
 .loop-goal { background: var(--color-bg-layout); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
 .loop-budget { font-size: 12px; color: var(--color-text-secondary); margin-top: 4px; }
+/* dark-ok: 事件流是刻意的暗色终端台，两档主题下都保持深底浅字 */
 .loop-stream {
   background: #0d1117; color: #c9d1d9; border-radius: 8px; padding: 12px;
   font-family: ui-monospace, monospace; font-size: 12.5px; max-height: 300px; overflow-y: auto;
 }
 .loop-ev { padding: 2px 0; }
-.loop-reason { color: #8b949e; padding-left: 16px; font-size: 12px; }
-.loop-warn { color: #d29922; }
-.loop-done { color: #3fb950; font-weight: 600; }
-.loop-err { color: #f85149; }
+/* 下面四条是 .loop-stream 暗色终端台内的语法色，跟随终端底色而非主题 */
+.loop-reason { color: #8b949e; padding-left: 16px; font-size: 12px; } /* dark-ok */
+.loop-warn { color: #d29922; } /* dark-ok */
+.loop-done { color: #3fb950; font-weight: 600; } /* dark-ok */
+.loop-err { color: #f85149; } /* dark-ok */
 .loop-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
 .loop-table th, .loop-table td { border: 1px solid var(--color-border); padding: 5px 8px; text-align: left; }
 .loop-table th { background: var(--color-bg-layout); }
@@ -196,9 +198,9 @@
   padding: 1px 8px; border-radius: 20px;
   background: var(--color-primary-light); color: var(--color-primary);
 }
-.loop-status-completed { background: #dcfce7; color: #16a34a; }
-.loop-status-budget_exhausted { background: #fef3c7; color: #b45309; }
-.loop-status-cancelled, .loop-status-failed { background: #fee2e2; color: #dc2626; }
+.loop-status-completed { background: var(--color-tint-green-bg); color: var(--color-tint-green); }
+.loop-status-budget_exhausted { background: var(--color-tint-amber-bg); color: var(--color-tint-amber); }
+.loop-status-cancelled, .loop-status-failed { background: var(--color-tint-red-bg); color: var(--color-tint-red); }
 .loop-planbar-caret { flex-shrink: 0; color: var(--color-text-placeholder); font-size: 11px; }
 .loop-planbar-continue {
   flex-shrink: 0; border: none; cursor: pointer; white-space: nowrap;
@@ -225,7 +227,7 @@
 }
 .loop-planbar-mark { flex-shrink: 0; width: 14px; text-align: center; font-size: 12px; }
 .loop-planbar-desc { color: var(--color-text); }
-.loop-item-done .loop-planbar-mark { color: #16a34a; }
+.loop-item-done .loop-planbar-mark { color: var(--color-success); }
 .loop-item-done .loop-planbar-desc { color: var(--color-text-placeholder); text-decoration: line-through; }
 .loop-item-active .loop-planbar-mark { color: var(--color-primary); }
 .loop-item-active .loop-planbar-desc { font-weight: 600; }
@@ -237,7 +239,7 @@
 }
 @keyframes loop-review-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
 .loop-planbar-hint { padding: 4px 12px 10px; color: var(--color-text-placeholder); }
-.loop-status-interrupted { background: #fef3c7; color: #b45309; }
+.loop-status-interrupted { background: var(--color-tint-amber-bg); color: var(--color-tint-amber); }
 .loop-planbar-steer {
   display: flex; align-items: center; gap: 6px; padding: 4px 12px 10px;
 }
