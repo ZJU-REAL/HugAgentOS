@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AppstoreOutlined, BulbOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, BulbOutlined, PartitionOutlined } from '@ant-design/icons';
 import { usePopupFlip } from '../../hooks/usePopupFlip';
 import { t } from '../../i18n';
 import type { InstalledPluginItem } from '../../types';
 
 export type SlashEntry = {
-  kind: 'skill' | 'plugin';
+  /** mode：切换对话模式的命令（如 /workflow 进入工作流模式），选中即开启，不插入 chip。 */
+  kind: 'skill' | 'plugin' | 'mode';
   id: string;
   name: string;
   plugin?: InstalledPluginItem;
+  /** mode 条目的说明，渲染在名称右侧（技能/插件条目不用）。 */
+  hint?: string;
 };
 
 interface SkillSlashPopupProps {
@@ -57,9 +60,13 @@ export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onH
             >
               {entry.kind === 'plugin'
                 ? <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />
-                : <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />}
+                : entry.kind === 'mode'
+                  ? <PartitionOutlined className="jx-slashPopup-icon jx-slashPopup-icon--mode" />
+                  : <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />}
               <span className="jx-slashPopup-name">{entry.name}</span>
+              {entry.hint && <span className="jx-slashPopup-hint">{entry.hint}</span>}
               {entry.kind === 'plugin' && <span className="jx-slashPopup-badge">{t('插件')}</span>}
+              {entry.kind === 'mode' && <span className="jx-slashPopup-badge">{t('模式')}</span>}
             </div>
           ))}
         </motion.div>

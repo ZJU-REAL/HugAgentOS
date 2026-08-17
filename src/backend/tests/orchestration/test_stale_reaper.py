@@ -172,6 +172,71 @@ async def test_quiet_over_age_run_with_live_task_survives(reaper_env, monkeypatc
     task.cancel()
 
 
+def _insert_job(session_factory, job_id: str, *, chat_id: str, status: str, updated_age_sec: float):
+    from core.db.models import Job
+
+    with session_factory() as db:
+        db.add(
+            Job(
+                job_id=job_id,
+                user_id="user_test",
+                chat_id=chat_id,
+                name="t",
+                status=status,
+                budget={},
+                usage={},
+                extra_data={},
+                updated_at=datetime.now(timezone.utc) - timedelta(seconds=updated_age_sec),
+            )
+        )
+        db.commit()
+
+
+async def test_quiet_orphan_with_live_job_survives(reaper_env):
+    """工作流模式：run 卡在 run_job(wait=True) 里等作业，主链路一个流事件都不产生。
+
+    进程内 task 豁免只在本进程有效——多 worker / 多副本部署里另一个进程看不到这个
+    task，会按"流静默"把健康的长作业误杀（实测踩过：双后端共库时主栈把测试后端的
+    run 杀了）。作业活性是跨进程可见的证据，必须能救下这个 run。
+    """
+    session_factory, _ = reaper_env
+    _insert_run(session_factory, "run_job_wait", age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300)
+    _insert_job(
+        session_factory, "job_live", chat_id="chat_test", status="running", updated_age_sec=5
+    )
+
+    assert await executor.reap_stale_runs() == 0
+    assert _get_run(session_factory, "run_job_wait").status == "running"
+
+
+async def test_quiet_orphan_with_stalled_job_is_reaped(reaper_env):
+    """作业本身也不动了（updated_at 落在静默窗口之外）→ 不是活性证据，照常回收。"""
+    session_factory, _ = reaper_env
+    _insert_run(session_factory, "run_job_dead", age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300)
+    _insert_job(
+        session_factory,
+        "job_stalled",
+        chat_id="chat_test",
+        status="running",
+        updated_age_sec=executor._STALE_QUIET_SEC + 120,
+    )
+
+    assert await executor.reap_stale_runs() == 1
+    assert _get_run(session_factory, "run_job_dead").status == "failed"
+
+
+async def test_terminal_job_does_not_shield_run(reaper_env):
+    """作业已终态 → 不再是活性证据，run 该回收就回收（防止豁免变成永生通行证）。"""
+    session_factory, _ = reaper_env
+    _insert_run(session_factory, "run_job_done", age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300)
+    _insert_job(
+        session_factory, "job_done", chat_id="chat_test", status="completed", updated_age_sec=5
+    )
+
+    assert await executor.reap_stale_runs() == 1
+    assert _get_run(session_factory, "run_job_done").status == "failed"
+
+
 async def test_orphan_with_done_task_is_reaped(reaper_env, monkeypatch):
     """A finished task left in _active_runs does not shield the run: quiet orphans are reaped."""
     session_factory, _ = reaper_env

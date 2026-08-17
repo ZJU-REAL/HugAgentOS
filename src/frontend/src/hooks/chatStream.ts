@@ -3,16 +3,18 @@ import { t } from '../i18n';
 import { toFileConfirmInfo, toDesignPickInfo } from '../api';
 import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
+import { refreshTargetForTool } from '../utils/toolRefresh';
 import { parseContextCompactionState } from '../utils/contextUsage';
 import {
   appendStreamTextSegment,
+  appendSubagentStepDelta,
   appendThinkingContentBeforeTrailingText,
   deferThinkingTextFragmentBeforeTool,
   liftTrailingSegmentsAboveFinalText,
   restoreDeferredThinkingTextFragment,
   type DeferredThinkingTextFragment,
 } from '../utils/streamSegments';
-import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore } from '../stores';
+import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore, useAgentStore, usePluginStore } from '../stores';
 import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
 
 /**
@@ -30,18 +32,20 @@ import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegm
  * reduction logic for new scenarios is forbidden.
  */
 
-/** Tools in the skill-manager plugin that mutate "my skill library" — after the agent calls
- *  them the capability catalog must be refreshed, otherwise the frontend skill list stays on
- *  stale data (no visible change after create/install/delete). search/list/submit are read-only
- *  or don't change the list, so they don't trigger it. */
-const SKILL_LIBRARY_MUTATING_TOOLS = ['register_skill', 'install_from_marketplace', 'delete_skill'];
-
+/** 管理类插件写操作后，重拉持有那份列表的 store。
+ *
+ *  刷新不是锦上添花：MCP 跑在自己的容器里，它清掉的能力缓存是**它那个进程**的，不是 backend
+ *  的——前端这次重拉才是让变更真正可见的那一步，否则就是"说创建好了但界面没动静"。
+ *
+ *  刷哪个 store 与刷不刷同样重要，映射表见 utils/toolRefresh.ts（那里也有测试钉住）。
+ *  pluginStore 有 `loaded` 缓存，所以要 fetchInstalled(true) 强制。 */
 function maybeRefreshCatalogAfterTool(toolName: string, status: string): void {
   if (status !== 'success') return;
-  const name = stripMcpToolPrefix(toolName || '');
-  if (SKILL_LIBRARY_MUTATING_TOOLS.some((n) => name.includes(n))) {
-    void useCatalogStore.getState().fetchCatalog();
-  }
+  const target = refreshTargetForTool(stripMcpToolPrefix(toolName || ''));
+  if (!target) return;
+  if (target === 'catalog') void useCatalogStore.getState().fetchCatalog();
+  else if (target === 'agents') void useAgentStore.getState().fetchAgents();
+  else void usePluginStore.getState().fetchInstalled(true);
 }
 
 /** Unified handling of the site-design pick-one-of-three SSE event (shared by the live stream
@@ -112,15 +116,8 @@ function applySubagentEvent(toolCalls: ToolCall[], eo: Record<string, unknown>):
     if (eo.output !== null && eo.output !== undefined) patch.output = eo.output;
     upsertToolStep(norm(eo.tool_id), norm(eo.tool_name), patch, status);
   } else if (subType === 'thinking' || subType === 'content') {
-    const delta = norm(eo.delta);
-    if (delta) {
-      const last = steps[steps.length - 1];
-      if (last && last.kind === subType) {
-        steps[steps.length - 1] = { ...last, text: (last.text || '') + delta };
-      } else {
-        steps.push({ kind: subType, text: delta });
-      }
-    }
+    // 迟到思考尾并回前块（与主链路同一规则），避免思考与正文交错切碎
+    appendSubagentStepDelta(steps, subType, norm(eo.delta));
   } else if (subType === 'error') {
     steps.push({ kind: 'content', text: '⚠ ' + (norm(eo.error) || 'error') });
   }

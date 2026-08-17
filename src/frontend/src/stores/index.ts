@@ -15,3 +15,4 @@ export { useModelCapabilitiesStore } from './modelCapabilitiesStore';
 export { useEditionStore } from './editionStore';
 export { usePluginStore } from './pluginStore';
 export { useChatModeStore } from './chatModeStore';
+export { useSidebarOrderStore } from './sidebarOrderStore';

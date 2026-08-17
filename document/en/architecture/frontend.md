@@ -78,6 +78,7 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `pageConfigStore` | Page configuration (branding, navigation, copy — drives white-labeling) |
 | `editionStore` | Consumer of the `/v1/meta/edition` probe: edition and license feature-bit map |
 | `modelCapabilitiesStore` | Main-model capability probing (thinking / vision etc.) |
+| `sidebarOrderStore` | Manual drag-and-drop order of the sidebar chat list (persisted locally + in `users_shadow.metadata`) |
 
 ## Hooks
 

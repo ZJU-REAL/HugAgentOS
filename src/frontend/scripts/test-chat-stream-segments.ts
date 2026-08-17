@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 
-import type { MessageSegment } from '../src/types';
+import type { MessageSegment, SubagentStep } from '../src/types';
 import {
   appendStreamTextSegment,
+  appendSubagentStepDelta,
   appendThinkingContentBeforeTrailingText,
   deferThinkingTextFragmentBeforeTool,
   restoreDeferredThinkingTextFragment,
@@ -10,6 +11,7 @@ import {
 import { extractCodeFromStreamingArgs } from '../src/utils/codeExecParser';
 import { buildHistorySegments } from '../src/utils/segments';
 import { getToolRunInitialOpen } from '../src/utils/toolRunState';
+import { refreshTargetForTool } from '../src/utils/toolRefresh';
 
 function tool(toolIndex: number): MessageSegment {
   return { type: 'tool', toolIndex };
@@ -303,6 +305,68 @@ function tool(toolIndex: number): MessageSegment {
     tool(0),
     { type: 'text', content: '这是结构化模型的正文。' },
   ]);
+}
+
+{
+  // 子智能体子步骤：结构化 reasoning 的收尾增量在正文首 token 之后才到达
+  // （线上实录形态：thinking " more" → content "Let" → thinking " searches." → content …）。
+  // 迟到的思考尾并回前一个思考块，正文保持一整段，不被切成碎片交错。
+  const steps: SubagentStep[] = [];
+  appendSubagentStepDelta(steps, 'thinking', '继续检索剩余企业。');
+  appendSubagentStepDelta(steps, 'thinking', ' more');
+  appendSubagentStepDelta(steps, 'content', 'Let');
+  appendSubagentStepDelta(steps, 'thinking', ' searches.');
+  appendSubagentStepDelta(steps, 'content', ' me continue with more searches for');
+  appendSubagentStepDelta(steps, 'content', ' remaining');
+
+  assert.deepEqual(steps, [
+    { kind: 'thinking', text: '继续检索剩余企业。 more searches.' },
+    { kind: 'content', text: 'Let me continue with more searches for remaining' },
+  ]);
+}
+
+{
+  // 边界：工具步骤之后的思考属于新一轮，不并回上一轮思考块；
+  // 没有前置思考块时（正文在先）也不能吞掉这条思考。
+  const afterTool: SubagentStep[] = [
+    { kind: 'thinking', text: '上一轮思考' },
+    { kind: 'tool', toolId: 't1', name: 'internet_search', status: 'success' },
+  ];
+  appendSubagentStepDelta(afterTool, 'thinking', '新一轮思考');
+  assert.deepEqual(afterTool, [
+    { kind: 'thinking', text: '上一轮思考' },
+    { kind: 'tool', toolId: 't1', name: 'internet_search', status: 'success' },
+    { kind: 'thinking', text: '新一轮思考' },
+  ]);
+
+  const contentFirst: SubagentStep[] = [{ kind: 'content', text: '正文在先' }];
+  appendSubagentStepDelta(contentFirst, 'thinking', '随后的思考');
+  assert.deepEqual(contentFirst, [
+    { kind: 'content', text: '正文在先' },
+    { kind: 'thinking', text: '随后的思考' },
+  ]);
+}
+
+{
+  // 管理类插件写操作 → 必须刷"持有那份列表的" store。三份列表来自三个不同接口，
+  // 刷错不会报错、只会静默无效——这张表已经错过两次，故在此钉住。
+  const AGENT_WRITES = ['create_agent', 'edit_agent', 'delete_agent', 'install_market_agent'];
+  const PLUGIN_WRITES = ['install_plugin', 'uninstall_plugin', 'import_plugin', 'set_plugin_enabled'];
+  const SKILL_WRITES = ['register_skill', 'install_from_marketplace', 'delete_skill', 'edit_skill'];
+  for (const n of AGENT_WRITES) assert.equal(refreshTargetForTool(n), 'agents', n);
+  for (const n of PLUGIN_WRITES) assert.equal(refreshTargetForTool(n), 'plugins', n);
+  for (const n of SKILL_WRITES) assert.equal(refreshTargetForTool(n), 'catalog', n);
+
+  // 只读动词不该触发任何重拉。
+  for (const n of [
+    'search_agent_market', 'list_my_agents', 'list_bindable_capabilities',
+    'search_plugin_market', 'list_my_plugins', 'get_plugin_info',
+    'search_marketplace', 'list_my_skills', 'submit_agent_to_market', 'submit_to_marketplace',
+  ]) assert.equal(refreshTargetForTool(n), undefined, n);
+
+  // 精确匹配：uninstall_plugin 不能靠"包含 install_plugin"这种巧合被覆盖。
+  assert.equal(refreshTargetForTool('uninstall_plugin'), 'plugins');
+  assert.equal(refreshTargetForTool('totally_unknown_tool'), undefined);
 }
 
 console.log('chat stream segment tests passed');
