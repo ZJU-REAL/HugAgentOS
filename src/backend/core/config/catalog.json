@@ -176,6 +176,30 @@
       "config": {
         "server": "site_publish"
       }
+    },
+    {
+      "id": "agent_manager",
+      "kind": "mcp_server",
+      "name": "agent_manager",
+      "description": "MCP 服务：智能体管理",
+      "desc": "MCP 服务：智能体管理",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "agent_manager"
+      }
+    },
+    {
+      "id": "plugin_manager",
+      "kind": "mcp_server",
+      "name": "plugin_manager",
+      "description": "MCP 服务：插件管理",
+      "desc": "MCP 服务：插件管理",
+      "enabled": true,
+      "version": "1",
+      "config": {
+        "server": "plugin_manager"
+      }
     }
   ],
   "kb": []

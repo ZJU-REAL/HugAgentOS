@@ -94,6 +94,18 @@ class UpdateChatRequest(BaseModel):
     metadata: Optional[dict] = Field(None, description="Additional metadata")
 
 
+class UpdateSidebarOrderRequest(BaseModel):
+    """Request model for persisting the sidebar's manual (drag-and-drop) order."""
+
+    order: List[str] = Field(default_factory=list, description="Chat ids in manual order")
+
+
+# Sidebar manual order lives in users_shadow.metadata (no schema migration needed):
+# it is a pure UI preference of "which chat sits where", not session state.
+SIDEBAR_ORDER_KEY = "sidebar_chat_order"
+SIDEBAR_ORDER_MAX = 500
+
+
 def _session_to_dict(s) -> dict:
     """Convert a ChatSession ORM object to the edition-neutral API response."""
     return {
@@ -285,6 +297,53 @@ async def list_pending_confirms(
         rec = confirms[-1] if confirms else pendings[-1]
         items.append({"chat_id": cid, **rec})
     return success_response(data={"items": items})
+
+
+def _dedup_id_list(raw: Optional[list]) -> List[str]:
+    """Clean + de-duplicate an id list, preserving first-seen order."""
+    seen: set = set()
+    out: List[str] = []
+    for cid in _clean_id_list(raw):
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(cid)
+    return out
+
+
+@router.get("/sidebar-order", summary="获取侧边栏手动排序")
+async def get_sidebar_order(
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """侧边栏对话列表的手动拖拽顺序（chat_id 序列）。
+
+    没拖过的账号返回空数组——前端据此退回「置顶 + 最近更新」默认排序。
+
+    注意：本路由必须声明在 ``GET /{chat_id}`` **之前**，否则会被 path 参数
+    路由吞掉（FastAPI 按声明顺序匹配）。
+    """
+    user_settings = UserService(db).get_user_settings(str(user.user_id))
+    order = _dedup_id_list(user_settings.get(SIDEBAR_ORDER_KEY))[:SIDEBAR_ORDER_MAX]
+    return success_response(data={"order": order})
+
+
+@router.put("/sidebar-order", summary="保存侧边栏手动排序")
+async def update_sidebar_order(
+    request: UpdateSidebarOrderRequest,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """整表覆盖写入手动顺序；空数组 = 恢复默认排序。
+
+    不校验 chat_id 是否存在：顺序表是纯 UI 偏好，已删除的会话留在表里也只是
+    查不到对应项而被忽略，反倒省掉一次全表校验。超出上限的尾部直接截断。
+    """
+    order = _dedup_id_list(request.order)[:SIDEBAR_ORDER_MAX]
+    UserService(db).update_user_metadata(
+        user_id=str(user.user_id), patch={SIDEBAR_ORDER_KEY: order}
+    )
+    return success_response(data={"order": order})
 
 
 @router.get("/{chat_id}", summary="获取会话详情")
@@ -788,6 +847,7 @@ def _build_ctx(
         "plugin_name": request.plugin_name,
         "plan_chat": request.plan_chat,
         "batch_chat": request.batch_chat,
+        "workflow_chat": request.workflow_chat,
         "disable_batch_plan": request.disable_batch_plan,
         **project_ctx,
     }
@@ -803,6 +863,7 @@ def _ensure_chat_session(
     agent_name: Optional[str] = None,
     plan_chat: bool = False,
     batch_chat: bool = False,
+    workflow_chat: bool = False,
     project_id: Optional[str] = None,
 ):
     extra_data: Dict[str, Any] = {"chat_id": chat_id}
@@ -814,6 +875,8 @@ def _ensure_chat_session(
         extra_data["plan_chat"] = True
     if batch_chat:
         extra_data["batch_chat"] = True
+    if workflow_chat:
+        extra_data["workflow_chat"] = True
     # Prefer the edition-aware access resolver before creating a session.
     pair = chat_service.get_session_with_access(chat_id, user_id)
     if pair is not None:
@@ -849,6 +912,9 @@ def _ensure_chat_session(
         dirty = True
     if batch_chat and not existing_meta.get("batch_chat"):
         merged["batch_chat"] = True
+        dirty = True
+    if workflow_chat and not existing_meta.get("workflow_chat"):
+        merged["workflow_chat"] = True
         dirty = True
     if dirty:
         chat_service.update_session(chat_id, user_id, {"extra_data": merged})
@@ -928,6 +994,7 @@ async def chat_send(
             agent_name=_agent_name,
             plan_chat=request.plan_chat,
             batch_chat=request.batch_chat,
+            workflow_chat=request.workflow_chat,
             project_id=request.project_id,
         )
         # Link orphan artifacts (uploaded before session existed) to this chat
@@ -1129,6 +1196,7 @@ async def chat_stream(
         agent_name=_agent_name_stream,
         plan_chat=request.plan_chat,
         batch_chat=request.batch_chat,
+        workflow_chat=request.workflow_chat,
         project_id=request.project_id,
     )
 

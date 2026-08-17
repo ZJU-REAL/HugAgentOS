@@ -3229,6 +3229,16 @@ textarea.jx-composer{
 }
 .jx-slashPopup-icon--plugin { color: var(--color-tint-purple); }
 .jx-slashPopup-icon--skill { color: var(--color-warning); }
+/* 模式命令（/workflow 等）：换一个色系，和技能/插件在一眼之内就能分开 */
+.jx-slashPopup-icon--mode { color: var(--color-tint-teal); }
+/* 模式条目的说明文字，跟在名称后面；badge 仍然靠 margin-left:auto 顶到最右 */
+.jx-slashPopup-hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 
 /* ── ContentEditable editor — replaces textarea ── */

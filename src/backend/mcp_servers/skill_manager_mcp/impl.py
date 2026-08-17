@@ -11,21 +11,17 @@
 
 from __future__ import annotations
 
-import io
 import logging
-import os
-import tarfile
 import tempfile
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+# 产物库读取与 tar/zip 安全解包（含解包上限）搬到了 _packaging.py，与 plugin-manager 共用：
+# 同一条"沙箱产物 → 落库"通路，zip-bomb 与目录穿越防护只应有一份。
+from mcp_servers._packaging import locate_root, read_artifact_bytes, safe_extract
 
-# tar/zip 解包安全上限（防 zip-bomb / 超大产物）
-_MAX_ENTRIES = 4000
-_MAX_TOTAL_BYTES = 64 * 1024 * 1024  # 64 MB 解压后总量
+logger = logging.getLogger(__name__)
 
 # edit_skill 经工具入参写入单个附属文件的上限（智能体传的是 UTF-8 文本，非二进制大文件）
 _MAX_SKILL_FILE_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -208,7 +204,7 @@ def register_skill(
     if not artifact_id:
         return {"ok": False, "message": "❌ 缺少 artifact_id。请先在沙箱里把技能目录打成 tar 并调 sandbox_get_artifact 取得 artifact_id。"}
 
-    data = _read_artifact_bytes(artifact_id)
+    data = read_artifact_bytes(artifact_id)
     if data is None:
         return {"ok": False, "message": f"❌ 产物库里找不到 artifact_id「{artifact_id}」（或已过期）。"}
 
@@ -217,11 +213,11 @@ def register_skill(
     with tempfile.TemporaryDirectory(prefix="skreg_") as tmp:
         tmp_path = Path(tmp)
         try:
-            _safe_extract(data, tmp_path)
+            safe_extract(data, tmp_path)
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"❌ 解包失败：{exc}"}
 
-        root = _locate_root(tmp_path)
+        root = locate_root(tmp_path)
         if root is None:
             return {
                 "ok": False,
@@ -666,106 +662,6 @@ def _resolve_skill(db, user_id: str, ref: str) -> Tuple[Optional[Any], List[Any]
     if len(cands) == 1:
         return cands[0], []
     return None, cands
-
-
-# ── 产物库 / 解包 辅助 ────────────────────────────────────────────────────
-def _read_artifact_bytes(file_id: str) -> Optional[bytes]:
-    """从共享产物库按 file_id 读回字节（local: 读 path；oss: download_bytes）。"""
-    try:
-        from core.artifacts import store
-
-        meta = store.get_artifact(file_id)
-        if not meta:
-            return None
-        path = meta.get("path")
-        if path and os.path.isfile(path):
-            with open(path, "rb") as fh:
-                return fh.read()
-        key = meta.get("storage_key")
-        if key:
-            from core.storage import get_storage
-
-            return bytes(get_storage().download_bytes(key))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("skill_manager: read artifact %s failed (%s)", file_id, exc)
-    return None
-
-
-def _safe_extract(data: bytes, dest: Path) -> None:
-    """安全解包 tar(.gz) 或 zip 到 dest：拦目录穿越 + 限条目数/总量。"""
-    if _looks_like_zip(data):
-        _safe_extract_zip(data, dest)
-    else:
-        _safe_extract_tar(data, dest)
-
-
-def _looks_like_zip(data: bytes) -> bool:
-    return data[:2] == b"PK"
-
-
-def _within(base: Path, target: Path) -> bool:
-    try:
-        target.resolve().relative_to(base.resolve())
-        return True
-    except ValueError:
-        return False
-
-
-def _safe_extract_tar(data: bytes, dest: Path) -> None:
-    total = 0
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tf:
-        members = tf.getmembers()
-        if len(members) > _MAX_ENTRIES:
-            raise ValueError(f"包内条目过多（{len(members)} > {_MAX_ENTRIES}）")
-        for m in members:
-            if not (m.isfile() or m.isdir()):
-                continue  # 跳过软链接/设备等，杜绝越权
-            target = dest / m.name
-            if not _within(dest, target):
-                raise ValueError(f"检测到目录穿越条目：{m.name}")
-            total += max(m.size, 0)
-            if total > _MAX_TOTAL_BYTES:
-                raise ValueError("解压后总量超限（>64MB）")
-        tf.extractall(dest, members=[m for m in members if m.isfile() or m.isdir()])
-
-
-def _safe_extract_zip(data: bytes, dest: Path) -> None:
-    total = 0
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        infos = zf.infolist()
-        if len(infos) > _MAX_ENTRIES:
-            raise ValueError(f"包内条目过多（{len(infos)} > {_MAX_ENTRIES}）")
-        for info in infos:
-            target = dest / info.filename
-            if not _within(dest, target):
-                raise ValueError(f"检测到目录穿越条目：{info.filename}")
-            total += info.file_size
-            if total > _MAX_TOTAL_BYTES:
-                raise ValueError("解压后总量超限（>64MB）")
-        zf.extractall(dest)
-
-
-def _locate_root(extracted: Path) -> Optional[Path]:
-    """定位技能/插件根：含 SKILL.md 或 plugin.json 的目录。tar 常多包一层。"""
-    def _is_root(d: Path) -> bool:
-        return (
-            (d / "SKILL.md").is_file()
-            or (d / "plugin.json").is_file()
-            or (d / ".claude-plugin" / "plugin.json").is_file()
-        )
-
-    if _is_root(extracted):
-        return extracted
-    subdirs = [p for p in extracted.iterdir() if p.is_dir()]
-    for d in subdirs:
-        if _is_root(d):
-            return d
-    # 再下探一层
-    for d in subdirs:
-        for dd in (p for p in d.iterdir() if p.is_dir()):
-            if _is_root(dd):
-                return dd
-    return None
 
 
 def _slugify(name: str) -> str:

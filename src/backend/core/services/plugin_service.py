@@ -101,12 +101,14 @@ DEFAULT_BOOTSTRAP_MARKER_ID = "default_plugins_bootstrap_v1"
 PLUGIN_MARKET_META_BLOCK_ID = "plugin_market_meta"
 
 BUILTIN_PLUGIN_MARKET_META: Dict[str, Dict[str, Any]] = {
+    "agent-manager": {"display_name": "智能体管理", "category": "效率工具"},
     "automation": {"display_name": "定时任务管理", "category": "效率工具"},
     "dingtalk": {"display_name": "钉钉工作台", "category": "办公协同"},
     "email": {"display_name": "电子邮箱", "category": "办公协同"},
     "feishu-cli": {"display_name": "飞书工作台", "category": "办公协同"},
     "firecrawl": {"display_name": "Firecrawl·网页抓取检索", "category": "信息处理"},
     "industry-knowledge-center": {"display_name": "产业知识中心", "category": "产业智能"},
+    "plugin-manager": {"display_name": "插件管理", "category": "效率工具"},
     "sample-translator": {"display_name": "示例·快速翻译", "category": "办公效率"},
     "security-manager": {"display_name": "安全管理·系统自察", "category": "信息处理"},
     "sites": {"display_name": "站点·对话建站", "category": "信息处理"},
@@ -1704,6 +1706,49 @@ def set_plugin_enabled_for_user(
 
     _refresh_after_change(user_id)
     return {"install_id": install_id, "enabled": enabled}
+
+
+def set_plugin_component_enabled_for_user(
+    db: Session,
+    install_id: str,
+    *,
+    kind: str,
+    component_id: str,
+    enabled: bool,
+    user_id: str,
+) -> Dict[str, Any]:
+    """A frontend user enables/disables **one component** of a plugin for themself.
+
+    Per-component counterpart of ``set_plugin_enabled_for_user``: writes a
+    per-user catalog override instead of flipping the component's global
+    ``is_enabled``, so it composes with the whole-plugin user toggle and stays
+    invisible to other users. ``component_id`` must belong to this plugin's
+    ``component_ids`` (prevents escalating into other plugins' components),
+    matching the admin-side ``set_plugin_component_enabled`` guard.
+    """
+    if kind not in ("skill", "mcp"):
+        raise BadRequestError(message=f"不支持的组件类型：{kind}")
+    row = db.query(InstalledPlugin).filter(InstalledPlugin.install_id == install_id).first()
+    if row is None:
+        raise ResourceNotFoundError("installed_plugin", install_id)
+    if row.owner_user_id is not None and row.owner_user_id != user_id:
+        raise BadRequestError(message="无权操作该插件")
+
+    cids = row.component_ids or {}
+    pool = cids.get("skills") if kind == "skill" else cids.get("mcp")
+    if component_id not in (pool or []):
+        raise BadRequestError(message="该组件不属于此插件")
+
+    from core.services.catalog_service import CatalogService
+
+    CatalogService(db).update_override(user_id, kind, component_id, enabled)
+    _refresh_after_change(user_id)
+    return {
+        "install_id": install_id,
+        "kind": kind,
+        "component_id": component_id,
+        "enabled": enabled,
+    }
 
 
 def set_installed_plugin_meta(

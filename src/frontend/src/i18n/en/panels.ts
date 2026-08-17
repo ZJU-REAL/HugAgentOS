@@ -160,6 +160,8 @@ export const PANELS_DICT: Record<string, string> = {
   '重命名': 'Rename',
   '导出': 'Export',
   '更多操作': 'More actions',
+  '恢复默认排序': 'Reset to default order',
+  '已恢复默认排序': 'Default order restored',
   // sidebar nav items
   '知识库': 'Knowledge Base',
   '应用中心': 'App Center',

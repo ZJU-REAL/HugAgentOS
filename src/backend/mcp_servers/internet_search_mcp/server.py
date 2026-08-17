@@ -23,14 +23,11 @@ async def internet_search(
     include_raw_content: bool = False,
     cn_only: bool = True,
 ) -> Dict[str, Any]:
-    """互联网检索（兜底工具）。
+    """互联网检索（兜底工具，优先级最低）。
 
-    适用场景：
-    - 当内部数据源无法提供足够信息时，用于补充公开网页/新闻等外部信息。
-
-    使用建议：
-    - 优先让查询更具体（带时间、地区、实体名）。
-    - 尽量只在必要时使用，避免用互联网信息替代内部权威数据。
+    **仅当**内部知识库、私有知识库、其他已配置工具和搜索/数据类技能都无结果时才调我；
+    凡是搜索类技能能覆盖的场景一律走技能不走我（技能经 web_fetch 调专门搜索引擎，
+    效果远优于我）。别用互联网信息替代内部权威数据。查询尽量具体（带时间、地区、实体名）。
 
     Args:
         query: 搜索关键词/问题。
@@ -42,14 +39,6 @@ async def internet_search(
 
     Returns:
         dict: {"result": normalized_search_result}
-
-    调用决策（何时使用我）:
-    - **优先级**: 兜底（4-最低）。**仅当**内部知识库、私有知识库、其他已配置工具和
-      Agent Skills 中的搜索/数据类技能都无结果时, 才作为最后兜底调我。
-    - 与搜索类技能的取舍: **凡是搜索类技能能覆盖的场景, 一律走技能, 不走我**。
-      技能通过 web_fetch 调用专门搜索引擎 URL, 效果远优于 internet_search。
-    - 不要用我: 当问题已能被内部数据库、知识库或其他专业工具回答时, 别用互联网信息替代
-      内部权威数据。
     """
 
     from mcp_servers.internet_search_mcp.impl import internet_search as _impl
