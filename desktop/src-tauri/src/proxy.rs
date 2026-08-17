@@ -246,13 +246,18 @@ async fn login_page() -> Html<String> {
     let html = LOGIN_HTML
         .replace("HugAgentOS", brand::NAME)
         .replace("/icon.png", brand::LOGIN_LOGO_URL);
-    Html(inject_after_body(&html, &platform_titlebar_block(false)))
+    Html(inject_after_body(
+        &with_theme_boot(&html),
+        &platform_titlebar_block(false),
+    ))
 }
 
 /// 关闭主窗口时的自定义确认页（带「记住我的选择」勾选框）。按钮整页导航到
 /// `/__desktop/close-decide?action=..&remember=..`，由确认窗的 Rust 导航守卫执行。
 async fn close_confirm_page() -> Html<String> {
-    Html(CLOSE_CONFIRM_HTML.replace("HugAgentOS", brand::NAME))
+    Html(with_theme_boot(
+        &CLOSE_CONFIRM_HTML.replace("HugAgentOS", brand::NAME),
+    ))
 }
 
 /// 「设置服务器地址」页（菜单栏「文件 → 设置服务器地址…」打开）。输入框预填当前后端地址，
@@ -262,7 +267,10 @@ async fn server_config_page(State(state): State<ProxyState>) -> Html<String> {
     let html = SERVER_CONFIG_HTML
         .replace("__CURRENT_BASE__", &html_escape(&state.server_base))
         .replace("HugAgentOS", brand::NAME);
-    Html(inject_after_body(&html, &platform_titlebar_block(false)))
+    Html(inject_after_body(
+        &with_theme_boot(&html),
+        &platform_titlebar_block(false),
+    ))
 }
 
 /// 后端不可达或用户在安装器选择本机服务时展示的一体化部署页。
@@ -300,7 +308,10 @@ async fn setup_page(State(state): State<ProxyState>) -> Html<String> {
             },
         )
         .replace("HugAgentOS", brand::NAME);
-    Html(inject_after_body(&html, &platform_titlebar_block(false)))
+    Html(inject_after_body(
+        &with_theme_boot(&html),
+        &platform_titlebar_block(false),
+    ))
 }
 
 /// 初始化「运行模式选择」页（首启时展示）：下拉选本机 / 云端 / 双模式；选到含云端的
@@ -343,7 +354,10 @@ async fn init_page(State(state): State<ProxyState>) -> Html<String> {
             },
         )
         .replace("HugAgentOS", brand::NAME);
-    Html(inject_after_body(&html, &platform_titlebar_block(false)))
+    Html(inject_after_body(
+        &with_theme_boot(&html),
+        &platform_titlebar_block(false),
+    ))
 }
 
 #[derive(serde::Serialize)]
@@ -398,32 +412,40 @@ const TB_OFFSET_PAGE: &str =
 // their hit area clear without stacking a second, visibly empty toolbar above
 // the application's own brand row.
 const MAC_TITLEBAR_HEIGHT: u8 = 28;
-// The left half of the macOS safe area reuses the sidebar's first translucent
-// blue gradient stop over its #F5F6F7 base.  The traffic lights therefore sit
-// on a true visual continuation of the sidebar instead of a detached grey bar.
+// 左半幅要在视觉上**接着侧边栏往上长**，所以这里必须逐字复刻 sidebar.css 里 `.jx-sider`
+// 的配方：`color-mix(in srgb, var(--color-bg-gray) 72%, transparent)` 压在页面底色上。
+//
+// 这段历史上写死过 `rgba(203,223,255,.38)` / `#FFFFFF` / `#F5F6F7`，是抄的侧边栏当年那版
+// 浅蓝。前端把侧边栏令牌化之后它就双重失真了：浅色下不再和侧边栏同色，深色下更是用
+// `!important` 把整个 body 底色摁回浅色 —— 深色模式在 macOS 客户端里直接不成立。
+// 改引令牌后两档自动跟随，侧边栏配方再变也只需要改 sidebar.css 一处。
 const MAC_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:28px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:28px!important;background:linear-gradient(90deg,rgba(203,223,255,.38) 0 var(--hugagent-desktop-sidebar-width),#FFFFFF var(--hugagent-desktop-sidebar-width) 100%),#F5F6F7!important}.jx-brandRow,.jx-miniRail{padding-top:0!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:28px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:28px!important;background:linear-gradient(90deg,color-mix(in srgb, var(--color-bg-gray) 72%, transparent) 0 var(--hugagent-desktop-sidebar-width),var(--color-bg-base) var(--hugagent-desktop-sidebar-width) 100%),var(--color-bg-layout)!important}.jx-brandRow,.jx-miniRail{padding-top:0!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const MAC_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:28px}body{box-sizing:border-box!important;padding-top:28px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
+// 这条标题栏是**注进 SPA 自己那份文档**的（见 inject_after_body），所以 `<html>` 上的
+// data-theme 对它同样生效，直接引用应用令牌即可两档自动跟随 —— 不需要再写一套深色覆盖，
+// 也不需要 prefers-color-scheme（那会和手动 light/dark/system 三档打架）。
 const TB_CSS: &str = r##"
-#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:36px;z-index:2147483647;display:flex;align-items:center;background:#F7F8FA;border-bottom:1px solid #E5E9EF;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#30343B}
+#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:36px;z-index:2147483647;display:flex;align-items:center;background:var(--color-bg-gray);border-bottom:1px solid var(--color-border);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text)}
 #hugagent-titlebar *{box-sizing:border-box}
 #hugagent-titlebar .tb-left{display:flex;align-items:center;height:100%;min-width:0;padding-left:8px}
 #hugagent-titlebar .tb-logo{width:17px;height:17px;border-radius:4px;margin-right:5px;object-fit:cover}
 #hugagent-titlebar .tb-spacer{flex:1;height:100%;min-width:30px}
 #hugagent-titlebar .tb-menu{display:flex;align-items:stretch;height:100%}
 #hugagent-titlebar .tb-menuGroup{position:relative;height:100%;display:flex;align-items:stretch}
-#hugagent-titlebar .tb-menuLabel{height:100%;padding:0 10px;border:0;background:transparent;color:#41464C;font:12.5px/1 inherit;cursor:default;-webkit-user-select:none;user-select:none}
-#hugagent-titlebar .tb-menuLabel:hover,#hugagent-titlebar .tb-menuGroup.open>.tb-menuLabel{background:#E7EBF1}
-#hugagent-titlebar .tb-drop{display:none;position:absolute;top:35px;left:0;min-width:180px;padding:5px;background:#fff;border:1px solid #DEE3EA;border-radius:8px;box-shadow:0 10px 28px rgba(15,23,42,.16)}
+#hugagent-titlebar .tb-menuLabel{height:100%;padding:0 10px;border:0;background:transparent;color:var(--color-text-secondary);font:12.5px/1 inherit;cursor:default;-webkit-user-select:none;user-select:none}
+#hugagent-titlebar .tb-menuLabel:hover,#hugagent-titlebar .tb-menuGroup.open>.tb-menuLabel{background:var(--color-fill-hover)}
+#hugagent-titlebar .tb-drop{display:none;position:absolute;top:35px;left:0;min-width:180px;padding:5px;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:8px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-text) 16%, transparent)}
 #hugagent-titlebar .tb-menuGroup.open>.tb-drop{display:block}
-#hugagent-titlebar .tb-item{display:flex;align-items:center;width:100%;min-height:30px;padding:6px 11px;border:0;border-radius:6px;background:transparent;color:#30343B;font:13px/1.3 inherit;text-align:left;white-space:nowrap;cursor:default}
-#hugagent-titlebar .tb-item:hover{background:#EEF4FF;color:#126DFF}
-#hugagent-titlebar .tb-sep{height:1px;margin:5px 6px;background:#EDF0F4}
+#hugagent-titlebar .tb-item{display:flex;align-items:center;width:100%;min-height:30px;padding:6px 11px;border:0;border-radius:6px;background:transparent;color:var(--color-text);font:13px/1.3 inherit;text-align:left;white-space:nowrap;cursor:default}
+#hugagent-titlebar .tb-item:hover{background:var(--color-primary-light);color:var(--color-primary)}
+#hugagent-titlebar .tb-sep{height:1px;margin:5px 6px;background:var(--color-border)}
 #hugagent-titlebar .tb-controls{display:flex;align-items:stretch;height:100%;margin-left:4px}
-#hugagent-titlebar .tb-windowButton{width:46px;height:100%;padding:0;border:0;background:transparent;color:#41464C;display:flex;align-items:center;justify-content:center;cursor:default}
-#hugagent-titlebar .tb-windowButton:hover{background:#E3E7ED}
+#hugagent-titlebar .tb-windowButton{width:46px;height:100%;padding:0;border:0;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;cursor:default}
+#hugagent-titlebar .tb-windowButton:hover{background:var(--color-fill-hover)}
+/* dark-ok: #E81123 是 Windows 关闭键的平台约定红，两档都得是这个红，不跟主题翻转 */
 #hugagent-titlebar .tb-windowButton.close:hover{background:#E81123;color:#fff}
 "##;
 
@@ -570,6 +592,42 @@ fn platform_titlebar_block(spa: bool) -> String {
     }
 }
 
+/* 壳页面（登录 / 首启 / 部署 / 关闭确认 / 服务器地址）是**各自独立的文档**，
+   拿不到 SPA 那份 `<html data-theme>`，所以每张都要自己把主题落一遍。
+
+   规则与 `src/frontend/index.html` 的防闪烁脚本逐字同源：同一个 localStorage key、
+   同一套解析（不是 light/dark 的值一律按 system 走系统外观）。壳页面由本地反代提供，
+   与 SPA **同源**，因此读得到同一份偏好——用户手动选了深色而系统是浅色时它们也跟着深。
+   这正是不能用 `@media (prefers-color-scheme:dark)` 的原因：那只认系统，会和手动三档打架
+   （前端门禁把它列为违规也是这个道理）。
+
+   Web 端那条「分享预览锁浅色」的分支是浏览器专有，壳页面没有分享场景，故不带。
+   index.html / ce overlay 的 index.html 改了解析规则，这里要一起改。 */
+const THEME_BOOT_JS: &str = r##"<script>
+;(function(){try{
+var mode=localStorage.getItem('hugagent_theme_mode');
+var dark=mode==='dark'||(mode!=='light'&&typeof matchMedia==='function'&&matchMedia('(prefers-color-scheme: dark)').matches);
+if(dark){document.documentElement.setAttribute('data-theme','dark');document.documentElement.style.colorScheme='dark';}
+}catch(e){}})()
+</script>"##;
+
+/// 把主题引导脚本插进 `<head>` 最前面——必须**早于任何样式**执行，否则深色用户会先看到
+/// 一帧白底再翻黑。
+fn with_theme_boot(html: &str) -> String {
+    const HEAD: &str = "<head>";
+    match html.find(HEAD) {
+        Some(index) => {
+            let at = index + HEAD.len();
+            let mut output = String::with_capacity(html.len() + THEME_BOOT_JS.len());
+            output.push_str(&html[..at]);
+            output.push_str(THEME_BOOT_JS);
+            output.push_str(&html[at..]);
+            output
+        }
+        None => format!("{THEME_BOOT_JS}{html}"),
+    }
+}
+
 fn inject_after_body(html: &str, block: &str) -> String {
     match html.find("<body").and_then(|position| {
         html[position..]
@@ -594,16 +652,25 @@ const LOGIN_HTML: &str = r##"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>登录 · HugAgentOS</title>
 <style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
+     浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
     color-scheme:light;--primary:#0A66FF;--primary-hover:#005BE6;--primary-active:#0052CC;
     --text:#1D1D1F;--text-2:#6E6E73;--text-3:#8E8E93;
+    --page-top:#FBFBFA;--page-bottom:#F4F4F2;--ring:#E5E5EA;
   }
+  :root[data-theme="dark"]{
+    color-scheme:dark;--primary:#3E8BFF;--primary-hover:#5FA0FF;--primary-active:#2E7BF0;
+    --text:#E8ECF4;--text-2:#B3BDCD;--text-3:#8792A4;
+    --page-top:#141A22;--page-bottom:#0F141B;--ring:#2B3442;
+  }
+  /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
     color:var(--text);
-    background:linear-gradient(180deg,#FBFBFA 0%,#F4F4F2 100%);
+    background:linear-gradient(180deg,var(--page-top) 0%,var(--page-bottom) 100%);
     display:flex; align-items:center; justify-content:center;
     -webkit-user-select:none; user-select:none;
   }
@@ -612,13 +679,15 @@ const LOGIN_HTML: &str = r##"<!doctype html>
   }
   .logo{
     width:64px;height:64px;border-radius:16px;margin:0 auto 20px;display:block;
-    box-shadow:0 8px 24px rgba(0,0,0,.1);
+    box-shadow:0 8px 24px rgba(0,0,0,.1); /* dark-ok: 投影两档都是黑，不随主题翻转 */
   }
   h1{font-size:28px;line-height:1.2;font-weight:650;margin:0;letter-spacing:-.035em}
   .sub{font-size:14px;color:var(--text-2);margin:12px 0 28px;line-height:1.65}
   .btn{
     width:100%;height:46px;margin-top:28px;border:none;border-radius:11px;cursor:pointer;
+    /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
     background:var(--primary);color:#fff;font-size:14px;font-weight:600;
+  /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
     transition:background .14s ease,transform .08s ease;box-shadow:0 1px 2px rgba(0,0,0,.08);
   }
   .btn:hover{background:var(--primary-hover)}
@@ -626,7 +695,7 @@ const LOGIN_HTML: &str = r##"<!doctype html>
   .links{margin-top:8px;font-size:13px}
   .links a{color:var(--primary);text-decoration:none;cursor:pointer;margin:0 8px}
   .links a:hover{text-decoration:underline}
-  .spin{width:32px;height:32px;margin:8px auto 22px;border:3px solid #E5E5EA;
+  .spin{width:32px;height:32px;margin:8px auto 22px;border:3px solid var(--ring);
     border-top-color:var(--primary);border-radius:50%;animation:r .9s linear infinite}
   @keyframes r{to{transform:rotate(360deg)}}
   .hidden{display:none}
@@ -680,20 +749,31 @@ const INIT_HTML: &str = r##"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>选择运行模式 · HugAgentOS</title>
 <style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
+     浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
     color-scheme:light;
     --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;
     --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
     --line:rgba(60,60,67,.16);--surface:rgba(255,255,255,.72);--danger:#D70015;
+    --page:#F5F5F7;--field:#FFFFFF;
   }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --accent:#3E8BFF;--accent-hover:#5FA0FF;--accent-active:#2E7BF0;
+    --text:#E8ECF4;--secondary:#B3BDCD;--tertiary:#8792A4;
+    --line:#2B3442;--surface:rgba(28,35,48,.72);--danger:#FF6B6B;
+    --page:#0F141B;--field:#161C25;
+  }
+  /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
-    color:var(--text);background:#F5F5F7;display:flex;align-items:center;justify-content:center;
+    color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
   .setup{width:min(540px,100%);text-align:center;padding:20px 34px 30px}
   .logo{display:block;width:64px;height:64px;margin:0 auto 16px;border-radius:16px;
-    box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)}
+    box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)} /* dark-ok: 投影两档都是黑 */
   .product{margin:0 0 10px;color:var(--secondary);font-size:12px;font-weight:600}
   h1{margin:0;font-size:27px;line-height:1.16;font-weight:650;letter-spacing:-.028em}
   .lead{max-width:430px;margin:10px auto 0;color:var(--secondary);font-size:13.5px;line-height:1.6}
@@ -701,9 +781,9 @@ const INIT_HTML: &str = r##"<!doctype html>
   label{display:block;font-size:13px;font-weight:600;margin:0 0 7px;color:var(--text)}
   .select-wrap{position:relative}
   select{width:100%;height:46px;padding:0 38px 0 14px;border:1px solid var(--line);border-radius:12px;
-    font-size:15px;color:var(--text);background:#fff;outline:none;appearance:none;-webkit-appearance:none;
+    font-size:15px;color:var(--text);background:var(--field);outline:none;appearance:none;-webkit-appearance:none;
     cursor:pointer;transition:border-color .14s ease,box-shadow .14s ease}
-  select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,122,255,.16)}
+  select:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent)}
   .select-wrap::after{content:"";position:absolute;right:16px;top:50%;width:8px;height:8px;
     border-right:1.6px solid var(--tertiary);border-bottom:1.6px solid var(--tertiary);
     transform:translateY(-70%) rotate(45deg);pointer-events:none}
@@ -711,16 +791,17 @@ const INIT_HTML: &str = r##"<!doctype html>
   .cloud-field{margin-top:18px;visibility:hidden}
   .cloud-field.show{visibility:visible}
   input[type=text]{width:100%;height:44px;padding:0 14px;border:1px solid var(--line);border-radius:11px;
-    font-size:14px;color:var(--text);background:#fff;outline:none;transition:border-color .14s ease,box-shadow .14s ease}
-  input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,122,255,.16)}
+    font-size:14px;color:var(--text);background:var(--field);outline:none;transition:border-color .14s ease,box-shadow .14s ease}
+  input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent)}
   .err{color:var(--danger);font-size:12px;margin:8px 2px 0;min-height:16px}
   .button{width:100%;height:46px;margin-top:22px;border:0;border-radius:12px;padding:0 18px;font:600 15px/1 inherit;
-    cursor:pointer;background:var(--accent);color:#fff;box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px rgba(0,122,255,.16);
+    /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+    cursor:pointer;background:var(--accent);color:#fff;box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px color-mix(in srgb, var(--accent) 16%, transparent);
     transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
   @media(hover:hover){.button:hover{background:var(--accent-hover)}}
   .button:active{background:var(--accent-active);transform:scale(.98)}
   .button:disabled{opacity:.5;cursor:default;transform:none}
-  select:focus-visible,input:focus-visible,.button:focus-visible{outline:3px solid rgba(0,122,255,.28);outline-offset:3px}
+  select:focus-visible,input:focus-visible,.button:focus-visible{outline:3px solid color-mix(in srgb, var(--accent) 28%, transparent);outline-offset:3px}
   body.platform-macos .setup{margin-top:-8px}
   @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:25px}}
   @media(prefers-reduced-motion:reduce){.button{transition:none}}
@@ -801,53 +882,69 @@ const SETUP_HTML: &str = r##"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>服务设置 · HugAgentOS</title>
 <style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
+     浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
     color-scheme:light;
     --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;
     --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
     --line:rgba(60,60,67,.14);--surface:rgba(255,255,255,.72);
     --ok:#248A3D;--danger:#D70015;
+    --page:#F5F5F7;--solid:#FFFFFF;--danger-bg:#FFF1F0;--log-ink:#48484A;--contrast-ink:#3A3A3C;
   }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --accent:#3E8BFF;--accent-hover:#5FA0FF;--accent-active:#2E7BF0;
+    --text:#E8ECF4;--secondary:#B3BDCD;--tertiary:#8792A4;
+    --line:#2B3442;--surface:rgba(28,35,48,.72);
+    --ok:#22C79D;--danger:#FF6B6B;
+    --page:#0F141B;--solid:#161C25;--danger-bg:rgba(255,107,107,.16);--log-ink:#B3BDCD;--contrast-ink:#E8ECF4;
+  }
+  /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
-    color:var(--text);background:#F5F5F7;display:flex;align-items:center;justify-content:center;
+    color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
   .setup{width:min(540px,100%);text-align:center;padding:20px 34px 30px}
   .logo{display:block;width:68px;height:68px;margin:0 auto 17px;border-radius:17px;
-    box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)}
+    box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)} /* dark-ok: 投影两档都是黑 */
   .product{margin:0 0 11px;color:var(--secondary);font-size:12px;font-weight:600;letter-spacing:.012em}
   h1{margin:0;font-size:30px;line-height:1.16;font-weight:650;letter-spacing:-.028em;font-optical-sizing:auto}
   .lead{max-width:420px;margin:11px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
   .actions{width:min(350px,100%);margin:26px auto 0}
   .button{width:100%;height:46px;border:0;border-radius:12px;padding:0 18px;font:600 14px/1 inherit;
     cursor:pointer;transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
+  /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
   .button.primary{background:var(--accent);color:#fff;
-    box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px rgba(0,122,255,.16)}
+    box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px color-mix(in srgb, var(--accent) 16%, transparent)} /* dark-ok: 投影两档都是黑 */
   @media(hover:hover){.button.primary:hover{background:var(--accent-hover)}}
   .button.primary:active{background:var(--accent-active);transform:scale(.97)}
   .button:disabled{opacity:.5;cursor:default;transform:none}
   .button:focus-visible,.link-button:focus-visible,.connection button:focus-visible,summary:focus-visible{
-    outline:3px solid rgba(0,122,255,.28);outline-offset:3px}
+    outline:3px solid color-mix(in srgb, var(--accent) 28%, transparent);outline-offset:3px}
   .link-button{margin-top:11px;padding:7px 10px;border:0;background:transparent;color:var(--accent);
     font:500 13px/1.2 inherit;cursor:pointer;border-radius:8px;transition:background 100ms ease-out,transform 100ms ease-out}
-  @media(hover:hover){.link-button:hover{background:rgba(0,122,255,.075)}}
-  .link-button:active{background:rgba(0,122,255,.11);transform:scale(.97)}
+  @media(hover:hover){.link-button:hover{background:color-mix(in srgb, var(--accent) 8%, transparent)}}
+  .link-button:active{background:color-mix(in srgb, var(--accent) 11%, transparent);transform:scale(.97)}
   .privacy-note{margin:16px 0 0;color:var(--tertiary);font-size:12px;line-height:1.5}
   .progress-wrap{display:none;width:min(410px,100%);margin:24px auto 0;padding:18px;text-align:left;
     border:0;border-radius:16px;background:var(--surface);backdrop-filter:blur(18px) saturate(145%);
+    /* dark-ok: 投影两档都是黑 */
     -webkit-backdrop-filter:blur(18px) saturate(145%);box-shadow:0 1px 1px rgba(0,0,0,.05),0 12px 34px rgba(0,0,0,.07);
     animation:materialize 260ms cubic-bezier(.2,.8,.2,1) both}
   @keyframes materialize{from{opacity:0;transform:scale(.985) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
   .progress-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;font-size:13px}
   .message{color:var(--secondary)}.percent{color:var(--accent);font-variant-numeric:tabular-nums}
+  /* dark-ok: 半透明中性灰，压在任一档底色上都成立 */
   .progress{height:5px;border-radius:999px;background:rgba(118,118,128,.16);overflow:hidden}
   .bar{height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width 280ms ease-out}
-  .error{display:none;margin-top:12px;padding:10px 12px;border-radius:9px;background:#FFF1F0;color:var(--danger);
+  .error{display:none;margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--danger-bg);color:var(--danger);
     font-size:12.5px;line-height:1.5}.ready{color:var(--ok);font-weight:600}
   details{margin-top:13px;color:var(--secondary);font-size:12px}summary{width:max-content;cursor:pointer;outline:none}
   .log{height:116px;margin:9px 0 0;padding:11px 12px;overflow:auto;border:0;
-    border-radius:10px;background:rgba(118,118,128,.09);color:#48484A;font:11px/1.55 "SFMono-Regular",Consolas,monospace;
+    /* dark-ok: 半透明中性灰，压在任一档底色上都成立 */
+    border-radius:10px;background:rgba(118,118,128,.09);color:var(--log-ink);font:11px/1.55 "SFMono-Regular",Consolas,monospace;
     white-space:pre-wrap;word-break:break-all;-webkit-user-select:text;user-select:text}
   .ready-actions{display:none;margin-top:16px}
   .connection{margin-top:22px;color:var(--tertiary);font-size:11px;line-height:1.5;
@@ -857,8 +954,9 @@ const SETUP_HTML: &str = r##"<!doctype html>
   @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:27px}}
   @media(max-height:650px){body{align-items:flex-start}.setup{padding-top:20px}}
   @media(prefers-reduced-motion:reduce){.button,.link-button,.bar{transition:none}.progress-wrap{animation:none}}
-  @media(prefers-reduced-transparency:reduce){.progress-wrap{background:#FFF;backdrop-filter:none;-webkit-backdrop-filter:none}}
-  @media(prefers-contrast:more){.progress-wrap{background:#FFF;box-shadow:0 0 0 1px rgba(0,0,0,.55)}.lead,.privacy-note,.connection,.message{color:#3A3A3C}}
+  @media(prefers-reduced-transparency:reduce){.progress-wrap{background:var(--solid);backdrop-filter:none;-webkit-backdrop-filter:none}}
+  /* dark-ok: 高对比度描边固定用黑，深色档底色已由 --solid 翻过去 */
+  @media(prefers-contrast:more){.progress-wrap{background:var(--solid);box-shadow:0 0 0 1px rgba(0,0,0,.55)}.lead,.privacy-note,.connection,.message{color:var(--contrast-ink)}}
 </style>
 </head>
 <body class="platform-__PLATFORM__">
@@ -976,15 +1074,26 @@ const CLOSE_CONFIRM_HTML: &str = r##"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>关闭 · HugAgentOS</title>
 <style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
+     浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
+    color-scheme:light;
     --primary:#126DFF; --primary-hover:#3C87FF; --primary-active:#0862F3;
     --text:#262626; --text-2:#6B7280; --border:#E8EBF0;
+    --surface:#FFFFFF; --surface-hover:#F5F7FA;
   }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --primary:#3E8BFF; --primary-hover:#5FA0FF; --primary-active:#2E7BF0;
+    --text:#E8ECF4; --text-2:#B3BDCD; --border:#2B3442;
+    --surface:#161C25; --surface-hover:#252D39;
+  }
+  /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-    color:var(--text); background:#fff;
+    color:var(--text); background:var(--surface);
     display:flex; flex-direction:column; justify-content:center;
     padding:22px 26px; -webkit-user-select:none; user-select:none;
   }
@@ -993,9 +1102,10 @@ const CLOSE_CONFIRM_HTML: &str = r##"<!doctype html>
   .remember{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer;margin-bottom:20px}
   .remember input{width:15px;height:15px;cursor:pointer;accent-color:var(--primary)}
   .btns{display:flex;gap:12px;justify-content:flex-end}
-  .btn{height:38px;padding:0 20px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:#fff;color:var(--text);transition:all .14s ease}
-  .btn:hover{background:#F5F7FA}
-  .btn.primary{border:none;background:var(--primary);color:#fff;box-shadow:0 4px 12px rgba(18,109,255,.26)}
+  .btn{height:38px;padding:0 20px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);transition:all .14s ease}
+  .btn:hover{background:var(--surface-hover)}
+  /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+  .btn.primary{border:none;background:var(--primary);color:#fff;box-shadow:0 4px 12px color-mix(in srgb, var(--primary) 26%, transparent)}
   .btn.primary:hover{background:var(--primary-hover)}
   .btn.primary:active{background:var(--primary-active)}
 </style>
@@ -1025,15 +1135,26 @@ const SERVER_CONFIG_HTML: &str = r##"<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>服务器地址 · HugAgentOS</title>
 <style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
+     浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
+    color-scheme:light;
     --primary:#126DFF; --primary-hover:#3C87FF; --primary-active:#0862F3;
     --text:#262626; --text-2:#6B7280; --border:#E8EBF0;
+    --surface:#FFFFFF; --surface-hover:#F5F7FA; --danger:#D4380D;
   }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --primary:#3E8BFF; --primary-hover:#5FA0FF; --primary-active:#2E7BF0;
+    --text:#E8ECF4; --text-2:#B3BDCD; --border:#2B3442;
+    --surface:#161C25; --surface-hover:#252D39; --danger:#FF6B6B;
+  }
+  /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-    color:var(--text); background:#fff;
+    color:var(--text); background:var(--surface);
     display:flex; justify-content:center; align-items:center;
     padding:24px 28px; -webkit-user-select:none; user-select:none;
   }
@@ -1042,15 +1163,16 @@ const SERVER_CONFIG_HTML: &str = r##"<!doctype html>
   p{font-size:12.5px;color:var(--text-2);line-height:1.7;margin:0 0 16px}
   label{display:block;font-size:13px;margin:0 0 6px;color:var(--text)}
   input{width:100%;height:40px;padding:0 12px;border:1px solid var(--border);border-radius:9px;
-    font-size:14px;color:var(--text);outline:none;transition:border-color .14s ease}
+    font-size:14px;color:var(--text);background:var(--surface);outline:none;transition:border-color .14s ease}
   input:focus{border-color:var(--primary)}
   .btns{display:flex;gap:12px;justify-content:flex-end;margin-top:22px}
-  .btn{height:38px;padding:0 20px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:#fff;color:var(--text);transition:all .14s ease}
-  .btn:hover{background:#F5F7FA}
-  .btn.primary{border:none;background:var(--primary);color:#fff;box-shadow:0 4px 12px rgba(18,109,255,.26)}
+  .btn{height:38px;padding:0 20px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);transition:all .14s ease}
+  .btn:hover{background:var(--surface-hover)}
+  /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+  .btn.primary{border:none;background:var(--primary);color:#fff;box-shadow:0 4px 12px color-mix(in srgb, var(--primary) 26%, transparent)}
   .btn.primary:hover{background:var(--primary-hover)}
   .btn.primary:active{background:var(--primary-active)}
-  .err{color:#D4380D;font-size:12px;margin-top:8px;min-height:16px}
+  .err{color:var(--danger);font-size:12px;margin-top:8px;min-height:16px}
 </style>
 </head>
 <body>
@@ -1111,10 +1233,67 @@ mod tests {
         assert!(!block.contains("data-win=\"close\""));
         assert!(!block.contains("tb-menuLabel"));
         assert!(block.contains("--hugagent-desktop-sidebar-width"));
-        assert!(block.contains("linear-gradient(90deg,rgba(203,223,255,.38)"));
-        assert!(block.contains("#F5F6F7!important"));
+        // 左半幅必须逐字复刻 sidebar.css 里 .jx-sider 的配方，否则安全区和侧边栏会脱色；
+        // 底色引令牌而不是写死，深色档才不会被 !important 摁回浅色。
+        assert!(block.contains(
+            "linear-gradient(90deg,color-mix(in srgb, var(--color-bg-gray) 72%, transparent)"
+        ));
+        assert!(block.contains("var(--color-bg-layout)!important"));
         assert!(block.contains(".jx-brandRow,.jx-miniRail{padding-top:0!important}"));
         assert!(block.contains("ResizeObserver"));
+    }
+
+    /// 每张壳页面都必须成对具备：`<head>` 里的主题引导脚本 + `:root[data-theme="dark"]` 覆盖块。
+    /// 少了脚本 → 深色偏好读不到，页面恒亮；少了覆盖块 → 属性打上了也没有对应样式。
+    #[test]
+    fn every_shell_page_boots_and_defines_both_themes() {
+        for (name, html) in [
+            ("login", LOGIN_HTML),
+            ("init", INIT_HTML),
+            ("setup", SETUP_HTML),
+            ("close-confirm", CLOSE_CONFIRM_HTML),
+            ("server-config", SERVER_CONFIG_HTML),
+        ] {
+            assert!(
+                html.contains(":root[data-theme=\"dark\"]"),
+                "{name} 页缺少深色覆盖块"
+            );
+            let booted = with_theme_boot(html);
+            assert!(booted.contains("hugagent_theme_mode"), "{name} 页没注入主题引导");
+            // 引导必须早于 <style>，否则深色用户会先闪一帧白底
+            assert!(
+                booted.find("hugagent_theme_mode") < booted.find("<style>"),
+                "{name} 页的主题引导排在样式之后，会闪白"
+            );
+            // 壳页面不许用媒体查询判深浅：那只认系统外观，会和手动三档打架
+            assert!(
+                !html.contains("prefers-color-scheme"),
+                "{name} 页用了 prefers-color-scheme，应改用 data-theme"
+            );
+        }
+    }
+
+    /// 注进 SPA 文档的这两段样式，任何写死的颜色都会在深色档变成一块亮斑 ——
+    /// 关闭键的平台约定红是唯一豁免（标了 dark-ok）。
+    #[test]
+    fn injected_shell_styles_carry_no_hardcoded_colors() {
+        for css in [MAC_OFFSET_SPA, MAC_OFFSET_PAGE, TB_OFFSET_SPA, TB_OFFSET_PAGE] {
+            assert!(
+                !css.contains('#'),
+                "注入 SPA 的偏移样式里出现了写死的颜色：{css}"
+            );
+        }
+        let offenders: Vec<&str> = TB_CSS
+            .lines()
+            .filter(|line| line.contains('#') && !line.starts_with("#hugagent-titlebar"))
+            .filter(|line| !line.contains("dark-ok"))
+            .collect();
+        // 关闭键那行紧跟在 dark-ok 注释之后，单独放行
+        let offenders: Vec<&str> = offenders
+            .into_iter()
+            .filter(|line| !line.contains(".tb-windowButton.close:hover"))
+            .collect();
+        assert!(offenders.is_empty(), "标题栏样式里有写死的颜色：{offenders:?}");
     }
 
     #[test]

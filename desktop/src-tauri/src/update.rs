@@ -23,6 +23,12 @@ use crate::{apply_display_zoom, brand, WEBVIEW_BROWSER_ARGS};
 const PROGRESS_HTML: &str = r#"<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
+ /* dark-ok-begin: 这扇进度窗是 data:text/html 加载的，属于**不透明源**——读不到应用那份
+    localStorage 里的主题偏好，所以只能靠 prefers-color-scheme 跟系统外观。
+    这是全仓唯一允许用媒体查询判深浅的地方：其余壳页面都由本地反代同源提供，
+    走 data-theme（见 proxy.rs 的 THEME_BOOT_JS）。
+    已知取舍：用户手动选了深色而系统是浅色时，这扇窗仍是浅色。它只在下载更新的几十秒里
+    出现，为它把偏好从 webview 搬到 Rust 侧不划算。 */
  html,body{margin:0;height:100%}
  body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:#f7f8fa;color:#1f2329;display:flex;align-items:center;justify-content:center}
  @media (prefers-color-scheme:dark){body{background:#1f2023;color:#e6e6e6}.track{background:#3a3c40 !important}}
@@ -33,6 +39,7 @@ const PROGRESS_HTML: &str = r#"<!doctype html><html lang="zh-CN"><head><meta cha
  .fill.indet{width:40% !important;animation:slide 1.1s ease-in-out infinite}
  @keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
  .meta{display:flex;justify-content:space-between;font-size:12px;color:#8a9099;margin-top:12px}
+ /* dark-ok-end */
 </style></head><body><div class="card">
  <div class="title" id="t">正在准备更新…</div>
  <div class="track"><div class="fill" id="f"></div></div>
