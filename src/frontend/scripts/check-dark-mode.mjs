@@ -40,6 +40,13 @@ const baselinePath = join(scriptDir, 'dark-mode-baseline.json');
 const repoRoot = join(frontendRoot, '..', '..');
 const ceOverlayRoot = join(repoRoot, 'ce', 'overlay', 'src', 'frontend', 'src');
 
+/* 桌面壳（Tauri）：`desktop/src-tauri/src/**.rs` 里用 Rust 字符串内嵌了整整几张 HTML 页面
+   （登录 / 首启选模式 / 本机部署 / 关闭确认 / 服务器地址 / 更新进度），外加一条注进 SPA 文档的
+   自定义标题栏。它们和前端**同属一个界面**，用户看不出边界，却因为不是 .css/.tsx 而一直在
+   门禁视野外——深色模式上线后，这几张页面全是写死的浅色，桌面端深色档直接是白板。
+   这正是本门禁要消灭的「无反馈回路」：改的人没有任何信号，只能靠人肉记得两边都改。 */
+const desktopShellRoot = join(repoRoot, 'desktop', 'src-tauri', 'src');
+
 const args = process.argv.slice(2);
 const UPDATE = args.includes('--update');
 const LIST = args.includes('--list');
@@ -151,6 +158,42 @@ collect(srcRoot, frontendRoot);
 // overlay 以仓库根为基准展示（ce/overlay/src/frontend/src/…），与主树同名文件区分开：
 // 两边都要扫——FULL 用主树那份，CE 派生后用 overlay 那份，谁都不能漏。
 collect(ceOverlayRoot, repoRoot);
+
+/* ── 桌面壳：从 .rs 里把 <style> 段抠出来当 CSS 扫 ────────────────────
+   做法是「留 CSS、其余填空格」而不是切片：字符位置全程不动，报出来的行号
+   就是 .rs 文件里的真实行号，点开即所见。Rust 那些 r##"…"## 的引号、宏、
+   代码全被抹成空白，不会被误当成声明。 */
+const embeddedCssFiles = new Set();
+function blankNonCss(raw) {
+  const keep = new Array(raw.length).fill(false);
+  for (const m of raw.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)) {
+    const open = m.index + m[0].indexOf('>') + 1;
+    const close = m.index + m[0].length - '</style>'.length;
+    for (let i = open; i < close; i++) keep[i] = true;
+  }
+  let out = '';
+  for (let i = 0; i < raw.length; i++) out += keep[i] || raw[i] === '\n' ? raw[i] : ' ';
+  return out;
+}
+function collectEmbeddedCss(root, relTo) {
+  if (!existsSync(root)) return;
+  (function walk(dir) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name.startsWith('.')) continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (!SKIP_DIRS.has(e.name)) walk(p);
+      } else if (e.name.endsWith('.rs')) {
+        const blanked = blankNonCss(readFileSync(p, 'utf-8'));
+        if (!blanked.trim()) continue; // 这个 .rs 里没有内嵌样式
+        const rel = relative(relTo, p).split(sep).join('/');
+        sources.set(rel, blanked);
+        embeddedCssFiles.add(rel);
+      }
+    }
+  })(root);
+}
+collectEmbeddedCss(desktopShellRoot, repoRoot);
 
 /* ── 全仓自定义属性定义集合（供盲区 4 取差集）───────────────────── */
 const definedVars = new Set();
@@ -319,7 +362,7 @@ function scanJs(file, raw) {
 }
 
 for (const [file, raw] of sources) {
-  if (file.endsWith('.css')) scanCss(file, raw);
+  if (file.endsWith('.css') || embeddedCssFiles.has(file)) scanCss(file, raw);
   else scanJs(file, raw);
 }
 

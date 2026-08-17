@@ -8,7 +8,7 @@ import { isAutomationHistoryChat } from '../utils/history';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
-import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore } from '../stores';
+import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
 import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, EvolutionSummary, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
@@ -361,6 +361,8 @@ export function useChatInit() {
     // login swap.
     hydrateForUser(authUserId);
     useAutomationChatStore.getState().hydrateForUser(authUserId);
+    // 侧边栏手动拖拽顺序：本地秒开 + 异步拉服务端顺序（见 sidebarOrderStore）
+    useSidebarOrderStore.getState().hydrateForUser(authUserId);
     const localSnapshot = useChatStore.getState().store;
     clearBackendSessionIds();
     clearLoadedMsgIds();
@@ -421,6 +423,10 @@ export function useChatInit() {
             batchChat: meta.batch_chat === true ? true : undefined,
             ...(typeof localSnapshot.chats[id]?.batchModeActive === 'boolean'
               ? { batchModeActive: localSnapshot.chats[id].batchModeActive }
+              : {}),
+            workflowChat: meta.workflow_chat === true ? true : undefined,
+            ...(typeof localSnapshot.chats[id]?.workflowModeActive === 'boolean'
+              ? { workflowModeActive: localSnapshot.chats[id].workflowModeActive }
               : {}),
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,

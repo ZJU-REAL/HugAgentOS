@@ -78,6 +78,7 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `pageConfigStore` | 页面配置（品牌、导航、文案——驱动 white-label） |
 | `editionStore` | `/v1/meta/edition` 探针的消费端：版本与 license 能力位布尔表 |
 | `modelCapabilitiesStore` | 主模型能力探测（思考 / 视觉等） |
+| `sidebarOrderStore` | 侧边栏对话列表的手动拖拽顺序（本地 + `users_shadow.metadata` 双层持久化） |
 
 ## Hooks
 

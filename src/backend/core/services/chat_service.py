@@ -1,5 +1,6 @@
 """Chat session and message business logic."""
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,6 +10,8 @@ from core.db.models import ChatMessage, ChatSession
 from core.db.repository import AuditLogRepository, ChatMessageRepository, ChatSessionRepository
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -265,6 +268,24 @@ class ChatService:
 
         return result
 
+    # chat_messages.content 有 CHECK 约束 char_length <= 100000。长任务的一轮回复
+    # （反复重试 + 大量思考正文）真的会撞上，而撞上的后果是**整条 INSERT 抛
+    # CheckViolation → 整个 run failed**，一轮的产出全部丢失（实测踩过）。
+    # 与其让约束把一轮工作全毁掉，不如夹逼后落库并明确标注被截断。
+    _CONTENT_MAX = 100_000
+    _TRUNC_NOTE = "\n\n…（本条回复过长，已截断保存；完整过程见工具调用记录）"
+
+    @classmethod
+    def _clamp_content(cls, content: str) -> str:
+        text = content or ""
+        if len(text) <= cls._CONTENT_MAX:
+            return text
+        keep = cls._CONTENT_MAX - len(cls._TRUNC_NOTE)
+        logger.warning(
+            "[chat] message content truncated: %d -> %d chars", len(text), cls._CONTENT_MAX
+        )
+        return text[:keep] + cls._TRUNC_NOTE
+
     def add_message(
         self,
         chat_id: str,
@@ -282,7 +303,7 @@ class ChatService:
             "message_id": message_id or f"msg_{uuid.uuid4().hex[:16]}",
             "chat_id": chat_id,
             "role": role,
-            "content": content,
+            "content": self._clamp_content(content),
             "model": model,
             "tool_calls": tool_calls,
             "usage": usage,
@@ -324,7 +345,7 @@ class ChatService:
         """
         existing = self.message_repo.get_by_id(message_id)
         if existing is not None:
-            update: Dict[str, Any] = {"content": content}
+            update: Dict[str, Any] = {"content": self._clamp_content(content)}
             if tool_calls is not None:
                 update["tool_calls"] = tool_calls
             if usage is not None:

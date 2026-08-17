@@ -166,3 +166,4 @@ node_modules/
 # 建站模板必须完整入库（覆盖上面的 lib/ 与 AGENTS.md 规则），但依赖树除外
 !docker/site-template/**
 docker/site-template/react-vite/node_modules/
+.jobtest/

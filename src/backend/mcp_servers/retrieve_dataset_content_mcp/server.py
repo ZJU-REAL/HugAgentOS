@@ -150,42 +150,27 @@ def _get_header(ctx: Optional[Context], name: str) -> Optional[str]:
 
 _BASE_TOOL_DESCRIPTION = """从"知识库/数据集"检索政策文件、报告、非结构化文本片段。默认自动搜索所有可用数据集。
 
-⚠️ 【必须遵守的引用规则】
-回答中引用本工具返回的任何内容时，**必须**带引用标记：把该条目自带的 `cite_id`（如 `e7`）原样复制进 `[锚文本](cite:e7)` 或句末 `[来源](cite:e7)`，禁止自行编号。
-不带引用标记的回答视为不完整，前端将无法展示引用来源卡片。
-示例：根据报告，2024年工业增加值增速为5.2%[来源](cite:e7)。
+引用规则：引用返回内容时必须把条目自带的 `cite_id`（如 `e7`）原样写成 `[锚文本](cite:e7)` 标记，禁止自行编号。
 
-适用场景（当用户问题涉及以下内容时，应**主动**调用本工具，无需等待用户显式要求）：
-- 政策文件原文、解读、申报条件
-- 产业分析报告、行业研究、发展规划
-- 企业调研材料、项目申报书
-- 工业经济运行分析、统计公报等非结构化文本
+适用场景（涉及以下内容时**主动**调用，无需用户显式要求）：政策文件原文/解读/申报条件、
+产业分析报告、行业研究、发展规划、企业调研材料、经济运行分析等非结构化文本。
 
-调用说明：
-- **dataset_id 默认留空即可**，系统会自动搜索所有可用数据集并返回最相关的结果。
-- 仅当用户明确指定要从某个特定知识库搜索时，才传入对应的 dataset_id。
-- 返回的是记录列表；回答时应从每条记录的 `segment -> content` 提取要点。
+调用说明：**dataset_id 默认留空**（自动搜索所有可用数据集），仅当用户指定某个知识库时才传。
+回答时从每条记录的 `segment -> content` 提取要点。
 
 Args:
     query: 检索 query。
-    dataset_id: 数据集 ID（默认为空，自动搜索所有数据集；仅当用户指定特定知识库时才填写）。
+    dataset_id: 数据集 ID（默认空 = 搜全部）。
     top_k: 返回片段数量。
     score_threshold: 相似度阈值。
     search_method: 检索方式（默认 hybrid_search）。
     reranking_enable: 是否启用重排。
     weights: 混合检索权重。
 
-Returns:
-    dict: {"items": [records...]}
-
-调用决策（何时使用我）:
-- **优先级**: 高。涉及政策/报告/规划/解读类原文检索时第一优先级。
-- 与结构化指标能力的取舍: 我返回的是文档"原文片段"; 指标类工具或技能返回数仓里
-  的"结构化数字"。要数字走已启用的指标类能力, 要文段走我。
-- 与 retrieve_local_kb 的取舍: 我覆盖公有/共享知识库; retrieve_local_kb 只查用户
-  自己上传的私有库。两者不冲突时可并行调用。
-- 与 internet_search 的取舍: 内部能找到就别走外网。internet_search 只在我和
-  retrieve_local_kb 都没结果时作为兜底。
+调用决策:
+- 优先级高：政策/报告/规划类原文检索第一优先级。要"结构化数字"走指标类能力，要文段走我。
+- retrieve_local_kb 只查用户私有库，我查公有/共享库，不冲突时可并行。
+- 内部能找到就别走外网，internet_search 只作兜底。
 """
 
 
@@ -264,20 +249,15 @@ async def retrieve_dataset_content(
 
 # ── List datasets tool ────────────────────────────────────────────────────────
 
-_LIST_DATASETS_DESCRIPTION = """列出当前可用的所有知识库（公有 + 私有），包含每个知识库的名称、简介和文档列表。
+_LIST_DATASETS_DESCRIPTION = """列出当前可用的所有知识库（公有 + 私有），含名称、简介和文档列表。
 
-适用场景：
-- 用户询问"有哪些知识库"、"有什么数据集"、"知识库列表"等。
-- 用户想了解可以查询哪些资料来源。
-- 在不确定应该查哪个知识库时，先调用本工具查看可用列表，再用 retrieve_dataset_content 或 retrieve_local_kb 进行检索。
+适用场景：用户问"有哪些知识库/数据集"；或不确定该查哪个库时，先看列表再检索。
 
 Returns:
     dict: {"public_datasets": [...], "private_datasets": [...], "total": N}
-    - public_datasets：公有/共享知识库（含外接数据集与本地公有库）。带 dataset_id 的用
-      retrieve_dataset_content 检索；带 kb_id 的（本地公有库）用 retrieve_local_kb 检索。
-    - private_datasets：仅当前用户自己的私有库（kb_id），用 retrieve_local_kb 检索。
-    用户问"有几个公有知识库 / 公有库列表"时以 public_datasets 为准，不要把本地公有库当私有库。
-    每个知识库包含：id/名称/简介/文档数量/文档标题列表/type(public|private)
+    带 dataset_id 的用 retrieve_dataset_content 检索；带 kb_id 的用 retrieve_local_kb 检索。
+    private_datasets 仅含当前用户自己的私有库；问"有几个公有库"以 public_datasets 为准，
+    不要把本地公有库当私有库。
 """
 
 
@@ -336,37 +316,24 @@ async def list_datasets(
 
 _BASE_LOCAL_KB_TOOL_DESCRIPTION = """从用户私有知识库中检索相关内容。
 
-⚠️ 【必须遵守的引用规则】
-回答中引用本工具返回的任何内容时，**必须**带引用标记：把该条目自带的 `cite_id`（如 `e7`）原样复制进 `[锚文本](cite:e7)` 或句末 `[来源](cite:e7)`，禁止自行编号。
-不带引用标记的回答视为不完整，前端将无法展示引用来源卡片。
-示例：项目总投资额为3.5亿元[来源](cite:e7)。
+引用规则：引用返回内容时必须把条目自带的 `cite_id`（如 `e7`）原样写成 `[锚文本](cite:e7)` 标记，禁止自行编号。
 
-适用场景（当用户问题涉及以下内容时，应**主动**调用本工具，无需等待用户显式要求）：
-- 用户私人上传的文档（项目材料、个人笔记、专属报告等）
-- 用户提问中出现了下方"当前可用私有知识库"列表里的知识库名称或文档名称
+适用场景（**主动**调用，无需用户显式要求）：用户私人上传的文档（项目材料、个人笔记、
+专属报告等）；用户提问中出现了下方"当前可用私有知识库"列表里的库名或文档名。
 
-调用说明：
-- 如不确定有哪些私有知识库可用，请先调用 `list_datasets` 工具查看完整知识库列表及其文档目录。
-- 如果下方有"当前可用私有知识库"列表，kb_id 应从中选择。
-- 如果没有列表或不确定 kb_id，可以传空字符串 ""，系统会自动搜索用户所有私有知识库。
-- 返回结果包含 available_kbs（可用知识库列表）和 items（检索结果）。
-- 每条 item 含 id, title, content, kb_id, score。
+调用说明：kb_id 从下方"当前可用私有知识库"列表选择；没有列表或不确定时传空字符串 ""
+（自动搜索用户所有私有库），或先调 `list_datasets` 看完整列表。
 
 Args:
-    kb_id: 私有知识库 ID（可传空字符串以搜索所有私有库）。
+    kb_id: 私有知识库 ID（空字符串 = 搜全部私有库）。
     query: 检索问题。
     top_k: 返回片段数量（默认 10）。
 
 Returns:
-    dict: {"available_kbs": [{"kb_id": "...", "name": "..."}], "items": [{"title": "...", "content": "...", "kb_id": "...", "score": ...}]}
+    dict: {"available_kbs": [...], "items": [{"title","content","kb_id","score"}]}
 
-调用决策（何时使用我）:
-- **优先级**: 高。用户问到自己上传的文档/项目材料/个人笔记/专属报告时第一优先级。
-- 与 retrieve_dataset_content 的取舍: 我只查用户私有知识库（kb_id 以 kb_ 开头）;
-  retrieve_dataset_content 查公有数据集。如果用户没明说"我上传的"还是"政策文件"，
-  两者都试一遍。
-- kb_id 不确定: 先调 list_datasets 拿可用列表，或直接传 ""（空字符串）让系统搜全量
-  私有库。
+调用决策: 用户问自己上传的文档时第一优先级。我只查私有库，retrieve_dataset_content
+查公有数据集；用户没明说是哪类时两者都试一遍。
 """
 
 
@@ -513,23 +480,18 @@ async def _run_wiki(tool: str, call, *, empty: Dict[str, Any]) -> Dict[str, Any]
         }
 
 
-_WIKI_OVERVIEW_DESCRIPTION = """查看某个知识库的**结构地图总览**：一共有哪些概念、规模多大、哪些是主干概念。
+_WIKI_OVERVIEW_DESCRIPTION = """查看某个知识库的**结构地图总览**：有哪些概念、规模多大、哪些是主干。
 
-适用场景：
-- 用户问"这个知识库里有什么"、"都涵盖哪些方面"、"整体讲了什么"。
-- 你不确定该从哪里查起时，先看总览找主干，再用 wiki_locate 精确定位。
+适用：用户问"这个知识库里有什么/涵盖哪些方面"；或不确定从哪查起时先看总览，再用
+wiki_locate 定位。属"探路"工具，不直接产出答案（list_datasets 答"有哪些库"，我答
+"某个库内部结构长什么样"）。
 
 Args:
-    dataset_id: 知识库 ID（留空自动选用当前可用的知识库）。
-    limit: 返回多少个枢纽概念（默认 20）。
+    dataset_id: 知识库 ID（留空自动选用）。
+    limit: 返回枢纽概念数（默认 20）。
 
 Returns:
     dict: {"total_pages", "pages_by_type", "total_links", "hub_pages": [...]}
-
-调用决策（何时使用我）:
-- **优先级**: 中。属于"探路"工具，不直接产出答案。
-- 与 list_datasets 的取舍: list_datasets 回答"有哪些知识库"; 我回答"某个知识库
-  内部的知识结构长什么样"。
 """
 
 
@@ -555,34 +517,23 @@ async def wiki_overview(
 
 _WIKI_LOCATE_DESCRIPTION = """【第①步·定位】在知识库的**概念地图**上定位问题落在哪些概念/实体上。
 
-知识库为每篇文档抽出了概念页和实体页，并把它们互相链接成一张图。本工具按关键词
-命中这些页面，返回标题、摘要和关系数量——**不返回长正文**，它只负责告诉你"该看哪里"。
+按关键词命中概念/实体页，返回标题、摘要和关系数量——**不返回长正文**，只告诉你"该看哪里"。
+三步用法：① wiki_locate 定位 → ② 需要全貌时 wiki_expand 展开 → ③ **必须** wiki_fetch_source
+取回原文再作答。⚠️ summary 是模型二次加工的概述，不能直接当答案，一律以取回的原文为准。
 
-典型三步用法：
-1. `wiki_locate` 定位到相关概念页；
-2. 需要看全貌时 `wiki_expand` 沿关系展开；
-3. **必须**用 `wiki_fetch_source` 顺血缘取回原文，再据原文作答。
-
-⚠️ 不要直接拿本工具返回的 summary 当答案——那是模型二次加工过的概述，可能失真。
-答案与出处一律以 wiki_fetch_source 取回的原文为准。
-
-命中为空时的补救（按顺序试）：
-- 换更书面的术语（口语说法常常匹配不上，如"牌照"对不上《运营资质证书》）；
-- 用正则交替一次给多个说法：`资质|牌照|证书`；
-- 仍为空则改用 retrieve_dataset_content 走原文语义检索。
+命中为空时按顺序补救：换更书面的术语（"牌照"常对不上《运营资质证书》）→ 用正则交替
+（`资质|牌照|证书`）→ 仍为空改用 retrieve_dataset_content 语义检索。
 
 Args:
     query: 检索词，支持正则交替（如 `编制|员额`）。
-    dataset_id: 知识库 ID（留空自动选用当前可用的知识库）。
+    dataset_id: 知识库 ID（留空自动选用）。
     limit: 返回条数（默认 8）。
 
 Returns:
     dict: {"pages": [{"slug","title","type","summary","related_count","source_doc_count"}]}
 
-调用决策（何时使用我）:
-- **优先级**: 高。问题涉及"某个概念/机构/制度是什么、和什么有关"时先走我。
-- 与 retrieve_dataset_content 的取舍: 我做**定位**（快、准、给结构）; 它做**语义
-  召回**（口语化提问更稳）。术语明确走我，口语化或我命中为空走它。
+调用决策: 问"某概念/机构/制度是什么、和什么有关"且术语明确时先走我；口语化提问或
+我命中为空时走 retrieve_dataset_content 语义召回。
 """
 
 
@@ -608,24 +559,18 @@ async def wiki_locate(
     return await _run_wiki("wiki_locate", call, empty={"pages": []})
 
 
-_WIKI_READ_PAGE_DESCRIPTION = """读取某个 Wiki 概念页的完整内容与关系。
+_WIKI_READ_PAGE_DESCRIPTION = """读取某个 Wiki 概念页的完整内容与关系（wiki_locate 之后的精读步骤）。
 
-先用 wiki_locate 拿到 slug，再用本工具精读。返回的正文里 `[[slug|显示名]]` 是指向
-其他概念页的链接，可以继续读。
-
-⚠️ 页面正文是模型综合原文写成的**概述**，作答的事实依据应来自 wiki_fetch_source
-取回的原文分块。
+正文里 `[[slug|显示名]]` 是指向其他概念页的链接。⚠️ 正文是模型综合原文写的**概述**，
+作答的事实依据应来自 wiki_fetch_source 取回的原文；只要事实和出处时可跳过我直接
+wiki_fetch_source。
 
 Args:
     slug: 页面标识，形如 `entity/example-city` 或 `concept/xin-yong`。
-    dataset_id: 知识库 ID（留空自动选用当前可用的知识库）。
+    dataset_id: 知识库 ID（留空自动选用）。
 
 Returns:
     dict: {"title","type","content","related_pages","referenced_by","has_source"}
-
-调用决策（何时使用我）:
-- **优先级**: 中。wiki_locate 之后的精读步骤。
-- 只想要事实和出处、不需要概览时，可以跳过我直接 wiki_fetch_source。
 """
 
 
@@ -649,24 +594,20 @@ async def wiki_read_page(
     return await _run_wiki("wiki_read_page", call, empty={})
 
 
-_WIKI_EXPAND_DESCRIPTION = """【第②步·展开】沿概念之间的关系，把与某个概念相关的其他概念一次拉齐。
+_WIKI_EXPAND_DESCRIPTION = """【第②步·展开】沿概念间关系把与某概念相关的其他概念一次拉齐。
 
-**聚合型问题的关键一步。**"一共有几类"、"彼此什么依赖"这种问题，靠相似度取前 N
-个片段天然答不全——必须沿着概念图把该看的都找齐，再逐个回原文核实。
+聚合型问题（"一共有几类""哪些""分别""彼此什么关系"）的关键一步——相似度取前 N 个
+片段天然答不全，必须沿概念图找齐再逐个回原文核实。单点事实问题不需要我，locate 完
+直接 fetch_source。truncated=true 表示邻域被截断，作答时应说明、别声称已穷尽。
 
 Args:
     slug: 中心概念的 slug（来自 wiki_locate）。
-    dataset_id: 知识库 ID（留空自动选用当前可用的知识库）。
-    depth: 展开层数，1=直接相关，2=再往外一层（默认 1，最大 3）。
-    limit: 最多返回多少个相关概念（默认 30）。
+    dataset_id: 知识库 ID（留空自动选用）。
+    depth: 展开层数（默认 1，最大 3）。
+    limit: 最多返回相关概念数（默认 30）。
 
 Returns:
-    dict: {"nodes": [{"slug","title","type","link_count"}], "edges": [...], "truncated": bool}
-
-调用决策（何时使用我）:
-- **优先级**: 中高。问题里出现"一共""哪些""分别""彼此关系""全部要求"时用我。
-- 单点事实问题（某个数值、某个期限）不需要我，locate 完直接 fetch_source。
-- truncated=true 说明邻域被截断了，作答时应说明这一点，别声称已穷尽。
+    dict: {"nodes": [...], "edges": [...], "truncated": bool}
 """
 
 
@@ -694,30 +635,21 @@ async def wiki_expand(
     return await _run_wiki("wiki_expand", call, empty={"nodes": [], "edges": []})
 
 
-_WIKI_FETCH_SOURCE_DESCRIPTION = """【第③步·取原文】顺着 Wiki 页面记录的血缘坐标，取回它所依据的**原始文档段落**。
+_WIKI_FETCH_SOURCE_DESCRIPTION = """【第③步·取原文】按 Wiki 页面记录的血缘坐标直接取回它所依据的**原始文档段落**（按 ID 直取，非再检索）。
 
-这是按 ID 直接取回，不是再检索一次——所以既快又不会取错段落。
+走了 wiki_locate / wiki_expand 之后**必须**走我再作答——事实依据必须来自本工具返回
+的原文，不要用 Wiki 概述代替。已定位到概念页用我；没定位到才用 retrieve_dataset_content
+重新语义检索。
 
-⚠️ 【必须遵守的引用规则】
-回答中引用本工具返回的任何内容时，**必须**带引用标记：把该条目自带的 `cite_id`
-（如 `e7`）原样复制进 `[锚文本](cite:e7)` 或句末 `[来源](cite:e7)`，禁止自行编号。
-不带引用标记的回答视为不完整，前端将无法展示引用来源卡片。
-示例：《运营资质证书》有效期为五年[来源](cite:e7)。
-
-**作答的事实依据必须来自本工具返回的原文**，不要用 Wiki 页面的概述代替原文。
+引用规则：引用返回内容时必须把条目自带的 `cite_id`（如 `e7`）原样写成 `[锚文本](cite:e7)` 标记，禁止自行编号。
 
 Args:
     slug: 页面标识（来自 wiki_locate / wiki_expand）。
-    dataset_id: 知识库 ID（留空自动选用当前可用的知识库）。
+    dataset_id: 知识库 ID（留空自动选用）。
     max_chunks: 最多取回几段原文（默认 6）。
 
 Returns:
     dict: {"wiki_page": "...", "items": [{"文件名称","文件内容","document_id","chunk_id"}]}
-
-调用决策（何时使用我）:
-- **优先级**: 高。走了 wiki_locate / wiki_expand 之后**必须**走我再作答。
-- 与 retrieve_dataset_content 的取舍: 我是"按坐标直取已定位的原文"; 它是"重新做一次
-  语义检索"。已经定位到概念页就用我，没定位到才用它。
 """
 
 

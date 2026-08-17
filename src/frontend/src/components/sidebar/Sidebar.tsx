@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DragEvent as ReactDragEvent } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Layout, Input, Dropdown, Tooltip, Badge, Modal, message,
@@ -11,16 +12,18 @@ import {
   PushpinOutlined, PushpinFilled, StarOutlined, StarFilled,
   EllipsisOutlined, CaretDownOutlined, FolderOutlined, FolderOpenOutlined,
   ExportOutlined, ExclamationCircleFilled,
-  MessageOutlined,
+  MessageOutlined, SortAscendingOutlined,
 } from '@ant-design/icons';
-import { useUIStore, useChatStore, useAuthStore, useMySpaceStore, useAutomationChatStore, useAutomationStore } from '../../stores';
+import { useUIStore, useChatStore, useAuthStore, useMySpaceStore, useAutomationChatStore, useAutomationStore, useSidebarOrderStore } from '../../stores';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { usePageConfig } from '../../hooks/usePageConfig';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { LAYOUT_ITEMS } from './items';
 import { DEFAULT_SIDEBAR_ITEMS, DEFAULT_MENU_ITEMS } from '../../utils/pageConfigDefaults';
 import { buildSidebarChatItems } from '../../utils/history';
+import { compareSidebarItems } from '../../utils/sidebarOrder';
 import { resolveAvatarUrl } from '../../utils/avatar';
 import { loadJsonPref, saveJsonPref } from '../../storage';
 import { getAutomationRuns } from '../../api';
@@ -51,6 +54,12 @@ const NAV_COLLAPSED_KEY = 'hugagent_ui_nav_collapsed_v1';
 const loadCollapsedNavGroups = () => loadJsonPref<Record<string, boolean>>(NAV_COLLAPSED_KEY, {});
 
 // Chat list item add/remove animation: enter 0.22s float-up expand / exit 0.18s height collapse (items below smoothly reposition via layout).
+/* 历史项行高。移动端抽屉里它是主要触摸目标，桌面的 36px 低于 44pt 的触摸下限。
+   这个值必须在 JS 里给：framer-motion 把 animate 的 height 写成内联样式，
+   样式表里怎么写都压不住（内联优先级更高），是纯 CSS 适配够不到的一类值。 */
+const HISTORY_ITEM_H = 36;
+const HISTORY_ITEM_H_MOBILE = 44;
+
 const HISTORY_ITEM_ENTER = { duration: 0.22, ease: EASE.brandOut };
 const HISTORY_ITEM_EXIT = { duration: 0.18, ease: EASE.exit };
 
@@ -97,6 +106,7 @@ export function Sidebar({
   const cfgLogoutTitle = usePageConfig('texts.dialog_logout_confirm_title', '确认退出登录？');
   const cfgLogoutContent = usePageConfig('texts.dialog_logout_confirm_content', '退出登录不会丢失任何数据，你仍可以登录此账号。');
   const cfgLogoutOk = usePageConfig('texts.dialog_logout_confirm_ok', '退出登录');
+  const historyItemHeight = useIsMobileViewport() ? HISTORY_ITEM_H_MOBILE : HISTORY_ITEM_H;
   const sidebarLayoutKeys = usePageConfig<string[]>('navigation.sidebar_items', DEFAULT_SIDEBAR_ITEMS);
   const menuLayoutKeys = usePageConfig<string[]>('navigation.menu_items', DEFAULT_MENU_ITEMS);
   const { panel } = useCatalogStore();
@@ -113,6 +123,15 @@ export function Sidebar({
   const toggleSidebarPinned = useAutomationChatStore((s) => s.toggleSidebarPinned);
   const toggleSidebarFavorite = useAutomationChatStore((s) => s.toggleSidebarFavorite);
   const updateAutomationTask = useAutomationStore((s) => s.updateTask);
+  // ── 侧边栏手动拖拽排序状态（顺序真源在 sidebarOrderStore） ──
+  const draggingId = useSidebarOrderStore((s) => s.draggingId);
+  const dropTarget = useSidebarOrderStore((s) => s.dropTarget);
+  const setDragging = useSidebarOrderStore((s) => s.setDragging);
+  const setDropTarget = useSidebarOrderStore((s) => s.setDropTarget);
+  const reorderWithinGroup = useSidebarOrderStore((s) => s.reorderWithinGroup);
+  const resetSidebarOrder = useSidebarOrderStore((s) => s.resetOrder);
+  // 拖拽源所属的「分组 + 置顶带」。dragover 阶段读不到 dataTransfer，只能靠 ref 记。
+  const dragScopeRef = useRef<string | null>(null);
   // ── Projects section data: project list + the currently open project (for highlighting) ──
   const projects = useProjectStore((s) => s.list);
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
@@ -253,14 +272,19 @@ export function Sidebar({
     }
   };
 
-  // Sort: pinned items first, the rest by updatedAt descending. Automation items use the same rule within their own group.
+  // Sort: pinned items first, then the manual drag order, then updatedAt descending.
+  // 手动顺序（sidebarOrderStore）是一维全局序列，这里全局排完再切分组——过滤保序，
+  // 所以组内相对次序与「只在组内排」等价。没排过的会话取不到下标，按 updatedAt 落在
+  // 该组最前，新会话依旧自动冒头。
+  const manualOrder = useSidebarOrderStore((s) => s.order);
+  const manualIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    manualOrder.forEach((id, idx) => map.set(id, idx));
+    return map;
+  }, [manualOrder]);
   const sortedHistoryList = useMemo(() => {
-    return [...historyList].sort((a, b) => {
-      const pinDiff = Number(!!b.pinned) - Number(!!a.pinned);
-      if (pinDiff !== 0) return pinDiff;
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
-  }, [historyList]);
+    return [...historyList].sort((a, b) => compareSidebarItems(a, b, manualIndex));
+  }, [historyList, manualIndex]);
 
   const knownProjectIds = useMemo(
     () => new Set(projects.map((p) => p.project_id)),
@@ -384,9 +408,28 @@ export function Sidebar({
     { key: 'history', label: t('历史对话'), rows: 8 },
   ];
 
+  // 手动排过序才给这个出口：拖乱了能一键回到「置顶 + 最近更新」的默认排序。
+  const resetOrderMenuItems = useMemo<NonNullable<MenuProps['items']>>(() => (
+    manualOrder.length === 0 ? [] : [
+      {
+        key: 'reset-order',
+        label: t('恢复默认排序'),
+        icon: <SortAscendingOutlined />,
+        onClick: ({ domEvent }) => {
+          domEvent.stopPropagation();
+          resetSidebarOrder();
+          message.success(t('已恢复默认排序'));
+        },
+      },
+      { type: 'divider' as const },
+    ]
+  ), [manualOrder.length, resetSidebarOrder]);
+
   // A single chat item (shared between the projects section's nested list and the automation/history groups, ensuring identical interaction).
-  // listLen controls the layout animation toggle (disable layout for very long lists to reduce reflow overhead).
-  const renderChatItem = (item: ChatItem, listLen: number) => {
+  // groupItems 是该条目所在分组的当前可见顺序，拖拽重排时以它为底稿；
+  // scopeKey 标识分组（history / automation / project:<id>），拖拽不跨组。
+  const renderChatItem = (item: ChatItem, groupItems: ChatItem[], scopeKey: string) => {
+    const listLen = groupItems.length;
     const isAutomation = !!item.automationRun;
     const isActive = isAutomation
       ? (panel === 'chat' && automationActiveGroup?.taskId === item.automationTaskId)
@@ -406,16 +449,80 @@ export function Sidebar({
       }
     };
 
+    // ── 手动拖拽排序 ──
+    // 拖拽只在「同一分组 + 同一置顶带」内生效：置顶项恒排在组顶部（见 sortedHistoryList），
+    // 允许把普通会话拖进置顶区只会被排序规则弹回去，不如直接不接这个落点。
+    const dragScope = `${scopeKey}:${item.pinned ? 'pinned' : 'plain'}`;
+    const isDragging = draggingId === item.id;
+    const dropHint = draggingId && draggingId !== item.id && dropTarget?.id === item.id
+      ? dropTarget.place
+      : null;
+
+    const handleDragStart = (e: ReactDragEvent<HTMLDivElement>) => {
+      if (isEditing) { e.preventDefault(); return; }
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox 要求 dragstart 里必须写入数据，否则整个拖拽不启动
+      try { e.dataTransfer.setData('text/plain', item.id); } catch { /* 某些浏览器只读 */ }
+      dragScopeRef.current = dragScope;
+      setDragging(item.id);
+    };
+
+    const handleDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
+      if (!draggingId || draggingId === item.id) return;
+      if (dragScopeRef.current !== dragScope) return;
+      // dragover 阶段读不到 dataTransfer 内容（安全限制），所以拖拽源信息走 ref/store
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = e.currentTarget.getBoundingClientRect();
+      const place: 'before' | 'after' = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      if (dropTarget?.id !== item.id || dropTarget.place !== place) {
+        setDropTarget({ id: item.id, place });
+      }
+    };
+
+    const handleDrop = (e: ReactDragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const draggedId = draggingId;
+      if (!draggedId || draggedId === item.id || dragScopeRef.current !== dragScope) {
+        setDragging(null);
+        return;
+      }
+      const scopeIds = groupItems
+        .filter((i) => !!i.pinned === !!item.pinned)
+        .map((i) => i.id);
+      const place = dropTarget?.id === item.id ? dropTarget.place : 'before';
+      reorderWithinGroup(scopeIds, draggedId, item.id, place);
+      dragScopeRef.current = null;
+    };
+
+    const handleDragEnd = () => {
+      dragScopeRef.current = null;
+      setDragging(null);
+    };
+
     return (
       <motion.div
         key={item.id}
-        layout={listLen <= LAYOUT_ANIM_MAX_ITEMS ? 'position' : false}
+        // 拖拽期间关掉布局动画：位移动画会和浏览器原生拖影抢同一段位移，看起来会抖
+        layout={!draggingId && listLen <= LAYOUT_ANIM_MAX_ITEMS ? 'position' : false}
         initial={{ opacity: 0, height: 0, minHeight: 0 }}
-        animate={{ opacity: 1, height: 36, minHeight: 36 }}
+        animate={{ opacity: 1, height: historyItemHeight, minHeight: historyItemHeight }}
         exit={{ opacity: 0, height: 0, minHeight: 0, transition: HISTORY_ITEM_EXIT }}
         transition={HISTORY_ITEM_ENTER}
         style={{ overflow: 'hidden' }}
-        className={`jx-historyItem${isActive ? ' active' : ''}${isEditing ? ' editing' : ''}`}
+        className={`jx-historyItem${isActive ? ' active' : ''}${isEditing ? ' editing' : ''}${
+          isDragging ? ' jx-historyItem--dragging' : ''
+        }${dropHint === 'before' ? ' jx-historyItem--dropBefore' : ''}${
+          dropHint === 'after' ? ' jx-historyItem--dropAfter' : ''
+        }`}
+        draggable={!isEditing}
+        // onDragStart / onDragEnd 被 motion 占作自家手势 API（不会透传到 DOM），
+        // 原生 HTML5 拖拽只能挂 capture 变体；onDragOver / onDrop 不冲突，照常挂。
+        onDragStartCapture={handleDragStart}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onDragEndCapture={handleDragEnd}
         onClick={handleClick}>
         {isEditing ? (
           <Input size="small" value={editingTitle} autoFocus
@@ -465,12 +572,14 @@ export function Sidebar({
           <Dropdown menu={{
             items: isAutomation
               ? [
+                  ...resetOrderMenuItems,
                   { key: 'pin', label: item.pinned ? t('取消置顶') : t('置顶'), icon: item.pinned ? <PushpinFilled /> : <PushpinOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); if (item.automationTaskId) toggleSidebarPinned(item.automationTaskId); } },
                   { key: 'fav', label: item.favorite ? t('取消收藏') : t('收藏'), icon: item.favorite ? <StarFilled /> : <StarOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); if (item.automationTaskId) toggleSidebarFavorite(item.automationTaskId); } },
                   { key: 'rename', label: t('重命名'), icon: <EditOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); startRenameItem(item); } },
                   { key: 'export', label: t('导出'), icon: <ExportOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); void exportAutomationItem(item); } },
                 ]
               : [
+                  ...resetOrderMenuItems,
                   { key: 'pin', label: item.pinned ? t('取消置顶') : t('置顶'), icon: item.pinned ? <PushpinFilled /> : <PushpinOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); onTogglePinned(item.id); } },
                   { key: 'fav', label: item.favorite ? t('取消收藏') : t('收藏'), icon: item.favorite ? <StarFilled /> : <StarOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); onToggleFavorite(item.id); } },
                   { key: 'rename', label: t('重命名'), icon: <EditOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); startRenameItem(item); } },
@@ -910,7 +1019,7 @@ export function Sidebar({
                               <div className={`jx-expandWrap jx-historyGroupExpand${projCollapsed ? '' : ' jx-expandWrap--open'}`}>
                                 <div className={`jx-historyGroupList jx-projectChatList${projCollapsed ? '' : ' jx-projectChatList--open'}`}>
                                   <AnimatePresence initial={false} mode="popLayout">
-                                    {pg.items.map((item) => renderChatItem(item, pg.items.length))}
+                                    {pg.items.map((item) => renderChatItem(item, pg.items, `project:${pg.projectId}`))}
                                   </AnimatePresence>
                                 </div>
                               </div>
@@ -944,7 +1053,7 @@ export function Sidebar({
                   <div className={`jx-expandWrap jx-historyGroupExpand${isCollapsed ? '' : ' jx-expandWrap--open'}`}>
                     <div className="jx-historyGroupList">
                     <AnimatePresence initial={false} mode="popLayout">
-                    {group.items.map((item) => renderChatItem(item, group.items.length))}
+                    {group.items.map((item) => renderChatItem(item, group.items, group.key))}
                     </AnimatePresence>
                     </div>
                   </div>

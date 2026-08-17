@@ -1,0 +1,53 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agent-manager",
+  "version": "1.0.0",
+  "description": "管子智能体（可被指派任务的助手角色）：增删改、启停、从市场安装、申请上架。用户说「建个专门做 X 的助手/智能体」「改一下我那个智能体」「我有哪些智能体」时加载。只管智能体本身；技能归 skill-manager，插件归 plugin-manager。",
+  "author": {
+    "name": "HugAgentOS"
+  },
+  "extensions": {
+    "org.hugagent": {
+      "mcp": {
+        "agent_manager": {
+          "display_name": "智能体管理",
+          "description": "搜索/安装子智能体市场、从零创建私有子智能体、修改绑定与职责、申请上架市场、查看/删除我的智能体。身份走 X-Current-User-Id 头，所有写操作按用户归属，只产出仅自己可见的私有子智能体。",
+          "tools": [
+            {
+              "name": "search_agent_market",
+              "description": "搜索子智能体市场，返回可安装的智能体列表（slug/名称/简介/分类/是否已安装）。用户想'有没有现成的 X 智能体 / 市场里都有什么 / 找一个能做 Y 的智能体'时调用。query=关键词（留空列全部），category=按分类过滤。找到目标后用 install_market_agent(slug) 安装。"
+            },
+            {
+              "name": "install_market_agent",
+              "description": "从市场安装一个子智能体到'我的智能体'，装完下一轮对话就能直接指派任务给它。用户说'装上那个 / 安装 X 智能体 / 我要用它'时调用，slug 取自 search_agent_market。安装是克隆一份到你名下，改动不影响市场原件；它原本绑定的技能和工具会按你账下实际有的资源重新对应，install_report.dropped 里是对不上被跳过的能力，必须如实告诉用户，别让用户以为能力全绑上了。需要管理员开启'自助添加智能体'权限。"
+            },
+            {
+              "name": "list_bindable_capabilities",
+              "description": "列出可以绑给子智能体的技能、工具、插件、知识库，每项都带 id 和名称。创建或修改子智能体之前必须先调用它拿到准确的 id——绝不允许凭印象编 id，编错了不会报错，只会静默绑不上，用户拿到一个'看起来建好了但没能力'的智能体。返回四组：skills/mcp_servers/plugins/kb_spaces。"
+            },
+            {
+              "name": "create_agent",
+              "description": "从零创建一个属于我的子智能体。用户说'帮我建一个负责 X 的智能体 / 我想要个专门做 Y 的助手'时调用。必填 name（名字）、description（一句话说清它管什么，也是主智能体判断该不该派活给它的依据）、system_prompt（它的行事准则，是这个智能体的主体，写法见 agent-designer 技能，别糊一段空泛的话交差）。选填 skill_ids/mcp_server_ids/plugin_ids/kb_ids（绑定的能力，id 必须来自 list_bindable_capabilities，宁窄勿宽）、max_iters（1–100，默认 10）。建出来的智能体仅自己可见可用。需要'自助添加智能体'权限。"
+            },
+            {
+              "name": "list_my_agents",
+              "description": "列出'我的子智能体'（agent_id/名字/职责/是否启用/绑了几项能力）。用户问'我有哪些智能体 / 我建过什么 / 管一下我的智能体'时调用。拿到 agent_id 后可 edit_agent 修改、delete_agent 删除、submit_agent_to_market 申请上架。只列自己建的和装的，平台内置角色与管理员下发的智能体不在此列。"
+            },
+            {
+              "name": "edit_agent",
+              "description": "修改我的某个子智能体，不用删了重建。agent_ref 传 agent_id 或名字。用户说'把 X 的职责改一下 / 给它加个技能 / 换个说话的口气 / 让它别再用那个工具'时调用。只改传入的字段，没传的原样保留：name/description/system_prompt/welcome_message/skill_ids/mcp_server_ids/plugin_ids/kb_ids/max_iters/is_enabled。注意绑定类字段是整组替换不是追加，所以要加一个时须先 list_my_agents 看现状、再 list_bindable_capabilities 取新 id、合并成完整数组一起传，否则会冲掉原有绑定。agent_id 不可改；匹配到多个时必须先让用户指明，禁止猜改。"
+            },
+            {
+              "name": "delete_agent",
+              "description": "删除我的某个子智能体（不可恢复）。agent_ref 传 agent_id 或名字。用户说'把 X 删了 / 不要那个智能体了'时调用。匹配到多个时必须先向用户确认具体哪一个，禁止猜删。只能删自己创建/安装的，平台内置角色和管理员下发的删不了。用户只是暂时不想用时，优先建议 edit_agent(is_enabled=false) 停用。"
+            },
+            {
+              "name": "submit_agent_to_market",
+              "description": "把我的子智能体申请上架到市场（进管理员审核队列，通过后其他人可安装）。用户说'把这个分享出去 / 申请上架 / 发布到市场'时调用，agent_id 取自 list_my_agents。category 必须从这 9 个固定值里挑最贴切的一个（注意与技能市场的分类不同）：通用助手/职场办公/商业分析/数据分析/研发编程/翻译写作/创意设计/政策法务/教育科研。summary=一句话简介，note=给审核管理员的说明。这是申请、非直接上架，要跟用户说清楚还得等审核。"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

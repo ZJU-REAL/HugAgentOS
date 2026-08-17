@@ -1,4 +1,4 @@
-import type { MessageSegment } from '../types';
+import type { MessageSegment, SubagentStep } from '../types';
 
 export interface DeferredThinkingTextFragment {
   content: string;
@@ -83,6 +83,41 @@ export function appendThinkingContentBeforeTrailingText(
     content: (thinking.content || '') + content,
   };
   return true;
+}
+
+/**
+ * 子智能体子步骤的思考/正文增量归并——与主链路
+ * `appendThinkingContentBeforeTrailingText` 同一条「迟到思考尾并回前块」规则。
+ *
+ * 结构化 reasoning 通道的收尾增量常在正文首 token 之后才到达。原样按到达顺序
+ * 追加，会在正文中间插进一个思考块，随后的正文增量又新开一个 content 段——
+ * 子智能体卡片里就成了「思考 / 正文碎片 / 思考 / 正文碎片」交错，一句话被拦腰
+ * 切开（正常会话已在 00a55638、808d4c92 修好，这里是同一形态）。
+ *
+ * 规则：thinking 增量落在「思考块 → 正文段」尾部时并回那个思考块，正文段保持
+ * 完整，后续正文增量继续追加同一段。
+ */
+export function appendSubagentStepDelta(
+  steps: SubagentStep[],
+  kind: 'thinking' | 'content',
+  delta: string,
+): void {
+  if (!delta) return;
+
+  const lastIndex = steps.length - 1;
+  const last = steps[lastIndex];
+  if (last?.kind === kind) {
+    steps[lastIndex] = { ...last, text: (last.text || '') + delta };
+    return;
+  }
+
+  const prev = steps[lastIndex - 1];
+  if (kind === 'thinking' && last?.kind === 'content' && prev?.kind === 'thinking') {
+    steps[lastIndex - 1] = { ...prev, text: (prev.text || '') + delta };
+    return;
+  }
+
+  steps.push({ kind, text: delta });
 }
 
 /**
