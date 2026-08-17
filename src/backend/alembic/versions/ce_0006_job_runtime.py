@@ -10,6 +10,12 @@ Create Date: 2026-08-17
 
 台账（job_items）放 DB 而不是沙箱文件：沙箱池化复用会让新 job 读到旧 job 残留的
 账本，以 (job_id, item_key) 作复合主键从结构上避免。
+
+⚠️ 建表**必须条件化**（同 ce_0005 的处理）：`ce_0001` 用 `ce_create_all` 直接照
+SQLAlchemy 模型建库，而这三张表已经进了 `core.db.models` 的导出，所以**全新安装**
+走到这一步时它们早就存在了——无条件 `create_table` 会让每一次全新部署的
+`alembic upgrade head` 死在 "table jobs already exists"。只有在 job 模型之前建出来的
+老 CE 库才真的需要这条迁移建表。
 """
 
 import sqlalchemy as sa
@@ -24,7 +30,22 @@ depends_on = None
 JSONB = postgresql.JSONB(astext_type=sa.Text()).with_variant(sa.JSON(), "sqlite")
 
 
+def _tables(bind) -> set:
+    return set(sa.inspect(bind).get_table_names())
+
+
 def upgrade() -> None:
+    existing = _tables(op.get_bind())
+
+    if "jobs" not in existing:
+        _create_jobs()
+    if "job_items" not in existing:
+        _create_job_items()
+    if "job_calls" not in existing:
+        _create_job_calls()
+
+
+def _create_jobs() -> None:
     op.create_table(
         "jobs",
         sa.Column("job_id", sa.String(64), primary_key=True),
@@ -53,6 +74,8 @@ def upgrade() -> None:
     op.create_index("idx_jobs_chat_status", "jobs", ["chat_id", "status"])
     op.create_index("idx_jobs_status", "jobs", ["status"])
 
+
+def _create_job_items() -> None:
     op.create_table(
         "job_items",
         sa.Column("job_id", sa.String(64), primary_key=True, nullable=False),
@@ -72,6 +95,8 @@ def upgrade() -> None:
     )
     op.create_index("idx_job_items_job_status", "job_items", ["job_id", "status"])
 
+
+def _create_job_calls() -> None:
     op.create_table(
         "job_calls",
         sa.Column("call_id", sa.String(64), primary_key=True),
@@ -91,11 +116,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("idx_job_calls_job_id", table_name="job_calls")
-    op.drop_table("job_calls")
-    op.drop_index("idx_job_items_job_status", table_name="job_items")
-    op.drop_table("job_items")
-    op.drop_index("idx_jobs_status", table_name="jobs")
-    op.drop_index("idx_jobs_chat_status", table_name="jobs")
-    op.drop_index("idx_jobs_user_id", table_name="jobs")
-    op.drop_table("jobs")
+    # 同样条件化：upgrade 可能一张表都没建（全新库由 ce_0001 建好），别在这里硬删。
+    existing = _tables(op.get_bind())
+
+    if "job_calls" in existing:
+        op.drop_index("idx_job_calls_job_id", table_name="job_calls")
+        op.drop_table("job_calls")
+    if "job_items" in existing:
+        op.drop_index("idx_job_items_job_status", table_name="job_items")
+        op.drop_table("job_items")
+    if "jobs" in existing:
+        op.drop_index("idx_jobs_status", table_name="jobs")
+        op.drop_index("idx_jobs_chat_status", table_name="jobs")
+        op.drop_index("idx_jobs_user_id", table_name="jobs")
+        op.drop_table("jobs")
