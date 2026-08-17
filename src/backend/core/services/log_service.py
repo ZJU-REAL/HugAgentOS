@@ -151,6 +151,20 @@ def current_source() -> str:
     return _current_source.get() or "main_agent"
 
 
+def _effective_status(declared: Optional[str], result: Any) -> str:
+    """声明的状态优先，但"成功"要经得起载荷检验。
+
+    只认**顶层** error，且只认 dict / 能解析成 dict 的 JSON 串——正文里出现 error 字样的
+    正常内容（比如搜到一篇讲错误码的网页）不该被误判成故障。
+    """
+    status = declared or "success"
+    if status != "success":
+        return status
+    from core.chat.tool_log import _payload_carries_error
+
+    return "error" if _payload_carries_error(result) else "success"
+
+
 def _write_tool_call_sync(record: Dict[str, Any]) -> None:
     if not TOOL_LOG_ENABLED:
         return
@@ -174,7 +188,11 @@ def _write_tool_call_sync(record: Dict[str, Any]) -> None:
             tool_args=args_safe,
             tool_result=result_safe,
             result_truncated=bool(result_trunc),
-            status=record.get("status") or "success",
+            # 载荷里写着 error 就是 error。工具把上游故障"温柔地"包成 {"error": ...} 正常
+            # 返回（MCP 里很常见），审计面却记成 success —— 实测搜索有一半调用被上游 429
+            # 打回，统计上仍是"全部成功"，排障第一眼就被带偏。这里是所有写入路径的必经处，
+            # 放在这兜底比逐个调用方去改可靠。
+            status=_effective_status(record.get("status"), record.get("tool_result")),
             error_message=record.get("error_message"),
             duration_ms=record.get("duration_ms"),
             source=record.get("source") or "main_agent",

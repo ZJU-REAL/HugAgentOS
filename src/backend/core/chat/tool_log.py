@@ -6,6 +6,7 @@ the chat route (``api/routes/v1/chats.py``) and the background run executor
 ``routing.*`` no longer imports an API route module (breaks ``routing → api``).
 """
 
+import json
 from typing import Any, Dict
 
 
@@ -79,6 +80,34 @@ def build_tool_call_event(chunk: dict, chat_id: str, tool_calls_log: list) -> Di
     return {"type": "tool_call", **tc, "chat_id": chat_id}
 
 
+def _payload_carries_error(res: Any) -> bool:
+    """结果载荷顶层带了非空 ``error`` 字段 → 这次调用是失败的。
+
+    只认**顶层**的 error，且只认 dict / 能解析成 dict 的 JSON 串：往结果里嵌了 error
+    字样的正常内容（比如搜到一篇讲错误码的网页）不该被误判成故障。
+
+    还要穿透一层 **MCP 内容块**（``[{"type": "text", "text": "{...}"}]``）——MCP 工具的
+    返回就是这个形状，不穿透的话判定永远落空：实测搜索有一半调用被上游 429 打回，审计面
+    却依然显示"全部成功"。穿透只做一层、且每块仍走上面那套严格判定，不会放宽误判风险。
+    """
+    payload = res
+    if isinstance(payload, (list, tuple)):
+        return any(
+            _payload_carries_error(blk.get("text"))
+            for blk in payload
+            if isinstance(blk, dict) and isinstance(blk.get("text"), str)
+        )
+    if isinstance(payload, str):
+        text = payload.strip()
+        if not text.startswith("{"):
+            return False
+        try:
+            payload = json.loads(text)
+        except Exception:  # noqa: BLE001
+            return False
+    return isinstance(payload, dict) and bool(payload.get("error"))
+
+
 def build_tool_result_event(chunk: dict, chat_id: str, tool_calls_log: list) -> Dict[str, Any]:
     """Build the ``tool_result`` SSE event and attach it into ``tool_calls_log``.
 
@@ -96,6 +125,11 @@ def build_tool_result_event(chunk: dict, chat_id: str, tool_calls_log: list) -> 
     if raw_status == "interrupted":
         status = "interrupted"
     elif raw_status in {"error", "denied"}:
+        status = "error"
+    elif _payload_carries_error(res):
+        # 工具把上游故障"温柔地"包成 {"error": ...} 正常返回（MCP 里很常见），
+        # 于是审计面记成 success。实测后果：搜索有 36% 的调用被上游 429 打回，
+        # 统计上却是 227 成功 0 失败——排障时第一眼就被带偏。载荷里写着 error 就是 error。
         status = "error"
     else:
         status = "success"
