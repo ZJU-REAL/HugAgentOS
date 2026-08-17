@@ -150,7 +150,7 @@
   padding: 5px 12px;
   border-radius: 999px;
   background: rgba(251, 191, 36, 0.14);
-  color: #b45309;
+  color: var(--color-tint-amber);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.6;

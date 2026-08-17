@@ -1021,8 +1021,8 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                         <Tag
                           className="jx-kbEnabledTag"
                           style={item.enabled
-                            ? { background: '#DBE9FF', color: '#126DFF', border: 'none' }
-                            : { background: '#F5F6F7', color: '#B3B3B3', border: 'none' }
+                            ? { background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: 'none' }
+                            : { background: 'var(--color-bg-gray)', color: 'var(--color-text-placeholder)', border: 'none' }
                           }
                         >
                           {item.enabled ? t('已启用') : t('未启用')}
@@ -1067,8 +1067,8 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                     <Tag
                       className="jx-kbEnabledTag"
                       style={selectedItem.enabled
-                        ? { background: '#DBE9FF', color: '#126DFF', border: 'none' }
-                        : { background: '#F5F6F7', color: '#B3B3B3', border: 'none' }
+                        ? { background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: 'none' }
+                        : { background: 'var(--color-bg-gray)', color: 'var(--color-text-placeholder)', border: 'none' }
                       }
                     >
                       {selectedItem.enabled ? t('已启用') : t('未启用')}
@@ -1646,11 +1646,11 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                                   style={{
                                     flex: 1,
                                     fontSize: 12,
-                                    color: '#595959',
+                                    color: 'var(--color-text-secondary)',
                                     whiteSpace: 'pre-wrap',
                                     wordBreak: 'break-word',
-                                    background: '#FAFBFC',
-                                    border: '1px solid #EEF1F4',
+                                    background: 'var(--color-bg-gray)',
+                                    border: '1px solid var(--color-border)',
                                     borderRadius: 6,
                                     padding: '6px 8px',
                                     lineHeight: 1.6,

@@ -16,9 +16,9 @@ function FileIcon({ mimeType }: { mimeType?: string }) {
   if (mimeType.startsWith('image/')) return <PictureOutlined style={{ color: '#6c8ebf' }} />;
   if (mimeType.includes('pdf')) return <FileTextOutlined style={{ color: '#e05c5c' }} />;
   if (mimeType.includes('word') || mimeType.includes('document'))
-    return <FileTextOutlined style={{ color: '#4472c4' }} />;
+    return <FileTextOutlined style={{ color: 'var(--color-primary)' }} />;
   if (mimeType.includes('sheet') || mimeType.includes('excel') || mimeType.includes('csv'))
-    return <FileTextOutlined style={{ color: '#217346' }} />;
+    return <FileTextOutlined style={{ color: 'var(--color-success)' }} />;
   return <FileTextOutlined style={{ color: '#888' }} />;
 }
 
@@ -76,7 +76,7 @@ function StageFileBody({ data }: { data: unknown }) {
     <div className="jx-ms-list">
       <div className="jx-ms-listItem" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
         <span className="jx-ms-fileName">{info.name ?? t('未知文件')}</span>
-        <code style={{ fontSize: 11, color: '#6b7280', wordBreak: 'break-all' }}>{info.path ?? ''}</code>
+        <code style={{ fontSize: 11, color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>{info.path ?? ''}</code>
         {info.size_bytes != null && (
           <span className="jx-ms-fileMeta">{formatBytes(info.size_bytes)}{info.mime_type ? ` · ${info.mime_type}` : ''}</span>
         )}

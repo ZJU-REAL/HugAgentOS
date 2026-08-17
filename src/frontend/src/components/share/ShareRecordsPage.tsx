@@ -348,7 +348,7 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
                         {getShareStatusLabel(record)}
                       </Tag>
                     </motion.span>
-                    <Tag style={{ background: '#EBF2FF', borderColor: '#DBE9FF', color: '#126DFF' }}>
+                    <Tag style={{ background: 'var(--color-primary-light)', borderColor: '#DBE9FF', color: 'var(--color-primary)' }}>
                       {getShareExpiryLabel(record)}
                     </Tag>
                     <button

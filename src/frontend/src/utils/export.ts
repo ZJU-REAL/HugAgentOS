@@ -37,6 +37,8 @@ export function getMessageExportText(msg: ChatMessage): string {
   return String(msg.content || '').trim();
 }
 
+/* dark-ok-begin: 下面生成的是导出的 PDF / HTML 文稿，脱离应用主题独立存在——
+   打印与外发一律白纸黑字，不能跟随界面深浅档，整段模板不参与深色令牌化。 */
 function buildChatExportHtml(chatTitle: string, messages: ChatMessage[]): string {
   const title = chatTitle || t('对话记录');
   let html = `
@@ -83,6 +85,7 @@ function buildChatExportHtml(chatTitle: string, messages: ChatMessage[]): string
   html += '</div>';
   return html;
 }
+/* dark-ok-end */
 
 export function triggerPdfDownload(filename: string, chatTitle: string, messages: ChatMessage[], chatTimestamp?: number): void {
   const htmlContent = buildChatExportHtml(chatTitle, messages);

@@ -637,7 +637,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
                   <Tag className="jx-sk-tag" color="blue">{t('已启用')}</Tag>
                 )}
                 {item.owner === 'self' && (
-                  <Tag style={{ background: '#EBF2FF', color: '#126DFF', border: 'none' }}>{t('我的')}</Tag>
+                  <Tag style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)', border: 'none' }}>{t('我的')}</Tag>
                 )}
                 {item.owner === 'self' && (() => {
                   const sub = subBySkill.get(item.id);

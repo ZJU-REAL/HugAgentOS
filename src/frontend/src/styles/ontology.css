@@ -266,8 +266,8 @@
   padding: 4px 9px;
   border: 1px solid rgba(21, 45, 74, .1);
   border-radius: 999px;
-  background: #f5f7f8;
-  color: #627083;
+  background: var(--color-bg-gray);
+  color: var(--color-text-secondary);
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
@@ -315,7 +315,7 @@
 }
 
 .jx-ontologyReviewProgress strong {
-  color: #203a58;
+  color: var(--color-text);
   font-size: 13px;
 }
 
@@ -524,7 +524,7 @@
 .jx-ontologyRevision-text h2,
 .jx-ontologyRevision-text h3 {
   margin: 18px 0 8px;
-  color: #172e49;
+  color: var(--color-text);
   line-height: 1.4;
 }
 
@@ -543,9 +543,9 @@
 .jx-ontologyManualReview {
   margin: 0 14px 14px;
   padding: 12px;
-  border: 1px solid rgba(250, 173, 20, .24);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
   border-radius: 12px;
-  background: #fffdf7;
+  background: var(--color-warning-light);
 }
 
 .jx-ontologyManualReview.is-required {
@@ -564,13 +564,13 @@
 }
 
 .jx-ontologyManualReview-head strong {
-  color: #5f440e;
+  color: var(--color-tint-amber);
   font-size: 13px;
 }
 
 .jx-ontologyManualReview-head p {
   margin: 3px 0 0;
-  color: #796744;
+  color: var(--color-tint-amber);
   font-size: 11.5px;
   line-height: 1.55;
 }
@@ -601,7 +601,7 @@
 
 .jx-ontologyManualReview-card > strong {
   display: block;
-  color: #493a1d;
+  color: var(--color-tint-amber);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -628,7 +628,7 @@
 
 .jx-ontologyManualReview-card dd {
   margin: 0;
-  color: #665536;
+  color: var(--color-tint-amber);
   word-break: break-word;
   overflow-wrap: anywhere;
 }
@@ -746,7 +746,7 @@
   padding: 12px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: linear-gradient(145deg, #fff, var(--color-bg-gray));
+  background: linear-gradient(145deg, var(--color-bg-container), var(--color-bg-gray));
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -898,7 +898,7 @@
   border-radius: var(--radius-md);
   background:
     radial-gradient(circle at 92% 12%, rgba(118, 85, 250, .12), transparent 30%),
-    linear-gradient(135deg, #fff 24%, var(--color-primary-light));
+    linear-gradient(135deg, var(--color-bg-container) 24%, var(--color-primary-light));
   box-shadow: var(--shadow-card);
 }
 

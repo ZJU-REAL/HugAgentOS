@@ -10,7 +10,7 @@
     border-color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 .jx-apidoc-navItem:hover {
-  background: #F5F7FA;
+  background: var(--color-fill-hover);
 }
 
 /* 左栏：分组 */
@@ -35,7 +35,7 @@
 }
 .jx-apidoc-epItem.active,
 .jx-apidoc-epItem.active:hover {
-  background: #F5F8FF;
+  background: var(--color-primary-light);
   border-left-color: var(--color-primary);
 }
 

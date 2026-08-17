@@ -753,7 +753,7 @@
 }
 .jx-settingsMenu.ant-dropdown .ant-dropdown-menu-item-danger:hover {
   background: rgba(252,93,93,.08) !important;
-  color: #E84040 !important;
+  color: var(--color-error) !important;
 }
 
 /* ── Legacy selectors ── */

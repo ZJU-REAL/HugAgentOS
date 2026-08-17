@@ -76,7 +76,7 @@ export function MarketPickerModal({
     >
       <Input
         allowClear
-        prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.3)' }} />}
+        prefix={<SearchOutlined style={{ color: 'var(--color-text-placeholder)' }} />}
         placeholder={t('搜索名称、简介或标识…')}
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -104,12 +104,12 @@ export function MarketPickerModal({
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#1e293b' }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text)' }}>
                   {item.name || item.id}
                   {already && <Tag style={{ marginLeft: 8 }}>{t('已添加')}</Tag>}
                 </div>
                 <div style={{
-                  fontSize: 12, color: 'rgba(15,23,42,.45)',
+                  fontSize: 12, color: 'var(--color-text-tertiary)',
                   overflow: 'hidden', textOverflow: 'ellipsis',
                   display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                 }}>
@@ -130,7 +130,7 @@ export function MarketPickerModal({
           );
         })}
       </div>
-      <div style={{ marginTop: 10, fontSize: 12, color: 'rgba(15,23,42,.45)' }}>
+      <div style={{ marginTop: 10, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
         {t('选中的项会在保存模式时自动安装。')}
       </div>
     </Modal>

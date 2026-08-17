@@ -286,8 +286,8 @@ export function PluginsPage() {
           </div>
           <span className="jx-mcp-detailName">{name}</span>
           <Tag style={component.data.enabled
-            ? { background: '#DBE9FF', color: '#126DFF', border: 'none' }
-            : { background: '#F5F6F7', color: '#B3B3B3', border: 'none' }}>
+            ? { background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: 'none' }
+            : { background: 'var(--color-bg-gray)', color: 'var(--color-text-placeholder)', border: 'none' }}>
             {component.data.enabled ? t('已启用') : t('未启用')}
           </Tag>
           <div style={{ flex: 1 }} />
@@ -311,7 +311,7 @@ export function PluginsPage() {
                   {sk.files.length > 0 && (
                     <div style={{ marginTop: 16 }}>
                       <h4>{t('附带文件')}</h4>
-                      <ul style={{ paddingLeft: 20, color: '#4b5563', fontSize: 13 }}>
+                      <ul style={{ paddingLeft: 20, color: 'var(--color-text-secondary)', fontSize: 13 }}>
                         {sk.files.map((f) => <li key={f}>{f}</li>)}
                       </ul>
                     </div>
@@ -446,8 +446,8 @@ export function PluginsPage() {
                     onClick={() => openComponent({ kind: 'skill', data: s })}
                     tags={isInstalled && (
                       <Tag style={{ marginLeft: 8, ...(s.enabled
-                        ? { background: '#DBE9FF', color: '#126DFF', border: 'none' }
-                        : { background: '#F5F6F7', color: '#B3B3B3', border: 'none' }) }}>
+                        ? { background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: 'none' }
+                        : { background: 'var(--color-bg-gray)', color: 'var(--color-text-placeholder)', border: 'none' }) }}>
                         {s.enabled ? t('已启用') : t('未启用')}
                       </Tag>
                     )}
@@ -683,7 +683,7 @@ function ImportReportView({ report }: { report: PluginImportReport }) {
         rows={(report.imported || []).map((x) => `${x.type === 'skill' ? t('技能') : 'MCP'}：${x.name}`)} />
       <ReportGroup icon={<WarningOutlined style={{ color: '#f59e0b' }} />} title={t('已适配（降级）')}
         rows={(report.adapted || []).map((x) => `${x.name}：${x.note || t('已装上但默认禁用')}`)} />
-      <ReportGroup icon={<StopOutlined style={{ color: '#ef4444' }} />} title={t('已丢弃（本平台不支持）')}
+      <ReportGroup icon={<StopOutlined style={{ color: 'var(--color-error)' }} />} title={t('已丢弃（本平台不支持）')}
         rows={(report.dropped || []).map((x) => `${x.type}/${x.name}：${x.reason}`)} />
     </div>
   );
@@ -694,7 +694,7 @@ function ReportGroup({ icon, title, rows }: { icon: React.ReactNode; title: stri
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>{icon}{title}（{rows.length}）</div>
-      <ul style={{ margin: 0, paddingLeft: 22, color: '#4b5563', fontSize: 13 }}>
+      <ul style={{ margin: 0, paddingLeft: 22, color: 'var(--color-text-secondary)', fontSize: 13 }}>
         {rows.map((r, i) => <li key={i}>{r}</li>)}
       </ul>
     </div>
