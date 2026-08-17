@@ -670,17 +670,17 @@ function AuthGuide() {
   return (
     <Collapse
       defaultActiveKey={['guide']}
-      style={{ margin: '12px 16px 0', background: '#F5F8FF', border: '1px solid #D6E4FF' }}
+      style={{ margin: '12px 16px 0', background: 'var(--color-primary-light)', border: '1px solid #D6E4FF' }}
       items={[{
         key: 'guide',
         label: (
           <Space>
-            <KeyOutlined style={{ color: '#126DFF' }} />
+            <KeyOutlined style={{ color: 'var(--color-primary)' }} />
             <Text strong>{t('接入指南 · 认证与调用约定')}</Text>
           </Space>
         ),
         children: (
-          <div style={{ fontSize: 13, color: '#4D4D4D' }}>
+          <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
             <Paragraph style={{ marginBottom: 8 }}>
               所有 <Text code>/v1/*</Text> 接口都需要身份认证。支持两种方式，二者皆无（或无效）时返回 <Tag color="orange">401</Tag>，
               <b>绝不会匿名放行</b>。
@@ -867,7 +867,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
   const components = spec?.components || {};
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--color-bg-container)' }}>
       {/* Access guide: authentication and call conventions */}
       <AuthGuide />
 
@@ -878,7 +878,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
         gap: 12,
         padding: '12px 16px',
         borderBottom: '1px solid #E3E6EA',
-        background: '#fff',
+        background: 'var(--color-bg-container)',
         flexShrink: 0,
       }}>
         <Input
@@ -916,7 +916,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
           width: 240,
           borderRight: '1px solid #E3E6EA',
           overflow: 'auto',
-          background: '#FAFAFA',
+          background: 'var(--color-bg-gray)',
           flexShrink: 0,
         }}>
           {groups.map(g => (
@@ -943,7 +943,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
           width: 420,
           borderRight: '1px solid #E3E6EA',
           overflow: 'auto',
-          background: '#fff',
+          background: 'var(--color-bg-container)',
           flexShrink: 0,
         }}>
           {groupEndpoints.map(ep => (
@@ -974,7 +974,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
                 <div style={{
                   marginTop: 4,
                   marginLeft: 64,
-                  color: '#4D4D4D',
+                  color: 'var(--color-text-secondary)',
                   fontSize: 12,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -993,7 +993,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
         </div>
 
         {/* Right: detail */}
-        <div style={{ flex: 1, overflow: 'auto', padding: 24, background: '#fff', minWidth: 0 }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: 24, background: 'var(--color-bg-container)', minWidth: 0 }}>
           {activeEndpoint ? (
             /* Detail-switch keyed enter: animation plays only once on the outer container */
             <motion.div key={activeEndpoint.id} {...DETAIL_ENTER}>

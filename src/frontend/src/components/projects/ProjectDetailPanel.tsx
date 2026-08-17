@@ -140,7 +140,7 @@ export default function ProjectDetailPanel({ projectId, onBack, handleFileSelect
             <div className="jx-projectDetail-titleActions">
               <Button
                 type="text"
-                icon={project.favorite ? <StarFilled style={{ color: '#F8AB42' }} /> : <StarOutlined />}
+                icon={project.favorite ? <StarFilled style={{ color: 'var(--color-warning)' }} /> : <StarOutlined />}
                 onClick={() => void toggleFavorite(!project.favorite)}
               />
               {project.permission === 'admin' && (

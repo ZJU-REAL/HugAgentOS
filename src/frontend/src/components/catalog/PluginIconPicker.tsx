@@ -13,12 +13,12 @@ export function PluginAvatar({ icon, size = 36 }: { icon?: string | null; size?:
   if (value) {
     return (
       <img src={value} alt="" width={size} height={size}
-        style={{ borderRadius: 8, objectFit: 'contain', display: 'block', background: '#fff' }} />
+        style={{ borderRadius: 8, objectFit: 'contain', display: 'block', background: 'var(--color-bg-container)' }} />
     );
   }
   return (
     <div className="jx-mcp-iconWrap jx-mcp-iconFallback" style={{ width: size, height: size }}>
-      <AppstoreOutlined style={{ color: '#6366f1' }} />
+      <AppstoreOutlined style={{ color: 'var(--color-tint-purple)' }} />
     </div>
   );
 }

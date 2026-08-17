@@ -44,7 +44,7 @@ export default function ProjectCard({ project, onOpen, onToggleFavorite, stagger
           animate={project.favorite ? { scale: [1, 1.25, 1] } : { scale: 1 }}
           transition={{ duration: 0.35, ease: EASE.brandOut }}
         >
-          {project.favorite ? <StarFilled style={{ color: '#F8AB42' }} /> : <StarOutlined />}
+          {project.favorite ? <StarFilled style={{ color: 'var(--color-warning)' }} /> : <StarOutlined />}
         </motion.div>
       </div>
       {project.description && <div className="jx-projectCard-desc">{project.description}</div>}

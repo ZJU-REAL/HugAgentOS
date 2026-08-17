@@ -74,7 +74,7 @@ export function ImageGrid({
         return (
           <div key={folder.folder_id} className="jx-mySpace-imgItem jx-mySpace-imgItem--folder" onDoubleClick={() => onEnterFolder?.(folder.folder_id)}>
             <div className="jx-mySpace-imgCell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <FolderOutlined style={{ fontSize: 56, color: '#FFB72E' }} />
+              <FolderOutlined style={{ fontSize: 56, color: 'var(--color-warning)' }} />
             </div>
             <div style={{ padding: '4px 8px', textAlign: 'center' }}>{folder.name}</div>
             {menuItems.length > 0 && (

@@ -23,12 +23,12 @@ function levelOf(ratio: number): Level {
 
 // Category → display label + accent colour (aligned with design tokens).
 const CATEGORIES: Array<{ key: keyof ContextBreakdown; label: string; color: string }> = [
-  { key: 'messages', label: '对话消息', color: '#126DFF' },
-  { key: 'tools', label: '工具调用', color: '#8B5CF6' },
-  { key: 'thinking', label: '思考过程', color: '#02B589' },
-  { key: 'files', label: '文件', color: '#F8AB42' },
-  { key: 'input', label: '当前输入', color: '#22C55E' },
-  { key: 'system', label: '系统提示词与工具定义', color: '#808080' },
+  { key: 'messages', label: '对话消息', color: 'var(--color-primary)' },
+  { key: 'tools', label: '工具调用', color: 'var(--color-tint-purple)' },
+  { key: 'thinking', label: '思考过程', color: 'var(--color-success)' },
+  { key: 'files', label: '文件', color: 'var(--color-warning)' },
+  { key: 'input', label: '当前输入', color: 'var(--color-tint-green)' },
+  { key: 'system', label: '系统提示词与工具定义', color: 'var(--color-text-tertiary)' },
 ];
 
 interface GaugeContentProps {

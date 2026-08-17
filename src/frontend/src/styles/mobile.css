@@ -734,7 +734,7 @@
 
   .jx-mobileHeroText h1{
     margin:0;
-    color:#090d15;
+    color:var(--color-text);
     font-size:clamp(42px, 14vw, 54px);
     font-weight:800;
     line-height:1.02;
@@ -743,7 +743,7 @@
 
   .jx-mobileHeroText p{
     margin:12px 0 0;
-    color:#5f6672;
+    color:var(--color-text-secondary);
     font-size:16px;
     font-weight:400;
     line-height:1.4;
@@ -784,7 +784,7 @@
     border:1px solid #d7deea;
     border-radius:7px;
     background:var(--color-bg-container);
-    color:#141923;
+    color:var(--color-text);
     font-size:13px;
     font-weight:400;
     line-height:1;
@@ -805,7 +805,7 @@
 
   .jx-mobileQuickTaskIcon{
     flex:none;
-    color:#0f6fff;
+    color:var(--color-primary);
     font-size:20px;
   }
 
@@ -1335,7 +1335,7 @@
   .jx-agentLibraryPage .jx-agentCard-badge{
     padding:2px 8px;
     border-radius:999px;
-    background:#F1F4F8;
+    background:var(--color-bg-gray);
     color:var(--color-text-tertiary);
     font-size:11px;
     line-height:18px;

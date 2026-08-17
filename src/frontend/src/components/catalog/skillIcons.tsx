@@ -22,6 +22,9 @@ export interface PresetIcon {
   paths: ReactNode;
 }
 
+/* dark-ok-begin: 下面是每类技能的**身份色**（一个类别一个固定色相，属于品牌资产），
+   不是主题色。深浅两档的适配在 catalog.css 的 .jx-skillAvatar 规则里用 color-mix 完成，
+   组件只把色值当自定义属性传下去。 */
 export const PRESETS: Record<string, PresetIcon> = {
   doc: { key: 'doc', label: t('文档'), color: '#2F6BFF', paths: (<><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9 12h6M9 16h6" /></>) },
   pen: { key: 'pen', label: t('写作'), color: '#7C4DFF', paths: (<><path d="M14 4l6 6L9 21H3v-6z" /><path d="M12 6l6 6" /></>) },
@@ -66,6 +69,7 @@ export const PRESETS: Record<string, PresetIcon> = {
   shield_check: { key: 'shield_check', label: t('合规'), color: '#1E88E5', paths: (<><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" /><path d="M9 11l2 2 4-4" /></>) },
   bell: { key: 'bell', label: t('通知'), color: '#F57C00', paths: (<><path d="M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z" /><path d="M10 20a2 2 0 004 0" /></>) },
 };
+/* dark-ok-end */
 
 export const PRESET_LIST: PresetIcon[] = Object.values(PRESETS);
 
@@ -92,13 +96,6 @@ function hashStr(s: string): number {
   return Math.abs(h);
 }
 
-function tint(hex: string): string {
-  // Convert the accent color into a light background at 12% opacity
-  const n = hex.replace('#', '');
-  const r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},0.12)`;
-}
-
 function resolvePresetKey(icon: string | undefined, seed: string): string {
   if (icon && icon.startsWith('preset:')) {
     const k = icon.slice(7);
@@ -121,8 +118,13 @@ export function SkillAvatar({
     return <img className="jx-skillAvatar" style={{ ...box, objectFit: 'cover' }} src={icon} alt="" loading="lazy" />;
   }
   const p = PRESETS[resolvePresetKey(icon, seed || name || '?')];
+  // 身份色只作为**输入**交给 CSS（自定义属性），底色与字色由 catalog.css 里的
+  // .jx-skillAvatar 规则用 color-mix 推导——深色档在那儿统一提亮，组件不必知道当前主题。
   return (
-    <div className="jx-skillAvatar" style={{ ...box, background: tint(p.color), color: p.color }}>
+    <div
+      className="jx-skillAvatar"
+      style={{ ...box, ['--jx-skillAvatar-accent' as string]: p.color } as CSSProperties}
+    >
       <svg {...SVG} width={Math.round(size * 0.56)} height={Math.round(size * 0.56)}>{p.paths}</svg>
     </div>
   );
