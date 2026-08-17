@@ -53,6 +53,7 @@ const MOBILE_QUICK_TASKS = [
 ] as const;
 import { InputArea } from './InputArea';
 import { PlanProgressStrip } from './PlanProgressStrip';
+import { JobProgressStrip } from './JobProgressStrip';
 import { FileConfirmBar } from './FileConfirmBar';
 import { DesignPickerCard } from './DesignPickerCard';
 import { ChatShareBanner } from './ChatShareBanner';
@@ -593,6 +594,8 @@ export function ChatArea({
       </AnimatePresence>
       <div className="jx-chatFooter">
         {!planMode && <PlanProgressStrip chatId={currentChatId} />}
+        {/* 后台作业状态条：工作流模式下作业跑在后台，没有它就完全看不出在不在跑 */}
+        <JobProgressStrip chatId={currentChatId} />
         <FileConfirmBar />
         <DesignPickerCard />
         {shareAccessLevel === 'read' ? (

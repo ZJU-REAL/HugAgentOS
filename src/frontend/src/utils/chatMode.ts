@@ -18,6 +18,14 @@ export function resolveBatchModeActive(chat?: BatchModeChat): boolean {
   return chat.batchChat === true;
 }
 
+/** 工作流模式（批量作业）同理：历史标记只是默认值，显式 workflowModeActive === false 表示用户关掉了。
+ *  这是**用户显式触发**的模式——不触发就不注册 run_job、不注入批量提示，普通问答完全不受影响。 */
+export function resolveWorkflowModeActive(chat?: WorkflowModeChat): boolean {
+  if (!chat) return false;
+  if (typeof chat.workflowModeActive === 'boolean') return chat.workflowModeActive;
+  return chat.workflowChat === true;
+}
+
 /** History loading may restore the legacy default, but must respect an explicit user opt-out. */
 export function shouldRestorePlanModeFromHistory(chat?: PlanModeChat): boolean {
   return chat?.planModeActive !== false;

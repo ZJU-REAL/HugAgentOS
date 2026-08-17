@@ -56,6 +56,8 @@ async def lifespan(app: FastAPI):
     await _startup_local_sidecars()
     await _startup_recover_chat_runs()
     await _startup_resume_loops()
+    await _startup_recover_jobs()
+    await _startup_orphan_job_reaper()
     await _startup_stale_run_reaper()
     await _startup_warm_sandbox_pool()
     await _startup_idle_session_reaper()
@@ -78,6 +80,7 @@ async def lifespan(app: FastAPI):
     yield
     # ── shutdown ──
     await _shutdown_stale_run_reaper()
+    await _shutdown_orphan_job_reaper()
     await _shutdown_kb_wiki_worker()
     await _shutdown_channel_manager()
     await _shutdown_datasource_sidecar_recovery()
@@ -472,6 +475,36 @@ async def _startup_resume_loops():
         logger.warning("[startup] autonomous loop resume failed: %s", exc)
 
 
+async def _startup_recover_jobs():
+    """作业编排：进程重启后活跃 job 全是孤儿（进程内没有 driver task），归位 interrupted。
+
+    与 chat_run 不同的是，job 的工作项台账在 DB —— 归位后 ``run_job action=resume``
+    可直接断点续跑，已完成的项不会重做。
+    """
+    try:
+        from orchestration import job_runtime
+
+        count = await job_runtime.resume_running_jobs()
+        if count:
+            logger.info("[startup] orphan jobs recovered: %d", count)
+    except Exception as exc:
+        logger.warning("[startup] job orphan recovery failed: %s", exc)
+
+
+async def _startup_orphan_job_reaper():
+    """周期性对账失联的批量作业（驱动没了就没人管，护栏跟着一起没）。"""
+    try:
+        import asyncio
+
+        from orchestration import job_runtime
+
+        task = asyncio.create_task(job_runtime.run_job_reaper_loop())
+        app.state.orphan_job_reaper_task = task
+        logger.info("[startup] job orphan reaper started")
+    except Exception as exc:
+        logger.warning("[startup] job orphan reaper start failed: %s", exc)
+
+
 async def _startup_stale_run_reaper():
     """Periodically reap zombie chat_runs stuck in running (fallback behind the watchdog)."""
     try:
@@ -491,6 +524,17 @@ async def _shutdown_stale_run_reaper():
     import contextlib
 
     task = getattr(app.state, "stale_run_reaper_task", None)
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def _shutdown_orphan_job_reaper():
+    import asyncio
+    import contextlib
+
+    task = getattr(app.state, "orphan_job_reaper_task", None)
     if task is not None:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

@@ -606,3 +606,102 @@
   align-items:center;
   gap:6px;
 }
+
+/* ═══════════════════════════════════════════
+   Job bar (JobProgressStrip) — 后台批量作业状态条，
+   与 Plan bar 同族、同高度，可与之并存（上计划、下作业）。
+   颜色全部走令牌：深色模式靠 variables.css 的令牌覆盖生效，
+   这里写死任何 hex 都会在深色下变成盲区。
+   ═══════════════════════════════════════════ */
+.jx-jobStrip{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  height:40px;
+  padding:0 8px 0 12px;
+  margin:0 0 8px;
+  background:var(--color-bg-container);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  box-shadow:0 1px 4px rgba(38,38,38,.04);
+  overflow:hidden;
+}
+.jx-jobStrip-ring{ flex:none; }
+.jx-jobStrip-spin{ flex:none; font-size:14px; color:var(--color-primary); }
+
+/* 「后台作业」胶囊：这条状态条最重要的信息是"有东西在后台跑"，先把它说清楚 */
+.jx-jobStrip-badge{
+  flex:none;
+  padding:1px 7px;
+  border-radius:var(--radius-sm);
+  background:var(--color-primary-bg);
+  color:var(--color-primary);
+  font-size:11px;
+  font-weight:600;
+  line-height:18px;
+}
+.jx-jobStrip-title{
+  flex:none;
+  max-width:34%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+  font-weight:600;
+  color:var(--color-text);
+}
+.jx-jobStrip-sep{ flex:none; color:var(--color-text-placeholder); }
+.jx-jobStrip-count,
+.jx-jobStrip-elapsed{
+  flex:none;
+  font-family:var(--font-family-number);
+  font-size:12px;
+  color:var(--color-text-tertiary);
+  font-variant-numeric:tabular-nums;
+}
+.jx-jobStrip-fail{
+  flex:none;
+  font-size:12px;
+  color:var(--color-error);
+  font-variant-numeric:tabular-nums;
+}
+.jx-jobStrip-cancel{
+  flex:none;
+  margin-left:auto;
+  width:28px;
+  height:28px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:none;
+  border-radius:var(--radius-sm);
+  background:none;
+  color:var(--color-text-tertiary);
+  cursor:pointer;
+}
+.jx-jobStrip-cancel:hover:not(:disabled){
+  background:var(--color-bg-gray);
+  color:var(--color-error);
+}
+.jx-jobStrip-cancel:disabled{ opacity:.5; cursor:default; }
+.jx-jobStrip-cancel:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:-2px;
+}
+
+/* 没善终的作业：同一条形态，只换成告警色底——它已经不动了，别再假装在跑 */
+.jx-jobStrip--ended{
+  background:var(--color-error-light);
+  border-color:var(--color-error-bg);
+}
+.jx-jobStrip-warn{ flex:none; font-size:14px; color:var(--color-error); }
+/* 失败原因可能很长：让它独占剩余宽度并截断，完整文案交给 title 悬浮 */
+.jx-jobStrip-reason{
+  flex:1 1 auto;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  color:var(--color-text-tertiary);
+}
