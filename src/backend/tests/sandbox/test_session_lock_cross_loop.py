@@ -140,10 +140,10 @@ def test_same_loop_still_serializes():
 )
 def test_providers_use_thread_lock_for_registry(module_name):
     """两个 provider 都必须用线程锁守注册表 —— 换回 asyncio.Lock 就会重现事故。"""
+    import importlib
     import inspect
 
-    # 这两个 provider 并非所有部署形态都带上；缺席时跳过而不是报错。
-    mod = pytest.importorskip(module_name)
+    mod = importlib.import_module(module_name)
     src = inspect.getsource(mod)
     assert "self._registry_lock = threading.Lock()" in src, module_name
     assert "self._registry_lock = asyncio.Lock()" not in src, module_name

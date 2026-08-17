@@ -474,6 +474,12 @@ export interface ChatItem {
    *  (batch chats start in batch mode); false records that the user closed the mode from
    *  the composer chip / "+" menu and continues as an ordinary conversation. */
   batchModeActive?: boolean;
+  /** 历史标记：这段对话用过「工作流模式」（批量作业）。与 planChat/batchChat 同性质——
+   *  用户离开模式后仍保留，便于在列表里认出这类会话；它本身不决定下一条消息怎么发。 */
+  workflowChat?: boolean;
+  /** 这段对话当前的工作流模式开关（用户在 / 命令或「+」菜单里选的）。undefined 走历史默认，
+   *  false 表示用户显式关掉了。只有它为 true 才会注册 run_job 并注入批量作业提示词。 */
+  workflowModeActive?: boolean;
   /** Whether this chat was created via the site-building ("站点建站") entry (Lab → Sites) */
   siteChat?: boolean;
   /** Automation task ID — set on virtual sidebar entries for automation tasks */
@@ -1328,6 +1334,35 @@ export interface Plan {
   steps: PlanStep[];
   created_at: string;
   updated_at: string;
+}
+
+/* ───── 批量作业（工作流模式）───── */
+
+/** 台账聚合：分母是 total，**别用 done 当分母**——查无/失败也是结算掉的。 */
+export interface JobStats {
+  total: number;
+  done: number;
+  pending: number;
+  failed: number;
+  not_found: number;
+  needs_review: number;
+  running: number;
+  settled: number;
+  remaining: number;
+}
+
+export interface JobBrief {
+  job_id: string;
+  chat_id: string;
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+  stats: JobStats;
+  usage: { calls?: number; tokens?: number };
+  budget_left: { calls_left?: number; tokens_left?: number; seconds_left?: number };
+  error: string;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 /* ───── Config platform types ───── */

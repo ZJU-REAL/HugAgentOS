@@ -1,0 +1,49 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "plugin-manager",
+  "version": "1.0.0",
+  "description": "管插件：搜插件市场、看某插件会带来哪些能力、安装（可填凭据）、停用/启用、卸载，以及导入自制或网址来的插件包。用户说「装个能做 X 的插件」「我装了哪些插件」「把那个插件卸了」时加载。只管插件本身；技能归 skill-manager，智能体归 agent-manager。",
+  "author": {
+    "name": "HugAgentOS"
+  },
+  "extensions": {
+    "org.hugagent": {
+      "mcp": {
+        "plugin_manager": {
+          "display_name": "插件管理",
+          "description": "搜索插件市场、查看插件详情与所需凭据、安装/导入插件、按插件或按组件启停、卸载插件。身份走 X-Current-User-Id 头，所有写操作按用户归属，只落成该用户的私有安装；管理员下发的全局插件只读。",
+          "tools": [
+            {
+              "name": "search_plugin_market",
+              "description": "搜索插件市场，返回可安装的插件列表（slug/名称/分类/简介/是否已安装）。用户想'有没有能连飞书的插件 / 插件市场里有什么 / 找个能做 X 的插件'时调用。query=关键词（留空列全部），category=按分类过滤。找到目标后建议先用 get_plugin_info(slug) 看看它会带进来什么，再决定装不装。"
+            },
+            {
+              "name": "get_plugin_info",
+              "description": "查看某个插件的详情：会给你装进来哪些技能、哪些工具，需不需要填 API Key 之类的凭据。安装前先调它，把'装了会多出什么'讲给用户听，别让用户装完才发现还要填密钥。用户问'这插件是干嘛的 / 装了会怎样'时也用它。返回里的 required_secrets 就是安装时要准备的凭据清单。"
+            },
+            {
+              "name": "install_plugin",
+              "description": "从插件市场安装一个插件到我的空间，装完里面的技能和工具立即可用。用户说'装上它 / 安装 X 插件 / 把这个能力加上'时调用，slug 取自 search_plugin_market。secrets 按插件 required_secrets 的 key 传入凭据；若该插件需要凭据而未传会报错回列缺哪些 key，这时先向用户要，拿到后重试，绝不要自己编一个假的填进去。需要管理员开启'自助导入插件'权限。"
+            },
+            {
+              "name": "list_my_plugins",
+              "description": "列出我的插件（install_id/slug/名称/是否启用/带了几个组件）。用户问'我装了哪些插件 / 管一下我的插件'时调用。列表里 is_global=true 的是管理员下发的全局插件，只能看不能停用也不能卸载；其余是用户自己装的，可用 set_plugin_enabled 停用启用、uninstall_plugin 卸载。"
+            },
+            {
+              "name": "import_plugin",
+              "description": "把一个插件包导入成我的插件，用于'从网址装'或'自己攒一个'。配合 plugin-creator 技能：在沙箱 /workspace 里备好插件目录（含 plugin.json）→ 用自检脚本过一遍 → tar 打包 → 调 sandbox_get_artifact 取得 artifact_id → 把 artifact_id 传给本工具落库。包里必须有 plugin.json；若用户其实只想装单个技能，请改用技能管理插件的 register_skill。导入结果始终是仅自己可见的私有插件。需要'自助导入插件'权限。"
+            },
+            {
+              "name": "set_plugin_enabled",
+              "description": "停用或重新启用一个已装插件，数据都留着，随时可以再打开。用户说'先别用那个插件 / 把它关掉 / 重新打开 / 那个工具太吵'时调用。plugin_ref 传 install_id、slug 或名称；enabled 为 true/false；component_kind(skill|mcp)+component_id 同时给时表示只关插件里的某一个组件而不是整个插件。重要：用户只是嫌某个工具碍事的时候，优先用停用而不是卸载——卸载会删数据且不可恢复。只能操作自己安装的插件。"
+            },
+            {
+              "name": "uninstall_plugin",
+              "description": "卸载一个插件，并把它带进来的技能和工具一并删除（不可恢复）。plugin_ref 传 install_id、slug 或名称。卸载前必须先列出'会被一起删掉哪些东西'给用户确认，得到明确同意才动手；匹配到多个时必须先问清楚是哪一个，禁止猜删。只能卸载自己安装的插件；管理员下发的全局插件卸不了，插件管理插件自身也卸不了。用户只是暂时不想用时改用 set_plugin_enabled 停用。"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

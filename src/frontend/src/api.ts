@@ -4,7 +4,7 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, EvolutionSummary, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
@@ -253,6 +253,7 @@ function toChatItem(raw: JsonObject): ChatItem {
     agentName: typeof metadata.agent_name === 'string' ? metadata.agent_name : undefined,
     planChat: metadata.plan_chat === true ? true : undefined,
     batchChat: metadata.batch_chat === true ? true : undefined,
+    workflowChat: metadata.workflow_chat === true ? true : undefined,
     projectId: typeof raw.project_id === 'string' && raw.project_id ? raw.project_id : undefined,
   };
 }
@@ -566,6 +567,21 @@ export async function updateSession(chatId: string, data: UpdateSessionRequest):
     pinned: Boolean(payload.pinned),
     businessTopic: undefined,
   };
+}
+
+/** 侧边栏手动拖拽顺序（chat_id 序列，空数组＝按默认「置顶 + 最近更新」排）。
+ *  存在账号维度（users_shadow.metadata），换设备/换浏览器仍跟随账号。 */
+export async function getSidebarChatOrder(): Promise<string[]> {
+  const wrapped = await apiRequest<unknown>('/v1/chats/sidebar-order');
+  const data = unwrapData<{ order?: unknown }>(wrapped);
+  return Array.isArray(data.order) ? data.order.map(String) : [];
+}
+
+export async function saveSidebarChatOrder(order: string[]): Promise<void> {
+  await apiRequest('/v1/chats/sidebar-order', {
+    method: 'PUT',
+    body: JSON.stringify({ order }),
+  });
 }
 
 export async function deleteSession(chatId: string): Promise<void> {
@@ -2355,6 +2371,24 @@ export async function generatePlanStream(
     }),
     signal,
   });
+}
+
+/* ── 批量作业（工作流模式）──────────────────────────────────────────
+   状态条的数据源。只读聚合，逐项明细不走这里——几百上千项读进浏览器毫无意义。 */
+
+export async function listChatJobs(chatId: string): Promise<JobBrief[]> {
+  const res = await apiRequest<unknown>(`/v1/jobs?chat_id=${encodeURIComponent(chatId)}&live=true`);
+  const data = unwrapData<{ jobs?: JobBrief[] }>(res);
+  return data?.jobs ?? [];
+}
+
+export async function getJobApi(jobId: string): Promise<JobBrief> {
+  const res = await apiRequest<unknown>(`/v1/jobs/${encodeURIComponent(jobId)}`);
+  return unwrapData<JobBrief>(res);
+}
+
+export async function cancelJobApi(jobId: string): Promise<void> {
+  await apiRequest<unknown>(`/v1/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
 }
 
 export async function listPlans(): Promise<Plan[]> {

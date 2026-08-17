@@ -1,6 +1,22 @@
 /* Mobile H5 shell and the approved HugAgentOS empty-chat composition.
  * Kept in a final stylesheet so legacy broad breakpoints cannot turn the
  * application layout into a full-width stacked sidebar. */
+
+/* ── 安全区令牌 ──────────────────────────────────────────────────────
+   刘海 / 圆角 / Home 条的避让统一走这四个变量，别在业务规则里裸写 env()：
+   ① 裸写时一旦漏了 viewport-fit=cover（见 index.html）整条规则静默失效，没有任何信号；
+   ② 变量形态可以在这里集中兜底——不支持 env() 的浏览器拿到 0px 而不是整条声明作废。
+   注意 env() 只有在 index.html 声明了 viewport-fit=cover 后才会返回非 0 值。 */
+:root{
+  --jx-safe-t:env(safe-area-inset-top, 0px);
+  --jx-safe-r:env(safe-area-inset-right, 0px);
+  --jx-safe-b:env(safe-area-inset-bottom, 0px);
+  --jx-safe-l:env(safe-area-inset-left, 0px);
+  /* 触摸热区下限：Apple HIG 44pt / Material 48dp。视觉尺寸可以更小，
+     但可点区域不得低于它——移动断点内的控件一律对齐这个值。 */
+  --jx-touch-min:44px;
+}
+
 .jx-mobileHeader,
 .jx-mobileMenuBtn,
 .jx-mobileSidebarBackdrop,
@@ -79,7 +95,7 @@
 
   .jx-abilityCenter .jx-sk-detailHeading .jx-sk-version{
     margin:2px 0 0;
-    color:#98A2B3;
+    color:var(--color-text-placeholder);
     font-family:inherit;
     font-size:12px;
     line-height:1.2;
@@ -263,7 +279,7 @@
   }
 
   .jx-projectCard-footer{
-    color:#98A2B3;
+    color:var(--color-text-placeholder);
     font-size:12px;
   }
 
@@ -280,7 +296,7 @@
     flex-direction:column;
     width:100%;
     max-width:none;
-    padding:10px 20px calc(72px + env(safe-area-inset-bottom));
+    padding:10px 20px calc(72px + var(--jx-safe-b));
     gap:20px;
   }
 
@@ -458,7 +474,7 @@
 
   .jx-projectDetail-chatItemMeta{
     margin-top:2px;
-    color:#98A2B3;
+    color:var(--color-text-placeholder);
     font-size:12px;
     line-height:1.45;
   }
@@ -696,7 +712,7 @@
     width:100%;
     height:100%;
     min-height:100%;
-    padding:0 18px max(16px, env(safe-area-inset-bottom));
+    padding:0 18px max(16px, var(--jx-safe-b));
     overflow:hidden;
   }
 
@@ -781,7 +797,7 @@
     justify-content:center;
     gap:7px;
     padding:0 8px;
-    border:1px solid #d7deea;
+    border:1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
     border-radius:7px;
     background:var(--color-bg-container);
     color:var(--color-text);
@@ -795,7 +811,7 @@
 
   .jx-mobileQuickTask:hover,
   .jx-mobileQuickTask:focus-visible{
-    border-color:#8db9ff;
+    border-color:color-mix(in srgb, var(--color-primary) 48%, transparent);
     background:var(--color-bg-layout);
   }
 
@@ -830,7 +846,7 @@
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap{
     height:90px;
     margin:0;
-    border:1px solid #c8d2e1;
+    border:1px solid color-mix(in srgb, var(--color-text) 18%, transparent);
     border-radius:18px;
     box-shadow:0 4px 18px rgba(57,91,138,.08);
   }
@@ -849,7 +865,7 @@
 
   .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder::before{
     content:attr(data-mobile-placeholder);
-    color:#929bab;
+    color:var(--color-text-placeholder);
     font-size:15px;
   }
 
@@ -1067,9 +1083,11 @@
   .jx-mobileHeader{
     z-index:40;
     flex-basis:68px;
-    height:68px;
-    padding:14px 20px 8px;
-    background:rgba(245,247,251,.86);
+    height:calc(68px + var(--jx-safe-t));
+    padding:calc(14px + var(--jx-safe-t)) max(20px, var(--jx-safe-r)) 8px max(20px, var(--jx-safe-l));
+    /* rgba(245,247,251) 正是浅色档的 --color-bg-layout，换成令牌后浅色像素不变、
+       深色不再是一条白板（原来暗底上顶着一条刺眼浅色横条）。 */
+    background:color-mix(in srgb, var(--color-bg-layout) 86%, transparent);
     border-bottom:0;
     backdrop-filter:saturate(180%) blur(22px);
     -webkit-backdrop-filter:saturate(180%) blur(22px);
@@ -1096,9 +1114,10 @@
   }
 
   .jx-chatTopbar{
-    min-height:64px;
-    padding:10px 16px;
-    background:rgba(245,247,251,.84);
+    min-height:calc(64px + var(--jx-safe-t));
+    padding:calc(10px + var(--jx-safe-t)) max(16px, var(--jx-safe-r)) 10px max(16px, var(--jx-safe-l));
+    /* 同 .jx-mobileHeader：浅色档 --color-bg-layout 就是 rgb(245,247,251)，改令牌后深色跟随 */
+    background:color-mix(in srgb, var(--color-bg-layout) 84%, transparent);
     border-bottom:1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
     backdrop-filter:saturate(180%) blur(22px);
     -webkit-backdrop-filter:saturate(180%) blur(22px);
@@ -1134,7 +1153,7 @@
   }
 
   .jx-agentPage{
-    padding:12px 20px max(56px, env(safe-area-inset-bottom));
+    padding:12px 20px max(56px, var(--jx-safe-b));
   }
 
   .jx-agentPage-header{
@@ -1354,7 +1373,7 @@
     display:inline-flex;
     align-self:center;
     margin-left:auto;
-    color:#98A2B3;
+    color:var(--color-text-placeholder);
     font-size:15px;
   }
 
@@ -1441,7 +1460,7 @@
   }
 
   .jx-agentCreatePage{
-    padding:12px 20px max(56px, env(safe-area-inset-bottom));
+    padding:12px 20px max(56px, var(--jx-safe-b));
     font-family:var(--font-family);
   }
 
@@ -1664,5 +1683,325 @@
   .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder{
     height:82px !important;
     min-height:82px !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   移动端打磨：安全区落地 / iOS 聚焦缩放 / 触摸热区 / 触屏交互态
+   ──────────────────────────────────────────────────────────────────────
+   上面的样式解决的是「排得下」，这一段解决的是「用得顺」。四类问题都属于
+   桌面端不存在、因此在桌面上开发时拿不到任何反馈信号的盲区：
+
+   1. 安全区：iPhone 的 Home 条会盖住贴底元素。全站用得最多的输入口——对话输入区——
+      实测底边距视口仅 10px，发送键正落在 Home 条的上滑手势区里。
+   2. iOS 聚焦缩放：输入控件字号 < 16px 时 Safari 会放大整个视口，且失焦不还原，
+      用户只能手动双指缩回。实测输入框是 15px，差 1px 就触发。
+   3. 触摸热区：移动断点内的控件是照桌面尺寸「压小」的（28–38px），低于 Apple HIG
+      的 44pt 下限——这正是「看着适配了、点着老是点不中」的来源。做法是保留视觉尺寸、
+      只用 ::after 把可点区域撑到 44px，不让界面变胖。
+   4. 触屏交互态：hover 态在触屏上按下即粘住不散；系统默认的点击高亮方块会在圆角
+      控件外画出直角色块，与本站自己的 :active 反馈重复。
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. 安全区落地 ───────────────────────────────────────────────────── */
+@media (max-width: 960px){
+  /* 对话页输入区：Home 条避让。此前只有首页空态 .jx-emptyPage--main 做了避让，
+     真正天天用的会话输入区反而漏了。 */
+  .jx-panel[data-panel="chat"] .jx-inputArea,
+  .jx-chatWrap{
+    padding-bottom:max(10px, var(--jx-safe-b));
+  }
+
+  /* 横屏时刘海在左/右侧，贴边的正文与输入区都要让开 */
+  .jx-chatWrap{
+    padding-right:max(12px, var(--jx-safe-r));
+    padding-left:max(12px, var(--jx-safe-l));
+  }
+
+  /* 侧栏抽屉铺满整屏高，上下都要避让；左缘贴屏幕边要让开横屏刘海 */
+  .jx-appShell > .jx-sider .jx-siderInner{
+    padding-top:var(--jx-safe-t);
+    padding-bottom:var(--jx-safe-b);
+    padding-left:var(--jx-safe-l);
+  }
+}
+
+/* ── 2. iOS 聚焦自动缩放 ─────────────────────────────────────────────
+   iOS Safari 的规则很硬：聚焦时控件计算字号 < 16px 就缩放整个视口，且失焦后
+   不还原。所以移动断点内所有可聚焦的文本控件一律 ≥16px。这不是审美选择，
+   是平台约束——改小回去就会复发。 */
+@media (max-width: 960px){
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [contenteditable="true"],
+  .ant-input,
+  .ant-input-number-input,
+  .ant-select-selection-search-input{
+    font-size:16px;
+  }
+
+  /* 首页空态的输入框在前面被 !important 锁到 15px，必须同权覆盖 */
+  .jx-emptyPage--main .jx-homeInput .jx-composerEditor,
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder,
+  .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder::before{
+    font-size:16px !important;
+  }
+
+  .jx-composerEditor,
+  .jx-composerPlaceholder{
+    font-size:16px;
+  }
+}
+
+/* ── 3. 触摸热区 44pt ────────────────────────────────────────────────
+   统一手法：视觉尺寸不动，用 ::after 铺一张不可见的命中层撑到 44px。
+   横向扩张量按「控件宽 + gap」的节距取，相邻按钮的命中层正好相接不重叠——
+   重叠会让后一个按钮偷走前一个的边缘，比不扩还糟。 */
+@media (max-width: 960px){
+  .jx-attachBtn,
+  .jx-promptHubBtn,
+  .jx-planModeBtn,
+  .jx-projectDropBtn,
+  .jx-modelEffortBtn,
+  .jx-modeSeatBtn,
+  .jx-searchBtn,
+  .jx-collapseBtn,
+  .jx-helpBtn,
+  .jx-msgActionBtn{
+    position:relative;
+  }
+
+  .jx-attachBtn::after,
+  .jx-promptHubBtn::after,
+  .jx-planModeBtn::after,
+  .jx-projectDropBtn::after,
+  .jx-modelEffortBtn::after,
+  .jx-modeSeatBtn::after,
+  .jx-searchBtn::after,
+  .jx-collapseBtn::after,
+  .jx-helpBtn::after,
+  .jx-msgActionBtn::after{
+    content:'';
+    position:absolute;
+    top:50%;
+    left:50%;
+    width:max(100%, var(--jx-touch-min));
+    height:var(--jx-touch-min);
+    transform:translate(-50%, -50%);
+    /* 纯命中层：不画任何东西，也不吃掉宿主按钮自己的 hover/active 反馈 */
+    background:transparent;
+    border-radius:inherit;
+  }
+
+  /* 命中层撑到 44px 后控件之间要留够节距，否则相邻命中层互相蚕食
+     （后一个按钮会偷走前一个的边缘）。40px 视觉宽 + 6px 间距 = 46px 节距 > 44。 */
+
+  /* 工具条总高 50px 与编辑区的 padding-bottom 是写死耦合的（见 chat.css
+     .jx-composerEditor 的注释），所以不动总高、只把内衬压薄——42px 的内容高
+     刚好装下 40px 的控件，命中层多出的 2px 溢到内衬里，不占文本区。 */
+  .jx-composerBar{
+    gap:6px;
+    padding-top:4px;
+    padding-bottom:4px;
+  }
+
+  .jx-attachBtn,
+  .jx-promptHubBtn,
+  .jx-planModeBtn{
+    width:40px;
+    min-width:40px;
+    height:40px;
+    min-height:40px;
+    flex:0 0 40px;
+  }
+
+  .jx-projectDropBtn,
+  .jx-emptyPage--main .jx-homeInput .jx-projectDropBtn{
+    width:40px;
+    min-width:40px;
+    height:40px;
+    min-height:40px;
+    flex:0 0 40px;
+  }
+
+  /* chat.css 用 `.jx-composerBar .jx-<x>Btn{overflow:hidden}` 裁文字做省略号，
+     这个 hidden 会连命中层一起裁掉——实测热区被压回按钮自身的 40×40。
+     解法是把裁剪下移到内部的文字 span：省略号照旧，命中层不再被裁。
+     选择器必须同为 0,2,0 才压得住原规则。 */
+  .jx-composerBar .jx-projectDropBtn,
+  .jx-composerBar .jx-modelEffortBtn{
+    overflow:visible;
+  }
+
+  .jx-composerBar .jx-modelEffortBtn .jx-composerChip-label{
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .jx-modelEffortBtn{
+    height:40px;
+    min-height:40px;
+  }
+
+  .jx-modeSeatBtn{
+    min-height:40px;
+  }
+
+  /* 发送键的视觉是里面的图标、按钮本身透明——直接撑到 44 不改观感 */
+  .jx-sendBtn{
+    width:var(--jx-touch-min);
+    height:var(--jx-touch-min);
+    flex:0 0 var(--jx-touch-min);
+  }
+
+  /* 消息底部的复制/赞踩/分享一排图标此前 26px，是全站最难点中的一处。
+     38px 宽 + 6px 间距 = 44px 节距，命中层刚好相接不互相蚕食。 */
+  .jx-msgActions{
+    gap:6px;
+  }
+
+  .jx-msgActionBtn{
+    width:38px;
+    min-width:38px;
+    height:34px;
+    min-height:34px;
+  }
+
+  /* 追问建议卡片：39px 高，差一点点 */
+  .jx-followUpBtn{
+    min-height:var(--jx-touch-min);
+  }
+
+  /* 「思考过程 / 已调用 xxx」这排折叠开关只有 23px 高。它们是竖直堆叠的，
+     命中层撑到 44 会互相蚕食，所以给真实高度而不是命中层。 */
+  .jx-inlineSummary{
+    min-height:34px;
+  }
+
+  /* 侧栏抽屉：导航项与历史项是主要触摸目标，直接给足高度而不是靠命中层——
+     抽屉里纵向空间不紧张，撑高的同时节奏也更接近原生列表 */
+  .jx-appShell > .jx-sider .jx-navItem{
+    height:44px;
+    border-radius:14px;
+  }
+
+  .jx-appShell > .jx-sider .jx-navSubItem{
+    height:44px;
+    border-radius:14px;
+  }
+
+  .jx-appShell > .jx-sider .jx-newChatBtn{
+    height:44px;
+  }
+
+  /* 历史项在 sidebar.css 与 chat.css 里各写了一份 height/min-height:36px，
+     只覆盖 min-height 压不住那条 height——两个都要写。 */
+  .jx-appShell > .jx-sider .jx-historyItem{
+    height:44px;
+    min-height:44px;
+    flex-shrink:0;
+  }
+
+  /* 分组折叠标题原 26px。它横向很长（267px），纵向补到 40 就足以稳稳点中，
+     再往上加会让三个分组头把历史列表挤出屏幕。 */
+  .jx-appShell > .jx-sider .jx-historyGroupHeader{
+    min-height:40px;
+  }
+
+  .jx-appShell > .jx-sider .jx-brandHomeBtn{
+    min-height:44px;
+  }
+
+  .jx-appShell > .jx-sider .jx-userInfoBtn{
+    min-height:44px;
+  }
+
+  /* 对话页顶栏是 flex 容器，标题一长就把汉堡键压窄（实测被压到 30px）。
+     width 会被压缩，min-width 不会——两个都要写。 */
+  .jx-mobileMenuBtn{
+    width:var(--jx-touch-min);
+    min-width:var(--jx-touch-min);
+    height:var(--jx-touch-min);
+    min-height:var(--jx-touch-min);
+    flex:0 0 var(--jx-touch-min);
+  }
+
+  .jx-searchBtn,
+  .jx-collapseBtn,
+  .jx-helpBtn{
+    width:36px;
+    min-width:36px;
+    height:36px;
+    min-height:36px;
+  }
+
+  /* 快捷任务胶囊：原 36px 太矮，点起来要瞄准 */
+  .jx-mobileQuickTask{
+    min-height:var(--jx-touch-min);
+  }
+}
+
+/* ── 4. 触屏交互态 ───────────────────────────────────────────────────
+   用 `hover:none` 命中真触屏设备，而不是按视口宽度判断——窄窗口的桌面浏览器
+   不受影响，iPad 这类宽屏触摸设备也能覆盖到。 */
+@media (hover: none){
+  /* 系统默认的灰色点击方块与本站自研的 :active 缩放反馈重复，且会在圆角控件外
+     画出直角色块。关掉它，交互反馈全部交给 :active。 */
+  a,
+  button,
+  [role="button"],
+  .jx-navItem,
+  .jx-navSubItem,
+  .jx-historyItem,
+  .jx-mobileQuickTask,
+  .jx-msgActionBtn{
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* 触屏上没有真正的 hover：手指按下会让 :hover 生效并一直粘住，直到点了别处
+     才散——表现为「点过的按钮一直亮着」。放大类的 hover 变换尤其明显
+     （发送键点完卡在放大态），统一还原。 */
+  .jx-sendBtn:hover,
+  .jx-projectCard:hover,
+  .jx-mobileQuickTask:hover{
+    transform:none;
+  }
+}
+
+/* ── 5. 抽屉滚动不串联 ──────────────────────────────────────────────
+   抽屉里的历史列表滚到头后，手势会继续传给底下的页面（滚动链），在 iOS 上
+   表现为整个抽屉跟着橡皮筋位移。contain 把滚动关在容器里。 */
+@media (max-width: 960px){
+  .jx-appShell > .jx-sider .jx-historyListWrap,
+  .jx-appShell > .jx-sider .jx-siderInner{
+    overscroll-behavior:contain;
+  }
+}
+
+/* ── 6. 首屏空态的纵向配比 ──────────────────────────────────────────
+   原来 .jx-mobileQuickTasks 用 margin-top:auto 把「常用任务 + 输入框」整体推到
+   底部，而 hero 用固定的 margin-top 贴在顶部——富余空间于是全部堆成 hero 下方
+   的一个空洞（393×852 实测约 370px，占屏高 43%）。视觉上不像留白，像没加载完。
+
+   改成让 hero 自己吃掉上下两侧的富余空间（auto 上 + auto 下各分一半），标题
+   就落在空白区的视觉中心，与底部的任务区、输入框形成三段式节奏。
+
+   守卫条件用朝向而不是高度：横屏本来就没有富余空间（上面另有一套 max-height:700px
+   的紧凑规则在管），去动它只会把内容挤出屏幕；而 360×640 这类矮的竖屏机同样会命中
+   那条高度规则，却是实打实需要这次配比修正的——所以这里按 orientation 判断。 */
+@media (max-width: 960px) and (orientation: portrait){
+  .jx-emptyPage--main .jx-heroBg{
+    /* 上下各分一半富余空间；clamp 退居为「空间不够时的最小上边距」 */
+    margin-top:auto;
+    margin-bottom:auto;
+    padding-top:clamp(16px, 4dvh, 44px);
+  }
+
+  /* 富余空间已由 hero 的 auto 边距吃掉，这里再留 auto 会把空白重新抽回下方 */
+  .jx-emptyPage--main .jx-mobileQuickTasks{
+    margin-top:0;
   }
 }

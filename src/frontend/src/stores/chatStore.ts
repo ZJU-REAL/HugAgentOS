@@ -306,11 +306,11 @@ interface ChatState {
    *    place — no new chat, no navigation — avoiding "the whole chat jumping back to home".
    *  - Default (app center): reuse the current chat in place if it's empty, otherwise create a
    *    new chat in that mode. */
-  enterChatMode: (mode: 'plan' | 'batch', opts?: { inPlace?: boolean }) => void;
+  enterChatMode: (mode: 'plan' | 'batch' | 'workflow', opts?: { inPlace?: boolean }) => void;
   /** Leave plan / batch mode on the current chat and continue as an ordinary conversation.
    *  The historical planChat / batchChat classification is kept (plan cards and batch history
    *  stay recognisable); only the composer/routing flag is turned off. */
-  exitChatMode: (mode: 'plan' | 'batch') => void;
+  exitChatMode: (mode: 'plan' | 'batch' | 'workflow') => void;
   /** Enter "site building" mode (Lab → Sites): create a new siteChat session and switch to the
    *  main chat, fully reusing the main-chat composer (attachments / projects / "+" menu).
    *  Mutually exclusive with plan / batch. */
@@ -780,17 +780,22 @@ export const useChatStore = create<ChatState>((set, get) => {
             : {}),
         };
     const nextChat: ChatItem = { ...base, id: targetId, updatedAt: now };
-    // Plan / batch are mutually exclusive
-    if (planChat) {
+    // Plan / batch / workflow 三者互斥：进入一个就清掉另外两个的标记
+    delete nextChat.planChat;
+    delete nextChat.planModeActive;
+    delete nextChat.batchChat;
+    delete nextChat.batchModeActive;
+    delete nextChat.workflowChat;
+    delete nextChat.workflowModeActive;
+    if (mode === 'plan') {
       nextChat.planChat = true;
       nextChat.planModeActive = true;
-      delete nextChat.batchChat;
-      delete nextChat.batchModeActive;
+    } else if (mode === 'workflow') {
+      nextChat.workflowChat = true;
+      nextChat.workflowModeActive = true;
     } else {
       nextChat.batchChat = true;
       nextChat.batchModeActive = true;
-      delete nextChat.planChat;
-      delete nextChat.planModeActive;
     }
     const next: ChatStoreData = {
       chats: { ...store.chats, [targetId]: nextChat },
@@ -822,11 +827,13 @@ export const useChatStore = create<ChatState>((set, get) => {
     const { currentChatId, currentUserId, store } = get();
     const chat = store.chats[currentChatId];
     if (!chat) return;
+    const patch =
+      mode === 'workflow' ? { workflowModeActive: false } : { batchModeActive: false };
     const next: ChatStoreData = {
       ...store,
       chats: {
         ...store.chats,
-        [currentChatId]: { ...chat, batchModeActive: false },
+        [currentChatId]: { ...chat, ...patch },
       },
     };
     set({ store: next, storeRef: next });

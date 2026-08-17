@@ -577,6 +577,29 @@
 }
 .jx-historyItem:hover{ background:var(--color-fill-hover); }
 .jx-historyItem.active{ background:var(--color-bg-container); border-color:transparent; }
+
+/* ── 手动拖拽排序 ── */
+/* 抓手光标只在 hover 时出现：静止态保持 pointer，避免暗示"这行只能拖不能点" */
+.jx-historyItem:hover:not(.editing){ cursor:grab; }
+.jx-historyItem:active:not(.editing){ cursor:grabbing; }
+.jx-historyItem--dragging{
+  opacity:.4;
+  background:var(--color-fill-hover);
+}
+/* 落点提示线：贴在目标行的上/下边缘，2px 主色 */
+.jx-historyItem--dropBefore::before,
+.jx-historyItem--dropAfter::after{
+  content:'';
+  position:absolute;
+  left:6px; right:6px;
+  height:2px;
+  border-radius:2px;
+  background:var(--color-primary);
+  pointer-events:none;
+}
+/* 行本身是 overflow:hidden（高度动画需要），提示线只能画在框内，不能溢出到 -1px */
+.jx-historyItem--dropBefore::before{ top:0; }
+.jx-historyItem--dropAfter::after{ bottom:0; }
 .jx-historyMain{ flex:1; min-width:0; display:flex; align-items:center; }
 .jx-historySkLine{
   width:100%;

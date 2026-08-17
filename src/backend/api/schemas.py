@@ -107,6 +107,15 @@ class ChatRequest(BaseModel):
             "为 True 时强制启用 batch_runner MCP，并在系统提示中提示模型优先调用 batch_plan。"
         ),
     )
+    workflow_chat: bool = Field(
+        default=False,
+        description=(
+            "是否为工作流模式对话（用户显式触发：输入框 / 斜杠命令、或 + 菜单里选「工作流模式」）。"
+            "为 True 时才注册 run_job 批量作业工具，并在系统提示中给出作业脚本写法。"
+            "与计划模式/批量执行同属用户触发的模式：不触发就完全不存在，"
+            "避免普通问答被无关的批量规则干扰。"
+        ),
+    )
     disable_batch_plan: bool = Field(
         default=False,
         description=(
