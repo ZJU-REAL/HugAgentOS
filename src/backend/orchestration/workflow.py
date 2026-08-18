@@ -580,6 +580,10 @@ async def _run_ontology_repair_round(
             await _publish(dict(item))
         event_cursor += len(pending_events)
 
+        if event_type == "vision_progress":
+            await _publish({"type": "vision_progress", **(event_payload or {})})
+            continue
+
         if event_type == "text_delta":
             delta = str(event_payload or "")
             if not delta:
@@ -1692,6 +1696,11 @@ async def _astream_subagent_direct(
                     full_response += payload
                     yield {"type": "content", "event": "ai_message", "delta": payload}
 
+                elif event_type == "vision_progress":
+                    # 识图是模型开口前的一段纯网络等待；透传给前端，让轮级状态
+                    # 从「深度拥抱中」换成「图像理解中」，而不是干等一个笼统的计时器。
+                    yield {"type": "vision_progress", **(payload or {})}
+
                 elif event_type == "reasoning_protocol":
                     yield {"type": "thinking", **payload}
 
@@ -2634,6 +2643,11 @@ async def astream_chat_workflow(
                 if event_type == "text_delta":
                     full_response += payload
                     yield {"type": "content", "event": "ai_message", "delta": payload}
+
+                elif event_type == "vision_progress":
+                    # 识图是模型开口前的一段纯网络等待；透传给前端，让轮级状态
+                    # 从「深度拥抱中」换成「图像理解中」，而不是干等一个笼统的计时器。
+                    yield {"type": "vision_progress", **(payload or {})}
 
                 elif event_type == "reasoning_protocol":
                     yield {"type": "thinking", **payload}

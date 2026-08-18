@@ -19,8 +19,43 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 | `chart` | 图表代码生成 | chat |
 | `plan_agent` | 计划模式推理（未配置降级 main_agent） | chat |
 | `code_exec` | 代码执行推理（可选运维覆盖，默认不引用） | chat |
+| `loop_reviewer` | 自主循环的评审与规划（未配置降级 main_agent） | chat |
+| `kb_wiki` | 知识库 Wiki 实体抽取（离线批处理，建议单配便宜模型） | chat |
+| `vision` | 图像理解（视觉桥）——见下节 | chat |
 
-`extra_config` 支持 `temperature` / `max_tokens` / `timeout` / `context_length`（上下文窗口，供压缩阈值计算）/ `supports_reasoning_effort`（是否支持思考档位）等键。
+`extra_config` 支持 `temperature` / `max_tokens` / `timeout` / `context_length`（上下文窗口，供压缩阈值计算）/ `supports_reasoning_effort`（是否支持思考档位）/ `supports_vision`（是否原生支持读图）等键。
+
+## 视觉桥：让纯文本模型能读图
+
+DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的做法不是把主模型换掉，而是在它外面挂一条转写通道：
+
+```
+图片 → 多模态模型 → 结构化文字证据 → 注入主模型上下文
+```
+
+主模型全程只吃文本。启用方式只有一步：在「模型管理」里给 **`vision` 角色**指派一个多模态模型（qwen-vl、GLM-4V、gpt-4o、gemini 等，任何 OpenAI 兼容端点都行；Anthropic / Gemini 原生协议也已适配）。
+
+判定顺序：
+
+1. 当前对话实际使用的模型勾了 `supports_vision` → **图片原样直通**，不经转写（保真度最高）；
+2. 否则，若配了 `vision` 角色 → 走视觉桥转写；
+3. 都没有 → 明确告知「当前模型不支持读图」，并提示去模型管理配置，而不是静默丢弃图片。
+
+**转写产出的结构**固定为六个字段：`summary`（概述）、`ocr`（全文转写 + 分行）、`layout`（按阅读顺序的版面区域）、`semantics`（场景 / 用途 / 实体 / 关系）、`visual`（主色 / 风格 / 细节）、`uncertainty`（读不出或有歧义的部分）。刻意**不含**像素坐标和置信度分数——视觉模型在这两处最容易编造，读不出来的内容一律进 `uncertainty` 而不是脑补。
+
+**生效范围**（配好角色即全部生效，无需逐处开关）：
+
+| 场景 | 行为 |
+|---|---|
+| 用户在对话里上传图片 | 每轮开头自动转写并注入 |
+| 智能体读沙箱 / 「我的空间」里的图片 | `Read` 返回 `type=image_evidence` 而非 `type=binary` |
+| 工具返回图片（如图表生成） | 转写后回填，智能体因此能自检自己画的图 |
+| 群聊机器人收到图片附件 | `channel_read_attachment` 取回后指向 `view_image` |
+| 智能体需要追问图中细节 | 用 `view_image(file_path/file_id, focus="…")` 带着具体问题二次看图 |
+
+**成本与限制**：每张新图一次多模态调用（首字延迟增加数秒）。相同图片 + 相同模型 + 相同 focus 的证据会缓存（默认 7 天），重复查看不再计费。单图上限、缓存时长、并发数、超时见 `VISION_*` 环境变量。
+
+**安全**：图中文字被当作**不可信外部输入**——提示词明确要求视觉模型只把图当数据、绝不执行图内指令，注入时也用 `<image-evidence>` 围栏标注来路。图片按文件头魔数校验真实格式，声称是图片但字节不是的内容会被拒绝。这是缓解措施而非保证：来路不明的图片仍应谨慎对待。
 
 ### 管理 API（api/routes/v1/models.py，CONFIG_TOKEN）
 

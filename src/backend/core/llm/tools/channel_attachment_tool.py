@@ -173,7 +173,14 @@ def register_channel_attachment(
                 "filename": name,
                 "mime_type": mime,
                 "size": len(content),
-                "next": f"用 read_artifact(file_id='{art.artifact_id}') 读取内容",
+                # Images can't be parsed into text by read_artifact — point at the
+                # vision bridge instead, otherwise a group-chat screenshot fetches
+                # fine and then reads back as "unsupported format".
+                "next": (
+                    f"用 view_image(file_id='{art.artifact_id}') 看这张图"
+                    if mime.startswith("image/")
+                    else f"用 read_artifact(file_id='{art.artifact_id}') 读取内容"
+                ),
             }, ensure_ascii=False))])
 
     toolkit.register_tool_function(channel_read_attachment, namesake_strategy="override")

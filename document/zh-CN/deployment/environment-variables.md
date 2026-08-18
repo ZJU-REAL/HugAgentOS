@@ -136,6 +136,10 @@
 | `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` / `OSS_KEY_PREFIX` | （空） | 阿里云 OSS 配置 | EE |
 | `OSS_PRESIGNED_URL_EXPIRY` | `900` | OSS 预签名 URL 有效期（秒） | EE |
 | `PROJECT_FILE_CAPACITY_BYTES` | `209715200`（200 MB） | 单项目 upload 类文件总量上限 | CE |
+| `VISION_MAX_IMAGE_BYTES` | `20971520`（20 MB） | 视觉桥单张图字节上限，超限直接拒绝 | CE |
+| `VISION_CACHE_TTL_SECONDS` | `604800`（7 天） | 图像证据缓存有效期（key = 图内容 + 模型 + focus） | CE |
+| `VISION_MAX_CONCURRENCY` | `4` | 同时在途的识图请求数上限 | CE |
+| `VISION_CALL_TIMEOUT_SECONDS` | `90` | 单次识图超时（秒） | CE |
 
 ## 知识库与文件解析
 

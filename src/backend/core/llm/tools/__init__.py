@@ -15,6 +15,7 @@ from .fileops_tool import register_delete, register_mkdir, register_move
 from .glob_tool import register_glob
 from .grep_tool import register_grep
 from .read_tool import register_read
+from .view_image_tool import register_view_image
 from .write_tool import register_write
 
 # Sandbox / skill / myspace / artifact tools (relocated from the former
@@ -53,5 +54,6 @@ __all__ = [
     "register_sandbox_get_artifact",
     "register_sandbox_put_artifact",
     "register_sandboxed_view_text_file",
+    "register_view_image",
     "register_write",
 ]

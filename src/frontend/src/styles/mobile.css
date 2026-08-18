@@ -707,7 +707,27 @@
     max-width:none;
     padding:0;
   }
+}
 
+/* 消息正文占满对话列。桌面版给 assistant 消息留了 `calc(100vw - 136px)` 的上限
+   （那 136px 是按桌面侧栏 + 两侧留白算的常量），到手机上这个常量原样生效：
+   393px 的屏只剩 257px 能排字，右边白掉三成、正文提前折行。窄屏没有侧栏要让，
+   宽度上限交给 .jx-chatWrap（已是 100% / 760px）就够了，这里一律放开。
+   断点取 960 而不是 768：viewport < 896px 时该常量就开始咬（896-136=760），
+   平板竖屏同样受害。 */
+@media (max-width: 960px){
+  .jx-msg.assistant .jx-msgContent{
+    max-width:100%;
+  }
+
+  /* 用户气泡仍然右对齐、不占满，避免与 AI 正文混淆；比例代替固定常量。 */
+  .jx-msg.user .jx-msgContent{
+    max-width:88%;
+  }
+}
+
+/* ↓ 以下继续「竖屏手机 + 横屏矮屏」这一档（与上面被拆开的那段同条件）。 */
+@media (max-width: 768px), (max-width: 960px) and (max-height: 600px){
   .jx-emptyPage--main{
     width:100%;
     height:100%;
@@ -1152,8 +1172,11 @@
     font-family:var(--font-family);
   }
 
+  /* 底距原为 max(56px, safe-b)：这些页面并没有悬浮在底部的控件要避让，56px 只是
+     凭经验留的余量，实测在站点这种「列表不长」的页面上，滚到底后屏幕最下方空出
+     一条明显的白带，看着像给对话输入框留的位置。收敛到 24px + 安全区。 */
   .jx-agentPage{
-    padding:12px 20px max(56px, var(--jx-safe-b));
+    padding:12px 20px max(24px, var(--jx-safe-b));
   }
 
   .jx-agentPage-header{
@@ -1181,7 +1204,10 @@
     box-shadow:none;
   }
 
-  .ant-btn-primary{
+  /* :not(.ant-btn-background-ghost) 是必须的：ghost 主按钮（如站点卡片的「打开」）
+     带的正是 .ant-btn-primary，无条件刷上主色底就成了「蓝底蓝字」——按钮整个变成
+     一块看不出内容的色块。ghost 的底必须留给它自己的透明。 */
+  .ant-btn-primary:not(.ant-btn-background-ghost){
     border-color:var(--color-primary);
     background:var(--color-primary);
   }
@@ -1706,9 +1732,20 @@
 /* ── 1. 安全区落地 ───────────────────────────────────────────────────── */
 @media (max-width: 960px){
   /* 对话页输入区：Home 条避让。此前只有首页空态 .jx-emptyPage--main 做了避让，
-     真正天天用的会话输入区反而漏了。 */
-  .jx-panel[data-panel="chat"] .jx-inputArea,
+     真正天天用的会话输入区反而漏了。
+
+     ⚠️ 避让量必须加在 **sticky 页脚自己身上**，不能加在它的容器 .jx-chatWrap 上：
+     `position:sticky; bottom:0` 的落点上限是**容器的内容框**下沿，容器一有
+     padding-bottom，页脚就被顶起同样高度——表现为「输入框没贴底、下面空一条」，
+     且那条空白露的是页面底色（页脚白底断在空白之上）。真机上 --jx-safe-b=34px
+     就空 34px；部分国产浏览器把工具栏高度也算进 inset，能空到 100px 以上。
+     所以：容器不留底距，避让放进页脚内部——白底一直铺到屏幕最底边，Home 条压住的
+     是页脚的内边距而不是控件。 */
   .jx-chatWrap{
+    padding-bottom:0;
+  }
+
+  .jx-chatFooter{
     padding-bottom:max(10px, var(--jx-safe-b));
   }
 
@@ -2003,5 +2040,259 @@
   /* 富余空间已由 hero 的 auto 边距吃掉，这里再留 auto 会把空白重新抽回下方 */
   .jx-emptyPage--main .jx-mobileQuickTasks{
     margin-top:0;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   定时任务页（侧边栏一级面板 automation）
+   ──────────────────────────────────────────────────────────────────────
+   这一页此前完全没做窄屏适配——automation.css 里只有一段「把搜索框压窄」的微调，
+   治标不治本。实测 393×659 下的四处硬伤，都是「桌面一行排得下」的布局原样搬到
+   手机的结果：
+
+   ① 页头「标题 | 搜索 + 新建定时任务」是一整行，按钮右边缘落在 431px（屏幕才 393），
+      主操作被切在屏幕外，点不到；
+   ② 推荐任务是鼠标翻页轮播：卡片固定 260px、靠左右 28px 箭头翻页，触屏既点不中箭头，
+      第二张卡还被屏幕右缘硬切一半，像渲染坏了；
+   ③ 「我的定时任务 / 执行记录」两个 Tab 与 150px 的排序下拉挤一行，Tab 文字被压成
+      两行；
+   ④ 详情页字段区是写死的两列 grid，窄屏下「任务类型」这种短字段独占左半格、右半空着；
+      任务名与状态徽标、运行开关同处一行，名字被挤到只剩两三个字（「每...」）。
+
+   处理原则与本文件其余部分一致：视觉尺寸尽量不动，只改「排不下」的排布，
+   可点区域一律对齐 --jx-touch-min。
+
+   ⚠️ 这一节的选择器都多挂了一个 `body`，不是手抖——本文件「最后一个 import 所以同
+   特异性下赢」的前提在这一页**不成立**：automation.css 不在 styles/index.ts 里，而是
+   由 `components/lab/AutomationPanel.tsx` 自己 import，打包后它排在 mobile.css
+   **之后**。实测现象是页头的两级选择器规则生效、单类规则（如 presetsNav 的
+   display:none）被 automation.css 原样盖回。`body ` 把特异性抬到 0,1,1 即可稳赢。
+   同样由组件自行 import 的还有 sites.css / skill-distill.css / automation-timeline.css，
+   以后给这几页写移动端规则要一并注意。
+   ══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px){
+  /* ── ① 页头：标题段在上，「搜索 + 新建」作为满宽操作条在下 ── */
+  body .jx-automationPage .jx-agentPage-header{
+    flex-direction:column;
+    align-items:stretch;
+    gap:14px;
+  }
+
+  body .jx-automationPage .jx-automation-headerRight{
+    width:100%;
+    gap:8px;
+  }
+
+  /* 搜索框吃掉剩余宽度，按钮保持完整文案不被压缩 */
+  body .jx-automationPage .jx-automation-search.ant-input-affix-wrapper{
+    width:auto;
+    min-width:0;
+    height:var(--jx-touch-min);
+    flex:1 1 auto;
+    border-radius:14px;
+  }
+
+  body .jx-automationPage .jx-automation-headerRight .ant-btn{
+    height:var(--jx-touch-min);
+    flex:0 0 auto;
+    padding-inline:14px;
+    border-radius:14px;
+  }
+
+  /* ② 推荐任务的翻页箭头、以及所有触屏热区规则见文末的「触屏档」块 */
+
+  /* 卡片按屏宽给，右侧刻意露出下一张的一角——那是「还能滑」的提示，
+     区别于此前被屏幕边缘硬切的观感。 */
+  body .jx-automation-presetCard{
+    flex:0 0 min(80vw, 300px);
+    padding:16px;
+    border-radius:var(--jx-mobile-control-radius);
+  }
+
+  /* ── ③ Tab 与排序：Tab 独占一行，排序落到第二行右对齐 ── */
+  body .jx-automation-listHeader{
+    flex-wrap:wrap;
+    gap:10px;
+  }
+
+  body .jx-automation-tabs{
+    width:100%;
+    gap:18px;
+  }
+
+  body .jx-automation-tab{
+    display:inline-flex;
+    min-height:var(--jx-touch-min);
+    align-items:center;
+    font-size:17px;
+    white-space:nowrap;
+  }
+
+  body .jx-automation-sort{
+    min-width:0;
+    margin-left:auto;
+  }
+
+  /* ── 任务卡片 ── */
+  body .jx-automation-card{
+    padding:14px;
+    border-radius:16px;
+  }
+
+  /* 300px 的名字上限在 369px 宽的列里只会让名字先按 300 排、再被容器裁一次；
+     交给 flex 收缩，省一次截断。min-width:0 是 nowrap+ellipsis 能真正收缩的前提。 */
+  body .jx-automation-card-name{
+    max-width:none;
+    min-width:0;
+  }
+
+  /* 三个操作键（立即执行 / 暂停 / 更多）换到卡片第二行右对齐。
+     ⚠️ 别用「把按钮撑到 44px」的老办法：它们与任务名在同一行争宽度，撑完
+     3×44=132px 会把名字压到只剩两三个字（实测「每周...」）。换行之后名字拿到
+     整行，按钮也才有地方给够热区。 */
+  body .jx-automation-card{
+    flex-wrap:wrap;
+    row-gap:6px;
+  }
+
+  body .jx-automation-card-main{
+    flex:1 1 100%;
+  }
+
+  body .jx-automation-card-actions{
+    width:100%;
+    justify-content:flex-end;
+    gap:6px;
+  }
+
+  /* ── ④ 详情页 ── */
+  body .jx-automation-detail-top{
+    padding:4px 16px 24px;
+  }
+
+  /* 返回键在桌面是内容左侧的一条竖栏；在 393px 的屏上它连同外边距要吃掉 60px，
+     标题、字段全被推窄一截（任务名因此只剩十来个字）。改成移动端惯例：
+     返回键单独占顶部一行，下面的内容区拿满宽。 */
+  body .jx-automation-detail-top{
+    flex-wrap:wrap;
+  }
+
+  body .jx-automation-detail-backBtn{
+    flex:0 0 100%;
+    min-height:var(--jx-touch-min);
+    margin:0 0 2px;
+    justify-content:flex-start;
+  }
+
+  body .jx-automation-detail-content{
+    flex:1 1 100%;
+  }
+
+  /* 名字尽量占满第一行；徽标与运行开关放不下时整体换到第二行，
+     而不是把名字挤成两三个字。 */
+  body .jx-automation-detail-nameRow{
+    flex-wrap:wrap;
+    row-gap:10px;
+  }
+
+  /* 基准保持 auto：短名字与图标、徽标、开关同排一行；长名字自己换到第二行独占整宽。
+     换成 flex-basis:0 会让**所有**名字都就地收缩——短名字「冒烟：一加一」也被压成
+     「冒…」，比换行更糟。 */
+  body .jx-automation-detail-name{
+    flex:1 1 auto;
+    min-width:0;
+    max-width:none;
+    font-size:19px;
+  }
+
+  body .jx-automation-detail-runSwitch{
+    margin-left:auto;
+  }
+
+  body .jx-automation-detail-metaRow{
+    flex-wrap:wrap;
+    row-gap:4px;
+  }
+
+  /* 两列 grid 在窄屏只会制造半格空白 */
+  body .jx-automation-detail-grid{
+    grid-template-columns:minmax(0, 1fr);
+  }
+
+  /* 底部悬浮操作条：贴边留白按屏幕给，并避让 Home 条 */
+  body .jx-automation-detail-actionsWrap{
+    bottom:max(12px, var(--jx-safe-b));
+  }
+
+  body .jx-automation-detail-actions{
+    max-width:100%;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+
+  body .jx-automation-runRow{
+    flex-wrap:wrap;
+    row-gap:8px;
+    padding:14px;
+    border-radius:16px;
+  }
+
+  body .jx-automation-runMeta{
+    margin-left:auto;
+  }
+}
+
+
+/* ── 定时任务页 · 触屏档 ────────────────────────────────────────────────
+   与上面「排布」那档分开：横屏手机（852×393 这类宽但矮的视口）排布上一行放得下，
+   不需要把页头拆成两段，但它同样是触屏——没有 hover、手指也一样点不中 28px 的键。
+   所以凡是「因为是触屏才要改」的规则都落在这一档（条件与本文件对话页那档一致）。 */
+@media (max-width: 768px), (max-width: 960px) and (max-height: 600px){
+  /* 翻页箭头是鼠标交互；触屏直接滑轨道 */
+  body .jx-automation-presetsNav{
+    display:none;
+  }
+
+  body .jx-automation-presetsTrack{
+    gap:12px;
+    /* proximity 在触屏上经常停在两卡之间，mandatory 才会稳稳吸附到卡片起点 */
+    scroll-snap-type:x mandatory;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  body .jx-automationPage .jx-automation-headerRight .ant-btn{
+    height:var(--jx-touch-min);
+  }
+
+  /* 「我的定时任务 / 执行记录」是纯文字 Tab，行高只有 24px */
+  body .jx-automation-tab{
+    display:inline-flex;
+    min-height:var(--jx-touch-min);
+    align-items:center;
+  }
+
+  /* 桌面把卡片上的三个键做成 hover 淡入（默认 opacity:0）。触屏没有 hover 态，
+     于是「立即执行 / 暂停 / 更多」在手机上是彻底点不到的——点在卡片上只会进详情。 */
+  body .jx-automation-card-actions{
+    opacity:1;
+  }
+
+  body .jx-automation-card-actions .ant-btn,
+  body .jx-automation-runListHead .ant-btn{
+    width:40px;
+    height:40px;
+    min-width:40px;
+  }
+
+  /* antd 的 size="small" 把排序选择器压到 24px——低于热区下限 */
+  body .jx-automation-sort.ant-select .ant-select-selector{
+    height:38px;
+    border-radius:12px;
+  }
+
+  body .jx-automation-sort.ant-select .ant-select-selector .ant-select-selection-item,
+  body .jx-automation-sort.ant-select .ant-select-selector .ant-select-selection-search-input{
+    height:36px;
+    line-height:36px;
   }
 }

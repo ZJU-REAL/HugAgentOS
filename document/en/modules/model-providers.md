@@ -19,8 +19,43 @@ Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_
 | `chart` | Chart-code generation | chat |
 | `plan_agent` | Plan-mode reasoning (falls back to main_agent) | chat |
 | `code_exec` | Code-execution reasoning (optional ops override, unused by default) | chat |
+| `loop_reviewer` | Autonomous-loop review and planning (falls back to main_agent) | chat |
+| `kb_wiki` | Knowledge-base Wiki entity extraction (offline batch; a cheap model is usually the right choice) | chat |
+| `vision` | Image understanding (vision bridge) — see below | chat |
 
-`extra_config` supports keys such as `temperature` / `max_tokens` / `timeout` / `context_length` (context window, used for compression thresholds) / `supports_reasoning_effort` (whether thinking-effort levels are supported).
+`extra_config` supports keys such as `temperature` / `max_tokens` / `timeout` / `context_length` (context window, used for compression thresholds) / `supports_reasoning_effort` (whether thinking-effort levels are supported) / `supports_vision` (whether the model reads images natively).
+
+## Vision bridge: giving text-only models eyes
+
+Flagship text models such as DeepSeek, GLM, and the text-only Qwen builds cannot see images. The vision bridge does not replace the main model — it hangs a transcription channel off the side of it:
+
+```
+image → multimodal model → structured text evidence → injected into the main model's context
+```
+
+The main model only ever consumes text. Enabling it takes one step: assign a multimodal model to the **`vision` role** in Model Management (qwen-vl, GLM-4V, gpt-4o, gemini — any OpenAI-compatible endpoint works; the Anthropic and Gemini native protocols are supported too).
+
+Resolution order:
+
+1. The model actually serving this conversation has `supports_vision` set → **the image is passed through untouched** (highest fidelity);
+2. Otherwise, if a `vision` role is assigned → the bridge transcribes it;
+3. Neither → the model is told explicitly that it cannot read images and the user is pointed at Model Management, rather than the image being silently dropped.
+
+**The transcription contract** is six fixed fields: `summary`, `ocr` (full transcription plus lines), `layout` (regions in reading order), `semantics` (scene / intent / entities / relations), `visual` (dominant colors / style / notes), and `uncertainty` (anything unreadable or ambiguous). It deliberately carries **no** pixel coordinates and **no** confidence scores — those are exactly the fields vision models fabricate most convincingly. Whatever cannot be read goes into `uncertainty` instead of being invented.
+
+**Where it applies** (assigning the role turns all of this on at once):
+
+| Situation | Behaviour |
+|---|---|
+| User uploads an image in chat | Transcribed and injected at the start of each turn |
+| Agent reads an image in the sandbox or "My Space" | `Read` returns `type=image_evidence` instead of `type=binary` |
+| A tool returns an image (e.g. chart rendering) | Transcribed and substituted, so the agent can check its own output |
+| A group-chat bot receives an image attachment | `channel_read_attachment` points at `view_image` |
+| The agent needs a specific detail from an image | `view_image(file_path/file_id, focus="…")` takes a second, targeted look |
+
+**Cost and limits**: every new image costs one multimodal call (a few seconds of added time-to-first-token). Evidence is cached per image + model + focus (7 days by default), so looking at the same picture again is free. Size limit, cache TTL, concurrency, and timeout are the `VISION_*` environment variables.
+
+**Security**: text inside an image is treated as **untrusted external input** — the prompt requires the vision model to treat the image strictly as data and never follow instructions found inside it, and the injected evidence is wrapped in an `<image-evidence>` fence that says where it came from. Images are validated by file-header magic bytes, so content that claims to be an image but isn't is rejected. This is mitigation, not a guarantee: images from untrusted sources still deserve caution.
 
 ### Management API (api/routes/v1/models.py, CONFIG_TOKEN)
 

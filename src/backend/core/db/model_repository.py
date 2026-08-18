@@ -28,7 +28,33 @@ ROLE_DEFINITIONS: dict[str, dict] = {
     # 知识库 Wiki 生成（实体/概念抽取、引文标注、页面撰写）。这是纯离线批处理，
     # 调用量随文档量线性增长，通常应当单配一个便宜模型；未配置时回落 main_agent。
     "kb_wiki": {"label": "知识库 Wiki 实体抽取", "type": "chat"},
+    # 视觉桥：主模型是纯文本时，由这个多模态模型把图片转成结构化文字证据再注入。
+    # ``requires`` 把「必须是多模态模型」从口头约定变成硬约束：只有 extra_config 里
+    # 勾了该能力位的供应商才能被指派（指派接口校验 + 前端下拉过滤）。指到纯文本模型
+    # 的话，每张图都会白打一次注定失败的请求，而且失败得很晚、很难查。
+    # 未配置时，若主模型自身勾了「支持读图」就用主模型兜底，否则降级为「看不见图」。
+    "vision": {
+        "label": "图像理解（视觉桥）",
+        "type": "chat",
+        "requires": "supports_vision",
+    },
 }
+
+
+def role_required_capability(role_key: str) -> Optional[str]:
+    """该角色额外要求供应商具备的 ``extra_config`` 能力位；无要求返回 ``None``。
+
+    provider_type 只能表达「是对话模型还是向量模型」，表达不了「这个对话模型得能看图」。
+    能力位补的就是这一层。
+    """
+    return (ROLE_DEFINITIONS.get(role_key) or {}).get("requires")
+
+
+def provider_has_capability(provider: ModelProvider, capability: str) -> bool:
+    """供应商是否声明了某个能力位（``extra_config`` 里为真）。"""
+    if not capability:
+        return True
+    return bool((provider.extra_config or {}).get(capability))
 
 
 # ── Provider CRUD ─────────────────────────────────────────────────────────────
@@ -149,6 +175,9 @@ def list_role_assignments(db: Session) -> list[dict]:
             "role_key": role_key,
             "label": role_def["label"],
             "required_type": role_def["type"],
+            # 供前端把下拉收窄到合格的供应商；None = 该角色对能力位无额外要求。
+            # 通用字段而非写死 vision，以后再加同类角色不用动前端。
+            "requires_capability": role_def.get("requires"),
             "provider_id": None,
             "provider_name": None,
             "model_name": None,

@@ -1167,6 +1167,8 @@ export interface ModelRole {
   role_key: string;
   label: string;
   required_type: ProviderType;
+  /** 角色额外要求的 extra_config 能力位；为空表示只按 provider_type 匹配。 */
+  requires_capability?: string | null;
   provider_id: string | null;
   provider_name: string | null;
   model_name: string | null;

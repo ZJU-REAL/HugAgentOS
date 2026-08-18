@@ -136,6 +136,10 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` / `OSS_KEY_PREFIX` | (empty) | Alibaba Cloud OSS | EE |
 | `OSS_PRESIGNED_URL_EXPIRY` | `900` | OSS presigned URL lifetime (s) | EE |
 | `PROJECT_FILE_CAPACITY_BYTES` | `209715200` (200 MB) | Total upload-type file cap per project | CE |
+| `VISION_MAX_IMAGE_BYTES` | `20971520` (20 MB) | Vision-bridge per-image byte cap; larger images are rejected outright | CE |
+| `VISION_CACHE_TTL_SECONDS` | `604800` (7 days) | Image-evidence cache TTL (key = image content + model + focus) | CE |
+| `VISION_MAX_CONCURRENCY` | `4` | Max concurrent in-flight image reads | CE |
+| `VISION_CALL_TIMEOUT_SECONDS` | `90` | Per-image read timeout (seconds) | CE |
 
 ## Knowledge base and file parsing
 

@@ -57,6 +57,7 @@ from core.llm.tools import (
     register_sandbox_get_artifact,
     register_sandbox_put_artifact,
     register_sandboxed_view_text_file,
+    register_view_image,
     register_write,
 )
 from core.llm.tools._common import resolve_sandbox_session
@@ -457,6 +458,25 @@ async def warmup_mcp_tools() -> None:
     except Exception as exc:
         elapsed = time.monotonic() - start
         log.warning("[warmup] MCP pool initialization failed after %.2fs: %s", elapsed, exc)
+
+
+def _vision_bridge_needed() -> bool:
+    """Whether to hand the agent a ``view_image`` tool.
+
+    Only when a vision model is reachable *and* the main model can't see images
+    itself — a natively multimodal model receives the picture inline, so proxying
+    it through a second model would only lose fidelity.
+    """
+    try:
+        from core.services.model_config import ModelConfigService
+        from core.vision import is_available, model_supports_vision
+
+        if model_supports_vision(ModelConfigService.get_instance().resolve("main_agent")):
+            return False
+        return is_available()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[factory] vision availability probe failed: %s", exc)
+        return False
 
 
 def _effective_main_available_skills() -> list[str]:
@@ -1479,6 +1499,22 @@ async def create_agent_executor(
         # Unconditional: any user may have uploaded files in prior turns of this chat,
         # and the hook injects historical-file summaries referencing this tool.
         register_read_artifact(toolkit, user_id=current_user_id)
+
+        # ── Phase 3.7a: view_image (vision bridge) ──
+        # Same rationale as read_artifact — images can arrive in any run (upload,
+        # channel attachment, a chart the agent just rendered), and read_artifact
+        # cannot parse them. Only registered when the running model can't see images
+        # itself: a natively multimodal model gets the picture inline and proxying it
+        # through a second model would only lose fidelity.
+        if _vision_bridge_needed():
+            register_view_image(
+                toolkit,
+                chat_id=chat_id,
+                sandbox_session_id=_sbx_sess,
+                user_id=current_user_id,
+                project_folder_name=_proj_folder_name,
+                scope=_proj_scope,
+            )
 
         # ── Phase 3.7b: channel_read_attachment (channel runs only) ──
         # Group listening records bystander attachments by key without downloading them;

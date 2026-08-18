@@ -244,6 +244,9 @@ interface ChatState {
    *  backend compacted earlier context; it notifies once on this turn's first frame. The UI shows
    *  a dismissible banner (not persisted). */
   compactionNotices: Record<string, boolean>;
+  /** 正在识图的会话 → 图片张数。视觉桥在模型开口前先把图转成文字，这几秒里轮级状态
+   *  显示「图像理解中」而不是笼统的「深度拥抱中」。识图结束即清空。 */
+  visionReading: Record<string, number>;
   /** chatId → latest server checkpoint baseline used by ContextGauge. */
   contextCompactions: Record<string, ContextCompactionState>;
   /** chatId → live plan/progress shown by the plan bar above the input (transient, not persisted).
@@ -334,6 +337,7 @@ interface ChatState {
   ) => void;
   /** Mark that a chat received a compaction notice (SSE compaction_notice event) */
   setCompactionNotice: (chatId: string) => void;
+  setVisionReading: (chatId: string, count: number) => void;
   /** User dismissed the compaction banner */
   dismissCompactionNotice: (chatId: string) => void;
   /** Replace or clear the active compacted-context baseline for a chat. */
@@ -409,6 +413,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   activeRuns: {},
   queuedMessages: {},
   compactionNotices: {},
+  visionReading: {},
   contextCompactions: {},
   planProgress: {},
 
@@ -656,6 +661,14 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
     saveQueuedMessages(get().currentUserId, get().queuedMessages);
   },
+  setVisionReading: (chatId, count) => set((s) => {
+    const next = { ...s.visionReading };
+    // count<=0 表示识图结束；留着空条目会让状态一直卡在「图像理解中」
+    if (count > 0) next[chatId] = count;
+    else delete next[chatId];
+    return { visionReading: next };
+  }),
+
   setCompactionNotice: (chatId) => set((s) => ({
     compactionNotices: { ...s.compactionNotices, [chatId]: true },
   })),

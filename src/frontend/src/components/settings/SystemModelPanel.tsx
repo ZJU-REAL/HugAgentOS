@@ -98,6 +98,7 @@ export function SystemModelPanel() {
       is_active: p.is_active,
       context_length: (p.extra_config?.context_length as number | undefined) ?? undefined,
       supports_reasoning_effort: Boolean(p.extra_config?.supports_reasoning_effort),
+      supports_vision: Boolean(p.extra_config?.supports_vision),
     });
     setEditorOpen(true);
   };
@@ -112,6 +113,11 @@ export function SystemModelPanel() {
       extra.supports_reasoning_effort = true;
     } else {
       delete extra.supports_reasoning_effort;
+    }
+    if (values.provider_type === 'chat' && values.supports_vision) {
+      extra.supports_vision = true;
+    } else {
+      delete extra.supports_vision;
     }
     const payload: Partial<ModelProviderInput> = {
       display_name: values.display_name,
@@ -205,8 +211,22 @@ export function SystemModelPanel() {
           allowClear
           loading={assigningRole === r.role_key}
           options={providers
-            .filter((p) => !r.type || p.provider_type === r.type)
+            .filter(
+              (p) =>
+                (!r.type || p.provider_type === r.type) &&
+                // 角色还可能要求能力位（视觉桥要求 supports_vision）。只按用途筛的话，
+                // 纯文本模型也会出现在视觉桥的下拉里，配错要到对话中途才暴露。
+                (!r.requires_capability ||
+                  Boolean(p.extra_config?.[r.requires_capability]) ||
+                  // 已指派的那个即使现在不合格也保留，否则界面会显示成未分配
+                  p.provider_id === r.provider_id),
+            )
             .map((p) => ({ value: p.provider_id, label: `${p.display_name} (${p.model_name})` }))}
+          notFoundContent={
+            r.requires_capability
+              ? t('没有符合条件的模型：该角色只能指派已勾选「支持读图（多模态）」的供应商')
+              : undefined
+          }
           onChange={(pid) => void handleAssign(r.role_key, (pid as string) ?? null)}
         />
       ),
@@ -362,6 +382,18 @@ export function SystemModelPanel() {
                 name="supports_reasoning_effort"
                 valuePropName="checked"
                 tooltip={t('开启后，前端「思考强度」选项里会出现「思考·高 / 思考·超高」两档，并通过 chat_template_kwargs.reasoning_effort 传给上游。需要上游模型本身认 reasoning_effort 字段（如 Qwen3 多档、GPT-OSS、Claude thinking 等），否则可能 4xx。普通 DeepSeek/Qwen 关闭即可。')}
+              >
+                <Switch />
+              </Form.Item>
+            )}
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
+            {({ getFieldValue }) => getFieldValue('provider_type') === 'chat' && (
+              <Form.Item
+                label={t('支持读图（多模态）')}
+                name="supports_vision"
+                valuePropName="checked"
+                tooltip={t('该模型本身能直接看图（如 qwen-vl / GLM-4V / gpt-4o / gemini）。开启后图片会原样送给模型；关闭时，若已为「图像理解（视觉桥）」角色指派了多模态模型，图片会先被转写成文字证据再送入。纯文本模型（DeepSeek、Qwen 文本版等）保持关闭。')}
               >
                 <Switch />
               </Form.Item>

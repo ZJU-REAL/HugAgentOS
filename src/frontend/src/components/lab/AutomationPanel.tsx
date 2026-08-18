@@ -188,7 +188,9 @@ export function AutomationPanel() {
   };
 
   return (
-    <div className="jx-agentPage">
+    // jx-automationPage 只是移动端样式的作用域锚点：页头「搜索 + 新建」在窄屏要竖排，
+    // 而 .jx-agentPage-header 是能力中心等页共用的通用类，不能直接改。
+    <div className="jx-agentPage jx-automationPage">
       <div className="jx-agentPage-header">
         <div>
           <div className="jx-agentPage-title">{title}</div>

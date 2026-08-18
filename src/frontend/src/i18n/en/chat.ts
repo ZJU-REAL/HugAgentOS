@@ -1,5 +1,8 @@
 /** 英文字典（chat 域）：key 为中文原文，value 为英文译文。 */
 export const CHAT_DICT: Record<string, string> = {
+  '图像理解中…': 'Reading image…',
+  '图像理解中（{n} 张）…': 'Reading {n} images…',
+  '上传图片（当前模型不识图）': 'Upload image (current model can\'t read images)',
   '计划模式：AI 将自动分解任务为多步骤并逐步执行': 'Plan mode: the AI breaks the task into steps and executes them one by one',
   '自主循环：描述一个可验证目标，AI 会反复迭代、自我修正，达标或触预算即停': 'Autonomous loop: describe a verifiable goal; the AI iterates and self-corrects until it succeeds or the budget runs out',
   '发送后将以该模式在本项目内开始对话': 'After sending, the conversation starts in this mode inside this project',

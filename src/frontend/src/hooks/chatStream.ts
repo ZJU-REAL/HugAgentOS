@@ -5,6 +5,7 @@ import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { refreshTargetForTool } from '../utils/toolRefresh';
 import { parseContextCompactionState } from '../utils/contextUsage';
+import { isMobileViewport } from './useIsMobileViewport';
 import {
   appendStreamTextSegment,
   appendSubagentStepDelta,
@@ -46,6 +47,17 @@ function maybeRefreshCatalogAfterTool(toolName: string, status: string): void {
   if (target === 'catalog') void useCatalogStore.getState().fetchCatalog();
   else if (target === 'agents') void useAgentStore.getState().fetchAgents();
   else void usePluginStore.getState().fetchInstalled(true);
+}
+
+/**
+ * Canvas 在移动断点是**整屏覆盖**（mobile.css 把 .jx-canvasPanelSlot 铺成 inset:0），
+ * 自动弹出等于把正在读的对话整页顶掉——产业链分析这种边跑边出图的场景尤其难受：
+ * 用户还在看推理过程，图谱一到就全屏盖住，得先找关闭键才能回到对话。
+ * 所以移动端一律不自动弹，只在消息里留卡片入口（产业链图谱卡 / 附件卡 / 本体评审入口），
+ * 由用户主动点开。桌面端行为不变（右侧分栏，不遮挡正文）。
+ */
+function canAutoOpenCanvas(): boolean {
+  return !isMobileViewport();
 }
 
 /** Unified handling of the site-design pick-one-of-three SSE event (shared by the live stream
@@ -511,7 +523,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         };
       }
     }
-    if (latestHtml && latestHtml.url) {
+    if (latestHtml && latestHtml.url && canAutoOpenCanvas()) {
       const canvas = useCanvasStore.getState();
       // Don't steal focus from a different file the user is actively viewing —
       // only auto-open if Canvas is closed or already showing this same artifact.
@@ -530,6 +542,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     // currently reading. The result remains available from its message entry.
     if (useChatStore.getState().currentChatId !== chatId) return;
     if (useCatalogStore.getState().panel !== 'chat') return;
+    // 移动端不自动弹（整屏覆盖），评审结论仍可从消息里的入口打开。
+    if (!canAutoOpenCanvas()) return;
     useCanvasStore.getState().openOntology({ chatId, messageTs: placeholderTs });
   };
   const appendOrUpdate = (
@@ -732,6 +746,14 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         }
         if (eventType === 'steer_applied') {
           applySteerBoundary(eventObj);
+          return;
+        }
+        if (eventType === 'vision_progress') {
+          // 视觉桥在模型开口前先把图转成文字证据，这段是纯网络等待。不报出来的话，
+          // 界面上只有一个笼统的「深度拥抱中」在走秒，用户不知道系统在干什么。
+          const running = eventObj.status === 'running';
+          const count = typeof eventObj.count === 'number' ? eventObj.count : 1;
+          useChatStore.getState().setVisionReading(chatId, running ? count : 0);
           return;
         }
         if (eventType === 'compaction_notice') {
@@ -1405,6 +1427,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   }
 
   // ── Unified wind-down: whether normal end/abort/exception, the bubble must leave the streaming state ──
+  // 识图状态必须在这里兜底清掉：中止或异常时那个 status=done 事件永远不会到，
+  // 留着的话下一轮会一直显示「图像理解中」。
+  useChatStore.getState().setVisionReading(chatId, 0);
   finalizeRunningTools();
   if (parseBuffer) {
     if (thinkingPhaseActive && sawThinkCloseTag) {

@@ -28,6 +28,10 @@ export const useModelCapabilitiesStore = create<ModelCapabilitiesState>((set, ge
     supports_reasoning_effort: false,
     user_model_switch_enabled: false,
     user_selectable_models: [],
+    // 读图能力默认按「不能」起步，接口回来后再放开：宁可先不许诺，也不要在
+    // 未配置视觉模型的部署上让用户以为传图有用。
+    can_read_image: false,
+    vision_bridge_enabled: false,
   },
   selectedModelProviderId: loadSelectedProviderId(),
   loaded: false,

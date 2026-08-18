@@ -5,6 +5,13 @@ import { t } from '../../i18n';
 interface TurnStatusIndicatorProps {
   /** Wall-clock ms the current wait began — anchors the elapsed clock. */
   startTs: number;
+  /**
+   * Overrides the label when we actually know what the wait is for. Today that
+   * is the vision bridge reading an uploaded image before the model starts —
+   * several seconds of pure network wait that would otherwise be indistinguishable
+   * from the model thinking.
+   */
+  label?: string;
 }
 
 /** Short waits keep the bare label; the clock only appears once the turn has clearly been running a while. */
@@ -18,7 +25,7 @@ const CLOCK_AFTER_MS = 15_000;
  * 调用工具" both over-promises and reads heavy. Once a real tool run starts,
  * the shell (and its in-shell pending row) takes over.
  */
-export function TurnStatusIndicator({ startTs }: TurnStatusIndicatorProps) {
+export function TurnStatusIndicator({ startTs, label }: TurnStatusIndicatorProps) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -27,11 +34,12 @@ export function TurnStatusIndicator({ startTs }: TurnStatusIndicatorProps) {
   }, []);
 
   const showClock = now - startTs >= CLOCK_AFTER_MS;
+  const text = label || t('深度拥抱中…');
   return (
     <div className="jx-turnStatus" role="status" aria-live="polite">
-      <BrandLoader size={18} done={false} label={t('深度拥抱中…')} />
+      <BrandLoader size={18} done={false} label={text} />
       {/* jx-anim-keep: "system at work" indicator; under reduced-motion the shimmer slows down but is preserved */}
-      <span className="jx-turnStatus-label jx-anim-keep">{t('深度拥抱中…')}</span>
+      <span className="jx-turnStatus-label jx-anim-keep">{text}</span>
       {showClock && <ElapsedTimer startTs={startTs} className="jx-turnStatus-clock" />}
     </div>
   );

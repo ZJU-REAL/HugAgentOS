@@ -4,8 +4,10 @@ import {
 } from 'antd';
 import {
   AppstoreOutlined,
+  ArrowLeftOutlined,
   DeleteOutlined,
   EditOutlined,
+  ExportOutlined,
   EyeOutlined,
   GlobalOutlined,
   LinkOutlined,
@@ -38,6 +40,7 @@ import {
   getSiteVisibilityOptions,
   type SiteVisibility,
 } from '../../editionSiteVisibility';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { useCatalogStore } from '../../stores';
 import { useChatStore } from '../../stores/chatStore';
 import { stablePublicOrigin } from '../../stores/deploymentModeStore';
@@ -404,6 +407,11 @@ export function SitesPanel() {
   const [loading, setLoading] = useState(true);
   const [managing, setManaging] = useState<SiteItem | null>(null);
   const [keyword, setKeyword] = useState('');
+  // 手机上「打开站点」不能是 window.open：站点是后端直出的独立页面（/site/<slug>/），
+  // 一旦离开这个 SPA 就没有任何回来的入口——部分移动浏览器还会把 _blank 当同标签跳转，
+  // 用户只能靠浏览器后退键才回得来。所以移动端在应用内套一层带返回栏的预览。
+  const isMobile = useIsMobileViewport();
+  const [previewSite, setPreviewSite] = useState<SiteItem | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -427,6 +435,15 @@ export function SitesPanel() {
   // 站内打开走反代：本机站点带路由标记，入口页免掉「云端 404 → 反代兜底重试」的一跳。
   const siteInAppUrl = (site: SiteItem) =>
     `${site.url}${site.origin === 'local' ? '?hg_target=local' : ''}`;
+
+  /** 打开站点：桌面另开标签页，手机走应用内预览（见 previewSite 的说明）。 */
+  const openSite = (site: SiteItem) => {
+    if (isMobile) {
+      setPreviewSite(site);
+      return;
+    }
+    window.open(siteInAppUrl(site), '_blank', 'noopener,noreferrer');
+  };
 
   const handleCopy = async (site: SiteItem) => {
     try {
@@ -492,7 +509,17 @@ export function SitesPanel() {
                     <span className="jx-sites-cardTitle">{site.title}</span>
                     <VisibilityTag site={site} />
                   </div>
-                  <a className="jx-sites-cardUrl" href={siteInAppUrl(site)} target="_blank" rel="noopener noreferrer">
+                  <a
+                    className="jx-sites-cardUrl"
+                    href={siteInAppUrl(site)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      if (!isMobile) return;
+                      e.preventDefault();
+                      setPreviewSite(site);
+                    }}
+                  >
                     {siteFullUrl(site)}
                   </a>
                   <div className="jx-sites-cardMeta">
@@ -506,7 +533,7 @@ export function SitesPanel() {
                     size="small"
                     type="primary"
                     ghost
-                    onClick={() => window.open(siteInAppUrl(site), '_blank', 'noopener,noreferrer')}
+                    onClick={() => openSite(site)}
                   >
                     {t('打开')}
                   </Button>
@@ -555,6 +582,37 @@ export function SitesPanel() {
             setSites((prev) => prev.map((s) => (s.site_id === updated.site_id ? updated : s)))
           }
         />
+      ) : null}
+
+      {/* 移动端站点预览：整屏 iframe + 顶部返回栏。站点本身是后端直出的独立页面，
+          没法在它内部放返回入口，所以把返回入口留在这一层。 */}
+      {previewSite ? (
+        <div className="jx-sitePreview" role="dialog" aria-modal="true" aria-label={t('站点预览')}>
+          <div className="jx-sitePreview-bar">
+            <button
+              type="button"
+              className="jx-sitePreview-back"
+              onClick={() => setPreviewSite(null)}
+              aria-label={t('返回站点列表')}
+            >
+              <ArrowLeftOutlined />
+            </button>
+            <span className="jx-sitePreview-title">{previewSite.title}</span>
+            <button
+              type="button"
+              className="jx-sitePreview-external"
+              onClick={() => window.open(siteInAppUrl(previewSite), '_blank', 'noopener,noreferrer')}
+              aria-label={t('在新窗口打开')}
+            >
+              <ExportOutlined />
+            </button>
+          </div>
+          <iframe
+            className="jx-sitePreview-frame"
+            src={siteInAppUrl(previewSite)}
+            title={previewSite.title}
+          />
+        </div>
       ) : null}
     </div>
   );

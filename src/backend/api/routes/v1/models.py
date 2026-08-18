@@ -41,7 +41,9 @@ from core.db.model_repository import (
     import_all,
     list_providers,
     list_role_assignments,
+    provider_has_capability,
     provider_is_referenced,
+    role_required_capability,
     set_provider_test_result,
     unassign_role,
     update_provider,
@@ -417,13 +419,27 @@ async def get_main_capabilities(
     from core.llm.context_manager import ContextBudget
     from core.content.artifact_reader import ATTACHMENT_PREVIEW_MAX_CHARS
     system_prompt_tokens = ContextBudget.system_prompt_reserve
+    # Image reading: either the main model is natively multimodal, or a `vision` role
+    # model is assigned and the vision bridge transcribes images into text evidence.
+    # The frontend uses `can_read_image` alone to decide whether to offer image upload;
+    # the two flags below only explain *how* it works.
+    from core.vision import model_supports_vision, resolve_vision_config
+
+    main_native_vision = model_supports_vision(cfg)
+    vision_cfg = resolve_vision_config()
     return success_response(
         data={
             "main_agent": {
                 "supports_reasoning_effort": supports,
+                "supports_vision": main_native_vision,
                 "context_length": main_context_length,
                 "system_prompt_tokens": system_prompt_tokens,
                 "attachment_preview_chars": ATTACHMENT_PREVIEW_MAX_CHARS,
+            },
+            "vision": {
+                "can_read_image": vision_cfg is not None,
+                "native": main_native_vision,
+                "bridge_enabled": vision_cfg is not None and not main_native_vision,
             },
             "user_model_switch": {
                 "enabled": switch_enabled,
@@ -667,6 +683,21 @@ async def assign_role_endpoint(
         raise HTTPException(
             status_code=400,
             detail=f"角色 '{role_key}' 需要 {required_type} 类型的供应商，但所选供应商是 {provider.provider_type} 类型",
+        )
+
+    # 能力位校验。provider_type 只分得清「对话/向量/重排」，分不清「这个对话模型能不能
+    # 看图」——视觉桥角色若指到纯文本模型，每张图都会白打一次注定失败的请求，且失败发生
+    # 在对话中途、报错来自上游网关，很难查。前端下拉已按能力位收窄，这里是防直接调接口
+    # 绕过的那道闸。
+    required_capability = role_required_capability(role_key)
+    if required_capability and not provider_has_capability(provider, required_capability):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"「{ROLE_DEFINITIONS[role_key]['label']}」只能指派多模态模型。"
+                f"供应商「{provider.display_name}」未声明支持读图——请先编辑该供应商并"
+                f"打开「支持读图（多模态）」开关，或改选一个多模态模型。"
+            ),
         )
 
     if not assign_role(db, role_key, body.provider_id):

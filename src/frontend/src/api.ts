@@ -334,6 +334,10 @@ export interface ModelCapabilities {
   system_prompt_tokens?: number;
   /** Maximum text characters automatically previewed per newly attached file. */
   attachment_preview_chars?: number;
+  /** 当前部署能不能读图：主模型原生多模态，或配了「图像理解（视觉桥）」角色。 */
+  can_read_image?: boolean;
+  /** 读图是走视觉桥转写（true）还是主模型直接看（false）。仅用于提示文案措辞。 */
+  vision_bridge_enabled?: boolean;
 }
 
 export interface UserSelectableModel {
@@ -416,6 +420,7 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
   const data = unwrapData<JsonObject>(wrapped);
   const main = (data?.main_agent as JsonObject | undefined) || {};
   const switchInfo = (data?.user_model_switch as JsonObject | undefined) || {};
+  const vision = (data?.vision as JsonObject | undefined) || {};
   const modelsRaw = Array.isArray(switchInfo.models) ? switchInfo.models : [];
   const models: UserSelectableModel[] = modelsRaw
     .map((item): UserSelectableModel | null => {
@@ -441,6 +446,8 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
     user_selectable_models: models,
     main_context_length: typeof main.context_length === 'number' ? main.context_length : 0,
     system_prompt_tokens: typeof main.system_prompt_tokens === 'number' ? main.system_prompt_tokens : 0,
+    can_read_image: !!vision.can_read_image,
+    vision_bridge_enabled: !!vision.bridge_enabled,
     attachment_preview_chars: typeof main.attachment_preview_chars === 'number'
       ? main.attachment_preview_chars
       : 0,
@@ -3778,6 +3785,9 @@ export interface ModelRoleAssignment {
   description?: string;
   type?: string;
   required_type?: string;
+  /** 该角色额外要求供应商声明的 extra_config 能力位（如 vision 角色的 supports_vision）；
+   *  为空表示只按 provider_type 匹配即可。 */
+  requires_capability?: string | null;
   provider_id: string | null;
   provider_name?: string | null;
   [key: string]: unknown;

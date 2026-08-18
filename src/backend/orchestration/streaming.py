@@ -192,6 +192,48 @@ class StreamingAgent:
             + int(last.get("completion_tokens", 0) or 0),
         }
 
+    async def _prepare_vision_evidence(
+        self, st: Any
+    ) -> AsyncIterator[Tuple[str, Any]]:
+        """Transcribe this turn's image attachments, emitting progress around the wait.
+
+        Yields ``("vision_progress", {...})`` when there is actually something to
+        read, so the frontend can label the wait "图像理解中" instead of the generic
+        turn spinner. Silent (no events, no delay) when the turn has no images or the
+        running model reads images natively — in the native case the picture goes to
+        the model as-is and no transcription happens at all.
+
+        Never raises: a failure here degrades to the middleware's inline path.
+        """
+        try:
+            from core.llm.middlewares import _effective_model_supports_vision
+            from core.vision.attachments import image_attachments, transcribe_attachments
+
+            images = image_attachments(list(getattr(st, "uploaded_files", None) or []))
+            if not images or _effective_model_supports_vision(st):
+                return
+
+            yield (
+                "vision_progress",
+                {"status": "running", "count": len(images),
+                 "names": [f.get("name") or "图片" for f in images]},
+            )
+            result = await transcribe_attachments(images, user_id=getattr(st, "user_id", None))
+            if result is not None and result.text:
+                st.vision_evidence_text = result.text
+            yield (
+                "vision_progress",
+                {
+                    "status": "done",
+                    "count": result.count if result else 0,
+                    "ok": bool(result and result.ok),
+                    "duration_seconds": round(result.duration_seconds, 2) if result else 0.0,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — fall back to inline transcription
+            logger.warning("[stream] vision pre-pass failed, deferring to middleware: %s", exc)
+            yield ("vision_progress", {"status": "done", "count": 0, "ok": False})
+
     async def stream(
         self,
         session_messages: List[Dict[str, Any]],
@@ -213,6 +255,14 @@ class StreamingAgent:
         except Exception as exc:  # noqa: BLE001
             logger.warning("[stream] set agent.state failed: %s", exc)
         self._enable_thinking = bool(context.get("enable_thinking", True))
+
+        # Vision bridge: transcribe uploaded images *before* handing off to the model,
+        # so the UI can say "读图中" while it happens. Reading an image is a plain
+        # network wait of several seconds; folded inside the agent turn it is
+        # indistinguishable from the model thinking, and the user just watches a
+        # generic spinner count up. FileContextMiddleware injects the result.
+        async for _vision_event in self._prepare_vision_evidence(st):
+            yield _vision_event
 
         _log_ctx = LogContext(user_id=st.user_id or None, chat_id=st.chat_id or None)
         _log_ctx.__enter__()
