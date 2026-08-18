@@ -31,3 +31,12 @@ const getSnapshot = () => {
 export function useIsMobileViewport(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
+
+/**
+ * 同一个断点的**非 hook** 读法，给流事件处理这类不在渲染里的代码用
+ * （chatStream.ts 判断要不要自动弹 Canvas）。组件里一律用上面的 hook，
+ * 别用这个——它不订阅变化，转屏后不会重渲染。
+ */
+export function isMobileViewport(): boolean {
+  return getSnapshot();
+}

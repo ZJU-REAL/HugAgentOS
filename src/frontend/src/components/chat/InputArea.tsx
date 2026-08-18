@@ -12,6 +12,7 @@ import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, 
 import { useProjectStore } from '../../stores/projectStore';
 import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
+import { useModelCapabilitiesStore } from '../../stores/modelCapabilitiesStore';
 import type { UserAgentItem } from '../../stores/agentStore';
 import { FileAttachmentCard, MySpaceImportModal } from '../file';
 import CreateProjectModal from '../projects/CreateProjectModal';
@@ -289,6 +290,11 @@ export function InputArea({
   // the toolbar but is tucked into the "+" attachment menu, visible to lab users only.
   const showLoopEntry =
     !planMode && !batchModeOn && !projectComposer && loopCapEnabled !== false && labEnabled !== false;
+  // 当前部署能否读图：主模型原生多模态，或后台配了「图像理解（视觉桥）」角色。
+  // 未加载完成时按 true 处理，避免首屏闪出一句「不识图」又立刻收回。
+  const canReadImage = useModelCapabilitiesStore(
+    (s) => !s.loaded || s.capabilities.can_read_image !== false,
+  );
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [mySpaceImportOpen, setMySpaceImportOpen] = useState(false);
   // 工具条各下拉的展开态：只用于让 chip 亮起 + 箭头翻转，让"按钮/浮层"读起来是一体的
@@ -869,7 +875,14 @@ export function InputArea({
               },
             ];
             const items = [
-              { key: 'image', icon: <FileImageOutlined />, label: t('上传图片'), onClick: () => imageInputRef.current?.click() },
+              {
+                key: 'image',
+                icon: <FileImageOutlined />,
+                // 没有任何模型能读图时把话说在前面：图还是能传（当附件留档、换模型后仍可用），
+                // 但别让用户以为这一轮模型看得见。
+                label: canReadImage ? t('上传图片') : t('上传图片（当前模型不识图）'),
+                onClick: () => imageInputRef.current?.click(),
+              },
               { key: 'file', icon: <FileTextOutlined />, label: t('上传文件'), onClick: () => fileInputRef.current?.click() },
               { type: 'divider' as const },
               ...modeItems,

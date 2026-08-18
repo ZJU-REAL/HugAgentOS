@@ -83,6 +83,117 @@ def _is_multimodal_unsupported_error(exc: Exception) -> bool:
     return mentions_media and rejects_media
 
 
+def _decode_image_block(block: dict[str, Any]) -> Optional[tuple[bytes, str]]:
+    """Pull raw bytes out of an OpenAI-style image block, if they travel inline.
+
+    Only ``data:`` URIs are decoded. A remote ``https://`` image is left alone:
+    fetching it here would be an unvetted server-side request from inside the
+    model call path.
+    """
+    import base64
+    import re
+
+    url = ""
+    block_type = str(block.get("type", "")).lower()
+    if block_type == "image_url":
+        holder = block.get("image_url")
+        url = holder.get("url", "") if isinstance(holder, dict) else ""
+    elif block_type in ("image", "input_image"):
+        source = block.get("source")
+        if isinstance(source, dict) and source.get("type") == "base64":
+            data = source.get("data") or ""
+            media = source.get("media_type") or "image/png"
+            try:
+                return base64.b64decode(data), media
+            except Exception:  # noqa: BLE001
+                return None
+        url = block.get("image_url") or block.get("url") or ""
+    if not isinstance(url, str) or not url.startswith("data:"):
+        return None
+    match = re.match(r"^data:([^;,]+);base64,(.*)$", url, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return base64.b64decode(match.group(2)), match.group(1)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _transcribe_multimodal_content(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Replace inline images with vision-bridge text evidence, in place of dropping them.
+
+    This is the tool-output half of the vision bridge: a tool (chart rendering, a
+    paper-figure fetch, …) hands back an image, AgentScope promotes it into a
+    message block, and a text-only endpoint 400s on the whole request. Dropping the
+    block keeps the run alive but leaves the agent unable to check its own output.
+    Transcribing keeps the information.
+
+    Returns the rewritten messages and how many images were transcribed; ``0`` means
+    nothing could be transcribed and the caller should fall back to dropping them.
+    """
+    try:
+        from core.vision import get_vision_bridge, render_evidence
+        from core.vision.service import is_available
+
+        if not is_available():
+            return messages, 0
+        bridge = get_vision_bridge()
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[vision] tool-image transcription unavailable: %s", exc)
+        return messages, 0
+
+    # Collect first so every image in the payload is described concurrently.
+    targets: list[tuple[int, int, bytes, str]] = []
+    for m_idx, message in enumerate(messages):
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for b_idx, block in enumerate(content):
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("type", "")).lower() not in _MULTIMODAL_CONTENT_TYPES:
+                continue
+            decoded = _decode_image_block(block)
+            if decoded is not None:
+                targets.append((m_idx, b_idx, decoded[0], decoded[1]))
+    if not targets:
+        return messages, 0
+
+    results = await bridge.describe_many([(data, mime) for _, _, data, mime in targets])
+    replacements: dict[tuple[int, int], str] = {}
+    for (m_idx, b_idx, _, _), result in zip(targets, results):
+        if result is None:
+            continue
+        replacements[(m_idx, b_idx)] = render_evidence(
+            result.evidence, name="工具返回的图片", model=result.model
+        )
+    if not replacements:
+        return messages, 0
+
+    rewritten: list[dict[str, Any]] = []
+    for m_idx, message in enumerate(messages):
+        content = message.get("content")
+        if not isinstance(content, list):
+            rewritten.append(message)
+            continue
+        new_content: list[Any] = []
+        touched = False
+        for b_idx, block in enumerate(content):
+            text = replacements.get((m_idx, b_idx))
+            if text is None:
+                new_content.append(block)
+            else:
+                new_content.append({"type": "text", "text": text})
+                touched = True
+        rewritten.append({**message, "content": new_content} if touched else message)
+    # Any media the bridge couldn't handle (remote URLs, audio, a failed read) must
+    # still go, or the retry hits the same 400 that got us here.
+    cleaned, _ = _without_multimodal_content(rewritten)
+    return cleaned, len(replacements)
+
+
 def _without_multimodal_content(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """Copy formatted messages while replacing unsupported media blocks with text."""
     sanitized: list[dict[str, Any]] = []
@@ -383,14 +494,28 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
             # removed while retaining the tool's text/metadata/captions.
             if not _is_multimodal_unsupported_error(exc):
                 raise
-            fallback_messages, removed = _without_multimodal_content(formatted_messages)
-            if not removed:
-                raise
-            logger.warning(
-                "Model %s rejected multimodal input; retrying without %d media block(s)",
-                model_name,
-                removed,
+            # Preferred recovery: transcribe the images into text evidence via the
+            # vision bridge, so the agent keeps the information instead of only
+            # learning that "there was an image". Dropping them stays as the
+            # fallback for when no vision model is configured.
+            fallback_messages, transcribed = await _transcribe_multimodal_content(
+                formatted_messages
             )
+            if transcribed:
+                logger.info(
+                    "Model %s rejected multimodal input; retrying with %d transcribed image(s)",
+                    model_name,
+                    transcribed,
+                )
+            else:
+                fallback_messages, removed = _without_multimodal_content(formatted_messages)
+                if not removed:
+                    raise
+                logger.warning(
+                    "Model %s rejected multimodal input; retrying without %d media block(s)",
+                    model_name,
+                    removed,
+                )
             kwargs["messages"] = fallback_messages
             response = await client.chat.completions.create(**kwargs)
 

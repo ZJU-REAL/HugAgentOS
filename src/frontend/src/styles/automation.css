@@ -967,8 +967,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 768px) {
-  .jx-automation-headerRight { gap: 8px; }
-  .jx-automation-search { width: 140px; }
-  .jx-automation-presetCard { flex-basis: 260px; }
-}
+/* 手机断点的适配统一放在 styles/mobile.css 的「定时任务页」一节（它是最后一个
+   import，同特异性下赢）。这里原本有一段「把搜索框压到 140px、预设卡压到 260px」的
+   微调——方向是错的：页头挤不下不是因为搜索框宽，而是因为标题与操作区还在同一行，
+   压完「新建定时任务」按钮照样被切在屏幕外。已移除，别再往回加。 */

@@ -135,6 +135,14 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
   } = useChatStore();
   const { setDetailModal, dispatchProcessVisible } = useUIStore();
   const chatMessages = useChatStore(state => state.store.chats[currentChatId]?.messages ?? []);
+  // 视觉桥正在读图（模型还没开口）→ 轮级状态换成「图像理解中」，别让这几秒看起来
+  // 像模型在发呆。识图结束由 chatStream 清空。
+  const visionReadingCount = useChatStore(state => state.visionReading[currentChatId] ?? 0);
+  const turnStatusLabel = visionReadingCount > 0
+    ? (visionReadingCount > 1
+        ? t('图像理解中（{n} 张）…', { n: visionReadingCount })
+        : t('图像理解中…'))
+    : undefined;
   const { editingMessageTs, setEditingMessageTs } = useChatStore();
   const [editText, setEditText] = useState('');
   const shareSelected = selectedShareMessageTs.has(m.ts);
@@ -902,7 +910,11 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                 // shimmer label beats a hollow "执行中" shell card here: we don't
                 // even know yet whether a tool will be called.
                 rendered.push(
-                  <TurnStatusIndicator key={virtualPending.key} startTs={virtualPending.startTs} />,
+                  <TurnStatusIndicator
+                    key={virtualPending.key}
+                    startTs={virtualPending.startTs}
+                    label={turnStatusLabel}
+                  />,
                 );
               }
 
@@ -934,7 +946,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
             )}
             {m.isStreaming && !m.content ? (
               dispatchProcessVisible ? (
-                <TurnStatusIndicator startTs={stall.since} />
+                <TurnStatusIndicator startTs={stall.since} label={turnStatusLabel} />
               ) : (
                 <ThinkingInline content="" thinkKey={`${m.ts}-legacy-placeholder`} isActive={true} />
               )

@@ -187,6 +187,10 @@ class AgentRuntimeState(AgentState):
     uploaded_files: List[dict] = Field(default_factory=list)
     historical_files: List[dict] = Field(default_factory=list)
     user_message_text: str = ""
+    # Vision evidence transcribed ahead of the model call by the streaming entry
+    # point; FileContextMiddleware injects it verbatim instead of redoing the
+    # network round-trip. Empty = transcribe inline (non-streaming callers).
+    vision_evidence_text: str = ""
     ontology_enabled: bool = False
     ontology_runtime: dict = Field(default_factory=dict)
     # Set by SteerMiddleware immediately before the next reasoning round.  The
@@ -567,13 +571,13 @@ class FileContextMiddleware(MiddlewareBase):
 
     async def on_reply(self, agent: Agent, input_kwargs: dict, next_handler):
         try:
-            self._inject(agent)
+            await self._inject(agent)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[file_context] failed: %s", exc, exc_info=True)
         async for evt in next_handler(**input_kwargs):
             yield evt
 
-    def _inject(self, agent: Agent) -> None:
+    async def _inject(self, agent: Agent) -> None:
         # Reset per-turn state at each reply-turn boundary (read_artifact budget / pin-reminder bookkeeping)
         reset_artifact_read_state()
         reset_pin_hint_state()
@@ -611,10 +615,25 @@ class FileContextMiddleware(MiddlewareBase):
                 Msg(name="user", role="user", content=[TextBlock(type="text", text=text_context)])
             )
 
-        # 2. Images: 2.0 merges DataBlock(Base64Source) into the last user message
+        # 2. Images. Two paths, decided by whether the *effective* model can see:
+        #    - natively multimodal  → pass the bytes through as DataBlocks (best fidelity)
+        #    - text-only           → vision bridge transcribes them into text evidence
+        #      (core/vision), because the media blocks would otherwise be dropped
+        #      downstream in chat_models._without_multimodal_content and the model
+        #      would be blind to the upload.
         image_files = [f for f in uploaded_files if _is_image(f)]
         if not image_files:
             return
+        if _effective_model_supports_vision(st):
+            self._inject_native_images(st, image_files, user_id)
+        else:
+            await self._inject_vision_evidence(st, image_files, user_id)
+
+    # ── image injection paths ──────────────────────────────────────────────
+
+    @staticmethod
+    def _inject_native_images(st: AgentState, image_files: list, user_id) -> None:
+        """Natively multimodal model: merge DataBlock(Base64Source) into the last user message."""
         image_blocks: list = []
         image_names: list[str] = []
         for f in image_files:
@@ -645,6 +664,51 @@ class FileContextMiddleware(MiddlewareBase):
             last_user_msg.content = merged
         else:
             st.context.append(Msg(name="user", role="user", content=[prefix_block, *image_blocks]))
+
+    @staticmethod
+    async def _inject_vision_evidence(st: AgentState, image_files: list, user_id) -> None:
+        """Text-only model: inject the images as text evidence from the vision bridge.
+
+        The streaming entry point usually transcribes ahead of time (so it can report
+        "reading image" progress while the network call is in flight) and leaves the
+        result on ``st.vision_evidence_text``. When that is absent — the non-streaming
+        workflow, channel bots — this transcribes inline as before.
+        """
+        precomputed = (getattr(st, "vision_evidence_text", "") or "").strip()
+        if precomputed:
+            st.context.append(
+                Msg(name="user", role="user", content=[TextBlock(type="text", text=precomputed)])
+            )
+            return
+
+        from core.vision.attachments import transcribe_attachments
+
+        result = await transcribe_attachments(image_files, user_id=user_id)
+        if result is None or not result.text:
+            return
+        st.context.append(
+            Msg(name="user", role="user", content=[TextBlock(type="text", text=result.text)])
+        )
+
+
+def _effective_model_supports_vision(st: AgentState) -> bool:
+    """Whether the model this turn will actually run on can read images natively.
+
+    Mirrors DynamicModelMiddleware's resolution order (per-request provider override
+    first, then the main_agent role), so the decision matches the model that ends up
+    receiving the request.
+    """
+    try:
+        from core.services.model_config import ModelConfigService
+        from core.vision import model_supports_vision
+
+        service = ModelConfigService.get_instance()
+        provider_id = (getattr(st, "model_provider_id", "") or "").strip()
+        cfg = service.resolve_provider(provider_id) if provider_id else None
+        return model_supports_vision(cfg or service.resolve("main_agent"))
+    except Exception as exc:  # noqa: BLE001 — unknown capability degrades to the bridge
+        logger.warning("[vision] capability probe failed, assuming text-only: %s", exc)
+        return False
 
 
 # ── WorkspacePinHint ───────────────────────────────────────────────────────
