@@ -80,11 +80,7 @@ function renderGenericList(
         const citeId = typeof item.cite_id === 'string' ? item.cite_id : '';
         const openDetail = () => setDetailModal({
           title,
-          body: (
-            <pre className="jx-tr-jsonBlock" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-              {JSON.stringify(item, null, 2)}
-            </pre>
-          ),
+          body: <DataView value={item} maxHeight={520} />,
         });
         return (
           <div key={idx} className="jx-tr-kbItem jx-tr-kbItem--clickable" onClick={openDetail} title={t('点击查看详情')}>
@@ -213,7 +209,13 @@ function renderLoadSkill(out: unknown): React.ReactNode {
   );
 }
 
-export function renderToolOutputBody(toolName: string, out: unknown, setDetailModal: (modal: { title: string; body: React.ReactNode } | null) => void): React.ReactNode {
+export function renderToolOutputBody(
+  toolName: string,
+  out: unknown,
+  setDetailModal: (modal: { title: string; body: React.ReactNode } | null) => void,
+  /** 被引用的证据片段：命中的内容会高亮并把滚动条送到跟前（从引用打开卡片时传入） */
+  highlight?: string,
+): React.ReactNode {
   const empty = (msg: string) => <div className="jx-tr-empty">{msg}</div>;
 
   // Load skill: render the same detail as the capability center, avoiding stuffing the full SKILL.md into the card
@@ -274,7 +276,7 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
             </table>
           </div>
         ) : parsedData != null ? (
-          <pre className="jx-tr-jsonBlock">{JSON.stringify(parsedData, null, 2)}</pre>
+          <DataView value={parsedData} focus={highlight} />
         ) : (
           <div className={`jx-tr-dbText ${isErr ? 'error' : ''}`}>{str}</div>
         )}
@@ -432,9 +434,7 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
           {typeof elapsedMs === 'number' && <span style={{ marginLeft: 8, fontSize: 12, opacity: .6 }}>({(elapsedMs / 1000).toFixed(2)}s)</span>}
         </div>
         {displayText && (
-          <pre className="jx-tr-jsonBlock" style={{ maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-            {typeof displayText === 'string' ? displayText : JSON.stringify(displayText, null, 2)}
-          </pre>
+          <DataView value={displayText} focus={highlight} maxHeight={340} />
         )}
       </div>
     );
@@ -449,9 +449,7 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
           <div className="jx-tr-dbHeader error">
             {toolName === 'sandbox_put_artifact' ? t('写入文件失败') : t('保存文件失败')}
           </div>
-          <pre className="jx-tr-jsonBlock" style={{ maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-            {data?.error || JSON.stringify(data, null, 2)}
-          </pre>
+          <DataView value={data?.error || data} maxHeight={260} />
         </div>
       );
     }
@@ -506,9 +504,7 @@ export function renderToolOutputBody(toolName: string, out: unknown, setDetailMo
           {t('工具执行完成')}
           {wholeCiteId && <span className="jx-tr-citeTag">{wholeCiteId}</span>}
         </div>
-        <pre className="jx-tr-jsonBlock" style={{ maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-          {fallbackStr}
-        </pre>
+        <DataView value={out} focus={highlight} />
       </div>
     );
   }

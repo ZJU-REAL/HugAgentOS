@@ -20,7 +20,6 @@ from api.routes.v1.kb_models import (
 from core.auth.backend import UserContext, get_current_user
 from core.config.settings import settings
 from core.content.file_validation import validate_kb_file
-from core.content.kb_processing import update_document_status, vectorise_document_background
 from core.kb.wiki.config import index_modes_of, normalize_index_modes
 from core.db.engine import get_db
 from core.infra.exceptions import (
@@ -35,7 +34,8 @@ from core.llm.chat_models import get_summarize_model
 from core.llm.message_compat import extract_text_from_chat_response, strip_thinking
 from core.services import KBService
 from core.storage import generate_storage_key, get_storage
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Path, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Path, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,38 @@ def _require_kb_write(db, space, user_id: str, required: str) -> None:
     level = resolve_local_kb_level(db, user_id, space.kb_id)
     if not has_kb_permission(level, required):
         raise AccessDeniedError(message="Access denied", reason=f"requires kb level >= {required}")
+
+
+def _enqueue_document_indexing(
+    db,
+    *,
+    document_id: str,
+    user_id: str,
+    chunk_method: str,
+    indexing_config: Optional[dict],
+    index_modes: Optional[list],
+) -> None:
+    """把文档排进持久化索引队列，交给常驻 worker 执行。
+
+    索引不能再跑在请求线程池里：那是 Starlette 与所有同步依赖（``get_db``）共用的
+    池子，批量上传会把它占满，导致整个后端在 handler 之前就排队。详见
+    :mod:`core.kb.index_worker`。
+    """
+    from core.db.models import KBDocument
+    from core.kb import index_queue
+
+    doc = db.query(KBDocument).filter(KBDocument.document_id == document_id).first()
+    if doc is None:
+        logger.warning("Cannot enqueue indexing: document %s not found", document_id)
+        return
+    index_queue.enqueue(
+        db,
+        doc,
+        user_id=user_id,
+        chunk_method=chunk_method,
+        indexing_config=indexing_config,
+        index_modes=index_modes,
+    )
 
 
 def _fallback_kb_description(name: str, description: str) -> str:
@@ -114,6 +146,45 @@ async def _generate_kb_description(name: str, description: str) -> str:
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
+
+
+@router.get("/assets/{asset_id}", summary="读取知识库媒体资产")
+async def get_kb_asset(
+    asset_id: str = Path(..., description="Asset ID"),
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """按 ID 读取知识库中的媒体资产（版面解析切出的图片等）原始字节。
+
+    资产的可见性完全跟随所属知识库空间：能读该库才能读它的图。图片链接会出现在分块正文
+    与检索结果里，故按 ID 直取，不经过库/文档路径。
+    """
+    from fastapi.responses import Response
+
+    from core.db.models import KBAsset
+    from core.db.repository import KBRepository
+
+    asset = db.query(KBAsset).filter(KBAsset.asset_id == asset_id).first()
+    if not asset:
+        raise ResourceNotFoundError(resource_type="kb_asset", resource_id=asset_id)
+
+    kb_space = KBRepository(db).get_space(asset.kb_id)
+    if not kb_space or not _can_read_space(db, kb_space, user.user_id):
+        # Same shape as a missing asset: an unauthorised caller must not be able to
+        # probe which asset ids exist.
+        raise ResourceNotFoundError(resource_type="kb_asset", resource_id=asset_id)
+
+    try:
+        data = get_storage().download_bytes(asset.storage_key)
+    except Exception as exc:
+        logger.warning("Asset %s read failed: %s", asset_id, exc)
+        raise ResourceNotFoundError(resource_type="kb_asset", resource_id=asset_id)
+
+    return Response(
+        content=data,
+        media_type=asset.mime_type or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.post("/preview-chunks", summary="预览文档分块效果")
@@ -316,7 +387,6 @@ async def upload_document(
     metadata: Optional[str] = Form(None, description="Additional metadata as JSON string"),
     indexing_config: Optional[str] = Form(None, description="Indexing config as JSON string"),
     chunk_method: Optional[str] = Form(None, description="Chunking method override"),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -353,7 +423,9 @@ async def upload_document(
 
     try:
         storage = get_storage()
-        storage.upload_bytes(content, storage_key)
+        # 对象存储是阻塞的网络调用，直接在 async handler 里调会卡住整个事件循环——
+        # 批量上传时后端会连 SSE 和其它接口一起停摆。
+        await run_in_threadpool(storage.upload_bytes, content, storage_key)
         logger.info("Document uploaded to storage: %s", storage_key)
     except StorageError as e:
         logger.error("Failed to upload document to storage: %s", e)
@@ -395,16 +467,15 @@ async def upload_document(
     _space_extra = kb_space.extra_data if isinstance(kb_space.extra_data, dict) else {}
     _indexing_config = _upload_indexing_config or _space_extra.get("indexing_config")
 
-    background_tasks.add_task(
-        vectorise_document_background,
+    # 排进持久化索引队列，由常驻 worker 认领执行（见 core/kb/index_worker.py）。
+    # 早先这里挂的是 FastAPI BackgroundTasks：同步任务落进 Starlette 的共享请求线程池，
+    # 一次多选几十个文件就把池占满，后续请求连 handler 都进不去——前端一直转圈、网关
+    # 报 502；而且任务是进程内的，后端一重启就全丢，文档永远停在「索引中」。
+    _enqueue_document_indexing(
+        db,
         document_id=document["document_id"],
-        kb_id=kb_id,
         user_id=user.user_id,
-        title=doc_title,
-        file_bytes=content,
-        mime_type=mime_type,
         chunk_method=_effective_chunk_method,
-        db_url=os.getenv("DATABASE_URL", ""),
         indexing_config=_indexing_config,
         index_modes=index_modes_of(kb_space),
     )
@@ -575,7 +646,6 @@ async def reindex_document(
     kb_id: str = Path(..., description="KB space ID"),
     document_id: str = Path(..., description="Document ID"),
     request: Optional[ReindexRequest] = None,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -597,22 +667,20 @@ async def reindex_document(
     document.indexing_status = "processing"
     db.commit()
 
+    # 资产随分块一起重建：不清会在每次重索引后留下一份孤儿图（存储与表都涨）。
+    try:
+        from core.kb.kb_assets import purge_document_assets
+
+        purge_document_assets(db, document_id)
+    except Exception as exc:
+        logger.warning("Asset cleanup failed for reindex of %s: %s", document_id, exc)
+
     try:
         from core.kb.kb_vector import delete_by_document
 
         delete_by_document(document_id, user.user_id)
     except Exception as exc:
         logger.warning("Milvus cleanup failed for reindex of %s: %s", document_id, exc)
-
-    try:
-        storage = get_storage()
-        file_bytes = storage.download_bytes(document.storage_key)
-    except Exception as exc:
-        update_document_status(document_id, "failed")
-        raise BadRequestError(
-            message=f"Failed to retrieve document from storage: {exc}",
-            data={"document_id": document_id},
-        )
 
     _idx_cfg = None
     if request and request.indexing_config:
@@ -627,16 +695,14 @@ async def reindex_document(
         or "semantic"
     )
 
-    background_tasks.add_task(
-        vectorise_document_background,
+    # 与上传同一条路：排队 + 常驻 worker，原文由 worker 自己从存储取回。
+    # 这里不再预先 download_bytes——几十 MB 的原文既没必要在请求里读，也不该跟着
+    # 任务在内存里排队等着跑。
+    _enqueue_document_indexing(
+        db,
         document_id=document_id,
-        kb_id=kb_id,
         user_id=user.user_id,
-        title=document.title,
-        file_bytes=file_bytes,
-        mime_type=document.mime_type,
         chunk_method=_reindex_chunk_method,
-        db_url=os.getenv("DATABASE_URL", ""),
         indexing_config=_idx_cfg,
         index_modes=index_modes_of(kb_space),
     )

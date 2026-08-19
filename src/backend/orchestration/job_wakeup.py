@@ -29,13 +29,18 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm.attributes import flag_modified
 
+from core.chat.plan_progress import (
+    load_plan_progress,
+    plan_is_unfinished,
+    render_plan_checklist,
+)
 from core.db.engine import SessionLocal
 from core.db.models import Job
 
 logger = logging.getLogger(__name__)
 
 
-def _wake_prompt(job: Job, stats: Dict[str, Any]) -> str:
+def _wake_prompt(job: Job, stats: Dict[str, Any], plan: Optional[Dict[str, Any]] = None) -> str:
     """写给智能体自己的续跑指令 —— 只给事实与下一步，不替它下结论。"""
     remaining = int(stats.get("remaining", 0))
     lines = [
@@ -50,6 +55,19 @@ def _wake_prompt(job: Job, stats: Dict[str, Any]) -> str:
     if job.error_message:
         lines.append(f"作业错误信息：{job.error_message}")
     lines.append("")
+    # 计划清单收尾 —— 排在交付**之前**，而不是末尾一句"顺手也可以做"。
+    #
+    # 线上实测（2026-08-18）：软性提醒放在结尾时，交付轮一次都没调 update_plan，计划栏
+    # 就停在 2/5。所以这里把清单**原样念给它**（状态逐条列出），让要做的动作退化成
+    # "把这几行的 status 改一改再传回来"。
+    if plan_is_unfinished(plan):
+        lines.append(
+            "⚠️ 本轮**第一件事**：调用 `update_plan` 把任务计划清单收尾。"
+            "作业丢后台之后没有任何一轮动过它，它现在停在：\n"
+            f"{render_plan_checklist(plan)}\n"
+            "传入全量步骤列表：这次真做完的标 `completed`；没做/做不成的保持原状并在回复里"
+            "说明——**不要**把没做的写成 completed。收完尾再做下面的交付。\n"
+        )
     if remaining > 0:
         lines.append(
             f"仍有 {remaining} 项未结算。请先判断是环境故障还是脚本问题：可以用 "
@@ -100,7 +118,8 @@ def _progress_prompt(job: Job, stats: Dict[str, Any], budget_left: Dict[str, Any
         )
     lines.append(
         "本轮的硬性边界：不要重复提交作业（它还在跑），不要 export 台账，"
-        "不要把逐项结果读进对话——作业跑完会再叫你一次，那时才做交付。"
+        "不要把逐项结果读进对话，也不用动 `update_plan` 计划清单"
+        "（作业仍停在同一步，收尾留到作业跑完那一轮）——作业跑完会再叫你一次，那时才做交付。"
     )
     return "\n".join(lines)
 
@@ -138,7 +157,11 @@ async def wake_on_job_progress(
 
     try:
         await _enqueue_followup_run(
-            chat_id=chat_id, user_id=user_id, message=prompt, model_name=model_name
+            chat_id=chat_id,
+            user_id=user_id,
+            message=prompt,
+            model_name=model_name,
+            wake_kind="job_progress",
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("[job-wake] progress enqueue failed job=%s: %s", job_id, exc)
@@ -168,7 +191,7 @@ async def wake_on_job_finish(job_id: str) -> bool:
         from core.services.job_service import JobService
 
         stats = JobService(db).stats(job_id)
-        prompt = _wake_prompt(job, stats)
+        prompt = _wake_prompt(job, stats, load_plan_progress(chat_id, db))
 
         meta["woken_at"] = True
         job.extra_data = meta
@@ -177,7 +200,11 @@ async def wake_on_job_finish(job_id: str) -> bool:
 
     try:
         await _enqueue_followup_run(
-            chat_id=chat_id, user_id=user_id, message=prompt, model_name=model_name
+            chat_id=chat_id,
+            user_id=user_id,
+            message=prompt,
+            model_name=model_name,
+            wake_kind="job_finish",
         )
     except Exception as exc:  # noqa: BLE001 —— 唤醒失败不该反过来影响作业本身的终态
         logger.warning("[job-wake] enqueue failed job=%s: %s", job_id, exc)
@@ -187,7 +214,12 @@ async def wake_on_job_finish(job_id: str) -> bool:
 
 
 async def _enqueue_followup_run(
-    *, chat_id: str, user_id: str, message: str, model_name: Optional[str]
+    *,
+    chat_id: str,
+    user_id: str,
+    message: str,
+    model_name: Optional[str],
+    wake_kind: str,
 ) -> None:
     """在既有会话里入队一条 chat run —— 与用户手动发一条消息走的是同一条路。
 
@@ -211,8 +243,17 @@ async def _enqueue_followup_run(
         # 用户消息路径读的也是它（见 chats.py 的 ctx 组装）。
         _sess = chat_service.get_session(chat_id, user_id)
         workflow_chat = bool(dict(getattr(_sess, "extra_data", None) or {}).get("workflow_chat"))
-        # 唤醒消息按 user 角色落库：它要能进历史、能被模型看见，走和普通消息完全一样的链路
-        chat_service.add_message(chat_id=chat_id, role="user", content=message)
+        # 唤醒消息按 user 角色落库：它要能进历史、能被模型看见，走和普通消息完全一样的链路。
+        # 但它是**写给模型的系统指令**，不是用户说的话——`hidden_in_chat` 让消息列表接口
+        # 把它从聊天记录里滤掉（模型侧的历史另走 load_session_history，不受影响）。
+        # 没有这个标记，用户一刷新页面就会看到「[系统] 进度播报：……请只用一两句话转述」
+        # 这种内部提示词以自己的口吻贴在对话里。
+        chat_service.add_message(
+            chat_id=chat_id,
+            role="user",
+            content=message,
+            extra_data={"system_wake": wake_kind, "hidden_in_chat": True},
+        )
 
     session_messages.append({"role": "user", "content": message})
     context = build_runtime_context(

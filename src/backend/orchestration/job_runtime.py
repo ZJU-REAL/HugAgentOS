@@ -43,6 +43,10 @@ _active_jobs: Dict[str, asyncio.Task] = {}
 
 _POLL_INTERVAL_S = 2.0
 _PROGRESS_EVERY_S = 5.0
+# 工具卡上那行「作业进行中 x/y」的刷新间隔。比活性信号疏一档：活性信号只喂看门狗、
+# 不进流；这条是**要下发并落 Redis 流**的可渲染事件，一小时的作业按 5 秒刷会往流里塞
+# 七百多条。15 秒 + 「数字没变就不发」两道闸，肉眼跟得上，流也不会被灌爆。
+_UI_PROGRESS_EVERY_S = 15.0
 # 中途唤醒间隔：每次都是一轮真实推理，太密就是烧钱，太疏就等于全程失联。
 # 取 5 分钟——15 分钟的盲区太长，作业跑歪了要等一刻钟才有人发现；而播报本身很短，
 # 5 分钟一次的上下文成本可以接受。可用 run_job 的 start_params.progress_wake_sec
@@ -163,6 +167,7 @@ import json
 import os
 import random
 import time
+import traceback
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -176,6 +181,20 @@ __all__ = ["ledger", "agent", "job", "log", "JobError"]
 
 class JobError(RuntimeError):
     pass
+
+
+# 「脚本写错了」而不是「这条数据特殊」的异常。字段名拼错、把两份形状不同的列表搞混、
+# 变量没定义——这些在第 1 项就会暴露，且第 N 项必然一模一样地再犯。ValueError 之类
+# 常见于正常的数据解析（一行脏数据而已），刻意不列入。
+_SCRIPT_BUGS = (
+    NameError,
+    UnboundLocalError,
+    AttributeError,
+    TypeError,
+    KeyError,
+    IndexError,
+    ImportError,
+)
 
 
 _warned = set()
@@ -292,10 +311,17 @@ class _Job:
 
         千万别写成「先 map 完再统一回写」：那样中途全程 pending，进程一挂全白跑。
 
+        **预检（fail-fast）**：开跑前先并发试头两项。若它们抛出同一类脚本级异常
+        （``KeyError`` / ``NameError`` / ``TypeError`` / ``AttributeError`` …），
+        判定是脚本写错而非数据个例，**整份作业立刻中止并抛 JobError**，剩余项一次都不跑。
+        异常隔离是为了「一行脏数据别拖垮全批」，不是为了让同一个 bug 安静地重复 N 遍。
+
         **台账主键怎么取**：默认按 ``key`` → ``item_key`` → ``id`` → ``seq`` 顺序在 item 里找。
         ``ledger.seed`` 用的是 ``{"key": ..., "payload": ...}`` 形状，而 map 常常直接收原始
         业务对象（``{"seq": 7, "name": ...}``）——两者形状不同是常态，所以这里必须兜底，
         否则回写会**静默跳过**（实测：调用真跑了、台账全程 pending、成果全丢）。
+        对应地，``fn`` 收到的**就是你传进 map 的那个对象本身**：只有当你传的正是 seed
+        那份列表时，``item["payload"]`` 才存在——传原始业务列表就直接读它自己的字段。
         取不到时用 ``key=`` 显式指定字段名或函数；仍取不到则 log 告警，绝不静默。
         """
         items = list(items)
@@ -325,38 +351,93 @@ class _Job:
                 "请让 item 带 key/item_key/id/seq，或用 job.map(..., key='字段名')。" % (sample,)
             )
 
-        with ThreadPoolExecutor(max_workers=n) as pool:
-            futs = {pool.submit(fn, it): i for i, it in enumerate(items)}
-            done = 0
-            for fut in as_completed(futs):
-                i = futs[fut]
-                k = _key_of(items[i])
-                try:
-                    out = fut.result()
-                    results[i] = out
-                    if isinstance(out, dict):
-                        if k:
-                            payload = dict(out)
-                            status = payload.pop("_status", "done")
-                            ledger.update(k, status=status, result=payload)
-                        else:
-                            _warn_unbookable(items[i])
-                except Exception as exc:  # noqa: BLE001 —— 异常隔离是本方法的契约
-                    results[i] = None
-                    # 隔离 ≠ 吞掉。事故里 568 项每一项都抛异常，日志上却只有整齐的
-                    # "已处理 N/568"，没人看得出一次模型调用都没成功。首个异常必须留痕。
-                    _warn_once("job.map 首个失败项：%s" % repr(exc)[:300])
-                    if k:
-                        try:
-                            ledger.update(k, status="failed", error=repr(exc)[:1000],
-                                          bump_attempts=True)
-                        except Exception:
-                            pass
-                    else:
-                        _warn_unbookable(items[i])
-                done += 1
-                if done % 10 == 0:
-                    log("已处理 %d/%d" % (done, len(items)))
+        def _book(i, out=None, exc=None):
+            """把一项的结果/异常落账。预检和并发池共用同一套回写语义。"""
+            k = _key_of(items[i])
+            if exc is not None:
+                results[i] = None
+                # 隔离 ≠ 吞掉。事故里 568 项每一项都抛异常，日志上却只有整齐的
+                # "已处理 N/568"，没人看得出一次模型调用都没成功。首个异常必须留痕。
+                _warn_once("job.map 首个失败项：%s" % repr(exc)[:300])
+                if k:
+                    try:
+                        ledger.update(k, status="failed", error=repr(exc)[:1000],
+                                      bump_attempts=True)
+                    except Exception:
+                        pass
+                else:
+                    _warn_unbookable(items[i])
+                return
+            results[i] = out
+            if isinstance(out, dict):
+                if k:
+                    payload = dict(out)
+                    status = payload.pop("_status", "done")
+                    ledger.update(k, status=status, result=payload)
+                else:
+                    _warn_unbookable(items[i])
+
+        # ── 预检：先拿头两项探路 ────────────────────────────────────────
+        # 脚本级 bug（字段名拼错、把 seed 那份列表和原始业务列表搞混）在第 1 项就会
+        # 暴露，第 N 项必然一模一样地再犯。旧行为是每项各自记 failed、日志只留一条
+        # warn，然后照常打印"全部处理完成"——实测一次 265 项的作业就这么整份跑空，
+        # 0 次模型调用、台账全程 pending，而作业状态还是 completed，没人看得出来。
+        # 所以：头两项都抛出同一类脚本异常（或总共就一项）即判定脚本写错，整体中止，
+        # 把 traceback 抛给运行器 → 作业记 failed → 模型下一轮拿到行号自己改。
+        probe_n = min(2, len(items))
+        # 两项并发跑（不是串行）：预检是为了早发现 bug，不该给正常作业平白加两次调用的延迟。
+        with ThreadPoolExecutor(max_workers=probe_n) as probe_pool:
+            probe = [probe_pool.submit(fn, items[i]) for i in range(probe_n)]
+        outcomes = []
+        for fut in probe:
+            try:
+                outcomes.append(("ok", fut.result()))
+            except BaseException as exc:  # noqa: BLE001 —— 分类交给下面的判定
+                outcomes.append(("err", exc))
+
+        bugs = [e for kind, e in outcomes if kind == "err" and isinstance(e, _SCRIPT_BUGS)]
+        systematic = len(bugs) == probe_n and (
+            probe_n == 1 or type(bugs[0]) is type(bugs[-1])
+        )
+        for i, (kind, val) in enumerate(outcomes):
+            if kind == "ok":
+                _book(i, out=val)
+            else:
+                if systematic:
+                    exc = val
+                    raise JobError(
+                        "job.map 预检失败：前 %d 项都抛出 %s —— 这是脚本 bug 而不是"
+                        "数据个例，作业已整体中止（剩余 %d 项一次都没跑，预算没浪费）。\n"
+                        "最常见的原因：传给 job.map 的列表和 ledger.seed 用的不是同一份。"
+                        "fn 收到的就是你传进 map 的那个对象本身——只有当你传的正是 seed "
+                        "那份 [{'key':…, 'payload':…}] 列表时，item['payload'] 才存在。\n"
+                        "%s" % (
+                            probe_n,
+                            repr(exc)[:200],
+                            len(items) - probe_n,
+                            "".join(
+                                traceback.format_exception(
+                                    type(exc), exc, exc.__traceback__
+                                )
+                            )[-1500:],
+                        )
+                    ) from exc
+                _book(i, exc=val)
+
+        done = probe_n
+        rest = list(range(probe_n, len(items)))
+        if rest:
+            with ThreadPoolExecutor(max_workers=n) as pool:
+                futs = {pool.submit(fn, items[i]): i for i in rest}
+                for fut in as_completed(futs):
+                    i = futs[fut]
+                    try:
+                        _book(i, out=fut.result())
+                    except Exception as exc:  # noqa: BLE001 —— 异常隔离是本方法的契约
+                        _book(i, exc=exc)
+                    done += 1
+                    if done % 10 == 0:
+                        log("已处理 %d/%d" % (done, len(items)))
         return results
 
 
@@ -475,6 +556,9 @@ def _emit_progress(chat_id: Optional[str], note: str) -> None:
     """活性信号：转译成 model_progress 喂主 run 的无活动看门狗。
 
     长作业期间主对话没有任何可渲染输出，缺了这条会被 600s 看门狗当成卡死强杀。
+
+    ⚠️ 它**只喂看门狗**：``sub_type="progress"`` 在 workflow 里被折叠成 model_progress，
+    而 model_progress 不写流。要让用户看见进度得走下面的 ``_emit_ui_progress``。
     """
     if not chat_id:
         return
@@ -488,6 +572,63 @@ def _emit_progress(chat_id: Optional[str], note: str) -> None:
             {"sub_type": "progress", "agent_id": "job", "agent_name": "批量作业", "note": note},
         )
     except Exception:  # noqa: BLE001 —— 活性信号是尽力而为，永远不该拖垮作业
+        pass
+
+
+def _emit_ui_progress(
+    chat_id: Optional[str], job_row_id: str, name: str, stats: Dict[str, Any]
+) -> None:
+    """把作业台账的实时数字打到主对话的 run_job 工具卡上。
+
+    为什么必须单独有这条：``wait=True`` 的作业会把主对话在 run_job 里阻塞几十分钟，
+    这期间模型没有任何输出、工具也没有新调用——前端于是停在「run_job 运行中」转圈，
+    步骤条一个数都不动，用户只能靠刷新页面才发现其实早跑完了（实测 54 分钟一轮）。
+    活性信号解决的是「后端别把它当卡死杀掉」，这条解决的是「用户看得见它在动」。
+
+    走 subagent_event 旁路：``sub_type`` 不是 ``progress`` 就会被 workflow 原样下发、
+    被 chat_run_executor 写进 run 的 Redis 流（断线续播也能重放）；``attach_subagent_step``
+    不认这个 sub_type，所以**不落**持久化工具日志——刷新后由 tool_result 说明结局，
+    不留一行过期的中途进度。
+
+    ``parent_tool_id`` 取自 ActingToolCallIdMiddleware 写好的 ContextVar：驱动跑在
+    run_job 这次工具调用的同一条任务链上（``wait=False`` 的后台 task 也继承了这份
+    上下文副本），所以拿到的就是该工具卡的 id，前端据此把进度贴到正确的卡片上。
+    """
+    if not chat_id:
+        return
+    try:
+        from core.llm import _subagent_stream
+
+        if not _subagent_stream.is_active(chat_id):
+            return
+        try:
+            from core.llm.middlewares import CURRENT_TOOL_CALL_ID
+
+            parent_tool_id = CURRENT_TOOL_CALL_ID.get("") or ""
+        except Exception:  # noqa: BLE001
+            parent_tool_id = ""
+        total = int(stats.get("total", 0) or 0)
+        settled = int(stats.get("settled", 0) or 0)
+        _subagent_stream.push(
+            chat_id,
+            {
+                "sub_type": "job_progress",
+                "parent_tool_id": parent_tool_id,
+                "parent_tool_name": "run_job",
+                "agent_id": "job",
+                "agent_name": "批量作业",
+                "job_id": job_row_id,
+                "job_name": name or "",
+                "total": total,
+                "settled": settled,
+                "done": int(stats.get("done", 0) or 0),
+                "failed": int(stats.get("failed", 0) or 0),
+                "not_found": int(stats.get("not_found", 0) or 0),
+                "running": int(stats.get("running", 0) or 0),
+                "pending": int(stats.get("pending", 0) or 0),
+            },
+        )
+    except Exception:  # noqa: BLE001 —— 进度是尽力而为，永远不该拖垮作业
         pass
 
 
@@ -689,6 +830,10 @@ async def read_runner_log(job_row_id: str, *, user_id: str, session_id: str, tai
 async def drive(job_row_id: str, *, chat_id: Optional[str]) -> Dict[str, Any]:
     """轮询直到 job 进终态；负责墙钟熔断、沙箱保活、活性信号、中途进度唤醒。"""
     last_progress = 0.0
+    # 工具卡进度的记账：上次下发的时刻 + 上次下发的数字。数字没变就不重复发，
+    # 免得一小时的作业往 run 的事件流里灌几百条一模一样的帧。
+    last_ui_progress = 0.0
+    last_ui_settled: Tuple[int, int] = (-1, -1)
     last_keepalive = 0.0
     last_liveness = time.monotonic()
     started = time.monotonic()
@@ -707,6 +852,7 @@ async def drive(job_row_id: str, *, chat_id: Optional[str]) -> Dict[str, Any]:
             if job is None:
                 return {"status": "failed", "error": "job 不存在"}
             status = str(job.status)
+            job_name = job.name or ""
             session_id = job.sandbox_session_id or ""
             user_id = job.user_id
             budget = dict(job.budget or {})
@@ -756,6 +902,14 @@ async def drive(job_row_id: str, *, chat_id: Optional[str]) -> Dict[str, Any]:
         if now - last_progress >= _PROGRESS_EVERY_S:
             last_progress = now
             _emit_progress(chat_id, f"作业进行中 done={stats.get('done')} pending={stats.get('pending')}")
+        # 用户看得见的那行进度：数字变了、且离上次下发够久，才发一帧。
+        # 分母也要算进「变了」——台账 seed 完成时 total 从 0 跳到 N 而 settled 还是 0，
+        # 只盯 settled 的话这一跳发不出去，卡片会一直停在「正在建立台账」。
+        _ui_now = (int(stats.get("total", 0) or 0), int(stats.get("settled", 0) or 0))
+        if now - last_ui_progress >= _UI_PROGRESS_EVERY_S and _ui_now != last_ui_settled:
+            last_ui_progress = now
+            last_ui_settled = _ui_now
+            _emit_ui_progress(chat_id, job_row_id, job_name, stats)
         if session_id and now - last_keepalive >= 60:
             last_keepalive = now
             await _keepalive_sandbox(session_id)
@@ -830,13 +984,40 @@ async def start_job(
     return job_row_id
 
 
-async def run_and_wait(job_row_id: str, *, chat_id: Optional[str]) -> Dict[str, Any]:
-    task = asyncio.create_task(drive(job_row_id, chat_id=chat_id))
+async def run_and_wait(
+    job_row_id: str, *, chat_id: Optional[str], detach_after: float = 0.0
+) -> Dict[str, Any]:
+    """前台等作业跑完。
+
+    ``detach_after`` > 0 时是**软等待**：等够这么多秒作业还没进终态，就不再等了，
+    返回 ``{"status": "detached"}``，但**不取消作业**——它继续在后台跑，调用方改按
+    后台语义收尾（打开唤醒标记、把 job_id 交给用户）。
+
+    为什么要有这个：``wait`` 是模型自己判断的，而它对"这批要跑多久"的估计经常偏乐观
+    （实测把一个 265 项、每项都要过模型的分类作业当成小作业，前台一口气阻塞了 5 分钟，
+    用户看不到进度也插不上话）。与其指望提示词把判断教对，不如让前台等待有个硬上限。
+    """
+
+    async def _drive_and_release():
+        try:
+            return await drive(job_row_id, chat_id=chat_id)
+        finally:
+            _active_jobs.pop(job_row_id, None)
+
+    task = asyncio.create_task(_drive_and_release())
     _active_jobs[job_row_id] = task
-    try:
-        return await task
-    finally:
-        _active_jobs.pop(job_row_id, None)
+    if detach_after and detach_after > 0:
+        try:
+            # shield：wait_for 超时默认会取消内层任务，而这里要的恰恰是让它继续跑
+            return await asyncio.wait_for(asyncio.shield(task), detach_after)
+        except asyncio.TimeoutError:
+            logger.info(
+                "[job] foreground wait exceeded %ss, detaching to background job=%s",
+                int(detach_after),
+                job_row_id,
+            )
+            return {"status": "detached"}
+    return await task
 
 
 def spawn_background(job_row_id: str, *, chat_id: Optional[str]) -> None:

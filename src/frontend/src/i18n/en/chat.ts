@@ -170,6 +170,7 @@ export const CHAT_DICT: Record<string, string> = {
   '互联网搜索结果': 'Internet search results',
   '暂无内容': 'No content',
   '未知文档': 'Unknown document',
+  '文档图片': 'Document image',
   '暂无摘要': 'No summary',
   '引用详情': 'Citation details',
   '资讯详情': 'News Detail',
@@ -301,4 +302,6 @@ export const CHAT_DICT: Record<string, string> = {
   '作业已失联，可续跑': 'Job lost contact — resumable',
   '作业已取消': 'Job cancelled',
   '已完成 {n}/{m}': '{n}/{m} done',
+  '作业进行中 {n}/{m}': 'Job running {n}/{m}',
+  '（失败 {n}）': ' ({n} failed)',
 };

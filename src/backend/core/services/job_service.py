@@ -124,12 +124,46 @@ class JobService:
         job = self.get(job_id)
         if job is None or job.status in ("completed", "failed", "cancelled"):
             return
+        # 「脚本退出码 0」≠「作业成功」。台账建了却一项没结算，说明这一趟压根没干成活
+        # ——实测一个 265 项的作业因脚本 bug 每项都抛异常，脚本本身正常退出，于是作业
+        # 记成 completed，用户和模型看到的都是"已完成"，没有任何纠错信号。终态以台账
+        # 这个可判定的事实为准。
+        if status == "completed":
+            st = self.stats(job_id)
+            # 「有结果」= done / not_found / needs_review 任一。全 pending（压根没回写）
+            # 或全 failed（每项都抛）都算这一趟白跑；全部 needs_review 是脚本有意送审，
+            # 属于正常结局，不判失败。
+            produced = st["done"] + st["not_found"] + st["needs_review"]
+            if st["total"] > 0 and produced == 0:
+                status = "failed"
+                error = error or (
+                    f"脚本正常退出，但台账 {st['total']} 项无一产出结果"
+                    f"（done=0，failed={st['failed']}，pending={st['pending']}）——判定为失败。"
+                    "常见原因：job.map 传的对象取不到台账主键，或 fn 每项都抛异常。"
+                    "请查作业日志里的 'job.map' 告警，改完脚本用 "
+                    "run_job(action='start', on_conflict='replace') 重跑。"
+                )
         job.status = status
         job.error_message = (error or "")[:4000] or None
         job.completed_at = _utcnow()
         # 终态即销毁 token：沙箱可能被别的会话复用，旧脚本不得再回调
         meta = dict(job.extra_data or {})
         meta.pop("token", None)
+        job.extra_data = meta
+        flag_modified(job, "extra_data")
+        self.db.commit()
+
+    def set_wake_on_finish(self, job_id: str, value: bool = True) -> None:
+        """作业从前台等待转入后台时打开唤醒标记，让终态回来叫醒会话播报。"""
+        job = self.get(job_id)
+        if job is None:
+            return
+        meta = dict(job.extra_data or {})
+        params = dict(meta.get("start_params") or {})
+        if bool(params.get("wake_on_finish")) is bool(value):
+            return
+        params["wake_on_finish"] = bool(value)
+        meta["start_params"] = params
         job.extra_data = meta
         flag_modified(job, "extra_data")
         self.db.commit()

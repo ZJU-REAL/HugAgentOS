@@ -230,6 +230,34 @@ def _normalize_auth_config(
     }
 
 
+def _endpoint_identity(url: str) -> tuple[str, str, int | None]:
+    """Scheme/host/port of an endpoint, ignoring path, query, and credentials."""
+    parsed = urlparse((url or "").strip())
+    scheme = (parsed.scheme or "").lower()
+    default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    return scheme, (parsed.hostname or "").lower(), parsed.port or default_port
+
+
+def _installs_admin_published_endpoint(
+    item: McpMarketItem,
+    version: McpMarketVersion,
+    runtime_url: str,
+) -> bool:
+    """Whether an install still targets the exact endpoint an admin put on the shelf.
+
+    Admin publishing already vets the endpoint and may legitimately point at the
+    deployment's own network (the built-in MCP container, a LAN service).  The
+    SSRF boundary exists for endpoints the *installer* supplies, so it must key
+    on the endpoint's provenance rather than on who is installing: an unchanged
+    admin-published host stays trusted for everyone who installs it, while a
+    URL-target credential that redirects the install elsewhere is checked
+    strictly, whoever submits it.
+    """
+    if item.source != "admin":
+        return False
+    return _endpoint_identity(runtime_url) == _endpoint_identity(version.url)
+
+
 def _credential_free_connection(row: AdminMcpServer) -> tuple[str, List[Dict[str, Any]]]:
     """Strip likely query-string secrets and expose only their install-time schema."""
     parsed = urlparse(row.url or "")
@@ -1146,7 +1174,7 @@ async def install_market_item(
     runtime_url, _ = materialize_mcp_http_connection(version.url, headers)
     await validate_remote_mcp_url(
         runtime_url,
-        allow_private_network=item.source == "admin" and owner_user_id is None,
+        allow_private_network=_installs_admin_published_endpoint(item, version, runtime_url),
         require_https=False,
     )
 

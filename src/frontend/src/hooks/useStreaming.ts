@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { message } from 'antd';
 import { t } from '../i18n';
 import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
@@ -9,7 +9,7 @@ import { resolveBatchModeActive, resolveWorkflowModeActive } from '../utils/chat
 import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
-import { processChatStream } from './chatStream';
+import { processChatStream, getStreamActivityTs, hasStreamedRun } from './chatStream';
 import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
@@ -913,7 +913,107 @@ export function useStreaming(
     }
   }
 
-  async function resumeRunIfAny(chatId: string) {
+  /* ───────────────────────────────────────────
+     断连看门狗 —— 「后台早跑完了，前台还在转圈，只能靠刷新页面才发现」的根治。
+
+     成因：一轮长工具（批量作业 run_job 实测能把一轮撑到 54 分钟）期间，SSE 上只有每
+     15 秒一行心跳。中间任何一层（代理、NAT、休眠唤醒）把连接悄悄掐成半开时，fetch 既
+     不报错也不结束，reader 就永远 await 下去——气泡于是停在最后一帧转圈，而后端那轮
+     早已正常跑完落库。过去唯一的出路是用户自己刷新页面（resumeRunIfAny 只在切会话/
+     刷新时跑一次）。
+
+     判据用**传输层活性**而不是「有没有新内容」：长工具期间没有可渲染事件是正常的，
+     心跳断了才是真断了。连丢 5 拍（75 秒）才动手，宁可晚一点也不误伤慢链路。
+     ─────────────────────────────────────────── */
+  const RUN_STALL_MS = 75_000;
+  const RUN_WATCH_EVERY_MS = 20_000;
+  /** 正在对账的会话，防止两轮定时器叠在同一个会话上互相拆台。 */
+  const reconcilingRef = useRef<Set<string>>(new Set());
+
+  async function reconcileStalledRun(chatId: string) {
+    if (reconcilingRef.current.has(chatId)) return;
+    reconcilingRef.current.add(chatId);
+    try {
+      const uid = useAuthStore.getState().authUser?.user_id;
+      let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
+      try {
+        active = await getActiveChatRun(chatId, uid);
+      } catch {
+        return; // 查不到就等下一轮：宁可继续转圈，也不要凭一次网络抖动拆掉正在跑的轮次
+      }
+      const live = !!active && (active.status === 'running' || active.status === 'pending');
+      // 本地这条连接已经确定是死的（75 秒没有任何字节），先把它断掉，让气泡收尾
+      abortControllersRef.current.get(chatId)?.abort();
+
+      if (!live) {
+        // 后端那轮已经终态：结束僵尸 UI，并把库里的最终消息拉回来——用户不用再手动刷新。
+        // 先让上面的 abort 把气泡收尾写完，再拉历史，免得收尾把刚拉回来的最终消息盖掉。
+        cleanupZombieRunState(chatId, active?.status || 'completed');
+        await new Promise((r) => setTimeout(r, 300));
+        useChatStore.getState().removeLoadedMsgId(chatId);
+        useChatStore.getState().bumpSessionLoadEpoch();
+        return;
+      }
+
+      // run 还活着 → 重挂。等 abort 的 finally 把 sendingChatIds 清掉，否则 resumeRunIfAny
+      // 会被它自己的「正在发送就别插手」守卫挡回来。
+      for (let i = 0; i < 12 && useChatStore.getState().sendingChatIds.has(chatId); i++) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      if (useChatStore.getState().sendingChatIds.has(chatId)) return; // 没让开就等下一轮
+      await resumeRunIfAny(chatId, { rebuildTail: true });
+    } finally {
+      reconcilingRef.current.delete(chatId);
+    }
+  }
+
+  /** 后端自己发起的那一轮 —— 批量作业跑完/中途播报会在**同一个会话里入队一条新 run**
+   *  （job_wakeup），用户没点任何东西，前端也就没有任何本地流。过去只有切会话或刷新
+   *  才会去看一眼有没有在跑的 run，于是这轮播报全程隐身：作业早交付完了，页面上还是
+   *  用户离开时的样子。这里在当前会话空闲时补一眼，发现有活的 run 就照常跟随。 */
+  async function attachServerStartedRun(chatId: string) {
+    const store = useChatStore.getState();
+    if (store.sendingChatIds.has(chatId) || store.activeRuns[chatId]) return;
+    let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
+    try {
+      active = await getActiveChatRun(chatId, useAuthStore.getState().authUser?.user_id);
+    } catch {
+      return;
+    }
+    if (!active?.run_id || (active.status !== 'running' && active.status !== 'pending')) return;
+    // 自己刚跑完那一轮的残影（本地流已收尾、后端还没落终态）——认错了会把同一轮重放成两个气泡
+    if (hasStreamedRun(active.run_id)) return;
+    // 这轮的用户侧消息（唤醒指令）是后端落的库，本地还没有 → 先把历史拉齐再跟随，
+    // 否则回答会孤零零挂在上一轮后面。
+    store.removeLoadedMsgId(chatId);
+    store.bumpSessionLoadEpoch();
+    // 与刷新进来时同一条时序：先让历史落地，再挂流。抢在前面挂，重放中的气泡会被
+    // 随后到达的历史整体盖掉。
+    await new Promise((r) => setTimeout(r, 800));
+    await resumeRunIfAny(chatId);
+  }
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const { sendingChatIds, activeRuns, currentChatId } = useChatStore.getState();
+      const now = Date.now();
+      sendingChatIds.forEach((cid) => {
+        // 还没拿到 run_id 的（刚 POST 出去、首帧未到）不归看门狗管
+        if (!activeRuns[cid]) return;
+        const last = getStreamActivityTs(cid);
+        if (!last || now - last < RUN_STALL_MS) return;
+        void reconcileStalledRun(cid);
+      });
+      // 后台标签页不必占着这一发：切回来时 currentChatId 的 effect 本来就会补跟随
+      if (currentChatId && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+        void attachServerStartedRun(currentChatId);
+      }
+    }, RUN_WATCH_EVERY_MS);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function resumeRunIfAny(chatId: string, opts?: { rebuildTail?: boolean }) {
     const uid = useAuthStore.getState().authUser?.user_id;
     let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
     try {
@@ -965,7 +1065,7 @@ export function useStreaming(
     // "回答无对应问题"（问题17）。Web Locks 随标签页关闭自动释放。
     const runLockName = `hugagent_run_follow_${active.run_id}`;
     const activeRun = active;
-    const doFollowRun = () => followActiveRun(chatId, activeRun, uid);
+    const doFollowRun = () => followActiveRun(chatId, activeRun, uid, opts?.rebuildTail);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const locksApi = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
     if (locksApi?.request) {
@@ -984,6 +1084,9 @@ export function useStreaming(
     chatId: string,
     active: NonNullable<Awaited<ReturnType<typeof getActiveChatRun>>>,
     uid: string | undefined,
+    /** 断连重挂：本地气泡是被掐断的半截，而重挂是从头全量重放 —— 先摘掉它再重建，
+     *  否则同一轮会并排出现两个气泡（刷新进来时没有这半截，所以默认不摘）。 */
+    rebuildTail?: boolean,
   ) {
     const { addSendingChatId, removeSendingChatId } = useChatStore.getState();
 
@@ -1058,6 +1161,16 @@ export function useStreaming(
         useChatStore.getState().clearActiveRun(chatId);
       }
       return;
+    }
+
+    // 断连重挂：本地留着的是被掐断的半截气泡，而下面是从 offset 0 全量重放（运行中的 run
+    // 还没写 last_event_offset），不摘掉它就会并排出现两个同轮气泡。
+    if (rebuildTail) {
+      const _msgs = useChatStore.getState().store.chats[chatId]?.messages;
+      const _last = _msgs && _msgs.length > 0 ? _msgs[_msgs.length - 1] : undefined;
+      if (_last?.role === 'assistant') {
+        useChatStore.getState().truncateMessagesFrom(chatId, _last.ts);
+      }
     }
 
     addSendingChatId(chatId);

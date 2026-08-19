@@ -217,6 +217,11 @@ def attach_subagent_step(tool_calls_log: list, parent_tool_id: str, ev: dict) ->
     """
     if not parent_tool_id:
         return
+    # 批量作业的中途进度只活在实时流里：它贴的是 run_job 的工具卡，落库只会留下一行
+    # 过期数字（刷新后 tool_result 才是结论），还会把 agent_name 写成「批量作业」污染
+    # 那张卡的展示名。
+    if ev.get("sub_type") == "job_progress":
+        return
     entry = None
     for tc in tool_calls_log:
         if tc.get("tool_id") == parent_tool_id:

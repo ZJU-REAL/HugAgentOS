@@ -1,6 +1,23 @@
 /** 英文字典（tool 域）：key 为中文原文，value 为英文译文。 */
 export const TOOL_DICT: Record<string, string> = {
   // ToolOutputRenderer.tsx
+  // DataView.tsx / WindowedText.tsx / CitedTextBody.tsx —— 工具结果可读视图与引用定位
+  '共 {n} 项': '{n} fields',
+  '显示更多（还有 {n} 条）': 'Show more ({n} left)',
+  '展开全部 {n} 字': 'Show all {n} chars',
+  '展开上文（还有 {n} 字）': 'Show earlier text ({n} chars)',
+  '展开下文（还有 {n} 字）': 'Show later text ({n} chars)',
+  '显示全文': 'Show full text',
+  '结构视图': 'Readable view',
+  '原始 JSON 文本': 'Raw JSON',
+  '查看完整结果': 'View full result',
+  '只看引用出处': 'Cited part only',
+  '引用出处：{trail}': 'Cited from: {trail}',
+  '结果列表': 'Results',
+  '展开全部内容': 'Show full content',
+  '收起内容': 'Show less',
+  '已定位到正文引用的位置': 'Jumped to the cited passage',
+  '正文引用的就是这一段': 'This is the passage cited in the answer',
   '等 {n} 个': '+{n} more',
   '{n} 个': '{n}',
   '{n} 字': '{n} chars',

@@ -57,7 +57,7 @@ from core.db.models.identity import (
     UserShadow,
 )
 from core.db.models.job import JOB_LIVE_STATUSES, JOB_TERMINAL_STATUSES, Job, JobCall, JobItem
-from core.db.models.knowledge import CatalogOverride, KBChunk, KBDocument, KBSpace
+from core.db.models.knowledge import CatalogOverride, KBAsset, KBChunk, KBDocument, KBSpace
 from core.db.models.logs import SkillCallLog, SubAgentCallLog, ToolCallLog
 from core.db.models.memory import MemoryRefShadow, MemorySanitizerRule, ProfileMemory
 from core.db.models.ontology import (

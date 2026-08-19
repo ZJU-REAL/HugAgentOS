@@ -158,6 +158,12 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `FILE_PARSER_LANG_LIST` | `ch` | OCR languages | CE |
 | `FILE_PARSER_BACKEND` / `FILE_PARSER_PARSE_METHOD` | `pipeline` / `auto` | Parser backend and method | CE |
 | `FILE_PARSER_FORMULA_ENABLE` / `FILE_PARSER_TABLE_ENABLE` | `true` / `true` | Formula / table parsing toggles | CE |
+| `KB_MULTIMODAL_INDEXING` | `true` | Global switch: extract and index images found in documents (override per space with `indexing_config.multimodal_indexing`) | CE |
+| `KB_ASSET_CAPTION_MAX_PER_DOC` | `200` | Cap on images described per document; the rest are indexed by their caption text only | CE |
+| `KB_ASSET_CAPTION_BATCH` | `2` | Images submitted to the vision bridge per batch. The bridge's semaphore is process-wide (`VISION_MAX_CONCURRENCY`); submitting in small batches keeps bulk indexing from saturating it and queueing interactive image reads behind it | CE |
+| `KB_ASSET_TEXT_MAX_CHARS` | `4000` | Length cap for the caption + OCR transcript stored in `text_content` (that field feeds the vector) | CE |
+| `KB_ASSET_MIN_BYTES` / `KB_ASSET_MIN_EDGE_PX` | `4096` / `64` | Filter out layout noise such as icons and rules (the pixel check needs Pillow; without it only the byte floor applies) | CE |
+| `KB_ASSET_URL_PREFIX` | `/api` | Prefix of the asset URLs written into chunk text; must match the frontend's `VITE_API_BASE_URL` | CE |
 
 ## MCP tools
 

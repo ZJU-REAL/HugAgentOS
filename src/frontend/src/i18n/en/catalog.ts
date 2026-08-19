@@ -148,7 +148,7 @@ export const CATALOG_DICT: Record<string, string> = {
   '返回修改': 'Back to Edit',
   '确认上传': 'Confirm Upload',
   '点击或拖拽文件到此区域': 'Click or drag files here',
-  '支持 PDF、Word、Excel、TXT、Markdown、CSV、JSON，单文件最大 100MB': 'Supports PDF, Word, Excel, TXT, Markdown, CSV, JSON. Max 100MB per file.',
+  '支持 PDF、Word、Excel、TXT、Markdown、CSV、JSON、图片，单文件最大 100MB': 'Supports PDF, Word, Excel, TXT, Markdown, CSV, JSON and images. Max 100MB per file.',
   '分块方法': 'Chunking Method',
   '启用父子分块': 'Enable Parent-Child Chunking',
   '父块存储完整上下文，子块用于向量检索': 'Parent chunks store full context; child chunks are used for vector retrieval',
@@ -197,6 +197,7 @@ export const CATALOG_DICT: Record<string, string> = {
   '适合 FAQ、客服问答、知识问答数据': 'Best for FAQ, customer service Q&A, and knowledge Q&A data',
   '推荐': 'Recommended',
   '个文档已上传，正在后台索引': ' document(s) uploaded, indexing in background',
+  '个文档上传失败': ' document(s) failed to upload',
 
   // SkillsPage
   '技能库': 'Skill Library',

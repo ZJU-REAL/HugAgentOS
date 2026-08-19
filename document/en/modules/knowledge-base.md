@@ -66,10 +66,11 @@ ORM definitions live in `src/backend/core/db/models/knowledge.py`:
 | `kb_spaces` | KB space: owner (`user_id`), `visibility` (private/public), `chunk_method`, document count / size stats |
 | `kb_documents` | Documents: storage_key, checksum, `indexing_status` (processing / completed / failed) |
 | `kb_chunks` | **Parent chunk** text (returned to the LLM on retrieval), with `tags` and related `questions` |
+| `kb_assets` | **Media assets** carried by a document (figures cut out by layout parsing, standalone image uploads): bytes live in object storage; this table holds the owning chunk, the source position `locator`, the caption/OCR text `text_content`, and the model-generated description `caption` |
 
 The three Wiki tables (`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`) are defined in `core/db/models/kb_wiki.py`; see [Knowledge Base Wiki](./knowledge-base-wiki.md).
 
-Child chunks never touch the relational DB — they are vectorized into the Milvus collection `hugagent_kb_private` (`core/kb/kb_vector.py`); every row carries `user_id` / `kb_id` for ownership isolation, and `row_type` distinguishes chunk rows from question rows.
+Child chunks never touch the relational DB — they are vectorized into the Milvus collection `hugagent_kb_private` (`core/kb/kb_vector.py`); every row carries `user_id` / `kb_id` for ownership isolation, and `row_type` distinguishes chunk rows, question rows, and image rows.
 
 ### Chunking and indexing
 
@@ -85,6 +86,55 @@ Parsing and chunking happen in `core/kb/kb_parser.py::parse_and_chunk()`, suppor
 
 Parent-child parameters are tunable per upload via `indexing_config`: `parent_chunk_size` (default 1024 tokens), `child_chunk_size` (128), `overlap_tokens` (20), `parent_child_indexing` (default true). LLM enrichment is opt-in: `auto_keywords_count` (keywords per parent chunk, stored as tags and fed into sparse retrieval) and `auto_questions_count` (generated questions per parent chunk, indexed as separate question rows in Milvus to boost question-style recall). The background vectorization task is `core/content/kb_processing.py::vectorise_document_background()`.
 
+### Multimodal: image retrieval
+
+Figures inside documents are no longer discarded. Indexing runs through
+`core/kb/kb_assets.py`:
+
+1. **Extraction** — for PDFs, the external parse service's layout pass returns the figure
+   bytes along with its caption, page index and bbox; a standalone image upload is itself
+   one asset (it used to be force-decoded as plain text into garbage paragraphs — fixed).
+   Bytes go to object storage, and the dead links in the text that pointed at the parse
+   service's temp paths are rewritten to real asset URLs.
+2. **Image understanding** — reuses the
+   [vision bridge](./model-providers.md#vision-bridge-giving-text-only-models-eyes)
+   (`core/vision`): the same path and the same `vision` model role that lets a text-only
+   chat model read images. Three things come for free with it — an **evidence cache keyed
+   by image content** (re-indexing the same document costs nothing), three provider
+   protocols with structured-output degradation, and the hard constraint that only a
+   multimodal provider can be assigned to that role. Mapping: `summary` → `caption`,
+   `ocr.full_text` merges into `text_content` (alongside the document's own caption), and
+   entities / relations / uncertainty are kept in `metadata.vision` for the ontology layer
+   and human review. **Leaving `vision` unassigned (with a text-only main model) is a
+   normal state**: images stay retrievable through their caption text, and configuring the
+   role later backfills descriptions without re-parsing any document.
+3. **Indexing** — each asset becomes one `row_type="image"` row whose `parent_chunk_id`
+   points at the chunk containing it, so dedup, parent-text fetch, reranking and
+   per-document deletion all keep working unchanged.
+4. **Return** — a hit carries `images: [{asset_id, url, caption}]` for the model to answer
+   from and the UI to render. Bytes are served by
+   `GET /v1/catalog/kb/assets/{asset_id}`, whose visibility follows the owning KB space.
+
+Toggles: `indexing_config.multimodal_indexing` (per space) takes precedence over the global
+`KB_MULTIMODAL_INDEXING`. Per-image size caps, call timeouts and evidence-cache TTL belong
+to the vision bridge (`VISION_*`); the knowledge base only throttles **batches**:
+`KB_ASSET_CAPTION_BATCH` limits how many images are handed to the bridge at once — its
+semaphore is process-wide, so pushing a hundred-figure document through in one go would
+queue every interactive image read behind it. See the
+[environment variable reference](../deployment/environment-variables.md).
+
+Indexing runs in a `BackgroundTasks` worker thread (no running event loop) while the bridge
+is async, so `anyio.from_thread` hands the coroutine back to the **host loop** (Starlette's
+`run_in_threadpool` is `anyio.to_thread.run_sync`), which is what makes the evidence cache
+and the semaphore actually apply. Only when no host loop is reachable (CLI / scripts) does it
+spin up a temporary loop with the cache disabled — the Redis pool is a module-level global
+bound to whichever loop first touches it, and letting a throwaway loop create it would strand
+the whole process's Redis on a destroyed loop.
+
+Audio and video reuse this same path: `kb_assets.kind` already widens to `audio` /
+`video`, so wiring them up only means writing the ASR transcript into `text_content` —
+indexing and retrieval downstream are unchanged.
+
 ### Retrieval path
 
 `mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`:
@@ -92,7 +142,7 @@ Parent-child parameters are tunable per upload via `indexing_config`: `parent_ch
 1. Resolve the allowed `kb_id` set (environment variables in stdio mode; `x-allowed-kb-ids` and friends as HTTP headers in streamable-http mode);
 2. `embed_text(query)` produces the query vector (embedding config reuses `MEM0_EMBED_*` or the DB `embedding` model role);
 3. `core/kb/kb_vector.py::hybrid_search()`: two `AnnSearchRequest`s — dense vectors (IP metric) and sparse vectors (bag-of-words hashing into a 100k-dimension space) — fused with `RRFRanker(k=60)`; private spaces are filtered by `user_id == current user`, while EE public spaces pass only after their authorized `kb_id` is resolved;
-4. Child-chunk / question-row hits are deduplicated, then the **parent chunk text** is fetched from PostgreSQL `kb_chunks` and returned to the LLM;
+4. Child-chunk / question-row / image-row hits are deduplicated, then the **parent chunk text** is fetched from PostgreSQL `kb_chunks` and returned to the LLM along with that chunk's image references;
 5. If the user enabled reranking, results get a second pass through the reranker API (`RERANKER_URL/MODEL/API_KEY` or the DB `reranker` role).
 
 Returned content follows the `[ref:retrieve_local_kb-N]` citation-marker convention, integrating with the citation system (see the [chat module](./chat.md)).
@@ -113,6 +163,7 @@ User-facing routes are prefixed `/v1/catalog/kb` (`src/backend/api/routes/v1/kb.
 | POST | `/v1/catalog/kb/{kb_id}/wiki/rebuild` | Backfill the Wiki for existing documents (edit permission) |
 | GET | `/v1/catalog/kb/{kb_id}/wiki/*` | Wiki read surface, see [Knowledge Base Wiki](./knowledge-base-wiki.md) |
 | GET / PATCH | `/v1/catalog/kb/{kb_id}/chunks[/{chunk_id}]` | Chunk list / edit tags and questions |
+| GET | `/v1/catalog/kb/assets/{asset_id}` | Read a media asset's raw bytes (visibility follows the owning space) |
 
 Business logic is centralized in `core/services/kb_service.py::KBService`.
 
@@ -150,6 +201,10 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 
 - KB browsing and toggling is integrated into the capability center catalog (`src/frontend/src/components/catalog/`, state in `stores/catalogStore.ts`); CE shows one private module, while EE shows public and private modules;
 - Creation / re-index modals: `src/frontend/src/components/kb/CreateKBModal.tsx`, `ReindexModal.tsx`;
+- Media thumbnails `components/kb/KBAssetThumbs.tsx`: shared by the chunk viewer and the
+  retrieval / citation cards in chat, click to enlarge. Retrieval hits use the `images`
+  array they carry (captions included); older hits fall back to the asset links embedded
+  in the chunk text;
 - The admin public-KB console UI lives under `src/frontend/src/components/admin/` (Enterprise Edition, EE).
 
 ## Source map
@@ -158,6 +213,7 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 |---|---|
 | `src/backend/core/kb/kb_parser.py` | Document parsing + parent-child chunking (5 chunk methods) |
 | `src/backend/core/kb/kb_vector.py` | Milvus collection, embedding, hybrid search, reranking |
+| `src/backend/core/kb/kb_assets.py` | Media assets: storage, image understanding (via the vision bridge), retrieval rows, result attachment |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets client and enablement logic (EE only) |
 | `src/backend/core/kb/external_provider.py` | Edition-neutral external-provider seam; disabled by the CE overlay |
 | `src/backend/core/content/kb_processing.py` | Background vectorization, LLM keyword / question enrichment |
@@ -168,7 +224,7 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 | `src/backend/api/routes/v1/admin_kb.py` | Admin public KB routes (Enterprise Edition, EE) |
 | `src/backend/api/routes/v1/catalog.py` | Catalog aggregation (private only in CE; Dify / public spaces added in EE) |
 | `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | Retrieval MCP server (both tools) |
-| `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` ORM |
+| `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |
 | `src/frontend/src/components/kb/` | Creation / re-index modal components |
 
 Related docs: [MCP Tools](./mcp-tools.md) · [Catalog](./catalog.md) · [Object Storage](./storage.md) · [Environment Variables](../deployment/environment-variables.md)

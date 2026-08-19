@@ -1554,3 +1554,123 @@ async def test_delisted_item_blocks_user_install_but_not_admin_install(db, monke
         credentials={"Authorization": "Bearer global"},
     )
     assert installed["action"] == "installed"
+
+
+def _admin_private_market(db, *, auth_schema=None, url: str = "http://mcp:9102/mcp/"):
+    """An admin-published item whose endpoint lives on the deployment's own network."""
+    snapshot = _tools("search_documents")
+    item = McpMarketItem(
+        slug="builtin-search",
+        display_name="联网搜索",
+        description="Built-in search MCP",
+        category="信息检索",
+        tags=["search"],
+        publisher_name="平台",
+        source="admin",
+        latest_version_id="mcpver_builtin",
+        status="active",
+    )
+    version = McpMarketVersion(
+        version_id="mcpver_builtin",
+        slug="builtin-search",
+        version="1.0.0",
+        transport="streamable_http",
+        url=url,
+        auth_schema=auth_schema or [],
+        tools_json=snapshot,
+        tool_hash=tool_snapshot_hash(snapshot),
+        risk_level="low",
+        risk_report={},
+    )
+    db.add_all([item, version])
+    db.commit()
+    return item, version
+
+
+def _patch_install_side_effects(monkeypatch, *, resolves_to: str = "172.27.0.4"):
+    """Keep the real URL guard in play while stubbing the network around it."""
+
+    async def _probe(row, db=None):
+        return True, ""
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (resolves_to, 9102))
+        ],
+    )
+    monkeypatch.setattr(market, "probe_mcp_connectivity", _probe)
+    monkeypatch.setattr(market, "refresh_mcp_caches", lambda: None)
+
+
+@pytest.mark.asyncio
+async def test_user_installs_admin_published_private_network_mcp(db, monkeypatch):
+    _admin_private_market(db)
+    _patch_install_side_effects(monkeypatch)
+
+    installed = await market.install_market_item(
+        db,
+        "builtin-search",
+        owner_user_id="u2",
+        installed_by="u2",
+        credentials={},
+    )
+
+    row = db.query(AdminMcpServer).filter(AdminMcpServer.owner_user_id == "u2").one()
+    assert installed["server_id"] == row.server_id
+    assert row.url == "http://mcp:9102/mcp/"
+
+
+@pytest.mark.asyncio
+async def test_installer_cannot_redirect_an_admin_item_to_another_private_host(db, monkeypatch):
+    _admin_private_market(
+        db,
+        auth_schema=[
+            {
+                "key": "ENDPOINT",
+                "label": "Endpoint",
+                "target": "url",
+                "required": True,
+                "secret": True,
+            }
+        ],
+    )
+    _patch_install_side_effects(monkeypatch)
+
+    with pytest.raises(BadRequestError, match="本机、内网或保留地址"):
+        await market.install_market_item(
+            db,
+            "builtin-search",
+            owner_user_id="u2",
+            installed_by="u2",
+            credentials={"ENDPOINT": "http://127.0.0.1:9102/mcp/"},
+        )
+    assert db.query(AdminMcpServer).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_installer_may_keep_the_admin_host_when_overriding_the_endpoint(db, monkeypatch):
+    _admin_private_market(
+        db,
+        auth_schema=[
+            {
+                "key": "ENDPOINT",
+                "label": "Endpoint",
+                "target": "url",
+                "required": True,
+                "secret": True,
+            }
+        ],
+    )
+    _patch_install_side_effects(monkeypatch)
+
+    await market.install_market_item(
+        db,
+        "builtin-search",
+        owner_user_id="u2",
+        installed_by="u2",
+        credentials={"ENDPOINT": "http://mcp:9102/mcp/tenant-a"},
+    )
+
+    assert db.query(AdminMcpServer).filter(AdminMcpServer.owner_user_id == "u2").count() == 1

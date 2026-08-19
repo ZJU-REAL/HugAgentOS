@@ -65,10 +65,11 @@ ORM 定义在 `src/backend/core/db/models/knowledge.py`：
 | `kb_spaces` | 知识库空间：owner（`user_id`）、`visibility`（private/public）、`chunk_method`、文档数 / 容量统计 |
 | `kb_documents` | 文档：storage_key、checksum、`indexing_status`（processing / completed / failed） |
 | `kb_chunks` | **父块**原文（检索命中后返回给 LLM），含标签 `tags` 与关联问题 `questions` |
+| `kb_assets` | 文档里的**媒体资产**（版面解析切出的图片、单独上传的图片）：字节在对象存储，本表存归属分块、原文位置 `locator`、图注/OCR `text_content`、模型生成的描述 `caption` |
 
 Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`）定义在 `core/db/models/kb_wiki.py`，见 [知识库 Wiki](./knowledge-base-wiki.md)。
 
-子块不入关系库——向量化后写 Milvus collection `hugagent_kb_private`（`core/kb/kb_vector.py`），每行带 `user_id` / `kb_id` 字段做归属隔离，`row_type` 区分 chunk 行与 question 行。
+子块不入关系库——向量化后写 Milvus collection `hugagent_kb_private`（`core/kb/kb_vector.py`），每行带 `user_id` / `kb_id` 字段做归属隔离，`row_type` 区分 chunk 行、question 行与 image 行。
 
 ### 分块与索引
 
@@ -84,6 +85,41 @@ Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`�
 
 父子分块参数可在上传时通过 `indexing_config` 调整：`parent_chunk_size`（默认 1024 token）、`child_chunk_size`（128）、`overlap_tokens`（20）、`parent_child_indexing`（默认 true）。还可启用 LLM 增强：`auto_keywords_count`（每父块抽关键词入 tags，参与稀疏检索）与 `auto_questions_count`（每父块生成关联问题，作为独立 question 行入 Milvus，提高问句召回）。后台向量化任务在 `core/content/kb_processing.py::vectorise_document_background()`。
 
+### 多模态：图片检索
+
+文档里的图不再被丢弃。索引时走 `core/kb/kb_assets.py`：
+
+1. **抽图**——PDF 经外部解析服务的版面切分拿回图片本体、图注、页码与 bbox；单独上传的
+   图片自身即一个资产（此前会被当作纯文本硬解成乱码入库，现已修复）。字节存对象存储，
+   正文里原本指向解析服务临时路径的死链被改写成真实资产 URL。
+2. **图像理解**——复用[视觉桥](./model-providers.md#视觉桥让纯文本模型能读图)（`core/vision`），和对话里「纯文本主模型读图」
+   走的是同一条通路、同一个 `vision` 模型角色，因此白得三样东西：按图片内容哈希的**证据缓存**
+   （重新索引同一篇文档不用再付一次钱）、三协议与结构化输出降级、以及「该角色只能指派多模态模型」
+   的硬约束。产出映射：`summary` → `caption`，`ocr.full_text` 并入 `text_content`（与原图注共存），
+   实体 / 关系 / 不确定项留档进 `metadata.vision` 供本体层与人工复核使用。
+   **未指派 `vision` 角色（且主模型不识图）是正常状态**：图片仍以图注入索引，之后配好再回填即可，
+   无需重新解析文档。
+3. **入索引**——每个资产写一条 `row_type="image"` 的检索行，`parent_chunk_id` 指向包含它
+   的父块，因此去重、回表取父块原文、重排、按文档删除等既有链路全部无改动复用。
+4. **回传**——检索结果里该片段会带 `images: [{asset_id, url, caption}]`，供模型据描述作答、
+   供前端渲染缩略图。图片本体经 `GET /v1/catalog/kb/assets/{asset_id}` 读取，可见性完全
+   跟随所属知识库空间。
+
+开关与调优：`indexing_config.multimodal_indexing`（单库）优先于全局 `KB_MULTIMODAL_INDEXING`。
+单张图的体积上限、调用超时、证据缓存有效期都归视觉桥管（`VISION_*`），知识库侧只管**批量节流**：
+`KB_ASSET_CAPTION_BATCH` 限制一次提交给视觉桥的张数——它的并发信号量是进程级的，一篇上百张图的
+文档若一次性压过去，会把对话里的看图请求全排到后面。详见
+[环境变量参考](../deployment/environment-variables.md)。
+
+索引跑在 `BackgroundTasks` 的工作线程里（无运行中事件循环），而视觉桥是异步的：这里用
+`anyio.from_thread` 把协程交回**宿主循环**执行（Starlette 的 `run_in_threadpool` 即
+`anyio.to_thread.run_sync`），从而真正用上证据缓存与信号量。只有拿不到宿主循环时（CLI / 脚本）
+才起临时循环并关闭缓存——Redis 连接池是模块级全局、绑定首次使用它的循环，让临时循环抢先创建它
+会把整个进程的 Redis 绑死在已销毁的循环上。
+
+音视频沿用同一条链路：`kb_assets.kind` 已放宽到 `audio` / `video`，接入时只需把
+ASR 转写写进 `text_content`，其后的索引与检索完全复用。
+
 ### 检索链路
 
 `mcp_servers/retrieve_dataset_content_mcp/impl.py::retrieve_local_kb`：
@@ -91,7 +127,7 @@ Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`�
 1. 解析允许的 `kb_id` 集合（stdio 模式从环境变量、HTTP 模式从 `x-allowed-kb-ids` 等请求头）；
 2. `embed_text(query)` 得到查询向量（embedding 配置复用 `MEM0_EMBED_*` 或 DB 中 `embedding` 角色模型）；
 3. `core/kb/kb_vector.py::hybrid_search()`：稠密向量（IP 度量）与稀疏向量（词袋 hash，10 万维空间）两路 `AnnSearchRequest`，`RRFRanker(k=60)` 融合；私有库按 `user_id == 当前用户` 过滤，EE 公共库按授权后的 `kb_id` 放行；
-4. 命中子块 / 问题行去重后回 PostgreSQL `kb_chunks` 取**父块原文**返回给 LLM；
+4. 命中子块 / 问题行 / 图片行去重后回 PostgreSQL `kb_chunks` 取**父块原文**返回给 LLM，并附上该片段的图片引用；
 5. 用户开启重排时经 Reranker API（`RERANKER_URL/MODEL/API_KEY` 或 DB `reranker` 角色）二次排序。
 
 返回内容带 `[ref:retrieve_local_kb-N]` 引用标记约定，与引用溯源系统（见 [对话模块](./chat.md)）联动。
@@ -112,6 +148,7 @@ Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`�
 | POST | `/v1/catalog/kb/{kb_id}/wiki/rebuild` | 为已有文档补建 Wiki（需编辑权限） |
 | GET | `/v1/catalog/kb/{kb_id}/wiki/*` | Wiki 读取面，见 [知识库 Wiki](./knowledge-base-wiki.md) |
 | GET / PATCH | `/v1/catalog/kb/{kb_id}/chunks[/{chunk_id}]` | 分块列表 / 编辑标签与问题 |
+| GET | `/v1/catalog/kb/assets/{asset_id}` | 读取媒体资产原始字节（可见性跟随所属空间） |
 
 业务逻辑集中在 `core/services/kb_service.py::KBService`。
 
@@ -149,6 +186,8 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 
 - 知识库浏览与启停集成在能力中心目录页（`src/frontend/src/components/catalog/`，状态在 `stores/catalogStore.ts`）；CE 只显示私有知识库，EE 显示公共 / 私有两个模块；
 - 创建 / 重建索引弹窗：`src/frontend/src/components/kb/CreateKBModal.tsx`、`ReindexModal.tsx`；
+- 媒体资产缩略图 `components/kb/KBAssetThumbs.tsx`：分块查看页与对话里的检索结果卡 / 引用卡共用，
+  点击放大。检索结果优先用命中片段带回的 `images`（含图注），历史命中回退到从分块正文里抠资产链接；
 - 管理台公共知识库界面在 `src/frontend/src/components/admin/`（商业版 EE）。
 
 ## 相关源码
@@ -157,6 +196,7 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 |---|---|
 | `src/backend/core/kb/kb_parser.py` | 文档解析 + 父子分块（5 种 chunk_method） |
 | `src/backend/core/kb/kb_vector.py` | Milvus collection、embedding、混合检索、重排 |
+| `src/backend/core/kb/kb_assets.py` | 媒体资产：落盘、图像理解（调用视觉桥）、检索行、结果附图 |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets 客户端与启用判定（仅 EE） |
 | `src/backend/core/kb/external_provider.py` | 版本中立的外部知识库接缝；CE overlay 将其禁用 |
 | `src/backend/core/content/kb_processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
@@ -167,7 +207,7 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 | `src/backend/api/routes/v1/admin_kb.py` | 管理台公共知识库路由（商业版 EE） |
 | `src/backend/api/routes/v1/catalog.py` | 能力目录聚合（CE 仅私有库；EE 追加 Dify / 公共库） |
 | `src/backend/mcp_servers/retrieve_dataset_content_mcp/` | 检索 MCP server（两个工具） |
-| `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` ORM |
+| `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |
 | `src/frontend/src/components/kb/` | 创建 / 重索引弹窗组件 |
 
 相关文档：[MCP 工具](./mcp-tools.md) · [能力目录](./catalog.md) · [对象存储](./storage.md) · [环境变量参考](../deployment/environment-variables.md)

@@ -13,7 +13,7 @@ from typing import List, Optional, Sequence
 
 from core.db.models import KBWikiJob
 from core.kb.wiki.store import _new_id
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -269,25 +269,45 @@ def fail_job(db: Session, job: KBWikiJob, error: str) -> None:
 
 
 def kb_job_summary(db: Session, kb_id: str) -> dict:
-    """某知识库的 Wiki 作业概览，供前端展示生成进度。"""
-    rows = (
-        db.query(KBWikiJob)
+    """某知识库的 Wiki 作业概览，供前端展示生成进度。
+
+    计数走 SQL 聚合，**不能**先取最近 N 条再在内存里数：一次批量上传就能排出几十个
+    ingest 作业，只看最近 20 条时，早先排队的那些落在窗口外 → ``generating`` 读成
+    false → 前端刷新后弹回「尚未生成条目页」，看起来像点了生成没反应。
+    """
+    counts = dict(
+        db.query(KBWikiJob.status, func.count())
         .filter(KBWikiJob.kb_id == kb_id)
-        .order_by(KBWikiJob.created_at.desc())
-        .limit(20)
+        .group_by(KBWikiJob.status)
         .all()
     )
-    running = [r for r in rows if r.status == "running"]
-    pending = [r for r in rows if r.status == "pending"]
-    failed = [r for r in rows if r.status == "failed"]
-    active = running[0] if running else None
+    running = int(counts.get("running", 0))
+    pending = int(counts.get("pending", 0))
+    failed = int(counts.get("failed", 0))
+
+    active = (
+        db.query(KBWikiJob)
+        .filter(KBWikiJob.kb_id == kb_id, KBWikiJob.status == "running")
+        .order_by(KBWikiJob.claimed_at.desc())
+        .first()
+        if running
+        else None
+    )
+    last_failed = (
+        db.query(KBWikiJob)
+        .filter(KBWikiJob.kb_id == kb_id, KBWikiJob.status == "failed")
+        .order_by(KBWikiJob.updated_at.desc())
+        .first()
+        if failed
+        else None
+    )
     return {
-        "running": len(running),
-        "pending": len(pending),
-        "failed": len(failed),
+        "running": running,
+        "pending": pending,
+        "failed": failed,
         "generating": bool(running or pending),
         "progress": (active.progress if active else {}) or {},
-        "last_error": failed[0].last_error if failed else None,
+        "last_error": last_failed.last_error if last_failed else None,
     }
 
 

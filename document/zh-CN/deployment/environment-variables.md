@@ -158,6 +158,12 @@
 | `FILE_PARSER_LANG_LIST` | `ch` | OCR 语言 | CE |
 | `FILE_PARSER_BACKEND` / `FILE_PARSER_PARSE_METHOD` | `pipeline` / `auto` | 解析后端与方法 | CE |
 | `FILE_PARSER_FORMULA_ENABLE` / `FILE_PARSER_TABLE_ENABLE` | `true` / `true` | 公式 / 表格解析开关 | CE |
+| `KB_MULTIMODAL_INDEXING` | `true` | 全局开关：索引时是否抽取并索引文档里的图片（单库可用 `indexing_config.multimodal_indexing` 覆盖） | CE |
+| `KB_ASSET_CAPTION_MAX_PER_DOC` | `200` | 单文档图像理解张数上限，超出部分仅用图注索引 | CE |
+| `KB_ASSET_CAPTION_BATCH` | `2` | 单批提交给视觉桥的图片数。视觉桥信号量是进程级的（`VISION_MAX_CONCURRENCY`），按小批提交才不会让批量索引占满通道、把对话里的看图请求排到后面 | CE |
+| `KB_ASSET_TEXT_MAX_CHARS` | `4000` | 图注 + OCR 转写写入 `text_content` 的长度上限（该字段要参与向量化） | CE |
+| `KB_ASSET_MIN_BYTES` / `KB_ASSET_MIN_EDGE_PX` | `4096` / `64` | 过滤版面切出的图标 / 分割线等噪声图（像素判定需 Pillow，缺失时只按字节数） | CE |
+| `KB_ASSET_URL_PREFIX` | `/api` | 写入分块正文的资产 URL 前缀，需与前端 `VITE_API_BASE_URL` 一致 | CE |
 
 ## MCP 工具
 
