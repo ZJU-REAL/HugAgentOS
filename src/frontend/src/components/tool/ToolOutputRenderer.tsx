@@ -4,6 +4,7 @@ import { CheckCircleOutlined } from '@ant-design/icons';
 import { useUIStore } from '../../stores';
 import { renderRetrieveDatasetContent, renderRetrieveLocalKB } from './renderers/KBRenderer';
 import { renderInternetSearch } from './renderers/SearchRenderer';
+import { DataView } from './renderers/DataView';
 import { mdToHtml } from '../../utils/markdown';
 import { t } from '../../i18n';
 
