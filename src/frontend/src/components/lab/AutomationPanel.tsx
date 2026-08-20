@@ -17,7 +17,7 @@ import { AutomationCreateModal } from './AutomationCreateModal';
 import { AutomationDetailPage } from './AutomationDetailPage';
 import { AutomationListSkeleton } from './AutomationSkeleton';
 import { AUTOMATION_PRESETS, type AutomationPreset } from './automationPresets';
-import { cronToHumanReadable, RUN_STATUS_CLASS, RUN_STATUS_LABEL } from './automationUtils';
+import { cronToHumanReadable, RUN_STATUS_CLASS, RUN_STATUS_LABEL, formatRunDuration } from './automationUtils';
 import '../../styles/automation.css';
 import { t } from '../../i18n';
 
@@ -459,7 +459,7 @@ function RunsTab({ tasks, onOpenTask }: { tasks: AutomationTask[]; onOpenTask: (
           <div className="jx-automation-runMeta">
             <span>{formatShortDateTime(run.started_at, '—')}</span>
             {typeof run.duration_ms === 'number' && (
-              <span className="jx-automation-runDuration">{t('{n} 秒', { n: Math.round(run.duration_ms / 1000) })}</span>
+              <span className="jx-automation-runDuration">{formatRunDuration(run.duration_ms)}</span>
             )}
           </div>
         </div>

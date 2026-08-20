@@ -159,6 +159,7 @@
 /* ── 列表视图补充 ── */
 .jx-sites-search { margin-bottom: var(--space-lg); border-radius: var(--radius-lg); }
 .jx-sites-emptyTitle { font-size: 16px; font-weight: 600; color: var(--color-text); }
+.jx-sites-emptyDesc { margin-top: 4px; font-size: 13px; color: var(--color-text-secondary); }
 
 @media (max-width: 768px) {
   .jx-sites-body {

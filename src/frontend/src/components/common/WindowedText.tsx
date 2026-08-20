@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { findCitedRange } from '../../utils/highlight';
+import { findCitedHighlight } from '../../utils/highlight';
 import { t } from '../../i18n';
 
 interface WindowedTextProps {
@@ -27,6 +27,10 @@ const STEP = 2000;
  * 之所以不直接全展开：证据动辄几万字，一次性铺开既慢又淹没重点——用户要看的是
  * 「这句话是从哪儿来的」，不是把整份结果读一遍。窗口给足上下文（默认前 400 / 后 900 字），
  * 想看更多再一步步续。
+ *
+ * 命中区间走 `findCitedHighlight`（不是 findCitedRange）：整体型锚点的 snippet 本来就是
+ * 正文开头的截断、列表型条目的 snippet 约等于整条记录，这两种"命中"涂出来毫无信息量，
+ * 一律按未命中处理——正常从头显示，不画高亮框。
  */
 export function WindowedText({
   text,
@@ -38,7 +42,7 @@ export function WindowedText({
   onHitRef,
 }: WindowedTextProps) {
   const range = useMemo(
-    () => (fragment ? findCitedRange(text, fragment) : null),
+    () => findCitedHighlight(text, fragment),
     [text, fragment],
   );
   const [full, setFull] = useState(false);

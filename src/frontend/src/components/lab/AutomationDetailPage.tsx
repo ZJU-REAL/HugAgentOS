@@ -21,9 +21,10 @@ import { useAutomationStore, useAutomationChatStore } from '../../stores';
 import { useDelayedFlag } from '../../hooks';
 import {
   RUN_STATUS_LABEL, RUN_STATUS_CLASS, cronToHumanReadable, formatRelativeTime, channelConversationLabel,
+  formatRunDuration, formatTimezone,
 } from './automationUtils';
 import { APP_TIMEZONE, formatDate, formatShortDateTime } from '../../utils/date';
-import { ScheduleSelector, type ScheduleValue } from './ScheduleSelector';
+import { ScheduleSelector, isOnceScheduleExpired, type ScheduleValue } from './ScheduleSelector';
 import { AutomationDetailSkeleton } from './AutomationSkeleton';
 import { t } from '../../i18n';
 
@@ -171,7 +172,7 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
       setTask((prev) => prev ? { ...prev, sidebar_activated: true } : prev);
     }
     // Enter automation chat mode with timeline panel
-    const taskName = task.name || task.prompt?.slice(0, 30) || t('自动化任务');
+    const taskName = task.name || task.prompt?.slice(0, 30) || t('定时任务');
     enterAutomationChat(task.task_id, taskName, runs, run.run_id);
   };
 
@@ -205,6 +206,10 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
     if (!task) return;
     try {
       const values = await form.validateFields();
+      if (isOnceScheduleExpired(editSchedule)) {
+        message.error(t('执行时间已过，请重新选择一个未来的时间'));
+        return;
+      }
       setSaving(true);
 
       // Delivery target: if a channel conversation is chosen, split out channel_id/conversation_id; if in-app is chosen, explicitly pass null to switch back to in-app.
@@ -309,13 +314,20 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
           {/* ── Name row ── */}
           <div className="jx-automation-detail-nameRow">
             <div className="jx-automation-detail-iconWrap">
-              <img src="/home/new-icons/automation.svg" alt={t('自动化')} />
+              <img src="/home/new-icons/automation.svg" alt={t('定时任务')} />
             </div>
             {isEditing ? (
               <Form form={form} component={false}>
-                <Form.Item name="name" style={{ marginBottom: 0, flex: 1 }}>
+                <Form.Item
+                  name="name"
+                  style={{ marginBottom: 0, flex: 1 }}
+                  rules={[
+                    { required: true, message: t('请输入任务名称') },
+                    { whitespace: true, message: t('任务名称不能只包含空格') },
+                  ]}
+                >
                   <Input
-                    placeholder={t('任务名称（可选）')}
+                    placeholder={t('任务名称')}
                     maxLength={200}
                     style={{ fontSize: 16, fontWeight: 500 }}
                   />
@@ -414,7 +426,10 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                         <Form.Item
                           name="prompt"
                           style={{ marginBottom: 0 }}
-                          rules={[{ required: true, message: t('请输入提示词') }]}
+                          rules={[
+                            { required: true, message: t('请输入提示词') },
+                            { whitespace: true, message: t('提示词不能只包含空格') },
+                          ]}
                         >
                           <Input.TextArea rows={5} maxLength={5000} showCount />
                         </Form.Item>
@@ -468,8 +483,8 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                     </div>
                     <div className="jx-automation-detail-field">
                       <div className="jx-automation-detail-fieldLabel">{t('时区')}</div>
-                      <div className="jx-automation-detail-fieldValue">
-                        {task.timezone || APP_TIMEZONE}
+                      <div className="jx-automation-detail-fieldValue" title={task.timezone || APP_TIMEZONE}>
+                        {formatTimezone(task.timezone || APP_TIMEZONE)}
                       </div>
                     </div>
                     {!isManual && (
@@ -477,13 +492,16 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                         <div className="jx-automation-detail-fieldLabel">
                           {isOnce ? t('执行时间') : t('执行频率')}
                         </div>
-                        <div className="jx-automation-detail-fieldValue">
+                        {/* 只展示一个人类可读的时间。原来还在后面缀了一段裸 cron
+                            （`(0 9 20 8 *)`），对用户是噪音、还被误读成「第二个执行时间」；
+                            保留成 title 提示，需要排查时鼠标悬停仍看得到。 */}
+                        <div
+                          className="jx-automation-detail-fieldValue"
+                          title={task.cron_expression}
+                        >
                           {isOnce
                             ? (task.next_run_at ? formatShortDateTime(task.next_run_at) : t('已执行'))
                             : cronToHumanReadable(task.cron_expression)}
-                          <span style={{ color: '#7B8794', marginLeft: 10, fontSize: 12 }}>
-                            ({task.cron_expression})
-                          </span>
                         </div>
                       </div>
                     )}
@@ -557,7 +575,7 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                             {formatShortDateTime(run.started_at)}
                           </span>
                           <span className="jx-automation-detail-runRow-duration">
-                            {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '-'}
+                            {formatRunDuration(run.duration_ms)}
                           </span>
                           <span className="jx-automation-detail-runRow-summary">
                             {run.result_summary || RUN_STATUS_LABEL[run.status] || '-'}
@@ -601,7 +619,7 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                   {t('编辑')}
                 </Button>
                 <Popconfirm
-                  title={t('确定删除此自动化任务？')}
+                  title={t('确定删除此定时任务？')}
                   onConfirm={handleDelete}
                   okText={t('删除')}
                   cancelText={t('取消')}

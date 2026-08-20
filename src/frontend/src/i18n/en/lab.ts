@@ -24,7 +24,7 @@ export const LAB_DICT: Record<string, string> = {
   '立即执行': 'Run Now',
   '暂停': 'Pause',
   '恢复': 'Resume',
-  '确定删除此自动化任务？': 'Delete this automation task?',
+  '确定删除此定时任务？': 'Delete this scheduled task?',
   '已触发执行': 'Triggered',
   '触发失败': 'Trigger failed',
   '提示词任务': 'Prompt Task',
@@ -33,7 +33,6 @@ export const LAB_DICT: Record<string, string> = {
   // ── AutomationCreateModal ──────────────────────────────────────
   '加载计划列表失败': 'Failed to load plan list',
   '加载计划详情失败': 'Failed to load plan details',
-  '创建自动化任务': 'Create Automation',
   '任务类型': 'Task Type',
   '执行计划': 'Execution Plan',
   '任务名称': 'Task Name',
@@ -46,7 +45,7 @@ export const LAB_DICT: Record<string, string> = {
   '{n} 步': '{n} steps',
   '调度方式': 'Schedule',
   '任务描述（可选）': 'Task description (optional)',
-  '自动化任务创建成功': 'Automation task created',
+  '定时任务创建成功': 'Scheduled task created',
   '投递目标': 'Delivery target',
   '页面端（站内）': 'In-app (this site)',
   '发送到': 'Send to',
@@ -93,8 +92,8 @@ export const LAB_DICT: Record<string, string> = {
   // ── AutomationPanel ────────────────────────────────────────────
   '设置定时或周期性 AI 任务，到时间后自动执行': 'Set up scheduled or recurring AI tasks that run automatically',
   '创建自动化': 'Create Automation',
-  '暂无自动化任务': 'No automation tasks yet',
-  '创建第一个自动化任务': 'Create your first automation task',
+  '暂无定时任务': 'No scheduled tasks yet',
+  '创建第一个定时任务': 'Create your first scheduled task',
   '已完成 / 已停用': 'Completed / Disabled',
 
   // ── ScheduleSelector ──────────────────────────────────────────
@@ -156,7 +155,7 @@ export const LAB_DICT: Record<string, string> = {
   '{n} 天后': 'In {n} days',
 
   // ── RunTimelinePanel ──────────────────────────────────────────
-  '返回自动化任务详情': 'Back to automation details',
+  '返回定时任务详情': 'Back to scheduled task details',
   '运行舱记录最近执行状态、摘要与异常线索': 'Run log showing latest status, summaries, and error clues',
   '执行次数': 'Total Runs',
   '成功率': 'Success Rate',
@@ -255,7 +254,6 @@ export const LAB_DICT: Record<string, string> = {
 
   // ── 定时任务页（原「自动化」，已拆为侧边栏一级入口） ──
   '新建定时任务': 'New Scheduled Task',
-  '定时任务创建成功': 'Scheduled task created',
   '搜索定时任务…': 'Search scheduled tasks…',
   '定时任务视图': 'Scheduled task views',
   '我的定时任务': 'My Scheduled Tasks',
@@ -263,7 +261,6 @@ export const LAB_DICT: Record<string, string> = {
   '按创建时间正序': 'Oldest first',
   '按下次执行时间': 'By next run time',
   '没有匹配的定时任务': 'No matching scheduled tasks',
-  '暂无定时任务': 'No scheduled tasks yet',
   '换个关键词试试': 'Try a different keyword',
   '创建定时任务来自动执行周期性 AI 工作': 'Create a scheduled task to run recurring AI work automatically',
   '定时任务执行后，这里会汇总每一次的运行结果': 'Once tasks run, every execution result is summarised here',
@@ -286,4 +283,22 @@ export const LAB_DICT: Record<string, string> = {
   '检查我的知识库在过去一天新增或更新的文档，逐份给出 3 句话摘要与关键结论，最后列出需要我进一步确认的问题。': 'Check which documents in my knowledge base were added or updated in the last day. Give a three-sentence summary and key conclusion for each, then list the open questions that need my confirmation.',
   '周会材料准备': 'Weekly Meeting Prep',
   '提前梳理本周周会需要的材料：本周关键数据变化、上周遗留事项的进展、需要在会上拍板的决策点，输出成一页会议提纲。': 'Prepare the material for this week\'s meeting: key metric movements, progress on last week\'s open items, and the decisions that need to be made — as a one-page agenda.',
+
+  // ── #51/#52/#53/#56 定时任务表单校验与展示格式 ──
+  '请输入任务名称': 'Enter a task name',
+  '任务名称不能只包含空格': 'Task name cannot be only spaces',
+  '为任务取一个名称，列表与搜索都按它展示': 'Name this task — the list and search both show it',
+  '提示词不能只包含空格': 'Prompt cannot be only spaces',
+  '执行时间已过，请重新选择一个未来的时间': 'That time has already passed — pick a future time',
+  '不到 1 秒': 'under 1s',
+  '{s} 秒': '{s}s',
+  '{m} 分 {s} 秒': '{m}m {s}s',
+  '{m} 分': '{m}m',
+  '{h} 小时': '{h}h',
+  '中国标准时间（UTC+8）': 'China Standard Time (UTC+8)',
+  '香港时间（UTC+8）': 'Hong Kong Time (UTC+8)',
+  '台北时间（UTC+8）': 'Taipei Time (UTC+8)',
+  '日本标准时间（UTC+9）': 'Japan Standard Time (UTC+9)',
+  '新加坡时间（UTC+8）': 'Singapore Time (UTC+8)',
+  '协调世界时（UTC）': 'Coordinated Universal Time (UTC)',
 };

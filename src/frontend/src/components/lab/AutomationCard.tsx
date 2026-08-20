@@ -104,7 +104,7 @@ export function AutomationCard({ task, onClick }: Props) {
           />
         )}
         <Popconfirm
-          title={t('确定删除此自动化任务？')}
+          title={t('确定删除此定时任务？')}
           onConfirm={handleDelete}
           okText={t('删除')}
           cancelText={t('取消')}

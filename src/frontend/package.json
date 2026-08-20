@@ -10,6 +10,7 @@
     "check:dark": "node scripts/check-dark-mode.mjs",
     "test:chat-stream": "esbuild scripts/test-chat-stream-segments.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-chat-stream-segments.mjs && node node_modules/.tmp/test-chat-stream-segments.mjs",
     "test:kb-assets": "node scripts/run-kb-asset-test.mjs",
+    "test:citation-highlight": "esbuild scripts/test-citation-highlight.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-citation-highlight.mjs && node node_modules/.tmp/test-citation-highlight.mjs",
     "test:sidebar-order": "esbuild scripts/test-sidebar-order.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-sidebar-order.mjs && node node_modules/.tmp/test-sidebar-order.mjs",
     "lint": "eslint .",
     "preview": "vite preview"

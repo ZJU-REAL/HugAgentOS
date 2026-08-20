@@ -313,6 +313,41 @@ def _first_str(item: Dict[str, Any], keys: Sequence[str]) -> str:
     return ""
 
 
+def _normalize_citation_url(raw: str) -> str:
+    """把工具结果里的来源链接规整成「浏览器点了不会跑偏」的绝对地址。
+
+    检索工具返回的 url 千奇百怪，直接透传会有两类坏结果：
+
+    - **缺协议**（``www.example.gov.cn/a.html``）：前端 ``<a href>`` 会把它当相对
+      路径，按当前站点 origin 解析，于是点开变成 ``http://<本平台>/www.example…``，
+      落到我们自己的 nginx 上返回 404 —— 看起来像「引用地址错误」。
+    - **纯相对路径**（``/module/download/x.doc``）：没有站点根就无从还原，同样会
+      指到本平台。这种宁可不给链接，也好过给一个必然打不开的。
+
+    另外只放行 http/https：javascript:、data: 之类既没有意义也不该出现在来源里。
+    """
+    url = (raw or "").strip()
+    if not url:
+        return ""
+    lowered = url.lower()
+    if lowered.startswith(("http://", "https://")):
+        return url
+    # 协议相对：//example.com/a → https://example.com/a
+    if url.startswith("//"):
+        return f"https:{url}"
+    # 明确的其它协议（javascript:/data:/ftp: …）一律丢弃
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:", url):
+        return ""
+    # 相对路径：没有站点根，还原不出来
+    if url.startswith("/"):
+        return ""
+    # 剩下的形如 example.gov.cn/path —— 看着像域名就补上协议
+    host = url.split("/", 1)[0]
+    if "." in host and " " not in host:
+        return f"https://{url}"
+    return ""
+
+
 def _dig(data: Dict[str, Any], path: Sequence[str]) -> Any:
     cur: Any = data
     for key in path:
@@ -347,7 +382,7 @@ def _item_citation(
         tool_name=tool_name,
         tool_id=tool_id,
         title=title,
-        url=_first_str(item, spec.url_keys),
+        url=_normalize_citation_url(_first_str(item, spec.url_keys)),
         snippet=snippet[:_SNIPPET_MAX],
         source_type=spec.source_type,
         item_index=index,
@@ -411,7 +446,7 @@ def _extract_and_inject(
                     tool_name=tool_name,
                     tool_id=tool_id,
                     title=str(entry.get("title") or _display_title(tool_name, spec))[:_TITLE_MAX],
-                    url=str(entry.get("url") or ""),
+                    url=_normalize_citation_url(str(entry.get("url") or "")),
                     snippet=str(entry.get("snippet") or "")[:_SNIPPET_MAX],
                     source_type=str(entry.get("source_type") or base.source_type),
                     item_index=idx,
@@ -463,7 +498,7 @@ def _extract_and_inject(
             tool_name=tool_name,
             tool_id=tool_id,
             title=_display_title(tool_name, spec),
-            url=_first_str(data, (spec or CitationSpec()).url_keys),
+            url=_normalize_citation_url(_first_str(data, (spec or CitationSpec()).url_keys)),
             snippet=snippet,
             source_type=(spec.source_type if spec else "unknown"),
             item_index=-1,

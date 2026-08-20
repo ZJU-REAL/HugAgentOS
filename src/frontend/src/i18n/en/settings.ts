@@ -293,6 +293,12 @@ export const SETTINGS_DICT: Record<string, string> = {
   '暂无可选文件夹': 'No folders available',
   '选择文件夹': 'Select folder',
 
+  // ── EditProjectModal ───────────────────────────────────────────────────────
+  '编辑项目信息': 'Edit Project',
+  '编辑项目目标': 'Edit Project Goal',
+  '仅项目管理员可修改项目名称': 'Only project admins can change the project name',
+  '项目信息已更新': 'Project updated',
+
   // ── ProjectsPanel ──────────────────────────────────────────────────────────
   '把对话、文件和指令打包成专属工作空间': 'Bundle conversations, files, and instructions into a dedicated workspace.',
   '活跃度': 'Activity',

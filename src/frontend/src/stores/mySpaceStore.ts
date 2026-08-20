@@ -57,7 +57,7 @@ function taskTitle(task: AutomationTask): string {
   return task.name?.trim()
     || task.plan_title?.trim()
     || (promptTitle ? promptTitle.slice(0, 48) : '')
-    || t('自动化任务');
+    || t('定时任务');
 }
 
 function taskPreview(task: AutomationTask): string {

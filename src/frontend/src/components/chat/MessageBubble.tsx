@@ -909,6 +909,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                       isStreaming={m.isStreaming}
                       agentNameMap={planData.agentNameMap}
                       previewFooter={previewFooter}
+                      cancelled={planData.cancelled}
                     />
                   );
                 }

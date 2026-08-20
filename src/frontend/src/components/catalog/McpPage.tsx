@@ -8,6 +8,7 @@ import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
+import { ABILITY_TAB_TITLE } from './abilityTabs';
 import {
   createMyMcpServer,
   deleteMyMcpServer,
@@ -57,7 +58,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
     toggleItem,
   } = useCatalogStore();
   const { title: mcpTitle, subtitle: mcpSubtitle } = usePanelHeader('mcp', {
-    title: '连接器',
+    title: ABILITY_TAB_TITLE.mcp,
     subtitle: '管理 MCP 连接器服务，并查看其作用范围与可靠性影响。',
   });
 

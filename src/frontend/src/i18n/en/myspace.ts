@@ -7,8 +7,8 @@ export const MYSPACE_DICT: Record<string, string> = {
 
   // ── Tab descriptions ────────────────────────────────────────────────
   '汇集与AI会话过程中上传或生成的各类文档与图片，可按需加入你创建的私有知识库': 'All documents and images uploaded or generated during AI conversations, ready to add to your private knowledge bases.',
-  '集中管理你收藏的重要会话与自动化任务，方便快速回看与继续交流': 'Manage your bookmarked conversations and automation tasks for quick review and follow-up.',
-  '查看自动化任务执行结果通知，及时了解任务完成状态': 'View automation task execution result notifications and stay up to date on task completion.',
+  '集中管理你收藏的重要会话与定时任务，方便快速回看与继续交流': 'Manage your bookmarked conversations and scheduled tasks for quick review and follow-up.',
+  '查看定时任务执行结果通知，及时了解任务完成状态': 'View scheduled task execution result notifications and stay up to date on task completion.',
 
   // ── Sub-tab / scope labels ──────────────────────────────────────────
   '文件归属': 'File Scope',
@@ -70,13 +70,13 @@ export const MYSPACE_DICT: Record<string, string> = {
   '已加载全部内容': 'All content loaded',
 
   // ── Automation / favorites ───────────────────────────────────────────
-  '打开自动化任务失败': 'Failed to open automation task',
+  '打开定时任务失败': 'Failed to open scheduled task',
   '确定将这条会话从收藏列表中移除吗？': 'Remove this conversation from your favorites?',
   '保留': 'Keep',
   '已取消收藏': 'Unfavorited',
   '取消收藏失败': 'Failed to unfavorite',
   '来自「{title}」': 'From "{title}"',
-  '查看自动化记录': 'View Automation Records',
+  '查看定时任务记录': 'View Scheduled Task Records',
   '跳转到对话': 'Go to Chat',
   '查看记录': 'View Records',
   '查看对话': 'View Chat',

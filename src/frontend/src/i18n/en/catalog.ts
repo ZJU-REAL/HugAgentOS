@@ -201,6 +201,7 @@ export const CATALOG_DICT: Record<string, string> = {
 
   // SkillsPage
   '技能库': 'Skill Library',
+  '插件库': 'Plugin Library',
   '启用/停用技能，并查看详细介绍、输入输出与示例': 'Enable/disable skills and view details, inputs, outputs, and examples.',
   '（共 {n} 项）': '({n} total)',
   '搜索技能关键词': 'Search skills',

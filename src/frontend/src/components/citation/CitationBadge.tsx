@@ -45,6 +45,19 @@ export default function CitationBadge({
     onCitationAction(cit);
   };
 
+  // 只有解析得出 http(s) 绝对地址的来源才算「可打开原文」。缺协议或纯相对路径的
+  // url 交给浏览器会按本站 origin 解析，点开落到我们自己的 nginx 上返回 404 ——
+  // 用户看到的是「引用地址错误」。后端 _normalize_citation_url 已在源头拦一道，
+  // 这里对历史消息里存量的脏数据再兜一次。
+  const openableUrl = (() => {
+    const raw = (cit?.url || '').trim();
+    if (!raw) return '';
+    try {
+      const u = new URL(raw);
+      return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : '';
+    } catch { return ''; }
+  })();
+
   const domain = (() => {
     if (!cit?.url) return '';
     try { return new URL(cit.url).hostname.replace(/^www\./, ''); } catch { return cit.url.slice(0, 40); }
@@ -87,7 +100,7 @@ export default function CitationBadge({
           {domain && <span className="jx-citCard-domain">{domain}</span>}
           {canOpenDetail && (
             <span className="jx-citCard-action">
-              {isInternet && cit.url ? t('打开原文 →') : t('查看全文 →')}
+              {isInternet && openableUrl ? t('打开原文 →') : t('查看全文 →')}
             </span>
           )}
         </div>

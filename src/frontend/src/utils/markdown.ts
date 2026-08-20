@@ -15,11 +15,17 @@ marked.use({
       // （cite: 不是有效协议，点进去是空白页）。对话区由 CitationMarkdownBlock 在
       // 进 marked 之前就换成占位符、交给 React 渲染带悬浮卡的标注；这里兜住所有
       // 直接调 mdToHtml 的路径（PDF 导出等），渲染成同款静态标注而非 <a>。
-      const citeMatch = /^cite:(e\d+)$/i.exec(href || '');
+      // 容错与 utils/citations 的 citationMarkerRe 保持一致：`cite:` 后允许空白、
+      // 锚点前缀 e 允许缺省或大写。收紧成 `^cite:(e\d+)$` 时，`cite: E8` / `cite:8`
+      // 这些模型实际写出来的变体会掉进下面的 <a> 分支，变成一个点不开的死链接。
+      const citeMatch = /^cite:\s*e?(\d+)\s*$/i.exec(href || '');
       if (citeMatch) {
-        const anchorId = citeMatch[1];
-        return `<span class="jx-citeRef" data-cite="${anchorId}">${text}<sup class="jx-citeRef-idx">${anchorId.slice(1)}</sup></span>`;
+        const num = citeMatch[1];
+        return `<span class="jx-citeRef" data-cite="e${num}">${text}<sup class="jx-citeRef-idx">${num}</sup></span>`;
       }
+      // 兜底：任何其它 cite: 开头的 href 也绝不能渲染成 <a> —— cite: 不是可跳转协议，
+      // 点开是空白页。退化成纯文本，至少锚文本还在。
+      if (/^cite:/i.test(href || '')) return text;
       const titleAttr = title ? ` title="${title}"` : '';
       return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
     },

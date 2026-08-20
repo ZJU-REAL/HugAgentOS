@@ -44,6 +44,7 @@ __all__ = [
     "yida_cache_dir",
     "yida_workspace_dir",
     "yida_shared_workspace_dir",
+    "purge_credential_dir",
     "safe_user_id",
     "shell_escape",
     "stream_to_file",
@@ -124,6 +125,39 @@ INTERPRETER_CMD = {
     "javascript": "node",
     "bash": "bash",
 }
+
+
+def purge_credential_dir(root: Path) -> None:
+    """Empty a per-user credential tree **in place**, deleting every file but
+    keeping every directory inode alive.
+
+    Replaces ``shutil.rmtree(root)`` for the ``*_cache/{user_id}`` trees.
+    Subdirectories of these trees are bind-mounted into the user's live
+    sandboxes (see [[lark_cache_dir]] / [[dws_cache_dir]] / [[email_cache_dir]]),
+    and a bind mount is bound to the **inode**, not the path: unlinking a mount
+    source leaves every already-running sandbox looking at an orphaned
+    directory it will see as empty forever, while credentials written by a
+    later re-login land on a freshly created inode that sandbox can never see.
+    Observed in practice as "扫码登录成功了，会话里却还报 not configured / 应用未配置"
+    — the open chat's sandbox kept the deleted inode.
+
+    Emptying in place keeps every inode, so disconnect and re-login take effect
+    immediately in sandboxes that are already running. Leftover empty
+    directories are harmless: the volume builders pre-create exactly these
+    paths anyway. This is the same "delete files, never the directory" rule the
+    Yida flow already follows, which is why Yida never hit the bug.
+    """
+    if not root.exists():
+        return
+    for dirpath, _dirnames, filenames in os.walk(root, topdown=False):
+        for name in filenames:
+            fp = Path(dirpath) / name
+            try:
+                fp.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                logger.warning("[sandbox] purge credential file failed %s: %s", fp, exc)
 
 
 def myspace_cache_dir(user_id: str) -> Path:

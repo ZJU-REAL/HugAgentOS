@@ -359,6 +359,8 @@ export interface MessageSegment {
     totalSteps?: number;
     resultText?: string;
     agentNameMap?: Record<string, string>;
+    /** 执行被用户中断：卡片显示「已中断」而不是继续挂在「执行中」上（问题 31）。 */
+    cancelled?: boolean;
   };
 }
 

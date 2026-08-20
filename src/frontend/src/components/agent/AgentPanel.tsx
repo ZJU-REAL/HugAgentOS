@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Button, Drawer, Input, Modal, Skeleton, Switch, Tooltip, message, Select, Form, Tag, List, Empty, Dropdown } from 'antd';
+import { Button, Drawer, Input, Modal, Pagination, Skeleton, Switch, Tooltip, message, Select, Form, Tag, List, Empty, Dropdown } from 'antd';
 import { PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined, LeftOutlined, RightOutlined, RobotOutlined, AppstoreAddOutlined, UploadOutlined, DownOutlined } from '@ant-design/icons';
 import { useAgentStore, type UserAgentItem } from '../../stores/agentStore';
 import { AgentMarketplaceModal } from './AgentMarketplaceModal';
@@ -12,6 +12,9 @@ import { AGENT_MARKETPLACE_CATEGORIES } from '../../utils/constants';
 import type { AgentMarketSubmission, AgentMarketplaceFetchers } from '../../types';
 
 // User-side market transport: directly reuse api.ts's stable function references; a module-level constant suffices (no need for a per-render memo).
+/** 每页卡片数——与技能页 / MCP 页 / 插件页保持一致。 */
+const AGENTS_PAGE_SIZE = 12;
+
 const USER_MARKET_FETCHERS: AgentMarketplaceFetchers = {
   loadList: getMarketplaceAgents,
   loadDetail: getMarketplaceAgentDetail,
@@ -29,6 +32,7 @@ import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { AgentCreatePage } from './AgentCreatePage';
 import { usePanelHeader } from '../../hooks/usePageConfig';
+import { ABILITY_TAB_TITLE } from '../catalog/abilityTabs';
 import { t } from '../../i18n';
 
 const AGENT_ICON_MAP: Record<string, string> = {
@@ -208,11 +212,12 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
   // When off, hide the "add sub-agent" entry; viewing and editing existing sub-agents is unaffected.
   const canAddAgent = authUser?.can_add_agent === true;
   const { title: agentsTitle, subtitle: agentsSubtitle } = usePanelHeader('agents', {
-    title: '子智能体',
+    title: ABILITY_TAB_TITLE.agents,
     subtitle: '选择与启用子智能体，并查看其职责边界与路由提示',
   });
 
   const [search, setSearch] = useState('');
+  const [agentsPage, setAgentsPage] = useState(1);
   // 内嵌进能力中心时不做 localStorage 详情恢复：那份记忆属于独立的子智能体面板
   const persistDetail = !embedded;
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
@@ -289,6 +294,19 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
     if (!q) return list;
     return list.filter((a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q));
   }, [agents, editionAgentPolicy, search]);
+
+  // 分页：与技能页 / MCP 页同一套（每页 12 + antd Pagination），子智能体多起来以后
+  // 原来是一屏铺到底，翻不完也定位不到（问题 40）。
+  const pagedAgents = useMemo(
+    () => filtered.slice((agentsPage - 1) * AGENTS_PAGE_SIZE, agentsPage * AGENTS_PAGE_SIZE),
+    [filtered, agentsPage],
+  );
+
+  // 搜索或数据变化把页码顶出范围时拉回第一页
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filtered.length / AGENTS_PAGE_SIZE));
+    if (agentsPage > maxPage) setAgentsPage(1);
+  }, [filtered.length, agentsPage]);
 
   const selectedAgent = useMemo(
     () => (selectedAgentId ? agents.find((a) => a.agent_id === selectedAgentId) ?? null : null),
@@ -787,7 +805,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
           style={{ '--stagger-step': '30ms' } as React.CSSProperties}
           key={`agents-${panelEntryNonce}`}
         >
-          {filtered.map((agent, idx) => {
+          {pagedAgents.map((agent, idx) => {
             const canEdit = canEditAgent(agent);
             return (
               <div key={agent.agent_id} className="jx-agentCard jx-card-lift"
@@ -829,6 +847,19 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {filtered.length > AGENTS_PAGE_SIZE && (
+        <div className="jx-sk-pagination">
+          <Pagination
+            current={agentsPage}
+            pageSize={AGENTS_PAGE_SIZE}
+            total={filtered.length}
+            onChange={setAgentsPage}
+            showSizeChanger={false}
+            size="small"
+          />
         </div>
       )}
 

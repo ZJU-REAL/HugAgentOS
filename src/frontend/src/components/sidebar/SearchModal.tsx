@@ -35,7 +35,7 @@ const TYPE_OPTIONS = [
   { value: 'normal', label: t('普通对话') },
   { value: '_mode:agent', label: t('子智能体') },
   { value: '_mode:plan', label: t('计划模式') },
-  { value: '_mode:automation', label: t('自动化') },
+  { value: '_mode:automation', label: t('定时任务') },
 ];
 
 const GROUP_ORDER: Array<'today' | 'yesterday' | 'week' | 'month' | 'older'> =
@@ -59,7 +59,7 @@ function matchesTypeFilter(item: ChatItem, type: string): boolean {
 function ItemTypeIcon({ item }: { item: ChatItem }) {
   if (item.automationRun) {
     return (
-      <Tooltip title={t('自动化任务')}>
+      <Tooltip title={t('定时任务')}>
         <span className="jx-searchItemTypeIcon" style={{ color: '#F8AB42', fontSize: 13 }}>&#9889;</span>
       </Tooltip>
     );

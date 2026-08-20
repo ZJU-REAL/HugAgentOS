@@ -3485,6 +3485,16 @@ textarea.jx-composer{
   gap: 16px;
   height: 560px;
 }
+/* 来源文件夹下拉里的每个节点保持单行 + 省略号，长文件夹名不再折成两三行 */
+.jx-spaceImportTreeNode {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .jx-spaceImportLeft {
   width: 460px;
   flex-shrink: 0;

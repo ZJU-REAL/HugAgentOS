@@ -118,7 +118,7 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
             ...prev.chats,
             [targetRun.chat_id!]: {
               id: targetRun.chat_id!,
-              title: taskName || t('自动化任务'),
+              title: taskName || t('定时任务'),
               createdAt: new Date(targetRun.started_at).getTime(),
               updatedAt: new Date(targetRun.started_at).getTime(),
               messages: [],
@@ -157,7 +157,7 @@ export const useAutomationChatStore = create<AutomationChatState>((set, get) => 
           ...prev.chats,
           [run.chat_id!]: {
             id: run.chat_id!,
-            title: activeGroup.taskName || t('自动化任务'),
+            title: activeGroup.taskName || t('定时任务'),
             createdAt: new Date(run.started_at).getTime(),
             updatedAt: new Date(run.started_at).getTime(),
             messages: [],

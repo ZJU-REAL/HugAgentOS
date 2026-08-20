@@ -8,21 +8,20 @@
      · 长列表分批出（12 条一批 + 显示更多），长文本先夹住 —— 不会一次糊出上千张卡片
      · 从引用点开时只给证据附近：命中记录整条展示，正文两头留「展开上下文」
 
-   颜色一律走令牌；仅命中高亮那一档是成对主题对象，见下方 dark-ok 说明。
+   颜色一律走令牌，命中高亮也不例外——见下方说明。
    ══════════════════════════════════════════════════════════════════════════ */
-/* dark-ok-begin: 命中高亮是**成对主题对象**——它要在浅深两档各自压住正文底色又不糊掉
-   被高亮的字，语义令牌（warning/primary）承担不了：那两档的值是按徽章/按钮调的，
-   铺成大面积底色时浅档发飘、深档发糊。这里按浅深两档各钉一组，末尾的
-   [data-theme="dark"] 块负责翻档。 */
+/* 命中高亮曾是一组自钉的黄色（#FFE9A8 底 + 棕字）。黄底属于高对比强调色，铺在正文里
+   会把视线从内容本身抢走——用户要的是"看得出这段是命中"，不是"这段被涂了荧光笔"。
+   现在改成主色调的低饱和底纹 + 同色系下边线，字色保持 inherit（不再为了压住黄底改字色），
+   深浅两档只差底纹浓度，直接由 --color-primary 令牌翻档，不用再钉成对主题对象。 */
 :root{
-  --jx-dv-hit-bg:#FFE9A8;
-  --jx-dv-hit-text:#3A2A00;
+  --jx-dv-hit-bg:color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --jx-dv-hit-line:color-mix(in srgb, var(--color-primary) 38%, transparent);
 }
 :root[data-theme="dark"]{
-  --jx-dv-hit-bg:rgba(245,178,74,.30);
-  --jx-dv-hit-text:#FFE2B0;
+  --jx-dv-hit-bg:color-mix(in srgb, var(--color-primary) 20%, transparent);
+  --jx-dv-hit-line:color-mix(in srgb, var(--color-primary) 52%, transparent);
 }
-/* dark-ok-end */
 
 .jx-dv{
   border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
@@ -264,9 +263,10 @@
 /* ── 引用命中：高亮 + 定位提示 ── */
 .jx-citedHit{
   background:var(--jx-dv-hit-bg);
-  color:var(--jx-dv-hit-text);
-  border-radius:3px;
+  color:inherit;
+  border-radius:2px;
   padding:0 1px;
+  box-shadow:inset 0 -1px 0 var(--jx-dv-hit-line);
   box-decoration-break:clone;
   -webkit-box-decoration-break:clone;
 }

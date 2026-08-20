@@ -11,6 +11,7 @@ import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
+import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { DingTalkConnect } from '../settings/DingTalkConnect';
 import { LarkConnect } from '../settings/LarkConnect';
 import { EmailConnect } from '../settings/EmailConnect';
@@ -52,7 +53,7 @@ export function PluginsPage() {
   // CE 无用户/管理员体系，全局安装的默认插件不标「管理员」
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
-    title: '插件库',
+    title: ABILITY_TAB_TITLE.plugins,
     subtitle: '插件把成套的技能与 MCP 工具打包成一个整体，安装后即可整组启用。',
   });
 

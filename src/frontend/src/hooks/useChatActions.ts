@@ -282,6 +282,11 @@ export function useChatActions(effectiveApiUrl: string) {
     if (!chat || !effectiveApiUrl) return;
     // 用户手动重命名过的会话不再用自动摘要覆盖标题（问题13）
     if (chat.titleManuallySet) return;
+    // 标题定下来就不再改：原来前 3 轮每轮都重新生成一次，用户每追问一句，历史列表里
+    // 这段会话的名字就跟着变一次，找不回自己刚才在哪一条（对齐 DeepSeek / 豆包：取
+    // 首轮问题定名后固定）。这里以「标题还是默认占位」为准，首次生成失败也还能重试，
+    // 下面的 SUMMARY_MAX_ROUNDS 仍作为重试次数上界。
+    if (chat.title && chat.title !== t('新对话')) return;
     const userMessages = chat.messages.filter(m => m.role === 'user');
     const assistantMessages = chat.messages.filter(m => m.role === 'assistant');
     if (userMessages.length === 0 || assistantMessages.length === 0) return;

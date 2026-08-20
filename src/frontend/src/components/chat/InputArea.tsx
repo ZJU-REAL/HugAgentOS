@@ -594,6 +594,12 @@ export function InputArea({
    *  On the project page the pending selection is owned by the parent, so hand the toggle back
    *  to it (onEnterModeProp flips the already-selected mode off). */
   function onCloseMode(mode: 'plan' | 'batch' | 'workflow') {
+    // 关掉计划模式的同时得真的把正在跑的计划停下来。原来这里只翻了个
+    // planModeActive 标志位：后端的计划和 run 继续跑，卡片也一直挂在「执行中」，
+    // 用户以为已经关掉了（问题 31）。abort() 会取消 run、取消计划、并把卡片落成已中断。
+    if (mode === 'plan' && sending) {
+      abort?.();
+    }
     if (onEnterModeProp) {
       onEnterModeProp(mode);
       return;
@@ -1187,7 +1193,11 @@ export function InputArea({
           <button
             className="jx-sendBtn"
             onClick={() => { if (showStopButton) { abort?.(); } else { send(); } }}
-            disabled={!showStopButton && uploadingFiles.size > 0}
+            /* 空输入 / 纯空格时按钮置灰：send() 本来就会 `if (!msg) return` 静默吞掉，
+               但按钮看着可点，用户以为发出去了。附件不能单独成一条消息（send 的守卫
+               同样要求正文非空），所以判据就是正文 trim 后是否为空。
+               注意别动 showStopButton 分支：流式输出中空输入时这颗按钮是「中止」。 */
+            disabled={!showStopButton && (uploadingFiles.size > 0 || !input.trim())}
             aria-label={showStopButton ? t('中止') : t('发送')}
           >
             <AnimatePresence mode="wait" initial={false}>

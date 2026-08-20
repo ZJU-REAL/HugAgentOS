@@ -25,6 +25,7 @@ import {
   listSiteKv,
   listSiteSubmissions,
   listSites,
+  getProject,
   rollbackSite,
   updateSite,
   type SiteItem,
@@ -45,6 +46,7 @@ import { useCatalogStore } from '../../stores';
 import { useChatStore } from '../../stores/chatStore';
 import { stablePublicOrigin } from '../../stores/deploymentModeStore';
 import { usePluginStore } from '../../stores/pluginStore';
+import { copyToClipboard } from '../../utils/clipboard';
 import { t } from '../../i18n';
 import '../../styles/sites.css';
 
@@ -59,7 +61,10 @@ async function ensureSitesPluginInstalled(): Promise<boolean> {
     .getState()
     .installed.some((p) => p.slug === 'sites' && p.enabled !== false);
   if (!installed) {
-    message.info(t('站点建站由「站点」插件提供，请先在能力中心 → 插件里安装后再创建'));
+    message.info(t('首次创建站点需要安装插件，请先在能力中心 → 插件里安装后再创建'));
+    // 只 setPanel('ability_center') 会落在用户上次停留的那个 Tab（子智能体 / 技能 / MCP），
+    // 提示让人去装插件、点过去却是别的页面。这里显式把 Tab 也切到「插件」。
+    useCatalogStore.getState().setAbilityTab('plugins');
     useCatalogStore.getState().setPanel('ability_center');
     return false;
   }
@@ -82,11 +87,34 @@ async function startSiteEdit(site: SiteItem) {
     return;
   }
   if (!(await ensureSitesPluginInstalled())) return;
-  useChatStore.getState().enterSiteMode({
-    projectId: site.project_id,
-    projectName: site.title,
-    title: site.title,
-  });
+
+  // 源码工程可能已经被用户删掉了，而站点表里的 project_id 还留着。照旧绑上去，
+  // 侧边栏会拿 chat.projectName 兜底造出一个「已删除项目」的分组，新对话就挂在
+  // 一个并不存在的项目下（刷新后才消失）。所以先确认工程还在。
+  try {
+    await getProject(site.project_id);
+  } catch {
+    message.info(t('该站点的源码工程已被删除，无法在线编辑（可新建一个站点替代）'));
+    return;
+  }
+
+  // 先找这个站点已有的建站会话：站点是从某段对话里建出来的，「编辑」理应回到那段
+  // 对话继续改，而不是每点一次就开一个空白新对话（历史里于是堆满同名空会话）。
+  // 认定条件是「建站会话 + 绑定同一个源码工程 + 已经聊过」，取最近更新的那段。
+  const { store, setCurrentChatId } = useChatStore.getState();
+  const existing = Object.values(store.chats)
+    .filter((c) => c.siteChat && c.projectId === site.project_id && (c.messages?.length || 0) > 0)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+
+  if (existing) {
+    setCurrentChatId(existing.id);
+  } else {
+    useChatStore.getState().enterSiteMode({
+      projectId: site.project_id,
+      projectName: site.title,
+      title: site.title,
+    });
+  }
   useCatalogStore.getState().setPanel('chat');
 }
 
@@ -153,7 +181,7 @@ function SiteManageModal({
       const values = await form.validateFields();
       setSaving(true);
       const updated = await updateSite(site.site_id, {
-        title: values.title,
+        title: values.title?.trim(),
         slug: values.slug !== site.slug ? values.slug : undefined,
         visibility: values.visibility,
         ...editionSiteUpdateFields(values.visibility, values),
@@ -270,7 +298,16 @@ function SiteManageModal({
             label: t('设置'),
             children: (
               <Form form={form} layout="vertical">
-                <Form.Item name="title" label={t('站点标题')} rules={[{ required: true, message: t('请输入站点标题') }]}>
+                {/* whitespace 校验：只敲空格时 required 是满足的（值非空串），
+                    过去要等提交后后端拒掉才报「保存失败」——校验放在输入框上。 */}
+                <Form.Item
+                  name="title"
+                  label={t('站点标题')}
+                  rules={[
+                    { required: true, message: t('请输入站点标题') },
+                    { whitespace: true, message: t('站点标题不能只包含空格') },
+                  ]}
+                >
                   <Input maxLength={200} />
                 </Form.Item>
                 <Form.Item
@@ -446,10 +483,12 @@ export function SitesPanel() {
   };
 
   const handleCopy = async (site: SiteItem) => {
-    try {
-      await navigator.clipboard.writeText(siteFullUrl(site));
+    // 走统一的 copyToClipboard：测试机是 http://内网IP 访问，非安全上下文下
+    // navigator.clipboard 根本不存在，直接调用必然落到「复制失败」——这正是
+    // 「复制链接功能不可用」的原因。该工具在这种环境下退回 execCommand。
+    if (await copyToClipboard(siteFullUrl(site))) {
       message.success(t('链接已复制'));
-    } catch {
+    } else {
       message.error(t('复制失败，请手动复制'));
     }
   };
@@ -500,6 +539,19 @@ export function SitesPanel() {
           >
             <Button onClick={startSiteCreation}>{t('创建新站点')}</Button>
           </Empty>
+        ) : !loading && filteredSites.length === 0 ? (
+          /* 搜不到时原来渲染的是一个空的列表容器——页面看着像卡住了。
+             区分「一个站点都没有」和「有站点但没搜到」两种空态。 */
+          <Empty
+            image={<SearchOutlined style={{ fontSize: 44, opacity: 0.35 }} />}
+            description={(
+              <>
+                <div className="jx-sites-emptyTitle">{t('没有匹配的站点')}</div>
+                <div className="jx-sites-emptyDesc">{t('换个关键词试试')}</div>
+              </>
+            )}
+            style={{ marginTop: 80 }}
+          />
         ) : (
           <div className="jx-sites-list">
             {filteredSites.map((site) => (

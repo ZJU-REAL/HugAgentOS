@@ -18,7 +18,7 @@ import { useUIStore, useChatStore, useAuthStore, useMySpaceStore, useAutomationC
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
-import { usePageConfig } from '../../hooks/usePageConfig';
+import { usePageConfig, usePageConfigAll } from '../../hooks/usePageConfig';
 import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { LAYOUT_ITEMS } from './items';
 import { DEFAULT_SIDEBAR_ITEMS, DEFAULT_MENU_ITEMS } from '../../utils/pageConfigDefaults';
@@ -182,6 +182,16 @@ export function Sidebar({
   };
   // Per-project chat list collapse state (expanded by default); in-memory, reset on refresh.
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
+
+  // 能力中心二级项的名称跟着页面标题走：后台在「页面配置」里改了某个能力页的标题，
+  // 左侧导航要一起变，否则又会回到「导航叫技能、页面叫技能库」的不一致状态（问题 41）。
+  const pageConfig = usePageConfigAll();
+  const abilityTabLabel = useCallback((key: string, fallback: string): string => {
+    const titles = (pageConfig as { navigation?: { panel_titles?: Record<string, string> } })
+      ?.navigation?.panel_titles;
+    const configured = titles?.[key];
+    return configured ? t(configured) : fallback;
+  }, [pageConfig]);
   const toggleProjectCollapsed = (projectId: string) => {
     setCollapsedProjects((prev) => ({ ...prev, [projectId]: !prev[projectId] }));
   };
@@ -204,7 +214,7 @@ export function Sidebar({
   const startRenameItem = (item: ChatItem) => {
     if (item.automationRun) {
       setEditingChatId(item.id);
-      setEditingTitle(item.title || t('自动化任务'));
+      setEditingTitle(item.title || t('定时任务'));
       return;
     }
     onStartRename(item);
@@ -216,7 +226,7 @@ export function Sidebar({
       return;
     }
 
-    const nextTitle = editingTitle.trim() || t('自动化任务');
+    const nextTitle = editingTitle.trim() || t('定时任务');
     setEditingChatId(null);
     setEditingTitle('');
 
@@ -226,7 +236,7 @@ export function Sidebar({
       const updated = await updateAutomationTask(item.automationTaskId, { name: nextTitle });
       updateSidebarTask(updated);
       renameActiveGroup(item.automationTaskId, updated.name || nextTitle);
-      message.success(t('自动化任务已重命名'));
+      message.success(t('定时任务已重命名'));
     } catch (e) {
       message.error((e as Error)?.message || t('重命名失败'));
     }
@@ -254,7 +264,7 @@ export function Sidebar({
             ...prev.chats,
             [targetRun.chat_id!]: {
               id: targetRun.chat_id!,
-              title: item.title || t('自动化任务'),
+              title: item.title || t('定时任务'),
               createdAt: item.createdAt,
               updatedAt: item.updatedAt,
               messages: [],
@@ -310,7 +320,7 @@ export function Sidebar({
       (item) => !item.automationRun && (!item.projectId || isProjectOrphan(item)));
     const result: Array<{ key: HistoryGroupKey; label: string; items: ChatItem[] }> = [];
     if (automationItems.length > 0) {
-      result.push({ key: 'automation', label: t('自动化'), items: automationItems });
+      result.push({ key: 'automation', label: t('定时任务'), items: automationItems });
     }
     result.push({ key: 'history', label: t('历史对话'), items: historyItems });
     return result;
@@ -541,7 +551,7 @@ export function Sidebar({
               </Tooltip>
             ) : null}
             {isAutomation ? (
-              <Tooltip title={t('自动化任务')}>
+              <Tooltip title={t('定时任务')}>
                 <span className="jx-historyTypeIcon jx-historyTypeIcon--automation" style={{ fontSize: 13, color: '#faad14', flexShrink: 0 }}>&#9889;</span>
               </Tooltip>
             ) : item.agentName ? (
@@ -614,7 +624,7 @@ export function Sidebar({
           ? {
             children: meta.children.map((child) => ({
               key: `${key}-${child.key}`,
-              label: child.label,
+              label: abilityTabLabel(child.key, child.label),
               onClick: () => {
                 setAbilityTab(child.key);
                 onSetPanel(meta.targetPanel);
@@ -872,7 +882,7 @@ export function Sidebar({
                             setAbilityTab(child.key);
                             onSetPanel(meta.targetPanel);
                           }}>
-                          <span>{child.label}</span>
+                          <span>{abilityTabLabel(child.key, child.label)}</span>
                         </button>
                       ))}
                     </div>
