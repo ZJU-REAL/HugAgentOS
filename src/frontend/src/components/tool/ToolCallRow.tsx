@@ -301,6 +301,11 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
           {value && <span className="jx-tcr-value">{value}</span>}
           {count != null && <span className="jx-tcr-count">&nbsp;({count})</span>}
         </span>
+        {/* 长工具的实时进度（批量作业 n/m）：run_job 会把这一轮阻塞几十分钟，
+            没有这行，卡片上就只有一个转不完的菊花，用户判断不出是在跑还是已僵死 */}
+        {running && tool.progressNote ? (
+          <span className="jx-tcr-progress">{tool.progressNote}</span>
+        ) : null}
         {running && tool.timestamp ? (
           <ElapsedTimer startTs={tool.timestamp} className="jx-tcr-timer" />
         ) : null}

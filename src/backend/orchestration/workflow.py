@@ -779,7 +779,28 @@ async def _run_ontology_repair_round(
     return normalize_revision_candidate(answer), events, event_cursor, tool_count
 
 
+from core.chat.plan_progress import (  # noqa: E402
+    save_plan_progress as _save_plan_progress,
+    settle_plan_progress as _settle_plan_progress,
+)
 from core.llm.plan_update_tool import parse_plan_update_args  # noqa: E402
+
+
+def _chat_has_live_job(chat_id: str) -> bool:
+    """这个会话还有在跑（或待启动）的后台作业吗 —— 决定计划栏本轮该不该收尾。"""
+    try:
+        from core.db.engine import SessionLocal as _JobSession
+        from core.db.models import Job as _Job
+
+        with _JobSession() as _db:
+            return (
+                _db.query(_Job.job_id)
+                .filter(_Job.chat_id == chat_id, _Job.status.in_(("pending", "running")))
+                .first()
+                is not None
+            )
+    except Exception:  # noqa: BLE001 —— 查不到就当没有作业，照常收尾，别把计划栏永远挂着
+        return False
 
 # SSE tool-result payload builders (moved to routing.tool_payloads)
 from orchestration.tool_payloads import (  # noqa: E402
@@ -2694,6 +2715,9 @@ async def astream_chat_workflow(
                         _pu = parse_plan_update_args(tool_args)
                         if _pu:
                             _last_plan = _pu
+                            # 同步落库：这份清单要跨轮次活下去（后台作业跑完那轮要按它
+                            # 收尾，刷新后也要还原），只活在这条流里是不够的。
+                            _save_plan_progress(str(context.get("chat_id") or ""), _pu)
                             yield {"type": "plan_update", **_pu}
                         continue
 
@@ -3155,11 +3179,24 @@ async def astream_chat_workflow(
             and all(s.get("status") != "pending" for s in _plan_steps)
             and any(s.get("status") == "in_progress" for s in _plan_steps)
         ):
-            yield {
-                "type": "plan_update",
+            _closed = {
                 "title": _last_plan.get("title", ""),
                 "steps": [{**s, "status": "completed"} for s in _plan_steps],
             }
+            _last_plan = _closed
+            _save_plan_progress(str(context.get("chat_id") or ""), _closed)
+            yield {"type": "plan_update", **_closed}
+
+    # 计划栏收尾 —— 本轮结束时把"还会不会有人来更新这份清单"这件事记进库里。
+    #
+    # 过去只有前端在流结束时给它盖章，于是收尾依赖"这个标签页恰好在跟这条流"：后台作业
+    # 跑完的交付轮是**后端自己发起**的，用户没点任何东西，页面可能压根没跟——计划栏就永远
+    # 停在转圈。这里改由服务端认定：本会话还有活着的作业就先不收尾（后面还有交付轮要来
+    # 更新它），没有了就记 settled。步骤状态一个字不改，settled 只表示"没有下一轮了"。
+    if _last_plan:
+        _plan_chat_id = str(context.get("chat_id") or "")
+        if _plan_chat_id and not _chat_has_live_job(_plan_chat_id):
+            _settle_plan_progress(_plan_chat_id)
 
     yield {
         "type": "meta",

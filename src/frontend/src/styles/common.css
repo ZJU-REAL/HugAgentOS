@@ -16,6 +16,17 @@
   line-height:1.44;
   color:var(--color-text);
 }
+/* markdown 里的图片必须被容器夹住。知识库图片入库后，分块正文里是一条
+   `![](/api/v1/catalog/kb/assets/...)`，文档「内容预览」与对话正文都用这个容器渲染，
+   没有这条规则时图片按**原始像素**铺开，弹窗直接装不下（截图型资产尤其明显）。 */
+.jx-md img{
+  max-width:100%;
+  height:auto;
+  border-radius:var(--radius-sm);
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  background:var(--color-bg-gray);
+}
+
 .jx-md h1:first-child,
 .jx-md h2:first-child,
 .jx-md h3:first-child{margin-top:0}

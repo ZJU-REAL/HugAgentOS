@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CloseOutlined, LoadingOutlined, StopOutlined, WarningOutlined } from '@ant-design/icons';
 import { DUR, EASE } from '../../utils/motionTokens';
-import { listChatJobs, cancelJobApi, getJobApi } from '../../api';
+import { listChatJobs, cancelJobApi, getJobApi, getChatDetail, toPlanProgress } from '../../api';
+import { useChatStore } from '../../stores';
 import type { JobBrief } from '../../types';
 import { t } from '../../i18n';
 
@@ -19,6 +20,10 @@ import { t } from '../../i18n';
 
 /** 作业活着时轮询要跟得上肉眼；不活跃就彻底停表，别给后端凭空加常驻负载。 */
 const POLL_MS = 5000;
+
+/** 作业进终态后还要盯多久 —— 交付轮（后端自己发起的那一轮）通常一两分钟内跑完，
+ *  留足余量；到点停表，不给后端留常驻轮询。 */
+const POST_JOB_WATCH_MS = 10 * 60 * 1000;
 
 /** 重新挂载时往回捞多久的「没善终」作业。太长会把几天前的旧账翻出来，太短又盖不住
  *  「跑着跑着去开了个会」这种再正常不过的离开时长。 */
@@ -89,6 +94,10 @@ export function JobProgressStrip({ chatId }: { chatId: string }) {
   // 见过的在跑作业。列表接口只给未结束的，作业一旦进终态就直接从列表里消失——
   // 没有这份记录，失败的作业就是「状态条忽然不见了」，用户永远不知道它是跑完了还是崩了。
   const seenRef = useRef<Set<string>>(new Set());
+  // 会话追平用的两个游标：上次看到的 updated_at（服务端又写东西了的判据），以及
+  // 作业结束后还要继续盯到什么时候。
+  const sessionStampRef = useRef<string>('');
+  const watchUntilRef = useRef<number>(0);
 
   useEffect(() => {
     seenRef.current = new Set();
@@ -124,11 +133,57 @@ export function JobProgressStrip({ chatId }: { chatId: string }) {
     };
     void seedEnded();
 
+    /** 把服务端这段时间自己产出的东西**拉回页面** —— 这是后台作业最容易掉链子的地方。
+     *
+     *  作业跑在后台，进度播报轮和最后的交付轮都是**后端自己发起**的：用户没点任何东西，
+     *  页面上也没有任何本地流。跟随那条流靠的是"这个标签页恰好开着、可见、并且在轮询到
+     *  它的那几秒里它还活着"——而后台作业的整个用途就是让用户走开去干别的。人一走开，
+     *  交付轮跑完了页面也一无所知：既不显示交付那条消息（连带里面的产物卡片），计划栏
+     *  也停在离开时那一步。这正是"跑完了但结果没进工作区、计划没到 5/5"的成因——库里
+     *  两样都是对的，只是没人把它们取回来。
+     *
+     *  所以这里不依赖 SSE：作业活着、以及作业结束后的一段时间里，盯住会话的 updated_at
+     *  （后端每落一条消息都会推进它）。一变就把历史重新拉一遍；计划栏则直接按服务端
+     *  快照更新。本地正在跟流时让路，别和实时流抢着写同一段气泡。 */
+    const catchUpWithServer = async () => {
+      let detail: Awaited<ReturnType<typeof getChatDetail>>;
+      try {
+        detail = await getChatDetail(chatId);
+      } catch {
+        return; // 查不到就等下一轮，别把状态条搞抖
+      }
+      if (!alive || chatRef.current !== chatId) return;
+
+      const store = useChatStore.getState();
+      const persisted = toPlanProgress((detail.metadata as Record<string, unknown> | undefined)?.plan_progress);
+      if (persisted) {
+        const livePlan = store.planProgress[chatId];
+        if (!livePlan || livePlan.updatedAt < persisted.updatedAt) {
+          store.setPlanProgress(chatId, persisted);
+        }
+      }
+
+      const stamp = String(detail.updated_at || '');
+      if (!stamp) return;
+      if (!sessionStampRef.current) {
+        sessionStampRef.current = stamp; // 首次只记基准，不触发重载
+        return;
+      }
+      if (stamp === sessionStampRef.current) return;
+      sessionStampRef.current = stamp;
+      // 本地已经在跟这条会话的流了（用户自己发的消息 / 已经挂上了交付轮）→ 让它去写，
+      // 这里重载只会把正在流式渲染的气泡整段盖掉。
+      if (store.sendingChatIds.has(chatId) || store.activeRuns[chatId]) return;
+      store.removeLoadedMsgId(chatId);
+      store.bumpSessionLoadEpoch();
+    };
+
     const tick = async () => {
       try {
         const rows = await listChatJobs(chatId);
         if (!alive || chatRef.current !== chatId) return;
         setJobs(rows);
+        if (rows.length > 0) watchUntilRef.current = Date.now() + POST_JOB_WATCH_MS;
 
         const liveIds = new Set(rows.map((r) => r.job_id));
         const vanished = [...seenRef.current].filter((id) => !liveIds.has(id));
@@ -141,12 +196,28 @@ export function JobProgressStrip({ chatId }: { chatId: string }) {
             if (final.status !== 'completed') {
               setEnded((prev) => (prev.some((j) => j.job_id === id) ? prev : [...prev, final]));
             }
+            // 作业进终态 = 计划栏没有理由再转圈。
+            //
+            // 交付轮（作业跑完后端自己发起的那一轮）会把清单更新到最终状态，但那要
+            // 这个标签页正好在跟那条流才看得到；失联（interrupted）的作业更是连唤醒都
+            // 不触发。所以这里先就地收尾——之后交付轮真来了，它的 plan_update 会覆盖
+            // 这份状态（整份替换），不会互相打架。
+            const pp = useChatStore.getState().planProgress[chatRef.current];
+            if (pp && pp.source === 'agent' && !pp.done) {
+              useChatStore
+                .getState()
+                .setPlanProgress(chatRef.current, { ...pp, done: true, updatedAt: Date.now() });
+            }
           } catch {
             // 查不到就算了：宁可少说一句，也不要编一个结局
           }
         }
       } catch {
         // 轮询失败保持上一帧：状态条抖成空白比慢一拍更糟
+      }
+      // 作业在跑、以及作业刚结束的那段时间里，顺带把服务端自己产出的轮次追回来
+      if (alive && chatRef.current === chatId && Date.now() < watchUntilRef.current) {
+        await catchUpWithServer();
       }
       if (alive) timer = window.setTimeout(tick, POLL_MS);
     };

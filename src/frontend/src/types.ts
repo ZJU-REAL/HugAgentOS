@@ -179,6 +179,9 @@ export interface ToolCall {
   // call_subagent only: the sub-agent's internal streaming sub-steps + the sub-agent's name
   subSteps?: SubagentStep[];
   subagentName?: string;
+  /** 运行中工具的实时进度短句（run_job 的批量作业进度等）。只活在流里，不落库——
+   *  工具跑完后由 tool_result 说明结局，历史里不该留一行过期数字。 */
+  progressNote?: string;
   scope?: 'ontology_revision' | string;
   /**
    * 该工具卡片出现时，持久化正文（含 <think> 标记）的累计字符偏移。
@@ -480,6 +483,10 @@ export interface ChatItem {
   /** 这段对话当前的工作流模式开关（用户在 / 命令或「+」菜单里选的）。undefined 走历史默认，
    *  false 表示用户显式关掉了。只有它为 true 才会注册 run_job 并注入批量作业提示词。 */
   workflowModeActive?: boolean;
+  /** 服务端记着的任务计划清单（会话 metadata.plan_progress）。计划栏本身是内存态、
+   *  一刷新就没，而工作流的一份计划要跨好几轮（提交作业 → 后台跑 → 交付轮收尾）才走完；
+   *  这份快照就是刷新/切回来之后把计划栏还原成真实状态的依据。 */
+  planProgress?: PlanProgressState;
   /** Whether this chat was created via the site-building ("站点建站") entry (Lab → Sites) */
   siteChat?: boolean;
   /** Automation task ID — set on virtual sidebar entries for automation tasks */

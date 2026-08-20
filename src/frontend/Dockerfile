@@ -54,6 +54,16 @@ COPY default.conf.template /etc/nginx/templates/default.conf.template
 # Copy built assets from builder
 COPY --from=builder /build/dist /usr/share/nginx/html
 
+# 清掉 macOS AppleDouble 边车（`._index.html` 这类 163 字节的元数据文件）。
+# 走上面 builder 阶段时 dist 是 Linux 里生成的，不会有这种东西 —— 这行防的是另一条路：
+# 有些环境（比如 npm install 拉包慢到不可用的测试机）改用「本机 Mac 构建 dist + 只保留本阶段
+# 的薄镜像」来部署，而 macOS 的 tar 只要没设 `COPYFILE_DISABLE=1`（或误用 `--no-xattrs`）
+# 就会把扩展属性打包成 AppleDouble 成员，在 Linux 侧解出一堆 `._*`。这坑真发生过：
+# HugAgentOS 测试机的 nginx 容器里一度攒了 357 个。更坑的是 macOS 的 `tar tzf` 列归档
+# 时会把这些条目合并隐藏，在打包机上根本看不出来。nginx 不会去服务它们，但白占体积、
+# 也让容器里 `ls` 一片噪声，索性在镜像层面兜住。
+RUN find /usr/share/nginx/html -name '._*' -type f -delete
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s \
     CMD wget --quiet --tries=1 --spider http://127.0.0.1:80/ || exit 1

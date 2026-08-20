@@ -144,6 +144,33 @@ def _message_to_dict(m) -> dict:
     }
 
 
+# 作业唤醒消息的开头（``orchestration/job_wakeup.py`` 生成）。新写入的消息带
+# ``extra_data.hidden_in_chat``；这两个前缀是给**标记上线之前**已经落库的老消息兜底的——
+# 用户的会话里已经躺着一串「[系统] 进度播报：……」，只靠标记它们永远漏出来。
+_WAKE_MESSAGE_PREFIXES = (
+    "[系统] 进度播报：",
+    "[系统] 你先前提交的批量作业",
+)
+
+
+def _is_internal_message(m) -> bool:
+    """这条消息是写给模型的内部指令，不该出现在用户看到的聊天记录里。
+
+    后台作业的唤醒轮（进度播报 / 终态交付）是以 user 角色落库的系统指令——模型必须看见它
+    （历史另走 ``load_session_history``，不经过本接口），但用户看到的应该只是助手那句
+    转述，而不是「请只用一两句话把上面的进度转述给用户」这种提示词本身。
+    """
+    extra = getattr(m, "extra_data", None) or {}
+    if isinstance(extra, dict) and extra.get("hidden_in_chat"):
+        return True
+    content = getattr(m, "content", None)
+    return (
+        getattr(m, "role", "") == "user"
+        and isinstance(content, str)
+        and content.startswith(_WAKE_MESSAGE_PREFIXES)
+    )
+
+
 def _clean_id_list(raw: Optional[list]) -> List[str]:
     """Normalize a list of capability IDs: strip whitespace, remove empties."""
     if not isinstance(raw, list):
@@ -477,7 +504,7 @@ async def list_messages(
         raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
 
     messages, total = chat_service.message_repo.list_by_chat(chat_id, page, page_size)
-    items = [_message_to_dict(m) for m in messages]
+    items = [_message_to_dict(m) for m in messages if not _is_internal_message(m)]
     response = paginated_response(
         items=items,
         page=page,
@@ -1199,6 +1226,12 @@ async def chat_stream(
         workflow_chat=request.workflow_chat,
         project_id=request.project_id,
     )
+
+    # 新一轮用户消息 = 上一段任务的计划栏作废（和前端发送时清空计划栏是同一条规则）。
+    # 只清在这条用户消息路径上：作业唤醒轮走的是另一条入队路径，那份计划正等着它收尾。
+    from core.chat.plan_progress import clear_plan_progress
+
+    clear_plan_progress(request.chat_id)
 
     # Link orphan artifacts (uploaded before session existed) to this chat
     if request.attachments:

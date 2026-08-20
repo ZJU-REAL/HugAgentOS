@@ -2,6 +2,8 @@ import React from 'react';
 import { authFetch } from '../../../api';
 import { PREVIEW_LEN, citeTag, preview } from './utils';
 import { t } from '../../../i18n';
+import { KBAssetThumbs } from '../../kb/KBAssetThumbs';
+import { extractAssetRefs, type KBAssetRef } from '../../kb/kbAssets';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -67,8 +69,21 @@ export function renderRetrieveLocalKB(out: unknown, setDetailModal: SetDetailMod
         const docName = item.title || t('未知文档');
         const content = String(item.content || '');
         const score = item.score != null ? t('相关度 {n}%', { n: (item.score * 100).toFixed(1) }) : '';
+        // Retrieval attaches the hit's figures with their captions; fall back to the links
+        // embedded in the chunk text for hits indexed before assets were carried through.
+        const assets: KBAssetRef[] = Array.isArray(item.images) && item.images.length
+          ? item.images
+          : extractAssetRefs(content);
         const openDetail = () => {
-          setDetailModal({ title: docName, body: <div className="jx-tr-detailBody">{content || t('暂无内容')}</div> });
+          setDetailModal({
+            title: docName,
+            body: (
+              <div className="jx-tr-detailBody">
+                {content || t('暂无内容')}
+                {assets.length > 0 && <KBAssetThumbs assets={assets} />}
+              </div>
+            ),
+          });
         };
         return (
           <div key={idx} className="jx-tr-kbItem jx-tr-kbItem--clickable" onClick={openDetail} title={t('点击查看全文')}>
@@ -79,6 +94,7 @@ export function renderRetrieveLocalKB(out: unknown, setDetailModal: SetDetailMod
                 {content.length > PREVIEW_LEN && <span className="jx-tr-kbMore">{t('查看全文 →')}</span>}
               </div>
             )}
+            {assets.length > 0 && <KBAssetThumbs assets={assets} compact />}
             {score && <div className="jx-tr-kbScore">{score}</div>}
           </div>
         );

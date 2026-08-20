@@ -71,6 +71,7 @@ async def lifespan(app: FastAPI):
     await _startup_preload()
     await _startup_automation_scheduler()
     await _startup_kb_wiki_worker()
+    await _startup_kb_index_worker()
     await _startup_distillation_scheduler()
     await _startup_evolution_scheduler()
     await _startup_memory_ttl_scheduler()
@@ -82,6 +83,7 @@ async def lifespan(app: FastAPI):
     await _shutdown_stale_run_reaper()
     await _shutdown_orphan_job_reaper()
     await _shutdown_kb_wiki_worker()
+    await _shutdown_kb_index_worker()
     await _shutdown_channel_manager()
     await _shutdown_datasource_sidecar_recovery()
     await _shutdown_mcp_market_monitor()
@@ -998,6 +1000,41 @@ async def _startup_kb_wiki_worker():
         logger.warning("[startup] KB wiki worker failed to start: %s", exc)
 
 
+async def _startup_kb_index_worker():
+    """Start the knowledge-base document indexing worker.
+
+    索引（解析→分块→向量化）以前挂在 FastAPI BackgroundTasks 上，会抢 Starlette 的
+    共享请求线程池——批量上传时把池占满，所有接口在进 handler 之前就排队，前端一直
+    转圈、网关报 502；而且任务是进程内的，重启即丢，文档永远停在「索引中」。现在改
+    成持久化队列 + 独立线程池的常驻 worker，启动时自动接手上个进程留下的僵死文档。
+    """
+    if not _env_flag("KB_INDEX_WORKER_ENABLED", True):
+        logger.info("[startup] KB index worker disabled")
+        return
+    try:
+        from core.kb.index_worker import KBIndexWorker
+
+        global _kb_index_worker
+        _kb_index_worker = KBIndexWorker()
+        await _kb_index_worker.start()
+        from core.infra import runtime_state
+
+        runtime_state.register("kb_index_worker", _kb_index_worker)
+    except Exception as exc:
+        logger.warning("[startup] KB index worker failed to start: %s", exc)
+
+
+async def _shutdown_kb_index_worker():
+    global _kb_index_worker
+    if _kb_index_worker is None:
+        return
+    try:
+        await _kb_index_worker.stop()
+    except Exception as exc:
+        logger.warning("[shutdown] KB index worker stop failed: %s", exc)
+    _kb_index_worker = None
+
+
 async def _shutdown_kb_wiki_worker():
     global _kb_wiki_worker
     if _kb_wiki_worker is None:
@@ -1027,6 +1064,7 @@ async def _startup_channel_manager():
 
 _automation_scheduler = None
 _kb_wiki_worker = None
+_kb_index_worker = None
 _distillation_scheduler = None
 _idle_reaper_task = None
 

@@ -141,6 +141,60 @@ class KBChunk(Base):
     )
 
 
+class KBAsset(Base):
+    """Non-text media cut out of a knowledge-base document (图片 / 后续音视频).
+
+    One row per figure the layout engine extracted (or per standalone uploaded image).
+    The bytes live in object storage under ``storage_key``; this table holds the
+    linkage (which document / which parent chunk), where it sits in the source
+    (``locator``), and the two text projections retrieval runs on:
+
+    ``text_content``  literal text carried by the medium — 图注 / OCR 文字；音视频接入后是 ASR 转写。
+    ``caption``       语义描述，由 VLM 生成（未配置 vlm 角色时为空，检索退化为只用 text_content）。
+
+    Deliberately medium-agnostic so audio/video need no migration: ``kind`` widens,
+    ``locator`` holds ``{page_idx, bbox}`` for images and would hold ``{start_ms,
+    end_ms}`` for a transcript segment.
+
+    ``vector_state`` records which vector spaces this asset has been indexed into
+    (``{"text": "ok"}`` today). Path B — a true multimodal embedding in its own
+    collection — adds a second key here instead of another column.
+    """
+
+    __tablename__ = "kb_assets"
+
+    asset_id = Column(String(64), primary_key=True)
+    kb_id = Column(String(64), ForeignKey("kb_spaces.kb_id", ondelete="CASCADE"), nullable=False)
+    document_id = Column(
+        String(64), ForeignKey("kb_documents.document_id", ondelete="CASCADE"), nullable=False
+    )
+    # Owning parent chunk. Nullable: an asset whose placeholder cannot be located in
+    # any chunk is still worth keeping (it stays retrievable on its own row).
+    chunk_id = Column(String(64))
+    kind = Column(String(16), nullable=False, default="image")  # image | audio | video
+    mime_type = Column(String(100), nullable=False, default="application/octet-stream")
+    storage_key = Column(Text, nullable=False)
+    size_bytes = Column(BigInteger, default=0)
+    asset_index = Column(Integer, nullable=False, default=0)  # order within the document
+    locator = Column(JSONType, default=dict)  # image: {page_idx, bbox}; av: {start_ms, end_ms}
+    caption = Column(Text)  # VLM 语义描述
+    text_content = Column(Text)  # 图注 / OCR / ASR 转写
+    caption_status = Column(
+        String(20), nullable=False, default="pending"
+    )  # pending | completed | skipped | failed
+    vector_state = Column(JSONType, default=dict)  # {"text": "ok"} —— 路径 B 在此加键
+    extra_data = Column("metadata", JSONType, default={})
+    created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('image', 'audio', 'video')", name="kb_assets_kind_check"),
+        Index("idx_kb_assets_kb_id", "kb_id"),
+        Index("idx_kb_assets_document_id", "document_id"),
+        Index("idx_kb_assets_chunk_id", "chunk_id"),
+    )
+
+
 class CatalogOverride(Base):
     """Catalog override table - user customizations for skills/agents/MCPs."""
 

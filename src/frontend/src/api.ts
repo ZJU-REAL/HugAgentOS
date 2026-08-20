@@ -4,7 +4,7 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
@@ -238,6 +238,31 @@ function toTimestamp(value: unknown): number {
   return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
+/** 会话 metadata 里的计划快照 → 计划栏状态。服务端是真源：`settled` 表示"不会再有哪一轮
+ *  来更新它了"（不等于每一步都完成——停在 2/5 的计划收尾后仍显示 2/5，只是不再转圈）。 */
+export function toPlanProgress(raw: unknown): PlanProgressState | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as JsonObject;
+  const steps = (Array.isArray(o.steps) ? o.steps : [])
+    .map((s) => {
+      const st = s as JsonObject;
+      const title = typeof st?.title === 'string' ? st.title.trim() : '';
+      const status = st?.status === 'in_progress' || st?.status === 'completed' || st?.status === 'failed'
+        ? st.status : 'pending';
+      return title ? { title, status: status as PlanProgressState['steps'][number]['status'] } : null;
+    })
+    .filter((s): s is PlanProgressState['steps'][number] => !!s);
+  if (steps.length === 0) return undefined;
+  const ts = typeof o.updated_at === 'string' ? Date.parse(o.updated_at) : NaN;
+  return {
+    source: 'agent',
+    title: typeof o.title === 'string' ? o.title : '',
+    steps,
+    done: o.settled === true ? true : undefined,
+    updatedAt: Number.isFinite(ts) ? ts : Date.now(),
+  };
+}
+
 function toChatItem(raw: JsonObject): ChatItem {
   const metadata = (raw.metadata ?? {}) as JsonObject;
   return {
@@ -254,6 +279,7 @@ function toChatItem(raw: JsonObject): ChatItem {
     planChat: metadata.plan_chat === true ? true : undefined,
     batchChat: metadata.batch_chat === true ? true : undefined,
     workflowChat: metadata.workflow_chat === true ? true : undefined,
+    planProgress: toPlanProgress(metadata.plan_progress),
     projectId: typeof raw.project_id === 'string' && raw.project_id ? raw.project_id : undefined,
   };
 }
@@ -607,6 +633,9 @@ export type ChatDetail = {
   pinned?: boolean;
   favorite?: boolean;
   metadata?: Record<string, unknown>;
+  /** 会话最后一次被写入的时间。后端每落一条消息都会推进它，所以它是"服务端这边又有新
+   *  内容了"最省事的判据——比对消息条数不行：内部唤醒指令落库但不进消息列表。 */
+  updated_at?: string;
 } & EditionChatDetailFields;
 
 /** Fetch chat detail, extended by the active edition's response contract. */
@@ -626,7 +655,13 @@ export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
     isLocalChat(chatId) ? 'local' : undefined,
   );
   const data = unwrapData<PaginatedData<JsonObject>>(wrapped);
-  const items = Array.isArray(data.items) ? data.items : [];
+  const rawItems = Array.isArray(data.items) ? data.items : [];
+  // 后台作业的唤醒指令（进度播报 / 终态交付）以 user 角色落库，好让模型在历史里看见它，
+  // 但它是内部提示词、不是用户说的话。后端已经在消息列表接口里滤掉，这里再挡一道：
+  // 老后端配新前端时也不会把「[系统] 进度播报：…」贴进对话。
+  const items = rawItems.filter(
+    (item) => !(item.metadata as JsonObject | undefined)?.hidden_in_chat,
+  );
   return items.map((item) => ({
     role: String(item.role) === 'assistant' ? 'assistant' : 'user',
     content: String(item.content ?? ''),

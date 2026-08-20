@@ -4,6 +4,7 @@ import './sidebar.css';
 import './search-modal.css';
 import './chat.css';
 import './tool.css';
+import './data-view.css';
 import './code-highlight.css';
 import './catalog.css';
 import './kb-wiki.css';
