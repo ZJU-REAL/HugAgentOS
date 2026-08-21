@@ -8,8 +8,8 @@ export const HOOKS_DICT: Record<string, string> = {
   // useStreaming — API config missing
   '请先在设置中配置 API 地址。': 'Please configure the API address in Settings first.',
   // useStreaming — tool name fallbacks (note: '工具调用' also in tool.ts, '附件' also in adminSkills.ts)
-  // useStreaming — subagent display name
-  '调用子智能体：{name}': 'Calling Sub-agent: {name}',
+  // useStreaming — agent display name
+  '调用智能体：{name}': 'Calling Agent: {name}',
   // useStreaming — file confirm timeout
   '一项「我的空间」写确认已超时取消，如仍需要请重新发起。': 'A My Space write confirmation has timed out and been cancelled. Please resend if needed.',
   // useStreaming — design pick timeout

@@ -64,8 +64,8 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
     "navigation": {
         "panel_titles": {
             "ability_center": "能力中心",
-            "skills": "技能库",
-            "agents": "子智能体",
+            "skills": "技能",
+            "agents": "智能体",
             "mcp": "连接器",
             "kb": "知识库",
             "docs": "更新记录",
@@ -80,8 +80,8 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
         "panel_subtitles": {
             "ability_center": "智能体基础能力管理，包含智能体、技能、连接器与插件",
             "skills": "启用/停用技能，并查看详细介绍、输入输出与示例。",
-            "agents": "选择与启用子智能体，并查看其职责边界与路由提示。",
-            "mcp": "管理 MCP 连接器服务，并查看其作用范围与可靠性影响。",
+            "agents": "选择与启用智能体，并查看其职责边界与路由提示。",
+            "mcp": "管理连接器服务，并查看其作用范围与可靠性影响。",
             "kb": "浏览知识库、查看文档列表，并支持文档内检索。",
             "docs": "查看功能更新、能力中心与平台说明。",
             "app_center": "基于 AI 能力的场景化智能应用",
@@ -352,6 +352,32 @@ _NAV_BACKFILL_ENTRIES: list[dict[str, Any]] = [
 ]
 
 
+# 能力中心统一表述（技能库→技能 / 子智能体→智能体 / MCP工具库→连接器 / 插件库→插件）之前
+# 建起来的部署，DB 里存的还是旧出厂文案。这里做一次性改写：**仅当**存量取值与旧出厂默认
+# 完全一致时才改，管理员自己改过的标题原样保留。
+_LEGACY_PANEL_TEXT_RENAMES: dict[str, dict[str, tuple[tuple[str, ...], str]]] = {
+    "panel_titles": {
+        "skills": (("技能库",), "技能"),
+        "agents": (("子智能体",), "智能体"),
+        "plugins": (("插件库",), "插件"),
+        "mcp": (("MCP工具库", "MCP 工具库", "MCP 工具"), "连接器"),
+    },
+    "panel_subtitles": {
+        "agents": (
+            ("选择与启用子智能体，并查看其职责边界与路由提示。",),
+            "选择与启用智能体，并查看其职责边界与路由提示。",
+        ),
+        "mcp": (
+            (
+                "管理 MCP 工具服务，并查看其作用范围与可靠性影响。",
+                "管理 MCP 连接器服务，并查看其作用范围与可靠性影响。",
+            ),
+            "管理连接器服务，并查看其作用范围与可靠性影响。",
+        ),
+    },
+}
+
+
 def backfill_navigation_entries(db: Session) -> int:
     """Patch existing page_config row to add navigation entries listed in
     ``_NAV_BACKFILL_ENTRIES`` if they are missing.
@@ -398,6 +424,16 @@ def backfill_navigation_entries(db: Session) -> int:
             text = default_nav[field].get(key)
             if isinstance(target, dict) and key not in target and text:
                 target[key] = text
+                changed += 1
+
+    # 旧出厂文案改名（能力中心统一表述），与上面的补齐共用一次提交
+    for field, renames in _LEGACY_PANEL_TEXT_RENAMES.items():
+        target = nav.get(field)
+        if not isinstance(target, dict):
+            continue
+        for key, (legacy_values, new_text) in renames.items():
+            if target.get(key) in legacy_values:
+                target[key] = new_text
                 changed += 1
 
     if changed:

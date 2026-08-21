@@ -37,7 +37,7 @@ export function stripMcpToolPrefix(name: string): string {
 /** Frontend-local tool name overrides (higher priority than backend displayName) */
 export const TOOL_NAME_OVERRIDES: Record<string, string> = {
   view_text_file: t('读取文件'),
-  call_subagent: t('调用子智能体'),
+  call_subagent: t('调用智能体'),
   load_skill: t('加载技能'),
   load_plugin: t('加载插件'),
   // MySpace tools

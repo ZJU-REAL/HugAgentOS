@@ -14,6 +14,7 @@ paths" scenario.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from typing import Optional
@@ -245,7 +246,10 @@ def register_read(
                 logger.warning("[read] myspace 懒加载失败 %s: %s", file_path, mexc)
             # Fallback: legacy chat-scoped same-name recovery (non-myspace paths take this)
             if data is None:
-                data = _fallback_recover_from_artifact(
+                # Worker thread: the recovery downloads artifact bytes from storage,
+                # which is a network round-trip on S3/OSS deployments.
+                data = await asyncio.to_thread(
+                    _fallback_recover_from_artifact,
                     file_path=physical,
                     chat_id=chat_id,
                     user_id=user_id,
@@ -284,7 +288,9 @@ def register_read(
                     if fid:
                         from core.content.artifact_reader import fetch_parsed_text
 
-                        pt = fetch_parsed_text(fid, user_id)
+                        # Worker thread: on a cache miss this POSTs the document to the
+                        # external file-parser service — blocking, and slow on large PDFs.
+                        pt = await asyncio.to_thread(fetch_parsed_text, fid, user_id)
                         if pt:
                             parsed_text = pt
                 except Exception as pexc:  # noqa: BLE001

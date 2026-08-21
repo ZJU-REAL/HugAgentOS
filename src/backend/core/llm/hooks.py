@@ -149,6 +149,12 @@ def _get_provider_model(provider_id: str, mode: str = "medium"):
         disable_thinking=disable_thinking,
         reasoning_effort=reasoning_effort,
         stream=True,
+        # Same per-model admin flag as get_default_model: reasoning arrives via the
+        # separate reasoning_content channel, so announce it at stream start and the
+        # frontend never buffers a no-thinking answer as presumed reasoning.
+        structured_reasoning=(
+            True if (resolved.extra or {}).get("structured_reasoning") else None
+        ),
     )
     _model_cache[key] = instance
     return instance

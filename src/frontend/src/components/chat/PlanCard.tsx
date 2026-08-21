@@ -159,7 +159,7 @@ function PlanStepRow({ step, index, mode, agentNameMap, defaultExpanded }: { ste
           {step.expected_tools && step.expected_tools.length > 0 && (
             <div className="jx-plan-stepMeta">
               <ToolOutlined className="jx-plan-metaIcon" />
-              <span className="jx-plan-metaLabel">{t('MCP 工具')}</span>
+              <span className="jx-plan-metaLabel">{t('连接器')}</span>
               <div className="jx-plan-tags">
                 {step.expected_tools.map((t, i) => <span key={i} className="jx-plan-tag jx-plan-tag--tool">{t}</span>)}
               </div>
@@ -177,7 +177,7 @@ function PlanStepRow({ step, index, mode, agentNameMap, defaultExpanded }: { ste
           {step.expected_agents && step.expected_agents.length > 0 && (
             <div className="jx-plan-stepMeta">
               <RobotOutlined className="jx-plan-metaIcon" />
-              <span className="jx-plan-metaLabel">{t('子智能体')}</span>
+              <span className="jx-plan-metaLabel">{t('智能体')}</span>
               <div className="jx-plan-tags">
                 {step.expected_agents.map((a, i) => <span key={i} className="jx-plan-tag jx-plan-tag--agent">{agentNameMap?.[a] || a}</span>)}
               </div>

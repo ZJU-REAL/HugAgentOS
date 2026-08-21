@@ -747,6 +747,118 @@ def _publish_snapshot(
     return item
 
 
+def _next_revalidated_version(db: Session, slug: str, current_version: str) -> str:
+    """Return a collision-free version for an administrator-accepted snapshot."""
+    semantic = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", current_version)
+    if semantic:
+        major, minor, patch = (int(value) for value in semantic.groups())
+        candidate = f"{major}.{minor}.{patch + 1}"
+        while (
+            db.query(McpMarketVersion.version_id)
+            .filter(
+                McpMarketVersion.slug == slug,
+                McpMarketVersion.version == candidate,
+            )
+            .first()
+        ):
+            patch += 1
+            candidate = f"{major}.{minor}.{patch + 1}"
+        return candidate
+
+    base = re.sub(r"[^0-9A-Za-z._+-]", "-", current_version).strip("-.") or "1.0.0"
+    sequence = 1
+    while True:
+        candidate = f"{base[:32]}+recheck.{sequence}"
+        if not (
+            db.query(McpMarketVersion.version_id)
+            .filter(
+                McpMarketVersion.slug == slug,
+                McpMarketVersion.version == candidate,
+            )
+            .first()
+        ):
+            return candidate
+        sequence += 1
+
+
+def _version_probe_candidate(item: McpMarketItem, version: McpMarketVersion) -> AdminMcpServer:
+    """Build a credential-free probe target from an immutable reviewed version."""
+    return AdminMcpServer(
+        server_id=f"market_revalidate_{uuid.uuid4().hex}",
+        display_name=item.display_name,
+        description=item.description or "",
+        user_intro=item.user_intro,
+        transport=version.transport,
+        command=None,
+        args=[],
+        url=version.url,
+        env_vars={},
+        env_inherit=[],
+        headers={},
+        is_stable=False,
+        is_enabled=False,
+        sort_order=0,
+        extra_config={},
+        tools_json=list(version.tools_json or []),
+        icon=item.icon,
+        owner_user_id=None,
+        source_plugin=None,
+        created_by="market-revalidation",
+    )
+
+
+def _accept_revalidated_snapshot(
+    db: Session,
+    item: McpMarketItem,
+    version: McpMarketVersion,
+    tools: List[Dict[str, Any]],
+) -> McpMarketVersion:
+    """Publish live drift as a new immutable version after explicit admin review."""
+    next_version = _next_revalidated_version(db, item.slug, version.version)
+    _publish_snapshot(
+        db,
+        slug=item.slug,
+        display_name=item.display_name,
+        description=item.description or "",
+        user_intro=item.user_intro,
+        category=item.category,
+        tags=list(item.tags or []),
+        icon=item.icon,
+        publisher_id=item.publisher_id,
+        publisher_name=item.publisher_name or "",
+        source=item.source,
+        version=next_version,
+        transport=version.transport,
+        url=version.url,
+        auth_schema=list(version.auth_schema or []),
+        auth_config=dict(version.auth_config or {}),
+        tools=tools,
+        source_server_id=version.source_server_id,
+        approved_by="admin-revalidation",
+    )
+    db.flush()
+    accepted = _version_for_item(db, item)
+    if version.source_server_id:
+        (
+            db.query(McpMarketInstallation)
+            .filter(
+                McpMarketInstallation.slug == item.slug,
+                McpMarketInstallation.server_id == version.source_server_id,
+                McpMarketInstallation.version_id == version.version_id,
+            )
+            .update(
+                {
+                    McpMarketInstallation.version_id: accepted.version_id,
+                    McpMarketInstallation.updated_at: datetime.utcnow(),
+                },
+                synchronize_session=False,
+            )
+        )
+    db.commit()
+    refresh_mcp_caches()
+    return accepted
+
+
 async def review_submission(
     db: Session,
     submission_id: str,
@@ -1583,7 +1695,12 @@ def set_suspended(
     }
 
 
-async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
+async def revalidate_market_item(
+    db: Session,
+    slug: str,
+    *,
+    accept_changes: bool = False,
+) -> Dict[str, Any]:
     item = (
         db.query(McpMarketItem)
         .filter(McpMarketItem.slug == slug, McpMarketItem.deleted_at.is_(None))
@@ -1622,31 +1739,28 @@ async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
         if version.source_server_id
         else None
     )
-    if not source:
-        item.status = "changed"
-        item.status_reason = "原始 MCP 连接已不存在，无法继续验证"
-        item.last_verified_at = datetime.utcnow()
-        item.updated_at = datetime.utcnow()
-        db.commit()
-        return _item_dict(db, item, version, installed=False)
-    source_template_url, source_auth_schema = _credential_free_connection(source)
-    if source.transport != version.transport or source_template_url.strip() != version.url.strip():
-        item.status = "changed"
-        item.status_reason = "原始 MCP 的连接地址或传输方式已变化，需发布新版本"
-        item.last_verified_at = datetime.utcnow()
-        item.updated_at = datetime.utcnow()
-        db.commit()
-        return _item_dict(db, item, version, installed=False)
-    auth_policy = _normalize_auth_config(version.auth_config, list(version.auth_schema or []))
-    if auth_policy["credential_mode"] == "auto" and source_auth_schema != list(
-        version.auth_schema or []
-    ):
-        item.status = "changed"
-        item.status_reason = "原始 MCP 的认证参数已变化，需发布新版本"
-        item.last_verified_at = datetime.utcnow()
-        item.updated_at = datetime.utcnow()
-        db.commit()
-        return _item_dict(db, item, version, installed=False)
+    if source:
+        source_template_url, source_auth_schema = _credential_free_connection(source)
+        if (
+            source.transport != version.transport
+            or source_template_url.strip() != version.url.strip()
+        ):
+            item.status = "changed"
+            item.status_reason = "原始 MCP 的连接地址或传输方式已变化，需发布新版本"
+            item.last_verified_at = datetime.utcnow()
+            item.updated_at = datetime.utcnow()
+            db.commit()
+            return _item_dict(db, item, version, installed=False)
+        auth_policy = _normalize_auth_config(version.auth_config, list(version.auth_schema or []))
+        if auth_policy["credential_mode"] == "auto" and source_auth_schema != list(
+            version.auth_schema or []
+        ):
+            item.status = "changed"
+            item.status_reason = "原始 MCP 的认证参数已变化，需发布新版本"
+            item.last_verified_at = datetime.utcnow()
+            item.updated_at = datetime.utcnow()
+            db.commit()
+            return _item_dict(db, item, version, installed=False)
     try:
         await validate_remote_mcp_url(
             version.url,
@@ -1656,15 +1770,28 @@ async def revalidate_market_item(db: Session, slug: str) -> Dict[str, Any]:
     except BadRequestError as exc:
         set_suspended(db, slug, suspended=True, reason=f"远程地址安全复检失败：{exc}")
         return _item_dict(db, item, version, installed=False)
-    ok, error = await probe_mcp_connectivity(source, db)
+    probe_target = source or _version_probe_candidate(item, version)
+    ok, error = await probe_mcp_connectivity(probe_target, db if source else None)
+    discovered_tools = list(probe_target.tools_json or [])
     if not ok:
         item.status = "changed"
-        item.status_reason = f"复检连接失败：{error}"
+        prefix = "复检连接失败" if source else "原始 MCP 连接已不存在，版本端点复检失败"
+        item.status_reason = f"{prefix}：{error}"
+    elif not discovered_tools:
+        item.status = "changed"
+        item.status_reason = "复检连接成功，但远程 MCP 未返回任何工具，暂不接受新快照"
     else:
-        actual_hash = tool_snapshot_hash(source.tools_json or [])
+        actual_hash = tool_snapshot_hash(discovered_tools)
         if actual_hash == version.tool_hash:
             item.status = "active"
             item.status_reason = None
+        elif accept_changes and item.source == "admin":
+            previous_version = version.version
+            accepted = _accept_revalidated_snapshot(db, item, version, discovered_tools)
+            result = _item_dict(db, item, accepted, installed=False)
+            result["snapshot_accepted"] = True
+            result["previous_version"] = previous_version
+            return result
         else:
             item.status = "changed"
             item.status_reason = "远程工具或参数结构已变化，需发布新版本并重新审核"

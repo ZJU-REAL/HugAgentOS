@@ -1073,7 +1073,7 @@ export function OntologyModuleEditor({
                               <Select options={[
                                 { value: 'tool', label: t('工具') },
                                 { value: 'skill', label: t('技能') },
-                                { value: 'subagent', label: t('子智能体') },
+                                { value: 'subagent', label: t('智能体') },
                               ]} />
                             </Form.Item>
                           </Col>

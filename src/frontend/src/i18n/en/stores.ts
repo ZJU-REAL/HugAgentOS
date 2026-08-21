@@ -1,6 +1,6 @@
 /** 英文字典（stores 域）：key 为中文原文，value 为英文译文。 */
 export const STORES_DICT: Record<string, string> = {
-  '调用子智能体': 'Call Sub-agent',
+  '调用智能体': 'Call Agent',
   // settingsStore — memory messages
   '记忆设置更新失败': 'Failed to update memory settings',
   '写入记忆设置更新失败': 'Failed to update memory write settings',

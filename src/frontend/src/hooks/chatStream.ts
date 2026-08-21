@@ -1085,7 +1085,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
           let resultDisplayName: string | undefined;
           if (typeof obj.subagent_name === 'string' && obj.subagent_name.trim()) {
-            resultDisplayName = t('调用子智能体：{name}', { name: obj.subagent_name.trim() });
+            resultDisplayName = t('调用智能体：{name}', { name: obj.subagent_name.trim() });
           }
 
           let confirmToolName = '';

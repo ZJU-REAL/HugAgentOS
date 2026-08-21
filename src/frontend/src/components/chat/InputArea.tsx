@@ -902,11 +902,11 @@ export function InputArea({
               ...(!disableMention ? [{
                 key: 'agents',
                 icon: <RobotOutlined />,
-                label: t('@子智能体'),
+                label: t('@智能体'),
                 children: (() => {
                   const enabled = (agents || []).filter((a) => a.is_enabled);
                   if (enabled.length === 0) {
-                    return [{ key: 'agents-empty', label: t('暂无可用子智能体'), disabled: true }];
+                    return [{ key: 'agents-empty', label: t('暂无可用智能体'), disabled: true }];
                   }
                   return enabled.map((a) => ({
                     key: `agent-${a.agent_id}`,

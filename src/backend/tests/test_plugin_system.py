@@ -464,7 +464,7 @@ def test_builtin_firecrawl_plugin_install(db_session):
     )
     # The umbrella skill is adapted to the platform: keeps the admin-config guidance, strips broken links to firecrawl-build/workflows
     cli = next(s for s in sk if s.skill_id.startswith("firecrawl-cli"))
-    assert "plugin library (插件库)" in cli.skill_content
+    assert "plugin list (插件)" in cli.skill_content
     assert "firecrawl-build" not in cli.skill_content
     assert "firecrawl-workflows" not in cli.skill_content
 

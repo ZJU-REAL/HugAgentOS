@@ -872,7 +872,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
               showSearch
               optionFilterProp="label"
               maxTagCount="responsive"
-              placeholder={t('选择可用的 MCP 工具')}
+              placeholder={t('选择可用的连接器')}
               options={skillMcpOptions}
             />
           </Form.Item>

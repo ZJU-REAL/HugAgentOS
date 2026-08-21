@@ -184,7 +184,7 @@ export function Sidebar({
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
 
   // 能力中心二级项的名称跟着页面标题走：后台在「页面配置」里改了某个能力页的标题，
-  // 左侧导航要一起变，否则又会回到「导航叫技能、页面叫技能库」的不一致状态（问题 41）。
+  // 左侧导航要一起变，否则又会回到「导航一个叫法、页面另一个叫法」的不一致状态（问题 41）。
   const pageConfig = usePageConfigAll();
   const abilityTabLabel = useCallback((key: string, fallback: string): string => {
     const titles = (pageConfig as { navigation?: { panel_titles?: Record<string, string> } })
@@ -556,7 +556,7 @@ export function Sidebar({
               </Tooltip>
             ) : item.agentName ? (
               <Tooltip title={item.agentName}>
-                <img src="/home/new-icons/agent.svg" alt={t('子智能体')} className="jx-historyTypeIcon jx-historyTypeIcon--agent" style={{ width: 14, height: 14 }} />
+                <img src="/home/new-icons/agent.svg" alt={t('智能体')} className="jx-historyTypeIcon jx-historyTypeIcon--agent" style={{ width: 14, height: 14 }} />
               </Tooltip>
             ) : item.planChat ? (
               <Tooltip title={t('计划模式')}>

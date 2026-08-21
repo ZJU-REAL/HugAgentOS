@@ -167,7 +167,7 @@ export async function processPlanExecuteStream(
                   if (idx >= 0) {
                     let resultDisplayName: string | undefined;
                     if (typeof evt.subagent_name === 'string' && evt.subagent_name.trim()) {
-                      resultDisplayName = t('调用子智能体：{name}', { name: (evt.subagent_name as string).trim() });
+                      resultDisplayName = t('调用智能体：{name}', { name: (evt.subagent_name as string).trim() });
                     }
                     toolCalls[idx] = { ...toolCalls[idx], output: evt.result, status: 'success', ...(resultDisplayName ? { displayName: resultDisplayName } : {}) };
                     updatePlanCard(true);

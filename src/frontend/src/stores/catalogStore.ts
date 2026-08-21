@@ -26,7 +26,7 @@ const VALID_PANELS: readonly PanelKey[] = [
  * 刷新不丢），但每个标签页一份，互不影响。
  *
  * 顺带把能力中心停在哪个二级 Tab 也一并记住：以前只记面板不记 Tab，在「能力中心 →
- * 插件」按刷新会掉回子智能体。
+ * 插件」按刷新会掉回智能体。
  */
 const ABILITY_TAB_STORAGE_KEY = 'hugagent_ability_tab';
 const VALID_ABILITY_TABS: readonly AbilityTabKey[] = ['agents', 'skills', 'mcp', 'plugins'];

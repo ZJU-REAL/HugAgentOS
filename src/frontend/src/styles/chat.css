@@ -529,6 +529,7 @@
 /* 代码块 / 表格 / 列表 / 图表收尾时不挂圆点（::after 会落到块外独占一行） */
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > pre:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > table:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mdTable:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ul:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ol:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mermaid:last-child::after{

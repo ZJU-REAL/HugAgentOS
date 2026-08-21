@@ -418,7 +418,12 @@ async def astream_generate_plan(
 
         # Embed plan prompt as part of user message (avoid system message
         # conflict with factory's built-in system prompt).
-        file_context = _build_file_context(uploaded_files or [], user_id=user_id)
+        # Worker thread: building the context parses attachments, which on a cache miss
+        # is a blocking POST to the external file-parser service. Inline it would pin the
+        # event loop and silence every open SSE stream on the instance.
+        file_context = await asyncio.to_thread(
+            _build_file_context, uploaded_files or [], user_id=user_id
+        )
         file_section = f"\n\n---\n\n{file_context}" if file_context else ""
         user_content = f"{system_prompt}\n\n---\n\n用户任务：{task_description}{file_section}"
 
@@ -813,8 +818,11 @@ async def astream_execute_plan(
 
                 agent.state.context.extend(session_to_msgs(prepared_history))
 
-                # Inject file context (content must be a list of blocks)
-                file_context = _build_file_context(uploaded_files or [], user_id=user_id)
+                # Inject file context (content must be a list of blocks).
+                # Worker thread for the same reason as the plan-generation path above.
+                file_context = await asyncio.to_thread(
+                    _build_file_context, uploaded_files or [], user_id=user_id
+                )
                 if file_context:
                     agent.state.context.append(
                         Msg(

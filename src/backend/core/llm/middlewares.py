@@ -606,9 +606,18 @@ class FileContextMiddleware(MiddlewareBase):
                     )
                 )
 
-        # 1. Current-turn text files
+        # 1. Current-turn text files.
+        #    Off the event loop: on a parse-cache miss _build_file_context downloads the
+        #    artifact and POSTs it to the external file-parser service with blocking
+        #    ``requests`` — measured at 79s for an 8MB PDF, and the service timeout allows
+        #    120s. Called inline it pinned the whole loop for that long: every SSE stream
+        #    (all chats, all users) emitted nothing, queued requests all landed in the same
+        #    millisecond once it returned, and even /health stalled. The visible symptom is
+        #    "streaming stopped working" on the very turn a document is attached.
         text_context = (
-            _build_file_context(uploaded_files, user_id=user_id) if uploaded_files else ""
+            await asyncio.to_thread(_build_file_context, uploaded_files, user_id=user_id)
+            if uploaded_files
+            else ""
         )
         if text_context:
             st.context.append(
@@ -625,7 +634,9 @@ class FileContextMiddleware(MiddlewareBase):
         if not image_files:
             return
         if _effective_model_supports_vision(st):
-            self._inject_native_images(st, image_files, user_id)
+            # Same reason: each image is downloaded from storage (S3/OSS in deployments
+            # that use them) and base64-encoded — blocking I/O plus CPU on the loop.
+            await asyncio.to_thread(self._inject_native_images, st, image_files, user_id)
         else:
             await self._inject_vision_evidence(st, image_files, user_id)
 

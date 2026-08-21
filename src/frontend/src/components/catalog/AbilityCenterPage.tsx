@@ -17,7 +17,7 @@ const PANES: Record<AbilityTabKey, () => ReactNode> = {
 };
 
 /**
- * 能力中心：智能体 / 技能 / 连接器（原「MCP工具库」）/ 插件。
+ * 能力中心：智能体 / 技能 / 连接器 / 插件。
  *
  * 类别切换在**左侧边栏的二级导航**上（`LAYOUT_ITEMS.ability_center.children`，与这里共用
  * `ABILITY_TABS` 这张表），选中项存在 `catalogStore.abilityTab`，所以本页不画 Tab 栏。

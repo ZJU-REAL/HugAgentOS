@@ -118,7 +118,7 @@ export default function LoopPanel({ onBack }: LoopPanelProps) {
         <label>验收标准（每行一条，可留空由后端从目标抽取）</label>
         <textarea value={criteria} onChange={(e) => setCriteria(e.target.value)} rows={3} />
         <p className="loop-dim" style={{ margin: '4px 0 8px' }}>
-          判定由只读评审子智能体打开产出的真实文件逐条核验——无需填写验证命令/评分。
+          判定由只读评审智能体打开产出的真实文件逐条核验——无需填写验证命令/评分。
         </p>
         <div className="loop-row">
           <div>

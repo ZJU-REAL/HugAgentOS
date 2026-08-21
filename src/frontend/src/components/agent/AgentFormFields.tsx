@@ -165,11 +165,11 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
       <Form.Item
         name="mcp_server_ids"
         label={t('绑定工具 (MCP)')}
-        tooltip={t('可绑定当前未启用的 MCP；它只会对该子智能体生效，不会同时启用到主智能体')}
+        tooltip={t('可绑定当前未启用的 MCP；它只会对该智能体生效，不会同时启用到主智能体')}
       >
         {availableResources ? (
           <SelectAllMultiple
-            placeholder={t('选择可用的 MCP 工具')}
+            placeholder={t('选择可用的连接器')}
             options={mcpOptions}
           />
         ) : (
@@ -232,7 +232,7 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
       <Form.Item
         name="ontology_tags"
         label={t('本体治理标签')}
-        tooltip={t('标签来自当前激活领域包；实际调用子智能体时，会触发标签关联的本体工作流和评审级别。')}
+        tooltip={t('标签来自当前激活领域包；实际调用智能体时，会触发标签关联的本体工作流和评审级别。')}
       >
         <OntologyTagSelect
           options={availableResources?.ontology_tags ?? []}
@@ -271,7 +271,7 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
         open={skillMarketOpen}
         onClose={() => setSkillMarketOpen(false)}
         fetchers={SKILL_MARKETPLACE_FETCHERS}
-        scopeLabel={t('安装后将自动绑定到当前子智能体')}
+        scopeLabel={t('安装后将自动绑定到当前智能体')}
         onInstalled={(result) => {
           void bindInstalledResource('skill_ids', result.id);
         }}
@@ -280,7 +280,7 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
       <PluginMarketplaceModal
         open={pluginMarketOpen}
         onClose={() => setPluginMarketOpen(false)}
-        scopeLabel={t('安装后将自动绑定到当前子智能体')}
+        scopeLabel={t('安装后将自动绑定到当前智能体')}
         onInstalled={(result) => {
           void bindInstalledResource('plugin_ids', result.install_id);
         }}

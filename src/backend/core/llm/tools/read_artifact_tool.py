@@ -5,6 +5,7 @@ deps (content parsers, hooks) are imported lazily inside the functions.
 ``core.llm.tool`` re-exports the public names for backward compatibility.
 """
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -63,8 +64,10 @@ async def _resolve_xlsx_text(
     if sheet_name:
         if file_bytes is None:
             raise RuntimeError("无法下载文件字节，无法按 sheet 读取")
-        return parse_xlsx_single_sheet(file_bytes, sheet_name)
-    return fetch_parsed_text(file_id, user_id=user_id, prefetched_bytes=file_bytes)
+        return await asyncio.to_thread(parse_xlsx_single_sheet, file_bytes, sheet_name)
+    return await asyncio.to_thread(
+        fetch_parsed_text, file_id, user_id=user_id, prefetched_bytes=file_bytes
+    )
 
 
 def _probe_pptx_slide_count(file_id: str, filename: str) -> tuple[int, bytes | None]:
@@ -99,8 +102,10 @@ async def _resolve_pptx_text(
     if slide_index is not None:
         if file_bytes is None:
             raise RuntimeError("无法下载文件字节，无法按 slide_index 读取")
-        return parse_pptx_slide(file_bytes, slide_index)
-    return fetch_parsed_text(file_id, user_id=user_id, prefetched_bytes=file_bytes)
+        return await asyncio.to_thread(parse_pptx_slide, file_bytes, slide_index)
+    return await asyncio.to_thread(
+        fetch_parsed_text, file_id, user_id=user_id, prefetched_bytes=file_bytes
+    )
 
 
 def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> None:
@@ -172,7 +177,12 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
                 ),
             )])
 
-        meta = load_artifact_meta(fid, user_id=user_id)
+        # Every storage/DB/parse step below runs in a worker thread. This tool is
+        # ``async``, so calling them inline blocks the single event loop that also drives
+        # every open SSE stream — and a parse-cache miss here means the same blocking POST
+        # to the external file-parser service that costs tens of seconds on a large PDF.
+        # Blocking it mid-answer stalls streaming for every chat on the instance.
+        meta = await asyncio.to_thread(load_artifact_meta, fid, user_id=user_id)
         if meta is None:
             return ToolResponse(content=[TextBlock(
                 type="text",
@@ -192,16 +202,16 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
             if _is_xlsx_meta(meta):
                 if slide_index is not None:
                     raise RuntimeError("slide_index 仅对 pptx 文件有效")
-                sheet_names, file_bytes = _probe_xlsx_sheet_names(
-                    fid, meta.get("filename") or "file.xlsx"
+                sheet_names, file_bytes = await asyncio.to_thread(
+                    _probe_xlsx_sheet_names, fid, meta.get("filename") or "file.xlsx"
                 )
                 extras["sheet_names"] = sheet_names
                 text = await _resolve_xlsx_text(fid, sheet_name, user_id, file_bytes)
             elif _is_pptx_meta(meta):
                 if sheet_name is not None:
                     raise RuntimeError("sheet_name 仅对 xlsx 文件有效")
-                slide_count, file_bytes = _probe_pptx_slide_count(
-                    fid, meta.get("filename") or "file.pptx"
+                slide_count, file_bytes = await asyncio.to_thread(
+                    _probe_pptx_slide_count, fid, meta.get("filename") or "file.pptx"
                 )
                 extras["slide_count"] = slide_count
                 if slide_index is not None:
@@ -212,7 +222,7 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
                     raise RuntimeError(
                         "sheet_name / slide_index 仅对 xlsx / pptx 文件有效"
                     )
-                text = fetch_parsed_text(fid, user_id=user_id)
+                text = await asyncio.to_thread(fetch_parsed_text, fid, user_id=user_id)
         except RuntimeError as e:
             err = {"error": str(e), "file_id": fid, "filename": meta.get("filename")}
             err.update(extras)

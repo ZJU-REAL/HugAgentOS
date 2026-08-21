@@ -33,7 +33,7 @@ const TIME_OPTIONS = [
 const TYPE_OPTIONS = [
   { value: 'all', label: t('全部') },
   { value: 'normal', label: t('普通对话') },
-  { value: '_mode:agent', label: t('子智能体') },
+  { value: '_mode:agent', label: t('智能体') },
   { value: '_mode:plan', label: t('计划模式') },
   { value: '_mode:automation', label: t('定时任务') },
 ];

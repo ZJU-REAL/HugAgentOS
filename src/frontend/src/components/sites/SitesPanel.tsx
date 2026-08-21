@@ -62,7 +62,7 @@ async function ensureSitesPluginInstalled(): Promise<boolean> {
     .installed.some((p) => p.slug === 'sites' && p.enabled !== false);
   if (!installed) {
     message.info(t('首次创建站点需要安装插件，请先在能力中心 → 插件里安装后再创建'));
-    // 只 setPanel('ability_center') 会落在用户上次停留的那个 Tab（子智能体 / 技能 / MCP），
+    // 只 setPanel('ability_center') 会落在用户上次停留的那个 Tab（智能体 / 技能 / MCP），
     // 提示让人去装插件、点过去却是别的页面。这里显式把 Tab 也切到「插件」。
     useCatalogStore.getState().setAbilityTab('plugins');
     useCatalogStore.getState().setPanel('ability_center');

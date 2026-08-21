@@ -153,6 +153,56 @@
   background:var(--color-bg-layout);
 }
 
+/* 表格复制：mdToHtml postprocess 给每个 <table> 包 .jx-mdTable 容器并注入右上角
+   复制按钮（utils/tableCopy.ts）。悬浮到表格上才显示，触屏（无 hover）常显。 */
+.jx-mdTable{
+  position:relative;
+}
+.jx-mdTable-copy{
+  position:absolute;
+  top:6px;
+  right:6px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:24px;
+  height:24px;
+  padding:0;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-xs);
+  background:var(--color-bg-elevated);
+  color:var(--color-text-tertiary);
+  cursor:pointer;
+  opacity:0;
+  z-index:1;
+  transition:opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-mdTable:hover .jx-mdTable-copy,
+.jx-mdTable-copy:focus-visible{
+  opacity:1;
+}
+.jx-mdTable-copy:hover{
+  color:var(--color-primary);
+  border-color:var(--color-primary);
+}
+.jx-mdTable-copy--done{
+  color:var(--color-success);
+  border-color:var(--color-success);
+  opacity:1;
+}
+.jx-mdTable-copy--fail{
+  color:var(--color-error);
+  border-color:var(--color-error);
+  opacity:1;
+}
+@media (hover: none){
+  .jx-mdTable-copy{
+    opacity:1;
+  }
+}
+
 /* Links */
 .jx-md a{
   color:var(--color-text);

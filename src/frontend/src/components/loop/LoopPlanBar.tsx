@@ -97,7 +97,7 @@ export default function LoopPlanBar({ onContinue }: LoopPlanBarProps) {
                 <span className="loop-planbar-mark">{mark}</span>
                 <span className="loop-planbar-desc">{r.description}</span>
                 {state === 'active' && reviewing && running && (
-                  <span className="loop-planbar-reviewing" title={t('只读评审子智能体正在核验真实产出')}>
+                  <span className="loop-planbar-reviewing" title={t('只读评审智能体正在核验真实产出')}>
                     🔍 {t('评审中')}
                   </span>
                 )}

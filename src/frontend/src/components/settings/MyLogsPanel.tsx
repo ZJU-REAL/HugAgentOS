@@ -230,7 +230,7 @@ export function MyLogsPanel() {
     ],
     subagents: [
       ...commonColumns,
-      { title: t('子智能体'), dataIndex: 'subagent_name' },
+      { title: t('智能体'), dataIndex: 'subagent_name' },
       { title: t('耗时'), dataIndex: 'duration_ms', width: 90, render: duration },
       { title: t('状态'), dataIndex: 'status', width: 90, render: statusTag },
       detailAction('subagents'),
@@ -462,7 +462,7 @@ export function MyLogsPanel() {
           options={[
             { value: 'tools', label: t('工具调用') },
             { value: 'skills', label: t('技能调用') },
-            { value: 'subagents', label: t('子智能体') },
+            { value: 'subagents', label: t('智能体') },
             { value: 'usage', label: t('模型用量') },
           ]}
         />

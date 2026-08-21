@@ -1,5 +1,6 @@
 import { marked } from 'marked';
 import hljs from 'highlight.js';
+import { wrapTablesWithCopy } from './tableCopy';
 
 // Configure marked
 marked.setOptions({
@@ -131,11 +132,12 @@ const inlineLatexExtension = {
 
 marked.use({ extensions: [blockLatexExtension, inlineLatexExtension] });
 
-// highlight.js integration for marked v17 (fallback for non-mermaid blocks)
+// Postprocess: wrap every rendered <table> with a copy-button container
+// (rich-HTML copy so pasting into Word keeps a real table — see utils/tableCopy.ts)
 marked.use({
   hooks: {
     postprocess(html: string) {
-      return html;
+      return wrapTablesWithCopy(html);
     },
   },
   async: false,

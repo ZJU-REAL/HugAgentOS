@@ -54,7 +54,7 @@ export function PluginsPage() {
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
     title: ABILITY_TAB_TITLE.plugins,
-    subtitle: '插件把成套的技能与 MCP 工具打包成一个整体，安装后即可整组启用。',
+    subtitle: '插件把成套的技能与连接器打包成一个整体，安装后即可整组启用。',
   });
 
   const [loading, setLoading] = useState(false);
@@ -425,7 +425,7 @@ export function PluginsPage() {
               ) : (
                 <Alert type="warning" showIcon
                   message={t('该插件需要管理员配置后才能使用')}
-                  description={t('请联系管理员在「插件库」中为本插件开通相关配置（{items}）。', {
+                  description={t('请联系管理员在「插件」中为本插件开通相关配置（{items}）。', {
                     items: d.admin_config.fields.map((f) => f.label).join('、'),
                   })} />
               )}
@@ -461,7 +461,7 @@ export function PluginsPage() {
           {/* MCP components */}
           {mcps.length > 0 && (
             <div style={{ marginTop: 16 }}>
-              <h4 className="jx-sectionTitle">{t('MCP 工具')}（{mcps.length}）</h4>
+              <h4 className="jx-sectionTitle">{t('连接器')}（{mcps.length}）</h4>
               <div className="jx-mcp-grid">
                 {mcps.map((m, idx) => (
                   <ComponentCard

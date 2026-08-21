@@ -2,8 +2,8 @@
 export const LAB_DICT: Record<string, string> = {
   '本体治理标签': 'Ontology governance tags',
   '个人': 'Personal',
-  '个人子智能体': 'Personal Sub-agent',
-  '个人子智能体仅自己可见可用。': 'A personal sub-agent is visible and usable only by you.',
+  '个人智能体': 'Personal Agent',
+  '个人智能体仅自己可见可用。': 'A personal agent is visible and usable only by you.',
   // ── Status labels ──────────────────────────────────────────────
   '已暂停': 'Paused',
   '已停用': 'Disabled',
@@ -177,9 +177,9 @@ export const LAB_DICT: Record<string, string> = {
   '执行完成，可进入对话查看完整输出与附件结果。': 'Execution complete. Open the chat to view full output and attachments.',
 
   // ── AgentPanel ────────────────────────────────────────────────
-  '选择与启用子智能体，并查看其职责边界与路由提示': 'Select and enable sub-agents, view their role boundaries and routing hints',
+  '选择与启用智能体，并查看其职责边界与路由提示': 'Select and enable agents, view their role boundaries and routing hints',
   '创建智能体': 'Create Agent',
-  '暂无子智能体': 'No sub-agents yet',
+  '暂无智能体': 'No agents yet',
   '版本号：{ver}': 'Version: {ver}',
   '变更记录': 'Change History',
   '最近更新：{time}': 'Last updated: {time}',
@@ -216,7 +216,7 @@ export const LAB_DICT: Record<string, string> = {
   '最大推理轮次': 'Max Reasoning Steps',
   '共享上下文': 'Shared Context',
   '开始对话': 'Start Chat',
-  '删除子智能体': 'Delete Sub-agent',
+  '删除智能体': 'Delete Agent',
   '确定删除「{name}」吗？': 'Delete "{name}"?',
   '操作人员': 'Operator',
   '操作时间': 'Time',
@@ -237,17 +237,17 @@ export const LAB_DICT: Record<string, string> = {
   '请输入角色设定': 'Please enter a role prompt',
   '定义智能体的角色、专长和行为规范...': "Define the agent's role, expertise, and behavior guidelines...",
   '用户打开对话时的欢迎消息': 'Welcome message shown when the user opens a chat',
-  '选择可用的 MCP 工具': 'Select available MCP tools',
+  '选择可用的连接器': 'Select available connectors',
   '选择可用的技能': 'Select available skills',
   '温度 (Temperature)': 'Temperature',
   '控制生成结果的随机性；值越低越确定，越高越发散。范围 0–2，默认 0.6': 'Controls randomness of output. Lower = more deterministic, higher = more creative. Range 0–2, default 0.6',
-  '启用后，被主智能体调用时可读取完整对话历史和工具调用结果': 'When enabled, gives the sub-agent access to the full conversation history and tool results',
+  '启用后，被主智能体调用时可读取完整对话历史和工具调用结果': 'When enabled, gives the agent access to the full conversation history and tool results',
 
   // ── AgentFormModal ────────────────────────────────────────────
   '编辑智能体': 'Edit Agent',
 
   // ── AgentCreatePage ───────────────────────────────────────────
-  '返回子智能体列表': 'Back to sub-agents',
+  '返回智能体列表': 'Back to agents',
   '配置智能体名称、角色设定、绑定工具与技能': 'Configure agent name, role prompt, tools and skills',
   '保存更改': 'Save Changes',
   '清空': 'Clear',

@@ -276,18 +276,18 @@ export function ChatArea({
   const isSiteChat = !!chat?.siteChat;
   const heroTitle = isSiteChat
     ? t('我们该构建什么？')
-    : isAgentChat ? (chat.agentName || t('子智能体')) : cfgHeroTitle;
+    : isAgentChat ? (chat.agentName || t('智能体')) : cfgHeroTitle;
   const heroSubtitle = isSiteChat
     ? t('描述你想要的网站，AI 将为你生成并一键发布上线')
     : isAgentChat
-      ? (agentDetail?.description || agentDetail?.welcome_message || t('专业子智能体'))
+      ? (agentDetail?.description || agentDetail?.welcome_message || t('专业智能体'))
       : cfgHeroSubtitle;
   const suggestedQuestions = isAgentChat ? (agentDetail?.suggested_questions || []) : [];
   const isBatchChat = resolveBatchModeActive(chat);
   const inputPlaceholder = isSiteChat
     ? t('描述你想要的网站，例如：一个展示咖啡馆菜单与营业时间的单页网站')
     : isAgentChat
-      ? t('向{name}提问...', { name: chat.agentName || t('子智能体') })
+      ? t('向{name}提问...', { name: chat.agentName || t('智能体') })
       : isBatchChat
         ? t('描述要批量处理的对象与任务，例如："分别用一句话评价阿里、腾讯、字节"')
         : cfgInputPlaceholder;
