@@ -529,6 +529,7 @@
 /* 代码块 / 表格 / 列表 / 图表收尾时不挂圆点（::after 会落到块外独占一行） */
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > pre:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > table:last-child::after,
+.jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mdTable:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ul:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > ol:last-child::after,
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > .jx-mermaid:last-child::after{
@@ -3485,6 +3486,16 @@ textarea.jx-composer{
   gap: 16px;
   height: 560px;
 }
+/* 来源文件夹下拉里的每个节点保持单行 + 省略号，长文件夹名不再折成两三行 */
+.jx-spaceImportTreeNode {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .jx-spaceImportLeft {
   width: 460px;
   flex-shrink: 0;

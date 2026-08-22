@@ -16,25 +16,62 @@ const VALID_PANELS: readonly PanelKey[] = [
   'automation', 'sites',
 ] as const;
 
+/**
+ * 「当前停在哪个面板」是**每个标签页各自的视图状态**，不是跨标签共享的用户偏好，
+ * 所以存 sessionStorage 而不是 localStorage。
+ *
+ * 原来存 localStorage 会串台（问题 25）：A 窗口停在历史对话、B 窗口切到站点，
+ * B 一写就把共享的 key 改成了 'sites'，此时刷新 A，A 也跳去站点——两个窗口互相干扰。
+ * sessionStorage 同样能扛住「刷新页面后回到原面板」这个本来的诉求（它随标签页存活、
+ * 刷新不丢），但每个标签页一份，互不影响。
+ *
+ * 顺带把能力中心停在哪个二级 Tab 也一并记住：以前只记面板不记 Tab，在「能力中心 →
+ * 插件」按刷新会掉回智能体。
+ */
+const ABILITY_TAB_STORAGE_KEY = 'hugagent_ability_tab';
+const VALID_ABILITY_TABS: readonly AbilityTabKey[] = ['agents', 'skills', 'mcp', 'plugins'];
+
+function readSession(key: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try { return window.sessionStorage.getItem(key); } catch { return null; }
+}
+
+function writeSession(key: string, value: string) {
+  if (typeof window === 'undefined') return;
+  try { window.sessionStorage.setItem(key, value); } catch { /* sessionStorage 不可用 */ }
+}
+
 function loadActivePanel(): PanelKey {
   if (typeof window === 'undefined') return 'chat';
   // On a fresh login (SSO ticket exchange), force the user to land on home.
   // On a plain browser refresh the flag is absent, so we restore the last panel.
+  if (readSession(LOGIN_LANDING_KEY) === '1') return 'chat';
+  const saved = readSession(PANEL_STORAGE_KEY);
+  if (saved && (VALID_PANELS as readonly string[]).includes(saved)) {
+    return saved as PanelKey;
+  }
+  // 迁移：老版本把它写在 localStorage 里，读一次让本次刷新不至于突然跳回首页，
+  // 读完就清掉，之后一律走 sessionStorage。
   try {
-    if (window.sessionStorage.getItem(LOGIN_LANDING_KEY) === '1') return 'chat';
-  } catch { /* sessionStorage unavailable */ }
-  try {
-    const saved = window.localStorage.getItem(PANEL_STORAGE_KEY);
-    if (saved && (VALID_PANELS as readonly string[]).includes(saved)) {
-      return saved as PanelKey;
+    const legacy = window.localStorage.getItem(PANEL_STORAGE_KEY);
+    window.localStorage.removeItem(PANEL_STORAGE_KEY);
+    if (legacy && (VALID_PANELS as readonly string[]).includes(legacy)) {
+      writeSession(PANEL_STORAGE_KEY, legacy);
+      return legacy as PanelKey;
     }
   } catch { /* localStorage unavailable */ }
   return 'chat';
 }
 
 function saveActivePanel(panel: PanelKey) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(PANEL_STORAGE_KEY, panel);
+  writeSession(PANEL_STORAGE_KEY, panel);
+}
+
+function loadAbilityTab(): AbilityTabKey {
+  const saved = readSession(ABILITY_TAB_STORAGE_KEY);
+  return saved && (VALID_ABILITY_TABS as readonly string[]).includes(saved)
+    ? (saved as AbilityTabKey)
+    : 'agents';
 }
 
 interface CatalogState {
@@ -75,8 +112,9 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   panelEntryNonce: 0,
   manageQuery: '',
   selectedId: null,
-  abilityTab: 'agents',
-  visitedAbilityTabs: ['agents'],
+  abilityTab: loadAbilityTab(),
+  // 恢复出来的 Tab 也要算作「已访问」，否则刷新后能力中心不会挂载它对应的 pane、一片空白
+  visitedAbilityTabs: [loadAbilityTab()],
 
   setCatalog: (catalog) => {
     set({ catalog });
@@ -94,13 +132,17 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   },
   setManageQuery: (query) => set({ manageQuery: query }),
   setSelectedId: (id) => set({ selectedId: id }),
-  setAbilityTab: (tab) => set((state) => ({
-    abilityTab: tab,
-    manageQuery: '',
-    visitedAbilityTabs: state.visitedAbilityTabs.includes(tab)
-      ? state.visitedAbilityTabs
-      : [...state.visitedAbilityTabs, tab],
-  })),
+  setAbilityTab: (tab) => set((state) => {
+    // 记住当前 Tab，刷新后能回到同一个二级页（问题 25）
+    writeSession(ABILITY_TAB_STORAGE_KEY, tab);
+    return {
+      abilityTab: tab,
+      manageQuery: '',
+      visitedAbilityTabs: state.visitedAbilityTabs.includes(tab)
+        ? state.visitedAbilityTabs
+        : [...state.visitedAbilityTabs, tab],
+    };
+  }),
 
   fetchCatalog: async () => {
     try {

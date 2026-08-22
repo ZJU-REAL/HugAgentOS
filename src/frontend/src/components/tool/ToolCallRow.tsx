@@ -117,7 +117,7 @@ function getRowLabel(
       }
       case 'get_skills': return { prefix: t('获取技能列表'), value: '' };
       case 'get_agents': return { prefix: t('获取智能体列表'), value: '' };
-      case 'get_mcp_tools': return { prefix: t('获取 MCP 工具'), value: '' };
+      case 'get_mcp_tools': return { prefix: t('获取连接器'), value: '' };
       default: return { prefix: displayName, value: '' };
     }
   } catch {

@@ -381,15 +381,21 @@ class EmailService:
         _write_config(user_id, _render_config_from_record(record, secret))
 
     def _purge_config(self, user_id: str) -> None:
-        """Delete the himalaya config directory under this user's backend HOME."""
-        import shutil
+        """Empty the himalaya config directory under this user's backend HOME.
 
-        from core.sandbox._common import email_cache_dir, safe_user_id
+        Deletes the files, never the directories: ``home/.config/himalaya`` is
+        bind-mounted into this user's live sandboxes, and unlinking it orphans
+        those mounts so himalaya keeps reporting "unconfigured" in every open
+        chat even after the mailbox is re-bound (see [[purge_credential_dir]]).
+        This path is hit not only by disconnect but by **every failed mailbox
+        verification**, which made it the easiest of the three to trigger.
+        """
+        from core.sandbox._common import email_cache_dir, purge_credential_dir, safe_user_id
 
         if not safe_user_id(user_id):
             return
         try:
-            shutil.rmtree(email_cache_dir(user_id), ignore_errors=True)
+            purge_credential_dir(email_cache_dir(user_id))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[email] purge config failed user=%s: %s", user_id, exc)
 

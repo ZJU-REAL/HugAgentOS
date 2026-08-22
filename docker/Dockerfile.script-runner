@@ -70,7 +70,10 @@ RUN npm install -g firecrawl-cli
 # 预烤进镜像后离线/不可变沙箱可直接命中全局缓存、无需联网重拉。
 # 应用配置（app_id/app_secret）与用户登录凭据都不烤进镜像——前者由后端 config init 写入每用户
 # lark HOME，后者由 auth login 设备流落盘后 bind-mount 进沙盒，均跨会话持久化。
-RUN npm install -g @larksuite/cli @larksuite/whiteboard-cli@^0.2.11
+# ⚠️ 版本必须与后端镜像 docker/Dockerfile 的 LARK_CLI_VERSION 保持一致：两侧共用同一份
+# 凭据文件（后端写 config/token，沙箱读），且后端解析 `auth status` 的输出。此前这里不锁
+# 版本、浮动到 latest，与后端固定的旧版拉开了几十个小版本，是一类静默故障源。
+RUN npm install -g @larksuite/cli@1.0.78 @larksuite/whiteboard-cli@^0.2.11
 
 # openyida（宜搭低代码平台官方 CLI）——yida 插件技能靠它运行（Bash(openyida *)）。
 # 登录态不烤进镜像：cookie 落工作目录 .cache/ 下，由 compose 把

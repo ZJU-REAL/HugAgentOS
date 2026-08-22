@@ -45,6 +45,8 @@ function buildChatExportHtml(chatTitle: string, messages: ChatMessage[]): string
     <div style="font-family: 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', sans-serif; padding: 26px 20px 20px; color: #333; line-height: 1.8;">
       <style>
         .pdf-msg table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+        /* 屏幕端的表格复制按钮不进导出件 */
+        .pdf-msg .jx-mdTable-copy { display: none; }
         .pdf-msg th, .pdf-msg td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 12px; }
         .pdf-msg th { background: #f0f0f0; font-weight: 600; }
         .pdf-msg pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }

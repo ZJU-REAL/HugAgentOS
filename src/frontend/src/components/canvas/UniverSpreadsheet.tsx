@@ -15,10 +15,12 @@ interface UniverSpreadsheetProps {
   fileName: string;
   maxBytes: number;
   onDirty?: (dirty: boolean) => void;
+  /** 表格是否已经可用（Univer 实例建好、工作簿装载完）。宿主据此决定保存/导出能不能点。 */
+  onReadyChange?: (ready: boolean) => void;
 }
 
 export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSpreadsheetProps>(
-  function UniverSpreadsheet({ url, fileName, maxBytes, onDirty }, ref) {
+  function UniverSpreadsheet({ url, fileName, maxBytes, onDirty, onReadyChange }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -202,6 +204,10 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
             workbookData as Parameters<typeof univerAPI.createWorkbook>[0],
           );
 
+          // 工作簿装载完才算「可保存」——在此之前 exportXlsx 只会抛
+          // "Univer not initialised"（问题 28：表格还在转圈时点保存直接报错）
+          onReadyChange?.(true);
+
           // 6. Dirty detection — delayed to skip init commands
           setTimeout(() => {
             if (disposed) return;
@@ -241,6 +247,7 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
         controller.abort();
         parseWorker?.terminate();
         try { univerInstance?.dispose(); } catch { /* */ }
+        onReadyChange?.(false);
         univerAPIRef.current = null;
         dirtyRef.current = false;
         initDoneRef.current = false;

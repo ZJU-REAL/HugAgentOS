@@ -74,7 +74,7 @@ export async function processPlanExecuteStream(
     planAgentNameMap = (plan as any).agent_name_map || undefined;
   } catch { /* fallback: collect steps incrementally from the stream */ }
 
-  const buildExecPlanData = (mode: 'executing' | 'complete', completedSteps?: number, totalSteps?: number, resultText?: string): MessageSegment['planData'] => {
+  const buildExecPlanData = (mode: 'executing' | 'complete', completedSteps?: number, totalSteps?: number, resultText?: string, cancelled?: boolean): MessageSegment['planData'] => {
     const stepSource = planStepDefs.length > 0 ? planStepDefs : Object.values(stepResults).sort((a, b) => a.order - b.order);
     const steps = stepSource.map(s => {
       const sid = (s as any).step_id;
@@ -90,6 +90,9 @@ export async function processPlanExecuteStream(
     });
     return {
       mode,
+      // 带上 planId：中止时要靠它调 /v1/plans/{id}/cancel 把后端的计划和 run 一起停掉。
+      // 放在 planData 里而不是只依赖全局 currentPlanId，才能按会话精确定位。
+      planId,
       title: planTitle || t('执行中...'),
       description: planDesc || undefined,
       steps,
@@ -97,11 +100,12 @@ export async function processPlanExecuteStream(
       totalSteps,
       resultText,
       agentNameMap: planAgentNameMap,
+      cancelled,
     };
   };
 
-  const updatePlanCard = (streaming: boolean, mode: 'executing' | 'complete' = 'executing', completedSteps?: number, totalSteps?: number, resultText?: string) => {
-    const planData = buildExecPlanData(mode, completedSteps, totalSteps, resultText);
+  const updatePlanCard = (streaming: boolean, mode: 'executing' | 'complete' = 'executing', completedSteps?: number, totalSteps?: number, resultText?: string, cancelled?: boolean) => {
+    const planData = buildExecPlanData(mode, completedSteps, totalSteps, resultText, cancelled);
     const segments: MessageSegment[] = [{ type: 'plan', planData }];
     toolCalls.forEach((_tc, idx) => { segments.push({ type: 'tool', toolIndex: idx }); });
     const content = resultText || '';
@@ -163,7 +167,7 @@ export async function processPlanExecuteStream(
                   if (idx >= 0) {
                     let resultDisplayName: string | undefined;
                     if (typeof evt.subagent_name === 'string' && evt.subagent_name.trim()) {
-                      resultDisplayName = t('调用子智能体：{name}', { name: (evt.subagent_name as string).trim() });
+                      resultDisplayName = t('调用智能体：{name}', { name: (evt.subagent_name as string).trim() });
                     }
                     toolCalls[idx] = { ...toolCalls[idx], output: evt.result, status: 'success', ...(resultDisplayName ? { displayName: resultDisplayName } : {}) };
                     updatePlanCard(true);
@@ -193,6 +197,19 @@ export async function processPlanExecuteStream(
         }
       }
     }
+  } catch (e: unknown) {
+    // 用户中断（停止按钮 / 关闭计划模式）：AbortError 原来直接往上抛，卡片就停在
+    // 最后一次 updatePlanCard(true) 的状态——mode 还是 'executing'、streaming 还是
+    // true，于是「执行中」的转圈永远停不下来，只有刷新页面才会好（问题 31）。
+    // 这里把卡片落到「已中断」这个终态，未跑完的步骤也不再显示成 running。
+    if ((e as { name?: string })?.name === 'AbortError') {
+      toolCalls.forEach((tc) => { if (tc.status === 'running') tc.status = 'interrupted'; });
+      Object.values(stepResults).forEach((r) => { if (r.status === 'running') r.status = 'failed'; });
+      updatePlanCard(false, 'executing', undefined, undefined, undefined, true);
+      options.onSetCurrentPlanId?.(null);
+      return;
+    }
+    throw e;
   } finally {
     try { execReader.releaseLock(); } catch { /* ignore */ }
   }

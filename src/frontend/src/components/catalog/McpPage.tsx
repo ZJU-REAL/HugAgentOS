@@ -8,6 +8,7 @@ import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
+import { ABILITY_TAB_TITLE } from './abilityTabs';
 import {
   createMyMcpServer,
   deleteMyMcpServer,
@@ -57,8 +58,8 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
     toggleItem,
   } = useCatalogStore();
   const { title: mcpTitle, subtitle: mcpSubtitle } = usePanelHeader('mcp', {
-    title: '连接器',
-    subtitle: '管理 MCP 连接器服务，并查看其作用范围与可靠性影响。',
+    title: ABILITY_TAB_TITLE.mcp,
+    subtitle: '管理连接器服务，并查看其作用范围与可靠性影响。',
   });
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
@@ -326,7 +327,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
               }}
             >
               <Button type="primary" icon={<PlusOutlined />} style={{ marginLeft: 8 }}>
-                {t('添加 MCP 工具')} <DownOutlined />
+                {t('添加连接器')} <DownOutlined />
               </Button>
             </Dropdown>
           )}
@@ -492,11 +493,11 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
 
       {/* Add-private-MCP modal */}
       <Modal
-        title={t('添加 MCP 工具')}
+        title={t('添加连接器')}
         open={addOpen}
         onCancel={() => setAddOpen(false)}
         onOk={() => void handleAddMcp()}
-        okText={t('添加 MCP')}
+        okText={t('添加')}
         cancelText={t('取消')}
         confirmLoading={adding}
         destroyOnHidden

@@ -2,7 +2,13 @@ import { useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
+import dayjs from 'dayjs';
+import 'dayjs/locale/zh-cn';
 import { getLang } from './i18n';
+
+// antd 的 locale 只翻译按钮/占位文案，日期面板里的「年/月/周几」走的是 dayjs 自己的 locale。
+// 不设这一行，DatePicker / TimePicker 面板就是 Jan、Mo、Tu 这种英文，与中文界面割裂。
+dayjs.locale(getLang() === 'en' ? 'en' : 'zh-cn');
 import { getAppTheme } from './appTheme';
 import { useUIStore } from './stores/uiStore';
 import { applyThemeToDom, systemPrefersDark, watchSystemTheme } from './theme';

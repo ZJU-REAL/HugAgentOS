@@ -200,7 +200,6 @@ export const CATALOG_DICT: Record<string, string> = {
   '个文档上传失败': ' document(s) failed to upload',
 
   // SkillsPage
-  '技能库': 'Skill Library',
   '启用/停用技能，并查看详细介绍、输入输出与示例': 'Enable/disable skills and view details, inputs, outputs, and examples.',
   '（共 {n} 项）': '({n} total)',
   '搜索技能关键词': 'Search skills',
@@ -279,14 +278,13 @@ export const CATALOG_DICT: Record<string, string> = {
   '提交申请': 'Submit',
 
   // McpPage
-  'MCP工具库': 'MCP Tool Library',
-  '管理 MCP 工具服务，并查看其作用范围与可靠性影响。': 'Manage MCP tool services and review their scope and reliability impact.',
+  '管理连接器服务，并查看其作用范围与可靠性影响。': 'Manage connector services and review their scope and reliability impact.',
   '搜索工具关键词': 'Search tools',
   '添加 MCP': 'Add MCP',
   '暂无介绍': 'No description available',
   '删除这个私有 MCP？': 'Delete this private MCP?',
   '没有匹配的工具': 'No matching tools',
-  '添加 MCP 工具': 'Add MCP Tool',
+  '添加连接器': 'Add Connector',
   '仅支持远程 HTTP/SSE 类型的 MCP 服务，添加时会自动测试连通性。该工具仅你自己可见可用。': 'Only remote HTTP/SSE MCP services are supported. Connectivity is tested on add. This tool is only visible to you.',
   '服务地址 URL': 'Service URL',
   '请输入 URL': 'Please enter a URL',
@@ -454,8 +452,8 @@ export const CATALOG_DICT: Record<string, string> = {
   '管理员全局安装': 'Installed globally by admin',
   '开放后，用户可在能力中心安装内置插件、导入 Claude Code / Codex 插件包。':
     'When enabled, the user can install built-in plugins and import Claude Code / Codex plugin packages.',
-  '开放后，用户可自建子智能体，并从子智能体市场安装、申请上架。':
-    'When enabled, the user can build their own sub-agents and install or submit them from the sub-agent marketplace.',
+  '开放后，用户可自建智能体，并从智能体市场安装、申请上架。':
+    'When enabled, the user can build their own agents and install or submit them from the agent marketplace.',
   '加载插件配置失败': 'Failed to load plugin config',
   '加载插件详情失败': 'Failed to load plugin details',
   '插件详情：{name}': 'Plugin details: {name}',
@@ -474,8 +472,8 @@ export const CATALOG_DICT: Record<string, string> = {
   '管理员配置': 'Administrator configuration',
   '该插件已由管理员配置，可直接使用。': 'This plugin has been configured by an administrator and is ready to use.',
   '该插件需要管理员配置后才能使用': 'This plugin requires administrator configuration before it can be used',
-  '请联系管理员在「插件库」中为本插件开通相关配置（{items}）。':
-    'Please ask an administrator to configure this plugin in the Plugin Library ({items}).',
+  '请联系管理员在「插件」中为本插件开通相关配置（{items}）。':
+    'Please ask an administrator to configure this plugin in the Plugins ({items}).',
   '账号连接': 'Account connection',
 
   // ── 插件展示信息编辑（名称/分类/图标为界面配置，标准 plugin.json 不携带） ──
@@ -489,7 +487,7 @@ export const CATALOG_DICT: Record<string, string> = {
   '如：效率工具 / 办公协同': 'e.g. Productivity / Collaboration',
   '如：效率工具': 'e.g. Productivity',
 
-  // ── 市场可见范围（技能/插件/子智能体市场共用） ──
+  // ── 市场可见范围（技能/插件/智能体市场共用） ──
   '可见范围': 'Visibility scope',
   '可见范围 — {name}': 'Visibility scope — {name}',
   '指定可见': 'Restricted',

@@ -645,7 +645,7 @@ export default function SettingsPage() {
             <div className="jx-settings-rowLeft">
               <span className="jx-settings-rowLabel">{t('显示调度过程')}</span>
               <span className="jx-settings-rowDesc">
-                {t('控制对话中是否显示智能体的调度子智能体、MCP工具、技能等组件')}
+                {t('控制对话中是否显示对话里调度的智能体、连接器、技能等组件')}
               </span>
             </div>
             <Switch

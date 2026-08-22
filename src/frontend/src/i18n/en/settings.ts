@@ -11,17 +11,17 @@ export const SETTINGS_DICT: Record<string, string> = {
   '选中的项会在保存模式时自动安装。': 'Selected items are installed automatically when the mode is saved.',
   '从市场选择技能': 'Pick skills from the market',
   '从市场选择技能…': 'Pick skills from the market…',
-  '从市场选择子智能体': 'Pick sub-agents from the market',
-  '从市场选择子智能体…': 'Pick sub-agents from the market…',
+  '从市场选择智能体': 'Pick agents from the market',
+  '从市场选择智能体…': 'Pick agents from the market…',
   '添加 {n} 项': 'Add {n} items',
-  '市场里的 MCP 工具需要配置凭据或授权，请先在能力中心安装，装好后会出现在此清单。': 'Market MCP tools need credentials or authorization — install them in the Capability Center first, then they appear in this list.',
+  '市场里的连接器需要配置凭据或授权，请先在能力中心安装，装好后会出现在此清单。': 'Market connectors need credentials or authorization — install them in the Capability Center first, then they appear in this list.',
   '手写提示词正文': 'Hand-written prompt',
   '选择一个提示词分类': 'Pick a prompt category',
   '不绑定（用下面手写的正文）': 'Not bound (use the hand-written text below)',
   '仅在未绑定分类时生效。留空则沿用默认的系统提示词装配，只按上面的工具面收窄。': 'Applies only when no category is bound. Leave blank to keep the default system-prompt assembly and only narrow the tool scope above.',
   '绑定「提示词管理」里的一个分类，正文在那边编辑与版本化；分类可在提示词管理页新建。选「不绑定」则用下面手写的正文。': 'Bind a category from "Prompt Management", where its text is edited and versioned; categories can be created on that page. Choose "Not bound" to use the hand-written text below.',
-  '选择这个模式可用的子智能体': 'Select the sub-agents this mode may delegate to',
-  '这个模式下可被委派的子智能体；留空则只有本轮被 @ 呼唤的那个能入场。': 'Sub-agents this mode may delegate to; leave empty and only the one @-summoned this turn can enter.',
+  '选择这个模式可用的智能体': 'Select the agents this mode may delegate to',
+  '这个模式下可被委派的智能体；留空则只有本轮被 @ 呼唤的那个能入场。': 'Agents this mode may delegate to; leave empty and only the one @-summoned this turn can enter.',
   '（没有填写说明）': '(no description)',
   '锁定强度': 'Effort locked',
   '还没有自定义模式': 'No custom modes yet',
@@ -36,7 +36,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   '例如：你是研报助手。先检索再作答，输出结构化要点并标注出处。': 'e.g. You are a research assistant. Search first, then answer with structured points and cite sources.',
   '这个模式下替换掉默认的系统提示词。留空则沿用默认装配，只按上面的工具面收窄。': 'Replaces the default system prompt in this mode. Leave blank to keep the default assembly and only narrow the tool scope above.',
   '模式决定一段对话能用哪些工具、技能与插件，配哪段专属提示词，以及默认思考多深。这里建的模式只有你自己能看见和使用。': 'A mode decides which tools, skills and plugins a conversation may use, which dedicated prompt it carries, and how deeply it thinks by default. Modes created here are visible and usable only by you.',
-  '开启后，你本轮用 / 技能、@子智能体、插件呼唤的能力仍可临时用上，不受上面清单限制。': 'When on, capabilities you summon this turn (/skill, @sub-agent, plugin) can still be used temporarily, regardless of the list above.',
+  '开启后，你本轮用 / 技能、@智能体、插件呼唤的能力仍可临时用上，不受上面清单限制。': 'When on, capabilities you summon this turn (/skill, @agent, plugin) can still be used temporarily, regardless of the list above.',
   '留空表示不额外收紧。最小 2。': 'Blank means no extra limit. Minimum 2.',
   '填工具 id，回车确认。填错的会被忽略。': 'Enter tool ids and press Enter. Unknown ids are ignored.',
   '加载我的模式失败：{msg}': 'Failed to load your modes: {msg}',
@@ -72,7 +72,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   '请输入用户名': 'Enter username',
   '未登录': 'Not signed in',
   '显示调度过程': 'Show Dispatch Process',
-  '控制对话中是否显示智能体的调度子智能体、MCP工具、技能等组件': "Control whether the agent's dispatch of sub-agents, MCP tools, skills, etc. is shown in the conversation.",
+  '控制对话中是否显示对话里调度的智能体、连接器、技能等组件': "Control whether the agent's dispatch of agents, connectors, skills, etc. is shown in the conversation.",
   '写入记忆': 'Write Memory',
   '开启后智能体会在每次对话结束后自动判断是否写入记忆': 'When enabled, the agent will automatically decide whether to write memories after each conversation.',
   '永久记忆': 'Persistent Memory',
@@ -293,6 +293,12 @@ export const SETTINGS_DICT: Record<string, string> = {
   '暂无可选文件夹': 'No folders available',
   '选择文件夹': 'Select folder',
 
+  // ── EditProjectModal ───────────────────────────────────────────────────────
+  '编辑项目信息': 'Edit Project',
+  '编辑项目目标': 'Edit Project Goal',
+  '仅项目管理员可修改项目名称': 'Only project admins can change the project name',
+  '项目信息已更新': 'Project updated',
+
   // ── ProjectsPanel ──────────────────────────────────────────────────────────
   '把对话、文件和指令打包成专属工作空间': 'Bundle conversations, files, and instructions into a dedicated workspace.',
   '活跃度': 'Activity',
@@ -431,12 +437,12 @@ export const SETTINGS_DICT: Record<string, string> = {
     'Bind your own Feishu bot: messages sent to it are answered by your agent, reusing your knowledge bases and skills.',
   '注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到你的知识库与技能。可在「资源范围」里收窄暴露范围。':
     'Note: the bot runs with your permissions — anyone who @-mentions it in a group can reach your knowledge bases and skills through it. You can narrow the exposure in "Resource scope".',
-  // ── 子智能体页面绑定渠道机器人 ──
+  // ── 智能体页面绑定渠道机器人 ──
   '绑定渠道机器人': 'Bind channel bot',
-  '为子智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它，就由该子智能体用它自己绑定的能力回复。':
-    'Bind a channel bot (Feishu / DingTalk / WeCom / WeChat) to sub-agent "{name}": messages sent to it are answered by this sub-agent using its own bound capabilities.',
-  '注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到该子智能体的能力。':
-    'Note: the bot runs with your permissions — anyone who @-mentions it in a group can reach this sub-agent through it.',
+  '为智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它，就由该智能体用它自己绑定的能力回复。':
+    'Bind a channel bot (Feishu / DingTalk / WeCom / WeChat) to agent "{name}": messages sent to it are answered by this agent using its own bound capabilities.',
+  '注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到该智能体的能力。':
+    'Note: the bot runs with your permissions — anyone who @-mentions it in a group can reach this agent through it.',
   // ── 群聊旁听 ──
   '群聊旁听：读取群里未 @ 它的消息作为上下文（只读不回复）':
     'Group listening: read messages that do not @-mention the bot as context (read-only, never replied to)',
@@ -491,6 +497,8 @@ export const SETTINGS_DICT: Record<string, string> = {
     'Connect OpenAI-compatible or vendor model endpoints; connectivity is verified on save. Chat requires at least one chat provider assigned to the main_agent role.',
   '模型供应商已更新': 'Model provider updated',
   '支持多档思考强度（reasoning_effort）': 'Supports multi-level reasoning effort',
+  '思考走独立通道（reasoning_content）': 'Reasoning via separate channel (reasoning_content)',
+  '上游把思考内容放在独立字段单独下发（reasoning_content 或 reasoning，DeepSeek 官方及多数云网关均属此类，两种字段名都兼容），而不是内联在正文里的 <think> 标签。开启后流式一开始就告知前端「正文就是正文」，模型不思考的回合也能逐字流式；关闭时前端按内联 <think> 兼容处理，无思考的回合正文会攒到该轮结束才一次性显示。自部署 vLLM/sglang 把思考内联在正文输出的保持关闭。': 'The upstream delivers reasoning in a separate field (reasoning_content or reasoning — official DeepSeek API and most cloud gateways; both field names are supported) instead of inline <think> tags in the body. When enabled, the stream announces "content is the answer" from the very start, so turns where the model skips thinking still stream token by token; when disabled, the frontend applies inline-<think> compatibility and a no-thinking turn only shows its answer once the round completes. Keep it off for self-hosted deployments that emit reasoning inline in the body.',
   '开启后，前端「思考强度」选项里会出现「思考·高 / 思考·超高」两档，并通过 chat_template_kwargs.reasoning_effort 传给上游。需要上游模型本身认 reasoning_effort 字段（如 Qwen3 多档、GPT-OSS、Claude thinking 等），否则可能 4xx。普通 DeepSeek/Qwen 关闭即可。': 'When enabled, the "Thinking Intensity" selector will show "High / Ultra" levels, passed as chat_template_kwargs.reasoning_effort upstream. Requires the upstream model to support the reasoning_effort field (e.g. Qwen3 multi-level, GPT-OSS, Claude thinking). May result in 4xx for other models. Keep disabled for standard DeepSeek/Qwen.',
   '没有符合条件的模型：该角色只能指派已勾选「支持读图（多模态）」的供应商': 'No eligible model: this role only accepts providers with "Supports image input (multimodal)" enabled.',
   '支持读图（多模态）': 'Supports image input (multimodal)',
@@ -567,8 +575,8 @@ export const SETTINGS_DICT: Record<string, string> = {
   '百度千帆 AppBuilder 搜索服务密钥': 'Baidu Qianfan AppBuilder search service key',
   'LangSearch Web Search API 服务密钥': 'LangSearch Web Search API service key',
   '主智能体代码执行能力': 'Main Agent Code Execution',
-  '开启后主/计划/批量/子智能体默认具备文件工具+沙箱+我的空间访问；关闭则仅 Lab 入口可用。本开关为唯一控制源，保存后 ≤30s 生效、无需重启。':
-    'When enabled, main, plan, batch, and sub-agents can use file tools, the sandbox, and My Space by default. When disabled, only Lab can use them. Changes take effect within 30 seconds without a restart.',
+  '开启后主/计划/批量/智能体默认具备文件工具+沙箱+我的空间访问；关闭则仅 Lab 入口可用。本开关为唯一控制源，保存后 ≤30s 生效、无需重启。':
+    'When enabled, main, plan, batch, and agents can use file tools, the sandbox, and My Space by default. When disabled, only Lab can use them. Changes take effect within 30 seconds without a restart.',
   '轮内压缩触发比例': 'In-turn Compression Threshold',
   '上下文估算 token 超过「模型窗口 × 该值」时触发轮内压缩（0.5~0.95）。计数用字节估算：中文会被高估（实际触发比标称晚）、英文/代码接近真实。调大=更晚压缩（上下文更完整，但英文/代码密集会话有触顶风险）；调小=更早压缩。':
     'Trigger in-turn compression when estimated tokens exceed the model context window multiplied by this value (0.5–0.95). Higher values compress later; lower values compress earlier.',
@@ -722,8 +730,8 @@ export const SETTINGS_DICT: Record<string, string> = {
   '变化': 'Change',
   // Orchestration profiles
   '编排': 'Orchestration',
-  '编排 = 一次 ReAct 装配用到的那份声明：提示词片段、工具集、技能组合、子智能体路由、检索与预算、停滞干预规则。每次运行按租户实时读取，停用即刻恢复内置装配，不需要重启。':
-    'Orchestration is the declaration one ReAct assembly is built from: prompt fragments, tool set, skill combination, sub-agent routes, retrieval budget and intervention rules. Resolved per run and per tenant; disabling restores the built-in assembly immediately, with no restart.',
+  '编排 = 一次 ReAct 装配用到的那份声明：提示词片段、工具集、技能组合、智能体路由、检索与预算、停滞干预规则。每次运行按租户实时读取，停用即刻恢复内置装配，不需要重启。':
+    'Orchestration is the declaration one ReAct assembly is built from: prompt fragments, tool set, skill combination, agent routes, retrieval budget and intervention rules. Resolved per run and per tenant; disabling restores the built-in assembly immediately, with no restart.',
   '尚未发布任何编排 Profile，当前按内置装配运行':
     'No orchestration profile published; running on the built-in assembly',
   '适用任务': 'Applies to',
@@ -786,7 +794,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   '开启后这个模式仍带沙箱代码执行与文件读写工具（受系统配置的代码能力总开关约束）；关闭则纯检索问答，不执行代码——内置极速模式即如此。': 'When on, this mode keeps the sandbox code-execution and file tools (still subject to the global code-capability switch in system config); when off, it is retrieval-only Q&A with no code execution — the built-in Turbo mode works this way.',
   '开启后这个模式仍能执行代码、读写文件；关闭则纯检索问答，不执行代码。': 'When on, this mode can still execute code and read/write files; when off, it is retrieval-only Q&A with no code execution.',
   '只装配下面列出的能力': 'Assemble only the capabilities listed below',
-  '选择这个模式装配的 MCP 工具': 'Select the MCP tools this mode assembles',
+  '选择这个模式装配的连接器': 'Select the connectors this mode assembles',
   '选择这个模式装配的技能': 'Select the skills this mode assembles',
   '编辑模式「{name}」': 'Edit mode "{name}"',
   '删除模式「{name}」？': 'Delete mode "{name}"?',

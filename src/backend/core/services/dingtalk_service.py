@@ -25,7 +25,6 @@ import json
 import logging
 import os
 import re
-import shutil
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -480,14 +479,18 @@ class DingTalkService:
         if old is not None and not old.done():
             old.cancel()
         await _run_dws(user_id, ["auth", "logout", "-y"], timeout=30)
-        # Clear the backend per-user credential directory (including home/.dws and home/.local/share/dws-cli)
+        # Clear the backend per-user credential directory (including home/.dws and
+        # home/.local/share/dws-cli). Empty in place — never rmtree the root: both
+        # subdirectories are bind-mounted into this user's live sandboxes, and
+        # unlinking a mount source makes dws report "not logged in" in every open
+        # chat even after a successful re-login (see [[purge_credential_dir]]).
         try:
-            from core.sandbox._common import dws_cache_dir, safe_user_id
+            from core.sandbox._common import dws_cache_dir, purge_credential_dir, safe_user_id
 
             if safe_user_id(user_id):
-                shutil.rmtree(dws_cache_dir(user_id), ignore_errors=True)
+                purge_credential_dir(dws_cache_dir(user_id))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("[dingtalk] disconnect cache rmtree failed user=%s: %s", user_id, exc)
+            logger.warning("[dingtalk] disconnect cache purge failed user=%s: %s", user_id, exc)
         self.repo.update(
             user_id,
             {

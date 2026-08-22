@@ -4,7 +4,7 @@ import { LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { createAutomation, listPlans, getPlanApi, listChannelConversations, type ChannelConversation } from '../../api';
 import type { AutomationScheduleType, Plan } from '../../types';
 import { PlanCard, type PlanStepData } from '../chat/PlanCard';
-import { ScheduleSelector, type ScheduleValue } from './ScheduleSelector';
+import { ScheduleSelector, isOnceScheduleExpired, type ScheduleValue } from './ScheduleSelector';
 import { channelConversationLabel } from './automationUtils';
 import { t } from '../../i18n';
 
@@ -116,6 +116,10 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      if (isOnceScheduleExpired(schedule)) {
+        message.error(t('执行时间已过，请重新选择一个未来的时间'));
+        return;
+      }
       setLoading(true);
 
       const target = channelTarget && channelTarget !== 'inapp'
@@ -123,12 +127,12 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
         : undefined;
       await createAutomation({
         task_type: taskType,
-        prompt: taskType === 'prompt' ? values.prompt : undefined,
+        prompt: taskType === 'prompt' ? values.prompt?.trim() : undefined,
         plan_id: taskType === 'plan' ? values.plan_id : undefined,
         cron_expression: schedule.cron_expression,
         schedule_type: schedule.schedule_type as AutomationScheduleType,
-        name: values.name || undefined,
-        description: values.description || undefined,
+        name: values.name?.trim() || undefined,
+        description: values.description?.trim() || undefined,
         channel_id: target?.channel_id,
         conversation_id: target?.conversation_id,
       });
@@ -169,15 +173,25 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
           </Radio.Group>
         </Form.Item>
 
-        <Form.Item label={t('任务名称')} name="name">
-          <Input placeholder={t('为任务取一个名称（可选）')} maxLength={200} />
+        <Form.Item
+          label={t('任务名称')}
+          name="name"
+          rules={[
+            { required: true, message: t('请输入任务名称') },
+            { whitespace: true, message: t('任务名称不能只包含空格') },
+          ]}
+        >
+          <Input placeholder={t('为任务取一个名称，列表与搜索都按它展示')} maxLength={200} />
         </Form.Item>
 
         {taskType === 'prompt' && (
           <Form.Item
             label={t('提示词')}
             name="prompt"
-            rules={[{ required: true, message: t('请输入提示词') }]}
+            rules={[
+              { required: true, message: t('请输入提示词') },
+              { whitespace: true, message: t('提示词不能只包含空格') },
+            ]}
           >
             <Input.TextArea
               placeholder={t('输入需要定时执行的提示词，如：帮我搜索今天的政策新闻并生成摘要')}

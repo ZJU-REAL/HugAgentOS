@@ -3865,7 +3865,9 @@
 }
 
 .jx-kbDocModalBody{
-  max-height:60vh;
+  /* 60vh 是「正文区」的高度，但弹窗还有标题栏、Tab 栏与 footer，加起来会超过一屏，
+     底部的「关闭」就被挤出视口。配合 centered 把上限收到 52vh，整个弹窗才装得下。 */
+  max-height:52vh;
   overflow:auto;
   border:1px solid rgba(17,24,39,.08);
   border-radius:10px;

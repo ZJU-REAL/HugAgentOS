@@ -21,7 +21,7 @@ export interface LayoutItemMeta {
 }
 
 // 「知识库」不再是侧边栏一级入口——已并入「我的空间」的顶部 Tab（MySpacePanel TABS）；
-// 「子智能体」也不再单列——已成为「能力中心」的二级导航项。两者的 PanelKey 仍保留可用，
+// 「智能体」也不再单列——已成为「能力中心」的二级导航项。两者的 PanelKey 仍保留可用，
 // 但从这里移除后，即便后台页面配置里还存着旧 key，itemVisible() 也会因 meta 为空而过滤掉。
 export const LAYOUT_ITEMS: Record<string, LayoutItemMeta> = {
   ability_center: {

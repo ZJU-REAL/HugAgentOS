@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { findCitedRange } from '../../utils/highlight';
+import { findCitedHighlight } from '../../utils/highlight';
 import { WindowedText } from './WindowedText';
 import { t } from '../../i18n';
 
@@ -24,7 +24,7 @@ export function CitedTextBody({ text, highlight, className }: CitedTextBodyProps
   const markRef = useRef<HTMLElement | null>(null);
 
   const hit = useMemo(
-    () => (highlight ? !!findCitedRange(text, highlight) : false),
+    () => !!findCitedHighlight(text, highlight),
     [text, highlight],
   );
 

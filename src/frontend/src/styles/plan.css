@@ -108,6 +108,11 @@
   background:var(--color-success-bg);
   color:var(--color-success);
 }
+/* 用户中断：既不是成功也不是失败，用中性灰把它和「执行中 / 已完成」区分开 */
+.jx-plan-badge--cancelled{
+  background:var(--color-fill-hover);
+  color:var(--color-text-secondary);
+}
 
 /* ── Progress bar ── */
 .jx-plan-progress{

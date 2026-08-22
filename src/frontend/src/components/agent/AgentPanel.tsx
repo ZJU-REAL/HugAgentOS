@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Button, Drawer, Input, Modal, Skeleton, Switch, Tooltip, message, Select, Form, Tag, List, Empty, Dropdown } from 'antd';
+import { Button, Drawer, Input, Modal, Pagination, Skeleton, Switch, Tooltip, message, Select, Form, Tag, List, Empty, Dropdown } from 'antd';
 import { PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined, LeftOutlined, RightOutlined, RobotOutlined, AppstoreAddOutlined, UploadOutlined, DownOutlined } from '@ant-design/icons';
 import { useAgentStore, type UserAgentItem } from '../../stores/agentStore';
 import { AgentMarketplaceModal } from './AgentMarketplaceModal';
@@ -12,6 +12,9 @@ import { AGENT_MARKETPLACE_CATEGORIES } from '../../utils/constants';
 import type { AgentMarketSubmission, AgentMarketplaceFetchers } from '../../types';
 
 // User-side market transport: directly reuse api.ts's stable function references; a module-level constant suffices (no need for a per-render memo).
+/** 每页卡片数——与技能页 / MCP 页 / 插件页保持一致。 */
+const AGENTS_PAGE_SIZE = 12;
+
 const USER_MARKET_FETCHERS: AgentMarketplaceFetchers = {
   loadList: getMarketplaceAgents,
   loadDetail: getMarketplaceAgentDetail,
@@ -29,9 +32,13 @@ import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { AgentCreatePage } from './AgentCreatePage';
 import { usePanelHeader } from '../../hooks/usePageConfig';
+import { ABILITY_TAB_TITLE } from '../catalog/abilityTabs';
 import { t } from '../../i18n';
 
 const AGENT_ICON_MAP: Record<string, string> = {
+  '报告生成智能体': '/home/agent-icons/report.svg',
+  '知识检索智能体': '/home/agent-icons/knowledge.svg',
+  // 历史名称（改称「智能体」前入库的存量数据）仍要能查到图标
   '报告生成子智能体': '/home/agent-icons/report.svg',
   '知识检索子智能体': '/home/agent-icons/knowledge.svg',
   '报告撰写': '/home/agent-icons/report-writing.svg',
@@ -208,12 +215,13 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
   // When off, hide the "add sub-agent" entry; viewing and editing existing sub-agents is unaffected.
   const canAddAgent = authUser?.can_add_agent === true;
   const { title: agentsTitle, subtitle: agentsSubtitle } = usePanelHeader('agents', {
-    title: '子智能体',
-    subtitle: '选择与启用子智能体，并查看其职责边界与路由提示',
+    title: ABILITY_TAB_TITLE.agents,
+    subtitle: '选择与启用智能体，并查看其职责边界与路由提示',
   });
 
   const [search, setSearch] = useState('');
-  // 内嵌进能力中心时不做 localStorage 详情恢复：那份记忆属于独立的子智能体面板
+  const [agentsPage, setAgentsPage] = useState(1);
+  // 内嵌进能力中心时不做 localStorage 详情恢复：那份记忆属于独立的智能体面板
   const persistDetail = !embedded;
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
     persistDetail ? loadDetailId : null,
@@ -290,6 +298,19 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
     return list.filter((a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q));
   }, [agents, editionAgentPolicy, search]);
 
+  // 分页：与技能页 / MCP 页同一套（每页 12 + antd Pagination），智能体多起来以后
+  // 原来是一屏铺到底，翻不完也定位不到（问题 40）。
+  const pagedAgents = useMemo(
+    () => filtered.slice((agentsPage - 1) * AGENTS_PAGE_SIZE, agentsPage * AGENTS_PAGE_SIZE),
+    [filtered, agentsPage],
+  );
+
+  // 搜索或数据变化把页码顶出范围时拉回第一页
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filtered.length / AGENTS_PAGE_SIZE));
+    if (agentsPage > maxPage) setAgentsPage(1);
+  }, [filtered.length, agentsPage]);
+
   const selectedAgent = useMemo(
     () => (selectedAgentId ? agents.find((a) => a.agent_id === selectedAgentId) ?? null : null),
     [selectedAgentId, agents],
@@ -303,7 +324,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
     setBotDrawerOpen(false);
   }, [selectedAgentId]);
 
-  // 重新进入宿主面板时回到列表；内嵌时宿主是能力中心，独立挂载时宿主是子智能体面板。
+  // 重新进入宿主面板时回到列表；内嵌时宿主是能力中心，独立挂载时宿主是智能体面板。
   const homePanel = embedded ? 'ability_center' : 'agents';
   useEffect(() => {
     if (panel !== homePanel) return;
@@ -334,7 +355,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
   function handleDelete(agent: UserAgentItem, e?: React.MouseEvent) {
     e?.stopPropagation();
     Modal.confirm({
-      title: t('删除子智能体'), content: t('确定删除「{name}」吗？', { name: agent.name }),
+      title: t('删除智能体'), content: t('确定删除「{name}」吗？', { name: agent.name }),
       okText: t('删除'), okButtonProps: { danger: true }, cancelText: t('取消'),
       onOk: async () => {
         try {
@@ -615,7 +636,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
                   </>
                 )}
                 {selectedAgent.owner_type === 'user' && canAddAgent && (
-                  <Tooltip title={t('申请上架到子智能体市场')}>
+                  <Tooltip title={t('申请上架到智能体市场')}>
                     <Button
                       aria-label={t('申请上架')}
                       icon={<UploadOutlined />}
@@ -645,7 +666,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
                   <Select options={AGENT_MARKETPLACE_CATEGORIES.map((c) => ({ label: c, value: c }))} />
                 </Form.Item>
                 <Form.Item name="summary" label={t('市场摘要')}>
-                  <Input.TextArea rows={2} maxLength={200} placeholder={t('一句话介绍这个子智能体的用途')} />
+                  <Input.TextArea rows={2} maxLength={200} placeholder={t('一句话介绍这个智能体的用途')} />
                 </Form.Item>
                 <Form.Item name="note" label={t('给管理员的备注')}>
                   <Input.TextArea rows={2} maxLength={500} placeholder={t('可选')} />
@@ -769,7 +790,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
               }}
             >
               <Button type="primary" icon={<PlusOutlined />} className="jx-agentPage-createBtn">
-                {t('添加子智能体')} <DownOutlined />
+                {t('添加智能体')} <DownOutlined />
               </Button>
             </Dropdown>
           )}
@@ -780,14 +801,14 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
       {loading ? (
         <AgentListSkeleton />
       ) : filtered.length === 0 ? (
-        <div className="jx-agentPage-empty jx-anim-fadeIn">{t('暂无子智能体')}</div>
+        <div className="jx-agentPage-empty jx-anim-fadeIn">{t('暂无智能体')}</div>
       ) : (
         <div
           className="jx-agentPage-grid jx-anim-stagger"
           style={{ '--stagger-step': '30ms' } as React.CSSProperties}
           key={`agents-${panelEntryNonce}`}
         >
-          {filtered.map((agent, idx) => {
+          {pagedAgents.map((agent, idx) => {
             const canEdit = canEditAgent(agent);
             return (
               <div key={agent.agent_id} className="jx-agentCard jx-card-lift"
@@ -829,6 +850,19 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {filtered.length > AGENTS_PAGE_SIZE && (
+        <div className="jx-sk-pagination">
+          <Pagination
+            current={agentsPage}
+            pageSize={AGENTS_PAGE_SIZE}
+            total={filtered.length}
+            onChange={setAgentsPage}
+            showSizeChanger={false}
+            size="small"
+          />
         </div>
       )}
 

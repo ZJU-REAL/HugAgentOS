@@ -37,7 +37,7 @@ export const BUILTIN_APPS: AppItem[] = [
   {
     id: 'automation',
     enabled: true,
-    name: '自动化',
+    name: '定时任务',
     description:
       '设置定时或周期性 AI 任务，支持自然语言提示词和计划模式的自动执行，适用于定期报告、数据监控等场景',
     url: '',

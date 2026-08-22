@@ -291,6 +291,24 @@ class AutomationService:
         task.updated_at = datetime.now(timezone.utc)
         self.db.commit()
 
+    def bump_run_count(self, task_id: str) -> None:
+        """手动触发路径专用的计数递增。
+
+        run_count 原本只在 advance_next_run 里 +1，而那是**调度器轮询**的前置步骤。
+        手动「立即执行」和 schedule_type='manual' 的任务根本不走调度器（get_due_tasks
+        把 manual 排除在外），于是这些执行只落了一条 run 记录、累计次数却纹丝不动——
+        详情页出现「有 5 条执行记录、累计执行 0 次」的自相矛盾。
+
+        这里不动调度器那条路径的语义（那边 +1 与 next_run_at 推进必须原子发生），
+        只补上手动触发这一路的计数。
+        """
+        task = self.get_task_by_id(task_id)
+        if not task:
+            return
+        task.run_count = (task.run_count or 0) + 1
+        task.updated_at = datetime.now(timezone.utc)
+        self.db.commit()
+
     def finalize_after_run(self, task_id: str) -> None:
         """Mark one-shot / exhausted tasks 'completed' once their run has
         finished. Recurring tasks stay active (advance_next_run already moved

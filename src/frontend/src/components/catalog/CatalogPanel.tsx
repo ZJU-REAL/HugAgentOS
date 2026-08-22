@@ -1527,10 +1527,18 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
         onCancel={() => { setActiveKbDoc(null); setDocDetailTab('content'); setDocChunks([]); }}
         footer={[<Button key="close" onClick={() => { setActiveKbDoc(null); setDocDetailTab('content'); setDocChunks([]); }}>{t('关闭')}</Button>]}
         width={920}
+        /* 垂直居中 + 限高：原来弹窗从页面顶部往下排，正文一长底部的「关闭」就被推出
+           视口，够不着（问题 26）。centered 让它始终居中，styles 里的 max-height
+           保证 footer 永远在视口内。 */
+        centered
       >
         {activeKbDoc && (
           <div>
-            {activeKbDoc.desc && <div className="jx-kbDocDesc">{activeKbDoc.desc}</div>}
+            {/* desc 常常就等于文件名，与弹窗标题一模一样地重复一遍；只有当它确实
+                是另一段说明时才展示。 */}
+            {activeKbDoc.desc
+              && activeKbDoc.desc.trim() !== (activeKbDoc.title || '').trim()
+              && <div className="jx-kbDocDesc">{activeKbDoc.desc}</div>}
             <div className="jx-kbDocTabs">
               <button className={`jx-kbDocTab${docDetailTab === 'content' ? ' active' : ''}`} onClick={() => setDocDetailTab('content')}>{t('内容预览')}</button>
               <button
@@ -1565,7 +1573,8 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                 )}
               </div>
             ) : (
-              <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+              /* 与内容预览同一上限，保证 footer 的「关闭」始终在视口内 */
+              <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
                 {docChunksLoading ? (
                   <div className="jx-kbDocLoading"><LoadingOutlined /> {t('正在加载分块列表…')}</div>
                 ) : docChunks.length === 0 ? (

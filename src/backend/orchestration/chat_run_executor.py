@@ -763,8 +763,14 @@ async def _run_workflow(
                 # user-visible artifacts. See chats.py:_stream_sse_response.
                 _ws_pinned = _workspace_mod.get_pinned()
                 _ws_files = _workspace_mod.get_pinned_file_ids()
+                # 本轮总耗时：同一个值既下发给正在看的这一页，也写进 extra_data 供历史
+                # 加载使用。以前只写库不下发，前端只能自己按「占位气泡创建到现在」估一个，
+                # 把网络往返和排队也算了进去 —— 于是同一条回答，实时看到的耗时和刷新后
+                # 从历史读出来的对不上。
+                _duration_ms = int((time.monotonic() - _run_started_monotonic) * 1000)
                 metadata = {
                     "type": "meta",
+                    "duration_ms": _duration_ms,
                     "route": chunk.get("route", "main"),
                     "sources": chunk.get("sources", []),
                     "artifacts": _ws_pinned,
@@ -792,7 +798,7 @@ async def _run_workflow(
                     "citations": metadata.get("citations", []),
                     "message_id": current_message_id,
                     "workspace_files": _ws_files,
-                    "duration_ms": int((time.monotonic() - _run_started_monotonic) * 1000),
+                    "duration_ms": _duration_ms,
                 }
                 if metadata.get("ontology_governance"):
                     _persist_extra["ontology_governance"] = metadata["ontology_governance"]

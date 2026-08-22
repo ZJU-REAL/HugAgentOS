@@ -252,6 +252,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   // didn't pin (legacy behavior); an array means filter artifact cards
   // to only those file_ids.
   let metaWorkspaceFiles: string[] | null = null;
+  // 服务端下发的本轮总耗时（毫秒）。有它就用它——本地用「占位气泡创建到现在」
+  // 估出来的值把网络往返也算进去了，跟刷新后从历史读到的 duration_ms 对不上。
+  let metaDurationMs: number | null = null;
   let parseBuffer = '';
   let deferredThinkingText: DeferredThinkingTextFragment | undefined;
   let toolPending = false;
@@ -641,7 +644,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         lastActivityTs: Date.now(),
       };
       if (persistedMessageId) updatedMsg.messageId = persistedMessageId;
-      if (!streaming) updatedMsg.durationMs = Date.now() - placeholderTs;
+      if (!streaming) updatedMsg.durationMs = metaDurationMs ?? (Date.now() - placeholderTs);
       if (cits !== undefined) updatedMsg.citations = cits.length > 0 ? cits : undefined;
       if (metaFollowUps.length > 0) updatedMsg.followUpQuestions = metaFollowUps;
 
@@ -741,6 +744,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     evolutionSummary = undefined;
     metaMessageId = nextAssistantMessageId;
     metaFollowUps = [];
+    metaDurationMs = null;
     allCitations = [];
     metaWorkspaceFiles = null;
     parseBuffer = '';
@@ -1081,7 +1085,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
           let resultDisplayName: string | undefined;
           if (typeof obj.subagent_name === 'string' && obj.subagent_name.trim()) {
-            resultDisplayName = t('调用子智能体：{name}', { name: obj.subagent_name.trim() });
+            resultDisplayName = t('调用智能体：{name}', { name: obj.subagent_name.trim() });
           }
 
           let confirmToolName = '';
@@ -1301,6 +1305,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
         if (eventType === 'meta') {
           if (typeof eventObj.message_id === 'string') metaMessageId = eventObj.message_id;
+          if (typeof eventObj.duration_ms === 'number' && eventObj.duration_ms >= 0) {
+            metaDurationMs = eventObj.duration_ms;
+          }
           if (Array.isArray(eventObj.citations) && (eventObj.citations as CitationItem[]).length > 0) {
             allCitations = eventObj.citations as CitationItem[];
           }
@@ -1521,7 +1528,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         messageId: metaMessageId,
         workspaceFiles: metaWorkspaceFiles,
         isStreaming: false,
-        durationMs: Date.now() - placeholderTs,
+        durationMs: metaDurationMs ?? (Date.now() - placeholderTs),
       };
     }
     const nextChat: ChatItem = { ...(c as ChatItem), messages: msgs, updatedAt: Date.now() };

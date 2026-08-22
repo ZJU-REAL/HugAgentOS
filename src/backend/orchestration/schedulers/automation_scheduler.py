@@ -240,8 +240,14 @@ class AutomationScheduler:
 
             duration_ms = int((time.monotonic() - start) * 1000)
 
+            still_exists = True
             with SessionLocal() as db:
                 svc = AutomationService(db)
+                # 任务可能在本次执行的几分钟里被用户删掉了（delete_task 是硬删）。
+                # 下面的 update_task_system / finalize 对不存在的任务本就是空操作，
+                # 但通知与渠道投递用的是开跑时抓下来的 task_name / task_metadata 快照，
+                # 不查这一下就会给一个已经删掉的任务推「执行完成」。
+                still_exists = svc.get_task_by_id(task_id) is not None
                 svc.record_run_complete(
                     run.run_id,
                     status="success",
@@ -267,6 +273,13 @@ class AutomationScheduler:
             # Multi-target delivery (delivery_targets model, with backward compat for the old flat channel_id/conversation_id).
             # In-app (notification center + sidebar + chat history) is delivered only when targets include inapp; channels and other outbound targets are delivered one by one.
             from core.services.delivery_targets import resolve_delivery_targets, has_inapp
+
+            if not still_exists:
+                logger.info(
+                    "[scheduler] task %s was deleted while running — skip notification/delivery",
+                    task_id,
+                )
+                return
 
             _targets = resolve_delivery_targets(task_metadata)
             if has_inapp(_targets):
@@ -313,8 +326,10 @@ class AutomationScheduler:
             error_msg = str(e)[:2000]
             logger.error("[scheduler] task %s failed: %s", task_id, error_msg, exc_info=True)
 
+            still_exists = True
             with SessionLocal() as db:
                 svc = AutomationService(db)
+                still_exists = svc.get_task_by_id(task_id) is not None
                 svc.record_run_complete(
                     run.run_id,
                     status="failed",
@@ -339,7 +354,13 @@ class AutomationScheduler:
                 # instead of dangling active (finalize_after_run skips disabled).
                 svc.finalize_after_run(task_id)
 
-            await self._send_notification(user_id, task_id, task_name, "failed", error_msg[:200])
+            if still_exists:
+                await self._send_notification(user_id, task_id, task_name, "failed", error_msg[:200])
+            else:
+                logger.info(
+                    "[scheduler] task %s was deleted while running — skip failure notification",
+                    task_id,
+                )
 
         finally:
             await self._release_lock(task_id)
@@ -483,6 +504,13 @@ class AutomationScheduler:
                     "citations": chunk.get("citations", []),
                 }
 
+        # 推理模型会把思考链以 <think>…</think> 混在正文流里下发。网页端有一套流式
+        # 状态机把它切成独立的「思考」段，定时任务这条路径没有——于是思考过程原样落进
+        # 了自动化任务的输出正文（以及通知和渠道投递的内容）。这里在落库前统一剥掉。
+        from core.llm._distill_shared import strip_think_blocks
+
+        full_response = strip_think_blocks(full_response) if full_response else full_response
+
         # Persist assistant message with the full run context.
         with SessionLocal() as db:
             chat_svc = ChatService(db)
@@ -617,7 +645,11 @@ class AutomationScheduler:
             ):
                 evt_type = event.get("type")
                 if evt_type == "plan_complete":
-                    result_text = event.get("result_text", "")
+                    # 与 prompt 任务同理：推理模型的 <think> 段会混在总结正文里。
+                    from core.llm._distill_shared import strip_think_blocks
+
+                    _raw = event.get("result_text", "")
+                    result_text = strip_think_blocks(_raw) if _raw else _raw
                     completed_steps = event.get("completed_steps", 0)
                     total_steps = event.get("total_steps", 0)
                     usage = event.get("usage", {}) or {}

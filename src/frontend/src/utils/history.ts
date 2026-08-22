@@ -22,7 +22,7 @@ export function buildSidebarChatItems(
 
   const automationItems: ChatItem[] = sidebarTasks.map((task) => ({
     id: `automation:${task.task_id}`,
-    title: task.name || task.prompt?.slice(0, 30) || t('自动化任务'),
+    title: task.name || task.prompt?.slice(0, 30) || t('定时任务'),
     createdAt: new Date(task.created_at).getTime(),
     updatedAt: task.last_run_at ? new Date(task.last_run_at).getTime() : new Date(task.updated_at).getTime(),
     messages: [],

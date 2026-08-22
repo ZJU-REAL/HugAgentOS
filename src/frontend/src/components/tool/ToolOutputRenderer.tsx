@@ -412,7 +412,7 @@ export function renderToolOutputBody(
     return (
       <div className="jx-tr-skillBadge">
         <CheckCircleOutlined style={{ color: '#02B589', fontSize: 14 }} />
-        <span>{agentName ? t('子智能体「{name}」已完成', { name: agentName }) : t('子智能体已完成')}</span>
+        <span>{agentName ? t('智能体「{name}」已完成', { name: agentName }) : t('智能体已完成')}</span>
       </div>
     );
   }

@@ -1500,11 +1500,89 @@ async def test_review_rechecks_live_snapshot(db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_missing_source_marks_listing_changed(db):
+async def test_missing_source_revalidates_from_reviewed_version(db, monkeypatch):
     _approved_market(db)
+    _patch_probe(monkeypatch)
     result = await market.revalidate_market_item(db, "acme-search")
+
+    assert result["status"] == "active"
+    assert result["status_reason"] == ""
+
+
+@pytest.mark.asyncio
+async def test_missing_source_still_detects_live_snapshot_drift(db, monkeypatch):
+    _approved_market(db)
+    _patch_probe(monkeypatch, tools=_tools("changed_after_review"))
+
+    result = await market.revalidate_market_item(db, "acme-search")
+
     assert result["status"] == "changed"
-    assert "不存在" in result["status_reason"]
+    assert "需发布新版本" in result["status_reason"]
+
+
+@pytest.mark.asyncio
+async def test_manual_admin_revalidation_accepts_drift_as_new_version(db, monkeypatch):
+    source = _private_server(db)
+    source.owner_user_id = None
+    item, old_version = _approved_market(db)
+    item.source = "admin"
+    db.commit()
+    changed_tools = _tools("search_documents", "list_accessible_projects")
+    _patch_probe(monkeypatch, tools=changed_tools)
+
+    result = await market.revalidate_market_item(
+        db,
+        "acme-search",
+        accept_changes=True,
+    )
+
+    assert result["status"] == "active"
+    assert result["snapshot_accepted"] is True
+    assert result["previous_version"] == "1.0.0"
+    assert result["version"] == "1.0.1"
+    versions = {
+        row.version: row for row in db.query(McpMarketVersion).filter_by(slug="acme-search").all()
+    }
+    assert set(versions) == {"1.0.0", "1.0.1"}
+    assert versions["1.0.0"].tool_hash == old_version.tool_hash
+    assert versions["1.0.1"].tool_hash == tool_snapshot_hash(changed_tools)
+    assert versions["1.0.1"].approved_by == "admin-revalidation"
+    assert item.latest_version_id == versions["1.0.1"].version_id
+
+
+@pytest.mark.asyncio
+async def test_periodic_revalidation_never_auto_accepts_drift(db, monkeypatch):
+    source = _private_server(db)
+    source.owner_user_id = None
+    item, _ = _approved_market(db)
+    item.source = "admin"
+    db.commit()
+    _patch_probe(monkeypatch, tools=_tools("changed_after_review"))
+
+    result = await market.revalidate_market_item(db, "acme-search")
+
+    assert result["status"] == "changed"
+    assert db.query(McpMarketVersion).filter_by(slug="acme-search").count() == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_revalidation_rejects_empty_tool_snapshot(db, monkeypatch):
+    source = _private_server(db)
+    source.owner_user_id = None
+    item, _ = _approved_market(db)
+    item.source = "admin"
+    db.commit()
+    _patch_probe(monkeypatch, tools=[])
+
+    result = await market.revalidate_market_item(
+        db,
+        "acme-search",
+        accept_changes=True,
+    )
+
+    assert result["status"] == "changed"
+    assert "未返回任何工具" in result["status_reason"]
+    assert db.query(McpMarketVersion).filter_by(slug="acme-search").count() == 1
 
 
 @pytest.mark.skipif(_IS_CE_TREE, reason="CE marketplace listings are always public")
@@ -1596,9 +1674,7 @@ def _patch_install_side_effects(monkeypatch, *, resolves_to: str = "172.27.0.4")
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
-        lambda *args, **kwargs: [
-            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (resolves_to, 9102))
-        ],
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (resolves_to, 9102))],
     )
     monkeypatch.setattr(market, "probe_mcp_connectivity", _probe)
     monkeypatch.setattr(market, "refresh_mcp_caches", lambda: None)

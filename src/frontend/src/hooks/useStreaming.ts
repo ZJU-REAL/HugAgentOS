@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { message } from 'antd';
+import { Modal, message } from 'antd';
 import { t } from '../i18n';
-import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
+import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, cancelPlanApi, getLoop, UPLOAD_MAX_BYTES, UPLOAD_MAX_MB, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
@@ -76,8 +76,22 @@ export function useStreaming(
   ) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const newFiles = Array.from(files);
+    const picked = Array.from(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // 超限的文件当场拦下并说明上限：以前既不校验、上传失败也被 catch 吞掉，
+    // 挑一个 90MB 的文件会「安静地」挂在输入框上，用户完全不知道它没传上去（问题 42）。
+    // 上限与 nginx 的 client_max_body_size 同一个来源（VITE_UPLOAD_MAX_MB）。
+    const oversized = picked.filter((f) => f.size > UPLOAD_MAX_BYTES);
+    const newFiles = picked.filter((f) => f.size <= UPLOAD_MAX_BYTES);
+    if (oversized.length > 0) {
+      message.error(
+        oversized.length === 1
+          ? t('「{name}」超过 {n} MB，无法上传', { name: oversized[0].name, n: UPLOAD_MAX_MB })
+          : t('{k} 个文件超过 {n} MB，已跳过', { k: oversized.length, n: UPLOAD_MAX_MB }),
+      );
+    }
+    if (newFiles.length === 0) return;
 
     const { setUploadedFiles, uploadedFiles } = useFileStore.getState();
     setUploadedFiles([...uploadedFiles, ...newFiles]);
@@ -89,8 +103,16 @@ export function useStreaming(
       const { addUploadingFile, removeUploadingFile } = useFileStore.getState();
       addUploadingFile(file);
       const promise = uploadFileToOSS(file, curApiUrl, curChatId)
-        .then(({ file_id, download_url }) => ({ file_id, download_url }))
+        .then((res) => {
+          // uploadFileToOSS 失败时返回空 file_id 而不是抛错。以前这里不看返回值，
+          // 附件就静静地停在输入框上、实际根本没传上去，发送时也不会带上。
+          if (!res.file_id) {
+            message.error(t('「{name}」上传失败，请重试', { name: file.name }));
+          }
+          return res;
+        })
         .catch(() => {
+          message.error(t('「{name}」上传失败，请重试', { name: file.name }));
           return { file_id: '', download_url: '' };
         })
         .finally(() => { removeUploadingFile(file); });
@@ -641,7 +663,15 @@ export function useStreaming(
                     if (idx >= 0) {
                       msgs[idx] = { ...msgs[idx], followUpQuestions: questions };
                     }
-                    return { chats: { ...prev.chats, [_pollChatId]: { ...c, messages: msgs } }, order: prev.order };
+                    // 必须推进 updatedAt：引导问题是流结束后轮询补写的，只有发起提问的
+                    // 那个标签页会跑这段轮询。跨标签页合并按 chat 粒度取 updatedAt 严格
+                    // 更大的一方（见 storage.mergeChatStores），不改时间戳这份带引导问题
+                    // 的快照就永远赢不过另一个窗口手里的旧副本 —— 表现为同一段对话，
+                    // 一个窗口有引导问题、另一个没有。
+                    return {
+                      chats: { ...prev.chats, [_pollChatId]: { ...c, messages: msgs, updatedAt: Date.now() } },
+                      order: prev.order,
+                    };
                   });
                   break;
                 }
@@ -767,6 +797,32 @@ export function useStreaming(
   async function editAndResend(messageIndex: number, newContent: string) {
     const { sending, addSendingChatId, removeSendingChatId, currentChatId, truncateMessagesFrom, setEditingMessageTs } = useChatStore.getState();
     if (!newContent.trim()) return;
+
+    // 编辑重发是**破坏性**的：后端 delete_messages_from 会把这条之后的消息全部硬删，
+    // 撤不回来。编辑第一轮时，后面几十轮问答会一声不响地消失（问题 24）。
+    // 所以在动手之前先把代价说清楚，让用户自己决定。
+    {
+      const chat = useChatStore.getState().store.chats[currentChatId];
+      const msgs = chat?.messages || [];
+      const targetTs = msgs[messageIndex]?.ts;
+      const droppedRounds = typeof targetTs === 'number'
+        ? msgs.filter((m) => m.ts > targetTs && m.role === 'user').length
+        : 0;
+      if (droppedRounds > 0) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: t('编辑后将丢弃后续对话'),
+            content: t('这条消息之后还有 {n} 轮问答，编辑重发会把它们一并删除且无法恢复。确定继续吗？', { n: droppedRounds }),
+            okText: t('继续编辑'),
+            okButtonProps: { danger: true },
+            cancelText: t('取消'),
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!confirmed) return;
+      }
+    }
     if (sending) {
       // 正在流式输出时点「发送」：先停止当前回答再编辑重发（对齐主流产品行为），
       // 而不是静默吞掉点击。abort 触发本地 AbortError → 原流的 finally 清理
@@ -848,6 +904,22 @@ export function useStreaming(
     if (controller) {
       controller.abort();
       abortControllersRef.current.delete(targetId);
+    }
+
+    // 计划模式：把后端的计划和它的 run 一并取消。只 abort 本地 SSE 是不够的——计划在
+    // 后端仍是 approved/执行中，切走再切回来（resumeRunIfAny 会重新挂上那个还活着的
+    // run）就表现为「已经中断的任务又自己跑起来了」（问题 32）。
+    {
+      const chat = useChatStore.getState().store.chats[targetId];
+      const execPlanId = (chat?.messages || [])
+        .flatMap((m) => m.segments || [])
+        .filter((seg) => seg.type === 'plan' && seg.planData?.mode === 'executing' && !seg.planData?.cancelled)
+        .map((seg) => seg.planData?.planId)
+        .filter((id): id is string => !!id)
+        .pop();
+      if (execPlanId) {
+        cancelPlanApi(execPlanId).catch(() => { /* noop —— 本地已经断流，后端有孤儿回收兜底 */ });
+      }
     }
 
     // Autonomous loop: on stop, wind the chat's "plan bar" down from running to cancelled —

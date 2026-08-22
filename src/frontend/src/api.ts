@@ -208,7 +208,8 @@ export function unwrapData<T>(payload: unknown): T {
 // backend structured error codes.
 // Baked in at build time from the same UPLOAD_MAX_MB env var that feeds the
 // nginx client_max_body_size (see docker-compose.yml frontend build args).
-const UPLOAD_MAX_MB = Number(import.meta.env.VITE_UPLOAD_MAX_MB) || 50;
+export const UPLOAD_MAX_MB = Number(import.meta.env.VITE_UPLOAD_MAX_MB) || 50;
+export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
 function uploadErrorMessage(status: number, payload: unknown): string {
   if (status === 413) {
     return t('文件过大，单个文件不能超过 {n} MB', { n: UPLOAD_MAX_MB });

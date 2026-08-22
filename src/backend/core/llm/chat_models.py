@@ -592,6 +592,7 @@ def _make_openai_compatible(
     reasoning_effort: Optional[str],
     stream: bool,
     context_size: int,
+    structured_reasoning: Optional[bool] = None,
 ) -> OpenAICompatChatModel:
     azure: dict | None = None
     actual_model = model
@@ -626,7 +627,9 @@ def _make_openai_compatible(
         context_size=context_size,
         extra_body=extra_body,
         azure=azure,
-        structured_reasoning=spec.structured_reasoning,
+        structured_reasoning=(
+            spec.structured_reasoning if structured_reasoning is None else structured_reasoning
+        ),
     )
 
 
@@ -644,6 +647,7 @@ def make_chat_model(
     reasoning_effort: Optional[str] = None,
     stream: bool = False,
     context_size: Optional[int] = None,
+    structured_reasoning: Optional[bool] = None,
 ) -> ChatModelBase:
     """Construct a ChatModel dispatched by provider (AgentScope 2.0).
 
@@ -703,6 +707,7 @@ def make_chat_model(
         reasoning_effort=reasoning_effort,
         stream=stream,
         context_size=context_size,
+        structured_reasoning=structured_reasoning,
     )
 
 
@@ -742,6 +747,14 @@ def get_default_model(
             disable_thinking=disable_thinking,
             reasoning_effort=reasoning_effort,
             stream=stream,
+            # Per-model admin flag: the upstream delivers reasoning via the separate
+            # reasoning_content channel (never inline <think>). The SSE layer then sends
+            # the structured_reasoning protocol marker at stream start, so on turns where
+            # the model skips thinking the frontend still streams the answer instead of
+            # buffering it as presumed reasoning until round end.
+            structured_reasoning=(
+                True if (resolved.extra or {}).get("structured_reasoning") else None
+            ),
         )
     return make_chat_model(
         model="dummy-model",

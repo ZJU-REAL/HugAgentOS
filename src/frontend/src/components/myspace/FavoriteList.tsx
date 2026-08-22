@@ -60,7 +60,7 @@ export function FavoriteList({
                     <StarOutlined /> {t('取消收藏')}
                   </button>
                 </Tooltip>
-                <Tooltip title={isAutomationFavorite ? t('查看自动化记录') : t('跳转到对话')}>
+                <Tooltip title={isAutomationFavorite ? t('查看定时任务记录') : t('跳转到对话')}>
                   <button className="jx-mySpace-actionBtn" onClick={() => onNavigate(item)}>
                     <ExportOutlined /> {isAutomationFavorite ? t('查看记录') : t('查看对话')}
                   </button>

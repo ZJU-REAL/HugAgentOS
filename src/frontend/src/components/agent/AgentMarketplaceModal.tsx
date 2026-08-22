@@ -70,7 +70,7 @@ export function AgentMarketplaceModal({
       setItems(res.items || []);
       setCategories(res.categories || []);
     } catch (e) {
-      message.error((e as Error).message || t('加载子智能体市场失败'));
+      message.error((e as Error).message || t('加载智能体市场失败'));
     } finally {
       setLoading(false);
     }
@@ -210,7 +210,7 @@ export function AgentMarketplaceModal({
     fetchers.remove && agent.deletable ? (
       <Popconfirm
         title={t('确定从市场删除「{name}」？', { name: agent.name })}
-        description={t('仅移出市场，不影响已安装的子智能体。')}
+        description={t('仅移出市场，不影响已安装的智能体。')}
         okText={t('删除')}
         okButtonProps={{ danger: true }}
         cancelText={t('取消')}
@@ -272,9 +272,9 @@ export function AgentMarketplaceModal({
       title={detail ? (
         <span className="jx-mk-detailTitle">
           <Button type="text" size="small" icon={<LeftOutlined />} onClick={() => setDetail(null)} />
-          {t('子智能体详情')}
+          {t('智能体详情')}
         </span>
-      ) : t('子智能体市场')}
+      ) : t('智能体市场')}
       open={open}
       onCancel={onClose}
       footer={null}
@@ -341,13 +341,13 @@ export function AgentMarketplaceModal({
             <Input
               allowClear
               prefix={<SearchOutlined style={{ color: '#B3B3B3' }} />}
-              placeholder={t('搜索子智能体名称、描述、标签')}
+              placeholder={t('搜索智能体名称、描述、标签')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{ maxWidth: 280 }}
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {t('安装后{scope}', { scope: scopeLabel || t('在本人「子智能体」中生成一个私有副本') })}
+              {t('安装后{scope}', { scope: scopeLabel || t('在本人「智能体」中生成一个私有副本') })}
             </Typography.Text>
           </div>
 
@@ -397,7 +397,7 @@ export function AgentMarketplaceModal({
               ))}
             </div>
             {!loading && filtered.length === 0 && (
-              <Empty className="jx-anim-fadeIn" description={t('没有匹配的子智能体')} style={{ padding: '32px 0' }} />
+              <Empty className="jx-anim-fadeIn" description={t('没有匹配的智能体')} style={{ padding: '32px 0' }} />
             )}
             {filtered.length > MARKET_PAGE_SIZE && (
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
@@ -407,7 +407,7 @@ export function AgentMarketplaceModal({
                   total={filtered.length}
                   onChange={setPage}
                   showSizeChanger={false}
-                  showTotal={(n) => t('共 {n} 个子智能体', { n })}
+                  showTotal={(n) => t('共 {n} 个智能体', { n })}
                   size="small"
                 />
               </div>
