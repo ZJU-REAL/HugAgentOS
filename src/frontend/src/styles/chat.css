@@ -46,6 +46,8 @@
   height:100%;
   flex-direction:column;
   overflow:hidden;
+  /* 推荐横幅位于 .jx-content 外；两层共用容器底色，避免横幅周围形成整条异色背景。 */
+  background:var(--color-bg-container);
   transition:flex-basis var(--motion-duration-slow) var(--motion-ease-brand-out),
     opacity var(--motion-duration-fast) var(--motion-ease-standard);
 }
@@ -1564,9 +1566,9 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   pointer-events:none;
   user-select:none;
 }
-/* 装饰底图是浅色 PNG 资产，暗色下压暗到近隐 */
+/* 装饰底图是带矩形画布的浅色 PNG；暗色下即使低透明度也会露出横向色块。 */
 :root[data-theme='dark'] .jx-heroBgImg{
-  opacity:.10;
+  display:none;
 }
 .jx-heroTitle{
   position:relative; z-index:1;
@@ -1705,6 +1707,10 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   color:var(--color-text);
   font-weight:400;
   flex-shrink:0;
+}
+/* 暗色首页不把推荐文案画成独立色块；它与下方会话区共享同一容器底色。 */
+:root[data-theme='dark'] .jx-recommendBanner{
+  background:var(--color-bg-container);
 }
 .jx-recommendBanner-icon{
   font-size:16px;
@@ -3282,8 +3288,6 @@ textarea.jx-composer{
 }
 .jx-slashPopup-icon--plugin { color: var(--color-tint-purple); }
 .jx-slashPopup-icon--skill { color: var(--color-warning); }
-/* 模式命令（/workflow 等）：换一个色系，和技能/插件在一眼之内就能分开 */
-.jx-slashPopup-icon--mode { color: var(--color-tint-teal); }
 
 
 /* ── ContentEditable editor — replaces textarea ── */
