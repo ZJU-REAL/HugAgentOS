@@ -87,7 +87,13 @@ async def test_ce_compose_startup_runs_default_plugin_bootstrap(monkeypatch):
         "ensure_default_plugins_bootstrapped",
         lambda db: calls.append(db) or True,
     )
+    # 启动钩子同时负责把 ui_contributions 与 bundle 清单对齐（存量安装回填）
+    monkeypatch.setattr(
+        plugin_service,
+        "refresh_builtin_ui_contributions",
+        lambda db: calls.append(("refresh_ui", db)) or 0,
+    )
 
     await app_module._startup_seed_default_plugins()
 
-    assert calls == [session, "close"]
+    assert calls == [session, ("refresh_ui", session), "close"]

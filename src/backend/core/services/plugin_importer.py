@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.agent_skills.binary_files import pack_directory
 from core.infra.exceptions import BadRequestError
+from core.services.plugin_ui_contract import normalize_ui
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,11 @@ class NormalizedPlugin:
     # panel on the plugin detail page where the user completes a one-time
     # authorization. None = no account connection needed.
     connection: Optional[str] = None
+    # UI contributions (``extensions["org.hugagent"].ui``): which host view
+    # renders which tool, canvas tabs, homepage shortcuts, proxied data sources
+    # and self-shipped L2 modules. Validated by ``plugin_ui_contract``; None =
+    # this plugin contributes no interface and its tools render generically.
+    ui: Optional[Dict[str, Any]] = None
 
 
 # ── Manifest detection ────────────────────────────────────────────────────────
@@ -469,6 +475,12 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
     connection = str(connection).strip() if connection else None
     dropped = _collect_dropped(plugin_dir, manifest, kind)
 
+    # UI contributions are optional and fail-soft: a malformed entry is dropped
+    # into the import report rather than blocking the install, so a typo in a
+    # view declaration never makes a plugin uninstallable.
+    ui, ui_dropped = normalize_ui(_ext_or_top(manifest, ext, "ui"))
+    dropped.extend(ui_dropped)
+
     # default_enabled: native uses the manifest; CC/Codex default to all skills + remote MCP on, stdio MCP off
     de = manifest.get("default_enabled")
     if isinstance(de, dict):
@@ -490,5 +502,5 @@ def normalize_plugin_dir(plugin_dir: Path) -> NormalizedPlugin:
         category=category, icon=icon, kind=kind,
         required_secrets=required_secrets, default_enabled=default_enabled,
         skills=skills, mcp=mcp, dropped=dropped, admin_config=admin_config,
-        connection=connection,
+        connection=connection, ui=ui,
     )

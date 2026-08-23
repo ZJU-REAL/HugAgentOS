@@ -8,7 +8,7 @@ import {
   OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined, PartitionOutlined,
   LaptopOutlined, CloseOutlined,
 } from '@ant-design/icons';
-import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
+import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -274,7 +274,11 @@ export function InputArea({
   // Uses the shared store: the capability center forces a refresh after install/uninstall,
   // so this syncs immediately (avoids fetching only on mount, which would hide newly installed plugins).
   const installedPlugins = usePluginStore((s) => s.installed);
-  useEffect(() => { void usePluginStore.getState().fetchInstalled(); }, []);
+  useEffect(() => {
+    void usePluginStore.getState().fetchInstalled();
+    // 插件贡献的工具卡片/画布声明也在这里首次拉取：对话面板是它们的主要出场位置。
+    void usePluginUiStore.getState().fetchContributions();
+  }, []);
   const sending = forceSendMode ? false : storeSending;
   const { uploadedFiles, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
   const { promptHubOpen, setPromptHubOpen } = useUIStore();

@@ -14,6 +14,8 @@ import './mcp.css';
 import './myspace.css';
 import './team-folder.css';
 import './canvas.css';
+// 插件 UI 素材库自带样式（jx-pv-*），与宿主样式解耦，见 src/plugin-ui/README.md
+import '../plugin-ui/styles.css';
 import './plan.css';
 import './config.css';
 import './projects.css';

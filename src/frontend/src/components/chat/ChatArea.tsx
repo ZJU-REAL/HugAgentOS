@@ -9,7 +9,9 @@ import {
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useAuthStore, useEditionStore } from '../../stores';
+import { useChatStore, useBatchStore, useAuthStore, useEditionStore, usePluginUiStore } from '../../stores';
+import { mergeContributedShortcuts } from '../../stores/pluginUiStore';
+import { resolveText } from '../../plugin-ui';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePageConfigStore, type HomepageShortcut } from '../../stores/pageConfigStore';
@@ -232,15 +234,33 @@ export function ChatArea({
 
   const homepageShortcuts = usePageConfigStore((s) => s.homepageShortcuts);
   const isCE = useEditionStore((s) => s.edition === 'ce');
-  const enabledShortcuts = useMemo(
-    () => (isCE ? [] : homepageShortcuts.filter((c) => c.enabled)),
-    [homepageShortcuts, isCE],
-  );
+  const pluginContributions = usePluginUiStore((s) => s.items);
+  const enabledShortcuts = useMemo(() => {
+    if (isCE) return [];
+    // 排序去重策略（管理员优先、插件只能建议）统一在 mergeContributedShortcuts 里。
+    return mergeContributedShortcuts(
+      pluginContributions,
+      homepageShortcuts.filter((c) => c.enabled),
+      (s) => ({
+        id: s.id,
+        enabled: true,
+        label: resolveText(s.label, s.id),
+        icon: s.icon || '',
+        url: '',
+        prompt: s.prompt ? resolveText(s.prompt) : '',
+      }),
+    );
+  }, [homepageShortcuts, isCE, pluginContributions]);
   const ssoToken = useAuthStore((s) => s.authUser?.sso_token ?? null);
 
   const handleCapabilityCardClick = (card: HomepageShortcut) => {
     if (card.url) {
       window.open(buildShortcutUrl(card.url, ssoToken), '_blank', 'noopener,noreferrer');
+      return;
+    }
+    // 插件贡献的入口带 prompt：直接把提示词填进输入框，让用户接着写。
+    if (card.prompt) {
+      useChatStore.getState().setInput(card.prompt);
       return;
     }
     if (card.id === 'knowledge') {

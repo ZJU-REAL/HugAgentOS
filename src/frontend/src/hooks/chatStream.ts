@@ -5,6 +5,8 @@ import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { refreshTargetForTool } from '../utils/toolRefresh';
 import { parseContextCompactionState } from '../utils/contextUsage';
+import { readText, resolveText } from '../plugin-ui';
+import { usePluginUiStore, type CanvasTarget } from '../stores/pluginUiStore';
 import { isMobileViewport } from './useIsMobileViewport';
 import {
   appendStreamTextSegment,
@@ -75,18 +77,47 @@ function maybeRefreshCatalogAfterTool(toolName: string, status: string): void {
   if (!target) return;
   if (target === 'catalog') void useCatalogStore.getState().fetchCatalog();
   else if (target === 'agents') void useAgentStore.getState().fetchAgents();
-  else void usePluginStore.getState().fetchInstalled(true);
+  else {
+    void usePluginStore.getState().fetchInstalled(true);
+    // Installing/uninstalling a plugin also changes which tools have a
+    // contributed card, so the UI registry has to be re-pulled alongside it.
+    void usePluginUiStore.getState().fetchContributions(true);
+  }
 }
 
 /**
  * Canvas 在移动断点是**整屏覆盖**（mobile.css 把 .jx-canvasPanelSlot 铺成 inset:0），
- * 自动弹出等于把正在读的对话整页顶掉——产业链分析这种边跑边出图的场景尤其难受：
- * 用户还在看推理过程，图谱一到就全屏盖住，得先找关闭键才能回到对话。
- * 所以移动端一律不自动弹，只在消息里留卡片入口（产业链图谱卡 / 附件卡 / 本体评审入口），
+ * 自动弹出等于把正在读的对话整页顶掉——插件的边跑边出图类画布尤其难受：
+ * 用户还在看推理过程，画布一到就全屏盖住，得先找关闭键才能回到对话。
+ * 所以移动端一律不自动弹，只在消息里留卡片入口（插件视图卡 / 附件卡 / 本体评审入口），
  * 由用户主动点开。桌面端行为不变（右侧分栏，不遮挡正文）。
  */
 function canAutoOpenCanvas(): boolean {
   return !isMobileViewport();
+}
+
+function canOpenPluginCanvasForChat(chatId: string): boolean {
+  return useChatStore.getState().currentChatId === chatId
+    && useCatalogStore.getState().panel === 'chat'
+    && canAutoOpenCanvas();
+}
+
+/** What an installed plugin asked to put in the canvas while this tool runs. */
+function findAutoCanvas(toolName: string | undefined): CanvasTarget | null {
+  if (!toolName) return null;
+  return usePluginUiStore.getState().findCanvasTargetForTool(toolName);
+}
+
+/**
+ * Tab label for an auto-opened canvas.
+ *
+ * A plugin may point `title_from_input` at one of the tool's arguments so the
+ * tab reads "锂电池" rather than a generic view name; otherwise the contributed
+ * title is used.
+ */
+function canvasTabTitle(target: CanvasTarget, toolInput: unknown): string {
+  const fromInput = target.titleFromInput ? readText(toolInput, target.titleFromInput) : '';
+  return fromInput || resolveText(target.title);
 }
 
 /** Unified handling of the site-design pick-one-of-three SSE event (shared by the live stream
@@ -1025,10 +1056,12 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           const rawName = getEventToolRawName(eventObj);
           const displayName = getEventToolDisplayName(eventObj);
           let activeToolId = eventToolId;
+          let activeToolName = rawName;
           if (existingIndex >= 0) {
             const existing = toolCalls[existingIndex];
             toolCalls[existingIndex] = { ...existing, name: rawName || existing.name, displayName: displayName || existing.displayName, input: toolInput ?? existing.input, status: 'running' };
             activeToolId = normalizeToolId(toolCalls[existingIndex].id);
+            activeToolName = toolCalls[existingIndex].name;
           } else {
             activeToolId = eventToolId || `tool_${Date.now()}_${toolCalls.length}`;
             toolCalls.push({ id: activeToolId, name: rawName || t('工具调用'), displayName, input: toolInput, status: 'running', timestamp: Date.now() });
@@ -1038,6 +1071,18 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               deferredThinkingText,
             );
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
+          }
+          const pendingCanvas = findAutoCanvas(activeToolName);
+          if (pendingCanvas && canOpenPluginCanvasForChat(chatId)) {
+            useCanvasStore.getState().openPluginView({
+              chatId,
+              slug: pendingCanvas.slug,
+              canvasId: pendingCanvas.id,
+              toolId: activeToolId,
+              toolName: activeToolName,
+              title: canvasTabTitle(pendingCanvas, toolInput),
+              status: 'loading',
+            });
           }
           appendOrUpdate(true);
           return;
@@ -1099,6 +1144,33 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
           }
           maybeRefreshCatalogAfterTool(confirmToolName, status || 'success');
+          const completedCanvas = findAutoCanvas(confirmToolName);
+          // An interrupted run leaves the tab in its loading state rather than
+          // committing a half-finished payload to the canvas.
+          if (completedCanvas && status !== 'interrupted' && canOpenPluginCanvasForChat(chatId)) {
+            const completedTool = toolIndex >= 0 ? toolCalls[toolIndex] : toolCalls[toolCalls.length - 1];
+            const toolId = normalizeToolId(completedTool?.id);
+            const canvas = useCanvasStore.getState();
+            const patch = {
+              chatId,
+              slug: completedCanvas.slug,
+              canvasId: completedCanvas.id,
+              toolId,
+              toolName: confirmToolName,
+              title: canvasTabTitle(completedCanvas, completedTool?.input),
+              status,
+              output: output ?? completedTool?.output,
+              ...(status === 'error'
+                ? { error: String(eventObj.error || t('加载失败')) }
+                : { error: undefined }),
+            } as const;
+            const targetMatches = canvas.activeView === 'plugin'
+              && canvas.pluginTarget?.chatId === chatId
+              && canvas.pluginTarget.canvasId === completedCanvas.id
+              && (!canvas.pluginTarget.toolId || canvas.pluginTarget.toolId === toolId);
+            if (targetMatches) canvas.updatePluginView(patch);
+            else canvas.openPluginView(patch);
+          }
           // Arrival of choose_design's tool_result = the pick is complete (clicked/skipped/
           // timed out). Whether this stream is live or a replay (replay re-emits design_pick
           // events, but the pick result only shows up in this tool_result), dismiss the pick

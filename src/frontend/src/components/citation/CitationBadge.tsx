@@ -1,7 +1,10 @@
 import { Popover } from 'antd';
 import type { CitationItem } from '../../types';
 import { t } from '../../i18n';
+import { resolvePluginCitationByType } from '../../utils/toolMeta';
 
+/** Source types the host itself produces. Plugin-produced source types are
+ *  described by that plugin's `tool_meta.citation` contribution instead. */
 const CITATION_ICON: Record<string, string> = {
   internet:       '/icons/internet.png',
   knowledge_base: '/icons/knowledge.png',
@@ -14,7 +17,22 @@ const CITATION_LABEL: Record<string, string> = {
   database:       t('数据库'),
 };
 
-export { CITATION_ICON, CITATION_LABEL };
+/** Presentation for a citation source type: host table → plugin contribution.
+ *  The contribution lookup itself lives in pluginUiStore / toolMeta with the
+ *  rest of the find* family; this only layers the host defaults on top. */
+function citationPresentation(sourceType: string): { icon: string | null; label: string } {
+  const hostIcon = CITATION_ICON[sourceType];
+  const hostLabel = CITATION_LABEL[sourceType];
+  if (hostIcon || hostLabel) return { icon: hostIcon || null, label: hostLabel || t('来源') };
+
+  const contributed = resolvePluginCitationByType(sourceType);
+  return {
+    icon: contributed?.icon || null,
+    label: contributed?.label || t('来源'),
+  };
+}
+
+export { CITATION_ICON, CITATION_LABEL, citationPresentation };
 
 export default function CitationBadge({
   citId,
@@ -29,8 +47,9 @@ export default function CitationBadge({
   anchorLabel?: string;
 }) {
   const cit = citations.find(c => c.id === citId);
-  const iconPath = cit ? (CITATION_ICON[cit.source_type] || null) : null;
-  const label = cit ? (CITATION_LABEL[cit.source_type] || t('来源')) : t('来源');
+  const presentation = cit ? citationPresentation(cit.source_type) : { icon: null, label: t('来源') };
+  const iconPath = presentation.icon;
+  const label = presentation.label;
   const iconEl = (size: number) => iconPath
     ? <img src={iconPath} alt={label} style={{ width: size, height: size, verticalAlign: 'middle', objectFit: 'contain' }} />
     : <span style={{ fontSize: size }}>📄</span>;

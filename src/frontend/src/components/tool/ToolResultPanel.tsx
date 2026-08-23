@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { CloseOutlined, ToolOutlined, BulbOutlined } from '@ant-design/icons';
-import { TOOL_ICONS } from '../../utils/constants';
+import { resolveToolIcon } from '../../utils/toolMeta';
 import { useChatStore, useUIStore } from '../../stores';
 import { renderToolOutputBody } from './ToolOutputRenderer';
 import { ToolTimelinePanel } from './ToolTimelinePanel';
@@ -23,7 +23,7 @@ export function ToolResultPanel() {
     ? <ToolOutlined style={{ fontSize: 18, color: 'rgba(67,56,202,.80)' }} />
     : isThinking
     ? <BulbOutlined style={{ fontSize: 18, color: 'rgba(100,116,139,.88)' }} />
-    : <img className="jx-trp-icon" src={TOOL_ICONS[toolResultPanel.toolName] || '/icons/knowledge.png'} alt="" />;
+    : <img className="jx-trp-icon" src={resolveToolIcon(toolResultPanel.toolName)} alt="" />;
 
   const renderBody = () => {
     if (isTimeline) {

@@ -777,6 +777,7 @@ async def _startup_seed_default_plugins():
     from core.services.plugin_service import (
         DEFAULT_BOOTSTRAP_PLUGIN_SLUGS,
         ensure_default_plugins_bootstrapped,
+        refresh_builtin_ui_contributions,
     )
 
     db = SessionLocal()
@@ -792,6 +793,10 @@ async def _startup_seed_default_plugins():
                 "[startup] edition plugins bootstrapped: %s",
                 ", ".join(edition_plugins),
             )
+        # UI 贡献声明与安装记录同表存储，但它是展示配置、不携带用户状态：
+        # 每次启动与 bundle 清单对齐，存量安装（列为 NULL）和改过 ui 声明
+        # 未抬版本的 bundle 才能在重启后拿到最新界面贡献。
+        refresh_builtin_ui_contributions(db)
     except Exception as exc:
         logger.error("[startup] default plugin bootstrap failed: %s", exc)
         # These plugins preserve advertised edition capabilities. Do not report

@@ -130,6 +130,21 @@ export const TOOL_DICT: Record<string, string> = {
   '未知文件': 'Unknown file',
   // ToolOutputRenderer.tsx（通用列表兜底渲染）
   '第 {n} 条': 'Item {n}',
+  // CompanyRenderer.tsx
+  '未搜索到企业': 'No companies found',
+  '企业详情': 'Company Detail',
+  '法人: {v}': 'Legal rep: {v}',
+  '注册资金: {v}': 'Capital: {v}',
+  '成立: {v}': 'Est.: {v}',
+  '投资企业': 'Invested Companies',
+  '投资总额': 'Total Investment',
+  '无分析数据': 'No analysis data',
+  '无基本信息': 'No basic info',
+  '无经营分析数据': 'No business analysis data',
+  '无技术洞察数据': 'No tech insight data',
+  '无资金穿透数据': 'No funding data',
+  '无风险预警数据': 'No risk warning data',
+  '引用 {cite}': 'Cited {cite}',
   // ToolResultPanel.tsx
   // CitationBadge.tsx
   '互联网': 'Internet',

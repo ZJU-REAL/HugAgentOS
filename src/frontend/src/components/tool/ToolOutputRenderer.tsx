@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Tag } from 'antd';
 import { CheckCircleOutlined } from '@ant-design/icons';
 import { useUIStore } from '../../stores';
+import { usePluginUiStore } from '../../stores/pluginUiStore';
+import { useCanvasStore } from '../../stores/canvasStore';
+import { PluginModuleFrame, PluginView, resolveText } from '../../plugin-ui';
 import { renderRetrieveDatasetContent, renderRetrieveLocalKB } from './renderers/KBRenderer';
 import { renderInternetSearch } from './renderers/SearchRenderer';
 import { DataView } from './renderers/DataView';
@@ -368,6 +371,7 @@ export function renderToolOutputBody(
   if (toolName === 'retrieve_dataset_content') return renderRetrieveDatasetContent(out, setDetailModal);
   if (toolName === 'retrieve_local_kb') return renderRetrieveLocalKB(out, setDetailModal);
   if (toolName === 'internet_search') return renderInternetSearch(out);
+
   // ── Chart/export/scrape and similar tools ──────────────────────────────────────────
   if (toolName === 'generate_chart_tool') {
     return (
@@ -517,8 +521,88 @@ export function renderToolOutputBody(
   );
 }
 
-/** Wrapper component that reads setDetailModal from UIStore */
+/**
+ * Tool result body — resolved in three tiers, in this order:
+ *
+ *   1. **Plugin declaration** — an installed plugin claimed this tool in its
+ *      `plugin.json` (an L2 module first, then an L0 view).
+ *   2. **Host built-ins** — tools the product itself owns (`bash`, `Read`,
+ *      `query_database`, …), which stay in `renderToolOutputBody`.
+ *   3. **Generic fallback** — a recognisable list, else the raw payload.
+ *
+ * The host therefore contains no branch naming a plugin's tool: which card a
+ * plugin's tool gets is the plugin's own declaration, and uninstalling it
+ * removes the card with it.
+ */
 export function ToolOutputBody({ toolName, output }: { toolName: string; output: unknown }) {
   const { setDetailModal } = useUIStore();
+  const items = usePluginUiStore((state) => state.items);
+  const openPluginCanvas = useCanvasStore((state) => state.openPluginView);
+
+  // ToolOutputBody re-renders on every stream tick; memoize the registry scans
+  // on the contribution set so an unchanged claim keeps its identity and the
+  // (memoized) PluginView subtree doesn't re-render.
+  const claim = useMemo(() => {
+    const store = usePluginUiStore.getState();
+    const module = store.findModuleForTool(toolName);
+    if (module && module.contribution.surface === 'tool_view') {
+      return { kind: 'module', module } as const;
+    }
+    const view = store.findToolView(toolName);
+    if (!view) return null;
+    const primary = view.contribution.primary_action;
+    return {
+      kind: 'view',
+      view,
+      // 卡片标题：插件自己的措辞优先，缺省用目标画布的标题
+      primaryActionLabel: primary
+        ? resolveText(primary.label)
+          || resolveText(store.findCanvas(view.slug, primary.open_canvas)?.contribution.title)
+        : undefined,
+      primaryActionSublabel: primary ? resolveText(primary.sublabel) : undefined,
+    } as const;
+    // `items` is the store state these lookups read; toolName keys the scan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolName, items]);
+
+  const onOpenCanvas = useCallback(
+    (canvasId: string) => {
+      const slug = claim?.kind === 'view' ? claim.view.slug : null;
+      if (!slug || !usePluginUiStore.getState().findCanvas(slug, canvasId)) return;
+      openPluginCanvas({ slug, canvasId, toolName, status: 'success', output });
+    },
+    [claim, openPluginCanvas, toolName, output],
+  );
+
+  if (claim?.kind === 'module') {
+    return (
+      <PluginModuleFrame
+        slug={claim.module.slug}
+        module={claim.module.contribution}
+        payload={output}
+        toolName={toolName}
+      />
+    );
+  }
+
+  if (claim) {
+    const { slug, contribution } = claim.view;
+    return (
+      <PluginView
+        slug={slug}
+        view={contribution.view}
+        map={contribution.map}
+        actions={contribution.actions}
+        unwrapKeys={contribution.unwrap}
+        output={output}
+        toolName={toolName}
+        primaryAction={contribution.primary_action}
+        primaryActionLabel={claim.primaryActionLabel}
+        primaryActionSublabel={claim.primaryActionSublabel}
+        onOpenCanvas={onOpenCanvas}
+      />
+    );
+  }
+
   return <>{renderToolOutputBody(toolName, output, setDetailModal)}</>;
 }

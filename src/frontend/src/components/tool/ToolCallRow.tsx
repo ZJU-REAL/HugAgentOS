@@ -28,6 +28,7 @@ import { renderInternetSearchInline } from './renderers/SearchRenderer';
 import { coerceOutput, computeEffectiveStatus } from './renderers/utils';
 import { t } from '../../i18n';
 import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
+import { resolvePluginToolLabel, resolvePluginToolStepText } from '../../utils/toolMeta';
 
 /**
  * Returns a `{ prefix, value, count }` label descriptor for the header row.
@@ -44,6 +45,15 @@ function getRowLabel(
     const out = parsed as any;
     const editionLabel = getEditionToolRowLabel(tool);
     if (editionLabel) return editionLabel;
+
+    // A plugin that declared `tool_meta` names its own row; the host's switch
+    // below covers only tools the product itself owns.
+    const contributed = resolvePluginToolStepText(tool.name, tool.input)
+      || resolvePluginToolLabel(tool.name);
+    if (contributed) {
+      const items = Array.isArray(out?.items) ? out.items.length : undefined;
+      return { prefix: contributed, value: '', ...(items !== undefined ? { count: items } : {}) };
+    }
 
     switch (tool.name) {
       case 'internet_search': {

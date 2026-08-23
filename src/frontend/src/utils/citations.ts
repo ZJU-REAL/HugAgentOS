@@ -140,9 +140,15 @@ export function getCitationOutputSlice(
     return { toolName: 'internet_search', output: compactSearchResult };
   }
 
-  if (citation.tool_name === 'retrieve_dataset_content') {
-    const data = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as any;
-    const items: any[] = Array.isArray(data?.items) ? data.items : [];
+  // Any list-shaped result (host tool or plugin tool alike) narrows to the one
+  // cited entry, so the card opened from a citation shows that row rather than
+  // the whole batch. Keyed on the payload's shape, not on a tool name — a
+  // plugin's list tool gets the same behaviour without being enumerated here.
+  const listShaped = (typeof parsed === 'object' && parsed !== null
+    && Array.isArray((parsed as any).items)) as boolean;
+  if (listShaped) {
+    const data = parsed as any;
+    const items: any[] = data.items;
     const picked = items[citationIndex] ?? items[0];
     return {
       toolName: citation.tool_name,

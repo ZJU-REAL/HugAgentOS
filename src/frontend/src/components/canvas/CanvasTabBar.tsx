@@ -1,4 +1,5 @@
 import {
+  ApartmentOutlined,
   CloseOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
@@ -9,18 +10,32 @@ import { Modal } from 'antd';
 import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 
 import { t } from '../../i18n';
-import { useCanvasStore } from '../../stores';
+import { useCanvasStore, usePluginUiStore } from '../../stores';
 import type { CanvasTab } from '../../stores/canvasStore';
 import { getFileIconSrc } from '../../utils/fileIcon';
 
 function tabTitle(tab: CanvasTab): string {
   if (tab.kind === 'file') return tab.artifact.name;
+  // A plugin tab is labelled by the plugin's own declaration; the generic
+  // fallback only shows if that declaration carried no title.
+  if (tab.kind === 'plugin') return tab.target.title || t('插件视图');
   return t('本体校验');
 }
 
 function tabIcon(tab: CanvasTab): ReactNode {
   if (tab.kind === 'file') {
     return <img src={getFileIconSrc(tab.artifact.name)} width="17" height="17" alt="" aria-hidden="true" />;
+  }
+  if (tab.kind === 'plugin') {
+    // The contributed canvas view / module may declare its own icon; the glyph
+    // is only the fallback for declarations that ship none.
+    const { target } = tab;
+    const store = usePluginUiStore.getState();
+    const icon = store.findCanvas(target.slug, target.canvasId)?.contribution.icon
+      || store.findModule(target.slug, target.canvasId)?.contribution.icon;
+    return icon
+      ? <img src={icon} width="17" height="17" alt="" aria-hidden="true" />
+      : <ApartmentOutlined />;
   }
   return <SafetyCertificateOutlined />;
 }
