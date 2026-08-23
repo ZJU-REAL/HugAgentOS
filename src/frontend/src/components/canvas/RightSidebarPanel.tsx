@@ -6,6 +6,7 @@ import { ContentErrorBoundary } from '../common';
 import { CanvasPanel } from './CanvasPanel';
 import { CanvasTabBar } from './CanvasTabBar';
 import { OntologySidebarPanel } from './OntologySidebarPanel';
+import { PluginCanvasPanel } from './PluginCanvasPanel';
 
 export function RightSidebarPanel() {
   const activeView = useCanvasStore((state) => state.activeView);
@@ -16,6 +17,7 @@ export function RightSidebarPanel() {
   // key=页签 id：切换页签必须换一份面板实例，否则上一份的预览状态（xlsx 编辑缓冲、
   // 画布视口、加载中的 blob）会漏到新页签上。
   if (activeView === 'file' && artifact) return <CanvasPanel key={activeTabId} />;
+  if (activeView === 'plugin') return <PluginCanvasPanel key={activeTabId} />;
   // No evolution view: what a turn learned is now shown, and edited, inline on
   // the card itself. A side panel could only restate it one click further away.
   if (activeView === 'ontology') {

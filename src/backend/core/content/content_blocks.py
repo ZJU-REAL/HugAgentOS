@@ -192,6 +192,8 @@ DEFAULT_HOMEPAGE_SHORTCUTS: list[dict[str, Any]] = [
         "icon": "/home/company-research.svg",
         "url": "",
     },
+    # 行业相关的快捷入口由对应插件通过 ui.contributes.shortcuts 贡献，
+    # 卸载插件后入口随之消失；这里只留与行业无关的通用入口。
     {"id": "policy", "enabled": True, "label": "政策对比", "icon": "/home/icon3.svg", "url": ""},
     {"id": "compare", "enabled": True, "label": "材料对比", "icon": "/home/icon1.svg", "url": ""},
     {"id": "data", "enabled": True, "label": "数据分析", "icon": "/home/icon2.svg", "url": ""},

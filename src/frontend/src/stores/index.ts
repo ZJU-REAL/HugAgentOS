@@ -14,5 +14,6 @@ export { useBatchStore } from './batchStore';
 export { useModelCapabilitiesStore } from './modelCapabilitiesStore';
 export { useEditionStore } from './editionStore';
 export { usePluginStore } from './pluginStore';
+export { usePluginUiStore } from './pluginUiStore';
 export { useChatModeStore } from './chatModeStore';
 export { useSidebarOrderStore } from './sidebarOrderStore';

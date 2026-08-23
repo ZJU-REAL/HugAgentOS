@@ -157,6 +157,26 @@ def _owned_enabled_ids(
     )
 
 
+def _apply_desktop_cloud_bridge(result):
+    """双端桌面本机后端：把云端授权 MCP 合并进 enabled_mcps（含本机同基名抑制）。
+
+    这里是 enabled 能力解析的单一真源——主对话、定时任务、批量子代理、作业
+    唤醒等全部装配路径共用，桥合并在此做一次即全链路生效。故意应用在缓存
+    **之外**：manifest 有自己的刷新节奏，不随本缓存冻结。云端部署 / 纯本机
+    模式下桥未激活，原样返回（零行为变化）。
+    """
+    skills, agents, mcps = result
+    if mcps is None:
+        return result
+    try:
+        from core.services.desktop_cloud_bridge import apply_to_enabled_mcp_ids
+
+        bridged = apply_to_enabled_mcp_ids(list(mcps))
+    except Exception:  # noqa: BLE001 - 桥故障不能影响能力解析
+        return result
+    return (skills, agents, bridged)
+
+
 def resolve_all_runtime_enabled(
     db: Session,
     user_id: str,
@@ -180,7 +200,7 @@ def resolve_all_runtime_enabled(
         if cached is not None:
             expires_at, result = cached
             if now < expires_at:
-                return result
+                return _apply_desktop_cloud_bridge(result)
             else:
                 _capability_cache.pop(user_id, None)
 
@@ -232,7 +252,7 @@ def resolve_all_runtime_enabled(
         with _capability_cache_lock:
             _capability_cache[user_id] = (now + _CAPABILITY_CACHE_TTL, result)
 
-        return result
+        return _apply_desktop_cloud_bridge(result)
     except Exception as exc:
         logger.warning("resolve_all_runtime_enabled failed: %s (user=%s)", exc, user_id)
         return None, None, None

@@ -212,8 +212,15 @@ def _effective_mcp_server_keys(
     enabled_mcp_ids: Optional[list[str]] = None,
     enabled_kb_ids: Optional[list[str]] = None,
     owned_servers: Optional[dict] = None,
+    bridge_servers: Optional[dict] = None,
 ) -> list[str]:
     all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    # Config-source precedence (later update wins on same server_id):
+    #   global rows < bridge (desktop cloud gateway; cloud is the source of
+    #   truth for a capability it takes over) < owned (a user's own private
+    #   MCP is the narrowest, most explicit grant).
+    if bridge_servers:
+        all_servers.update(bridge_servers)
     # Merge in the current user's self-added private MCPs (owner-isolated; already filtered by user_id at the service layer)
     if owned_servers:
         all_servers.update(owned_servers)
@@ -258,10 +265,15 @@ def _effective_mcp_server_keys(
 
 
 def _filter_mcp_servers_by_keys(
-    enabled_keys: list[str], owned_servers: Optional[dict] = None
+    enabled_keys: list[str],
+    owned_servers: Optional[dict] = None,
+    bridge_servers: Optional[dict] = None,
 ) -> dict:
     enabled_set = set(enabled_keys)
     all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    # Same precedence as _effective_mcp_server_keys: global < bridge < owned.
+    if bridge_servers:
+        all_servers.update(bridge_servers)
     if owned_servers:
         all_servers.update(owned_servers)
     return {k: v for k, v in all_servers.items() if k in enabled_set}
@@ -1058,6 +1070,17 @@ async def create_agent_executor(
         except Exception:
             owned_mcp_servers = {}
 
+    # 双端桌面本机后端：云端授权 MCP 以「指向云端能力网关的 HTTP MCP」形态
+    # 作为独立配置源（bridge_servers）进入装配，最终仍受 enabled_mcp_ids
+    # allowlist 收口。云端部署 / 纯本机模式下桥未激活，此处为空 dict。
+    bridge_mcp_servers: dict = {}
+    try:
+        from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
+
+        bridge_mcp_servers = cloud_gateway_mcp_configs()
+    except Exception:  # noqa: BLE001 - 桥故障不能影响会话装配
+        bridge_mcp_servers = {}
+
     # Determine which MCP servers to connect
     enabled_mcp_keys = _effective_mcp_server_keys(
         cfg,
@@ -1065,8 +1088,13 @@ async def create_agent_executor(
         enabled_mcp_ids=enabled_mcp_ids,
         enabled_kb_ids=enabled_kb_ids,
         owned_servers=owned_mcp_servers,
+        bridge_servers=bridge_mcp_servers,
     )
-    enabled_servers = _filter_mcp_servers_by_keys(enabled_mcp_keys, owned_servers=owned_mcp_servers)
+    enabled_servers = _filter_mcp_servers_by_keys(
+        enabled_mcp_keys,
+        owned_servers=owned_mcp_servers,
+        bridge_servers=bridge_mcp_servers,
+    )
     enabled_servers = _inject_runtime_headers(
         enabled_servers,
         current_user_id=current_user_id,

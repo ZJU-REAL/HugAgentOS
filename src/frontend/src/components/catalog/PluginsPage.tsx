@@ -6,7 +6,7 @@ import {
   AppstoreAddOutlined, EditOutlined, UploadOutlined, ApiOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore } from '../../stores';
+import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore, usePluginUiStore } from '../../stores';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
@@ -99,6 +99,8 @@ export function PluginsPage() {
       refresh(),
       fetchCatalog().catch(() => {}),
       usePluginStore.getState().fetchInstalled(true),
+      // 插件的界面贡献随安装/卸载生效或消失，和插件列表一起强制重拉。
+      usePluginUiStore.getState().fetchContributions(true),
     ]);
   }, [refresh, fetchCatalog]);
 

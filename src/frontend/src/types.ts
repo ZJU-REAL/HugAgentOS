@@ -89,11 +89,17 @@ export interface ProjectChatSummary extends EditionProjectChatFields {
   created_at: string | null;
 }
 
+/**
+ * 引用来源类型。宿主自有的几种在这里列出（用于补全与图标表），插件贡献的
+ * 来源类型由 plugin.json 的 tool_meta.citation 定义，是开放字符串，
+ * 所以这里用 `(string & {})` 收口而不是把插件的类型写死进联合。
+ */
 export type CitationSourceType =
   | 'internet'
   | 'knowledge_base'
   | 'database'
-  | 'unknown';
+  | 'unknown'
+  | (string & {});
 
 export interface CitationItem {
   id: string;            // 证据锚点 "e7"；旧格式 "internet_search-1"（历史消息）

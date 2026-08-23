@@ -3122,124 +3122,168 @@ textarea.jx-composer{
   }
 }
 
-/* ── @mention popup (compact) ── */
-.jx-mentionPopup {
-  position: absolute;
-  bottom: 100%;
-  left: 16px;
-  max-height: 200px;
-  min-width: 140px;
-  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 -2px 12px rgba(0,0,0,.08);
-  z-index: 50;
-  overflow-y: auto;
-  margin-bottom: 6px;
-  padding: 4px;
-}
-/* 上方空间不足时翻转到输入框下方（usePopupFlip 驱动） */
-.jx-mentionPopup--below {
-  bottom: auto;
-  top: 100%;
-  margin-bottom: 0;
-  margin-top: 6px;
-  box-shadow: 0 2px 12px rgba(0,0,0,.08);
-}
-.jx-mentionPopup-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--color-text);
-  transition: background .12s;
-}
-.jx-mentionPopup-item:hover,
-.jx-mentionPopup-item.active {
-  background: var(--color-primary-light);
-}
-.jx-mentionPopup-at {
-  color: var(--color-primary);
-  font-weight: 600;
-}
-.jx-mentionPopup-name {
-  font-weight: 500;
-}
-
-/* ── Slash command popup ── */
+/* ── / command and @ mention candidate menus ── */
+.jx-mentionPopup,
 .jx-slashPopup {
   position: absolute;
   bottom: 100%;
   left: 16px;
-  max-height: 200px;
-  min-width: 160px;
-  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 -2px 12px rgba(0,0,0,.08);
-  z-index: 50;
-  overflow-y: auto;
-  margin-bottom: 6px;
+  width: min(520px, calc(100% - 32px));
+  min-width: min(300px, calc(100% - 32px));
+  max-height: 320px;
   padding: 4px;
+  margin-bottom: 8px;
+  overflow-y: auto;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-dropdown);
+  z-index: 50;
 }
+
 /* 上方空间不足时翻转到输入框下方（usePopupFlip 驱动） */
+.jx-mentionPopup--below,
 .jx-slashPopup--below {
   bottom: auto;
   top: 100%;
   margin-bottom: 0;
-  margin-top: 6px;
-  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  margin-top: 8px;
 }
+
+.jx-commandPopup-groupTitle {
+  min-height: 26px;
+  padding: 7px 10px 3px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.jx-commandPopup-groupTitle:not(:first-child) {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid var(--color-border);
+}
+
+.jx-mentionPopup-item,
 .jx-slashPopup-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 6px;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 22px;
   color: var(--color-text);
-  transition: background .12s;
+  text-align: left;
+  transition: background-color var(--motion-duration-instant) var(--motion-ease-standard);
 }
+
+.jx-mentionPopup-item:hover,
+.jx-mentionPopup-item.active,
 .jx-slashPopup-item:hover,
 .jx-slashPopup-item.active {
-  background: var(--color-tint-cyan-bg);
+  background: var(--color-primary-light);
 }
+
+.jx-mentionPopup-at {
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.jx-mentionPopup-icon {
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+}
+.jx-mentionPopup-icon--files { color: var(--color-primary); }
+.jx-mentionPopup-icon--agents { color: var(--color-tint-purple); }
+.jx-mentionPopup-icon--plan,
+.jx-mentionPopup-icon--workflow { color: var(--color-tint-teal); }
+.jx-mentionPopup-icon--batch { color: var(--color-warning); }
+.jx-mentionPopup-icon--loop { color: var(--color-primary); }
+
+.jx-mentionPopup-state {
+  display: inline-flex;
+  flex: 0 0 16px;
+  width: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  font-size: 12px;
+}
+
+.jx-mentionPopup-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.jx-mentionPopup-back:hover { background: var(--color-primary-light); }
+
+.jx-mentionPopup-empty {
+  padding: 12px 10px 16px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.jx-mentionPopup-name,
 .jx-slashPopup-name {
+  flex: 0 1 38%;
+  min-width: 72px;
+  max-width: 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 500;
 }
-.jx-slashPopup-badge {
-  margin-left: auto;
-  font-size: 11px;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--color-tint-purple-bg);
-  color: var(--color-tint-purple);
+
+.jx-commandPopup-description {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .jx-slashPopup-icon {
-  font-size: 13px;
-  flex-shrink: 0;
+  flex: 0 0 16px;
+  width: 16px;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
 }
 .jx-slashPopup-icon--plugin { color: var(--color-tint-purple); }
 .jx-slashPopup-icon--skill { color: var(--color-warning); }
 /* 模式命令（/workflow 等）：换一个色系，和技能/插件在一眼之内就能分开 */
 .jx-slashPopup-icon--mode { color: var(--color-tint-teal); }
-/* 模式条目的说明文字，跟在名称后面；badge 仍然靠 margin-left:auto 顶到最右 */
-.jx-slashPopup-hint {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 
 /* ── ContentEditable editor — replaces textarea ── */

@@ -69,8 +69,12 @@ export interface HomepageShortcut {
   label: string;
   icon: string;
   url: string;
+  /** Plugin-contributed entries may seed the composer instead of opening a page. */
+  prompt?: string;
 }
 
+// 只保留与具体行业无关的通用入口；行业相关的快捷入口由对应插件通过
+// ``ui.contributes.shortcuts`` 贡献，插件卸载后入口随之消失。
 export const DEFAULT_HOMEPAGE_SHORTCUTS: HomepageShortcut[] = [
   { id: 'knowledge', enabled: true, label: '知识检索', icon: '/home/company-research.svg', url: '' },
   { id: 'policy',    enabled: true, label: '政策对比', icon: '/home/icon3.svg',            url: '' },

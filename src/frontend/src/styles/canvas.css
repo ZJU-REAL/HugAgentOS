@@ -237,6 +237,18 @@
   scroll-behavior: smooth;
 }
 
+/* 插件画布视图自己管理内部滚动（图谱视口/企业面板），外层不出滚动条 */
+.jx-rightSidebar-body--fill {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.jx-rightSidebar-body--fill > .jx-pv-root--fill {
+  flex: 1;
+}
+
 .jx-rightSidebar--ontology .jx-ontologyRevision {
   min-height: 100%;
   border: 0;

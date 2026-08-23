@@ -8,7 +8,7 @@ import {
   OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined, PartitionOutlined,
   LaptopOutlined, CloseOutlined,
 } from '@ant-design/icons';
-import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
+import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -18,7 +18,12 @@ import { FileAttachmentCard, MySpaceImportModal } from '../file';
 import CreateProjectModal from '../projects/CreateProjectModal';
 import { getApiUrl, createLocalProject } from '../../api';
 import type { InstalledPluginItem } from '../../types';
-import { AgentMentionPopup, useAgentMention } from '../agent';
+import {
+  AgentMentionPopup,
+  useAgentMention,
+  type MentionCandidate,
+  type MentionLauncherAction,
+} from '../agent';
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
 import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
@@ -125,6 +130,26 @@ function removeQueryAtCursor(_editor: HTMLElement, trigger: string) {
   node.textContent = text.slice(0, idx) + text.slice(cursor);
   try {
     range.setStart(node, idx);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch { /* empty text node edge case */ }
+}
+
+/** Keep the trigger but clear its query, so a nested picker starts unfiltered. */
+function resetQueryAtCursor(_editor: HTMLElement, trigger: string) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer;
+  if (node.nodeType !== Node.TEXT_NODE) return;
+  const text = node.textContent || '';
+  const cursor = range.startOffset;
+  const idx = text.lastIndexOf(trigger, cursor - 1);
+  if (idx === -1) return;
+  node.textContent = text.slice(0, idx + trigger.length) + text.slice(cursor);
+  try {
+    range.setStart(node, idx + trigger.length);
     range.collapse(true);
     sel.removeAllRanges();
     sel.addRange(range);
@@ -261,6 +286,8 @@ export function InputArea({
   // Which apps are open to the current user (same allowed_apps gate as the "App Center")
   const allowedApps = useAuthStore((s) => s.authUser?.allowed_apps ?? null);
   const isAppAllowed = (id: string) => !Array.isArray(allowedApps) || allowedApps.includes(id);
+  const planModeAllowed = !Array.isArray(allowedApps) || allowedApps.includes('plan_mode');
+  const batchRunnerAllowed = !Array.isArray(allowedApps) || allowedApps.includes('batch_runner');
   // Skill list (for the skills submenu of the "+" menu)
   const skills = useCatalogStore((s) => s.catalog.skills);
   // Project list (for the toolbar "Project" selector dropdown)
@@ -274,7 +301,11 @@ export function InputArea({
   // Uses the shared store: the capability center forces a refresh after install/uninstall,
   // so this syncs immediately (avoids fetching only on mount, which would hide newly installed plugins).
   const installedPlugins = usePluginStore((s) => s.installed);
-  useEffect(() => { void usePluginStore.getState().fetchInstalled(); }, []);
+  useEffect(() => {
+    void usePluginStore.getState().fetchInstalled();
+    // 插件贡献的工具卡片/画布声明也在这里首次拉取：对话面板是它们的主要出场位置。
+    void usePluginUiStore.getState().fetchContributions();
+  }, []);
   const sending = forceSendMode ? false : storeSending;
   const { uploadedFiles, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
@@ -346,16 +377,22 @@ export function InputArea({
     // 模式命令排在最前：它切换的是这段对话怎么跑，比挑一个技能更"重"，也更常被找。
     // 工作流模式必须由用户显式触发——不触发就不注册 run_job、不注入批量提示词。
     const modeEntries: SlashEntry[] = (
-      [{ id: 'workflow', name: 'workflow', hint: t('工作流模式：批量作业') }] as const
+      [{ id: 'workflow', name: 'workflow', description: t('工作流模式：批量作业') }] as const
     )
-      .filter((m) => !q || m.id.includes(q) || m.hint.toLowerCase().includes(q))
-      .map((m) => ({ kind: 'mode' as const, id: m.id, name: m.name, hint: m.hint }));
+      .filter((m) => !q || m.id.includes(q) || m.description.toLowerCase().includes(q))
+      .map((m) => ({ kind: 'mode' as const, id: m.id, name: m.name, description: m.description }));
     const pluginEntries: SlashEntry[] = installedPlugins
-      .filter((p) => !q || p.name.toLowerCase().includes(q))
-      .map((p) => ({ kind: 'plugin' as const, id: p.install_id, name: p.name, plugin: p }));
+      .filter((p) => !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
+      .map((p) => ({
+        kind: 'plugin' as const,
+        id: p.install_id,
+        name: p.name,
+        description: p.description.trim(),
+        plugin: p,
+      }));
     const skillEntries: SlashEntry[] = (skills || [])
-      .filter((s) => s.enabled && (!q || s.name.toLowerCase().includes(q)))
-      .map((s) => ({ kind: 'skill' as const, id: s.id, name: s.name }));
+      .filter((s) => s.enabled && (!q || s.name.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q)))
+      .map((s) => ({ kind: 'skill' as const, id: s.id, name: s.name, description: s.desc.trim() }));
     return [...modeEntries, ...pluginEntries, ...skillEntries];
   }, [input, installedPlugins, skills]);
 
@@ -372,12 +409,66 @@ export function InputArea({
   const [isComposing, setIsComposing] = useState(false);
   const prevTextRef = useRef('');
 
+  // `@` is a launcher first and an agent search second: an empty query shows the
+  // high-level capabilities, while typing after it keeps the familiar direct agent search.
+  const mentionActions = useMemo<MentionLauncherAction[]>(() => [
+    {
+      id: 'files' as const,
+      name: t('文件和文件夹'),
+      description: activeLocalMode
+        ? t('从本机选择一个或多个文件')
+        : t('从我的空间选择文件，按文件夹浏览'),
+    },
+    ...(!disableMention ? [{
+      id: 'agents' as const,
+      name: t('智能体'),
+      description: t('选择一个智能体直接处理本轮任务'),
+    }] : []),
+    ...(planModeAllowed ? [{
+      id: 'plan' as const,
+      name: t('计划模式'),
+      description: t('计划模式：AI 将自动分解任务为多步骤并逐步执行'),
+      active: projectComposer ? activeMode === 'plan' : planMode,
+    }] : []),
+    ...(batchRunnerAllowed ? [{
+      id: 'batch' as const,
+      name: t('批量执行'),
+      description: t('批量执行模式：描述要批量处理的对象与任务，AI 会自动生成可确认的执行计划'),
+      active: projectComposer ? activeMode === 'batch' : batchModeOn,
+    }] : []),
+    {
+      id: 'workflow' as const,
+      name: t('工作流模式'),
+      description: t('工作流模式：面对成百上千个同类工作项时，AI 会写一段作业脚本交给后台并发处理，进度记在台账上，中断可续跑'),
+      active: projectComposer ? activeMode === 'workflow' : workflowModeOn,
+    },
+    ...(showLoopEntry ? [{
+      id: 'loop' as const,
+      name: t('自主循环'),
+      description: t('自主循环：描述一个可验证目标，AI 会反复迭代、自我修正，达标或触预算即停'),
+      active: loopMode,
+    }] : []),
+  ], [
+    activeLocalMode,
+    disableMention,
+    planModeAllowed,
+    batchRunnerAllowed,
+    projectComposer,
+    activeMode,
+    planMode,
+    batchModeOn,
+    workflowModeOn,
+    showLoopEntry,
+    loopMode,
+  ]);
+
   const {
     mentionVisible, setMentionVisible,
     selectedIndex: mIdx, setSelectedIndex: setMIdx,
     handleInputChange: mentionInputChange, handleKeyDown: mentionKeyDown,
-    getFiltered: getMentionFiltered,
-  } = useAgentMention();
+    screen: mentionScreen, candidates: mentionCandidates,
+    showAgentPicker: showMentionAgentPicker, backToRoot: backToMentionRoot,
+  } = useAgentMention(input, mentionActions);
   const {
     slashVisible, setSlashVisible,
     selectedIndex: sIdx, setSelectedIndex: setSIdx,
@@ -393,7 +484,7 @@ export function InputArea({
     if (text === prev) return; // no change
     prevTextRef.current = text;
     setInput(text);
-    if (!disableMention) mentionInputChange(text, prev);
+    mentionInputChange(text, prev);
     slashInputChange(text, prev);
   };
   function syncText() { syncTextRef.current(); }
@@ -483,6 +574,43 @@ export function InputArea({
     if (!ed) return;
     removeQueryAtCursor(ed, '@');
     applyMention(agent);
+  }
+
+  /** Run a first-level `@` launcher action without leaving the typed trigger behind. */
+  function onMentionCandidateSelect(candidate: MentionCandidate) {
+    if (candidate.kind === 'agent') {
+      onMentionSelect(candidate.agent);
+      return;
+    }
+
+    if (candidate.action.id === 'agents') {
+      const ed = editorRef.current;
+      if (ed) {
+        resetQueryAtCursor(ed, '@');
+        syncText();
+      }
+      showMentionAgentPicker();
+      return;
+    }
+
+    const ed = editorRef.current;
+    if (ed) removeQueryAtCursor(ed, '@');
+    setMentionVisible(false);
+    syncText();
+
+    if (candidate.action.id === 'files') {
+      if (activeLocalMode) fileInputRef.current?.click();
+      else setMySpaceImportOpen(true);
+      return;
+    }
+    if (candidate.action.id === 'loop') {
+      setLoopMode(true);
+      requestAnimationFrame(() => ed?.focus());
+      return;
+    }
+
+    onEnterMode(candidate.action.id);
+    requestAnimationFrame(() => ed?.focus());
   }
 
   /** Pick a sub-agent from the "+" menu: move the caret to the end first, then insert the chip. */
@@ -625,25 +753,26 @@ export function InputArea({
       return;
     }
     // Slash popup: ArrowUp/Down/Escape
-    if (slashVisible && slashKeyDown(e)) return;
+    if (slashVisible && slashKeyDown(e, slashEntries.length)) return;
 
-    // Mention popup: Enter/Tab → select mention
-    if (mentionVisible && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+    // @ launcher: Enter/Tab → run the selected action or mention the selected agent
+    if (mentionVisible && mentionCandidates.length > 0
+      && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
       e.preventDefault();
-      const list = getMentionFiltered(input);
-      const sel = list[mIdx] || list[0];
-      if (sel) onMentionSelect(sel);
+      const selected = mentionCandidates[mIdx] || mentionCandidates[0];
+      if (selected) onMentionCandidateSelect(selected);
       return;
     }
-    // Mention popup: Escape
+    // In the agent second level, Escape goes back once; at the root it closes the launcher.
     if (mentionVisible && e.key === 'Escape') {
       e.preventDefault();
-      setMentionVisible(false);
+      if (mentionScreen === 'agents') backToMentionRoot();
+      else setMentionVisible(false);
       return;
     }
-    // Mention popup: ArrowUp/Down
-    if (!disableMention && mentionVisible) {
-      mentionKeyDown(e, input);
+    // @ launcher: ArrowUp/Down
+    if (mentionVisible) {
+      mentionKeyDown(e);
       if (e.defaultPrevented) return;
     }
 
@@ -796,9 +925,15 @@ export function InputArea({
         {!projectComposer && <DeploymentSwitcher />}
       </div>
       <div className={`jx-composerWrap${planMode ? ' jx-composerWrap--plan' : ''}`}>
-        {!disableMention && (
-          <AgentMentionPopup input={input} visible={mentionVisible} selectedIndex={mIdx} onSelect={onMentionSelect} onHover={setMIdx} />
-        )}
+        <AgentMentionPopup
+          visible={mentionVisible}
+          screen={mentionScreen}
+          candidates={mentionCandidates}
+          selectedIndex={mIdx}
+          onSelect={onMentionCandidateSelect}
+          onBack={backToMentionRoot}
+          onHover={setMIdx}
+        />
         <SkillSlashPopup
           entries={slashEntries}
           visible={slashVisible}
