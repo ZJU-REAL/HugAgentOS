@@ -224,9 +224,9 @@ The composer provides two keyboard launchers. Typing `@` first shows the
 currently available shortcuts for files, sub-agents, plan mode, batch
 execution, workflow mode, and autonomous loops; continued typing searches
 sub-agents directly, while choosing **Sub-agents** opens the complete picker.
-Typing `/` groups commands and descriptions by mode, plugin, and skill. Both
-pickers support arrow-key navigation, Enter or Tab to confirm, and Escape to
-go back or close. Unavailable or unauthorized capabilities are omitted.
+Typing `/` groups commands and descriptions by plugin and skill; conversation
+modes are selected through `@`. Both pickers support arrow-key navigation,
+Enter or Tab to confirm, and Escape to go back or close. Unavailable or unauthorized capabilities are omitted.
 
 - **Structured `@` delegation**: selecting one `@sub-agent` in the composer
   sends both `mention_agent_id` and its display name. The backend removes the

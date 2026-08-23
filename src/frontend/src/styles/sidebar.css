@@ -157,15 +157,20 @@
       transparent 245px
     );
 }
-/* 浅蓝装饰渐变在暗底上是一块灰雾，深色改用主色系暗渐变（从令牌派生，调色自动跟随） */
+/* 浅色保留品牌渐变；暗色改为无叠层的统一背景，避免渐变终点形成色块。 */
 :root[data-theme='dark'] .jx-siderInner{
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--color-primary) 10%, transparent) 0px,
-      color-mix(in srgb, var(--color-primary) 6%, transparent) 39px,
-      color-mix(in srgb, var(--color-primary) 3%, transparent) 245px,
-      transparent 245px
-    );
+  background:none;
+}
+/* 暗色侧栏只保留一层实色背景。外层半透明面与内层顶部渐变叠加时，
+ * 245px 处会出现明显分界；展开和收起状态都统一到布局底色。 */
+:root[data-theme='dark'] .jx-sider,
+:root[data-theme='dark'] .jx-sider.ant-layout-sider-collapsed{
+  background:var(--color-bg-layout) !important;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+:root[data-theme='dark'] .jx-miniRail{
+  background:none;
 }
 
 /* ── Brand / Logo row ── */

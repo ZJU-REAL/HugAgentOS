@@ -369,32 +369,32 @@ export function InputArea({
     return () => window.removeEventListener('hugagent:local-folder', onFolder as EventListener);
   }, [projectComposer, isDesktopShell, localCapable]);
 
-  // / slash candidates: installed plugins (first) + enabled skills (after), filtered by the
-  // keyword typed after the slash. The same list is shared by keyboard Enter selection and
-  // popup rendering, keeping selectedIndex consistent.
-  const slashEntries = useMemo<SlashEntry[]>(() => {
-    const q = input.startsWith('/') ? input.slice(1).toLowerCase() : '';
-    // 模式命令排在最前：它切换的是这段对话怎么跑，比挑一个技能更"重"，也更常被找。
-    // 工作流模式必须由用户显式触发——不触发就不注册 run_job、不注入批量提示词。
-    const modeEntries: SlashEntry[] = (
-      [{ id: 'workflow', name: 'workflow', description: t('工作流模式：批量作业') }] as const
-    )
-      .filter((m) => !q || m.id.includes(q) || m.description.toLowerCase().includes(q))
-      .map((m) => ({ kind: 'mode' as const, id: m.id, name: m.name, description: m.description }));
-    const pluginEntries: SlashEntry[] = installedPlugins
-      .filter((p) => !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
-      .map((p) => ({
-        kind: 'plugin' as const,
-        id: p.install_id,
-        name: p.name,
-        description: p.description.trim(),
-        plugin: p,
-      }));
-    const skillEntries: SlashEntry[] = (skills || [])
-      .filter((s) => s.enabled && (!q || s.name.toLowerCase().includes(q) || s.desc.toLowerCase().includes(q)))
-      .map((s) => ({ kind: 'skill' as const, id: s.id, name: s.name, description: s.desc.trim() }));
-    return [...modeEntries, ...pluginEntries, ...skillEntries];
-  }, [input, installedPlugins, skills]);
+  // `/` is reserved for installed plugins and enabled skills; conversation modes live in the
+  // `@` launcher. Keyboard selection and popup rendering share this candidate list.
+  const slashEntries = useMemo<SlashEntry[]>(
+    () => {
+      const query = input.startsWith('/') ? input.slice(1).toLowerCase() : '';
+      const pluginEntries: SlashEntry[] = installedPlugins
+        .filter((plugin) => (
+          !query
+          || plugin.name.toLowerCase().includes(query)
+          || plugin.description.toLowerCase().includes(query)
+        ))
+        .map((plugin) => ({
+          kind: 'plugin', id: plugin.install_id, name: plugin.name,
+          description: plugin.description.trim(), plugin,
+        }));
+      const skillEntries: SlashEntry[] = (skills || [])
+        .filter((skill) => skill.enabled && (
+          !query || skill.name.toLowerCase().includes(query) || skill.desc.toLowerCase().includes(query)
+        ))
+        .map((skill) => ({
+          kind: 'skill', id: skill.id, name: skill.name, description: skill.desc.trim(),
+        }));
+      return [...pluginEntries, ...skillEntries];
+    },
+    [input, installedPlugins, skills],
+  );
 
   // Object URLs for uploaded image files — revoked when files change
   const uploadedImageUrls = useMemo(() => {
@@ -640,17 +640,6 @@ export function InputArea({
     applySkill(skillId, skillName);
   }
 
-  /** 选中 / 面板里的模式命令（如 /workflow）：把已输入的 "/xxx" 抹掉，直接开启该模式。
-   *  与技能/插件不同——模式不插 chip，它改的是这段对话怎么跑，开启状态由输入框上方的模式条表示。 */
-  function onSlashSelectMode(modeId: string) {
-    const ed = editorRef.current;
-    if (ed) removeQueryAtCursor(ed, '/');
-    setInput('');
-    if (ed) setEditorPlainText(ed, '');
-    setSlashVisible(false);
-    if (modeId === 'workflow') onEnterMode('workflow');
-  }
-
   /** Pick a skill from the "+" menu: move the caret to the end first, then insert the chip (the editor may not have focus when the menu closes). */
   function onPickSkillFromMenu(skillId: string, skillName: string) {
     const ed = editorRef.current;
@@ -684,6 +673,14 @@ export function InputArea({
     ed.focus();
     moveCaretToEnd(ed);
     applyPlugin(p);
+  }
+
+  function onSlashEntrySelect(entry: SlashEntry) {
+    if (entry.kind === 'plugin') {
+      onSlashSelectPlugin(entry.plugin);
+      return;
+    }
+    onSlashSelect(entry.id, entry.name);
   }
 
   // ── Project binding (toolbar "Project" selector dropdown, to the right of the Prompt Hub) ──
@@ -745,11 +742,7 @@ export function InputArea({
     if (slashVisible && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
       e.preventDefault();
       const sel = slashEntries[sIdx] || slashEntries[0];
-      if (sel) {
-        if (sel.kind === 'mode') onSlashSelectMode(sel.id);
-        else if (sel.kind === 'plugin' && sel.plugin) onSlashSelectPlugin(sel.plugin);
-        else onSlashSelect(sel.id, sel.name);
-      }
+      if (sel) onSlashEntrySelect(sel);
       return;
     }
     // Slash popup: ArrowUp/Down/Escape
@@ -938,11 +931,7 @@ export function InputArea({
           entries={slashEntries}
           visible={slashVisible}
           selectedIndex={sIdx}
-          onSelect={(entry) => {
-            if (entry.kind === 'mode') onSlashSelectMode(entry.id);
-            else if (entry.kind === 'plugin' && entry.plugin) onSlashSelectPlugin(entry.plugin);
-            else onSlashSelect(entry.id, entry.name);
-          }}
+          onSelect={onSlashEntrySelect}
           onHover={setSIdx}
         />
 

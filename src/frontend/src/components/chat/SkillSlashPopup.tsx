@@ -1,19 +1,20 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AppstoreOutlined, BulbOutlined, PartitionOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, BulbOutlined } from '@ant-design/icons';
 import { usePopupFlip } from '../../hooks/usePopupFlip';
 import { t } from '../../i18n';
 import type { InstalledPluginItem } from '../../types';
 
-export type SlashEntry = {
-  /** mode：切换对话模式的命令（如 /workflow 进入工作流模式），选中即开启，不插入 chip。 */
-  kind: 'skill' | 'plugin' | 'mode';
+type SlashEntryBase = {
   id: string;
   name: string;
-  plugin?: InstalledPluginItem;
-  /** 候选项的简短说明，和名称并排展示。 */
+  /** Candidate summary displayed beside its name. */
   description?: string;
 };
+
+export type SlashEntry =
+  | (SlashEntryBase & { kind: 'skill' })
+  | (SlashEntryBase & { kind: 'plugin'; plugin: InstalledPluginItem });
 
 interface SkillSlashPopupProps {
   entries: SlashEntry[];
@@ -26,7 +27,6 @@ interface SkillSlashPopupProps {
 const POPUP_MAX_HEIGHT = 320;
 
 function sectionLabel(kind: SlashEntry['kind']): string {
-  if (kind === 'mode') return t('模式');
   if (kind === 'plugin') return t('插件');
   return t('技能');
 }
@@ -78,9 +78,7 @@ export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onH
               >
                 {entry.kind === 'plugin'
                   ? <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />
-                  : entry.kind === 'mode'
-                    ? <PartitionOutlined className="jx-slashPopup-icon jx-slashPopup-icon--mode" />
-                    : <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />}
+                  : <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />}
                 <span className="jx-slashPopup-name" title={entry.name}>{entry.name}</span>
                 {entry.description && (
                   <span className="jx-commandPopup-description" title={entry.description}>
