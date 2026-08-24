@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
 from typing import Optional
 
 from core.config.settings import settings
@@ -67,7 +66,9 @@ async def get(user_id: str, workspace_id: str = "default") -> str:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_sync, user_id, workspace_id)
     except Exception as exc:
-        logger.warning("[profile_memory] async get failed user=%s ws=%s: %s", user_id, workspace_id, exc)
+        logger.warning(
+            "[profile_memory] async get failed user=%s ws=%s: %s", user_id, workspace_id, exc
+        )
         return ""
 
 
@@ -76,18 +77,13 @@ def get_sync(user_id: str, workspace_id: str = "default") -> str:
     if not user_id:
         return ""
     try:
-        from core.db.engine import SessionLocal
-        from core.db.models import ProfileMemory
+        from core.memory.profile_store import read_snapshot
 
-        with SessionLocal() as session:
-            row = (
-                session.query(ProfileMemory)
-                .filter_by(user_id=user_id, workspace_id=workspace_id)
-                .first()
-            )
-            return row.content_md if row else ""
+        return read_snapshot(user_id, workspace_id).content_md
     except Exception as exc:
-        logger.warning("[profile_memory] get_sync failed user=%s ws=%s: %s", user_id, workspace_id, exc)
+        logger.warning(
+            "[profile_memory] get_sync failed user=%s ws=%s: %s", user_id, workspace_id, exc
+        )
         return ""
 
 
@@ -111,6 +107,8 @@ async def upsert_field(
 async def upsert_fields(
     ctx: MemoryContext,
     fields: list[tuple[str, str, Optional[str]]],
+    *,
+    strict: bool = False,
 ) -> list[dict]:
     """Upsert multiple fields at once (single transaction, single executor dispatch).
 
@@ -135,7 +133,9 @@ async def upsert_fields(
         san = sanitize(value)
         if san.reject:
             await audit_record(
-                ctx, action="write_rejected", layer="L1",
+                ctx,
+                action="write_rejected",
+                layer="L1",
                 reason=f"sanitizer hits: {','.join(san.hits)}",
             )
             continue
@@ -148,8 +148,14 @@ async def upsert_fields(
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _upsert_fields_sync, ctx, prepared, loop)
     except Exception as exc:
-        logger.warning("[profile_memory] upsert_fields failed user=%s n=%d: %s",
-                       ctx.user_id, len(prepared), exc)
+        logger.warning(
+            "[profile_memory] upsert_fields failed user=%s n=%d: %s",
+            ctx.user_id,
+            len(prepared),
+            exc,
+        )
+        if strict:
+            raise
         return []
 
 
@@ -157,24 +163,19 @@ def _schedule_compact(
     ctx: MemoryContext,
     loop: Optional[asyncio.AbstractEventLoop],
 ) -> None:
-    """Dispatch compact() from the executor worker thread back onto the event loop.
+    """Persist a compaction request before returning from the writer thread.
 
-    `_upsert_fields_sync` / `_patch_sync` run in a worker thread via
-    `run_in_executor`, where **no event loop is running** — calling
-    `asyncio.create_task()` directly raises `RuntimeError`, so compaction would
-    never trigger when the profile exceeds `profile_max_chars`.
-    `run_coroutine_threadsafe` is the correct primitive for handing a coroutine
-    to a target loop across threads; fire-and-forget, result not awaited.
+    ``loop`` remains in the signature for source compatibility with older
+    callers.  It is deliberately not required: the durable outbox, rather than
+    an event-loop callback, is the owner of the work after process restart.
     """
-    if loop is None:
-        return
-    coro = compact(ctx)
+
     try:
-        asyncio.run_coroutine_threadsafe(coro, loop)
-    except RuntimeError as exc:
-        # Edge cases like the loop already being closed — skip compaction, main flow unaffected
-        coro.close()
-        logger.debug("[profile_memory] compact schedule skipped: %s", exc)
+        from core.memory.outbox import enqueue_profile_compaction
+
+        enqueue_profile_compaction(ctx)
+    except Exception as exc:
+        logger.warning("[profile_memory] durable compact enqueue failed: %s", exc)
 
 
 def _upsert_fields_sync(
@@ -186,19 +187,13 @@ def _upsert_fields_sync(
 
     Returns the entries that changed; an unchanged value yields nothing.
     """
-    from core.db.engine import SessionLocal
-    from core.db.models import ProfileMemory
+    from core.memory.profile_store import mutate_profile
 
     max_chars = settings.memory.profile_max_chars
-    applied: list[dict] = []  # (key, value, reason, hits, action)
 
-    with SessionLocal() as session:
-        row = (
-            session.query(ProfileMemory)
-            .filter_by(user_id=ctx.user_id, workspace_id=ctx.workspace_id)
-            .first()
-        )
-        entries = _parse_profile(row.content_md if row else "")
+    def _apply(current: str) -> tuple[str, list[dict]]:
+        applied: list[dict] = []
+        entries = _parse_profile(current)
         index = {e["key"]: e for e in entries if e.get("key")}
 
         for item in prepared:
@@ -214,23 +209,18 @@ def _upsert_fields_sync(
                 applied.append({**item, "action": "update"})
             # else: value unchanged → skip (no audit row, no DB churn)
 
-        if not applied:
-            return []  # all no-ops
+        return _serialize_profile(entries), applied
 
-        new_md = _serialize_profile(entries)
-        if row is None:
-            row = ProfileMemory(
-                user_id=ctx.user_id,
-                workspace_id=ctx.workspace_id,
-                content_md=new_md,
-                updated_at=datetime.now(timezone.utc),
-            )
-            session.add(row)
-        else:
-            row.content_md = new_md
-            row.updated_at = datetime.now(timezone.utc)
-        over_limit = len(new_md) > max_chars
-        session.commit()
+    mutation = mutate_profile(
+        ctx.user_id,
+        ctx.workspace_id,
+        _apply,
+        effect_id=ctx.effect_id,
+    )
+    applied = mutation.value
+    if not applied:
+        return []
+    over_limit = len(mutation.snapshot.content_md) > max_chars
 
     for item in applied:
         _audit_sync_safe(ctx, item["action"], item["hits"], item["reason"], item["value"])
@@ -238,8 +228,7 @@ def _upsert_fields_sync(
     if over_limit:
         _schedule_compact(ctx, loop)
     return [
-        {"key": item["key"], "value": item["value"], "action": item["action"]}
-        for item in applied
+        {"key": item["key"], "value": item["value"], "action": item["action"]} for item in applied
     ]
 
 
@@ -258,7 +247,9 @@ async def patch(
     result = sanitize(patch_text)
     if result.reject:
         await audit_record(
-            ctx, action="write_rejected", layer="L1",
+            ctx,
+            action="write_rejected",
+            layer="L1",
             reason=f"sanitizer hits: {','.join(result.hits)}",
         )
         return False
@@ -266,7 +257,13 @@ async def patch(
     try:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, _patch_sync, ctx, result.text, reason, result.hits, loop,
+            None,
+            _patch_sync,
+            ctx,
+            result.text,
+            reason,
+            result.hits,
+            loop,
         )
     except Exception as exc:
         logger.warning("[profile_memory] patch failed user=%s: %s", ctx.user_id, exc)
@@ -280,32 +277,16 @@ def _patch_sync(
     sanitizer_hits: list[str],
     loop: Optional[asyncio.AbstractEventLoop] = None,
 ) -> bool:
-    from core.db.engine import SessionLocal
-    from core.db.models import ProfileMemory
+    from core.memory.profile_store import mutate_profile
 
     max_chars = settings.memory.profile_max_chars
 
-    with SessionLocal() as session:
-        row = (
-            session.query(ProfileMemory)
-            .filter_by(user_id=ctx.user_id, workspace_id=ctx.workspace_id)
-            .first()
-        )
-        if row is None:
-            row = ProfileMemory(
-                user_id=ctx.user_id,
-                workspace_id=ctx.workspace_id,
-                content_md=clean_text,
-                updated_at=datetime.now(timezone.utc),
-            )
-            session.add(row)
-        else:
-            existing = row.content_md or ""
-            merged = f"{existing}\n- {clean_text}".strip() if existing else f"- {clean_text}"
-            row.content_md = merged
-            row.updated_at = datetime.now(timezone.utc)
-        over_limit = len(row.content_md) > max_chars
-        session.commit()
+    def _append(current: str) -> tuple[str, bool]:
+        merged = f"{current}\n- {clean_text}".strip() if current else f"- {clean_text}"
+        return merged, True
+
+    mutation = mutate_profile(ctx.user_id, ctx.workspace_id, _append)
+    over_limit = len(mutation.snapshot.content_md) > max_chars
 
     # Audit (sync context, no await)
     _audit_sync_safe(ctx, "write", sanitizer_hits, reason, clean_text)
@@ -322,7 +303,9 @@ def _audit_sync_safe(ctx, action, hits, reason, content) -> None:
     from core.memory.audit import record_sync
 
     record_sync(
-        ctx, action, "L1",
+        ctx,
+        action,
+        "L1",
         content=content,
         reason=reason or (f"sanitizer: {','.join(hits)}" if hits else None),
     )
@@ -350,53 +333,75 @@ COMPACT_PROMPT = """你收到一份用户档案 markdown，超过字符上限。
 """
 
 
-async def compact(ctx: MemoryContext) -> bool:
-    """Compress the profile under the char cap with a low-temperature LLM. On failure, falls back silently without modifying the original profile."""
+async def compact(ctx: MemoryContext, *, strict: bool = False) -> bool:
+    """Compress with revision CAS, recomputing from fresh content on conflict."""
     if not settings.memory.enabled:
         return False
 
-    current = await get(ctx.user_id, ctx.workspace_id)
+    from core.memory.profile_store import commit_snapshot, read_snapshot
+
     max_chars = settings.memory.profile_max_chars
-    if not current or len(current) <= max_chars:
-        return False
+    loop = asyncio.get_running_loop()
 
-    try:
-        compressed = await _run_compact_llm(current, max_chars)
-    except Exception as exc:
-        logger.warning("[profile_memory] compact LLM call failed: %s", exc)
-        return False
+    for attempt in range(4):
+        snapshot = await loop.run_in_executor(None, read_snapshot, ctx.user_id, ctx.workspace_id)
+        if ctx.effect_id and ctx.effect_id in snapshot.effect_receipts:
+            return bool(snapshot.effect_receipts[ctx.effect_id])
+        current = snapshot.content_md
+        if not current or len(current) <= max_chars:
+            return False
 
-    if not compressed or len(compressed) > max_chars * 1.1:
-        logger.warning("[profile_memory] compact result invalid (len=%d > %d*1.1)",
-                       len(compressed) if compressed else 0, max_chars)
-        return False
+        try:
+            compressed = await _run_compact_llm(current, max_chars)
+        except Exception as exc:
+            logger.warning("[profile_memory] compact LLM call failed: %s", exc)
+            if strict:
+                raise
+            return False
 
-    try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _write_compacted_sync, ctx, compressed)
-    except Exception as exc:
-        logger.warning("[profile_memory] compact write failed: %s", exc)
-        return False
+        if not compressed or len(compressed) > max_chars * 1.1:
+            logger.warning(
+                "[profile_memory] compact result invalid (len=%d > %d*1.1)",
+                len(compressed) if compressed else 0,
+                max_chars,
+            )
+            if strict:
+                raise RuntimeError("profile compaction returned an invalid result")
+            return False
 
-    await audit_record(ctx, action="update", layer="L1", reason="compacted", content=compressed)
-    return True
-
-
-def _write_compacted_sync(ctx: MemoryContext, compressed: str) -> None:
-    from core.db.engine import SessionLocal
-    from core.db.models import ProfileMemory
-
-    with SessionLocal() as session:
-        row = (
-            session.query(ProfileMemory)
-            .filter_by(user_id=ctx.user_id, workspace_id=ctx.workspace_id)
-            .first()
+        receipts = dict(snapshot.effect_receipts)
+        if ctx.effect_id:
+            receipts[ctx.effect_id] = True
+            if len(receipts) > 200:
+                receipts = dict(list(receipts.items())[-200:])
+        committed = await loop.run_in_executor(
+            None,
+            lambda: commit_snapshot(
+                snapshot,
+                compressed,
+                compacted=True,
+                effect_receipts=receipts,
+            ),
         )
-        if row:
-            row.content_md = compressed
-            row.last_compacted_at = datetime.now(timezone.utc)
-            row.updated_at = datetime.now(timezone.utc)
-            session.commit()
+        if committed:
+            await audit_record(
+                ctx,
+                action="update",
+                layer="L1",
+                reason="compacted",
+                content=compressed,
+            )
+            return True
+        logger.info(
+            "[profile_memory] compact CAS conflict, recomputing from fresh revision "
+            "(attempt=%d)",
+            attempt + 1,
+        )
+
+    logger.warning("[profile_memory] compact CAS retries exhausted user=%s", ctx.user_id)
+    if strict:
+        raise RuntimeError("profile compaction CAS retries exhausted")
+    return False
 
 
 async def _run_compact_llm(content: str, max_chars: int) -> str:
@@ -440,8 +445,9 @@ async def delete_field(ctx: MemoryContext, key: str) -> bool:
         loop = asyncio.get_running_loop()
         removed = await loop.run_in_executor(None, _delete_field_sync, ctx, key)
     except Exception as exc:
-        logger.warning("[profile_memory] delete_field failed user=%s key=%s: %s",
-                       ctx.user_id, key, exc)
+        logger.warning(
+            "[profile_memory] delete_field failed user=%s key=%s: %s", ctx.user_id, key, exc
+        )
         return False
 
     if removed:
@@ -450,25 +456,16 @@ async def delete_field(ctx: MemoryContext, key: str) -> bool:
 
 
 def _delete_field_sync(ctx: MemoryContext, key: str) -> bool:
-    from core.db.engine import SessionLocal
-    from core.db.models import ProfileMemory
+    from core.memory.profile_store import mutate_profile
 
-    with SessionLocal() as session:
-        row = (
-            session.query(ProfileMemory)
-            .filter_by(user_id=ctx.user_id, workspace_id=ctx.workspace_id)
-            .first()
-        )
-        if row is None:
-            return False
-        entries = _parse_profile(row.content_md or "")
+    def _remove(current: str) -> tuple[str, bool]:
+        entries = _parse_profile(current)
         kept = [e for e in entries if e.get("key") != key]
         if len(kept) == len(entries):
-            return False
-        row.content_md = _serialize_profile(kept)
-        row.updated_at = datetime.now(timezone.utc)
-        session.commit()
-        return True
+            return current, False
+        return _serialize_profile(kept), True
+
+    return mutate_profile(ctx.user_id, ctx.workspace_id, _remove).value
 
 
 async def delete(ctx: MemoryContext) -> bool:
@@ -486,15 +483,6 @@ async def delete(ctx: MemoryContext) -> bool:
 
 
 def _delete_sync(user_id: str, workspace_id: str) -> bool:
-    from core.db.engine import SessionLocal
-    from core.db.models import ProfileMemory
+    from core.memory.profile_store import delete_profile
 
-    with SessionLocal() as session:
-        row = session.query(ProfileMemory).filter_by(
-            user_id=user_id, workspace_id=workspace_id,
-        ).first()
-        if row is None:
-            return False
-        session.delete(row)
-        session.commit()
-        return True
+    return delete_profile(user_id, workspace_id)

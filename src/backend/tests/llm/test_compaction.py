@@ -6,7 +6,6 @@ Covers token estimation, middle-truncation markers, selecting the most recent us
 
 from core.llm import compaction as C
 
-
 # ── token estimation (truncate.rs::approx_token_count) ────────────────────────────
 
 
@@ -71,6 +70,9 @@ def test_build_appends_summary_as_last_user_message():
     history = C.build_compacted_history(["first user message"], "summary text")
     assert history[-1]["role"] == "user"
     assert history[-1]["content"] == "summary text"
+    assert history[-1]["_context_item"]["kind"] == "compaction_summary"
+    assert history[-1]["_context_item"]["origin"] == "harness:compaction"
+    assert history[-1]["_context_item"]["trust"] == "system"
 
 
 def test_build_empty_summary_fallback():

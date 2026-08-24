@@ -11,13 +11,14 @@ Uses the same httpx + OpenAI-compatible API pattern as summarizer.py.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
-from typing import List, Optional
+import time
+from typing import Any
 
 import httpx
-
 from core.config.settings import settings
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,18 +63,19 @@ def _strip_thinking(text: str) -> str:
     return text.strip()
 
 
-def _resolve_followup_config() -> tuple[str, str, str]:
+def _resolve_followup_config() -> tuple[str, str, str, str]:
     """Resolve model config from DB: try 'followup' role, then 'summarizer', then 'main_agent'."""
     try:
         from core.services.model_config import ModelConfigService
+
         svc = ModelConfigService.get_instance()
         for role in ("followup", "summarizer", "main_agent"):
             cfg = svc.resolve(role)
             if cfg:
-                return cfg.base_url, cfg.api_key, cfg.model_name
-    except Exception as exc:
+                return cfg.base_url, cfg.api_key, cfg.model_name, cfg.provider
+    except Exception as exc:  # noqa: BLE001
         _LOGGER.debug("ModelConfigService unavailable for followup: %s", exc)
-    return "", "", ""
+    return "", "", "", ""
 
 
 class FollowUpGenerator:
@@ -90,7 +92,9 @@ class FollowUpGenerator:
         user_message: str,
         assistant_response: str,
         timeout: int = 10,
-    ) -> List[str]:
+        run_id: str = "",
+        usage_recorder: Any = None,
+    ) -> list[str]:
         """Return 0-3 follow-up question strings.
 
         Never raises – returns an empty list on any error.
@@ -98,20 +102,40 @@ class FollowUpGenerator:
         if not self.enabled:
             _LOGGER.warning("[followup] disabled, skipping")
             return []
-        model_url, api_key, model_name = _resolve_followup_config()
+        resolved = _resolve_followup_config()
+        model_url, api_key, model_name = resolved[:3]
+        provider = resolved[3] if len(resolved) > 3 else "unknown"
         if not model_url or not api_key or not model_name:
-            _LOGGER.warning("[followup] no model config resolved (url=%s, model=%s)", bool(model_url), model_name)
+            _LOGGER.warning(
+                "[followup] no model config resolved (url=%s, model=%s)",
+                bool(model_url),
+                model_name,
+            )
             return []
         if not user_message or not assistant_response:
-            _LOGGER.warning("[followup] empty input: user_msg=%d, assistant=%d", len(user_message or ""), len(assistant_response or ""))
+            _LOGGER.warning(
+                "[followup] empty input: user_msg=%d, assistant=%d",
+                len(user_message or ""),
+                len(assistant_response or ""),
+            )
             return []
         # Skip very short responses (greetings, errors, etc.)
         if len(assistant_response.strip()) < 40:
-            _LOGGER.warning("[followup] response too short (%d chars), skipping", len(assistant_response.strip()))
+            _LOGGER.warning(
+                "[followup] response too short (%d chars), skipping",
+                len(assistant_response.strip()),
+            )
             return []
 
-        _LOGGER.info("[followup] generating for response (%d chars), model=%s", len(assistant_response), model_name)
+        _LOGGER.info(
+            "[followup] generating for response (%d chars), model=%s",
+            len(assistant_response),
+            model_name,
+        )
 
+        started = time.monotonic()
+        status = "failed"
+        response_usage: dict = {}
         try:
             prompt = _PROMPT_TEMPLATE.format(
                 user_message=user_message[:300],
@@ -149,24 +173,76 @@ class FollowUpGenerator:
                 )
                 return []
 
-            raw = (
-                resp.json()
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
+            status = "success"
+            payload = resp.json()
+            response_usage = payload.get("usage") or {}
+
+            raw = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+            _LOGGER.info(
+                "[followup] raw LLM response (%d chars): %s", len(raw), raw[:200]
             )
-            _LOGGER.info("[followup] raw LLM response (%d chars): %s", len(raw), raw[:200])
             raw = _strip_thinking(raw)
             questions = _parse_questions(raw)
-            _LOGGER.info("[followup] parsed %d questions: %s", len(questions), questions)
+            _LOGGER.info(
+                "[followup] parsed %d questions: %s", len(questions), questions
+            )
             return questions
 
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
         except Exception as exc:
+            from core.harness.usage import attempt_status_for_exception
+
+            status = attempt_status_for_exception(exc)
             _LOGGER.warning("[followup] generation failed: %r", exc, exc_info=True)
             return []
+        finally:
+            if run_id:
+                try:
+                    from core.harness.usage import (
+                        AttemptUsage,
+                        UsageAttempt,
+                        record_usage_safely,
+                    )
+                    from core.services.harness_ledger import HarnessUsageLedger
+
+                    details = response_usage.get("prompt_tokens_details") or {}
+                    recorder = usage_recorder or HarnessUsageLedger()
+                    await record_usage_safely(
+                        recorder,
+                        UsageAttempt(
+                            run_id=run_id,
+                            kind="model",
+                            operation_name=model_name,
+                            provider=provider or "unknown",
+                            model=model_name,
+                            status=status,
+                            latency_ms=int((time.monotonic() - started) * 1_000),
+                            usage=AttemptUsage(
+                                prompt_tokens=int(
+                                    response_usage.get("prompt_tokens") or 0
+                                ),
+                                completion_tokens=int(
+                                    response_usage.get("completion_tokens") or 0
+                                ),
+                                cache_read_tokens=int(
+                                    response_usage.get("cache_read_tokens")
+                                    or details.get("cached_tokens")
+                                    or 0
+                                ),
+                                cache_write_tokens=int(
+                                    response_usage.get("cache_write_tokens") or 0
+                                ),
+                            ),
+                            metadata={"source": "followup"},
+                        ),
+                    )
+                except Exception:
+                    _LOGGER.debug("[followup] usage persistence failed", exc_info=True)
 
 
-def _parse_questions(raw: str) -> List[str]:
+def _parse_questions(raw: str) -> list[str]:
     """Parse the LLM's JSON array output into a clean list of questions."""
     raw = raw.strip()
 
@@ -191,9 +267,9 @@ def _parse_questions(raw: str) -> List[str]:
     return []
 
 
-def _clean_list(items: list) -> List[str]:
+def _clean_list(items: list) -> list[str]:
     """Validate and clean a list of question strings."""
-    result: List[str] = []
+    result: list[str] = []
     for item in items:
         if not isinstance(item, str):
             continue
@@ -210,7 +286,7 @@ def _clean_list(items: list) -> List[str]:
 
 # ── Singleton ──────────────────────────────────────────────────────────
 
-_instance: Optional[FollowUpGenerator] = None
+_instance: FollowUpGenerator | None = None
 
 
 def get_followup_generator() -> FollowUpGenerator:

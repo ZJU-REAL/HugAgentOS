@@ -136,3 +136,30 @@ async def test_silence_without_inflight_model_call_stays_heartbeat(monkeypatch):
     types = [t for t, _ in out]
     assert types.count("heartbeat") >= 2
     assert types.count("model_progress") == 0
+
+
+@pytest.mark.asyncio
+async def test_user_question_resolved_is_drained_before_immediate_stream_done(monkeypatch):
+    """A fast terminal event must not overtake the server-owned resolution."""
+
+    from core.llm.tools import user_questions
+
+    signal_q = asyncio.Queue()
+
+    async def reply_stream(inputs=None):
+        del inputs
+        signal_q.put_nowait(
+            {"event": "resolved", "request_id": "req-fast", "outcome": "answered"},
+        )
+        if False:
+            yield None
+
+    agent = _fake_agent([])
+    agent.reply_stream = reply_stream
+    monkeypatch.setattr(user_questions, "get_ui_queue", lambda _chat_id: signal_q)
+
+    out = await _collect(agent)
+    assert (
+        "user_question_resolved",
+        {"event": "resolved", "request_id": "req-fast", "outcome": "answered"},
+    ) in out

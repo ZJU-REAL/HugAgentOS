@@ -685,6 +685,7 @@ async def _process_inbound(msg: InboundMsg) -> None:
     from orchestration import chat_run_executor
 
     placeholder_id: Optional[str] = None
+    accepted_run_id: Optional[str] = None
     db = SessionLocal()
     try:
         repo = ChannelConnectionRepository(db)
@@ -784,25 +785,6 @@ async def _process_inbound(msg: InboundMsg) -> None:
             if observed:
                 user_text = _render_observed_block(observed) + user_text
 
-        session_messages = _load_history(db, chat_id, owner_id)
-        session_messages.append({"role": "user", "content": user_text})
-        ChatService(db).add_message(
-            chat_id=chat_id, role="user", content=user_text,
-            extra_data={
-                "channel_sender_open_id": msg.sender_id,
-                "channel_sender_name": msg.sender_name,
-                "channel_message_id": msg.message_id,
-                "channel_attachments": [f.get("file_id") for f in uploaded_files],
-                # Same shape as the web client: lets the cross-turn historical-file scanner
-                # (collect_historical_attachments → _extract_message_file_ids only recognizes
-                # "attachments"/"artifacts") re-inject these files' real file_ids to the model in
-                # later turns; otherwise the model fabricates ids when reading files across turns.
-                "attachments": [
-                    {"file_id": f.get("file_id"), "name": f.get("name")}
-                    for f in uploaded_files
-                ],
-            },
-        )
         enabled = _resolve_enabled(db, conn, owner_id)
         # Enable thinking: same as the web client's default in non-fast mode. With thinking off,
         # models (Qwen family especially) tend to emit shallow filler like "I'll get right on X"
@@ -852,6 +834,25 @@ async def _process_inbound(msg: InboundMsg) -> None:
             # from before it joined). Delivery targets never needed it; the prompt does.
             "channel_type": conn.channel_type,
         }
+        from core.services.chat_sequencer import ChatSequencer
+
+        accepted = ChatSequencer(db).accept_main_run(
+            chat_id=chat_id,
+            user_id=owner_id,
+            user_content=user_text,
+            user_extra_data={
+                "channel_sender_open_id": msg.sender_id,
+                "channel_sender_name": msg.sender_name,
+                "channel_message_id": msg.message_id,
+                "channel_attachments": [f.get("file_id") for f in uploaded_files],
+                "attachments": [
+                    {"file_id": f.get("file_id"), "name": f.get("name")} for f in uploaded_files
+                ],
+            },
+            request_payload={"channel_id": msg.channel_id, "source": "channel", "kind": "chat"},
+        )
+        accepted_run_id = accepted.run.run_id
+        session_messages = _load_history(db, chat_id, owner_id)
         repo.touch_event(conn.channel_id)
         # The commits in create_session / add_message / touch_event expire conn's column
         # attributes (expire_on_commit defaults to True). If we expunged as-is, reading app_id/
@@ -859,11 +860,19 @@ async def _process_inbound(msg: InboundMsg) -> None:
         # DetachedInstanceError ("is not bound to a Session").
         # Refresh first to reload all columns, then expunge — afterwards attribute reads are
         # pure in-memory and no session is needed.
+        db.refresh(accepted.run)
         db.refresh(conn)
+        db.expunge(accepted.run)
         db.expunge(conn)  # app_id/config remain readable after leaving the session, for push
     except Exception:
         logger.exception("[channels] inbound 准备阶段失败 channel_id=%s", msg.channel_id)
         db.close()
+        if accepted_run_id:
+            with SessionLocal() as cleanup_db:
+                ChatSequencer(cleanup_db).abandon_pending_run(
+                    accepted_run_id,
+                    reason="channel preparation failed",
+                )
         return
     finally:
         db.close()
@@ -886,10 +895,31 @@ async def _process_inbound(msg: InboundMsg) -> None:
 
     try:
         run = await chat_run_executor.start_run(
-            chat_id=chat_id, user_id=owner_id, session_messages=session_messages,
-            effective_user_message=user_text, raw_user_message=user_text, context=context,
-            request_payload={"channel_id": msg.channel_id, "source": "channel"}, model_name=None,
+            accepted_run=accepted.run,
+            chat_id=chat_id,
+            user_id=owner_id,
+            session_messages=session_messages,
+            effective_user_message=user_text,
+            raw_user_message=user_text,
+            context=context,
+            model_name=None,
         )
+    except Exception as exc:
+        with SessionLocal() as cleanup_db:
+            ChatSequencer(cleanup_db).abandon_pending_run(
+                accepted_run_id,
+                reason=str(exc),
+            )
+        logger.exception("[channels] inbound run 启动失败 channel_id=%s", msg.channel_id)
+        try:
+            await _replace_placeholder(
+                adapter, conn, msg, placeholder_id, "⚠️ 处理出错了，请稍后重试。"
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("[channels] 失败消息回推异常", exc_info=True)
+        return
+
+    try:
         reply, gen_artifacts = await _collect_reply(run.run_id)
     except Exception as exc:
         logger.exception("[channels] inbound run 失败 channel_id=%s", msg.channel_id)

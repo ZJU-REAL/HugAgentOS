@@ -131,7 +131,7 @@ def test_recent_message_repository_honors_boundary_limit_and_visible_roles(db_se
     recent = ChatMessageRepository(db_session).list_recent_by_chat(
         "trajectory-chat",
         limit=2,
-        before=base + timedelta(seconds=3),
+        before_seq=rows[3].chat_seq,
     )
 
     assert [row.message_id for row in recent] == ["m2", "m3"]

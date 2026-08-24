@@ -13,6 +13,8 @@ from core.chat.tool_log import (
     build_tool_call_event,
     build_tool_call_start_event,
     build_tool_result_event,
+    build_user_question_event,
+    build_user_question_resolved_event,
 )
 
 
@@ -150,3 +152,34 @@ def test_interrupted_tool_result_keeps_neutral_status():
     )
     assert evt["status"] == "interrupted"
     assert log[0]["status"] == "interrupted"
+
+
+def test_user_question_requested_and_resolved_wire_events():
+    requested = build_user_question_event(
+        {
+            "request_id": "req-1",
+            "questions": [{"id": "scope", "question": "范围？"}],
+            "created_at": 10.0,
+            "expires_at": 20.0,
+        },
+        "chat-1",
+    )
+    assert requested == {
+        "type": "user_question",
+        "chat_id": "chat-1",
+        "request_id": "req-1",
+        "questions": [{"id": "scope", "question": "范围？"}],
+        "created_at": 10.0,
+        "expires_at": 20.0,
+    }
+
+    resolved = build_user_question_resolved_event(
+        {"request_id": "req-1", "outcome": "answered"},
+        "chat-1",
+    )
+    assert resolved == {
+        "type": "user_question_resolved",
+        "chat_id": "chat-1",
+        "request_id": "req-1",
+        "outcome": "answered",
+    }

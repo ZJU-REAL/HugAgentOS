@@ -369,6 +369,9 @@ export function CanvasPanel() {
 
   // xlsx-specific state
   const [xlsxDirty, setXlsxDirty] = useState(false);
+  // 表格还在「正在加载电子表格…」时，Univer 实例尚未建好，exportXlsx 只会抛
+  // "Univer not initialised"。保存按钮必须等它就绪才可点（问题 28）。
+  const [xlsxReady, setXlsxReady] = useState(false);
   const [saving, setSaving] = useState(false);
   // Brief ✓ feedback on the save button after a successful save
   const [justSaved, setJustSaved] = useState(false);
@@ -442,7 +445,7 @@ export function CanvasPanel() {
 
   const handleDownload = async () => {
     // If xlsx has been edited, export the current state instead of re-downloading the original
-    if (isXlsx && xlsxDirty && univerRef.current) {
+    if (isXlsx && xlsxDirty && xlsxReady && univerRef.current) {
       try {
         const file = await univerRef.current.exportXlsx();
         const url = URL.createObjectURL(file);
@@ -466,6 +469,10 @@ export function CanvasPanel() {
 
   const handleSave = async () => {
     if (!univerRef.current || !artifact) return;
+    if (!xlsxReady) {
+      message.warning(t('电子表格尚未加载完成，请稍候再保存'));
+      return;
+    }
     try {
       setSaving(true);
       const exported = await univerRef.current.exportXlsx();
@@ -505,6 +512,7 @@ export function CanvasPanel() {
             fileName={artifact.name}
             maxBytes={maxPreviewBytes}
             onDirty={setXlsxDirty}
+            onReadyChange={setXlsxReady}
           />
         );
       case 'pdf': return <PdfRenderer url={fileUrl} />;
@@ -544,8 +552,8 @@ export function CanvasPanel() {
             <button
               className="jx-canvas-actionBtn jx-canvas-saveBtn"
               onClick={handleSave}
-              disabled={saving}
-              title={t('保存文件')}
+              disabled={saving || !xlsxReady}
+              title={xlsxReady ? t('保存文件') : t('电子表格加载中，暂不可保存')}
             >
               {justSaved
                 ? <CheckOutlined className="jx-anim-statusIn" />

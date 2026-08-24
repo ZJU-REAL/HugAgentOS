@@ -45,7 +45,7 @@ export function QueuedMessageCard({
       : t('立即开始');
   const steerDisabled = queued.status !== 'queued' || (running && !canSteer);
   const steerTitle = running && !canSteer
-    ? t('带附件、技能、插件或子智能体的消息将在当前任务结束后发送')
+    ? t('带附件、技能、插件或智能体的消息将在当前任务结束后发送')
     : running
       ? t('在本轮工具完成后、下一轮推理前发送给模型')
       : t('立即开始');

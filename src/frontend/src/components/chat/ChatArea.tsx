@@ -9,7 +9,9 @@ import {
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useAuthStore, useEditionStore } from '../../stores';
+import { useChatStore, useBatchStore, useAuthStore, useEditionStore, usePluginUiStore, useUIStore } from '../../stores';
+import { mergeContributedShortcuts } from '../../stores/pluginUiStore';
+import { resolveText } from '../../plugin-ui';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePageConfigStore, type HomepageShortcut } from '../../stores/pageConfigStore';
@@ -56,6 +58,7 @@ import { PlanProgressStrip } from './PlanProgressStrip';
 import { JobProgressStrip } from './JobProgressStrip';
 import { FileConfirmBar } from './FileConfirmBar';
 import { DesignPickerCard } from './DesignPickerCard';
+import { AskUserQuestionComposer } from './AskUserQuestionComposer';
 import { ChatShareBanner } from './ChatShareBanner';
 import { getChatDetail } from '../../api';
 import { chatAccessLevel } from '../../chatEdition';
@@ -137,6 +140,9 @@ export function ChatArea({
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
 
   const chat = store.chats[currentChatId];
+  const hasPendingUserQuestion = useUIStore(
+    (state) => (state.pendingUserQuestions[currentChatId]?.length ?? 0) > 0,
+  );
   useEffect(() => {
     const content = document.querySelector<HTMLElement>('.jx-content');
     if (!content) return;
@@ -232,15 +238,33 @@ export function ChatArea({
 
   const homepageShortcuts = usePageConfigStore((s) => s.homepageShortcuts);
   const isCE = useEditionStore((s) => s.edition === 'ce');
-  const enabledShortcuts = useMemo(
-    () => (isCE ? [] : homepageShortcuts.filter((c) => c.enabled)),
-    [homepageShortcuts, isCE],
-  );
+  const pluginContributions = usePluginUiStore((s) => s.items);
+  const enabledShortcuts = useMemo(() => {
+    if (isCE) return [];
+    // 排序去重策略（管理员优先、插件只能建议）统一在 mergeContributedShortcuts 里。
+    return mergeContributedShortcuts(
+      pluginContributions,
+      homepageShortcuts.filter((c) => c.enabled),
+      (s) => ({
+        id: s.id,
+        enabled: true,
+        label: resolveText(s.label, s.id),
+        icon: s.icon || '',
+        url: '',
+        prompt: s.prompt ? resolveText(s.prompt) : '',
+      }),
+    );
+  }, [homepageShortcuts, isCE, pluginContributions]);
   const ssoToken = useAuthStore((s) => s.authUser?.sso_token ?? null);
 
   const handleCapabilityCardClick = (card: HomepageShortcut) => {
     if (card.url) {
       window.open(buildShortcutUrl(card.url, ssoToken), '_blank', 'noopener,noreferrer');
+      return;
+    }
+    // 插件贡献的入口带 prompt：直接把提示词填进输入框，让用户接着写。
+    if (card.prompt) {
+      useChatStore.getState().setInput(card.prompt);
       return;
     }
     if (card.id === 'knowledge') {
@@ -276,18 +300,18 @@ export function ChatArea({
   const isSiteChat = !!chat?.siteChat;
   const heroTitle = isSiteChat
     ? t('我们该构建什么？')
-    : isAgentChat ? (chat.agentName || t('子智能体')) : cfgHeroTitle;
+    : isAgentChat ? (chat.agentName || t('智能体')) : cfgHeroTitle;
   const heroSubtitle = isSiteChat
     ? t('描述你想要的网站，AI 将为你生成并一键发布上线')
     : isAgentChat
-      ? (agentDetail?.description || agentDetail?.welcome_message || t('专业子智能体'))
+      ? (agentDetail?.description || agentDetail?.welcome_message || t('专业智能体'))
       : cfgHeroSubtitle;
   const suggestedQuestions = isAgentChat ? (agentDetail?.suggested_questions || []) : [];
   const isBatchChat = resolveBatchModeActive(chat);
   const inputPlaceholder = isSiteChat
     ? t('描述你想要的网站，例如：一个展示咖啡馆菜单与营业时间的单页网站')
     : isAgentChat
-      ? t('向{name}提问...', { name: chat.agentName || t('子智能体') })
+      ? t('向{name}提问...', { name: chat.agentName || t('智能体') })
       : isBatchChat
         ? t('描述要批量处理的对象与任务，例如："分别用一句话评价阿里、腾讯、字节"')
         : cfgInputPlaceholder;
@@ -602,6 +626,8 @@ export function ChatArea({
           <div className="jx-chatShareReadonly">
             {t('该会话由创建者设为只读共享，无法在此发送消息')}
           </div>
+        ) : hasPendingUserQuestion ? (
+          <AskUserQuestionComposer />
         ) : (
           <InputArea
             inputRef={inputRef}

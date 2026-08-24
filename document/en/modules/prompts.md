@@ -1,6 +1,6 @@
 # Prompt System
 
-> Last updated: 2026-06-11
+> Last updated: 2026-08-24
 
 System prompts in HugAgentOS are not hardcoded strings — they form a **DB-first, file-fallback, versioned** assembly system: at runtime, the main agent's prompt is assembled from the parts of the active version stored in the database; administrators maintain multiple versions in the Config console and activate them with one click; the whole thing can be exported as a snapshot and migrated across environments. Markdown files on disk serve only as the first-deployment seed and the fallback when the DB is unavailable.
 
@@ -38,11 +38,29 @@ Prompt assembly uses three cache layers, all actively invalidatable:
 
 | Cache | TTL | Notes |
 |---|---|---|
-| Template cache `_prompt_cache` | 300 s | key includes provider, parts, tool-name set, MCP keys, DB version, active version `(id, updated_at)`, project signature, etc.; `{now}` is stored as a placeholder and rendered as a **day-granularity** date — the system prompt stays byte-stable all day, maximizing LLM prefix-cache hits |
+| Template cache `_prompt_cache` | 300 s | key includes provider, parts, DB/active versions and a SHA-256 canonical hash of the **complete** dynamic context (all project instructions, the complete files manifest, tool definitions, MCP/KB sets and future template variables). The key stores the hash, never a truncated/plaintext project value. `{now}` remains a day-granularity placeholder so stable prefixes keep provider-cache hits |
 | DB parts preload `_db_parts_preloaded` | preloaded at startup via `warmup_prompt_cache()`, reloaded after writes | first request never queries the DB |
 | DB version `_db_version_cache` | 30 s | `MAX(admin_prompt_parts.updated_at)` as a cache-busting version string |
 
 Any prompt write (console edit, version activation, snapshot import, capability toggle) calls `invalidate_prompt_cache()`, which cascades and immediately re-warms.
+
+### Execution manifest and runtime binding
+
+Before an Agent can execute, `core/llm/execution_manifest.py::PromptManifestBuilder` records the exact final request surface. Every ordered prompt section records `id`, origin, trust level, priority, cache class, budget, token estimate, content hash and version. Every final tool definition similarly hashes its name, complete description, canonical parameter schema, permission policy and recovery policy. Tool definitions are sorted by stable id; prompt sections retain their deliberate prefix order.
+
+The builder emits `prompt_hash`, `prompt_manifest_hash`, `tool_manifest_hash`, `context_hash` and one `aggregate_hash`. Manifest construction and AgentScope model input consume the same run-scoped frozen tool/skill snapshot, so the recorded surface cannot differ from the request. Progressive plugin activation invalidates that snapshot and publishes an explicit next `surface_generation` before the next model call.
+
+The Runtime Binder attaches this sanitized manifest to the run's recursively immutable Asset Bundle and indexes it by the real `run_id`; the bundle's memory-policy reference includes the real `workspace_id`. Nested manifest/ref containers reject in-place mutation, while serialized exports are detached mutable copies. Evolution Episodes persist that bundle after the response, so the request can be audited without re-resolving assets that may have changed.
+
+Prompt text, project instructions, file names, tool descriptions and schemas are hashed from their complete canonical content but are **not copied as plaintext** into the manifest or logs. The persisted context contains only hashes, counts/sizes and public references such as workspace/project ids.
+
+### Canonical Context IR
+
+Immediately before every model call, `core/llm/context_ir.py` converts the complete request context into immutable `ContextItem` records. User input, assistant history, account identity, frozen memory, project/file material, attachments, tool calls/results, compaction summaries, steer messages and harness reminders therefore carry machine-readable `kind`, `origin`, `trust`, visibility, priority, item budget, truncation policy, content reference/hash, cache class and creation sequence. Compatibility rendering may still use a `user` role for memory and mid-turn reminders, but their provenance is no longer inferred from XML tags or from that role.
+
+`ContextAssembler` applies a deterministic order and an explicit message budget: the model window minus a 15% response reserve and the canonical final-tool-schema reserve. Critical system/current-user items cannot be silently displaced; optional items are selected by priority; text and tool outputs use declared head/tail policies; and every tool call/result pair is kept, shortened or excluded as one unit. The sanitized context manifest explains every inclusion, truncation and exclusion without retaining plaintext. Its hash is folded into the request's `context_hash` and `aggregate_hash`, then rebound to the run's Asset Bundle.
+
+`core/llm/context_adapter.py::AgentScopeContextAdapter` is the sole Context IR ↔ AgentScope message conversion seam. Persisted session metadata survives history replay, while final model roles and SSE behavior remain compatible. `ManifestBoundAgent` performs final assembly through the public `Agent.reply` path after the run-scoped tool/skill surface has been frozen.
 
 ## Prompt version pool (prompt_versions)
 

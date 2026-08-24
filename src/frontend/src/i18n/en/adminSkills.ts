@@ -240,7 +240,7 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   '审核草稿': 'Review Draft',
   '新技能': 'New Skill',
   'SKILL.md 内容（可直接编辑）：': 'SKILL.md Content (editable):',
-  '通过后将上架技能市场，供用户在「技能市场」自行安装（不会直接进入正式技能库、不自动启用）。': 'Once approved, the skill is published to the marketplace for users to install themselves (it does not enter the live skill library directly, nor is it auto-enabled).',
+  '通过后将上架技能市场，供用户在「技能市场」自行安装（不会直接进入正式技能列表、不自动启用）。': 'Once approved, the skill is published to the marketplace for users to install themselves (it does not enter the live skill list directly, nor is it auto-enabled).',
   '上架分类：': 'Marketplace category:',
   '通过后将原地更新已有线上技能 {id}。': 'Once approved, the existing live skill {id} will be updated in place.',
   '通过并上架市场': 'Approve & Publish',

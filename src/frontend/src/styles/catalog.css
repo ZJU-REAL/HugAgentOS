@@ -938,6 +938,35 @@
   word-break:break-word;
   border-bottom:1px solid rgba(17,24,39,.04);
 }
+/* 知识库媒体资产缩略图条（版面切出的图表 / 单独上传的图片）。
+   分块查看页与对话里的检索结果卡共用同一组类名。 */
+.jx-kbAssetThumbs{
+  display:flex;
+  flex-wrap:wrap;
+  gap:var(--space-sm);
+  padding:var(--space-sm) 16px;
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+.jx-kbAssetThumbs-item{
+  width:120px;
+  height:90px;
+  object-fit:cover;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  cursor:zoom-in;
+  background:var(--color-bg-gray);
+}
+/* 对话内的检索结果卡更窄，缩略图相应收小并去掉分隔线 */
+.jx-kbAssetThumbs--compact{
+  padding:var(--space-xs) 0 0;
+  gap:var(--space-xs);
+  border-bottom:none;
+}
+.jx-kbAssetThumbs--compact .jx-kbAssetThumbs-item{
+  width:72px;
+  height:54px;
+  border-radius:var(--radius-xs);
+}
 .jx-chunkMeta{
   padding:12px 16px;
   display:flex;
@@ -3836,7 +3865,9 @@
 }
 
 .jx-kbDocModalBody{
-  max-height:60vh;
+  /* 60vh 是「正文区」的高度，但弹窗还有标题栏、Tab 栏与 footer，加起来会超过一屏，
+     底部的「关闭」就被挤出视口。配合 centered 把上限收到 52vh，整个弹窗才装得下。 */
+  max-height:52vh;
   overflow:auto;
   border:1px solid rgba(17,24,39,.08);
   border-radius:10px;

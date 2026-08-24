@@ -158,3 +158,38 @@ def test_sidebar_entry_moved_into_menu_is_left_alone():
     db = _make_db(row)
     assert backfill_navigation_entries(db) == 0
     assert "automation" not in row.payload["navigation"]["sidebar_items"]
+
+
+def test_legacy_ability_center_titles_are_renamed():
+    """能力中心统一表述后，存量 DB 里的旧出厂文案要跟着改名，管理员自定义的不动。"""
+    titles = dict(_ALL_TITLES, skills="技能库", agents="子智能体", mcp="MCP 工具库", plugins="我的插件")
+    subtitles = dict(_ALL_SUBTITLES, agents="选择与启用子智能体，并查看其职责边界与路由提示。")
+    row = _make_row(_nav(
+        sidebar=["ability_center", "automation", "sites", "my_space"],
+        menu=["settings", "app_center", "projects", "lab"],
+        titles=titles,
+        subtitles=subtitles,
+    ))
+    db = _make_db(row)
+    # skills / agents / mcp titles + agents subtitle
+    assert backfill_navigation_entries(db) == 4
+    nav = row.payload["navigation"]
+    assert nav["panel_titles"]["skills"] == "技能"
+    assert nav["panel_titles"]["agents"] == "智能体"
+    assert nav["panel_titles"]["mcp"] == "连接器"
+    # 管理员改过的标题不属于旧出厂值，保持原样
+    assert nav["panel_titles"]["plugins"] == "我的插件"
+    assert nav["panel_subtitles"]["agents"] == "选择与启用智能体，并查看其职责边界与路由提示。"
+
+
+def test_renamed_titles_are_idempotent():
+    titles = dict(_ALL_TITLES, skills="技能", agents="智能体", mcp="连接器", plugins="插件")
+    row = _make_row(_nav(
+        sidebar=["ability_center", "automation", "sites", "my_space"],
+        menu=["settings", "app_center", "projects", "lab"],
+        titles=titles,
+        subtitles=dict(_ALL_SUBTITLES),
+    ))
+    db = _make_db(row)
+    assert backfill_navigation_entries(db) == 0
+    db.commit.assert_not_called()

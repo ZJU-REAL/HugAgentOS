@@ -58,6 +58,28 @@ export function cronToHumanReadable(cron: string): string {
   return `${cron} (${t('自定义')})`;
 }
 
+/**
+ * 执行耗时的统一中文格式：秒级只显示秒，进到分钟就「X分Y秒」，进到小时就「X小时Y分」。
+ * 原先详情页 / 列表 / 时间线各写各的（`12.3s`、`740 秒`、`3m 05s`），同一条记录在三个
+ * 地方三种写法，且 740 秒这种读起来要心算。这里做成唯一真源，三处都引它。
+ */
+export function formatRunDuration(durationMs?: number | null): string {
+  if (!durationMs || durationMs <= 0) return '-';
+  const totalSeconds = Math.round(durationMs / 1000);
+  if (totalSeconds < 1) return t('不到 1 秒');
+  if (totalSeconds < 60) return t('{s} 秒', { s: totalSeconds });
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) {
+    const s = totalSeconds % 60;
+    return s > 0 ? t('{m} 分 {s} 秒', { m: totalMinutes, s }) : t('{m} 分', { m: totalMinutes });
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m > 0 ? t('{h} 小时 {m} 分', { h: hours, m }) : t('{h} 小时', { h: hours });
+}
+
 /** Format ISO date string to relative time (e.g., "in 2 hours"). */
 export function formatRelativeTime(isoStr: string): string {
   const target = new Date(isoStr).getTime();
@@ -73,6 +95,24 @@ export function formatRelativeTime(isoStr: string): string {
   if (hours < 24) return t('{n} 小时后', { n: hours });
   const days = Math.floor(hours / 24);
   return t('{n} 天后', { n: days });
+}
+
+/**
+ * IANA 时区标识 → 中文可读名。任务详情原样显示 `Asia/Shanghai`，非技术用户读不懂。
+ * 只覆盖后端实际会下发的少数几个；未知值退回原串，不至于把信息弄丢。
+ */
+const TIMEZONE_LABEL: Record<string, string> = {
+  'Asia/Shanghai': t('中国标准时间（UTC+8）'),
+  'Asia/Hong_Kong': t('香港时间（UTC+8）'),
+  'Asia/Taipei': t('台北时间（UTC+8）'),
+  'Asia/Tokyo': t('日本标准时间（UTC+9）'),
+  'Asia/Singapore': t('新加坡时间（UTC+8）'),
+  UTC: t('协调世界时（UTC）'),
+};
+
+export function formatTimezone(tz?: string | null): string {
+  if (!tz) return TIMEZONE_LABEL['Asia/Shanghai'];
+  return TIMEZONE_LABEL[tz] || tz;
 }
 
 /** Cron preset options for the UI. */

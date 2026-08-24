@@ -48,6 +48,8 @@ export interface PlanCardProps {
   className?: string;
   /** Expand steps by default (in preview mode) */
   defaultExpandSteps?: boolean;
+  /** 执行被中断：徽标显示「已中断」，并且不再渲染「正在执行中…」的转圈提示。 */
+  cancelled?: boolean;
 }
 
 /* ── StepStatusIcon transition animation config (module-level constants, not rebuilt on high-frequency SSE re-renders) ── */
@@ -157,7 +159,7 @@ function PlanStepRow({ step, index, mode, agentNameMap, defaultExpanded }: { ste
           {step.expected_tools && step.expected_tools.length > 0 && (
             <div className="jx-plan-stepMeta">
               <ToolOutlined className="jx-plan-metaIcon" />
-              <span className="jx-plan-metaLabel">{t('MCP 工具')}</span>
+              <span className="jx-plan-metaLabel">{t('连接器')}</span>
               <div className="jx-plan-tags">
                 {step.expected_tools.map((t, i) => <span key={i} className="jx-plan-tag jx-plan-tag--tool">{t}</span>)}
               </div>
@@ -175,7 +177,7 @@ function PlanStepRow({ step, index, mode, agentNameMap, defaultExpanded }: { ste
           {step.expected_agents && step.expected_agents.length > 0 && (
             <div className="jx-plan-stepMeta">
               <RobotOutlined className="jx-plan-metaIcon" />
-              <span className="jx-plan-metaLabel">{t('子智能体')}</span>
+              <span className="jx-plan-metaLabel">{t('智能体')}</span>
               <div className="jx-plan-tags">
                 {step.expected_agents.map((a, i) => <span key={i} className="jx-plan-tag jx-plan-tag--agent">{agentNameMap?.[a] || a}</span>)}
               </div>
@@ -221,7 +223,7 @@ function ProgressBar({ completed, total }: { completed: number; total: number })
 }
 
 /* ── Main PlanCard ── */
-export function PlanCard({ mode, title, description, steps, completedSteps, totalSteps, resultText, isStreaming, agentNameMap, previewFooter, className, defaultExpandSteps }: PlanCardProps) {
+export function PlanCard({ mode, title, description, steps, completedSteps, totalSteps, resultText, isStreaming, agentNameMap, previewFooter, className, defaultExpandSteps, cancelled }: PlanCardProps) {
   const [stepsCollapsed, setStepsCollapsed] = useState(false);
   const completed = completedSteps ?? steps.filter(s => s.status === 'success').length;
   const total = totalSteps ?? steps.length;
@@ -253,8 +255,10 @@ export function PlanCard({ mode, title, description, steps, completedSteps, tota
         </div>
         {(isExecuting || isComplete) && (
           <div className="jx-plan-headerBadge">
-            <span className={`jx-plan-badge ${isComplete ? 'jx-plan-badge--done' : 'jx-plan-badge--running'}`}>
-              {isComplete ? t('已完成') : t('执行中')}
+            <span className={`jx-plan-badge ${
+              cancelled ? 'jx-plan-badge--cancelled' : isComplete ? 'jx-plan-badge--done' : 'jx-plan-badge--running'
+            }`}>
+              {cancelled ? t('已中断') : isComplete ? t('已完成') : t('执行中')}
             </span>
           </div>
         )}
@@ -298,7 +302,7 @@ export function PlanCard({ mode, title, description, steps, completedSteps, tota
       </CollapseHeight>
 
       {/* Execution timeline connector */}
-      {isExecuting && isStreaming && (
+      {isExecuting && isStreaming && !cancelled && (
         <div className="jx-plan-streamingHint">
           <LoadingOutlined spin style={{ fontSize: 12 }} />
           <span>{t('正在执行中...')}</span>

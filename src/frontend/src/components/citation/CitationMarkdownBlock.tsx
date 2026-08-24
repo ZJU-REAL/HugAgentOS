@@ -4,26 +4,24 @@ import CitationHtmlBlock, { type CitationMarker } from './CitationHtmlBlock';
 import { mdToHtml, ensureKatexLoaded, hasLatex, hasMermaid } from '../../utils/markdown';
 import { MermaidBlock, extractMermaidCharts } from '../chat/MermaidBlock';
 import type { CitationItem } from '../../types';
+import { citationMarkerParts, citationMarkerRe } from '../../utils/citations';
 
-// 引用标记统一正则（三种形态并行识别）：
-//   [ref:tool-N]           旧格式（历史消息）        → group 1
-//   [锚文本](cite:eN)      证据锚点主格式            → group 2(label) + 3(id)
-//   [[eN]]                 obsidian 双链容错          → group 4
-// 工厂而非共享常量：带 /g 的正则会把 lastIndex 带到下一次调用，
-// 共享一个实例时 test() 与 replace() 会互相污染、漏匹配。
-const markerRe = () => /\[ref:([\w]+-\d+)\]|\[([^[\]]*)\]\(cite:(e\d+)\)|\[\[(e\d+)\]\]/g;
+// 引用标记正则与解析都取自 utils/citations 的唯一真源 —— 这里曾经维护过一份副本，
+// 两边一旦不同步就会出现「一处认得、另一处不认」的漏标记。
+const markerRe = citationMarkerRe;
 // 流式输出中被截断的尾部半截标记（渲染前剪掉，防闪烁）
-const PARTIAL_TAIL_RE = /\[ref:[^\]]*$|\[[^[\]]*\]\(cite:[^)]*$|\[\[e?\d*\]?$/;
-// 这些锚文本视为"纯句末标注"→ 渲染成紧凑角标而非文字链接
-const BADGE_LABELS = new Set(['', '来源', 'source', '#']);
+const PARTIAL_TAIL_RE = /\[ref:[^\]]*$|\[[^[\]]*\]\(\s*cite:[^)]*$|\[\[\s*e?\d*\]?$/i;
+// 这些锚文本视为"纯句末标注"→ 渲染成紧凑角标而非文字链接。
+// 模型并不总按提示词写「来源」，实际还见过出处/参考/引用/详见/source/ref 等同义写法，
+// 漏一个就会在正文里留下一个孤零零的「出处」二字。
+const BADGE_LABELS = new Set([
+  '', '#', '来源', '出处', '参考', '引用', '详见', '来源链接',
+  'source', 'sources', 'ref', 'link',
+]);
 
 function markerParts(m: RegExpExecArray | RegExpMatchArray): { id: string; label: string } {
-  if (m[1]) return { id: m[1], label: '' };
-  if (m[3]) {
-    const raw = (m[2] || '').trim();
-    return { id: m[3], label: BADGE_LABELS.has(raw) ? '' : raw };
-  }
-  return { id: m[4] || '', label: '' };
+  const { id, label } = citationMarkerParts(m);
+  return { id, label: BADGE_LABELS.has(label.toLowerCase()) ? '' : label };
 }
 
 const EMPTY_MERMAID: Array<{ element: HTMLElement; chart: string }> = [];

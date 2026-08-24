@@ -331,7 +331,7 @@ export function MySpacePanel() {
       const taskId = item.source_chat_id.slice('automation:'.length);
       void getAutomationRuns(taskId, 50)
         .then((runs) => enterAutomationChat(taskId, item.source_chat_title || item.name, runs))
-        .catch((error) => message.error((error as Error)?.message || t('打开自动化任务失败')));
+        .catch((error) => message.error((error as Error)?.message || t('打开定时任务失败')));
       return;
     }
     if (useAutomationChatStore.getState().activeGroup) exitAutomationChat();
@@ -421,9 +421,9 @@ export function MySpacePanel() {
   const tabDescriptions: Record<MySpaceTab, string> = {
     assets: t('汇集与AI会话过程中上传或生成的各类文档与图片，可按需加入你创建的私有知识库'),
     kb: t('浏览与管理知识库、查看文档列表，并支持文档内检索'),
-    favorites: t('集中管理你收藏的重要会话与自动化任务，方便快速回看与继续交流'),
+    favorites: t('集中管理你收藏的重要会话与定时任务，方便快速回看与继续交流'),
     shares: t('查看并管理已生成的分享链接与有效状态，查看浏览量'),
-    notifications: t('查看自动化任务执行结果通知，及时了解任务完成状态'),
+    notifications: t('查看定时任务执行结果通知，及时了解任务完成状态'),
   };
 
   const renderEmpty = (text: string) => (

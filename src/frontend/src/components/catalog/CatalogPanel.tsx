@@ -14,7 +14,7 @@ import { parseSeparators } from '../../utils/separators';
 import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { useCatalogStore, useEditionStore, useKbStore } from '../../stores';
-import { WikiPanel } from '../kb';
+import { KBChunkImages, WikiPanel } from '../kb';
 import IndexModePicker from '../kb/IndexModePicker';
 import { t } from '../../i18n';
 import {
@@ -271,7 +271,6 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     uploadDocModalOpen, uploadDocLoading,
     uploadDocFileList, setUploadDocFileList,
     openUploadDocModal, closeUploadDocModal,
-    setUploadDocLoading,
     uploadParentChunkSize, setUploadParentChunkSize,
     uploadChildChunkSize, setUploadChildChunkSize,
     uploadOverlapTokens, setUploadOverlapTokens,
@@ -301,6 +300,9 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
   const [wikiBackendReady, setWikiBackendReady] = useState(false);
   const [wikiPageCount, setWikiPageCount] = useState(0);
   const [wikiGenerating, setWikiGenerating] = useState(false);
+  // Wiki 现状是否已问到后端。没问到之前一律按「未知」处理——初值 0 页 / 未生成只是
+  // 占位，拿它当真会在每次刷新时先弹一条「尚未生成条目页」的补建提示。
+  const [wikiStatusLoaded, setWikiStatusLoaded] = useState(false);
   const [wikiRebuilding, setWikiRebuilding] = useState(false);
   const [kbDetailView, setKbDetailView] = useState<'documents' | 'wiki'>('documents');
   const [kbDocPage, setKbDocPage] = useState(1);
@@ -426,6 +428,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     setKbDetailView('documents');
     setWikiPageCount(0);
     setWikiGenerating(false);
+    setWikiStatusLoaded(false);
     const kbId = selectedItem?.id;
     if (!kbId) return;
     // 能力位缺省即「不具备」——按来源反推会给没有 Wiki 的外接库开出一个死 Tab
@@ -433,18 +436,21 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     if (!wikiBackendReady || !capable) return;
 
     let alive = true;
-    void getWikiStats(kbId)
-      .then((stats) => {
+    const isLocal = selectedItem?.source === 'local';
+    void Promise.allSettled([
+      getWikiStats(kbId).then((stats) => {
         if (alive) setWikiPageCount(stats.total_pages || 0);
-      })
-      .catch(() => {
-        if (alive) setWikiPageCount(0);
-      });
-    if (selectedItem?.source === 'local') {
-      void getKBWikiStatus(kbId).then((status) => {
-        if (alive) setWikiGenerating(Boolean(status.generating));
-      });
-    }
+      }),
+      isLocal
+        ? getKBWikiStatus(kbId).then((status) => {
+            if (alive) setWikiGenerating(Boolean(status.generating));
+          })
+        : Promise.resolve(),
+    ]).then(() => {
+      // 两个请求都有了结论才算「问到了」。任一失败时保留上一次已知值，绝不清零——
+      // 清零会让一个已经有上百页的库退回补建提示，用户以为 Wiki 没生成。
+      if (alive) setWikiStatusLoaded(true);
+    });
     return () => {
       alive = false;
     };
@@ -834,34 +840,55 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
       return;
     }
 
-    setUploadDocLoading(true);
-    try {
-      const _separators = parseSeparators(uploadSeparators);
-      const _childSeparators = parseSeparators(uploadChildSeparators);
-      const idxCfg: IndexingConfig = {
-        parent_chunk_size: uploadParentChunkSize,
-        child_chunk_size: uploadChildChunkSize,
-        overlap_tokens: uploadOverlapTokens,
-        parent_child_indexing: uploadParentChildIndexing,
-        auto_keywords_count: uploadAutoKeywordsCount,
-        auto_questions_count: uploadAutoQuestionsCount,
-        ...(_separators.length ? { separators: _separators } : {}),
-        ...(_childSeparators.length && uploadParentChildIndexing ? { child_separators: _childSeparators } : {}),
-      };
-      for (const file of uploadDocFileList) {
-        await uploadKBDocument(selectedItem.id, file, undefined, idxCfg, uploadChunkMethod);
+    const _separators = parseSeparators(uploadSeparators);
+    const _childSeparators = parseSeparators(uploadChildSeparators);
+    const idxCfg: IndexingConfig = {
+      parent_chunk_size: uploadParentChunkSize,
+      child_chunk_size: uploadChildChunkSize,
+      overlap_tokens: uploadOverlapTokens,
+      parent_child_indexing: uploadParentChildIndexing,
+      auto_keywords_count: uploadAutoKeywordsCount,
+      auto_questions_count: uploadAutoQuestionsCount,
+      ...(_separators.length ? { separators: _separators } : {}),
+      ...(_childSeparators.length && uploadParentChildIndexing ? { child_separators: _childSeparators } : {}),
+    };
+
+    // 关卡片之前先把要用的东西抄下来：closeUploadDocModal 会把选中的文件列表一起重置。
+    const kbId = selectedItem.id;
+    const files = [...uploadDocFileList];
+    const chunkMethod = uploadChunkMethod;
+
+    // 交出文件就关卡片，剩下的进度在文档列表里以「索引中」呈现。
+    // 上传接口本身只做落存储 + 入队，很快就返回；真正耗时的解析/向量化在后端 worker
+    // 里跑（见 core/kb/index_worker.py）。所以没有理由把用户按在一个转圈的弹窗上等——
+    // 尤其是一次传几十个文件时。
+    closeUploadDocModal();
+    setKbDocPage(1);
+    message.success(`${files.length} ${t('个文档已上传，正在后台索引')}`);
+
+    void (async () => {
+      const failed: string[] = [];
+      for (const file of files) {
+        try {
+          await uploadKBDocument(kbId, file, undefined, idxCfg, chunkMethod);
+        } catch (err) {
+          // 一个文件失败不该连累后面的：继续传完，最后一次性报出来
+          failed.push(file.name);
+          console.warn('KB 文档上传失败', file.name, err);
+        }
+        // 每传完一个就刷新一次列表，用户能看着行一条条冒出来（状态是「索引中」）
+        try {
+          const result = await getKBDocuments(kbId, 1, KB_DOC_PAGE_SIZE);
+          applyDocumentsResult(kbId, result.items, result.total, result.status_counts);
+        } catch {
+          // 刷新失败无所谓，还有 5 秒一轮的索引轮询兜底
+        }
       }
-      setKbDocPage(1);
-      const result = await getKBDocuments(selectedItem.id, 1, KB_DOC_PAGE_SIZE);
-      applyDocumentsResult(selectedItem.id, result.items, result.total, result.status_counts);
-      await refreshCatalog();
-      closeUploadDocModal();
-      message.success(`${uploadDocFileList.length} ${t('个文档已上传，正在后台索引')}`);
-    } catch (err: any) {
-      message.error(err.message || t('上传失败'));
-    } finally {
-      setUploadDocLoading(false);
-    }
+      if (failed.length) {
+        message.error(`${failed.length} ${t('个文档上传失败')}：${failed.slice(0, 3).join('、')}`);
+      }
+      void refreshCatalog();
+    })();
   };
 
   const emptyLibraries = !catalogLoading && filteredLibraries.length === 0;
@@ -880,6 +907,9 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
       && selectedItem?.source === 'local'
       && selectedItem?.editable
       && currentDocCount > 0
+      // 必须等 Wiki 现状问到手再判断：否则每次刷新都会在请求回来之前先闪一条
+      // 「尚未生成条目页」，网络一慢就一直挂着
+      && wikiStatusLoaded
       && !wikiPageCount
       && !wikiGenerating,
   );
@@ -1497,10 +1527,18 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
         onCancel={() => { setActiveKbDoc(null); setDocDetailTab('content'); setDocChunks([]); }}
         footer={[<Button key="close" onClick={() => { setActiveKbDoc(null); setDocDetailTab('content'); setDocChunks([]); }}>{t('关闭')}</Button>]}
         width={920}
+        /* 垂直居中 + 限高：原来弹窗从页面顶部往下排，正文一长底部的「关闭」就被推出
+           视口，够不着（问题 26）。centered 让它始终居中，styles 里的 max-height
+           保证 footer 永远在视口内。 */
+        centered
       >
         {activeKbDoc && (
           <div>
-            {activeKbDoc.desc && <div className="jx-kbDocDesc">{activeKbDoc.desc}</div>}
+            {/* desc 常常就等于文件名，与弹窗标题一模一样地重复一遍；只有当它确实
+                是另一段说明时才展示。 */}
+            {activeKbDoc.desc
+              && activeKbDoc.desc.trim() !== (activeKbDoc.title || '').trim()
+              && <div className="jx-kbDocDesc">{activeKbDoc.desc}</div>}
             <div className="jx-kbDocTabs">
               <button className={`jx-kbDocTab${docDetailTab === 'content' ? ' active' : ''}`} onClick={() => setDocDetailTab('content')}>{t('内容预览')}</button>
               <button
@@ -1535,7 +1573,8 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                 )}
               </div>
             ) : (
-              <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+              /* 与内容预览同一上限，保证 footer 的「关闭」始终在视口内 */
+              <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
                 {docChunksLoading ? (
                   <div className="jx-kbDocLoading"><LoadingOutlined /> {t('正在加载分块列表…')}</div>
                 ) : docChunks.length === 0 ? (
@@ -1621,7 +1660,10 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                             />
                           </div>
                         ) : (
-                          <div className="jx-chunkContent">{chunk.content}</div>
+                          <>
+                            <div className="jx-chunkContent">{chunk.content}</div>
+                            <KBChunkImages content={chunk.content} />
+                          </>
                         )}
                         {expandedChunkParents.has(chunk.chunk_id) && (
                           <div
@@ -1817,14 +1859,14 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
             <Upload.Dragger
               className="jx-kbUploadDragger"
               multiple
-              accept=".pdf,.docx,.doc,.txt,.md,.csv,.json,.xlsx,.xls"
+              accept=".pdf,.docx,.doc,.txt,.md,.csv,.json,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.gif"
               beforeUpload={(file) => { setUploadDocFileList((prev) => [...prev, file]); return false; }}
               onRemove={(file) => setUploadDocFileList((prev) => prev.filter((item) => item.name !== file.name || item.size !== file.size))}
               fileList={uploadDocFileList.map((file) => ({ uid: `${file.name}-${file.size}`, name: file.name, size: file.size, status: 'done' as const }))}
             >
               <p className="ant-upload-drag-icon"><InboxOutlined /></p>
               <p className="ant-upload-text">{t('点击或拖拽文件到此区域')}</p>
-              <p className="ant-upload-hint">{t('支持 PDF、Word、Excel、TXT、Markdown、CSV、JSON，单文件最大 100MB')}</p>
+              <p className="ant-upload-hint">{t('支持 PDF、Word、Excel、TXT、Markdown、CSV、JSON、图片，单文件最大 100MB')}</p>
             </Upload.Dragger>
             <div className="jx-kbUploadSection">
               <div className="jx-kbUploadFieldLabel">{t('分块方法')}</div>

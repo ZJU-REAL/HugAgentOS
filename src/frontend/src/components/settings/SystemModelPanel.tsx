@@ -7,6 +7,7 @@ import {
   assignModelRole,
   createModelProvider,
   deleteModelProvider,
+  detectModelContextLength,
   getModelProviderSchemas,
   listModelProviders,
   listModelRoles,
@@ -20,6 +21,7 @@ import {
 } from '../../api';
 import { t } from '../../i18n';
 import { useModelCapabilitiesStore } from '../../stores';
+import { describeContextProbe } from '../../utils/contextUsage';
 
 const { Text } = Typography;
 
@@ -45,6 +47,10 @@ export function SystemModelPanel() {
   const [saving, setSaving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [assigningRole, setAssigningRole] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  // Explains where a detected window came from (or why nothing was found), kept next to
+  // the input so the number is never a bare figure the operator has to take on faith.
+  const [probeHint, setProbeHint] = useState('');
   const [form] = Form.useForm();
   const userModelSwitchEnabled = useModelCapabilitiesStore(
     (s) => s.capabilities.user_model_switch_enabled,
@@ -81,6 +87,7 @@ export function SystemModelPanel() {
 
   const openCreate = () => {
     setEditing(null);
+    setProbeHint('');
     form.resetFields();
     form.setFieldsValue({ provider: 'openai_compatible', provider_type: 'chat', is_active: true });
     setEditorOpen(true);
@@ -88,6 +95,11 @@ export function SystemModelPanel() {
 
   const openEdit = (p: ModelProviderItem) => {
     setEditing(p);
+    setProbeHint(
+      p.extra_config?.context_length_source
+        ? t('当前值由系统自动探测填入，尚未人工确认；保存即视为确认。')
+        : '',
+    );
     form.setFieldsValue({
       display_name: p.display_name,
       provider: p.provider,
@@ -98,9 +110,46 @@ export function SystemModelPanel() {
       is_active: p.is_active,
       context_length: (p.extra_config?.context_length as number | undefined) ?? undefined,
       supports_reasoning_effort: Boolean(p.extra_config?.supports_reasoning_effort),
+      supports_vision: Boolean(p.extra_config?.supports_vision),
     });
     setEditorOpen(true);
   };
+
+  /**
+   * Ask the backend to read the model's real context window off the vendor.
+   *
+   * Only fills the form — the operator still reviews the number and saves it, which is
+   * what makes it safe to accept lower-confidence sources (a name-based guess) here.
+   */
+  const handleDetectContext = useCallback(async () => {
+    const values = form.getFieldsValue();
+    if (!values.model_name) {
+      message.warning(t('请先填写模型名'));
+      return;
+    }
+    setDetecting(true);
+    try {
+      const result = await detectModelContextLength({
+        provider: values.provider || 'openai_compatible',
+        provider_type: values.provider_type || 'chat',
+        base_url: values.base_url || '',
+        api_key: values.api_key || '',
+        model_name: values.model_name,
+        provider_id: editing?.provider_id,
+      });
+      setProbeHint(describeContextProbe(result));
+      if (result.context_length > 0) {
+        form.setFieldsValue({ context_length: result.context_length });
+        message.success(t('已探测到上下文窗口 {n} token', { n: String(result.context_length) }));
+      } else {
+        message.warning(t('未能自动探测到上下文窗口，请手工填写'));
+      }
+    } catch (e) {
+      message.error(t('探测失败：{msg}', { msg: (e as Error).message }));
+    } finally {
+      setDetecting(false);
+    }
+  }, [form, editing]);
 
   const handleSave = async () => {
     const values = await form.validateFields();
@@ -112,6 +161,11 @@ export function SystemModelPanel() {
       extra.supports_reasoning_effort = true;
     } else {
       delete extra.supports_reasoning_effort;
+    }
+    if (values.provider_type === 'chat' && values.supports_vision) {
+      extra.supports_vision = true;
+    } else {
+      delete extra.supports_vision;
     }
     const payload: Partial<ModelProviderInput> = {
       display_name: values.display_name,
@@ -205,8 +259,22 @@ export function SystemModelPanel() {
           allowClear
           loading={assigningRole === r.role_key}
           options={providers
-            .filter((p) => !r.type || p.provider_type === r.type)
+            .filter(
+              (p) =>
+                (!r.type || p.provider_type === r.type) &&
+                // 角色还可能要求能力位（视觉桥要求 supports_vision）。只按用途筛的话，
+                // 纯文本模型也会出现在视觉桥的下拉里，配错要到对话中途才暴露。
+                (!r.requires_capability ||
+                  Boolean(p.extra_config?.[r.requires_capability]) ||
+                  // 已指派的那个即使现在不合格也保留，否则界面会显示成未分配
+                  p.provider_id === r.provider_id),
+            )
             .map((p) => ({ value: p.provider_id, label: `${p.display_name} (${p.model_name})` }))}
+          notFoundContent={
+            r.requires_capability
+              ? t('没有符合条件的模型：该角色只能指派已勾选「支持读图（多模态）」的供应商')
+              : undefined
+          }
           onChange={(pid) => void handleAssign(r.role_key, (pid as string) ?? null)}
         />
       ),
@@ -348,8 +416,28 @@ export function SystemModelPanel() {
             <Input placeholder="deepseek-chat" />
           </Form.Item>
           <Space.Compact block>
-            <Form.Item name="context_length" label={t('上下文窗口（token，可选）')} style={{ flex: 1 }}>
-              <Input type="number" placeholder="131072" />
+            <Form.Item
+              name="context_length"
+              label={t('上下文窗口（token，可选）')}
+              style={{ flex: 1 }}
+              tooltip={t('模型真实的上下文长度，用于历史裁剪与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。')}
+              extra={probeHint || undefined}
+            >
+              <Input
+                type="number"
+                placeholder="131072"
+                addonAfter={
+                  <Button
+                    type="link"
+                    size="small"
+                    loading={detecting}
+                    onClick={handleDetectContext}
+                    style={{ padding: 0, height: 'auto' }}
+                  >
+                    {t('自动探测')}
+                  </Button>
+                }
+              />
             </Form.Item>
             <Form.Item name="is_active" label={t('启用')} valuePropName="checked" style={{ width: 90, marginLeft: 8 }}>
               <Switch />
@@ -362,6 +450,18 @@ export function SystemModelPanel() {
                 name="supports_reasoning_effort"
                 valuePropName="checked"
                 tooltip={t('开启后，前端「思考强度」选项里会出现「思考·高 / 思考·超高」两档，并通过 chat_template_kwargs.reasoning_effort 传给上游。需要上游模型本身认 reasoning_effort 字段（如 Qwen3 多档、GPT-OSS、Claude thinking 等），否则可能 4xx。普通 DeepSeek/Qwen 关闭即可。')}
+              >
+                <Switch />
+              </Form.Item>
+            )}
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
+            {({ getFieldValue }) => getFieldValue('provider_type') === 'chat' && (
+              <Form.Item
+                label={t('支持读图（多模态）')}
+                name="supports_vision"
+                valuePropName="checked"
+                tooltip={t('该模型本身能直接看图（如 qwen-vl / GLM-4V / gpt-4o / gemini）。开启后图片会原样送给模型；关闭时，若已为「图像理解（视觉桥）」角色指派了多模态模型，图片会先被转写成文字证据再送入。纯文本模型（DeepSeek、Qwen 文本版等）保持关闭。')}
               >
                 <Switch />
               </Form.Item>

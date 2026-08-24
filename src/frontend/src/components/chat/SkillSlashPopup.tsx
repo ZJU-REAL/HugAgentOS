@@ -1,19 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AppstoreOutlined, BulbOutlined, PartitionOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, BulbOutlined } from '@ant-design/icons';
 import { usePopupFlip } from '../../hooks/usePopupFlip';
 import { t } from '../../i18n';
 import type { InstalledPluginItem } from '../../types';
 
-export type SlashEntry = {
-  /** mode：切换对话模式的命令（如 /workflow 进入工作流模式），选中即开启，不插入 chip。 */
-  kind: 'skill' | 'plugin' | 'mode';
+type SlashEntryBase = {
   id: string;
   name: string;
-  plugin?: InstalledPluginItem;
-  /** mode 条目的说明，渲染在名称右侧（技能/插件条目不用）。 */
-  hint?: string;
+  /** Candidate summary displayed beside its name. */
+  description?: string;
 };
+
+export type SlashEntry =
+  | (SlashEntryBase & { kind: 'skill' })
+  | (SlashEntryBase & { kind: 'plugin'; plugin: InstalledPluginItem });
 
 interface SkillSlashPopupProps {
   entries: SlashEntry[];
@@ -23,8 +24,15 @@ interface SkillSlashPopupProps {
   onHover: (index: number) => void;
 }
 
+const POPUP_MAX_HEIGHT = 320;
+
+function sectionLabel(kind: SlashEntry['kind']): string {
+  if (kind === 'plugin') return t('插件');
+  return t('技能');
+}
+
 export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onHover }: SkillSlashPopupProps) {
-  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const popupRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -35,7 +43,7 @@ export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onH
 
   const showPopup = visible && entries.length > 0;
   // Not enough space above (e.g. the project detail page input box is near the top of the page) -> flip to below the cursor's line
-  const { below: flipBelow, belowTop } = usePopupFlip(popupRef, showPopup);
+  const { below: flipBelow, belowTop } = usePopupFlip(popupRef, showPopup, POPUP_MAX_HEIGHT);
 
   return (
     <AnimatePresence>
@@ -45,29 +53,40 @@ export function SkillSlashPopup({ entries, visible, selectedIndex, onSelect, onH
           className={`jx-slashPopup${flipBelow ? ' jx-slashPopup--below' : ''}`}
           style={flipBelow && belowTop != null ? { top: belowTop } : undefined}
           onMouseDown={(e) => e.preventDefault()}
+          role="listbox"
+          aria-label={t('斜杠命令建议')}
           initial={{ opacity: 0, y: flipBelow ? -6 : 6, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: flipBelow ? -4 : 4, scale: 0.97 }}
           transition={{ duration: 0.16, ease: 'easeOut' }}
         >
           {entries.map((entry, idx) => (
-            <div
-              key={`${entry.kind}-${entry.id}`}
-              ref={(el) => { itemRefs.current[idx] = el; }}
-              className={`jx-slashPopup-item${idx === selectedIndex ? ' active' : ''}`}
-              onMouseEnter={() => onHover(idx)}
-              onClick={() => onSelect(entry)}
-            >
-              {entry.kind === 'plugin'
-                ? <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />
-                : entry.kind === 'mode'
-                  ? <PartitionOutlined className="jx-slashPopup-icon jx-slashPopup-icon--mode" />
+            <Fragment key={`${entry.kind}-${entry.id}`}>
+              {(idx === 0 || entries[idx - 1]?.kind !== entry.kind) && (
+                <div className="jx-commandPopup-groupTitle" role="presentation">
+                  {sectionLabel(entry.kind)}
+                </div>
+              )}
+              <button
+                ref={(el) => { itemRefs.current[idx] = el; }}
+                type="button"
+                role="option"
+                aria-selected={idx === selectedIndex}
+                className={`jx-slashPopup-item${idx === selectedIndex ? ' active' : ''}`}
+                onMouseEnter={() => onHover(idx)}
+                onClick={() => onSelect(entry)}
+              >
+                {entry.kind === 'plugin'
+                  ? <AppstoreOutlined className="jx-slashPopup-icon jx-slashPopup-icon--plugin" />
                   : <BulbOutlined className="jx-slashPopup-icon jx-slashPopup-icon--skill" />}
-              <span className="jx-slashPopup-name">{entry.name}</span>
-              {entry.hint && <span className="jx-slashPopup-hint">{entry.hint}</span>}
-              {entry.kind === 'plugin' && <span className="jx-slashPopup-badge">{t('插件')}</span>}
-              {entry.kind === 'mode' && <span className="jx-slashPopup-badge">{t('模式')}</span>}
-            </div>
+                <span className="jx-slashPopup-name" title={entry.name}>{entry.name}</span>
+                {entry.description && (
+                  <span className="jx-commandPopup-description" title={entry.description}>
+                    {entry.description}
+                  </span>
+                )}
+              </button>
+            </Fragment>
           ))}
         </motion.div>
       )}
@@ -100,11 +119,11 @@ export function useSkillSlash() {
   }
 
   /** Only handles ArrowUp/Down/Escape. Enter/Tab handled by InputArea. */
-  function handleSlashKeyDown(e: React.KeyboardEvent): boolean {
+  function handleSlashKeyDown(e: React.KeyboardEvent, itemCount: number): boolean {
     if (!slashVisible) return false;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex((i) => i + 1); // clamped by popup render
+      setSelectedIndex((i) => Math.min(i + 1, Math.max(0, itemCount - 1)));
       return true;
     }
     if (e.key === 'ArrowUp') {

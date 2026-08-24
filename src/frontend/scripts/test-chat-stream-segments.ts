@@ -12,9 +12,46 @@ import { extractCodeFromStreamingArgs } from '../src/utils/codeExecParser';
 import { buildHistorySegments } from '../src/utils/segments';
 import { getToolRunInitialOpen } from '../src/utils/toolRunState';
 import { refreshTargetForTool } from '../src/utils/toolRefresh';
+import { parseAppliedQueueHandoff, parseQueuedRunHandoff } from '../src/utils/streamHandoff';
 
 function tool(toolIndex: number): MessageSegment {
   return { type: 'tool', toolIndex };
+}
+
+{
+  assert.deepEqual(parseQueuedRunHandoff({
+    type: 'queued_run_started',
+    run_id: 'run-child',
+    message_id: 'msg-assistant',
+    user_message_id: 'msg-user',
+    message: '继续处理下一件事',
+    queue_id: 'queue-1',
+    steer_id: 'steer-1',
+    delivery_mode: 'follow_up',
+  }), {
+    runId: 'run-child',
+    messageId: 'msg-assistant',
+    userMessageId: 'msg-user',
+    message: '继续处理下一件事',
+    queueId: 'queue-1',
+    steerId: 'steer-1',
+    deliveryMode: 'follow_up',
+  });
+  assert.equal(parseQueuedRunHandoff({
+    run_id: 'run-child',
+    delivery_mode: 'follow_up',
+  }), undefined);
+  assert.equal(parseAppliedQueueHandoff({ status: 'accepted' }), undefined);
+  assert.equal(parseAppliedQueueHandoff({
+    status: 'applied',
+    applied_run_id: 'run-child',
+    applied_run_message_id: 'msg-assistant',
+    applied_user_message_id: 'msg-user',
+    message: '继续处理下一件事',
+    queue_id: 'queue-1',
+    steer_id: 'steer-1',
+    delivery_mode: 'next_run',
+  })?.runId, 'run-child');
 }
 
 {

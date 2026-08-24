@@ -41,7 +41,9 @@ This reference is sourced from `.env.example` and `src/backend/core/config/setti
 | `CHAT_RUN_MAX_AGE_SEC` | `1800` | Running runs older than this become zombie-check candidates (combined with the quiet threshold; actively streaming runs survive) | CE |
 | `CHAT_RUN_REAPER_INTERVAL_SEC` | `300` | Watchdog sweep interval | CE |
 | `CHAT_RUN_STALE_QUIET_SEC` | same as `CHAT_RUN_INACTIVITY_TIMEOUT_SEC` | An over-age run is only reaped after its event stream has been quiet this long | CE |
-| `CHAT_RUN_HARD_MAX_AGE_SEC` | `21600` | Absolute lifetime ceiling — reaped even while still producing output | CE |
+| `CHAT_RUN_HARD_MAX_AGE_SEC` | `21600` | Absolute lifetime ceiling—reaped even while producing output; a registered bounded human wait survives until its own deadline | CE |
+| `HUMAN_INTERACTION_MAX_WAIT_SECONDS` | `7200` | Maximum wait for human-interaction tools such as `ask_user_question`, write confirmation, and design selection; only a real pending interaction keeps the normal 600-second inactivity watchdog alive | CE |
+| `HUMAN_INTERACTION_STREAM_RECOVERY_GRACE_SECONDS` | `1800` | Extra reconnect/replay window retained after the maximum human wait; the ChatRun Redis Stream TTL is the sum of these two values | CE |
 
 ## Model access
 
@@ -136,6 +138,10 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` / `OSS_KEY_PREFIX` | (empty) | Alibaba Cloud OSS | EE |
 | `OSS_PRESIGNED_URL_EXPIRY` | `900` | OSS presigned URL lifetime (s) | EE |
 | `PROJECT_FILE_CAPACITY_BYTES` | `209715200` (200 MB) | Total upload-type file cap per project | CE |
+| `VISION_MAX_IMAGE_BYTES` | `20971520` (20 MB) | Vision-bridge per-image byte cap; larger images are rejected outright | CE |
+| `VISION_CACHE_TTL_SECONDS` | `604800` (7 days) | Image-evidence cache TTL (key = image content + model + focus) | CE |
+| `VISION_MAX_CONCURRENCY` | `4` | Max concurrent in-flight image reads | CE |
+| `VISION_CALL_TIMEOUT_SECONDS` | `90` | Per-image read timeout (seconds) | CE |
 
 ## Knowledge base and file parsing
 
@@ -154,6 +160,12 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `FILE_PARSER_LANG_LIST` | `ch` | OCR languages | CE |
 | `FILE_PARSER_BACKEND` / `FILE_PARSER_PARSE_METHOD` | `pipeline` / `auto` | Parser backend and method | CE |
 | `FILE_PARSER_FORMULA_ENABLE` / `FILE_PARSER_TABLE_ENABLE` | `true` / `true` | Formula / table parsing toggles | CE |
+| `KB_MULTIMODAL_INDEXING` | `true` | Global switch: extract and index images found in documents (override per space with `indexing_config.multimodal_indexing`) | CE |
+| `KB_ASSET_CAPTION_MAX_PER_DOC` | `200` | Cap on images described per document; the rest are indexed by their caption text only | CE |
+| `KB_ASSET_CAPTION_BATCH` | `2` | Images submitted to the vision bridge per batch. The bridge's semaphore is process-wide (`VISION_MAX_CONCURRENCY`); submitting in small batches keeps bulk indexing from saturating it and queueing interactive image reads behind it | CE |
+| `KB_ASSET_TEXT_MAX_CHARS` | `4000` | Length cap for the caption + OCR transcript stored in `text_content` (that field feeds the vector) | CE |
+| `KB_ASSET_MIN_BYTES` / `KB_ASSET_MIN_EDGE_PX` | `4096` / `64` | Filter out layout noise such as icons and rules (the pixel check needs Pillow; without it only the byte floor applies) | CE |
+| `KB_ASSET_URL_PREFIX` | `/api` | Prefix of the asset URLs written into chunk text; must match the frontend's `VITE_API_BASE_URL` | CE |
 
 ## MCP tools
 
@@ -249,19 +261,47 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `NEO4J_USERNAME` / `NEO4J_PASSWORD` | `neo4j` / `hugagent_neo4j_2026` (compose default) | Neo4j credentials | CE |
 | `MEMORY_LAYERED_ENABLED` | `true` | Layered memory (L1 Profile / L2 Fact / L3 Graph); `false` reverts to flat mem0 | CE |
 | `MEMORY_AUDIT_ENABLED` | `true` | Memory audit-table writes (compliance trail) | EE |
-| `MEMORY_RETRIEVAL_BUDGET_MS` | `600` | Fact vector-retrieval budget (ms); on timeout only the Profile is injected | CE |
+| `MEMORY_RETRIEVAL_BUDGET_MS` | `600` | Procedure vector-retrieval budget (ms); on timeout only the Profile is injected | CE |
 | `MEMORY_BG_MAX_CONCURRENCY` | `8` | Background extraction / save concurrency cap | CE |
+| `MEMORY_OUTBOX_LEASE_SECONDS` | `120` | Memory Outbox worker lease; expired work is reclaimable after a crash | CE |
+| `MEMORY_OUTBOX_MAX_ATTEMPTS` | `5` | Maximum memory-write attempts before `quarantined` | CE |
+| `MEMORY_OUTBOX_RETRY_BASE_SECONDS` | `5` | Outbox exponential-backoff base (s) | CE |
+| `MEMORY_OUTBOX_POLL_SECONDS` | `1` | Idle Outbox worker poll interval (s) | CE |
 | `MEMORY_EXTRACT_TIMEOUT_S` | `30` | Per-extraction LLM call timeout (s) | CE |
 | `MEMORY_PROFILE_MAX_CHARS` | `1500` | L1 Profile character cap (compression beyond) | CE |
-| `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | L2 Fact default TTL (days) | CE |
-| `MEMORY_FROZEN_TOPK` | `5` | Fact top-K injected into the frozen block | CE |
+| `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | Legacy L2 Fact TTL compatibility; new procedures use dedicated TTLs | CE |
+| `MEMORY_FROZEN_TOPK` | `5` | Procedure top-K injected into the frozen block | CE |
 | `MEMORY_BREAKER_THRESHOLD` / `MEMORY_BREAKER_COOLDOWN_S` | `3` / `60` | Milvus circuit-breaker threshold / cooldown (s) | CE |
-| `MEMORY_LLM_GATE_ENABLED` | `true` | Write gate: one fast LLM call before extraction judging whether the turn contains anything worth remembering (narrow-only, fails open) | CE |
+| `MEMORY_LLM_GATE_ENABLED` | `true` | Narrow-only write gate; explicit remember/verified correction bypass it, while timeout or malformed output retries/quarantines | CE |
 | `MEMORY_GATE_TIMEOUT_S` | `10` | Write-gate LLM call timeout (s) | CE |
 | `MEMORY_PROCEDURE_DEDUP_MIN_SCORE` | `0.9` | L2 pre-write near-dup threshold: cosine similarity at/above this reinforces the existing entry instead of appending | CE |
 | `MEMORY_PROCEDURE_TTL_DAYS` | `365` | Lifetime (days) of strong / restated L2 rules | CE |
 | `MEMORY_PROCEDURE_WEAK_TTL_DAYS` | `30` | Provisional lifetime (days) of weak L2 rules: they age out unless restated, at which point they are promoted to persistent | CE |
 | `MEMORY_TTL_SWEEP_ENABLED` / `MEMORY_TTL_SWEEP_CRON` | `true` / `15 4 * * *` | Daily physical deletion of expired memories (already hidden from retrieval before deletion) | CE |
+
+## Context compaction
+
+When a conversation approaches the model's context window, the earlier history is summarised into a
+handoff summary and the original history is replaced by "recent user messages + summary". There is
+**one** compaction implementation, triggered at three moments: mid-turn (at each tool-calling step
+boundary), pre-turn (the assembled history is already over the threshold), and post-turn (a
+background pre-warm that does the work the next turn would otherwise do synchronously). All three
+share the same trigger ratio and the same summarisation prompt, and every result is persisted as a
+session checkpoint — so once a mid-turn compaction has run, later turns replay from the checkpoint
+instead of pulling the raw history back in.
+
+Occupancy is measured from the provider's real token usage where available, falling back to a byte
+estimate only when it is not.
+
+| Variable | Default | Description | Edition |
+|---|---|---|---|
+| `CHAT_COMPACT_ENABLED` | `true` | Master switch; when off, history is replayed in full and no checkpoint is produced or consumed | CE |
+| `CHAT_COMPACT_TRIGGER_RATIO` | `0.8` | Trigger ratio: compact once occupancy exceeds `model window × this value`. **The runtime authority is the admin console's "System config → context → in-turn compaction trigger ratio"**; this variable is only the default | CE |
+| `CHAT_COMPRESS_IN_TURN_RATIO` | (unset) | Deprecated alias, honoured only when `CHAT_COMPACT_TRIGGER_RATIO` is unset, so deployments that only ever tuned the in-turn knob keep their tuning | CE |
+| `CHAT_COMPACT_TOKEN_LIMIT` | `0` | Absolute trigger threshold in real tokens; takes precedence over the ratio when `> 0` | CE |
+| `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | Token budget of the recent user messages kept verbatim after compaction | CE |
+| `CHAT_COMPACT_SUMMARIZE_TIMEOUT_S` | `60` | Summarisation LLM call timeout (seconds) | CE |
+| `CHAT_TOOL_RESULT_LIMIT` | `20000` | Per-tool-result character cap entering the context (the deterministic, model-free layer); the overflow is spilled by the offloader to `/workspace/.offload` in the sandbox, where the model can read it back on demand | CE |
 
 ## Edition, branding, and license
 

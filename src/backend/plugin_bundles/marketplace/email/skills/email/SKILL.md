@@ -9,8 +9,8 @@ allowed_tools: bash, sandbox_get_artifact, sandbox_put_artifact
 通过沙箱内的 `himalaya` 命令以**当前用户的邮箱身份**收发和管理邮件。`himalaya` 二进制已随沙箱镜像预装，无需安装。用户的邮箱配置（IMAP/SMTP + 授权码）由后端注入到 `~/.config/himalaya/config.toml`，账号名固定为 `default`，**所有命令无需指定 `-a/--account`**。
 
 ## 连接前置（必须先确认）
-本技能要求用户已在「插件库 → 电子邮箱 → 绑定邮箱」填写邮箱地址与授权码完成绑定（凭据已注入沙箱）。
-- 执行任意业务命令前，先用 `himalaya folder list -o json` 确认能连上邮箱；若报「cannot find configuration」「no account」「authentication failed」之类，**停止并提示用户先到「插件库 → 电子邮箱」绑定邮箱账号**，不要尝试在聊天里收集邮箱密码。
+本技能要求用户已在「插件 → 电子邮箱 → 绑定邮箱」填写邮箱地址与授权码完成绑定（凭据已注入沙箱）。
+- 执行任意业务命令前，先用 `himalaya folder list -o json` 确认能连上邮箱；若报「cannot find configuration」「no account」「authentication failed」之类，**停止并提示用户先到「插件 → 电子邮箱」绑定邮箱账号**，不要尝试在聊天里收集邮箱密码。
 - 绑定用的是各邮箱服务商的**授权码 / app password**（不是登录密码）：Gmail 用 App Password、QQ/网易/腾讯企业邮在邮箱设置里「开启 IMAP/SMTP 并获取授权码」。这些引导话术在绑定页已有，技能里只需提示用户去绑定。
 
 > 凭据由后端注入到沙箱 `~/.config/himalaya/config.toml`，跨会话存活；技能本身不读写、不导出授权码明文。
@@ -93,4 +93,4 @@ himalaya folder list -o json                     # 列出所有文件夹
 - **Gmail 文件夹别名**：Gmail 的特殊文件夹名带 `[Gmail]/` 前缀（如 `[Gmail]/Sent Mail`、`[Gmail]/Trash`）。直接用 `-f Sent` 可能找不到——先 `folder list` 看真实名称，再用准确名称。
 - **附件大小**：受邮件服务商限制（多数 20–50MB）；过大的文件改用网盘链接。
 - **收件人确认**：发信前把收件人、主题、是否带附件向用户复述确认一次，避免误发。
-- **失败处理**：命令报鉴权失败/连接超时，多半是授权码失效或服务器设置变更——提示用户到「插件库 → 电子邮箱」重新绑定，不要在聊天里索要密码。
+- **失败处理**：命令报鉴权失败/连接超时，多半是授权码失效或服务器设置变更——提示用户到「插件 → 电子邮箱」重新绑定，不要在聊天里索要密码。

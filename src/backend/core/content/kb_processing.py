@@ -159,6 +159,10 @@ def update_document_status(document_id: str, status: str, error: Optional[str] =
                 else:
                     meta.pop("indexing_error", None)
                     meta.pop("indexing_failed_at", None)
+                # 终态就不再是任何 worker 的在飞任务了，认领痕迹一并清掉，
+                # 免得下次重排时被僵尸回收逻辑看见半截旧心跳
+                meta.pop("indexing_claimed_by", None)
+                meta.pop("indexing_heartbeat", None)
                 doc.extra_data = meta
                 flag_modified(doc, "extra_data")
                 db.commit()
@@ -179,15 +183,22 @@ def vectorise_document_background(
     db_url: str,
     indexing_config: Optional[dict] = None,
     index_modes: Optional[list[str]] = None,
+    loop=None,
 ) -> None:
     """Background task: parse document -> build parent-child chunks -> write to Milvus + DB.
+
+    ``loop``：调度这次索引的宿主事件循环，由常驻 worker 传入（见
+    ``core/kb/index_worker.py``）。索引跑在 worker 自己的线程池里——那不是 anyio 的
+    工作线程，没有回到宿主循环的通路，所以图像理解需要显式拿到它。经 BackgroundTasks
+    进来的调用方不传，走 anyio 那条路即可。
 
     按知识库的索引模式分两路：``rag`` 决定要不要向量化并写 Milvus，``wiki`` 决定
     索引完成后要不要排 Wiki 生成作业。**分块（KBChunk）两种模式都要写**——Wiki 的
     引文标注按 chunk 走、回溯原文按 chunk 直取，脱离分块无从谈起。
     """
     try:
-        from core.kb.kb_parser import parse_and_chunk
+        from core.kb.kb_assets import multimodal_indexing_enabled
+        from core.kb.kb_parser import parse_and_chunk_rich
         from core.kb.kb_vector import (
             get_or_create_collection, embed_batch, build_sparse_text, text_to_sparse,
             upsert_rows, upsert_question_rows, truncate_utf8,
@@ -222,16 +233,34 @@ def vectorise_document_background(
         )
 
         _embed_fn = embed_batch if chunk_method == "embedding_semantic" else None
-        parent_chunks = parse_and_chunk(
+        # 多模态：``rag`` 模式下才抽图——仅 Wiki 的库不做检索，多花一次重解析没有收益。
+        _want_assets = want_vectors and multimodal_indexing_enabled(cfg)
+        parent_chunks, raw_assets = parse_and_chunk_rich(
             file_bytes, mime_type, chunk_method=chunk_method,
             parent_size=parent_size, child_size=child_size, overlap=overlap,
             embed_fn=_embed_fn, separators=separators, child_separators=child_separators,
+            with_assets=_want_assets,
         )
         logger.info("Parsed %d parent chunks for document %s", len(parent_chunks), document_id)
 
         if not parent_chunks:
+            # 解析不出任何内容（空文件、纯图片 PDF、不认识的格式…）也必须落终态：
+            # 直接 return 会让文档永远停在「索引中」，前端一直转圈且无从重试。
             logger.warning("No chunks produced for document %s", document_id)
+            update_document_status(
+                document_id, "failed", error="未能从该文件解析出任何文本内容，请确认文件格式与内容"
+            )
             return
+
+        # 资产必须在向量化之前落库：它会把父块正文里的图片占位符改写成真实资产 URL，
+        # 而入库的分块正文与被向量化的文本必须是同一份。
+        stored_asset_ids = _persist_document_assets(
+            kb_id=kb_id,
+            document_id=document_id,
+            user_id=user_id,
+            assets=raw_assets,
+            parents=parent_chunks,
+        )
 
         dense_vecs: list = []
         if want_vectors:
@@ -354,6 +383,17 @@ def vectorise_document_background(
                 db2.close()
             logger.info("Upserted question rows for document %s", document_id)
 
+        # 图生文 + 资产检索行。放在文本索引之后：VLM 调用慢且可能没配，文本检索不该等它。
+        if stored_asset_ids and want_vectors:
+            _index_document_assets(
+                loop=loop,
+                asset_ids=stored_asset_ids,
+                kb_id=kb_id,
+                document_id=document_id,
+                user_id=user_id,
+                title=title,
+            )
+
         update_document_status(document_id, "completed")
         logger.info("Indexing completed for document %s", document_id)
 
@@ -363,6 +403,71 @@ def vectorise_document_background(
     except Exception as exc:
         logger.error("Background vectorisation failed for document %s: %s", document_id, exc, exc_info=True)
         update_document_status(document_id, "failed", error=f"{type(exc).__name__}: {exc}")
+
+
+def _persist_document_assets(
+    *,
+    kb_id: str,
+    document_id: str,
+    user_id: str,
+    assets: list,
+    parents: list,
+) -> list[str]:
+    """落盘文档抽出的媒体资产，返回其 id。失败只记日志——正文索引不能被一张图拖垮。
+
+    只回 id 不回 ORM 行：session 一关行就 detach，后续任何属性访问都可能炸在
+    「已过期属性重新加载」上。下游本来也只需要 id 去开新 session 重查。
+    """
+    if not assets:
+        return []
+    try:
+        from core.db.engine import SessionLocal
+        from core.kb.kb_assets import persist_assets
+
+        with SessionLocal() as db:
+            created = persist_assets(
+                db,
+                kb_id=kb_id,
+                document_id=document_id,
+                user_id=user_id,
+                assets=assets,
+                parents=parents,
+            )
+            return [row.asset_id for row in created]
+    except Exception as exc:
+        logger.warning("文档 %s 资产落盘失败，仅索引正文: %s", document_id, exc)
+        return []
+
+
+def _index_document_assets(
+    *,
+    loop,
+    asset_ids: list,
+    kb_id: str,
+    document_id: str,
+    user_id: str,
+    title: str,
+) -> None:
+    """给资产生成描述并写入检索行。整段失败不影响已完成的正文索引。"""
+    if not asset_ids:
+        return
+    try:
+        from core.db.engine import SessionLocal
+        from core.db.models import KBAsset
+        from core.kb.kb_assets import generate_captions, index_assets, mark_vector_state
+
+        with SessionLocal() as db:
+            rows = db.query(KBAsset).filter(KBAsset.asset_id.in_(asset_ids)).all()
+            if not rows:
+                return
+            generate_captions(db, rows, loop=loop)
+            written = index_assets(
+                rows, user_id=user_id, kb_id=kb_id, document_id=document_id, title=title
+            )
+            if written:
+                mark_vector_state(db, rows, "text", "ok")
+    except Exception as exc:
+        logger.warning("文档 %s 资产索引失败，图片不可检索: %s", document_id, exc)
 
 
 def _resolve_index_modes(kb_id: str) -> list[str]:

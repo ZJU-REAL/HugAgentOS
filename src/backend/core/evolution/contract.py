@@ -21,7 +21,9 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+from core.immutable import FrozenDict, freeze_json, thaw_json
 
 # The four governed asset classes, plus the ones that turned out to matter in a
 # multi-provider / multi-KB deployment. Prompt is included because this project
@@ -57,7 +59,10 @@ class AssetRef:
     version: str = ""
     # Free-form provenance, e.g. {"source": "filesystem"} for built-in skills
     # that have no database row and therefore no real version string.
-    detail: Dict[str, Any] = field(default_factory=dict)
+    detail: Mapping[str, Any] = field(default_factory=FrozenDict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "detail", freeze_json(self.detail or {}))
 
     def key(self) -> str:
         return f"{self.kind}:{self.asset_id}:{self.version}"
@@ -65,7 +70,7 @@ class AssetRef:
     def to_dict(self) -> Dict[str, Any]:
         payload = {"kind": self.kind, "asset_id": self.asset_id, "version": self.version}
         if self.detail:
-            payload["detail"] = self.detail
+            payload["detail"] = thaw_json(self.detail)
         return payload
 
     @classmethod
@@ -96,6 +101,17 @@ class AssetBundle:
     # else is frozen", and here we do not know what everything else was.
     partial: bool = False
     captured_at: Optional[str] = None
+    # Sanitized, content-addressed execution evidence. It contains only hashes,
+    # public references and size/count metadata — never prompt/project plaintext.
+    execution_manifest: Mapping[str, Any] = field(default_factory=FrozenDict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "refs", tuple(self.refs))
+        object.__setattr__(
+            self,
+            "execution_manifest",
+            freeze_json(self.execution_manifest or {}),
+        )
 
     def of_kind(self, kind: AssetKind) -> List[AssetRef]:
         return [ref for ref in self.refs if ref.kind == kind]
@@ -121,7 +137,18 @@ class AssetBundle:
                 refs.append(ref)
         if not replaced:
             refs.append(new_ref)
-        return build_bundle(refs, partial=self.partial, captured_at=self.captured_at)
+        # A substituted asset is a *candidate* replay input, not evidence that
+        # the replacement was actually rendered/executed. Keeping the original
+        # request manifest would create a contradictory bundle that still looks
+        # replay-eligible. The replay executor must materialize and attach a new
+        # manifest before this derived bundle can become complete again.
+        invalidated = bool(self.execution_manifest)
+        return build_bundle(
+            refs,
+            partial=bool(self.partial or invalidated),
+            captured_at=self.captured_at,
+            execution_manifest=None if invalidated else self.execution_manifest,
+        )
 
     def without(self, kind: AssetKind, asset_id: str) -> "AssetBundle":
         """Return a bundle with one asset removed.
@@ -130,18 +157,25 @@ class AssetBundle:
         memory had never been injected" is a different question from "what if it
         had said something else", and attribution needs to ask both.
         """
-        refs = [
-            ref for ref in self.refs if not (ref.kind == kind and ref.asset_id == asset_id)
-        ]
-        return build_bundle(refs, partial=self.partial, captured_at=self.captured_at)
+        refs = [ref for ref in self.refs if not (ref.kind == kind and ref.asset_id == asset_id)]
+        invalidated = bool(self.execution_manifest)
+        return build_bundle(
+            refs,
+            partial=bool(self.partial or invalidated),
+            captured_at=self.captured_at,
+            execution_manifest=None if invalidated else self.execution_manifest,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "bundle_id": self.bundle_id,
             "partial": self.partial,
             "captured_at": self.captured_at,
             "refs": [ref.to_dict() for ref in self.refs],
         }
+        if self.execution_manifest:
+            payload["execution_manifest"] = thaw_json(self.execution_manifest)
+        return payload
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "AssetBundle":
@@ -151,6 +185,7 @@ class AssetBundle:
             refs=refs,
             partial=bool(raw.get("partial")),
             captured_at=raw.get("captured_at"),
+            execution_manifest=raw.get("execution_manifest") or {},
         )
 
     def summary(self) -> Dict[str, int]:
@@ -160,13 +195,18 @@ class AssetBundle:
         return counts
 
 
-def compute_bundle_id(refs: List[AssetRef]) -> str:
+def compute_bundle_id(
+    refs: List[AssetRef], execution_manifest: Optional[Mapping[str, Any]] = None
+) -> str:
     """Content-addressed bundle id.
 
     Sorted so ordering noise (which skill the loader happened to list first)
     never produces a spurious "the configuration changed".
     """
     keys = sorted(ref.key() for ref in refs)
+    manifest_hash = str((execution_manifest or {}).get("aggregate_hash") or "")
+    if manifest_hash:
+        keys.append(f"manifest:{manifest_hash}")
     digest = hashlib.sha256("|".join(keys).encode("utf-8")).hexdigest()[:24]
     return f"bundle_{digest}"
 
@@ -176,6 +216,7 @@ def build_bundle(
     *,
     partial: bool = False,
     captured_at: Optional[str] = None,
+    execution_manifest: Optional[Mapping[str, Any]] = None,
 ) -> AssetBundle:
     """Assemble a bundle, de-duplicating identical refs."""
     seen: Dict[str, AssetRef] = {}
@@ -185,10 +226,11 @@ def build_bundle(
         seen.setdefault(ref.key(), ref)
     ordered = sorted(seen.values(), key=lambda r: (r.kind, r.asset_id, r.version))
     return AssetBundle(
-        bundle_id=compute_bundle_id(ordered),
+        bundle_id=compute_bundle_id(ordered, execution_manifest),
         refs=tuple(ordered),
         partial=partial,
         captured_at=captured_at,
+        execution_manifest=execution_manifest or {},
     )
 
 

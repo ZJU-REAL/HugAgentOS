@@ -1,7 +1,7 @@
-import { useRef } from 'react';
-import { message } from 'antd';
+import { useEffect, useRef } from 'react';
+import { Modal, message } from 'antd';
 import { t } from '../i18n';
-import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, getLoop, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
+import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, getChatRunSteers, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, cancelPlanApi, getLoop, UPLOAD_MAX_BYTES, UPLOAD_MAX_MB, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
@@ -9,7 +9,8 @@ import { resolveBatchModeActive, resolveWorkflowModeActive } from '../utils/chat
 import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
-import { processChatStream } from './chatStream';
+import { processChatStream, getStreamActivityTs, hasStreamedRun } from './chatStream';
+import { parseAppliedQueueHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
 import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
@@ -76,8 +77,22 @@ export function useStreaming(
   ) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const newFiles = Array.from(files);
+    const picked = Array.from(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // 超限的文件当场拦下并说明上限：以前既不校验、上传失败也被 catch 吞掉，
+    // 挑一个 90MB 的文件会「安静地」挂在输入框上，用户完全不知道它没传上去（问题 42）。
+    // 上限与 nginx 的 client_max_body_size 同一个来源（VITE_UPLOAD_MAX_MB）。
+    const oversized = picked.filter((f) => f.size > UPLOAD_MAX_BYTES);
+    const newFiles = picked.filter((f) => f.size <= UPLOAD_MAX_BYTES);
+    if (oversized.length > 0) {
+      message.error(
+        oversized.length === 1
+          ? t('「{name}」超过 {n} MB，无法上传', { name: oversized[0].name, n: UPLOAD_MAX_MB })
+          : t('{k} 个文件超过 {n} MB，已跳过', { k: oversized.length, n: UPLOAD_MAX_MB }),
+      );
+    }
+    if (newFiles.length === 0) return;
 
     const { setUploadedFiles, uploadedFiles } = useFileStore.getState();
     setUploadedFiles([...uploadedFiles, ...newFiles]);
@@ -89,8 +104,16 @@ export function useStreaming(
       const { addUploadingFile, removeUploadingFile } = useFileStore.getState();
       addUploadingFile(file);
       const promise = uploadFileToOSS(file, curApiUrl, curChatId)
-        .then(({ file_id, download_url }) => ({ file_id, download_url }))
+        .then((res) => {
+          // uploadFileToOSS 失败时返回空 file_id 而不是抛错。以前这里不看返回值，
+          // 附件就静静地停在输入框上、实际根本没传上去，发送时也不会带上。
+          if (!res.file_id) {
+            message.error(t('「{name}」上传失败，请重试', { name: file.name }));
+          }
+          return res;
+        })
         .catch(() => {
+          message.error(t('「{name}」上传失败，请重试', { name: file.name }));
           return { file_id: '', download_url: '' };
         })
         .finally(() => { removeUploadingFile(file); });
@@ -167,10 +190,22 @@ export function useStreaming(
     if (!queued) return;
 
     if (queued.status === 'applied') {
-      commitAppliedQueuedMessage(chatId, queued, assistantTs);
+      if (queued.appliedMessageId) {
+        commitAppliedQueuedMessage(chatId, queued, assistantTs);
+      } else {
+        // A restored durable card has no local SSE message id. Its user turn
+        // is already committed in the DB, so reload history instead of
+        // inventing a duplicate local message.
+        store.removeLoadedMsgId(chatId);
+        store.bumpSessionLoadEpoch();
+      }
       store.setQueuedMessage(chatId, null);
       return;
     }
+
+    // The backend still owns an accepted/claimed durable instruction. Do not
+    // turn it into a new local send merely because the source SSE ended.
+    if (queued.status === 'steering' && queued.targetRunId) return;
 
     if (autoSend && store.currentChatId === chatId) {
       sendQueuedAsNextTurn(chatId, queued);
@@ -236,10 +271,29 @@ export function useStreaming(
       });
     }
 
-    state.updateQueuedMessage(targetId, (current) => ({ ...current, status: 'steering' }));
+    state.updateQueuedMessage(targetId, (current) => ({
+      ...current,
+      status: 'steering',
+      targetRunId: runId,
+    }));
     try {
-      await steerChatRun(runId, currentQueued.id, currentQueued.content, targetId);
+      const accepted = await steerChatRun(runId, currentQueued.id, currentQueued.content, targetId);
+      useChatStore.getState().updateQueuedMessage(targetId, (current) => ({
+        ...current,
+        status: accepted.status === 'applied' ? 'applied' : 'steering',
+        targetRunId: runId,
+        durableStatus: accepted.status,
+      }));
+      // The POST response can be lost after durable acceptance. Query the
+      // authoritative queue so the card reflects server state instead of
+      // guessing from transport success alone.
+      await reconcileDurableSteerQueue(targetId, runId);
     } catch (error) {
+      // A transport error can happen after the database accepted the request.
+      // Reconcile the stable steer id before making the card retryable.
+      await reconcileDurableSteerQueue(targetId, runId);
+      const reconciled = useChatStore.getState().queuedMessages[targetId];
+      if (reconciled?.durableStatus) return;
       let stillLive: Awaited<ReturnType<typeof getActiveChatRun>> | undefined;
       try {
         stillLive = await getActiveChatRun(
@@ -257,6 +311,8 @@ export function useStreaming(
       useChatStore.getState().updateQueuedMessage(targetId, (current) => ({
         ...current,
         status: 'queued',
+        targetRunId: undefined,
+        durableStatus: undefined,
       }));
       message.error(t('立即开始失败：{msg}', { msg: (error as Error).message || String(error) }));
     }
@@ -268,9 +324,10 @@ export function useStreaming(
     const queued = state.queuedMessages[targetId];
     if (!queued || queued.status === 'applied') return;
     const activeRun = state.activeRuns[targetId];
-    if (queued.status === 'steering' && activeRun?.runId) {
+    const durableRunId = queued.targetRunId || activeRun?.runId;
+    if (queued.status === 'steering' && durableRunId) {
       try {
-        const removed = await withdrawChatRunSteer(activeRun.runId, queued.id, targetId);
+        const removed = await withdrawChatRunSteer(durableRunId, queued.id, targetId);
         if (!removed) {
           message.info(t('指令已经生效，无法撤回'));
           return;
@@ -281,6 +338,45 @@ export function useStreaming(
       }
     }
     useChatStore.getState().setQueuedMessage(targetId, null);
+  }
+
+  /** Reconcile a restored queue card with the database-backed five-state queue. */
+  async function reconcileDurableSteerQueue(chatId: string, runId: string) {
+    const queued = useChatStore.getState().queuedMessages[chatId];
+    if (!queued) return;
+    try {
+      const items = await getChatRunSteers(runId, chatId);
+      const durable = items.find((item) => item.steer_id === queued.id);
+      if (!durable) return;
+      if (durable.status === 'applied') {
+        useChatStore.getState().updateQueuedMessage(chatId, (current) => ({
+          ...current,
+          status: 'applied',
+          targetRunId: runId,
+          durableStatus: 'applied',
+        }));
+      } else if (durable.status === 'accepted' || durable.status === 'claimed') {
+        useChatStore.getState().updateQueuedMessage(chatId, (current) => ({
+          ...current,
+          status: 'steering',
+          targetRunId: runId,
+          durableStatus: durable.status,
+        }));
+      } else {
+        // cancelled / superseded are no longer owned by the backend worker;
+        // restore an editable local card instead of silently dropping text.
+        useChatStore.getState().updateQueuedMessage(chatId, (current) => ({
+          ...current,
+          id: `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          status: 'queued',
+          targetRunId: undefined,
+          durableStatus: undefined,
+        }));
+      }
+    } catch {
+      // A status-read outage does not change whether the instruction was
+      // accepted. Keep the restored card untouched and retry on next resume.
+    }
   }
 
   function commitAppliedQueuedMessage(
@@ -587,10 +683,13 @@ export function useStreaming(
       });
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      const outcome = await processChatStream(r, {
-        chatId: streamChatId,
-        enableThinking: isThinkingMode(chatMode),
-      });
+      const outcome = await processChatStreamWithHandoffRecovery(
+        r,
+        streamChatId,
+        isThinkingMode(chatMode),
+        undefined,
+        abortController.signal,
+      );
       streamOutcome = outcome;
 
       addBackendSessionId(currentChatId);
@@ -641,7 +740,15 @@ export function useStreaming(
                     if (idx >= 0) {
                       msgs[idx] = { ...msgs[idx], followUpQuestions: questions };
                     }
-                    return { chats: { ...prev.chats, [_pollChatId]: { ...c, messages: msgs } }, order: prev.order };
+                    // 必须推进 updatedAt：引导问题是流结束后轮询补写的，只有发起提问的
+                    // 那个标签页会跑这段轮询。跨标签页合并按 chat 粒度取 updatedAt 严格
+                    // 更大的一方（见 storage.mergeChatStores），不改时间戳这份带引导问题
+                    // 的快照就永远赢不过另一个窗口手里的旧副本 —— 表现为同一段对话，
+                    // 一个窗口有引导问题、另一个没有。
+                    return {
+                      chats: { ...prev.chats, [_pollChatId]: { ...c, messages: msgs, updatedAt: Date.now() } },
+                      order: prev.order,
+                    };
                   });
                   break;
                 }
@@ -722,13 +829,147 @@ export function useStreaming(
     chatId: string,
     pendingNotice?: string,
     enableThinking: boolean = false,
+    signal?: AbortSignal,
   ) {
-    const outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice });
+    const outcome = await processChatStreamWithHandoffRecovery(
+      response,
+      chatId,
+      enableThinking,
+      pendingNotice,
+      signal,
+    );
     useChatStore.getState().addBackendSessionId(chatId);
     useChatStore.getState().addLoadedMsgId(chatId);
     syncManualTitleToBackend(chatId);
     setTimeout(() => generateSummary(chatId), 500);
     setTimeout(() => generateClassification(chatId), 800);
+    return outcome;
+  }
+
+  async function discoverQueuedRun(
+    sourceRunId: string,
+    chatId: string,
+  ): Promise<QueuedRunHandoff | undefined> {
+    try {
+      const items = await getChatRunSteers(sourceRunId, chatId);
+      const applied = items.find((item) => (
+        item.status === 'applied'
+        && (item.delivery_mode === 'follow_up' || item.delivery_mode === 'next_run')
+        && !!item.applied_run_id
+      ));
+      return applied
+        ? parseAppliedQueueHandoff(applied as unknown as Record<string, unknown>)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Consume a stream and recover a DB-committed handoff even if its Redis event was lost. */
+  async function processChatStreamWithHandoffRecovery(
+    response: Response,
+    chatId: string,
+    enableThinking: boolean,
+    pendingNotice?: string,
+    signal?: AbortSignal,
+  ) {
+    let outcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
+    try {
+      outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice });
+    } catch (error) {
+      const sourceRunId = useChatStore.getState().activeRuns[chatId]?.runId;
+      const recovered = await followQueuedRunChain(
+        undefined,
+        chatId,
+        enableThinking,
+        signal,
+        sourceRunId,
+      );
+      if (!recovered) throw error;
+      return recovered;
+    }
+    const sourceRunId = useChatStore.getState().activeRuns[chatId]?.runId;
+    return (
+      await followQueuedRunChain(outcome, chatId, enableThinking, signal, sourceRunId)
+    ) ?? outcome;
+  }
+
+  /**
+   * A followUp/nextRun is committed together with the source run's completion.
+   * Follow the committed child immediately so a fast child cannot finish in the
+   * background before the 20-second active-run poll notices it.
+   */
+  async function followQueuedRunChain(
+    initial: Awaited<ReturnType<typeof processChatStream>> | undefined,
+    chatId: string,
+    enableThinking: boolean,
+    signal?: AbortSignal,
+    initialSourceRunId?: string,
+  ) {
+    let outcome = initial;
+    const seen = new Set<string>();
+    let sourceRunId = initialSourceRunId;
+    let usedDurableBackfill = false;
+    while (!outcome?.aborted) {
+      let queued = outcome?.queuedRun;
+      if (!queued && sourceRunId) {
+        queued = await discoverQueuedRun(sourceRunId, chatId);
+        if (queued) usedDurableBackfill = true;
+      }
+      if (!queued) break;
+      if (seen.has(queued.runId)) break;
+      seen.add(queued.runId);
+
+      useChatStore.getState().updateStore((prev) => {
+        const chat = prev.chats[chatId];
+        if (!chat || chat.messages.some((item) => item.messageId === queued.userMessageId)) return prev;
+        const lastTs = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1].ts : 0;
+        const userMessage: ChatMessage = {
+          role: 'user',
+          content: queued.message,
+          isMarkdown: false,
+          ts: Math.max(Date.now(), lastTs + 1),
+          messageId: queued.userMessageId,
+        };
+        return {
+          ...prev,
+          chats: {
+            ...prev.chats,
+            [chatId]: {
+              ...chat,
+              messages: [...chat.messages, userMessage],
+              updatedAt: Date.now(),
+            },
+          },
+        };
+      });
+      const localQueued = useChatStore.getState().queuedMessages[chatId];
+      if (localQueued?.id === queued.steerId) {
+        useChatStore.getState().setQueuedMessage(chatId, null);
+      }
+      useChatStore.getState().setActiveRun(chatId, {
+        runId: queued.runId,
+        messageId: queued.messageId,
+        lastOffset: 0,
+      });
+
+      const response = await followChatRun(
+        queued.runId,
+        0,
+        signal,
+        useAuthStore.getState().authUser?.user_id,
+        chatId,
+      );
+      if (!response.ok || !response.body) throw new Error(await response.text());
+      outcome = await processChatStream(response, { chatId, enableThinking });
+      sourceRunId = queued.runId;
+    }
+    if (usedDurableBackfill) {
+      // The projection was incomplete, so DB history is the final authority
+      // for any child that finished before its replay was attached.
+      useChatStore.getState().removeLoadedMsgId(chatId);
+      useChatStore.getState().bumpSessionLoadEpoch();
+    }
     return outcome;
   }
 
@@ -752,7 +993,13 @@ export function useStreaming(
       const r = await regenerateMessage(streamChatId, messageIndex, abortController.signal);
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      await processRegenerateStream(r, streamChatId, undefined, isThinkingMode(useChatStore.getState().chatMode));
+      await processRegenerateStream(
+        r,
+        streamChatId,
+        undefined,
+        isThinkingMode(useChatStore.getState().chatMode),
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('重新生成失败：{msg}', { msg: e?.message || String(e) }));
@@ -767,6 +1014,32 @@ export function useStreaming(
   async function editAndResend(messageIndex: number, newContent: string) {
     const { sending, addSendingChatId, removeSendingChatId, currentChatId, truncateMessagesFrom, setEditingMessageTs } = useChatStore.getState();
     if (!newContent.trim()) return;
+
+    // 编辑重发是**破坏性**的：后端 delete_messages_from 会把这条之后的消息全部硬删，
+    // 撤不回来。编辑第一轮时，后面几十轮问答会一声不响地消失（问题 24）。
+    // 所以在动手之前先把代价说清楚，让用户自己决定。
+    {
+      const chat = useChatStore.getState().store.chats[currentChatId];
+      const msgs = chat?.messages || [];
+      const targetTs = msgs[messageIndex]?.ts;
+      const droppedRounds = typeof targetTs === 'number'
+        ? msgs.filter((m) => m.ts > targetTs && m.role === 'user').length
+        : 0;
+      if (droppedRounds > 0) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: t('编辑后将丢弃后续对话'),
+            content: t('这条消息之后还有 {n} 轮问答，编辑重发会把它们一并删除且无法恢复。确定继续吗？', { n: droppedRounds }),
+            okText: t('继续编辑'),
+            okButtonProps: { danger: true },
+            cancelText: t('取消'),
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!confirmed) return;
+      }
+    }
     if (sending) {
       // 正在流式输出时点「发送」：先停止当前回答再编辑重发（对齐主流产品行为），
       // 而不是静默吞掉点击。abort 触发本地 AbortError → 原流的 finally 清理
@@ -804,7 +1077,13 @@ export function useStreaming(
       const r = await editAndRegenerate(streamChatId, messageIndex, newContent.trim(), abortController.signal);
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      await processRegenerateStream(r, streamChatId, undefined, isThinkingMode(useChatStore.getState().chatMode));
+      await processRegenerateStream(
+        r,
+        streamChatId,
+        undefined,
+        isThinkingMode(useChatStore.getState().chatMode),
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('编辑重发失败：{msg}', { msg: e?.message || String(e) }));
@@ -848,6 +1127,22 @@ export function useStreaming(
     if (controller) {
       controller.abort();
       abortControllersRef.current.delete(targetId);
+    }
+
+    // 计划模式：把后端的计划和它的 run 一并取消。只 abort 本地 SSE 是不够的——计划在
+    // 后端仍是 approved/执行中，切走再切回来（resumeRunIfAny 会重新挂上那个还活着的
+    // run）就表现为「已经中断的任务又自己跑起来了」（问题 32）。
+    {
+      const chat = useChatStore.getState().store.chats[targetId];
+      const execPlanId = (chat?.messages || [])
+        .flatMap((m) => m.segments || [])
+        .filter((seg) => seg.type === 'plan' && seg.planData?.mode === 'executing' && !seg.planData?.cancelled)
+        .map((seg) => seg.planData?.planId)
+        .filter((id): id is string => !!id)
+        .pop();
+      if (execPlanId) {
+        cancelPlanApi(execPlanId).catch(() => { /* noop —— 本地已经断流，后端有孤儿回收兜底 */ });
+      }
     }
 
     // Autonomous loop: on stop, wind the chat's "plan bar" down from running to cancelled —
@@ -913,7 +1208,107 @@ export function useStreaming(
     }
   }
 
-  async function resumeRunIfAny(chatId: string) {
+  /* ───────────────────────────────────────────
+     断连看门狗 —— 「后台早跑完了，前台还在转圈，只能靠刷新页面才发现」的根治。
+
+     成因：一轮长工具（批量作业 run_job 实测能把一轮撑到 54 分钟）期间，SSE 上只有每
+     15 秒一行心跳。中间任何一层（代理、NAT、休眠唤醒）把连接悄悄掐成半开时，fetch 既
+     不报错也不结束，reader 就永远 await 下去——气泡于是停在最后一帧转圈，而后端那轮
+     早已正常跑完落库。过去唯一的出路是用户自己刷新页面（resumeRunIfAny 只在切会话/
+     刷新时跑一次）。
+
+     判据用**传输层活性**而不是「有没有新内容」：长工具期间没有可渲染事件是正常的，
+     心跳断了才是真断了。连丢 5 拍（75 秒）才动手，宁可晚一点也不误伤慢链路。
+     ─────────────────────────────────────────── */
+  const RUN_STALL_MS = 75_000;
+  const RUN_WATCH_EVERY_MS = 20_000;
+  /** 正在对账的会话，防止两轮定时器叠在同一个会话上互相拆台。 */
+  const reconcilingRef = useRef<Set<string>>(new Set());
+
+  async function reconcileStalledRun(chatId: string) {
+    if (reconcilingRef.current.has(chatId)) return;
+    reconcilingRef.current.add(chatId);
+    try {
+      const uid = useAuthStore.getState().authUser?.user_id;
+      let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
+      try {
+        active = await getActiveChatRun(chatId, uid);
+      } catch {
+        return; // 查不到就等下一轮：宁可继续转圈，也不要凭一次网络抖动拆掉正在跑的轮次
+      }
+      const live = !!active && (active.status === 'running' || active.status === 'pending');
+      // 本地这条连接已经确定是死的（75 秒没有任何字节），先把它断掉，让气泡收尾
+      abortControllersRef.current.get(chatId)?.abort();
+
+      if (!live) {
+        // 后端那轮已经终态：结束僵尸 UI，并把库里的最终消息拉回来——用户不用再手动刷新。
+        // 先让上面的 abort 把气泡收尾写完，再拉历史，免得收尾把刚拉回来的最终消息盖掉。
+        cleanupZombieRunState(chatId, active?.status || 'completed');
+        await new Promise((r) => setTimeout(r, 300));
+        useChatStore.getState().removeLoadedMsgId(chatId);
+        useChatStore.getState().bumpSessionLoadEpoch();
+        return;
+      }
+
+      // run 还活着 → 重挂。等 abort 的 finally 把 sendingChatIds 清掉，否则 resumeRunIfAny
+      // 会被它自己的「正在发送就别插手」守卫挡回来。
+      for (let i = 0; i < 12 && useChatStore.getState().sendingChatIds.has(chatId); i++) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      if (useChatStore.getState().sendingChatIds.has(chatId)) return; // 没让开就等下一轮
+      await resumeRunIfAny(chatId, { rebuildTail: true });
+    } finally {
+      reconcilingRef.current.delete(chatId);
+    }
+  }
+
+  /** 后端自己发起的那一轮 —— 批量作业跑完/中途播报会在**同一个会话里入队一条新 run**
+   *  （job_wakeup），用户没点任何东西，前端也就没有任何本地流。过去只有切会话或刷新
+   *  才会去看一眼有没有在跑的 run，于是这轮播报全程隐身：作业早交付完了，页面上还是
+   *  用户离开时的样子。这里在当前会话空闲时补一眼，发现有活的 run 就照常跟随。 */
+  async function attachServerStartedRun(chatId: string) {
+    const store = useChatStore.getState();
+    if (store.sendingChatIds.has(chatId) || store.activeRuns[chatId]) return;
+    let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
+    try {
+      active = await getActiveChatRun(chatId, useAuthStore.getState().authUser?.user_id);
+    } catch {
+      return;
+    }
+    if (!active?.run_id || (active.status !== 'running' && active.status !== 'pending')) return;
+    // 自己刚跑完那一轮的残影（本地流已收尾、后端还没落终态）——认错了会把同一轮重放成两个气泡
+    if (hasStreamedRun(active.run_id)) return;
+    // 这轮的用户侧消息（唤醒指令）是后端落的库，本地还没有 → 先把历史拉齐再跟随，
+    // 否则回答会孤零零挂在上一轮后面。
+    store.removeLoadedMsgId(chatId);
+    store.bumpSessionLoadEpoch();
+    // 与刷新进来时同一条时序：先让历史落地，再挂流。抢在前面挂，重放中的气泡会被
+    // 随后到达的历史整体盖掉。
+    await new Promise((r) => setTimeout(r, 800));
+    await resumeRunIfAny(chatId);
+  }
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const { sendingChatIds, activeRuns, currentChatId } = useChatStore.getState();
+      const now = Date.now();
+      sendingChatIds.forEach((cid) => {
+        // 还没拿到 run_id 的（刚 POST 出去、首帧未到）不归看门狗管
+        if (!activeRuns[cid]) return;
+        const last = getStreamActivityTs(cid);
+        if (!last || now - last < RUN_STALL_MS) return;
+        void reconcileStalledRun(cid);
+      });
+      // 后台标签页不必占着这一发：切回来时 currentChatId 的 effect 本来就会补跟随
+      if (currentChatId && typeof document !== 'undefined' && document.visibilityState !== 'hidden') {
+        void attachServerStartedRun(currentChatId);
+      }
+    }, RUN_WATCH_EVERY_MS);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function resumeRunIfAny(chatId: string, opts?: { rebuildTail?: boolean }) {
     const uid = useAuthStore.getState().authUser?.user_id;
     let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
     try {
@@ -921,13 +1316,19 @@ export function useStreaming(
     } catch {
       return;
     }
+    const restoredQueued = useChatStore.getState().queuedMessages[chatId];
+    const durableRunId = restoredQueued?.targetRunId || active?.run_id;
+    if (durableRunId) await reconcileDurableSteerQueue(chatId, durableRunId);
     // Autonomous-loop plan-bar reconciliation: a plan bar restored from localStorage may still
     // read running while the backend run has already ended (stopped / finished / crashed). As
     // long as there's no "active loop run" that would be followed below, wind the plan bar down
     // to the real loop state, so it doesn't stay stuck on "in progress" forever after a refresh.
     await reconcileLoopBar(chatId, active);
 
-    if (!active || !active.run_id) return;
+    if (!active || !active.run_id) {
+      settleQueuedMessageAfterRun(chatId, undefined, false);
+      return;
+    }
     if (active.status !== 'running' && active.status !== 'pending') {
       // Run already terminal (failed / cancelled / completed) — the backend's
       // recover_orphan_runs marks zombie running runs failed on restart and writes a terminal
@@ -965,7 +1366,7 @@ export function useStreaming(
     // "回答无对应问题"（问题17）。Web Locks 随标签页关闭自动释放。
     const runLockName = `hugagent_run_follow_${active.run_id}`;
     const activeRun = active;
-    const doFollowRun = () => followActiveRun(chatId, activeRun, uid);
+    const doFollowRun = () => followActiveRun(chatId, activeRun, uid, opts?.rebuildTail);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const locksApi = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
     if (locksApi?.request) {
@@ -984,6 +1385,9 @@ export function useStreaming(
     chatId: string,
     active: NonNullable<Awaited<ReturnType<typeof getActiveChatRun>>>,
     uid: string | undefined,
+    /** 断连重挂：本地气泡是被掐断的半截，而重挂是从头全量重放 —— 先摘掉它再重建，
+     *  否则同一轮会并排出现两个气泡（刷新进来时没有这半截，所以默认不摘）。 */
+    rebuildTail?: boolean,
   ) {
     const { addSendingChatId, removeSendingChatId } = useChatStore.getState();
 
@@ -1060,6 +1464,16 @@ export function useStreaming(
       return;
     }
 
+    // 断连重挂：本地留着的是被掐断的半截气泡，而 active-run 会为刷新客户端返回
+    // offset 0 以全量重放；不摘掉旧气泡就会并排出现两个同轮气泡。
+    if (rebuildTail) {
+      const _msgs = useChatStore.getState().store.chats[chatId]?.messages;
+      const _last = _msgs && _msgs.length > 0 ? _msgs[_msgs.length - 1] : undefined;
+      if (_last?.role === 'assistant') {
+        useChatStore.getState().truncateMessagesFrom(chatId, _last.ts);
+      }
+    }
+
     addSendingChatId(chatId);
 
     const abortController = new AbortController();
@@ -1069,7 +1483,13 @@ export function useStreaming(
     try {
       const r = await followChatRun(active.run_id, active.last_event_offset || 0, abortController.signal, uid, chatId);
       if (!r.ok || !r.body) return;
-      streamOutcome = await processRegenerateStream(r, chatId, undefined, !!active.enable_thinking);
+      streamOutcome = await processRegenerateStream(
+        r,
+        chatId,
+        undefined,
+        !!active.enable_thinking,
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         // Resume failure is handled silently — UX-wise it's equivalent to "the task runs in the background and the final message arrives via the next refresh"
@@ -1134,7 +1554,13 @@ export function useStreaming(
       }
       // The endpoint streams the same SSE shape as /chats/regenerate, so
       // we can reuse the existing consumer.
-      await processRegenerateStream(r, chatId, undefined, isThinkingMode(useChatStore.getState().chatMode));
+      await processRegenerateStream(
+        r,
+        chatId,
+        undefined,
+        isThinkingMode(useChatStore.getState().chatMode),
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('取消批量并继续失败：{msg}', { msg: e?.message || String(e) }));

@@ -12,6 +12,8 @@ from agentscope.message import (
     ToolResultState,
 )
 from core.llm.chat_models import make_chat_model
+from core.llm.context_adapter import AgentScopeContextAdapter, PROVIDER_CONTEXT_META_KEY
+from core.llm.context_ir import ContextItem
 from core.llm.providers.registry import get_spec, to_frontend_schema
 
 
@@ -59,6 +61,59 @@ def test_generic_compatible_provider_keeps_existing_reasoning_transport():
         "reasoning_effort": "high",
     }
     assert model.structured_reasoning is False
+
+
+@pytest.mark.asyncio
+async def test_retry_annotation_inherits_memory_and_project_provenance_through_formatter():
+    model = _make_model("openai_compatible", None)
+    adapter = AgentScopeContextAdapter()
+
+    def item(item_id, text, *, kind, origin, trust, role):
+        return ContextItem.create(
+            item_id=item_id,
+            kind=kind,
+            origin=origin,
+            trust=trust,
+            visibility="model",
+            priority=800,
+            token_budget=1_000,
+            truncation_policy="never",
+            content=text,
+            cache_class="dynamic",
+            created_seq=1 if role == "system" else 2,
+            render_role=role,
+            render_name=role,
+            message_group=item_id,
+        )
+
+    source = adapter.messages_from_items(
+        [
+            item(
+                "project",
+                "project material",
+                kind="project_material",
+                origin="workspace:project-1",
+                trust="workspace",
+                role="system",
+            ),
+            item(
+                "memory",
+                "remembered fact",
+                kind="memory",
+                origin="memory:frozen",
+                trust="memory",
+                role="user",
+            ),
+        ]
+    )
+    formatted = await model.formatter.format(source)
+    annotated = await model._annotate_retry_context(source, formatted)
+    restored = adapter.items_from_provider_messages(annotated)
+
+    assert [(entry.kind, entry.origin, entry.trust) for entry in restored] == [
+        ("project_material", "workspace:project-1", "workspace"),
+        ("memory", "memory:frozen", "memory"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -112,6 +167,18 @@ async def test_text_only_model_retries_tool_image_result_without_multimodal_bloc
         lambda _started_at, response, _audio_format: response,
     )
 
+    async def no_transcription(formatted):
+        return formatted, 0
+
+    monkeypatch.setattr("core.llm.chat_models._transcribe_multimodal_content", no_transcription)
+    observed_rewrite = []
+
+    async def observe_rewrite(messages):
+        observed_rewrite.extend(messages)
+        return messages
+
+    model.set_context_rewrite_listener(observe_rewrite)
+
     response = await model._call_api("deepseekv4-flash", messages)
 
     assert response is expected_response
@@ -119,3 +186,8 @@ async def test_text_only_model_retries_tool_image_result_without_multimodal_bloc
     assert "image_url" in str(calls[0]["messages"])
     assert "image_url" not in str(calls[1]["messages"])
     assert "architecture" in str(calls[1]["messages"])
+    assert any(
+        message.get(PROVIDER_CONTEXT_META_KEY, {}).get("origin") == "harness:multimodal_fallback"
+        for message in observed_rewrite
+    )
+    assert all(PROVIDER_CONTEXT_META_KEY not in message for message in calls[1]["messages"])

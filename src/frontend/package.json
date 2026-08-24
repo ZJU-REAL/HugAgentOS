@@ -5,11 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-i18n.mjs && node scripts/check-dark-mode.mjs && tsc -b && vite build",
+    "build": "node scripts/check-i18n.mjs && node scripts/check-dark-mode.mjs && tsc -b && vite build && node scripts/precompress-dist.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:dark": "node scripts/check-dark-mode.mjs",
     "test:chat-stream": "esbuild scripts/test-chat-stream-segments.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-chat-stream-segments.mjs && node node_modules/.tmp/test-chat-stream-segments.mjs",
+    "test:kb-assets": "node scripts/run-kb-asset-test.mjs",
+    "test:citation-highlight": "esbuild scripts/test-citation-highlight.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-citation-highlight.mjs && node node_modules/.tmp/test-citation-highlight.mjs",
+    "test:plugin-ui": "esbuild scripts/test-plugin-ui-pointer.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-plugin-ui-pointer.mjs && node node_modules/.tmp/test-plugin-ui-pointer.mjs",
     "test:sidebar-order": "esbuild scripts/test-sidebar-order.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-sidebar-order.mjs && node node_modules/.tmp/test-sidebar-order.mjs",
+    "test:user-questions": "esbuild scripts/test-user-questions.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-user-questions.mjs && node node_modules/.tmp/test-user-questions.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

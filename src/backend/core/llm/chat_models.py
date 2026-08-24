@@ -24,9 +24,11 @@ The L3 placeholder-summary fallback for failed compaction calls is provided unif
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 from datetime import datetime
+from time import monotonic as _monotonic
 from time import perf_counter as _perf_counter
 from typing import Any, AsyncGenerator, Optional
 
@@ -36,6 +38,7 @@ from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase, ChatResponse, OpenAIChatModel
 from agentscope.tool._types import ToolChoice
+from core.llm.context_adapter import AgentScopeContextAdapter, PROVIDER_CONTEXT_META_KEY
 from core.llm.providers._fallback import (  # noqa: F401
     L3_SYNTHETIC_METADATA,
     StructuredFallbackMixin,
@@ -65,6 +68,22 @@ _MULTIMODAL_CONTENT_TYPES = frozenset(
 )
 
 
+def _provider_context_metadata(
+    *,
+    kind: str,
+    origin: str,
+    trust: str,
+    priority: int,
+) -> dict[str, Any]:
+    """Provenance annotation stripped before an OpenAI-compatible call."""
+    return {
+        "kind": kind,
+        "origin": origin,
+        "trust": trust,
+        "priority": priority,
+    }
+
+
 def _is_multimodal_unsupported_error(exc: Exception) -> bool:
     """Whether an OpenAI-compatible endpoint explicitly rejected media input."""
     message = str(exc).lower()
@@ -83,7 +102,134 @@ def _is_multimodal_unsupported_error(exc: Exception) -> bool:
     return mentions_media and rejects_media
 
 
-def _without_multimodal_content(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+def _decode_image_block(block: dict[str, Any]) -> Optional[tuple[bytes, str]]:
+    """Pull raw bytes out of an OpenAI-style image block, if they travel inline.
+
+    Only ``data:`` URIs are decoded. A remote ``https://`` image is left alone:
+    fetching it here would be an unvetted server-side request from inside the
+    model call path.
+    """
+    import base64
+    import re
+
+    url = ""
+    block_type = str(block.get("type", "")).lower()
+    if block_type == "image_url":
+        holder = block.get("image_url")
+        url = holder.get("url", "") if isinstance(holder, dict) else ""
+    elif block_type in ("image", "input_image"):
+        source = block.get("source")
+        if isinstance(source, dict) and source.get("type") == "base64":
+            data = source.get("data") or ""
+            media = source.get("media_type") or "image/png"
+            try:
+                return base64.b64decode(data), media
+            except Exception:  # noqa: BLE001
+                return None
+        url = block.get("image_url") or block.get("url") or ""
+    if not isinstance(url, str) or not url.startswith("data:"):
+        return None
+    match = re.match(r"^data:([^;,]+);base64,(.*)$", url, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return base64.b64decode(match.group(2)), match.group(1)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _transcribe_multimodal_content(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Replace inline images with vision-bridge text evidence, in place of dropping them.
+
+    This is the tool-output half of the vision bridge: a tool (chart rendering, a
+    paper-figure fetch, …) hands back an image, AgentScope promotes it into a
+    message block, and a text-only endpoint 400s on the whole request. Dropping the
+    block keeps the run alive but leaves the agent unable to check its own output.
+    Transcribing keeps the information.
+
+    Returns the rewritten messages and how many images were transcribed; ``0`` means
+    nothing could be transcribed and the caller should fall back to dropping them.
+    """
+    try:
+        from core.vision import get_vision_bridge, render_evidence
+        from core.vision.service import is_available
+
+        if not is_available():
+            return messages, 0
+        bridge = get_vision_bridge()
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[vision] tool-image transcription unavailable: %s", exc)
+        return messages, 0
+
+    # Collect first so every image in the payload is described concurrently.
+    targets: list[tuple[int, int, bytes, str]] = []
+    for m_idx, message in enumerate(messages):
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for b_idx, block in enumerate(content):
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("type", "")).lower() not in _MULTIMODAL_CONTENT_TYPES:
+                continue
+            decoded = _decode_image_block(block)
+            if decoded is not None:
+                targets.append((m_idx, b_idx, decoded[0], decoded[1]))
+    if not targets:
+        return messages, 0
+
+    results = await bridge.describe_many([(data, mime) for _, _, data, mime in targets])
+    replacements: dict[tuple[int, int], str] = {}
+    for (m_idx, b_idx, _, _), result in zip(targets, results):
+        if result is None:
+            continue
+        replacements[(m_idx, b_idx)] = render_evidence(
+            result.evidence, name="工具返回的图片", model=result.model
+        )
+    if not replacements:
+        return messages, 0
+
+    rewritten: list[dict[str, Any]] = []
+    for m_idx, message in enumerate(messages):
+        content = message.get("content")
+        if not isinstance(content, list):
+            rewritten.append(message)
+            continue
+        new_content: list[Any] = []
+        touched = False
+        for b_idx, block in enumerate(content):
+            text = replacements.get((m_idx, b_idx))
+            if text is None:
+                new_content.append(block)
+            else:
+                new_content.append({"type": "text", "text": text})
+                touched = True
+        if touched:
+            rewritten.append(
+                {
+                    **message,
+                    "content": new_content,
+                    PROVIDER_CONTEXT_META_KEY: _provider_context_metadata(
+                        kind="attachment",
+                        origin="vision:transcription",
+                        trust="tool",
+                        priority=850,
+                    ),
+                }
+            )
+        else:
+            rewritten.append(message)
+    # Any media the bridge couldn't handle (remote URLs, audio, a failed read) must
+    # still go, or the retry hits the same 400 that got us here.
+    cleaned, _ = _without_multimodal_content(rewritten)
+    return cleaned, len(replacements)
+
+
+def _without_multimodal_content(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
     """Copy formatted messages while replacing unsupported media blocks with text."""
     sanitized: list[dict[str, Any]] = []
     removed = 0
@@ -101,7 +247,9 @@ def _without_multimodal_content(messages: list[dict[str, Any]]) -> tuple[list[di
         kept: list[Any] = []
         removed_from_message = 0
         for block in content:
-            block_type = str(block.get("type", "")).lower() if isinstance(block, dict) else ""
+            block_type = (
+                str(block.get("type", "")).lower() if isinstance(block, dict) else ""
+            )
             if block_type in _MULTIMODAL_CONTENT_TYPES:
                 removed += 1
                 removed_from_message += 1
@@ -117,11 +265,47 @@ def _without_multimodal_content(messages: list[dict[str, Any]]) -> tuple[list[di
         # meaningless once the media block is removed, so replace the whole
         # reminder. For ordinary user messages, retain their accompanying text
         # and append the same explicit degradation notice.
+        reminder_meta = _provider_context_metadata(
+            kind="reminder",
+            origin="harness:multimodal_fallback",
+            trust="system",
+            priority=800,
+        )
         if message.get("name") == "system-reminder":
-            kept = [{"type": "text", "text": fallback_text}]
+            # Retain any successful vision transcription in a partially
+            # recoverable media message, but discard the formatter's otherwise
+            # meaningless media identifier prose.
+            existing_meta = message.get(PROVIDER_CONTEXT_META_KEY)
+            if existing_meta:
+                sanitized.append({**message, "content": kept})
+                sanitized.append(
+                    {
+                        "role": "user",
+                        "name": "system-reminder",
+                        "content": [{"type": "text", "text": fallback_text}],
+                        PROVIDER_CONTEXT_META_KEY: reminder_meta,
+                    }
+                )
+            else:
+                kept = [{"type": "text", "text": fallback_text}]
+                sanitized.append(
+                    {
+                        **message,
+                        "content": kept,
+                        PROVIDER_CONTEXT_META_KEY: reminder_meta,
+                    }
+                )
         else:
-            kept.append({"type": "text", "text": fallback_text})
-        sanitized.append({**message, "content": kept})
+            if kept:
+                sanitized.append({**message, "content": kept})
+            sanitized.append(
+                {
+                    "role": "user",
+                    "name": "system-reminder",
+                    "content": [{"type": "text", "text": fallback_text}],
+                    PROVIDER_CONTEXT_META_KEY: reminder_meta,
+                }
+            )
 
     return sanitized, removed
 
@@ -257,6 +441,7 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
         # The source of truth is context_length from the Config admin model configuration
         # (resolved inside make_chat_model).
         context_size: int,
+        provider_id: str = "openai_compatible",
         extra_body: dict | None = None,
         azure: dict | None = None,
         structured_reasoning: bool = False,
@@ -273,11 +458,54 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
             formatter=OpenAIChatFormatter(),
         )
         self._http_client = http_client
+        self.provider_id = provider_id
         self._extra_body = extra_body or {}
-        self._azure = azure  # when {"api_version": ...} is non-empty, use AsyncAzureOpenAI
+        self._azure = (
+            azure  # when {"api_version": ...} is non-empty, use AsyncAzureOpenAI
+        )
         # The SSE layer uses this to distinguish structured reasoning_content from
         # legacy models that embed reasoning in content as <think>...</think>.
         self.structured_reasoning = structured_reasoning
+        self._context_rewrite_listener = None
+
+    def set_context_rewrite_listener(self, listener) -> None:  # noqa: ANN001
+        """Observe and optionally canonicalize a provider-level retry request."""
+        self._context_rewrite_listener = listener
+
+    async def _publish_context_rewrite(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        listener = self._context_rewrite_listener
+        if listener is not None:
+            rendered = listener(messages)
+            if inspect.isawaitable(rendered):
+                rendered = await rendered
+            if rendered is not None:
+                messages = list(rendered)
+        # Harness metadata is never a provider API field, including when this
+        # model is invoked outside ManifestBoundAgent.
+        cleaned = []
+        for message in messages:
+            row = dict(message)
+            row.pop(PROVIDER_CONTEXT_META_KEY, None)
+            cleaned.append(row)
+        return cleaned
+
+    async def _annotate_retry_context(
+        self,
+        source_messages: list[Msg],
+        formatted_messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Restore IR provenance that the provider formatter cannot carry."""
+        row_counts = []
+        for message in source_messages:
+            row_counts.append(len(await self.formatter.format([message])))
+        return AgentScopeContextAdapter().annotate_provider_messages(
+            source_messages,
+            formatted_messages,
+            row_counts,
+        )
 
     def _build_client(self):
         import openai
@@ -358,6 +586,7 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
             # is what lets a slow first token be attributed to the payload
             # (system prompt + tool schemas) rather than to the network.
             _t_req = _perf_counter()
+            _usage_started = _monotonic()
             _dump_wire_payload(kwargs)
             if logger.isEnabledFor(logging.INFO):
                 import json as _json
@@ -371,8 +600,20 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
                     len(_json.dumps(kwargs.get("tools") or [], ensure_ascii=False)),
                 )
             response = await client.chat.completions.create(**kwargs)
-            logger.info("[wire] response headers in %.0fms", (_perf_counter() - _t_req) * 1000)
+            logger.info(
+                "[wire] response headers in %.0fms", (_perf_counter() - _t_req) * 1000
+            )
         except Exception as exc:
+            from core.llm.model_usage import record_provider_failure
+
+            await record_provider_failure(
+                self,
+                model_name,
+                exc,
+                started=_usage_started,
+                provider=self.provider_id,
+                metadata={"fallback": "multimodal"},
+            )
             # MCP tools may return image DataBlocks alongside useful JSON text
             # (for example get_paper_figures). AgentScope promotes those blocks
             # into an OpenAI image_url message for the next ReAct round. A
@@ -383,19 +624,53 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
             # removed while retaining the tool's text/metadata/captions.
             if not _is_multimodal_unsupported_error(exc):
                 raise
-            fallback_messages, removed = _without_multimodal_content(formatted_messages)
-            if not removed:
-                raise
-            logger.warning(
-                "Model %s rejected multimodal input; retrying without %d media block(s)",
-                model_name,
-                removed,
+            # Preferred recovery: transcribe the images into text evidence via the
+            # vision bridge, so the agent keeps the information instead of only
+            # learning that "there was an image". Dropping them stays as the
+            # fallback for when no vision model is configured.
+            retry_source = await self._annotate_retry_context(
+                messages, formatted_messages
             )
-            kwargs["messages"] = fallback_messages
-            response = await client.chat.completions.create(**kwargs)
+            fallback_messages, transcribed = await _transcribe_multimodal_content(
+                retry_source
+            )
+            if transcribed:
+                logger.info(
+                    "Model %s rejected multimodal input; retrying with %d transcribed image(s)",
+                    model_name,
+                    transcribed,
+                )
+            else:
+                fallback_messages, removed = _without_multimodal_content(retry_source)
+                if not removed:
+                    raise
+                logger.warning(
+                    "Model %s rejected multimodal input; retrying without %d media block(s)",
+                    model_name,
+                    removed,
+                )
+            kwargs["messages"] = await self._publish_context_rewrite(fallback_messages)
+            _retry_started = _monotonic()
+            from core.llm.model_usage import note_provider_retry_started
+
+            note_provider_retry_started(self, model_name, _retry_started)
+            try:
+                response = await client.chat.completions.create(**kwargs)
+            except Exception as retry_exc:
+                await record_provider_failure(
+                    self,
+                    model_name,
+                    retry_exc,
+                    started=_retry_started,
+                    provider=self.provider_id,
+                    metadata={"fallback": "multimodal_retry"},
+                )
+                raise
 
         audio_cfg = kwargs.get("audio")
-        audio_fmt = audio_cfg.get("format", "wav") if isinstance(audio_cfg, dict) else "wav"
+        audio_fmt = (
+            audio_cfg.get("format", "wav") if isinstance(audio_cfg, dict) else "wav"
+        )
         if self.stream:
             return self._parse_stream_response(start_datetime, response, audio_fmt)
         return self._parse_completion_response(start_datetime, response, audio_fmt)
@@ -467,6 +742,7 @@ def _make_openai_compatible(
     reasoning_effort: Optional[str],
     stream: bool,
     context_size: int,
+    structured_reasoning: Optional[bool] = None,
 ) -> OpenAICompatChatModel:
     azure: dict | None = None
     actual_model = model
@@ -499,9 +775,14 @@ def _make_openai_compatible(
         stream=stream,
         http_client=_make_http_client(timeout),
         context_size=context_size,
+        provider_id=spec.id,
         extra_body=extra_body,
         azure=azure,
-        structured_reasoning=spec.structured_reasoning,
+        structured_reasoning=(
+            spec.structured_reasoning
+            if structured_reasoning is None
+            else structured_reasoning
+        ),
     )
 
 
@@ -519,6 +800,7 @@ def make_chat_model(
     reasoning_effort: Optional[str] = None,
     stream: bool = False,
     context_size: Optional[int] = None,
+    structured_reasoning: Optional[bool] = None,
 ) -> ChatModelBase:
     """Construct a ChatModel dispatched by provider (AgentScope 2.0).
 
@@ -578,6 +860,7 @@ def make_chat_model(
         reasoning_effort=reasoning_effort,
         stream=stream,
         context_size=context_size,
+        structured_reasoning=structured_reasoning,
     )
 
 
@@ -588,7 +871,9 @@ def _resolve_or_dummy(role_key: str):
 
         return ModelConfigService.get_instance().resolve(role_key)
     except Exception as exc:
-        logger.warning("ModelConfigService unavailable for role '%s': %s", role_key, exc)
+        logger.warning(
+            "ModelConfigService unavailable for role '%s': %s", role_key, exc
+        )
         return None
 
 
@@ -601,7 +886,9 @@ def get_default_model(
     cfg = cfg or ModelConfig()
     resolved = _resolve_or_dummy("main_agent")
     if reasoning_effort is not None:
-        supports = bool((resolved.extra if resolved else {}).get("supports_reasoning_effort"))
+        supports = bool(
+            (resolved.extra if resolved else {}).get("supports_reasoning_effort")
+        )
         if not supports:
             reasoning_effort = None
     if resolved:
@@ -617,6 +904,14 @@ def get_default_model(
             disable_thinking=disable_thinking,
             reasoning_effort=reasoning_effort,
             stream=stream,
+            # Per-model admin flag: the upstream delivers reasoning via the separate
+            # reasoning_content channel (never inline <think>). The SSE layer then sends
+            # the structured_reasoning protocol marker at stream start, so on turns where
+            # the model skips thinking the frontend still streams the answer instead of
+            # buffering it as presumed reasoning until round end.
+            structured_reasoning=(
+                True if (resolved.extra or {}).get("structured_reasoning") else None
+            ),
         )
     return make_chat_model(
         model="dummy-model",

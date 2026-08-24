@@ -61,6 +61,11 @@ export function ToolProgressInline({ message, toolCalls, panelKey }: ToolProgres
       <span className="jx-inlineSummaryText">
         {anyRunning ? t('正在调用 {label}', { label }) : t('已调用 {label}', { label })}
       </span>
+      {/* 长工具（批量作业）的实时进度：这条摘要行在折叠态是用户唯一的信息源 */}
+      {anyRunning && (() => {
+        const note = tools.find(tc => isRunning(tc) && tc.progressNote)?.progressNote;
+        return note ? <span className="jx-trs-note">{note}</span> : null;
+      })()}
       {anyRunning && <ElapsedTimer startTs={startTs} className="jx-inlineSummaryTimer" />}
       <RightOutlined className="jx-inlineSummaryArrow" />
     </div>

@@ -4,7 +4,8 @@ import { EDITION_TOOL_NAME_OVERRIDES } from '../toolEdition';
 
 export type CatalogKind = Exclude<PanelKey, 'chat' | 'docs' | 'app_center' | 'share_records' | 'settings'>;
 
-/** Tool names whose output should open in the right-side panel (not inline) */
+/** Host tools whose output opens in the right-side panel (not inline).
+ *  Plugin tools declare their own placement via ``canvas_views`` instead. */
 export const PANEL_TOOL_NAMES = new Set([
   'query_database',
   'retrieve_dataset_content',
@@ -13,7 +14,9 @@ export const PANEL_TOOL_NAMES = new Set([
   'internet_search',
 ]);
 
-/** Icons for each tool (under /icons/) */
+/** Icons for host-owned tools (under /icons/).
+ *  A plugin tool's icon comes from its ``tool_meta`` contribution; see
+ *  ``resolveToolIcon`` in ``utils/toolMeta.ts``. */
 export const TOOL_ICONS: Record<string, string> = {
   query_database: '/icons/database.png',
   retrieve_dataset_content: '/icons/knowledge.png',
@@ -37,7 +40,7 @@ export function stripMcpToolPrefix(name: string): string {
 /** Frontend-local tool name overrides (higher priority than backend displayName) */
 export const TOOL_NAME_OVERRIDES: Record<string, string> = {
   view_text_file: t('读取文件'),
-  call_subagent: t('调用子智能体'),
+  call_subagent: t('调用智能体'),
   load_skill: t('加载技能'),
   load_plugin: t('加载插件'),
   // MySpace tools

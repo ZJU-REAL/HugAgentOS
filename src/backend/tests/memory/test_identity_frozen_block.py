@@ -26,6 +26,7 @@ def _run(coro):
 
 # ── inject_frozen_memory combination behavior ──────────────────────────────
 
+
 def test_inject_neither_returns_unchanged():
     msgs = [{"role": "user", "content": "你好"}]
     out = _run(inject_frozen_memory("", msgs, identity_block=""))
@@ -54,14 +55,24 @@ def test_inject_memory_only_keeps_legacy_shape():
 
 def test_inject_both_identity_precedes_memory():
     msgs = [{"role": "user", "content": "你好"}]
-    out = _run(inject_frozen_memory(
-        "用户偏好：简洁回复", msgs, identity_block="## 当前用户\n- 用户名：张三",
-    ))
-    content = out[0]["content"]
-    assert content.index("<session_user_identity>") < content.index("<session_memory_frozen>")
+    out = _run(
+        inject_frozen_memory(
+            "用户偏好：简洁回复",
+            msgs,
+            identity_block="## 当前用户\n- 用户名：张三",
+        )
+    )
+    assert len(out) == 3
+    assert "<session_user_identity>" in out[0]["content"]
+    assert "<session_memory_frozen>" in out[1]["content"]
+    assert out[0]["_context_item"]["kind"] == "identity"
+    assert out[1]["_context_item"]["kind"] == "memory"
+    assert out[0]["_context_item"]["trust"] == "system"
+    assert out[1]["_context_item"]["trust"] == "memory"
 
 
 # ── build_user_identity_block short-circuit branches ───────────────────────
+
 
 def test_identity_block_skips_anonymous_and_empty():
     assert _run(build_user_identity_block("")) == ""
@@ -69,6 +80,7 @@ def test_identity_block_skips_anonymous_and_empty():
 
 
 # ── Sub-agent system prompt: the date segment must be last ─────────────────
+
 
 def test_subagent_prompt_date_is_last_segment():
     from prompts.prompt_runtime import build_subagent_system_prompt
@@ -80,8 +92,7 @@ def test_subagent_prompt_date_is_last_segment():
     assert "## 当前时间" in prompt
     last_segment = prompt.split("\n\n")[-2:]  # heading line + date line
     assert any("## 当前时间" in seg for seg in last_segment), (
-        "日期段必须是 system prompt 的最后一段（前缀缓存要求），实际尾部：%r"
-        % prompt[-200:]
+        "日期段必须是 system prompt 的最后一段（前缀缓存要求），实际尾部：%r" % prompt[-200:]
     )
     # Role definition comes before the date
     assert prompt.index("你是测试助手") < prompt.index("## 当前时间")

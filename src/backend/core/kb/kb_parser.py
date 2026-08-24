@@ -1,17 +1,21 @@
 """Document parser and parent-child chunker for private knowledge base.
 
-Supported formats: PDF, DOCX, TXT, MD, XLSX
-Output: list of ParentChunk, each containing child chunks for vector indexing.
+Supported formats: PDF, DOCX, TXT, MD, XLSX, 图片
+Output: list of ParentChunk, each containing child chunks for vector indexing,
+plus the non-text assets (图片；后续音视频) cut out of the document.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 # ── Data structures ────────────────────────────────────────────────────────────
 
@@ -29,6 +33,30 @@ class ParentChunk:
     children: list[ChildChunk]
     char_start: Optional[int] = None
     char_end: Optional[int] = None
+
+
+@dataclass
+class RawAsset:
+    """A non-text medium extracted from the source document, before persistence.
+
+    ``placeholder`` is the exact token this medium is referenced by inside the
+    paragraph text (``images/<sha>.jpg`` for a layout-extracted figure, a synthetic
+    ``asset://<uuid>`` for a standalone upload). It is what links the medium back to
+    the parent chunk that contains it, and what gets rewritten to a real URL once the
+    asset has an id.
+
+    Medium-agnostic on purpose: ``kind`` widens to audio/video, and ``locator`` holds
+    ``{page_idx, bbox}`` for an image where a transcript segment would hold
+    ``{start_ms, end_ms}``.
+    """
+
+    data: bytes
+    placeholder: str
+    kind: str = "image"
+    mime_type: str = "application/octet-stream"
+    text_content: str = ""          # 图注 / OCR（音视频接入后：ASR 转写）
+    locator: dict = field(default_factory=dict)
+    index: int = 0
 
 
 # ── Token counting ─────────────────────────────────────────────────────────────
@@ -83,14 +111,44 @@ def extract_text(file_bytes: bytes, mime_type: str) -> list[dict]:
     Returns a list of paragraph dicts:
         {"text": str, "heading_level": int|None, "element_type": str}
     """
+    paragraphs, _ = extract_text_with_assets(file_bytes, mime_type, with_assets=False)
+    return paragraphs
+
+
+def extract_text_with_assets(
+    file_bytes: bytes,
+    mime_type: str,
+    *,
+    with_assets: bool = True,
+) -> tuple[list[dict], list[RawAsset]]:
+    """Extract paragraphs and, when ``with_assets``, the media the document carries.
+
+    Asset extraction is opt-in because it costs a heavier parse call: the layout
+    service inlines every figure as base64 in the JSON response, which the text-only
+    callers have no use for. When the rich call fails for any reason we fall back to
+    the plain text path — a parse service that doesn't support the media params must
+    degrade to today's behaviour, never fail the document.
+    """
     mt = (mime_type or "").lower()
+
+    # Standalone image upload. Without this branch an image falls through to
+    # ``_extract_plain_text``, which latin-1 decodes the binary into garbage
+    # paragraphs and indexes them — the upload allowlist accepts png/jpg/webp/gif
+    # (``core/content/file_validation.py``) so this path is reachable in production.
+    if mt.startswith("image/"):
+        return _extract_standalone_image(file_bytes, mt, with_assets=with_assets)
 
     # XLSX — keep built-in handler (file_parser doesn't support spreadsheets)
     if mt in (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.ms-excel",
     ):
-        return _extract_xlsx(file_bytes)
+        return _extract_xlsx(file_bytes), []
+
+    if with_assets and mt == "application/pdf":
+        rich = _extract_pdf_rich(file_bytes)
+        if rich is not None:
+            return rich
 
     # Try core/file_parser for all other known types
     suffix = _MIME_TO_SUFFIX.get(mt)
@@ -100,13 +158,127 @@ def extract_text(file_bytes: bytes, mime_type: str) -> list[dict]:
             filename = f"upload{suffix}"
             content = parse_file(file_bytes, filename)
             if content:
-                return _markdown_to_paragraphs(content)
+                return _markdown_to_paragraphs(content), []
         except RuntimeError:
             # file_parser failed (e.g. service down) — fall through to built-in
             pass
 
     # Fallback: treat as plain text
-    return _extract_plain_text(file_bytes)
+    return _extract_plain_text(file_bytes), []
+
+
+# Media placeholders the layout service emits: ``![alt](images/<sha>.jpg)``.
+_MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
+
+_IMAGE_MIME_TO_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+def _extract_standalone_image(
+    file_bytes: bytes,
+    mime_type: str,
+    *,
+    with_assets: bool,
+) -> tuple[list[dict], list[RawAsset]]:
+    """An uploaded image is one asset with one synthetic paragraph holding its ref.
+
+    The paragraph exists so the normal chunker still produces a parent chunk: retrieval
+    fetches parent content from PostgreSQL, and an image-only document with no chunk
+    would be unreachable. The caption/description is attached to the asset, not
+    inlined here — it is not known until the VLM pass has run.
+    """
+    placeholder = f"asset://{uuid.uuid4().hex[:16]}"
+    paragraphs = [{"text": f"![]({placeholder})", "heading_level": None, "element_type": "image"}]
+    if not with_assets:
+        return paragraphs, []
+    asset = RawAsset(
+        data=file_bytes,
+        placeholder=placeholder,
+        kind="image",
+        mime_type=mime_type,
+        index=0,
+    )
+    return paragraphs, [asset]
+
+
+def _extract_pdf_rich(file_bytes: bytes) -> Optional[tuple[list[dict], list[RawAsset]]]:
+    """Parse a PDF keeping its figures. Returns None to signal "fall back to text-only"."""
+    try:
+        from core.content.file_parser import parse_pdf_rich
+
+        result = parse_pdf_rich(file_bytes, "upload.pdf")
+    except Exception as exc:
+        logger.warning("PDF 富解析失败，退回纯文本解析: %s", exc)
+        return None
+
+    paragraphs = _markdown_to_paragraphs(result.markdown)
+    if not result.images:
+        return paragraphs, []
+
+    # Layout metadata (caption / bbox / page) keyed by the same path the markdown
+    # references, so each figure's asset carries where it came from.
+    meta_by_path: dict[str, dict] = {}
+    for block in result.blocks:
+        if block.get("type") != "image":
+            continue
+        path = str(block.get("img_path") or "")
+        if path:
+            meta_by_path[path] = block
+
+    assets: list[RawAsset] = []
+    seen: set[str] = set()
+    # Iterate in document order: the markdown's image links are the source of truth for
+    # ordering, and only images actually referenced by the text get an asset.
+    for idx, path in enumerate(_MD_IMAGE_RE.findall(result.markdown)):
+        if path in seen:
+            continue
+        data = result.images.get(path)
+        if not data:
+            continue
+        seen.add(path)
+        meta = meta_by_path.get(path, {})
+        caption_parts = [
+            str(x).strip()
+            for x in (meta.get("image_caption") or []) + (meta.get("image_footnote") or [])
+            if str(x).strip()
+        ]
+        locator = {}
+        if meta.get("page_idx") is not None:
+            locator["page_idx"] = meta.get("page_idx")
+        if meta.get("bbox"):
+            locator["bbox"] = meta.get("bbox")
+        assets.append(
+            RawAsset(
+                data=data,
+                placeholder=path,
+                kind="image",
+                mime_type=_guess_image_mime(path),
+                text_content=" ".join(caption_parts),
+                locator=locator,
+                index=idx,
+            )
+        )
+
+    return paragraphs, assets
+
+
+def _guess_image_mime(path: str) -> str:
+    lowered = path.lower()
+    for mime, ext in _IMAGE_MIME_TO_EXT.items():
+        if lowered.endswith(ext):
+            return mime
+    if lowered.endswith(".jpeg"):
+        return "image/jpeg"
+    return "image/jpeg"
+
+
+def image_extension_for_mime(mime_type: str) -> str:
+    """Filename suffix for an image mime, used when building the storage key."""
+    return _IMAGE_MIME_TO_EXT.get((mime_type or "").lower(), ".jpg")
 
 
 def _markdown_to_paragraphs(text: str) -> list[dict]:
@@ -713,8 +885,42 @@ def parse_and_chunk(
     child_separators: Optional[list[str]] = None,
 ) -> list[ParentChunk]:
     """Full pipeline: extract text then build parent-child chunks."""
-    paragraphs = extract_text(file_bytes, mime_type)
-    return build_parent_child_chunks(
+    parents, _ = parse_and_chunk_rich(
+        file_bytes,
+        mime_type,
+        chunk_method=chunk_method,
+        parent_size=parent_size,
+        child_size=child_size,
+        overlap=overlap,
+        embed_fn=embed_fn,
+        separators=separators,
+        child_separators=child_separators,
+        with_assets=False,
+    )
+    return parents
+
+
+def parse_and_chunk_rich(
+    file_bytes: bytes,
+    mime_type: str,
+    chunk_method: str = "semantic",
+    parent_size: int = 1024,
+    child_size: int = 128,
+    overlap: int = 20,
+    embed_fn: Optional[Callable[[list[str]], list[list[float]]]] = None,
+    separators: Optional[list[str]] = None,
+    child_separators: Optional[list[str]] = None,
+    with_assets: bool = True,
+) -> tuple[list[ParentChunk], list[RawAsset]]:
+    """Same pipeline as :func:`parse_and_chunk`, also returning the document's media.
+
+    The assets are returned unpersisted; the caller links them to parent chunks and
+    stores the bytes (see ``core/kb/kb_assets.py``).
+    """
+    paragraphs, assets = extract_text_with_assets(
+        file_bytes, mime_type, with_assets=with_assets
+    )
+    parents = build_parent_child_chunks(
         paragraphs,
         parent_size=parent_size,
         child_size=child_size,
@@ -724,3 +930,4 @@ def parse_and_chunk(
         separators=separators,
         child_separators=child_separators,
     )
+    return parents, assets

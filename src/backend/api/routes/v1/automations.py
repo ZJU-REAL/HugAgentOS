@@ -275,6 +275,9 @@ async def trigger_automation(
     scheduler = get_scheduler()
     if scheduler:
         import asyncio
+        # 手动触发不经过调度器的 advance_next_run，累计执行次数得在这里补一次，
+        # 否则详情页会出现「执行记录有好几条、累计执行 0 次」。
+        svc.bump_run_count(task.task_id)
         asyncio.create_task(scheduler.execute_task(task.task_id, task.user_id))
     return success_response(message="已触发执行")
 

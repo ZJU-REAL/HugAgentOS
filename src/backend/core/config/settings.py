@@ -274,6 +274,18 @@ class MemorySettings:
     bg_max_concurrency: int = field(
         default_factory=lambda: _int(_env("MEMORY_BG_MAX_CONCURRENCY", "8"), 8)
     )
+    outbox_lease_s: int = field(
+        default_factory=lambda: _int(_env("MEMORY_OUTBOX_LEASE_SECONDS", "120"), 120)
+    )
+    outbox_max_attempts: int = field(
+        default_factory=lambda: _int(_env("MEMORY_OUTBOX_MAX_ATTEMPTS", "5"), 5)
+    )
+    outbox_retry_base_s: int = field(
+        default_factory=lambda: _int(_env("MEMORY_OUTBOX_RETRY_BASE_SECONDS", "5"), 5)
+    )
+    outbox_poll_interval_s: float = field(
+        default_factory=lambda: _float(_env("MEMORY_OUTBOX_POLL_SECONDS", "1"), 1.0)
+    )
     extract_timeout_s: int = field(
         default_factory=lambda: _int(_env("MEMORY_EXTRACT_TIMEOUT_S", "30"), 30)
     )
@@ -439,18 +451,31 @@ class RoutingSettings:
 class CompactionSettings:
     """Context compaction (see core/llm/compaction.py).
 
-    Across turns, compresses history into "recent user messages + summary";
-    the summary is persisted to the DB and carried into subsequent turns,
-    instead of recompressing from raw history every turn.
+    Compresses history into "recent user messages + summary" and persists the
+    summary as a checkpoint. One implementation serves all three phases
+    (mid-turn / pre-turn / post-turn, see ``core.llm.compaction.CompactionPhase``),
+    so every knob below governs all of them — there is no separate in-turn ratio
+    any more.
     """
 
     # Master switch. When off, replay falls back to the original full-history path (no checkpoint consumption/generation).
     enabled: bool = field(default_factory=lambda: _bool(_env("CHAT_COMPACT_ENABLED", "true")))
     # Trigger threshold (real prompt tokens). <=0 means auto-derive from the model window (see compaction_service).
     token_limit: int = field(default_factory=lambda: _int(_env("CHAT_COMPACT_TOKEN_LIMIT", "0"), 0))
-    # Fraction of the model context window used when auto-deriving the threshold.
+    # The single fraction of the model context window used when auto-deriving the
+    # threshold — shared by every phase, so a mid-turn and a pre-turn check can no
+    # longer disagree about whether the same history is over budget.
+    # ⚠️ Runtime authority is chat.compress_in_turn_ratio in the Config admin panel
+    # ("System Config → context"), read per turn by
+    # ``compaction_service.resolve_trigger_ratio``; the envs here are only the
+    # default. ``CHAT_COMPRESS_IN_TURN_RATIO`` is the deprecated alias kept so
+    # deployments that only ever tuned the in-turn knob keep their tuning.
     trigger_ratio: float = field(
-        default_factory=lambda: float(_env("CHAT_COMPACT_TRIGGER_RATIO", "0.8") or "0.8")
+        default_factory=lambda: float(
+            _env("CHAT_COMPACT_TRIGGER_RATIO", "")
+            or _env("CHAT_COMPRESS_IN_TURN_RATIO", "0.8")
+            or "0.8"
+        )
     )
     # Token budget for the recent user messages kept after compaction.
     recent_user_max_tokens: int = field(
@@ -460,19 +485,12 @@ class CompactionSettings:
     summarize_timeout_s: int = field(
         default_factory=lambda: _int(_env("CHAT_COMPACT_SUMMARIZE_TIMEOUT_S", "60"), 60)
     )
-    # AS2 in-turn compaction (agent_factory ContextConfig) trigger ratio:
-    # compress when estimated tokens exceed model window × this value. Note the
-    # metric differs from the cross-turn compaction trigger_ratio above: this
-    # one uses AS2's utf-8 bytes/4 estimate (overestimates Chinese; close to
-    # real for English/code), while cross-turn uses real usage values. The
-    # historical 0.6 was a conservative value compensating for the Chinese
-    # overestimate, but it fired too early in practice (compaction started
-    # while real usage was far below threshold); the default is now 0.82.
-    # ⚠️ Runtime authority is chat.compress_in_turn_ratio in the Config admin
-    # panel "System Config → Chat & Context Compaction" (DB, takes effect on
-    # save); this env is only the default fallback.
-    in_turn_trigger_ratio: float = field(
-        default_factory=lambda: float(_env("CHAT_COMPRESS_IN_TURN_RATIO", "0.82") or "0.82")
+    # Per-tool-result cap fed to AgentScope's ContextConfig. This is the
+    # deterministic, model-free layer that runs before any summarization (the
+    # counterpart of Codex's output truncation and dsh's toolResultPruner);
+    # the overflow is spilled to the sandbox by core/llm/offloader.py.
+    tool_result_limit: int = field(
+        default_factory=lambda: _int(_env("CHAT_TOOL_RESULT_LIMIT", "20000"), 20000)
     )
 
 

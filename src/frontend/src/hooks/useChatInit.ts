@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { t } from '../i18n';
-import { authFetch, checkSession, listActiveBatchPlans, getBatchPlan, chatTargetHeaders, isHybridDual, registerLocalChat, LOCAL_TARGET_HEADER } from '../api';
+import { authFetch, checkSession, listActiveBatchPlans, getBatchPlan, chatTargetHeaders, isHybridDual, registerLocalChat, toPlanProgress, LOCAL_TARGET_HEADER } from '../api';
 import { nowId, saveCatalog } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { attachArtifactsToToolCalls } from '../utils/fileParser';
@@ -430,6 +430,7 @@ export function useChatInit() {
               : {}),
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,
+            planProgress: toPlanProgress(meta.plan_progress),
             // When the backend session hasn't bound project_id (e.g. bound locally via the input-box dropdown, not yet persisted with a message),
             // keep the locally bound projectId/projectName — otherwise the session would fall back to the default project after refresh. The next send
             // carries project_id and self-heals into the DB.
@@ -612,6 +613,24 @@ export function useChatInit() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveApiUrl, authUserId, authChecking]);
 
+  // 计划栏还原 —— 计划清单的真源在服务端（会话 metadata.plan_progress）。
+  //
+  // 计划栏本身是内存态，刷新就没；而工作流模式下一份计划要跨好几轮才走完（提交作业 →
+  // 后台跑几十分钟 → 作业跑完的交付轮收尾）。中途刷新、切走再回来、或者干脆关了页面
+  // 第二天再看，过去都只能看到"什么都没有"，或者停在离开时那一步的转圈。这里按服务端
+  // 快照恢复：包括它是否已经收尾（settled → done），所以收尾也不再依赖"当时这个标签页
+  // 恰好在跟那条流"。本地那份更新（正在跟流）优先，别把实时进度盖回旧快照。
+  useEffect(() => {
+    const chatId = currentChatId;
+    if (!chatId) return;
+    const st = useChatStore.getState();
+    const persisted = st.store.chats[chatId]?.planProgress;
+    if (!persisted) return;
+    const live = st.planProgress[chatId];
+    if (live && live.updatedAt >= persisted.updatedAt) return;
+    st.setPlanProgress(chatId, persisted);
+  }, [currentChatId, sessionLoadEpoch]);
+
   // Lazy-load messages for current chat
   useEffect(() => {
     if (authChecking || !authUser) return;
@@ -669,6 +688,8 @@ export function useChatInit() {
               : {}),
             automationTaskId: typeof meta.automation_task_id === 'string' ? meta.automation_task_id : undefined,
             automationRun: meta.automation_run === true ? true : undefined,
+            workflowChat: meta.workflow_chat === true ? true : undefined,
+            planProgress: toPlanProgress(meta.plan_progress),
             // Same as above: when the backend hasn't bound project_id, keep the local binding to avoid falling back to the default project on refresh.
             projectId: (typeof s.project_id === 'string' && s.project_id)
               ? s.project_id

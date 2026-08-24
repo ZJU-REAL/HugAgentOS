@@ -139,6 +139,7 @@ def persist_artifacts(
     collected: list,
     *,
     scope: Optional["ProjectScope"] = None,
+    commit: bool = True,
 ) -> None:
     """Batch-insert AI-generated artifacts into the Artifact DB table.
 
@@ -207,10 +208,16 @@ def persist_artifacts(
         except Exception as e:
             logger.warning("artifact_db_insert_failed: %s", e)
     try:
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception as e:
         logger.warning("artifact_db_commit_failed: %s", e)
-        db.rollback()
+        if commit:
+            db.rollback()
+        else:
+            raise
 
 
 def extend_collected_artifacts(collected: list, refs: List[dict]) -> None:

@@ -1,10 +1,10 @@
-"""LLM write gate: narrows the regex candidate set, fails open on any failure.
+"""LLM write gate: deterministic evidence bypasses the LLM; failures retry.
 
 The gate exists because the regex classify is deliberately loose (procedural has
 no keyword gate), so without it the default is to extract-and-write on nearly
-every substantive turn. The two properties worth pinning are the contract's
-edges: the gate may only *narrow* the candidates, and any failure must pass the
-candidates through unchanged rather than silently remembering nothing.
+every substantive turn. The gate may only narrow candidates. Infrastructure
+failure is not approval: the durable outbox retries it and eventually
+quarantines it for inspection.
 """
 
 import pytest
@@ -37,7 +37,10 @@ async def test_an_empty_verdict_means_nothing_is_written(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_verified_correction_keeps_procedural_even_when_llm_drops_it(monkeypatch):
-    _mock_llm(monkeypatch, '{"classes": []}')
+    async def forbidden_llm(*_args, **_kwargs):
+        raise AssertionError("verified correction must not ask the LLM for permission")
+
+    monkeypatch.setattr(G, "run_llm_with_prompt", forbidden_llm)
     verdict = await G.llm_write_gate(
         "你把链接下载到沙盒再交付",
         "下载成功并验证完整",
@@ -50,6 +53,21 @@ async def test_verified_correction_keeps_procedural_even_when_llm_drops_it(monke
 
 
 @pytest.mark.asyncio
+async def test_explicit_remember_bypasses_unavailable_llm(monkeypatch):
+    async def forbidden_llm(*_args, **_kwargs):
+        raise AssertionError("explicit remember must not ask the LLM for permission")
+
+    monkeypatch.setattr(G, "run_llm_with_prompt", forbidden_llm)
+    verdict = await G.llm_write_gate(
+        "请记住我以后都要简洁回答",
+        "好的",
+        set(CANDIDATES),
+        timeout_s=5,
+    )
+    assert verdict == CANDIDATES
+
+
+@pytest.mark.asyncio
 async def test_the_gate_cannot_widen_the_candidate_set(monkeypatch):
     # LLM approves identity, but the regex never nominated it — it must not appear.
     _mock_llm(monkeypatch, '{"classes": ["identity", "preference"]}')
@@ -58,17 +76,17 @@ async def test_the_gate_cannot_widen_the_candidate_set(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_llm_failure_fails_open(monkeypatch):
+async def test_llm_failure_requires_retry(monkeypatch):
     _mock_llm(monkeypatch, None)
-    verdict = await G.llm_write_gate("u", "a", set(CANDIDATES), timeout_s=5)
-    assert verdict == CANDIDATES
+    with pytest.raises(G.MemoryGateUnavailable):
+        await G.llm_write_gate("u", "a", set(CANDIDATES), timeout_s=5)
 
 
 @pytest.mark.asyncio
-async def test_garbage_verdict_fails_open(monkeypatch):
+async def test_garbage_verdict_requires_retry(monkeypatch):
     _mock_llm(monkeypatch, "我认为这轮对话很有价值")
-    verdict = await G.llm_write_gate("u", "a", set(CANDIDATES), timeout_s=5)
-    assert verdict == CANDIDATES
+    with pytest.raises(G.MemoryGateUnavailable):
+        await G.llm_write_gate("u", "a", set(CANDIDATES), timeout_s=5)
 
 
 @pytest.mark.asyncio

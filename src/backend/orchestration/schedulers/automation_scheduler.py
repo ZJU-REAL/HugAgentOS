@@ -240,8 +240,14 @@ class AutomationScheduler:
 
             duration_ms = int((time.monotonic() - start) * 1000)
 
+            still_exists = True
             with SessionLocal() as db:
                 svc = AutomationService(db)
+                # 任务可能在本次执行的几分钟里被用户删掉了（delete_task 是硬删）。
+                # 下面的 update_task_system / finalize 对不存在的任务本就是空操作，
+                # 但通知与渠道投递用的是开跑时抓下来的 task_name / task_metadata 快照，
+                # 不查这一下就会给一个已经删掉的任务推「执行完成」。
+                still_exists = svc.get_task_by_id(task_id) is not None
                 svc.record_run_complete(
                     run.run_id,
                     status="success",
@@ -267,6 +273,13 @@ class AutomationScheduler:
             # Multi-target delivery (delivery_targets model, with backward compat for the old flat channel_id/conversation_id).
             # In-app (notification center + sidebar + chat history) is delivered only when targets include inapp; channels and other outbound targets are delivered one by one.
             from core.services.delivery_targets import resolve_delivery_targets, has_inapp
+
+            if not still_exists:
+                logger.info(
+                    "[scheduler] task %s was deleted while running — skip notification/delivery",
+                    task_id,
+                )
+                return
 
             _targets = resolve_delivery_targets(task_metadata)
             if has_inapp(_targets):
@@ -313,8 +326,10 @@ class AutomationScheduler:
             error_msg = str(e)[:2000]
             logger.error("[scheduler] task %s failed: %s", task_id, error_msg, exc_info=True)
 
+            still_exists = True
             with SessionLocal() as db:
                 svc = AutomationService(db)
+                still_exists = svc.get_task_by_id(task_id) is not None
                 svc.record_run_complete(
                     run.run_id,
                     status="failed",
@@ -339,7 +354,13 @@ class AutomationScheduler:
                 # instead of dangling active (finalize_after_run skips disabled).
                 svc.finalize_after_run(task_id)
 
-            await self._send_notification(user_id, task_id, task_name, "failed", error_msg[:200])
+            if still_exists:
+                await self._send_notification(user_id, task_id, task_name, "failed", error_msg[:200])
+            else:
+                logger.info(
+                    "[scheduler] task %s was deleted while running — skip failure notification",
+                    task_id,
+                )
 
         finally:
             await self._release_lock(task_id)
@@ -443,11 +464,39 @@ class AutomationScheduler:
         # Strict workspace gate.
         _workspace_mod.init_state()
 
-        async for chunk in astream_chat_workflow(
-            session_messages=session_messages,
-            user_message=prompt,
-            context=context,
-        ):
+        async def _bound_prompt_chunks():
+            from core.services.run_journal import durable_run_binding
+
+            recovery_context = {
+                **dict(context),
+                "mcp_ids": list(enabled_mcp_ids or []),
+                "skill_ids": list(enabled_skill_ids or []),
+                "kb_ids": list(enabled_kb_ids or []),
+                "model_name": actual_model_name,
+                "automation_run": True,
+            }
+            async with durable_run_binding(
+                user_id=user_id,
+                chat_id=chat_id,
+                kind="automation_prompt",
+                external_id=task_id,
+                request_payload={"task_id": task_id},
+                recovery_snapshot={"worker_args": {"context": recovery_context}},
+                session_factory=SessionLocal,
+            ) as binding:
+                bound_context = {
+                    **dict(context),
+                    "run_id": binding.run_id,
+                    "journal_owner": binding.owner,
+                }
+                async for item in astream_chat_workflow(
+                    session_messages=session_messages,
+                    user_message=prompt,
+                    context=bound_context,
+                ):
+                    yield item
+
+        async for chunk in _bound_prompt_chunks():
             chunk_type = chunk.get("type")
 
             if chunk_type in {"content", "ai_message"}:
@@ -482,6 +531,13 @@ class AutomationScheduler:
                     "is_markdown": chunk.get("is_markdown", True),
                     "citations": chunk.get("citations", []),
                 }
+
+        # 推理模型会把思考链以 <think>…</think> 混在正文流里下发。网页端有一套流式
+        # 状态机把它切成独立的「思考」段，定时任务这条路径没有——于是思考过程原样落进
+        # 了自动化任务的输出正文（以及通知和渠道投递的内容）。这里在落库前统一剥掉。
+        from core.llm._distill_shared import strip_think_blocks
+
+        full_response = strip_think_blocks(full_response) if full_response else full_response
 
         # Persist assistant message with the full run context.
         with SessionLocal() as db:
@@ -603,21 +659,54 @@ class AutomationScheduler:
         tool_calls_log: List[Dict[str, Any]] = []
         _workspace_mod.init_state()
 
-        with SessionLocal() as db:
-            async for event in astream_execute_plan(
-                plan_id=plan_id,
+        async def _bound_plan_events(db):  # noqa: ANN001
+            from core.llm.middlewares import CURRENT_RUN_BINDING
+            from core.services.run_journal import durable_run_binding
+
+            recovery_context = {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "mcp_ids": list(enabled_mcp_ids or []),
+                "skill_ids": list(enabled_skill_ids or []),
+                "kb_ids": list(enabled_kb_ids or []),
+                "model_name": actual_model_name,
+                "automation_run": True,
+            }
+            async with durable_run_binding(
                 user_id=user_id,
-                db=db,
-                enabled_mcp_ids=enabled_mcp_ids,
-                enabled_skill_ids=enabled_skill_ids,
-                enabled_kb_ids=enabled_kb_ids,
-                enabled_agent_ids=enabled_agent_ids,
                 chat_id=chat_id,
-                model_name=actual_model_name,
-            ):
+                kind="automation_plan",
+                external_id=f"{task_id}:{plan_id}",
+                request_payload={"task_id": task_id, "plan_id": plan_id},
+                recovery_snapshot={"worker_args": {"context": recovery_context}},
+                session_factory=SessionLocal,
+            ) as binding:
+                token = CURRENT_RUN_BINDING.set((binding.run_id, binding.owner))
+                try:
+                    async for item in astream_execute_plan(
+                        plan_id=plan_id,
+                        user_id=user_id,
+                        db=db,
+                        enabled_mcp_ids=enabled_mcp_ids,
+                        enabled_skill_ids=enabled_skill_ids,
+                        enabled_kb_ids=enabled_kb_ids,
+                        enabled_agent_ids=enabled_agent_ids,
+                        chat_id=chat_id,
+                        model_name=actual_model_name,
+                    ):
+                        yield item
+                finally:
+                    CURRENT_RUN_BINDING.reset(token)
+
+        with SessionLocal() as db:
+            async for event in _bound_plan_events(db):
                 evt_type = event.get("type")
                 if evt_type == "plan_complete":
-                    result_text = event.get("result_text", "")
+                    # 与 prompt 任务同理：推理模型的 <think> 段会混在总结正文里。
+                    from core.llm._distill_shared import strip_think_blocks
+
+                    _raw = event.get("result_text", "")
+                    result_text = strip_think_blocks(_raw) if _raw else _raw
                     completed_steps = event.get("completed_steps", 0)
                     total_steps = event.get("total_steps", 0)
                     usage = event.get("usage", {}) or {}

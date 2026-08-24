@@ -144,6 +144,10 @@ class McpServerConfigService:
         cfg: Dict[str, Any] = {
             "transport": row.transport,
             "is_stable": row.is_stable,
+            # 来源元数据（桌面双端桥按组件基名做 logical 去重时消费；
+            # 连接层不读这两个键）。
+            "source_plugin": row.source_plugin,
+            "owner_user_id": row.owner_user_id,
         }
 
         # stdio fields

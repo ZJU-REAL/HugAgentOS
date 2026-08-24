@@ -159,6 +159,7 @@
 /* ── 列表视图补充 ── */
 .jx-sites-search { margin-bottom: var(--space-lg); border-radius: var(--radius-lg); }
 .jx-sites-emptyTitle { font-size: 16px; font-weight: 600; color: var(--color-text); }
+.jx-sites-emptyDesc { margin-top: 4px; font-size: 13px; color: var(--color-text-secondary); }
 
 @media (max-width: 768px) {
   .jx-sites-body {
@@ -278,8 +279,78 @@
     font-size: 13px;
   }
 
+  /* 36px 低于触摸热区下限；站点卡片上的「打开 / 复制链接 / 编辑 / 管理 / 删除」
+     是这一页的全部操作，点不中就等于没有。 */
   .jx-sites-cardActions .ant-btn {
-    min-height: 36px;
-    border-radius: 11px;
+    min-height: 44px;
+    padding-inline: 14px;
+    border-radius: 12px;
   }
+}
+
+/* ── 移动端站点预览（应用内打开 + 返回栏） ──────────────────────────────
+   站点是后端直出的独立页面（/site/<slug>/），一旦用 window.open 跳出去，
+   页面上就没有任何回到本应用的入口——部分移动浏览器还会把 _blank 当同标签
+   跳转，用户只剩浏览器后退键可用。这一层把站点套进 iframe，返回入口留在外面。
+   桌面不用它（新标签页本来就回得来）。 */
+.jx-sitePreview {
+  position: fixed;
+  inset: 0;
+  /* 高于侧栏抽屉（1002），否则抽屉会盖住返回栏 */
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-container);
+}
+
+.jx-sitePreview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: calc(6px + var(--jx-safe-t, 0px)) max(8px, var(--jx-safe-r, 0px)) 6px max(8px, var(--jx-safe-l, 0px));
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-container);
+}
+
+.jx-sitePreview-back,
+.jx-sitePreview-external {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  /* 触摸热区下限，与 mobile.css 的 --jx-touch-min 同源 */
+  width: var(--jx-touch-min, 44px);
+  height: var(--jx-touch-min, 44px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.jx-sitePreview-back:active,
+.jx-sitePreview-external:active {
+  background: var(--color-bg-gray);
+}
+
+.jx-sitePreview-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-sitePreview-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--color-bg-container);
 }

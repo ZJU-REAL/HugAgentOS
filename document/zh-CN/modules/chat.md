@@ -34,7 +34,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 ### Run 解耦与断线续播
 
-每次发送消息会创建一条 `ChatRun` 并启动后台任务（`orchestration/chat_run_executor.py`），事件写入 Redis Stream（`maxlen=5000`，TTL 1 小时）。HTTP 连接只是"跟随者"，因此：
+每次发送消息会创建一条 `ChatRun` 并启动后台任务（`orchestration/chat_run_executor.py`），事件写入 Redis Stream（`maxlen=5000`；默认 TTL 为最长人机等待 7200 秒加 1800 秒恢复余量）。HTTP 连接只是"跟随者"，因此：
 
 | 能力 | 端点 |
 |---|---|
@@ -43,15 +43,26 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | 探测会话进行中的 run | `GET /v1/chats/{chat_id}/active-run` |
 | 取消 run（真正杀后台任务） | `POST /v1/chat-runs/{run_id}/cancel` |
 | 在下一次安全 ReAct 边界追加指令 | `POST /v1/chat-runs/{run_id}/steer` |
+| 查询耐久追加队列状态 | `GET /v1/chat-runs/{run_id}/steers` |
 | 撤回尚未生效的追加指令 | `DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` |
 
-防御机制：静默 15 秒写一行 `: heartbeat` SSE 注释（防 nginx `proxy_read_timeout` 掐流）；workflow 600 秒无任何 chunk 触发看门狗判 failed（`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`）；周期 reaper 把超龄 running run 收成 failed；启动钩子 `recover_orphan_runs()` 清理重启遗留。
+防御机制：静默 15 秒写一行 `: heartbeat` SSE 注释（防 nginx `proxy_read_timeout` 掐流）；workflow 600 秒无有效输出触发看门狗判 failed（`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`）；只有后端注册表中确实存在待回答/待确认交互时，内部心跳才可续活该看门狗；周期 reaper 把超龄且静默的 running run 收成 failed；启动钩子 `recover_orphan_runs()` 清理重启遗留。
+
+### 智能体主动询问用户
+
+普通顶层对话会注册 `ask_user_question`。智能体只能在用户偏好、授权决定或会实质改变结果且无法通过上下文和工具查明的歧义上调用它，并应把同一决策点集中成一轮少量简洁问题。极速、计划执行、自动化和子智能体等无人值守/非顶层路径不注册该工具，避免后台任务无限等待界面输入。
+
+模型可见契约与 deepseek-harness 一致：`questions[]` 包含 `id`、`question`、可选 `header`、由 `label/description` 组成的可选 `options`，以及 `multi_select`。选项没有模型可见的 ID 或 `recommended` 字段；推荐项放在首位，并在 label 末尾追加 `(Recommended)`。成功结果固定为紧凑的 `{"answers":[{"id":"scope","selected":["仅当前页面 (Recommended)"],"custom":"..."}]}`，其中 `selected` 保存原始选项 label。浏览器作答接口使用的私有 option ID 只是传输细节，不会进入模型工具 Schema 或工具结果。
+
+工具调用后，当前 ReAct 工具协程原地挂起，不结束 ChatRun，也不新建“继续回答”轮次。前端收到 `user_question` 后用常驻问答 Composer 替换普通输入框，支持单选、多选、推荐项、自定义补充、逐题翻页、跳过与取消；答案通过带外接口提交。成功 POST、`user_question_resolved` SSE 和 pending 权威快照都只按精确 `request_id` 移除问答框，因此重复点击、并发标签页和迟到响应都由服务端“首个有效提交者获胜”的状态裁决。
+
+刷新、断线或切回会话时，前端通过 pending 接口恢复后端注册表中的真实待回答项，并在侧栏标为“等待你的回答”。默认最长等待由 `HUMAN_INTERACTION_MAX_WAIT_SECONDS=7200` 控制；等待超时、用户取消或界面不可用会分别成为结构化工具错误 `ASK_TIMEOUT`、`ASK_CANCELLED` 或 `NO_PROVIDER`，系统策略要求智能体不得原样重复询问，并在合适时采用稳妥默认值继续。注册表目前与现有写确认机制一样是单进程内存态；服务重启会将原 ChatRun 收为失败，前端不会把旧问题误报为可恢复。
 
 ### 运行中追加、Steer 与快捷停止
 
 普通对话正在生成时，输入框仍可接收下一条消息。发送后，消息先显示在输入框上方的待发送卡片中；用户可通过更多菜单编辑，也可删除。若不执行 **Steer**，当前回答结束后会自动把这条消息作为下一轮发送。
 
-选择 **Steer** 后，后端通过 Redis 把纯文本指令交给当前 run。若指令在工具执行期间到达，`SteerMiddleware` 会在该轮工具结果进入上下文后、下一轮模型推理前原子消费并插入真实用户消息，让模型立即重新规划；若指令更早到达，则在下一批工具开始前中止尚未执行的旧工具调用，再进入同一重规划流程。`steer_applied` SSE 事件确认指令已生效。包含附件、技能、插件或子智能体的消息不会走中途注入，而是在当前回答结束后正常发送。按 `Esc` 会取消当前页面正在显示的会话 run；编辑卡片或弹窗已消费 `Esc` 时，不会误停任务。
+追加指令以数据库为准：系统先持久化，再用 Redis 做尽力而为的低延迟唤醒。同一会话按单调 `steer_seq` 排序，状态为 `accepted`、`claimed`、`applied`、`cancelled` 或 `superseded`；认领租约过期后可重新投递。`delivery_mode=steer` 会在下一安全 ReAct 边界注入，并以 `steer_applied` 事件确认；`delivery_mode=followUp` 在当前 run 完成后启动，`delivery_mode=nextRun` 不修改当前上下文，而是成为下一条独立 run。后两种交接会在同一事务中提交当前回答、排队用户消息、队列状态和下一条 `ChatRun`，刷新后可通过上面的状态接口对账。包含附件、技能、插件或子智能体的消息仍会等待当前回答结束后正常发送。按 `Esc` 会取消当前页面正在显示的会话 run。
 
 ### Agent 构建要点（core/llm/agent_factory.py）
 
@@ -61,7 +72,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 - **技能**：经 `core/agent_skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
 - **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控，共享同一个 `ReadStateTracker` 维持「先 Read 才能 Edit」不变量。
 - **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`GoalAnchorReminderMiddleware`、`FinishPinGuardMiddleware`。
-- **上下文压缩**：`ContextConfig(trigger_ratio=0.6, tool_result_limit=20000)` + 结构化中文「可恢复 ReAct 工作流」压缩提示词；压缩调用失败时由 `JxOpenAIChatModel.generate_structured_output` 返回 L3 占位摘要兜底。
+- **上下文压缩**：`CompactingAgent` 把轮前、轮内和轮末三个触发时机接入同一个持久化 checkpoint 引擎，并共用 Codex 风格交接提示词；`ContextConfig` 只保留工具结果限长和 AgentScope 溢出兜底，兜底也复用同一提示词。若兜底的结构化调用仍失败，模型适配层会返回 L3 占位摘要，避免当前回答因压缩异常直接中断。
 - **权限**：所有已注册工具 seed 原生 `PermissionRule(ALLOW)`，保留 AgentScope 内置工具的危险操作检查（不使用一刀切 BYPASS）。
 - **迭代上限**：主智能体默认 `max_iters=50`，隔离子智能体默认 10。
 
@@ -79,11 +90,14 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | `tool_call` | 工具参数已完整、即将执行 | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`，调子智能体时附 `subagent_name` |
 | `tool_result` | 工具调用结果 | `tool_name`, `result`, `tool_id`, `status`, `citations[]` |
 | `steer_applied` | 运行中追加指令已注入 ReAct 上下文 | `steer_id`, `message`, `message_id`, `chat_id` |
+| `queued_run_started` | 已原子提交的 `followUp` / `nextRun` 子运行开始，前端立即接力续播 | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `subagent_event` | 子智能体内部过程，挂在父 `call_subagent` 卡片下 | `parent_tool_id`, `sub_type`, `agent_name`，以及内部工具或内容字段 |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | 本体治理状态，不属于模型思考 | 工作流、门禁决策、委员会状态与结论 |
 | `tool_pending` | 提供商没有暴露可解析参数增量时的等待兜底 | `reason` |
 | `batch_confirm` | 批量计划生成完毕，等待用户确认（人审门） | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | 确认上下文；用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后工具原地续跑 |
+| `user_question` | `ask_user_question` 已挂起并等待会话属主回答 | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
+| `user_question_resolved` | 回答、取消或超时已由服务端裁决 | `request_id`, `outcome`, `chat_id` |
 | `compaction_notice` | 上一轮结束后已生成新的上下文压缩检查点 | `chat_id`, `context_compaction`（覆盖边界、摘要基线 token 数） |
 | `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
 | `error` | 出错（已映射为用户友好中文文案） | `error`, `chat_id` |
@@ -159,6 +173,11 @@ data: [DONE]
 
 用户自建子智能体有四种触达方式；平台默认角色通过主智能体自主编排或自然语言显式委派触达。编排归属取决于用户是否明确指定了目标：
 
+聊天输入框提供两个键盘启动器。输入 `@` 会先显示文件、智能体、计划模式、批量执行、工作流模式和
+自主循环等当前可用快捷入口；继续输入可直接筛选智能体，选择「智能体」则进入完整智能体列表。
+输入 `/` 会按插件、技能分组显示命令及说明；对话模式统一通过 `@` 选择。两个面板都支持方向键选择、
+Enter / Tab 确认和 Escape 返回或关闭；不可用或未授权的能力不会出现在候选中。
+
 - **结构化 `@` 委派**：从输入框选择一个 `@子智能体` 时，前端同时提交
   `mention_agent_id` 和显示名。后端移除仅用于展示的 `@名称` 前缀，并向当前用户回合注入严格委派
   约束；主模型仍保留正常思考和逐 token 输出，其下一个真实工具调用必须是目标智能体的
@@ -186,8 +205,8 @@ data: [DONE]
 | 层次 | 实现 | 触发 |
 |---|---|---|
 | 会话标题摘要 | `core/llm/summarizer.py::ConversationSummarizer`（`summarizer` 模型角色，`ENABLE_SUMMARY` 开关），`POST /v1/summary` | 新会话标题自动生成 |
-| 历史预裁剪 + 摘要 | `core/llm/context_manager.py::ContextWindowManager.manage_context()` 按模型上下文窗口裁剪；被裁掉的旧消息经 `core/llm/history_summarizer.py::summarize_history()` 压成 `<conversation_summary>` 注入队首 | 加载历史超出 token 预算时 |
-| 会话内压缩 | AgentScope 2.0 `ContextConfig`（`trigger_ratio=0.6`），压缩提示词要求产出可恢复 ReAct 工作流的结构化摘要（保留 artifact_id、工具参数、待办） | ReAct 循环内上下文逼近窗口时 |
+| 统一上下文检查点 | `core/services/compaction_service.py::run_compaction()`；轮前、轮内、轮末共用同一触发比例、交接提示词、替代历史结构和持久化 checkpoint | 上下文达到模型窗口的配置比例时 |
+| 确定性溢出保护 | `ContextConfig.tool_result_limit` 先限制单条工具结果；统一压缩失败或持久化关闭时，AgentScope 兜底复用同一交接提示词压缩当前内存上下文 | 单条工具结果过大，或统一压缩暂时不可用时 |
 
 压缩检查点是内部 `system` 消息，不会从对话记录中隐藏或删除用户可见的历史消息。消息列表接口与下一轮的 `compaction_notice` 会同时返回最新检查点的覆盖边界和替代摘要 token 估算；前端上下文仪表据此按「摘要基线 + 检查点后的新消息」计算，而不是继续累计已经被摘要替换的完整旧历史。
 
@@ -228,7 +247,7 @@ data: [DONE]
 | 引用前端渲染 | `src/frontend/src/utils/citations.ts`，`src/frontend/src/components/citation/` |
 | 计划模式 | `src/backend/orchestration/subagents/plan_mode.py`，`api/routes/v1/plans.py` |
 | 子智能体工具 | `src/backend/core/llm/subagent_tool.py`，`api/routes/v1/agents.py` |
-| 标题摘要 / 历史摘要 / 窗口管理 | `src/backend/core/llm/summarizer.py`，`history_summarizer.py`，`context_manager.py` |
+| 标题摘要 / 上下文压缩 / 窗口保护 | `src/backend/core/llm/summarizer.py`、`compaction.py`、`core/services/compaction_service.py`、`context_manager.py` |
 | 超长结果 offload | `src/backend/core/llm/offloader.py` |
 | 会话分享 | `src/backend/api/routes/v1/chat_shares.py` |
 | 追问生成 | `src/backend/orchestration/followups.py` |

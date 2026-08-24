@@ -17,7 +17,7 @@ import { AutomationCreateModal } from './AutomationCreateModal';
 import { AutomationDetailPage } from './AutomationDetailPage';
 import { AutomationListSkeleton } from './AutomationSkeleton';
 import { AUTOMATION_PRESETS, type AutomationPreset } from './automationPresets';
-import { cronToHumanReadable, RUN_STATUS_CLASS, RUN_STATUS_LABEL } from './automationUtils';
+import { cronToHumanReadable, RUN_STATUS_CLASS, RUN_STATUS_LABEL, formatRunDuration } from './automationUtils';
 import '../../styles/automation.css';
 import { t } from '../../i18n';
 
@@ -188,7 +188,9 @@ export function AutomationPanel() {
   };
 
   return (
-    <div className="jx-agentPage">
+    // jx-automationPage 只是移动端样式的作用域锚点：页头「搜索 + 新建」在窄屏要竖排，
+    // 而 .jx-agentPage-header 是能力中心等页共用的通用类，不能直接改。
+    <div className="jx-agentPage jx-automationPage">
       <div className="jx-agentPage-header">
         <div>
           <div className="jx-agentPage-title">{title}</div>
@@ -457,7 +459,7 @@ function RunsTab({ tasks, onOpenTask }: { tasks: AutomationTask[]; onOpenTask: (
           <div className="jx-automation-runMeta">
             <span>{formatShortDateTime(run.started_at, '—')}</span>
             {typeof run.duration_ms === 'number' && (
-              <span className="jx-automation-runDuration">{t('{n} 秒', { n: Math.round(run.duration_ms / 1000) })}</span>
+              <span className="jx-automation-runDuration">{formatRunDuration(run.duration_ms)}</span>
             )}
           </div>
         </div>

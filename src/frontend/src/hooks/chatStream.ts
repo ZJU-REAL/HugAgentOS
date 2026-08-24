@@ -1,10 +1,19 @@
 import { message } from 'antd';
 import { t } from '../i18n';
-import { toFileConfirmInfo, toDesignPickInfo } from '../api';
+import {
+  listChatJobs,
+  toDesignPickInfo,
+  toFileConfirmInfo,
+  toUserQuestionRequest,
+} from '../api';
 import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { refreshTargetForTool } from '../utils/toolRefresh';
 import { parseContextCompactionState } from '../utils/contextUsage';
+import { parseQueuedRunHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
+import { readText, resolveText } from '../plugin-ui';
+import { usePluginUiStore, type CanvasTarget } from '../stores/pluginUiStore';
+import { isMobileViewport } from './useIsMobileViewport';
 import {
   appendStreamTextSegment,
   appendSubagentStepDelta,
@@ -32,6 +41,35 @@ import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegm
  * reduction logic for new scenarios is forbidden.
  */
 
+/* ───────────────────────────────────────────
+   SSE 传输层活性表 —— 「这条流上一次收到字节是什么时候」。
+
+   为什么要单独记一份：后端每 15 秒会往流里写一行 `: heartbeat` 注释，它不产生任何
+   可渲染事件，所以只看气泡内容根本分不清「模型在长工具里干活（正常）」和「连接早就
+   断了但 fetch 没报错（半开挂死）」。后者的表现是气泡永远转圈、刷新一下才发现后台
+   其实早跑完了——这份时间戳就是用来把这两种情况分开的唯一依据。
+
+   记的是**任何字节**（含心跳），不是事件：一个跑 50 分钟的批量作业期间可以完全没有
+   可渲染事件，但心跳一刻不停；心跳都停了才是真断了。
+   ─────────────────────────────────────────── */
+const _streamActivity = new Map<string, number>();
+
+/** 该会话的流上一次收到字节的时刻（毫秒）；没有在跟随的流则为 0。 */
+export function getStreamActivityTs(chatId: string): number {
+  return _streamActivity.get(chatId) || 0;
+}
+
+/** 本标签页已经（正在或曾经）流过的 run。
+ *
+ *  给"后端自己发起的那一轮"用：轮询看到一个活的 run 时，得能分清它是刚被唤醒起来的
+ *  新轮次，还是自己这一轮刚跑完、后端状态还没落终态的残影——认错了就会把同一轮从头
+ *  重放一遍，气泡直接翻倍。run_started 是每条流的第一帧（重放也带），拿它当身份证。 */
+const _seenRuns = new Set<string>();
+
+export function hasStreamedRun(runId: string): boolean {
+  return _seenRuns.has(runId);
+}
+
 /** 管理类插件写操作后，重拉持有那份列表的 store。
  *
  *  刷新不是锦上添花：MCP 跑在自己的容器里，它清掉的能力缓存是**它那个进程**的，不是 backend
@@ -45,7 +83,47 @@ function maybeRefreshCatalogAfterTool(toolName: string, status: string): void {
   if (!target) return;
   if (target === 'catalog') void useCatalogStore.getState().fetchCatalog();
   else if (target === 'agents') void useAgentStore.getState().fetchAgents();
-  else void usePluginStore.getState().fetchInstalled(true);
+  else {
+    void usePluginStore.getState().fetchInstalled(true);
+    // Installing/uninstalling a plugin also changes which tools have a
+    // contributed card, so the UI registry has to be re-pulled alongside it.
+    void usePluginUiStore.getState().fetchContributions(true);
+  }
+}
+
+/**
+ * Canvas 在移动断点是**整屏覆盖**（mobile.css 把 .jx-canvasPanelSlot 铺成 inset:0），
+ * 自动弹出等于把正在读的对话整页顶掉——插件的边跑边出图类画布尤其难受：
+ * 用户还在看推理过程，画布一到就全屏盖住，得先找关闭键才能回到对话。
+ * 所以移动端一律不自动弹，只在消息里留卡片入口（插件视图卡 / 附件卡 / 本体评审入口），
+ * 由用户主动点开。桌面端行为不变（右侧分栏，不遮挡正文）。
+ */
+function canAutoOpenCanvas(): boolean {
+  return !isMobileViewport();
+}
+
+function canOpenPluginCanvasForChat(chatId: string): boolean {
+  return useChatStore.getState().currentChatId === chatId
+    && useCatalogStore.getState().panel === 'chat'
+    && canAutoOpenCanvas();
+}
+
+/** What an installed plugin asked to put in the canvas while this tool runs. */
+function findAutoCanvas(toolName: string | undefined): CanvasTarget | null {
+  if (!toolName) return null;
+  return usePluginUiStore.getState().findCanvasTargetForTool(toolName);
+}
+
+/**
+ * Tab label for an auto-opened canvas.
+ *
+ * A plugin may point `title_from_input` at one of the tool's arguments so the
+ * tab reads "锂电池" rather than a generic view name; otherwise the contributed
+ * title is used.
+ */
+function canvasTabTitle(target: CanvasTarget, toolInput: unknown): string {
+  const fromInput = target.titleFromInput ? readText(toolInput, target.titleFromInput) : '';
+  return fromInput || resolveText(target.title);
 }
 
 /** Unified handling of the site-design pick-one-of-three SSE event (shared by the live stream
@@ -77,14 +155,33 @@ function applyDesignPickEvent(chatId: string, obj: Record<string, unknown>) {
 function applySubagentEvent(toolCalls: ToolCall[], eo: Record<string, unknown>): boolean {
   const norm = (v: unknown): string => (v == null ? '' : String(v));
   const parentId = norm(eo.parent_tool_id);
+  // 事件自报父卡片工具名时按它回退（批量作业的进度贴的是 run_job，不是 call_subagent）
+  const parentName = norm(eo.parent_tool_name) || 'call_subagent';
   let idx = -1;
   if (parentId) idx = toolCalls.findIndex((t) => norm(t?.id) === parentId);
   if (idx < 0) {
     for (let i = toolCalls.length - 1; i >= 0; i--) {
-      if (toolCalls[i]?.name === 'call_subagent') { idx = i; break; }
+      if (toolCalls[i]?.name === parentName) { idx = i; break; }
     }
   }
   if (idx < 0) return false;
+
+  // ── 批量作业进度：贴在 run_job 卡片头上的一行实时数字，不产生子步骤 ──
+  // run_job(wait=true) 会把主对话阻塞几十分钟，其间没有任何新的工具调用或正文，
+  // 卡片只剩一个转圈的菊花——这行是那段时间里唯一能证明"它在动"的东西。
+  // 整行替换而不是追加：进度是同一件事的最新值，堆成流水账既没用又撑爆卡片。
+  if (norm(eo.sub_type) === 'job_progress') {
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    const total = num(eo.total);
+    const settled = num(eo.settled);
+    const failed = num(eo.failed);
+    const note = total > 0
+      ? t('作业进行中 {n}/{m}', { n: settled, m: total })
+        + (failed > 0 ? t('（失败 {n}）', { n: failed }) : '')
+      : t('正在建立工作项台账');
+    toolCalls[idx] = { ...toolCalls[idx], progressNote: note };
+    return true;
+  }
 
   const parent = toolCalls[idx];
   const steps: SubagentStep[] = [...(parent.subSteps || [])];
@@ -161,6 +258,8 @@ export interface ChatStreamOutcome {
   metaFollowUps: string[];
   /** Stream aborted by the user (AbortError) — the bubble has already wound down normally */
   aborted: boolean;
+  /** A durable followUp/nextRun handoff committed by the backend at this run's boundary. */
+  queuedRun?: QueuedRunHandoff;
 }
 
 /**
@@ -187,11 +286,15 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   let evolutionSummary: EvolutionSummary | undefined;
   let metaMessageId: string | undefined;
   let metaFollowUps: string[] = [];
+  let queuedRun: ChatStreamOutcome['queuedRun'];
   let allCitations: CitationItem[] = [];
   // Workspace allowlist from the meta event. `null` means the agent
   // didn't pin (legacy behavior); an array means filter artifact cards
   // to only those file_ids.
   let metaWorkspaceFiles: string[] | null = null;
+  // 服务端下发的本轮总耗时（毫秒）。有它就用它——本地用「占位气泡创建到现在」
+  // 估出来的值把网络往返也算进去了，跟刷新后从历史读到的 duration_ms 对不上。
+  let metaDurationMs: number | null = null;
   let parseBuffer = '';
   let deferredThinkingText: DeferredThinkingTextFragment | undefined;
   let toolPending = false;
@@ -511,7 +614,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         };
       }
     }
-    if (latestHtml && latestHtml.url) {
+    if (latestHtml && latestHtml.url && canAutoOpenCanvas()) {
       const canvas = useCanvasStore.getState();
       // Don't steal focus from a different file the user is actively viewing —
       // only auto-open if Canvas is closed or already showing this same artifact.
@@ -530,6 +633,8 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     // currently reading. The result remains available from its message entry.
     if (useChatStore.getState().currentChatId !== chatId) return;
     if (useCatalogStore.getState().panel !== 'chat') return;
+    // 移动端不自动弹（整屏覆盖），评审结论仍可从消息里的入口打开。
+    if (!canAutoOpenCanvas()) return;
     useCanvasStore.getState().openOntology({ chatId, messageTs: placeholderTs });
   };
   const appendOrUpdate = (
@@ -579,7 +684,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         lastActivityTs: Date.now(),
       };
       if (persistedMessageId) updatedMsg.messageId = persistedMessageId;
-      if (!streaming) updatedMsg.durationMs = Date.now() - placeholderTs;
+      if (!streaming) updatedMsg.durationMs = metaDurationMs ?? (Date.now() - placeholderTs);
       if (cits !== undefined) updatedMsg.citations = cits.length > 0 ? cits : undefined;
       if (metaFollowUps.length > 0) updatedMsg.followUpQuestions = metaFollowUps;
 
@@ -679,6 +784,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     evolutionSummary = undefined;
     metaMessageId = nextAssistantMessageId;
     metaFollowUps = [];
+    metaDurationMs = null;
     allCitations = [];
     metaWorkspaceFiles = null;
     parseBuffer = '';
@@ -726,12 +832,27 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           const runId = typeof eventObj.run_id === 'string' ? eventObj.run_id : '';
           const messageId = typeof eventObj.message_id === 'string' ? eventObj.message_id : '';
           if (runId) {
+            // 有上限地记一笔：单页会话再长也不该让这个集合无限涨
+            if (_seenRuns.size > 200) _seenRuns.clear();
+            _seenRuns.add(runId);
             useChatStore.getState().setActiveRun(chatId, { runId, messageId });
           }
           return;
         }
         if (eventType === 'steer_applied') {
           applySteerBoundary(eventObj);
+          return;
+        }
+        if (eventType === 'queued_run_started') {
+          queuedRun = parseQueuedRunHandoff(eventObj);
+          return;
+        }
+        if (eventType === 'vision_progress') {
+          // 视觉桥在模型开口前先把图转成文字证据，这段是纯网络等待。不报出来的话，
+          // 界面上只有一个笼统的「深度拥抱中」在走秒，用户不知道系统在干什么。
+          const running = eventObj.status === 'running';
+          const count = typeof eventObj.count === 'number' ? eventObj.count : 1;
+          useChatStore.getState().setVisionReading(chatId, running ? count : 0);
           return;
         }
         if (eventType === 'compaction_notice') {
@@ -751,6 +872,13 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         }
         if (eventType === 'error') {
           const streamError = typeof obj.error === 'string' ? obj.error : t('流式响应异常');
+          // A server error frame is terminal for this run. Suspended question
+          // tools are cancelled with it, but their resolved signal may not be
+          // drained before task cancellation writes the terminal frame.
+          const ui = useUIStore.getState();
+          for (const request of ui.pendingUserQuestions[chatId] ?? []) {
+            ui.resolvePendingUserQuestion(chatId, request.requestId);
+          }
           if (ontologyGovernance?.review.status === 'running') {
             ontologyGovernance = {
               ...ontologyGovernance,
@@ -948,10 +1076,12 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           const rawName = getEventToolRawName(eventObj);
           const displayName = getEventToolDisplayName(eventObj);
           let activeToolId = eventToolId;
+          let activeToolName = rawName;
           if (existingIndex >= 0) {
             const existing = toolCalls[existingIndex];
             toolCalls[existingIndex] = { ...existing, name: rawName || existing.name, displayName: displayName || existing.displayName, input: toolInput ?? existing.input, status: 'running' };
             activeToolId = normalizeToolId(toolCalls[existingIndex].id);
+            activeToolName = toolCalls[existingIndex].name;
           } else {
             activeToolId = eventToolId || `tool_${Date.now()}_${toolCalls.length}`;
             toolCalls.push({ id: activeToolId, name: rawName || t('工具调用'), displayName, input: toolInput, status: 'running', timestamp: Date.now() });
@@ -961,6 +1091,18 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
               deferredThinkingText,
             );
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
+          }
+          const pendingCanvas = findAutoCanvas(activeToolName);
+          if (pendingCanvas && canOpenPluginCanvasForChat(chatId)) {
+            useCanvasStore.getState().openPluginView({
+              chatId,
+              slug: pendingCanvas.slug,
+              canvasId: pendingCanvas.id,
+              toolId: activeToolId,
+              toolName: activeToolName,
+              title: canvasTabTitle(pendingCanvas, toolInput),
+              status: 'loading',
+            });
           }
           appendOrUpdate(true);
           return;
@@ -1008,7 +1150,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
           let resultDisplayName: string | undefined;
           if (typeof obj.subagent_name === 'string' && obj.subagent_name.trim()) {
-            resultDisplayName = t('调用子智能体：{name}', { name: obj.subagent_name.trim() });
+            resultDisplayName = t('调用智能体：{name}', { name: obj.subagent_name.trim() });
           }
 
           let confirmToolName = '';
@@ -1022,6 +1164,33 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             segments.push({ type: 'tool', toolIndex: toolCalls.length - 1 });
           }
           maybeRefreshCatalogAfterTool(confirmToolName, status || 'success');
+          const completedCanvas = findAutoCanvas(confirmToolName);
+          // An interrupted run leaves the tab in its loading state rather than
+          // committing a half-finished payload to the canvas.
+          if (completedCanvas && status !== 'interrupted' && canOpenPluginCanvasForChat(chatId)) {
+            const completedTool = toolIndex >= 0 ? toolCalls[toolIndex] : toolCalls[toolCalls.length - 1];
+            const toolId = normalizeToolId(completedTool?.id);
+            const canvas = useCanvasStore.getState();
+            const patch = {
+              chatId,
+              slug: completedCanvas.slug,
+              canvasId: completedCanvas.id,
+              toolId,
+              toolName: confirmToolName,
+              title: canvasTabTitle(completedCanvas, completedTool?.input),
+              status,
+              output: output ?? completedTool?.output,
+              ...(status === 'error'
+                ? { error: String(eventObj.error || t('加载失败')) }
+                : { error: undefined }),
+            } as const;
+            const targetMatches = canvas.activeView === 'plugin'
+              && canvas.pluginTarget?.chatId === chatId
+              && canvas.pluginTarget.canvasId === completedCanvas.id
+              && (!canvas.pluginTarget.toolId || canvas.pluginTarget.toolId === toolId);
+            if (targetMatches) canvas.updatePluginView(patch);
+            else canvas.openPluginView(patch);
+          }
           // Arrival of choose_design's tool_result = the pick is complete (clicked/skipped/
           // timed out). Whether this stream is live or a replay (replay re-emits design_pick
           // events, but the pick result only shows up in this tool_result), dismiss the pick
@@ -1228,6 +1397,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
         if (eventType === 'meta') {
           if (typeof eventObj.message_id === 'string') metaMessageId = eventObj.message_id;
+          if (typeof eventObj.duration_ms === 'number' && eventObj.duration_ms >= 0) {
+            metaDurationMs = eventObj.duration_ms;
+          }
           if (Array.isArray(eventObj.citations) && (eventObj.citations as CitationItem[]).length > 0) {
             allCitations = eventObj.citations as CitationItem[];
           }
@@ -1335,6 +1507,31 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           return;
         }
 
+        if (eventType === 'user_question') {
+          // ask_user_question suspends the current run. The resident composer
+          // replaces the ordinary input until the server resolves this exact
+          // request; duplicate replay frames are deduped by request_id.
+          const request = toUserQuestionRequest(eventObj);
+          if (request.requestId && request.questions.length) {
+            useUIStore.getState().enqueuePendingUserQuestion(chatId, request);
+          }
+          return;
+        }
+
+        if (eventType === 'user_question_resolved') {
+          // The backend owns the terminal state. A successful answer/cancel
+          // POST is only an acknowledgement, so removal happens here (or via
+          // the pending-question recovery endpoint after a reconnect).
+          const requestId = String(eventObj.request_id ?? '');
+          if (requestId) {
+            useUIStore.getState().resolvePendingUserQuestion(chatId, requestId);
+          }
+          if (eventObj.outcome === 'timeout') {
+            message.info(t('等待回答已超时，助手将采用稳妥的默认方案继续。'));
+          }
+          return;
+        }
+
         if (eventType === 'follow_up') {
           if (Array.isArray(eventObj.follow_up_questions) && eventObj.follow_up_questions.length > 0) {
             metaFollowUps = eventObj.follow_up_questions as string[];
@@ -1384,10 +1581,13 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   };
 
   let thrown: unknown = null;
+  _streamActivity.set(chatId, Date.now());
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      // 心跳注释行也算：断连看门狗要的是「传输层还有没有气」，不是「有没有新内容」
+      _streamActivity.set(chatId, Date.now());
       sseBuffer += decoder.decode(value, { stream: true });
       const blocks = sseBuffer.split(/\r?\n\r?\n/);
       sseBuffer = blocks.pop() || '';
@@ -1404,7 +1604,12 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     else thrown = e;
   }
 
+  // 流已经收尾（正常结束 / 中止 / 异常）→ 摘掉活性标记，别让看门狗对着一条已死的流继续对账
+  _streamActivity.delete(chatId);
   // ── Unified wind-down: whether normal end/abort/exception, the bubble must leave the streaming state ──
+  // 识图状态必须在这里兜底清掉：中止或异常时那个 status=done 事件永远不会到，
+  // 留着的话下一轮会一直显示「图像理解中」。
+  useChatStore.getState().setVisionReading(chatId, 0);
   finalizeRunningTools();
   if (parseBuffer) {
     if (thinkingPhaseActive && sawThinkCloseTag) {
@@ -1440,7 +1645,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         messageId: metaMessageId,
         workspaceFiles: metaWorkspaceFiles,
         isStreaming: false,
-        durationMs: Date.now() - placeholderTs,
+        durationMs: metaDurationMs ?? (Date.now() - placeholderTs),
       };
     }
     const nextChat: ChatItem = { ...(c as ChatItem), messages: msgs, updatedAt: Date.now() };
@@ -1449,14 +1654,37 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
   // Settle the plan bar: if this turn produced an agent plan, mark it done so
   // the bar renders as settled (it clears on the next send).
+  //
+  // 例外 —— 工作流模式把活丢给了后台作业：那一轮在 `run_job(wait=false)` 之后立刻收尾，
+  // 计划清单却只走到「提交作业」那一步。照旧标 done 的话，计划栏会在 1/6 步上挂一个绿色
+  // 对勾（"已完成"），而作业其实才刚开始跑；此后的进度播报轮不动计划，于是它就永远停在
+  // 第 0/1 步——这正是用户看到的"计划模式最后不会更新"。作业还活着就先别收尾，让计划栏
+  // 保持真实的进行中状态，由作业跑完那一轮的交付把清单收尾（唤醒提示词已要求收尾）。
   {
     const _pp = useChatStore.getState().planProgress[chatId];
     if (_pp && _pp.source === 'agent' && !_pp.done) {
-      useChatStore.getState().setPlanProgress(chatId, { ..._pp, done: true, updatedAt: Date.now() });
+      const _allSettled = _pp.steps.every(
+        (s) => s.status === 'completed' || s.status === 'failed',
+      );
+      // 只有工作流会话才可能有后台作业（run_job 只在工作流模式下注册），别给普通对话
+      // 的每一轮末尾平白加一次请求。
+      const _workflowChat = useChatStore.getState().store.chats[chatId]?.workflowChat === true;
+      let _jobLive = false;
+      if (!_allSettled && _workflowChat) {
+        try {
+          const jobs = await listChatJobs(chatId);
+          _jobLive = jobs.some((j) => j.status === 'running' || j.status === 'pending');
+        } catch {
+          _jobLive = false; // 查不到就按原来的方式收尾，别让计划栏无限期挂着
+        }
+      }
+      if (!_jobLive) {
+        useChatStore.getState().setPlanProgress(chatId, { ..._pp, done: true, updatedAt: Date.now() });
+      }
     }
   }
 
   if (thrown) throw thrown;
 
-  return { full, placeholderTs, metaMessageId, metaFollowUps, aborted };
+  return { full, placeholderTs, metaMessageId, metaFollowUps, aborted, queuedRun };
 }

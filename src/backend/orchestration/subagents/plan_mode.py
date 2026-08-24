@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from datetime import datetime
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
@@ -21,6 +22,21 @@ from core.db.models import Plan
 from core.services import log_service as log_writer
 from core.infra.logging import LogContext
 from core.llm.agent_factory import create_agent_executor
+from core.llm.context_adapter import (
+    append_context_text,
+    next_request_sequence,
+    render_context_item,
+)
+from core.llm.context_ir import (
+    KIND_ATTACHMENT,
+    KIND_REMINDER,
+    KIND_SYSTEM_RULE,
+    POLICY_HEAD_TAIL,
+    POLICY_NEVER,
+    SESSION_CONTEXT_META_KEY,
+    make_text_context_item,
+    session_context_metadata,
+)
 from core.llm.mcp_manager import close_clients
 from core.services.plan_service import PlanService
 from orchestration.chat_run_executor import is_run_cancelled
@@ -308,37 +324,62 @@ async def _prepare_history(
     session_messages: List[Dict[str, Any]],
     model_name: str,
 ) -> List[Dict[str, Any]]:
-    """Trim history to fit context window.
+    """Return all candidates; canonical request assembly owns the budget.
 
-    History comes from the main conversation's checkpoint-aware replay
-    (cross-turn/PreTurn compaction has already covered it); going over budget here
-    is rare, so we simply trim to budget (no on-the-spot summarization anymore).
+    ``model_name`` remains in the signature for call-site compatibility.  The
+    actual model window, response reserve, and tool schemas are available only
+    at ``ManifestBoundAgent._prepare_model_input``, where every exclusion is
+    recorded in the final context manifest.
     """
-    if not session_messages:
-        return []
-    from core.llm.context_manager import ContextWindowManager
+    del model_name
+    return list(session_messages or [])
 
-    ctx_mgr = ContextWindowManager.for_model(model_name)
-    # Plan execution re-sends this history on EVERY step, on top of a large step
-    # instruction, tool schemas, per-step tool results and a 32k output request.
-    # The generic history_budget (window minus ~36k reserves) is tuned for the
-    # single-shot main-chat flow and proved far too generous here: report-writing
-    # chats packed 361k+ real tokens of history into a 393k window and every step
-    # died with a hard 400 (maximum context length exceeded). Cap history at half
-    # the model window so steps always keep real working headroom.
-    budget = min(
-        ctx_mgr.budget.history_budget,
-        int(ctx_mgr.budget.model_context_window * 0.5),
+
+def _build_plan_generation_messages(
+    system_prompt: str,
+    task_description: str,
+    file_context: str = "",
+) -> List[Dict[str, Any]]:
+    """Keep plan policy, attachments, and user task as distinct IR candidates."""
+    plan_rule = make_text_context_item(
+        system_prompt,
+        item_id="plan:generation:system_rule",
+        kind=KIND_SYSTEM_RULE,
+        origin="harness:plan_generation",
+        trust="system",
+        created_seq=0,
+        priority=950,
+        token_budget=16_000,
+        truncation_policy=POLICY_NEVER,
     )
-    trimmed = ctx_mgr.trim_history(session_messages, max_tokens=budget)
-    dropped_count = len(session_messages) - len(trimmed)
-    if dropped_count > 0:
-        logger.warning(
-            "[plan_mode] context over budget (%d tokens): dropped %d message(s)",
-            budget,
-            dropped_count,
+    messages: List[Dict[str, Any]] = [
+        {
+            "role": "user",
+            "content": system_prompt,
+            SESSION_CONTEXT_META_KEY: session_context_metadata(plan_rule),
+        }
+    ]
+    if file_context:
+        file_item = make_text_context_item(
+            file_context,
+            item_id="plan:generation:attachments",
+            kind=KIND_ATTACHMENT,
+            origin="user:uploaded_files",
+            trust="user",
+            created_seq=0,
+            priority=650,
+            token_budget=8_000,
+            truncation_policy=POLICY_HEAD_TAIL,
         )
-    return trimmed
+        messages.append(
+            {
+                "role": "user",
+                "content": file_context,
+                SESSION_CONTEXT_META_KEY: session_context_metadata(file_item),
+            }
+        )
+    messages.append({"role": "user", "content": f"用户任务：{task_description}"})
+    return messages
 
 
 def _build_file_context(
@@ -416,20 +457,23 @@ async def astream_generate_plan(
             ontology_runtime=ontology_runtime,
         )
 
-        # Embed plan prompt as part of user message (avoid system message
-        # conflict with factory's built-in system prompt).
-        file_context = _build_file_context(uploaded_files or [], user_id=user_id)
-        file_section = f"\n\n---\n\n{file_context}" if file_context else ""
-        user_content = f"{system_prompt}\n\n---\n\n用户任务：{task_description}{file_section}"
-
-        # Prepare history from chat session (trimmed to context budget)
+        # Worker thread: building the context parses attachments, which on a cache miss
+        # is a blocking POST to the external file-parser service. Inline it would pin the
+        # event loop and silence every open SSE stream on the instance.
+        file_context = await asyncio.to_thread(
+            _build_file_context, uploaded_files or [], user_id=user_id
+        )
+        # Prepare history from chat session. Plan rules, attachment evidence,
+        # and the actual user task remain separate canonical candidates.
         history = await _prepare_history(session_messages or [], model_name)
         logger.warning(
             "[plan-generate] prepared %d history msgs from %d session msgs",
             len(history),
             len(session_messages or []),
         )
-        history.append({"role": "user", "content": user_content})
+        history.extend(
+            _build_plan_generation_messages(system_prompt, task_description, file_context)
+        )
 
         streaming_agent = StreamingAgent(agent, mcp_clients)
         full_text = ""
@@ -483,35 +527,54 @@ async def astream_generate_plan(
                 a for a in (step_data.get("expected_agents") or []) if a in _valid_agents
             ]
 
-        # Persist to DB
-        svc = PlanService(db)
-        plan = svc.create_plan(
-            user_id=user_id,
-            title=plan_data.get("title", "未命名计划"),
-            description=plan_data.get("description", ""),
-            task_input=task_description,
-            steps=plan_data.get("steps", []),
-        )
-
         agent_name_map = (
             {a.get("agent_id"): a.get("name", a.get("agent_id", "")) for a in visible_agents}
             if visible_agents
             else {}
         )
-
-        extra = {}
-        if uploaded_files:
-            extra["uploaded_files"] = uploaded_files
-        if agent_name_map:
-            extra["agent_name_map"] = agent_name_map
-        if extra:
-            svc.update_plan(plan.plan_id, extra_data=extra)
-
-        event = {"type": "plan_generated", **PlanService.plan_to_dict(plan)}
+        plan_id = f"plan_{uuid.uuid4().hex[:16]}"
+        generated_at = datetime.utcnow().isoformat()
+        steps = []
+        for index, step_data in enumerate(plan_data.get("steps", [])):
+            steps.append(
+                {
+                    "step_id": step_data.get("step_id")
+                    or f"step_{uuid.uuid4().hex[:16]}",
+                    "step_order": index + 1,
+                    "title": step_data.get("title", ""),
+                    "description": step_data.get("description", ""),
+                    "expected_tools": step_data.get("expected_tools", []),
+                    "expected_skills": step_data.get("expected_skills", []),
+                    "expected_agents": step_data.get("expected_agents", []),
+                    "status": "pending",
+                    "result_summary": None,
+                    "ai_output": None,
+                    "error_message": None,
+                    "started_at": None,
+                    "completed_at": None,
+                }
+            )
+        # Persistence belongs to the ChatRun owner's terminal transaction.
+        # Yield a fully pre-allocated draft so the executor can atomically
+        # insert Plan/PlanStep + assistant message + completed Run.
+        event = {
+            "type": "plan_generated",
+            "plan_id": plan_id,
+            "title": plan_data.get("title", "未命名计划"),
+            "description": plan_data.get("description", ""),
+            "task_input": task_description,
+            "status": "draft",
+            "total_steps": len(steps),
+            "completed_steps": 0,
+            "result_summary": None,
+            "steps": steps,
+            "created_at": generated_at,
+            "updated_at": generated_at,
+        }
         if agent_name_map:
             event["agent_name_map"] = agent_name_map
         # Attach token usage from plan generation LLM call
-        event["usage"] = streaming_agent.get_usage()
+        event["usage"] = await streaming_agent.aget_usage()
         yield event
 
     except Exception as exc:
@@ -808,26 +871,39 @@ async def astream_execute_plan(
                 # (a downgrade; could later subscribe to ModelCallEndEvent instead).
 
                 # ── Direct agent.reply() with timeout + heartbeats ──
-                from agentscope.message import Msg, TextBlock
                 from core.llm.message_compat import session_to_msgs
 
                 agent.state.context.extend(session_to_msgs(prepared_history))
 
-                # Inject file context (content must be a list of blocks)
-                file_context = _build_file_context(uploaded_files or [], user_id=user_id)
+                # Inject file context (content must be a list of blocks).
+                # Worker thread for the same reason as the plan-generation path above.
+                file_context = await asyncio.to_thread(
+                    _build_file_context, uploaded_files or [], user_id=user_id
+                )
                 if file_context:
-                    agent.state.context.append(
-                        Msg(
-                            name="user",
-                            role="user",
-                            content=[TextBlock(type="text", text=file_context)],
-                        )
+                    append_context_text(
+                        agent,
+                        file_context,
+                        kind=KIND_ATTACHMENT,
+                        origin="user:plan_step_files",
+                        trust="user",
+                        priority=650,
+                        token_budget=8_000,
                     )
 
-                user_msg = Msg(
-                    name="user",
-                    role="user",
-                    content=[TextBlock(type="text", text=step_instruction)],
+                step_seq = next_request_sequence(agent.state.context)
+                user_msg = render_context_item(
+                    make_text_context_item(
+                        step_instruction,
+                        item_id=f"plan:step_instruction:{step_seq}",
+                        kind=KIND_REMINDER,
+                        origin="harness:plan_step",
+                        trust="system",
+                        created_seq=step_seq,
+                        priority=950,
+                        token_budget=8_000,
+                        truncation_policy=POLICY_NEVER,
+                    )
                 )
 
                 yield {
@@ -1066,9 +1142,7 @@ async def astream_execute_plan(
                         yield {
                             "type": "ontology_review",
                             "status": "started",
-                            "level": step_ontology_runtime.get(
-                                "review_level", "checkpoint"
-                            ),
+                            "level": step_ontology_runtime.get("review_level", "checkpoint"),
                             "step_id": step.step_id,
                         }
                         trace = [
@@ -1095,9 +1169,7 @@ async def astream_execute_plan(
                         yield {
                             "type": "ontology_review",
                             "status": "completed",
-                            "level": step_ontology_runtime.get(
-                                "review_level", "checkpoint"
-                            ),
+                            "level": step_ontology_runtime.get("review_level", "checkpoint"),
                             "verdict": ontology_review["verdict"],
                             "step_id": step.step_id,
                         }

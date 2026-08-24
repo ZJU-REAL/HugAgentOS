@@ -25,9 +25,12 @@ class PlanService:
         description: str = "",
         task_input: str,
         steps: List[Dict[str, Any]],
+        plan_id: Optional[str] = None,
+        extra_data: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> Plan:
         """Create a plan with its steps."""
-        plan_id = f"plan_{uuid.uuid4().hex[:16]}"
+        plan_id = plan_id or f"plan_{uuid.uuid4().hex[:16]}"
         plan = Plan(
             plan_id=plan_id,
             user_id=user_id,
@@ -37,6 +40,7 @@ class PlanService:
             status="draft",
             total_steps=len(steps),
             completed_steps=0,
+            extra_data=dict(extra_data or {}),
         )
         self.db.add(plan)
 
@@ -54,8 +58,11 @@ class PlanService:
             )
             self.db.add(step)
 
-        self.db.commit()
-        self.db.refresh(plan)
+        if commit:
+            self.db.commit()
+            self.db.refresh(plan)
+        else:
+            self.db.flush()
         return plan
 
     def get_plan(self, plan_id: str, user_id: str) -> Optional[Plan]:

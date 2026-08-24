@@ -116,6 +116,13 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
 
   const title = running ? t('执行中') : t('已完成');
 
+  // 折叠态下这行是唯一的进度来源。批量作业（run_job）会把一轮卡在同一个工具里几十分钟，
+  // 步骤数一个都不会涨——不把里面那张卡的实时进度顶到头上，用户看到的就是"执行中 · 5 个步骤"
+  // 一直转圈，除了刷新页面没有别的办法判断它到底跑没跑完。
+  const runningNote = running
+    ? tools.find((tc, i) => toolStatuses[i] === 'running' && tc.progressNote)?.progressNote || ''
+    : '';
+
   // History / non-streaming renders are static: the `--static` modifier kills
   // the shell + step-row + title entrance animations (see tool.css), so
   // switching chats or reloading never replays the whole run card.
@@ -137,6 +144,7 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
         {/* keyed remount → 0.15s fade when In progress ↔ Done flips */}
         <span key={title} className="jx-trs-title">{title}</span>
         <ShellTimer startTs={startTs} endTs={endTs} running={running} />
+        {runningNote && <span className="jx-trs-note">{runningNote}</span>}
         <span className="jx-trs-steps">{t('{n} 个步骤', { n: steps.length })}</span>
         <span className={`jx-trs-chev${open ? ' jx-trs-chev--open' : ''}`} aria-hidden="true" />
       </button>

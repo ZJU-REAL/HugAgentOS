@@ -19,6 +19,12 @@ from agentscope.tool import Toolkit
 
 # AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
 from agentscope.tool._response import ToolChunk as ToolResponse
+from core.llm.context_adapter import next_request_sequence, render_context_item
+from core.llm.context_ir import (
+    KIND_USER_INPUT,
+    POLICY_NEVER,
+    make_text_context_item,
+)
 from core.services import log_service as log_writer
 
 logger = logging.getLogger(__name__)
@@ -284,6 +290,8 @@ def _run_subagent_in_thread(
             isolated=True,
             sandbox_session_id=sub_session_id,
             chat_id=runtime.get("chat_id") if builtin_spec is not None else None,
+            run_id=runtime.get("run_id"),
+            journal_owner=runtime.get("journal_owner"),
             project_ctx=runtime.get("project_ctx") if builtin_spec is not None else None,
             channel_origin=runtime.get("channel_origin") if builtin_spec is not None else None,
             automation_run=bool(runtime.get("automation_run")),
@@ -314,7 +322,20 @@ def _run_subagent_in_thread(
             prompt_parts.append(f"用户任务：{task}")
             prompt = "\n\n".join(prompt_parts)
 
-            user_msg = Msg(name="user", role="user", content=[TextBlock(type="text", text=prompt)])
+            request_seq = next_request_sequence(agent.state.context)
+            user_msg = render_context_item(
+                make_text_context_item(
+                    prompt,
+                    item_id=f"subagent:delegated_task:{request_seq}",
+                    kind=KIND_USER_INPUT,
+                    origin="user:delegated_task",
+                    trust="user",
+                    created_seq=request_seq,
+                    priority=1_000,
+                    token_budget=100_000,
+                    truncation_policy=POLICY_NEVER,
+                )
+            )
 
             if emit is None:
                 # No listener (non-interactive / batch / main stream not registered): take the original one-shot path.

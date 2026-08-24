@@ -80,6 +80,64 @@ def test_graph_read_uses_a_non_reserved_cypher_parameter(monkeypatch):
     )
 
 
+def test_graph_outbox_effect_receipt_does_not_reinforce_on_replay(monkeypatch):
+    state = {"seen_count": 0, "effects": set()}
+
+    class Result:
+        def __init__(self, record):
+            self._record = record
+
+        def single(self):
+            return self._record
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, statement, **parameters):
+            assert "$effect_id IN coalesce(r.outbox_effect_ids, [])" in statement
+            effect_id = parameters["effect_id"]
+            replayed = effect_id in state["effects"]
+            if not replayed:
+                state["effects"].add(effect_id)
+                state["seen_count"] += 1
+            return Result(
+                {
+                    "relation_id": parameters["relation_id"],
+                    "seen_count": state["seen_count"],
+                    "replayed": replayed,
+                }
+            )
+
+    class Driver:
+        @staticmethod
+        def session():
+            return Session()
+
+    monkeypatch.setattr(G, "_get_driver", lambda: Driver())
+    relation = G.parse_relation(
+        {
+            "source": "项目北斗",
+            "source_type": "project",
+            "predicate": "depends_on",
+            "target": "统一身份认证平台",
+            "target_type": "system",
+        }
+    )
+    ctx = MemoryContext(user_id="u1", effect_id="mout-candidate-1")
+
+    first = G._write_sync(ctx, [relation])
+    second = G._write_sync(ctx, [relation])
+
+    assert first[0]["seen_count"] == 1
+    assert first[0]["replayed"] is False
+    assert second[0]["seen_count"] == 1
+    assert second[0]["replayed"] is True
+
+
 @pytest.mark.asyncio
 async def test_graph_writer_reports_an_addressable_l3_relation(monkeypatch):
     monkeypatch.setattr(

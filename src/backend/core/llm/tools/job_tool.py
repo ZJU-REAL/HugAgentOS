@@ -20,11 +20,50 @@ from agentscope.tool._response import ToolChunk as ToolResponse
 
 logger = logging.getLogger(__name__)
 
+# 前台等待（wait=True）的硬上限。超过就把作业转后台，不再阻塞这一轮对话。
+# 该等多久是模型自己判断的，而它对"这批要跑多久"的估计经常偏乐观——实测把一个 265 项、
+# 每项都要过模型的分类作业当成"小作业"，前台一口气阻塞了 5 分钟，用户看不到进度、
+# 插不上话、也没法中途取消。提示词已经写过"几分钟以上就走后台"仍然拦不住，所以在
+# 机制上给前台等待封顶：等够 90 秒还没完，作业照跑，对话先还给用户。
+_FOREGROUND_WAIT_CAP_S = 90.0
+
 
 def _resp(payload: Dict[str, Any]) -> ToolResponse:
     return ToolResponse(
         content=[TextBlock(type="text", text=_json.dumps(payload, ensure_ascii=False))]
     )
+
+
+def _mark_wake_on_finish(job_id: str) -> None:
+    """转后台后要有人叫醒会话播报终态，否则作业跑完没人吭声。"""
+    try:
+        from core.db.engine import SessionLocal
+        from core.services.job_service import JobService
+
+        with SessionLocal() as db:
+            JobService(db).set_wake_on_finish(job_id, True)
+    except Exception:  # noqa: BLE001 —— 叫醒是尽力而为，不该反过来弄挂工具调用
+        logger.warning("[run_job] mark wake_on_finish failed job=%s", job_id, exc_info=True)
+
+
+def _detached_payload(job_id: str, *, resumed: bool = False) -> Dict[str, Any]:
+    """前台等超时 → 按后台语义返回（作业没停，只是不占着这一轮对话了）。"""
+    _mark_wake_on_finish(job_id)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": "started",
+        "waited": False,
+        "detached": True,
+        "next": (
+            f"作业比预期久（前台已等满 {int(_FOREGROUND_WAIT_CAP_S)} 秒），"
+            "**已自动转入后台继续跑，没有中断**。"
+            "现在就结束这轮回复：告诉用户作业仍在进行、"
+            "输入框上方的状态条会实时显示进度，期间可以继续聊别的、也可以随时取消。"
+            "作业跑完会自动叫醒你播报，不要在这里轮询 action='status' 干等，"
+            "也不要重新提交一遍（它还在跑）。"
+        ),
+    }
 
 
 def register_run_job(
@@ -78,8 +117,30 @@ def register_run_job(
              - ``ledger.stats()`` → ``{total, done, pending, settled, remaining, progressed}``
              - ``agent(prompt, schema=..., tools=["internet_search"], item_key=...)`` 派子智能体，
                返回按 schema 校验后的对象；**每项一次判断**用它，多轮工具循环也用它
-             - ``job.map(items, fn, concurrency=8)`` 并发跑，单项异常自动隔离并写回 error
+             - ``job.map(items, fn, concurrency=8)`` 并发跑，单项异常自动隔离并写回 error；
+               开跑前先试头两项，若都抛同一类脚本异常（KeyError/NameError/…）判定脚本写错，
+               整份作业立刻中止报错，不会把同一个 bug 重复 N 遍
              - ``job.budget()`` → ``{calls_left, tokens_left, seconds_left}``；``log("...")`` 报进度
+
+           **照这个骨架写**（最常踩的坑就是 seed 和 map 用了两份不同的列表）::
+
+               items = [                                  # 一份列表，seed 和 map 都用它
+                   {"key": f"row_{r['idx']}", "payload": {"标题": r["标题"], ...}}
+                   for r in records
+               ]
+               ledger.seed(items)
+
+               def handle(item):          # item 就是 items 里的元素，原样传入
+                   p = item["payload"]    # 只有传 items 时才有 payload
+                   return {"分类": agent(PROMPT.format(**p), schema=SCHEMA,
+                                         item_key=item["key"])["分类"]}
+
+               job.map(items, handle, concurrency=8)      # 传 items，不是原始 records
+
+           ``job.map(items, fn)`` 把 ``items`` 的元素**原样**交给 ``fn`` —— ``fn`` 收到的
+           是你传进去的那个对象本身，不是台账记录。想直接 map 原始业务列表也行，但那时
+           ``item`` 里没有 ``payload``，且必须让它带得出台账主键
+           （``key``/``item_key``/``id``/``seq`` 之一，或 ``job.map(..., key="idx")``）。
 
            其余一切用标准 Python：抓网页、解析、写 Excel、``subprocess`` 跑校验命令。
            **验收能机检就别烧模型**——``mypy`` / ``pytest`` / 一段校验函数都比 ``agent()`` 便宜。
@@ -90,12 +151,15 @@ def register_run_job(
 
         两条硬规矩：
 
-        - **提交完就回话，不要轮询**。默认 ``wait=False``：作业在后台跑，工具立刻返回
-          job_id。此时**先把当前这轮回复收掉**——告诉用户作业已在后台开始、进度看输入框
-          上方的状态条、随时可以继续聊别的。作业跑完（以及每隔一段时间）系统会**自动
-          唤醒本会话**让你播报，不需要你守着。反复调 ``action="status"`` 干等纯属浪费轮次。
-          只有确信几十秒内能跑完的小作业才值得 ``wait=True`` 原地等——那会把整个会话
-          阻塞住：用户看不到中间进度、插不上话、也没法中途改主意。
+        - **默认后台跑，别在前台干等，任何情况下都别轮询**。默认 ``wait=False``：
+          工具立刻返回 job_id，此时**先把当前这轮回复收掉**——告诉用户作业已在后台开始、
+          进度看输入框上方的状态条、随时可以继续聊别的。作业跑完（以及每隔一段时间）
+          系统会**自动唤醒本会话**让你播报，不需要你守着。
+          ``wait=True`` 只在你确信**一分钟内一定能收**时用（十来项、纯脚本处理、
+          没有逐项 ``agent()`` 调用）；只要每项都要过模型，不管多少项都按后台走。
+          估不准也不用怕：前台等待有 90 秒硬上限，超时系统会**自动把作业转入后台**
+          （作业不中断），并让你按后台语义收尾——但那等于白白让用户干等了 90 秒，
+          所以别拿它当默认策略。无论哪种，反复调 ``action="status"`` 干等都纯属浪费轮次。
         - **逐项结果不进对话**。要用结果就 ``export`` 成文件再脚本处理。
         - **用户喊停就立刻停**。用户说「停止任务 / 别跑了 / 取消」时，先
           ``action="cancel"`` 停掉再回话，不要先解释也不要反问——台账已落库，
@@ -109,8 +173,11 @@ def register_run_job(
             job_id (`str`): status / resume / cancel 必填。
             wait (`bool`): **默认 false = 后台跑**：立即返回 job_id，作业跑完 / 每隔一段
                 时间自动叫醒本会话播报，用户全程能看状态条、能插话、能取消。
-                true 则原地阻塞到作业结束——只适合几十秒的小作业，长作业阻塞会让会话
-                看起来「卡死在前台」，既看不到进度也没法中途干预。
+                true 则原地阻塞，**仅适用于你确信一分钟内能收的小作业**（十来项、
+                纯脚本处理、没有逐项 ``agent()``）。只要每项都要过模型就用默认值——
+                阻塞会让会话看起来「卡死在前台」，既看不到进度也没法中途干预。
+                兜底：前台最多等 90 秒，超时作业**自动转后台继续跑**（不中断），
+                返回 ``{"detached": true}``，你按后台语义收掉这轮即可。拿不准用默认值。
             progress_wake_sec (`int`): 仅 wait=false：每隔多少秒把你叫回来播报一次进度
                 （默认 300 秒＝5 分钟；0 表示只在终态叫一次）。被叫醒时只需转述进度，
                 别重复提交作业。用户看到的实时进度条不靠它，它只决定你何时该介入。
@@ -260,7 +327,11 @@ def register_run_job(
                     }
                 )
 
-            res = await job_runtime.run_and_wait(jid, chat_id=chat_id)
+            res = await job_runtime.run_and_wait(
+                jid, chat_id=chat_id, detach_after=_FOREGROUND_WAIT_CAP_S
+            )
+            if res.get("status") == "detached":
+                return _resp(_detached_payload(jid))
             with SessionLocal() as db:
                 svc = JobService(db)
                 stats = svc.stats(jid)
@@ -411,7 +482,11 @@ def register_run_job(
             if not wait:
                 job_runtime.spawn_background(job_id, chat_id=chat_id)
                 return _resp({"ok": True, "job_id": job_id, "status": "running", "waited": False})
-            done = await job_runtime.run_and_wait(job_id, chat_id=chat_id)
+            done = await job_runtime.run_and_wait(
+                job_id, chat_id=chat_id, detach_after=_FOREGROUND_WAIT_CAP_S
+            )
+            if done.get("status") == "detached":
+                return _resp(_detached_payload(job_id, resumed=True))
             with SessionLocal() as db:
                 stats = JobService(db).stats(job_id)
             return _resp(

@@ -1,10 +1,10 @@
-"""Post-response memory pipeline — all write operations are stripped out of the SSE main path into here.
+"""Post-response memory admission and shared write-path controls.
 
 Core contract:
-1. `schedule_post_response_tasks()` is a sync function; it only does `asyncio.create_task()` and **never awaits**
-2. A global `asyncio.Semaphore` bounds concurrency to prevent task pile-up
-3. Internal exceptions are swallowed by try/except and never bubble up
-4. Milvus circuit breaker: after N consecutive failures it short-circuits for a while, skipping directly during that window
+1. `schedule_post_response_tasks()` commits a durable outbox row before it returns
+2. The low-latency path only wakes the lifecycle-owned worker; recovery comes from the DB row
+3. A global `asyncio.Semaphore` bounds outbox consumption concurrency
+4. Milvus circuit breaker short-circuits an unhealthy external store
 
 Public interface:
 - `schedule_post_response_tasks(ctx, user_msg, assistant_msg)` — call after SSE closes
@@ -86,10 +86,11 @@ def schedule_post_response_tasks(
     user_message: str,
     assistant_message: str,
 ) -> None:
-    """Fire-and-forget scheduling of post-response memory tasks.
+    """Durably admit post-response memory work, then kick a worker.
 
-    **Must be a sync function**; callers do not await. SSE has already closed and
-    the user is no longer waiting.
+    **Must be a sync function**; callers do not await. The database insert is
+    intentionally synchronous so an immediate process exit cannot lose the
+    accepted write request.
 
     Four gates (skip if any fails — defensive checks so nothing is mistakenly
     written even if an upper layer forgets):
@@ -113,10 +114,23 @@ def schedule_post_response_tasks(
         return
 
     try:
-        asyncio.create_task(_run_post_response_safe(ctx, user_message, assistant_message))
-    except RuntimeError:
-        logger.warning("[memory_pipeline] no running loop, skipping post-response task")
-        _report_settlement(ctx)
+        from core.memory.outbox import enqueue_pipeline_job
+
+        enqueue_pipeline_job(ctx, user_message, assistant_message)
+    except Exception:
+        logger.exception("[memory_pipeline] durable outbox admission failed")
+        _report_settlement(ctx, failed=True)
+        return
+
+    # Admission has already committed.  A closed event loop or a worker wakeup
+    # failure cannot turn a durable request into a failed evolution outcome;
+    # the polling worker will recover the row after restart.
+    try:
+        from core.memory.outbox import kick_outbox_drain
+
+        kick_outbox_drain()
+    except Exception:
+        logger.debug("[memory_pipeline] outbox wakeup skipped", exc_info=True)
 
 
 def _report_settlement(
@@ -144,105 +158,3 @@ def _report_settlement(
         report_memory_writes(message_id, items=list(items or []), failed=failed)
     except Exception as exc:  # noqa: BLE001 - settlement must never break writes
         logger.debug("[memory_pipeline] settlement report skipped: %s", exc)
-
-
-async def _run_post_response_safe(
-    ctx: MemoryContext,
-    user_message: str,
-    assistant_message: str,
-) -> None:
-    """Body of the post-response task. Swallows all exceptions; bounded concurrency."""
-    try:
-        sem = get_background_semaphore()
-    except Exception as exc:
-        logger.warning("[memory_pipeline] semaphore unavailable: %s", exc)
-        _report_settlement(ctx)
-        return
-
-    async with sem:
-        try:
-            written = await _run_pipeline(ctx, user_message, assistant_message)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("[memory_pipeline] post-response task failed")
-            _report_settlement(ctx, failed=True)
-        else:
-            _report_settlement(ctx, written)
-
-
-async def _run_pipeline(
-    ctx: MemoryContext,
-    user_message: str,
-    assistant_message: str,
-) -> list:
-    """The actual pipeline: classify → LLM gate → extract → sanitize → write to the matching layer → audit.
-
-    Extractors live in `core.memory.extractors.router`; the import is placed here
-    to avoid a circular dependency.
-    """
-    from core.memory.extractors.router import (
-        ExtractorType,
-        classify_conversation,
-        run_extractors_with_timeout,
-    )
-    from core.memory.trajectory import load_recent_trajectory
-
-    classes = classify_conversation(user_message, assistant_message)
-    trajectory = await load_recent_trajectory(ctx, user_message, assistant_message)
-    if trajectory.verified_correction:
-        # A verified correction spans several turns, so the current pair alone
-        # may look like a one-off instruction or an assistant self-commentary.
-        # It is nevertheless strong procedural evidence and must reach the
-        # extractor even if the current turn is too short for the substance bar.
-        classes.add(ExtractorType.PROCEDURAL)
-        logger.info(
-            "[memory_pipeline] verified correction detected, preserving procedural "
-            "candidate (chat=%s)",
-            ctx.chat_id,
-        )
-    if not classes:
-        logger.debug("[memory_pipeline] empty class set, skipping")
-        return []
-
-    # LLM gate: the regex above decides what this turn *could* contain; one fast
-    # LLM call decides whether it actually does. Without it every substantive
-    # turn reaches the extractors and the default is to write. Fail-open on any
-    # gate failure — see gate.py.
-    if settings.memory.llm_gate_enabled:
-        from core.memory.extractors.gate import llm_write_gate
-
-        classes = await llm_write_gate(
-            user_message,
-            assistant_message,
-            classes,
-            timeout_s=settings.memory.gate_timeout_s,
-            recent_trajectory=trajectory.transcript,
-            verified_correction=trajectory.verified_correction,
-        )
-        if not classes:
-            logger.info("[memory_pipeline] llm gate: nothing worth writing this turn")
-            return []
-
-    logger.info(
-        "[memory_pipeline] user=%s workspace=%s classes=%s",
-        ctx.user_id,
-        ctx.workspace_id,
-        sorted(c.value for c in classes),
-    )
-
-    results = await run_extractors_with_timeout(
-        classes=classes,
-        user_message=user_message,
-        assistant_message=assistant_message,
-        ctx=ctx,
-        timeout_s=settings.memory.extract_timeout_s,
-        recent_trajectory=trajectory.transcript,
-        verified_correction=trajectory.verified_correction,
-    )
-
-    # results has the shape { ExtractorType: list[dict] | dict };
-    # the actual persistence logic is handled by each layer writer
-    from core.memory.extractors.writers import write_layered
-
-    return await write_layered(results, ctx)

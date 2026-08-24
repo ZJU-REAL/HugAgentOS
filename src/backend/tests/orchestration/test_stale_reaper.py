@@ -18,7 +18,6 @@ from core.db.engine import Base
 from core.db.models import ChatRun
 import orchestration.chat_run_executor as executor
 
-
 # ─── fakes / fixtures ──────────────────────────────────────────────────
 
 
@@ -66,6 +65,7 @@ def _insert_run(
     status: str = "running",
     age_sec: float = 0,
     kind: str = "chat",
+    lease_seconds: float | None = None,
 ) -> None:
     began = datetime.now(timezone.utc) - timedelta(seconds=age_sec)
     with session_factory() as db:
@@ -77,6 +77,12 @@ def _insert_run(
                 message_id=f"msg_{run_id}",
                 status=status,
                 request_payload={"kind": kind},
+                lease_owner="remote-worker" if lease_seconds is not None else None,
+                lease_expires_at=(
+                    datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
+                    if lease_seconds is not None
+                    else None
+                ),
                 started_at=began,
                 created_at=began,
             )
@@ -144,12 +150,66 @@ async def test_hard_max_age_reaps_even_active_run(reaper_env):
     assert "hard max age" in run.error_message
 
 
+async def test_hard_max_age_preserves_bounded_human_wait(reaper_env, monkeypatch):
+    """A question opened near the run hard cap keeps its own full wait window."""
+
+    session_factory, fake_redis = reaper_env
+    _insert_run(session_factory, "run_human_wait", age_sec=executor._HARD_MAX_AGE_SEC + 300)
+    fake_redis.seed(executor._stream_key("run_human_wait"), _now_ms() - 1_000)
+    monkeypatch.setattr(executor.human_interaction, "has_pending", lambda chat_id: bool(chat_id))
+
+    assert await executor.reap_stale_runs() == 0
+    assert _get_run(session_factory, "run_human_wait").status == "running"
+
+
 async def test_young_run_untouched(reaper_env):
     session_factory, _ = reaper_env
     _insert_run(session_factory, "run_young", age_sec=60)
 
     assert await executor.reap_stale_runs() == 0
     assert _get_run(session_factory, "run_young").status == "running"
+
+
+async def test_valid_cross_process_lease_shields_a_quiet_run(reaper_env):
+    """The DB ownership lease outranks a missing local task or Redis activity."""
+    session_factory, _ = reaper_env
+    _insert_run(
+        session_factory,
+        "run_remote",
+        age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300,
+        lease_seconds=60,
+    )
+
+    assert await executor.reap_stale_runs() == 0
+    run = _get_run(session_factory, "run_remote")
+    assert run.status == "running"
+    assert run.lease_owner == "remote-worker"
+
+
+async def test_reaper_cas_cannot_kill_a_worker_claimed_after_candidate_scan(
+    reaper_env, monkeypatch
+):
+    session_factory, _ = reaper_env
+    _insert_run(
+        session_factory,
+        "run_claim_race",
+        age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300,
+    )
+
+    async def claim_during_activity_probe(_run_id):
+        assert executor._journal().claim(
+            "run_claim_race",
+            owner="new-worker",
+            lease_seconds=60,
+        )
+        return None
+
+    monkeypatch.setattr(executor, "_stream_last_write_ms", claim_during_activity_probe)
+
+    assert await executor.reap_stale_runs() == 0
+    run = _get_run(session_factory, "run_claim_race")
+    assert run.status == "running"
+    assert run.lease_owner == "new-worker"
 
 
 # ─── Reaping aligned with in-process task cancellation ──────────────────────────────────────────

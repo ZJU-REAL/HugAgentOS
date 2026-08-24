@@ -269,6 +269,36 @@ def _ensure_project_for_site(site_id: str, user_id: str, title: str) -> Optional
         return None
 
 
+def _bind_chat_to_project(chat_id: str, project_id: str, user_id: str) -> None:
+    """把这段建站对话归到站点的源码工程下（仅当它还没绑任何工程）。
+
+    站点发布时后端会自动建一个同名工程并把源码放进去，但**发起建站的那段对话**
+    始终是「无工程」状态——于是站点在项目里、对话却散在历史列表里，同一件事被拆成
+    两处，用户找不到「这个站点是从哪段对话建出来的」。这里补上绑定，让历史对话跟着
+    站点一起归到项目下。
+
+    已经绑了别的工程的对话不动（用户可能是在 A 工程里顺手发了个站点，不该被改走）。
+    """
+    if not (chat_id and project_id):
+        return
+    try:
+        from core.db.engine import SessionLocal
+        from core.db.models import ChatSession
+
+        with SessionLocal() as db:
+            sess = (
+                db.query(ChatSession)
+                .filter(ChatSession.chat_id == chat_id, ChatSession.user_id == user_id)
+                .first()
+            )
+            if sess is None or sess.project_id:
+                return
+            sess.project_id = project_id
+            db.commit()
+    except Exception:  # noqa: BLE001 — 绑定失败不影响已经成功的发布
+        logger.warning("[internal-sites] bind chat to project failed", exc_info=True)
+
+
 def _project_root_has_package_json(project_id: str, user_id: str) -> bool:
     """Whether the project's linked folder root contains a live package.json (the marker of a build-style workspace)."""
     if not project_id:
@@ -518,6 +548,8 @@ async def publish(
         if source_dir:
             del files
         effective_project_id = _ensure_project_for_site(site.site_id, user_id, site.title)
+        # 站点进了项目，发起建站的这段对话也要一起进去（见 _bind_chat_to_project）。
+        _bind_chat_to_project(body.chat_id or "", effective_project_id or "", user_id)
         mirrored_from = ""
         mirror_note = ""
         if effective_project_id:

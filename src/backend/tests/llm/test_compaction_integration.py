@@ -227,9 +227,36 @@ def test_context_state_uses_compacted_baseline_and_visible_boundary(db_session):
         "checkpoint_id": checkpoint.message_id,
         "checkpoint_created_at": checkpoint.created_at.isoformat(),
         "covered_through_message_id": covered.message_id,
+        "covered_through_chat_seq": covered.chat_seq,
         "covered_message_count": 2,
         "replacement_tokens": S.estimate_history_tokens(replacement),
     }
+
+
+def test_checkpoint_tail_uses_sequence_not_identical_timestamp(db_session):
+    """A post-watermark message survives even when timestamps are identical."""
+    from datetime import datetime
+
+    _mk_session(db_session)
+    svc = ChatService(db_session)
+    covered = _add_user(svc, "covered")
+    checkpoint = svc.add_compaction_checkpoint(
+        CHAT_ID,
+        summary_text=C.format_summary_text("baseline"),
+        replacement_history=[{"role": "user", "content": C.format_summary_text("baseline")}],
+    )
+    tail = _add_user(svc, "tail")
+    same_time = datetime(2026, 1, 1, 12, 0, 0)
+    db_session.query(ChatMessage).filter(
+        ChatMessage.message_id.in_([covered.message_id, checkpoint.message_id, tail.message_id])
+    ).update({"created_at": same_time}, synchronize_session=False)
+    db_session.commit()
+
+    history = S._load_history(svc, CHAT_ID)
+    rendered = json.dumps(history, ensure_ascii=False)
+    assert "baseline" in rendered
+    assert "tail" in rendered
+    assert (checkpoint.extra_data or {})["covers_up_to_chat_seq"] == covered.chat_seq
 
 
 def test_pre_turn_compaction_fast_path_no_llm(monkeypatch):

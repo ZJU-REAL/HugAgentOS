@@ -1,6 +1,23 @@
 /** 英文字典（tool 域）：key 为中文原文，value 为英文译文。 */
 export const TOOL_DICT: Record<string, string> = {
   // ToolOutputRenderer.tsx
+  // DataView.tsx / WindowedText.tsx / CitedTextBody.tsx —— 工具结果可读视图与引用定位
+  '共 {n} 项': '{n} fields',
+  '显示更多（还有 {n} 条）': 'Show more ({n} left)',
+  '展开全部 {n} 字': 'Show all {n} chars',
+  '展开上文（还有 {n} 字）': 'Show earlier text ({n} chars)',
+  '展开下文（还有 {n} 字）': 'Show later text ({n} chars)',
+  '显示全文': 'Show full text',
+  '结构视图': 'Readable view',
+  '原始 JSON 文本': 'Raw JSON',
+  '查看完整结果': 'View full result',
+  '只看引用出处': 'Cited part only',
+  '引用出处：{trail}': 'Cited from: {trail}',
+  '结果列表': 'Results',
+  '展开全部内容': 'Show full content',
+  '收起内容': 'Show less',
+  '已定位到正文引用的位置': 'Jumped to the cited passage',
+  '正文引用的就是这一段': 'This is the passage cited in the answer',
   '等 {n} 个': '+{n} more',
   '{n} 个': '{n}',
   '{n} 字': '{n} chars',
@@ -34,8 +51,8 @@ export const TOOL_DICT: Record<string, string> = {
   'Word 报告已生成': 'Word report generated',
   '网页内容已获取': 'Web content fetched',
   '网页内容已获取（{domain}）': 'Web content fetched ({domain})',
-  '子智能体已完成': 'Sub-agent completed',
-  '子智能体「{name}」已完成': 'Sub-agent "{name}" completed',
+  '智能体已完成': 'Agent completed',
+  '智能体「{name}」已完成': 'Agent "{name}" completed',
   '命令执行失败': 'Command failed',
   '命令执行完成': 'Command completed',
   '写入文件失败': 'Failed to write file',
@@ -77,7 +94,7 @@ export const TOOL_DICT: Record<string, string> = {
   '保存沙盒文件': 'Save Sandbox File',
   '获取技能列表': 'Get Skill List',
   '获取智能体列表': 'Get Agent List',
-  '获取 MCP 工具': 'Get MCP Tools',
+  '获取连接器': 'Get Connectors',
   // ToolRunShell.tsx
   '{n} 个步骤': '{n} steps',
   '{n}秒': '{n}s',
@@ -113,6 +130,21 @@ export const TOOL_DICT: Record<string, string> = {
   '未知文件': 'Unknown file',
   // ToolOutputRenderer.tsx（通用列表兜底渲染）
   '第 {n} 条': 'Item {n}',
+  // CompanyRenderer.tsx
+  '未搜索到企业': 'No companies found',
+  '企业详情': 'Company Detail',
+  '法人: {v}': 'Legal rep: {v}',
+  '注册资金: {v}': 'Capital: {v}',
+  '成立: {v}': 'Est.: {v}',
+  '投资企业': 'Invested Companies',
+  '投资总额': 'Total Investment',
+  '无分析数据': 'No analysis data',
+  '无基本信息': 'No basic info',
+  '无经营分析数据': 'No business analysis data',
+  '无技术洞察数据': 'No tech insight data',
+  '无资金穿透数据': 'No funding data',
+  '无风险预警数据': 'No risk warning data',
+  '引用 {cite}': 'Cited {cite}',
   // ToolResultPanel.tsx
   // CitationBadge.tsx
   '互联网': 'Internet',

@@ -51,6 +51,10 @@ class MemoryContext:
     # it the card had to guess from the retrieval count, which is a different
     # number entirely.
     message_id: Optional[str] = None
+    # Durable outbox effect receipt.  This is deliberately absent for legacy
+    # direct callers; outbox consumers set it to the candidate row id so an
+    # external store can recognise a replay after a crash-before-ack window.
+    effect_id: Optional[str] = None
 
     @property
     def effective_actor(self) -> str:
@@ -73,6 +77,7 @@ class MemoryContext:
             write_enabled=self.write_enabled,
             scope_user_id=self.scope_user_id,
             message_id=self.message_id,
+            effect_id=self.effect_id,
         )
 
 

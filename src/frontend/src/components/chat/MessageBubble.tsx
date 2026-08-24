@@ -21,6 +21,10 @@ import { ToolRunShell } from '../tool/ToolRunShell';
 import type { ShellStep } from '../tool/ToolRunShell';
 import { ToolProgressInline } from '../tool/ToolProgressInline';
 import { anyToolRunning } from '../tool/renderers/utils';
+import { KBAssetThumbs } from '../kb/KBAssetThumbs';
+import { extractAssetRefs, type KBAssetRef } from '../kb/kbAssets';
+import { DataView } from '../tool/renderers/DataView';
+import { CitedTextBody } from '../common/CitedTextBody';
 import { ThinkingInline } from './ThinkingInline';
 import { StreamWaitIndicator } from './StreamWaitIndicator';
 import { TurnStatusIndicator } from './TurnStatusIndicator';
@@ -135,6 +139,14 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
   } = useChatStore();
   const { setDetailModal, dispatchProcessVisible } = useUIStore();
   const chatMessages = useChatStore(state => state.store.chats[currentChatId]?.messages ?? []);
+  // 视觉桥正在读图（模型还没开口）→ 轮级状态换成「图像理解中」，别让这几秒看起来
+  // 像模型在发呆。识图结束由 chatStream 清空。
+  const visionReadingCount = useChatStore(state => state.visionReading[currentChatId] ?? 0);
+  const turnStatusLabel = visionReadingCount > 0
+    ? (visionReadingCount > 1
+        ? t('图像理解中（{n} 张）…', { n: visionReadingCount })
+        : t('图像理解中…'))
+    : undefined;
   const { editingMessageTs, setEditingMessageTs } = useChatStore();
   const [editText, setEditText] = useState('');
   const shareSelected = selectedShareMessageTs.has(m.ts);
@@ -180,7 +192,17 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
     (total, tool) => total + (tool.inputText?.length || 0),
     0,
   );
-  const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${m.segments?.length ?? 0}`;
+  // Streaming reasoning is activity too. Only the *first* thinking chunk pushes
+  // a segment; every later chunk appends to the same block's `content`, which
+  // no other term of this signature reads. Without this the signature freezes
+  // for the whole reasoning phase and the turn indicator claims the run stalled
+  // while thinking is visibly streaming — most obvious on tool-calling turns,
+  // where the model reasons for seconds before the first tool call.
+  const streamedThinkingLength = (m.thinking || []).reduce(
+    (total, block) => total + (block.content?.length || 0),
+    0,
+  );
+  const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${streamedThinkingLength}|${m.segments?.length ?? 0}`;
   // Anchor the stall clock to the message's persisted `lastActivityTs` so the
   // "正在准备调用工具…" timer keeps counting from the real start even after a
   // session switch or page refresh remounts this component.
@@ -449,7 +471,10 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
       }
       const title = String(first?.title || citation.title || t('互联网搜索结果'));
       const content = String(first?.content || first?.snippet || citation.snippet || t('暂无内容'));
-      setDetailModal({ title, body: <div className="jx-tr-detailBody">{content}</div> });
+      setDetailModal({
+        title,
+        body: <CitedTextBody className="jx-tr-detailBody" text={content} highlight={citation.snippet} />,
+      });
       return;
     }
 
@@ -458,12 +483,57 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
       const item = Array.isArray(data?.items) ? data.items[0] : undefined;
       const docName = String(item?.['文件名称'] || item?.title || item?.document_name || citation.title || t('未知文档'));
       const content = String(item?.['文件内容'] || item?.content || citation.snippet || '');
-      setDetailModal({ title: docName, body: <div className="jx-tr-detailBody">{content || t('暂无内容')}</div> });
+      setDetailModal({
+        title: docName,
+        body: content
+          ? <CitedTextBody className="jx-tr-detailBody" text={content} highlight={citation.snippet} />
+          : <div className="jx-tr-detailBody">{t('暂无内容')}</div>,
+      });
       return;
     }
 
-    // fallback
+    if (toolName === 'retrieve_local_kb') {
+      const data = (typeof output === 'object' && output !== null ? output : {}) as any;
+      const item = Array.isArray(data?.items) ? data.items[0] : undefined;
+      const docName = String(item?.title || citation.title || t('未知文档'));
+      const content = String(item?.content || citation.snippet || '');
+      // 命中片段配的图（版面切出的图表 / 单独上传的图片）。检索结果带回结构化 images，
+      // 历史命中没有时退回从正文里抠资产链接——只显示个文件名等于把图丢了。
+      const assets: KBAssetRef[] = Array.isArray(item?.images) && item.images.length
+        ? item.images
+        : extractAssetRefs(content);
+      setDetailModal({
+        title: docName,
+        body: (
+          <>
+            {content
+              ? <CitedTextBody className="jx-tr-detailBody" text={content} highlight={citation.snippet} />
+              : assets.length === 0 && <div className="jx-tr-detailBody">{t('暂无内容')}</div>}
+            {assets.length > 0 && <KBAssetThumbs assets={assets} />}
+          </>
+        ),
+      });
+      return;
+    }
+
+    // 兜底：拿得到这次工具调用的**完整**结果就展示完整结果，并把引用片段定位高亮。
+    // 以前这里只贴 citation.snippet —— 整体型锚点的 snippet 是后端截的前 500 字，
+    // 于是「引用的是结果末尾、打开却只有开头」，等于没打开。
     const title = citation.title || t('引用详情');
+    const outputText = typeof output === 'string' ? output : '';
+    // 「比 snippet 更全」才值得换掉 snippet —— 取不到本次工具结果时
+    // getCitationOutputSlice 会拿 snippet 造一份兜底，那种情况没有增量信息
+    const hasFullOutput = (typeof output === 'object' && output !== null)
+      || outputText.length > (citation.snippet || '').length;
+    if (hasFullOutput) {
+      setDetailModal({
+        title,
+        body: typeof output === 'string' && !/^\s*[[{]/.test(output)
+          ? <CitedTextBody className="jx-tr-detailBody" text={output} highlight={citation.snippet} />
+          : <DataView value={output} focus={citation.snippet} maxHeight={520} />,
+      });
+      return;
+    }
     const snippet = citation.snippet || t('暂无内容');
     setDetailModal({ title, body: <div className="jx-tr-detailBody">{snippet}</div> });
   };
@@ -744,7 +814,23 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
               // - In OFF mode → fall through to the per-text-segment
               //   StreamWaitIndicator (preserves existing inline behavior).
               const hasVisibleTextProgress = segs.some(s => s.type === 'text' && (s.content || '').trim().length > 0);
-              const startupPending = !!m.isStreaming && dispatchProcessVisible && runs.length === 0 && !hasVisibleTextProgress;
+              // A thinking segment that is not folded into a run renders as its
+              // own ThinkingInline below, so the reasoning is already on screen.
+              // Counting only `text` here made the turn indicator sit under a
+              // visibly streaming reasoning block for the whole pre-tool phase —
+              // several seconds on any turn that calls a tool, which is exactly
+              // where "深度拥抱中…" was never meant to appear. It stays for the
+              // genuine dead window: after the bubble exists and before the
+              // model has emitted anything at all.
+              const hasVisibleThinkingProgress = segs.some(
+                s => s.type === 'thinking' && (s.content || '').trim().length > 0,
+              );
+              const startupPending =
+                !!m.isStreaming &&
+                dispatchProcessVisible &&
+                runs.length === 0 &&
+                !hasVisibleTextProgress &&
+                !hasVisibleThinkingProgress;
               const showPendingInShell = pendingWaiting && dispatchProcessVisible;
               let virtualPending: { startTs: number; key: string } | null = null;
               if (showPendingInShell || startupPending) {
@@ -849,6 +935,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                       isStreaming={m.isStreaming}
                       agentNameMap={planData.agentNameMap}
                       previewFooter={previewFooter}
+                      cancelled={planData.cancelled}
                     />
                   );
                 }
@@ -902,7 +989,11 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                 // shimmer label beats a hollow "执行中" shell card here: we don't
                 // even know yet whether a tool will be called.
                 rendered.push(
-                  <TurnStatusIndicator key={virtualPending.key} startTs={virtualPending.startTs} />,
+                  <TurnStatusIndicator
+                    key={virtualPending.key}
+                    startTs={virtualPending.startTs}
+                    label={turnStatusLabel}
+                  />,
                 );
               }
 
@@ -934,7 +1025,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
             )}
             {m.isStreaming && !m.content ? (
               dispatchProcessVisible ? (
-                <TurnStatusIndicator startTs={stall.since} />
+                <TurnStatusIndicator startTs={stall.since} label={turnStatusLabel} />
               ) : (
                 <ThinkingInline content="" thinkKey={`${m.ts}-legacy-placeholder`} isActive={true} />
               )

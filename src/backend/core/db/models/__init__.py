@@ -27,12 +27,16 @@ from core.db.models.agent import (
 from core.db.models.artifact import Artifact, ContentBlock
 from core.db.models.automation import BatchPlan, PersonaDistillJob, ScheduledTask, ScheduledTaskRun
 from core.db.models.chat import (
+    ChatCompactionState,
     ChatMessage,
     ChatRun,
+    ChatRunOperation,
     ChatSandboxSnapshot,
     ChatSession,
+    ChatSteerQueueItem,
     MessageFeedback,
 )
+from core.db.models.chat_mode import ChatMode
 from core.db.models.config import ModelProvider, ModelRoleAssignment, SystemConfig
 from core.db.models.evolution import (
     EvolutionAgentProfile,
@@ -57,9 +61,26 @@ from core.db.models.identity import (
     UserShadow,
 )
 from core.db.models.job import JOB_LIVE_STATUSES, JOB_TERMINAL_STATUSES, Job, JobCall, JobItem
-from core.db.models.knowledge import CatalogOverride, KBChunk, KBDocument, KBSpace
-from core.db.models.logs import SkillCallLog, SubAgentCallLog, ToolCallLog
-from core.db.models.memory import MemoryRefShadow, MemorySanitizerRule, ProfileMemory
+from core.db.models.kb_wiki import KBWikiFolder, KBWikiJob, KBWikiPage
+from core.db.models.knowledge import CatalogOverride, KBAsset, KBChunk, KBDocument, KBSpace
+from core.db.models.logs import (
+    HarnessEventCursor,
+    HarnessEventLog,
+    HarnessUsageAttempt,
+    HarnessUsageCursor,
+    SkillCallLog,
+    SubAgentCallLog,
+    ToolCallLog,
+    ToolEffectLease,
+    ToolEffectLedger,
+    ToolEffectReceipt,
+)
+from core.db.models.memory import (
+    MemoryOutbox,
+    MemoryRefShadow,
+    MemorySanitizerRule,
+    ProfileMemory,
+)
 from core.db.models.ontology import (
     OntologyDraft,
     OntologyEnforcementEvent,

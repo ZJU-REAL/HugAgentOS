@@ -10,6 +10,7 @@ import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
+import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { createMySkill, deleteMySkill, uploadMySkill, getMySkill, getMySkillFile, saveMySkillFile, deleteMySkillFile, uploadMySkillFile, exportMySkillZip, getMarketplaceSkills, getMarketplaceSkillDetail, installMarketplaceSkill, submitSkillToMarketplace, getMySkillSubmissions, withdrawSkillSubmission, getOntologyTagOptions, type MySkillFileInfo } from '../../api';
 import { SkillMarketplaceModal } from './SkillMarketplaceModal';
 import { SkillAvatar } from './skillIcons';
@@ -56,7 +57,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
     toggleItem,
   } = useCatalogStore();
   const { title: skillsTitle, subtitle: skillsSubtitle } = usePanelHeader('skills', {
-    title: '技能库',
+    title: ABILITY_TAB_TITLE.skills,
     subtitle: '启用/停用技能，并查看详细介绍、输入输出与示例',
   });
 
@@ -871,7 +872,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
               showSearch
               optionFilterProp="label"
               maxTagCount="responsive"
-              placeholder={t('选择可用的 MCP 工具')}
+              placeholder={t('选择可用的连接器')}
               options={skillMcpOptions}
             />
           </Form.Item>

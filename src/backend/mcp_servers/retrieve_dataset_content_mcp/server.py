@@ -265,7 +265,13 @@ Returns:
 async def list_datasets(
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
-    """List all available public and private knowledge bases."""
+    """列出全部可用的公有与私有知识库。
+
+    这里只回目录（库名、简介、文档标题）。用户要看/要发**知识库里的图片**时，用
+    ``retrieve_local_kb`` 检索该内容——命中结果会带 ``images``（含可直接渲染的 url），
+    再按那个工具说明把图输出即可。不要绕去「我的空间」或沙盒找同名文件：那既慢，
+    而且发出来的往往是另一份同名文件，不是知识库里的这张。
+    """
 
     from mcp_servers.retrieve_dataset_content_mcp.impl import list_all_datasets as _impl
 
@@ -323,6 +329,9 @@ _BASE_LOCAL_KB_TOOL_DESCRIPTION = """从用户私有知识库中检索相关内�
 
 调用说明：kb_id 从下方"当前可用私有知识库"列表选择；没有列表或不确定时传空字符串 ""
 （自动搜索用户所有私有库），或先调 `list_datasets` 看完整列表。
+命中片段带 images 时，据其 caption（图的内容描述）作答并照常带 cite 标记，不要编造图中没有的数字。
+**用户要求"看这张图 / 把图发出来"时，直接在回答里写 markdown 图片 `![](url)`**（url 原样复制），
+对话区会把它渲染成图片——不需要、也不要绕去「我的空间」或沙盒找同名文件。
 
 Args:
     kb_id: 私有知识库 ID（空字符串 = 搜全部私有库）。
@@ -330,7 +339,7 @@ Args:
     top_k: 返回片段数量（默认 10）。
 
 Returns:
-    dict: {"available_kbs": [...], "items": [{"title","content","kb_id","score"}]}
+    dict: {"available_kbs": [...], "items": [{"title","content","kb_id","score","images?":[{"asset_id","caption","url"}]}]}
 
 调用决策: 用户问自己上传的文档时第一优先级。我只查私有库，retrieve_dataset_content
 查公有数据集；用户没明说是哪类时两者都试一遍。

@@ -11,7 +11,9 @@ never enforced. These tests pin the replacement behavior:
 """
 
 import pytest
+from types import SimpleNamespace
 
+from core.memory import service as S
 from core.memory.context import MemoryContext
 from core.memory.extractors import writers as W
 from core.memory.extractors.router import ExtractorType
@@ -125,6 +127,105 @@ async def test_an_unmarked_strength_is_treated_as_weak(ctx, monkeypatch):
     assert saves[0]["ttl_days"] == W.settings.memory.procedure_weak_ttl_days
 
 
+@pytest.mark.asyncio
+async def test_effect_receipt_lookup_uses_external_metadata(ctx, monkeypatch):
+    calls = []
+
+    class Memory:
+        def get_all(self, *, filters, top_k):
+            calls.append((filters, top_k))
+            if filters.get("outbox_effect_id") == "effect-1":
+                return {
+                    "results": [
+                        {
+                            "id": "mem-1",
+                            "memory": "先核验主体",
+                            "metadata": {"outbox_effect_id": "effect-1"},
+                        }
+                    ]
+                }
+            return {"results": []}
+
+    monkeypatch.setattr(S, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
+    monkeypatch.setattr(S, "_get_memory", lambda: Memory())
+
+    found = await S.find_procedure_by_effect_id(ctx, "effect-1", strict=True)
+
+    assert found["id"] == "mem-1"
+    assert calls[0][0]["outbox_effect_id"] == "effect-1"
+
+
+@pytest.mark.asyncio
+async def test_effect_receipt_uses_exact_strong_milvus_query_beyond_list_cap(ctx, monkeypatch):
+    calls = []
+
+    class Client:
+        def query(self, **kwargs):
+            calls.append(kwargs)
+            return [
+                {
+                    "id": "mem-250",
+                    "metadata": {
+                        "data": "先核验主体",
+                        "outbox_effect_ids": ["job-1:hash-a"],
+                    },
+                }
+            ]
+
+    class Memory:
+        vector_store = SimpleNamespace(client=Client(), collection_name="memories")
+
+        def get_all(self, **_kwargs):
+            raise AssertionError("bounded top_k scan must not be used for a real Milvus store")
+
+    monkeypatch.setattr(S, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
+    monkeypatch.setattr(S, "_get_memory", lambda: Memory())
+
+    found = await S.find_procedure_by_effect_id(ctx, "job-1:hash-a", strict=True)
+
+    assert found["id"] == "mem-250"
+    assert found["memory"] == "先核验主体"
+    assert calls[0]["consistency_level"] == "Strong"
+    assert "json_contains" in calls[0]["filter"]
+    assert "job-1:hash-a" in calls[0]["filter"]
+
+
+@pytest.mark.asyncio
+async def test_reinforcement_retains_every_receipt_from_current_candidate(ctx, monkeypatch):
+    updates = []
+
+    class Memory:
+        def update(self, memory_id, *, metadata, expiration_date):
+            updates.append((memory_id, metadata, expiration_date))
+
+    monkeypatch.setattr(
+        S,
+        "settings",
+        SimpleNamespace(memory=SimpleNamespace(enabled=True, procedure_ttl_days=365)),
+    )
+    monkeypatch.setattr(S, "_get_memory", lambda: Memory())
+    similar = {
+        "id": "mem-1",
+        "metadata": {
+            "seen_count": 2,
+            "outbox_effect_id": "job-1:hash-a",
+            "outbox_effect_ids": ["job-1:hash-a", "older-job:old-hash"],
+        },
+    }
+
+    assert await S.reinforce_procedure_entry(
+        similar,
+        strength="strong",
+        effect_id="job-1:hash-b",
+        candidate_receipts=["job-1:hash-a"],
+    )
+
+    patch = updates[0][1]
+    assert patch["seen_count"] == 3
+    assert patch["outbox_effect_id"] == "job-1:hash-b"
+    assert patch["outbox_effect_ids"] == ["job-1:hash-a", "job-1:hash-b"]
+
+
 # ── TTL expiry math ────────────────────────────────────────────────────────
 
 from datetime import date
@@ -141,9 +242,9 @@ def test_native_expiration_date_wins():
 
 
 def test_legacy_entries_expire_from_timestamp_plus_ttl():
-    assert entry_expiry_date(
-        {"ttl_days": 10, "created_at": "2026-01-01T12:00:00+00:00"}
-    ) == date(2026, 1, 11)
+    assert entry_expiry_date({"ttl_days": 10, "created_at": "2026-01-01T12:00:00+00:00"}) == date(
+        2026, 1, 11
+    )
     # updated_at (reinforcement bump) extends life over created_at
     assert entry_expiry_date(
         {"ttl_days": 10, "created_at": "2026-01-01T12:00:00", "updated_at": "2026-03-01T00:00:00Z"}
@@ -152,7 +253,9 @@ def test_legacy_entries_expire_from_timestamp_plus_ttl():
 
 def test_unparseable_or_missing_data_never_expires():
     assert entry_expiry_date({}) is None
-    assert entry_expiry_date({"ttl_days": "not-a-number", "created_at": "2026-01-01T00:00:00"}) is None
+    assert (
+        entry_expiry_date({"ttl_days": "not-a-number", "created_at": "2026-01-01T00:00:00"}) is None
+    )
     assert entry_expiry_date({"ttl_days": 10}) is None  # no timestamp
     assert entry_expiry_date({"ttl_days": 0, "created_at": "2026-01-01T00:00:00"}) is None
     assert entry_expiry_date({"expiration_date": "soonish"}) is None

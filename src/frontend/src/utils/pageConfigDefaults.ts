@@ -54,7 +54,7 @@ export interface PageConfig {
 // 调序、或一键「恢复默认」回到这里的取值。新增入口只要进 LAYOUT_ITEMS，就自动出现在那个编排界面里。
 //
 // 当前默认的取舍：能力中心从底部菜单提到一级导航（其四类能力做成二级导航）；定时任务从应用中心、
-// 站点从实验室各自拆出来成一级导航；知识库并入我的空间的 Tab、子智能体并入能力中心的二级导航，
+// 站点从实验室各自拆出来成一级导航；知识库并入我的空间的 Tab、智能体并入能力中心的二级导航，
 // 因此都不再单列；应用中心与项目反向下沉到用户下拉菜单，主导航只留高频入口。
 export const DEFAULT_SIDEBAR_ITEMS = ['ability_center', 'automation', 'sites', 'my_space'];
 export const DEFAULT_MENU_ITEMS = ['settings', 'app_center', 'projects', 'lab'];
@@ -73,8 +73,8 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
   navigation: {
     panel_titles: {
       ability_center: '能力中心',
-      skills: '技能库',
-      agents: '子智能体',
+      skills: '技能',
+      agents: '智能体',
       mcp: '连接器',
       kb: '知识库',
       docs: '更新记录',
@@ -90,8 +90,8 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
     panel_subtitles: {
       ability_center: '智能体基础能力管理，包含智能体、技能、连接器与插件',
       skills: '启用/停用技能，并查看详细介绍、输入输出与示例。',
-      agents: '选择与启用子智能体，并查看其职责边界与路由提示。',
-      mcp: '管理 MCP 连接器服务，并查看其作用范围与可靠性影响。',
+      agents: '选择与启用智能体，并查看其职责边界与路由提示。',
+      mcp: '管理 MCP连接器服务，并查看其作用范围与可靠性影响。',
       kb: '浏览知识库、查看文档列表，并支持文档内检索。',
       docs: '查看功能更新、能力中心与平台说明。',
       app_center: '基于 AI 能力的场景化智能应用',

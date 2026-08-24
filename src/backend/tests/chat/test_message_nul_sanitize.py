@@ -7,7 +7,17 @@ update_extra_data 是消息写库唯一收口，须在此剥离。SQLite 测试�
 拒绝 NUL，所以断言的是「存进去的值已被清洗」。
 """
 
+from core.db.models import ChatSession
 from core.db.repository.chat import ChatMessageRepository, _strip_nul
+
+
+def _repo(db_session) -> ChatMessageRepository:
+    if db_session.get(ChatSession, "chat_nul") is None:
+        db_session.add(
+            ChatSession(chat_id="chat_nul", user_id="user_nul", title="NUL test")
+        )
+        db_session.commit()
+    return ChatMessageRepository(db_session)
 
 
 def test_strip_nul_recurses_and_preserves_clean_values():
@@ -19,7 +29,7 @@ def test_strip_nul_recurses_and_preserves_clean_values():
 
 
 def test_create_sanitizes_content_and_json_fields(db_session):
-    repo = ChatMessageRepository(db_session)
+    repo = _repo(db_session)
     msg = repo.create(
         {
             "message_id": "msg_nul_create",
@@ -37,7 +47,7 @@ def test_create_sanitizes_content_and_json_fields(db_session):
 
 
 def test_update_and_extra_data_merge_sanitize(db_session):
-    repo = ChatMessageRepository(db_session)
+    repo = _repo(db_session)
     repo.create(
         {
             "message_id": "msg_nul_update",

@@ -89,11 +89,17 @@ export interface ProjectChatSummary extends EditionProjectChatFields {
   created_at: string | null;
 }
 
+/**
+ * 引用来源类型。宿主自有的几种在这里列出（用于补全与图标表），插件贡献的
+ * 来源类型由 plugin.json 的 tool_meta.citation 定义，是开放字符串，
+ * 所以这里用 `(string & {})` 收口而不是把插件的类型写死进联合。
+ */
 export type CitationSourceType =
   | 'internet'
   | 'knowledge_base'
   | 'database'
-  | 'unknown';
+  | 'unknown'
+  | (string & {});
 
 export interface CitationItem {
   id: string;            // 证据锚点 "e7"；旧格式 "internet_search-1"（历史消息）
@@ -179,6 +185,9 @@ export interface ToolCall {
   // call_subagent only: the sub-agent's internal streaming sub-steps + the sub-agent's name
   subSteps?: SubagentStep[];
   subagentName?: string;
+  /** 运行中工具的实时进度短句（run_job 的批量作业进度等）。只活在流里，不落库——
+   *  工具跑完后由 tool_result 说明结局，历史里不该留一行过期数字。 */
+  progressNote?: string;
   scope?: 'ontology_revision' | string;
   /**
    * 该工具卡片出现时，持久化正文（含 <think> 标记）的累计字符偏移。
@@ -214,6 +223,39 @@ export interface DesignPickInfo {
   confirmId: string;
   question: string;
   options: DesignPickOption[];
+}
+
+/** One stable choice in an assistant-initiated user question. */
+export interface UserQuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+  recommended: boolean;
+}
+
+/** One question rendered by the resident composer. */
+export interface UserQuestionItem {
+  id: string;
+  header?: string;
+  question: string;
+  description?: string;
+  options: UserQuestionOption[];
+  multiSelect: boolean;
+}
+
+/** One pending tool request; chats may queue several parallel requests. */
+export interface UserQuestionRequest {
+  requestId: string;
+  questions: UserQuestionItem[];
+  createdAt?: number;
+  expiresAt?: number;
+}
+
+export interface UserQuestionAnswer {
+  id: string;
+  selected: string[];
+  custom?: string;
+  skipped?: boolean;
 }
 
 export interface ThinkingBlock {
@@ -356,6 +398,8 @@ export interface MessageSegment {
     totalSteps?: number;
     resultText?: string;
     agentNameMap?: Record<string, string>;
+    /** 执行被用户中断：卡片显示「已中断」而不是继续挂在「执行中」上（问题 31）。 */
+    cancelled?: boolean;
   };
 }
 
@@ -480,6 +524,10 @@ export interface ChatItem {
   /** 这段对话当前的工作流模式开关（用户在 / 命令或「+」菜单里选的）。undefined 走历史默认，
    *  false 表示用户显式关掉了。只有它为 true 才会注册 run_job 并注入批量作业提示词。 */
   workflowModeActive?: boolean;
+  /** 服务端记着的任务计划清单（会话 metadata.plan_progress）。计划栏本身是内存态、
+   *  一刷新就没，而工作流的一份计划要跨好几轮（提交作业 → 后台跑 → 交付轮收尾）才走完；
+   *  这份快照就是刷新/切回来之后把计划栏还原成真实状态的依据。 */
+  planProgress?: PlanProgressState;
   /** Whether this chat was created via the site-building ("站点建站") entry (Lab → Sites) */
   siteChat?: boolean;
   /** Automation task ID — set on virtual sidebar entries for automation tasks */
@@ -1167,6 +1215,8 @@ export interface ModelRole {
   role_key: string;
   label: string;
   required_type: ProviderType;
+  /** 角色额外要求的 extra_config 能力位；为空表示只按 provider_type 匹配。 */
+  requires_capability?: string | null;
   provider_id: string | null;
   provider_name: string | null;
   model_name: string | null;

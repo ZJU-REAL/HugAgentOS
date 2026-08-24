@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
-from core.db.models.chat import ChatMessage
+from core.db.models.chat import ChatMessage, ChatSession
 from core.evolution import settlement_store as SS
 from core.evolution.settlement import LAYER_PROCEDURE, settle_turn
 
@@ -19,8 +19,11 @@ from core.evolution.settlement import LAYER_PROCEDURE, settle_turn
 @pytest.fixture
 def db(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine, tables=[ChatMessage.__table__])
+    Base.metadata.create_all(engine, tables=[ChatSession.__table__, ChatMessage.__table__])
     Session = sessionmaker(bind=engine)
+    with Session() as session:
+        session.add(ChatSession(chat_id="c1", user_id="u1", title="test"))
+        session.commit()
     monkeypatch.setattr(SS, "SessionLocal", Session)
     return Session
 

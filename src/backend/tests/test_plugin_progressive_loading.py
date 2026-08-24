@@ -76,7 +76,9 @@ def ppl_env(tmp_path, monkeypatch):
     )
     from core.services.mcp_service import McpServerConfigService
 
-    monkeypatch.setattr(McpServerConfigService, "get_instance", classmethod(lambda cls: svc))
+    monkeypatch.setattr(
+        McpServerConfigService, "get_instance", classmethod(lambda cls: svc)
+    )
 
     # Skill metadata: crawler skill binds no extra MCP.
     meta = {
@@ -92,7 +94,9 @@ def ppl_env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(skills_loader_mod, "get_skill_loader", lambda: loader_stub)
 
-    return SimpleNamespace(Session=TestSession, loader=loader_stub, server_cfgs=server_cfgs)
+    return SimpleNamespace(
+        Session=TestSession, loader=loader_stub, server_cfgs=server_cfgs
+    )
 
 
 def _resolve(env, **overrides):
@@ -164,29 +168,51 @@ class _FakeMCPClient:
         self.name = name
 
     async def list_tools(self):
-        return [SimpleNamespace(name="crawl_url"), SimpleNamespace(name="crawl_site")]
+        return [
+            SimpleNamespace(
+                name=name,
+                description=f"{name} tool",
+                input_schema={"type": "object", "properties": {}},
+            )
+            for name in ("crawl_url", "crawl_site")
+        ]
 
 
-def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
-    from agentscope.tool import Toolkit
+@pytest.mark.asyncio
+async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
+    from core.llm.agent_factory import cache_compaction_execution_surface
+    from core.ontology.toolkit import OntologyFilteredToolkit
+    from core.services import compaction_service as compaction
+    from core.services.chat_service import ChatService
+    from orchestration.workflow import _compaction_budget_inputs
 
     import core.llm.mcp_pool as mcp_pool
 
     monkeypatch.setattr(
-        mcp_pool, "make_client", lambda key, cfg, is_stateful=True, **kw: _FakeMCPClient(key, cfg)
+        mcp_pool,
+        "make_client",
+        lambda key, cfg, is_stateful=True, **kw: _FakeMCPClient(key, cfg),
     )
 
     # 技能目录物化桩：含 SKILL.md 的临时目录。
     skill_dir = tmp_path / "crawler-scrape-a1"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
-        "---\nname: crawler-scrape-a1\ndescription: 抓取单页\n---\nbody", encoding="utf-8"
+        "---\nname: crawler-scrape-a1\ndescription: 抓取单页\n---\nbody",
+        encoding="utf-8",
     )
     ppl_env.loader.get_skill_dir = lambda sid: str(skill_dir)
 
     res = _resolve(ppl_env)
     collector = ToolCollector()
-    tk = Toolkit(tools=[], mcps=[])
+    tk = OntologyFilteredToolkit(tools=[], mcps=[])
+    budget_agent = SimpleNamespace(_jx_compaction_reserved_output_tokens=256)
+    tk.set_execution_surface_listener(
+        lambda surface: cache_compaction_execution_surface(
+            budget_agent, "base system prompt", surface
+        )
+    )
+    initial_surface = await tk.freeze_execution_surface()
     close_list: list = []
     permission_context = SimpleNamespace(allow_rules={})
     runtime = {
@@ -208,7 +234,7 @@ def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
     tool = collector.get_tool("load_plugin")
     assert tool is not None
 
-    resp = asyncio.run(tool._func(plugin="crawler"))
+    resp = await tool._func(plugin="crawler")
     text = "".join(getattr(b, "text", "") for b in resp.content)
     assert "已加载" in text and "crawl_url" in text and "crawler-scrape-a1" in text
 
@@ -219,13 +245,40 @@ def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
     assert "crawler" in runtime["activated_slugs"]
     assert plugin_loader.load_activated_plugin_slugs(CHAT) == ["crawler"]
 
+    final_surface = await tk.freeze_execution_surface()
+    assert final_surface.generation > initial_surface.generation
+    assert any(
+        schema.get("function", {}).get("name") == "crawl_url"
+        for schema in budget_agent._jx_compaction_tool_schemas
+    )
+    assert "crawler-scrape-a1" in budget_agent._jx_compaction_system_prompt
+
+    # The internal workflow handoff must carry the *latest* generation into a
+    # real post-turn checkpoint, not the initial pre-plugin surface.
+    async def fake_summary(history, *, timeout):
+        return "plugin-aware summary"
+
+    monkeypatch.setattr(compaction, "_summarize", fake_summary)
+    with ppl_env.Session() as db:
+        ChatService(db).add_message(CHAT, "user", "compact after plugin load")
+    inputs = _compaction_budget_inputs(budget_agent, 4096)
+    assert await compaction.run_post_turn_compaction(CHAT, budget_inputs=inputs)
+    with ppl_env.Session() as db:
+        checkpoint = ChatService(db).get_latest_compaction_checkpoint(CHAT)
+        estimate = checkpoint.extra_data["replacement_manifest"]["budget_estimate"]
+    assert estimate["tool_schema_tokens"] > 0
+    assert estimate["system_prompt_tokens"] > compaction.C.approx_token_count(
+        "base system prompt"
+    )
+    assert estimate["reserved_output_tokens"] == 256
+
     # 重复加载幂等，未知插件报错并列出可用项。
-    resp2 = asyncio.run(tool._func(plugin="crawler"))
+    resp2 = await tool._func(plugin="crawler")
     text2 = "".join(getattr(b, "text", "") for b in resp2.content)
     assert "无需重复调用" in text2
     assert len(basic.mcps) == 1
 
-    resp3 = asyncio.run(tool._func(plugin="nope"))
+    resp3 = await tool._func(plugin="nope")
     text3 = "".join(getattr(b, "text", "") for b in resp3.content)
     assert "未找到插件" in text3 and "`crawler`" in text3
 
@@ -249,7 +302,9 @@ def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypa
     import core.llm.mcp_pool as mcp_pool
 
     monkeypatch.setattr(
-        mcp_pool, "make_client", lambda key, cfg, is_stateful=True, **kw: _FakeMCPClient(key, cfg)
+        mcp_pool,
+        "make_client",
+        lambda key, cfg, is_stateful=True, **kw: _FakeMCPClient(key, cfg),
     )
     res = plugin_loader.resolve_bound_progressive_plugins(["crawler@global"])
     collector = ToolCollector()

@@ -67,6 +67,10 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     "wiki_expand": "展开相关概念",
     "wiki_fetch_source": "回溯原文出处",
     "internet_search": "互联网搜索",
+    # ── 插件工具 ────────────────────────────────────────────────────────────
+    # 商业版插件的工具展示名走版本接缝 ``edition_tool_display_names()``（见文件
+    # 末尾的合并），不直接写在这张 CE 共享表里——CE 派生的品牌门禁禁止这些
+    # 工具名出现在共享文件中。
     "generate_chart_tool": "数据可视化",
     # (Word capability migrated to the word-editing skill, see src/backend/skill_bundles/word-editing/)
     # The MCP layer no longer exposes word_mcp; the scripts/*.py CLIs inside the skill are the single entry point.
@@ -79,6 +83,7 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # Batch execution
     "batch_plan": "批量执行计划",
     # Built-in tools
+    "ask_user_question": "询问用户",
     "get_skills": "查询可用技能",
     "get_agents": "查询可用智能体",
     "get_mcp_tools": "查询 MCP 工具列表",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -327,7 +328,7 @@ def retrieve_local_kb(
     for i, hit in enumerate(top_hits):
         pid = hit.get("parent_chunk_id") or hit.get("chunk_id", "")
         # Prefer parent content (full context); fall back to child snippet
-        content = parent_map.get(pid) or hit.get("content", "")
+        content = _pick_content(parent_map.get(pid, ""), hit.get("content", ""))
 
         if total_chars + len(content) > kb_detail_max_chars:
             content = content[: max(0, kb_detail_max_chars - total_chars)]
@@ -356,4 +357,46 @@ def retrieve_local_kb(
             }
         )
 
+    _attach_assets(results)
     return {"available_kbs": kb_meta, "items": results}
+
+
+_MEDIA_ONLY_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+
+
+def _pick_content(parent_content: str, hit_content: str) -> str:
+    """父块正文优先，但父块**只有图片链接**时改用命中行自己的内容。
+
+    单独上传的图片，其父块正文就是一条 ``![](/api/v1/catalog/kb/assets/...)``——
+    父块无条件覆盖的话，调用方拿到的是一个 URL，而命中的图片行里恰好装着这张图的
+    描述与转写。这条判断只在"父块去掉图片链接后什么都不剩"时生效，正常文档不受影响。
+    """
+    parent = parent_content or ""
+    if not parent:
+        return hit_content or ""
+    if _MEDIA_ONLY_RE.sub("", parent).strip():
+        return parent
+    return hit_content or parent
+
+
+def _attach_assets(results: list) -> None:
+    """Attach each hit's media (图片；后续音视频) as ``images`` on the result item.
+
+    An image row and its owning text chunk collapse to the same ``parent_chunk_id``
+    during dedup, so the caption alone would not tell the caller a figure was involved.
+    Carrying the asset refs here means both the model and the citation UI get the
+    picture regardless of which row actually scored the hit.
+    """
+    if not results:
+        return
+    try:
+        from core.kb.kb_assets import fetch_assets_for_chunks
+
+        grouped = fetch_assets_for_chunks([r.get("id", "") for r in results])
+    except Exception as exc:
+        _local_kb_logger.warning("附加资产失败（文本结果不受影响）: %s", exc)
+        return
+    for item in results:
+        assets = grouped.get(item.get("id", ""))
+        if assets:
+            item["images"] = assets

@@ -19,6 +19,10 @@ export interface QueuedChatMessage {
   createdAt: number;
   status: 'queued' | 'steering' | 'applied';
   appliedMessageId?: string;
+  /** Run that durably accepted this card; retained across refresh for status reconciliation. */
+  targetRunId?: string;
+  /** Exact database queue state. The compact card maps it to three visual states. */
+  durableStatus?: 'accepted' | 'claimed' | 'applied' | 'cancelled' | 'superseded';
 }
 
 const VALID_CHAT_MODES: readonly ChatMode[] = ['turbo', 'fast', 'medium', 'high', 'max'];
@@ -105,9 +109,7 @@ function savePendingScrollMessageTs(userId: string | null | undefined, ts: numbe
 
 const QUEUED_MESSAGES_KEY = 'hugagent_queued_messages';
 
-/** 排队消息持久化：**只存 status==='queued' 的**。steering/applied 的指令已经交给
- *  后端 run（steerChatRun），刷新后恢复成待发送会重复下发；queued 的恢复成待发送
- *  卡片即可——有续播 run 就等它结束自动接管，没有就留给用户点发送/删除。 */
+/** Persist local and durable cards. Durable cards keep targetRunId for refresh reconciliation. */
 function loadQueuedMessages(userId: string | null | undefined): Record<string, QueuedChatMessage> {
   if (typeof window === 'undefined') return {};
   const key = userScopedKey(QUEUED_MESSAGES_KEY, userId);
@@ -118,7 +120,10 @@ function loadQueuedMessages(userId: string | null | undefined): Record<string, Q
     const parsed = JSON.parse(raw) as Record<string, QueuedChatMessage>;
     const out: Record<string, QueuedChatMessage> = {};
     for (const [chatId, q] of Object.entries(parsed || {})) {
-      if (q && q.status === 'queued' && typeof q.content === 'string' && q.content) out[chatId] = q;
+      if (!q || typeof q.content !== 'string' || !q.content || typeof q.id !== 'string') continue;
+      if (!['queued', 'steering', 'applied'].includes(q.status)) continue;
+      if (q.status !== 'queued' && !q.targetRunId) continue;
+      out[chatId] = q;
     }
     return out;
   } catch {
@@ -133,7 +138,9 @@ function saveQueuedMessages(
   if (typeof window === 'undefined') return;
   const key = userScopedKey(QUEUED_MESSAGES_KEY, userId);
   if (!key) return;
-  const persistable = Object.entries(map).filter(([, q]) => q?.status === 'queued');
+  const persistable = Object.entries(map).filter(([, q]) => (
+    q?.status === 'queued' || !!q?.targetRunId
+  ));
   try {
     if (persistable.length === 0) window.localStorage.removeItem(key);
     else window.localStorage.setItem(key, JSON.stringify(Object.fromEntries(persistable)));
@@ -244,6 +251,9 @@ interface ChatState {
    *  backend compacted earlier context; it notifies once on this turn's first frame. The UI shows
    *  a dismissible banner (not persisted). */
   compactionNotices: Record<string, boolean>;
+  /** 正在识图的会话 → 图片张数。视觉桥在模型开口前先把图转成文字，这几秒里轮级状态
+   *  显示「图像理解中」而不是笼统的「深度拥抱中」。识图结束即清空。 */
+  visionReading: Record<string, number>;
   /** chatId → latest server checkpoint baseline used by ContextGauge. */
   contextCompactions: Record<string, ContextCompactionState>;
   /** chatId → live plan/progress shown by the plan bar above the input (transient, not persisted).
@@ -334,6 +344,7 @@ interface ChatState {
   ) => void;
   /** Mark that a chat received a compaction notice (SSE compaction_notice event) */
   setCompactionNotice: (chatId: string) => void;
+  setVisionReading: (chatId: string, count: number) => void;
   /** User dismissed the compaction banner */
   dismissCompactionNotice: (chatId: string) => void;
   /** Replace or clear the active compacted-context baseline for a chat. */
@@ -409,6 +420,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   activeRuns: {},
   queuedMessages: {},
   compactionNotices: {},
+  visionReading: {},
   contextCompactions: {},
   planProgress: {},
 
@@ -656,6 +668,14 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
     saveQueuedMessages(get().currentUserId, get().queuedMessages);
   },
+  setVisionReading: (chatId, count) => set((s) => {
+    const next = { ...s.visionReading };
+    // count<=0 表示识图结束；留着空条目会让状态一直卡在「图像理解中」
+    if (count > 0) next[chatId] = count;
+    else delete next[chatId];
+    return { visionReading: next };
+  }),
+
   setCompactionNotice: (chatId) => set((s) => ({
     compactionNotices: { ...s.compactionNotices, [chatId]: true },
   })),
@@ -1024,7 +1044,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       currentPlanId: null,
       editingMessageTs: null,
       activeRuns: {},
-      // 只恢复 queued 状态的排队消息；steering/applied 的已交给后端 run，不重放。
+      // Durable cards retain targetRunId and are reconciled, never blindly replayed.
       queuedMessages: loadQueuedMessages(userId),
       compactionNotices: {},
       contextCompactions: {},

@@ -8,7 +8,7 @@
  *
  * 三份列表来自三个不同接口，刷错了不会报错，只会静默无效：
  *   - 私有技能   → useCatalogStore  ← GET /v1/catalog
- *   - 子智能体   → useAgentStore    ← GET /v1/agents
+ *   - 智能体   → useAgentStore    ← GET /v1/agents
  *   - 已装插件   → usePluginStore   ← GET /v1/plugins/installed
  *
  * 注意：插件带来的技能/工具**不出现在** /v1/catalog（插件是整体绑定的单元），
@@ -17,12 +17,12 @@
 export type RefreshTarget = 'catalog' | 'agents' | 'plugins';
 
 export const MUTATING_TOOL_REFRESH: Record<string, RefreshTarget> = {
-  // skill-manager → 用户的私有技能库
+  // skill-manager → 用户的私有技能
   register_skill: 'catalog',
   install_from_marketplace: 'catalog',
   delete_skill: 'catalog',
   edit_skill: 'catalog',
-  // agent-manager → 用户的子智能体
+  // agent-manager → 用户的智能体
   create_agent: 'agents',
   edit_agent: 'agents',
   delete_agent: 'agents',

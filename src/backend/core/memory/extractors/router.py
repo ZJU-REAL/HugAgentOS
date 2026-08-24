@@ -123,6 +123,7 @@ async def run_extractors_with_timeout(
     timeout_s: int = 30,
     recent_trajectory: str = "",
     verified_correction: bool = False,
+    strict: bool = False,
 ) -> dict[ExtractorType, Optional[dict]]:
     """Run the matched extractors concurrently, each with its own timeout.
 
@@ -154,14 +155,22 @@ async def run_extractors_with_timeout(
             return et, await runners[et](user_message, assistant_message, timeout_s)
         except Exception as exc:
             logger.warning("[extractor:%s] failed: %s", et.value, exc)
+            if strict:
+                raise RuntimeError(f"{et.value} extractor failed: {exc}") from exc
             return et, None
 
     tasks = [_wrap(et) for et in classes if et in runners]
     results: dict[ExtractorType, Optional[dict]] = {}
+    failures: list[BaseException] = []
     for completed in await asyncio.gather(*tasks, return_exceptions=True):
         if isinstance(completed, BaseException):
             logger.warning("[extractor:router] task crashed: %s", completed)
+            failures.append(completed)
             continue
         et, data = completed
+        if strict and data is None:
+            failures.append(RuntimeError(f"{et.value} extractor returned no decision"))
         results[et] = data
+    if failures:
+        raise RuntimeError("; ".join(str(item) for item in failures))
     return results

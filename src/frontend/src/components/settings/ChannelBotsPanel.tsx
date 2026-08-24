@@ -212,7 +212,7 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
           <div className="jx-conn-title">{scopedToAgent ? t('渠道机器人') : t('我的机器人')}</div>
           <div className="jx-conn-desc">
             {scopedToAgent
-              ? t('为子智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它，就由该子智能体用它自己绑定的能力回复。', { name: agentName || '' })
+              ? t('为智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它，就由该智能体用它自己绑定的能力回复。', { name: agentName || '' })
               : t('绑定你自己的渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它就由你的智能体回复，复用你的知识库与技能。')}
           </div>
         </div>
@@ -220,7 +220,7 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
 
       <div className="jx-conn-note jx-conn-note--warning" style={{ marginTop: 12 }}>
         {scopedToAgent
-          ? t('注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到该子智能体的能力。')
+          ? t('注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到该智能体的能力。')
           : t('注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到你的知识库与技能。可在「资源范围」里收窄暴露范围。')}
       </div>
 

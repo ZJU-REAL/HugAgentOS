@@ -9,19 +9,19 @@ anything in this turn worth remembering long-term at all, and of which kinds?**
 Contract:
 - The gate can only **narrow** the regex candidate set, never widen it. The
   regex stays the recall floor; the gate is the precision layer.
-- Fail-open: if the memory LLM is down, times out, or answers garbage, the
-  candidates pass through unchanged. A flaky judge must degrade to today's
-  behavior (over-writing), not to silently remembering nothing.
+- Infrastructure failure is not approval. If the memory LLM is down, times
+  out, or answers garbage, ``MemoryGateUnavailable`` sends the durable outbox
+  job to retry/quarantine instead of widening long-term writes.
 - One call, small answer. The whole point is that a ~50-token verdict is far
   cheaper than the up-to-four extractor calls it saves on an empty turn.
-- A deterministic verified-correction signal is a recall floor for PROCEDURAL.
-  The LLM may narrow every other candidate, but it cannot erase a trajectory
-  that already shows failure → user method change → successful retry.
+- Explicit "remember" intent bypasses the judge. A verified correction is a
+  deterministic PROCEDURAL allow and also needs no LLM approval.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 
 from core.memory.extractors._base import fill_prompt, parse_json, run_llm_with_prompt
 from core.memory.extractors.router import ExtractorType
@@ -32,6 +32,21 @@ logger = logging.getLogger(__name__)
 # "does this turn contain memory-worthy signal", which the opening of each
 # message answers; the extractors that follow read the full text anyway.
 _GATE_INPUT_CHARS = 2000
+_EXPLICIT_REMEMBER_RE = re.compile(
+    r"(?:请|帮我|麻烦)?(?:记住|记一下|记录一下|记录下来)|"
+    r"(?:以后|下次|从今以后|今后)(?:都|一律|默认)|"
+    r"\bremember\s+(?:that|this|my)\b",
+    re.IGNORECASE,
+)
+
+
+class MemoryGateUnavailable(RuntimeError):
+    """The judge produced no trustworthy verdict; the outbox should retry."""
+
+
+def has_explicit_remember_intent(user_msg: str) -> bool:
+    return bool(_EXPLICIT_REMEMBER_RE.search(user_msg or ""))
+
 
 PROMPT = """你是一个记忆写入门卫。判断这轮对话中是否包含**值得长期记住**的信息，以及属于哪些类别。
 
@@ -93,11 +108,17 @@ async def llm_write_gate(
 ) -> set[ExtractorType]:
     """Return the subset of ``candidates`` the LLM judges worth extracting.
 
-    On any failure the candidates come back unchanged (fail-open) — see module
-    docstring for why that is the right degradation direction.
+    Deterministic user evidence is allowed without the LLM. Judge failure raises
+    so the durable outbox can retry without expanding the write set.
     """
     if not candidates:
         return candidates
+    if has_explicit_remember_intent(user_msg):
+        logger.info("[memory_gate] explicit remember intent: deterministic allow")
+        return candidates
+    if verified_correction and ExtractorType.PROCEDURAL in candidates:
+        logger.info("[memory_gate] verified correction: deterministic procedural allow")
+        return {ExtractorType.PROCEDURAL}
 
     prompt = fill_prompt(
         PROMPT,
@@ -107,15 +128,11 @@ async def llm_write_gate(
     )
     raw = await run_llm_with_prompt(prompt, timeout_s=timeout_s, max_tokens=150)
     if raw is None:
-        logger.info(
-            "[memory_gate] LLM unavailable, failing open (%d candidates pass)", len(candidates)
-        )
-        return candidates
+        raise MemoryGateUnavailable("memory gate unavailable or timed out")
 
     parsed = parse_json(raw, require_key="classes")
     if not isinstance(parsed, dict) or not isinstance(parsed.get("classes"), list):
-        logger.info("[memory_gate] unparseable verdict, failing open: %r", raw[:120])
-        return candidates
+        raise MemoryGateUnavailable(f"memory gate returned invalid JSON: {raw[:120]!r}")
 
     approved: set[ExtractorType] = set()
     for name in parsed["classes"]:
@@ -125,10 +142,6 @@ async def llm_write_gate(
             continue
 
     verdict = candidates & approved
-    if verified_correction and ExtractorType.PROCEDURAL in candidates:
-        if ExtractorType.PROCEDURAL not in verdict:
-            logger.info("[memory_gate] preserving procedural: verified correction trajectory")
-        verdict.add(ExtractorType.PROCEDURAL)
     if verdict != candidates:
         dropped = sorted(c.value for c in candidates - verdict)
         logger.info(

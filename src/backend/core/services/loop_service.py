@@ -110,7 +110,7 @@ class LoopService:
         self.db.commit()
         return True
 
-    def consume_steering(self, loop_id: str) -> List[str]:
+    def consume_steering(self, loop_id: str, *, commit: bool = True) -> List[str]:
         loop = self.get_loop(loop_id)
         if not loop:
             return []
@@ -119,7 +119,10 @@ class LoopService:
         if queue:
             meta["steering"] = []
             loop.extra_data = meta
-            self.db.commit()
+            if commit:
+                self.db.commit()
+            else:
+                self.db.flush()
         return queue
 
     # ── State transitions / audit ───────────────────────────────────────────────
@@ -134,7 +137,13 @@ class LoopService:
         loop.updated_at = _now()
         self.db.commit()
 
-    def mark_running(self, loop_id: str, *, workspace_session: Optional[str] = None) -> None:
+    def mark_running(
+        self,
+        loop_id: str,
+        *,
+        workspace_session: Optional[str] = None,
+        commit: bool = True,
+    ) -> None:
         loop = self.get_loop(loop_id)
         if not loop:
             return
@@ -142,10 +151,13 @@ class LoopService:
         if workspace_session:
             loop.workspace_session = workspace_session
         loop.updated_at = _now()
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     # ── Requirement ledger DB mirror (reliable source of truth for resumable runs, not reliant on sandbox snapshots) ──
-    def save_ledger(self, loop_id: str, ledger: Dict[str, Any]) -> None:
+    def save_ledger(self, loop_id: str, ledger: Dict[str, Any], *, commit: bool = True) -> None:
         """Mirror the driver's requirement ledger (feature_list.json) into agent_loops.metadata.
 
         The sandbox /workspace is only a working cache — rebuild/restart/machine-switch/an
@@ -165,7 +177,10 @@ class LoopService:
         except (TypeError, ValueError):
             pass
         loop.updated_at = _now()
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     def load_ledger(self, loop_id: str) -> Optional[Dict[str, Any]]:
         """Read back the DB-mirrored requirement ledger; return None if absent (falls back to sandbox ledger / first-launch initialization)."""
@@ -178,7 +193,7 @@ class LoopService:
             return ledger
         return None
 
-    def persist_result(self, loop_id: str, result: Any) -> None:
+    def persist_result(self, loop_id: str, result: Any, *, commit: bool = True) -> None:
         """Persist the result of one run_autonomous_loop: loop terminal state + each round's LoopIteration.
 
         ``result`` is an orchestration.autonomous_loop.LoopResult.
@@ -210,4 +225,7 @@ class LoopService:
                     decided_by=rec.get("decided_by"),
                 )
             )
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()

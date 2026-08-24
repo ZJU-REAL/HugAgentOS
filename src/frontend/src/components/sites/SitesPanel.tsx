@@ -4,8 +4,10 @@ import {
 } from 'antd';
 import {
   AppstoreOutlined,
+  ArrowLeftOutlined,
   DeleteOutlined,
   EditOutlined,
+  ExportOutlined,
   EyeOutlined,
   GlobalOutlined,
   LinkOutlined,
@@ -23,6 +25,7 @@ import {
   listSiteKv,
   listSiteSubmissions,
   listSites,
+  getProject,
   rollbackSite,
   updateSite,
   type SiteItem,
@@ -38,10 +41,12 @@ import {
   getSiteVisibilityOptions,
   type SiteVisibility,
 } from '../../editionSiteVisibility';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { useCatalogStore } from '../../stores';
 import { useChatStore } from '../../stores/chatStore';
 import { stablePublicOrigin } from '../../stores/deploymentModeStore';
 import { usePluginStore } from '../../stores/pluginStore';
+import { copyToClipboard } from '../../utils/clipboard';
 import { t } from '../../i18n';
 import '../../styles/sites.css';
 
@@ -56,7 +61,10 @@ async function ensureSitesPluginInstalled(): Promise<boolean> {
     .getState()
     .installed.some((p) => p.slug === 'sites' && p.enabled !== false);
   if (!installed) {
-    message.info(t('站点建站由「站点」插件提供，请先在能力中心 → 插件里安装后再创建'));
+    message.info(t('首次创建站点需要安装插件，请先在能力中心 → 插件里安装后再创建'));
+    // 只 setPanel('ability_center') 会落在用户上次停留的那个 Tab（智能体 / 技能 / MCP），
+    // 提示让人去装插件、点过去却是别的页面。这里显式把 Tab 也切到「插件」。
+    useCatalogStore.getState().setAbilityTab('plugins');
     useCatalogStore.getState().setPanel('ability_center');
     return false;
   }
@@ -79,11 +87,34 @@ async function startSiteEdit(site: SiteItem) {
     return;
   }
   if (!(await ensureSitesPluginInstalled())) return;
-  useChatStore.getState().enterSiteMode({
-    projectId: site.project_id,
-    projectName: site.title,
-    title: site.title,
-  });
+
+  // 源码工程可能已经被用户删掉了，而站点表里的 project_id 还留着。照旧绑上去，
+  // 侧边栏会拿 chat.projectName 兜底造出一个「已删除项目」的分组，新对话就挂在
+  // 一个并不存在的项目下（刷新后才消失）。所以先确认工程还在。
+  try {
+    await getProject(site.project_id);
+  } catch {
+    message.info(t('该站点的源码工程已被删除，无法在线编辑（可新建一个站点替代）'));
+    return;
+  }
+
+  // 先找这个站点已有的建站会话：站点是从某段对话里建出来的，「编辑」理应回到那段
+  // 对话继续改，而不是每点一次就开一个空白新对话（历史里于是堆满同名空会话）。
+  // 认定条件是「建站会话 + 绑定同一个源码工程 + 已经聊过」，取最近更新的那段。
+  const { store, setCurrentChatId } = useChatStore.getState();
+  const existing = Object.values(store.chats)
+    .filter((c) => c.siteChat && c.projectId === site.project_id && (c.messages?.length || 0) > 0)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+
+  if (existing) {
+    setCurrentChatId(existing.id);
+  } else {
+    useChatStore.getState().enterSiteMode({
+      projectId: site.project_id,
+      projectName: site.title,
+      title: site.title,
+    });
+  }
   useCatalogStore.getState().setPanel('chat');
 }
 
@@ -150,7 +181,7 @@ function SiteManageModal({
       const values = await form.validateFields();
       setSaving(true);
       const updated = await updateSite(site.site_id, {
-        title: values.title,
+        title: values.title?.trim(),
         slug: values.slug !== site.slug ? values.slug : undefined,
         visibility: values.visibility,
         ...editionSiteUpdateFields(values.visibility, values),
@@ -267,7 +298,16 @@ function SiteManageModal({
             label: t('设置'),
             children: (
               <Form form={form} layout="vertical">
-                <Form.Item name="title" label={t('站点标题')} rules={[{ required: true, message: t('请输入站点标题') }]}>
+                {/* whitespace 校验：只敲空格时 required 是满足的（值非空串），
+                    过去要等提交后后端拒掉才报「保存失败」——校验放在输入框上。 */}
+                <Form.Item
+                  name="title"
+                  label={t('站点标题')}
+                  rules={[
+                    { required: true, message: t('请输入站点标题') },
+                    { whitespace: true, message: t('站点标题不能只包含空格') },
+                  ]}
+                >
                   <Input maxLength={200} />
                 </Form.Item>
                 <Form.Item
@@ -404,6 +444,11 @@ export function SitesPanel() {
   const [loading, setLoading] = useState(true);
   const [managing, setManaging] = useState<SiteItem | null>(null);
   const [keyword, setKeyword] = useState('');
+  // 手机上「打开站点」不能是 window.open：站点是后端直出的独立页面（/site/<slug>/），
+  // 一旦离开这个 SPA 就没有任何回来的入口——部分移动浏览器还会把 _blank 当同标签跳转，
+  // 用户只能靠浏览器后退键才回得来。所以移动端在应用内套一层带返回栏的预览。
+  const isMobile = useIsMobileViewport();
+  const [previewSite, setPreviewSite] = useState<SiteItem | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -428,11 +473,22 @@ export function SitesPanel() {
   const siteInAppUrl = (site: SiteItem) =>
     `${site.url}${site.origin === 'local' ? '?hg_target=local' : ''}`;
 
+  /** 打开站点：桌面另开标签页，手机走应用内预览（见 previewSite 的说明）。 */
+  const openSite = (site: SiteItem) => {
+    if (isMobile) {
+      setPreviewSite(site);
+      return;
+    }
+    window.open(siteInAppUrl(site), '_blank', 'noopener,noreferrer');
+  };
+
   const handleCopy = async (site: SiteItem) => {
-    try {
-      await navigator.clipboard.writeText(siteFullUrl(site));
+    // 走统一的 copyToClipboard：测试机是 http://内网IP 访问，非安全上下文下
+    // navigator.clipboard 根本不存在，直接调用必然落到「复制失败」——这正是
+    // 「复制链接功能不可用」的原因。该工具在这种环境下退回 execCommand。
+    if (await copyToClipboard(siteFullUrl(site))) {
       message.success(t('链接已复制'));
-    } catch {
+    } else {
       message.error(t('复制失败，请手动复制'));
     }
   };
@@ -483,6 +539,19 @@ export function SitesPanel() {
           >
             <Button onClick={startSiteCreation}>{t('创建新站点')}</Button>
           </Empty>
+        ) : !loading && filteredSites.length === 0 ? (
+          /* 搜不到时原来渲染的是一个空的列表容器——页面看着像卡住了。
+             区分「一个站点都没有」和「有站点但没搜到」两种空态。 */
+          <Empty
+            image={<SearchOutlined style={{ fontSize: 44, opacity: 0.35 }} />}
+            description={(
+              <>
+                <div className="jx-sites-emptyTitle">{t('没有匹配的站点')}</div>
+                <div className="jx-sites-emptyDesc">{t('换个关键词试试')}</div>
+              </>
+            )}
+            style={{ marginTop: 80 }}
+          />
         ) : (
           <div className="jx-sites-list">
             {filteredSites.map((site) => (
@@ -492,7 +561,17 @@ export function SitesPanel() {
                     <span className="jx-sites-cardTitle">{site.title}</span>
                     <VisibilityTag site={site} />
                   </div>
-                  <a className="jx-sites-cardUrl" href={siteInAppUrl(site)} target="_blank" rel="noopener noreferrer">
+                  <a
+                    className="jx-sites-cardUrl"
+                    href={siteInAppUrl(site)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      if (!isMobile) return;
+                      e.preventDefault();
+                      setPreviewSite(site);
+                    }}
+                  >
                     {siteFullUrl(site)}
                   </a>
                   <div className="jx-sites-cardMeta">
@@ -506,7 +585,7 @@ export function SitesPanel() {
                     size="small"
                     type="primary"
                     ghost
-                    onClick={() => window.open(siteInAppUrl(site), '_blank', 'noopener,noreferrer')}
+                    onClick={() => openSite(site)}
                   >
                     {t('打开')}
                   </Button>
@@ -555,6 +634,37 @@ export function SitesPanel() {
             setSites((prev) => prev.map((s) => (s.site_id === updated.site_id ? updated : s)))
           }
         />
+      ) : null}
+
+      {/* 移动端站点预览：整屏 iframe + 顶部返回栏。站点本身是后端直出的独立页面，
+          没法在它内部放返回入口，所以把返回入口留在这一层。 */}
+      {previewSite ? (
+        <div className="jx-sitePreview" role="dialog" aria-modal="true" aria-label={t('站点预览')}>
+          <div className="jx-sitePreview-bar">
+            <button
+              type="button"
+              className="jx-sitePreview-back"
+              onClick={() => setPreviewSite(null)}
+              aria-label={t('返回站点列表')}
+            >
+              <ArrowLeftOutlined />
+            </button>
+            <span className="jx-sitePreview-title">{previewSite.title}</span>
+            <button
+              type="button"
+              className="jx-sitePreview-external"
+              onClick={() => window.open(siteInAppUrl(previewSite), '_blank', 'noopener,noreferrer')}
+              aria-label={t('在新窗口打开')}
+            >
+              <ExportOutlined />
+            </button>
+          </div>
+          <iframe
+            className="jx-sitePreview-frame"
+            src={siteInAppUrl(previewSite)}
+            title={previewSite.title}
+          />
+        </div>
       ) : null}
     </div>
   );

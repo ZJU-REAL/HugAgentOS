@@ -66,11 +66,18 @@ def register_plan_update_tool(toolkit: Toolkit) -> None:
     The tool body only validates and echoes progress back to the LLM; the
     user-facing side effect (the plan bar) is driven by workflow.py emitting
     ``plan_update`` from the tool-call arguments.
+
+    工具描述里那句"每完成一步立即再调用一次"是刻意留着的，别再当成与系统提示词
+    「任务计划清单」节重复的冗余文案删掉：工具描述贴着模型做工具选择的那一刻，而
+    那一节躺在两万多 token 的静态前缀里。2026-08-14 压缩 prefill 时把这句挪走过
+    （commit 7578469f），随后长任务里模型开头调两次就再也不更新，用户全程盯着一个
+    停在 1/5 的进度条。这句大约 15 tokens，值这个钱。
     """
 
     async def update_plan(steps: list, title: str = "") -> ToolResponse:
         """维护当前复杂任务的分步计划清单（展示在用户输入框上方的计划栏；使用时机与
         规范见系统提示词「任务计划清单」节）。调用本工具**不会打断执行**。
+        **每完成一步立即再调用一次**更新 status，别等任务结束才补。
 
         Args:
             steps (`list`):

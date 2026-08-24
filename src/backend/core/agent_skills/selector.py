@@ -10,8 +10,17 @@ from typing import List, Optional
 
 from agentscope.model import OpenAIChatModel
 
-from core.agent_skills.registry import AgentSkillMetadata
 from core.agent_skills.loader import get_skill_loader
+from core.agent_skills.registry import AgentSkillMetadata
+from core.llm.context_adapter import AgentScopeContextAdapter
+from core.llm.context_ir import (
+    KIND_SYSTEM_RULE,
+    KIND_USER_INPUT,
+    POLICY_HEAD_TAIL,
+    POLICY_NEVER,
+    ContextAssembler,
+    make_text_context_item,
+)
 
 
 def select_skills_for_query(
@@ -105,15 +114,39 @@ Select relevant skill IDs (return JSON array):"""
         import asyncio
 
         async def _call():
-            # AgentScope 2.0: model.__call__ takes list[Msg] (not list[dict]).
-            from agentscope.message import Msg, TextBlock
+            items = [
+                make_text_context_item(
+                    system_prompt,
+                    item_id="skill-selector:system",
+                    kind=KIND_SYSTEM_RULE,
+                    origin="harness:skill_selector",
+                    trust="system",
+                    created_seq=0,
+                    priority=1_000,
+                    token_budget=8_000,
+                    truncation_policy=POLICY_NEVER,
+                    render_role="system",
+                    cache_class="stable",
+                ),
+                make_text_context_item(
+                    user_prompt,
+                    item_id="skill-selector:request",
+                    kind=KIND_USER_INPUT,
+                    origin="harness:skill_selector_request",
+                    trust="user",
+                    created_seq=1,
+                    priority=1_000,
+                    token_budget=16_000,
+                    truncation_policy=POLICY_HEAD_TAIL,
+                ),
+            ]
+            context_size = int(getattr(model, "context_size", 0) or 32_768)
+            assembly = ContextAssembler(total_budget=max(0, int(context_size * 0.85))).assemble(
+                items
+            )
+            messages = AgentScopeContextAdapter().messages_from_items(assembly.included)
             return await model(
-                messages=[
-                    Msg(name="system", role="system",
-                        content=[TextBlock(type="text", text=system_prompt)]),
-                    Msg(name="user", role="user",
-                        content=[TextBlock(type="text", text=user_prompt)]),
-                ],
+                messages=messages,
             )
 
         response = asyncio.run(_call())

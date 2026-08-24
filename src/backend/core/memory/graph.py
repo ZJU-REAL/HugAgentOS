@@ -23,6 +23,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from core.config.settings import settings
 from core.memory.context import MemoryContext
+from core.memory.executor import run_effect
 
 logger = logging.getLogger(__name__)
 
@@ -255,18 +256,29 @@ ON CREATE SET t.created_at = datetime()
 SET t.name = $target, t.entity_type = $target_type, t.last_seen_at = datetime()
 MERGE (s)-[r:MEMORY_RELATION {relation_id: $relation_id}]->(t)
 ON CREATE SET r.created_at = datetime(), r.seen_count = 0, r.weight = 1.0, r.active = true
-SET r.predicate = $predicate,
-    r.relationship = $relationship,
-    r.last_seen_at = datetime(),
-    r.seen_count = coalesce(r.seen_count, 0) + 1,
-    r.confidence = CASE
-      WHEN coalesce(r.confidence, 0.0) > $confidence THEN r.confidence
-      ELSE $confidence
-    END,
-    r.author_user_id = $author_user_id,
-    r.chat_id = $chat_id,
-    r.evidence_hash = $evidence_hash
-RETURN r.relation_id AS relation_id, r.seen_count AS seen_count
+WITH r,
+     CASE
+       WHEN $effect_id <> '' AND $effect_id IN coalesce(r.outbox_effect_ids, []) THEN true
+       ELSE false
+     END AS replayed
+FOREACH (_ IN CASE WHEN replayed THEN [] ELSE [1] END |
+  SET r.predicate = $predicate,
+      r.relationship = $relationship,
+      r.last_seen_at = datetime(),
+      r.seen_count = coalesce(r.seen_count, 0) + 1,
+      r.confidence = CASE
+        WHEN coalesce(r.confidence, 0.0) > $confidence THEN r.confidence
+        ELSE $confidence
+      END,
+      r.author_user_id = $author_user_id,
+      r.chat_id = $chat_id,
+      r.evidence_hash = $evidence_hash,
+      r.outbox_effect_ids = CASE
+        WHEN $effect_id = '' THEN coalesce(r.outbox_effect_ids, [])
+        ELSE coalesce(r.outbox_effect_ids, []) + [$effect_id]
+      END
+)
+RETURN r.relation_id AS relation_id, r.seen_count AS seen_count, replayed
 """
 
 
@@ -303,6 +315,7 @@ def _write_sync(ctx: MemoryContext, relations: Sequence[GraphRelation]) -> list[
                     author_user_id=ctx.user_id,
                     chat_id=ctx.chat_id or "",
                     evidence_hash=evidence_hash,
+                    effect_id=ctx.effect_id or "",
                 ).single()
                 if record is None:
                     continue
@@ -311,6 +324,7 @@ def _write_sync(ctx: MemoryContext, relations: Sequence[GraphRelation]) -> list[
                     {
                         "relation_id": str(record["relation_id"]),
                         "seen_count": int(record["seen_count"] or 1),
+                        "replayed": bool(record["replayed"]),
                     }
                 )
                 rows.append(row)
@@ -327,8 +341,7 @@ async def write_graph_relations(
     """Persist validated relations without blocking the event loop."""
     if not relations:
         return []
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _write_sync, ctx, list(relations))
+    return await run_effect(_write_sync, ctx, list(relations))
 
 
 _LIST_CYPHER = """

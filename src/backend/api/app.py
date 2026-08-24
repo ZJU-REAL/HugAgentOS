@@ -71,17 +71,21 @@ async def lifespan(app: FastAPI):
     await _startup_preload()
     await _startup_automation_scheduler()
     await _startup_kb_wiki_worker()
+    await _startup_kb_index_worker()
     await _startup_distillation_scheduler()
     await _startup_evolution_scheduler()
     await _startup_memory_ttl_scheduler()
+    await _startup_memory_outbox_worker()
     await _startup_recover_persona_distill_jobs()
     await _startup_warmup_memory()
     await _startup_channel_manager()
     yield
     # ── shutdown ──
     await _shutdown_stale_run_reaper()
+    await _shutdown_memory_outbox_worker()
     await _shutdown_orphan_job_reaper()
     await _shutdown_kb_wiki_worker()
+    await _shutdown_kb_index_worker()
     await _shutdown_channel_manager()
     await _shutdown_datasource_sidecar_recovery()
     await _shutdown_mcp_market_monitor()
@@ -452,7 +456,7 @@ async def _startup_seed_ce_admin():
 
 
 async def _startup_recover_chat_runs():
-    """Mark running/pending chat_runs left over from before the last process crash as failed."""
+    """Resume claimable chat_runs; valid leases are retried by the recovery loop."""
     try:
         from orchestration import chat_run_executor
 
@@ -506,7 +510,7 @@ async def _startup_orphan_job_reaper():
 
 
 async def _startup_stale_run_reaper():
-    """Periodically reap zombie chat_runs stuck in running (fallback behind the watchdog)."""
+    """Start periodic lease recovery plus the slower stale-run watchdog."""
     try:
         import asyncio
 
@@ -775,6 +779,7 @@ async def _startup_seed_default_plugins():
     from core.services.plugin_service import (
         DEFAULT_BOOTSTRAP_PLUGIN_SLUGS,
         ensure_default_plugins_bootstrapped,
+        refresh_builtin_ui_contributions,
     )
 
     db = SessionLocal()
@@ -790,6 +795,10 @@ async def _startup_seed_default_plugins():
                 "[startup] edition plugins bootstrapped: %s",
                 ", ".join(edition_plugins),
             )
+        # UI 贡献声明与安装记录同表存储，但它是展示配置、不携带用户状态：
+        # 每次启动与 bundle 清单对齐，存量安装（列为 NULL）和改过 ui 声明
+        # 未抬版本的 bundle 才能在重启后拿到最新界面贡献。
+        refresh_builtin_ui_contributions(db)
     except Exception as exc:
         logger.error("[startup] default plugin bootstrap failed: %s", exc)
         # These plugins preserve advertised edition capabilities. Do not report
@@ -998,6 +1007,41 @@ async def _startup_kb_wiki_worker():
         logger.warning("[startup] KB wiki worker failed to start: %s", exc)
 
 
+async def _startup_kb_index_worker():
+    """Start the knowledge-base document indexing worker.
+
+    索引（解析→分块→向量化）以前挂在 FastAPI BackgroundTasks 上，会抢 Starlette 的
+    共享请求线程池——批量上传时把池占满，所有接口在进 handler 之前就排队，前端一直
+    转圈、网关报 502；而且任务是进程内的，重启即丢，文档永远停在「索引中」。现在改
+    成持久化队列 + 独立线程池的常驻 worker，启动时自动接手上个进程留下的僵死文档。
+    """
+    if not _env_flag("KB_INDEX_WORKER_ENABLED", True):
+        logger.info("[startup] KB index worker disabled")
+        return
+    try:
+        from core.kb.index_worker import KBIndexWorker
+
+        global _kb_index_worker
+        _kb_index_worker = KBIndexWorker()
+        await _kb_index_worker.start()
+        from core.infra import runtime_state
+
+        runtime_state.register("kb_index_worker", _kb_index_worker)
+    except Exception as exc:
+        logger.warning("[startup] KB index worker failed to start: %s", exc)
+
+
+async def _shutdown_kb_index_worker():
+    global _kb_index_worker
+    if _kb_index_worker is None:
+        return
+    try:
+        await _kb_index_worker.stop()
+    except Exception as exc:
+        logger.warning("[shutdown] KB index worker stop failed: %s", exc)
+    _kb_index_worker = None
+
+
 async def _shutdown_kb_wiki_worker():
     global _kb_wiki_worker
     if _kb_wiki_worker is None:
@@ -1027,8 +1071,10 @@ async def _startup_channel_manager():
 
 _automation_scheduler = None
 _kb_wiki_worker = None
+_kb_index_worker = None
 _distillation_scheduler = None
 _idle_reaper_task = None
+_memory_outbox_worker = None
 
 
 async def _startup_evolution_scheduler():
@@ -1052,6 +1098,36 @@ async def _startup_memory_ttl_scheduler():
         await MemoryTtlScheduler().start()
     except Exception as exc:
         logger.warning("[startup] Memory TTL scheduler failed to start: %s", exc)
+
+
+async def _startup_memory_outbox_worker():
+    """Resume durable post-response memory work accepted before a restart."""
+
+    if not (settings.memory.enabled and settings.memory.layered_enabled):
+        return
+    try:
+        from core.memory.outbox import MemoryOutboxWorker
+
+        global _memory_outbox_worker
+        _memory_outbox_worker = MemoryOutboxWorker()
+        await _memory_outbox_worker.start()
+        from core.infra import runtime_state
+
+        runtime_state.register("memory_outbox_worker", _memory_outbox_worker)
+        logger.info("[startup] memory outbox worker started")
+    except Exception as exc:
+        logger.warning("[startup] memory outbox worker failed to start: %s", exc)
+
+
+async def _shutdown_memory_outbox_worker():
+    global _memory_outbox_worker
+    if _memory_outbox_worker is None:
+        return
+    try:
+        await _memory_outbox_worker.stop()
+    except Exception as exc:
+        logger.warning("[shutdown] memory outbox worker stop failed: %s", exc)
+    _memory_outbox_worker = None
 
 
 async def _startup_distillation_scheduler():

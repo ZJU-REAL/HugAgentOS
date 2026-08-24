@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -30,7 +30,7 @@ export function readDesktopVersions(desktopDir) {
     /\[\[package\]\]\r?\nname = "hugagent-desktop"\r?\nversion = "([^"]+)"/,
   )?.[1];
 
-  return {
+  const versions = {
     package: packageJson.version,
     packageLock: packageLock.version,
     packageLockRoot: packageLock.packages?.[""]?.version,
@@ -38,6 +38,15 @@ export function readDesktopVersions(desktopDir) {
     cargo: cargoVersion,
     cargoLock: cargoLockVersion,
   };
+  const uosDir = join(desktopDir, "..", "desktop-uos");
+  if (existsSync(join(uosDir, "package.json"))) {
+    const uosPackage = readJson(join(uosDir, "package.json"));
+    const uosLock = readJson(join(uosDir, "package-lock.json"));
+    versions.uosPackage = uosPackage.version;
+    versions.uosPackageLock = uosLock.version;
+    versions.uosPackageLockRoot = uosLock.packages?.[""]?.version;
+  }
+  return versions;
 }
 
 export function readDesktopVersion(desktopDir) {
@@ -89,6 +98,7 @@ export function setDesktopVersion(desktopDir, version) {
   const tauriPath = join(desktopDir, "src-tauri", "tauri.conf.json");
   const cargoPath = join(desktopDir, "src-tauri", "Cargo.toml");
   const cargoLockPath = join(desktopDir, "src-tauri", "Cargo.lock");
+  const uosDir = join(desktopDir, "..", "desktop-uos");
 
   const packageJson = readJson(packagePath);
   packageJson.version = version;
@@ -116,6 +126,18 @@ export function setDesktopVersion(desktopDir, version) {
     `$1${version}$2`,
   );
   writeFileSync(cargoLockPath, cargoLock, "utf8");
+
+  if (existsSync(join(uosDir, "package.json"))) {
+    const uosPackagePath = join(uosDir, "package.json");
+    const uosLockPath = join(uosDir, "package-lock.json");
+    const uosPackage = readJson(uosPackagePath);
+    uosPackage.version = version;
+    writeJson(uosPackagePath, uosPackage);
+    const uosLock = readJson(uosLockPath);
+    uosLock.version = version;
+    if (uosLock.packages?.[""]) uosLock.packages[""].version = version;
+    writeJson(uosLockPath, uosLock);
+  }
 
   return readDesktopVersion(desktopDir);
 }

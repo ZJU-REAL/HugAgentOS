@@ -261,13 +261,13 @@ export function ChatModesPanel() {
           </Form.Item>
           {restricted && (
             <>
-              <Form.Item name="mcp_server_ids" label={t('MCP 工具')} extra={t('市场里的 MCP 工具需要配置凭据或授权，请先在能力中心安装，装好后会出现在此清单。')}>
+              <Form.Item name="mcp_server_ids" label={t('连接器')} extra={t('市场里的连接器需要配置凭据或授权，请先在能力中心安装，装好后会出现在此清单。')}>
                 <Select
                   mode={mcpOptions.length ? 'multiple' : 'tags'}
                   options={mcpOptions}
                   optionFilterProp="label"
                   allowClear
-                  placeholder={t('选择这个模式装配的 MCP 工具')}
+                  placeholder={t('选择这个模式装配的连接器')}
                 />
               </Form.Item>
               <Form.Item
@@ -289,12 +289,12 @@ export function ChatModesPanel() {
               </Form.Item>
               <Form.Item
                 name="agent_ids"
-                label={t('子智能体')}
+                label={t('智能体')}
                 extra={(
                   <>
-                    {t('这个模式下可被委派的子智能体；留空则只有本轮被 @ 呼唤的那个能入场。')}
+                    {t('这个模式下可被委派的智能体；留空则只有本轮被 @ 呼唤的那个能入场。')}
                     <Button type="link" size="small" style={{ padding: '0 0 0 6px' }} onClick={() => setMarketPicker('agent_ids')}>
-                      {t('从市场选择子智能体…')}
+                      {t('从市场选择智能体…')}
                     </Button>
                   </>
                 )}
@@ -304,7 +304,7 @@ export function ChatModesPanel() {
                   options={withMarketPicks(agentOptions, watchedAgentIds)}
                   optionFilterProp="label"
                   allowClear
-                  placeholder={t('选择这个模式可用的子智能体')}
+                  placeholder={t('选择这个模式可用的智能体')}
                 />
               </Form.Item>
               <Form.Item
@@ -327,7 +327,7 @@ export function ChatModesPanel() {
                   placeholder={t('选择这个模式装配的插件')}
                 />
               </Form.Item>
-              <Form.Item name="manual_invoke_enabled" label={t('允许显式呼唤')} valuePropName="checked" extra={t('开启后，你本轮用 / 技能、@子智能体、插件呼唤的能力仍可临时用上，不受上面清单限制。')}>
+              <Form.Item name="manual_invoke_enabled" label={t('允许显式呼唤')} valuePropName="checked" extra={t('开启后，你本轮用 / 技能、@智能体、插件呼唤的能力仍可临时用上，不受上面清单限制。')}>
                 <Switch />
               </Form.Item>
               <Form.Item
@@ -371,7 +371,7 @@ export function ChatModesPanel() {
         open={marketPicker !== null}
         title={
           marketPicker === 'skill_ids' ? t('从市场选择技能')
-            : marketPicker === 'agent_ids' ? t('从市场选择子智能体')
+            : marketPicker === 'agent_ids' ? t('从市场选择智能体')
               : t('从市场选择插件')
         }
         items={

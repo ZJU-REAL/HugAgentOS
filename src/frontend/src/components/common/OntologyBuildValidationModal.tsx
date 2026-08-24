@@ -91,7 +91,7 @@ function IssueList({ issues, kind }: { issues: OntologyBuildIssue[]; kind: 'erro
   );
 }
 
-/** 子智能体、技能等资产在保存时未通过本体构建校验的可执行说明。 */
+/** 智能体、技能等资产在保存时未通过本体构建校验的可执行说明。 */
 export function OntologyBuildValidationModal({ failure, onClose }: OntologyBuildValidationModalProps) {
   const report = failure?.report;
 

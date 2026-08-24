@@ -83,8 +83,15 @@ pub fn on_cloud_login(
         *bridge_user.write().await = Some(encoded);
         eprintln!("[hybrid] 桥接身份已更新（云端用户 → 本机执行面）");
 
-        sync_models_when_local_ready(http, cloud_base, cookie_name, token, bridge_secret, local_server)
-            .await;
+        sync_cloud_config_when_local_ready(
+            http,
+            cloud_base,
+            cookie_name,
+            token,
+            bridge_secret,
+            local_server,
+        )
+        .await;
     });
 }
 
@@ -126,12 +133,14 @@ async fn fetch_cloud_user(
     Some(payload.to_string())
 }
 
-/// 等本机服务就绪后：云端 export → 本机 import。
+/// 等本机服务就绪后，并行下发两类云端配置：模型配置（export → import）与
+/// 能力桥（capability token → cloud-bridge）。二者互相独立，任一失败不影响
+/// 另一个。
 ///
 /// 首次安装本机服务要校验并解压完整的离线 Python 运行时；在低速磁盘上仍可能
 /// 持续数分钟，因此等待窗口给到 ~40 分钟。就绪后的单次同步失败也不能永久
 /// 跳过（否则本机会话一直「所选模型不可用」直到下次登录），带退避重试几次。
-async fn sync_models_when_local_ready(
+async fn sync_cloud_config_when_local_ready(
     http: reqwest::Client,
     cloud_base: String,
     cookie_name: String,
@@ -139,30 +148,83 @@ async fn sync_models_when_local_ready(
     bridge_secret: String,
     local_server: Arc<LocalServerManager>,
 ) {
-    let mut failures = 0u32;
+    if !wait_local_ready(&local_server).await {
+        eprintln!("[hybrid] 本机服务迟迟未就绪，本次跳过云端配置下发");
+        return;
+    }
+    let models = retry_sync("模型配置下发", || {
+        sync_models_once(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
+    });
+    let capability = async {
+        let ok = retry_sync("能力桥下发", || {
+            sync_capability_once(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
+        })
+        .await;
+        if ok {
+            run_capability_refresh_loop(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
+                .await;
+        }
+    };
+    tokio::join!(models, capability);
+}
+
+async fn wait_local_ready(local_server: &Arc<LocalServerManager>) -> bool {
     for _ in 0..480 {
         if local_server.is_ready().await {
-            match sync_models_once(&http, &cloud_base, &cookie_name, &token, &bridge_secret).await {
-                Ok(counts) => {
-                    eprintln!("[hybrid] 云端模型配置已下发到本机: {counts}");
-                    return;
-                }
-                Err(error) => {
-                    failures += 1;
-                    eprintln!("[hybrid] 模型配置下发失败（第 {failures} 次）: {error}");
-                    if failures >= 5 {
-                        return;
-                    }
-                    // 失败退避：比就绪轮询更长的间隔，避免打爆刚起的本机服务。
-                    tokio::time::sleep(std::time::Duration::from_secs(15 * failures as u64))
-                        .await;
-                    continue;
-                }
-            }
+            return true;
         }
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
-    eprintln!("[hybrid] 本机服务迟迟未就绪，本次跳过模型配置下发");
+    false
+}
+
+/// 通用退避重试：最多 5 次，失败间隔 15s × 次数（比就绪轮询更长，避免打爆
+/// 刚起的本机服务）。成功返回 true。
+async fn retry_sync<F, Fut>(name: &str, mut op: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<String, String>>,
+{
+    let mut failures = 0u32;
+    loop {
+        match op().await {
+            Ok(msg) => {
+                eprintln!("[hybrid] {name}成功: {msg}");
+                return true;
+            }
+            Err(error) => {
+                failures += 1;
+                eprintln!("[hybrid] {name}失败（第 {failures} 次）: {error}");
+                if failures >= 5 {
+                    return false;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(15 * failures as u64)).await;
+            }
+        }
+    }
+}
+
+/// 能力桥令牌 24h 有效；每 4h 换新一次，桌面常开也不过期。全局只起一个
+/// 循环（后登录只做即时下发，不重复起循环）。
+async fn run_capability_refresh_loop(
+    http: &reqwest::Client,
+    cloud_base: &str,
+    cookie_name: &str,
+    token: &str,
+    bridge_secret: &str,
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static REFRESH_LOOP_STARTED: AtomicBool = AtomicBool::new(false);
+    if REFRESH_LOOP_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(4 * 3600)).await;
+        match sync_capability_once(http, cloud_base, cookie_name, token, bridge_secret).await {
+            Ok(_) => eprintln!("[hybrid] 能力桥令牌已定期刷新"),
+            Err(error) => eprintln!("[hybrid] 能力桥定期刷新失败: {error}"),
+        }
+    }
 }
 
 async fn sync_models_once(
@@ -198,6 +260,58 @@ async fn sync_models_once(
         return Err(format!("import HTTP {}", resp.status()));
     }
     Ok(format!("providers={providers}"))
+}
+
+/// 能力桥下发（双端能力网关）：云端签发短时 capability token → 推送
+/// `{cloud_base, token}` 到本机后端。本机后端据此拉取云端能力 manifest，
+/// 把云端授权的 MCP 工具（产业知识中心、知识库、搜索等）合并进本机会话。
+async fn sync_capability_once(
+    http: &reqwest::Client,
+    cloud_base: &str,
+    cookie_name: &str,
+    token: &str,
+    bridge_secret: &str,
+) -> Result<String, String> {
+    let base = cloud_base.trim_end_matches('/');
+    let issue_url = format!("{base}/api/v1/desktop/capability/token");
+    let resp = http
+        .post(&issue_url)
+        .header(reqwest::header::COOKIE, format!("{cookie_name}={token}"))
+        .send()
+        .await
+        .map_err(|e| format!("token 签发请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("token 签发 HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("token 响应解析失败: {e}"))?;
+    let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
+    let cap_token = data
+        .get("token")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "token 响应缺 token 字段".to_string())?;
+    let expires_in = data.get("expires_in").and_then(|v| v.as_i64()).unwrap_or(86400);
+
+    let push_url = format!("{LOCAL_SERVER_BASE}/api/v1/desktop/capability/cloud-bridge");
+    let payload = serde_json::json!({
+        "cloud_base": base,
+        "token": cap_token,
+        "expires_in": expires_in,
+    });
+    let resp = http
+        .post(&push_url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {bridge_secret}"))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("桥配置推送失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("桥配置推送 HTTP {}", resp.status()));
+    }
+    Ok(format!("expires_in={expires_in}s"))
 }
 
 /// 标准 base64（无换行）。避免为一处编码引第三方 crate。

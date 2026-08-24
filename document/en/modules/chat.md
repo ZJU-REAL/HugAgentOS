@@ -34,7 +34,7 @@ SSE follower: chat_run_executor.follow_run_as_sse()
 
 ### Run decoupling and reconnect/resume
 
-Every sent message creates a `ChatRun` and a background task (`orchestration/chat_run_executor.py`); events are written to a Redis Stream (`maxlen=5000`, 1-hour TTL). The HTTP connection is merely a *follower*, which enables:
+Every sent message creates a `ChatRun` and a background task (`orchestration/chat_run_executor.py`); events are written to a Redis Stream (`maxlen=5000`; the default TTL is the 7,200-second maximum human wait plus a 1,800-second recovery grace period). The HTTP connection is merely a *follower*, which enables:
 
 | Capability | Endpoint |
 |---|---|
@@ -43,9 +43,20 @@ Every sent message creates a `ChatRun` and a background task (`orchestration/cha
 | Probe for an in-flight run | `GET /v1/chats/{chat_id}/active-run` |
 | Cancel a run (kills the background task) | `POST /v1/chat-runs/{run_id}/cancel` |
 | Add an instruction at the next safe ReAct boundary | `POST /v1/chat-runs/{run_id}/steer` |
+| Query durable queued-input state | `GET /v1/chat-runs/{run_id}/steers` |
 | Withdraw an instruction that hasn't taken effect | `DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` |
 
-Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (keeps nginx `proxy_read_timeout` and other proxies from cutting the stream); an inactivity watchdog fails the run if the workflow produces no chunk for 600 s (`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`); a periodic reaper collects over-age running runs; `recover_orphan_runs()` cleans up leftovers at startup.
+Defensive machinery: a `: heartbeat` SSE comment line every 15 silent seconds (keeps nginx `proxy_read_timeout` and other proxies from cutting the stream); an inactivity watchdog fails the run if the workflow produces no meaningful output for 600 s (`CHAT_RUN_INACTIVITY_TIMEOUT_SEC`); internal heartbeats keep that watchdog alive only while the backend registry contains a real pending human interaction; a periodic reaper collects over-age and quiet running runs; `recover_orphan_runs()` cleans up leftovers at startup.
+
+### Model-initiated user questions
+
+Regular top-level chats register `ask_user_question`. The model may use it only for a user preference, authorization decision, or material ambiguity that context and available tools cannot resolve, and should consolidate one decision point into one concise round. Turbo, plan execution, automation, sub-agent, and other unattended/non-top-level paths do not register it, so background work cannot wait indefinitely for a UI.
+
+The model-facing contract matches deepseek-harness: `questions[]` contains `id`, `question`, optional `header`, optional label/description `options`, and `multi_select`. Options have no model-visible ID or `recommended` field; a recommended option goes first and appends `(Recommended)` to its label. A successful result is the compact `{"answers":[{"id":"scope","selected":["Current page (Recommended)"],"custom":"..."}]}` shape, where `selected` contains the original option labels. Private option IDs used by the browser answer API are transport details and never enter the model's tool schema or result.
+
+Calling the tool suspends the current ReAct tool coroutine in place: it does not end the ChatRun or create a synthetic “continue” turn. On `user_question`, the frontend replaces the normal composer with a resident question composer supporting single-select, multi-select, recommended choices, custom text, paging, skip, and cancel. Answers use out-of-band endpoints. A successful POST, `user_question_resolved` SSE, or authoritative pending snapshot removes only the exact `request_id`, so duplicate clicks, concurrent browser tabs, and late responses are settled by the server's first-valid-claimant rule.
+
+After refresh, disconnect, or chat switching, pending endpoints restore only requests that still exist in the backend registry, and the sidebar marks those chats as **Waiting for your answer**. `HUMAN_INTERACTION_MAX_WAIT_SECONDS=7200` controls the default maximum wait. Timeout, cancellation, or unavailable interaction is surfaced as a structured tool error (`ASK_TIMEOUT`, `ASK_CANCELLED`, or `NO_PROVIDER`); the system policy tells the model not to repeat the same question and to use a safe default when appropriate. Like the existing write-confirmation gate, the registry is currently process-local; a service restart fails the original ChatRun, and the client does not advertise the stale question as resumable.
 
 ### Mid-run follow-ups, Steer, and the stop shortcut
 
@@ -54,16 +65,18 @@ message. Sending it creates a queued card above the composer. You can edit the
 card from its more menu or delete it. If you don't select **Steer**, the client
 sends the message as the next turn after the current answer finishes.
 
-When you select **Steer**, Redis hands the plain-text instruction to the active
-run. If the instruction arrives while a tool is running, `SteerMiddleware`
-atomically consumes it after that tool result enters the context and before the
-next model call, appends the real user message, and lets the model replan. If
-the instruction arrives earlier, the middleware interrupts the old tool call
-before it starts and enters the same replanning flow. A `steer_applied` SSE
-event confirms delivery. Messages containing attachments, skills, plugins, or
-sub-agents wait and send normally after the current answer. Pressing `Esc`
-cancels the run for the chat visible on the current page. If a card editor or
-dialog already consumes `Esc`, it doesn't stop the run.
+Queued input is database-authoritative: acceptance happens before Redis sends a
+best-effort wake-up. Each chat gets a monotonic `steer_seq`; rows move through
+`accepted`, `claimed`, `applied`, `cancelled`, or `superseded`, and expired
+claim leases are redelivered. `delivery_mode=steer` injects the instruction at
+the next safe ReAct boundary and confirms it with `steer_applied`.
+`delivery_mode=followUp` starts after the current run completes, while
+`delivery_mode=nextRun` becomes the next independent run without modifying the
+current context. Both handoff modes atomically commit the current answer, queued
+user message, queue state, and next `ChatRun`. The status endpoint above lets
+the client reconcile after refresh. Messages containing attachments, skills,
+plugins, or sub-agents still wait and send normally. Pressing `Esc` cancels the
+run for the chat visible on the current page.
 
 ### Agent construction highlights (core/llm/agent_factory.py)
 
@@ -73,7 +86,7 @@ dialog already consumes `Esc`, it doesn't stop the run.
 - **Skills**: registered as AgentScope Agent Skills via `core/agent_skills/loader.py`, with `view_text_file` allow-listed to read SKILL.md files (see [Agent Skills](agent-skills.md)).
 - **File / sandbox tools**: `bash`, `sandbox_put_artifact`, `sandbox_get_artifact` are always registered; Read/Edit/Write/Glob/Grep/Delete/Move/mkdir plus the MySpace tools are gated by `CODE_CAPABILITY_ENABLED` and share one `ReadStateTracker` to keep the "must Read before Edit" invariant.
 - **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `GoalAnchorReminderMiddleware`, `FinishPinGuardMiddleware`.
-- **Context compression**: `ContextConfig(trigger_ratio=0.6, tool_result_limit=20000)` plus a structured Chinese compression prompt designed to produce a *resumable ReAct workflow* summary; if the compression call itself fails, `JxOpenAIChatModel.generate_structured_output` returns an L3 synthetic summary so the reply never crashes.
+- **Context compression**: `CompactingAgent` routes the pre-turn, mid-turn, and post-turn trigger points through one persistent checkpoint engine and one Codex-style handoff prompt. `ContextConfig` remains only for tool-result limiting and AgentScope overflow fallback, and that fallback reuses the same prompt. If its structured call still fails, the model adapter returns an L3 synthetic summary so the active reply is not aborted by a compression error.
 - **Permissions**: every registered tool gets a native `PermissionRule(ALLOW)` seed, preserving AgentScope's built-in dangerous-operation checks (no blanket BYPASS).
 - **Iteration caps**: main agent defaults to `max_iters=50`, isolated sub-agents to 10.
 
@@ -91,11 +104,14 @@ dialog already consumes `Esc`, it doesn't stop the run.
 | `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, plus `subagent_name` for sub-agent calls |
 | `tool_result` | Tool invocation result | `tool_name`, `result`, `tool_id`, `status`, `citations[]` |
 | `steer_applied` | A mid-run instruction entered the ReAct context | `steer_id`, `message`, `message_id`, `chat_id` |
+| `queued_run_started` | A transactionally committed `followUp` / `nextRun` child starts and the frontend follows it immediately | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `subagent_event` | Child execution details nested under the parent `call_subagent` card | `parent_tool_id`, `sub_type`, `agent_name`, plus child tool or content fields |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | Ontology-governance state, separate from model reasoning | workflow activation, gate decision, and committee status or verdict |
 | `tool_pending` | Waiting fallback when the provider exposes no parseable argument deltas | `reason` |
 | `batch_confirm` | Batch plan generated, awaiting user confirmation (human gate) | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys` |
 | `file_confirm` | A tool is suspended awaiting confirmation of a MySpace write | confirmation context; the tool resumes in place after an out-of-band `POST /v1/chats/{chat_id}/file-confirm` |
+| `user_question` | `ask_user_question` is suspended awaiting the chat owner's answer | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
+| `user_question_resolved` | The server settled an answer, cancellation, or timeout | `request_id`, `outcome`, `chat_id` |
 | `compaction_notice` | A new context-compaction checkpoint was created after the previous turn | `chat_id`, `context_compaction` (coverage boundary and replacement-summary token count) |
 | `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
 | `error` | Failure (mapped to a user-friendly message) | `error`, `chat_id` |
@@ -220,6 +236,14 @@ User-created sub-agents support four access paths. Platform defaults are
 reached through autonomous main-agent dispatch or explicit natural-language
 delegation. Orchestration ownership differs by path:
 
+The composer provides two keyboard launchers. Typing `@` first shows the
+currently available shortcuts for files, sub-agents, plan mode, batch
+execution, workflow mode, and autonomous loops; continued typing searches
+sub-agents directly, while choosing **Sub-agents** opens the complete picker.
+Typing `/` groups commands and descriptions by plugin and skill; conversation
+modes are selected through `@`. Both pickers support arrow-key navigation,
+Enter or Tab to confirm, and Escape to go back or close. Unavailable or unauthorized capabilities are omitted.
+
 - **Structured `@` delegation**: selecting one `@sub-agent` in the composer
   sends both `mention_agent_id` and its display name. The backend removes the
   display-only `@name` prefix and injects a strict per-turn delegation
@@ -261,8 +285,8 @@ Three complementary layers:
 | Layer | Implementation | Trigger |
 |---|---|---|
 | Chat title summary | `core/llm/summarizer.py::ConversationSummarizer` (`summarizer` model role, `ENABLE_SUMMARY` flag), `POST /v1/summary` | Auto-titling new chats |
-| History pre-trim + summary | `core/llm/context_manager.py::ContextWindowManager.manage_context()` trims to the model's context window; dropped messages are condensed by `core/llm/history_summarizer.py::summarize_history()` into a `<conversation_summary>` prepended to the history | Loading history that exceeds the token budget |
-| In-session compression | AgentScope 2.0 `ContextConfig` (`trigger_ratio=0.6`); the compression prompt demands a structured, resumable-ReAct-workflow summary (preserving artifact_ids, tool params, TODOs) | Context approaching the window inside the ReAct loop |
+| Unified context checkpoint | `core/services/compaction_service.py::run_compaction()`; pre-turn, mid-turn, and post-turn share one trigger ratio, handoff prompt, replacement shape, and persistent checkpoint | Context reaches the configured fraction of the model window |
+| Deterministic overflow protection | `ContextConfig.tool_result_limit` bounds individual tool results first; when unified compaction fails or persistence is disabled, the AgentScope fallback compacts the live in-memory context with the same handoff prompt | A tool result is oversized or unified compaction is temporarily unavailable |
 
 Compaction checkpoints are internal `system` messages; they do not hide or delete any user-visible transcript entries. The message-list response and the next turn's `compaction_notice` both expose the latest checkpoint's coverage boundary and replacement-summary token estimate. The frontend context gauge therefore measures `replacement baseline + messages after the checkpoint` instead of continuing to accumulate the full history that the summary has replaced.
 
@@ -303,7 +327,7 @@ The same orchestration foundation also powers: response regeneration (`POST /v1/
 | Citation rendering | `src/frontend/src/utils/citations.ts`, `src/frontend/src/components/citation/` |
 | Plan mode | `src/backend/orchestration/subagents/plan_mode.py`, `api/routes/v1/plans.py` |
 | Sub-agent tool | `src/backend/core/llm/subagent_tool.py`, `api/routes/v1/agents.py` |
-| Title / history summarization, window management | `src/backend/core/llm/summarizer.py`, `history_summarizer.py`, `context_manager.py` |
+| Title summarization / context compaction / window protection | `src/backend/core/llm/summarizer.py`, `compaction.py`, `core/services/compaction_service.py`, `context_manager.py` |
 | Oversized-result offloading | `src/backend/core/llm/offloader.py` |
 | Chat sharing | `src/backend/api/routes/v1/chat_shares.py` |
 | Follow-up generation | `src/backend/orchestration/followups.py` |

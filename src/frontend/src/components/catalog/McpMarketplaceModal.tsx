@@ -214,7 +214,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
         );
       }
       message.success(result.action === 'installed'
-        ? t('「{name}」已安装到 MCP 工具库', { name: installTarget.display_name })
+        ? t('「{name}」已安装到连接器', { name: installTarget.display_name })
         : credentialsManaged
           ? t('「{name}」已重新安装', { name: installTarget.display_name })
           : t('「{name}」的凭据已更新', { name: installTarget.display_name }));

@@ -13,8 +13,8 @@ import { useAutomationChatStore, useAutomationStore, useCatalogStore } from '../
 import type { AutomationChatGroup, AutomationRun, AutomationRunStatus } from '../../types';
 import { DUR, EASE, staggerStyle } from '../../utils/motionTokens';
 import { useStatusFlash } from '../../hooks/useFlash';
-import { pad2, formatMonthDay, formatMonthDayTime, formatFullDateTime, formatDateKey } from '../../utils/date';
-import { RUN_STATUS_LABEL } from '../lab/automationUtils';
+import { formatMonthDay, formatMonthDayTime, formatFullDateTime, formatDateKey } from '../../utils/date';
+import { RUN_STATUS_LABEL, formatRunDuration } from '../lab/automationUtils';
 import '../../styles/automation-timeline.css';
 import { t } from '../../i18n';
 
@@ -30,16 +30,6 @@ interface DateGroup {
   date: string;
   fullDate: string;
   runs: (AutomationRun & { runNo: number })[];
-}
-
-function formatDuration(durationMs?: number): string {
-  if (!durationMs || durationMs <= 0) return '-';
-  if (durationMs < 1000) return `${durationMs}ms`;
-  const seconds = durationMs / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainSeconds = Math.round(seconds % 60);
-  return `${minutes}m ${pad2(remainSeconds)}s`;
 }
 
 // First, second … tenth; above 10 use Arabic numerals
@@ -177,9 +167,9 @@ export function RunTimelinePanel() {
           type="button"
           className="jx-runTimeline-crumb"
           onClick={navigateBackToDetail}
-          title={t('返回自动化任务详情')}
+          title={t('返回定时任务详情')}
         >
-          <span>{t('自动化任务')}</span>
+          <span>{t('定时任务')}</span>
           <RightOutlined className="jx-runTimeline-crumbIcon" />
         </button>
         <button
@@ -331,7 +321,7 @@ export function RunTimelinePanel() {
                             <div className="jx-runTimeline-itemBottom">
                               <span className="jx-runTimeline-itemDuration">
                                 {run.duration_ms
-                                  ? t('耗时 {dur}', { dur: formatDuration(run.duration_ms) })
+                                  ? t('耗时 {dur}', { dur: formatRunDuration(run.duration_ms) })
                                   : (isRunning ? t('执行中') : t('耗时 —'))}
                               </span>
                               <span

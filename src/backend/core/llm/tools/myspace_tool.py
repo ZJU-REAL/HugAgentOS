@@ -411,7 +411,7 @@ def register_myspace_tools(
                             ChatMessage.chat_id == s.chat_id,
                             ChatMessage.role == "assistant",
                         )
-                        .order_by(ChatMessage.created_at.desc())
+                        .order_by(ChatMessage.chat_seq.desc())
                         .first()
                     )
                     preview = ""
@@ -478,7 +478,7 @@ def register_myspace_tools(
                         ChatMessage.chat_id == chat_id,
                         ChatMessage.role.in_(["user", "assistant"]),
                     )
-                    .order_by(asc(ChatMessage.created_at))
+                    .order_by(asc(ChatMessage.chat_seq))
                     .limit(limit)
                     .all()
                 )

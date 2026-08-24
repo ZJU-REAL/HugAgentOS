@@ -5,3 +5,4 @@ export { ToolTimelinePanel } from './ToolTimelinePanel';
 export { ToolCallRow } from './ToolCallRow';
 export { ToolRunShell } from './ToolRunShell';
 export type { ShellStep } from './ToolRunShell';
+export { DataView } from './renderers/DataView';

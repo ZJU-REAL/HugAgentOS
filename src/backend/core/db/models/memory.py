@@ -40,10 +40,72 @@ class ProfileMemory(Base):
     user_id = Column(String(64), primary_key=True)
     workspace_id = Column(String(64), primary_key=True, default="default")
     content_md = Column(Text, nullable=False, default="")
+    revision = Column(Integer, nullable=False, default=0)
+    effect_receipts = Column(JSONType, nullable=False, default=dict)
     last_compacted_at = Column(TIMESTAMP(timezone=True))
     updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (Index("idx_profile_memory_updated_at", "updated_at"),)
+
+
+class MemoryOutbox(Base):
+    """Durable state machine for post-response memory effects.
+
+    The unique tuple is the admission idempotency boundary: replaying the same
+    message, layer and normalized candidate resolves to this row.  External
+    L2/L3 writers additionally persist this row id as an effect receipt so a
+    crash after the remote effect but before acknowledgement does not apply it
+    twice.
+    """
+
+    __tablename__ = "memory_outbox"
+
+    id = Column(String(64), primary_key=True)
+    parent_id = Column(String(64))
+    message_id = Column(String(128), nullable=False)
+    scope_key = Column(String(64))
+    job_kind = Column(String(32), nullable=False)
+    layer = Column(String(32), nullable=False)
+    candidate_hash = Column(String(64), nullable=False)
+    payload_json = Column(JSONType, nullable=False, default=dict)
+    status = Column(String(16), nullable=False, default="pending")
+    attempts = Column(Integer, nullable=False, default=0)
+    lease_owner = Column(String(128))
+    lease_expires_at = Column(TIMESTAMP(timezone=True))
+    next_attempt_at = Column(TIMESTAMP(timezone=True))
+    last_error = Column(Text)
+    result_json = Column(JSONType)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+    completed_at = Column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "layer",
+            "candidate_hash",
+            name="uq_memory_outbox_candidate",
+        ),
+        CheckConstraint(
+            "status IN ('pending','processing','succeeded','retry','quarantined')",
+            name="memory_outbox_status_check",
+        ),
+        Index("idx_memory_outbox_due", "status", "next_attempt_at", "created_at"),
+        Index("idx_memory_outbox_lease", "status", "lease_expires_at"),
+        Index("idx_memory_outbox_message", "message_id", "created_at"),
+        Index(
+            "idx_memory_outbox_scope_lane",
+            "scope_key",
+            "layer",
+            "status",
+            "created_at",
+        ),
+    )
 
 
 class MemoryRefShadow(Base):

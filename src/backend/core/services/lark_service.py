@@ -70,7 +70,7 @@ _CLEAR_LOGIN: Dict[str, Any] = {
 }
 
 _EXPIRED_ERROR = "飞书登录已失效（令牌被刷新或过期），请到设置页重新扫码连接飞书"
-_NO_APP_ERROR = "飞书应用尚未配置，请联系管理员在「插件库 → 飞书工作台」初始化飞书应用"
+_NO_APP_ERROR = "飞书应用尚未配置，请联系管理员在「插件 → 飞书工作台」初始化飞书应用"
 
 # Markers in auth/login results that positively confirm "auth invalid / device code terminated".
 _AUTH_FAIL_MARKERS = (
@@ -148,8 +148,54 @@ def parse_lark_identity(stdout: str) -> Dict[str, Optional[str]]:
     return out
 
 
+def parse_user_identity_state(stdout: str) -> Optional[bool]:
+    """``auth status`` → whether the **user** identity is usable right now;
+    ``None`` when the output shape is unrecognized (caller falls back to heuristics).
+
+    lark-cli reports the bot and the user identity separately::
+
+        {"identities": {"bot":  {"status": "ready",   "available": true},
+                        "user": {"status": "missing", "available": false,
+                                 "openId": "ou_…", "userName": "…",
+                                 "tokenStatus": "expired"}}}
+
+    Note that ``openId``/``userName`` **stay in the payload after the token
+    expires** — they describe who last authorized, not whether the
+    authorization still works. So "an identity field is present" must never be
+    read as "logged in"; doing so is what let a login that expired months ago
+    keep reporting 已登录 on the connection panel while the sandbox correctly
+    answered "User identity: missing".
+    """
+    data = _loads(stdout)
+    if not isinstance(data, dict):
+        return None
+    identities = data.get("identities")
+    if not isinstance(identities, dict):
+        return None
+    user = identities.get("user")
+    if not isinstance(user, dict):
+        return None
+    available = user.get("available")
+    if isinstance(available, bool):
+        return available
+    status = str(user.get("status") or "").strip().lower()
+    if not status:
+        return None
+    return status in ("ready", "ok", "active", "valid")
+
+
 def is_authenticated(stdout: str) -> bool:
-    """``auth status`` → whether logged in. Lenient: look for authenticated/loggedIn=true or the presence of identity fields."""
+    """``auth status`` → whether the user is logged in.
+
+    Prefers the structured ``identities.user`` verdict (see
+    [[parse_user_identity_state]]); only when the CLI emits a shape we do not
+    recognize does it fall back to the old lenient heuristics — those also have
+    to serve ``auth login --device-code`` output, which carries no
+    ``identities`` block.
+    """
+    state = parse_user_identity_state(stdout)
+    if state is not None:
+        return state
     data = _loads(stdout)
     if isinstance(data, dict):
         for k, v in data.items():
@@ -339,7 +385,11 @@ def _update_connection(user_id: str, data: Dict[str, Any]) -> None:
 
 async def _build_connected_update(user_id: str) -> Dict[str, Any]:
     """After successful login, backfill the Lark identity and return the update dict for the ``connected`` state."""
-    who, _, _ = await _run_lark(user_id, ["auth", "status", "--format", "json"], timeout=20)
+    # No ``--format json``: no shipped lark-cli accepts that flag (1.0.34 has only
+    # ``--verify``; 1.0.78 spells it ``--json``), and passing it made every call return a
+    # "unknown flag" error instead of the status — which is why lark_open_id / lark_name
+    # stayed NULL on every connection row. Bare ``auth status`` already prints JSON on both.
+    who, _, _ = await _run_lark(user_id, ["auth", "status"], timeout=20)
     ident = parse_lark_identity(who)
     return {
         "status": "connected",
@@ -358,11 +408,17 @@ async def verify_and_refresh(user_id: str) -> str:
     Returns ``valid`` / ``invalid`` / ``unknown``. Network/timeout etc. draw no
     conclusion (unknown), avoiding misjudgment from a blip."""
     out, err, rc = await _run_lark(
-        user_id, ["auth", "status", "--verify", "--format", "json"], timeout=25
+        user_id, ["auth", "status", "--verify"], timeout=25
     )
     blob = ((out or "") + "\n" + (err or "")).strip()
     if not blob or rc == 124 or rc == 127:
         return "unknown"
+    # The structured verdict is authoritative when the CLI gives us one: substring
+    # markers are a poor judge here because a *healthy* status payload also carries
+    # words like "expiresAt", and an expired one still carries openId/userName.
+    state = parse_user_identity_state(out)
+    if state is not None:
+        return "valid" if state else "invalid"
     low = blob.lower()
     if any(m in low for m in _AUTH_FAIL_MARKERS) or "not authenticated" in low or "not logged in" in low:
         return "invalid"
@@ -384,11 +440,21 @@ async def _device_complete_flow(user_id: str, device_code: str) -> None:
         verdict = _classify_login_result(out, err, rc)
         if verdict == "ok":
             # Confirm login with another status check (fallback when --device-code succeeds but the json has no identity)
-            st, _, _ = await _run_lark(user_id, ["auth", "status", "--format", "json"], timeout=20)
-            if is_authenticated(st) or rc == 0:
+            st, _, _ = await _run_lark(user_id, ["auth", "status"], timeout=20)
+            # ``rc == 0`` alone must not win: the CLI can exit 0 without ever storing a
+            # user token, and that is how connection rows ended up marked ``connected``
+            # with a NULL identity while the sandbox saw no token at all. A *definite*
+            # negative from the structured status therefore overrides it; an
+            # inconclusive status keeps the old lenient behaviour so unfamiliar CLI
+            # output shapes do not start failing valid logins.
+            st_state = parse_user_identity_state(st)
+            if st_state is False:
+                verdict = "error"
+            elif st_state is True or is_authenticated(st) or rc == 0:
                 _update_connection(user_id, await _build_connected_update(user_id))
                 return
-            verdict = "error"
+            else:
+                verdict = "error"
         if verdict == "error":
             tail = ((err or out or "").strip())[-300:]
             _update_connection(user_id, {
@@ -612,12 +678,17 @@ class LarkService:
             old.cancel()
         await _run_lark(user_id, ["auth", "logout"], timeout=30)
         try:
-            from core.sandbox._common import lark_cache_dir, safe_user_id
+            from core.sandbox._common import lark_cache_dir, purge_credential_dir, safe_user_id
 
+            # Empty in place — never rmtree the root. ~/.lark-cli and
+            # ~/.local/share/lark-cli under it are bind-mounted into this user's
+            # live sandboxes; removing the directory orphans those mounts and the
+            # next login's credentials land on an inode the sandbox cannot see
+            # (see [[purge_credential_dir]]).
             if safe_user_id(user_id):
-                shutil.rmtree(lark_cache_dir(user_id), ignore_errors=True)
+                purge_credential_dir(lark_cache_dir(user_id))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("[lark] disconnect cache rmtree failed user=%s: %s", user_id, exc)
+            logger.warning("[lark] disconnect cache purge failed user=%s: %s", user_id, exc)
         self.repo.update(
             user_id,
             {

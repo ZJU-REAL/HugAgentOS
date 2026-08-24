@@ -142,6 +142,25 @@ def report_memory_writes(
         _settle(message_id)
 
 
+def acknowledge_durable_settlement(message_id: str) -> None:
+    """Retire the in-process watchdog before the Outbox settles durably.
+
+    The Outbox writes the authoritative card and its succeeded receipt in one
+    database transaction. Once that path owns settlement, the legacy timer
+    must not race in afterwards and replace the durable card with its
+    provisional timeout result. A process crash after this acknowledgement is
+    safe: the durable Outbox row remains retryable and does not depend on this
+    process-local state.
+    """
+    if not message_id:
+        return
+    with _lock:
+        entry = _pending.pop(message_id, None)
+        if entry is not None and entry.timer is not None:
+            entry.timer.cancel()
+        _remember_settled(message_id)
+
+
 def _settle(message_id: str, *, timed_out: bool = False) -> None:
     """Build the summary and persist it. Never raises — this runs post-response."""
     with _lock:

@@ -5,6 +5,7 @@ export { QueuedMessageCard } from './QueuedMessageCard';
 export { ContextGauge } from './ContextGauge';
 export { FileConfirmBar } from './FileConfirmBar';
 export { DesignPickerCard } from './DesignPickerCard';
+export { AskUserQuestionComposer } from './AskUserQuestionComposer';
 export { PromptHubPanel } from './PromptHubPanel';
 export { PlanCard } from './PlanCard';
 export { PlanProgressStrip } from './PlanProgressStrip';

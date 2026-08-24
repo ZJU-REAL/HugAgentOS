@@ -77,7 +77,10 @@ RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout
 # （config init 写应用配置 + auth login 落 user_access_token；每用户独立 HOME 隔离）。
 # 后端取**独立的静态 Go 二进制**（GitHub release tarball），无需在 slim 镜像里装 node
 # ——沙箱镜像才用 npm 全局装。凭据落 $STORAGE/lark_cache/{uid}/，bind-mount 进沙盒。
-ARG LARK_CLI_VERSION=1.0.34
+# ⚠️ 必须与三个沙箱镜像（Dockerfile.opensandbox / .script-runner / .cube-sandbox）里
+# npm 安装的 @larksuite/cli 版本一致——后端写凭据、沙箱读凭据，后端还要解析 `auth status`
+# 的输出格式。曾经后端锁 1.0.34、沙箱浮动到 1.0.78，两边行为不一致且无人察觉。
+ARG LARK_CLI_VERSION=1.0.78
 RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
         "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/lark-cli-${LARK_CLI_VERSION}-linux-${TARGETARCH:-amd64}.tar.gz" \
         -o /tmp/lark-cli.tar.gz; then \

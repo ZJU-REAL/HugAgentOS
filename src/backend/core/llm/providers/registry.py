@@ -89,6 +89,9 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
     "deepseek": ProviderSpec(
         id="deepseek", label="DeepSeek", engine="openai",
         base_url_template="https://api.deepseek.com/v1", autofill_base_url=True,
+        # The official API always delivers reasoning via the separate reasoning_content
+        # field, never inline <think> — safe to announce the structured channel upfront.
+        structured_reasoning=True,
     ),
     "zhipu": ProviderSpec(
         id="zhipu", label="智谱 GLM", engine="openai",

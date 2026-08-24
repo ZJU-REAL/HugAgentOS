@@ -86,6 +86,48 @@ function buildOnceCron(dt: Dayjs): string {
   return `${dt.minute()} ${dt.hour()} ${dt.date()} ${dt.month() + 1} *`;
 }
 
+/**
+ * 单次执行的时间约束：已经过去的日期整天禁选，当天则把已过去的小时/分钟禁掉。
+ * 选到过去的时间点没有任何意义——cron 要等到明年同一天才会再匹配一次，用户以为
+ * 「马上执行」，实际是一年后。所以在选择器层面就挡掉，而不是等提交后报错。
+ */
+function disabledOnceDate(current: Dayjs): boolean {
+  return !!current && current.endOf('day').isBefore(dayjs());
+}
+
+function disabledOnceTime(current: Dayjs | null) {
+  const now = dayjs();
+  if (!current || !current.isSame(now, 'day')) return {};
+  return {
+    disabledHours: () => range(0, now.hour()),
+    disabledMinutes: (selectedHour: number) =>
+      selectedHour === now.hour() ? range(0, now.minute() + 1) : [],
+  };
+}
+
+function range(start: number, end: number): number[] {
+  const out: number[] = [];
+  for (let i = start; i < end; i += 1) out.push(i);
+  return out;
+}
+
+/**
+ * 单次执行时间是否落在过去——提交前校验用，导出给创建 / 编辑两处复用。
+ *
+ * 注意不能拿 parseOnceCron 的结果去比：它已经把过期日期顺延到明年，永远是未来。
+ * 这里要判断的恰恰是「本年度的那个时刻已经过去了」，因为此时 cron 要等一年才会再匹配，
+ * 用户以为是马上执行、实际却是明年的今天。
+ */
+export function isOnceScheduleExpired(value: ScheduleValue): boolean {
+  if (value.schedule_type !== 'once') return false;
+  const parts = value.cron_expression.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const [m, h, d, mo] = parts.map((p) => parseInt(p, 10));
+  if ([m, h, d, mo].some((n) => Number.isNaN(n))) return false;
+  const thisYear = dayjs().month(mo - 1).date(d).hour(h).minute(m).second(0);
+  return thisYear.isBefore(dayjs());
+}
+
 // ─── Parse cron back into UI state (best-effort) ─────────────
 
 function parseRecurringCron(cron: string): {
@@ -205,6 +247,8 @@ export function ScheduleSelector({ value, onChange, disabled }: Props) {
 
   const handleOnceChange = (newDt: Dayjs | null) => {
     if (!newDt) return;
+    // disabledDate/disabledTime 只挡面板点选，手输仍能敲进过去的时刻——这里再兜一次。
+    if (newDt.isBefore(dayjs())) return;
     setOnceAt(newDt);
     emit({
       schedule_type: 'once',
@@ -328,6 +372,8 @@ export function ScheduleSelector({ value, onChange, disabled }: Props) {
               format="YYYY-MM-DD HH:mm"
               allowClear={false}
               disabled={disabled}
+              disabledDate={disabledOnceDate}
+              disabledTime={disabledOnceTime}
               style={{ width: 220 }}
             />
           </div>

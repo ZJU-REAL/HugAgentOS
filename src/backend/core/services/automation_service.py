@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 # ScheduledTaskRun.result_summary 存的是**全文**：它同时是渠道（钉钉/飞书等）投递的正文，
 # 在写库/执行侧截断会让定时消息只发出开头一段。所以截断一律发生在展示侧，且统一走
 # truncate_summary，保证各处「被截断」的观感一致（都带省略号）。
-SUMMARY_LIMIT_LIST = 500   # 运行历史列表：前端只做两行 line-clamp 展示
+SUMMARY_LIMIT_LIST = 500  # 运行历史列表：前端只做两行 line-clamp 展示
 SUMMARY_LIMIT_BRIEF = 200  # 通知中心卡片 / MCP brief：进模型上下文或小卡片，要更短
 
 
@@ -38,6 +38,7 @@ def _channel_target_fields(extra_data: Optional[Dict[str, Any]]) -> Dict[str, An
     """
     try:
         from core.services.delivery_targets import resolve_delivery_targets
+
         tgt = next(
             (t for t in resolve_delivery_targets(extra_data or {}) if t.get("type") == "channel"),
             None,
@@ -94,6 +95,7 @@ class AutomationService:
         enabled_agent_ids: Optional[List[str]] = None,
         max_runs: Optional[int] = None,
         metadata: Optional[dict] = None,
+        commit: bool = True,
     ) -> ScheduledTask:
         task_id = f"auto_{uuid.uuid4().hex[:16]}"
 
@@ -131,8 +133,11 @@ class AutomationService:
             extra_data=metadata or {},
         )
         self.db.add(task)
-        self.db.commit()
-        self.db.refresh(task)
+        if commit:
+            self.db.commit()
+            self.db.refresh(task)
+        else:
+            self.db.flush()
         return task
 
     def get_task(self, task_id: str, user_id: str) -> Optional[ScheduledTask]:
@@ -172,7 +177,14 @@ class AutomationService:
             self.db.refresh(task)
         return task
 
-    def update_task(self, task_id: str, user_id: str, **kwargs: Any) -> Optional[ScheduledTask]:
+    def update_task(
+        self,
+        task_id: str,
+        user_id: str,
+        *,
+        commit: bool = True,
+        **kwargs: Any,
+    ) -> Optional[ScheduledTask]:
         task = self.get_task(task_id, user_id)
         if not task:
             return None
@@ -187,12 +199,13 @@ class AutomationService:
         if task.schedule_type == "manual":
             task.next_run_at = None
         elif "cron_expression" in kwargs or "schedule_type" in kwargs:
-            task.next_run_at = compute_next_run(
-                task.cron_expression, task.timezone
-            )
+            task.next_run_at = compute_next_run(task.cron_expression, task.timezone)
         task.updated_at = datetime.now(timezone.utc)
-        self.db.commit()
-        self.db.refresh(task)
+        if commit:
+            self.db.commit()
+            self.db.refresh(task)
+        else:
+            self.db.flush()
         return task
 
     def update_task_system(self, task_id: str, **kwargs: Any) -> Optional[ScheduledTask]:
@@ -208,15 +221,22 @@ class AutomationService:
         self.db.refresh(task)
         return task
 
-    def delete_task(self, task_id: str, user_id: str) -> bool:
-        task = self.db.query(ScheduledTask).filter(
-            ScheduledTask.task_id == task_id,
-            ScheduledTask.user_id == user_id,
-        ).first()
+    def delete_task(self, task_id: str, user_id: str, *, commit: bool = True) -> bool:
+        task = (
+            self.db.query(ScheduledTask)
+            .filter(
+                ScheduledTask.task_id == task_id,
+                ScheduledTask.user_id == user_id,
+            )
+            .first()
+        )
         if not task:
             return False
         self.db.delete(task)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         return True
 
     def pause_task(self, task_id: str, user_id: str) -> Optional[ScheduledTask]:
@@ -291,6 +311,24 @@ class AutomationService:
         task.updated_at = datetime.now(timezone.utc)
         self.db.commit()
 
+    def bump_run_count(self, task_id: str) -> None:
+        """手动触发路径专用的计数递增。
+
+        run_count 原本只在 advance_next_run 里 +1，而那是**调度器轮询**的前置步骤。
+        手动「立即执行」和 schedule_type='manual' 的任务根本不走调度器（get_due_tasks
+        把 manual 排除在外），于是这些执行只落了一条 run 记录、累计次数却纹丝不动——
+        详情页出现「有 5 条执行记录、累计执行 0 次」的自相矛盾。
+
+        这里不动调度器那条路径的语义（那边 +1 与 next_run_at 推进必须原子发生），
+        只补上手动触发这一路的计数。
+        """
+        task = self.get_task_by_id(task_id)
+        if not task:
+            return
+        task.run_count = (task.run_count or 0) + 1
+        task.updated_at = datetime.now(timezone.utc)
+        self.db.commit()
+
     def finalize_after_run(self, task_id: str) -> None:
         """Mark one-shot / exhausted tasks 'completed' once their run has
         finished. Recurring tasks stay active (advance_next_run already moved
@@ -343,9 +381,7 @@ class AutomationService:
         self.db.refresh(run)
         return run
 
-    def get_task_runs(
-        self, task_id: str, user_id: str, limit: int = 10
-    ) -> List[ScheduledTaskRun]:
+    def get_task_runs(self, task_id: str, user_id: str, limit: int = 10) -> List[ScheduledTaskRun]:
         task = self.get_task(task_id, user_id)
         if not task:
             return []

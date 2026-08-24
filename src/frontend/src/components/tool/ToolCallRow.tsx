@@ -28,6 +28,7 @@ import { renderInternetSearchInline } from './renderers/SearchRenderer';
 import { coerceOutput, computeEffectiveStatus } from './renderers/utils';
 import { t } from '../../i18n';
 import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
+import { resolvePluginToolLabel, resolvePluginToolStepText } from '../../utils/toolMeta';
 
 /**
  * Returns a `{ prefix, value, count }` label descriptor for the header row.
@@ -44,6 +45,15 @@ function getRowLabel(
     const out = parsed as any;
     const editionLabel = getEditionToolRowLabel(tool);
     if (editionLabel) return editionLabel;
+
+    // A plugin that declared `tool_meta` names its own row; the host's switch
+    // below covers only tools the product itself owns.
+    const contributed = resolvePluginToolStepText(tool.name, tool.input)
+      || resolvePluginToolLabel(tool.name);
+    if (contributed) {
+      const items = Array.isArray(out?.items) ? out.items.length : undefined;
+      return { prefix: contributed, value: '', ...(items !== undefined ? { count: items } : {}) };
+    }
 
     switch (tool.name) {
       case 'internet_search': {
@@ -117,7 +127,7 @@ function getRowLabel(
       }
       case 'get_skills': return { prefix: t('获取技能列表'), value: '' };
       case 'get_agents': return { prefix: t('获取智能体列表'), value: '' };
-      case 'get_mcp_tools': return { prefix: t('获取 MCP 工具'), value: '' };
+      case 'get_mcp_tools': return { prefix: t('获取连接器'), value: '' };
       default: return { prefix: displayName, value: '' };
     }
   } catch {
@@ -301,6 +311,11 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
           {value && <span className="jx-tcr-value">{value}</span>}
           {count != null && <span className="jx-tcr-count">&nbsp;({count})</span>}
         </span>
+        {/* 长工具的实时进度（批量作业 n/m）：run_job 会把这一轮阻塞几十分钟，
+            没有这行，卡片上就只有一个转不完的菊花，用户判断不出是在跑还是已僵死 */}
+        {running && tool.progressNote ? (
+          <span className="jx-tcr-progress">{tool.progressNote}</span>
+        ) : null}
         {running && tool.timestamp ? (
           <ElapsedTimer startTs={tool.timestamp} className="jx-tcr-timer" />
         ) : null}

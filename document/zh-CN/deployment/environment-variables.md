@@ -41,7 +41,9 @@
 | `CHAT_RUN_MAX_AGE_SEC` | `1800` | running 超龄进入僵尸检查（叠加静默阈值，活跃长任务不杀） | CE |
 | `CHAT_RUN_REAPER_INTERVAL_SEC` | `300` | 看门狗扫描间隔 | CE |
 | `CHAT_RUN_STALE_QUIET_SEC` | 同 `CHAT_RUN_INACTIVITY_TIMEOUT_SEC` | 超龄 run 事件流静默超过此值才收成 failed | CE |
-| `CHAT_RUN_HARD_MAX_AGE_SEC` | `21600` | 绝对寿命上限，超过即强制收割（即便仍在产出） | CE |
+| `CHAT_RUN_HARD_MAX_AGE_SEC` | `21600` | 绝对寿命上限，超过即强制收割（即便仍在产出）；已注册且有界的人机等待保留到自身截止时间 | CE |
+| `HUMAN_INTERACTION_MAX_WAIT_SECONDS` | `7200` | `ask_user_question`、写入确认和设计选择等人机交互的最长等待时间；仅真实待处理交互可在等待期间续活普通 600 秒无输出看门狗 | CE |
+| `HUMAN_INTERACTION_STREAM_RECOVERY_GRACE_SECONDS` | `1800` | 最大等待结束后为 ChatRun Redis 事件流额外保留的断线恢复余量；事件流 TTL 为两个值之和 | CE |
 
 ## 模型接入
 
@@ -136,6 +138,10 @@
 | `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` / `OSS_KEY_PREFIX` | （空） | 阿里云 OSS 配置 | EE |
 | `OSS_PRESIGNED_URL_EXPIRY` | `900` | OSS 预签名 URL 有效期（秒） | EE |
 | `PROJECT_FILE_CAPACITY_BYTES` | `209715200`（200 MB） | 单项目 upload 类文件总量上限 | CE |
+| `VISION_MAX_IMAGE_BYTES` | `20971520`（20 MB） | 视觉桥单张图字节上限，超限直接拒绝 | CE |
+| `VISION_CACHE_TTL_SECONDS` | `604800`（7 天） | 图像证据缓存有效期（key = 图内容 + 模型 + focus） | CE |
+| `VISION_MAX_CONCURRENCY` | `4` | 同时在途的识图请求数上限 | CE |
+| `VISION_CALL_TIMEOUT_SECONDS` | `90` | 单次识图超时（秒） | CE |
 
 ## 知识库与文件解析
 
@@ -154,6 +160,12 @@
 | `FILE_PARSER_LANG_LIST` | `ch` | OCR 语言 | CE |
 | `FILE_PARSER_BACKEND` / `FILE_PARSER_PARSE_METHOD` | `pipeline` / `auto` | 解析后端与方法 | CE |
 | `FILE_PARSER_FORMULA_ENABLE` / `FILE_PARSER_TABLE_ENABLE` | `true` / `true` | 公式 / 表格解析开关 | CE |
+| `KB_MULTIMODAL_INDEXING` | `true` | 全局开关：索引时是否抽取并索引文档里的图片（单库可用 `indexing_config.multimodal_indexing` 覆盖） | CE |
+| `KB_ASSET_CAPTION_MAX_PER_DOC` | `200` | 单文档图像理解张数上限，超出部分仅用图注索引 | CE |
+| `KB_ASSET_CAPTION_BATCH` | `2` | 单批提交给视觉桥的图片数。视觉桥信号量是进程级的（`VISION_MAX_CONCURRENCY`），按小批提交才不会让批量索引占满通道、把对话里的看图请求排到后面 | CE |
+| `KB_ASSET_TEXT_MAX_CHARS` | `4000` | 图注 + OCR 转写写入 `text_content` 的长度上限（该字段要参与向量化） | CE |
+| `KB_ASSET_MIN_BYTES` / `KB_ASSET_MIN_EDGE_PX` | `4096` / `64` | 过滤版面切出的图标 / 分割线等噪声图（像素判定需 Pillow，缺失时只按字节数） | CE |
+| `KB_ASSET_URL_PREFIX` | `/api` | 写入分块正文的资产 URL 前缀，需与前端 `VITE_API_BASE_URL` 一致 | CE |
 
 ## MCP 工具
 
@@ -249,19 +261,43 @@
 | `NEO4J_USERNAME` / `NEO4J_PASSWORD` | `neo4j` / `hugagent_neo4j_2026`（compose 默认） | Neo4j 凭据 | CE |
 | `MEMORY_LAYERED_ENABLED` | `true` | 分层记忆（L1 Profile / L2 Fact / L3 Graph）；`false` 回退扁平 mem0 | CE |
 | `MEMORY_AUDIT_ENABLED` | `true` | 记忆审计表写入（合规留痕） | EE |
-| `MEMORY_RETRIEVAL_BUDGET_MS` | `600` | Fact 向量检索预算（毫秒），超时只注入 Profile | CE |
+| `MEMORY_RETRIEVAL_BUDGET_MS` | `600` | Procedure 向量检索预算（毫秒），超时只注入 Profile | CE |
 | `MEMORY_BG_MAX_CONCURRENCY` | `8` | 后置抽取 / 保存任务并发上限 | CE |
+| `MEMORY_OUTBOX_LEASE_SECONDS` | `120` | 记忆 Outbox worker 租约时长；崩溃后过期任务可被接管 | CE |
+| `MEMORY_OUTBOX_MAX_ATTEMPTS` | `5` | 记忆写入最大尝试次数，超过后进入 `quarantined` | CE |
+| `MEMORY_OUTBOX_RETRY_BASE_SECONDS` | `5` | Outbox 指数退避基数（秒） | CE |
+| `MEMORY_OUTBOX_POLL_SECONDS` | `1` | Outbox worker 空闲轮询间隔（秒） | CE |
 | `MEMORY_EXTRACT_TIMEOUT_S` | `30` | 单次抽取 LLM 调用超时（秒） | CE |
 | `MEMORY_PROFILE_MAX_CHARS` | `1500` | L1 Profile 字符上限（超出触发压缩） | CE |
-| `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | L2 Fact 默认 TTL（天） | CE |
-| `MEMORY_FROZEN_TOPK` | `5` | 注入冻结块的 Fact top-K | CE |
+| `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | 旧版 L2 Fact TTL 兼容项；新做法记忆使用专用 TTL | CE |
+| `MEMORY_FROZEN_TOPK` | `5` | 注入冻结块的 Procedure top-K | CE |
 | `MEMORY_BREAKER_THRESHOLD` / `MEMORY_BREAKER_COOLDOWN_S` | `3` / `60` | Milvus 熔断阈值 / 冷却（秒） | CE |
-| `MEMORY_LLM_GATE_ENABLED` | `true` | 写入门卫：抽取前用一次快速 LLM 判断本轮是否有值得长期记住的内容（只收窄、失败放行） | CE |
+| `MEMORY_LLM_GATE_ENABLED` | `true` | 写入门卫：只收窄；明确记住/验证纠正确定性放行，超时或乱码进入重试/隔离 | CE |
 | `MEMORY_GATE_TIMEOUT_S` | `10` | 写入门卫 LLM 调用超时（秒） | CE |
 | `MEMORY_PROCEDURE_DEDUP_MIN_SCORE` | `0.9` | L2 写前近重阈值：与已有条目余弦相似度达到该值转为"强化"（不新增行） | CE |
 | `MEMORY_PROCEDURE_TTL_DAYS` | `365` | L2 强规则 / 被复述过的规则的存活期（天） | CE |
 | `MEMORY_PROCEDURE_WEAK_TTL_DAYS` | `30` | L2 弱规则试用期（天）：期内未再出现则过期，再次出现即升为持久 | CE |
 | `MEMORY_TTL_SWEEP_ENABLED` / `MEMORY_TTL_SWEEP_CRON` | `true` / `15 4 * * *` | 每日过期记忆物理清理（过期条目在此之前已被检索侧隐藏） | CE |
+
+## 上下文压缩
+
+对话历史逼近模型窗口时，系统会把较早的历史摘要成一段"交接摘要"，并以「近期用户消息 + 摘要」
+替换掉原历史。**只有一套压缩实现**，在三个时机触发：轮内（每个工具调用回合的边界）、轮前（本轮
+历史装配后已超阈值）、轮末（后台预热，把下一轮本来要同步做的压缩提前做掉）。三个时机共用同一个
+触发比例、同一份摘要提示词，且压缩结果统一写成会话检查点持久化——所以轮内压过一次之后，后续所有
+轮次都直接从检查点回放，不会再把原始历史重新拉回来。
+
+计数优先采用模型返回的真实 token 用量，取不到时才退回字节估算。
+
+| 变量 | 默认值 | 说明 | 版本 |
+|---|---|---|---|
+| `CHAT_COMPACT_ENABLED` | `true` | 压缩总开关；关闭后历史全量回放，不生成也不消费检查点 | CE |
+| `CHAT_COMPACT_TRIGGER_RATIO` | `0.8` | 触发比例：上下文占用超过「模型窗口 × 该值」即压缩。**运行时以配置台「系统配置 → context → 轮内压缩触发比例」为准**，本变量只是默认值 | CE |
+| `CHAT_COMPRESS_IN_TURN_RATIO` | （未设） | 已废弃的别名，仅在未设置 `CHAT_COMPACT_TRIGGER_RATIO` 时生效，保留给只调过轮内比例的存量部署 | CE |
+| `CHAT_COMPACT_TOKEN_LIMIT` | `0` | 直接指定触发阈值（真实 token 数）；`>0` 时优先于比例换算 | CE |
+| `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | 压缩后逐字保留的近期用户消息 token 预算 | CE |
+| `CHAT_COMPACT_SUMMARIZE_TIMEOUT_S` | `60` | 摘要 LLM 调用超时（秒） | CE |
+| `CHAT_TOOL_RESULT_LIMIT` | `20000` | 单条工具结果进上下文的字符上限（不调模型的确定性截断层）；超出部分由 offloader 落盘到沙箱 `/workspace/.offload`，模型可按需读回 | CE |
 
 ## 版本、品牌与 License
 

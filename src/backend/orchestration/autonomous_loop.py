@@ -531,7 +531,7 @@ async def _run_worker_iteration(
                 logger.warning("[loop] worker stream error: %s", payload)
     finally:
         _keepalive_task.cancel()
-        usage = sa.get_usage()
+        usage = await sa.aget_usage()
         await close_clients(clients)
     if hold_output and text:
         from orchestration.subagents.ontology_reviewer import review_ontology_output

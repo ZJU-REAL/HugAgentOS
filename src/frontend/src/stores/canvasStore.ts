@@ -16,7 +16,30 @@ export interface OntologyPanelTarget {
   messageTs: number;
 }
 
-export type RightSidebarView = 'file' | 'ontology' | 'empty';
+/**
+ * A canvas tab contributed by a plugin.
+ *
+ * The store knows only "some plugin's canvas view, fed this tool output" — the
+ * shape it renders comes from that plugin's `plugin.json`, so a new plugin can
+ * add a canvas without the store learning anything about it.
+ */
+export interface PluginPanelTarget {
+  chatId?: string;
+  /** Plugin that contributed the canvas view. */
+  slug: string;
+  /** `canvas_views[].id` inside that plugin's declaration. */
+  canvasId: string;
+  toolId?: string;
+  /** Tool that produced this payload; gates tool-scoped node actions. */
+  toolName?: string;
+  /** Tab label; falls back to the contributed canvas title. */
+  title?: string;
+  status: 'loading' | 'success' | 'error';
+  output?: unknown;
+  error?: string;
+}
+
+export type RightSidebarView = 'file' | 'ontology' | 'plugin' | 'empty';
 
 /** 一个文件预览页签。openSeq 逐页签自增：同一文件重新打开 / 原地保存后用它做缓存击穿。 */
 export interface CanvasFileTab {
@@ -34,15 +57,25 @@ export interface CanvasOntologyTab {
   target: OntologyPanelTarget;
 }
 
-export type CanvasTab = CanvasFileTab | CanvasOntologyTab;
+export interface CanvasPluginTab {
+  id: string;
+  kind: 'plugin';
+  target: PluginPanelTarget;
+}
+
+export type CanvasTab = CanvasFileTab | CanvasOntologyTab | CanvasPluginTab;
 
 const fileTabId = (fileId: string) => `file:${fileId}`;
 const ontologyTabId = (chatId: string) => `ontology:${chatId}`;
+const pluginTabId = (target: PluginPanelTarget) =>
+  `plugin:${target.slug}:${target.canvasId}:${target.chatId || 'global'}:${target.toolId || 'latest'}`;
+
 /** 活动页签投影出的视图字段：老调用方（App / chatStream / 各面板）继续读这些即可。 */
 interface DerivedView {
   activeView: RightSidebarView;
   artifact: CanvasArtifact | null;
   ontologyTarget: OntologyPanelTarget | null;
+  pluginTarget: PluginPanelTarget | null;
   openSeq: number;
 }
 
@@ -52,6 +85,7 @@ function derive(tabs: CanvasTab[], activeTabId: string | null): DerivedView {
     activeView: active ? active.kind : 'empty',
     artifact: active && active.kind === 'file' ? active.artifact : null,
     ontologyTarget: active && active.kind === 'ontology' ? active.target : null,
+    pluginTarget: active && active.kind === 'plugin' ? active.target : null,
     openSeq: active && active.kind === 'file' ? active.openSeq : 0,
   };
 }
@@ -78,6 +112,8 @@ interface CanvasState extends DerivedView {
   panelWidth: number | null;
   openCanvas: (artifact: CanvasArtifact) => void;
   openOntology: (target: OntologyPanelTarget) => void;
+  openPluginView: (target: PluginPanelTarget) => void;
+  updatePluginView: (patch: Partial<PluginPanelTarget>) => void;
   activateTab: (tabId: string) => void;
   closeTab: (tabId: string) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
@@ -120,6 +156,40 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     const tab: CanvasOntologyTab = { id, kind: 'ontology', target };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
     return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+  }),
+  openPluginView: (target) => set((state) => {
+    const id = pluginTabId(target);
+    const exact = state.tabs.findIndex((tab) => tab.id === id);
+    // 一个画布在 tool_call 时以 loading 建页签、tool_result 时补数据，两次事件带的
+    // tool id 可能被规整得不一致；此时同会话里同一个画布仍在 loading 的页签就是同
+    // 一次运行，认领它，避免叠出一个永远停在「生成中」的僵尸页签。
+    const index = exact >= 0
+      ? exact
+      : state.tabs.findIndex((tab) => tab.kind === 'plugin'
+        && tab.target.slug === target.slug
+        && tab.target.canvasId === target.canvasId
+        && tab.target.chatId === target.chatId
+        && tab.target.status === 'loading');
+    const previous = index >= 0 ? state.tabs[index] : null;
+    const tab: CanvasPluginTab = {
+      id,
+      kind: 'plugin',
+      target: previous && previous.kind === 'plugin'
+        ? { ...previous.target, ...target }
+        : target,
+    };
+    const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
+    return { isOpen: true, tabs, activeTabId: id, ...derive(tabs, id) };
+  }),
+  updatePluginView: (patch) => set((state) => {
+    const index = state.tabs.findIndex((tab) => tab.id === state.activeTabId);
+    const active = index >= 0 ? state.tabs[index] : null;
+    if (!active || active.kind !== 'plugin') return {};
+    const tabs = replaceAt(state.tabs, index, {
+      ...active,
+      target: { ...active.target, ...patch },
+    });
+    return { tabs, ...derive(tabs, state.activeTabId) };
   }),
   activateTab: (tabId) => set((state) => {
     if (!state.tabs.some((tab) => tab.id === tabId)) return {};

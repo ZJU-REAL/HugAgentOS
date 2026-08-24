@@ -290,12 +290,12 @@ async def list_favorite_chats(
     chat_ids = [s.chat_id for s in sessions]
     previews: Dict[str, str] = {}
     if chat_ids:
-        # Window function: row_number per chat_id ordered by created_at desc
+        # Window function: row_number per chat_id ordered by durable chat order.
         rn = (
             func.row_number()
             .over(
                 partition_by=ChatMessage.chat_id,
-                order_by=desc(ChatMessage.created_at),
+                order_by=desc(ChatMessage.chat_seq),
             )
             .label("rn")
         )

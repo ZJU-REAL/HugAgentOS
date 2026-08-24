@@ -149,6 +149,12 @@ def _get_provider_model(provider_id: str, mode: str = "medium"):
         disable_thinking=disable_thinking,
         reasoning_effort=reasoning_effort,
         stream=True,
+        # Same per-model admin flag as get_default_model: reasoning arrives via the
+        # separate reasoning_content channel, so announce it at stream start and the
+        # frontend never buffers a no-thinking answer as presumed reasoning.
+        structured_reasoning=(
+            True if (resolved.extra or {}).get("structured_reasoning") else None
+        ),
     )
     _model_cache[key] = instance
     return instance
@@ -572,3 +578,25 @@ _GOAL_ANCHOR_REMINDER_TEMPLATE = """用户原始请求：
 > {original}
 
 对照一下：你目前获取到的内容、即将产出的东西，跟用户原始请求**完整对得上吗**？有没有漏掉用户列出的某一项？"""
+
+
+# ── Plan-staleness reminder hook（update_plan 催更）────────────────────────
+# 计划栏往前走，全靠模型在同一轮里反复调用 ``update_plan``；而这条要求只在系统提示词
+# 开头讲一次。长任务跑十几轮工具之后，这条指令早被中间结果冲淡了——线上实测一轮 20 次
+# LLM 往返、产出两个 PPTX 的任务，``update_plan`` 只在开头调了两次，用户看到的计划栏
+# 从头到尾停在 1/5。workflow 末尾那道兜底只补"没有 pending、只剩一个 in_progress"的
+# 收尾场景，救不了半路就不动的清单。
+#
+# 所以按 Goal-anchor 同一套思路，每隔几轮把**当前清单原样回灌**给模型：让"更新清单"
+# 退化成照着抄一遍状态的机械动作，而不是要模型自己想起来还有这么个工具。回灌频率比
+# goal-anchor 高得多（3 轮 vs 10 轮），因为计划栏是用户全程盯着的实时进度条，晚一轮
+# 更新用户就多看一轮错的数字。
+_PLAN_STALE_INTERVAL = 3
+
+_PLAN_STALE_REMINDER_TEMPLATE = """当前任务计划清单（{done}/{total} 已完成，已有 {rounds} 轮没有更新）：
+{checklist}
+
+对照你刚做完的事：如果其中某一步已经完成，**立刻调用 `update_plan`** 传入全量步骤列表，把
+完成的标成 completed、正在做的标成 in_progress（始终保持恰好一个 in_progress）；计划有变就
+顺带增删步骤。用户输入框上方的计划栏就是照这份清单渲染的，不更新它用户看到的进度就是错的。
+调用 `update_plan` 不会打断你——更新完继续执行手上的活，不要停下来等待。"""

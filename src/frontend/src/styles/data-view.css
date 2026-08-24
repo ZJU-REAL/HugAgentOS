@@ -1,0 +1,285 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   工具结果的可读视图（.jx-dv-*）、长文取景框（.jx-wt-*）与引用命中高亮（.jx-cited*）
+
+   替代原来的「定高 <pre> + 裸 JSON.stringify」。那块灰砖定高 280px、white-space:pre，
+   内容一多就像被截断，长行还横向溢出到看不见的地方；而且满屏花括号本身就不好读。
+   现在：
+     · 字段渲染成「标签 + 值」，列表渲染成带序号的卡片，JSON 原文降级为顶栏开关
+     · 长列表分批出（12 条一批 + 显示更多），长文本先夹住 —— 不会一次糊出上千张卡片
+     · 从引用点开时只给证据附近：命中记录整条展示，正文两头留「展开上下文」
+
+   颜色一律走令牌，命中高亮也不例外——见下方说明。
+   ══════════════════════════════════════════════════════════════════════════ */
+/* 命中高亮曾是一组自钉的黄色（#FFE9A8 底 + 棕字）。黄底属于高对比强调色，铺在正文里
+   会把视线从内容本身抢走——用户要的是"看得出这段是命中"，不是"这段被涂了荧光笔"。
+   现在改成主色调的低饱和底纹 + 同色系下边线，字色保持 inherit（不再为了压住黄底改字色），
+   深浅两档只差底纹浓度，直接由 --color-primary 令牌翻档，不用再钉成对主题对象。 */
+:root{
+  --jx-dv-hit-bg:color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --jx-dv-hit-line:color-mix(in srgb, var(--color-primary) 38%, transparent);
+}
+:root[data-theme="dark"]{
+  --jx-dv-hit-bg:color-mix(in srgb, var(--color-primary) 20%, transparent);
+  --jx-dv-hit-line:color-mix(in srgb, var(--color-primary) 52%, transparent);
+}
+
+.jx-dv{
+  border:1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
+  border-radius:8px;
+  background:var(--color-bg-gray);
+  overflow:hidden;
+}
+
+/* ── 顶栏：规模 / 出处 + 视图开关 ── */
+.jx-dv-bar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:5px 8px;
+  border-bottom:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
+  background:color-mix(in srgb, var(--color-bg-container) 55%, transparent);
+}
+.jx-dv-barMeta{
+  font-size:11.5px;
+  color:var(--color-text-tertiary);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jx-dv-barActions{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
+.jx-dv-barBtn{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 7px;
+  font-size:11.5px;
+  line-height:1.6;
+  color:var(--color-text-secondary);
+  background:transparent;
+  border:1px solid transparent;
+  border-radius:5px;
+  cursor:pointer;
+  transition:background var(--motion-duration-instant,120ms) ease,
+             color var(--motion-duration-instant,120ms) ease;
+}
+.jx-dv-barBtn:hover{
+  color:var(--color-primary);
+  background:color-mix(in srgb, var(--color-primary) 9%, transparent);
+}
+
+/* ── 主体 ── */
+.jx-dv-body{
+  position:relative;
+  overflow:auto;
+  padding:8px 10px;
+  font-size:12.5px;
+  line-height:1.7;
+  color:color-mix(in srgb, var(--color-text) 86%, transparent);
+}
+.jx-dv-body--capped{
+  -webkit-mask-image:linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
+  mask-image:linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
+}
+.jx-dv-body--raw{
+  font-family:'Consolas','Monaco','Courier New',monospace;
+  font-size:11.5px;
+}
+.jx-dv-body::-webkit-scrollbar{width:6px;height:6px;}
+.jx-dv-body::-webkit-scrollbar-track{background:transparent;}
+.jx-dv-body::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-drag);border-radius:3px;}
+
+.jx-dv-expand{
+  display:block;
+  width:100%;
+  padding:5px 0 6px;
+  font-size:11.5px;
+  color:var(--color-text-secondary);
+  background:color-mix(in srgb, var(--color-bg-container) 55%, transparent);
+  border:none;
+  border-top:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
+  cursor:pointer;
+}
+.jx-dv-expand:hover{ color:var(--color-primary); }
+
+/* ── 字段行：标签列 + 值列 ── */
+.jx-dv-fields{ display:flex; flex-direction:column; gap:2px; }
+.jx-dv-row{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:2px 0;
+  min-width:0;
+}
+.jx-dv-label{
+  flex:0 0 auto;
+  width:104px;
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  word-break:break-word;
+}
+.jx-dv-label--block{ width:auto; margin-bottom:2px; }
+.jx-dv-value{ flex:1 1 auto; min-width:0; word-break:break-word; }
+.jx-dv-block{ padding:3px 0 5px; }
+.jx-dv-longText{
+  padding:4px 10px;
+  border-left:2px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background:color-mix(in srgb, var(--color-bg-container) 45%, transparent);
+  border-radius:0 6px 6px 0;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+
+.jx-dv-empty{ color:var(--color-text-placeholder); }
+.jx-dv-num{ font-variant-numeric:tabular-nums; }
+.jx-dv-bool{ color:var(--color-text-secondary); }
+.jx-dv-link{ color:var(--color-primary); word-break:break-all; }
+.jx-dv-text{ white-space:pre-wrap; }
+.jx-dv-plain{ white-space:pre-wrap; word-break:break-word; }
+.jx-dv-raw{
+  margin:0;
+  white-space:pre-wrap;
+  word-break:break-word;
+  font-family:inherit;
+  font-size:inherit;
+  line-height:1.6;
+}
+
+.jx-dv-chips{ display:flex; flex-wrap:wrap; gap:4px; }
+.jx-dv-chip{
+  padding:0 7px;
+  font-size:11.5px;
+  line-height:1.8;
+  color:var(--color-text-secondary);
+  background:color-mix(in srgb, var(--color-text) 6%, transparent);
+  border-radius:10px;
+}
+
+/* ── 分组（子对象 / 列表） ── */
+.jx-dv-group{ margin:4px 0; }
+.jx-dv-groupHead{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  width:100%;
+  padding:2px 0;
+  font-size:12px;
+  color:var(--color-text-secondary);
+  background:transparent;
+  border:none;
+  cursor:pointer;
+  text-align:left;
+}
+.jx-dv-groupHead:hover{ color:var(--color-primary); }
+.jx-dv-groupLabel{ font-weight:600; }
+.jx-dv-groupMeta{ color:var(--color-text-placeholder); font-size:11.5px; }
+.jx-dv-caret{
+  display:inline-block;
+  width:0;
+  height:0;
+  border-left:4px solid currentColor;
+  border-top:3.5px solid transparent;
+  border-bottom:3.5px solid transparent;
+  opacity:.55;
+  transition:transform var(--motion-duration-instant,120ms) ease;
+}
+.jx-dv-caret--open{ transform:rotate(90deg); }
+.jx-dv-nested{
+  margin-left:9px;
+  padding-left:9px;
+  border-left:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+/* ── 列表卡片 ── */
+.jx-dv-cards{ display:flex; flex-direction:column; gap:6px; margin:4px 0 2px; }
+.jx-dv-card{
+  padding:7px 10px;
+  background:var(--color-bg-container);
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  border-radius:7px;
+}
+.jx-dv-card--focus{
+  border-color:color-mix(in srgb, var(--color-primary) 42%, transparent);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+.jx-dv-bareCard{ padding:0; }
+.jx-dv-cardHead{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-bottom:4px;
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--color-text);
+}
+.jx-dv-cardIdx{
+  flex:0 0 auto;
+  min-width:16px;
+  height:16px;
+  padding:0 4px;
+  font-size:10.5px;
+  font-weight:600;
+  line-height:16px;
+  text-align:center;
+  color:var(--color-primary);
+  background:color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border-radius:4px;
+}
+.jx-dv-cardTitle{ min-width:0; word-break:break-word; }
+.jx-dv-more{
+  align-self:flex-start;
+  padding:3px 10px;
+  font-size:11.5px;
+  color:var(--color-primary);
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+.jx-dv-more:hover{ background:color-mix(in srgb, var(--color-primary) 16%, transparent); }
+
+/* ── 长文取景框 ── */
+.jx-wt{ white-space:pre-wrap; word-break:break-word; }
+.jx-wt-ellipsis{ color:var(--color-text-placeholder); }
+.jx-wt-btn{
+  margin:0 0 0 6px;
+  padding:0 6px;
+  font-size:11.5px;
+  font-family:inherit;
+  color:var(--color-primary);
+  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border:none;
+  border-radius:4px;
+  cursor:pointer;
+}
+.jx-wt-btn:hover{ background:color-mix(in srgb, var(--color-primary) 16%, transparent); }
+.jx-wt-btn--block{
+  display:block;
+  margin:4px 0;
+  padding:2px 8px;
+  width:fit-content;
+}
+
+/* ── 引用命中：高亮 + 定位提示 ── */
+.jx-citedHit{
+  background:var(--jx-dv-hit-bg);
+  color:inherit;
+  border-radius:2px;
+  padding:0 1px;
+  box-shadow:inset 0 -1px 0 var(--jx-dv-hit-line);
+  box-decoration-break:clone;
+  -webkit-box-decoration-break:clone;
+}
+.jx-citedBody{ position:relative; }
+.jx-citedBody-hint{
+  position:sticky;
+  top:0;
+  z-index:1;
+  margin:-2px 0 8px;
+  padding:3px 8px;
+  font-size:11.5px;
+  color:var(--color-text-tertiary);
+  background:var(--color-bg-elevated);
+  border-left:2px solid var(--color-primary);
+  border-radius:0 4px 4px 0;
+}

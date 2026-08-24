@@ -15,7 +15,7 @@ interface OntologyGovernanceCardProps {
 const sourceLabel = (source?: string) => {
   if (source === 'tool') return t('工具');
   if (source === 'skill') return t('技能');
-  if (source === 'subagent') return t('子智能体');
+  if (source === 'subagent') return t('智能体');
   return t('问题文本');
 };
 

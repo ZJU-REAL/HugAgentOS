@@ -40,7 +40,7 @@ Expected output when configured:
 
 If `firecrawl --status` reports **not authenticated**, the deployment has no Firecrawl
 credentials yet. Do not try to log in or install anything — tell the user the administrator
-must open the **Firecrawl plugin detail in the plugin library (插件库)** in the admin console
+must open the **Firecrawl plugin detail in the plugin list (插件)** in the admin console
 and fill in the API Key (cloud) or the self-hosted instance URL; it takes effect within ~30s.
 Regular users cannot set this themselves and need to contact an administrator.
 

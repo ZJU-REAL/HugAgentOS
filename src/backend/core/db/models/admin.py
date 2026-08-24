@@ -455,6 +455,12 @@ class InstalledPlugin(Base):
     component_ids = Column(JSONType, default=dict)
     # Import report (imported / adapted / dropped), for front-end display
     import_report = Column(JSONType, default=dict)
+    # UI contributions declared by the manifest (validated shape from
+    # ``plugin_ui_contract``): tool views, canvas tabs, homepage shortcuts,
+    # proxied data sources and self-shipped L2 modules. NULL = the plugin
+    # contributes no interface. Lives on the install record so uninstalling or
+    # disabling the plugin withdraws its UI in the same motion.
+    ui_contributions = Column(JSONType)
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
     updated_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = Column(String(64))

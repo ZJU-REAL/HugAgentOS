@@ -114,8 +114,11 @@ The request body is a `ChatRequest` (`src/backend/api/schemas.py`): `chat_id` an
 | `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, `subagent_name?` |
 | `tool_result` | Tool returns | `tool_name`, `result` (JSON), `tool_id`, `status`, `citations` (citation items) |
 | `steer_applied` | A follow-up entered the context at a safe ReAct boundary | `steer_id`, `message`, `message_id`, `chat_id` |
+| `queued_run_started` | A committed `followUp` / `nextRun` child starts; clients should follow it immediately | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `tool_pending` | Waiting fallback when the provider exposes no parseable deltas | `reason` (e.g. `llm_buffering`) |
 | `file_confirm` | A tool is suspended awaiting user confirmation of a "My Space" write | `confirm_id`, `op`, `logical_path`, `message`, `expired`; the stream stays open — the user confirms out-of-band via `POST /v1/chats/{chat_id}/file-confirm` and the tool resumes |
+| `user_question` | The model called `ask_user_question` and is suspended in place | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
+| `user_question_resolved` | The server accepted an answer, cancellation, or timeout | `request_id`, `outcome` (`answered` / `cancelled` / `timeout`), `chat_id` |
 | `batch_confirm` | A batch-execution plan awaits user confirmation | `plan_id`, `total`, `preview`, `default_template`, `placeholder_keys`; confirm via `POST /v1/batch/{plan_id}/confirm` |
 | `meta` | Final wrap-up frame of an answer | `route`, `sources`, `artifacts`, `citations`, `warnings`, `is_markdown`, `message_id`, `workspace_files` |
 | `error` | Streaming failure | `error` (user-readable message), `chat_id` |
@@ -144,6 +147,19 @@ data: {"type": "meta", "route": "main", "sources": [], "artifacts": [], "citatio
 data: [DONE]
 ```
 
+### Model-question recovery and answer endpoints
+
+All endpoints use the current user identity and verify chat ownership. Pending responses are authoritative snapshots of the current backend process registry, not deductions from old SSE frames or browser cache:
+
+| Method and path | Purpose |
+|---|---|
+| `GET /v1/chats/pending-user-questions` | Fetch pending requests across the current user's chats for sidebar restoration after refresh |
+| `GET /v1/chats/{chat_id}/pending-user-questions` | Fetch one chat's FIFO pending queue for refresh, reconnect, or chat-switch composer restoration |
+| `POST /v1/chats/{chat_id}/user-questions/{request_id}/answer` | Submit the complete browser-transport answer, e.g. `{"answers":[{"id":"scope","selected":["option_1"],"custom":"...","skipped":false}]}` |
+| `POST /v1/chats/{chat_id}/user-questions/{request_id}/cancel` | Cancel this question and resume the original tool coroutine with an `ASK_CANCELLED` tool error |
+
+The answer count, question IDs, and order must exactly match the request. Private option IDs must come from the pending response, a single-select answer cannot contain multiple options, and every question must be answered or explicitly use `skipped=true`. The backend projects those private IDs back to the original option labels before returning the DSH-compatible model result `{"answers":[{"id":"scope","selected":["Minimal"]}]}`. The first valid answer/cancel atomically claims the request; concurrent submissions return `stale=true` and cannot wake the tool twice. A successful POST represents that atomic server claim, so the submitting tab may remove the exact `request_id` immediately; `user_question_resolved` and periodic authoritative pending snapshots synchronize other tabs and disconnected clients.
+
 `[ref:tool_name-N]` markers in the answer text are parsed into `citations` items by `orchestration/citations.py`; the frontend renders them as citation badges (see [Chat module](../modules/chat.md)).
 
 ### Resume, Steer, and cancel
@@ -163,12 +179,18 @@ curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/cancel \
 curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steer \
   -H "Authorization: Bearer sk-jx-xxxxxxxx" \
   -H "Content-Type: application/json" \
-  -d '{"steer_id":"steer_001","message":"Do not download it. Compare both options instead."}'
+  -d '{"steer_id":"steer_001","message":"Do not download it. Compare both options instead.","delivery_mode":"steer","replace_latest":true}'
+
+# Query accepted / claimed / applied / cancelled / superseded state
+curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
+  -H "Authorization: Bearer sk-jx-xxxxxxxx"
 ```
 
 Resume, Steer, and cancel validate run ownership: a non-owner gets 403, and a
-missing run gets 404. Steer accepts only an active regular-chat run. Redis
-hands the instruction to the worker. If a tool is running, the worker injects
+missing run gets 404. Queued input is committed to the database before Redis
+sends a best-effort worker notification. `delivery_mode` is `steer`, `followUp`,
+or `nextRun`: Steer injects into the active regular-chat run; the latter two
+start ordered independent runs after it completes. If a tool is running, the worker injects
 the instruction after that tool result enters the context and before the next
 model call. If the next tool batch hasn't started, the worker interrupts the
 old call before injecting the instruction. Both paths confirm delivery with a
@@ -177,7 +199,9 @@ withdraws an instruction that hasn't been consumed.
 `GET /v1/chats/{chat_id}/active-run` reports whether a chat currently has a run
 in progress, which the frontend uses to reconnect after a page refresh. A run
 silent for longer than `CHAT_RUN_INACTIVITY_TIMEOUT_SEC` (default 600 seconds)
-is considered dead and terminated.
+is considered dead and terminated. Internal heartbeats extend that deadline only
+while the backend has a real pending human answer/confirmation; the maximum
+wait is controlled by `HUMAN_INTERACTION_MAX_WAIT_SECONDS`.
 
 ### Other SSE endpoints
 
@@ -204,7 +228,7 @@ Auth column legend: "User" = session cookie or personal API key (`get_current_us
 | Group | Module (`api/routes/v1/`) | Prefix | Representative endpoints | Auth |
 |---|---|---|---|---|
 | Chat & messages | `chats.py` | `/v1/chats` | `POST /stream` (SSE), `GET /stream/{run_id}` (resume), `POST /send` (non-streaming), `GET /`, `GET /{chat_id}/messages`, `POST /{chat_id}/share` | User |
-| Chat & messages | `chat_runs.py` | `/v1/chat-runs` | `POST /{run_id}/cancel`, `POST /{run_id}/steer`, `DELETE /{run_id}/steer/{steer_id}` | User |
+| Chat & messages | `chat_runs.py` | `/v1/chat-runs` | `POST /{run_id}/cancel`, `POST /{run_id}/steer`, `GET /{run_id}/steers`, `DELETE /{run_id}/steer/{steer_id}` | User |
 | Chat & messages | `chat_shares.py` | `/v1/chat-shares` | `POST /`, `GET /{share_id}`, `POST /{share_id}/revoke` | User |
 | Chat & messages | `summary.py` | `/v1/summary` | `POST /` (chat title summarization) | User |
 | Chat & messages | `classify.py` | `/v1/classify` | `POST /` (business-topic classification) | User |

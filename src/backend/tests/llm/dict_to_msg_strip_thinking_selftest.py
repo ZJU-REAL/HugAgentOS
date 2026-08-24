@@ -58,11 +58,7 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 
-
-_COMPAT_PY = (
-    Path(__file__).resolve().parents[2]
-    / "core" / "llm" / "message_compat.py"
-)
+_COMPAT_PY = Path(__file__).resolve().parents[2] / "core" / "llm" / "message_compat.py"
 
 
 # ---------------------------------------------------------------------------
@@ -91,12 +87,21 @@ def _build_isolated_namespace() -> dict:
     def _msg_stub(name, content, role):
         return SimpleNamespace(name=name, content=content, role=role)
 
+    class _AdapterStub:
+        def message_from_session_dict(self, message, *, created_seq):  # noqa: ARG002
+            return _msg_stub(
+                message.get("name"),
+                message.get("content"),
+                message.get("role"),
+            )
+
     ns: dict = {
         "Msg": _msg_stub,
         # dict_to_msg uses typing imports indirectly via annotations; provide
         # `Dict` and `Any` so the AST exec doesn't NameError.
         "Dict": dict,
         "Any": object,
+        "AgentScopeContextAdapter": _AdapterStub,
         # AS2.0's dict_to_msg wraps str into a block list via _wrap_content;
         # this selftest's contract only cares about strip_thinking behavior, so
         # an identity stub keeps content as a bare string and the assertions
@@ -126,9 +131,7 @@ def test_assistant_with_think_block_stripped() -> None:
     expected = "2025 Q3 营收 32.1 亿元。"
     msg = dict_to_msg({"role": "assistant", "content": raw})
     assert msg.role == "assistant"
-    assert msg.content == expected, (
-        f"assistant content not stripped, got: {msg.content!r}"
-    )
+    assert msg.content == expected, f"assistant content not stripped, got: {msg.content!r}"
 
 
 def test_assistant_with_open_think_only_passthrough() -> None:
@@ -194,33 +197,36 @@ def test_assistant_multiple_think_blocks_strips_to_last() -> None:
     interleaving thinking + tool calls + final answer, what you end up with is
     the final answer.
     """
-    msg = dict_to_msg({
-        "role": "assistant",
-        "content": (
-            "<think>第一步思考</think>"
-            "中间产物\n"
-            "<think>第二步思考</think>"
-            "最终答案"
-        ),
-    })
+    msg = dict_to_msg(
+        {
+            "role": "assistant",
+            "content": (
+                "<think>第一步思考</think>" "中间产物\n" "<think>第二步思考</think>" "最终答案"
+            ),
+        }
+    )
     assert msg.content == "最终答案"
 
 
 def test_assistant_think_then_whitespace_lstripped() -> None:
     """`strip_thinking` includes an `.lstrip()` that removes newlines/spaces after `</think>`."""
-    msg = dict_to_msg({
-        "role": "assistant",
-        "content": "<think>analysis</think>\n\n  实际回答",
-    })
+    msg = dict_to_msg(
+        {
+            "role": "assistant",
+            "content": "<think>analysis</think>\n\n  实际回答",
+        }
+    )
     assert msg.content == "实际回答"
 
 
 def test_role_mapping_preserved() -> None:
     """`human` / `ai` role mapping + think-strip coexist."""
-    msg = dict_to_msg({
-        "role": "ai",
-        "content": "<think>analysis</think>final",
-    })
+    msg = dict_to_msg(
+        {
+            "role": "ai",
+            "content": "<think>analysis</think>final",
+        }
+    )
     assert msg.role == "assistant"
     assert msg.content == "final"
 
@@ -238,14 +244,20 @@ def test_role_mapping_preserved() -> None:
 def _run_all() -> None:
     cases = [
         ("assistant content with </think> is stripped", test_assistant_with_think_block_stripped),
-        ("open <think> without close passes through", test_assistant_with_open_think_only_passthrough),
+        (
+            "open <think> without close passes through",
+            test_assistant_with_open_think_only_passthrough,
+        ),
         ("plain assistant content untouched", test_assistant_with_no_think_passthrough),
         ("user role never stripped", test_user_role_not_stripped),
         ("system role never stripped", test_system_role_not_stripped),
         ("multimodal list content untouched", test_assistant_multimodal_list_content_untouched),
         ("empty / missing content safe", test_assistant_empty_content_safe),
         ("multiple think blocks → last only", test_assistant_multiple_think_blocks_strips_to_last),
-        ("trailing whitespace after </think> lstripped", test_assistant_think_then_whitespace_lstripped),
+        (
+            "trailing whitespace after </think> lstripped",
+            test_assistant_think_then_whitespace_lstripped,
+        ),
         ("role mapping (ai/human) + strip coexist", test_role_mapping_preserved),
     ]
     failures: list[tuple[str, BaseException]] = []
@@ -258,9 +270,7 @@ def _run_all() -> None:
             print(f"✗ {name}: {exc!r}")
 
     if failures:
-        raise SystemExit(
-            f"\n{len(failures)} test(s) failed out of {len(cases)}"
-        )
+        raise SystemExit(f"\n{len(failures)} test(s) failed out of {len(cases)}")
     print(f"\nAll {len(cases)} tests passed.")
 
 

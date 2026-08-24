@@ -7,8 +7,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import anyio
 from api.schemas import AttachmentItem, ChatRequest, ChatResponse
+from api.routes.v1.chat_admission import chat_busy_http_exception
 from core.auth.backend import UserContext, get_current_user
 from core.auth.permissions_iface import can_delete_session
 from core.chat.context import build_effective_user_message as _build_effective_user_message
@@ -31,6 +31,7 @@ from core.infra.responses import (
     success_response,
 )
 from core.llm.message_compat import strip_thinking
+from core.llm.tools.user_questions import MAX_QUESTIONS as USER_QUESTION_MAX
 from core.services import ChatService, UserService
 from core.services.compaction_service import get_compaction_context_state
 from core.services.model_config import ModelConfigService
@@ -43,7 +44,7 @@ from core.services.user_model_selection import (
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 from orchestration.followups import get_followup_generator
-from orchestration.workflow import astream_chat_workflow, run_chat_workflow
+from orchestration.workflow import astream_chat_workflow
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -62,6 +63,8 @@ from core.chat.tool_log import (  # noqa: E402
     build_tool_call_event,
     build_tool_call_start_event,
     build_tool_result_event,
+    build_user_question_event,
+    build_user_question_resolved_event,
 )
 from core.services.artifact_service import persist_artifacts as _persist_artifacts  # noqa: E402
 
@@ -100,6 +103,25 @@ class UpdateSidebarOrderRequest(BaseModel):
     order: List[str] = Field(default_factory=list, description="Chat ids in manual order")
 
 
+class UserQuestionAnswerItem(BaseModel):
+    """One browser answer correlated to the model's stable question id."""
+
+    id: str = Field(..., min_length=1, max_length=64)
+    # No numeric cap: which option ids are legal for this question — and how
+    # many a multi-select may carry — is decided against the pending question
+    # itself in ``user_questions.normalize_answers``.
+    selected: List[str] = Field(default_factory=list)
+    custom: Optional[str] = Field(None, max_length=2000)
+    skipped: bool = False
+
+
+class UserQuestionAnswerBody(BaseModel):
+    # The ceiling is the domain's own question cap, imported rather than
+    # restated: an answer set must match the pending questions one-for-one, so
+    # a locally-invented bound here silently rejects otherwise valid rounds.
+    answers: List[UserQuestionAnswerItem] = Field(..., min_length=1, max_length=USER_QUESTION_MAX)
+
+
 # Sidebar manual order lives in users_shadow.metadata (no schema migration needed):
 # it is a pure UI preference of "which chat sits where", not session state.
 SIDEBAR_ORDER_KEY = "sidebar_chat_order"
@@ -135,6 +157,7 @@ def _message_to_dict(m) -> dict:
     return {
         "message_id": m.message_id,
         "chat_id": m.chat_id,
+        "chat_seq": m.chat_seq,
         "role": m.role,
         "content": m.content,
         "model": m.model,
@@ -142,6 +165,33 @@ def _message_to_dict(m) -> dict:
         "metadata": m.extra_data or {},
         "created_at": m.created_at.isoformat(),
     }
+
+
+# 作业唤醒消息的开头（``orchestration/job_wakeup.py`` 生成）。新写入的消息带
+# ``extra_data.hidden_in_chat``；这两个前缀是给**标记上线之前**已经落库的老消息兜底的——
+# 用户的会话里已经躺着一串「[系统] 进度播报：……」，只靠标记它们永远漏出来。
+_WAKE_MESSAGE_PREFIXES = (
+    "[系统] 进度播报：",
+    "[系统] 你先前提交的批量作业",
+)
+
+
+def _is_internal_message(m) -> bool:
+    """这条消息是写给模型的内部指令，不该出现在用户看到的聊天记录里。
+
+    后台作业的唤醒轮（进度播报 / 终态交付）是以 user 角色落库的系统指令——模型必须看见它
+    （历史另走 ``load_session_history``，不经过本接口），但用户看到的应该只是助手那句
+    转述，而不是「请只用一两句话把上面的进度转述给用户」这种提示词本身。
+    """
+    extra = getattr(m, "extra_data", None) or {}
+    if isinstance(extra, dict) and extra.get("hidden_in_chat"):
+        return True
+    content = getattr(m, "content", None)
+    return (
+        getattr(m, "role", "") == "user"
+        and isinstance(content, str)
+        and content.startswith(_WAKE_MESSAGE_PREFIXES)
+    )
 
 
 def _clean_id_list(raw: Optional[list]) -> List[str]:
@@ -296,6 +346,26 @@ async def list_pending_confirms(
         confirms = [p for p in pendings if p.get("kind") != _mc.KIND_DESIGN_PICK]
         rec = confirms[-1] if confirms else pendings[-1]
         items.append({"chat_id": cid, **rec})
+    return success_response(data={"items": items})
+
+
+@router.get("/pending-user-questions", summary="批量查询本人会话的待回答问题")
+async def list_pending_user_questions(
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Restore sidebar waiting indicators without opening every conversation."""
+
+    from core.llm.tools import user_questions
+
+    chat_service = ChatService(db)
+    items = []
+    for chat_id in user_questions.list_pending_chat_ids():
+        if chat_service.get_session(chat_id, user.user_id) is None:
+            continue
+        items.extend(
+            {"chat_id": chat_id, **request} for request in user_questions.get_all_pending(chat_id)
+        )
     return success_response(data={"items": items})
 
 
@@ -477,7 +547,7 @@ async def list_messages(
         raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
 
     messages, total = chat_service.message_repo.list_by_chat(chat_id, page, page_size)
-    items = [_message_to_dict(m) for m in messages]
+    items = [_message_to_dict(m) for m in messages if not _is_internal_message(m)]
     response = paginated_response(
         items=items,
         page=page,
@@ -984,6 +1054,7 @@ async def chat_send(
         if _proj is None or resolve_project_permission(db, db_user_id, _proj) == "none":
             raise HTTPException(status_code=404, detail="项目不存在或你无权访问")
 
+    accepted = None
     try:
         _ensure_chat_session(
             chat_service,
@@ -1009,17 +1080,32 @@ async def chat_send(
                     _ArtModel.chat_id.is_(None),
                 ).update({"chat_id": request.chat_id}, synchronize_session="fetch")
                 db.commit()
+        from core.services.chat_sequencer import ChatBusyError, ChatSequencer
+
+        request_payload = request.model_dump(exclude_none=True)
+        if explicit_subagent_command:
+            request_payload["explicit_subagent_command"] = {
+                "agent_id": explicit_subagent_command.agent_id,
+                "agent_name": explicit_subagent_command.agent_name,
+                "task": explicit_subagent_command.task,
+            }
+        if selected_model_provider_id:
+            request_payload["model_provider_id"] = selected_model_provider_id
+        else:
+            request_payload.pop("model_provider_id", None)
+        try:
+            accepted = ChatSequencer(db).accept_main_run(
+                chat_id=request.chat_id,
+                user_id=db_user_id,
+                user_content=request.message,
+                request_payload=request_payload,
+                model=actual_model_name,
+                user_extra_data=_build_user_extra_data(request, selected_model_provider_id),
+            )
+        except ChatBusyError as exc:
+            raise chat_busy_http_exception(exc) from exc
+
         session_messages = _load_session_messages(chat_service, request.chat_id, db_user_id)
-        session_messages.append({"role": "user", "content": effective_user_message})
-        # The PreTurn compaction fallback runs uniformly inside run_chat_workflow (symmetric with the
-        # streaming path; future workflow callers get the protection automatically).
-        chat_service.add_message(
-            chat_id=request.chat_id,
-            role="user",
-            content=request.message,
-            model=actual_model_name,
-            extra_data=_build_user_extra_data(request, selected_model_provider_id),
-        )
 
         _user_settings = UserService(db).get_user_settings(db_user_id)
         ctx = _build_ctx(
@@ -1040,61 +1126,83 @@ async def chat_send(
                 "task": explicit_subagent_command.task,
             }
 
-        def _run():
-            return run_chat_workflow(
-                session_messages=session_messages, user_message=effective_user_message, context=ctx
-            )
+        from orchestration import chat_run_executor
 
-        result = await anyio.to_thread.run_sync(_run)
-
-        follow_up_questions = await get_followup_generator().generate(
-            request.message, result.response
-        )
-
-        chat_service.add_message(
+        run = await chat_run_executor.start_run(
+            accepted_run=accepted.run,
             chat_id=request.chat_id,
-            role="assistant",
-            content=result.response,
-            model=actual_model_name,
-            extra_data={
-                "timestamp": now_iso(),
-                "route": result.route,
-                "is_markdown": result.is_markdown,
-                "sources": result.sources,
-                "artifacts": result.artifacts,
-                "warnings": result.warnings,
-                "citations": (
-                    list(result.meta.get("citations", [])) if isinstance(result.meta, dict) else []
-                ),
-                **(
-                    {"ontology_governance": result.meta.get("ontology_governance")}
-                    if isinstance(result.meta, dict) and result.meta.get("ontology_governance")
-                    else {}
-                ),
-                "follow_up_questions": follow_up_questions,
-                **(
-                    {"model_provider_id": selected_model_provider_id}
-                    if selected_model_provider_id
-                    else {}
-                ),
-            },
+            user_id=db_user_id,
+            session_messages=session_messages,
+            effective_user_message=effective_user_message,
+            raw_user_message=request.message,
+            context=ctx,
+            model_name=actual_model_name,
         )
+        terminal_run = await chat_run_executor.wait_run(run.run_id)
+        if terminal_run.status == "cancelled":
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "run_cancelled", "run_id": run.run_id},
+            )
+        if terminal_run.status != "completed":
+            raise RuntimeError(terminal_run.error_message or "chat run failed")
+
+        db.expire_all()
+        assistant = chat_service.get_message_by_id(run.message_id)
+        if assistant is None:
+            raise RuntimeError("completed chat run has no assistant message")
+        meta = assistant.extra_data or {}
 
         return ChatResponse(
             chat_id=request.chat_id,
-            response=result.response,
+            response=assistant.content,
             timestamp=now_iso(),
-            is_markdown=result.is_markdown,
-            route=result.route,
-            sources=result.sources,
-            artifacts=result.artifacts,
-            warnings=result.warnings,
+            is_markdown=bool(meta.get("is_markdown", False)),
+            route=meta.get("route", "main"),
+            sources=meta.get("sources", []),
+            artifacts=meta.get("artifacts", []),
+            warnings=meta.get("warnings", []),
         )
     except HTTPException:
+        if accepted is not None:
+            from core.services.chat_sequencer import ChatSequencer
+
+            ChatSequencer(db).fail_run(accepted.run.run_id, reason="request preparation failed")
         raise
     except Exception as e:
+        if accepted is not None:
+            from core.services.chat_sequencer import ChatSequencer
+
+            ChatSequencer(db).fail_run(accepted.run.run_id, reason=str(e))
         logger.error("chat_send_failed", chat_id=request.chat_id, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=resolve_user_facing_error(e))
+
+
+def _release_request_session(db: Session) -> None:
+    """End the request transaction before an SSE response is handed over.
+
+    A streaming response outlives its handler: FastAPI keeps the request-scoped
+    session (``Depends(get_db)``) open until the stream completes. Anything left
+    open here is therefore a transaction — and any row lock in it — held for the
+    entire turn. The background run then blocks on its own chat row when it
+    commits the reply, so the run cannot finish, so the stream cannot finish, so
+    this session is never released: a circular wait that only a client
+    disconnect breaks.
+
+    Committing rather than rolling back matches what the handler already did on
+    every other exit: everything it meant to persist is committed by this point,
+    so this only ends the read transaction the history load left behind.
+    """
+    try:
+        db.commit()
+    except Exception:  # noqa: BLE001 - never turn cleanup into a failed request
+        logger.warning("release_request_session_commit_failed", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            logger.warning("release_request_session_rollback_failed", exc_info=True)
+    finally:
+        db.close()
 
 
 @router.post("/stream", summary="流式聊天 (SSE)")
@@ -1124,15 +1232,14 @@ async def chat_stream(
     selected_model_provider_id = _resolve_selected_model_provider_id(db, request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(request, selected_model_provider_id)
 
-    # ── Parallelize 3 read-only DB queries via to_thread + independent
+    # ── Parallelize 2 read-only DB queries via to_thread + independent
     # sessions. Previously these ran serially in the request thread
-    # (capabilities + user settings + session history ≈ 70-140ms), now
+    # (capabilities + user settings), now
     # bounded by the slowest single query. SQLAlchemy Session is not
     # thread-safe → each task opens its own SessionLocal().
     _req_skills = request.enabled_skills
     _req_agents = request.enabled_agents
     _req_mcps = request.enabled_mcps
-    _req_chat_id = request.chat_id
 
     def _read_caps():
         with SessionLocal() as _db:
@@ -1148,23 +1255,9 @@ async def chat_stream(
         with SessionLocal() as _db:
             return UserService(_db).get_user_settings(db_user_id)
 
-    def _read_messages():
-        # New chats won't exist yet — _ensure_chat_session creates them in
-        # the serial path below. Treat "not found" as empty history here;
-        # actual ownership validation still happens via _ensure_chat_session.
-        with SessionLocal() as _db:
-            # Checkpoint-aware loading (with a checkpoint, fetch only the tail; no cross-turn truncation), same source as _load_session_messages.
-            from core.services.compaction_service import load_session_history
-
-            messages = load_session_history(ChatService(_db), _req_chat_id, db_user_id)
-            return messages if messages is not None else []
-
-    (enabled_skills, enabled_agents, enabled_mcps), _user_settings, session_messages = (
-        await asyncio.gather(
-            asyncio.to_thread(_read_caps),
-            asyncio.to_thread(_read_settings),
-            asyncio.to_thread(_read_messages),
-        )
+    (enabled_skills, enabled_agents, enabled_mcps), _user_settings = await asyncio.gather(
+        asyncio.to_thread(_read_caps),
+        asyncio.to_thread(_read_settings),
     )
 
     _memory_enabled = bool(_user_settings.get("memory_enabled", False))
@@ -1198,28 +1291,6 @@ async def chat_stream(
         batch_chat=request.batch_chat,
         workflow_chat=request.workflow_chat,
         project_id=request.project_id,
-    )
-
-    # Link orphan artifacts (uploaded before session existed) to this chat
-    if request.attachments:
-        _att_ids = [a.file_id for a in request.attachments if a.file_id]
-        if _att_ids:
-            from core.db.models import Artifact as _ArtModel
-
-            db.query(_ArtModel).filter(
-                _ArtModel.artifact_id.in_(_att_ids),
-                _ArtModel.user_id == db_user_id,
-                _ArtModel.chat_id.is_(None),
-            ).update({"chat_id": request.chat_id}, synchronize_session="fetch")
-            db.commit()
-
-    session_messages.append({"role": "user", "content": effective_user_message})
-    chat_service.add_message(
-        chat_id=request.chat_id,
-        role="user",
-        content=request.message,
-        model=actual_model_name,
-        extra_data=_build_user_extra_data(request, selected_model_provider_id),
     )
 
     context = _build_ctx(
@@ -1256,19 +1327,70 @@ async def chat_stream(
         request_payload["model_provider_id"] = selected_model_provider_id
     else:
         request_payload.pop("model_provider_id", None)
-    run = await chat_run_executor.start_run(
-        chat_id=request.chat_id,
-        user_id=db_user_id,
-        session_messages=session_messages,
-        effective_user_message=effective_user_message,
-        raw_user_message=request.message,
-        context=context,
-        request_payload=request_payload,
-        model_name=actual_model_name,
-    )
 
+    # The user message + pending run are one durable admission transaction.
+    # A concurrent loser receives the winner's resumable run and leaves no
+    # orphan message or sequence gap behind.
+    from core.services.chat_sequencer import ChatBusyError, ChatSequencer
+
+    try:
+        accepted = ChatSequencer(db).accept_main_run(
+            chat_id=request.chat_id,
+            user_id=db_user_id,
+            user_content=request.message,
+            model=actual_model_name,
+            user_extra_data=_build_user_extra_data(request, selected_model_provider_id),
+            request_payload=request_payload,
+        )
+    except ChatBusyError as exc:
+        raise chat_busy_http_exception(exc) from exc
+
+    # From this point the main-writer slot is held.  Load history only now so
+    # it cannot miss the immediately preceding run that was still finishing
+    # during the former parallel pre-read.
+    try:
+        session_messages = _load_session_messages(chat_service, request.chat_id, db_user_id)
+
+        # 新一轮用户消息 = 上一段任务的计划栏作废（和前端发送时清空计划栏是同一条规则）。
+        from core.chat.plan_progress import clear_plan_progress
+
+        clear_plan_progress(request.chat_id)
+
+        # Link orphan artifacts (uploaded before session existed) to this chat.
+        if request.attachments:
+            _att_ids = [a.file_id for a in request.attachments if a.file_id]
+            if _att_ids:
+                from core.db.models import Artifact as _ArtModel
+
+                db.query(_ArtModel).filter(
+                    _ArtModel.artifact_id.in_(_att_ids),
+                    _ArtModel.user_id == db_user_id,
+                    _ArtModel.chat_id.is_(None),
+                ).update({"chat_id": request.chat_id}, synchronize_session="fetch")
+                db.commit()
+
+        run = await chat_run_executor.start_run(
+            accepted_run=accepted.run,
+            chat_id=request.chat_id,
+            user_id=db_user_id,
+            session_messages=session_messages,
+            effective_user_message=effective_user_message,
+            raw_user_message=request.message,
+            context=context,
+            model_name=actual_model_name,
+        )
+    except Exception as exc:
+        ChatSequencer(db).abandon_pending_run(accepted.run.run_id, reason=str(exc))
+        raise
+
+    # Read every value off the ORM row *before* the session is released:
+    # closing it detaches the instance, and a later attribute access would
+    # raise DetachedInstanceError instead of returning the stream.
+    started_run_id = run.run_id
+    started_chat_id = request.chat_id
+    _release_request_session(db)
     return sse_response(
-        chat_run_executor.follow_run_as_sse(run.run_id, chat_id=request.chat_id),
+        chat_run_executor.follow_run_as_sse(started_run_id, chat_id=started_chat_id),
     )
 
 
@@ -1291,8 +1413,12 @@ async def chat_stream_resume(
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != db_user_id:
         raise HTTPException(status_code=403, detail="无权访问该 run")
+    resumed_chat_id = run.chat_id
+    _release_request_session(db)
     return sse_response(
-        chat_run_executor.follow_run_as_sse(run_id, chat_id=run.chat_id, from_offset=from_offset),
+        chat_run_executor.follow_run_as_sse(
+            run_id, chat_id=resumed_chat_id, from_offset=from_offset
+        ),
     )
 
 
@@ -1304,7 +1430,7 @@ async def chat_active_run(
 ):
     """探测会话当前是否有进行中的 run，供前端重连时决定是否续播。
 
-    有则返回 run_id / message_id / status / 续播 offset / thinking 模式等元信息，
+    有则返回 run_id / message_id / status / 刷新重放 offset / thinking 模式等元信息，
     无则返回 data=null。需认证（有效 cookie 或 API-Key）。
     """
     from orchestration import chat_run_executor
@@ -1322,13 +1448,19 @@ async def chat_active_run(
     resolved_mode = payload.get("chat_mode") or (
         "medium" if payload.get("enable_thinking") else "fast"
     )
+    # This endpoint is a fresh-client probe: the server does not persist how
+    # much of the stream this particular browser consumed.  ``run.last_event_offset``
+    # is the producer high-water mark, not a consumer resume cursor.  Returning
+    # it here would make a refreshed client skip the already-produced prefix
+    # immediately after it clears the partial assistant message from the UI.
+    replay_from_offset = 0
     return success_response(
         data={
             "run_id": run.run_id,
             "message_id": run.message_id,
             "status": run.status,
             "started_at": run.started_at.isoformat() if run.started_at else None,
-            "last_event_offset": run.last_event_offset or 0,
+            "last_event_offset": replay_from_offset,
             "kind": kind,
             "plan_id": plan_id,
             "enable_thinking": resolved_mode not in ("fast", "turbo"),
@@ -1396,7 +1528,7 @@ async def _stream_sse_response(
             # 已出、思考收尾的"。"后到）。实时侧把它并回前一个思考块
             # （appendThinkingContentBeforeTrailingText），落库遵循同一规则——
             # 否则 <think> 块会把正文句子从中间切开，刷新后与实时展示不一致。
-            if last_close != -1 and full_response[last_close + len(close):].strip():
+            if last_close != -1 and full_response[last_close + len(close) :].strip():
                 full_response = full_response[:last_close] + block + full_response[last_close:]
                 # 中段插入使其后的坐标整体右移，已记录的 content_offset 同步平移
                 for _tc in tool_calls_log:
@@ -1405,14 +1537,45 @@ async def _stream_sse_response(
                         _tc["content_offset"] = off + len(block)
                 return
             full_response += "<think>" + block + close
+
         # Per-run workspace state — pin_to_workspace tool reads/writes this.
         _workspace_mod.init_state()
 
-        async for chunk in astream_chat_workflow(
-            session_messages=session_messages,
-            user_message=user_message,
-            context=context,
-        ):
+        async def _bound_chunks():
+            from core.services.run_journal import durable_run_binding
+
+            principal = str(user_id or context.get("user_id") or "")
+            if not principal:
+                raise RuntimeError("legacy chat stream requires an authenticated user")
+            recovery_context = {
+                **dict(context),
+                "mcp_ids": context.get("mcp_ids") or context.get("enabled_mcps") or [],
+                "skill_ids": context.get("skill_ids") or context.get("enabled_skills") or [],
+                "kb_ids": context.get("kb_ids") or context.get("enabled_kbs") or [],
+                "model_name": model_name,
+            }
+            async with durable_run_binding(
+                user_id=principal,
+                chat_id=chat_id,
+                kind="legacy_chat_stream",
+                external_id=pending_message_id,
+                request_payload={"operation": error_label},
+                recovery_snapshot={"worker_args": {"context": recovery_context}},
+                session_factory=SessionLocal,
+            ) as binding:
+                bound_context = {
+                    **dict(context),
+                    "run_id": binding.run_id,
+                    "journal_owner": binding.owner,
+                }
+                async for item in astream_chat_workflow(
+                    session_messages=session_messages,
+                    user_message=user_message,
+                    context=bound_context,
+                ):
+                    yield item
+
+        async for chunk in _bound_chunks():
             chunk_type = chunk.get("type")
             if chunk_type == "thinking":
                 _thinking_evt = build_thinking_event(chunk, chat_id)
@@ -1481,6 +1644,12 @@ async def _stream_sse_response(
                     "chat_id": chat_id,
                 }
                 yield f"data: {json.dumps(_cf_evt, ensure_ascii=False)}\n\n"
+            elif chunk_type == "user_question":
+                _question_evt = build_user_question_event(chunk, chat_id)
+                yield f"data: {json.dumps(_question_evt, ensure_ascii=False)}\n\n"
+            elif chunk_type == "user_question_resolved":
+                _resolved_evt = build_user_question_resolved_event(chunk, chat_id)
+                yield f"data: {json.dumps(_resolved_evt, ensure_ascii=False)}\n\n"
             elif chunk_type in {
                 "ontology_activation",
                 "ontology_gate",
@@ -1650,8 +1819,6 @@ async def regenerate_message(
     user_extra = user_msg.extra_data or {}
     attachment_items = _restore_attachments(user_extra.get("attachments", []))
 
-    chat_service.delete_messages_from(chat_id, target_msg.message_id)
-
     regen_request = ChatRequest(
         chat_id=chat_id,
         message=user_content,
@@ -1672,8 +1839,6 @@ async def regenerate_message(
         regen_request.message, regen_request.quoted_follow_up
     )
 
-    session_messages = _load_session_messages(chat_service, chat_id, db_user_id)
-    session_messages.append({"role": "user", "content": effective_msg})
     context = _build_ctx(
         regen_request,
         db_user_id,
@@ -1689,19 +1854,43 @@ async def regenerate_message(
         ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
     )
 
-    return sse_response(
-        _stream_sse_response(
-            chat_service=chat_service,
+    from core.services.chat_sequencer import ChatBusyError, ChatSequencer
+    from orchestration import chat_run_executor
+
+    request_payload = regen_request.model_dump(exclude_none=True)
+    request_payload["operation"] = "regenerate"
+    try:
+        accepted = ChatSequencer(db).accept_existing_user_run(
             chat_id=chat_id,
-            model_name=actual_model_name,
-            session_messages=session_messages,
-            user_message=effective_msg,
-            context=context,
-            user_content_for_followup=user_content,
-            error_label="regenerate_failed",
-            db=db,
             user_id=db_user_id,
+            user_message_id=user_msg.message_id,
+            delete_from_message_id=target_msg.message_id,
+            delete_from_chat_seq=target_msg.chat_seq,
+            request_payload=request_payload,
         )
+    except ChatBusyError as exc:
+        raise chat_busy_http_exception(exc) from exc
+
+    try:
+        session_messages = _load_session_messages(chat_service, chat_id, db_user_id)
+        run = await chat_run_executor.start_run(
+            accepted_run=accepted.run,
+            chat_id=chat_id,
+            user_id=db_user_id,
+            session_messages=session_messages,
+            effective_user_message=effective_msg,
+            raw_user_message=user_content,
+            context=context,
+            model_name=actual_model_name,
+        )
+    except Exception as exc:
+        ChatSequencer(db).abandon_pending_run(accepted.run.run_id, reason=str(exc))
+        raise
+
+    started_run_id = run.run_id
+    _release_request_session(db)
+    return sse_response(
+        chat_run_executor.follow_run_as_sse(started_run_id, chat_id=chat_id),
     )
 
 
@@ -1733,8 +1922,6 @@ async def edit_and_resend(
     saved_attachments = target_extra.get("attachments", [])
     attachment_items = _restore_attachments(saved_attachments)
 
-    chat_service.delete_messages_from(chat_id, target_msg.message_id)
-
     edit_request = ChatRequest(
         chat_id=chat_id,
         message=body.new_content,
@@ -1754,15 +1941,6 @@ async def edit_and_resend(
     if selected_model_provider_id:
         _edit_extra["model_provider_id"] = selected_model_provider_id
 
-    session_messages = _load_session_messages(chat_service, chat_id, db_user_id)
-    session_messages.append({"role": "user", "content": body.new_content})
-    chat_service.add_message(
-        chat_id=chat_id,
-        role="user",
-        content=body.new_content,
-        model=actual_model_name,
-        extra_data=_edit_extra,
-    )
     context = _build_ctx(
         edit_request,
         db_user_id,
@@ -1778,18 +1956,45 @@ async def edit_and_resend(
         ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
     )
 
-    return sse_response(
-        _stream_sse_response(
-            chat_service=chat_service,
+    from core.services.chat_sequencer import ChatBusyError, ChatSequencer
+    from orchestration import chat_run_executor
+
+    request_payload = edit_request.model_dump(exclude_none=True)
+    request_payload["operation"] = "edit"
+    try:
+        accepted = ChatSequencer(db).accept_replacement_user_run(
             chat_id=chat_id,
-            model_name=actual_model_name,
-            session_messages=session_messages,
-            user_message=body.new_content,
-            context=context,
-            error_label="edit_resend_failed",
-            db=db,
             user_id=db_user_id,
+            target_user_message_id=target_msg.message_id,
+            delete_from_chat_seq=target_msg.chat_seq,
+            user_content=body.new_content,
+            request_payload=request_payload,
+            model=actual_model_name,
+            user_extra_data=_edit_extra,
         )
+    except ChatBusyError as exc:
+        raise chat_busy_http_exception(exc) from exc
+
+    try:
+        session_messages = _load_session_messages(chat_service, chat_id, db_user_id)
+        run = await chat_run_executor.start_run(
+            accepted_run=accepted.run,
+            chat_id=chat_id,
+            user_id=db_user_id,
+            session_messages=session_messages,
+            effective_user_message=body.new_content,
+            raw_user_message=body.new_content,
+            context=context,
+            model_name=actual_model_name,
+        )
+    except Exception as exc:
+        ChatSequencer(db).abandon_pending_run(accepted.run.run_id, reason=str(exc))
+        raise
+
+    started_run_id = run.run_id
+    _release_request_session(db)
+    return sse_response(
+        chat_run_executor.follow_run_as_sse(started_run_id, chat_id=chat_id),
     )
 
 
@@ -1894,6 +2099,104 @@ async def submit_feedback(
 # ---------------------------------------------------------------------------
 # POST /v1/chats/{chat_id}/file-confirm  —— §13 MySpace write confirmation (out-of-band)
 # ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{chat_id}/pending-user-questions",
+    summary="查询会话中等待用户回答的问题",
+)
+async def get_pending_user_questions(
+    chat_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the authoritative pending queue for refresh/chat switching."""
+
+    if ChatService(db).get_session(chat_id, user.user_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在或无权访问")
+
+    from core.llm.tools import user_questions
+
+    return success_response(
+        data={"requests": user_questions.get_all_pending(chat_id)},
+    )
+
+
+@router.post(
+    "/{chat_id}/user-questions/{request_id}/answer",
+    summary="回答智能体主动提出的问题",
+)
+async def answer_user_question(
+    chat_id: str,
+    request_id: str,
+    body: UserQuestionAnswerBody,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Validate the human answer and wake the exact suspended tool call."""
+
+    if ChatService(db).get_session(chat_id, user.user_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在或无权访问")
+
+    from core.llm.tools import user_questions
+
+    result = user_questions.answer(
+        chat_id,
+        request_id,
+        [item.model_dump(exclude_none=True) for item in body.answers],
+    )
+    if result.get("ok"):
+        return success_response(data=result)
+    if result.get("reason") == "stale":
+        interrupted = _detect_chat_run_interrupted(db, chat_id)
+        return success_response(
+            data={
+                **result,
+                "stale": True,
+                "chat_interrupted": interrupted,
+                "message": (
+                    "上次会话因服务端重启未完成，请重新发送您的消息"
+                    if interrupted
+                    else result.get("error", "该问题已失效")
+                ),
+            },
+        )
+    raise HTTPException(status_code=400, detail=result.get("error", "回答无效"))
+
+
+@router.post(
+    "/{chat_id}/user-questions/{request_id}/cancel",
+    summary="取消智能体主动提出的问题",
+)
+async def cancel_user_question(
+    chat_id: str,
+    request_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cancel the pending request; the tool receives an explicit non-retry result."""
+
+    if ChatService(db).get_session(chat_id, user.user_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在或无权访问")
+
+    from core.llm.tools import user_questions
+
+    result = user_questions.cancel(chat_id, request_id)
+    if result.get("ok"):
+        return success_response(data=result)
+    interrupted = _detect_chat_run_interrupted(db, chat_id)
+    return success_response(
+        data={
+            **result,
+            "stale": True,
+            "chat_interrupted": interrupted,
+            "message": (
+                "上次会话因服务端重启未完成，请重新发送您的消息"
+                if interrupted
+                else result.get("error", "该问题已失效")
+            ),
+        },
+    )
 
 
 class FileConfirmBody(BaseModel):

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { create } from 'zustand';
-import type { UpdateEntry, UpdateCategory, FileConfirmInfo, DesignPickInfo } from '../types';
+import type { UpdateEntry, UpdateCategory, FileConfirmInfo, DesignPickInfo, UserQuestionRequest } from '../types';
 import type { SearchResultItem } from '../api';
 import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
 import { loadThemeMode, saveThemeMode, type ThemeMode } from '../theme';
@@ -9,6 +9,26 @@ export type HistoryTimeFilter = 'all' | 'today' | '7d' | '30d';
 export type UpdateFilter = '全部' | UpdateCategory;
 
 const DISPATCH_PROCESS_STORAGE_KEY = 'hugagent_dispatch_process_visible';
+// A resolved SSE can race with an older pending-GET response already in
+// flight. Keep a small process-local tombstone set so that stale recovery
+// snapshots cannot resurrect a question the server has already settled.
+const resolvedUserQuestionKeys = new Set<string>();
+const MAX_RESOLVED_USER_QUESTION_KEYS = 2048;
+
+function userQuestionKey(chatId: string, requestId: string): string {
+  return `${chatId}\u0000${requestId}`;
+}
+
+function markUserQuestionResolved(chatId: string, requestId: string): void {
+  resolvedUserQuestionKeys.add(userQuestionKey(chatId, requestId));
+  if (resolvedUserQuestionKeys.size <= MAX_RESOLVED_USER_QUESTION_KEYS) return;
+  const oldest = resolvedUserQuestionKeys.values().next().value;
+  if (typeof oldest === 'string') resolvedUserQuestionKeys.delete(oldest);
+}
+
+function wasUserQuestionResolved(chatId: string, requestId: string): boolean {
+  return resolvedUserQuestionKeys.has(userQuestionKey(chatId, requestId));
+}
 
 function loadDispatchProcessVisible(): boolean {
   if (typeof window === 'undefined') return IS_COMMUNITY_EDITION_BUILD;
@@ -68,6 +88,10 @@ interface UIState {
   // Stores a **single value** per chatId (one site build pops only one picker; the backend already dedupes the same question).
   pendingDesignPick: Record<string, DesignPickInfo | undefined>;
 
+  // Model-initiated question requests. Parallel tool calls may enqueue more
+  // than one request, while the resident composer presents them FIFO.
+  pendingUserQuestions: Record<string, UserQuestionRequest[]>;
+
   // ── Actions ──
   setSiderCollapsed: (v: boolean) => void;
   toggleSider: () => void;
@@ -109,6 +133,12 @@ interface UIState {
 
   // Site-building design three-way choice: set/clear the pending picker for the current chat (passing null clears and deletes the key).
   setPendingDesignPick: (chatId: string, info: DesignPickInfo | null) => void;
+  enqueuePendingUserQuestion: (chatId: string, request: UserQuestionRequest) => void;
+  resolvePendingUserQuestion: (chatId: string, requestId: string) => void;
+  hydratePendingUserQuestionQueue: (chatId: string, requests: UserQuestionRequest[]) => void;
+  hydratePendingUserQuestions: (
+    list: Array<{ chatId: string; request: UserQuestionRequest }>,
+  ) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -139,6 +169,7 @@ export const useUIStore = create<UIState>((set) => ({
 
   pendingConfirm: {},
   pendingDesignPick: {},
+  pendingUserQuestions: {},
 
   setSiderCollapsed: (v) => set({ siderCollapsed: v }),
   toggleSider: () => set((s) => ({ siderCollapsed: !s.siderCollapsed })),
@@ -236,6 +267,61 @@ export const useUIStore = create<UIState>((set) => ({
       if (valid) next[chatId] = info as DesignPickInfo;
       else delete next[chatId];
       return { pendingDesignPick: next };
+    }),
+  enqueuePendingUserQuestion: (chatId, request) =>
+    set((s) => {
+      if (!chatId || !request?.requestId || !request.questions.length) return s;
+      if (wasUserQuestionResolved(chatId, request.requestId)) return s;
+      const queue = s.pendingUserQuestions[chatId] ?? [];
+      if (queue.some((item) => item.requestId === request.requestId)) return s;
+      return {
+        pendingUserQuestions: {
+          ...s.pendingUserQuestions,
+          [chatId]: [...queue, request],
+        },
+      };
+    }),
+  resolvePendingUserQuestion: (chatId, requestId) =>
+    set((s) => {
+      if (!chatId || !requestId) return s;
+      markUserQuestionResolved(chatId, requestId);
+      const queue = s.pendingUserQuestions[chatId];
+      if (!queue?.some((item) => item.requestId === requestId)) return s;
+      const remaining = queue.filter((item) => item.requestId !== requestId);
+      const next = { ...s.pendingUserQuestions };
+      if (remaining.length) next[chatId] = remaining;
+      else delete next[chatId];
+      return { pendingUserQuestions: next };
+    }),
+  hydratePendingUserQuestionQueue: (chatId, requests) =>
+    set((s) => {
+      const clean = (requests || []).filter(
+        (request) => request?.requestId && request.questions.length
+          && !wasUserQuestionResolved(chatId, request.requestId),
+      );
+      const current = s.pendingUserQuestions[chatId];
+      if (
+        current && current.length === clean.length
+        && current.every((request, index) => request.requestId === clean[index].requestId)
+      ) return s;
+      const next = { ...s.pendingUserQuestions };
+      if (clean.length) next[chatId] = clean;
+      else delete next[chatId];
+      return { pendingUserQuestions: next };
+    }),
+  hydratePendingUserQuestions: (list) =>
+    set((s) => {
+      const next = { ...s.pendingUserQuestions };
+      let changed = false;
+      for (const { chatId, request } of list) {
+        if (!chatId || !request?.requestId || !request.questions.length) continue;
+        if (wasUserQuestionResolved(chatId, request.requestId)) continue;
+        const queue = next[chatId] ?? [];
+        if (queue.some((item) => item.requestId === request.requestId)) continue;
+        next[chatId] = [...queue, request];
+        changed = true;
+      }
+      return changed ? { pendingUserQuestions: next } : s;
     }),
   setDispatchProcessVisible: (v) => {
     if (typeof window !== 'undefined') {

@@ -29,8 +29,7 @@ from core.memory.context import MemoryContext
 from core.memory.graph import delete_graph_relation, list_graph_relations
 from core.memory.profile import delete_field as profile_delete_field
 from core.memory.profile import get as profile_get
-from core.memory.profile import upsert_field as profile_upsert_field
-from core.memory.service import delete_all_memories, delete_memory, get_all_memories, update_memory
+from core.memory.service import delete_all_memories, delete_memory, get_all_memories
 from core.services import UserService
 from core.services.memory_settings_service import MemorySettingsService
 from fastapi import APIRouter, Depends, Query
@@ -51,6 +50,7 @@ class MemoryEditRequest(BaseModel):
     # When present, the turn card that reported this memory is updated too, so
     # the transcript never shows a version of the memory that no longer exists.
     message_id: Optional[str] = Field(None, description="上报该记忆的消息 id")
+    operation_id: Optional[str] = Field(None, description="客户端生成的本次修改幂等键")
 
 
 class ProfileFieldRequest(BaseModel):
@@ -58,6 +58,7 @@ class ProfileFieldRequest(BaseModel):
     text: str = Field(..., min_length=1, description="字段取值")
     workspace_id: str = "default"
     message_id: Optional[str] = None
+    operation_id: Optional[str] = None
 
 
 # ── Register fixed paths first so they aren't mis-matched by /{memory_id} ──
@@ -248,15 +249,26 @@ async def edit_profile_field(
         workspace_id=body.workspace_id,
         write_enabled=True,
         actor=str(user.user_id),
+        message_id=body.message_id,
     )
-    applied = await profile_upsert_field(ctx, body.key, body.text, reason="user_edit")
-    if not applied:
-        return error_response(code=50003, message="修改失败", status_code=500)
-    if body.message_id:
-        from core.evolution.settlement_store import update_entry_text
+    from core.memory.outbox import (
+        consume_outbox_job,
+        enqueue_profile_edit_job,
+        kick_outbox_drain,
+    )
 
-        update_entry_text(body.message_id, body.key, body.text)
-    return success_response(data={"key": body.key, "text": body.text})
+    job_id = enqueue_profile_edit_job(ctx, body.key, body.text, operation_id=body.operation_id)
+    outcome = await consume_outbox_job(job_id)
+    if outcome["status"] == "quarantined":
+        return error_response(code=50003, message="修改失败", status_code=500)
+    if outcome["status"] != "succeeded":
+        kick_outbox_drain()
+        return success_response(
+            data={"key": body.key, "text": body.text, "status": "queued", "job_id": job_id}
+        )
+    return success_response(
+        data={"key": body.key, "text": body.text, "status": "succeeded", "job_id": job_id}
+    )
 
 
 @router.delete("/profile/field", summary="删除单条档案记忆")
@@ -313,14 +325,30 @@ async def edit_memory(
     user: UserContext = Depends(get_current_user),
 ):
     """改写单条 L2 记忆的正文，保留其 id 与元数据。"""
-    ok = await update_memory(memory_id, body.text)
-    if not ok:
-        return error_response(code=50003, message="修改失败", status_code=500)
-    if body.message_id:
-        from core.evolution.settlement_store import update_entry_text
+    ctx = MemoryContext(
+        user_id=str(user.user_id),
+        write_enabled=True,
+        actor=str(user.user_id),
+        message_id=body.message_id,
+    )
+    from core.memory.outbox import (
+        consume_outbox_job,
+        enqueue_memory_edit_job,
+        kick_outbox_drain,
+    )
 
-        update_entry_text(body.message_id, memory_id, body.text)
-    return success_response(data={"id": memory_id, "text": body.text})
+    job_id = enqueue_memory_edit_job(ctx, memory_id, body.text, operation_id=body.operation_id)
+    outcome = await consume_outbox_job(job_id)
+    if outcome["status"] == "quarantined":
+        return error_response(code=50003, message="修改失败", status_code=500)
+    if outcome["status"] != "succeeded":
+        kick_outbox_drain()
+        return success_response(
+            data={"id": memory_id, "text": body.text, "status": "queued", "job_id": job_id}
+        )
+    return success_response(
+        data={"id": memory_id, "text": body.text, "status": "succeeded", "job_id": job_id}
+    )
 
 
 @router.delete("/{memory_id}", summary="删除单条记忆")

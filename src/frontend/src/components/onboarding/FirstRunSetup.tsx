@@ -57,7 +57,6 @@ import {
 
 const { Paragraph, Text, Title } = Typography;
 
-const CHAT_CONTEXT_DEFAULT = 32768;
 const STEP_STORAGE_PREFIX = 'hugagent_ce_setup_step_';
 
 interface FirstRunSetupProps {
@@ -71,7 +70,8 @@ interface ModelDraft {
   baseUrl: string;
   apiKey: string;
   modelName: string;
-  contextLength: number;
+  /** null = 留空，交给后端在保存时向上游自动探测真实窗口。 */
+  contextLength: number | null;
 }
 
 type AuxiliaryModelType = 'embedding' | 'reranker';
@@ -103,7 +103,7 @@ function createModelDraft(displayName: string): ModelDraft {
     baseUrl: '',
     apiKey: '',
     modelName: '',
-    contextLength: CHAT_CONTEXT_DEFAULT,
+    contextLength: null,
   };
 }
 
@@ -406,7 +406,10 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         base_url: modelDraft.baseUrl.trim(),
         api_key: modelDraft.apiKey.trim(),
         model_name: modelDraft.modelName.trim(),
-        extra_config: { context_length: modelDraft.contextLength },
+        // 留空时不写 context_length，后端保存时会向上游探测真实窗口（探不到才回落到模型名推断）。
+        extra_config: modelDraft.contextLength
+          ? { context_length: modelDraft.contextLength }
+          : {},
         is_active: true,
       });
       providerId = created.provider_id;
@@ -624,11 +627,16 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
               size="large"
               min={1024}
               step={1024}
-              value={draft.contextLength}
+              style={{ width: '100%' }}
+              placeholder={t('留空自动探测')}
+              value={draft.contextLength ?? undefined}
               onChange={(value) => onPatch({
-                contextLength: Number(value || CHAT_CONTEXT_DEFAULT),
+                contextLength: value == null ? null : Number(value),
               })}
             />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('留空即可——保存时会向模型服务查询真实上下文窗口，查不到再按模型名推断。')}
+            </Text>
           </label>
         )}
       </div>

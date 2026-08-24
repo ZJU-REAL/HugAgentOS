@@ -8,16 +8,22 @@ import {
   OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined, PartitionOutlined,
   LaptopOutlined, CloseOutlined,
 } from '@ant-design/icons';
-import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, useEditionStore } from '../../stores';
+import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useAgentStore } from '../../stores/agentStore';
+import { useModelCapabilitiesStore } from '../../stores/modelCapabilitiesStore';
 import type { UserAgentItem } from '../../stores/agentStore';
 import { FileAttachmentCard, MySpaceImportModal } from '../file';
 import CreateProjectModal from '../projects/CreateProjectModal';
 import { getApiUrl, createLocalProject } from '../../api';
 import type { InstalledPluginItem } from '../../types';
-import { AgentMentionPopup, useAgentMention } from '../agent';
+import {
+  AgentMentionPopup,
+  useAgentMention,
+  type MentionCandidate,
+  type MentionLauncherAction,
+} from '../agent';
 import { SkillSlashPopup, useSkillSlash, type SlashEntry } from './SkillSlashPopup';
 import LoopPlanBar from '../loop/LoopPlanBar';
 import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
@@ -124,6 +130,26 @@ function removeQueryAtCursor(_editor: HTMLElement, trigger: string) {
   node.textContent = text.slice(0, idx) + text.slice(cursor);
   try {
     range.setStart(node, idx);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch { /* empty text node edge case */ }
+}
+
+/** Keep the trigger but clear its query, so a nested picker starts unfiltered. */
+function resetQueryAtCursor(_editor: HTMLElement, trigger: string) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer;
+  if (node.nodeType !== Node.TEXT_NODE) return;
+  const text = node.textContent || '';
+  const cursor = range.startOffset;
+  const idx = text.lastIndexOf(trigger, cursor - 1);
+  if (idx === -1) return;
+  node.textContent = text.slice(0, idx + trigger.length) + text.slice(cursor);
+  try {
+    range.setStart(node, idx + trigger.length);
     range.collapse(true);
     sel.removeAllRanges();
     sel.addRange(range);
@@ -260,6 +286,8 @@ export function InputArea({
   // Which apps are open to the current user (same allowed_apps gate as the "App Center")
   const allowedApps = useAuthStore((s) => s.authUser?.allowed_apps ?? null);
   const isAppAllowed = (id: string) => !Array.isArray(allowedApps) || allowedApps.includes(id);
+  const planModeAllowed = !Array.isArray(allowedApps) || allowedApps.includes('plan_mode');
+  const batchRunnerAllowed = !Array.isArray(allowedApps) || allowedApps.includes('batch_runner');
   // Skill list (for the skills submenu of the "+" menu)
   const skills = useCatalogStore((s) => s.catalog.skills);
   // Project list (for the toolbar "Project" selector dropdown)
@@ -273,7 +301,11 @@ export function InputArea({
   // Uses the shared store: the capability center forces a refresh after install/uninstall,
   // so this syncs immediately (avoids fetching only on mount, which would hide newly installed plugins).
   const installedPlugins = usePluginStore((s) => s.installed);
-  useEffect(() => { void usePluginStore.getState().fetchInstalled(); }, []);
+  useEffect(() => {
+    void usePluginStore.getState().fetchInstalled();
+    // 插件贡献的工具卡片/画布声明也在这里首次拉取：对话面板是它们的主要出场位置。
+    void usePluginUiStore.getState().fetchContributions();
+  }, []);
   const sending = forceSendMode ? false : storeSending;
   const { uploadedFiles, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
@@ -289,6 +321,11 @@ export function InputArea({
   // the toolbar but is tucked into the "+" attachment menu, visible to lab users only.
   const showLoopEntry =
     !planMode && !batchModeOn && !projectComposer && loopCapEnabled !== false && labEnabled !== false;
+  // 当前部署能否读图：主模型原生多模态，或后台配了「图像理解（视觉桥）」角色。
+  // 未加载完成时按 true 处理，避免首屏闪出一句「不识图」又立刻收回。
+  const canReadImage = useModelCapabilitiesStore(
+    (s) => !s.loaded || s.capabilities.can_read_image !== false,
+  );
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [mySpaceImportOpen, setMySpaceImportOpen] = useState(false);
   // 工具条各下拉的展开态：只用于让 chip 亮起 + 箭头翻转，让"按钮/浮层"读起来是一体的
@@ -332,26 +369,32 @@ export function InputArea({
     return () => window.removeEventListener('hugagent:local-folder', onFolder as EventListener);
   }, [projectComposer, isDesktopShell, localCapable]);
 
-  // / slash candidates: installed plugins (first) + enabled skills (after), filtered by the
-  // keyword typed after the slash. The same list is shared by keyboard Enter selection and
-  // popup rendering, keeping selectedIndex consistent.
-  const slashEntries = useMemo<SlashEntry[]>(() => {
-    const q = input.startsWith('/') ? input.slice(1).toLowerCase() : '';
-    // 模式命令排在最前：它切换的是这段对话怎么跑，比挑一个技能更"重"，也更常被找。
-    // 工作流模式必须由用户显式触发——不触发就不注册 run_job、不注入批量提示词。
-    const modeEntries: SlashEntry[] = (
-      [{ id: 'workflow', name: 'workflow', hint: t('工作流模式：批量作业') }] as const
-    )
-      .filter((m) => !q || m.id.includes(q) || m.hint.toLowerCase().includes(q))
-      .map((m) => ({ kind: 'mode' as const, id: m.id, name: m.name, hint: m.hint }));
-    const pluginEntries: SlashEntry[] = installedPlugins
-      .filter((p) => !q || p.name.toLowerCase().includes(q))
-      .map((p) => ({ kind: 'plugin' as const, id: p.install_id, name: p.name, plugin: p }));
-    const skillEntries: SlashEntry[] = (skills || [])
-      .filter((s) => s.enabled && (!q || s.name.toLowerCase().includes(q)))
-      .map((s) => ({ kind: 'skill' as const, id: s.id, name: s.name }));
-    return [...modeEntries, ...pluginEntries, ...skillEntries];
-  }, [input, installedPlugins, skills]);
+  // `/` is reserved for installed plugins and enabled skills; conversation modes live in the
+  // `@` launcher. Keyboard selection and popup rendering share this candidate list.
+  const slashEntries = useMemo<SlashEntry[]>(
+    () => {
+      const query = input.startsWith('/') ? input.slice(1).toLowerCase() : '';
+      const pluginEntries: SlashEntry[] = installedPlugins
+        .filter((plugin) => (
+          !query
+          || plugin.name.toLowerCase().includes(query)
+          || plugin.description.toLowerCase().includes(query)
+        ))
+        .map((plugin) => ({
+          kind: 'plugin', id: plugin.install_id, name: plugin.name,
+          description: plugin.description.trim(), plugin,
+        }));
+      const skillEntries: SlashEntry[] = (skills || [])
+        .filter((skill) => skill.enabled && (
+          !query || skill.name.toLowerCase().includes(query) || skill.desc.toLowerCase().includes(query)
+        ))
+        .map((skill) => ({
+          kind: 'skill', id: skill.id, name: skill.name, description: skill.desc.trim(),
+        }));
+      return [...pluginEntries, ...skillEntries];
+    },
+    [input, installedPlugins, skills],
+  );
 
   // Object URLs for uploaded image files — revoked when files change
   const uploadedImageUrls = useMemo(() => {
@@ -366,12 +409,66 @@ export function InputArea({
   const [isComposing, setIsComposing] = useState(false);
   const prevTextRef = useRef('');
 
+  // `@` is a launcher first and an agent search second: an empty query shows the
+  // high-level capabilities, while typing after it keeps the familiar direct agent search.
+  const mentionActions = useMemo<MentionLauncherAction[]>(() => [
+    {
+      id: 'files' as const,
+      name: t('文件和文件夹'),
+      description: activeLocalMode
+        ? t('从本机选择一个或多个文件')
+        : t('从我的空间选择文件，按文件夹浏览'),
+    },
+    ...(!disableMention ? [{
+      id: 'agents' as const,
+      name: t('智能体'),
+      description: t('选择一个智能体直接处理本轮任务'),
+    }] : []),
+    ...(planModeAllowed ? [{
+      id: 'plan' as const,
+      name: t('计划模式'),
+      description: t('计划模式：AI 将自动分解任务为多步骤并逐步执行'),
+      active: projectComposer ? activeMode === 'plan' : planMode,
+    }] : []),
+    ...(batchRunnerAllowed ? [{
+      id: 'batch' as const,
+      name: t('批量执行'),
+      description: t('批量执行模式：描述要批量处理的对象与任务，AI 会自动生成可确认的执行计划'),
+      active: projectComposer ? activeMode === 'batch' : batchModeOn,
+    }] : []),
+    {
+      id: 'workflow' as const,
+      name: t('工作流模式'),
+      description: t('工作流模式：面对成百上千个同类工作项时，AI 会写一段作业脚本交给后台并发处理，进度记在台账上，中断可续跑'),
+      active: projectComposer ? activeMode === 'workflow' : workflowModeOn,
+    },
+    ...(showLoopEntry ? [{
+      id: 'loop' as const,
+      name: t('自主循环'),
+      description: t('自主循环：描述一个可验证目标，AI 会反复迭代、自我修正，达标或触预算即停'),
+      active: loopMode,
+    }] : []),
+  ], [
+    activeLocalMode,
+    disableMention,
+    planModeAllowed,
+    batchRunnerAllowed,
+    projectComposer,
+    activeMode,
+    planMode,
+    batchModeOn,
+    workflowModeOn,
+    showLoopEntry,
+    loopMode,
+  ]);
+
   const {
     mentionVisible, setMentionVisible,
     selectedIndex: mIdx, setSelectedIndex: setMIdx,
     handleInputChange: mentionInputChange, handleKeyDown: mentionKeyDown,
-    getFiltered: getMentionFiltered,
-  } = useAgentMention();
+    screen: mentionScreen, candidates: mentionCandidates,
+    showAgentPicker: showMentionAgentPicker, backToRoot: backToMentionRoot,
+  } = useAgentMention(input, mentionActions);
   const {
     slashVisible, setSlashVisible,
     selectedIndex: sIdx, setSelectedIndex: setSIdx,
@@ -387,7 +484,7 @@ export function InputArea({
     if (text === prev) return; // no change
     prevTextRef.current = text;
     setInput(text);
-    if (!disableMention) mentionInputChange(text, prev);
+    mentionInputChange(text, prev);
     slashInputChange(text, prev);
   };
   function syncText() { syncTextRef.current(); }
@@ -479,6 +576,43 @@ export function InputArea({
     applyMention(agent);
   }
 
+  /** Run a first-level `@` launcher action without leaving the typed trigger behind. */
+  function onMentionCandidateSelect(candidate: MentionCandidate) {
+    if (candidate.kind === 'agent') {
+      onMentionSelect(candidate.agent);
+      return;
+    }
+
+    if (candidate.action.id === 'agents') {
+      const ed = editorRef.current;
+      if (ed) {
+        resetQueryAtCursor(ed, '@');
+        syncText();
+      }
+      showMentionAgentPicker();
+      return;
+    }
+
+    const ed = editorRef.current;
+    if (ed) removeQueryAtCursor(ed, '@');
+    setMentionVisible(false);
+    syncText();
+
+    if (candidate.action.id === 'files') {
+      if (activeLocalMode) fileInputRef.current?.click();
+      else setMySpaceImportOpen(true);
+      return;
+    }
+    if (candidate.action.id === 'loop') {
+      setLoopMode(true);
+      requestAnimationFrame(() => ed?.focus());
+      return;
+    }
+
+    onEnterMode(candidate.action.id);
+    requestAnimationFrame(() => ed?.focus());
+  }
+
   /** Pick a sub-agent from the "+" menu: move the caret to the end first, then insert the chip. */
   function onPickAgentFromMenu(agent: UserAgentItem) {
     const ed = editorRef.current;
@@ -504,17 +638,6 @@ export function InputArea({
     if (!ed) return;
     removeQueryAtCursor(ed, '/');
     applySkill(skillId, skillName);
-  }
-
-  /** 选中 / 面板里的模式命令（如 /workflow）：把已输入的 "/xxx" 抹掉，直接开启该模式。
-   *  与技能/插件不同——模式不插 chip，它改的是这段对话怎么跑，开启状态由输入框上方的模式条表示。 */
-  function onSlashSelectMode(modeId: string) {
-    const ed = editorRef.current;
-    if (ed) removeQueryAtCursor(ed, '/');
-    setInput('');
-    if (ed) setEditorPlainText(ed, '');
-    setSlashVisible(false);
-    if (modeId === 'workflow') onEnterMode('workflow');
   }
 
   /** Pick a skill from the "+" menu: move the caret to the end first, then insert the chip (the editor may not have focus when the menu closes). */
@@ -550,6 +673,14 @@ export function InputArea({
     ed.focus();
     moveCaretToEnd(ed);
     applyPlugin(p);
+  }
+
+  function onSlashEntrySelect(entry: SlashEntry) {
+    if (entry.kind === 'plugin') {
+      onSlashSelectPlugin(entry.plugin);
+      return;
+    }
+    onSlashSelect(entry.id, entry.name);
   }
 
   // ── Project binding (toolbar "Project" selector dropdown, to the right of the Prompt Hub) ──
@@ -588,6 +719,12 @@ export function InputArea({
    *  On the project page the pending selection is owned by the parent, so hand the toggle back
    *  to it (onEnterModeProp flips the already-selected mode off). */
   function onCloseMode(mode: 'plan' | 'batch' | 'workflow') {
+    // 关掉计划模式的同时得真的把正在跑的计划停下来。原来这里只翻了个
+    // planModeActive 标志位：后端的计划和 run 继续跑，卡片也一直挂在「执行中」，
+    // 用户以为已经关掉了（问题 31）。abort() 会取消 run、取消计划、并把卡片落成已中断。
+    if (mode === 'plan' && sending) {
+      abort?.();
+    }
     if (onEnterModeProp) {
       onEnterModeProp(mode);
       return;
@@ -605,33 +742,30 @@ export function InputArea({
     if (slashVisible && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
       e.preventDefault();
       const sel = slashEntries[sIdx] || slashEntries[0];
-      if (sel) {
-        if (sel.kind === 'mode') onSlashSelectMode(sel.id);
-        else if (sel.kind === 'plugin' && sel.plugin) onSlashSelectPlugin(sel.plugin);
-        else onSlashSelect(sel.id, sel.name);
-      }
+      if (sel) onSlashEntrySelect(sel);
       return;
     }
     // Slash popup: ArrowUp/Down/Escape
-    if (slashVisible && slashKeyDown(e)) return;
+    if (slashVisible && slashKeyDown(e, slashEntries.length)) return;
 
-    // Mention popup: Enter/Tab → select mention
-    if (mentionVisible && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+    // @ launcher: Enter/Tab → run the selected action or mention the selected agent
+    if (mentionVisible && mentionCandidates.length > 0
+      && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
       e.preventDefault();
-      const list = getMentionFiltered(input);
-      const sel = list[mIdx] || list[0];
-      if (sel) onMentionSelect(sel);
+      const selected = mentionCandidates[mIdx] || mentionCandidates[0];
+      if (selected) onMentionCandidateSelect(selected);
       return;
     }
-    // Mention popup: Escape
+    // In the agent second level, Escape goes back once; at the root it closes the launcher.
     if (mentionVisible && e.key === 'Escape') {
       e.preventDefault();
-      setMentionVisible(false);
+      if (mentionScreen === 'agents') backToMentionRoot();
+      else setMentionVisible(false);
       return;
     }
-    // Mention popup: ArrowUp/Down
-    if (!disableMention && mentionVisible) {
-      mentionKeyDown(e, input);
+    // @ launcher: ArrowUp/Down
+    if (mentionVisible) {
+      mentionKeyDown(e);
       if (e.defaultPrevented) return;
     }
 
@@ -684,13 +818,13 @@ export function InputArea({
   // A terminal run can race with the steer response. Never leave the card in
   // an impossible "waiting for a tool boundary" state once this chat is idle.
   useEffect(() => {
-    if (!sending && queuedMessage?.status === 'steering') {
+    if (!sending && queuedMessage?.status === 'steering' && !queuedMessage.targetRunId) {
       updateQueuedMessage(currentChatId, (current) => ({
         ...current,
         status: 'queued',
       }));
     }
-  }, [currentChatId, queuedMessage?.status, sending, updateQueuedMessage]);
+  }, [currentChatId, queuedMessage?.status, queuedMessage?.targetRunId, sending, updateQueuedMessage]);
 
   const showStopButton = sending && !input.trim();
 
@@ -784,18 +918,20 @@ export function InputArea({
         {!projectComposer && <DeploymentSwitcher />}
       </div>
       <div className={`jx-composerWrap${planMode ? ' jx-composerWrap--plan' : ''}`}>
-        {!disableMention && (
-          <AgentMentionPopup input={input} visible={mentionVisible} selectedIndex={mIdx} onSelect={onMentionSelect} onHover={setMIdx} />
-        )}
+        <AgentMentionPopup
+          visible={mentionVisible}
+          screen={mentionScreen}
+          candidates={mentionCandidates}
+          selectedIndex={mIdx}
+          onSelect={onMentionCandidateSelect}
+          onBack={backToMentionRoot}
+          onHover={setMIdx}
+        />
         <SkillSlashPopup
           entries={slashEntries}
           visible={slashVisible}
           selectedIndex={sIdx}
-          onSelect={(entry) => {
-            if (entry.kind === 'mode') onSlashSelectMode(entry.id);
-            else if (entry.kind === 'plugin' && entry.plugin) onSlashSelectPlugin(entry.plugin);
-            else onSlashSelect(entry.id, entry.name);
-          }}
+          onSelect={onSlashEntrySelect}
           onHover={setSIdx}
         />
 
@@ -869,7 +1005,14 @@ export function InputArea({
               },
             ];
             const items = [
-              { key: 'image', icon: <FileImageOutlined />, label: t('上传图片'), onClick: () => imageInputRef.current?.click() },
+              {
+                key: 'image',
+                icon: <FileImageOutlined />,
+                // 没有任何模型能读图时把话说在前面：图还是能传（当附件留档、换模型后仍可用），
+                // 但别让用户以为这一轮模型看得见。
+                label: canReadImage ? t('上传图片') : t('上传图片（当前模型不识图）'),
+                onClick: () => imageInputRef.current?.click(),
+              },
               { key: 'file', icon: <FileTextOutlined />, label: t('上传文件'), onClick: () => fileInputRef.current?.click() },
               { type: 'divider' as const },
               ...modeItems,
@@ -883,11 +1026,11 @@ export function InputArea({
               ...(!disableMention ? [{
                 key: 'agents',
                 icon: <RobotOutlined />,
-                label: t('@子智能体'),
+                label: t('@智能体'),
                 children: (() => {
                   const enabled = (agents || []).filter((a) => a.is_enabled);
                   if (enabled.length === 0) {
-                    return [{ key: 'agents-empty', label: t('暂无可用子智能体'), disabled: true }];
+                    return [{ key: 'agents-empty', label: t('暂无可用智能体'), disabled: true }];
                   }
                   return enabled.map((a) => ({
                     key: `agent-${a.agent_id}`,
@@ -1174,7 +1317,11 @@ export function InputArea({
           <button
             className="jx-sendBtn"
             onClick={() => { if (showStopButton) { abort?.(); } else { send(); } }}
-            disabled={!showStopButton && uploadingFiles.size > 0}
+            /* 空输入 / 纯空格时按钮置灰：send() 本来就会 `if (!msg) return` 静默吞掉，
+               但按钮看着可点，用户以为发出去了。附件不能单独成一条消息（send 的守卫
+               同样要求正文非空），所以判据就是正文 trim 后是否为空。
+               注意别动 showStopButton 分支：流式输出中空输入时这颗按钮是「中止」。 */
+            disabled={!showStopButton && (uploadingFiles.size > 0 || !input.trim())}
             aria-label={showStopButton ? t('中止') : t('发送')}
           >
             <AnimatePresence mode="wait" initial={false}>

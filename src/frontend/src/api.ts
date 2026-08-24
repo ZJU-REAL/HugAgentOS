@@ -4,11 +4,12 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
 import { createApiResponseError, readErrorMessage } from './utils/apiError';
+import { newOperationId } from './utils/operationId';
 import { t } from './i18n';
 import {
   normalizeSiteEditionFields,
@@ -208,7 +209,8 @@ export function unwrapData<T>(payload: unknown): T {
 // backend structured error codes.
 // Baked in at build time from the same UPLOAD_MAX_MB env var that feeds the
 // nginx client_max_body_size (see docker-compose.yml frontend build args).
-const UPLOAD_MAX_MB = Number(import.meta.env.VITE_UPLOAD_MAX_MB) || 50;
+export const UPLOAD_MAX_MB = Number(import.meta.env.VITE_UPLOAD_MAX_MB) || 50;
+export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
 function uploadErrorMessage(status: number, payload: unknown): string {
   if (status === 413) {
     return t('文件过大，单个文件不能超过 {n} MB', { n: UPLOAD_MAX_MB });
@@ -238,6 +240,31 @@ function toTimestamp(value: unknown): number {
   return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
+/** 会话 metadata 里的计划快照 → 计划栏状态。服务端是真源：`settled` 表示"不会再有哪一轮
+ *  来更新它了"（不等于每一步都完成——停在 2/5 的计划收尾后仍显示 2/5，只是不再转圈）。 */
+export function toPlanProgress(raw: unknown): PlanProgressState | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as JsonObject;
+  const steps = (Array.isArray(o.steps) ? o.steps : [])
+    .map((s) => {
+      const st = s as JsonObject;
+      const title = typeof st?.title === 'string' ? st.title.trim() : '';
+      const status = st?.status === 'in_progress' || st?.status === 'completed' || st?.status === 'failed'
+        ? st.status : 'pending';
+      return title ? { title, status: status as PlanProgressState['steps'][number]['status'] } : null;
+    })
+    .filter((s): s is PlanProgressState['steps'][number] => !!s);
+  if (steps.length === 0) return undefined;
+  const ts = typeof o.updated_at === 'string' ? Date.parse(o.updated_at) : NaN;
+  return {
+    source: 'agent',
+    title: typeof o.title === 'string' ? o.title : '',
+    steps,
+    done: o.settled === true ? true : undefined,
+    updatedAt: Number.isFinite(ts) ? ts : Date.now(),
+  };
+}
+
 function toChatItem(raw: JsonObject): ChatItem {
   const metadata = (raw.metadata ?? {}) as JsonObject;
   return {
@@ -254,6 +281,7 @@ function toChatItem(raw: JsonObject): ChatItem {
     planChat: metadata.plan_chat === true ? true : undefined,
     batchChat: metadata.batch_chat === true ? true : undefined,
     workflowChat: metadata.workflow_chat === true ? true : undefined,
+    planProgress: toPlanProgress(metadata.plan_progress),
     projectId: typeof raw.project_id === 'string' && raw.project_id ? raw.project_id : undefined,
   };
 }
@@ -334,6 +362,10 @@ export interface ModelCapabilities {
   system_prompt_tokens?: number;
   /** Maximum text characters automatically previewed per newly attached file. */
   attachment_preview_chars?: number;
+  /** 当前部署能不能读图：主模型原生多模态，或配了「图像理解（视觉桥）」角色。 */
+  can_read_image?: boolean;
+  /** 读图是走视觉桥转写（true）还是主模型直接看（false）。仅用于提示文案措辞。 */
+  vision_bridge_enabled?: boolean;
 }
 
 export interface UserSelectableModel {
@@ -416,6 +448,7 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
   const data = unwrapData<JsonObject>(wrapped);
   const main = (data?.main_agent as JsonObject | undefined) || {};
   const switchInfo = (data?.user_model_switch as JsonObject | undefined) || {};
+  const vision = (data?.vision as JsonObject | undefined) || {};
   const modelsRaw = Array.isArray(switchInfo.models) ? switchInfo.models : [];
   const models: UserSelectableModel[] = modelsRaw
     .map((item): UserSelectableModel | null => {
@@ -441,6 +474,8 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
     user_selectable_models: models,
     main_context_length: typeof main.context_length === 'number' ? main.context_length : 0,
     system_prompt_tokens: typeof main.system_prompt_tokens === 'number' ? main.system_prompt_tokens : 0,
+    can_read_image: !!vision.can_read_image,
+    vision_bridge_enabled: !!vision.bridge_enabled,
     attachment_preview_chars: typeof main.attachment_preview_chars === 'number'
       ? main.attachment_preview_chars
       : 0,
@@ -600,6 +635,9 @@ export type ChatDetail = {
   pinned?: boolean;
   favorite?: boolean;
   metadata?: Record<string, unknown>;
+  /** 会话最后一次被写入的时间。后端每落一条消息都会推进它，所以它是"服务端这边又有新
+   *  内容了"最省事的判据——比对消息条数不行：内部唤醒指令落库但不进消息列表。 */
+  updated_at?: string;
 } & EditionChatDetailFields;
 
 /** Fetch chat detail, extended by the active edition's response contract. */
@@ -619,7 +657,13 @@ export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
     isLocalChat(chatId) ? 'local' : undefined,
   );
   const data = unwrapData<PaginatedData<JsonObject>>(wrapped);
-  const items = Array.isArray(data.items) ? data.items : [];
+  const rawItems = Array.isArray(data.items) ? data.items : [];
+  // 后台作业的唤醒指令（进度播报 / 终态交付）以 user 角色落库，好让模型在历史里看见它，
+  // 但它是内部提示词、不是用户说的话。后端已经在消息列表接口里滤掉，这里再挡一道：
+  // 老后端配新前端时也不会把「[系统] 进度播报：…」贴进对话。
+  const items = rawItems.filter(
+    (item) => !(item.metadata as JsonObject | undefined)?.hidden_in_chat,
+  );
   return items.map((item) => ({
     role: String(item.role) === 'assistant' ? 'assistant' : 'user',
     content: String(item.content ?? ''),
@@ -655,18 +699,59 @@ export async function cancelChatRun(runId: string, userId?: string, chatId?: str
   });
 }
 
-/** Queue a user instruction for the live agent's next pre-tool boundary. */
+export type ChatSteerDeliveryMode = 'steer' | 'followUp' | 'nextRun';
+
+export interface ChatSteerQueueItem {
+  queue_id: string;
+  steer_id: string;
+  run_id: string | null;
+  chat_id: string;
+  steer_seq: number;
+  target_operation_seq: number | null;
+  delivery_mode: 'steer' | 'follow_up' | 'next_run';
+  status: 'accepted' | 'claimed' | 'applied' | 'cancelled' | 'superseded';
+  message: string;
+  delivery_attempt: number;
+  superseded_by: string | null;
+  applied_run_id: string | null;
+  applied_source_run_id: string | null;
+  applied_operation_seq: number | null;
+  applied_user_message_id?: string | null;
+  applied_run_message_id?: string | null;
+  applied_run_status?: string | null;
+}
+
+/** Durably queue a steer, follow-up, or independent next-run instruction. */
 export async function steerChatRun(
   runId: string,
   steerId: string,
   content: string,
   chatId?: string,
-): Promise<void> {
-  await apiRequest<unknown>(`/v1/chat-runs/${encodeURIComponent(runId)}/steer`, {
+  options?: { deliveryMode?: ChatSteerDeliveryMode; replaceLatest?: boolean },
+): Promise<ChatSteerQueueItem> {
+  const wrapped = await apiRequest<unknown>(`/v1/chat-runs/${encodeURIComponent(runId)}/steer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
-    body: JSON.stringify({ steer_id: steerId, message: content }),
+    body: JSON.stringify({
+      steer_id: steerId,
+      message: content,
+      delivery_mode: options?.deliveryMode ?? 'steer',
+      replace_latest: options?.replaceLatest ?? true,
+    }),
   });
+  return unwrapData<ChatSteerQueueItem>(wrapped);
+}
+
+/** Query durable queue state for refresh/recovery UI. */
+export async function getChatRunSteers(
+  runId: string,
+  chatId?: string,
+): Promise<ChatSteerQueueItem[]> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chat-runs/${encodeURIComponent(runId)}/steers`,
+    { headers: { ...chatTargetHeaders(chatId) } },
+  );
+  return unwrapData<{ items?: ChatSteerQueueItem[] }>(wrapped)?.items ?? [];
 }
 
 /** Withdraw an instruction that has not yet reached a tool boundary. */
@@ -871,6 +956,140 @@ export async function listPendingConfirms(): Promise<{
     }
   }
   return { confirms, designPicks };
+}
+
+/** DSH recommendation suffix → display label plus badge state.
+ * The original label stays authoritative in the backend and is what the model
+ * receives in `answers[].selected`; this helper only cleans up presentation. */
+export function parseRecommendedLabel(label: string): {
+  label: string;
+  recommended: boolean;
+} {
+  const suffix = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）)\s*$/i;
+  return suffix.test(label)
+    ? { label: label.replace(suffix, ''), recommended: true }
+    : { label, recommended: false };
+}
+
+/** Backend internal transport → resident-composer state. */
+export function toUserQuestionRequest(raw: Record<string, unknown>): UserQuestionRequest {
+  const rawQuestions = Array.isArray(raw.questions)
+    ? raw.questions as Record<string, unknown>[]
+    : [];
+  return {
+    requestId: String(raw.request_id ?? ''),
+    createdAt: typeof raw.created_at === 'number' ? raw.created_at : undefined,
+    expiresAt: typeof raw.expires_at === 'number' ? raw.expires_at : undefined,
+    questions: rawQuestions
+      .map((question) => {
+        const rawOptions = Array.isArray(question.options)
+          ? question.options as Record<string, unknown>[]
+          : [];
+        return {
+          id: String(question.id ?? ''),
+          header: typeof question.header === 'string' && question.header
+            ? question.header : undefined,
+          question: String(question.question ?? ''),
+          description: typeof question.description === 'string' && question.description
+            ? question.description : undefined,
+          multiSelect: question.multi_select === true,
+          options: rawOptions
+            .map((option) => {
+              const display = parseRecommendedLabel(String(option.label ?? ''));
+              return {
+                id: String(option.id ?? ''),
+                label: display.label,
+                description: typeof option.description === 'string' && option.description
+                  ? option.description : undefined,
+                recommended: option.recommended === true || display.recommended,
+              };
+            })
+            .filter((option) => option.id && option.label),
+        };
+      })
+      .filter((question) => question.id && question.question),
+  };
+}
+
+/** Merge a pending-GET snapshot without dropping requests delivered by SSE
+ * after that GET started. Resolved-event tombstones are applied by uiStore
+ * during hydration, so this helper only protects the newer-arrival side. */
+export function mergePendingUserQuestionRecovery(
+  snapshot: UserQuestionRequest[],
+  current: UserQuestionRequest[],
+  requestIdsAtStart: ReadonlySet<string>,
+): UserQuestionRequest[] {
+  const merged = [...snapshot];
+  for (const request of current) {
+    if (requestIdsAtStart.has(request.requestId)) continue;
+    if (!merged.some((item) => item.requestId === request.requestId)) {
+      merged.push(request);
+    }
+  }
+  return merged;
+}
+
+export async function getPendingUserQuestions(chatId: string): Promise<UserQuestionRequest[]> {
+  const wrapped = await apiRequest<{ requests?: Record<string, unknown>[] }>(
+    `/v1/chats/${chatId}/pending-user-questions`,
+  );
+  const { requests } = unwrapData<{ requests?: Record<string, unknown>[] }>(wrapped);
+  return (Array.isArray(requests) ? requests : [])
+    .map(toUserQuestionRequest)
+    .filter((request) => request.requestId && request.questions.length);
+}
+
+export async function listPendingUserQuestions(): Promise<
+  Array<{ chatId: string; request: UserQuestionRequest }>
+> {
+  const wrapped = await apiRequest<{ items?: Record<string, unknown>[] }>(
+    '/v1/chats/pending-user-questions',
+  );
+  const { items } = unwrapData<{ items?: Record<string, unknown>[] }>(wrapped);
+  const out: Array<{ chatId: string; request: UserQuestionRequest }> = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const chatId = String(item.chat_id ?? '');
+    const request = toUserQuestionRequest(item);
+    if (chatId && request.requestId && request.questions.length) {
+      out.push({ chatId, request });
+    }
+  }
+  return out;
+}
+
+export async function answerUserQuestion(
+  chatId: string,
+  requestId: string,
+  answers: UserQuestionAnswer[],
+): Promise<{
+  ok: boolean;
+  outcome?: string;
+  stale?: boolean;
+  chat_interrupted?: boolean;
+  message?: string;
+}> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${chatId}/user-questions/${encodeURIComponent(requestId)}/answer`,
+    { method: 'POST', body: JSON.stringify({ answers }) },
+  );
+  return unwrapData(wrapped);
+}
+
+export async function cancelUserQuestion(
+  chatId: string,
+  requestId: string,
+): Promise<{
+  ok: boolean;
+  outcome?: string;
+  stale?: boolean;
+  chat_interrupted?: boolean;
+  message?: string;
+}> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${chatId}/user-questions/${encodeURIComponent(requestId)}/cancel`,
+    { method: 'POST' },
+  );
+  return unwrapData(wrapped);
 }
 
 /**
@@ -1256,7 +1475,11 @@ export async function updateMemory(
 ): Promise<void> {
   await apiRequest(`/v1/memories/${memoryId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ text, message_id: messageId }),
+    body: JSON.stringify({
+      text,
+      message_id: messageId,
+      operation_id: newOperationId(),
+    }),
   });
 }
 
@@ -1268,7 +1491,12 @@ export async function updateProfileField(
 ): Promise<void> {
   await apiRequest('/v1/memories/profile/field', {
     method: 'PATCH',
-    body: JSON.stringify({ key, text, message_id: messageId }),
+    body: JSON.stringify({
+      key,
+      text,
+      message_id: messageId,
+      operation_id: newOperationId(),
+    }),
   });
 }
 
@@ -2139,6 +2367,38 @@ export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise
   });
 }
 
+// ── Plugin UI contributions (L0 views / L1 data proxy / L2 modules) ─────────
+// Generic replacements for what used to be per-plugin endpoints: the browser
+// names a plugin and a declared data-source id, and the backend resolves the
+// upstream URL and its credentials.
+
+import type { PluginContributions } from './plugin-ui/types';
+
+export async function listPluginUiContributions(): Promise<PluginContributions[]> {
+  const wrapped = await apiRequest<unknown>('/v1/plugins/ui-contributions');
+  return unwrapData<{ items: PluginContributions[] }>(wrapped).items || [];
+}
+
+export async function callPluginDataSource(
+  slug: string,
+  sourceId: string,
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/plugins/${encodeURIComponent(slug)}/data/${encodeURIComponent(sourceId)}`,
+    { method: 'POST', body: JSON.stringify(params), signal },
+  );
+  return unwrapData<unknown>(wrapped);
+}
+
+/** URL of an asset inside a plugin package's own ``web/`` directory (L2 modules). */
+export function pluginWebAssetUrl(slug: string, entry: string): string {
+  const relative = entry.replace(/^\/+/, '').replace(/^web\//, '');
+  const path = relative.split('/').map(encodeURIComponent).join('/');
+  return `${getApiUrl()}/v1/plugins/${encodeURIComponent(slug)}/web/${path}`;
+}
+
 // ── File upload API ─────────────────────────────────────────────
 
 export interface UploadedFile {
@@ -2376,8 +2636,12 @@ export async function generatePlanStream(
 /* ── 批量作业（工作流模式）──────────────────────────────────────────
    状态条的数据源。只读聚合，逐项明细不走这里——几百上千项读进浏览器毫无意义。 */
 
-export async function listChatJobs(chatId: string): Promise<JobBrief[]> {
-  const res = await apiRequest<unknown>(`/v1/jobs?chat_id=${encodeURIComponent(chatId)}&live=true`);
+/** 会话的作业列表。默认只给未结束的（状态条轮询口径）；`live=false` 连终态一起给——
+ *  刷新后要靠它把「上次没善终的作业」找回来，否则重新挂载时那条告警就凭空消失了。 */
+export async function listChatJobs(chatId: string, live = true): Promise<JobBrief[]> {
+  const res = await apiRequest<unknown>(
+    `/v1/jobs?chat_id=${encodeURIComponent(chatId)}&live=${live ? 'true' : 'false'}`,
+  );
   const data = unwrapData<{ jobs?: JobBrief[] }>(res);
   return data?.jobs ?? [];
 }
@@ -2493,6 +2757,9 @@ export const api = {
   logout,
   listChatShares,
   authFetch,
+  listPluginUiContributions,
+  callPluginDataSource,
+  pluginWebAssetUrl,
   uploadFile,
   overwriteFile,
   getArtifacts,
@@ -3774,6 +4041,9 @@ export interface ModelRoleAssignment {
   description?: string;
   type?: string;
   required_type?: string;
+  /** 该角色额外要求供应商声明的 extra_config 能力位（如 vision 角色的 supports_vision）；
+   *  为空表示只按 provider_type 匹配即可。 */
+  requires_capability?: string | null;
   provider_id: string | null;
   provider_name?: string | null;
   [key: string]: unknown;
@@ -3798,6 +4068,42 @@ export interface ProviderSchema {
   api_key_required?: boolean;
   fields?: ProviderSchemaField[];
   [key: string]: unknown;
+}
+
+/** 上下文窗口自动探测的输入（未保存的表单值即可探测）。 */
+export interface ContextProbeInput {
+  provider: string;
+  provider_type?: string;
+  base_url?: string;
+  api_key?: string;
+  model_name: string;
+  /** 编辑已保存供应商时 API Key 框为空（表示不修改），传 provider_id 让后端复用已存密钥。 */
+  provider_id?: string;
+  /** 允许多花一次「超限报错」探测（上游校验阶段即拒绝，不产生推理费用）。 */
+  allow_error_probe?: boolean;
+}
+
+export interface ContextProbeResult {
+  /** 探到的上下文窗口（token）；0 表示没探到，需人工填写。 */
+  context_length: number;
+  /** models_endpoint | ollama_show | max_tokens_probe | name_heuristic */
+  source: string;
+  source_label: string;
+  /** high = 上游自报；medium = 报错回报；low = 按模型名推断。 */
+  confidence: 'high' | 'medium' | 'low' | 'none';
+  detail: string;
+  /** 逐级说明每个来源看到了什么，供管理员判断该手工填多少。 */
+  notes: string[];
+}
+
+export async function detectModelContextLength(
+  input: ContextProbeInput,
+): Promise<ContextProbeResult> {
+  const wrapped = await apiRequest<unknown>('/v1/models/providers/detect-context', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return unwrapData<ContextProbeResult>(wrapped);
 }
 
 export async function listModelProviders(): Promise<ModelProviderItem[]> {

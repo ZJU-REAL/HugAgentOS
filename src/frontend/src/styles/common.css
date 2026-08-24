@@ -16,6 +16,17 @@
   line-height:1.44;
   color:var(--color-text);
 }
+/* markdown 里的图片必须被容器夹住。知识库图片入库后，分块正文里是一条
+   `![](/api/v1/catalog/kb/assets/...)`，文档「内容预览」与对话正文都用这个容器渲染，
+   没有这条规则时图片按**原始像素**铺开，弹窗直接装不下（截图型资产尤其明显）。 */
+.jx-md img{
+  max-width:100%;
+  height:auto;
+  border-radius:var(--radius-sm);
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  background:var(--color-bg-gray);
+}
+
 .jx-md h1:first-child,
 .jx-md h2:first-child,
 .jx-md h3:first-child{margin-top:0}
@@ -140,6 +151,56 @@
 }
 .jx-md tr:nth-child(even) td{
   background:var(--color-bg-layout);
+}
+
+/* 表格复制：mdToHtml postprocess 给每个 <table> 包 .jx-mdTable 容器并注入右上角
+   复制按钮（utils/tableCopy.ts）。悬浮到表格上才显示，触屏（无 hover）常显。 */
+.jx-mdTable{
+  position:relative;
+}
+.jx-mdTable-copy{
+  position:absolute;
+  top:6px;
+  right:6px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:24px;
+  height:24px;
+  padding:0;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-xs);
+  background:var(--color-bg-elevated);
+  color:var(--color-text-tertiary);
+  cursor:pointer;
+  opacity:0;
+  z-index:1;
+  transition:opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-mdTable:hover .jx-mdTable-copy,
+.jx-mdTable-copy:focus-visible{
+  opacity:1;
+}
+.jx-mdTable-copy:hover{
+  color:var(--color-primary);
+  border-color:var(--color-primary);
+}
+.jx-mdTable-copy--done{
+  color:var(--color-success);
+  border-color:var(--color-success);
+  opacity:1;
+}
+.jx-mdTable-copy--fail{
+  color:var(--color-error);
+  border-color:var(--color-error);
+  opacity:1;
+}
+@media (hover: none){
+  .jx-mdTable-copy{
+    opacity:1;
+  }
 }
 
 /* Links */

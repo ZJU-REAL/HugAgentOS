@@ -49,6 +49,9 @@ export const ONBOARDING_DICT: Record<string, string> = {
   '厂商或协议': 'Provider or protocol',
   '模型接口地址': 'Model endpoint',
   '上下文窗口': 'Context window',
+  '留空自动探测': 'Leave blank to auto-detect',
+  '留空即可——保存时会向模型服务查询真实上下文窗口，查不到再按模型名推断。':
+    'Leaving this blank is fine — on save we ask the model service for its real context window and fall back to inferring it from the model name.',
   '保存时会实际测试模型连通性，并自动指派给全部对话角色。': 'Saving tests the model connection and assigns it to every chat role.',
   '保存时会实际测试已填写模型的连通性并自动指派角色；索引模型和重排模型留空即可跳过。': 'Saving tests each completed model configuration and assigns its role. Leave the index or reranker model blank to skip it.',
   '这一步可以跳过': 'You can skip this step',

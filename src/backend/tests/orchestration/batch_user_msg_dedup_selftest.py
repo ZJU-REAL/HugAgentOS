@@ -2,7 +2,7 @@
 
 Background
 ----------
-The old implementation of `_run_item_via_workflow` in `routing/batch_orchestrator.py`
+The old implementation of `_run_item_via_workflow` in `orchestration/batch_orchestrator.py`
 had a passage like this:
 
     try:
@@ -48,9 +48,9 @@ directly with `ast` and verifies:
 
 1. The body of `_run_item_via_workflow` contains **no** call to
    `agent.memory.add(Msg("user", prompt, ...))`.
-2. The synthesis fallback in `_fallback_recover_final_text` **still keeps**
-   `agent.memory.add(Msg("user", synthesis_hint, ...))` — that one is necessary
-   (it precedes a no-argument `agent.reply()` call; reply won't add the msg by itself).
+2. The synthesis fallback in `_fallback_recover_final_text` **still keeps** an
+   explicitly-provenanced `append_context_text(agent, synthesis_hint, ...)` — that
+   one is necessary because it precedes a no-argument `agent.reply()` call.
 3. The `streaming_agent.stream(session_messages=...)` call is still present in
    `_run_item_via_workflow`.
 
@@ -58,7 +58,7 @@ If anyone writes that manual add back in the future, they will hang on this regr
 
 Run directly:
 
-    python3 -m tests.batch_user_msg_dedup_selftest
+    python3 -m tests.orchestration.batch_user_msg_dedup_selftest
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-_BATCH_PY = Path(__file__).resolve().parents[2] / "routing" / "batch_orchestrator.py"
+_BATCH_PY = Path(__file__).resolve().parents[2] / "orchestration" / "batch_orchestrator.py"
 
 
 def _load_source() -> str:
@@ -155,7 +155,7 @@ def test_run_item_workflow_no_pre_add() -> None:
         for arg in call.args:
             assert not _is_msg_with_prompt(arg), (
                 "regression: _run_item_via_workflow re-introduced "
-                "agent.memory.add(Msg(\"user\", prompt, ...)). "
+                'agent.memory.add(Msg("user", prompt, ...)). '
                 "StreamingAgent.stream() already passes the prompt to "
                 "agent.reply(user_msg), which adds it to memory once. "
                 "Adding it manually causes a duplicate user message."
@@ -173,7 +173,7 @@ def test_run_item_workflow_still_streams() -> None:
 
 
 def test_fallback_recover_preserved() -> None:
-    """The legit memory.add in `_fallback_recover_final_text` must stay.
+    """The legit provenanced context append in the fallback must stay.
 
     There, `agent.reply()` is called WITHOUT user_msg, so reply does NOT
     add anything — the manual add of `synthesis_hint` is the only way
@@ -183,15 +183,15 @@ def test_fallback_recover_preserved() -> None:
     fn = _find_function(tree, "_fallback_recover_final_text")
     has_synthesis_add = False
     for call in _calls_in(fn):
-        if not _is_agent_memory_add(call):
+        if not (isinstance(call.func, ast.Name) and call.func.id == "append_context_text"):
             continue
         for arg in call.args:
-            if _is_msg_with_synthesis_hint(arg):
+            if isinstance(arg, ast.Name) and arg.id == "synthesis_hint":
                 has_synthesis_add = True
                 break
     assert has_synthesis_add, (
         "regression: _fallback_recover_final_text lost its "
-        "agent.memory.add(Msg(\"user\", synthesis_hint, \"user\")) — "
+        "append_context_text(agent, synthesis_hint, ...) — "
         "that one is necessary because agent.reply() is called with no "
         "user_msg, so reply won't add the synthesis hint by itself."
     )
@@ -215,7 +215,7 @@ def test_msg_import_inside_workflow_helper_dropped() -> None:
 
 
 def test_fallback_recover_still_imports_msg() -> None:
-    """Inverse pin: the fallback helper DOES still need Msg."""
+    """The fallback now uses the Context IR adapter and must not construct Msg."""
     tree = ast.parse(_load_source())
     fn = _find_function(tree, "_fallback_recover_final_text")
     has_msg_import = False
@@ -224,10 +224,9 @@ def test_fallback_recover_still_imports_msg() -> None:
             for alias in node.names:
                 if alias.name == "Msg":
                     has_msg_import = True
-    assert has_msg_import, (
-        "_fallback_recover_final_text must keep its local Msg import — "
-        "it constructs Msg(\"user\", synthesis_hint, \"user\") right before "
-        "agent.reply()"
+    assert not has_msg_import, (
+        "_fallback_recover_final_text must use append_context_text so the "
+        "synthesis instruction retains explicit system provenance"
     )
 
 
@@ -238,16 +237,26 @@ def test_fallback_recover_still_imports_msg() -> None:
 
 def _run_all() -> int:
     cases = [
-        ("_run_item_via_workflow no pre-add of Msg(\"user\", prompt, ...)",
-         test_run_item_workflow_no_pre_add),
-        ("_run_item_via_workflow still calls streaming_agent.stream(session_messages=...)",
-         test_run_item_workflow_still_streams),
-        ("_fallback_recover_final_text keeps its agent.memory.add(synthesis_hint)",
-         test_fallback_recover_preserved),
-        ("_run_item_via_workflow no longer imports Msg locally",
-         test_msg_import_inside_workflow_helper_dropped),
-        ("_fallback_recover_final_text still imports Msg locally",
-         test_fallback_recover_still_imports_msg),
+        (
+            '_run_item_via_workflow no pre-add of Msg("user", prompt, ...)',
+            test_run_item_workflow_no_pre_add,
+        ),
+        (
+            "_run_item_via_workflow still calls streaming_agent.stream(session_messages=...)",
+            test_run_item_workflow_still_streams,
+        ),
+        (
+            "_fallback_recover_final_text keeps its agent.memory.add(synthesis_hint)",
+            test_fallback_recover_preserved,
+        ),
+        (
+            "_run_item_via_workflow no longer imports Msg locally",
+            test_msg_import_inside_workflow_helper_dropped,
+        ),
+        (
+            "_fallback_recover_final_text still imports Msg locally",
+            test_fallback_recover_still_imports_msg,
+        ),
     ]
     print("=== batch_user_msg_dedup_selftest ===")
     failed = 0
@@ -271,4 +280,5 @@ def _run_all() -> int:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(_run_all())

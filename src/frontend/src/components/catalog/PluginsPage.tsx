@@ -6,11 +6,12 @@ import {
   AppstoreAddOutlined, EditOutlined, UploadOutlined, ApiOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore } from '../../stores';
+import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore, usePluginUiStore } from '../../stores';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
+import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { DingTalkConnect } from '../settings/DingTalkConnect';
 import { LarkConnect } from '../settings/LarkConnect';
 import { EmailConnect } from '../settings/EmailConnect';
@@ -52,8 +53,8 @@ export function PluginsPage() {
   // CE 无用户/管理员体系，全局安装的默认插件不标「管理员」
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
-    title: '插件库',
-    subtitle: '插件把成套的技能与 MCP 工具打包成一个整体，安装后即可整组启用。',
+    title: ABILITY_TAB_TITLE.plugins,
+    subtitle: '插件把成套的技能与连接器打包成一个整体，安装后即可整组启用。',
   });
 
   const [loading, setLoading] = useState(false);
@@ -98,6 +99,8 @@ export function PluginsPage() {
       refresh(),
       fetchCatalog().catch(() => {}),
       usePluginStore.getState().fetchInstalled(true),
+      // 插件的界面贡献随安装/卸载生效或消失，和插件列表一起强制重拉。
+      usePluginUiStore.getState().fetchContributions(true),
     ]);
   }, [refresh, fetchCatalog]);
 
@@ -424,7 +427,7 @@ export function PluginsPage() {
               ) : (
                 <Alert type="warning" showIcon
                   message={t('该插件需要管理员配置后才能使用')}
-                  description={t('请联系管理员在「插件库」中为本插件开通相关配置（{items}）。', {
+                  description={t('请联系管理员在「插件」中为本插件开通相关配置（{items}）。', {
                     items: d.admin_config.fields.map((f) => f.label).join('、'),
                   })} />
               )}
@@ -460,7 +463,7 @@ export function PluginsPage() {
           {/* MCP components */}
           {mcps.length > 0 && (
             <div style={{ marginTop: 16 }}>
-              <h4 className="jx-sectionTitle">{t('MCP 工具')}（{mcps.length}）</h4>
+              <h4 className="jx-sectionTitle">{t('连接器')}（{mcps.length}）</h4>
               <div className="jx-mcp-grid">
                 {mcps.map((m, idx) => (
                   <ComponentCard
