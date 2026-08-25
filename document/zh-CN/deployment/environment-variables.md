@@ -279,26 +279,6 @@
 | `MEMORY_PROCEDURE_WEAK_TTL_DAYS` | `30` | L2 弱规则试用期（天）：期内未再出现则过期，再次出现即升为持久 | CE |
 | `MEMORY_TTL_SWEEP_ENABLED` / `MEMORY_TTL_SWEEP_CRON` | `true` / `15 4 * * *` | 每日过期记忆物理清理（过期条目在此之前已被检索侧隐藏） | CE |
 
-## Langfuse 追踪与评测
-
-| 变量 | 默认值 | 说明 | 版本 |
-|---|---|---|---|
-| `LANGFUSE_ENABLED` | `false` | 智能体追踪总开关；缺少凭据或服务不可用时自动降级，不影响问答 | CE |
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | （空） | Langfuse 项目 API 凭据 | CE |
-| `LANGFUSE_BASE_URL` | （SDK 默认） | Langfuse Web 地址；自建 Compose 推荐使用共享网络内地址 | CE |
-| `LANGFUSE_TRACING_ENVIRONMENT` | `default` | 环境标签，例如 `staging` / `production` | CE |
-| `LANGFUSE_RELEASE` | （空） | 发布版本或 Git 提交号，用于版本对比 | CE |
-| `LANGFUSE_SAMPLE_RATE` | `1.0` | Trace 采样率，范围 `0`～`1` | CE |
-| `LANGFUSE_CAPTURE_CONTENT` | `false` | 是否发送脱敏、截断后的用户问题和最终答案；关闭时仅记录字符数 | CE |
-| `LANGFUSE_CAPTURE_TOOL_IO` | `false` | 是否发送工具参数与结果；其中更容易含业务数据，建议保持关闭 | CE |
-| `LANGFUSE_MAX_CONTENT_CHARS` | `8000` | 单段问答内容发送上限 | CE |
-| `LANGFUSE_DOCKER_NETWORK` | `langfuse-observability` | `docker-compose.langfuse.yml` 使用的外部共享网络名 | CE |
-
-启用 `docker-compose.langfuse.yml` 前，先创建外部网络并将自建 Langfuse 的
-`langfuse-web` 服务接入该网络。每轮问答会生成一个根 Agent observation，
-物理模型请求和真实工具执行作为子 observation；点赞/点踩同步为
-`user_feedback` Score。
-
 ## 上下文压缩
 
 对话历史逼近模型窗口时，系统会把较早的历史摘要成一段"交接摘要"，并以「近期用户消息 + 摘要」

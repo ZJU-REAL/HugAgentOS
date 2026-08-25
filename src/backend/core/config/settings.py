@@ -889,33 +889,6 @@ class GatewaySettings:
 
 
 @dataclass(frozen=True)
-class LangfuseSettings:
-    """Optional Langfuse tracing and evaluation export."""
-
-    enabled: bool = field(
-        default_factory=lambda: _bool(_env("LANGFUSE_ENABLED", "false"))
-    )
-    capture_content: bool = field(
-        default_factory=lambda: _bool(_env("LANGFUSE_CAPTURE_CONTENT", "false"))
-    )
-    capture_tool_io: bool = field(
-        default_factory=lambda: _bool(_env("LANGFUSE_CAPTURE_TOOL_IO", "false"))
-    )
-    max_content_chars: int = field(
-        default_factory=lambda: max(
-            256, _int(_env("LANGFUSE_MAX_CONTENT_CHARS", "8000"), 8000)
-        )
-    )
-    environment: str = field(
-        default_factory=lambda: (
-            _env("LANGFUSE_TRACING_ENVIRONMENT", _env("ENV", "default")).strip()
-            or "default"
-        )
-    )
-    release: str = field(default_factory=lambda: _env("LANGFUSE_RELEASE", "").strip())
-
-
-@dataclass(frozen=True)
 class BrandingSettings:
     """Single source of brand defaults — the in-code fallback stays neutral; deployment branding comes from env / the content_blocks DB seed."""
 
@@ -973,7 +946,6 @@ class AppSettings:
     sandbox: SandboxSettings = field(default_factory=SandboxSettings)
     edition: EditionSettings = field(default_factory=EditionSettings)
     gateway: GatewaySettings = field(default_factory=GatewaySettings)
-    langfuse: LangfuseSettings = field(default_factory=LangfuseSettings)
     branding: BrandingSettings = field(default_factory=BrandingSettings)
 
 

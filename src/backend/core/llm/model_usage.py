@@ -9,7 +9,6 @@ from collections.abc import AsyncGenerator, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 from core.harness.usage import (
@@ -283,19 +282,6 @@ def instrument_model_usage(
         key = _attempt_key(model, operation)
         _clear_attempt_started(key)
 
-        from core.observability.langfuse import (
-            finish_attempt_observation,
-            mark_generation_first_token,
-            start_attempt_observation,
-        )
-
-        langfuse_observation = start_attempt_observation(
-            kind="model",
-            name=operation,
-            model=operation,
-            metadata={"provider": provider_name, "method": "_call_api"},
-        )
-
         async def record(
             status: str,
             usage: AttemptUsage | None = None,
@@ -321,37 +307,19 @@ def instrument_model_usage(
         try:
             response = await original(model_name, *args, **kwargs)
         except asyncio.CancelledError:
-            finish_attempt_observation(
-                langfuse_observation,
-                status="cancelled",
-                metadata={"provider": provider_name},
-            )
             await record("cancelled")
             _set_retry(key, None)
             _clear_attempt_started(key)
             raise
         except Exception as exc:
-            failure_status = attempt_status_for_exception(exc)
-            finish_attempt_observation(
-                langfuse_observation,
-                status=failure_status,
-                metadata={"provider": provider_name},
-            )
             if not _failure_was_recorded(exc):
-                recorded = await record(failure_status)
+                recorded = await record(attempt_status_for_exception(exc))
                 if recorded is not None:
                     _set_retry(key, recorded.attempt_seq)
             raise
 
         if not inspect.isasyncgen(response):
-            response_usage = _usage_from_response(response)
-            finish_attempt_observation(
-                langfuse_observation,
-                status="success",
-                usage=response_usage,
-                metadata={"provider": provider_name, "stream": False},
-            )
-            await record("success", response_usage)
+            await record("success", _usage_from_response(response))
             _set_retry(key, None)
             _clear_attempt_started(key)
             return response
@@ -359,14 +327,8 @@ def instrument_model_usage(
         async def measured_stream() -> AsyncGenerator[Any, None]:
             last = None
             status = "cancelled"
-            first_token = True
             try:
                 async for item in response:
-                    if first_token:
-                        mark_generation_first_token(
-                            langfuse_observation, datetime.now(timezone.utc)
-                        )
-                        first_token = False
                     last = item
                     yield item
                 status = "success"
@@ -377,14 +339,7 @@ def instrument_model_usage(
                 status = attempt_status_for_exception(exc)
                 raise
             finally:
-                response_usage = _usage_from_response(last)
-                finish_attempt_observation(
-                    langfuse_observation,
-                    status=status,
-                    usage=response_usage,
-                    metadata={"provider": provider_name, "stream": True},
-                )
-                recorded = await record(status, response_usage, stream=True)
+                recorded = await record(status, _usage_from_response(last), stream=True)
                 if status in {"failed", "timeout"} and recorded is not None:
                     _set_retry(key, recorded.attempt_seq)
                 elif status not in {"failed", "timeout"}:

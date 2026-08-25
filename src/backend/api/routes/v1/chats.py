@@ -21,7 +21,7 @@ from core.chat.context import (
     resolve_user_facing_error,
 )
 from core.db.engine import SessionLocal, get_db
-from core.db.models import ChatRun, MessageFeedback
+from core.db.models import MessageFeedback
 from core.infra.exceptions import ResourceNotFoundError, ServiceUnavailableError
 from core.infra.logging import get_logger
 from core.infra.responses import (
@@ -2092,27 +2092,6 @@ async def submit_feedback(
             )
         except Exception:  # noqa: BLE001 - feedback persistence must remain available
             logger.warning("ontology user-correction ingestion failed", exc_info=True)
-
-    # Feedback persistence is authoritative; Langfuse receives a fail-open
-    # projection onto the deterministic trace for this assistant message.
-    try:
-        trace_run = (
-            db.query(ChatRun)
-            .filter(ChatRun.message_id == message_id)
-            .order_by(ChatRun.created_at.desc())
-            .first()
-        )
-        if trace_run is not None:
-            from core.observability.langfuse import record_user_feedback
-
-            record_user_feedback(
-                run_id=trace_run.run_id,
-                message_id=message_id,
-                rating=body.rating,
-                comment=body.comment,
-            )
-    except Exception:  # noqa: BLE001 - scoring cannot break feedback submission
-        logger.warning("langfuse feedback projection failed", exc_info=True)
 
     return {"ok": True, "feedback_id": record.feedback_id, "rating": record.rating}
 

@@ -258,20 +258,6 @@ class ToolEffectMiddleware(MiddlewareBase):
             binding_token = CURRENT_RUN_BINDING.set((run_id, run_owner))
             invoke_kwargs = input_kwargs
             effect = CURRENT_TOOL_EFFECT.get()
-            from core.observability.langfuse import (
-                finish_attempt_observation,
-                start_attempt_observation,
-            )
-
-            langfuse_observation = start_attempt_observation(
-                kind="tool",
-                name=tool_name,
-                input=args,
-                metadata={
-                    "tool_call_id": tool_call_id,
-                    "effect_id": getattr(effect, "effect_id", "") if effect else "",
-                },
-            )
             if effect is not None and tool_name in {
                 "create_scheduled_task",
                 "update_scheduled_task",
@@ -302,15 +288,6 @@ class ToolEffectMiddleware(MiddlewareBase):
                 raise
             finally:
                 CURRENT_RUN_BINDING.reset(binding_token)
-                finish_attempt_observation(
-                    langfuse_observation,
-                    status=usage_status,
-                    output=(self._response_payload(final) if final is not None else None),
-                    metadata={
-                        "tool_call_id": tool_call_id,
-                        "effect_id": getattr(effect, "effect_id", "") if effect else "",
-                    },
-                )
                 if effect is not None:
                     try:
                         await record_usage_safely(
