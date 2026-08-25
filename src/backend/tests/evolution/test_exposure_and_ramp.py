@@ -158,7 +158,7 @@ def test_an_evolved_skill_with_no_release_is_withheld():
 def test_hand_authored_skills_are_never_filtered():
     from core.evolution.exposure import filter_skill_ids
 
-    ids = ["word-editing", "ppt-design"]
+    ids = ["officecli-docx", "officecli-pptx"]
     assert filter_skill_ids(ids, user_id="u1") == ids
     assert not any(is_evolved_skill_id(sid) for sid in ids)
 

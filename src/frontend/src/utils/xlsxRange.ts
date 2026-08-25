@@ -7,7 +7,7 @@ type XlsxModule = typeof import('xlsx');
  *
  * SheetJS reads `!ref` straight from the worksheet's `<dimension>` tag and
  * trusts it verbatim — it only scans real cells when `<dimension>` is absent.
- * Some editors (our excel-editing skill before the dimension fix, and any
+ * Some editors (the retired excel-editing skill before its dimension fix, and any
  * tool that appends rows without updating `<dimension>`) leave a stale,
  * too-small `<dimension>`. The file is fine — Excel re-derives the used range
  * on open — but our SheetJS-based previews (`sheet_to_html`, the Univer

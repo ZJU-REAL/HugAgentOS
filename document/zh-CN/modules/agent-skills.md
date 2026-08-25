@@ -35,17 +35,31 @@
 
 `src/backend/skill_bundles/` 下分两层，加载语义完全不同：
 
-- **`default/` — 5 个内置技能**（always-on，内置加载器 `glob("*/SKILL.md")` 单层扫描命中）：
+- **`default/` — 12 个内置技能**（always-on，内置加载器 `glob("*/SKILL.md")` 单层扫描命中）：
 
   | 技能 | 用途 |
   |---|---|
   | `capability-guide-brief` | 能力清单速答（"你能做什么"类问题） |
-  | `word-editing` | Word 文档生成/编辑/套模板（word-cli） |
-  | `excel-editing` | Excel 工作簿生成/公式建模（excel-cli） |
-  | `ppt-design` | PPT 设计与生成（.pptx 产物） |
   | `pdf-editing` | PDF 生成/合并/拆分/填表 |
+  | `officecli-docx` | Word 深度 OOXML 编辑：TOC / 域 / 脚注 / 公式 / 批注修订（officecli） |
+  | `officecli-xlsx` | Excel 深度 OOXML 编辑：透视表 / 迷你图 / 条件格式（officecli） |
+  | `officecli-pptx` | PPT 深度 OOXML 编辑：母版版式 / 连接线 / 逐页截图质检（officecli） |
+  | `officecli-word-form` | 可填写 Word 表单：内容控件(SDT) + 复选框 + 邮件合并域 + 文档保护 |
+  | `officecli-academic-paper` | 学术论文排版：APA / Chicago / IEEE / MLA 引用与交叉引用 |
+  | `officecli-data-dashboard` | Excel 数据看板：KPI 卡片 + 多图表 + 迷你图 |
+  | `officecli-financial-model` | Excel 财务模型：三表 / DCF / LBO / 敏感性分析 |
+  | `officecli-pitch-deck` | 融资路演 PPT |
+  | `morph-ppt` | Morph 平滑转场动效 PPT（自带 40 套设计风格包） |
+  | `morph-ppt-3d` | 带 .glb 三维模型与镜头运动的 Morph 动效 PPT |
 
-- **`marketplace/` — 48 个可安装技能包**（安装制）：每个目录含原始 SKILL.md + 引用文件 + 一份 `marketplace.json` 清单。因为它们位于两层深的 `marketplace/<slug>/SKILL.md`，**不会**被内置加载器当作 default 技能自动加载——安装前不出现在 catalog、不注册给智能体，只有显式安装后才落库生效。
+  后 10 个来自开源项目 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)（Apache 2.0），
+  依赖沙箱镜像预装的 `officecli` 单文件二进制（`/usr/local/bin/officecli`，版本由三个沙箱
+  Dockerfile 的 `ARG OFFICECLI_VERSION` 锁定）。每个技能的 frontmatter 在上游英文
+  `description` 前拼了一段中文触发说明，正文里的联网安装段换成了本系统的
+  《运行环境与交付链》。**OfficeCLI 不处理 PDF**，
+  读取 / 合并 / 拆分 / 填表单仍走 `pdf-editing`。
+
+- **`marketplace/` — 45 个可安装技能包**（安装制）：每个目录含原始 SKILL.md + 引用文件 + 一份 `marketplace.json` 清单。因为它们位于两层深的 `marketplace/<slug>/SKILL.md`，**不会**被内置加载器当作 default 技能自动加载——安装前不出现在 catalog、不注册给智能体，只有显式安装后才落库生效。
 
   其中 10 个行业/品牌技能（经济指标查询、企业画像查询、产业链结构分析等，硬依赖 [EE 行业 MCP](mcp-tools.md)）属**商业版 EE**，社区版派生树通过 `ce/manifest.yaml` 剔除。
 
@@ -115,6 +129,8 @@
 
 - 管理员安装：`owner_user_id` 为空（全员可用），技能 id = 清单 `entry_name`；
 - 用户安装：`owner_user_id` = 当前用户，技能 id 追加用户指纹后缀（`compute_install_id`）保证全局唯一——多个用户可各自安装同一技能、各带各的凭据。
+
+市场摘要只用于市场卡片，不会代替技能的用户介绍。上架时会单独保存明确填写的用户介绍；安装时若用户介绍为空或仅包含空白字符，能力中心会自动展示去掉 frontmatter 后的 `SKILL.md` 正文。
 
 ### 凭据机制：required_secrets → secrets.json
 
@@ -201,8 +217,8 @@
 | `src/backend/core/agent_skills/deps_detector.py` | 脚本 pip/apt 依赖静态探测 |
 | `src/backend/core/agent_skills/backends/` | filesystem / database / composite 加载后端 |
 | `src/backend/core/llm/tools/skill_tool.py` | 受限 view_text_file + {baseDir} 替换 + Runtime Hint |
-| `src/backend/skill_bundles/default/` | 5 个内置技能 |
-| `src/backend/skill_bundles/marketplace/` | 48 个可安装市场技能包 |
+| `src/backend/skill_bundles/default/` | 12 个内置技能（含 10 个 OfficeCLI 系列） |
+| `src/backend/skill_bundles/marketplace/` | 45 个可安装市场技能包 |
 | `src/backend/core/services/marketplace_service.py` | 市场列表/安装/凭据注入/上架审核 |
 | `src/backend/api/routes/v1/marketplace.py` | 用户侧市场 API（浏览/安装/提交/撤回） |
 | `src/backend/api/routes/v1/admin_marketplace.py` | 管理员市场 API（全局安装/审核上架） |

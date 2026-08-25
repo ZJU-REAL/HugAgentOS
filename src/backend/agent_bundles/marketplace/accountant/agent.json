@@ -23,7 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "excel-editing",
+      "officecli-xlsx",
       "financial-report-minesweeper"
     ],
     "mcp_server_ids": [

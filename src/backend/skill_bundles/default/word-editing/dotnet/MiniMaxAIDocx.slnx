@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="MiniMaxAIDocx.Cli/MiniMaxAIDocx.Cli.csproj" />
-  <Project Path="MiniMaxAIDocx.Core/MiniMaxAIDocx.Core.csproj" />
-</Solution>

@@ -1467,13 +1467,11 @@ class ToolEffectGateway:
                     if classify_failure is not None
                     else False
                 )
-                if failed and policy.policy != "replay_safe":
-                    # AgentScope deliberately converts adapter exceptions into
-                    # an ERROR ToolResponse. For side-effecting/non-replayable
-                    # tools that response cannot prove whether the external
-                    # effect happened, so fail closed and let the configured
-                    # recovery policy reconcile or require manual review.
-                    raise ToolOutcomeUnknown(decision.effect_id)
+                # A returned error payload is still a definitive tool outcome.
+                # Persist it and give the original error back to the model so
+                # it can correct the request or explain an authorization issue.
+                # ToolOutcomeUnknown is reserved for invocations that never
+                # produced a result at all (exceptions, disconnects, crashes).
                 result = self.journal.commit_result(
                     decision.effect_id,
                     run_owner=owner,

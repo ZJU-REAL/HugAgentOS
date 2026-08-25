@@ -13,6 +13,8 @@ import time
 
 from core.services import desktop_capability as cap
 from core.services import desktop_cloud_bridge as bridge
+from core.db.model_repository import assign_role, create_provider
+from sqlalchemy.orm import sessionmaker
 
 
 # ── capability token ────────────────────────────────────────────────────
@@ -32,6 +34,7 @@ def test_token_roundtrip():
     data = cap.issue_capability_token("user-1", ttl_s=3600)
     assert data["token"].startswith("dcap1.")
     assert cap.verify_capability_token(data["token"]) == "user-1"
+    assert data["scope"] == "desktop_runtime"
 
 
 def test_token_tamper_rejected():
@@ -49,6 +52,105 @@ def test_token_expiry(monkeypatch):
     real_time = time.time
     monkeypatch.setattr(time, "time", lambda: real_time() + 7200)
     assert cap.verify_capability_token(token) is None
+
+
+# ── 模型能力清单 / 网关授权 ───────────────────────────────────────
+
+
+def _use_test_database(monkeypatch, db_session):
+    monkeypatch.setattr(cap, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+
+
+def test_model_manifest_contains_no_upstream_credentials(monkeypatch, db_session):
+    _use_test_database(monkeypatch, db_session)
+    from core.services import user_model_selection
+
+    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
+    assigned = create_provider(
+        db_session,
+        display_name="Private DeepSeek",
+        provider_type="chat",
+        provider="openai_compatible",
+        base_url="http://192.0.2.10:1029/v1",
+        api_key="never-send-this-key",
+        model_name="deepseek-private",
+        extra_config={"context_length": 131072, "custom_secret": "also-private"},
+    )
+    unassigned = create_provider(
+        db_session,
+        display_name="Unassigned",
+        provider_type="chat",
+        provider="openai",
+        base_url="https://model.example/v1",
+        api_key="another-secret",
+        model_name="unassigned-model",
+    )
+    assert assign_role(db_session, "main_agent", assigned.provider_id)
+
+    manifest = cap.build_user_model_manifest("user-1")
+
+    assert manifest["version"] == 1
+    assert {p["provider_id"] for p in manifest["providers"]} == {
+        assigned.provider_id,
+        unassigned.provider_id,
+    }
+    provider = next(p for p in manifest["providers"] if p["provider_id"] == assigned.provider_id)
+    assert "base_url" not in provider
+    assert "api_key" not in provider
+    assert "custom_secret" not in provider["extra_config"]
+    assert provider["extra_config"]["context_length"] == 131072
+    assert manifest["role_assignments"] == [
+        {"role_key": "main_agent", "provider_id": assigned.provider_id}
+    ]
+    for item in manifest["providers"]:
+        assert "base_url" not in item
+        assert "api_key" not in item
+
+
+def test_model_gateway_target_is_role_or_user_switch_allowlisted(monkeypatch, db_session):
+    _use_test_database(monkeypatch, db_session)
+    from core.services import user_model_selection
+
+    assigned = create_provider(
+        db_session,
+        display_name="Assigned chat",
+        provider_type="chat",
+        base_url="http://192.0.2.10:1029/v1/",
+        api_key="cloud-only-key",
+        model_name="assigned-model",
+    )
+    selectable = create_provider(
+        db_session,
+        display_name="Selectable chat",
+        provider_type="chat",
+        base_url="https://models.example/v1",
+        api_key="selectable-key",
+        model_name="selectable-model",
+    )
+    embedding = create_provider(
+        db_session,
+        display_name="Unassigned embedding",
+        provider_type="embedding",
+        base_url="https://models.example/v1",
+        api_key="embedding-key",
+        model_name="embed-model",
+    )
+    assert assign_role(db_session, "main_agent", assigned.provider_id)
+
+    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
+    target = cap.resolve_model_gateway_target("user-1", assigned.provider_id)
+    assert target == {
+        "url": "http://192.0.2.10:1029/v1/chat/completions",
+        "api_key": "cloud-only-key",
+        "model_name": "assigned-model",
+        "provider_type": "chat",
+        "path": "chat/completions",
+    }
+    assert cap.resolve_model_gateway_target("user-1", selectable.provider_id) is None
+    assert cap.resolve_model_gateway_target("user-1", embedding.provider_id) is None
+
+    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: True)
+    assert cap.resolve_model_gateway_target("user-1", selectable.provider_id)["path"] == "chat/completions"
 
 
 # ── 组件基名（logical 去重键） ──────────────────────────────────────────

@@ -37,6 +37,7 @@ import ChatModeSwitch from './ChatModeSwitch';
 import ModelEffortChip from './ModelEffortChip';
 import { ContextGauge } from './ContextGauge';
 import { QueuedMessageCard } from './QueuedMessageCard';
+import { extractClipboardImageFiles } from '../../utils/clipboardFiles';
 import { t } from '../../i18n';
 
 interface InputAreaProps {
@@ -953,6 +954,14 @@ export function InputArea({
           onKeyDown={onKeyDown}
           onPaste={(e) => {
             e.preventDefault();
+            const pastedImages = extractClipboardImageFiles(e.clipboardData);
+            if (pastedImages.length > 0) {
+              handleFileSelect(
+                { target: { files: pastedImages } } as unknown as React.ChangeEvent<HTMLInputElement>,
+                imageInputRef,
+              );
+              return;
+            }
             const text = e.clipboardData.getData('text/plain');
             document.execCommand('insertText', false, text);
           }}

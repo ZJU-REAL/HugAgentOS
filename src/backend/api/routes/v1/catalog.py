@@ -143,7 +143,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
     injected only into that user's /v1/catalog response; the frontend shows the "mine"
     badge and delete button based on ``owner == 'self'``.
     """
-    from core.config.catalog_loader import skill_body_from_raw
+    from core.config.catalog_loader import resolve_skill_detail
     from core.db.models import AdminMcpServer, AdminSkill, McpMarketInstallation
     from core.services.skill_icon_service import get_skill_icons
 
@@ -164,7 +164,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
             .all()
         ):
             # When user_intro is unset, fall back to showing the SKILL.md body (same policy as the global catalog).
-            detail = row.user_intro or skill_body_from_raw(row.skill_content or "")
+            detail = resolve_skill_detail(row.user_intro, row.skill_content or "")
             skill_items.append(
                 {
                     "id": row.skill_id,

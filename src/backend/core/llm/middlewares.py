@@ -53,8 +53,6 @@ from core.llm.hooks import (
     _GOAL_ANCHOR_REMINDER_TEMPLATE,
     _GOAL_ANCHOR_WARMUP_CALLS,
     _PIN_HINT_SKIP_TOOLS,
-    _PLAN_STALE_INTERVAL,
-    _PLAN_STALE_REMINDER_TEMPLATE,
     _build_file_context,
     _build_historical_files_context,
     _fetch_image_base64,
@@ -1141,6 +1139,16 @@ class GoalAnchorReminderMiddleware(MiddlewareBase):
 
 
 # ── PlanStaleReminder ──────────────────────────────────────────────────────
+# 停滞满 N 轮催一次，催完重新计时——等价于 Claude Code 那两个都取 10 的阈值。
+_PLAN_REMINDER_INTERVAL = 10
+
+_PLAN_STALE_REMINDER_TEMPLATE = """`update_plan` 已经 {rounds} 轮没有用过了。当前计划栏停在 {done}/{total}：
+{checklist}
+
+如果其中有步骤其实已经做完，可以调用一次 `update_plan` 把状态补上（传全量列表）；如果这份
+清单已经不符合你正在做的事，重写它比让它停在原地更好。仅在确实相关时才使用——这只是一条
+温和的提醒，不适用就忽略，不要为了回应它而打断手上的工作。不要向用户提起这条提醒。"""
+
 def _block_attr(block: Any, name: str, default: Any = None) -> Any:
     """内容块在 AS2 里是 pydantic 对象，但历史路径上也出现过 dict —— 两种都读。"""
     if isinstance(block, dict):
@@ -1180,18 +1188,12 @@ def _latest_plan_call(context: list) -> tuple[Optional[dict], str]:
 
 
 class PlanStaleReminderMiddleware(MiddlewareBase):
-    """计划栏停在半路时，把当前清单回灌给模型，催它调用 ``update_plan``。
+    """计划栏停滞满 ``_PLAN_REMINDER_INTERVAL`` 轮时，把当前清单软提醒给模型一次。
 
-    为什么需要：``update_plan`` 的推进是纯自觉行为——提示词开头讲一次，之后二十来轮
-    工具调用里没有任何提醒。实测 deepseekv4-flash 在长任务中间就不再更新，用户全程看着
-    一个停在 1/5 的进度条，而任务其实早就做完了。
-
-    只催更、不催建：模型压根没建过计划（简单问答、检索类请求）时一个字都不发——建不建
-    计划由模型按提示词自己判断，这里只负责"建了就别让它烂在半路"。清单全部结算完之后
-    也不再打扰。
+    模型没建过清单、或清单已全部结算，都不打扰；模型自己更新了清单则重新计时。
     """
 
-    def __init__(self, *, interval: int = _PLAN_STALE_INTERVAL) -> None:
+    def __init__(self, *, interval: int = _PLAN_REMINDER_INTERVAL) -> None:
         self._interval = max(1, int(interval))
         self._since_last = 0
         self._last_fingerprint: Optional[str] = None
@@ -1207,15 +1209,14 @@ class PlanStaleReminderMiddleware(MiddlewareBase):
     def _maybe_remind(self, agent: Agent) -> None:
         plan, fingerprint = _latest_plan_call(agent.state.context)
         if not plan:
-            return  # 还没有清单 —— 不催建
+            return
         if fingerprint != self._last_fingerprint:
-            # 模型刚更新过（或这是本轮第一次看到清单）→ 重新计时
             self._last_fingerprint = fingerprint
             self._since_last = 0
             return
         steps = plan.get("steps") or []
         if not any(s.get("status") in ("pending", "in_progress") for s in steps):
-            return  # 全部结算完毕，收尾过了，别再打扰
+            return
         self._since_last += 1
         if self._since_last < self._interval:
             return
@@ -1241,6 +1242,7 @@ class PlanStaleReminderMiddleware(MiddlewareBase):
             self._since_last,
         )
         self._since_last = 0
+
 
 # ── IterBudgetReminder ─────────────────────────────────────────────────────
 class IterBudgetReminderMiddleware(MiddlewareBase):

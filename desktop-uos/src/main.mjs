@@ -34,6 +34,7 @@ import { startNotificationPoll } from "./notifications.mjs";
 import { startProxy } from "./proxy.mjs";
 import { readJson, writeJson } from "./storage.mjs";
 import { checkForUpdates } from "./updater.mjs";
+import { hideUosWindowMenu, UOS_WINDOW_OPTIONS } from "./window-chrome.mjs";
 
 const sourceDir = dirname(fileURLToPath(import.meta.url));
 configureUosRuntime(app);
@@ -205,7 +206,7 @@ function createMainWindow(startUrl) {
     minHeight: 640,
     show: false,
     backgroundColor: "#f5f6f8",
-    autoHideMenuBar: false,
+    ...UOS_WINDOW_OPTIONS,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -215,6 +216,7 @@ function createMainWindow(startUrl) {
       preload: join(sourceDir, "preload.cjs"),
     },
   });
+  hideUosWindowMenu(Menu, mainWindow);
   installNavigationGuards(mainWindow);
   mainWindow.on("close", (event) => { void closeMain(event); });
   mainWindow.once("ready-to-show", () => mainWindow.show());
@@ -236,38 +238,13 @@ function toggleQuickAsk() {
     minHeight: 480,
     alwaysOnTop: true,
     skipTaskbar: true,
+    ...UOS_WINDOW_OPTIONS,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, preload: join(sourceDir, "preload.cjs") },
   });
+  hideUosWindowMenu(Menu, quickWindow);
   installNavigationGuards(quickWindow);
   void quickWindow.loadURL(localUrl("/?quickask=1"));
   quickWindow.on("closed", () => { quickWindow = null; });
-}
-
-function buildMenu() {
-  return Menu.buildFromTemplate([
-    { label: "文件", submenu: [
-      { label: "新建对话", accelerator: "CmdOrCtrl+N", click: () => void loadMain("/") },
-      { label: "运行模式…", click: () => void loadMain("/__desktop/init?manage=1") },
-      { label: "设置服务器地址…", click: () => void loadMain("/__desktop/server-config") },
-      { label: "本机服务…", click: () => void loadMain("/__desktop/setup?manage=1") },
-      { type: "separator" },
-      { label: "关闭时重新询问", click: () => void writeJson(join(configDir, "prefs.json"), { close_action: null }) },
-      { role: "quit", label: "退出" },
-    ] },
-    { label: "编辑", submenu: [
-      { role: "undo", label: "撤销" }, { role: "redo", label: "重做" }, { type: "separator" },
-      { role: "cut", label: "剪切" }, { role: "copy", label: "复制" }, { role: "paste", label: "粘贴" }, { role: "selectAll", label: "全选" },
-    ] },
-    { label: "视图", submenu: [
-      { role: "reload", label: "重新加载" }, { role: "togglefullscreen", label: "切换全屏" },
-    ] },
-    { label: "帮助", submenu: [
-      { label: "检查更新…", click: () => void checkForUpdates({ app, dialog, shell, http: runtime.http, updateBase: updateBase(runtime.config) }) },
-      { label: "访问官网", click: () => void shell.openExternal(runtime.brand.website_url || runtime.config.server_base) },
-      { type: "separator" },
-      { label: "关于", click: () => void dialog.showMessageBox({ title: "关于", message: `${runtime.brand.name} UOS 客户端`, detail: `Electron ${process.versions.electron}\n版本 ${app.getVersion()}\n目标 UOS 1070 aarch64` }) },
-    ] },
-  ]);
 }
 
 function buildTray() {
@@ -400,7 +377,6 @@ async function initializeApp() {
       ? "/__desktop/setup"
       : runtime.token ? "/" : "/__desktop/login";
   createMainWindow(localUrl(startPath));
-  Menu.setApplicationMenu(buildMenu());
   buildTray();
   if (!globalShortcut.register("CommandOrControl+Shift+Space", toggleQuickAsk)) console.warn("[shortcut] 全局快捷键注册失败");
   stopNotifications = startNotificationPoll({ Notification, http: runtime.http, proxyOrigin: proxy.origin, state: runtime, brand: runtime.brand.name });

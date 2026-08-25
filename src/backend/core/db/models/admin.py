@@ -397,6 +397,7 @@ class MarketplaceSubmission(Base):
 
     display_name = Column(String(255), nullable=False)
     summary = Column(Text, default="")
+    user_intro = Column(Text)  # explicit user-facing intro snapshot; NULL falls back to SKILL.md
     category = Column(String(64), default="社区共享")
     tags = Column(JSONType, default=list)
     version = Column(String(50), default="1.0.0")

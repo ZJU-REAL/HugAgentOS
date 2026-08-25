@@ -2,10 +2,11 @@ import { EventEmitter } from "node:events";
 import { closeSync, openSync } from "node:fs";
 import {
   appendFile,
-  copyFile,
+  cp,
   mkdir,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   writeFile,
@@ -42,23 +43,40 @@ async function backupData(dataRoot, backupsRoot) {
   const present = [];
   for (const file of BACKUP_FILES) if (await pathExists(join(dataRoot, file))) present.push(file);
   if (!present.length) return null;
-  const destination = join(backupsRoot, new Date().toISOString().replaceAll(/[:.]/g, "-"));
-  await mkdir(destination, { recursive: true });
-  for (const file of present) await copyFile(join(dataRoot, file), join(destination, file));
-  await writeFile(join(destination, "manifest.json"), `${JSON.stringify({ schema: 1, files: present }, null, 2)}\n`);
-  return destination;
+  await mkdir(backupsRoot, { recursive: true });
+  const timestamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
+  const staged = join(backupsRoot, `.stage-${process.pid}-${timestamp}`);
+  const destination = join(backupsRoot, `backup-${timestamp}`);
+  await rm(staged, { recursive: true, force: true });
+  await mkdir(staged, { recursive: true });
+  try {
+    for (const file of present) await cp(join(dataRoot, file), join(staged, file), { recursive: true });
+    await writeFile(join(staged, "manifest.json"), `${JSON.stringify({ schema: 1, files: present }, null, 2)}\n`);
+    await rename(staged, destination);
+    return destination;
+  } catch (error) {
+    await rm(staged, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function restoreData(dataRoot, backup) {
   const manifest = JSON.parse(await readFile(join(backup, "manifest.json"), "utf8"));
+  if (
+    manifest?.schema !== 1
+    || !Array.isArray(manifest.files)
+    || manifest.files.some((file) => !BACKUP_FILES.includes(file))
+  ) {
+    throw new Error("本机数据备份清单无效");
+  }
   await mkdir(dataRoot, { recursive: true });
-  for (const file of BACKUP_FILES) await rm(join(dataRoot, file), { force: true });
-  for (const file of manifest.files || []) await copyFile(join(backup, file), join(dataRoot, file));
+  for (const file of BACKUP_FILES) await rm(join(dataRoot, file), { recursive: true, force: true });
+  for (const file of manifest.files) await cp(join(backup, file), join(dataRoot, file), { recursive: true });
 }
 
 async function pruneBackups(root) {
   const entries = (await readdir(root, { withFileTypes: true }).catch(() => []))
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("backup-"))
     .sort((a, b) => b.name.localeCompare(a.name));
   for (const entry of entries.slice(MAX_BACKUPS)) await rm(join(root, entry.name), { recursive: true, force: true });
 }

@@ -24,7 +24,7 @@
   "bindings": {
     "skill_ids": [
       "csv-pipeline",
-      "excel-editing"
+      "officecli-xlsx"
     ],
     "mcp_server_ids": [
       "generate_chart_tool"

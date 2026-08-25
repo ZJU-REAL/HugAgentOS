@@ -377,12 +377,12 @@ pub fn run() {
 
             // 启动即持有有效云端会话（Dual）：立刻建立桥接身份 + 下发模型配置。
             if hybrid_local {
-                if let Some(t) = token0.clone() {
+                if token0.is_some() {
                     hybrid::on_cloud_login(
                         http.clone(),
                         cfg.server_base_trimmed().to_string(),
                         cfg.cookie_name.clone(),
-                        t,
+                        token.clone(),
                         bridge_user.clone(),
                         bridge_secret.clone(),
                         local_server.clone(),
@@ -1046,13 +1046,13 @@ fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
             Ok(tok) => {
                 *shared.token.write().await = Some(tok.clone());
                 auth::save_token(&shared.config_dir, Some(&tok));
-                // 混合架构（Dual）：登录成功即更新桥接身份并下发云端模型配置到本机。
+                // 混合架构（Dual）：登录成功即更新桥接身份并下发安全的本机执行能力。
                 if shared.hybrid_local {
                     hybrid::on_cloud_login(
                         shared.http.clone(),
                         shared.server_base.trim_end_matches('/').to_string(),
                         shared.cookie_name.clone(),
-                        tok.clone(),
+                        shared.token.clone(),
                         shared.bridge_user.clone(),
                         shared.bridge_secret.clone(),
                         shared.local_server.clone(),

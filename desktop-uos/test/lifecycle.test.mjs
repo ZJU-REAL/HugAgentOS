@@ -2,6 +2,29 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { configureUosRuntime, startWhenReady } from "../src/lifecycle.mjs";
+import { hideUosWindowMenu, UOS_WINDOW_OPTIONS } from "../src/window-chrome.mjs";
+
+test("UOS windows never render or reveal an application menu bar", () => {
+  const calls = [];
+  const menu = {
+    setApplicationMenu: (value) => calls.push(["application", value]),
+  };
+  const window = {
+    removeMenu: () => calls.push(["remove"]),
+    setAutoHideMenuBar: (value) => calls.push(["autoHide", value]),
+    setMenuBarVisibility: (value) => calls.push(["visible", value]),
+  };
+
+  hideUosWindowMenu(menu, window);
+
+  assert.equal(UOS_WINDOW_OPTIONS.autoHideMenuBar, true);
+  assert.deepEqual(calls, [
+    ["application", null],
+    ["autoHide", true],
+    ["visible", false],
+    ["remove"],
+  ]);
+});
 
 test("UOS startup disables hardware acceleration before Electron becomes ready", () => {
   let disabled = false;

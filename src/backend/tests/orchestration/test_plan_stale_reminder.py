@@ -1,24 +1,23 @@
-"""计划栏不能停在半路 —— 模型忘了更新时，harness 要把清单塞回它眼前。
+"""计划栏长期不动时，harness 软提醒一次；但绝不能变成每几轮就催。
 
-线上实测（2026-08-24，本地 chat_20260824_053729_8bo1ce）：一轮任务跑了 20 次 LLM 往返、
-产出两个 PPTX、正常给出最终答复，日志里 ``[update_plan]`` 只在开头出现两次、都停在 1/5。
-原因是清单的推进 100% 靠模型自觉：``update_plan`` 的用法只在系统提示词开头讲一次，之后
-十几轮工具结果早把它冲淡了。workflow 末尾那道兜底只补"没有 pending、只剩一个 in_progress"
-的收尾场景，对"半路就不动了"的清单无能为力，于是用户全程盯着一个错的 1/5。
+两条历史都要防住：催得太少——线上实测一轮 20 次 LLM 往返的任务里 ``update_plan`` 只在
+开头调了两次，用户全程盯着错的 1/5；催得太狠——间隔 3 轮加硬祈使语气，模型把"改计划"
+当成了推进任务本身（chat_20260824_172543_s5ha46，47 次 update_plan 对 45 次真实工作）。
+所以间隔取 10 轮、语气对齐 Claude Code 的"可忽略"表述。
 
-所以这里锁住催更中间件的四条不变量：
-- 模型建过清单、并且清单还有没结算的步骤时，停滞满 N 轮就把当前清单原样回灌一次；
-- **只催更、不催建**：从没调用过 ``update_plan`` 就一个字都不发（简单问答不该被打扰）；
-- 模型真去更新了（出现新的 ``update_plan`` 调用），计时立刻清零；
-- 清单全部结算完就不再打扰。
+锁住的不变量：
+- 建过清单且还有未结算步骤时，停滞满 10 轮才回灌一次；
+- **只催更、不催建**：没调用过 ``update_plan`` 就一个字都不发；
+- 模型自己更新了清单，计时立刻清零；
+- 清单全部结算完就不再打扰；
+- 提醒文案必须是软表述，明确允许模型忽略。
 """
 
 import json
 
 import pytest
 
-from core.llm.hooks import _PLAN_STALE_INTERVAL
-from core.llm.middlewares import PlanStaleReminderMiddleware
+from core.llm.middlewares import _PLAN_REMINDER_INTERVAL, PlanStaleReminderMiddleware
 
 
 class _FakeState:
@@ -85,7 +84,7 @@ def test_no_plan_never_reminds():
     mw = PlanStaleReminderMiddleware()
     agent = _FakeAgent()
     agent.state.context.append(_ToolCallMsg(_Block("bash", "t1", {"command": "ls"})))
-    _spin(mw, agent, _PLAN_STALE_INTERVAL + 5)
+    _spin(mw, agent, _PLAN_REMINDER_INTERVAL + 5)
     assert _reminders(agent) == []
 
 
@@ -99,7 +98,7 @@ def test_stale_plan_reminds_with_current_checklist():
         _plan("completed", "in_progress", "pending", "pending", "pending"),
     )
     # 第一轮只是"看到"这份清单（计时起点），之后停滞满 interval 才催
-    _spin(mw, agent, 1 + _PLAN_STALE_INTERVAL)
+    _spin(mw, agent, 1 + _PLAN_REMINDER_INTERVAL)
     rem = _reminders(agent)
     assert len(rem) == 1
     assert "1/5" in rem[0]
@@ -113,7 +112,7 @@ def test_not_yet_stale_stays_quiet():
     mw = PlanStaleReminderMiddleware()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"))
-    _spin(mw, agent, _PLAN_STALE_INTERVAL)  # 含起点那一轮，还差一轮
+    _spin(mw, agent, _PLAN_REMINDER_INTERVAL)  # 含起点那一轮，还差一轮
     assert _reminders(agent) == []
 
 
@@ -122,9 +121,9 @@ def test_model_updating_the_plan_resets_the_clock():
     mw = PlanStaleReminderMiddleware()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending", "pending"))
-    _spin(mw, agent, _PLAN_STALE_INTERVAL)
+    _spin(mw, agent, _PLAN_REMINDER_INTERVAL)
     _plan_call(agent, "call_2", _plan("completed", "in_progress", "pending"))
-    _spin(mw, agent, _PLAN_STALE_INTERVAL)
+    _spin(mw, agent, _PLAN_REMINDER_INTERVAL)
     assert _reminders(agent) == []
     mw._maybe_remind(agent)
     assert len(_reminders(agent)) == 1
@@ -135,7 +134,7 @@ def test_finished_plan_is_left_alone():
     mw = PlanStaleReminderMiddleware()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("completed", "completed"))
-    _spin(mw, agent, _PLAN_STALE_INTERVAL + 5)
+    _spin(mw, agent, _PLAN_REMINDER_INTERVAL + 5)
     assert _reminders(agent) == []
 
 
@@ -144,7 +143,7 @@ def test_json_string_args_are_parsed():
     mw = PlanStaleReminderMiddleware()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"), as_json=True)
-    _spin(mw, agent, 1 + _PLAN_STALE_INTERVAL)
+    _spin(mw, agent, 1 + _PLAN_REMINDER_INTERVAL)
     assert len(_reminders(agent)) == 1
 
 
@@ -153,9 +152,9 @@ def test_reminder_clock_restarts_after_each_nudge():
     mw = PlanStaleReminderMiddleware()
     agent = _FakeAgent()
     _plan_call(agent, "call_1", _plan("in_progress", "pending"))
-    _spin(mw, agent, 1 + _PLAN_STALE_INTERVAL)
+    _spin(mw, agent, 1 + _PLAN_REMINDER_INTERVAL)
     assert len(_reminders(agent)) == 1
-    _spin(mw, agent, _PLAN_STALE_INTERVAL - 1)
+    _spin(mw, agent, _PLAN_REMINDER_INTERVAL - 1)
     assert len(_reminders(agent)) == 1
     mw._maybe_remind(agent)
     assert len(_reminders(agent)) == 2
@@ -173,8 +172,25 @@ async def test_on_reasoning_passes_events_through():
         yield "evt-2"
 
     seen = []
-    for _ in range(1 + _PLAN_STALE_INTERVAL):
+    for _ in range(1 + _PLAN_REMINDER_INTERVAL):
         async for evt in mw.on_reasoning(agent, {}, next_handler):
             seen.append(evt)
-    assert seen == ["evt-1", "evt-2"] * (1 + _PLAN_STALE_INTERVAL)
+    assert seen == ["evt-1", "evt-2"] * (1 + _PLAN_REMINDER_INTERVAL)
     assert len(_reminders(agent)) == 1
+
+
+def test_reminder_wording_stays_soft():
+    """硬祈使会让模型把改计划当成推进任务——文案必须明确允许忽略、且不许打断手上的活。"""
+    mw = PlanStaleReminderMiddleware()
+    agent = _FakeAgent()
+    _plan_call(agent, "call_1", _plan("in_progress", "pending"))
+    _spin(mw, agent, 1 + _PLAN_REMINDER_INTERVAL)
+    text = _reminders(agent)[0]
+    assert "不适用就忽略" in text
+    assert "仅在确实相关时才使用" in text
+    assert "立刻调用" not in text
+
+
+def test_interval_is_not_aggressive():
+    """间隔一旦调回个位数，就会重演"拿改计划替代干活"的活锁。"""
+    assert _PLAN_REMINDER_INTERVAL >= 10

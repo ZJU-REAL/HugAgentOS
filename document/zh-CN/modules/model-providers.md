@@ -1,6 +1,6 @@
 # 模型接入
 
-> 最后更新：2026-06-11
+> 最后更新：2026-08-24
 
 HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ollama、DashScope、DeepSeek、各类网关均可）。模型配置以数据库为准——管理员在 Config 管理台登记「模型供应商」，再把供应商绑定到「角色」（主推理、摘要、向量化等），全链路经 `ModelConfigService` 30 秒 TTL 缓存生效，改配置无需重启。`MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` 等环境变量保留为兼容兜底与 MCP 子进程注入用途。
 
@@ -66,7 +66,7 @@ DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的�
 
 | 场景 | 行为 |
 |---|---|
-| 用户在对话里上传图片 | 每轮开头自动转写并注入 |
+| 用户在对话里上传图片，或把剪贴板图片直接粘贴到输入框 | 每轮开头自动转写并注入 |
 | 智能体读沙箱 / 「我的空间」里的图片 | `Read` 返回 `type=image_evidence` 而非 `type=binary` |
 | 工具返回图片（如图表生成） | 转写后回填，智能体因此能自检自己画的图 |
 | 群聊机器人收到图片附件 | `channel_read_attachment` 取回后指向 `view_image` |

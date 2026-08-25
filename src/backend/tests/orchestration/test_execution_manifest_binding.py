@@ -6,8 +6,101 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
+
+
+@pytest.mark.asyncio
+async def test_main_streaming_propagates_unknown_tool_outcome_after_partial_text(
+    monkeypatch,
+):
+    from core.db import engine as db_engine
+    from core.llm import builtin_subagents
+    from core.services import compaction_service, user_agent_service, user_service
+    from core.services.tool_effect_ledger import ToolOutcomeUnknown
+    from orchestration import workflow
+
+    class DummySession:
+        def __enter__(self):
+            return SimpleNamespace()
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeStreamingAgent:
+        def __init__(self, agent, _clients):
+            self.agent = agent
+
+        async def stream(self, _messages, _context):
+            yield "text_delta", "partial answer"
+            yield "error", ExceptionGroup(
+                "tool execution failed",
+                [ToolOutcomeUnknown("effect-after-partial")],
+            )
+
+        async def shutdown(self):
+            return None
+
+    async def create_agent(**_kwargs):
+        return (
+            SimpleNamespace(
+                model=SimpleNamespace(model="test-model", context_size=32_768),
+                state=SimpleNamespace(ontology_runtime={}),
+            ),
+            [],
+        )
+
+    async def no_memory(*_args, **_kwargs):
+        return None
+
+    async def no_identity(_user_id):
+        return ""
+
+    async def no_compaction(_chat_id, messages, **_kwargs):
+        return messages, None
+
+    monkeypatch.setattr(db_engine, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(
+        user_agent_service,
+        "UserAgentService",
+        lambda _db: SimpleNamespace(list_for_user=lambda _user_id: []),
+    )
+    monkeypatch.setattr(
+        user_service,
+        "UserService",
+        lambda _db: SimpleNamespace(get_disabled_builtin_subagent_ids=lambda _user_id: set()),
+    )
+    monkeypatch.setattr(builtin_subagents, "merge_builtin_subagents", lambda *_a, **_kw: [])
+    monkeypatch.setattr(compaction_service, "maybe_run_pre_turn_compaction", no_compaction)
+    monkeypatch.setattr(workflow, "create_agent_executor", create_agent)
+    monkeypatch.setattr(workflow, "launch_memory_retrieval", no_memory)
+    monkeypatch.setattr(workflow, "build_user_identity_block", no_identity)
+    monkeypatch.setattr(workflow, "anchor_start_for_chat", lambda _chat_id: 0)
+    monkeypatch.setattr(workflow, "enabled_skill_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(workflow, "enabled_mcp_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(workflow, "enabled_kb_ids_from_context", lambda _ctx: [])
+    monkeypatch.setattr(workflow, "_resolve_mode_spec", lambda _ctx: None)
+    monkeypatch.setattr(workflow, "StreamingAgent", FakeStreamingAgent)
+    monkeypatch.setattr(workflow, "_persistent_clients", [])
+
+    stream = workflow.astream_chat_workflow(
+        session_messages=[{"role": "user", "content": "continue"}],
+        user_message="continue",
+        context={
+            "run_id": "run-partial-unknown",
+            "journal_owner": "worker-partial-unknown",
+            "chat_id": "chat-partial-unknown",
+            "user_id": "user-partial-unknown",
+            "memory_enabled": False,
+            "ontology_runtime": {},
+        },
+    )
+
+    assert (await anext(stream))["type"] == "thinking"
+    assert (await anext(stream))["delta"] == "partial answer"
+    with pytest.raises(ToolOutcomeUnknown, match="effect-after-partial"):
+        await anext(stream)
 
 
 @pytest.mark.asyncio

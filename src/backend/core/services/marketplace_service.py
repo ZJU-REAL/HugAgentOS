@@ -94,11 +94,23 @@ SECRETS_FILENAME = "secrets.json"
 # SKILL.md's display_name). The key set defines "which default skills are listed
 # in the marketplace" — visible to everyone, marked as built-in resident.
 DEFAULT_SKILL_MARKET = {
-    "excel-editing":  {"category": "办公效率", "summary": "生成 / 编辑 Excel 工作簿：建表、套公式、加图表、导出 .xlsx"},
-    "word-editing":   {"category": "文档处理", "summary": "生成 / 编辑 Word 文档：起草、排版、套模板、替换占位符、导出 .docx"},
     "pdf-editing":    {"category": "文档处理", "summary": "生成 / 合并 / 拆分 / 抽页 / 填表单 / 读取 PDF 文档"},
-    "ppt-design":     {"category": "办公效率", "summary": "设计 / 生成 / 编辑 PPT 演示文稿，提纲扩写成整套 .pptx"},
     "capability-guide-brief": {"category": "办公效率", "summary": "速答系统能力清单与使用指引"},
+    # OfficeCLI 系列（上游 iOfficeAI/OfficeCLI，Apache 2.0）：靠沙盒预装的
+    # ``officecli`` 单文件二进制驱动，是 Word / Excel / PPT 的**唯一**入口——
+    # 自研的 word-editing / excel-editing / ppt-design 三个技能已于 2026-08 下线，
+    # 能力全部由这一系列承接。三个基座（docx / xlsx / pptx）之上叠场景层，
+    # 分工写在各自 SKILL.md 的 description 里，由技能选择器路由。
+    "officecli-docx":            {"category": "文档处理", "summary": "OfficeCLI 深度编辑 .docx：TOC / 域 / 脚注 / 公式 / 原生图表 / 批注修订 / schema 校验"},
+    "officecli-xlsx":            {"category": "办公效率", "summary": "OfficeCLI 深度编辑 .xlsx：透视表 / 迷你图 / 条件格式 / 数据验证 / 切片器"},
+    "officecli-pptx":            {"category": "办公效率", "summary": "OfficeCLI 深度编辑 .pptx：母版版式 / 连接线 / 形状级控制 / 逐页截图质检"},
+    "officecli-word-form":       {"category": "文档处理", "summary": "制作可填写 Word 表单：内容控件(SDT) + 复选框 + 邮件合并域 + 文档保护"},
+    "officecli-academic-paper":  {"category": "文档处理", "summary": "学术论文排版：APA / Chicago / IEEE / MLA 引用、编号公式、交叉引用、参考文献"},
+    "officecli-data-dashboard":  {"category": "数据分析", "summary": "CSV / 表格数据做成 Excel 数据看板：KPI 卡片 + 多图表 + 迷你图 + 条件格式"},
+    "officecli-financial-model": {"category": "数据分析", "summary": "Excel 财务模型：三表 / DCF / LBO / 单位经济 / 敏感性分析，全活公式驱动"},
+    "officecli-pitch-deck":      {"category": "办公效率", "summary": "融资路演 PPT：种子轮 / A-C 轮 / SAFE / 可转债的投资人 deck"},
+    "morph-ppt":                 {"category": "办公效率", "summary": "带 Morph 平滑转场动效的 PPT，自带 40 套成品设计风格包"},
+    "morph-ppt-3d":              {"category": "办公效率", "summary": "带 .glb 三维模型与电影级镜头运动的 Morph 动效 PPT"},
 }
 
 # Fixed skill-marketplace categories (the only allowed set): preloaded
@@ -636,6 +648,7 @@ def install_marketplace_skill(
             "entry_name": sub.slug,
             "display_name": sub.display_name,
             "summary": sub.summary or "",
+            "user_intro": sub.user_intro or "",
             "category": sub.category or "社区共享",
             "tags": list(sub.tags or []),
             "version": sub.version or "1.0.0",
@@ -675,7 +688,7 @@ def install_marketplace_skill(
     description = meta.description or m.get("summary") or ""
     tags = list(m.get("tags") or meta.tags or [])
     version = m.get("version") or meta.version or "1.0.0"
-    user_intro = _build_user_intro(m)
+    user_intro = _build_user_intro(m) or None
 
     ensure_ontology_build_valid(
         db,
@@ -762,8 +775,13 @@ def install_marketplace_skill(
 
 
 def _build_user_intro(m: Dict[str, Any]) -> str:
-    """Capability-center detail page intro: summary only (no source attribution appended)."""
-    return (m.get("summary") or "").strip()
+    """Return only an explicitly authored user intro from marketplace metadata.
+
+    The marketplace ``summary`` is card copy. Treating it as ``user_intro``
+    suppresses the catalog's SKILL.md-body fallback and reduces rich skill
+    documentation to a single line after installation.
+    """
+    return str(m.get("user_intro") or "").strip()
 
 
 # ── Admin uploads a zip → listed directly in the skill marketplace ───────────
@@ -929,6 +947,7 @@ def _upsert_admin_submission(
     extra_files: Dict[str, str],
     note: str,
     submitter_name: str,
+    user_intro: Optional[str] = None,
 ) -> Tuple[str, str]:
     """Upsert an approved listing record under the ADMIN_UPLOAD_OWNER sentinel, returning (slug, action).
 
@@ -952,6 +971,7 @@ def _upsert_admin_submission(
     if existing is not None:
         existing.display_name = display_name
         existing.summary = summary
+        existing.user_intro = str(user_intro or "").strip() or None
         existing.category = category
         existing.tags = list(tags or [])
         existing.version = version or "1.0.0"
@@ -975,6 +995,7 @@ def _upsert_admin_submission(
         submitter_name=(submitter_name or "").strip(),
         display_name=display_name,
         summary=summary,
+        user_intro=str(user_intro or "").strip() or None,
         category=category,
         tags=list(tags or []),
         version=version or "1.0.0",
@@ -1053,6 +1074,7 @@ def publish_skill_to_marketplace(
     version: str,
     tags: List[str],
     category: str,
+    user_intro: Optional[str] = None,
     submitter_name: str = "管理员新建",
 ) -> Dict[str, Any]:
     """Admin "create skill" form → listed in the marketplace as approved (not in the catalog, not globally effective).
@@ -1089,6 +1111,7 @@ def publish_skill_to_marketplace(
         extra_files={},
         note="管理员新建，免审核直接上架",
         submitter_name=submitter_name,
+        user_intro=user_intro,
     )
     db.commit()
     logger.info("marketplace_skill_admin_%s: skill=%s slug=%s (form)", action, skill_id, slug)
@@ -1168,6 +1191,7 @@ def _submission_to_dict(sub: MarketplaceSubmission, *, with_content: bool = Fals
         "submitter_name": sub.submitter_name or "",
         "display_name": sub.display_name,
         "summary": sub.summary or "",
+        "user_intro": sub.user_intro or "",
         "category": sub.category or "社区共享",
         "tags": list(sub.tags or []),
         "version": sub.version or "1.0.0",
@@ -1248,6 +1272,7 @@ def submit_to_marketplace(
         submitter_name=(submitter_name or "").strip(),
         display_name=row.display_name or skill_id,
         summary=(summary or "").strip() or (row.description or ""),
+        user_intro=str(row.user_intro or "").strip() or None,
         category=_validate_category(category),
         tags=list(row.tags or []),
         version=row.version or "1.0.0",

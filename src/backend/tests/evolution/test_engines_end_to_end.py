@@ -536,7 +536,7 @@ def test_a_stored_profile_that_no_longer_validates_is_not_applied(db):
 def test_a_skill_open_is_recovered_from_the_tool_log():
     """The usage signal, derived from arguments the log has always carried."""
     assert TA.skill_id_from_path("/workspace/skills/evo-fin/SKILL.md") == "evo-fin"
-    assert TA.skill_id_from_path("/app/storage/sandbox_skills/word-editing/SKILL.md") == (
-        "word-editing"
+    assert TA.skill_id_from_path("/app/storage/sandbox_skills/officecli-docx/SKILL.md") == (
+        "officecli-docx"
     )
     assert TA.skill_id_from_path("/workspace/report.md") == ""

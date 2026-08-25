@@ -17,7 +17,8 @@ archive, Python dependency profile, and backend authentication/update endpoints.
 - `hugagent://` deep-link authentication, one-time ticket redemption, persisted session, and logout cleanup.
 - Loopback proxy, cookie injection, streaming SSE, and backend file/site/docs routes.
 - Local-project request routing, identity bridge, model synchronization, and capability-token refresh.
-- Native menus, tray, remembered close action, and `Ctrl+Shift+Space` quick ask.
+- A menu-less window matching the compact macOS client layout while retaining native
+  title-bar controls, plus tray, remembered close action, and `Ctrl+Shift+Space` quick ask.
 - Native folder selection/grants, file-manager opening, and background task notifications.
 - Offline CPython 3.11 payload verification, safe extraction, atomic activation, data backup, and rollback.
 - `.deb` update checks, SHA-256 verification, privileged UOS installation, and restart.
@@ -52,7 +53,7 @@ npm install
 npm test
 npm run build        # native aarch64 full package
 npm run build:thin   # cross-package the remote-only ARM64 shell
-npm run verify:deb -- "dist/HugAgentOS UOS_0.5.15_uos1070_arm64.deb"
+npm run verify:deb -- "dist/HugAgentOS UOS_0.5.17_uos1070_arm64.deb"
 ```
 
 `dist/` contains the `.deb` and `latest-uos.json`. Verification checks Debian
@@ -64,7 +65,7 @@ GLIBC symbol, and packaged web resources.
 ```bash
 cd desktop-uos
 npm run release:manifest -- \
-  --deb "dist/HugAgentOS UOS_0.5.15_uos1070_arm64.deb" \
+  --deb "dist/HugAgentOS UOS_0.5.17_uos1070_arm64.deb" \
   --existing /path/to/current/latest.json \
   --output /path/to/desktop_release --notes "UOS ARM64 update"
 ```

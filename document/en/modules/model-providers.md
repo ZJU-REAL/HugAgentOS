@@ -1,6 +1,6 @@
 # Model Providers
 
-> Last updated: 2026-06-11
+> Last updated: 2026-08-24
 
 HugAgentOS talks to any large-language-model endpoint that speaks the **OpenAI-compatible protocol** (vLLM, Ollama, DashScope, DeepSeek, API gateways, …). Model configuration is database-driven: administrators register *model providers* in the Config console and bind them to *roles* (main reasoning, summarization, embeddings, …); everything flows through `ModelConfigService` with a 30-second TTL cache, so configuration changes take effect without a restart. The `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` environment variables remain only as compatibility fallbacks and for injection into MCP subprocesses.
 
@@ -66,7 +66,7 @@ Resolution order:
 
 | Situation | Behaviour |
 |---|---|
-| User uploads an image in chat | Transcribed and injected at the start of each turn |
+| User uploads an image or pastes a clipboard image into the chat composer | Transcribed and injected at the start of each turn |
 | Agent reads an image in the sandbox or "My Space" | `Read` returns `type=image_evidence` instead of `type=binary` |
 | A tool returns an image (e.g. chart rendering) | Transcribed and substituted, so the agent can check its own output |
 | A group-chat bot receives an image attachment | `channel_read_attachment` points at `view_image` |

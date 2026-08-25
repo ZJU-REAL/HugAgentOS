@@ -1,6 +1,6 @@
 {
   "name": "hugagent-desktop",
-  "version": "0.5.15",
+  "version": "0.5.17",
   "private": true,
   "description": "HugAgentOS 桌面客户端（远程连接 + Windows/macOS/Linux 离线本机服务）",
   "scripts": {

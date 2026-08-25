@@ -3,6 +3,19 @@
 _CE_BOOTSTRAP_SERVER_DEFAULTS = {
     ("admin_skills", "dep_status"): "ready",
     ("user_agents", "plugin_ids"): "[]",
+    # Desktop/no-Docker databases are evolved by metadata reconciliation rather
+    # than Alembic.  These defaults preserve existing rows and also keep an
+    # older rollback target able to insert into the upgraded tables.
+    ("chat_runs", "run_phase"): "accepted",
+    ("chat_runs", "operation_seq"): "0",
+    ("chat_runs", "snapshot_version"): "0",
+    ("chat_runs", "last_operation_safety"): "replayable",
+    # SQLite rejects non-constant defaults in ALTER TABLE ADD COLUMN.  Current
+    # code always writes the real timestamp; this sentinel only backfills
+    # historical rows and keeps a pre-column rollback release able to insert.
+    ("chat_runs", "updated_at"): "1970-01-01 00:00:00",
+    ("profile_memory", "revision"): "0",
+    ("profile_memory", "effect_receipts"): "{}",
 }
 
 

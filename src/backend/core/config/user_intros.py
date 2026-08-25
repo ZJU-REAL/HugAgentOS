@@ -38,7 +38,7 @@ SKILL_USER_INTROS: Dict[str, str] = {
 ## 输出示例
 - 按实际安装能力分组的能力地图（联网研究 / 知识库 / 文件处理 / 报告生成 ⋯⋯）
 - 一组可直接复制的提问模板（8–12 条）
-- 提问技巧提示：明确时间、行业口径、任务目标
+- 提问技巧提示：明确时间、行业口径、任务目标与想要的产物形态
 - 一个推荐的下一步追问，帮助你从"了解能力"过渡到"实际办理"
 """,
     "economic-indicator-query": """\
@@ -156,42 +156,6 @@ SKILL_USER_INTROS: Dict[str, str] = {
 - 可直接点击的原文链接
 - 来源平台与发布时间标注
 """,
-    "ppt-design": """\
-## 用途
-专业演示文稿（PPT / 幻灯片 / deck）的设计与生成：根据一段需求自动谋篇布局——封面 / 目录 / 分章 / 富版式内容页（数据要点 / 图标行 / 时间线 / 对比 / 漏斗 / 金字塔等 20+ 种）/ 总结——再用质检闭环（缩略图 + 占位符扫描）确保不出"满页 bullets 的 AI 套模板脸"。也用于在已有 .pptx 上加页 / 删页 / 改标题 / 插图，以及导出 PDF。
-
-## 适用场景
-- "做一份汇报 PPT，关于市场现状"
-- "做一份产品发布会 deck，AI 智能客服"
-- "做一份政府汇报材料，党建主题"
-- "把这份 PPT 第 3 页标题改成 ……"
-- "把 PPT 导出成 PDF"
-
-## 输出示例
-- .pptx 文件，含封面 + 目录 + 多种富版式内容页 + 总结
-- 29 种调色板 × 4 种风格组合（情绪/品牌词触发，不按话题）
-- 缩略图（每页一张 JPG，肉眼复核）
-- PDF 导出结果
-""",
-    "excel-editing": """\
-## 用途
-Excel 工作簿（.xlsx）的处理工具集：从零新建（数据表或公式优先的财务模型）、批量编辑单元格与公式、追加 sheet、插入原生图表、公式静态校验、xlsx 转 PDF。编辑既有工作簿走「字节保留」路径，VBA / 数据透视 / 条件格式 / sparkline 一律不丢。
-
-## 适用场景
-- "做一份 Q3 收入汇总 Excel"
-- "在这份表里加一列利润 = 收入 - 成本，最后加一行总计"
-- "把 Sheet1 改名为 Q3 实际，把 B5 的公式改成 SUM(B2:B4)"
-- "建一份三年滚动产业增长预测模型"
-- "看看这份模型的公式有没有错"
-- "把这份 Excel 导出成 PDF"
-
-## 输出示例
-- .xlsx 文件（数据表 / 财务模型 / 含图表 / 字节保留的复杂工作簿）
-- 工作簿结构概览（sheet 列表 / 维度 / 表头 / 样例行）
-- 单 sheet / 单 range 的单元格数据
-- 公式校验报告（#REF! / 跨表引用断裂等）
-- PDF 副本（从 xlsx 转出）
-""",
     "pdf-editing": """\
 ## 用途
 PDF 文档（.pdf）的处理工具集：读取文本/目录/元数据/表单字段，合并多份 PDF、按页范围拆分、填写 AcroForm 表单字段，也覆盖从 spec 直接生成印刷级 PDF 报告（含封面 / 图表 / 数学公式 / 流程图）和把 Markdown / Word / 文本重排成同等设计的 PDF。
@@ -209,6 +173,155 @@ PDF 文档（.pdf）的处理工具集：读取文本/目录/元数据/表单字
 - 合并 / 拆分 / 填表后的新 PDF
 - 从零生成的设计感 PDF（封面 + 内文 + 图表 + 流程图）
 - markdown / docx / txt 重排后的 PDF
+""",
+    # ── OfficeCLI 系列（上游 iOfficeAI/OfficeCLI，Apache 2.0；靠沙箱预装的
+    #    /usr/local/bin/officecli 单文件二进制驱动）──────────────────────────
+    "officecli-docx": """\
+## 用途
+Word 文档的深度 OOXML 编辑：直接按节点路径改任意元素，处理自动目录、页码/交叉引用等域、
+脚注尾注、LaTeX 公式、原生图表、批注与修订痕迹，并做 OpenXML 结构校验。
+常规中文公文与合同起草仍走「Word 文档编辑」技能，这个补的是它够不到的精细活。
+
+## 适用场景
+- "给这份报告加一个自动更新的目录"
+- "把正文里的引用改成可点击的交叉引用"
+- "在这份 docx 里插入编号公式"
+- "接受/拒绝这份文档里的修订，并清掉所有批注"
+
+## 输出示例
+- 改造后的 .docx 文件
+- 文档结构大纲与格式问题清单
+- OpenXML 校验报告
+""",
+    "officecli-xlsx": """\
+## 用途
+Excel 工作簿的深度 OOXML 编辑：数据透视表、单元格内迷你图、条件格式、数据验证下拉、
+切片器等常规库处理不了的特性。常规建表与公式建模仍走「Excel 表格作业手册」技能。
+
+## 适用场景
+- "按部门和月份给这张明细表做个数据透视表"
+- "给每一行加一条趋势迷你图"
+- "超过阈值的单元格自动标红"
+- "把这一列做成只能从下拉里选"
+
+## 输出示例
+- 含透视表 / 迷你图 / 条件格式的 .xlsx
+- 工作簿结构与问题清单
+""",
+    "officecli-pptx": """\
+## 用途
+PPT 的深度 OOXML 编辑：直接改母版与版式、连接线与形状级属性，并支持逐页截图做视觉质检。
+中文汇报、课件、路演的整套成片生成仍走「PPT 演示文稿设计」技能。
+
+## 适用场景
+- "把这套 PPT 的母版配色统一换掉"
+- "在流程图上把这两个方框用箭头连起来"
+- "逐页截图检查有没有文字溢出或错位"
+
+## 输出示例
+- 改造后的 .pptx
+- 每页截图（用于人工复核）
+- 版式与视觉问题清单
+""",
+    "officecli-word-form": """\
+## 用途
+制作**真正可填写**的 Word 表单：指定位置放文本框、下拉框、日期选择器、复选框等内容控件，
+其余区域整体锁定只读，还可以埋邮件合并占位符批量套打。收表人打开就能填，改不坏版式。
+
+## 适用场景
+- "做一份项目申报表，单位名称、联系人、金额可填，其余锁定"
+- "做一份入职登记表，含性别下拉和入职日期选择"
+- "做一份合规检查表，每条前面带可勾选的方框"
+- "做一份合同模板，甲方信息留成邮件合并字段"
+
+## 输出示例
+- 字段可填、正文锁定的 .docx 表单
+- 表单字段清单（名称 / 类型 / 可选值）
+""",
+    "officecli-academic-paper": """\
+## 用途
+学术论文、期刊/会议投稿、学位论文章节的排版：APA / Chicago / IEEE / MLA 引用格式、
+编号公式、图表交叉引用、脚注尾注、参考文献悬挂缩进、双栏期刊版式。
+
+## 适用场景
+- "把这份稿子按 IEEE 双栏格式排版"
+- "参考文献改成 APA 第七版格式"
+- "给所有公式加编号，正文里引用式(3)"
+- "图表编号和正文引用对不上，帮我理一遍"
+
+## 输出示例
+- 符合目标期刊格式的 .docx
+- 参考文献与交叉引用检查结果
+""",
+    "officecli-data-dashboard": """\
+## 用途
+把 CSV 或表格数据做成打开即见的 Excel 数据看板：公式驱动的 KPI 卡片、多张图表、
+迷你图与条件格式，数据换了指标自动跟着变。
+
+## 适用场景
+- "把这份销售明细做成一个经营看板"
+- "做一个月度 KPI 仪表盘，含同比环比"
+- "把这个 CSV 变成带图表的分析面板"
+
+## 输出示例
+- 首页为 Dashboard 的 .xlsx
+- KPI 卡片 + 图表 + 迷你图 + 条件格式
+""",
+    "officecli-financial-model": """\
+## 用途
+用 Excel 搭财务模型：三表联动模型、DCF 估值、LBO、SaaS 单位经济、敏感性与情景分析、
+债务计划表、融资预测。全部用活公式而不是写死的数字，改假设整表自动重算。
+
+## 适用场景
+- "搭一个三年期的三表模型"
+- "做一份 DCF 估值，含 WACC 和永续增长率敏感性表"
+- "算一下这个 SaaS 业务的 LTV/CAC 和回本周期"
+- "做一版乐观/中性/悲观三情景的收入预测"
+
+## 输出示例
+- 公式驱动的 .xlsx 财务模型
+- 假设区 / 计算区 / 输出区分层的工作簿
+- 敏感性分析双变量表
+""",
+    "officecli-pitch-deck": """\
+## 用途
+面向投资人的融资路演 PPT：种子轮、A/B/C 轮、SAFE、可转债、战略融资。
+按投资人关心的叙事顺序组织（问题—方案—市场—产品—牵引力—商业模式—团队—融资计划）。
+
+## 适用场景
+- "做一份 A 轮融资的路演 PPT"
+- "做一版种子轮 pitch deck，我们是做工业质检的"
+- "把这份 BP 转成投资人看的 deck"
+
+## 输出示例
+- .pptx 路演材料
+- 覆盖标准融资叙事的完整页序
+""",
+    "morph-ppt": """\
+## 用途
+带 Morph 平滑转场动效的 PPT：形状跨页生长、位移、旋转，翻页时是连续运动而不是硬切，
+观感接近 Keynote。自带 40 套成品设计风格（深色/浅色/高饱和/暖色等）。
+
+## 适用场景
+- "做一套带平滑转场动画的演示文稿"
+- "翻页的时候让这个图形放大过渡到下一页"
+- "做一份有电影感的产品介绍 PPT"
+
+## 输出示例
+- 含 Morph 转场的 .pptx（需在 PowerPoint / WPS 放映时观看动效）
+- 统一风格包下的整套版式
+""",
+    "morph-ppt-3d": """\
+## 用途
+在 Morph 动效基础上再加三维：插入 .glb 三维模型、设计镜头运动、把模型与文字内容混排。
+纯二维的平滑转场用「Morph 动效 PPT」即可。
+
+## 适用场景
+- "把这个产品的 3D 模型放进 PPT 里，翻页时转一圈"
+- "做一份带三维模型展示的技术方案演示"
+
+## 输出示例
+- 含 .glb 三维模型与镜头运动的 .pptx
 """,
 }
 
@@ -280,11 +393,11 @@ MCP_SERVER_USER_INTROS: Dict[str, str] = {
 - 支持柱状 / 折线 / 饼图 / 堆叠图等常见类型
 - 数据标签清晰可读
 """,
-    # Word capability has migrated to the word-editing skill (see src/backend/skill_bundles/word-editing/).
-    # The MCP layer no longer exposes word_mcp; the skill's scripts/*.py CLI is the single entry point.
-    # Excel capability has migrated to the excel-editing skill (see src/backend/skill_bundles/excel-editing/).
-    # The MCP layer no longer exposes excel_mcp; the skill's scripts/excel-cli is the single entry point.
-    # PDF capability has migrated to the pdf-editing skill (see src/backend/skill_bundles/pdf-editing/).
+    # Word / Excel / PPT capability has migrated to the officecli-* skills
+    # (see src/backend/skill_bundles/default/officecli-*), which drive the
+    # pre-installed `officecli` binary through Bash — word_mcp / excel_mcp /
+    # ppt_mcp no longer exist.
+    # PDF capability has migrated to the pdf-editing skill (see src/backend/skill_bundles/default/pdf-editing/).
     # The MCP layer no longer exposes pdf_mcp; the skill's scripts/pdf-cli is the single entry point.
     "web_fetch": """\
 ## 用途

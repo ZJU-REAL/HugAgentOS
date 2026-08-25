@@ -1123,6 +1123,50 @@ async def test_middleware_commits_error_tool_response_as_failure(effect_env):
 
 
 @pytest.mark.asyncio
+async def test_middleware_returns_explicit_error_for_unregistered_tool(effect_env):
+    sessions, make_run = effect_env
+    make_run("run-unregistered-tool-error")
+    middleware = ToolEffectMiddleware(session_factory=sessions)
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            run_id="run-unregistered-tool-error",
+            journal_owner="worker",
+            tool_effect_links={},
+        )
+    )
+    original_error = "Remote API returned 404: resource not found or not authorized"
+
+    async def failed_response(**_kwargs):
+        yield ToolResponse(
+            content=[TextBlock(text=original_error)],
+            state=ToolResultState.ERROR,
+        )
+
+    output = [
+        item
+        async for item in middleware.on_acting(
+            agent,
+            {
+                "tool_call": ToolCallBlock(
+                    id="unregistered-error-call",
+                    name="remote_resource_lookup",
+                    input='{"resource":"missing-or-private"}',
+                )
+            },
+            failed_response,
+        )
+    ]
+
+    assert output[-1].state == ToolResultState.ERROR
+    assert original_error in str(output[-1].content)
+    with sessions() as db:
+        events = db.query(ToolEffectLedger).order_by(ToolEffectLedger.event_id).all()
+        assert [event.event_type for event in events] == ["intent", "failure"]
+        assert events[0].recovery_policy == "never_replay"
+        assert original_error in str(events[-1].result_payload)
+
+
+@pytest.mark.asyncio
 async def test_agentscope_middleware_commits_intent_before_call_and_replays_same_shape(
     effect_env,
 ):

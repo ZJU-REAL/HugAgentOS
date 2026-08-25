@@ -84,7 +84,7 @@
       "title": "整理运行数据为规范表格",
       "description": "把原始数据清洗、归类后整理成一张规范的 Excel 表格，含同比/环比列。",
       "expected_tools": [],
-      "expected_skills": ["excel-editing"],
+      "expected_skills": ["officecli-xlsx"],
       "expected_agents": [],
       "acceptance_criteria": "生成一份包含核心指标及同比环比的 Excel 表格"
     },
@@ -92,7 +92,7 @@
       "title": "撰写分析报告",
       "description": "基于上一步的表格，撰写结构化的 Word 分析报告，包含结论与数据引用。",
       "expected_tools": [],
-      "expected_skills": ["word-editing"],
+      "expected_skills": ["officecli-docx"],
       "expected_agents": [],
       "acceptance_criteria": "生成一份结构完整、数据可追溯的 Word 报告"
     },
@@ -100,7 +100,7 @@
       "title": "验证与修正",
       "description": "打开生成的 Excel 与 Word 报告核验：表格核心指标齐全、同比/环比列无空值；报告结论与表格数据一致。发现问题直接修复对应产物并复验。",
       "expected_tools": [],
-      "expected_skills": ["excel-editing", "word-editing"],
+      "expected_skills": ["officecli-xlsx", "officecli-docx"],
       "expected_agents": [],
       "acceptance_criteria": "两项产出均通过核验，或问题已修复并复验通过"
     }

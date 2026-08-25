@@ -310,12 +310,12 @@ SKILL_NODE_DIR="${HUGAGENT_DATA_DIR}/node"
 PLAYWRIGHT_BROWSER_DIR="${SKILL_NODE_DIR}/browsers"
 info "Installing Agent Skills Node.js dependencies"
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --silent --no-audit --no-fund \
-    --no-package-lock --prefix "${SKILL_NODE_DIR}" pptxgenjs playwright
+    --no-package-lock --prefix "${SKILL_NODE_DIR}" playwright
 if PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSER_DIR}" \
     "${SKILL_NODE_DIR}/node_modules/.bin/playwright" install chromium; then
     info "Chromium for PDF rendering is ready"
 else
-    warn "Chromium download failed. Word, Excel, and PPT generation still work; advanced PDF cover rendering will use its fallback."
+    warn "Chromium download failed. Word, Excel, and PPT generation still work; advanced PDF cover rendering and officecli screenshot QA will use their fallbacks."
 fi
 
 info "Building the web application"

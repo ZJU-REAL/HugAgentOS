@@ -4,8 +4,8 @@
       "id": "capability-guide-brief",
       "kind": "tool_bundle",
       "name": "能力清单速答技能",
-      "description": "当用户询问系统自身能力时使用，如”你能做什么””你有哪些功能””怎么使用你””支持哪些类型的任务”。给出能力清单、提问模板与使用指引。",
-      "desc": "当用户询问系统自身能力时使用，如”你能做什么””你有哪些功能””怎么使用你””支持哪些类型的任务”。给出能力清单、提问模板与使用指引。",
+      "description": "当用户询问系统自身能力、使用方式或适用范围时使用，如\"你能做什么\"\"你有哪些功能\"\"怎么使用你\"\"支持哪些类型的任务\"\"你能不能做 PPT / 报表 / 定时任务\"。产出一份按当前实际启用能力组织的能力地图、可直接复制的提问模板与使用指引。",
+      "desc": "当用户询问系统自身能力、使用方式或适用范围时使用，如\"你能做什么\"\"你有哪些功能\"\"怎么使用你\"\"支持哪些类型的任务\"\"你能不能做 PPT / 报表 / 定时任务\"。产出一份按当前实际启用能力组织的能力地图、可直接复制的提问模板与使用指引。",
       "enabled": true,
       "version": "1.0.0",
       "config": {
@@ -14,24 +14,6 @@
           "faq",
           "onboarding",
           "guide"
-        ]
-      }
-    },
-    {
-      "id": "excel-editing",
-      "kind": "tool_bundle",
-      "name": "Excel 表格作业手册",
-      "description": "**生成、编辑、修改、套公式、加图表或导出 .xlsx Excel 工作簿 / 财务模型 / 报表 / 数据表 / 预算 / 名册 / 排期** 时使用。既覆盖从零建表（表头样式·列宽·合并单元格），也覆盖：按公式建模（同比·毛利率·三年滚动预测等活公式，而非写死数值）、批量改单元格、加 sheet、插入原生图表、给已有工作簿加列或加汇总行。把 Excel/工作簿转成 PDF 也走本技能（.xlsx 为主产物）。仅当用户要 .xlsx 产物、或改/转既有 Excel 时触发；查数据库、读表格做总结、写 SQL、把数据画成图片、出纯文字数据分析报告、翻译表格内容 时不要触发。",
-      "desc": "**生成、编辑、修改、套公式、加图表或导出 .xlsx Excel 工作簿 / 财务模型 / 报表 / 数据表 / 预算 / 名册 / 排期** 时使用。既覆盖从零建表（表头样式·列宽·合并单元格），也覆盖：按公式建模（同比·毛利率·三年滚动预测等活公式，而非写死数值）、批量改单元格、加 sheet、插入原生图表、给已有工作簿加列或加汇总行。把 Excel/工作簿转成 PDF 也走本技能（.xlsx 为主产物）。仅当用户要 .xlsx 产物、或改/转既有 Excel 时触发；查数据库、读表格做总结、写 SQL、把数据画成图片、出纯文字数据分析报告、翻译表格内容 时不要触发。",
-      "enabled": true,
-      "version": "1.0.0",
-      "config": {
-        "tags": [
-          "xlsx",
-          "excel",
-          "office",
-          "spreadsheet",
-          "cli"
         ]
       }
     },
@@ -54,30 +36,11 @@
       }
     },
     {
-      "id": "ppt-design",
+      "id": "officecli-docx",
       "kind": "tool_bundle",
-      "name": "PPT 演示文稿设计",
-      "description": "**设计、生成或编辑 PPT / 演示文稿 / 幻灯片 / deck / slides / .pptx** 时使用。既覆盖从零做一套（工作汇报·产品发布会·路演融资·数据/经营分析·行业研究·项目立项·政府汇报·培训课件·复盘总结），把提纲/大纲/文档内容扩写成整套演示文稿或课件；也覆盖对已有 .pptx 的编辑：改某页标题 / 加页删页 / 追加谢谢页 / 插图 / 换主题配色 / 成片质检 / 导出 PDF。只要用户提到 PPT / 幻灯片 / 演示文稿 / deck / slides / 路演 / 汇报材料 / 课件，即便没说用什么工具也走本技能产出 .pptx，别堆纯文字 bullets。仅当目标是 .pptx 时触发；把 ppt 内容总结成文字、推荐模板网站、问 PowerPoint 操作技巧、改一段文案、解释某汇报概念 时不要触发。",
-      "desc": "**设计、生成或编辑 PPT / 演示文稿 / 幻灯片 / deck / slides / .pptx** 时使用。既覆盖从零做一套（工作汇报·产品发布会·路演融资·数据/经营分析·行业研究·项目立项·政府汇报·培训课件·复盘总结），把提纲/大纲/文档内容扩写成整套演示文稿或课件；也覆盖对已有 .pptx 的编辑：改某页标题 / 加页删页 / 追加谢谢页 / 插图 / 换主题配色 / 成片质检 / 导出 PDF。只要用户提到 PPT / 幻灯片 / 演示文稿 / deck / slides / 路演 / 汇报材料 / 课件，即便没说用什么工具也走本技能产出 .pptx，别堆纯文字 bullets。仅当目标是 .pptx 时触发；把 ppt 内容总结成文字、推荐模板网站、问 PowerPoint 操作技巧、改一段文案、解释某汇报概念 时不要触发。",
-      "enabled": true,
-      "version": "2.0",
-      "config": {
-        "tags": [
-          "pptx",
-          "presentation",
-          "slides",
-          "deck",
-          "office",
-          "design"
-        ]
-      }
-    },
-    {
-      "id": "word-editing",
-      "kind": "tool_bundle",
-      "name": "Word 文档编辑作业手册",
-      "description": "**生成、编辑、修改、排版、套模板或导出 .docx Word 文档 / 公文 / 通知 / 批复 / 合同 / 方案 / 报告** 时使用。既覆盖从零起草，也覆盖对已有 .docx 的任何改动：替换文本 / 改甲乙方·落款·单位名 / 填 {{占位符}} / 套用模板的字体与样式 / 在文末或指定段插入·加粗·改格式 / 整章重写 / 加表格或图片。把 Word 转成 PDF 也走本技能（.docx 为主产物）。仅当用户要 .docx 文件产物、或改/转既有 Word 文件时触发；单纯阅读·总结·分析文档、口头改写一段话（不落文件）、问公文格式规范、修复打不开的文件、推荐模板网站 时不要触发。",
-      "desc": "**生成、编辑、修改、排版、套模板或导出 .docx Word 文档 / 公文 / 通知 / 批复 / 合同 / 方案 / 报告** 时使用。既覆盖从零起草，也覆盖对已有 .docx 的任何改动：替换文本 / 改甲乙方·落款·单位名 / 填 {{占位符}} / 套用模板的字体与样式 / 在文末或指定段插入·加粗·改格式 / 整章重写 / 加表格或图片。把 Word 转成 PDF 也走本技能（.docx 为主产物）。仅当用户要 .docx 文件产物、或改/转既有 Word 文件时触发；单纯阅读·总结·分析文档、口头改写一段话（不落文件）、问公文格式规范、修复打不开的文件、推荐模板网站 时不要触发。",
+      "name": "OfficeCLI Word 深度编辑",
+      "description": "**用 OfficeCLI 深度操作 .docx**。判断标准看**要什么能力**，不看文档叫什么：只要文档需要**自动更新的目录(TOC)**、**域**（PAGE / SEQ / PAGEREF / MERGEFIELD）、**编号公式与图表交叉引用**、脚注尾注、原生图表、批注与修订痕迹、水印、或 OpenXML 结构校验，就走本技能——**哪怕它被叫作技术方案 / 报告 / 标书 / 白皮书也一样**。纯版式中文公文（通知 / 批复 / 函 / 请示）起草、套用已有 .docx 模板、批量替换 {{占位符}}、按标题锚点改写既有文档、docx 转 PDF 这类**不涉及域与自动目录**的场景，同样走本技能——.docx 只有这一个入口。需要「指定字段可填、其余锁定」的真·可填写表单，才改走 `officecli-word-form`。 Use this skill any time a .docx file is involved -- as input, output, or both. This includes: creating Word documents, reports, letters, memos, or proposals; reading, parsing, or extracting text from any .docx file; editing, modifying, or updating existing documents; working with templates, tracked changes, comments, headers/footers, or tables of contents. Trigger whenever the user mentions 'Word doc', 'document', 'report', 'letter', 'memo', or references a .docx filename.",
+      "desc": "**用 OfficeCLI 深度操作 .docx**。判断标准看**要什么能力**，不看文档叫什么：只要文档需要**自动更新的目录(TOC)**、**域**（PAGE / SEQ / PAGEREF / MERGEFIELD）、**编号公式与图表交叉引用**、脚注尾注、原生图表、批注与修订痕迹、水印、或 OpenXML 结构校验，就走本技能——**哪怕它被叫作技术方案 / 报告 / 标书 / 白皮书也一样**。纯版式中文公文（通知 / 批复 / 函 / 请示）起草、套用已有 .docx 模板、批量替换 {{占位符}}、按标题锚点改写既有文档、docx 转 PDF 这类**不涉及域与自动目录**的场景，同样走本技能——.docx 只有这一个入口。需要「指定字段可填、其余锁定」的真·可填写表单，才改走 `officecli-word-form`。 Use this skill any time a .docx file is involved -- as input, output, or both. This includes: creating Word documents, reports, letters, memos, or proposals; reading, parsing, or extracting text from any .docx file; editing, modifying, or updating existing documents; working with templates, tracked changes, comments, headers/footers, or tables of contents. Trigger whenever the user mentions 'Word doc', 'document', 'report', 'letter', 'memo', or references a .docx filename.",
       "enabled": true,
       "version": "1.0.0",
       "config": {
@@ -85,8 +48,174 @@
           "docx",
           "word",
           "office",
-          "document",
-          "cli"
+          "officecli",
+          "ooxml"
+        ]
+      }
+    },
+    {
+      "id": "officecli-xlsx",
+      "kind": "tool_bundle",
+      "name": "OfficeCLI Excel 深度编辑",
+      "description": "**用 OfficeCLI 操作 .xlsx**：建表、套公式、加图表、改单元格这类常规操作，以及数据透视表、迷你图(sparkline)、条件格式、数据验证、切片器、原生排序这类精细能力，全部走本技能——.xlsx 只有这一个入口。整片数据看板走 `officecli-data-dashboard`，公式驱动的财务模型走 `officecli-financial-model`。 Use this skill any time a .xlsx file is involved -- as input, output, or both. This includes: creating spreadsheets, financial models, dashboards, or trackers; reading, parsing, or extracting data from any .xlsx file; editing, modifying, or updating existing workbooks; working with formulas, charts, pivot tables, or templates; importing CSV/TSV data into Excel format. Trigger whenever the user mentions 'spreadsheet', 'workbook', 'Excel', 'financial model', 'tracker', 'dashboard', or references a .xlsx/.csv filename.",
+      "desc": "**用 OfficeCLI 操作 .xlsx**：建表、套公式、加图表、改单元格这类常规操作，以及数据透视表、迷你图(sparkline)、条件格式、数据验证、切片器、原生排序这类精细能力，全部走本技能——.xlsx 只有这一个入口。整片数据看板走 `officecli-data-dashboard`，公式驱动的财务模型走 `officecli-financial-model`。 Use this skill any time a .xlsx file is involved -- as input, output, or both. This includes: creating spreadsheets, financial models, dashboards, or trackers; reading, parsing, or extracting data from any .xlsx file; editing, modifying, or updating existing workbooks; working with formulas, charts, pivot tables, or templates; importing CSV/TSV data into Excel format. Trigger whenever the user mentions 'spreadsheet', 'workbook', 'Excel', 'financial model', 'tracker', 'dashboard', or references a .xlsx/.csv filename.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "xlsx",
+          "excel",
+          "office",
+          "officecli",
+          "ooxml"
+        ]
+      }
+    },
+    {
+      "id": "officecli-pptx",
+      "kind": "tool_bundle",
+      "name": "OfficeCLI PPT 深度编辑",
+      "description": "**用 OfficeCLI 深度操作 .pptx**。判断标准看**要什么能力**，不看演示叫什么：需要改母版与版式、加连接线 / 箭头把图形连起来、演讲者备注、幻灯片批注、形状级 OOXML 控制、拆分合并已有 pptx、或逐页截图做视觉质检时，走本技能——**哪怕它是中文汇报 / 课件也一样**。从一句需求或一份提纲**从零成套生成**中文汇报 / 课件 / 路演（要主题配色与富版式）同样走本技能——.pptx 只有这一个基座。要跨页 Morph 动效改走 `morph-ppt` / `morph-ppt-3d`，融资路演改走 `officecli-pitch-deck`。 Use this skill any time a .pptx file is involved -- as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx file; editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates, layouts, speaker notes, or comments. Trigger whenever the user mentions 'deck', 'slides', 'presentation', 'pitch', or references a .pptx filename.",
+      "desc": "**用 OfficeCLI 深度操作 .pptx**。判断标准看**要什么能力**，不看演示叫什么：需要改母版与版式、加连接线 / 箭头把图形连起来、演讲者备注、幻灯片批注、形状级 OOXML 控制、拆分合并已有 pptx、或逐页截图做视觉质检时，走本技能——**哪怕它是中文汇报 / 课件也一样**。从一句需求或一份提纲**从零成套生成**中文汇报 / 课件 / 路演（要主题配色与富版式）同样走本技能——.pptx 只有这一个基座。要跨页 Morph 动效改走 `morph-ppt` / `morph-ppt-3d`，融资路演改走 `officecli-pitch-deck`。 Use this skill any time a .pptx file is involved -- as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx file; editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates, layouts, speaker notes, or comments. Trigger whenever the user mentions 'deck', 'slides', 'presentation', 'pitch', or references a .pptx filename.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "pptx",
+          "powerpoint",
+          "slides",
+          "office",
+          "officecli",
+          "ooxml"
+        ]
+      }
+    },
+    {
+      "id": "officecli-word-form",
+      "kind": "tool_bundle",
+      "name": "Word 可填写表单",
+      "description": "**制作可填写的 Word 表单**（申报表 / 审批单 / 意见征询表 / 入职登记表 / 问卷模板 / 合同模板 / 合规检查表）：指定字段可填、其余区域锁定，基于真正的内容控件(SDT)、复选框表单域、邮件合并域与文档保护。这是本系统唯一能产出真·可填写表单的技能——普通报告 / 信函 / 论文没有可填字段，不要用它。 Use this skill to create fillable Word forms (.docx) with real Content Controls (SDT) + legacy FormField checkboxes + MERGEFIELD mail-merge placeholders + document protection. Trigger on: 'fillable form', 'form fields', 'content controls', 'SDT', 'word form', 'fill in', 'only editable fields', 'protect document', 'onboarding form', 'HR intake', 'survey template', 'contract / SOW template', 'mail-merge template', 'compliance checklist', 'medical intake questionnaire'. Output is a single .docx where specific fields are editable and the rest is locked. This skill is INDEPENDENT, not a scene layer on docx — payload is `<w:sdt>` + `<w:ffData>` + `<w:fldChar>` + `documentProtection`, none of which docx base skill covers. Do NOT trigger for regular reports, letters, memos, academic papers, pitch decks, or any document with no user-fillable fields — route those to officecli-docx or its scene layers.",
+      "desc": "**制作可填写的 Word 表单**（申报表 / 审批单 / 意见征询表 / 入职登记表 / 问卷模板 / 合同模板 / 合规检查表）：指定字段可填、其余区域锁定，基于真正的内容控件(SDT)、复选框表单域、邮件合并域与文档保护。这是本系统唯一能产出真·可填写表单的技能——普通报告 / 信函 / 论文没有可填字段，不要用它。 Use this skill to create fillable Word forms (.docx) with real Content Controls (SDT) + legacy FormField checkboxes + MERGEFIELD mail-merge placeholders + document protection. Trigger on: 'fillable form', 'form fields', 'content controls', 'SDT', 'word form', 'fill in', 'only editable fields', 'protect document', 'onboarding form', 'HR intake', 'survey template', 'contract / SOW template', 'mail-merge template', 'compliance checklist', 'medical intake questionnaire'. Output is a single .docx where specific fields are editable and the rest is locked. This skill is INDEPENDENT, not a scene layer on docx — payload is `<w:sdt>` + `<w:ffData>` + `<w:fldChar>` + `documentProtection`, none of which docx base skill covers. Do NOT trigger for regular reports, letters, memos, academic papers, pitch decks, or any document with no user-fillable fields — route those to officecli-docx or its scene layers.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "docx",
+          "word",
+          "form",
+          "sdt",
+          "officecli"
+        ]
+      }
+    },
+    {
+      "id": "officecli-academic-paper",
+      "kind": "tool_bundle",
+      "name": "学术论文排版",
+      "description": "**排版学术论文 / 期刊 / 会议论文 / 学位论文章节 .docx**：APA / Chicago / IEEE / MLA 引用格式、编号公式、图表交叉引用、脚注尾注、参考文献悬挂缩进、双栏期刊版式。商业报告与公文不要用它。 Use this skill to build academic-style .docx output: journal / conference / thesis chapters carrying formal citation style (APA, Chicago, IEEE, MLA), numbered equations, figure & table cross-references, footnotes/endnotes, bibliography, or multi-column journal layout. Trigger on: 'research paper', 'journal paper', 'conference paper', 'manuscript', 'thesis', 'APA', 'MLA', 'Chicago', 'IEEE two-column', 'bibliography', 'hanging indent', 'citation style', 'abstract + keywords', 'equation numbering', 'cross-reference', paper with footnotes/endnotes. Output is a single .docx.",
+      "desc": "**排版学术论文 / 期刊 / 会议论文 / 学位论文章节 .docx**：APA / Chicago / IEEE / MLA 引用格式、编号公式、图表交叉引用、脚注尾注、参考文献悬挂缩进、双栏期刊版式。商业报告与公文不要用它。 Use this skill to build academic-style .docx output: journal / conference / thesis chapters carrying formal citation style (APA, Chicago, IEEE, MLA), numbered equations, figure & table cross-references, footnotes/endnotes, bibliography, or multi-column journal layout. Trigger on: 'research paper', 'journal paper', 'conference paper', 'manuscript', 'thesis', 'APA', 'MLA', 'Chicago', 'IEEE two-column', 'bibliography', 'hanging indent', 'citation style', 'abstract + keywords', 'equation numbering', 'cross-reference', paper with footnotes/endnotes. Output is a single .docx.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "docx",
+          "word",
+          "academic",
+          "paper",
+          "citation",
+          "officecli"
+        ]
+      }
+    },
+    {
+      "id": "officecli-data-dashboard",
+      "kind": "tool_bundle",
+      "name": "Excel 数据看板",
+      "description": "**把 CSV / 表格数据做成 Excel 数据看板**：打开即见 Dashboard 页，含多个公式驱动的 KPI 卡片、多张图表、迷你图与条件格式。单表预算 / 一次性 CSV 美化不要用它。 Use this skill to build a multi-element Excel dashboard — Dashboard sheet on open, multiple formula-driven KPI cards, multiple charts, sparklines, and conditional formatting — from CSV or tabular input. Trigger on: 'dashboard', 'KPI dashboard', 'analytics dashboard', 'executive dashboard', 'metrics dashboard', 'CSV to dashboard', 'data visualization'. Output is a single .xlsx. Scene-layer on officecli-xlsx: inherits every xlsx hard rule. DO NOT invoke for: a single budget tracker / one-sheet CSV-with-formatting (use xlsx), a 3-statement / DCF / LBO financial model (use financial-model), a weekly report with ≤ 1 chart and < 10 rows (use xlsx).",
+      "desc": "**把 CSV / 表格数据做成 Excel 数据看板**：打开即见 Dashboard 页，含多个公式驱动的 KPI 卡片、多张图表、迷你图与条件格式。单表预算 / 一次性 CSV 美化不要用它。 Use this skill to build a multi-element Excel dashboard — Dashboard sheet on open, multiple formula-driven KPI cards, multiple charts, sparklines, and conditional formatting — from CSV or tabular input. Trigger on: 'dashboard', 'KPI dashboard', 'analytics dashboard', 'executive dashboard', 'metrics dashboard', 'CSV to dashboard', 'data visualization'. Output is a single .xlsx. Scene-layer on officecli-xlsx: inherits every xlsx hard rule. DO NOT invoke for: a single budget tracker / one-sheet CSV-with-formatting (use xlsx), a 3-statement / DCF / LBO financial model (use financial-model), a weekly report with ≤ 1 chart and < 10 rows (use xlsx).",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "xlsx",
+          "excel",
+          "dashboard",
+          "kpi",
+          "officecli"
+        ]
+      }
+    },
+    {
+      "id": "officecli-financial-model",
+      "kind": "tool_bundle",
+      "name": "Excel 财务模型",
+      "description": "**用 Excel 建财务模型**：三表模型、DCF 估值、LBO、SaaS 单位经济、敏感性与情景分析、债务计划表、融资预测、IRR / MOIC / WACC，全部用活公式驱动而非写死数值。普通预算台账不要用它。 Use this skill when the user wants to build a financial model — 3-statement model, DCF valuation, LBO, SaaS unit economics, sensitivity / scenario analysis, debt schedule, or fundraising projections — in Excel. Trigger on: 'financial model', '3-statement model', 'P&L + BS + CF', 'DCF', 'WACC', 'NPV', 'terminal value', 'LBO', 'debt schedule', 'cash sweep', 'MOIC', 'IRR / XIRR', 'sensitivity table', 'scenario analysis', 'ARR model', 'unit economics', 'CAC / LTV', 'cap table forecast'. Output is a single formula-driven .xlsx. This skill is a scene layer on top of officecli-xlsx — it inherits every xlsx v2 rule (4-color code, visual floor, number formats, cache-drift, Known Issues, Delivery Gate minimum cycle). DO NOT invoke for a simple budget tracker, CSV dump, or operational KPI sheet — route those to officecli-xlsx base.",
+      "desc": "**用 Excel 建财务模型**：三表模型、DCF 估值、LBO、SaaS 单位经济、敏感性与情景分析、债务计划表、融资预测、IRR / MOIC / WACC，全部用活公式驱动而非写死数值。普通预算台账不要用它。 Use this skill when the user wants to build a financial model — 3-statement model, DCF valuation, LBO, SaaS unit economics, sensitivity / scenario analysis, debt schedule, or fundraising projections — in Excel. Trigger on: 'financial model', '3-statement model', 'P&L + BS + CF', 'DCF', 'WACC', 'NPV', 'terminal value', 'LBO', 'debt schedule', 'cash sweep', 'MOIC', 'IRR / XIRR', 'sensitivity table', 'scenario analysis', 'ARR model', 'unit economics', 'CAC / LTV', 'cap table forecast'. Output is a single formula-driven .xlsx. This skill is a scene layer on top of officecli-xlsx — it inherits every xlsx v2 rule (4-color code, visual floor, number formats, cache-drift, Known Issues, Delivery Gate minimum cycle). DO NOT invoke for a simple budget tracker, CSV dump, or operational KPI sheet — route those to officecli-xlsx base.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "xlsx",
+          "excel",
+          "finance",
+          "dcf",
+          "model",
+          "officecli"
+        ]
+      }
+    },
+    {
+      "id": "officecli-pitch-deck",
+      "kind": "tool_bundle",
+      "name": "融资路演 PPT",
+      "description": "**做融资路演 PPT**（种子轮 / A / B / C 轮、SAFE、可转债、战略融资）。销售 deck、董事会汇报、产品发布、全员会请走 `officecli-pptx`。 Use this skill when the user is building a fundraising / investor pitch deck — seed, Series A / B / C, convertible note, SAFE round, strategic raise. Trigger on: 'pitch deck', 'investor deck', 'Series A deck', 'Series B deck', 'Series C deck', 'fundraising deck', 'seed pitch', 'VC deck', 'raising capital', 'term sheet presentation'. Output is a single .pptx. This skill is a scene layer on top of officecli-pptx — inherits every pptx v2 rule (visual floor, grid, palettes, connector canon, Delivery Gate). DO NOT invoke for a generic board review, sales deck, all-hands, or product launch — route those to officecli-pptx base.",
+      "desc": "**做融资路演 PPT**（种子轮 / A / B / C 轮、SAFE、可转债、战略融资）。销售 deck、董事会汇报、产品发布、全员会请走 `officecli-pptx`。 Use this skill when the user is building a fundraising / investor pitch deck — seed, Series A / B / C, convertible note, SAFE round, strategic raise. Trigger on: 'pitch deck', 'investor deck', 'Series A deck', 'Series B deck', 'Series C deck', 'fundraising deck', 'seed pitch', 'VC deck', 'raising capital', 'term sheet presentation'. Output is a single .pptx. This skill is a scene layer on top of officecli-pptx — inherits every pptx v2 rule (visual floor, grid, palettes, connector canon, Delivery Gate). DO NOT invoke for a generic board review, sales deck, all-hands, or product launch — route those to officecli-pptx base.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "pptx",
+          "presentation",
+          "pitch",
+          "fundraising",
+          "officecli"
+        ]
+      }
+    },
+    {
+      "id": "morph-ppt",
+      "kind": "tool_bundle",
+      "name": "Morph 动效 PPT",
+      "description": "**做带 Morph 平滑转场动效的 PPT**：Keynote 式连续运动、形状跨页生长 / 位移 / 旋转。自带 40 套成品设计风格包（style.md + build.sh + 样例 pptx）。静态 deck 不要用本技能。 Use this skill when the user wants a .pptx with smooth cross-slide animation — PowerPoint Morph transitions, Keynote-style continuous motion, shapes that grow / move / rotate as the slide advances. Trigger on: 'morph', 'morph transition', 'smooth transition', 'continuous animation across slides', 'Keynote-style transition', 'animated slide sequence', 'shape continuity across slides'. Output is a single .pptx. This skill is a scene layer on top of officecli-pptx — inherits every pptx v2 rule (visual floor, grid, palettes, connector canon, Delivery Gate 1–5a). DO NOT invoke for a generic deck, pitch deck, or board review without cross-slide motion — route those to officecli-pptx base or officecli-pitch-deck.",
+      "desc": "**做带 Morph 平滑转场动效的 PPT**：Keynote 式连续运动、形状跨页生长 / 位移 / 旋转。自带 40 套成品设计风格包（style.md + build.sh + 样例 pptx）。静态 deck 不要用本技能。 Use this skill when the user wants a .pptx with smooth cross-slide animation — PowerPoint Morph transitions, Keynote-style continuous motion, shapes that grow / move / rotate as the slide advances. Trigger on: 'morph', 'morph transition', 'smooth transition', 'continuous animation across slides', 'Keynote-style transition', 'animated slide sequence', 'shape continuity across slides'. Output is a single .pptx. This skill is a scene layer on top of officecli-pptx — inherits every pptx v2 rule (visual floor, grid, palettes, connector canon, Delivery Gate 1–5a). DO NOT invoke for a generic deck, pitch deck, or board review without cross-slide motion — route those to officecli-pptx base or officecli-pitch-deck.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "pptx",
+          "presentation",
+          "morph",
+          "animation",
+          "officecli"
+        ]
+      }
+    },
+    {
+      "id": "morph-ppt-3d",
+      "kind": "tool_bundle",
+      "name": "3D Morph 动效 PPT",
+      "description": "**做带 3D 模型的 Morph 动效 PPT**：插入 .glb 三维模型、电影级镜头运动、模型与内容混排。纯 2D 的 Morph 动效请用 `morph-ppt`。 3D Morph PPT — extends morph-ppt with GLB model insertion, cinematographic camera, model-content layout, and enriched visual design system.",
+      "desc": "**做带 3D 模型的 Morph 动效 PPT**：插入 .glb 三维模型、电影级镜头运动、模型与内容混排。纯 2D 的 Morph 动效请用 `morph-ppt`。 3D Morph PPT — extends morph-ppt with GLB model insertion, cinematographic camera, model-content layout, and enriched visual design system.",
+      "enabled": true,
+      "version": "1.0.0",
+      "config": {
+        "tags": [
+          "pptx",
+          "presentation",
+          "morph",
+          "3d",
+          "glb",
+          "officecli"
         ]
       }
     }

@@ -18,11 +18,12 @@ tags: pdf, document, office, print, cli
 只有在用户明确需要 **PDF / .pdf** 文件产物，或要求生成、合并、拆分、填表、读取
 PDF 内容时，才进入这份 SKILL。下面几件事看上去能"完成任务"，实际是失败：
 
-1. **`word-cli convert --to pdf` 不可互换替代 `pdf-cli create`**。用户要的是
+1. **「先做 Word 再转 PDF」不可互换替代 `pdf-cli create`**。用户要的是
    "从零生成一份印刷级 PDF 报告"时，**首选** `pdf-cli create` 的 spec→PDF
    引擎（含设计感封面、图表、流程图、数学公式）。用户要的是"先做 Word 再附带
-   PDF 副本"时，那是 `word-cli create` + `word-cli convert --to pdf`，主产物
-   还是 .docx。**别用一个工具兜底另一个工具。**
+   PDF 副本"时，那是 `officecli-docx` 出 .docx、再用沙盒里的
+   `soffice --headless --convert-to pdf` 转一份副本，主产物还是 .docx。
+   **别用一个工具兜底另一个工具。**
 2. **不要塞 markdown 回 chat 让用户"自己另存为 PDF"**。这是 hard fail。
    markdown 草稿写完 → `pdf-cli reformat --input draft.md --output out.pdf`
    生成正式 PDF，再 `sandbox_get_artifact` + `pin_to_workspace` 交付。
@@ -46,8 +47,8 @@ PDF 内容时，才进入这份 SKILL。下面几件事看上去能"完成任务
    再 `pin_to_workspace` 钉到工作区，用户那边才会看到 .pdf 卡片。
 
 什么时候**应该**离开这份 SKILL：用户明确说要 **Word / 报告（要 .docx）** →
-走 `word-editing`；用户要 **Excel / 工作簿** → 走 `excel-editing`；用户要
-**PPT / 演示文稿 / 幻灯片** → 走 `ppt-design`。
+走 `officecli-docx`；用户要 **Excel / 工作簿** → 走 `officecli-xlsx`；用户要
+**PPT / 演示文稿 / 幻灯片** → 走 `officecli-pptx`。
 
 ---
 

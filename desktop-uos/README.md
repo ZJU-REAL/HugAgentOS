@@ -15,7 +15,8 @@ WebKitGTK 4.1，也不把普通 AppImage 作为 UOS 兼容交付物。
 - `hugagent://` deep-link 登录、一次性票据兑换、会话落盘与退出清理。
 - 回环反代、session cookie 注入、SSE 流式透传、文件/站点/文档路由。
 - 本地项目请求分流、身份桥、模型配置与能力令牌同步。
-- 原生菜单、托盘、关闭到托盘偏好、`Ctrl+Shift+Space` 快速问答。
+- 无窗口菜单栏的简洁外观（保留系统标题栏与窗口控制）、托盘、关闭到托盘偏好、
+  `Ctrl+Shift+Space` 快速问答。
 - 本地文件夹选择/授权、文件管理器打开、后台任务原生通知。
 - 完整包内离线 CPython 3.11 安装、SHA-256 校验、安全解压、原子激活、数据备份和失败回滚。
 - `.deb` 更新检查、SHA-256 验证、UOS 系统授权安装和重启。
@@ -52,7 +53,7 @@ npm run build
 # x86_64 构建机：验证 Electron 43 ARM64 外壳
 npm run build:thin
 
-npm run verify:deb -- "dist/HugAgentOS UOS_0.5.15_uos1070_arm64.deb"
+npm run verify:deb -- "dist/HugAgentOS UOS_0.5.17_uos1070_arm64.deb"
 ```
 
 产物目录为 `desktop-uos/dist/`：
@@ -68,7 +69,7 @@ npm run verify:deb -- "dist/HugAgentOS UOS_0.5.15_uos1070_arm64.deb"
 ```bash
 cd desktop-uos
 npm run release:manifest -- \
-  --deb "dist/HugAgentOS UOS_0.5.15_uos1070_arm64.deb" \
+  --deb "dist/HugAgentOS UOS_0.5.17_uos1070_arm64.deb" \
   --existing /path/to/current/latest.json \
   --output /path/to/desktop_release \
   --notes "UOS ARM64 更新说明"

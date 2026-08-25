@@ -23,7 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "word-editing"
+      "officecli-docx"
     ],
     "mcp_server_ids": [
       "internet_search"

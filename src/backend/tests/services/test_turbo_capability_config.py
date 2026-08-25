@@ -30,7 +30,7 @@ def _patch_config(monkeypatch, values, *, raises=False):
     [
         ("", ()),
         (None, ()),
-        ("word-editing", ("word-editing",)),
+        ("officecli-docx", ("officecli-docx",)),
         (" a , b ,, a ", ("a", "b")),
     ],
 )

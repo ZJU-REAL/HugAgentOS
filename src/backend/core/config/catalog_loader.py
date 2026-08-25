@@ -237,6 +237,17 @@ def skill_body_from_raw(raw: str) -> str:
         return ""
 
 
+def resolve_skill_detail(user_intro: Optional[str], raw: str) -> str:
+    """Return the explicit user intro, or the SKILL.md body when it is blank.
+
+    Whitespace-only input counts as empty.  Marketplace summaries and the
+    developer-facing frontmatter description are deliberately not considered
+    here: they are card metadata, not a substitute for a user introduction.
+    """
+    intro = str(user_intro or "").strip()
+    return intro or skill_body_from_raw(raw)
+
+
 def _skill_body_fallback(loader, sid: str) -> str:
     """Read the full SKILL.md by skill_id and take the body (detail fallback). See skill_body_from_raw."""
     try:
@@ -280,8 +291,9 @@ def _load_dynamic_skill_specs() -> Dict[str, Dict[str, Any]]:
 
         with SessionLocal() as db:
             for sid, intro in db.query(AdminSkill.skill_id, AdminSkill.user_intro).all():
-                if intro:
-                    db_user_intros[sid] = intro
+                normalized_intro = str(intro or "").strip()
+                if normalized_intro:
+                    db_user_intros[sid] = normalized_intro
             skill_icons = get_skill_icons(db)
     except Exception as e:
         _LOGGER.debug("Could not load admin skill user_intros/icons from DB: %s", e)
@@ -359,7 +371,7 @@ def _curated_detail_for_owned(sid: str) -> Optional[Dict[str, Any]]:
         with SessionLocal() as db:
             row = db.query(AdminSkill.user_intro).filter(AdminSkill.skill_id == sid).first()
             if row and row[0]:
-                user_intro = row[0]
+                user_intro = str(row[0]).strip()
             icon = get_skill_icons(db).get(sid, "")
     except Exception as e:  # pragma: no cover - defensive
         _LOGGER.debug("_curated_detail_for_owned: DB lookup failed for %s: %s", sid, e)

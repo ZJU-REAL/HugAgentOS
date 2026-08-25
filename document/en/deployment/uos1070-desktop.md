@@ -23,6 +23,10 @@ capabilities: deep-link login, loopback streaming proxy, tray/quick ask, native
 notifications, local-folder projects, dual-upstream routing, identity/model bridges,
 offline local-service install/upgrade/rollback, and SHA-256 verified updates.
 
+The UOS window follows the compact macOS client layout: it keeps the native title bar
+and window controls but does not render the File/Edit/View/Help application menu, and
+Alt cannot reveal that menu temporarily.
+
 ## Build and verification
 
 Build the full package on native Linux aarch64, preferably UOS 1070 itself. An x86_64

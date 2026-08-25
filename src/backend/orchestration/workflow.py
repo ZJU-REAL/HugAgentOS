@@ -42,6 +42,7 @@ from core.ontology.validator import (
 )
 from core.services.ontology_service import resolve_runtime_asset_tags
 from core.services.project_scope import edition_project_context_keys
+from core.services.tool_effect_ledger import find_tool_outcome_unknown
 from orchestration.citation_anchor import (
     AnchorAllocator,
     anchor_start_for_chat,
@@ -2120,6 +2121,16 @@ async def _astream_subagent_direct(
         logger.error("subagent_stream_error: %s\n%s", e, traceback.format_exc())
         warnings.append(f"Streaming error: {str(e)[:200]}")
 
+        unknown_outcome = find_tool_outcome_unknown(e)
+        if unknown_outcome is not None:
+            if "streaming_agent" in locals():
+                await streaming_agent.shutdown()
+                _persistent_clients.append((streaming_agent, list(mcp_clients)))
+            await _finish_direct_log("failed", error=str(unknown_outcome)[:200])
+            if unknown_outcome is e:
+                raise
+            raise unknown_outcome from e
+
         if displayed_tools and not full_response:
             fallback_msg = "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"
             full_response = fallback_msg
@@ -3294,6 +3305,15 @@ async def astream_chat_workflow(
         logger.error("stream_workflow_error: %s\n%s", e, traceback.format_exc())
         warnings.append(f"Streaming error: {str(e)[:200]}")
         _stream_errored = True
+
+        unknown_outcome = find_tool_outcome_unknown(e)
+        if unknown_outcome is not None:
+            if "streaming_agent" in locals():
+                await streaming_agent.shutdown()
+                _persistent_clients.append((streaming_agent, list(mcp_clients)))
+            if unknown_outcome is e:
+                raise
+            raise unknown_outcome from e
 
         if displayed_tools and not full_response:
             fallback_msg = "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"

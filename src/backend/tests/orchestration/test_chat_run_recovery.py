@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import fakeredis.aioredis
 import pytest
 from agentscope.agent import Agent, ReActConfig
+from agentscope.exception import DeveloperOrientedException
 from agentscope.message import ToolCallBlock, UserMsg
 from agentscope.model import ChatResponse, ChatUsage
 from agentscope.permission import PermissionContext, PermissionMode
@@ -145,9 +146,9 @@ async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(
     )
 
     async def exploding_probe(value: int):
-        """Simulate an adapter whose external outcome is ambiguous."""
+        """Simulate an adapter that never produces a ToolResponse."""
         del value
-        raise TimeoutError("adapter response was lost")
+        raise DeveloperOrientedException("adapter response was lost")
 
     class ToolModel:
         model = "ambiguous-tool"

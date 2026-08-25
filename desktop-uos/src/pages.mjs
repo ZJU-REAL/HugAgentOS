@@ -52,7 +52,7 @@ export function setupPage({ localSupported = true } = {}) {
     `<h1>本机服务</h1><p class="muted" id="message">正在检查离线运行环境…</p><div class="progress"><div class="bar" id="bar"></div></div>
     <pre id="logs" hidden></pre><div class="row"><button id="install" ${localSupported ? "" : "disabled"}>一键安装并启动</button><a class="button secondary" href="/__desktop/action?name=server-config">连接云端服务器</a></div>`,
     `const msg=document.getElementById('message'),bar=document.getElementById('bar'),logs=document.getElementById('logs'),btn=document.getElementById('install');
-async function poll(){try{const r=await fetch('/__desktop/setup/status'),s=await r.json();msg.textContent=s.message;bar.style.width=s.progress+'%';logs.textContent=(s.logs||[]).join('\n');logs.hidden=!logs.textContent;btn.disabled=s.phase==='installing'||s.phase==='starting';if(s.ready){location.replace(s.continue_url||'/');return}}catch(e){msg.textContent='状态读取失败：'+e}setTimeout(poll,1000)}
+async function poll(){try{const r=await fetch('/__desktop/setup/status'),s=await r.json();msg.textContent=s.message;bar.style.width=s.progress+'%';logs.textContent=(s.logs||[]).join('\\n');logs.hidden=!logs.textContent;btn.disabled=s.phase==='installing'||s.phase==='starting';if(s.ready){location.replace(s.continue_url||'/');return}}catch(e){msg.textContent='状态读取失败：'+e}setTimeout(poll,1000)}
 btn.onclick=async()=>{btn.disabled=true;await fetch('/__desktop/setup/install',{method:'POST'});poll()};poll();`,
   );
 }

@@ -175,8 +175,9 @@ sandbox_get_artifact(src_path="/workspace/styled.pdf", name="样式 PDF.pdf")
 pin_to_workspace(file_ids=["fid_new"])
 ```
 
-> 注：用户如果要的是"Word 主产物，附带 PDF 副本"，那是 `word-cli convert
-> --to pdf`，不是 reformat。reformat 是把 docx 当成"草稿"重新设计排版，
+> 注：用户如果要的是"Word 主产物，附带 PDF 副本"，那是 `officecli-docx` 出
+> .docx 后用 `soffice --headless --convert-to pdf` 转一份，不是 reformat。
+> reformat 是把 docx 当成"草稿"重新设计排版，
 > 输出是**纯 PDF**（不一定与原 docx 视觉一致）。
 
 ---

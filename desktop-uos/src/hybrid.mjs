@@ -32,19 +32,7 @@ async function cloudUser(http, base, cookieName, token) {
   })).toString("base64");
 }
 
-async function syncModels(http, base, cookieName, token, secret) {
-  const exported = await http.fetch(`${base}/api/v1/models/export`, { headers: { cookie: `${cookieName}=${token}` } });
-  if (!exported.ok) throw new Error(`模型导出 HTTP ${exported.status}`);
-  const body = await exported.json();
-  const imported = await http.fetch(`${LOCAL_SERVER_BASE}/api/v1/models/import`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-    body: JSON.stringify(body.data || {}),
-  });
-  if (!imported.ok) throw new Error(`模型导入 HTTP ${imported.status}`);
-}
-
-async function syncCapabilities(http, base, cookieName, token, secret) {
+async function issueCapability(http, base, cookieName, token) {
   const issued = await http.fetch(`${base}/api/v1/desktop/capability/token`, {
     method: "POST",
     headers: { cookie: `${cookieName}=${token}` },
@@ -52,12 +40,54 @@ async function syncCapabilities(http, base, cookieName, token, secret) {
   if (!issued.ok) throw new Error(`能力令牌签发 HTTP ${issued.status}`);
   const data = (await issued.json()).data || {};
   if (!data.token) throw new Error("能力令牌响应缺少 token");
+  return data;
+}
+
+async function syncModels(http, base, capability, secret) {
+  const response = await http.fetch(`${base}/api/v1/desktop/capability/models`, {
+    headers: { authorization: `Bearer ${capability.token}` },
+  });
+  if (!response.ok) throw new Error(`模型能力清单 HTTP ${response.status}`);
+  const manifest = (await response.json()).data || {};
+  if (!Array.isArray(manifest.providers) || !Array.isArray(manifest.role_assignments)) {
+    throw new Error("模型能力清单结构异常");
+  }
+  const providers = manifest.providers.map((provider) => {
+    const providerId = String(provider?.provider_id || "").trim();
+    if (!providerId) throw new Error("模型能力清单包含空 provider_id");
+    return {
+      ...provider,
+      base_url: `${base}/api/v1/desktop/capability/gateway/models/${encodeURIComponent(providerId)}`,
+      api_key: capability.token,
+    };
+  });
+  const imported = await http.fetch(`${LOCAL_SERVER_BASE}/api/v1/models/import`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+    body: JSON.stringify({ providers, role_assignments: manifest.role_assignments, overwrite: true }),
+  });
+  if (!imported.ok) throw new Error(`模型导入 HTTP ${imported.status}`);
+}
+
+async function syncCapabilities(http, base, capability, secret) {
   const pushed = await http.fetch(`${LOCAL_SERVER_BASE}/api/v1/desktop/capability/cloud-bridge`, {
     method: "POST",
     headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-    body: JSON.stringify({ cloud_base: base, token: data.token, expires_in: data.expires_in || 86400 }),
+    body: JSON.stringify({
+      cloud_base: base,
+      token: capability.token,
+      expires_in: capability.expires_in || 86400,
+    }),
   });
   if (!pushed.ok) throw new Error(`能力桥配置 HTTP ${pushed.status}`);
+}
+
+export async function syncDesktopRuntime({ http, cloudBase, cookieName, token, bridgeSecret }) {
+  const capability = await issueCapability(http, cloudBase, cookieName, token);
+  await Promise.all([
+    syncModels(http, cloudBase, capability, bridgeSecret),
+    syncCapabilities(http, cloudBase, capability, bridgeSecret),
+  ]);
 }
 
 async function retry(operation, name) {
@@ -84,13 +114,20 @@ export async function onCloudLogin({ http, cloudBase, cookieName, token, bridgeS
   }
   if (!await localServer.isReady()) return;
   await Promise.allSettled([
-    retry(() => syncModels(http, cloudBase, cookieName, token, bridgeSecret), "模型配置下发"),
-    retry(() => syncCapabilities(http, cloudBase, cookieName, token, bridgeSecret), "能力桥下发"),
+    retry(
+      () => syncDesktopRuntime({ http, cloudBase, cookieName, token, bridgeSecret }),
+      "本机执行能力下发",
+    ),
   ]);
   if (!state.capabilityTimer) {
     state.capabilityTimer = setInterval(() => {
-      void syncCapabilities(http, cloudBase, cookieName, state.token || token, bridgeSecret)
-        .catch((error) => console.warn(`[hybrid] 能力桥定期刷新失败: ${error.message}`));
+      void syncDesktopRuntime({
+        http,
+        cloudBase,
+        cookieName,
+        token: state.token || token,
+        bridgeSecret,
+      }).catch((error) => console.warn(`[hybrid] 本机执行能力定期刷新失败: ${error.message}`));
     }, 4 * 60 * 60 * 1_000);
     state.capabilityTimer.unref();
   }
