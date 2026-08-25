@@ -1,6 +1,6 @@
 {
   "name": "hugagent-desktop-uos",
-  "version": "0.5.17",
+  "version": "0.5.22",
   "private": true,
   "type": "module",
   "main": "src/main.mjs",

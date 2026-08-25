@@ -864,7 +864,8 @@
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap{
-    height:90px;
+    height:auto;
+    min-height:90px;
     margin:0;
     border:1px solid color-mix(in srgb, var(--color-text) 18%, transparent);
     border-radius:18px;
@@ -875,7 +876,7 @@
   .jx-emptyPage--main .jx-homeInput .jx-composerEditor,
   .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder{
     width:100% !important;
-    height:90px !important;
+    height:auto !important;
     min-height:90px !important;
     max-height:126px;
     padding:13px 14px 48px !important;
@@ -1707,7 +1708,7 @@
   .jx-emptyPage--main .jx-homeInput .jx-composer,
   .jx-emptyPage--main .jx-homeInput .jx-composerEditor,
   .jx-emptyPage--main .jx-homeInput .jx-composerPlaceholder{
-    height:82px !important;
+    height:auto !important;
     min-height:82px !important;
   }
 }

@@ -1,6 +1,6 @@
 # Chat & Agent Orchestration
 
-> Last updated: August 12, 2026
+> Last updated: August 25, 2026
 
 Chat is the core pipeline of HugAgentOS: a user message travels through the FastAPI route, runtime-context assembly, and the streaming orchestrator, then an AgentScope 2.0 ReActAgent drives multi-turn "think → call tool → observe" loops whose events are pushed to the frontend in real time over SSE. This page walks the end-to-end flow as it exists in the code, then covers the citation system, plan mode, sub-agents, conversation summarization, chat sharing, context compression, and oversized-tool-result offloading.
 
@@ -64,6 +64,8 @@ While a regular chat is generating, the composer continues accepting the next
 message. Sending it creates a queued card above the composer. You can edit the
 card from its more menu or delete it. If you don't select **Steer**, the client
 sends the message as the next turn after the current answer finishes.
+
+The home-page and in-conversation composers grow with multiline content, then scroll internally after reaching their visible height limit. Use `Shift+Enter` to insert a line break.
 
 Queued input is database-authoritative: acceptance happens before Redis sends a
 best-effort wake-up. Each chat gets a monotonic `steer_seq`; rows move through
