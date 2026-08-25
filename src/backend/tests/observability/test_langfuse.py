@@ -103,6 +103,12 @@ def test_chat_trace_nests_attempts_and_masks_content(monkeypatch):
             status="success",
             usage=AttemptUsage(prompt_tokens=11, completion_tokens=7),
         )
+        tool_child = lf.start_attempt_observation(
+            kind="tool",
+            name="search",
+            metadata={"tool_call_id": "call_1"},
+        )
+        lf.finish_attempt_observation(tool_child, status="success")
         lf.finish_current_chat_trace(
             status="completed",
             answer="<think>private reasoning</think>最终答案",
@@ -116,6 +122,8 @@ def test_chat_trace_nests_attempts_and_masks_content(monkeypatch):
     assert root.children[0].updates[-1]["usage_details"]["input_tokens"] == 11
     answer = root.updates[-1]["output"]["answer"]["content"]
     assert answer == "最终答案"
+    assert root.updates[-1]["metadata"]["model_attempt_count"] == 1
+    assert root.updates[-1]["metadata"]["physical_tool_attempt_count"] == 1
     assert client.propagated[0]["session_id"] == "chat_123"
     assert root.ended is True
 

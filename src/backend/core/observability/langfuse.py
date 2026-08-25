@@ -35,6 +35,8 @@ class ChatTrace:
     trace_id: str
     run_id: str
     base_metadata: dict[str, Any] = field(default_factory=dict)
+    model_attempt_count: int = 0
+    physical_tool_attempt_count: int = 0
     closed: bool = False
     finished: bool = False
 
@@ -198,7 +200,13 @@ def _finish_trace_state(
         level = "WARNING"
     else:
         level = None
-    merged = {**state.base_metadata, **_safe_metadata(metadata), "status": status}
+    merged = {
+        **state.base_metadata,
+        **_safe_metadata(metadata),
+        "model_attempt_count": state.model_attempt_count,
+        "physical_tool_attempt_count": state.physical_tool_attempt_count,
+        "status": status,
+    }
     try:
         state.root.update(
             output={"answer": _capture_text(answer, strip_thinking=True)},
@@ -250,7 +258,12 @@ def start_attempt_observation(
             kwargs["model"] = str(model or name or "unknown")[:160]
         if payload is not None:
             kwargs["input"] = payload
-        return state.root.start_observation(**kwargs)
+        observation = state.root.start_observation(**kwargs)
+        if kind == "model":
+            state.model_attempt_count += 1
+        else:
+            state.physical_tool_attempt_count += 1
+        return observation
     except Exception:  # noqa: BLE001
         logger.warning("langfuse_attempt_start_failed", exc_info=True)
         return None
