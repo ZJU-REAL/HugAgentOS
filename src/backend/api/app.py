@@ -10,6 +10,7 @@ events.  Heavy logic lives in dedicated sub-modules:
 - api.health                   – /health, /ready, /live endpoints
 """
 
+import asyncio
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -91,6 +92,7 @@ async def lifespan(app: FastAPI):
     await _shutdown_mcp_market_monitor()
     await _shutdown_local_sidecars()
     await _shutdown_pools()
+    await _shutdown_langfuse()
 
 
 # ---------------------------------------------------------------------------
@@ -1186,6 +1188,16 @@ async def _startup_warmup_memory():
     except RuntimeError:
         # no running loop — should not happen in startup event
         logger.debug("[startup] no event loop for memory warmup")
+
+
+async def _shutdown_langfuse():
+    """Flush buffered observability events without blocking the event loop."""
+    try:
+        from core.observability.langfuse import shutdown_langfuse
+
+        await asyncio.to_thread(shutdown_langfuse)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("langfuse_shutdown_error", error=str(exc))
 
 
 async def _shutdown_pools():

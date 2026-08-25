@@ -390,6 +390,15 @@ def _run_subagent_in_thread(
                 await close_clients(mcp_clients)
             except BaseException as exc:
                 logger.debug("close_clients error (ignored): %s", exc)
+            # Redis async connections are scoped to this thread-local event
+            # loop. Close them before loop.close(); otherwise redis-py retains
+            # sockets tied to a dead loop after every sub-agent invocation.
+            try:
+                from core.infra.redis import close_redis
+
+                await close_redis()
+            except BaseException as exc:
+                logger.debug("subagent redis close error (ignored): %s", exc)
 
     loop = asyncio.new_event_loop()
     try:

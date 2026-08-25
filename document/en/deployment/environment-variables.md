@@ -279,6 +279,27 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `MEMORY_PROCEDURE_WEAK_TTL_DAYS` | `30` | Provisional lifetime (days) of weak L2 rules: they age out unless restated, at which point they are promoted to persistent | CE |
 | `MEMORY_TTL_SWEEP_ENABLED` / `MEMORY_TTL_SWEEP_CRON` | `true` / `15 4 * * *` | Daily physical deletion of expired memories (already hidden from retrieval before deletion) | CE |
 
+## Langfuse tracing and evaluation
+
+| Variable | Default | Description | Edition |
+|---|---|---|---|
+| `LANGFUSE_ENABLED` | `false` | Master switch for agent tracing; missing credentials or an unavailable service fail open and never block chat | CE |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | empty | Langfuse project API credentials | CE |
+| `LANGFUSE_BASE_URL` | SDK default | Langfuse Web URL; use the internal shared-network address for self-hosted Compose | CE |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `default` | Environment label such as `staging` or `production` | CE |
+| `LANGFUSE_RELEASE` | empty | Release version or Git revision for comparisons | CE |
+| `LANGFUSE_SAMPLE_RATE` | `1.0` | Trace sampling rate from `0` to `1` | CE |
+| `LANGFUSE_CAPTURE_CONTENT` | `false` | Send masked and truncated questions/final answers; when disabled only character counts are sent | CE |
+| `LANGFUSE_CAPTURE_TOOL_IO` | `false` | Send tool arguments/results; keep disabled when tools may expose business data | CE |
+| `LANGFUSE_MAX_CONTENT_CHARS` | `8000` | Maximum characters exported for one question or answer | CE |
+| `LANGFUSE_DOCKER_NETWORK` | `langfuse-observability` | External shared network used by `docker-compose.langfuse.yml` | CE |
+
+Before enabling `docker-compose.langfuse.yml`, create the external network and
+attach the self-hosted Langfuse `langfuse-web` service to it. Each question and
+answer becomes a root Agent observation, physical model requests and real tool
+executions become child observations, and like/dislike feedback becomes a
+`user_feedback` score.
+
 ## Context compaction
 
 When a conversation approaches the model's context window, the earlier history is summarised into a

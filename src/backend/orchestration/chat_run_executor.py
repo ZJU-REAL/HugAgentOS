@@ -955,6 +955,24 @@ async def _run_workflow(
     _thinking_parts: List[str] = []
     next_cancel_poll = 0.0
 
+    # Langfuse is an optional projection. Entering the scope establishes a
+    # deterministic root trace for all nested model/tool observations; the
+    # scope itself is fail-open when disabled, unconfigured or unavailable.
+    from core.observability.langfuse import chat_trace_scope
+
+    _langfuse_stack = contextlib.ExitStack()
+    _langfuse_stack.enter_context(
+        chat_trace_scope(
+            run_id=run_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            message_id=message_id,
+            question=raw_user_message,
+            model_name=model_name,
+            recovering=recovering,
+        )
+    )
+
     def _flush_thinking() -> None:
         nonlocal full_response
         if not _thinking_parts:
@@ -1758,6 +1776,29 @@ async def _run_workflow(
         await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
 
     finally:
+        # Close the external trace before post-terminal cleanup so its duration
+        # matches the user-visible turn rather than Redis expiry/lease teardown.
+        try:
+            from core.observability.langfuse import finish_current_chat_trace
+
+            try:
+                _trace_run = get_run(run_id)
+                _trace_status = _trace_run.status if _trace_run is not None else "unknown"
+            except Exception:  # noqa: BLE001
+                _trace_status = "unknown"
+            finish_current_chat_trace(
+                status=_trace_status,
+                answer=full_response,
+                metadata={
+                    "duration_ms": int(
+                        (time.monotonic() - _run_started_monotonic) * 1000
+                    ),
+                    "tool_call_count": len(tool_calls_log),
+                    "assistant_message_id": current_message_id,
+                },
+            )
+        finally:
+            _langfuse_stack.close()
         # After the terminal state, keep the event stream for the full human
         # wait window plus a recovery grace period so late reconnects can replay.
         await _expire_stream(run_id)

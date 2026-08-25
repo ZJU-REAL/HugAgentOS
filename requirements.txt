@@ -16,6 +16,9 @@ jsonschema>=4.20.0
 # 已迁移到 2.0：Agent/Toolkit/Middleware/MCP 全面重写，固定 ==2.0.0（GitHub main 已与 2.0.0 分叉，不兼容）
 agentscope==2.0.0
 
+# Optional agent observability/evaluation export (disabled unless LANGFUSE_ENABLED=true)
+langfuse>=4.14.5,<5.0.0
+
 # 多厂商模型渠道所需 SDK（均为惰性 import，未装只影响对应渠道，不影响其余功能）：
 #   - anthropic / dashscope / openai 已随 agentscope==2.0.0 内置，无需在此重复声明
 #   - 以下为 agentscope 未捆绑、需显式安装的渠道 SDK：

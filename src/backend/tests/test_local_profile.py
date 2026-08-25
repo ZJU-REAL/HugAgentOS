@@ -26,7 +26,8 @@ async def test_memory_redis_uses_fakeredis_and_blocks_on_xread(monkeypatch):
     # Point the module's settings at memory:// and reset the singleton.
     fake_settings = SimpleNamespace(redis=SimpleNamespace(url="memory://", socket_timeout=30))
     monkeypatch.setattr(rmod, "settings", fake_settings)
-    monkeypatch.setattr(rmod, "_redis_pool", None)
+    monkeypatch.setattr(rmod, "_redis_pools", type(rmod._redis_pools)())
+    monkeypatch.setattr(rmod, "_fake_server", None)
 
     r = rmod.get_redis()
     assert type(r).__module__.startswith("fakeredis")
