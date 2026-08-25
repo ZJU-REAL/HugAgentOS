@@ -118,9 +118,6 @@ services:
       LOG_FILE_PATH: ${LOG_FILE_PATH:-/app/logs/backend.log}
       LOG_FILE_MAX_BYTES: ${LOG_FILE_MAX_BYTES:-10485760}
       LOG_FILE_BACKUP_COUNT: ${LOG_FILE_BACKUP_COUNT:-5}
-
-      # Optional Langfuse agent tracing/evaluation export. The application
-      # remains fully functional when disabled or when Langfuse is unavailable.
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
