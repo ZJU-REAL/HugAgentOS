@@ -700,7 +700,7 @@ fn titlebar_block(offset_css: &str) -> String {
         "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
 <header id=\"hugagent-titlebar\" data-height=\"{height}\">\
 <div class=\"tb-sidebarZone\">{navigation}{menu}</div><div class=\"tb-mainChrome\">\
-<div class=\"tb-currentTab\" aria-label=\"当前页面\"><svg class=\"tb-tabIcon\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3.25 2.75h3.3l1.2 1.5h5v9h-9.5z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/></svg><span class=\"tb-tabText\">HugAgentOS</span></div>\
+<div class=\"tb-currentTab\" aria-label=\"当前页面\"><svg class=\"tb-tabIcon\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3.25 2.75h3.3l1.2 1.5h5v9h-9.5z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/></svg><span class=\"tb-tabText\">新建对话</span></div>\
 <div class=\"tb-spacer\"></div>{controls}</div></header><script>{script}</script>",
         css = TB_CSS,
         offset = offset_css,
