@@ -114,8 +114,11 @@ curl -N http://localhost:3000/api/v1/chats/stream \
 | `tool_call` | 参数完整、即将执行工具 | `tool_name`、`tool_display_name`、`tool_args`、`tool_id`、`subagent_name?` |
 | `tool_result` | 工具返回结果 | `tool_name`、`result`（JSON）、`tool_id`、`status`、`citations`（引用项列表） |
 | `steer_applied` | 追加指令已在安全 ReAct 边界注入 | `steer_id`、`message`、`message_id`、`chat_id` |
+| `queued_run_started` | 已提交的 `followUp` / `nextRun` 子运行开始，客户端应立即接力续播 | `run_id`、`message_id`、`user_message_id`、`message`、`queue_id`、`steer_id`、`delivery_mode` |
 | `tool_pending` | 提供商未暴露可解析增量时的等待兜底 | `reason`（如 `llm_buffering`） |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | `confirm_id`、`op`、`logical_path`、`message`、`expired`；流不结束，用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后续跑 |
+| `user_question` | 智能体调用 `ask_user_question` 并原地等待 | `request_id`、`questions[]`、`created_at`、`expires_at`、`chat_id` |
+| `user_question_resolved` | 服务端已接受答案、取消或超时 | `request_id`、`outcome`（`answered` / `cancelled` / `timeout`）、`chat_id` |
 | `batch_confirm` | 批量执行计划等待用户确认 | `plan_id`、`total`、`preview`、`default_template`、`placeholder_keys`；确认走 `POST /v1/batch/{plan_id}/confirm` |
 | `meta` | 回答结束的收尾帧 | `route`、`sources`、`artifacts`、`citations`、`warnings`、`is_markdown`、`message_id`、`workspace_files` |
 | `error` | 流式异常 | `error`（用户可读消息）、`chat_id` |
@@ -144,6 +147,19 @@ data: {"type": "meta", "route": "main", "sources": [], "artifacts": [], "citatio
 data: [DONE]
 ```
 
+### 主动提问恢复与作答接口
+
+以下接口都使用当前用户身份，并校验会话归属。pending 返回后端当前进程注册表中的权威状态，不从旧 SSE 或浏览器缓存推断：
+
+| 方法与路径 | 用途 |
+|---|---|
+| `GET /v1/chats/pending-user-questions` | 一次获取当前用户所有会话的待回答项，用于刷新后的侧栏提醒 |
+| `GET /v1/chats/{chat_id}/pending-user-questions` | 获取一个会话的 FIFO 待回答队列，用于刷新、重连或切回会话恢复 Composer |
+| `POST /v1/chats/{chat_id}/user-questions/{request_id}/answer` | 提交浏览器传输答案：`{"answers":[{"id":"scope","selected":["option_1"],"custom":"...","skipped":false}]}` |
+| `POST /v1/chats/{chat_id}/user-questions/{request_id}/cancel` | 取消本次提问，让原工具协程以 `ASK_CANCELLED` 工具错误继续 |
+
+答案必须与原问题数量、ID 和顺序完全一致；私有 option ID 必须来自 pending 响应，单选题不能提交多个选项，且每题必须作答或明确 `skipped=true`。后端会先把这些私有 ID 映射回原始选项 label，再向模型返回 DSH 兼容结果 `{"answers":[{"id":"scope","selected":["最小范围"]}]}`。第一个有效回答/取消会原子取得请求，之后的并发提交返回 `stale=true`，不会重复唤醒工具。成功 POST 已代表服务端原子取得请求，当前标签页可立即按 `request_id` 移除；`user_question_resolved` 和周期 pending 权威快照负责同步其他标签页与断线客户端。
+
 正文中的 `[ref:tool_name-N]` 引用标记由 `orchestration/citations.py` 解析为 `citations` 项，前端据此渲染角标（见 [对话模块](../modules/chat.md)）。
 
 ### 续播、Steer 与取消
@@ -163,10 +179,14 @@ curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/cancel \
 curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steer \
   -H "Authorization: Bearer sk-jx-xxxxxxxx" \
   -H "Content-Type: application/json" \
-  -d '{"steer_id":"steer_001","message":"先不要下载，改为比较两个方案"}'
+  -d '{"steer_id":"steer_001","message":"先不要下载，改为比较两个方案","delivery_mode":"steer","replace_latest":true}'
+
+# 查询 accepted / claimed / applied / cancelled / superseded 状态
+curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
+  -H "Authorization: Bearer sk-jx-xxxxxxxx"
 ```
 
-续播、Steer 和取消都会校验 run 归属：非属主返回 403、run 不存在返回 404。Steer 只支持进行中的普通对话 run；指令通过 Redis 交给执行进程。若工具正在执行，指令会在该工具结果进入上下文后、下一轮模型推理前注入；若下一批工具尚未开始，则先中止旧调用再注入。两种路径都以 `steer_applied` 事件确认。`DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` 可撤回尚未被消费的指令。`GET /v1/chats/{chat_id}/active-run` 可查询某会话当前是否有进行中的 run（前端刷新页面后据此重连）。run 静默超过 `CHAT_RUN_INACTIVITY_TIMEOUT_SEC`（默认 600 秒）会被判定为僵死并终止。
+续播、Steer 和取消都会校验 run 归属：非属主返回 403、run 不存在返回 404。追加指令先写数据库，Redis 仅做尽力而为的 worker 唤醒。`delivery_mode` 可取 `steer`、`followUp` 或 `nextRun`：Steer 注入进行中的普通对话 run，后两者在当前 run 完成后按序启动独立 run。若工具正在执行，Steer 会在该工具结果进入上下文后、下一轮模型推理前注入；若下一批工具尚未开始，则先中止旧调用再注入。两种路径都以 `steer_applied` 事件确认。`DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` 可撤回尚未被消费的指令。`GET /v1/chats/{chat_id}/active-run` 可查询某会话当前是否有进行中的 run（前端刷新页面后据此重连）。run 静默超过 `CHAT_RUN_INACTIVITY_TIMEOUT_SEC`（默认 600 秒）会被判定为僵死并终止；只有后端确实存在待回答/待确认的人机交互时，内部心跳才会续活该看门狗，最长等待由 `HUMAN_INTERACTION_MAX_WAIT_SECONDS` 控制。
 
 ### 其他 SSE 端点
 
@@ -193,7 +213,7 @@ curl -X POST http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steer \
 | 分组 | 模块（`api/routes/v1/`） | 前缀 | 代表端点 | 鉴权 |
 |---|---|---|---|---|
 | 会话与消息 | `chats.py` | `/v1/chats` | `POST /stream`（SSE）、`GET /stream/{run_id}`（续播）、`POST /send`（非流式）、`GET /`、`GET /{chat_id}/messages`、`POST /{chat_id}/share` | 用户 |
-| 会话与消息 | `chat_runs.py` | `/v1/chat-runs` | `POST /{run_id}/cancel`、`POST /{run_id}/steer`、`DELETE /{run_id}/steer/{steer_id}` | 用户 |
+| 会话与消息 | `chat_runs.py` | `/v1/chat-runs` | `POST /{run_id}/cancel`、`POST /{run_id}/steer`、`GET /{run_id}/steers`、`DELETE /{run_id}/steer/{steer_id}` | 用户 |
 | 会话与消息 | `chat_shares.py` | `/v1/chat-shares` | `POST /`、`GET /{share_id}`、`POST /{share_id}/revoke` | 用户 |
 | 会话与消息 | `summary.py` | `/v1/summary` | `POST /`（会话标题摘要） | 用户 |
 | 会话与消息 | `classify.py` | `/v1/classify` | `POST /`（业务主题分类） | 用户 |

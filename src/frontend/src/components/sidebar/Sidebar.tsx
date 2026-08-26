@@ -91,6 +91,7 @@ export function Sidebar({
     editingTitle, setEditingTitle,
     pendingConfirm,
     pendingDesignPick,
+    pendingUserQuestions,
   } = useUIStore();
   const { store, currentChatId, chatsLoading, sendingChatIds, updateStore, addBackendSessionId } = useChatStore();
   const { authUser, doLogout, loggingOut } = useAuthStore();
@@ -566,16 +567,22 @@ export function Sidebar({
             <span className="jx-historyTitle">
               {item.title || t('对话')}
             </span>
-            {sendingChatIds.has(item.id) && (
+            {(pendingUserQuestions[item.id]?.length ?? 0) > 0 ? (
+              <>
+                <Tooltip title={t('等待你的回答')}>
+                  <span className="jx-historyQuestionDot" aria-hidden="true" />
+                </Tooltip>
+                <span className="jx-visuallyHidden">{t('等待你的回答')}</span>
+              </>
+            ) : sendingChatIds.has(item.id) ? (
               <Tooltip title={t('运行中')}>
                 <span className="jx-historyRunningDot" />
               </Tooltip>
-            )}
-            {!sendingChatIds.has(item.id) && ((pendingConfirm[item.id]?.length ?? 0) > 0 || !!pendingDesignPick[item.id]) && (
+            ) : ((pendingConfirm[item.id]?.length ?? 0) > 0 || !!pendingDesignPick[item.id]) ? (
               <Tooltip title={t('有待确认的操作')}>
                 <span className="jx-historyConfirmDot" />
               </Tooltip>
-            )}
+            ) : null}
           </div>
         )}
         <div className="jx-historyActions">

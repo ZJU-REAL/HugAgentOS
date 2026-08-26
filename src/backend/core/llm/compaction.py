@@ -1,28 +1,35 @@
 # -*- coding: utf-8 -*-
-"""Context compaction.
-
-Across turns, compacts the conversation history into "recent user messages + summary";
-the summary is persisted and carried into subsequent turns, replacing the previous
-"AgentScope in-turn compaction + summary not persisted" approach. Key points:
-
-1. Compacted history = ``[recent user messages (≤20k tokens)] + [summary (encoded as a
-   user message, placed at the end)]``; **all assistant messages, tool calls, tool
-   results, and earlier user messages are dropped**.
-2. The summary is marked with the :data:`SUMMARY_PREFIX` prefix, recognizable by
-   :func:`is_summary_message`, so it is **carried into subsequent turns without being
-   re-compacted**.
-3. Token estimation uses utf-8 bytes (``APPROX_BYTES_PER_TOKEN=4``); middle truncation
-   keeps head + tail, marked ``…{n} tokens truncated…``.
-
-Not truncating cross-turn tool results is the replay layer's job
-(``api/routes/v1/chats.py``); this module only handles compaction itself.
-"""
+"""Pure helpers for compacting history into recent user messages plus a summary."""
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.llm.context_ir import (
+    CONTEXT_SEQUENCE_STRIDE,
+    KIND_COMPACTION,
+    SESSION_CONTEXT_META_KEY,
+    make_text_context_item,
+)
+
 # ── Constants ────────────────────────────────────────────────────────────────
+
+
+class CompactionPhase(str, Enum):
+    """Where the shared compaction pipeline was triggered.
+
+    - :attr:`MID_TURN` — the main path. Checked at every ReAct step boundary
+      by ``CompactingAgent.compress_context``.
+    - :attr:`PRE_TURN` — safety net before a turn starts sampling, for history
+      that was already over the threshold when loaded.
+    - :attr:`POST_TURN` — background pre-warm after the stream closes.
+    """
+
+    MID_TURN = "mid_turn"
+    PRE_TURN = "pre_turn"
+    POST_TURN = "post_turn"
+
 
 # Token estimation: roughly 1 token per 4 utf-8 bytes
 APPROX_BYTES_PER_TOKEN = 4
@@ -30,16 +37,10 @@ APPROX_BYTES_PER_TOKEN = 4
 # Token cap for the recent user messages kept after compaction
 COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000
 
-# Marker of the compaction checkpoint in chat_messages (role='system' + extra_data.kind).
-# The summary is persisted and carried into subsequent turns; no more re-compacting from
-# the raw history every turn.
+# Marker stored on internal checkpoint messages.
 COMPACTION_CHECKPOINT_KIND = "compaction_summary"
 
-# Summary-generation instruction (asks the model to produce a structured handoff summary).
-# The body is verbatim-identical to the Codex CLI template; the final language-following
-# sentence is a deliberate addition of this repo — user conversations are almost entirely
-# Chinese, and the summary must follow the conversation language, avoiding the small
-# chance of an English summary affecting subsequent turns.
+# Shared handoff instruction. The final line preserves the conversation language.
 SUMMARIZATION_PROMPT = (
     "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary "
     "for another LLM that will resume the task.\n\n"
@@ -52,7 +53,7 @@ SUMMARIZATION_PROMPT = (
     "Write the summary in the same language as the conversation.\n"
 )
 
-# Summary prefix: tells the next turn's model "this is the handoff summary of the prior conversation; continue from it, do not duplicate work"
+# Marker that identifies a handoff summary during replay and rolling compaction.
 SUMMARY_PREFIX = (
     "Another language model started to solve this problem and produced a summary of "
     "its thinking process. You also have access to the state of the tools that were "
@@ -221,7 +222,6 @@ def build_compacted_history(
     user_messages: List[str],
     summary_text: str,
     *,
-    initial_context: Optional[List[Dict[str, Any]]] = None,
     max_tokens: int = COMPACT_USER_MESSAGE_MAX_TOKENS,
 ) -> List[Dict[str, Any]]:
     """Build the compacted history.
@@ -230,7 +230,7 @@ def build_compacted_history(
     middle-truncated), then order chronologically, and finally append the summary
     (encoded as a **user** message). Returns ``[{"role","content"}...]``.
     """
-    history: List[Dict[str, Any]] = list(initial_context or [])
+    history: List[Dict[str, Any]] = []
 
     selected: List[str] = []
     if max_tokens > 0:
@@ -251,5 +251,22 @@ def build_compacted_history(
         history.append({"role": "user", "content": msg})
 
     summary = summary_text if summary_text else "(no summary available)"
-    history.append({"role": "user", "content": summary})
+    summary_item = make_text_context_item(
+        summary,
+        item_id="compaction:summary",
+        kind=KIND_COMPACTION,
+        origin="harness:compaction",
+        trust="system",
+        created_seq=len(history) * CONTEXT_SEQUENCE_STRIDE,
+        priority=850,
+        token_budget=20_000,
+        cache_class="checkpoint",
+    )
+    history.append(
+        {
+            "role": "user",
+            "content": summary,
+            SESSION_CONTEXT_META_KEY: summary_item.to_manifest(),
+        }
+    )
     return history

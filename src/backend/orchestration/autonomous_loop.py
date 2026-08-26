@@ -531,7 +531,7 @@ async def _run_worker_iteration(
                 logger.warning("[loop] worker stream error: %s", payload)
     finally:
         _keepalive_task.cancel()
-        usage = sa.get_usage()
+        usage = await sa.aget_usage()
         await close_clients(clients)
     if hold_output and text:
         from orchestration.subagents.ontology_reviewer import review_ontology_output
@@ -599,7 +599,7 @@ def _build_requirement_prompt(
     workspace_note += (
         "\n⚠️ 大文件纪律：超过 3 万字符的文件**禁止整读进上下文**（读了也会被截断，"
         "还白白吃掉预算）。核验/定位一律用统计与抽样命令：`wc -m`、`grep -n/-c`、"
-        "`head`/`tail`/`sed -n 'a,bp'`、`word-cli read --mode outline`；要改哪段就只读哪段。"
+        "`head`/`tail`/`sed -n 'a,bp'`、`officecli read <file> --range`；要改哪段就只读哪段。"
         "被截断的工具结果全文都在 /workspace/.offload/ 里，需要时按路径查。"
     )
     parts = [

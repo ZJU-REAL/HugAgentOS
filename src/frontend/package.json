@@ -13,6 +13,8 @@
     "test:citation-highlight": "esbuild scripts/test-citation-highlight.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-citation-highlight.mjs && node node_modules/.tmp/test-citation-highlight.mjs",
     "test:plugin-ui": "esbuild scripts/test-plugin-ui-pointer.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-plugin-ui-pointer.mjs && node node_modules/.tmp/test-plugin-ui-pointer.mjs",
     "test:sidebar-order": "esbuild scripts/test-sidebar-order.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-sidebar-order.mjs && node node_modules/.tmp/test-sidebar-order.mjs",
+    "test:desktop-overlay": "esbuild scripts/test-desktop-overlay.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-desktop-overlay.mjs && node node_modules/.tmp/test-desktop-overlay.mjs",
+    "test:user-questions": "esbuild scripts/test-user-questions.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-user-questions.mjs && node node_modules/.tmp/test-user-questions.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

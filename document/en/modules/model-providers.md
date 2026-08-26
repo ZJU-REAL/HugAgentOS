@@ -1,6 +1,6 @@
 # Model Providers
 
-> Last updated: 2026-06-11
+> Last updated: 2026-08-24
 
 HugAgentOS talks to any large-language-model endpoint that speaks the **OpenAI-compatible protocol** (vLLM, Ollama, DashScope, DeepSeek, API gateways, …). Model configuration is database-driven: administrators register *model providers* in the Config console and bind them to *roles* (main reasoning, summarization, embeddings, …); everything flows through `ModelConfigService` with a 30-second TTL cache, so configuration changes take effect without a restart. The `MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` environment variables remain only as compatibility fallbacks and for injection into MCP subprocesses.
 
@@ -25,6 +25,25 @@ Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_
 
 `extra_config` supports keys such as `temperature` / `max_tokens` / `timeout` / `context_length` (context window, used for compression thresholds) / `supports_reasoning_effort` (whether thinking-effort levels are supported) / `supports_vision` (whether the model reads images natively).
 
+### Context-window auto-detection
+
+`context_length` drives history trimming and the auto-compaction threshold. Getting it wrong makes a model compact at half its real window, so there is **no runtime fallback** — a model left with an empty value cannot serve traffic. To spare operators the manual lookup, the field is filled in from the upstream when a provider is saved with it empty, and the model form carries an "Auto-detect" button that triggers the same discovery on demand (endpoint: `POST /v1/models/providers/detect-context`).
+
+Sources are tried in order of trust, stopping at the first hit:
+
+| Source | How | Confidence |
+|---|---|---|
+| Provider model listing | `GET {base_url}/models`, reading `max_model_len` (vLLM / SGLang), `context_length` (OpenRouter and friends) or `max_input_tokens` (LiteLLM gateways) off the matching entry | High |
+| Ollama | The native `POST /api/show` response's `model_info.<architecture>.context_length` | High |
+| Upstream limit error | One request whose `max_tokens` far exceeds any real cap: the upstream rejects it during parameter validation (no inference, no tokens billed) and often names the real window in the error text | Medium |
+| Model-family inference | Matching the model name against known families' typical windows | Low |
+
+Two safety boundaries:
+
+- **Only signals that unambiguously name the context length are adopted.** When an upstream reports nothing but a `max_tokens` cap — which on most vendors is far smaller than the context window — the number is recorded in the detection trail for a human to read but is **never** stored as the window; adopting it would recreate the compact-at-half-window bug.
+- **No over-long-prompt probe.** It is the most reliable signal on self-hosted vLLM, but gateways may genuinely accept and run inference over a six-figure-token prompt, which costs real money.
+- A manually entered value **always wins**: detection only ever writes into an empty field. Auto-filled values are marked with `context_length_source` and shown in the console as "not yet confirmed"; saving the provider once confirms them.
+
 ## Vision bridge: giving text-only models eyes
 
 Flagship text models such as DeepSeek, GLM, and the text-only Qwen builds cannot see images. The vision bridge does not replace the main model — it hangs a transcription channel off the side of it:
@@ -47,7 +66,7 @@ Resolution order:
 
 | Situation | Behaviour |
 |---|---|
-| User uploads an image in chat | Transcribed and injected at the start of each turn |
+| User uploads an image or pastes a clipboard image into the chat composer | Transcribed and injected at the start of each turn |
 | Agent reads an image in the sandbox or "My Space" | `Read` returns `type=image_evidence` instead of `type=binary` |
 | A tool returns an image (e.g. chart rendering) | Transcribed and substituted, so the agent can check its own output |
 | A group-chat bot receives an image attachment | `channel_read_attachment` points at `view_image` |

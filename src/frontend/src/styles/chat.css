@@ -1598,7 +1598,8 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-homeInput .jx-composer{
   width:100% !important;
-  height:148px !important;
+  height:auto !important;
+  min-height:148px !important;
   border:none !important;
   border-radius:0 !important;
   box-shadow:none !important;

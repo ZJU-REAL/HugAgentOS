@@ -23,7 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "word-editing",
+      "officecli-docx",
       "meeting-minutes-organizer"
     ],
     "mcp_server_ids": [],

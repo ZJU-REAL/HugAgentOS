@@ -1,10 +1,16 @@
 import { message } from 'antd';
 import { t } from '../i18n';
-import { toFileConfirmInfo, toDesignPickInfo, listChatJobs } from '../api';
+import {
+  listChatJobs,
+  toDesignPickInfo,
+  toFileConfirmInfo,
+  toUserQuestionRequest,
+} from '../api';
 import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { refreshTargetForTool } from '../utils/toolRefresh';
 import { parseContextCompactionState } from '../utils/contextUsage';
+import { parseQueuedRunHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
 import { readText, resolveText } from '../plugin-ui';
 import { usePluginUiStore, type CanvasTarget } from '../stores/pluginUiStore';
 import { isMobileViewport } from './useIsMobileViewport';
@@ -252,6 +258,8 @@ export interface ChatStreamOutcome {
   metaFollowUps: string[];
   /** Stream aborted by the user (AbortError) — the bubble has already wound down normally */
   aborted: boolean;
+  /** A durable followUp/nextRun handoff committed by the backend at this run's boundary. */
+  queuedRun?: QueuedRunHandoff;
 }
 
 /**
@@ -278,6 +286,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   let evolutionSummary: EvolutionSummary | undefined;
   let metaMessageId: string | undefined;
   let metaFollowUps: string[] = [];
+  let queuedRun: ChatStreamOutcome['queuedRun'];
   let allCitations: CitationItem[] = [];
   // Workspace allowlist from the meta event. `null` means the agent
   // didn't pin (legacy behavior); an array means filter artifact cards
@@ -834,6 +843,10 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           applySteerBoundary(eventObj);
           return;
         }
+        if (eventType === 'queued_run_started') {
+          queuedRun = parseQueuedRunHandoff(eventObj);
+          return;
+        }
         if (eventType === 'vision_progress') {
           // 视觉桥在模型开口前先把图转成文字证据，这段是纯网络等待。不报出来的话，
           // 界面上只有一个笼统的「深度拥抱中」在走秒，用户不知道系统在干什么。
@@ -859,6 +872,13 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         }
         if (eventType === 'error') {
           const streamError = typeof obj.error === 'string' ? obj.error : t('流式响应异常');
+          // A server error frame is terminal for this run. Suspended question
+          // tools are cancelled with it, but their resolved signal may not be
+          // drained before task cancellation writes the terminal frame.
+          const ui = useUIStore.getState();
+          for (const request of ui.pendingUserQuestions[chatId] ?? []) {
+            ui.resolvePendingUserQuestion(chatId, request.requestId);
+          }
           if (ontologyGovernance?.review.status === 'running') {
             ontologyGovernance = {
               ...ontologyGovernance,
@@ -1487,6 +1507,31 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           return;
         }
 
+        if (eventType === 'user_question') {
+          // ask_user_question suspends the current run. The resident composer
+          // replaces the ordinary input until the server resolves this exact
+          // request; duplicate replay frames are deduped by request_id.
+          const request = toUserQuestionRequest(eventObj);
+          if (request.requestId && request.questions.length) {
+            useUIStore.getState().enqueuePendingUserQuestion(chatId, request);
+          }
+          return;
+        }
+
+        if (eventType === 'user_question_resolved') {
+          // The backend owns the terminal state. A successful answer/cancel
+          // POST is only an acknowledgement, so removal happens here (or via
+          // the pending-question recovery endpoint after a reconnect).
+          const requestId = String(eventObj.request_id ?? '');
+          if (requestId) {
+            useUIStore.getState().resolvePendingUserQuestion(chatId, requestId);
+          }
+          if (eventObj.outcome === 'timeout') {
+            message.info(t('等待回答已超时，助手将采用稳妥的默认方案继续。'));
+          }
+          return;
+        }
+
         if (eventType === 'follow_up') {
           if (Array.isArray(eventObj.follow_up_questions) && eventObj.follow_up_questions.length > 0) {
             metaFollowUps = eventObj.follow_up_questions as string[];
@@ -1641,5 +1686,5 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
 
   if (thrown) throw thrown;
 
-  return { full, placeholderTs, metaMessageId, metaFollowUps, aborted };
+  return { full, placeholderTs, metaMessageId, metaFollowUps, aborted, queuedRun };
 }

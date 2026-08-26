@@ -326,6 +326,12 @@ def test_transcribe_replaces_image_block_with_evidence(monkeypatch):
     blocks = rewritten[0]["content"]
     assert all(b["type"] == "text" for b in blocks)
     assert "image-evidence" in blocks[1]["text"]
+    assert rewritten[0]["_harness_context_item"] == {
+        "kind": "attachment",
+        "origin": "vision:transcription",
+        "trust": "tool",
+        "priority": 850,
+    }
     # 原始的用户文字不能被顺手丢掉
     assert blocks[0]["text"] == "看这张图"
 
@@ -355,9 +361,10 @@ def test_drop_path_still_works_as_fallback():
     ]
     sanitized, removed = _without_multimodal_content(messages)
     assert removed == 1
-    texts = [b["text"] for b in sanitized[0]["content"]]
+    texts = [b["text"] for message in sanitized for b in message["content"]]
     assert "hi" in texts
     assert any("不支持直接读取该媒体" in t for t in texts)
+    assert sanitized[-1]["_harness_context_item"]["origin"] == ("harness:multimodal_fallback")
 
 
 if __name__ == "__main__":  # pragma: no cover

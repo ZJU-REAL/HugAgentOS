@@ -126,6 +126,7 @@ SKIP_TOOLS = frozenset(
         "stage_myspace_file",
         "channel_read_attachment",
         "choose_design",
+        "ask_user_question",
         "view_text_file",
         "get_data_context",
         "load_skill",
@@ -287,7 +288,7 @@ def anchor_start_for_chat(chat_id: Optional[str]) -> int:
             rows = (
                 db.query(ChatMessage.extra_data)
                 .filter(ChatMessage.chat_id == chat_id)
-                .order_by(ChatMessage.created_at.desc())
+                .order_by(ChatMessage.chat_seq.desc())
                 .limit(200)
                 .all()
             )

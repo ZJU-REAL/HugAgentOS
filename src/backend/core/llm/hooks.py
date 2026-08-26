@@ -545,8 +545,6 @@ _PIN_HINT_SKIP_TOOLS: frozenset[str] = frozenset(
         "generate_response",  # the ReActAgent finish function
     }
 )
-
-
 # ── Goal-anchor reminder hook ─────────────────────────────────────────────
 # Midway through a long-context ReAct task, the model's grip on the user's original
 # constraints gets diluted by the project file listing + intermediate tool results.
@@ -560,7 +558,7 @@ _PIN_HINT_SKIP_TOOLS: frozenset[str] = frozenset(
 _GOAL_ANCHOR_WARMUP_CALLS = 3
 _GOAL_ANCHOR_INTERVAL = 10
 # These tools hint the model is about to "land" its existing plan into an artifact
-# (markdown draft, bash running word-cli, etc.). Hitting any of them forces one
+# (markdown draft, bash running officecli, etc.). Hitting any of them forces one
 # injection (at most 1 forced per reply turn).
 # Not included: sandbox_get_artifact / pin_to_workspace (already on the delivery
 # path; reminding again confuses the model into going silent and quitting —

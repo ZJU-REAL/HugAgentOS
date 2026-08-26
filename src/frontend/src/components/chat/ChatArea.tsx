@@ -9,7 +9,7 @@ import {
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useAuthStore, useEditionStore, usePluginUiStore } from '../../stores';
+import { useChatStore, useBatchStore, useAuthStore, useEditionStore, usePluginUiStore, useUIStore } from '../../stores';
 import { mergeContributedShortcuts } from '../../stores/pluginUiStore';
 import { resolveText } from '../../plugin-ui';
 import { useCatalogStore } from '../../stores/catalogStore';
@@ -58,6 +58,7 @@ import { PlanProgressStrip } from './PlanProgressStrip';
 import { JobProgressStrip } from './JobProgressStrip';
 import { FileConfirmBar } from './FileConfirmBar';
 import { DesignPickerCard } from './DesignPickerCard';
+import { AskUserQuestionComposer } from './AskUserQuestionComposer';
 import { ChatShareBanner } from './ChatShareBanner';
 import { getChatDetail } from '../../api';
 import { chatAccessLevel } from '../../chatEdition';
@@ -139,6 +140,9 @@ export function ChatArea({
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
 
   const chat = store.chats[currentChatId];
+  const hasPendingUserQuestion = useUIStore(
+    (state) => (state.pendingUserQuestions[currentChatId]?.length ?? 0) > 0,
+  );
   useEffect(() => {
     const content = document.querySelector<HTMLElement>('.jx-content');
     if (!content) return;
@@ -622,6 +626,8 @@ export function ChatArea({
           <div className="jx-chatShareReadonly">
             {t('该会话由创建者设为只读共享，无法在此发送消息')}
           </div>
+        ) : hasPendingUserQuestion ? (
+          <AskUserQuestionComposer />
         ) : (
           <InputArea
             inputRef={inputRef}

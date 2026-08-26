@@ -254,7 +254,7 @@ def collect_historical_attachments(
     with SessionLocal() as db:
         recent_desc = db.query(ChatMessage).filter(
             ChatMessage.chat_id == chat_id,
-        ).order_by(ChatMessage.created_at.desc()).limit(_MAX_CHAT_MESSAGES_SCANNED).all()
+        ).order_by(ChatMessage.chat_seq.desc()).limit(_MAX_CHAT_MESSAGES_SCANNED).all()
         msgs = list(reversed(recent_desc))
 
         for m in msgs:

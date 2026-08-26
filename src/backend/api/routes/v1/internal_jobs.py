@@ -154,8 +154,7 @@ def _parse_schema(text: str, schema: Dict[str, Any]) -> Optional[Any]:
 def _schema_hint(schema: Dict[str, Any]) -> str:
     return (
         "\n\n【输出格式（强制）】只输出一个 JSON 对象，不要任何解释文字、不要代码块以外的内容。"
-        "必须严格满足以下 JSON Schema：\n"
-        + json.dumps(schema, ensure_ascii=False)[:2000]
+        "必须严格满足以下 JSON Schema：\n" + json.dumps(schema, ensure_ascii=False)[:2000]
     )
 
 
@@ -190,6 +189,9 @@ async def _run_light_agent(
     *,
     tools: List[str],
     user_id: str,
+    chat_id: str,
+    run_id: str,
+    journal_owner: str,
     model_name: Optional[str],
     model_provider_id: Optional[str],
 ) -> tuple[str, bool]:
@@ -215,6 +217,9 @@ async def _run_light_agent(
         model_name=model_name,
         model_provider_id=model_provider_id,
         current_user_id=user_id,
+        chat_id=chat_id,
+        run_id=run_id,
+        journal_owner=journal_owner,
         top_level_chat=False,
     )
     text = ""
@@ -225,14 +230,25 @@ async def _run_light_agent(
         sa = StreamingAgent(agent, clients)
         async for et, payload in sa.stream(
             [{"role": "user", "content": prompt}],
-            {"user_id": user_id, "enable_thinking": False, "chat_mode": "fast"},
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "run_id": run_id,
+                "journal_owner": journal_owner,
+                "enable_thinking": False,
+                "chat_mode": "fast",
+            },
         ):
             if et == "text_delta":
                 text += payload
             elif et == "tool_result":
                 tool_calls += 1
                 content = str((payload or {}).get("content") or "")
-                failed = str((payload or {}).get("status") or "") in ("error", "denied", "interrupted")
+                failed = str((payload or {}).get("status") or "") in (
+                    "error",
+                    "denied",
+                    "interrupted",
+                )
                 if failed or _looks_like_infra_failure(content):
                     tool_failures += 1
                     if _looks_like_infra_failure(content):
@@ -307,14 +323,48 @@ async def job_agent(
     async with _GLOBAL_GATE, gate:
         for i in range(attempts):
             try:
-                last_text, infra_failed = await _run_light_agent(
-                    prompt if i == 0 else prompt + "\n\n上一次输出无法解析为合法 JSON，请只输出 JSON。",
-                    tools=tools,
+                from core.services.run_journal import durable_run_binding
+
+                async with durable_run_binding(
                     user_id=ctx["user_id"],
-                    model_name=body.model or ctx["model_name"],
-                    model_provider_id=ctx["model_provider_id"],
-                )
+                    chat_id=ctx["chat_id"],
+                    kind="internal_job_agent",
+                    external_id=f"{job_id}:{body.item_key or 'adhoc'}:{i}",
+                    request_payload={"job_id": job_id, "item_key": body.item_key},
+                    recovery_snapshot={
+                        "worker_args": {
+                            "context": {
+                                "mcp_ids": list(tools),
+                                "skill_ids": [],
+                                "model_name": body.model or ctx["model_name"],
+                                "model_provider_id": ctx["model_provider_id"],
+                                "chat_mode": "fast",
+                            }
+                        }
+                    },
+                ) as binding:
+                    last_text, infra_failed = await _run_light_agent(
+                        (
+                            prompt
+                            if i == 0
+                            else prompt + "\n\n上一次输出无法解析为合法 JSON，请只输出 JSON。"
+                        ),
+                        tools=tools,
+                        user_id=ctx["user_id"],
+                        chat_id=binding.chat_id,
+                        run_id=binding.run_id,
+                        journal_owner=binding.owner,
+                        model_name=body.model or ctx["model_name"],
+                        model_provider_id=ctx["model_provider_id"],
+                    )
             except Exception as exc:  # noqa: BLE001
+                from core.services.tool_effect_ledger import find_tool_outcome_unknown
+
+                if find_tool_outcome_unknown(exc) is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="工具调用结果尚待安全恢复，本项已暂停，不能自动重试",
+                    ) from exc
                 logger.warning("[job-agent] job=%s attempt=%d failed: %s", job_id, i, exc)
                 last_text, infra_failed = "", True
                 continue

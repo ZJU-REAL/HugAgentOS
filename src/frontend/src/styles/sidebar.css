@@ -690,6 +690,30 @@
   animation:jx-kf-statusIn var(--motion-duration-normal) var(--motion-ease-brand-out) both;
 }
 
+/* Assistant question waiting state: amber and stationary, so it remains
+ * distinct from both the blue running pulse and write-confirm indicator. */
+.jx-historyQuestionDot{
+  flex-shrink:0;
+  width:8px; height:8px;
+  margin-left:6px;
+  border-radius:50%;
+  background:var(--color-warning);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--color-warning) 20%, transparent);
+  animation:jx-kf-statusIn var(--motion-duration-normal) var(--motion-ease-brand-out) both;
+}
+
+.jx-visuallyHidden{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0, 0, 0, 0);
+  white-space:nowrap;
+  border:0;
+}
+
 .jx-historyActions{
   position:absolute; right:6px; top:50%; transform:translateY(-50%);
   opacity:0; pointer-events:none; transition:opacity .15s;

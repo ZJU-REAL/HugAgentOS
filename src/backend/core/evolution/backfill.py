@@ -42,6 +42,7 @@ def _candidate_messages(
             ChatMessage.message_id,
             ChatMessage.chat_id,
             ChatMessage.created_at,
+            ChatMessage.chat_seq,
         )
         .filter(
             ChatMessage.role == "assistant",
@@ -49,7 +50,7 @@ def _candidate_messages(
             ChatMessage.created_at < until,
             ~ChatMessage.message_id.in_(db.query(existing.c.message_id)),
         )
-        .order_by(ChatMessage.created_at.asc())
+        .order_by(ChatMessage.created_at.asc(), ChatMessage.chat_seq.asc())
         .offset(offset)
         .limit(limit)
         .all()
@@ -57,7 +58,7 @@ def _candidate_messages(
     return rows
 
 
-def _objective_for(db, chat_id: str, before: datetime) -> str:
+def _objective_for(db, chat_id: str, before_seq: int) -> str:
     """The user turn that prompted this answer, used as the objective."""
     from core.db.models import ChatMessage
 
@@ -66,9 +67,9 @@ def _objective_for(db, chat_id: str, before: datetime) -> str:
         .filter(
             ChatMessage.chat_id == chat_id,
             ChatMessage.role == "user",
-            ChatMessage.created_at <= before,
+            ChatMessage.chat_seq <= before_seq,
         )
-        .order_by(ChatMessage.created_at.desc())
+        .order_by(ChatMessage.chat_seq.desc())
         .first()
     )
     return (row[0] if row else "") or ""
@@ -169,9 +170,9 @@ def backfill_episodes(
                 if not rows:
                     break
 
-                for message_id, chat_id, created_at in rows:
+                for message_id, chat_id, created_at, chat_seq in rows:
                     stats["scanned"] += 1
-                    objective = _objective_for(db, chat_id, created_at)
+                    objective = _objective_for(db, chat_id, chat_seq)
                     user_id = _user_for(db, chat_id)
 
                     # Historical runs have tool logs but no trace events;

@@ -115,12 +115,13 @@ The chart immediately appears in the chat attachment area, previewable in the ca
 
 ## How document export lands as artifacts
 
-[Agent skills](agent-skills.md) handle Word and Excel export. The word-editing
-skill uses `word-cli create --markdown` to generate Word documents, and the
-excel-editing skill handles spreadsheet creation, formulas, and multi-sheet
-editing. Skills generate files in the sandbox and pin them through the
-conversation workspace artifact flow. The files appear in attachments and My
-Space, and xlsx files remain editable in the data canvas.
+[Agent skills](agent-skills.md) handle Word, Excel and PPT export. The
+officecli-docx / officecli-xlsx / officecli-pptx base skills — plus the scene
+layers on top of them (forms, academic papers, dashboards, financial models,
+pitch decks) — drive the `officecli` binary pre-installed in the sandbox, while
+pdf-editing ships its own PDF engine. Skills generate files in the sandbox and
+pin them through the conversation workspace artifact flow. The files appear in
+attachments and My Space, and xlsx files remain editable in the data canvas.
 
 ## End-to-end example
 
@@ -128,7 +129,7 @@ Space, and xlsx files remain editable in the data canvas.
 
 1. The agent fetches data via search / data tools;
 2. calls `generate_chart_tool` → artifact A (PNG, visible in attachments, previewable in canvas);
-3. writes the analysis and uses the word-editing skill to produce artifact B (docx);
+3. writes the analysis and uses the officecli-docx skill to produce artifact B (docx);
 4. both artifacts are pinned into the workspace with the `meta` event and persisted by `persist_artifacts`, appearing in My Space;
 5. the user previews the docx in the canvas, then `POST /v1/chat-shares` creates a 15-day share link to send to a colleague.
 
@@ -144,7 +145,7 @@ Space, and xlsx files remain editable in the data canvas.
 | Chat share API | `src/backend/api/routes/v1/chat_shares.py` |
 | Share frontend | `src/frontend/src/SharePreviewApp.tsx`, `src/frontend/src/components/share/ShareRecordsPage.tsx` |
 | Chart generation MCP | `src/backend/mcp_servers/generate_chart_tool_mcp/server.py`, `chart.py` |
-| Document export skills | `src/backend/skill_bundles/default/word-editing/`, `src/backend/skill_bundles/default/excel-editing/` |
+| Document export skills | `src/backend/skill_bundles/default/officecli-*/`, `src/backend/skill_bundles/default/pdf-editing/` |
 | My Space frontend | `src/frontend/src/components/myspace/`, `src/frontend/src/stores/mySpaceStore.ts` |
 
 Further reading: [Sandbox](sandbox.md) · [Projects & My Space](projects-myspace.md) · [Storage](storage.md) · [MCP Tools](mcp-tools.md)

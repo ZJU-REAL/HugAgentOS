@@ -50,6 +50,7 @@ async def create_scheduled_task(
     prompt: str,
     name: str = "",
     deliver_to: str = "",
+    tool_effect_id: str = "",
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
     """创建定时/周期任务：到点自动执行 prompt，结果按 deliver_to 投递。
@@ -69,10 +70,16 @@ async def create_scheduled_task(
         · "inapp" → 强制只发**站内/页面端**（即便在渠道里，也不推回群/私聊）。
         · 某个 conversation_id → 投到**指定的另一个渠道会话**（如"往运营群发"）。要先调
           list_channel_conversations 拿到目标会话的 conversation_id，不要凭空臆造。
+    - tool_effect_id：系统内部幂等回执令牌，由 ToolGateway 注入；模型不要填写。
     """
     return impl.create_task(
-        user_id=_user(ctx), cron_expression=cron_expression, prompt=prompt,
-        name=name, deliver_to=deliver_to, channel_origin=_channel_origin(ctx),
+        user_id=_user(ctx),
+        cron_expression=cron_expression,
+        prompt=prompt,
+        name=name,
+        deliver_to=deliver_to,
+        channel_origin=_channel_origin(ctx),
+        tool_effect_id=tool_effect_id,
     )
 
 
@@ -117,17 +124,22 @@ async def update_scheduled_task(
     cron_expression: str = "",
     prompt: str = "",
     name: str = "",
+    tool_effect_id: str = "",
     ctx: Context | None = None,
 ) -> Dict[str, Any]:
     """修改定时任务：可改执行时间(cron)、执行内容(prompt)、名称（只传要改的）。
 
     用户说"把每日日报改成每周一/改下午6点/改成…内容"时调用。
     task_ref 传 task_id 或名称（多命中会要求澄清）。
+    tool_effect_id 由 ToolGateway 内部注入，模型不要填写。
     """
     return impl.update_task(
-        user_id=_user(ctx), task_ref=task_ref,
+        user_id=_user(ctx),
+        task_ref=task_ref,
         cron_expression=cron_expression or None,
-        prompt=prompt or None, name=name or None,
+        prompt=prompt or None,
+        name=name or None,
+        tool_effect_id=tool_effect_id,
     )
 
 
@@ -144,16 +156,26 @@ async def resume_scheduled_task(task_ref: str, ctx: Context | None = None) -> Di
 
 
 @mcp.tool()
-async def delete_scheduled_task(task_ref: str, ctx: Context | None = None) -> Dict[str, Any]:
+async def delete_scheduled_task(
+    task_ref: str,
+    tool_effect_id: str = "",
+    ctx: Context | None = None,
+) -> Dict[str, Any]:
     """删除/取消一个定时任务（不可恢复）。task_ref=task_id 或名称。
 
     【铁律】未成功调用本工具拿到 ✅ 前不要声称已删除。匹配到多个任务时必须先向用户确认，禁止猜删。
+    tool_effect_id 由 ToolGateway 内部注入，模型不要填写。
     """
-    return impl.delete_task(user_id=_user(ctx), task_ref=task_ref)
+    return impl.delete_task(
+        user_id=_user(ctx),
+        task_ref=task_ref,
+        tool_effect_id=tool_effect_id,
+    )
 
 
 def main() -> None:
     from mcp_servers import _serve
+
     _serve.run(mcp, default_port=9108)
 
 

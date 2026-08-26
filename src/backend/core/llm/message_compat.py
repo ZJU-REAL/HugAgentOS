@@ -5,21 +5,15 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
-# AgentScope 2.0: the agentscope.memory module was removed; context lives in agent.state.context: list[Msg].
-from agentscope.message import Msg, TextBlock
+from core.llm.context_adapter import AgentScopeContextAdapter
 
 
 def _wrap_content(content: Any) -> list:
     """In 2.0, Msg.content must be a list of blocks (bare str not accepted). Wrap str as [TextBlock]."""
-    if isinstance(content, str):
-        return [TextBlock(type="text", text=content)] if content else []
-    if isinstance(content, list):
-        return content
-    # Anything else (dict block / None): stay as compatible as possible
-    return [content] if content else []
+    return AgentScopeContextAdapter.wrap_content(content)
 
 
-def dict_to_msg(d: Dict[str, Any]) -> Msg:
+def dict_to_msg(d: Dict[str, Any], *, created_seq: int = 0) -> Any:
     """Convert a dict message (OpenAI format) to an AgentScope Msg.
 
     ``content`` may be either a ``str`` or a ``list[ContentBlock]`` —
@@ -60,11 +54,17 @@ def dict_to_msg(d: Dict[str, Any]) -> Msg:
     if role == "assistant" and isinstance(content, str) and content:
         content = strip_thinking(content)
 
-    # 2.0: content must be a list of blocks.
-    return Msg(name=name, content=_wrap_content(content), role=role)
+    # AgentScope construction is centralized in AgentScopeContextAdapter so
+    # provenance metadata survives history replay and final request assembly.
+    prepared = dict(d)
+    prepared.update(role=role, name=name, content=content)
+    return AgentScopeContextAdapter().message_from_session_dict(
+        prepared,
+        created_seq=created_seq,
+    )
 
 
-def msg_to_dict(msg: Msg) -> Dict[str, Any]:
+def msg_to_dict(msg: Any) -> Dict[str, Any]:
     """Convert an AgentScope Msg to a dict message (OpenAI format)."""
     return {
         "role": msg.role,
@@ -72,14 +72,18 @@ def msg_to_dict(msg: Msg) -> Dict[str, Any]:
     }
 
 
-def session_to_msgs(session_messages: List[Dict[str, Any]]) -> List[Msg]:
+def session_to_msgs(session_messages: List[Dict[str, Any]]) -> List[Any]:
     """Convert dict session messages into list[Msg] for writing into agent.state.context.
 
     AgentScope 2.0 removed the memory module; callers use
     ``agent.state.context.extend(session_to_msgs(history))`` instead of 1.x's
     ``await load_session_into_memory(history, agent.memory)``.
     """
-    return [dict_to_msg(m) for m in session_messages if m.get("content")]
+    return [
+        dict_to_msg(message, created_seq=index)
+        for index, message in enumerate(session_messages)
+        if message.get("content")
+    ]
 
 
 def strip_thinking(text: str) -> str:
@@ -92,7 +96,7 @@ def strip_thinking(text: str) -> str:
         return text
     last_end = text.rfind("</think>")
     if last_end != -1:
-        return text[last_end + len("</think>"):].lstrip()
+        return text[last_end + len("</think>") :].lstrip()
     return text
 
 
@@ -204,7 +208,9 @@ def replay_tool_calls_as_blocks(
         # (AgentScope's ToolResultBlock.output is `str | List[TextBlock|...]`;
         # str is simpler and round-trips through every provider formatter.)
         raw_result = call.get("result") if "result" in call else call.get("output")
-        shrunk_result = _shrink_value(raw_result if raw_result is not None else {}, max_result_chars)
+        shrunk_result = _shrink_value(
+            raw_result if raw_result is not None else {}, max_result_chars
+        )
         if isinstance(shrunk_result, str):
             output_text = shrunk_result
         else:
@@ -222,18 +228,22 @@ def replay_tool_calls_as_blocks(
             input_str = json.dumps(shrunk_args, ensure_ascii=False)
         except (TypeError, ValueError):
             input_str = json.dumps({"value": str(shrunk_args)}, ensure_ascii=False)
-        use_blocks.append({
-            "type": "tool_call",
-            "id": tool_id,
-            "name": name,
-            "input": input_str,
-        })
-        result_blocks.append({
-            "type": "tool_result",
-            "id": tool_id,
-            "name": name,
-            "output": output_text,
-        })
+        use_blocks.append(
+            {
+                "type": "tool_call",
+                "id": tool_id,
+                "name": name,
+                "input": input_str,
+            }
+        )
+        result_blocks.append(
+            {
+                "type": "tool_result",
+                "id": tool_id,
+                "name": name,
+                "output": output_text,
+            }
+        )
 
     return use_blocks, result_blocks
 
@@ -303,14 +313,10 @@ def extract_messages_from_context(context: List[Msg]) -> list[dict]:
         d: dict[str, str] = {"role": msg.role, "content": msg.get_text_content() or ""}
 
         tool_call_blocks = (
-            msg.get_content_blocks("tool_call")
-            if msg.has_content_blocks("tool_call")
-            else []
+            msg.get_content_blocks("tool_call") if msg.has_content_blocks("tool_call") else []
         )
         tool_result_blocks = (
-            msg.get_content_blocks("tool_result")
-            if msg.has_content_blocks("tool_result")
-            else []
+            msg.get_content_blocks("tool_result") if msg.has_content_blocks("tool_result") else []
         )
 
         if tool_call_blocks:

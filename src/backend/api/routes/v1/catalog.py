@@ -1,6 +1,8 @@
 """Catalog management API routes (v1)."""
 
+import asyncio
 import logging
+from copy import deepcopy
 from threading import Lock
 from time import monotonic
 from typing import Any, Dict, List, Optional
@@ -17,27 +19,97 @@ from core.services import CatalogService
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 # ── External knowledge collection cache ──
 _external_cache_lock = Lock()
 _external_cache: Optional[tuple] = None  # (expires_at, items)
+_external_cache_refreshing = False
+_external_cache_async_lock: Optional[asyncio.Lock] = None
+_external_cache_async_lock_loop: Optional[asyncio.AbstractEventLoop] = None
 _EXTERNAL_CACHE_TTL = 30.0
+_EXTERNAL_CACHE_FAILURE_TTL = 5.0
 
 
 def _list_datasets_cached() -> List[Dict[str, Any]]:
-    """Return external collections with a short in-memory cache."""
-    global _external_cache
+    """Return external collections with single-flight stale-cache refresh."""
+    global _external_cache, _external_cache_refreshing
     now = monotonic()
     with _external_cache_lock:
         if _external_cache is not None:
             expires_at, items = _external_cache
             if now < expires_at:
-                return items
+                return deepcopy(items)
 
-    items = list_collections(page=1, limit=100)
+        stale_items = _external_cache[1] if _external_cache is not None else None
+        if _external_cache_refreshing:
+            if stale_items is not None:
+                return deepcopy(stale_items)
+            # Async route callers wait for the shared cold refresh before reaching here.
+            return []
+
+        _external_cache_refreshing = True
+
+    try:
+        items = list_collections(page=1, limit=100, raise_on_error=True)
+        cache_items = deepcopy(items)
+    except Exception as exc:
+        fallback_items = deepcopy(stale_items) if stale_items is not None else []
+        with _external_cache_lock:
+            _external_cache = (
+                monotonic() + _EXTERNAL_CACHE_FAILURE_TTL,
+                deepcopy(fallback_items),
+            )
+            _external_cache_refreshing = False
+        if stale_items is not None:
+            logger.warning("External catalog refresh failed; serving stale cache: %s", exc)
+            return fallback_items
+        raise
+
     with _external_cache_lock:
-        _external_cache = (now + _EXTERNAL_CACHE_TTL, items)
-    return items
+        _external_cache = (monotonic() + _EXTERNAL_CACHE_TTL, cache_items)
+        _external_cache_refreshing = False
+    return deepcopy(cache_items)
+
+
+def _external_cache_is_fresh() -> bool:
+    with _external_cache_lock:
+        return _external_cache is not None and monotonic() < _external_cache[0]
+
+
+def _get_external_cache_async_lock() -> asyncio.Lock:
+    """Return a refresh lock bound to the active Uvicorn event loop."""
+    global _external_cache_async_lock, _external_cache_async_lock_loop
+
+    loop = asyncio.get_running_loop()
+    with _external_cache_lock:
+        if (
+            _external_cache_async_lock is None
+            or _external_cache_async_lock_loop is not loop
+        ):
+            _external_cache_async_lock = asyncio.Lock()
+            _external_cache_async_lock_loop = loop
+        return _external_cache_async_lock
+
+
+def _prepare_external_cache_sync() -> None:
+    if settings.edition.edition != "ce" and is_enabled():
+        _list_datasets_cached()
+
+
+async def _ensure_external_cache_ready() -> None:
+    """Share a cold refresh without parking follower requests in worker threads."""
+    if _external_cache_is_fresh():
+        return
+
+    async with _get_external_cache_async_lock():
+        if _external_cache_is_fresh():
+            return
+        try:
+            await run_in_threadpool(_prepare_external_cache_sync)
+        except Exception as exc:
+            # The synchronous helper installs a short failure cache before raising.
+            logger.warning("Failed to prepare external knowledge cache: %s", exc)
 
 
 router = APIRouter(prefix="/v1/catalog", tags=["Catalog"])
@@ -71,7 +143,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
     injected only into that user's /v1/catalog response; the frontend shows the "mine"
     badge and delete button based on ``owner == 'self'``.
     """
-    from core.config.catalog_loader import skill_body_from_raw
+    from core.config.catalog_loader import resolve_skill_detail
     from core.db.models import AdminMcpServer, AdminSkill, McpMarketInstallation
     from core.services.skill_icon_service import get_skill_icons
 
@@ -92,7 +164,7 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
             .all()
         ):
             # When user_intro is unset, fall back to showing the SKILL.md body (same policy as the global catalog).
-            detail = row.user_intro or skill_body_from_raw(row.skill_content or "")
+            detail = resolve_skill_detail(row.user_intro, row.skill_content or "")
             skill_items.append(
                 {
                     "id": row.skill_id,
@@ -237,10 +309,7 @@ class CatalogItemResponse(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
-@router.get("", summary="获取能力目录")
-async def get_catalog_items(
-    user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
-):
+def _get_catalog_items_sync(user: UserContext, db: Session):
     """获取完整能力目录，含技能（skills）、子智能体（agents）、MCP 服务及知识库（KB）。
 
     在系统默认配置的基础上叠加当前用户的个性化覆盖：每项的启用状态与配置优先返回
@@ -506,6 +575,15 @@ async def get_catalog_items(
     }
 
     return success_response(data=data, message="Catalog retrieved successfully")
+
+
+@router.get("", summary="获取能力目录")
+async def get_catalog_items(
+    user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Build the synchronous catalog outside the Uvicorn event loop."""
+    await _ensure_external_cache_ready()
+    return await run_in_threadpool(_get_catalog_items_sync, user, db)
 
 
 @router.patch("/{kind}/{id}", summary="更新能力配置")

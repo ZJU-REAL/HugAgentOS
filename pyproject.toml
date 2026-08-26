@@ -95,6 +95,7 @@ addopts = "-v --tb=short"
 asyncio_mode = "auto"
 markers = [
     "asyncio: mark test as async (handled by pytest-asyncio auto mode)",
+    "postgres: integration test that requires TEST_POSTGRES_URL and validates PostgreSQL-specific behavior",
     # GCE 门禁类测试：跑得起但不属于快速内环，CI 全量跑。
     "slow: gate / benchmark tests excluded from the fast inner loop",
 ]

@@ -1,6 +1,6 @@
 # 模型接入
 
-> 最后更新：2026-06-11
+> 最后更新：2026-08-24
 
 HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ollama、DashScope、DeepSeek、各类网关均可）。模型配置以数据库为准——管理员在 Config 管理台登记「模型供应商」，再把供应商绑定到「角色」（主推理、摘要、向量化等），全链路经 `ModelConfigService` 30 秒 TTL 缓存生效，改配置无需重启。`MODEL_URL` / `API_KEY` / `BASE_MODEL_NAME` 等环境变量保留为兼容兜底与 MCP 子进程注入用途。
 
@@ -25,6 +25,25 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 
 `extra_config` 支持 `temperature` / `max_tokens` / `timeout` / `context_length`（上下文窗口，供压缩阈值计算）/ `supports_reasoning_effort`（是否支持思考档位）/ `supports_vision`（是否原生支持读图）等键。
 
+### 上下文窗口自动探测
+
+`context_length` 决定历史裁剪与自动压缩阈值，填错会让模型在真实窗口的一半就开始压缩，因此运行期**没有默认兜底**——留空的模型无法投入使用。为免去人工查手册，保存供应商时若该字段为空，系统会向上游探测真实窗口；模型配置表单里也有「自动探测」按钮可随时触发（接口：`POST /v1/models/providers/detect-context`）。
+
+探测按可信度依次尝试，取到即止：
+
+| 来源 | 做法 | 可信度 |
+|---|---|---|
+| 供应商模型列表接口 | `GET {base_url}/models`，读匹配条目的 `max_model_len`（vLLM / SGLang）、`context_length`（OpenRouter 等）、`max_input_tokens`（LiteLLM 网关） | 高 |
+| Ollama | 原生 `POST /api/show` 的 `model_info.<架构>.context_length` | 高 |
+| 上游超限报错 | 发一次 `max_tokens` 远超上限的请求，上游在参数校验阶段即拒绝（不产生推理费用），从报错文本中读出真实窗口 | 中 |
+| 模型名族推断 | 按模型名匹配已知模型族的常见窗口 | 低 |
+
+两条安全边界：
+
+- **只认明确指向"上下文长度"的信号。** 上游若只回报 `max_tokens` 上限（多数厂商的输出上限远小于上下文窗口），该数字只会写进探测说明供人参考，**不会**被采纳为窗口——采纳它就会重演"在半个窗口处开始压缩"。
+- **不做超长 prompt 探测。** 那种做法在自建 vLLM 上最准，但网关型供应商可能真的接受并推理六位数 token 的请求，产生实际费用。
+- 人工填写的值**永远优先**，自动探测只写入空字段；自动填入的值会记 `context_length_source` 标记，在配置界面提示"尚未人工确认"，保存一次即视为确认。
+
 ## 视觉桥：让纯文本模型能读图
 
 DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的做法不是把主模型换掉，而是在它外面挂一条转写通道：
@@ -47,7 +66,7 @@ DeepSeek、GLM、Qwen 文本版这类主力模型看不见图片。视觉桥的�
 
 | 场景 | 行为 |
 |---|---|
-| 用户在对话里上传图片 | 每轮开头自动转写并注入 |
+| 用户在对话里上传图片，或把剪贴板图片直接粘贴到输入框 | 每轮开头自动转写并注入 |
 | 智能体读沙箱 / 「我的空间」里的图片 | `Read` 返回 `type=image_evidence` 而非 `type=binary` |
 | 工具返回图片（如图表生成） | 转写后回填，智能体因此能自检自己画的图 |
 | 群聊机器人收到图片附件 | `channel_read_attachment` 取回后指向 `view_image` |

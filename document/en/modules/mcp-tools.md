@@ -31,10 +31,11 @@ The single source of truth for port assignment is `src/backend/mcp_servers/_port
 
 > Historical note: office-document editing and export (word / excel / ppt /
 > pdf) have moved out of the `mcp` container into
-> [agent skills](agent-skills.md) (word-editing / excel-editing / ppt-design /
-> pdf-editing), whose engines run inside the sandbox. `report_export_mcp` is
-> retired, and port 9105 remains reserved. The automation plugin provides port
-> 9108, while ports 9109–9111 remain reserved.
+> [agent skills](agent-skills.md) — the officecli-docx / officecli-xlsx /
+> officecli-pptx family, which drives the `officecli` binary pre-installed in
+> the sandbox, plus pdf-editing, which ships its own engine.
+> `report_export_mcp` is retired, and port 9105 remains reserved. The
+> automation plugin provides port 9108, while ports 9109–9111 remain reserved.
 
 ## Built-in MCP servers at a glance
 

@@ -8,15 +8,7 @@
 # 由 docker-compose 在 SANDBOX_PROVIDER=script_runner（COMPOSE_PROFILES=script_runner）
 # 时自动构建启动。
 
-# ─── Stage 1：预编译 docx .NET CLI ─────────────────────────────────
-# 单独阶段避免运行容器需要 .NET SDK。源是 word-editing 技能自带的 dotnet/ 树。
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS docx-builder
-COPY src/backend/skill_bundles/default/word-editing/dotnet/ /src/
-RUN dotnet publish /src/MiniMaxAIDocx.Cli \
-    -c Release -o /out --nologo -v quiet \
-    && rm -rf /root/.nuget /root/.dotnet
-
-# ─── Stage 2：Script Runner Sidecar ─────────────────────────────────
+# ─── Script Runner Sidecar ──────────────────────────────────────────
 FROM python:3.11-slim AS script-runner
 RUN sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources
 RUN useradd -m -u 1001 -s /bin/bash runner
@@ -28,30 +20,24 @@ ENV PIP_DEFAULT_TIMEOUT=180 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     NODE_PATH=/usr/lib/node_modules
 
-# System deps: fonts, curl, Node.js 20, .NET 8.0 runtime, doc tools
+# System deps: fonts, curl, Node.js 20, doc tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-zenhei fontconfig curl gnupg ca-certificates \
-    pandoc zip unzip libreoffice-writer \
+    pandoc zip unzip libreoffice-writer jq \
     && fc-cache -f \
     # 1. Node.js 20
     && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 \
       https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    # 2. 微软源 + .NET 8
-    && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 \
-      https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
-    && echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/microsoft-prod.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends dotnet-runtime-8.0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js global packages (sandbox-side pptxgenjs + playwright/chromium for
-# code that renders slides/HTML in the sandbox; PDF cover rendering is driven
-# by the pdf-editing skill's engine node_scripts)
+# Node.js global packages (playwright/chromium for code that renders HTML in
+# the sandbox; PDF cover rendering is driven by the pdf-editing skill's engine
+# node_scripts, officecli screenshot QA uses the same Chromium)
 # Install Chromium into a fixed image path so the read-only runtime container
 # can launch it without trying to download browsers on demand.
 RUN mkdir -p /ms-playwright \
-    && npm install -g pptxgenjs playwright \
+    && npm install -g playwright \
     && if PLAYWRIGHT_BROWSERS_PATH=/ms-playwright timeout 180s \
          npx playwright install --with-deps chromium; then \
          echo "[script-runner] Playwright Chromium installed"; \
@@ -107,31 +93,42 @@ COPY docker/requirements-skills.txt /opt/skill-deps/requirements-skills.txt
 RUN pip install --no-cache-dir -r /opt/skill-deps/requirements-skills.txt || \
     (echo "[script-runner] skill-deps install failed; continuing with empty set"; true)
 
-# Pre-built docx CLI (from docx-builder stage). The word/excel/pdf skills
-# each vendor their own ``engine/`` package alongside their scripts — there
-# is no shared office library to install; the engines travel with the skill
-# files materialized into /workspace at runtime.
-COPY --from=docx-builder /out/ /opt/minimax-docx/
-
 COPY src/backend/services/script_runner_service/ /app/
 WORKDIR /app
 
-# Install the ppt-cli shim so the agent can call ``ppt-cli build …`` from
-# bash without bookkeeping the full skill-script path. The shim itself
-# resolves the python entry at runtime via /workspace/skills/ppt-design/
-# (where register_bash materializes the skill).
-COPY src/backend/skill_bundles/default/ppt-design/scripts/ppt-cli /usr/local/bin/ppt-cli
-RUN chmod +x /usr/local/bin/ppt-cli
-
-# Same idea for word-cli (word-editing skill).
-COPY src/backend/skill_bundles/default/word-editing/scripts/word-cli /usr/local/bin/word-cli
-RUN chmod +x /usr/local/bin/word-cli
-
-# Same idea for excel-cli and pdf-cli. CE uses script-runner by default, so all
-# four built-in Office skill entry points must exist in this image.
-COPY src/backend/skill_bundles/default/excel-editing/scripts/excel-cli /usr/local/bin/excel-cli
+# Install the pdf-cli shim so the agent can call ``pdf-cli read …`` from bash
+# without bookkeeping the full skill-script path. The shim resolves the python
+# entry at runtime via /workspace/skills/pdf-editing/ (where register_bash
+# materializes the skill). It is the only built-in skill shim left — Word /
+# Excel / PPT now go through the `officecli` binary installed below.
 COPY src/backend/skill_bundles/default/pdf-editing/scripts/pdf-cli /usr/local/bin/pdf-cli
-RUN chmod +x /usr/local/bin/excel-cli /usr/local/bin/pdf-cli
+RUN chmod +x /usr/local/bin/pdf-cli
+
+# officecli（OfficeCLI）——内置的 officecli-* / morph-ppt* 十个技能靠它运行
+# （Bash(officecli *)）。单文件原生二进制，内嵌 .NET runtime，不依赖 Office 或
+# LibreOffice。版本随镜像固定，禁止容器内自升级——技能文档里已经把上游的
+# 「curl 联网安装」改成「沙盒已预装」，沙箱本身也不保证有外网。
+# 这里**硬失败**而不是像 himalaya 那样降级跳过：十个技能已默认安装并对用户可见，
+# 二进制缺失会让它们全部在运行时报错，比构建期失败更难排查。
+ARG OFFICECLI_VERSION=v1.0.144
+RUN OFFICECLI_ARCH="$([ "${TARGETARCH:-amd64}" = "arm64" ] && echo arm64 || echo x64)" && \
+    curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 300 \
+        "https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}/officecli-linux-${OFFICECLI_ARCH}" \
+        -o /usr/local/bin/officecli && \
+    chmod +x /usr/local/bin/officecli && \
+    officecli --version
+
+# officecli 的 `view <file> screenshot` 靠 chrome 系无头浏览器渲染，探测的是
+# PATH 上的 google-chrome / chromium / msedge。Playwright 把 Chromium 装在
+# /ms-playwright 下、不在 PATH 上，所以软链一个 `chromium` 出来，否则技能里的
+# 视觉质检门只能退化成 view html。上面的 Chromium 下载是可失败的，这里同样容错。
+RUN CHROME_BIN="$(find /ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linux*' 2>/dev/null | head -n1)" && \
+    if [ -n "$CHROME_BIN" ]; then \
+      ln -sf "$CHROME_BIN" /usr/local/bin/chromium; \
+      echo "[script-runner] officecli screenshot → $CHROME_BIN"; \
+    else \
+      echo "[script-runner] no Chromium found; officecli screenshot will fall back to view html" >&2; \
+    fi
 
 RUN mkdir -p /workspace /tmp/scripts && chown -R runner:runner /workspace /tmp/scripts
 

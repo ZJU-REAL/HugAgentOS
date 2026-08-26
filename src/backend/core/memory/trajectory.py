@@ -111,7 +111,7 @@ def _load_messages_sync(ctx: MemoryContext) -> list[dict[str, str]]:
 
     with SessionLocal() as session:
         repository = ChatMessageRepository(session)
-        before = None
+        before_seq = None
         if ctx.message_id:
             current = repository.get_by_id(ctx.message_id)
             if (
@@ -119,12 +119,12 @@ def _load_messages_sync(ctx: MemoryContext) -> list[dict[str, str]]:
                 and current.chat_id == ctx.chat_id
                 and current.role == "assistant"
             ):
-                before = current.created_at
+                before_seq = current.chat_seq
 
         rows = repository.list_recent_by_chat(
             ctx.chat_id,
             limit=_MAX_MESSAGES,
-            before=before,
+            before_seq=before_seq,
         )
         return [
             {

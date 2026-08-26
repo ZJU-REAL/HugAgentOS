@@ -456,7 +456,9 @@ def register_load_plugin(
             svc = McpServerConfigService.get_instance()
             cfgs = dict(svc.get_all_servers(enabled_only=True))
             try:
-                cfgs.update(svc.get_owned_servers(str(runtime.get("user_id") or ""), enabled_only=False))
+                cfgs.update(
+                    svc.get_owned_servers(str(runtime.get("user_id") or ""), enabled_only=False)
+                )
             except Exception:  # noqa: BLE001
                 pass
             wanted_cfgs = {k: v for k, v in cfgs.items() if k in set(mcp_ids)}
@@ -564,13 +566,20 @@ def register_load_plugin(
 
         activated.add(target.slug)
         if runtime.get("persist", True):
-            await asyncio.to_thread(
-                record_plugin_activation, runtime.get("chat_id"), [target.slug]
-            )
+            await asyncio.to_thread(record_plugin_activation, runtime.get("chat_id"), [target.slug])
+
+        # Tool/skill enumeration is shared with the execution manifest. The
+        # next ReAct request must publish a new explicit surface generation,
+        # rather than silently mixing the old manifest with newly loaded tools.
+        invalidate_surface = getattr(tk, "invalidate_execution_surface", None)
+        if invalidate_surface is not None:
+            invalidate_surface()
 
         parts = [f"插件「{target.name}」已加载。"]
         if new_tool_names:
-            parts.append("新增工具（下一步即可直接调用）：" + "、".join(f"`{n}`" for n in new_tool_names))
+            parts.append(
+                "新增工具（下一步即可直接调用）：" + "、".join(f"`{n}`" for n in new_tool_names)
+            )
         if skill_lines:
             parts.append(
                 "新增技能（使用前必须先用 `view_text_file` 读取 "

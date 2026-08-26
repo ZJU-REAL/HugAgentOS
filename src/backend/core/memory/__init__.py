@@ -7,9 +7,10 @@ Layered by information stability and access frequency:
 - **Session helper layer** (`chats.metadata.session_memory`): per-session task working set
 - **Audit sidechannel** (`audit`): audit trail for all reads and writes
 
-Non-blocking guarantee: memory I/O is never synchronously awaited on the main SSE path.
-- Retrieval: `launch_memory_retrieval` background task + `wait_for` budget
-- Saving: `schedule_post_response_tasks` bounded-semaphore fire-and-forget
+Main-path guarantee: remote memory I/O is never awaited on the SSE path.
+- Retrieval: a shielded background task with an observable timeout lifecycle
+- Saving: synchronous durable outbox admission, then leased background workers
+- Profile updates: revision CAS; compaction reloads and recomputes on conflict
 
 Public API (downstream should import from `core.memory`):
 """

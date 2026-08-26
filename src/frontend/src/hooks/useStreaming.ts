@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Modal, message } from 'antd';
 import { t } from '../i18n';
-import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, cancelPlanApi, getLoop, UPLOAD_MAX_BYTES, UPLOAD_MAX_MB, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
+import { authFetch, getFollowUpQuestions, regenerateMessage, editAndRegenerate, cancelChatRun, steerChatRun, getChatRunSteers, withdrawChatRunSteer, followChatRun, getActiveChatRun, cancelBatchPlan, cancelPlanApi, getLoop, UPLOAD_MAX_BYTES, UPLOAD_MAX_MB, isLocalProject, projectTargetHeaders, chatTargetHeaders, registerLocalChat } from '../api';
 import { processPlanExecuteStream, processPlanGenerateStream } from './usePlanMode';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { inferBusinessTopic } from '../utils/history';
@@ -10,6 +10,7 @@ import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileS
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
 import { processChatStream, getStreamActivityTs, hasStreamedRun } from './chatStream';
+import { parseAppliedQueueHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
 import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
@@ -189,10 +190,22 @@ export function useStreaming(
     if (!queued) return;
 
     if (queued.status === 'applied') {
-      commitAppliedQueuedMessage(chatId, queued, assistantTs);
+      if (queued.appliedMessageId) {
+        commitAppliedQueuedMessage(chatId, queued, assistantTs);
+      } else {
+        // A restored durable card has no local SSE message id. Its user turn
+        // is already committed in the DB, so reload history instead of
+        // inventing a duplicate local message.
+        store.removeLoadedMsgId(chatId);
+        store.bumpSessionLoadEpoch();
+      }
       store.setQueuedMessage(chatId, null);
       return;
     }
+
+    // The backend still owns an accepted/claimed durable instruction. Do not
+    // turn it into a new local send merely because the source SSE ended.
+    if (queued.status === 'steering' && queued.targetRunId) return;
 
     if (autoSend && store.currentChatId === chatId) {
       sendQueuedAsNextTurn(chatId, queued);
@@ -258,10 +271,29 @@ export function useStreaming(
       });
     }
 
-    state.updateQueuedMessage(targetId, (current) => ({ ...current, status: 'steering' }));
+    state.updateQueuedMessage(targetId, (current) => ({
+      ...current,
+      status: 'steering',
+      targetRunId: runId,
+    }));
     try {
-      await steerChatRun(runId, currentQueued.id, currentQueued.content, targetId);
+      const accepted = await steerChatRun(runId, currentQueued.id, currentQueued.content, targetId);
+      useChatStore.getState().updateQueuedMessage(targetId, (current) => ({
+        ...current,
+        status: accepted.status === 'applied' ? 'applied' : 'steering',
+        targetRunId: runId,
+        durableStatus: accepted.status,
+      }));
+      // The POST response can be lost after durable acceptance. Query the
+      // authoritative queue so the card reflects server state instead of
+      // guessing from transport success alone.
+      await reconcileDurableSteerQueue(targetId, runId);
     } catch (error) {
+      // A transport error can happen after the database accepted the request.
+      // Reconcile the stable steer id before making the card retryable.
+      await reconcileDurableSteerQueue(targetId, runId);
+      const reconciled = useChatStore.getState().queuedMessages[targetId];
+      if (reconciled?.durableStatus) return;
       let stillLive: Awaited<ReturnType<typeof getActiveChatRun>> | undefined;
       try {
         stillLive = await getActiveChatRun(
@@ -279,6 +311,8 @@ export function useStreaming(
       useChatStore.getState().updateQueuedMessage(targetId, (current) => ({
         ...current,
         status: 'queued',
+        targetRunId: undefined,
+        durableStatus: undefined,
       }));
       message.error(t('立即开始失败：{msg}', { msg: (error as Error).message || String(error) }));
     }
@@ -290,9 +324,10 @@ export function useStreaming(
     const queued = state.queuedMessages[targetId];
     if (!queued || queued.status === 'applied') return;
     const activeRun = state.activeRuns[targetId];
-    if (queued.status === 'steering' && activeRun?.runId) {
+    const durableRunId = queued.targetRunId || activeRun?.runId;
+    if (queued.status === 'steering' && durableRunId) {
       try {
-        const removed = await withdrawChatRunSteer(activeRun.runId, queued.id, targetId);
+        const removed = await withdrawChatRunSteer(durableRunId, queued.id, targetId);
         if (!removed) {
           message.info(t('指令已经生效，无法撤回'));
           return;
@@ -303,6 +338,45 @@ export function useStreaming(
       }
     }
     useChatStore.getState().setQueuedMessage(targetId, null);
+  }
+
+  /** Reconcile a restored queue card with the database-backed five-state queue. */
+  async function reconcileDurableSteerQueue(chatId: string, runId: string) {
+    const queued = useChatStore.getState().queuedMessages[chatId];
+    if (!queued) return;
+    try {
+      const items = await getChatRunSteers(runId, chatId);
+      const durable = items.find((item) => item.steer_id === queued.id);
+      if (!durable) return;
+      if (durable.status === 'applied') {
+        useChatStore.getState().updateQueuedMessage(chatId, (current) => ({
+          ...current,
+          status: 'applied',
+          targetRunId: runId,
+          durableStatus: 'applied',
+        }));
+      } else if (durable.status === 'accepted' || durable.status === 'claimed') {
+        useChatStore.getState().updateQueuedMessage(chatId, (current) => ({
+          ...current,
+          status: 'steering',
+          targetRunId: runId,
+          durableStatus: durable.status,
+        }));
+      } else {
+        // cancelled / superseded are no longer owned by the backend worker;
+        // restore an editable local card instead of silently dropping text.
+        useChatStore.getState().updateQueuedMessage(chatId, (current) => ({
+          ...current,
+          id: `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          status: 'queued',
+          targetRunId: undefined,
+          durableStatus: undefined,
+        }));
+      }
+    } catch {
+      // A status-read outage does not change whether the instruction was
+      // accepted. Keep the restored card untouched and retry on next resume.
+    }
   }
 
   function commitAppliedQueuedMessage(
@@ -609,10 +683,13 @@ export function useStreaming(
       });
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      const outcome = await processChatStream(r, {
-        chatId: streamChatId,
-        enableThinking: isThinkingMode(chatMode),
-      });
+      const outcome = await processChatStreamWithHandoffRecovery(
+        r,
+        streamChatId,
+        isThinkingMode(chatMode),
+        undefined,
+        abortController.signal,
+      );
       streamOutcome = outcome;
 
       addBackendSessionId(currentChatId);
@@ -752,13 +829,147 @@ export function useStreaming(
     chatId: string,
     pendingNotice?: string,
     enableThinking: boolean = false,
+    signal?: AbortSignal,
   ) {
-    const outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice });
+    const outcome = await processChatStreamWithHandoffRecovery(
+      response,
+      chatId,
+      enableThinking,
+      pendingNotice,
+      signal,
+    );
     useChatStore.getState().addBackendSessionId(chatId);
     useChatStore.getState().addLoadedMsgId(chatId);
     syncManualTitleToBackend(chatId);
     setTimeout(() => generateSummary(chatId), 500);
     setTimeout(() => generateClassification(chatId), 800);
+    return outcome;
+  }
+
+  async function discoverQueuedRun(
+    sourceRunId: string,
+    chatId: string,
+  ): Promise<QueuedRunHandoff | undefined> {
+    try {
+      const items = await getChatRunSteers(sourceRunId, chatId);
+      const applied = items.find((item) => (
+        item.status === 'applied'
+        && (item.delivery_mode === 'follow_up' || item.delivery_mode === 'next_run')
+        && !!item.applied_run_id
+      ));
+      return applied
+        ? parseAppliedQueueHandoff(applied as unknown as Record<string, unknown>)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Consume a stream and recover a DB-committed handoff even if its Redis event was lost. */
+  async function processChatStreamWithHandoffRecovery(
+    response: Response,
+    chatId: string,
+    enableThinking: boolean,
+    pendingNotice?: string,
+    signal?: AbortSignal,
+  ) {
+    let outcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
+    try {
+      outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice });
+    } catch (error) {
+      const sourceRunId = useChatStore.getState().activeRuns[chatId]?.runId;
+      const recovered = await followQueuedRunChain(
+        undefined,
+        chatId,
+        enableThinking,
+        signal,
+        sourceRunId,
+      );
+      if (!recovered) throw error;
+      return recovered;
+    }
+    const sourceRunId = useChatStore.getState().activeRuns[chatId]?.runId;
+    return (
+      await followQueuedRunChain(outcome, chatId, enableThinking, signal, sourceRunId)
+    ) ?? outcome;
+  }
+
+  /**
+   * A followUp/nextRun is committed together with the source run's completion.
+   * Follow the committed child immediately so a fast child cannot finish in the
+   * background before the 20-second active-run poll notices it.
+   */
+  async function followQueuedRunChain(
+    initial: Awaited<ReturnType<typeof processChatStream>> | undefined,
+    chatId: string,
+    enableThinking: boolean,
+    signal?: AbortSignal,
+    initialSourceRunId?: string,
+  ) {
+    let outcome = initial;
+    const seen = new Set<string>();
+    let sourceRunId = initialSourceRunId;
+    let usedDurableBackfill = false;
+    while (!outcome?.aborted) {
+      let queued = outcome?.queuedRun;
+      if (!queued && sourceRunId) {
+        queued = await discoverQueuedRun(sourceRunId, chatId);
+        if (queued) usedDurableBackfill = true;
+      }
+      if (!queued) break;
+      if (seen.has(queued.runId)) break;
+      seen.add(queued.runId);
+
+      useChatStore.getState().updateStore((prev) => {
+        const chat = prev.chats[chatId];
+        if (!chat || chat.messages.some((item) => item.messageId === queued.userMessageId)) return prev;
+        const lastTs = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1].ts : 0;
+        const userMessage: ChatMessage = {
+          role: 'user',
+          content: queued.message,
+          isMarkdown: false,
+          ts: Math.max(Date.now(), lastTs + 1),
+          messageId: queued.userMessageId,
+        };
+        return {
+          ...prev,
+          chats: {
+            ...prev.chats,
+            [chatId]: {
+              ...chat,
+              messages: [...chat.messages, userMessage],
+              updatedAt: Date.now(),
+            },
+          },
+        };
+      });
+      const localQueued = useChatStore.getState().queuedMessages[chatId];
+      if (localQueued?.id === queued.steerId) {
+        useChatStore.getState().setQueuedMessage(chatId, null);
+      }
+      useChatStore.getState().setActiveRun(chatId, {
+        runId: queued.runId,
+        messageId: queued.messageId,
+        lastOffset: 0,
+      });
+
+      const response = await followChatRun(
+        queued.runId,
+        0,
+        signal,
+        useAuthStore.getState().authUser?.user_id,
+        chatId,
+      );
+      if (!response.ok || !response.body) throw new Error(await response.text());
+      outcome = await processChatStream(response, { chatId, enableThinking });
+      sourceRunId = queued.runId;
+    }
+    if (usedDurableBackfill) {
+      // The projection was incomplete, so DB history is the final authority
+      // for any child that finished before its replay was attached.
+      useChatStore.getState().removeLoadedMsgId(chatId);
+      useChatStore.getState().bumpSessionLoadEpoch();
+    }
     return outcome;
   }
 
@@ -782,7 +993,13 @@ export function useStreaming(
       const r = await regenerateMessage(streamChatId, messageIndex, abortController.signal);
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      await processRegenerateStream(r, streamChatId, undefined, isThinkingMode(useChatStore.getState().chatMode));
+      await processRegenerateStream(
+        r,
+        streamChatId,
+        undefined,
+        isThinkingMode(useChatStore.getState().chatMode),
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('重新生成失败：{msg}', { msg: e?.message || String(e) }));
@@ -860,7 +1077,13 @@ export function useStreaming(
       const r = await editAndRegenerate(streamChatId, messageIndex, newContent.trim(), abortController.signal);
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      await processRegenerateStream(r, streamChatId, undefined, isThinkingMode(useChatStore.getState().chatMode));
+      await processRegenerateStream(
+        r,
+        streamChatId,
+        undefined,
+        isThinkingMode(useChatStore.getState().chatMode),
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('编辑重发失败：{msg}', { msg: e?.message || String(e) }));
@@ -1093,13 +1316,19 @@ export function useStreaming(
     } catch {
       return;
     }
+    const restoredQueued = useChatStore.getState().queuedMessages[chatId];
+    const durableRunId = restoredQueued?.targetRunId || active?.run_id;
+    if (durableRunId) await reconcileDurableSteerQueue(chatId, durableRunId);
     // Autonomous-loop plan-bar reconciliation: a plan bar restored from localStorage may still
     // read running while the backend run has already ended (stopped / finished / crashed). As
     // long as there's no "active loop run" that would be followed below, wind the plan bar down
     // to the real loop state, so it doesn't stay stuck on "in progress" forever after a refresh.
     await reconcileLoopBar(chatId, active);
 
-    if (!active || !active.run_id) return;
+    if (!active || !active.run_id) {
+      settleQueuedMessageAfterRun(chatId, undefined, false);
+      return;
+    }
     if (active.status !== 'running' && active.status !== 'pending') {
       // Run already terminal (failed / cancelled / completed) — the backend's
       // recover_orphan_runs marks zombie running runs failed on restart and writes a terminal
@@ -1235,8 +1464,8 @@ export function useStreaming(
       return;
     }
 
-    // 断连重挂：本地留着的是被掐断的半截气泡，而下面是从 offset 0 全量重放（运行中的 run
-    // 还没写 last_event_offset），不摘掉它就会并排出现两个同轮气泡。
+    // 断连重挂：本地留着的是被掐断的半截气泡，而 active-run 会为刷新客户端返回
+    // offset 0 以全量重放；不摘掉旧气泡就会并排出现两个同轮气泡。
     if (rebuildTail) {
       const _msgs = useChatStore.getState().store.chats[chatId]?.messages;
       const _last = _msgs && _msgs.length > 0 ? _msgs[_msgs.length - 1] : undefined;
@@ -1254,7 +1483,13 @@ export function useStreaming(
     try {
       const r = await followChatRun(active.run_id, active.last_event_offset || 0, abortController.signal, uid, chatId);
       if (!r.ok || !r.body) return;
-      streamOutcome = await processRegenerateStream(r, chatId, undefined, !!active.enable_thinking);
+      streamOutcome = await processRegenerateStream(
+        r,
+        chatId,
+        undefined,
+        !!active.enable_thinking,
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         // Resume failure is handled silently — UX-wise it's equivalent to "the task runs in the background and the final message arrives via the next refresh"
@@ -1319,7 +1554,13 @@ export function useStreaming(
       }
       // The endpoint streams the same SSE shape as /chats/regenerate, so
       // we can reuse the existing consumer.
-      await processRegenerateStream(r, chatId, undefined, isThinkingMode(useChatStore.getState().chatMode));
+      await processRegenerateStream(
+        r,
+        chatId,
+        undefined,
+        isThinkingMode(useChatStore.getState().chatMode),
+        abortController.signal,
+      );
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('取消批量并继续失败：{msg}', { msg: e?.message || String(e) }));

@@ -35,17 +35,32 @@ Each source can be disabled individually via `HUGAGENT_DISABLE_{ADMIN,USER,PROJE
 
 `src/backend/skill_bundles/` has two tiers with very different loading semantics:
 
-- **`default/` — 5 built-in skills** (always-on; the built-in loader's single-level `glob("*/SKILL.md")` scan picks them up):
+- **`default/` — 12 built-in skills** (always-on; the built-in loader's single-level `glob("*/SKILL.md")` scan picks them up):
 
   | Skill | Purpose |
   |---|---|
   | `capability-guide-brief` | Quick answers to "what can you do" questions |
-  | `word-editing` | Word document creation/editing/templating (word-cli) |
-  | `excel-editing` | Excel workbook creation / formula modelling (excel-cli) |
-  | `ppt-design` | PPT design and generation (.pptx deliverables) |
   | `pdf-editing` | PDF creation/merge/split/form-filling |
+  | `officecli-docx` | Deep OOXML Word editing: TOC / fields / footnotes / equations / comments & tracked changes (officecli) |
+  | `officecli-xlsx` | Deep OOXML Excel editing: pivot tables / sparklines / conditional formatting (officecli) |
+  | `officecli-pptx` | Deep OOXML PPT editing: masters & layouts / connectors / per-slide screenshot QA (officecli) |
+  | `officecli-word-form` | Fillable Word forms: content controls (SDT) + checkboxes + MERGEFIELD + document protection |
+  | `officecli-academic-paper` | Academic typesetting: APA / Chicago / IEEE / MLA citations and cross-references |
+  | `officecli-data-dashboard` | Excel dashboards: KPI cards + charts + sparklines |
+  | `officecli-financial-model` | Excel financial models: 3-statement / DCF / LBO / sensitivity analysis |
+  | `officecli-pitch-deck` | Fundraising pitch decks |
+  | `morph-ppt` | Morph-transition animated decks (ships with 40 style packs) |
+  | `morph-ppt-3d` | Morph decks with `.glb` 3D models and cinematographic camera moves |
 
-- **`marketplace/` — 48 installable skill packages** (install-to-use): each directory holds the raw SKILL.md, referenced files and a `marketplace.json` manifest. Because they sit two levels deep at `marketplace/<slug>/SKILL.md`, the built-in loader **never** auto-loads them — before installation they don't appear in the catalog and aren't registered with agents; only an explicit install persists them.
+  The last ten come from the open-source [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)
+  project (Apache 2.0) and rely on the `officecli` single-file binary pre-installed in the
+  sandbox images (`/usr/local/bin/officecli`; the version is pinned by `ARG OFFICECLI_VERSION`
+  in the three sandbox Dockerfiles). Each skill's frontmatter prepends a Chinese trigger
+  blurb to the upstream English `description`, and the upstream online-install section is
+  replaced by this system's runtime/delivery-chain section. **OfficeCLI does not
+  handle PDF** — reading, merging, splitting and form-filling still go through `pdf-editing`.
+
+- **`marketplace/` — 45 installable skill packages** (install-to-use): each directory holds the raw SKILL.md, referenced files and a `marketplace.json` manifest. Because they sit two levels deep at `marketplace/<slug>/SKILL.md`, the built-in loader **never** auto-loads them — before installation they don't appear in the catalog and aren't registered with agents; only an explicit install persists them.
 
   Ten of these are industry/brand skills (economic-indicator query, enterprise profiling, industry-chain analysis, etc.) hard-wired to the [EE industry MCP servers](mcp-tools.md) and are therefore **Enterprise EE**; the CE derivation strips them via `ce/manifest.yaml`.
 
@@ -115,6 +130,8 @@ The marketplace is an installable skill library with two sources — curated pre
 
 - admin install: empty `owner_user_id` (available to everyone), skill id = the manifest's `entry_name`;
 - user install: `owner_user_id` = current user, skill id suffixed with a user fingerprint (`compute_install_id`) for global uniqueness — multiple users can install the same marketplace skill, each with their own credentials.
+
+The marketplace summary is card copy and does not replace a skill's user introduction. Publishing stores an explicitly authored user introduction separately; when it is empty or whitespace-only at install time, the Capability Center displays the `SKILL.md` body with frontmatter removed.
 
 ### Credentials: required_secrets → secrets.json
 
@@ -204,8 +221,8 @@ Private skills land in the same `AdminSkill` table (`owner_user_id` = the user);
 | `src/backend/core/agent_skills/deps_detector.py` | Static pip/apt dependency detection for scripts |
 | `src/backend/core/agent_skills/backends/` | filesystem / database / composite loading backends |
 | `src/backend/core/llm/tools/skill_tool.py` | Restricted view_text_file + {baseDir} substitution + Runtime Hint |
-| `src/backend/skill_bundles/default/` | The 5 built-in skills |
-| `src/backend/skill_bundles/marketplace/` | The 48 installable marketplace packages |
+| `src/backend/skill_bundles/default/` | The 12 built-in skills (incl. the 10 OfficeCLI ones) |
+| `src/backend/skill_bundles/marketplace/` | The 45 installable marketplace packages |
 | `src/backend/core/services/marketplace_service.py` | Marketplace listing / install / secret injection / submission review |
 | `src/backend/api/routes/v1/marketplace.py` | User-side marketplace API (browse/install/submit/withdraw) |
 | `src/backend/api/routes/v1/admin_marketplace.py` | Admin marketplace API (global install / submission review) |

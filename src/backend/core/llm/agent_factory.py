@@ -19,9 +19,13 @@ from agentscope.tool import Toolkit
 from core.agent_skills.loader import get_skill_loader
 from core.config.catalog import get_enabled_ids
 from core.config.catalog_loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
+from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 from core.llm.chat_models import get_default_model, make_chat_model
+from core.llm.compaction import SUMMARIZATION_PROMPT
+from core.llm.compacting_agent import CompactingAgent
 from core.llm.mcp_manager import close_clients
 from core.llm.mcp_pool import MCPConnectionPool
+from core.llm.manifest_agent import ManifestBoundAgent
 from core.llm.middlewares import (
     ActingToolCallIdMiddleware,
     AgentRuntimeState,
@@ -32,9 +36,11 @@ from core.llm.middlewares import (
     GoalAnchorReminderMiddleware,
     IterBudgetReminderMiddleware,
     JobLedgerReminderMiddleware,
+    PlanStaleReminderMiddleware,
     OntologyGateMiddleware,
     StallInterventionMiddleware,
     SteerMiddleware,
+    ToolEffectMiddleware,
     WorkspacePinHintMiddleware,
 )
 from core.llm.providers.registry import get_spec, split_provider_extra
@@ -66,7 +72,15 @@ from core.ontology.validator import register_runtime_asset_tags, render_runtime_
 from core.services.mcp_service import McpServerConfigService
 from dotenv import load_dotenv
 from prompts.prompt_config import load_prompt_config
-from prompts.prompt_runtime import build_subagent_system_prompt, build_system_prompt, select_tools
+from prompts.prompt_runtime import (
+    build_subagent_system_prompt,
+    build_system_prompt,
+    select_tools,
+)
+from core.llm.execution_manifest import (
+    PromptManifestBuilder,
+    tool_manifest_from_schemas,
+)
 
 # Batch-execution-mode system prompt — appended at the end of the regular system prompt.
 # All the details of the trigger rules are still carried by the
@@ -82,6 +96,18 @@ _BATCH_MODE_HINT = (
     "确认后系统会自动逐条执行并把结果实时推送给用户，无需你重复调用。\n"
     "若请求确实只针对单一对象/单一概念，再走普通回答即可。\n"
 )
+
+
+def cache_compaction_execution_surface(
+    agent: Any, base_prompt: str, surface: Any
+) -> None:
+    """Mirror the exact surface used by the latest model request for compaction."""
+    skill_instructions = str(getattr(surface, "skill_instructions", "") or "")
+    agent._jx_compaction_system_prompt = (
+        f"{base_prompt}\n{skill_instructions}" if skill_instructions else base_prompt
+    )
+    agent._jx_compaction_tool_schemas = getattr(surface, "tool_schemas", None)
+
 
 # 工作流模式提示段 —— 只在用户显式进入工作流模式时拼进系统提示（与 _BATCH_MODE_HINT 同源做法）。
 # 不进入这个模式时，下面这一整套批量规则**完全不存在**，普通问答不受任何干扰。
@@ -107,32 +133,32 @@ _WORKFLOW_MODE_HINT = (
     "   **照这个骨架写**——最常踩的坑是 seed 和 map 用了两份不同的列表：\n"
     "   ```python\n"
     "   items = [                                   # 一份列表，seed 和 map 都用它\n"
-    "       {\"key\": f\"row_{r['idx']}\", \"payload\": {\"标题\": r[\"标题\"]}}\n"
+    '       {"key": f"row_{r[\'idx\']}", "payload": {"标题": r["标题"]}}\n'
     "       for r in records\n"
     "   ]\n"
     "   ledger.seed(items)\n"
     "\n"
     "   def handle(item):           # item 就是 items 里的元素，原样传入\n"
-    "       p = item[\"payload\"]     # 只有传 items 时才有 payload\n"
-    "       return {\"分类\": agent(PROMPT.format(**p), schema=SCHEMA,\n"
-    "                             item_key=item[\"key\"])[\"分类\"]}\n"
+    '       p = item["payload"]     # 只有传 items 时才有 payload\n'
+    '       return {"分类": agent(PROMPT.format(**p), schema=SCHEMA,\n'
+    '                             item_key=item["key"])["分类"]}\n'
     "\n"
     "   job.map(items, handle, concurrency=8)       # 传 items，不是原始 records\n"
     "   ```\n"
     "   `job.map(items, fn)` 把 `items` 的元素**原样**交给 `fn`——fn 收到的是你传进去的"
     "那个对象本身，不是台账记录。直接 map 原始业务列表也行，但那时 item 里没有 `payload`，"
     "且必须让它带得出台账主键（`key`/`item_key`/`id`/`seq` 之一，"
-    "或 `job.map(..., key=\"idx\")` 显式指定），否则结果无法回写、台账全程 pending。\n"
+    '或 `job.map(..., key="idx")` 显式指定），否则结果无法回写、台账全程 pending。\n'
     "   ⚠️ `job.map` 会先试跑头两项：若都抛同一类脚本异常（KeyError/NameError/TypeError…），"
     "判定是脚本写错而非数据个例，**整份作业立刻中止报错**——你会拿到 traceback，改脚本后"
-    "用 `run_job(action=\"start\", on_conflict=\"replace\")` 重跑即可。\n"
+    '用 `run_job(action="start", on_conflict="replace")` 重跑即可。\n'
     "   其余一切用标准 Python：抓网页、解析、写 Excel、`subprocess` 跑校验命令。\n"
     "   **能机检的验收就别烧模型**——`mypy` / `pytest` / 一段校验函数都比 `agent()` 便宜得多。\n"
     "   ⚠️ `agent()` 在工具全挂/配额打爆/超时时会**抛异常**，不要 try/except 把它转写成"
     "「未查询到」——那是把环境故障固化成数据。让异常抛出去，该项会记 failed 留在台账等续跑。\n"
     "   同理：真的查无请用 `_status` 标 `not_found`，**不要**把占位串写进结果字段。\n"
-    "2. `run_job(action=\"start\", script_path=..., name=...)` 提交。\n"
-    "3. 作业结束后 `run_job(action=\"export\", job_id=...)` 把台账导成沙箱里的 JSONL，"
+    '2. `run_job(action="start", script_path=..., name=...)` 提交。\n'
+    '3. 作业结束后 `run_job(action="export", job_id=...)` 把台账导成沙箱里的 JSONL，'
     "再用 bash/python 读它写产物。\n"
     "\n"
     "### 两条硬规矩\n"
@@ -152,18 +178,18 @@ _WORKFLOW_MODE_HINT = (
     "不需要你复述作业还活着。\n"
     "- **被进度唤醒时只汇报、不干活**：那一轮只需一两句话转述进度，"
     "**不要**重复提交作业（它还在跑）、不要 `export`、不要把逐项结果读进对话。"
-    "确实要换脚本重跑，用 `run_job(action=\"start\", on_conflict=\"replace\")`——"
+    '确实要换脚本重跑，用 `run_job(action="start", on_conflict="replace")`——'
     "它会先停掉旧作业；默认的拦截只是不让你**意外**叠加两份，不是不让重跑。\n"
     "- **用户说停就立刻停**：用户说「停止任务/别跑了/取消」时，"
-    "马上 `run_job(action=\"cancel\", job_id=...)` 把作业停掉再回话，"
+    '马上 `run_job(action="cancel", job_id=...)` 把作业停掉再回话，'
     "**不要**先解释、不要反问要不要保留进度——台账已经落库，随时可以 `resume` 续跑。"
-    "不知道 job_id 就先 `run_job(action=\"status\")` 查，别让作业在用户喊停后还在烧预算。\n"
+    '不知道 job_id 就先 `run_job(action="status")` 查，别让作业在用户喊停后还在烧预算。\n'
     "- **逐项结果不进对话**：要用结果就 `export` 成文件再脚本处理。\n"
     "\n"
     "### 交付纪律\n"
     "台账里还剩多少是**可查证的事实**。不得以「边际收益递减」「消耗较大」为由在只完成一部分时"
     "转向交付；确实未做完，必须报出分母、已完成数与未覆盖清单，并给出续跑方式"
-    "（`run_job(action=\"resume\", job_id=...)`，已完成的项不会重做）。\n"
+    '（`run_job(action="resume", job_id=...)`，已完成的项不会重做）。\n'
     "「查无 / 待定 / 失败」只能落在独立的状态字段，**不得**把占位串写进原始数据位——"
     "一旦写入，「哪些还没做」就不再可判定。\n"
 )
@@ -214,7 +240,9 @@ def _effective_mcp_server_keys(
     owned_servers: Optional[dict] = None,
     bridge_servers: Optional[dict] = None,
 ) -> list[str]:
-    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    all_servers = dict(
+        McpServerConfigService.get_instance().get_all_servers(enabled_only=True)
+    )
     # Config-source precedence (later update wins on same server_id):
     #   global rows < bridge (desktop cloud gateway; cloud is the source of
     #   truth for a capability it takes over) < owned (a user's own private
@@ -237,16 +265,22 @@ def _effective_mcp_server_keys(
     # admin MCP servers that aren't in the static config.
 
     if isinstance(enabled_mcp_ids, list):
-        runtime_set = set([x for x in enabled_mcp_ids if isinstance(x, str) and x.strip()])
+        runtime_set = set(
+            [x for x in enabled_mcp_ids if isinstance(x, str) and x.strip()]
+        )
         allow &= runtime_set
     else:
         catalog_set = set(get_enabled_ids("mcp"))
         allow &= catalog_set
 
     if agent_spec is not None:
-        spec_enabled = getattr(getattr(agent_spec, "mcp_servers", None), "enabled", None) or []
+        spec_enabled = (
+            getattr(getattr(agent_spec, "mcp_servers", None), "enabled", None) or []
+        )
         if spec_enabled:
-            spec_set = set([x for x in spec_enabled if isinstance(x, str) and x.strip()])
+            spec_set = set(
+                [x for x in spec_enabled if isinstance(x, str) and x.strip()]
+            )
             allow &= spec_set
 
     # Note: empty enabled_kb_ids [] means no KBs selected in frontend (e.g. catalog
@@ -270,7 +304,9 @@ def _filter_mcp_servers_by_keys(
     bridge_servers: Optional[dict] = None,
 ) -> dict:
     enabled_set = set(enabled_keys)
-    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+    all_servers = dict(
+        McpServerConfigService.get_instance().get_all_servers(enabled_only=True)
+    )
     # Same precedence as _effective_mcp_server_keys: global < bridge < owned.
     if bridge_servers:
         all_servers.update(bridge_servers)
@@ -279,7 +315,9 @@ def _filter_mcp_servers_by_keys(
     return {k: v for k, v in all_servers.items() if k in enabled_set}
 
 
-def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> list[str]:
+def _filter_skill_ids_for_user(
+    skill_ids: list[str], user_id: Optional[str]
+) -> list[str]:
     """Strip out skill ids this user must not load.
 
     Two independent rules, applied at the one choke point every agent (main,
@@ -364,7 +402,9 @@ def _expand_plugin_bindings(plugin_ids: list[str]) -> tuple[list[str], list[str]
 
         with SessionLocal() as db:
             rows = (
-                db.query(InstalledPlugin).filter(InstalledPlugin.install_id.in_(plugin_ids)).all()
+                db.query(InstalledPlugin)
+                .filter(InstalledPlugin.install_id.in_(plugin_ids))
+                .all()
             )
             for r in rows:
                 cids = r.component_ids or {}
@@ -477,7 +517,9 @@ async def warmup_mcp_tools() -> None:
         log.info("[warmup] No MCP servers configured – skipping warmup")
         return
 
-    log.info("[warmup] Initializing MCP connection pool for %d server(s)…", len(servers))
+    log.info(
+        "[warmup] Initializing MCP connection pool for %d server(s)…", len(servers)
+    )
     start = time.monotonic()
 
     try:
@@ -491,7 +533,9 @@ async def warmup_mcp_tools() -> None:
         )
     except Exception as exc:
         elapsed = time.monotonic() - start
-        log.warning("[warmup] MCP pool initialization failed after %.2fs: %s", elapsed, exc)
+        log.warning(
+            "[warmup] MCP pool initialization failed after %.2fs: %s", elapsed, exc
+        )
 
 
 def _vision_bridge_needed() -> bool:
@@ -505,7 +549,9 @@ def _vision_bridge_needed() -> bool:
         from core.services.model_config import ModelConfigService
         from core.vision import is_available, model_supports_vision
 
-        if model_supports_vision(ModelConfigService.get_instance().resolve("main_agent")):
+        if model_supports_vision(
+            ModelConfigService.get_instance().resolve("main_agent")
+        ):
             return False
         return is_available()
     except Exception as exc:  # noqa: BLE001
@@ -515,7 +561,9 @@ def _vision_bridge_needed() -> bool:
 
 def _effective_main_available_skills() -> list[str]:
     """Resolve main-agent skills from currently enabled catalog skills."""
-    enabled_ids = [sid for sid in get_enabled_ids("skills") if isinstance(sid, str) and sid.strip()]
+    enabled_ids = [
+        sid for sid in get_enabled_ids("skills") if isinstance(sid, str) and sid.strip()
+    ]
     if enabled_ids:
         return enabled_ids
 
@@ -648,6 +696,10 @@ async def create_agent_executor(
     # bundle, so evidence assembled after the response can look up exactly which
     # versions were in play. Optional — non-chat paths simply bind anonymously.
     run_id: Optional[str] = None,
+    journal_owner: Optional[str] = None,
+    # Workspace scope is part of the frozen memory-policy ref and execution
+    # context hash. Keep the default for non-chat/internal callers.
+    workspace_id: str = "default",
     sandbox_session_id: Optional[str] = None,
     project_ctx: Optional[Dict[str, Any]] = None,
     channel_origin: Optional[Dict[str, Any]] = None,
@@ -700,6 +752,13 @@ async def create_agent_executor(
         Tuple of (agent, mcp_clients). Caller is responsible for closing
         mcp_clients after use via close_clients().
     """
+    from core.llm.middlewares import CURRENT_RUN_BINDING
+
+    inherited_run_binding = CURRENT_RUN_BINDING.get()
+    if inherited_run_binding is not None:
+        run_id = run_id or inherited_run_binding[0]
+        journal_owner = journal_owner or inherited_run_binding[1]
+
     import logging
     import time
 
@@ -707,7 +766,7 @@ async def create_agent_executor(
     _t0 = time.monotonic()
 
     def _elapsed():
-        return f"{(time.monotonic() - _t0)*1000:.0f}ms"
+        return f"{(time.monotonic() - _t0) * 1000:.0f}ms"
 
     import asyncio
 
@@ -716,7 +775,9 @@ async def create_agent_executor(
     if agent_spec is not None and agent_spec.prompt_parts:
         cfg = replace(
             cfg,
-            system_prompt=replace(cfg.system_prompt, parts=list(agent_spec.prompt_parts)),
+            system_prompt=replace(
+                cfg.system_prompt, parts=list(agent_spec.prompt_parts)
+            ),
         )
 
     # ── Sub-agent overrides ──────────────────────────────────────────
@@ -763,9 +824,13 @@ async def create_agent_executor(
                 # Deferred components stay out of the assembly; stdio-transport
                 # plugins (absent from deferred_*) still expand eagerly.
                 p_skills = [
-                    s for s in p_skills if s not in _subagent_progressive.deferred_skill_ids
+                    s
+                    for s in p_skills
+                    if s not in _subagent_progressive.deferred_skill_ids
                 ]
-                p_mcp = [m for m in p_mcp if m not in _subagent_progressive.deferred_mcp_ids]
+                p_mcp = [
+                    m for m in p_mcp if m not in _subagent_progressive.deferred_mcp_ids
+                ]
             enabled_skill_ids = list(dict.fromkeys(enabled_skill_ids + p_skills))
             enabled_mcp_ids = list(dict.fromkeys(enabled_mcp_ids + p_mcp))
 
@@ -781,7 +846,9 @@ async def create_agent_executor(
     if turbo_mode:
         if mode_spec is not None:
             # 模式表是真源：这几个取值全部来自 chat_modes 那一行。
-            _mode_manual_invoke = bool(getattr(mode_spec, "manual_invoke_enabled", True))
+            _mode_manual_invoke = bool(
+                getattr(mode_spec, "manual_invoke_enabled", True)
+            )
             _mode_mcp_ids = list(getattr(mode_spec, "mcp_server_ids", ()) or ())
             _mode_skill_ids = list(getattr(mode_spec, "skill_ids", ()) or ())
             _mode_plugin_ids = list(getattr(mode_spec, "plugin_ids", ()) or ())
@@ -819,7 +886,11 @@ async def create_agent_executor(
             dict.fromkeys(
                 [
                     *_mode_skill_ids,
-                    *[s for s in turbo_plugin_skill_ids if isinstance(s, str) and s.strip()],
+                    *[
+                        s
+                        for s in turbo_plugin_skill_ids
+                        if isinstance(s, str) and s.strip()
+                    ],
                     *[
                         s
                         for s in (turbo_explicit_skill_ids or [])
@@ -840,7 +911,11 @@ async def create_agent_executor(
             dict.fromkeys(
                 [
                     *_mode_mcp_ids,
-                    *[m for m in turbo_plugin_mcp_ids if isinstance(m, str) and m.strip()],
+                    *[
+                        m
+                        for m in turbo_plugin_mcp_ids
+                        if isinstance(m, str) and m.strip()
+                    ],
                     *[
                         m
                         for m in (turbo_explicit_mcp_ids or [])
@@ -852,7 +927,9 @@ async def create_agent_executor(
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
     if enabled_skill_ids:
-        enabled_skill_ids = _filter_skill_ids_for_user(enabled_skill_ids, current_user_id)
+        enabled_skill_ids = _filter_skill_ids_for_user(
+            enabled_skill_ids, current_user_id
+        )
 
     # ── Progressive plugin loading（渐进式插件加载）────────────────────────
     # Main-path only: a sub-agent's plugin binding is the owner's deliberate
@@ -863,12 +940,7 @@ async def create_agent_executor(
     # Deferral happens BEFORE the skill-bound-MCP merge below so a deferred
     # skill doesn't pull its bound MCP servers into the assembly either.
     _progressive = None
-    if (
-        not disable_tools
-        and not turbo_mode
-        and user_agent is None
-        and current_user_id
-    ):
+    if not disable_tools and not turbo_mode and user_agent is None and current_user_id:
         from core.llm import plugin_loader as _plug
 
         if _plug.progressive_plugin_loading_enabled():
@@ -882,7 +954,9 @@ async def create_agent_executor(
                     )
                 if not isinstance(enabled_mcp_ids, list):
                     enabled_mcp_ids = [
-                        x for x in get_enabled_ids("mcp") if isinstance(x, str) and x.strip()
+                        x
+                        for x in get_enabled_ids("mcp")
+                        if isinstance(x, str) and x.strip()
                     ]
                 _progressive = await asyncio.to_thread(
                     _plug.resolve_progressive_plugins,
@@ -895,22 +969,31 @@ async def create_agent_executor(
                 )
                 if _progressive.deferred_skill_ids:
                     enabled_skill_ids = [
-                        s for s in enabled_skill_ids if s not in _progressive.deferred_skill_ids
+                        s
+                        for s in enabled_skill_ids
+                        if s not in _progressive.deferred_skill_ids
                     ]
                 if _progressive.deferred_mcp_ids:
                     enabled_mcp_ids = [
-                        m for m in enabled_mcp_ids if m not in _progressive.deferred_mcp_ids
+                        m
+                        for m in enabled_mcp_ids
+                        if m not in _progressive.deferred_mcp_ids
                     ]
                 if not _progressive.directory:
                     _progressive = None
             except Exception as exc:  # noqa: BLE001
-                _log.warning("[factory] progressive plugin resolve failed（回退全量装配）: %s", exc)
+                _log.warning(
+                    "[factory] progressive plugin resolve failed（回退全量装配）: %s",
+                    exc,
+                )
                 _progressive = None
 
     # A skill's MCP binding is an explicit capability grant, just like a sub-agent binding.
     # Merge only the MCPs declared by enabled skills; unrelated disabled MCPs remain disabled.
     skill_ids_for_bindings = (
-        enabled_skill_ids if enabled_skill_ids is not None else _effective_main_available_skills()
+        enabled_skill_ids
+        if enabled_skill_ids is not None
+        else _effective_main_available_skills()
     )
     skill_bound_mcp_ids = (
         _mcp_ids_bound_to_skills(skill_ids_for_bindings) if not disable_tools else []
@@ -1004,7 +1087,9 @@ async def create_agent_executor(
             if not route.task_types or str(chat_mode or "chat") in route.task_types
         }
         visible_subagents = [
-            agent for agent in visible_subagents if str(agent.get("agent_id") or "") in routed
+            agent
+            for agent in visible_subagents
+            if str(agent.get("agent_id") or "") in routed
         ]
 
     # The profile's tool allowlist, applied. It can only narrow: the candidate
@@ -1029,31 +1114,31 @@ async def create_agent_executor(
             len(enabled_mcp_ids),
         )
 
-    # ── Runtime Binder (GCE ticket 03) ──────────────────────────────────────
-    # Freeze which asset versions this run is about to use. Bound here, after
-    # skills / MCPs / KBs are fully resolved but before anything executes, so a
-    # mid-run publish cannot change what this run did. Purely observational:
-    # any failure degrades the bundle to partial and never touches the answer.
+    # The execution manifest is assembled alongside the real prompt/tool
+    # request. It hashes complete inputs but only persists hashes and public
+    # references. Binding happens after the final prompt and tool schemas exist,
+    # still before the Agent can execute anything.
+    _manifest_builder = PromptManifestBuilder(
+        context={
+            "workspace_id": str(workspace_id or "default"),
+            "project_id": str((project_ctx or {}).get("project_id") or ""),
+            "project": dict(project_ctx or {}),
+            "chat_mode": str(chat_mode or "default"),
+            "model": {
+                "name": str(model_name or ""),
+                "provider_id": str(model_provider_id or ""),
+            },
+            "capabilities": {
+                "skill_ids": list(skill_ids_for_bindings or []),
+                "mcp_ids": list(enabled_mcp_ids or []),
+                "kb_ids": list(enabled_kb_ids or []),
+            },
+            "orchestration_profile_id": str(profile.profile_id),
+            "workflow_policy_version": str(profile.version),
+            "prompt_fragment_ids": list(profile.prompt_fragments or []),
+        }
+    )
     asset_bundle = None
-    try:
-        from core.evolution.runtime_binding import bind_runtime_assets
-
-        asset_bundle = bind_runtime_assets(
-            run_id=run_id,
-            skill_ids=skill_ids_for_bindings,
-            kb_ids=enabled_kb_ids,
-            model_name=model_name,
-            model_provider_id=model_provider_id,
-            chat_mode=chat_mode,
-            memory_enabled=memory_enabled,
-            # Which assembly this run used. A bundle that omits it cannot
-            # reproduce the run, and counterfactual replay would be substituting
-            # one asset against an unknown baseline.
-            orchestration_profile_id=profile.profile_id,
-            workflow_policy_version=profile.version,
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("[binder] binding skipped: %s", exc)
 
     # The current user's self-added private MCPs (owner-isolated, queried from the DB on demand)
     owned_mcp_servers: dict = {}
@@ -1198,10 +1283,14 @@ async def create_agent_executor(
         from core.llm.mcp_pool import HTTP_TRANSPORTS, make_client
 
         http_server_cfgs = {
-            k: v for k, v in enabled_servers.items() if v.get("transport") in HTTP_TRANSPORTS
+            k: v
+            for k, v in enabled_servers.items()
+            if v.get("transport") in HTTP_TRANSPORTS
         }
         stdio_servers = {
-            k: v for k, v in enabled_servers.items() if v.get("transport") not in HTTP_TRANSPORTS
+            k: v
+            for k, v in enabled_servers.items()
+            if v.get("transport") not in HTTP_TRANSPORTS
         }
 
         # ``isolated`` callers run in their own event loop (subagent_tool
@@ -1217,8 +1306,12 @@ async def create_agent_executor(
             per_request_http = http_server_cfgs
         else:
             pool = MCPConnectionPool.get_instance()
-            pool_managed = pool.stable_server_ids if pool.is_initialized else frozenset()
-            per_request_http = {k: v for k, v in http_server_cfgs.items() if k not in pool_managed}
+            pool_managed = (
+                pool.stable_server_ids if pool.is_initialized else frozenset()
+            )
+            per_request_http = {
+                k: v for k, v in http_server_cfgs.items() if k not in pool_managed
+            }
             if pool.is_initialized:
                 per_request_stdio = {
                     k: v for k, v in stdio_servers.items() if k not in pool_managed
@@ -1258,7 +1351,10 @@ async def create_agent_executor(
             # mutating tools' __call__, gate() suspends awaiting user
             # confirmation.
             if _mcp_confirm_should_gate and key in CONFIRM_MCP_SERVERS:
-                from core.llm.mcp_confirm import confirm_specs_for, make_confirm_gated_client
+                from core.llm.mcp_confirm import (
+                    confirm_specs_for,
+                    make_confirm_gated_client,
+                )
 
                 client = make_confirm_gated_client(
                     key, _http_cfg, chat_id=chat_id, specs=confirm_specs_for(key)
@@ -1292,7 +1388,10 @@ async def create_agent_executor(
                 # ``is_enabled=true``) was unreachable.
                 if isinstance(exc, asyncio.CancelledError):
                     current = asyncio.current_task()
-                    if current is not None and getattr(current, "cancelling", lambda: 0)() > 0:
+                    if (
+                        current is not None
+                        and getattr(current, "cancelling", lambda: 0)() > 0
+                    ):
                         raise
                 return None
 
@@ -1322,7 +1421,9 @@ async def create_agent_executor(
         # evolution-authored ids — but the exposure gate is applied here anyway
         # rather than relying on that. A gate that only covers the paths we
         # happened to think of is not a gate.
-        skill_ids_to_register = _filter_skill_ids_for_user(skill_ids_to_register, current_user_id)
+        skill_ids_to_register = _filter_skill_ids_for_user(
+            skill_ids_to_register, current_user_id
+        )
     # Note: a subagent's (user_agent) enabled_skill_ids is always a list ([]
     # when unconfigured) and never hits the None fallback above — i.e. "a
     # subagent with no skills configured has no skills"; strictly per its own
@@ -1339,7 +1440,10 @@ async def create_agent_executor(
                 allowed_skill_dirs.append(d)
 
     if not disable_tools:
-        from core.agent_skills.config import get_enabled_skill_sources, get_sandbox_skills_dir
+        from core.agent_skills.config import (
+            get_enabled_skill_sources,
+            get_sandbox_skills_dir,
+        )
 
         for src in get_enabled_skill_sources():
             root = str(src.root_dir)
@@ -1364,6 +1468,24 @@ async def create_agent_executor(
     # human in the loop → non-interactive, and §13 rejects /myspace writes
     # outright.
     _interactive: bool = not (isolated or batch_mode)
+
+    # Browser-backed model questions are deliberately a top-level standard-chat
+    # capability. Channels, automation, batch/plan workers and subagents have no
+    # resident composer to answer them; turbo mode keeps its bounded fast path.
+    from core.llm.tools import ask_user_question_tool
+
+    if ask_user_question_tool.should_register_ask_user_question(
+        top_level_chat=top_level_chat,
+        turbo_mode=turbo_mode,
+        disable_tools=disable_tools,
+        chat_id=chat_id,
+    ):
+        ask_user_question_tool.register_ask_user_question(
+            toolkit,
+            chat_id=chat_id,
+            interactive=True,
+        )
+
     if not disable_tools and turbo_mode and not _turbo_code_exec:
         # Turbo keeps only cross-turn attachment access (the file-context hook
         # references this tool for historical attachments); every other native
@@ -1437,7 +1559,8 @@ async def create_agent_executor(
 
         _ui_reachable = _interactive and not _is_channel_run and not automation_run
         if skill_ids_to_register and any(
-            design_picker_tool.skill_uses_choose_design(str(sid)) for sid in skill_ids_to_register
+            design_picker_tool.skill_uses_choose_design(str(sid))
+            for sid in skill_ids_to_register
         ):
             design_picker_tool.register_choose_design(
                 toolkit,
@@ -1571,7 +1694,9 @@ async def create_agent_executor(
         # this is how the agent pulls one in on demand. Gated on channel runs so the tool
         # never clutters the toolkit of web conversations, where it could never resolve.
         if _is_channel_run:
-            register_channel_attachment(toolkit, user_id=current_user_id, chat_id=chat_id)
+            register_channel_attachment(
+                toolkit, user_id=current_user_id, chat_id=chat_id
+            )
 
         # ── Phase 3.8: Register pin_to_workspace ──
         # Lets the agent gate which generated files reach the user-visible
@@ -1631,7 +1756,11 @@ async def create_agent_executor(
 
     _ontology_runtime = ontology_runtime if isinstance(ontology_runtime, dict) else {}
     skill_metadata = loader.load_all_metadata()
-    _log.info("[factory] +%s skill metadata loaded (%d)", _elapsed(), len(skill_metadata or {}))
+    _log.info(
+        "[factory] +%s skill metadata loaded (%d)",
+        _elapsed(),
+        len(skill_metadata or {}),
+    )
     for skill_id in skill_ids_to_register or []:
         metadata = skill_metadata.get(skill_id)
         register_runtime_asset_tags(
@@ -1680,7 +1809,12 @@ async def create_agent_executor(
     # (consistent with 1.x: subagent tools are registered after
     # get_json_schemas, so they don't enter the system_prompt's tool list).
     tool_schemas = await _build_toolkit().get_tool_schemas()
-    _log.info("[factory] +%s tool schemas computed (%d)", _elapsed(), len(tool_schemas or []))
+    _log.info(
+        "[factory] +%s tool schemas computed (%d)", _elapsed(), len(tool_schemas or [])
+    )
+    # update_plan 只在下面的非子智能体分支里注册；先给默认值，子智能体分支走完
+    # 也能安全判断「要不要挂计划催更中间件」。
+    _plan_tool_enabled = False
     if user_agent is not None:
         system_prompt = build_subagent_system_prompt(
             user_agent,
@@ -1688,12 +1822,35 @@ async def create_agent_executor(
             enabled_mcp_keys,
             enabled_kb_ids=enabled_kb_ids,
         )
+        _manifest_builder.add_prompt_section(
+            "subagent/base",
+            system_prompt,
+            origin=f"user-agent:{getattr(user_agent, 'agent_id', '') or 'configured'}",
+            trust="user_configured",
+            priority=10,
+            cache_class="agent",
+            version=str(getattr(user_agent, "updated_at", "") or "1"),
+            reference=f"agent:{getattr(user_agent, 'agent_id', '') or 'configured'}",
+            sensitive=True,
+        )
         _log.info(
-            "[factory] +%s subagent system prompt built (%d chars)", _elapsed(), len(system_prompt)
+            "[factory] +%s subagent system prompt built (%d chars)",
+            _elapsed(),
+            len(system_prompt),
         )
         _ontology_prompt = render_runtime_prompt(_ontology_runtime)
         if _ontology_prompt:
             system_prompt += "\n\n" + _ontology_prompt
+            _manifest_builder.add_prompt_section(
+                "runtime/ontology",
+                _ontology_prompt,
+                origin="ontology:runtime",
+                trust="governed_runtime",
+                priority=850,
+                cache_class="run",
+                version=str(_ontology_runtime.get("revision") or "1"),
+                sensitive=True,
+            )
             _log.info(
                 "[factory] +%s subagent ontology contract injected (%d chars)",
                 _elapsed(),
@@ -1711,6 +1868,16 @@ async def create_agent_executor(
             )
             if _plugin_dir_section:
                 system_prompt += "\n\n" + _plugin_dir_section
+                _manifest_builder.add_prompt_section(
+                    "runtime/plugin_directory",
+                    _plugin_dir_section,
+                    origin="plugin:directory",
+                    trust="configured_service",
+                    priority=820,
+                    cache_class="capability_set",
+                    version="1",
+                    sensitive=True,
+                )
             _plugin_runtime = {
                 "activated_slugs": set(),
                 "connected_keys": set(enabled_mcp_keys),
@@ -1765,6 +1932,15 @@ async def create_agent_executor(
 
             # 收窄模式没配专属提示词时退回历史的 turbo 正文——极速模式绑的就是它。
             system_prompt = _mode_prompt or _pvs_turbo.render_turbo_system_prompt()
+            _manifest_builder.add_prompt_section(
+                "mode/base",
+                system_prompt,
+                origin=f"chat-mode:{getattr(mode_spec, 'slug', None) or 'turbo'}",
+                trust="admin",
+                priority=10,
+                cache_class="mode",
+                version=str(getattr(mode_spec, "updated_at", "") or "1"),
+            )
             _log.info(
                 "[factory] +%s turbo system prompt built (%d chars)",
                 _elapsed(),
@@ -1774,6 +1950,15 @@ async def create_agent_executor(
             # 不收窄的模式配了专属提示词：整段替换默认装配（和收窄模式同一语义），
             # 但工具/技能面不动——那是 tool_scope 管的事。
             system_prompt = _mode_prompt
+            _manifest_builder.add_prompt_section(
+                "mode/base",
+                system_prompt,
+                origin=f"chat-mode:{getattr(mode_spec, 'slug', 'configured')}",
+                trust="admin",
+                priority=10,
+                cache_class="mode",
+                version=str(getattr(mode_spec, "updated_at", "") or "1"),
+            )
             _log.info(
                 "[factory] +%s mode system prompt built (%d chars, slug=%s)",
                 _elapsed(),
@@ -1789,14 +1974,46 @@ async def create_agent_executor(
             # Project mode: let _build_project_section receive project_name / instructions / files / folder
             if project_ctx:
                 _sp_ctx.update(project_ctx)
-            system_prompt = build_system_prompt(cfg, ctx=_sp_ctx)
+            system_prompt = build_system_prompt(
+                cfg, ctx=_sp_ctx, manifest_builder=_manifest_builder
+            )
+            # Project material must travel as its own canonical ContextItem so
+            # it can be independently budgeted and audited.  The prompt
+            # builder retains this plaintext only in memory; persisted
+            # execution manifests still contain hashes/references alone.
+            for (
+                _section,
+                _section_content,
+            ) in _manifest_builder.prompt_section_sources():
+                if _section.id != "runtime/project" or not _section_content:
+                    continue
+                _start = system_prompt.rfind(_section_content)
+                if _start < 0:
+                    continue
+                _before = system_prompt[:_start].rstrip()
+                _after = system_prompt[_start + len(_section_content) :].lstrip()
+                system_prompt = (
+                    _before + ("\n\n" + _after if _before and _after else _after)
+                ).strip()
             _log.info(
-                "[factory] +%s system prompt built (%d chars)", _elapsed(), len(system_prompt)
+                "[factory] +%s system prompt built (%d chars)",
+                _elapsed(),
+                len(system_prompt),
             )
 
         _ontology_prompt = render_runtime_prompt(_ontology_runtime)
         if _ontology_prompt:
             system_prompt += "\n\n" + _ontology_prompt
+            _manifest_builder.add_prompt_section(
+                "runtime/ontology",
+                _ontology_prompt,
+                origin="ontology:runtime",
+                trust="governed_runtime",
+                priority=850,
+                cache_class="run",
+                version=str(_ontology_runtime.get("revision") or "1"),
+                sensitive=True,
+            )
             _log.info(
                 "[factory] +%s ontology contract injected (%d chars, hidden_tools=%d)",
                 _elapsed(),
@@ -1816,6 +2033,15 @@ async def create_agent_executor(
                 _code_exec_text = ""
             if _code_exec_text:
                 system_prompt += "\n\n" + _code_exec_text
+                _manifest_builder.add_prompt_section(
+                    "runtime/code_capability",
+                    _code_exec_text,
+                    origin="prompt-version:code_exec",
+                    trust="admin",
+                    priority=750,
+                    cache_class="capability_set",
+                    version="1",
+                )
                 _log.info(
                     "[factory] +%s code execution prompt injected (%d chars)",
                     _elapsed(),
@@ -1829,9 +2055,21 @@ async def create_agent_executor(
         if _progressive is not None:
             from core.llm import plugin_loader as _plug
 
-            _plugin_dir_section = _plug.build_plugin_directory_section(_progressive.directory)
+            _plugin_dir_section = _plug.build_plugin_directory_section(
+                _progressive.directory
+            )
             if _plugin_dir_section:
                 system_prompt += "\n\n" + _plugin_dir_section
+                _manifest_builder.add_prompt_section(
+                    "runtime/plugin_directory",
+                    _plugin_dir_section,
+                    origin="plugin:directory",
+                    trust="configured_service",
+                    priority=820,
+                    cache_class="capability_set",
+                    version="1",
+                    sensitive=True,
+                )
             _plugin_runtime = {
                 "activated_slugs": set(_progressive.activated_slugs),
                 "connected_keys": set(enabled_mcp_keys),
@@ -1863,17 +2101,38 @@ async def create_agent_executor(
         # ── Inject batch execution hint (App Center batch-execution sessions only) ──
         if batch_mode:
             system_prompt += _BATCH_MODE_HINT
+            _manifest_builder.add_prompt_section(
+                "runtime/batch_mode",
+                _BATCH_MODE_HINT,
+                origin="builtin:batch_mode",
+                trust="platform",
+                priority=880,
+                cache_class="mode",
+                version="1",
+            )
             _log.info("[factory] +%s batch mode hint injected", _elapsed())
 
         # ── Inject workflow-mode hint (user explicitly entered workflow mode) ──
         if workflow_mode:
             system_prompt += _WORKFLOW_MODE_HINT
+            _manifest_builder.add_prompt_section(
+                "runtime/workflow_mode",
+                _WORKFLOW_MODE_HINT,
+                origin="builtin:workflow_mode",
+                trust="platform",
+                priority=880,
+                cache_class="mode",
+                version="1",
+            )
             _log.info("[factory] +%s workflow mode hint injected", _elapsed())
 
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:
             from core.llm.builtin_subagents import refresh_builtin_subagents
-            from core.llm.subagent_tool import build_subagent_prompt_section, register_subagent_tool
+            from core.llm.subagent_tool import (
+                build_subagent_prompt_section,
+                register_subagent_tool,
+            )
 
             # Refresh platform-default rows only after the parent toolset has
             # completed catalog defaults, permission filtering, skill-bound MCP
@@ -1897,6 +2156,8 @@ async def create_agent_executor(
                 "project_ctx": project_ctx,
                 "channel_origin": channel_origin,
                 "automation_run": automation_run,
+                "run_id": run_id,
+                "journal_owner": journal_owner,
             }
             visible_subagents = refresh_builtin_subagents(
                 visible_subagents,
@@ -1918,6 +2179,16 @@ async def create_agent_executor(
             subagent_section = build_subagent_prompt_section(visible_subagents)
             if subagent_section:
                 system_prompt = system_prompt + "\n\n" + subagent_section
+                _manifest_builder.add_prompt_section(
+                    "runtime/subagent_directory",
+                    subagent_section,
+                    origin="subagent:directory",
+                    trust="configured_service",
+                    priority=830,
+                    cache_class="capability_set",
+                    version="1",
+                    sensitive=True,
+                )
             _log.info(
                 "[factory] +%s subagent tool registered (%d agents)",
                 _elapsed(),
@@ -1948,10 +2219,21 @@ async def create_agent_executor(
                 register_plan_update_tool,
             )
 
+            # 计划栏的催更中间件挂在同一个正向开关上：工具没注册就绝不该有人催更新。
+            _plan_tool_enabled = True
             register_plan_update_tool(toolkit)
             _pu_section = build_plan_update_prompt_section()
             if _pu_section:
                 system_prompt = system_prompt + "\n\n" + _pu_section
+                _manifest_builder.add_prompt_section(
+                    "runtime/plan_tool",
+                    _pu_section,
+                    origin="builtin:update_plan",
+                    trust="platform",
+                    priority=840,
+                    cache_class="capability_set",
+                    version="1",
+                )
             _log.info(
                 "[factory] +%s update_plan tool registered (chat_id=%s)",
                 _elapsed(),
@@ -1967,9 +2249,23 @@ async def create_agent_executor(
     # the scope is enforced by what is assembled rather than by what the text
     # asks the model to infer.
     if profile.prompt_fragments:
-        fragments = await asyncio.to_thread(_resolve_prompt_fragments, profile.prompt_fragments)
+        fragments = await asyncio.to_thread(
+            _resolve_prompt_fragments, profile.prompt_fragments
+        )
         if fragments:
-            system_prompt = system_prompt + "\n\n" + _render_dynamic_block(fragments)
+            _dynamic_block = _render_dynamic_block(fragments)
+            system_prompt = system_prompt + "\n\n" + _dynamic_block
+            _manifest_builder.add_prompt_section(
+                "runtime/evolved_fragments",
+                _dynamic_block,
+                origin="evolution:prompt_fragments",
+                trust="governed_runtime",
+                priority=920,
+                cache_class="profile",
+                version=str(profile.version),
+                reference=f"profile:{profile.profile_id}",
+                sensitive=True,
+            )
             _log.info(
                 "[factory] +%s %d profile prompt fragment(s) appended",
                 _elapsed(),
@@ -1996,7 +2292,9 @@ async def create_agent_executor(
                 _mode = (chat_mode or "medium").lower()
                 _disable_thinking = _mode in ("fast", "turbo")
                 _supports_effort = bool(
-                    (_selected_provider_cfg.extra or {}).get("supports_reasoning_effort")
+                    (_selected_provider_cfg.extra or {}).get(
+                        "supports_reasoning_effort"
+                    )
                 )
                 _reasoning_effort = (
                     _mode
@@ -2025,7 +2323,9 @@ async def create_agent_executor(
                     _selected_provider_cfg.model_name,
                 )
         except Exception as exc:
-            _log.warning("[factory] selected model resolve failed: %s, falling back", exc)
+            _log.warning(
+                "[factory] selected model resolve failed: %s, falling back", exc
+            )
     _mode_role = model_role or ("plan_agent" if plan_mode else None)
     if default_model is None and _mode_role:
         try:
@@ -2044,10 +2344,14 @@ async def create_agent_executor(
                     provider_extra=_mode_cfg.provider_extra,
                     stream=True,
                 )
-                _log.info("[factory] using %s model: %s", _mode_role, _mode_cfg.model_name)
+                _log.info(
+                    "[factory] using %s model: %s", _mode_role, _mode_cfg.model_name
+                )
         except Exception as exc:
             _log.warning(
-                "[factory] %s model resolve failed: %s, falling back to main_agent", _mode_role, exc
+                "[factory] %s model resolve failed: %s, falling back to main_agent",
+                _mode_role,
+                exc,
             )
     if default_model is None:
         default_model = get_default_model(cfg.model, stream=True)
@@ -2059,7 +2363,11 @@ async def create_agent_executor(
     # A subagent with an explicitly configured model → set the pin; downstream DynamicModelMiddleware must not override it by chat_mode.
     _subagent_model_pinned = False
     if user_agent is not None:
-        _user_temp = float(user_agent.temperature) if user_agent.temperature is not None else None
+        _user_temp = (
+            float(user_agent.temperature)
+            if user_agent.temperature is not None
+            else None
+        )
         _user_max_tokens = user_agent.max_tokens or None
         _user_timeout = user_agent.timeout or None
         _user_provider_id = user_agent.model_provider_id
@@ -2101,7 +2409,9 @@ async def create_agent_executor(
                     else (_fallback_cfg.api_key if _fallback_cfg else None)
                 )
                 if provider:
-                    _final_provider = getattr(provider, "provider", None) or "openai_compatible"
+                    _final_provider = (
+                        getattr(provider, "provider", None) or "openai_compatible"
+                    )
                     _final_provider_extra = split_provider_extra(
                         get_spec(_final_provider), provider.extra_config or {}
                     )
@@ -2109,7 +2419,9 @@ async def create_agent_executor(
                     _final_provider = (
                         _fallback_cfg.provider if _fallback_cfg else "openai_compatible"
                     )
-                    _final_provider_extra = _fallback_cfg.provider_extra if _fallback_cfg else {}
+                    _final_provider_extra = (
+                        _fallback_cfg.provider_extra if _fallback_cfg else {}
+                    )
                 _final_temp = (
                     _user_temp
                     if _user_temp is not None
@@ -2118,7 +2430,9 @@ async def create_agent_executor(
                 _final_max_tokens = _user_max_tokens or (
                     _fallback_cfg.max_tokens if _fallback_cfg else 8192
                 )
-                _final_timeout = _user_timeout or (_fallback_cfg.timeout if _fallback_cfg else 120)
+                _final_timeout = _user_timeout or (
+                    _fallback_cfg.timeout if _fallback_cfg else 120
+                )
 
                 if _final_model and _final_base_url and _final_api_key:
                     default_model = make_chat_model(
@@ -2149,95 +2463,49 @@ async def create_agent_executor(
                         "[factory] subagent override skipped: missing model/base_url/api_key"
                     )
             except Exception as exc:
-                _log.warning("[factory] subagent config override failed: %s, using default", exc)
+                _log.warning(
+                    "[factory] subagent config override failed: %s, using default", exc
+                )
+
+    if run_id:
+        from core.llm.model_usage import instrument_model_usage
+
+        instrument_model_usage(default_model)
 
     _log.info("[factory] +%s model created", _elapsed())
 
-    # ── Compression-window logging: read the actually effective context_size directly off the model object ──
+    # ── Compaction-window logging: read the actually effective context_size directly off the model object ──
     # make_chat_model already resolves the real context_length from the Config
     # model configuration and bakes it into the model (no default fallback —
     # construction errors when unconfigured), so what we log here is exactly the
-    # value the AS2 compression decision actually uses; we no longer resolve a
+    # value the compaction decision actually uses; we no longer resolve a
     # separate "logging-only" window (the old implementation's log once
     # disagreed with the actually effective value).
     _ctx_window = int(getattr(default_model, "context_size", 0) or 0)
-    # In-turn compression ratio: the Config console's "System settings →
-    # Conversation & context compression" DB config takes precedence
-    # (chat.compress_in_turn_ratio, effective ≤30s after saving, no restart
-    # needed); the env CHAT_COMPRESS_IN_TURN_RATIO is only the default
-    # fallback. Out-of-range/invalid values are ignored.
-    _in_turn_ratio = _settings.compaction.in_turn_trigger_ratio
-    try:
-        from core.services.system_config import SystemConfigService
+    # Resolve the shared ratio once instead of reading config at each ReAct step.
+    from core.services.compaction_service import resolve_trigger_ratio
 
-        _db_ratio = (
-            SystemConfigService.get_instance().get("chat.compress_in_turn_ratio") or ""
-        ).strip()
-        if _db_ratio:
-            _parsed = float(_db_ratio)
-            if 0.1 <= _parsed <= 0.99:
-                _in_turn_ratio = _parsed
-            else:
-                _log.warning("[factory] chat.compress_in_turn_ratio 越界(%s)，忽略", _db_ratio)
-    except Exception as _cfg_exc:  # noqa: BLE001
-        _log.warning("[factory] 读 chat.compress_in_turn_ratio 失败: %s", _cfg_exc)
+    _trigger_ratio = resolve_trigger_ratio()
     _log.info(
-        "[factory] CompressionConfig: model=%s, context_size=%d, trigger_threshold=%d (ratio=%s)",
+        "[factory] compaction: model=%s, context_size=%d, trigger_threshold=%d (ratio=%s)",
         getattr(default_model, "model", None) or "(unknown)",
         _ctx_window,
-        int(_ctx_window * _in_turn_ratio),
-        _in_turn_ratio,
+        int(_ctx_window * _trigger_ratio),
+        _trigger_ratio,
     )
 
-    # AgentScope 2.0: CompressionConfig → ContextConfig; trigger_threshold
-    # (absolute) → trigger_ratio (fraction). There is no compression_model slot
-    # — L1/L2 are handled by the framework per reserve_ratio/tool_result_limit,
-    # and the L3 fallback already lives in
-    # StructuredFallbackMixin.generate_structured_output.
-    # The ratio is configurable (env CHAT_COMPRESS_IN_TURN_RATIO, default 0.82):
-    # 2.0's count_tokens estimates via utf-8 bytes/4 — overestimates Chinese,
-    # near-accurate for English/code. We initially used 0.6 to compensate for
-    # the overestimate, but in practice it triggered too early (compression
-    # kicked in while real occupancy was far below the threshold, and
-    # tool-heavy sessions compressed repeatedly), so it has been relaxed.
-    from core.config.settings import _env as _cfg_env
-    from core.config.settings import _int as _cfg_int
-
+    # ContextConfig handles tool-result offloading and the AgentScope fallback.
+    # Its ratio must stay below 0.9, so clamp the shared value.
     context_config = ContextConfig(
-        trigger_ratio=_in_turn_ratio,
+        trigger_ratio=min(_trigger_ratio, 0.89),
         # 单条工具结果进上下文的上限（超出部分 offloader 落盘到 /workspace/.offload，
         # 模型按需读回）。保持 20k 不再收紧：批量场景已由 run_job 接走（逐项结果根本
         # 不进主上下文），主对话这边继续保留完整的单条可读性更划算。需要时用
         # CHAT_TOOL_RESULT_LIMIT 按部署调。
         tool_result_limit=int(tool_result_limit)
         if tool_result_limit
-        else _cfg_int(_cfg_env("CHAT_TOOL_RESULT_LIMIT"), 20_000),
-        compression_prompt=(
-            "<system-hint>你一直在处理上述任务但尚未完成，对话历史即将被本摘要替换。"
-            "请生成一份【可恢复 ReAct 工作流】的结构化续写摘要，使你能在新的上下文窗口"
-            "中继续按工具调用方式推进任务，而不是把已完成的结果当成定论复述。\n\n"
-            "摘要必须使用中文，并按下列固定小节输出（缺项写「无」，禁止省略小节）：\n"
-            "1. 用户原始诉求：完整复述用户最近一次（以及尚未满足的更早一次）请求的"
-            "原文/核心意图，包含字数、章节数、表格、图表等可量化约束。\n"
-            "2. 已调用工具记录（按时间顺序，每条一行）：\n"
-            "   tool_name(关键参数=值, …) → 关键产出/artifact_id/错误。\n"
-            "   - 必须保留所有 artifact_id、文件名、storage_url、chart_id、kb_id 等"
-            "下游可引用的 ID；找不到具体值时写 <missing> 而不是省略。\n"
-            "   - 工具的关键入参（如 query、symbol、file_id、template_id、industry、"
-            "section_title 等）至少保留一项，便于复算。\n"
-            "3. 关键事实数据（来自工具结果，必须标注来源工具名）：列出后续推理还会"
-            "用到的数字/结论；【禁止把上一题的数据迁移到新题】——若新任务主题不同，"
-            "明确写「以下数据仅适用于<旧主题>，新主题需重新调用工具获取」。\n"
-            "4. 当前进度与下一步：明确列出「已完成 / 进行中 / 待办」三栏；待办里写出"
-            "需要再次调用哪些工具、用什么参数。\n"
-            "5. 注意事项：用户的偏好、不要再犯的错误、模板/格式约束等。\n\n"
-            "硬性要求：\n"
-            "- 不要写成「报告已生成完毕」这类结论性语言，除非用户已明确表示满意。\n"
-            "- 工具调用清单必须真实、来自历史 tool_use/tool_result，禁止编造。\n"
-            "- 如果用户的最新请求是「按上一份的模板再做一份 X」，必须在「待办」中明确"
-            "写出「需重新调用<相应工具>获取 X 的真实数据，不得复用旧主题数字」。\n"
-            "</system-hint>"
-        ),
+        else _settings.compaction.tool_result_limit,
+        compression_prompt=SUMMARIZATION_PROMPT,
     )
 
     # ── Phase 5: Long-term memory ──
@@ -2296,7 +2564,9 @@ async def create_agent_executor(
         _max_iters = max_iters
     elif user_agent is not None:
         _agent_name = (
-            f"subagent_{user_agent.agent_id}" if isolated else f"agent_{user_agent.agent_id}"
+            f"subagent_{user_agent.agent_id}"
+            if isolated
+            else f"agent_{user_agent.agent_id}"
         )
         _max_iters = user_agent.max_iters or (
             _DEFAULT_SUBAGENT_ITERS if isolated else _UNBOUNDED_ITERS
@@ -2338,7 +2608,19 @@ async def create_agent_executor(
     # skipped without tools, where "spend your rounds on parallel calls" has
     # nothing to describe.
     if _max_iters < _UNBOUNDED_ITERS and not disable_tools:
-        system_prompt += _render_turn_budget_hint(_max_iters)
+        _turn_budget_hint = _render_turn_budget_hint(_max_iters)
+        system_prompt += _turn_budget_hint
+        _manifest_builder.add_prompt_section(
+            "runtime/turn_budget",
+            _turn_budget_hint,
+            origin="orchestration:profile",
+            trust="governed_runtime",
+            priority=990,
+            cache_class="run_policy",
+            budget=int(_max_iters),
+            version=str(profile.version),
+            reference=f"profile:{profile.profile_id}",
+        )
 
     # ── Create the Agent (AgentScope 2.0) ──
     # Note: long_term_memory is not passed — mem0 is fully stripped from the SSE
@@ -2369,12 +2651,13 @@ async def create_agent_executor(
         user_id=current_user_id,
         chat_id=chat_id,
         run_id=run_id,
+        journal_owner=journal_owner,
         ontology_enabled=bool(_ontology_runtime.get("enabled")),
         ontology_runtime=_ontology_runtime,
         permission_context=PermissionContext(),
     )
 
-    _middlewares: list = [
+    _policy_middlewares: list = [
         DynamicModelMiddleware(),  # on_reply: switch models by chat_mode
         FileContextMiddleware(),  # on_reply: inject file context
         SteerMiddleware(),  # on_acting/on_reasoning: inject queued user steer before tool I/O
@@ -2385,26 +2668,45 @@ async def create_agent_executor(
         # orchestration profile with one field that governed nothing on the axis
         # almost all traffic takes.
         StallInterventionMiddleware(profile.intervention_rules),
-        OntologyGateMiddleware(_ontology_runtime),  # on_acting: zero-LLM L-a contract gate
+        OntologyGateMiddleware(
+            _ontology_runtime
+        ),  # on_acting: zero-LLM L-a contract gate
         CitationAnchorMiddleware(),  # on_acting: 证据锚点——工具结果回给模型前发号回注 cite_id
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
+        ToolEffectMiddleware(),  # on_acting: durable Intent before every actual tool invocation
     ]
     # on_reasoning: 会话里有未收敛的批量作业时，每轮把台账数字回灌进上下文。
     # 进度是外部事实（job_items 表），不是模型的记忆——不主动回灌，隔十几轮之后就会
     # 退化成"边际收益递减，先交付吧"（568 行只补 66 行正是这么停的）。
     # 子作业内部不挂（isolated），避免嵌套噪声。
     if workflow_mode and not isolated and chat_id:
-        _middlewares.append(
+        _policy_middlewares.append(
             JobLedgerReminderMiddleware(chat_id=chat_id, user_id=current_user_id)
         )
     if not batch_mode:
-        _middlewares.append(GoalAnchorReminderMiddleware(chat_id=chat_id, batch_mode=False))
-    _middlewares.append(FinishPinGuardMiddleware(batch_mode=batch_mode))
+        _policy_middlewares.append(
+            GoalAnchorReminderMiddleware(chat_id=chat_id, batch_mode=False)
+        )
+    # on_reasoning: 计划栏停在半路时把当前清单回灌回去，催模型调 update_plan。
+    # 只在真的注册了 update_plan 工具的那条路径上挂（同一个正向开关），派生/非交互
+    # 的构造一律拿不到——催一个不存在的工具只会让模型编造调用。
+    if _plan_tool_enabled:
+        _policy_middlewares.append(PlanStaleReminderMiddleware())
+    _policy_middlewares.append(FinishPinGuardMiddleware(batch_mode=batch_mode))
+    # The Agent sees one framework adapter. Transitional AgentScope policies
+    # execute inside its compatibility chain and can be deleted one by one as
+    # their neutral HookSpec replacements reach parity.
+    _middlewares: list = [
+        AgentScopeHookAdapter(legacy_middlewares=tuple(_policy_middlewares))
+    ]
 
     # Collect all tool names (the collector still holds function_tools; tool_schemas covers Python+MCP)
-    _all_tool_names = {ft.name for ft in toolkit.function_tools}
+    _builtin_tool_names = {ft.name for ft in toolkit.function_tools}
+    _all_tool_names = set(_builtin_tool_names)
     _all_tool_names |= {
-        s.get("function", {}).get("name") for s in tool_schemas if s.get("function", {}).get("name")
+        s.get("function", {}).get("name")
+        for s in tool_schemas
+        if s.get("function", {}).get("name")
     }
     # At this point the collector has gathered all tools (including any subagent tools) → construct the final Toolkit.
     toolkit = _build_toolkit()
@@ -2415,11 +2717,93 @@ async def create_agent_executor(
     _state.permission_context.allow_rules = {
         n: [
             PermissionRule(
-                tool_name=n, rule_content="", behavior=PermissionBehavior.ALLOW, source="jx_trusted"
+                tool_name=n,
+                rule_content="",
+                behavior=PermissionBehavior.ALLOW,
+                source="jx_trusted",
             )
         ]
         for n in _all_tool_names
     }
+
+    def _manifest_for_surface(surface):  # noqa: ANN001, ANN202
+        """Build one manifest generation from a toolkit-owned snapshot."""
+        generation_builder = _manifest_builder.fork()
+        tool_manifest_from_schemas(
+            generation_builder,
+            surface.tool_schemas,
+            builtin_tool_names=_builtin_tool_names,
+        )
+        _effective_system_prompt = system_prompt
+        _skill_instructions = surface.skill_instructions
+        if _skill_instructions:
+            generation_builder.add_prompt_section(
+                "runtime/agent_skills",
+                _skill_instructions,
+                origin="agentscope:skill_registry",
+                trust="configured_service",
+                priority=1000,
+                cache_class="capability_set",
+                version="1",
+                sensitive=True,
+            )
+            _effective_system_prompt = system_prompt + "\n" + _skill_instructions
+        return generation_builder.build(
+            final_prompt=_effective_system_prompt,
+            surface_generation=surface.generation,
+        )
+
+    def _bind_manifest(manifest):  # noqa: ANN001, ANN202
+        from core.evolution.runtime_binding import bind_runtime_assets
+
+        return bind_runtime_assets(
+            run_id=run_id,
+            skill_ids=skill_ids_for_bindings,
+            kb_ids=enabled_kb_ids,
+            model_name=model_name,
+            model_provider_id=model_provider_id,
+            chat_mode=chat_mode,
+            memory_enabled=memory_enabled,
+            workspace_id=str(workspace_id or "default"),
+            orchestration_profile_id=profile.profile_id,
+            workflow_policy_version=profile.version,
+            execution_manifest=manifest,
+            manifest_required=True,
+        )
+
+    # Build the manifest from the exact same frozen surface AgentScope will use
+    # for its first model request. Late tools (call_subagent/update_plan/
+    # load_plugin) are already registered at this point.
+    execution_manifest = None
+    _compaction_tool_schemas = tool_schemas
+    _compaction_system_prompt = system_prompt
+    try:
+        _initial_surface = await toolkit.freeze_execution_surface()
+        _compaction_tool_schemas = _initial_surface.tool_schemas
+        if _initial_surface.skill_instructions:
+            _compaction_system_prompt = (
+                system_prompt + "\n" + _initial_surface.skill_instructions
+            )
+        execution_manifest = _manifest_for_surface(_initial_surface)
+        _log.info(
+            "[manifest] generation=%s aggregate=%s prompt=%s tools=%s context=%s",
+            execution_manifest.surface_generation,
+            execution_manifest.aggregate_hash,
+            execution_manifest.prompt_hash,
+            execution_manifest.tool_manifest_hash,
+            execution_manifest.context_hash,
+        )
+    except Exception as exc:  # pragma: no cover - evidence must not fail a turn
+        _log.warning("[manifest] final manifest unavailable: %s", exc)
+
+    # ── Runtime Binder (GCE ticket 03 / Harness 4.7) ──────────────────
+    # Freeze the governed versions together with the final sanitized manifest.
+    # This remains before Agent construction/execution, so an admin publish
+    # cannot drift the run after binding.
+    try:
+        asset_bundle = _bind_manifest(execution_manifest)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("[binder] binding skipped: %s", exc)
 
     # Complete the progressive-plugin runtime holder now that the real Toolkit
     # and the permission context exist (load_plugin mutates both mid-run).
@@ -2433,7 +2817,10 @@ async def create_agent_executor(
     # mounted when sandbox tools are enabled — otherwise the agent has no
     # Read/bash and spilling is pointless. Uses the same _sbx_sess as bash/Read.
     _offloader = None
-    if not disable_tools and os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true":
+    if (
+        not disable_tools
+        and os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true"
+    ):
         try:
             from core.llm.offloader import SandboxOffloader
             from core.sandbox.factory import get_sandbox_provider
@@ -2442,7 +2829,10 @@ async def create_agent_executor(
         except Exception as exc:  # noqa: BLE001
             _log.warning("[factory] offloader 初始化跳过: %s", exc)
 
-    agent = Agent(
+    # CompactingAgent, not the bare framework Agent: its compress_context
+    # override is what routes the ReAct step boundary into the one compaction
+    # engine and persists the checkpoint (see core/llm/compacting_agent.py).
+    agent = CompactingAgent(
         name=_agent_name,
         system_prompt=system_prompt,
         model=default_model,
@@ -2454,6 +2844,21 @@ async def create_agent_executor(
         react_config=ReActConfig(max_iters=_max_iters),
         offloader=_offloader,
     )
+    # Compaction trigger accounting reuses the exact already-frozen execution
+    # surface instead of re-querying MCPs on the pre-turn latency path.
+    agent._jx_compaction_system_prompt = _compaction_system_prompt
+    agent._jx_compaction_tool_schemas = _compaction_tool_schemas
+    agent._jx_compaction_reserved_output_tokens = int(
+        getattr(getattr(default_model, "parameters", None), "max_tokens", 0) or 0
+    )
+
+    # Stamp the console-resolved trigger ratio so the step-boundary compaction
+    # check stays a pure computation (resolving it per step would put a DB read,
+    # and a seed write on a cold config cache, inside the ReAct loop).
+    try:
+        agent._jx_trigger_ratio = _trigger_ratio
+    except Exception:  # pragma: no cover - agent may reject attributes
+        pass
 
     # Set the agent reference so the call_subagent closure can extract shared context
     if _agent_ref is not None:
@@ -2462,11 +2867,60 @@ async def create_agent_executor(
     # Carry the frozen bundle on the agent so the post-response evidence
     # assembler can record what this run actually used without re-resolving it
     # (by then the versions may already have moved).
-    if asset_bundle is not None:
+    agent.bind_execution_surface(execution_manifest, bundle=asset_bundle)
+
+    async def _publish_context_manifest(request_manifest):  # noqa: ANN001, ANN202
+        """Bind the exact post-budget context manifest used for this request."""
         try:
-            setattr(agent, "_jx_asset_bundle", asset_bundle)
-        except Exception:  # pragma: no cover - agent may reject attributes
-            pass
+            from core.evolution.runtime_binding import rebind_execution_manifest
+
+            request_bundle = rebind_execution_manifest(
+                run_id=run_id,
+                base_bundle=getattr(agent, "_jx_asset_bundle", None),
+                execution_manifest=request_manifest,
+            )
+            agent.bind_request_evidence(request_manifest, bundle=request_bundle)
+            _log.info(
+                "[manifest] request aggregate=%s context_manifest=%s",
+                request_manifest.aggregate_hash,
+                request_manifest.context_manifest_hash,
+            )
+        except Exception as exc:  # evidence refresh must not fail the turn
+            _log.warning("[manifest] request context binding unavailable: %s", exc)
+            # Keep the in-memory request manifest even if durable evidence is
+            # unavailable, but remove the stale base bundle. Episode assembly
+            # treats a missing bundle as partial instead of falsely persisting
+            # the pre-context surface as complete request evidence.
+            agent.clear_request_evidence(request_manifest)
+            from core.evolution.runtime_binding import clear_run_binding
+
+            clear_run_binding(run_id)
+
+    agent.set_context_manifest_listener(_publish_context_manifest)
+
+    async def _publish_surface_generation(surface):  # noqa: ANN001, ANN202
+        """Refresh run evidence before AgentScope consumes a changed surface."""
+        # Progressive load_plugin changes the actual prompt/tool surface during
+        # a run. Keep post-turn compaction on the latest generation even when
+        # evidence binding itself is temporarily unavailable.
+        cache_compaction_execution_surface(agent, system_prompt, surface)
+        try:
+            next_manifest = _manifest_for_surface(surface)
+            next_bundle = _bind_manifest(next_manifest)
+            agent.bind_execution_surface(next_manifest, bundle=next_bundle)
+            _log.info(
+                "[manifest] generation=%s aggregate=%s",
+                next_manifest.surface_generation,
+                next_manifest.aggregate_hash,
+            )
+        except Exception as exc:  # evidence refresh must not fail the turn
+            _log.warning("[manifest] surface generation refresh unavailable: %s", exc)
+            try:
+                agent.bind_execution_surface(None, bundle=_bind_manifest(None))
+            except Exception:  # pragma: no cover - last-resort availability path
+                pass
+
+    toolkit.set_execution_surface_listener(_publish_surface_generation)
     if skill_selection is not None:
         try:
             setattr(agent, "_jx_skill_selection", skill_selection)

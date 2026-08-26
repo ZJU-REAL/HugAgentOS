@@ -1,6 +1,6 @@
 # 提示词系统
 
-> 最后更新：2026-06-11
+> 最后更新：2026-08-24
 
 HugAgentOS 的系统提示词不是写死的字符串，而是一套**DB 优先、文件兜底、版本化管理**的装配系统：运行时从数据库读取激活版本的分段（parts）拼装主智能体提示词，管理员可在 Config 管理台维护多个版本并一键激活，全部内容可作为快照在环境间迁移。文件系统中的 markdown 仅作为首次部署的种子和 DB 不可用时的兜底。
 
@@ -37,11 +37,29 @@ src/backend/prompts/prompt_text/default/system/
 
 | 缓存 | TTL | 说明 |
 |---|---|---|
-| 模板缓存 `_prompt_cache` | 300s | key 含 provider、parts、工具名集合、MCP keys、DB 版本号、激活版本 `(id, updated_at)`、项目签名等；`{now}` 用占位符存储，渲染时替换为**仅到天**的日期——系统提示词全天逐字节稳定，最大化 LLM 前缀缓存命中 |
+| 模板缓存 `_prompt_cache` | 300s | key 含 provider、parts、DB/激活版本，以及**完整**动态上下文的 SHA-256 canonical hash（完整项目指令、完整文件清单、工具定义、MCP/KB 集合和未来新增模板变量）；key 只保存哈希，不再保存截断或明文的项目内容。`{now}` 仍以“天”为粒度替换，保持稳定前缀与模型侧缓存命中 |
 | DB parts 预载 `_db_parts_preloaded` | 启动时 `warmup_prompt_cache()` 预载，写后重载 | 首个请求不查库 |
 | DB 版本号 `_db_version_cache` | 30s | `MAX(admin_prompt_parts.updated_at)` 作为 cache-busting 版本串 |
 
 任何提示词写操作（管理台编辑、版本激活、快照导入、能力开关变更）都会调 `invalidate_prompt_cache()` 级联清空并立即重热。
+
+### 执行 Manifest 与运行时绑定
+
+Agent 真正开始执行前，`core/llm/execution_manifest.py::PromptManifestBuilder` 会记录最终请求面。每个有序 PromptSection 都带 `id`、来源、信任级、优先级、缓存类别、预算、token 估算、内容哈希和版本；每个最终 ToolDefinition 同样对名称、完整描述、canonical 参数 schema、权限策略和恢复策略生成稳定哈希。工具定义按稳定 id 排序，提示词分段则保持刻意设计的前缀顺序。
+
+Builder 最终产出 `prompt_hash`、`prompt_manifest_hash`、`tool_manifest_hash`、`context_hash` 和统一的 `aggregate_hash`。Manifest 构建与 AgentScope 模型请求共用同一份 run-scoped 工具/技能冻结快照，因此“记录的请求面”和“实际发送的请求面”不会错位；渐进式插件激活会让旧快照失效，并在下一次模型调用前发布明确递增的 `surface_generation`。
+
+Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bundle，并用真实 `run_id` 建立索引；Bundle 的 memory policy ref 同时带真实 `workspace_id`。Manifest 与资产引用中的嵌套容器禁止原地修改，序列化导出则返回互不影响的可变副本。响应结束后 Evolution Episode 持久化该 Bundle，因此即使资产后来已更新，也能准确审计本轮实际请求。
+
+提示词正文、项目指令、文件名、工具描述与 schema 都按**完整 canonical 内容**参与哈希，但不会以明文复制到 Manifest 或日志。持久化 context 只保留哈希、数量/大小，以及 workspace/project id 等公开引用。
+
+### 统一 Context IR
+
+每次模型调用前，`core/llm/context_ir.py` 都会把最终上下文统一转换成不可变的 `ContextItem`。用户输入、助手历史、账户身份、冻结记忆、项目/文件材料、附件、工具调用与结果、压缩摘要、执行中追加指令、Harness 系统提醒，都会携带机器可读的 `kind`、来源、信任级、可见性、优先级、单项预算、截断策略、内容引用/哈希、缓存类别和创建顺序。为兼容模型，记忆和对话中途的提醒仍可渲染成 `user` role，但系统不再靠 XML 标签或 role 猜测它们是谁说的。
+
+`ContextAssembler` 使用确定性顺序，并设置明确的消息预算：模型窗口先预留 15% 给响应，再扣除最终工具 schema 的 canonical token 预算。关键系统规则和当前用户指令不会被低可信内容挤掉；可选内容按优先级选择；文本和工具输出按声明的头尾保留策略截断；工具调用与对应结果则作为一个整体保留、缩短或排除。脱敏 Context Manifest 会逐项说明“纳入、截断、排除”及原因，不保存正文；其哈希会进入本次请求的 `context_hash` 与 `aggregate_hash`，再重新绑定到该 run 的 Asset Bundle。
+
+`core/llm/context_adapter.py::AgentScopeContextAdapter` 是 Context IR 与 AgentScope 消息之间唯一的转换入口。持久化会话中的来源元数据可在历史回放时保留，最终模型 role 和 SSE 行为继续兼容。`ManifestBoundAgent` 会在 run-scoped 工具/技能请求面冻结后，通过公开的 `Agent.reply` 链路完成最终装配。
 
 ## 提示词版本池（prompt_versions）
 

@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from core.config.catalog_loader import resolve_skill_detail
 from core.db.engine import Base
 from core.db.models import AdminSkill
 from core.services import marketplace_service as mk
@@ -42,12 +43,46 @@ def test_list_and_detail_nonempty():
     assert len(items) >= 5
     slugs = {it["slug"] for it in items}
     assert "diagram-builder" in slugs
-    # featured ones come first
-    assert items[0]["featured"] is True
+    # Built-in resident skills are prepended; featured entries lead the
+    # installable marketplace portion that follows them.
+    installable_items = [item for item in items if not item.get("builtin")]
+    assert installable_items[0]["featured"] is True
     detail = mk.get_marketplace_skill("diagram-builder")
     assert detail["instructions"]
     assert any(f["path"] == "SKILL.md" for f in detail["files"]) is False  # SKILL.md is the body, not in files
     assert detail["files"]
+
+
+def test_guizang_ppt_bundle_is_compact_installable_and_dependency_free(db):
+    detail = mk.get_marketplace_skill("guizang-ppt-skill")
+    paths = {item["path"] for item in detail["files"]}
+
+    assert detail["source"] == "github"
+    assert detail["version"] == "2026.8.7"
+    assert "不是可编辑的 PPTX" in detail["summary"]
+    assert "LICENSE" in paths
+    assert "UPSTREAM.md" in paths
+    assert "assets/template.html" in paths
+    assert "assets/template-swiss.html" in paths
+    assert "assets/motion.min.js" in paths
+    assert "assets/ppt-skill-showcase.png" not in paths
+    assert not any(path.startswith(".github/") for path in paths)
+    assert len(paths) <= 30
+    assert sum(item["size"] for item in detail["files"]) < 3 * 1024 * 1024
+    assert "<SKILL_ROOT>" not in detail["instructions"]
+    assert "git -C" not in detail["instructions"]
+    assert 'cp "{baseDir}/assets/motion.min.js"' in detail["instructions"]
+
+    result = mk.install_marketplace_skill(
+        db, "guizang-ppt-skill", owner_user_id=None, secrets={}
+    )
+    assert result["dependencies"] == {
+        "pip": [], "npm": [], "apt": [], "warnings": []
+    }
+    row = db.query(AdminSkill).filter_by(skill_id="guizang-ppt-skill").one()
+    assert row.dependencies == result["dependencies"]
+    assert "assets/motion.min.js" in row.extra_files
+    assert "assets/screenshot-backgrounds/style-a/dune.webp" in row.extra_files
 
 
 def test_unknown_slug_404():
@@ -63,6 +98,11 @@ def test_user_install_is_namespaced_and_private(db):
     row = db.query(AdminSkill).filter_by(skill_id=r["id"]).one()
     assert row.owner_user_id == "userA"
     assert row.is_enabled is True
+    assert row.user_intro is None
+    assert (
+        resolve_skill_detail(row.user_intro, row.skill_content)
+        == mk.get_marketplace_skill("diagram-builder")["instructions"]
+    )
     # frontmatter name is rewritten to the install id
     assert f"name: {r['id']}" in row.skill_content.split("---")[1]
     assert r["id"] != "diagram-builder"  # private install carries a fingerprint suffix
@@ -124,11 +164,16 @@ def test_annotate_installed_flags(db):
     by_slug = {it["slug"]: it for it in items}
     assert by_slug["diagram-builder"]["installed"] is True
     # another, uninstalled skill is False
-    other = next(s for s in by_slug if s != "diagram-builder")
+    other = next(
+        slug for slug, item in by_slug.items()
+        if slug != "diagram-builder" and not item.get("builtin")
+    )
     assert by_slug[other]["installed"] is False
-    # from userB's view all are uninstalled
+    # From userB's view all installable entries are uninstalled; resident
+    # built-ins remain available to every user.
     items_b = mk.annotate_installed(mk.list_marketplace_skills(), db, owner_user_id="userB")
-    assert all(it["installed"] is False for it in items_b)
+    assert all(it["installed"] is False for it in items_b if not it.get("builtin"))
+    assert all(it["installed"] is True for it in items_b if it.get("builtin"))
 
 
 def test_cross_owner_conflict_409(db):
@@ -179,6 +224,8 @@ def test_admin_upload_publishes_to_marketplace_not_global(db):
     assert inst["action"] == "installed"
     glob = db.query(AdminSkill).filter(AdminSkill.skill_id == "my-uploaded-skill", AdminSkill.owner_user_id.is_(None)).first()
     assert glob is not None
+    assert glob.user_intro is None
+    assert "# my-uploaded-skill" in resolve_skill_detail(glob.user_intro, glob.skill_content)
 
 
 def test_admin_upload_reupload_updates_same_record(db):
@@ -204,7 +251,8 @@ def test_admin_create_form_publishes_to_marketplace(db):
     )
     res = mk.publish_skill_to_marketplace(
         db, skill_id="form-skill", skill_content=content, display_name="表单技能",
-        description="built from form.", version="2.0.0", tags=["a", "b"], category="研发效率",
+        description="built from form.", user_intro="## 用户介绍\n\n适合表单自动化。",
+        version="2.0.0", tags=["a", "b"], category="研发效率",
     )
     assert res["action"] == "published" and res["slug"] == "form-skill"
     # no global skill created
@@ -214,7 +262,24 @@ def test_admin_create_form_publishes_to_marketplace(db):
     assert m is not None and m["category"] == "研发效率" and m["display_name"] == "表单技能"
     inst = mk.install_marketplace_skill(db, "form-skill", owner_user_id=None, secrets={})
     assert inst["action"] == "installed"
-    assert db.query(AdminSkill).filter(AdminSkill.skill_id == "form-skill", AdminSkill.owner_user_id.is_(None)).first() is not None
+    installed = db.query(AdminSkill).filter(
+        AdminSkill.skill_id == "form-skill", AdminSkill.owner_user_id.is_(None)
+    ).first()
+    assert installed is not None
+    assert installed.user_intro == "## 用户介绍\n\n适合表单自动化。"
+
+
+def test_market_summary_is_not_used_as_user_intro():
+    assert mk._build_user_intro({"summary": "市场卡片的一句话摘要"}) == ""
+    assert (
+        mk._build_user_intro({"summary": "摘要", "user_intro": "  ## 详细介绍  "})
+        == "## 详细介绍"
+    )
+
+
+def test_whitespace_user_intro_falls_back_to_skill_body():
+    raw = "---\nname: fallback-skill\ndescription: 一句话\n---\n\n# 完整正文\n\n操作步骤。\n"
+    assert resolve_skill_detail("  \n\t", raw) == "# 完整正文\n\n操作步骤。"
 
 
 def test_admin_create_form_rejects_bad_category(db):

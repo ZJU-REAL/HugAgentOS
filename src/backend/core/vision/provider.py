@@ -16,13 +16,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
 
+from core.harness.usage import AttemptUsage, attempt_status_for_exception
+from core.llm.model_usage import record_external_model_attempt
 from core.llm.providers.registry import get_spec
 from core.services.model_config import ResolvedModelConfig
 from core.vision.prompt import JSON_TEMPLATE_INSTRUCTION
@@ -36,6 +40,38 @@ MODE_JSON_OBJECT = "json_object"
 MODE_PLAIN = "plain"
 
 _MODES = (MODE_JSON_SCHEMA, MODE_JSON_OBJECT, MODE_PLAIN)
+
+
+def _usage_from_payload(raw: Any) -> AttemptUsage:
+    usage = raw if isinstance(raw, dict) else {}
+    prompt_details = usage.get("prompt_tokens_details")
+    prompt_details = prompt_details if isinstance(prompt_details, dict) else {}
+    return AttemptUsage(
+        prompt_tokens=int(
+            usage.get("prompt_tokens")
+            or usage.get("input_tokens")
+            or usage.get("promptTokenCount")
+            or 0
+        ),
+        completion_tokens=int(
+            usage.get("completion_tokens")
+            or usage.get("output_tokens")
+            or usage.get("candidatesTokenCount")
+            or 0
+        ),
+        cache_read_tokens=int(
+            usage.get("cache_read_tokens")
+            or usage.get("cache_read_input_tokens")
+            or usage.get("cachedContentTokenCount")
+            or prompt_details.get("cached_tokens")
+            or 0
+        ),
+        cache_write_tokens=int(
+            usage.get("cache_write_tokens")
+            or usage.get("cache_creation_input_tokens")
+            or 0
+        ),
+    )
 
 
 @dataclass
@@ -90,13 +126,46 @@ class VisionProvider:
     ) -> VisionCallResult:
         """把图片和指令发给模型，返回原始文本（不做 JSON 解析）。"""
         errors: list[str] = []
-        for mode in modes:
+        effective_modes = modes
+        if self.cfg.provider == "anthropic":
+            effective_modes = (MODE_JSON_SCHEMA,) if MODE_JSON_SCHEMA in modes else ()
+        elif self.cfg.provider == "gemini":
+            effective_modes = tuple(mode for mode in modes if mode != MODE_JSON_OBJECT)
+        for mode in effective_modes:
+            started = time.monotonic()
             try:
                 result = await self._call(image_bytes, mime_type, prompt, mode, timeout)
+            except asyncio.CancelledError:
+                await record_external_model_attempt(
+                    self,
+                    operation_name=self.cfg.model_name,
+                    provider=self.cfg.provider,
+                    status="cancelled",
+                    started=started,
+                    metadata={"source": "vision", "mode": mode},
+                )
+                raise
             except Exception as exc:  # noqa: BLE001 — 逐级降级，最后一级才把错误抛给上层
+                await record_external_model_attempt(
+                    self,
+                    operation_name=self.cfg.model_name,
+                    provider=self.cfg.provider,
+                    status=attempt_status_for_exception(exc),
+                    started=started,
+                    metadata={"source": "vision", "mode": mode},
+                )
                 errors.append(f"{mode}: {exc}")
                 logger.info("[vision] mode=%s failed: %s", mode, exc)
                 continue
+            await record_external_model_attempt(
+                self,
+                operation_name=self.cfg.model_name,
+                provider=self.cfg.provider,
+                status="success" if result.ok else "failed",
+                started=started,
+                usage=_usage_from_payload(result.usage),
+                metadata={"source": "vision", "mode": mode},
+            )
             if result.ok:
                 return result
             errors.append(f"{mode}: empty response")
@@ -137,7 +206,9 @@ class VisionProvider:
     ) -> VisionCallResult:
         if not self.base_url:
             raise RuntimeError("视觉模型未配置 base_url")
-        text_prompt = prompt if mode != MODE_PLAIN else f"{prompt}\n\n{JSON_TEMPLATE_INSTRUCTION}"
+        text_prompt = (
+            prompt if mode != MODE_PLAIN else f"{prompt}\n\n{JSON_TEMPLATE_INSTRUCTION}"
+        )
         payload: dict[str, Any] = {
             "model": self.cfg.model_name,
             "messages": [
@@ -191,9 +262,7 @@ class VisionProvider:
             message = choices[0].get("message") or {}
             raw = message.get("content")
             if isinstance(raw, list):  # 少数网关把 content 拆成块数组
-                content = "".join(
-                    b.get("text", "") for b in raw if isinstance(b, dict)
-                )
+                content = "".join(b.get("text", "") for b in raw if isinstance(b, dict))
             else:
                 content = raw or ""
         return VisionCallResult(text=content, mode=mode, usage=data.get("usage"))
@@ -235,7 +304,10 @@ class VisionProvider:
                                 "data": base64.b64encode(image_bytes).decode("ascii"),
                             },
                         },
-                        {"type": "text", "text": f"{prompt}\n\n{JSON_TEMPLATE_INSTRUCTION}"},
+                        {
+                            "type": "text",
+                            "text": f"{prompt}\n\n{JSON_TEMPLATE_INSTRUCTION}",
+                        },
                     ],
                 }
             ],
@@ -266,7 +338,9 @@ class VisionProvider:
         headers = {"Content-Type": "application/json"}
         if self.cfg.api_key:
             headers["x-goog-api-key"] = self.cfg.api_key
-        text_prompt = prompt if mode != MODE_PLAIN else f"{prompt}\n\n{JSON_TEMPLATE_INSTRUCTION}"
+        text_prompt = (
+            prompt if mode != MODE_PLAIN else f"{prompt}\n\n{JSON_TEMPLATE_INSTRUCTION}"
+        )
         generation_config: dict[str, Any] = {"temperature": 0}
         if mode == MODE_JSON_SCHEMA:
             generation_config["responseMimeType"] = "application/json"

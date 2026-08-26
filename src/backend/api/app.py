@@ -75,12 +75,14 @@ async def lifespan(app: FastAPI):
     await _startup_distillation_scheduler()
     await _startup_evolution_scheduler()
     await _startup_memory_ttl_scheduler()
+    await _startup_memory_outbox_worker()
     await _startup_recover_persona_distill_jobs()
     await _startup_warmup_memory()
     await _startup_channel_manager()
     yield
     # ── shutdown ──
     await _shutdown_stale_run_reaper()
+    await _shutdown_memory_outbox_worker()
     await _shutdown_orphan_job_reaper()
     await _shutdown_kb_wiki_worker()
     await _shutdown_kb_index_worker()
@@ -454,7 +456,7 @@ async def _startup_seed_ce_admin():
 
 
 async def _startup_recover_chat_runs():
-    """Mark running/pending chat_runs left over from before the last process crash as failed."""
+    """Resume claimable chat_runs; valid leases are retried by the recovery loop."""
     try:
         from orchestration import chat_run_executor
 
@@ -508,7 +510,7 @@ async def _startup_orphan_job_reaper():
 
 
 async def _startup_stale_run_reaper():
-    """Periodically reap zombie chat_runs stuck in running (fallback behind the watchdog)."""
+    """Start periodic lease recovery plus the slower stale-run watchdog."""
     try:
         import asyncio
 
@@ -1072,6 +1074,7 @@ _kb_wiki_worker = None
 _kb_index_worker = None
 _distillation_scheduler = None
 _idle_reaper_task = None
+_memory_outbox_worker = None
 
 
 async def _startup_evolution_scheduler():
@@ -1095,6 +1098,36 @@ async def _startup_memory_ttl_scheduler():
         await MemoryTtlScheduler().start()
     except Exception as exc:
         logger.warning("[startup] Memory TTL scheduler failed to start: %s", exc)
+
+
+async def _startup_memory_outbox_worker():
+    """Resume durable post-response memory work accepted before a restart."""
+
+    if not (settings.memory.enabled and settings.memory.layered_enabled):
+        return
+    try:
+        from core.memory.outbox import MemoryOutboxWorker
+
+        global _memory_outbox_worker
+        _memory_outbox_worker = MemoryOutboxWorker()
+        await _memory_outbox_worker.start()
+        from core.infra import runtime_state
+
+        runtime_state.register("memory_outbox_worker", _memory_outbox_worker)
+        logger.info("[startup] memory outbox worker started")
+    except Exception as exc:
+        logger.warning("[startup] memory outbox worker failed to start: %s", exc)
+
+
+async def _shutdown_memory_outbox_worker():
+    global _memory_outbox_worker
+    if _memory_outbox_worker is None:
+        return
+    try:
+        await _memory_outbox_worker.stop()
+    except Exception as exc:
+        logger.warning("[shutdown] memory outbox worker stop failed: %s", exc)
+    _memory_outbox_worker = None
 
 
 async def _startup_distillation_scheduler():

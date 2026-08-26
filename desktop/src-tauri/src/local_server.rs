@@ -144,7 +144,7 @@ pub struct LocalServerManager {
     shutting_down: AtomicBool,
     /// 混合架构（P2 身份桥）：桌面壳生成的桥接秘密。设置后孵化本机后端时注入
     /// `HUGAGENT_DESKTOP_BRIDGE_SECRET`（身份桥）与 `CONFIG_TOKEN`（壳持有本机
-    /// 实例的控制台令牌，用于云端模型配置下发 /v1/models/import）。
+    /// 实例的控制台令牌，用于安全模型清单 / capability gateway 下发）。
     bridge_secret: std::sync::OnceLock<String>,
 }
 

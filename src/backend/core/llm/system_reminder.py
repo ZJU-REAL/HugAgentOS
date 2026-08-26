@@ -16,6 +16,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from core.llm.context_adapter import append_context_text
+from core.llm.context_ir import KIND_REMINDER
+
 logger = logging.getLogger(__name__)
 
 REMINDER_OPEN = "<system-reminder>"
@@ -41,15 +44,16 @@ async def inject_reminder(agent: Any, content: str) -> bool:
     if not text:
         return False
 
-    from agentscope.message import Msg, TextBlock
-
-    msg = Msg(
-        name="user",
-        content=[TextBlock(type="text", text=wrap_reminder(text))],
-        role="user",
-    )
     try:
-        agent.state.context.append(msg)
+        append_context_text(
+            agent,
+            wrap_reminder(text),
+            kind=KIND_REMINDER,
+            origin="harness:system_reminder",
+            trust="system",
+            priority=850,
+            token_budget=2_000,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("[system_reminder] context.append failed: %s", exc, exc_info=True)
         return False

@@ -9,6 +9,8 @@ fine-grained EventType into the internal events consumed by ``workflow.py``:
 - ("tool_call", dict)      - tool invocation complete
 - ("tool_result", dict)    - tool invocation result
 - ("file_confirm", dict)   - myspace write confirmation (in-house ContextVar gate, distinct from native HITL)
+- ("user_question", dict)  - model question requesting resident-composer input
+- ("user_question_resolved", dict) - server-authoritative answer/cancel/timeout
 - ("heartbeat", None)      - silence heartbeat (queue empty ≥3s: the model produced nothing at all)
 - ("model_progress", None) - throttled liveness signal, emitted in two situations. (a) upstream events
                              keep arriving but none maps to an SSE event (throttled tool-call args /
@@ -50,6 +52,17 @@ from agentscope.agent import Agent
 from agentscope.mcp import MCPClient
 from agentscope.message import Msg
 from core.infra.logging import LogContext
+from core.llm.context_adapter import (
+    next_request_sequence,
+    render_context_item,
+    render_session_input,
+)
+from core.llm.context_ir import (
+    KIND_USER_INPUT,
+    POLICY_NEVER,
+    SESSION_CONTEXT_META_KEY,
+    ContextItem,
+)
 from core.llm.message_compat import session_to_msgs
 from core.services import log_service as log_writer
 
@@ -90,7 +103,9 @@ def _looks_like_tool_error(content: str) -> bool:
         return True
     if '"ok": false' in head or '"ok":false' in head:
         return True
-    if s.startswith(("Error executing tool", "Error: ", "Traceback (most recent call last)")):
+    if s.startswith(
+        ("Error executing tool", "Error: ", "Traceback (most recent call last)")
+    ):
         return True
     if "validation error for" in head:
         return True
@@ -101,7 +116,9 @@ def _looks_like_tool_error(content: str) -> bool:
     return False
 
 
-def _strip_thinking_answer(raw: str, enable_thinking: bool, in_thinking: bool) -> Tuple[str, bool]:
+def _strip_thinking_answer(
+    raw: str, enable_thinking: bool, in_thinking: bool
+) -> Tuple[str, bool]:
     """Extract the user-visible "answer" portion from the accumulated raw text.
 
     Returns (answer, new_in_thinking). When enable_thinking=True, returns as-is (the frontend
@@ -176,25 +193,66 @@ class StreamingAgent:
         return {"structured_reasoning": True}
 
     def get_usage(self) -> Dict[str, int]:
+        """Return the in-memory fallback; async production paths use aget_usage."""
         total_prompt = sum(r.get("prompt_tokens", 0) for r in self._usage_records)
-        total_completion = sum(r.get("completion_tokens", 0) for r in self._usage_records)
+        total_completion = sum(
+            r.get("completion_tokens", 0) for r in self._usage_records
+        )
         last = self._usage_records[-1] if self._usage_records else {}
         return {
             "prompt_tokens": total_prompt,
             "completion_tokens": total_completion,
             "total_tokens": total_prompt + total_completion,
             "llm_call_count": len(self._usage_records),
-            # True end-of-turn context occupancy ≈ prompt+completion of the last LLM call.
-            # total_tokens is the whole-turn billing measure — the tool loop resends the full
-            # context every round, so prompt is counted repeatedly and cannot be used to judge
-            # window occupancy (compaction triggering uses context_tokens).
             "context_tokens": int(last.get("prompt_tokens", 0) or 0)
             + int(last.get("completion_tokens", 0) or 0),
         }
 
-    async def _prepare_vision_evidence(
-        self, st: Any
-    ) -> AsyncIterator[Tuple[str, Any]]:
+    async def aget_usage(self) -> Dict[str, int]:
+        """Derive usage from append-only attempts without blocking the event loop."""
+        run_id = str(getattr(getattr(self.agent, "state", None), "run_id", "") or "")
+        if run_id:
+            try:
+                from core.services.harness_ledger import HarnessUsageLedger
+
+                attempts = await asyncio.wait_for(
+                    asyncio.to_thread(HarnessUsageLedger().attempts, run_id),
+                    timeout=1.0,
+                )
+                model_attempts = tuple(row for row in attempts if row.kind == "model")
+                if model_attempts:
+                    primary_attempts = tuple(
+                        row
+                        for row in model_attempts
+                        if row.metadata.get("source")
+                        not in {"vision", "compaction", "followup"}
+                    )
+                    last = (primary_attempts or model_attempts)[-1]
+                    return {
+                        "prompt_tokens": sum(
+                            row.usage.prompt_tokens for row in model_attempts
+                        ),
+                        "completion_tokens": sum(
+                            row.usage.completion_tokens for row in model_attempts
+                        ),
+                        "cache_read_tokens": sum(
+                            row.usage.cache_read_tokens for row in model_attempts
+                        ),
+                        "cache_write_tokens": sum(
+                            row.usage.cache_write_tokens for row in model_attempts
+                        ),
+                        "total_tokens": sum(
+                            row.usage.total_tokens for row in model_attempts
+                        ),
+                        "llm_call_count": len(model_attempts),
+                        "context_tokens": last.usage.prompt_tokens
+                        + last.usage.completion_tokens,
+                    }
+            except Exception:
+                logger.debug("usage ledger aggregate unavailable", exc_info=True)
+        return self.get_usage()
+
+    async def _prepare_vision_evidence(self, st: Any) -> AsyncIterator[Tuple[str, Any]]:
         """Transcribe this turn's image attachments, emitting progress around the wait.
 
         Yields ``("vision_progress", {...})`` when there is actually something to
@@ -207,7 +265,10 @@ class StreamingAgent:
         """
         try:
             from core.llm.middlewares import _effective_model_supports_vision
-            from core.vision.attachments import image_attachments, transcribe_attachments
+            from core.vision.attachments import (
+                image_attachments,
+                transcribe_attachments,
+            )
 
             images = image_attachments(list(getattr(st, "uploaded_files", None) or []))
             if not images or _effective_model_supports_vision(st):
@@ -215,10 +276,21 @@ class StreamingAgent:
 
             yield (
                 "vision_progress",
-                {"status": "running", "count": len(images),
-                 "names": [f.get("name") or "图片" for f in images]},
+                {
+                    "status": "running",
+                    "count": len(images),
+                    "names": [f.get("name") or "图片" for f in images],
+                },
             )
-            result = await transcribe_attachments(images, user_id=getattr(st, "user_id", None))
+            from core.llm.model_usage import model_usage_scope
+            from core.services.harness_ledger import HarnessUsageLedger
+
+            run_id = str(getattr(st, "run_id", "") or "")
+            with model_usage_scope(run_id, HarnessUsageLedger()):
+                result = await transcribe_attachments(
+                    images,
+                    user_id=getattr(st, "user_id", None),
+                )
             if result is not None and result.text:
                 st.vision_evidence_text = result.text
             yield (
@@ -227,11 +299,15 @@ class StreamingAgent:
                     "status": "done",
                     "count": result.count if result else 0,
                     "ok": bool(result and result.ok),
-                    "duration_seconds": round(result.duration_seconds, 2) if result else 0.0,
+                    "duration_seconds": round(result.duration_seconds, 2)
+                    if result
+                    else 0.0,
                 },
             )
         except Exception as exc:  # noqa: BLE001 — fall back to inline transcription
-            logger.warning("[stream] vision pre-pass failed, deferring to middleware: %s", exc)
+            logger.warning(
+                "[stream] vision pre-pass failed, deferring to middleware: %s", exc
+            )
             yield ("vision_progress", {"status": "done", "count": 0, "ok": False})
 
     async def stream(
@@ -270,8 +346,10 @@ class StreamingAgent:
         # Load history into context (excluding the last user message — reply_stream's inputs carries it, avoiding duplication)
         history = list(session_messages)
         last_user_content = ""
+        last_user_row = None
         if history and history[-1].get("role") in ("user", "human"):
-            last_user_content = history.pop().get("content", "")
+            last_user_row = history.pop()
+            last_user_content = last_user_row.get("content", "")
         if history:
             try:
                 agent.state.context.extend(session_to_msgs(history))
@@ -280,9 +358,28 @@ class StreamingAgent:
 
         user_msg: Optional[Msg] = None
         if last_user_content:
-            from core.llm.message_compat import _wrap_content
-
-            user_msg = Msg(name="user", role="user", content=_wrap_content(last_user_content))
+            request_seq = next_request_sequence(agent.state.context)
+            if isinstance((last_user_row or {}).get(SESSION_CONTEXT_META_KEY), dict):
+                user_msg = render_session_input(last_user_row, created_seq=request_seq)
+            else:
+                user_msg = render_context_item(
+                    ContextItem.create(
+                        item_id=f"request:user_input:{request_seq}",
+                        kind=KIND_USER_INPUT,
+                        origin="user:chat",
+                        trust="user",
+                        visibility="model",
+                        priority=1_000,
+                        token_budget=100_000,
+                        truncation_policy=POLICY_NEVER,
+                        content=last_user_content,
+                        cache_class="dynamic",
+                        created_seq=request_seq,
+                        render_role="user",
+                        render_name="user",
+                        message_group=f"request:user_input:{request_seq}",
+                    )
+                )
 
         # myspace write-confirmation gate (in-house ContextVar, distinct from 2.0 native HITL)
         from core.llm.tools import _myspace_confirm as _mc
@@ -301,6 +398,39 @@ class StreamingAgent:
                     break
             return out
 
+        from core.llm.tools import user_questions as _user_questions
+
+        def _drain_user_question_signals() -> list:
+            out: list = []
+            q = _user_questions.get_ui_queue(_confirm_chat_id)
+            if q is None:
+                return out
+            while True:
+                try:
+                    out.append(q.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+            return out
+
+        def _drain_human_interaction_events() -> list:
+            """Map every queued human-interaction signal to a stream event."""
+
+            events: list = []
+            for signal in _drain_confirm_signals():
+                event_type = (
+                    "design_pick"
+                    if (signal or {}).get("kind") == _mc.KIND_DESIGN_PICK
+                    else "file_confirm"
+                )
+                events.append((event_type, signal))
+            for signal in _drain_user_question_signals():
+                signal_event = signal.get("event")
+                if signal_event == "requested":
+                    events.append(("user_question", signal))
+                elif signal_event == "resolved":
+                    events.append(("user_question_resolved", signal))
+            return events
+
         # reply_stream runs as a background task feeding the queue; the main loop drains confirm signals concurrently
         event_q: asyncio.Queue = asyncio.Queue()
         _DONE = object()
@@ -318,7 +448,9 @@ class StreamingAgent:
             except BaseException as e:  # noqa: BLE001
                 import traceback
 
-                logger.error("Agent reply_stream failed: %r\n%s", e, traceback.format_exc())
+                logger.error(
+                    "Agent reply_stream failed: %r\n%s", e, traceback.format_exc()
+                )
                 await event_q.put(("err", e))
             finally:
                 await event_q.put(("done", _DONE))
@@ -335,17 +467,12 @@ class StreamingAgent:
 
         try:
             while True:
-                for _cf in _drain_confirm_signals():
-                    # The same ui_signals queue carries two kinds of signals: write confirmation → file_confirm,
-                    # site-building three-way design choice → design_pick (payload carries question/options).
-                    _et = (
-                        "design_pick"
-                        if (_cf or {}).get("kind") == _mc.KIND_DESIGN_PICK
-                        else "file_confirm"
-                    )
-                    yield (_et, _cf)
+                for _human_event in _drain_human_interaction_events():
+                    yield _human_event
                 try:
-                    kind, payload = await asyncio.wait_for(event_q.get(), timeout=_poll_interval)
+                    kind, payload = await asyncio.wait_for(
+                        event_q.get(), timeout=_poll_interval
+                    )
                 except asyncio.TimeoutError:
                     if self._model_call_inflight:
                         # Model call in flight with a silent wire — count as
@@ -359,10 +486,15 @@ class StreamingAgent:
                             continue
                     yield ("heartbeat", None)
                     continue
-                if kind == "done":
-                    break
-                if kind == "err":
-                    yield ("error", payload)
+                if kind in {"done", "err"}:
+                    # A human answer wakes the tool before AgentScope queues its
+                    # terminal event. Drain once more here so an immediately
+                    # finishing reply cannot strand the frontend in submitted
+                    # state waiting for user_question_resolved.
+                    for _human_event in _drain_human_interaction_events():
+                        yield _human_event
+                    if kind == "err":
+                        yield ("error", payload)
                     break
                 if kind == _subagent_stream.QUEUE_KIND:
                     # Subagent bypass events — passed straight through, never into _map_event.
@@ -411,7 +543,11 @@ class StreamingAgent:
             for _tid, _rec in list(self._pending_tool_calls.items()):
                 try:
                     _started_mono = _rec.get("started_monotonic")
-                    _dur = int((time.monotonic() - _started_mono) * 1000) if _started_mono else None
+                    _dur = (
+                        int((time.monotonic() - _started_mono) * 1000)
+                        if _started_mono
+                        else None
+                    )
                     log_writer.schedule_tool_call_write(
                         {
                             # user_id/chat_id are taken explicitly from agent.state — contextvars are
@@ -560,7 +696,9 @@ class StreamingAgent:
             try:
                 from orchestration.tool_callbacks import note_tool_call
 
-                note_tool_call(self.__dict__.setdefault("_tool_warn_state", {}), name, args)
+                note_tool_call(
+                    self.__dict__.setdefault("_tool_warn_state", {}), name, args
+                )
             except Exception:  # noqa: BLE001
                 pass
             yield ("tool_call", {"name": name, "args": args, "id": tid})
@@ -586,18 +724,30 @@ class StreamingAgent:
                 or "unknown"
             )
             try:
-                is_error = state in {"error", "denied", "interrupted"} or _looks_like_tool_error(
-                    content
+                is_error = state in {
+                    "error",
+                    "denied",
+                    "interrupted",
+                } or _looks_like_tool_error(content)
+                effect_link = dict(
+                    (getattr(self.agent.state, "tool_effect_links", None) or {}).pop(
+                        tid, {}
+                    )
                 )
                 started_mono = pending.get("started_monotonic") if pending else None
                 duration_ms = (
-                    int((time.monotonic() - started_mono) * 1000) if started_mono else None
+                    int((time.monotonic() - started_mono) * 1000)
+                    if started_mono
+                    else None
                 )
                 log_writer.schedule_tool_call_write(
                     {
                         # See the matching comment in _produce: carry user_id/chat_id explicitly, never rely on contextvars.
                         "user_id": self.agent.state.user_id or None,
                         "chat_id": self.agent.state.chat_id or None,
+                        "run_id": self.agent.state.run_id or None,
+                        "effect_id": effect_link.get("effect_id"),
+                        "result_id": effect_link.get("result_id"),
                         "tool_name": (pending or {}).get("tool_name") or name,
                         "tool_call_id": tid,
                         "tool_args": (pending or {}).get("tool_args"),
@@ -623,12 +773,24 @@ class StreamingAgent:
 
         if nm == "ModelCallEndEvent":
             self._model_call_inflight = False
+            _prompt_tokens = int(getattr(ev, "input_tokens", 0) or 0)
+            _completion_tokens = int(getattr(ev, "output_tokens", 0) or 0)
             self._usage_records.append(
                 {
-                    "prompt_tokens": int(getattr(ev, "input_tokens", 0) or 0),
-                    "completion_tokens": int(getattr(ev, "output_tokens", 0) or 0),
+                    "prompt_tokens": _prompt_tokens,
+                    "completion_tokens": _completion_tokens,
                 }
             )
+            # Hand the provider's real usage to the agent so the next step
+            # boundary measures context occupancy the same way the post-turn
+            # trigger does, instead of falling back to the byte estimate that
+            # over-counts Chinese by ~1.7x (see CompactingAgent._measure_context_tokens).
+            _observe = getattr(self.agent, "observe_context_tokens", None)
+            if callable(_observe):
+                try:
+                    _observe(_prompt_tokens, _completion_tokens)
+                except Exception as _obs_exc:  # noqa: BLE001
+                    logger.debug("[compaction] usage observation skipped: %s", _obs_exc)
             # 首轮权威判定：思考模式下整轮正文没有出现 </think> → 该模型不内联思考
             # （结构化 reasoning 通道，或本轮确实没思考）。补发协议标记，前端据此
             # 把误当思考缓冲/展示的正文重归正文区（bug：无思考时正文进思考块）。
@@ -672,7 +834,10 @@ class StreamingAgent:
             return
 
         if nm == "ExceedMaxItersEvent":
-            yield ("error", {"kind": "exceed_max_iters", "name": getattr(ev, "name", "")})
+            yield (
+                "error",
+                {"kind": "exceed_max_iters", "name": getattr(ev, "name", "")},
+            )
             return
 
         # Everything else is never forwarded, internal only: lifecycle (ReplyStart/End,

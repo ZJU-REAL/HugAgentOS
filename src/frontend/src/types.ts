@@ -225,6 +225,39 @@ export interface DesignPickInfo {
   options: DesignPickOption[];
 }
 
+/** One stable choice in an assistant-initiated user question. */
+export interface UserQuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+  recommended: boolean;
+}
+
+/** One question rendered by the resident composer. */
+export interface UserQuestionItem {
+  id: string;
+  header?: string;
+  question: string;
+  description?: string;
+  options: UserQuestionOption[];
+  multiSelect: boolean;
+}
+
+/** One pending tool request; chats may queue several parallel requests. */
+export interface UserQuestionRequest {
+  requestId: string;
+  questions: UserQuestionItem[];
+  createdAt?: number;
+  expiresAt?: number;
+}
+
+export interface UserQuestionAnswer {
+  id: string;
+  selected: string[];
+  custom?: string;
+  skipped?: boolean;
+}
+
 export interface ThinkingBlock {
   content: string;
   timestamp?: number;

@@ -1,17 +1,87 @@
 """Chat session and message business logic."""
 
+import hashlib
+import json
 import logging
 import uuid
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.auth.permissions_iface import ChatAccessLevel, can_delete_session, resolve_chat_access
-from core.db.models import ChatMessage, ChatSession
-from core.db.repository import AuditLogRepository, ChatMessageRepository, ChatSessionRepository
+from core.auth.permissions_iface import (
+    ChatAccessLevel,
+    can_delete_session,
+    resolve_chat_access,
+)
+from core.db.models import ChatCompactionState, ChatMessage, ChatSession
+from core.db.repository import (
+    AuditLogRepository,
+    ChatMessageRepository,
+    ChatSessionRepository,
+)
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+_CONTENT_MAX = 100_000
+_TRUNC_NOTE = "\n\n…（本条回复过长，已截断保存；完整过程见工具调用记录）"
+
+
+def clamp_message_content(content: str) -> str:
+    """Apply the database content limit independently of ChatService wiring."""
+
+    text = content or ""
+    if len(text) <= _CONTENT_MAX:
+        return text
+    keep = _CONTENT_MAX - len(_TRUNC_NOTE)
+    logger.warning("[chat] message content truncated: %d -> %d chars", len(text), _CONTENT_MAX)
+    return text[:keep] + _TRUNC_NOTE
+
+
+class CompactionCASConflict(RuntimeError):
+    """The checkpoint base/lease is stale and another writer won."""
+
+
+@dataclass(frozen=True)
+class CompactionSourceRow:
+    """Detached, immutable copy of one message in the compacted snapshot."""
+
+    message_id: str
+    chat_seq: int
+    role: str
+    content: str
+    tool_calls: Any
+    extra_data: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CompactionSnapshot:
+    """Immutable source boundary captured before the summary LLM call."""
+
+    chat_id: str
+    owner: str
+    base_checkpoint_id: Optional[str]
+    base_checkpoint_version: int
+    base_covered_seq: int
+    covered_seq: int
+    source_hash: str
+    replacement_history: tuple[Dict[str, Any], ...]
+    source_rows: tuple[CompactionSourceRow, ...]
+    source_message_ids: tuple[str, ...]
+    source_message_seqs: tuple[int, ...]
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class ChatService:
@@ -272,20 +342,6 @@ class ChatService:
     # （反复重试 + 大量思考正文）真的会撞上，而撞上的后果是**整条 INSERT 抛
     # CheckViolation → 整个 run failed**，一轮的产出全部丢失（实测踩过）。
     # 与其让约束把一轮工作全毁掉，不如夹逼后落库并明确标注被截断。
-    _CONTENT_MAX = 100_000
-    _TRUNC_NOTE = "\n\n…（本条回复过长，已截断保存；完整过程见工具调用记录）"
-
-    @classmethod
-    def _clamp_content(cls, content: str) -> str:
-        text = content or ""
-        if len(text) <= cls._CONTENT_MAX:
-            return text
-        keep = cls._CONTENT_MAX - len(cls._TRUNC_NOTE)
-        logger.warning(
-            "[chat] message content truncated: %d -> %d chars", len(text), cls._CONTENT_MAX
-        )
-        return text[:keep] + cls._TRUNC_NOTE
-
     def add_message(
         self,
         chat_id: str,
@@ -297,13 +353,16 @@ class ChatService:
         error: Optional[Dict] = None,
         extra_data: Dict = None,
         message_id: Optional[str] = None,
+        commit: bool = True,
+        chat_seq: Optional[int] = None,
     ) -> ChatMessage:
         """Add a message to a chat session."""
         message_data = {
             "message_id": message_id or f"msg_{uuid.uuid4().hex[:16]}",
             "chat_id": chat_id,
+            "chat_seq": chat_seq,
             "role": role,
-            "content": self._clamp_content(content),
+            "content": clamp_message_content(content),
             "model": model,
             "tool_calls": tool_calls,
             "usage": usage,
@@ -311,7 +370,7 @@ class ChatService:
             "extra_data": extra_data or {},
         }
 
-        message = self.message_repo.create(message_data)
+        message = self.message_repo.create(message_data, commit=commit)
 
         # Keep session metadata in sync for list APIs.
         session = self.session_repo.get_by_id(chat_id)
@@ -320,7 +379,8 @@ class ChatService:
             now = datetime.utcnow()
             session.updated_at = now
             session.last_message_at = now
-            self.db.commit()
+            if commit:
+                self.db.commit()
 
         return message
 
@@ -331,9 +391,12 @@ class ChatService:
         content: str,
         *,
         message_id: str,
+        model: Optional[str] = None,
         tool_calls: Optional[List[Dict]] = None,
         usage: Optional[Dict] = None,
         extra_data: Dict = None,
+        commit: bool = True,
+        chat_seq: Optional[int] = None,
     ) -> ChatMessage:
         """Idempotently upsert a message by message_id: overwrite in place if it exists, otherwise create.
 
@@ -345,32 +408,40 @@ class ChatService:
         """
         existing = self.message_repo.get_by_id(message_id)
         if existing is not None:
-            update: Dict[str, Any] = {"content": self._clamp_content(content)}
+            update: Dict[str, Any] = {"content": clamp_message_content(content)}
+            if model is not None:
+                update["model"] = model
             if tool_calls is not None:
                 update["tool_calls"] = tool_calls
             if usage is not None:
                 update["usage"] = usage
             if extra_data is not None:
                 update["extra_data"] = extra_data
-            msg = self.message_repo.update(message_id, update)
+            msg = self.message_repo.update(message_id, update, commit=commit)
             session = self.session_repo.get_by_id(chat_id)
             if session:
                 now = datetime.utcnow()
                 session.updated_at = now
                 session.last_message_at = now
-                self.db.commit()
+                if commit:
+                    self.db.commit()
             return msg or existing
         return self.add_message(
             chat_id=chat_id,
             role=role,
             content=content,
+            model=model,
             tool_calls=tool_calls,
             usage=usage,
             extra_data=extra_data,
             message_id=message_id,
+            commit=commit,
+            chat_seq=chat_seq,
         )
 
-    def list_all_messages(self, chat_id: str, user_id: str) -> Optional[List[ChatMessage]]:
+    def list_all_messages(
+        self, chat_id: str, user_id: str
+    ) -> Optional[List[ChatMessage]]:
         """List all messages in chronological order with access check.
 
         Edition-specific sharing policies may also grant read access.
@@ -392,7 +463,7 @@ class ChatService:
                 ChatMessage.chat_id == chat_id,
                 ChatMessage.role != "system",
             )
-            .order_by(ChatMessage.created_at)
+            .order_by(ChatMessage.chat_seq)
             .all()
         )
 
@@ -413,8 +484,14 @@ class ChatService:
     def delete_messages_from(self, chat_id: str, message_id: str) -> int:
         """Delete a message and all subsequent messages in the chat.
 
+        History rewrites invalidate the entire compaction lineage in the same
+        transaction.  This fences an in-flight summarizer through the lineage
+        version CAS and forces the next replay/compaction to rebuild from raw
+        retained messages instead of trusting a stale covered watermark.
+
         Returns the number of messages deleted.
         """
+        self._ensure_message_sequences(chat_id)
         target = (
             self.db.query(ChatMessage)
             .filter(
@@ -426,11 +503,15 @@ class ChatService:
         if not target:
             return 0
 
+        self._invalidate_compaction_lineage_for_rewrite(
+            chat_id, rewritten_seq=int(target.chat_seq)
+        )
+
         deleted = (
             self.db.query(ChatMessage)
             .filter(
                 ChatMessage.chat_id == chat_id,
-                ChatMessage.created_at >= target.created_at,
+                ChatMessage.chat_seq >= int(target.chat_seq),
             )
             .delete(synchronize_session="fetch")
         )
@@ -451,51 +532,468 @@ class ChatService:
         self.db.commit()
         return deleted
 
+    def _invalidate_compaction_lineage_for_rewrite(
+        self,
+        chat_id: str,
+        *,
+        rewritten_seq: int,
+    ) -> bool:
+        """Fence a snapshot that may contain a rewritten/deleted message."""
+        state = self._ensure_compaction_state(chat_id)
+        # Lock the lineage row where supported. SQLite serializes the following
+        # write transaction; PostgreSQL blocks a concurrent publisher here.
+        state = (
+            self.db.query(ChatCompactionState)
+            .filter(ChatCompactionState.chat_id == chat_id)
+            .with_for_update()
+            .populate_existing()
+            .one()
+        )
+        affects_checkpoint = bool(
+            state.active_checkpoint_id
+            and int(rewritten_seq) <= int(state.covered_seq or 0)
+        )
+        affects_snapshot = bool(state.lease_owner)
+        if not affects_checkpoint and not affects_snapshot:
+            return False
+
+        state.active_checkpoint_id = None
+        state.checkpoint_version = int(state.checkpoint_version or 0) + 1
+        state.covered_seq = 0
+        state.lease_owner = None
+        state.lease_expires_at = None
+        state.updated_at = _utcnow()
+
+        from core.llm.compaction import COMPACTION_CHECKPOINT_KIND
+
+        checkpoints = (
+            self.db.query(ChatMessage)
+            .filter(ChatMessage.chat_id == chat_id, ChatMessage.role == "system")
+            .all()
+        )
+        for checkpoint in checkpoints:
+            extra = dict(checkpoint.extra_data or {})
+            if extra.get("kind") != COMPACTION_CHECKPOINT_KIND:
+                continue
+            extra["active"] = False
+            extra["notice_pending"] = False
+            checkpoint.extra_data = extra
+        return True
+
     def add_compaction_checkpoint(
         self,
         chat_id: str,
         *,
         summary_text: str,
         replacement_history: List[Dict],
+        covered_seq: Optional[int] = None,
+        source_hash: Optional[str] = None,
+        base_checkpoint_version: Optional[int] = None,
+        replacement_manifest: Optional[Dict[str, Any]] = None,
     ) -> ChatMessage:
-        """Write a compaction checkpoint (role='system').
-
-        Persists the summary + replay history for later turns to consume directly without
-        re-compacting. **Does not increment session.message_count** (invisible to the user), nor
-        refresh last_message_at (not a real conversation turn).
-        ``covers_up_to_*`` are troubleshooting breadcrumbs (replay cuts the tail by the
-        checkpoint row's own created_at); computed here from the last message in place, callers
-        need not pass them.
-        """
-        from core.llm.compaction import COMPACTION_CHECKPOINT_KIND
-
-        last = (
-            self.db.query(ChatMessage.message_id, ChatMessage.created_at)
-            .filter(ChatMessage.chat_id == chat_id)
-            .order_by(ChatMessage.created_at.desc())
-            .first()
+        """Compatibility wrapper around the lease + CAS checkpoint protocol."""
+        owner = f"direct:{uuid.uuid4().hex}"
+        snapshot = self.acquire_compaction_snapshot(
+            chat_id, owner=owner, lease_seconds=60
+        )
+        if snapshot is None:
+            raise CompactionCASConflict(
+                "no uncompacted source or compaction lease is busy"
+            )
+        if (
+            base_checkpoint_version is not None
+            and snapshot.base_checkpoint_version != int(base_checkpoint_version)
+        ):
+            self.release_compaction_lease(chat_id, owner=owner)
+            raise CompactionCASConflict("checkpoint base changed")
+        if covered_seq is not None and int(covered_seq) != snapshot.covered_seq:
+            self.release_compaction_lease(chat_id, owner=owner)
+            raise ValueError("covered_seq must equal the acquired source watermark")
+        if source_hash:
+            snapshot = replace(snapshot, source_hash=source_hash)
+        return self.commit_compaction_checkpoint(
+            snapshot,
+            owner=owner,
+            summary_text=summary_text,
+            replacement_history=replacement_history,
+            replacement_manifest=replacement_manifest or {},
         )
 
+    def _latest_compaction_checkpoint_fallback(
+        self, chat_id: str
+    ) -> Optional[ChatMessage]:
+        """Find the newest checkpoint without timestamps (legacy-state fallback)."""
+        from core.llm.compaction import COMPACTION_CHECKPOINT_KIND
+
+        rows = (
+            self.db.query(ChatMessage)
+            .filter(ChatMessage.chat_id == chat_id, ChatMessage.role == "system")
+            .order_by(ChatMessage.chat_seq.desc(), ChatMessage.message_id.desc())
+            .limit(20)
+            .all()
+        )
+        return next(
+            (
+                row
+                for row in rows
+                if (row.extra_data or {}).get("kind") == COMPACTION_CHECKPOINT_KIND
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _checkpoint_covered_seq(checkpoint: Optional[ChatMessage]) -> int:
+        """Return only an explicitly captured source watermark.
+
+        A legacy checkpoint was inserted *after* summarization, so its own
+        sequence cannot prove which earlier rows were actually summarized.
+        Treating ``checkpoint.chat_seq - 1`` as covered can hide a message
+        that arrived while the summary was in flight.  Legacy checkpoints are
+        therefore conservatively invalidated and rebuilt from raw history.
+        """
+        if checkpoint is None:
+            return 0
+        extra = checkpoint.extra_data or {}
+        explicit = extra.get("covered_seq")
+        if explicit is None:
+            explicit = extra.get("covers_up_to_chat_seq")
+        if explicit is not None:
+            return max(0, int(explicit))
+        return 0
+
+    def _ensure_message_sequences(self, chat_id: str) -> None:
+        """Repair legacy/direct ORM rows before they enter a source snapshot."""
+        from sqlalchemy import func
+
+        # ``key_share=True`` renders ``FOR NO KEY UPDATE`` on PostgreSQL.
+        # A plain ``FOR UPDATE`` here is a full outage risk: inserting any row
+        # into ``chat_messages`` takes ``FOR KEY SHARE`` on this parent row for
+        # the foreign key, and ``FOR KEY SHARE`` conflicts with ``FOR UPDATE``.
+        # Holding that lock therefore blocks every message write for the chat —
+        # including the run journal's terminal commit, which runs on the event
+        # loop and freezes the whole process when it waits. We only bump the
+        # non-key column ``next_message_seq``, so the weaker lock is both
+        # sufficient (it still excludes a concurrent sequence repair) and
+        # compatible with the foreign-key lock.
+        chat = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.chat_id == chat_id)
+            .with_for_update(key_share=True)
+            .one_or_none()
+        )
+        if chat is None:
+            return
+        max_seq = int(
+            self.db.query(func.max(ChatMessage.chat_seq))
+            .filter(ChatMessage.chat_id == chat_id)
+            .scalar()
+            or 0
+        )
+        next_seq = max(int(chat.next_message_seq or 1), max_seq + 1)
+        missing = (
+            self.db.query(ChatMessage)
+            .filter(ChatMessage.chat_id == chat_id, ChatMessage.chat_seq.is_(None))
+            .order_by(ChatMessage.created_at, ChatMessage.message_id)
+            .all()
+        )
+        for row in missing:
+            row.chat_seq = next_seq
+            next_seq += 1
+        chat.next_message_seq = next_seq
+        self.db.flush()
+
+    def _ensure_compaction_state(self, chat_id: str) -> ChatCompactionState:
+        state = self.db.get(ChatCompactionState, chat_id)
+        if state is not None:
+            return state
+        checkpoint = self._latest_compaction_checkpoint_fallback(chat_id)
+        extra = (checkpoint.extra_data or {}) if checkpoint is not None else {}
+        has_exact_watermark = (
+            checkpoint is not None
+            and (
+                extra.get("covered_seq") is not None
+                or extra.get("covers_up_to_chat_seq") is not None
+            )
+        )
+        state = ChatCompactionState(
+            chat_id=chat_id,
+            active_checkpoint_id=checkpoint.message_id if has_exact_watermark else None,
+            checkpoint_version=(
+                int(extra.get("checkpoint_version") or 1) if has_exact_watermark else 0
+            ),
+            covered_seq=self._checkpoint_covered_seq(checkpoint)
+            if has_exact_watermark
+            else 0,
+            updated_at=_utcnow(),
+        )
+        self.db.add(state)
+        self.db.flush()
+        return state
+
+    def acquire_compaction_snapshot(
+        self,
+        chat_id: str,
+        *,
+        owner: str,
+        lease_seconds: int,
+    ) -> Optional[CompactionSnapshot]:
+        """Capture an exact source watermark and acquire a short-lived lease.
+
+        Every exit path must end this transaction. The body takes a row lock on
+        the chat before it reads, so an exception escaping with the transaction
+        still open strands that lock on a pooled connection that no longer has
+        a Python owner — an ``idle in transaction`` backend that blocks the
+        chat's message writes until the process dies. The rollback below is the
+        guarantee that cannot be forgotten by a future early return.
+        """
+        try:
+            return self._acquire_compaction_snapshot(
+                chat_id, owner=owner, lease_seconds=lease_seconds
+            )
+        except BaseException:
+            try:
+                self.db.rollback()
+            except Exception:  # noqa: BLE001 - never mask the original failure
+                logger.exception(
+                    "[compaction] rollback failed after a snapshot error (chat=%s)",
+                    chat_id,
+                )
+            raise
+
+    def _acquire_compaction_snapshot(
+        self,
+        chat_id: str,
+        *,
+        owner: str,
+        lease_seconds: int,
+    ) -> Optional[CompactionSnapshot]:
+        from core.llm.compaction import COMPACTION_CHECKPOINT_KIND
+
+        self._ensure_message_sequences(chat_id)
+        state = self._ensure_compaction_state(chat_id)
+        now = _utcnow()
+        if state.lease_owner and (_as_utc(state.lease_expires_at) or now) > now:
+            self.db.rollback()
+            return None
+
+        checkpoint = (
+            self.db.get(ChatMessage, state.active_checkpoint_id)
+            if state.active_checkpoint_id
+            else None
+        )
+        replacement_history = (
+            tuple(
+                dict(item)
+                for item in (
+                    (checkpoint.extra_data or {}).get("replacement_history") or []
+                )
+            )
+            if checkpoint is not None
+            else ()
+        )
+        candidates = (
+            self.db.query(ChatMessage)
+            .filter(
+                ChatMessage.chat_id == chat_id,
+                ChatMessage.chat_seq > int(state.covered_seq or 0),
+            )
+            .order_by(ChatMessage.chat_seq)
+            .all()
+        )
+        source_models = tuple(
+            row
+            for row in candidates
+            if not (
+                row.role == "system"
+                and (row.extra_data or {}).get("kind") == COMPACTION_CHECKPOINT_KIND
+            )
+        )
+        if not source_models:
+            self.db.rollback()
+            return None
+
+        source_rows = tuple(
+            CompactionSourceRow(
+                message_id=row.message_id,
+                chat_seq=int(row.chat_seq or 0),
+                role=row.role,
+                content=row.content,
+                tool_calls=row.tool_calls,
+                extra_data=dict(row.extra_data or {}),
+            )
+            for row in source_models
+        )
+        covered_seq = max(row.chat_seq for row in source_rows)
+        canonical_source = [
+            {
+                "message_id": row.message_id,
+                "chat_seq": row.chat_seq,
+                "role": row.role,
+                "content": row.content,
+                "tool_calls": row.tool_calls,
+                "metadata": row.extra_data,
+            }
+            for row in source_rows
+        ]
+        source_hash = hashlib.sha256(
+            json.dumps(
+                {
+                    "base_checkpoint_version": int(state.checkpoint_version or 0),
+                    "base_covered_seq": int(state.covered_seq or 0),
+                    "covered_seq": covered_seq,
+                    "source": canonical_source,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        base_version = int(state.checkpoint_version or 0)
+        updated = (
+            self.db.query(ChatCompactionState)
+            .filter(
+                ChatCompactionState.chat_id == chat_id,
+                ChatCompactionState.checkpoint_version == base_version,
+                (
+                    ChatCompactionState.lease_owner.is_(None)
+                    | (ChatCompactionState.lease_expires_at <= now)
+                    | (ChatCompactionState.lease_owner == owner)
+                ),
+            )
+            .update(
+                {
+                    ChatCompactionState.lease_owner: owner,
+                    ChatCompactionState.lease_expires_at: now
+                    + timedelta(seconds=max(1, lease_seconds)),
+                    ChatCompactionState.updated_at: now,
+                },
+                synchronize_session=False,
+            )
+        )
+        if updated != 1:
+            self.db.rollback()
+            return None
+        base_covered_seq = int(state.covered_seq or 0)
+        base_checkpoint_id = checkpoint.message_id if checkpoint is not None else None
+        self.db.commit()
+        return CompactionSnapshot(
+            chat_id=chat_id,
+            owner=owner,
+            base_checkpoint_id=base_checkpoint_id,
+            base_checkpoint_version=base_version,
+            base_covered_seq=base_covered_seq,
+            covered_seq=covered_seq,
+            source_hash=source_hash,
+            replacement_history=replacement_history,
+            source_rows=source_rows,
+            source_message_ids=tuple(row.message_id for row in source_rows),
+            source_message_seqs=tuple(row.chat_seq for row in source_rows),
+        )
+
+    def release_compaction_lease(self, chat_id: str, *, owner: str) -> bool:
+        updated = (
+            self.db.query(ChatCompactionState)
+            .filter(
+                ChatCompactionState.chat_id == chat_id,
+                ChatCompactionState.lease_owner == owner,
+            )
+            .update(
+                {
+                    ChatCompactionState.lease_owner: None,
+                    ChatCompactionState.lease_expires_at: None,
+                    ChatCompactionState.updated_at: _utcnow(),
+                },
+                synchronize_session=False,
+            )
+        )
+        self.db.commit()
+        return updated == 1
+
+    def commit_compaction_checkpoint(
+        self,
+        snapshot: CompactionSnapshot,
+        *,
+        owner: str,
+        summary_text: str,
+        replacement_history: List[Dict[str, Any]],
+        replacement_manifest: Dict[str, Any],
+    ) -> ChatMessage:
+        """Atomically publish one successor from ``snapshot`` using CAS."""
+        from core.llm.compaction import COMPACTION_CHECKPOINT_KIND
+
+        if owner != snapshot.owner:
+            raise CompactionCASConflict("snapshot owner mismatch")
+        message_id = f"cmpct_{uuid.uuid4().hex[:16]}"
+        next_version = snapshot.base_checkpoint_version + 1
+        manifest = dict(replacement_manifest)
+        manifest.update(
+            {
+                "source_message_ids": list(snapshot.source_message_ids),
+                "source_message_seqs": list(snapshot.source_message_seqs),
+                "source_count": len(snapshot.source_rows),
+                "replacement_count": len(replacement_history),
+            }
+        )
         message = self.message_repo.create(
             {
-                "message_id": f"cmpct_{uuid.uuid4().hex[:16]}",
-                "chat_id": chat_id,
+                "message_id": message_id,
+                "chat_id": snapshot.chat_id,
                 "role": "system",
                 "content": summary_text,
                 "extra_data": {
                     "kind": COMPACTION_CHECKPOINT_KIND,
                     "replacement_history": replacement_history,
-                    "covers_up_to_message_id": last.message_id if last else None,
-                    "covers_up_to_created_at": (
-                        last.created_at.isoformat() if last and last.created_at else None
+                    "covered_seq": snapshot.covered_seq,
+                    "covers_up_to_chat_seq": snapshot.covered_seq,
+                    "covers_up_to_message_id": (
+                        snapshot.source_message_ids[-1]
+                        if snapshot.source_message_ids
+                        else None
                     ),
-                    # Pending-notice flag: consumed by the executor on the next turn's first frame
-                    # (pop_compaction_notice) → emits a compaction_notice SSE event to tell the user
-                    # compaction happened.
+                    "source_hash": snapshot.source_hash,
+                    "base_checkpoint_version": snapshot.base_checkpoint_version,
+                    "checkpoint_version": next_version,
+                    "replacement_manifest": manifest,
+                    "active": True,
                     "notice_pending": True,
                 },
-            }
+            },
+            commit=False,
         )
+        now = _utcnow()
+        updated = (
+            self.db.query(ChatCompactionState)
+            .filter(
+                ChatCompactionState.chat_id == snapshot.chat_id,
+                ChatCompactionState.checkpoint_version
+                == snapshot.base_checkpoint_version,
+                ChatCompactionState.covered_seq == snapshot.base_covered_seq,
+                ChatCompactionState.lease_owner == owner,
+            )
+            .update(
+                {
+                    ChatCompactionState.active_checkpoint_id: message_id,
+                    ChatCompactionState.checkpoint_version: next_version,
+                    ChatCompactionState.covered_seq: snapshot.covered_seq,
+                    ChatCompactionState.lease_owner: None,
+                    ChatCompactionState.lease_expires_at: None,
+                    ChatCompactionState.updated_at: now,
+                },
+                synchronize_session=False,
+            )
+        )
+        if updated != 1:
+            self.db.rollback()
+            raise CompactionCASConflict("checkpoint base or lease changed")
+
+        if snapshot.base_checkpoint_id:
+            previous = self.db.get(ChatMessage, snapshot.base_checkpoint_id)
+            if previous is not None:
+                previous_extra = dict(previous.extra_data or {})
+                previous_extra["active"] = False
+                previous.extra_data = previous_extra
         self.db.commit()
         return message
 
@@ -507,22 +1005,25 @@ class ChatService:
         replacement_history (can reach ~100KB), and rolling compaction keeps accumulating —
         scan only the latest few rows, never ``.all()`` load everything.
         """
-        from core.llm.compaction import COMPACTION_CHECKPOINT_KIND
+        state = self.db.get(ChatCompactionState, chat_id)
+        if state is not None:
+            if not state.active_checkpoint_id:
+                return None
+            checkpoint = self.db.get(ChatMessage, state.active_checkpoint_id)
+            if (
+                checkpoint is not None
+                and (checkpoint.extra_data or {}).get("covered_seq") is not None
+            ):
+                return checkpoint
+            return None
 
-        rows = (
-            self.db.query(ChatMessage)
-            .filter(
-                ChatMessage.chat_id == chat_id,
-                ChatMessage.role == "system",
-            )
-            .order_by(ChatMessage.created_at.desc())
-            .limit(5)
-            .all()
-        )
-        for r in rows:
-            if (r.extra_data or {}).get("kind") == COMPACTION_CHECKPOINT_KIND:
-                return r
-        return None
+        checkpoint = self._latest_compaction_checkpoint_fallback(chat_id)
+        if (
+            checkpoint is None
+            or (checkpoint.extra_data or {}).get("covered_seq") is None
+        ):
+            return None
+        return checkpoint
 
     def get_message_by_id(self, message_id: str) -> Optional[ChatMessage]:
         """Get a single message by its ID."""
@@ -535,19 +1036,21 @@ class ChatService:
         )
 
     def get_message_by_index(self, chat_id: str, index: int) -> Optional[ChatMessage]:
-        """Get a message by its position (0-based) in the chat, ordered by created_at."""
+        """Get a message by its durable 0-based position in the chat."""
         return (
             self.db.query(ChatMessage)
             .filter(
                 ChatMessage.chat_id == chat_id,
             )
-            .order_by(ChatMessage.created_at)
+            .order_by(ChatMessage.chat_seq)
             .offset(index)
             .limit(1)
             .first()
         )
 
-    def get_user_message_before(self, chat_id: str, message_id: str) -> Optional[ChatMessage]:
+    def get_user_message_before(
+        self, chat_id: str, message_id: str
+    ) -> Optional[ChatMessage]:
         """Get the user message immediately before the given message."""
         target = self.get_message_by_id(message_id)
         if not target:
@@ -557,9 +1060,9 @@ class ChatService:
             .filter(
                 ChatMessage.chat_id == chat_id,
                 ChatMessage.role == "user",
-                ChatMessage.created_at < target.created_at,
+                ChatMessage.chat_seq < target.chat_seq,
             )
-            .order_by(ChatMessage.created_at.desc())
+            .order_by(ChatMessage.chat_seq.desc())
             .first()
         )
 
@@ -588,10 +1091,24 @@ class ChatService:
             return None
         updated_review = {**review, "candidate_answer": candidate, "accepted": True}
         extra_data["ontology_governance"] = {**governance, "review": updated_review}
-        return self.message_repo.update(
+        # Some pure unit adapters exercise this method without a database.
+        if not hasattr(self, "db"):
+            return self.message_repo.update(
+                message_id,
+                {"content": candidate, "extra_data": extra_data},
+            )
+
+        updated = self.message_repo.update(
             message_id,
             {"content": candidate, "extra_data": extra_data},
+            commit=False,
         )
+        self._invalidate_compaction_lineage_for_rewrite(
+            message.chat_id,
+            rewritten_seq=int(message.chat_seq),
+        )
+        self.db.commit()
+        return updated
 
     def search_sessions(
         self,
@@ -602,5 +1119,7 @@ class ChatService:
         scope: str = "title",
     ) -> Tuple[list, int]:
         """Search chat sessions by title (and optionally message content)."""
-        results, total = self.session_repo.search(user_id, query, page, page_size, scope=scope)
+        results, total = self.session_repo.search(
+            user_id, query, page, page_size, scope=scope
+        )
         return results, total

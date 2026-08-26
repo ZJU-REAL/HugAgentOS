@@ -4,6 +4,8 @@
   POST /v1/desktop/capability/token                  会话换取短时 capability token
   GET  /v1/desktop/capability/manifest               当前用户最终可用 MCP 清单
   ANY  /v1/desktop/capability/gateway/{sid}/mcp      MCP streamable-http 透明反代网关
+  GET  /v1/desktop/capability/models                 无密钥模型拓扑
+  POST /v1/desktop/capability/gateway/models/...     模型流式反代网关
 
 本机侧（桌面壳孵化的本机后端）：
   POST /v1/desktop/capability/cloud-bridge           壳推送 {cloud_base, token}
@@ -22,6 +24,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional
 
@@ -93,6 +96,13 @@ async def get_manifest(user_id: str = Depends(_require_capability_user)):
     return success_response(data=build_user_capability_manifest(user_id))
 
 
+@router.get("/models", summary="桌面本机执行面的无密钥模型清单")
+async def get_model_manifest(user_id: str = Depends(_require_capability_user)):
+    from core.services.desktop_capability import build_user_model_manifest
+
+    return success_response(data=build_user_model_manifest(user_id))
+
+
 # ── MCP 网关（云端，capability token 鉴权，透明反代） ──────────────────
 
 # 请求侧按 deny-list 透传：运行时上下文头（X-Chat-Id、X-Reranker-Enabled、
@@ -123,6 +133,79 @@ _DROP_REQUEST_HEADERS = {
 }
 # 响应侧透传的头。
 _FWD_RESPONSE_HEADERS = ("content-type", "mcp-session-id", "mcp-protocol-version")
+
+
+@router.post(
+    "/gateway/models/{provider_id}/{model_path:path}",
+    summary="桌面模型网关（OpenAI-compatible 流式反代）",
+)
+async def gateway_model(
+    provider_id: str,
+    model_path: str,
+    request: Request,
+    user_id: str = Depends(_require_capability_user),
+):
+    """把本机 Agent 的对话/向量/重排请求转发到云端内网模型。
+
+    路径、模型名和上游凭据全由云端 DB 重算；客户端提供的
+    Authorization / x-api-key / model 字段都不可信。
+    """
+    from core.services.desktop_capability import resolve_model_gateway_target
+
+    target = resolve_model_gateway_target(user_id, provider_id)
+    if target is None or model_path.strip("/") != target["path"]:
+        raise HTTPException(status_code=404, detail="model not available")
+
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="model request must be JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="model request must be a JSON object")
+    payload["model"] = target["model_name"]
+
+    headers = {
+        "authorization": f"Bearer {target['api_key']}",
+        "content-type": "application/json",
+        "accept": request.headers.get("accept", "application/json"),
+        # aiter_raw 保留原始字节，因此明确要求上游不压缩，避免在没有
+        # Content-Encoding 响应头的情况下把 gzip 字节直接送给 OpenAI SDK。
+        "accept-encoding": "identity",
+    }
+    client = _client()
+    upstream_req = client.build_request(
+        "POST",
+        target["url"],
+        headers=headers,
+        content=json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+    )
+    try:
+        upstream = await client.send(upstream_req, stream=True)
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "[desktop-capability] model gateway upstream error user=%s provider=%s: %s",
+            user_id,
+            provider_id,
+            exc,
+        )
+        raise HTTPException(status_code=502, detail="upstream model unreachable")
+
+    logger.info(
+        "[desktop-capability] model gateway user=%s provider=%s type=%s status=%s",
+        user_id,
+        provider_id,
+        target["provider_type"],
+        upstream.status_code,
+    )
+    response_headers = {}
+    if "content-type" in upstream.headers:
+        response_headers["content-type"] = upstream.headers["content-type"]
+    return StreamingResponse(
+        upstream.aiter_raw(),
+        status_code=upstream.status_code,
+        headers=response_headers,
+        background=BackgroundTask(upstream.aclose),
+    )
 
 
 @router.api_route(

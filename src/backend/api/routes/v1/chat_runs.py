@@ -1,9 +1,16 @@
-"""Chat Run management API — cancel and mid-run steering."""
+"""Chat Run management API — cancel and durable queued input."""
+
+from typing import Literal
 
 from core.auth.backend import UserContext, get_current_user
 from core.infra.logging import get_logger
 from core.infra.responses import success_response
-from core.services.chat_steer_service import put_pending_steer, remove_pending_steer
+from core.services.chat_steer_service import (
+    list_run_steers,
+    put_pending_steer,
+    remove_pending_steer,
+)
+from core.services.steer_queue import SteerQueueConflict
 from fastapi import APIRouter, Depends, HTTPException
 from orchestration import chat_run_executor
 from pydantic import BaseModel, Field, field_validator
@@ -16,6 +23,8 @@ router = APIRouter(prefix="/v1/chat-runs", tags=["ChatRuns"])
 class SteerChatRunRequest(BaseModel):
     steer_id: str = Field(..., min_length=1, max_length=64, description="前端待发送卡片 ID")
     message: str = Field(..., min_length=1, max_length=10000, description="追加给当前 run 的指令")
+    delivery_mode: Literal["steer", "followUp", "nextRun"] = "steer"
+    replace_latest: bool = True
 
     @field_validator("message")
     @classmethod
@@ -41,7 +50,7 @@ async def cancel_chat_run(
     return success_response(data={"run_id": run_id, "cancelled": cancelled})
 
 
-@router.post("/{run_id}/steer", summary="在下一次安全 ReAct 边界追加指令")
+@router.post("/{run_id}/steer", summary="耐久排队 steer、followUp 或 nextRun")
 async def steer_chat_run(
     run_id: str,
     body: SteerChatRunRequest,
@@ -60,16 +69,35 @@ async def steer_chat_run(
         raise HTTPException(status_code=409, detail="当前运行模式不支持 Steer")
 
     message = body.message.strip()
-    await put_pending_steer(
-        run_id,
-        {
-            "steer_id": body.steer_id,
-            "message": message,
-            "run_id": run_id,
-            "chat_id": run.chat_id,
-        },
-    )
-    return success_response(data={"run_id": run_id, "steer_id": body.steer_id, "queued": True})
+    try:
+        accepted = await put_pending_steer(
+            run_id,
+            {
+                "steer_id": body.steer_id,
+                "message": message,
+                "run_id": run_id,
+                "chat_id": run.chat_id,
+                "user_id": user.user_id,
+                "delivery_mode": body.delivery_mode,
+                "replace_latest": body.replace_latest,
+            },
+        )
+    except SteerQueueConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return success_response(data={**accepted, "queued": True})
+
+
+@router.get("/{run_id}/steers", summary="查询该 Run 的耐久排队状态")
+async def list_chat_run_steers(
+    run_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    run = chat_run_executor.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if run.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="无权操作该 run")
+    return success_response(data={"run_id": run_id, "items": list_run_steers(run_id)})
 
 
 @router.delete("/{run_id}/steer/{steer_id}", summary="撤回尚未生效的追加指令")

@@ -107,6 +107,23 @@ class TestConnectionRequest(BaseModel):
     extra_config: Dict[str, Any] = Field(default_factory=dict)
 
 
+class DetectContextRequest(BaseModel):
+    """Ask the backend to discover a model's real context window before saving."""
+
+    provider: str = "openai_compatible"
+    provider_type: str = "chat"
+    base_url: str = ""
+    api_key: str = ""
+    model_name: str
+    # An explicit "detect" click may pay for the slower error probe (still free — the
+    # upstream rejects the request during validation); the implicit fill-in on save
+    # never issues a chat request at all.
+    allow_error_probe: bool = True
+    # Editing a saved provider leaves the API Key box blank ("unchanged"), so detection
+    # would otherwise 401. Passing the provider id lets the backend reuse the stored key.
+    provider_id: Optional[str] = None
+
+
 class RoleAssignRequest(BaseModel):
     provider_id: str
 
@@ -280,6 +297,65 @@ async def _validate_provider_config(
             status_code=400,
             detail=f"模型连通性验证失败：{result['error']}。请检查配置（URL / 令牌 / 模型名 / 厂商凭据）是否正确。",
         )
+
+
+async def _autofill_context_length(
+    provider: str,
+    provider_type: str,
+    base_url: str,
+    api_key: str,
+    model_name: str,
+    extra_config: Optional[dict],
+) -> None:
+    """Fill an empty ``context_length`` in place by asking the upstream, on save.
+
+    ``context_length`` has no runtime fallback (see ``core/llm/context_manager``), so an
+    empty field means the model cannot serve traffic at all. Rather than make every
+    operator look the number up, we read it off the vendor when it is discoverable —
+    self-hosted vLLM/SGLang publish ``max_model_len`` on ``GET /v1/models``.
+
+    Two rules keep this safe:
+    - a value supplied by the operator always wins; we only ever write into an empty field;
+    - only the metadata stages run here (``allow_error_probe=False``), so saving never
+      issues a chat request beyond the connectivity check that just happened.
+
+    ``context_length_source`` marks a number nobody has confirmed yet — it is dropped as
+    soon as a payload carries an explicit ``context_length``, because at that point a
+    human has seen the value and saved it.
+    """
+    if not isinstance(extra_config, dict) or provider_type != "chat":
+        return
+    if extra_config.get("context_length"):
+        extra_config.pop("context_length_source", None)
+        return
+    # A marker without a value is stale (the operator cleared the box); drop it so it
+    # cannot outlive the number it described.
+    extra_config.pop("context_length_source", None)
+
+    from core.llm.providers.context_probe import discover_context_length
+
+    result = await discover_context_length(
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model_name=model_name,
+        allow_error_probe=False,
+    )
+    if not result.found:
+        logger.info(
+            "[models] context_length auto-detect found nothing for %s: %s",
+            model_name,
+            "; ".join(result.notes),
+        )
+        return
+    extra_config["context_length"] = result.context_length
+    extra_config["context_length_source"] = result.source
+    logger.info(
+        "[models] context_length auto-detected for %s: %d (%s)",
+        model_name,
+        result.context_length,
+        result.detail,
+    )
 
 
 async def _http_ping(url: str, headers: dict, payload: dict, timeout: int = 15) -> dict:
@@ -499,6 +575,14 @@ async def create_provider_endpoint(
         provider=body.provider,
         extra_config=body.extra_config,
     )
+    await _autofill_context_length(
+        body.provider,
+        body.provider_type,
+        normalized_url,
+        body.api_key,
+        body.model_name,
+        body.extra_config,
+    )
 
     provider = create_provider(
         db,
@@ -571,6 +655,16 @@ async def update_provider_endpoint(
             extra_config=new_extra,
         )
         fields["base_url"] = normalized_url
+
+    if "extra_config" in fields:
+        await _autofill_context_length(
+            new_provider,
+            new_type,
+            _normalize_base_url(new_url, new_type, new_provider),
+            new_key,
+            new_model,
+            fields["extra_config"],
+        )
 
     provider = update_provider(db, provider_id, **fields)
     if provider is None:
@@ -649,6 +743,35 @@ async def test_unsaved_provider(
         body.extra_config,
     )
     return success_response(data=result)
+
+
+@router.post("/providers/detect-context", summary="自动探测模型上下文窗口")
+async def detect_context_length(
+    body: DetectContextRequest,
+    _: None = Depends(require_system_settings),
+    db: Session = Depends(get_db),
+):
+    """探测模型真实上下文窗口（token）供表单回填。仅限管理员；不落库。
+
+    返回 `{context_length, source, source_label, confidence, detail, notes}`；`context_length=0`
+    表示没探到，`notes` 逐级说明每个来源看到了什么，便于管理员判断该手工填多少。
+    """
+    from core.llm.providers.context_probe import discover_context_length
+
+    api_key = body.api_key
+    if not api_key and body.provider_id:
+        existing = get_provider(db, body.provider_id)
+        if existing is not None:
+            api_key = existing.api_key or ""
+
+    result = await discover_context_length(
+        provider=body.provider,
+        base_url=_normalize_base_url(body.base_url, body.provider_type, body.provider),
+        api_key=api_key,
+        model_name=body.model_name,
+        allow_error_probe=body.allow_error_probe,
+    )
+    return success_response(data=result.to_dict())
 
 
 # ── Role assignment endpoints ─────────────────────────────────────────────────

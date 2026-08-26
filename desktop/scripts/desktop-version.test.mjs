@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -116,6 +116,24 @@ test("version command synchronizes every desktop manifest", () => {
       validateDesktopReleaseTag(fixture.desktopDir, "desktop-v1.3.0"),
       { version: "1.3.0", expectedTag: "desktop-v1.3.0" },
     );
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("version command also synchronizes the optional UOS Electron release line", () => {
+  const fixture = createDesktopFixture();
+  try {
+    const uosDir = join(fixture.root, "desktop-uos");
+    mkdirSync(uosDir, { recursive: true });
+    writeFileSync(join(uosDir, "package.json"), JSON.stringify({ version: "1.2.3" }));
+    writeFileSync(join(uosDir, "package-lock.json"), JSON.stringify({
+      version: "1.2.3",
+      packages: { "": { version: "1.2.3" } },
+    }));
+    assert.equal(setDesktopVersion(fixture.desktopDir, "1.4.0"), "1.4.0");
+    assert.equal(JSON.parse(readFileSync(join(uosDir, "package.json"))).version, "1.4.0");
+    assert.equal(JSON.parse(readFileSync(join(uosDir, "package-lock.json"))).packages[""].version, "1.4.0");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }

@@ -264,7 +264,7 @@ for _key in ("NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH", "JX_FONT_DIR"):
     if _val:
         SAFE_ENV[_key] = _val
 
-_LOCAL_SKILL_CLI_IDS = ("word-editing", "excel-editing", "ppt-design", "pdf-editing")
+_LOCAL_SKILL_CLI_IDS = ("pdf-editing",)
 
 
 def _local_safe_path_entries() -> list[str]:

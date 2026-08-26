@@ -8,8 +8,9 @@
 //!      编码为 base64 存进 `ProxyState.bridge_user`，反代随本机路由请求下发
 //!      （`X-Desktop-Bridge-User`），本机后端据此 get-or-create 同一身份——本机不再有
 //!      独立账号密码。
-//!   3. **模型配置下发**：云端 `/v1/models/export` → 本机 `/v1/models/import`（Bearer
-//!      桥接秘密走 CONFIG_TOKEN 路径），模型配置以云端为准。
+//!   3. **本机执行能力下发**：云端签发短时 desktop capability token；壳只拉取不含
+//!      `base_url` / `api_key` 的模型拓扑，并把模型地址改写为云端 capability gateway
+//!      后再导入本机。真实模型凭据与仅云端可达的内网地址绝不落到客户端。
 //!
 //! 所有步骤只在 provision_mode = Dual 下运行；云端/本机单一形态零行为变化。
 
@@ -66,12 +67,16 @@ pub fn on_cloud_login(
     http: reqwest::Client,
     cloud_base: String,
     cookie_name: String,
-    token: String,
+    session_token: Arc<RwLock<Option<String>>>,
     bridge_user: Arc<RwLock<Option<String>>>,
     bridge_secret: String,
     local_server: Arc<LocalServerManager>,
 ) {
     tauri::async_runtime::spawn(async move {
+        let Some(token) = session_token.read().await.clone() else {
+            eprintln!("[hybrid] 云端会话已清除，暂不更新本机执行能力");
+            return;
+        };
         let user_json = match fetch_cloud_user(&http, &cloud_base, &cookie_name, &token).await {
             Some(u) => u,
             None => {
@@ -88,6 +93,7 @@ pub fn on_cloud_login(
             cloud_base,
             cookie_name,
             token,
+            session_token,
             bridge_secret,
             local_server,
         )
@@ -121,7 +127,10 @@ async fn fetch_cloud_user(
         .or_else(|| data.get("user_id").and_then(|v| v.as_str()))?;
     let host = reqwest::Url::parse(cloud_base)
         .ok()
-        .and_then(|u| u.host_str().map(|h| format!("{h}:{}", u.port_or_known_default().unwrap_or(80))))
+        .and_then(|u| {
+            u.host_str()
+                .map(|h| format!("{h}:{}", u.port_or_known_default().unwrap_or(80)))
+        })
         .unwrap_or_else(|| "cloud".to_string());
     let payload = serde_json::json!({
         // 前缀云端地址：同一台机器连不同云端时，本机侧身份天然隔离。
@@ -133,9 +142,8 @@ async fn fetch_cloud_user(
     Some(payload.to_string())
 }
 
-/// 等本机服务就绪后，并行下发两类云端配置：模型配置（export → import）与
-/// 能力桥（capability token → cloud-bridge）。二者互相独立，任一失败不影响
-/// 另一个。
+/// 等本机服务就绪后，下发统一的 desktop runtime capability：同一枚短时令牌既
+/// 驱动安全模型网关，也驱动 MCP cloud-bridge，避免两套配置的身份和有效期漂移。
 ///
 /// 首次安装本机服务要校验并解压完整的离线 Python 运行时；在低速磁盘上仍可能
 /// 持续数分钟，因此等待窗口给到 ~40 分钟。就绪后的单次同步失败也不能永久
@@ -145,6 +153,7 @@ async fn sync_cloud_config_when_local_ready(
     cloud_base: String,
     cookie_name: String,
     token: String,
+    session_token: Arc<RwLock<Option<String>>>,
     bridge_secret: String,
     local_server: Arc<LocalServerManager>,
 ) {
@@ -152,20 +161,20 @@ async fn sync_cloud_config_when_local_ready(
         eprintln!("[hybrid] 本机服务迟迟未就绪，本次跳过云端配置下发");
         return;
     }
-    let models = retry_sync("模型配置下发", || {
-        sync_models_once(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
-    });
-    let capability = async {
-        let ok = retry_sync("能力桥下发", || {
-            sync_capability_once(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
-        })
+    let ok = retry_sync("本机执行能力下发", || {
+        sync_desktop_runtime_once(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
+    })
+    .await;
+    if ok {
+        run_capability_refresh_loop(
+            &http,
+            &cloud_base,
+            &cookie_name,
+            session_token,
+            &bridge_secret,
+        )
         .await;
-        if ok {
-            run_capability_refresh_loop(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
-                .await;
-        }
-    };
-    tokio::join!(models, capability);
+    }
 }
 
 async fn wait_local_ready(local_server: &Arc<LocalServerManager>) -> bool {
@@ -210,7 +219,7 @@ async fn run_capability_refresh_loop(
     http: &reqwest::Client,
     cloud_base: &str,
     cookie_name: &str,
-    token: &str,
+    session_token: Arc<RwLock<Option<String>>>,
     bridge_secret: &str,
 ) {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -220,58 +229,24 @@ async fn run_capability_refresh_loop(
     }
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(4 * 3600)).await;
-        match sync_capability_once(http, cloud_base, cookie_name, token, bridge_secret).await {
-            Ok(_) => eprintln!("[hybrid] 能力桥令牌已定期刷新"),
-            Err(error) => eprintln!("[hybrid] 能力桥定期刷新失败: {error}"),
+        let Some(token) = session_token.read().await.clone() else {
+            eprintln!("[hybrid] 云端会话已清除，跳过本机执行能力刷新");
+            continue;
+        };
+        match sync_desktop_runtime_once(http, cloud_base, cookie_name, &token, bridge_secret).await
+        {
+            Ok(_) => eprintln!("[hybrid] 本机执行能力已定期刷新"),
+            Err(error) => eprintln!("[hybrid] 本机执行能力定期刷新失败: {error}"),
         }
     }
 }
 
-async fn sync_models_once(
+async fn issue_capability_once(
     http: &reqwest::Client,
     cloud_base: &str,
     cookie_name: &str,
     token: &str,
-    bridge_secret: &str,
-) -> Result<String, String> {
-    let export_url = format!("{}/api/v1/models/export", cloud_base.trim_end_matches('/'));
-    let resp = http
-        .get(&export_url)
-        .header(reqwest::header::COOKIE, format!("{cookie_name}={token}"))
-        .send()
-        .await
-        .map_err(|e| format!("export 请求失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("export HTTP {}", resp.status()));
-    }
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("export 解析失败: {e}"))?;
-    let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
-    let providers = data.get("providers").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-
-    let import_url = format!("{LOCAL_SERVER_BASE}/api/v1/models/import");
-    let resp = http
-        .post(&import_url)
-        .header(reqwest::header::AUTHORIZATION, format!("Bearer {bridge_secret}"))
-        .json(&data)
-        .send()
-        .await
-        .map_err(|e| format!("import 请求失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("import HTTP {}", resp.status()));
-    }
-    Ok(format!("providers={providers}"))
-}
-
-/// 能力桥下发（双端能力网关）：云端签发短时 capability token → 推送
-/// `{cloud_base, token}` 到本机后端。本机后端据此拉取云端能力 manifest，
-/// 把云端授权的 MCP 工具（产业知识中心、知识库、搜索等）合并进本机会话。
-async fn sync_capability_once(
-    http: &reqwest::Client,
-    cloud_base: &str,
-    cookie_name: &str,
-    token: &str,
-    bridge_secret: &str,
-) -> Result<String, String> {
+) -> Result<(String, i64), String> {
     let base = cloud_base.trim_end_matches('/');
     let issue_url = format!("{base}/api/v1/desktop/capability/token");
     let resp = http
@@ -288,22 +263,140 @@ async fn sync_capability_once(
         .await
         .map_err(|e| format!("token 响应解析失败: {e}"))?;
     let data = body.get("data").cloned().unwrap_or(serde_json::json!({}));
-    let cap_token = data
+    let capability_token = data
         .get("token")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "token 响应缺 token 字段".to_string())?;
-    let expires_in = data.get("expires_in").and_then(|v| v.as_i64()).unwrap_or(86400);
+    let expires_in = data
+        .get("expires_in")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(86400);
+    Ok((capability_token.to_string(), expires_in))
+}
 
+fn model_gateway_url(cloud_base: &str, provider_id: &str) -> Result<String, String> {
+    let mut url = reqwest::Url::parse(cloud_base).map_err(|e| format!("云端地址无效: {e}"))?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| "云端地址不能作为模型网关基址".to_string())?;
+        segments.pop_if_empty();
+        segments.extend(["api", "v1", "desktop", "capability", "gateway", "models"]);
+        segments.push(provider_id);
+    }
+    Ok(url.to_string().trim_end_matches('/').to_string())
+}
+
+fn model_import_payload(
+    manifest: serde_json::Value,
+    cloud_base: &str,
+    capability_token: &str,
+) -> Result<(serde_json::Value, usize), String> {
+    let providers = manifest
+        .get("providers")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "模型能力清单缺少 providers".to_string())?;
+    let role_assignments = manifest
+        .get("role_assignments")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "模型能力清单缺少 role_assignments".to_string())?;
+
+    let mut rewritten = Vec::with_capacity(providers.len());
+    for provider in providers {
+        let mut provider = provider.clone();
+        let object = provider
+            .as_object_mut()
+            .ok_or_else(|| "模型能力清单包含非对象 provider".to_string())?;
+        let provider_id = object
+            .get("provider_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| "模型能力清单包含空 provider_id".to_string())?;
+        let gateway = model_gateway_url(cloud_base, provider_id)?;
+        object.insert("base_url".to_string(), serde_json::Value::String(gateway));
+        object.insert(
+            "api_key".to_string(),
+            serde_json::Value::String(capability_token.to_string()),
+        );
+        rewritten.push(provider);
+    }
+    let count = rewritten.len();
+    Ok((
+        serde_json::json!({
+            "providers": rewritten,
+            "role_assignments": role_assignments,
+            "overwrite": true,
+        }),
+        count,
+    ))
+}
+
+async fn sync_models_once(
+    http: &reqwest::Client,
+    cloud_base: &str,
+    capability_token: &str,
+    bridge_secret: &str,
+) -> Result<String, String> {
+    let base = cloud_base.trim_end_matches('/');
+    let manifest_url = format!("{base}/api/v1/desktop/capability/models");
+    let resp = http
+        .get(&manifest_url)
+        .bearer_auth(capability_token)
+        .send()
+        .await
+        .map_err(|e| format!("模型能力清单请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("模型能力清单 HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("模型能力清单解析失败: {e}"))?;
+    let manifest = body.get("data").cloned().unwrap_or(serde_json::json!({}));
+    let (payload, providers) = model_import_payload(manifest, base, capability_token)?;
+
+    let import_url = format!("{LOCAL_SERVER_BASE}/api/v1/models/import");
+    let resp = http
+        .post(&import_url)
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {bridge_secret}"),
+        )
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("import 请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("import HTTP {}", resp.status()));
+    }
+    Ok(format!("providers={providers}"))
+}
+
+/// 能力桥下发（双端能力网关）：把已签发的短时 capability token 推送为
+/// `{cloud_base, token}` 到本机后端。本机后端据此拉取云端能力 manifest，
+/// 把云端授权的 MCP 工具（产业知识中心、知识库、搜索等）合并进本机会话。
+async fn push_capability_once(
+    http: &reqwest::Client,
+    cloud_base: &str,
+    capability_token: &str,
+    expires_in: i64,
+    bridge_secret: &str,
+) -> Result<String, String> {
+    let base = cloud_base.trim_end_matches('/');
     let push_url = format!("{LOCAL_SERVER_BASE}/api/v1/desktop/capability/cloud-bridge");
     let payload = serde_json::json!({
         "cloud_base": base,
-        "token": cap_token,
+        "token": capability_token,
         "expires_in": expires_in,
     });
     let resp = http
         .post(&push_url)
-        .header(reqwest::header::AUTHORIZATION, format!("Bearer {bridge_secret}"))
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {bridge_secret}"),
+        )
         .json(&payload)
         .send()
         .await
@@ -314,17 +407,51 @@ async fn sync_capability_once(
     Ok(format!("expires_in={expires_in}s"))
 }
 
+async fn sync_desktop_runtime_once(
+    http: &reqwest::Client,
+    cloud_base: &str,
+    cookie_name: &str,
+    token: &str,
+    bridge_secret: &str,
+) -> Result<String, String> {
+    let (capability_token, expires_in) =
+        issue_capability_once(http, cloud_base, cookie_name, token).await?;
+    let (models, capability) = tokio::join!(
+        sync_models_once(http, cloud_base, &capability_token, bridge_secret),
+        push_capability_once(
+            http,
+            cloud_base,
+            &capability_token,
+            expires_in,
+            bridge_secret,
+        )
+    );
+    Ok(format!("{}; {}", models?, capability?))
+}
+
 /// 标准 base64（无换行）。避免为一处编码引第三方 crate。
 pub fn base64_encode(input: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         out.push(TABLE[(n >> 18 & 63) as usize] as char);
         out.push(TABLE[(n >> 12 & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { TABLE[(n >> 6 & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6 & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -347,8 +474,9 @@ mod tests {
     }
 
     #[test]
-    fn bridge_secret_is_persistent_and_hex(){
-        let dir = std::env::temp_dir().join(format!("hugagent-bridge-secret-{}", std::process::id()));
+    fn bridge_secret_is_persistent_and_hex() {
+        let dir =
+            std::env::temp_dir().join(format!("hugagent-bridge-secret-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let first = load_or_create_bridge_secret(&dir);
         let second = load_or_create_bridge_secret(&dir);
@@ -356,5 +484,43 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn model_manifest_is_rewritten_to_capability_gateway() {
+        let manifest = serde_json::json!({
+            "providers": [{
+                "provider_id": "private/deepseek",
+                "display_name": "DeepSeek",
+                "base_url": "http://192.0.2.10:1029/v1",
+                "api_key": "must-not-survive"
+            }],
+            "role_assignments": [{"role_key": "main_agent", "provider_id": "private/deepseek"}]
+        });
+        let (payload, count) =
+            model_import_payload(manifest, "https://cloud.example", "dcap1.short-lived")
+                .expect("manifest should be valid");
+        assert_eq!(count, 1);
+        let provider = &payload["providers"][0];
+        assert_eq!(provider["api_key"], "dcap1.short-lived");
+        assert_eq!(
+            provider["base_url"],
+            "https://cloud.example/api/v1/desktop/capability/gateway/models/private%2Fdeepseek"
+        );
+        assert_eq!(payload["overwrite"], true);
+        let serialized = payload.to_string();
+        assert!(!serialized.contains("192.0.2."));
+        assert!(!serialized.contains("must-not-survive"));
+    }
+
+    #[test]
+    fn model_manifest_requires_complete_topology() {
+        let error = model_import_payload(
+            serde_json::json!({"providers": []}),
+            "https://cloud.example",
+            "dcap1.token",
+        )
+        .expect_err("role assignments are required");
+        assert!(error.contains("role_assignments"));
     }
 }

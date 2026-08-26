@@ -13,8 +13,16 @@ import 'highlight.js/styles/github.css';
 import { t } from './i18n';
 
 /* styles loaded via styles/index.ts in main.tsx */
-import type { PanelKey } from './types';
-import { listSidebarAutomations, getPendingConfirm, listPendingConfirms, searchSessions } from './api';
+import type { PanelKey, UserQuestionRequest } from './types';
+import {
+  getPendingConfirm,
+  getPendingUserQuestions,
+  listPendingConfirms,
+  listPendingUserQuestions,
+  listSidebarAutomations,
+  mergePendingUserQuestionRecovery,
+  searchSessions,
+} from './api';
 import type { SearchResultItem } from './api';
 import { TOPIC_TAG_COLORS } from './utils/constants';
 import { resolvePlanModeActive } from './utils/chatMode';
@@ -381,14 +389,30 @@ export default function App() {
     if (!authUser || !currentChatId) return;
     let cancelled = false;
     const chatId = currentChatId;
-    getPendingConfirm(chatId)
-      .then(({ confirms, designPick }) => {
+    const questionIdsAtRequestStart = new Set(
+      (useUIStore.getState().pendingUserQuestions[chatId] ?? [])
+        .map((request) => request.requestId),
+    );
+    void Promise.allSettled([
+      getPendingConfirm(chatId).then(({ confirms, designPick }) => {
         if (cancelled) return;
         useUIStore.getState().hydratePendingConfirmQueue(chatId, confirms);
         // Site-builder pick-one-of-three designs: the backend is the authority — restore the pick card if present, clear stale ones if not.
         useUIStore.getState().setPendingDesignPick(chatId, designPick);
-      })
-      .catch(() => { /* silent: if unavailable, keep the current state */ });
+      }),
+      getPendingUserQuestions(chatId).then((requests) => {
+        if (cancelled) return;
+        const ui = useUIStore.getState();
+        // Preserve requests delivered by SSE after this GET began. Otherwise
+        // an older response snapshot could erase a newer question event.
+        const merged = mergePendingUserQuestionRecovery(
+          requests,
+          ui.pendingUserQuestions[chatId] ?? [],
+          questionIdsAtRequestStart,
+        );
+        ui.hydratePendingUserQuestionQueue(chatId, merged);
+      }),
+    ]);
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChatId, authUser?.user_id]);
@@ -405,6 +429,59 @@ export default function App() {
       })
       .catch(() => { /* silent */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser?.user_id]);
+
+  // Pending model questions are cross-tab state: only one tab follows the run
+  // SSE, while another tab/device may answer first. Reconcile the global
+  // backend snapshot periodically so stale yellow dots/cards disappear even
+  // in tabs that do not own the stream follower lock.
+  useEffect(() => {
+    if (!authUser) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const reconcile = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      const idsAtStart = new Map<string, Set<string>>();
+      for (const [chatId, requests] of Object.entries(
+        useUIStore.getState().pendingUserQuestions,
+      )) {
+        idsAtStart.set(chatId, new Set(requests.map((request) => request.requestId)));
+      }
+      try {
+        const items = await listPendingUserQuestions();
+        if (cancelled) return;
+        const byChat = new Map<string, UserQuestionRequest[]>();
+        for (const { chatId, request } of items) {
+          byChat.set(chatId, [...(byChat.get(chatId) ?? []), request]);
+        }
+        const ui = useUIStore.getState();
+        const chatIds = new Set([
+          ...Object.keys(ui.pendingUserQuestions),
+          ...byChat.keys(),
+        ]);
+        for (const chatId of chatIds) {
+          const merged = mergePendingUserQuestionRecovery(
+            byChat.get(chatId) ?? [],
+            ui.pendingUserQuestions[chatId] ?? [],
+            idsAtStart.get(chatId) ?? new Set<string>(),
+          );
+          ui.hydratePendingUserQuestionQueue(chatId, merged);
+        }
+      } catch {
+        // Keep the in-memory/SSE state when the recovery endpoint is unavailable.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void reconcile();
+    const timer = window.setInterval(() => { void reconcile(); }, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [authUser?.user_id]);
 
   // A user-initiated send (Enter in the composer / clicking a follow-up question) is treated

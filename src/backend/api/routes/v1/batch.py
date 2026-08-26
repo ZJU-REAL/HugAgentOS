@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from api.schemas import ChatRequest
+from api.routes.v1.chat_admission import chat_busy_http_exception
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import BatchPlan, ChatMessage
@@ -328,9 +329,6 @@ async def cancel_and_resume(
     user_extra = user_msg.extra_data or {}
     attachment_items = _restore_attachments(user_extra.get("attachments", []))
 
-    # Drop the empty/dangling assistant turn so chat history stays clean.
-    chat_service.delete_messages_from(chat_id, target_assistant.message_id)
-
     # ── Build a regular ChatRequest that disables the batch tool ──
     # Restore the original thinking-mode preference from the user message
     # so that "fast mode" runs stay in fast mode after cancel-and-resume.
@@ -344,16 +342,12 @@ async def cancel_and_resume(
         disable_batch_plan=True,
     )
 
-    enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(
-        db, db_user_id
-    )
+    enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(db, db_user_id)
     _user_settings = UserService(db).get_user_settings(db_user_id)
     effective_msg = _build_effective_user_message(
         resume_request.message, resume_request.quoted_follow_up
     )
 
-    session_messages = _load_session_messages(chat_service, chat_id, db_user_id)
-    session_messages.append({"role": "user", "content": effective_msg})
     context = _build_ctx(
         resume_request,
         db_user_id,
@@ -366,22 +360,40 @@ async def cancel_and_resume(
         ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
         ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
     )
+    from core.services.chat_sequencer import ChatBusyError, ChatSequencer
 
-    # Use the modern chat_run_executor pipeline so:
-    #   • the run is registered in `chat_runs` (visible as "in progress")
-    #   • the orchestration task survives client disconnect (refresh resumes)
-    #   • thinking events flow through the same Redis-backed stream that
-    #     processRegenerateStream knows how to render
-    run = await chat_run_executor.start_run(
-        chat_id=chat_id,
-        user_id=db_user_id,
-        session_messages=session_messages,
-        effective_user_message=effective_msg,
-        raw_user_message=resume_request.message,
-        context=context,
-        request_payload=resume_request.model_dump(exclude_none=True),
-        model_name=resume_request.model_name,
-    )
+    try:
+        accepted = ChatSequencer(db).accept_existing_user_run(
+            chat_id=chat_id,
+            user_id=db_user_id,
+            user_message_id=user_msg.message_id,
+            delete_from_message_id=target_assistant.message_id,
+            delete_from_chat_seq=target_assistant.chat_seq,
+            request_payload=resume_request.model_dump(exclude_none=True),
+        )
+    except ChatBusyError as exc:
+        raise chat_busy_http_exception(exc) from exc
+    try:
+        session_messages = _load_session_messages(chat_service, chat_id, db_user_id)
+
+        # Use the modern chat_run_executor pipeline so:
+        #   • the run is registered in `chat_runs` (visible as "in progress")
+        #   • the orchestration task survives client disconnect (refresh resumes)
+        #   • thinking events flow through the same Redis-backed stream that
+        #     processRegenerateStream knows how to render
+        run = await chat_run_executor.start_run(
+            accepted_run=accepted.run,
+            chat_id=chat_id,
+            user_id=db_user_id,
+            session_messages=session_messages,
+            effective_user_message=effective_msg,
+            raw_user_message=resume_request.message,
+            context=context,
+            model_name=resume_request.model_name,
+        )
+    except Exception as exc:
+        ChatSequencer(db).abandon_pending_run(accepted.run.run_id, reason=str(exc))
+        raise
 
     return sse_response(
         chat_run_executor.follow_run_as_sse(run.run_id, chat_id=chat_id),

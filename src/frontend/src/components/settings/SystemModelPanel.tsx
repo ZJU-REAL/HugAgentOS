@@ -7,6 +7,7 @@ import {
   assignModelRole,
   createModelProvider,
   deleteModelProvider,
+  detectModelContextLength,
   getModelProviderSchemas,
   listModelProviders,
   listModelRoles,
@@ -20,6 +21,7 @@ import {
 } from '../../api';
 import { t } from '../../i18n';
 import { useModelCapabilitiesStore } from '../../stores';
+import { describeContextProbe } from '../../utils/contextUsage';
 
 const { Text } = Typography;
 
@@ -45,6 +47,10 @@ export function SystemModelPanel() {
   const [saving, setSaving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [assigningRole, setAssigningRole] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  // Explains where a detected window came from (or why nothing was found), kept next to
+  // the input so the number is never a bare figure the operator has to take on faith.
+  const [probeHint, setProbeHint] = useState('');
   const [form] = Form.useForm();
   const userModelSwitchEnabled = useModelCapabilitiesStore(
     (s) => s.capabilities.user_model_switch_enabled,
@@ -81,6 +87,7 @@ export function SystemModelPanel() {
 
   const openCreate = () => {
     setEditing(null);
+    setProbeHint('');
     form.resetFields();
     form.setFieldsValue({ provider: 'openai_compatible', provider_type: 'chat', is_active: true });
     setEditorOpen(true);
@@ -88,6 +95,11 @@ export function SystemModelPanel() {
 
   const openEdit = (p: ModelProviderItem) => {
     setEditing(p);
+    setProbeHint(
+      p.extra_config?.context_length_source
+        ? t('当前值由系统自动探测填入，尚未人工确认；保存即视为确认。')
+        : '',
+    );
     form.setFieldsValue({
       display_name: p.display_name,
       provider: p.provider,
@@ -102,6 +114,42 @@ export function SystemModelPanel() {
     });
     setEditorOpen(true);
   };
+
+  /**
+   * Ask the backend to read the model's real context window off the vendor.
+   *
+   * Only fills the form — the operator still reviews the number and saves it, which is
+   * what makes it safe to accept lower-confidence sources (a name-based guess) here.
+   */
+  const handleDetectContext = useCallback(async () => {
+    const values = form.getFieldsValue();
+    if (!values.model_name) {
+      message.warning(t('请先填写模型名'));
+      return;
+    }
+    setDetecting(true);
+    try {
+      const result = await detectModelContextLength({
+        provider: values.provider || 'openai_compatible',
+        provider_type: values.provider_type || 'chat',
+        base_url: values.base_url || '',
+        api_key: values.api_key || '',
+        model_name: values.model_name,
+        provider_id: editing?.provider_id,
+      });
+      setProbeHint(describeContextProbe(result));
+      if (result.context_length > 0) {
+        form.setFieldsValue({ context_length: result.context_length });
+        message.success(t('已探测到上下文窗口 {n} token', { n: String(result.context_length) }));
+      } else {
+        message.warning(t('未能自动探测到上下文窗口，请手工填写'));
+      }
+    } catch (e) {
+      message.error(t('探测失败：{msg}', { msg: (e as Error).message }));
+    } finally {
+      setDetecting(false);
+    }
+  }, [form, editing]);
 
   const handleSave = async () => {
     const values = await form.validateFields();
@@ -368,8 +416,28 @@ export function SystemModelPanel() {
             <Input placeholder="deepseek-chat" />
           </Form.Item>
           <Space.Compact block>
-            <Form.Item name="context_length" label={t('上下文窗口（token，可选）')} style={{ flex: 1 }}>
-              <Input type="number" placeholder="131072" />
+            <Form.Item
+              name="context_length"
+              label={t('上下文窗口（token，可选）')}
+              style={{ flex: 1 }}
+              tooltip={t('模型真实的上下文长度，用于历史裁剪与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。')}
+              extra={probeHint || undefined}
+            >
+              <Input
+                type="number"
+                placeholder="131072"
+                addonAfter={
+                  <Button
+                    type="link"
+                    size="small"
+                    loading={detecting}
+                    onClick={handleDetectContext}
+                    style={{ padding: 0, height: 'auto' }}
+                  >
+                    {t('自动探测')}
+                  </Button>
+                }
+              />
             </Form.Item>
             <Form.Item name="is_active" label={t('启用')} valuePropName="checked" style={{ width: 90, marginLeft: 8 }}>
               <Switch />

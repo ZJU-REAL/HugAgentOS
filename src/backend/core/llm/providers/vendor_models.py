@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator
 
-import httpx
 from agentscope.credential import (
     AnthropicCredential,
     DashScopeCredential,
@@ -43,10 +42,15 @@ from agentscope.model import (
 )
 from agentscope.tool._types import ToolChoice
 
-from .registry import ProviderSpec
 from ._fallback import StructuredFallbackMixin
+from .registry import ProviderSpec
 
 logger = logging.getLogger(__name__)
+
+
+def _with_provider(model_instance, provider_id: str):  # noqa: ANN001, ANN202
+    model_instance.provider_id = provider_id
+    return model_instance
 
 
 # ── Native vendor thin subclasses ─────────────────────────────────────────────
@@ -87,52 +91,64 @@ def build_native_model(
         cred_kw: dict[str, Any] = {"api_key": api_key or "DUMMY"}
         if base_url:
             cred_kw["base_url"] = base_url
-        return NativeAnthropicChatModel(
-            credential=AnthropicCredential(**cred_kw),
-            model=model or "claude-3-5-sonnet-latest",
-            parameters=AnthropicChatModel.Parameters(max_tokens=max_tokens),
-            stream=stream,
-            formatter=AnthropicChatFormatter(),
-            **ctx,
+        return _with_provider(
+            NativeAnthropicChatModel(
+                credential=AnthropicCredential(**cred_kw),
+                model=model or "claude-3-5-sonnet-latest",
+                parameters=AnthropicChatModel.Parameters(max_tokens=max_tokens),
+                stream=stream,
+                formatter=AnthropicChatFormatter(),
+                **ctx,
+            ),
+            spec.id,
         )
 
     if spec.native_class == "GeminiChatModel":
-        return NativeGeminiChatModel(
-            credential=GeminiCredential(api_key=api_key or "DUMMY"),
-            model=model or "gemini-1.5-pro",
-            parameters=GeminiChatModel.Parameters(
-                max_tokens=max_tokens, temperature=temperature
+        return _with_provider(
+            NativeGeminiChatModel(
+                credential=GeminiCredential(api_key=api_key or "DUMMY"),
+                model=model or "gemini-1.5-pro",
+                parameters=GeminiChatModel.Parameters(
+                    max_tokens=max_tokens, temperature=temperature
+                ),
+                stream=stream,
+                formatter=GeminiChatFormatter(),
+                **ctx,
             ),
-            stream=stream,
-            formatter=GeminiChatFormatter(),
-            **ctx,
+            spec.id,
         )
 
     if spec.native_class == "DashScopeChatModel":
         cred_kw = {"api_key": api_key or "DUMMY"}
         if base_url:
             cred_kw["base_url"] = base_url
-        return NativeDashScopeChatModel(
-            credential=DashScopeCredential(**cred_kw),
-            model=model or "qwen-max",
-            parameters=DashScopeChatModel.Parameters(
-                max_tokens=max_tokens, temperature=temperature
+        return _with_provider(
+            NativeDashScopeChatModel(
+                credential=DashScopeCredential(**cred_kw),
+                model=model or "qwen-max",
+                parameters=DashScopeChatModel.Parameters(
+                    max_tokens=max_tokens, temperature=temperature
+                ),
+                stream=stream,
+                formatter=DashScopeChatFormatter(),
+                **ctx,
             ),
-            stream=stream,
-            formatter=DashScopeChatFormatter(),
-            **ctx,
+            spec.id,
         )
 
     if spec.native_class == "OllamaChatModel":
-        return NativeOllamaChatModel(
-            credential=OllamaCredential(host=base_url or "http://localhost:11434"),
-            model=model or "llama3",
-            parameters=OllamaChatModel.Parameters(
-                max_tokens=max_tokens, temperature=temperature
+        return _with_provider(
+            NativeOllamaChatModel(
+                credential=OllamaCredential(host=base_url or "http://localhost:11434"),
+                model=model or "llama3",
+                parameters=OllamaChatModel.Parameters(
+                    max_tokens=max_tokens, temperature=temperature
+                ),
+                stream=stream,
+                formatter=OllamaChatFormatter(),
+                **ctx,
             ),
-            stream=stream,
-            formatter=OllamaChatFormatter(),
-            **ctx,
+            spec.id,
         )
 
     raise ValueError(f"未支持的原生厂商类：{spec.native_class}")
@@ -159,9 +175,12 @@ class LiteLLMChatModel(StructuredFallbackMixin, OpenAIChatModel):
         # required, no default (previously silently swallowed 128000; see the same comment in
         # chat_models.OpenAICompatChatModel)
         context_size: int,
+        provider_id: str = "litellm",
     ) -> None:
         super().__init__(
-            credential=OpenAICredential(api_key="litellm", base_url="https://litellm.invalid"),
+            credential=OpenAICredential(
+                api_key="litellm", base_url="https://litellm.invalid"
+            ),
             model=model or "litellm-model",
             parameters=parameters,
             stream=stream,
@@ -170,6 +189,7 @@ class LiteLLMChatModel(StructuredFallbackMixin, OpenAIChatModel):
             formatter=OpenAIChatFormatter(),
         )
         self._litellm_model = litellm_model
+        self.provider_id = provider_id
         self._litellm_kwargs = litellm_kwargs or {}
         self._timeout = timeout
 
@@ -237,7 +257,9 @@ def build_litellm_model(
         if provider_extra.get("aws_access_key_id"):
             litellm_kwargs["aws_access_key_id"] = provider_extra["aws_access_key_id"]
         if provider_extra.get("aws_secret_access_key"):
-            litellm_kwargs["aws_secret_access_key"] = provider_extra["aws_secret_access_key"]
+            litellm_kwargs["aws_secret_access_key"] = provider_extra[
+                "aws_secret_access_key"
+            ]
 
     return LiteLLMChatModel(
         litellm_model=f"{spec.litellm_prefix}{model}",
@@ -249,4 +271,5 @@ def build_litellm_model(
         stream=stream,
         timeout=max(float(timeout or 120), 600.0),
         context_size=context_size,
+        provider_id=spec.id,
     )

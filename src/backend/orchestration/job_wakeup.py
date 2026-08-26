@@ -36,6 +36,13 @@ from core.chat.plan_progress import (
 )
 from core.db.engine import SessionLocal
 from core.db.models import Job
+from core.llm.context_ir import (
+    KIND_REMINDER,
+    POLICY_NEVER,
+    SESSION_CONTEXT_META_KEY,
+    make_text_context_item,
+    session_context_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +104,9 @@ def _wake_prompt(job: Job, stats: Dict[str, Any], plan: Optional[Dict[str, Any]]
     return "\n".join(lines)
 
 
-def _progress_prompt(job: Job, stats: Dict[str, Any], budget_left: Dict[str, Any], stalled: bool) -> str:
+def _progress_prompt(
+    job: Job, stats: Dict[str, Any], budget_left: Dict[str, Any], stalled: bool
+) -> str:
     """进度播报 —— 只让智能体转述现状，**不要**让它顺手再干点什么。
 
     这里的措辞是刻意的：中途唤醒的每一次都是一轮真实推理，如果不把边界写死，智能体
@@ -127,9 +136,7 @@ def _progress_prompt(job: Job, stats: Dict[str, Any], budget_left: Dict[str, Any
             "确认是环境故障还是脚本缺陷；确实跑不动就 cancel 掉改脚本，别干等。"
         )
     else:
-        lines.append(
-            "作业推进正常。**请只用一两句话把上面的进度转述给用户**，然后结束本轮回复。"
-        )
+        lines.append("作业推进正常。**请只用一两句话把上面的进度转述给用户**，然后结束本轮回复。")
     lines.append(
         "本轮的硬性边界：不要重复提交作业（它还在跑），不要 export 台账，"
         "不要把逐项结果读进对话，也不用动 `update_plan` 计划清单"
@@ -242,50 +249,80 @@ async def _enqueue_followup_run(
     from api.routes.v1.chats import _load_session_messages
     from core.chat.context import build_runtime_context
     from core.config.catalog_resolver import resolve_all_runtime_enabled
+    from core.services.chat_sequencer import ChatSequencer
     from core.services.chat_service import ChatService
     from orchestration import chat_run_executor
 
-    with SessionLocal() as db:
-        chat_service = ChatService(db)
-        session_messages = _load_session_messages(chat_service, chat_id, user_id)
-        skills, agents, mcps = resolve_all_runtime_enabled(db, user_id)
-        # 会话模式要跟着唤醒轮一起走。作业只可能诞生在工作流模式里，而 workflow_mode
-        # 决定了 run_job 注不注册、批量提示词注不注入——唤醒轮丢掉它，模型就会看到
-        # 一条"用 run_job(action='resume') 续跑"的系统消息，却在工具面里找不到
-        # run_job，只能弃用作业、把 N 个工作项拖回主循环逐项重做（成本二次方增长，
-        # 前端也再没有后台作业卡片）。会话元数据里的 workflow_chat 是这件事的真源，
-        # 用户消息路径读的也是它（见 chats.py 的 ctx 组装）。
-        _sess = chat_service.get_session(chat_id, user_id)
-        workflow_chat = bool(dict(getattr(_sess, "extra_data", None) or {}).get("workflow_chat"))
-        # 唤醒消息按 user 角色落库：它要能进历史、能被模型看见，走和普通消息完全一样的链路。
-        # 但它是**写给模型的系统指令**，不是用户说的话——`hidden_in_chat` 让消息列表接口
-        # 把它从聊天记录里滤掉（模型侧的历史另走 load_session_history，不受影响）。
-        # 没有这个标记，用户一刷新页面就会看到「[系统] 进度播报：……请只用一两句话转述」
-        # 这种内部提示词以自己的口吻贴在对话里。
-        chat_service.add_message(
-            chat_id=chat_id,
-            role="user",
-            content=message,
-            extra_data={"system_wake": wake_kind, "hidden_in_chat": True},
-        )
+    accepted_run_id: Optional[str] = None
+    try:
+        with SessionLocal() as db:
+            chat_service = ChatService(db)
+            skills, agents, mcps = resolve_all_runtime_enabled(db, user_id)
+            # 会话模式要跟着唤醒轮一起走。作业只可能诞生在工作流模式里，而 workflow_mode
+            # 决定了 run_job 注不注册、批量提示词注不注入——唤醒轮丢掉它，模型就会看到
+            # 一条"用 run_job(action='resume') 续跑"的系统消息，却在工具面里找不到
+            # run_job，只能弃用作业、把 N 个工作项拖回主循环逐项重做（成本二次方增长，
+            # 前端也再没有后台作业卡片）。会话元数据里的 workflow_chat 是这件事的真源，
+            # 用户消息路径读的也是它（见 chats.py 的 ctx 组装）。
+            _sess = chat_service.get_session(chat_id, user_id)
+            workflow_chat = bool(
+                dict(getattr(_sess, "extra_data", None) or {}).get("workflow_chat")
+            )
+            # 唤醒消息按 user 角色落库：它要能进历史、能被模型看见，走和普通消息完全一样的链路。
+            # 但它是**写给模型的系统指令**，不是用户说的话——`hidden_in_chat` 让消息列表接口
+            # 把它从聊天记录里滤掉（模型侧的历史另走 load_session_history，不受影响）。
+            # 没有这个标记，用户一刷新页面就会看到「[系统] 进度播报：……请只用一两句话转述」
+            # 这种内部提示词以自己的口吻贴在对话里。
+            wake_item = make_text_context_item(
+                message,
+                item_id=f"harness:job_wakeup:{wake_kind}",
+                kind=KIND_REMINDER,
+                origin=f"harness:job_wakeup:{wake_kind}",
+                trust="system",
+                created_seq=0,
+                priority=950,
+                token_budget=4_000,
+                truncation_policy=POLICY_NEVER,
+            )
+            wake_metadata = session_context_metadata(wake_item)
+            accepted = ChatSequencer(db).accept_main_run(
+                chat_id=chat_id,
+                user_id=user_id,
+                user_content=message,
+                user_extra_data={
+                    "system_wake": wake_kind,
+                    "hidden_in_chat": True,
+                    SESSION_CONTEXT_META_KEY: wake_metadata,
+                },
+                request_payload={"chat_id": chat_id, "message": message, "kind": "job_wakeup"},
+            )
+            accepted_run_id = accepted.run.run_id
+            session_messages = _load_session_messages(chat_service, chat_id, user_id)
 
-    session_messages.append({"role": "user", "content": message})
-    context = build_runtime_context(
-        model_name=model_name,
-        user_id=user_id,
-        chat_id=chat_id,
-        enabled_skills=skills,
-        enabled_agents=agents,
-        enabled_mcps=mcps,
-    )
-    context["workflow_chat"] = workflow_chat
-    await chat_run_executor.start_run(
-        chat_id=chat_id,
-        user_id=user_id,
-        session_messages=session_messages,
-        effective_user_message=message,
-        raw_user_message=message,
-        context=context,
-        request_payload={"chat_id": chat_id, "message": message, "kind": "job_wakeup"},
-        model_name=model_name,
-    )
+        context = build_runtime_context(
+            model_name=model_name,
+            user_id=user_id,
+            chat_id=chat_id,
+            enabled_skills=skills,
+            enabled_agents=agents,
+            enabled_mcps=mcps,
+        )
+        context["workflow_chat"] = workflow_chat
+        await chat_run_executor.start_run(
+            accepted_run=accepted.run,
+            chat_id=chat_id,
+            user_id=user_id,
+            session_messages=session_messages,
+            effective_user_message=message,
+            raw_user_message=message,
+            context=context,
+            model_name=model_name,
+        )
+    except Exception as exc:
+        if accepted_run_id:
+            with SessionLocal() as cleanup_db:
+                ChatSequencer(cleanup_db).abandon_pending_run(
+                    accepted_run_id,
+                    reason=str(exc),
+                )
+        raise

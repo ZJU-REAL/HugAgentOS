@@ -192,7 +192,17 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
     (total, tool) => total + (tool.inputText?.length || 0),
     0,
   );
-  const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${m.segments?.length ?? 0}`;
+  // Streaming reasoning is activity too. Only the *first* thinking chunk pushes
+  // a segment; every later chunk appends to the same block's `content`, which
+  // no other term of this signature reads. Without this the signature freezes
+  // for the whole reasoning phase and the turn indicator claims the run stalled
+  // while thinking is visibly streaming — most obvious on tool-calling turns,
+  // where the model reasons for seconds before the first tool call.
+  const streamedThinkingLength = (m.thinking || []).reduce(
+    (total, block) => total + (block.content?.length || 0),
+    0,
+  );
+  const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${streamedThinkingLength}|${m.segments?.length ?? 0}`;
   // Anchor the stall clock to the message's persisted `lastActivityTs` so the
   // "正在准备调用工具…" timer keeps counting from the real start even after a
   // session switch or page refresh remounts this component.
@@ -804,7 +814,23 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
               // - In OFF mode → fall through to the per-text-segment
               //   StreamWaitIndicator (preserves existing inline behavior).
               const hasVisibleTextProgress = segs.some(s => s.type === 'text' && (s.content || '').trim().length > 0);
-              const startupPending = !!m.isStreaming && dispatchProcessVisible && runs.length === 0 && !hasVisibleTextProgress;
+              // A thinking segment that is not folded into a run renders as its
+              // own ThinkingInline below, so the reasoning is already on screen.
+              // Counting only `text` here made the turn indicator sit under a
+              // visibly streaming reasoning block for the whole pre-tool phase —
+              // several seconds on any turn that calls a tool, which is exactly
+              // where "深度拥抱中…" was never meant to appear. It stays for the
+              // genuine dead window: after the bubble exists and before the
+              // model has emitted anything at all.
+              const hasVisibleThinkingProgress = segs.some(
+                s => s.type === 'thinking' && (s.content || '').trim().length > 0,
+              );
+              const startupPending =
+                !!m.isStreaming &&
+                dispatchProcessVisible &&
+                runs.length === 0 &&
+                !hasVisibleTextProgress &&
+                !hasVisibleThinkingProgress;
               const showPendingInShell = pendingWaiting && dispatchProcessVisible;
               let virtualPending: { startTs: number; key: string } | null = null;
               if (showPendingInShell || startupPending) {

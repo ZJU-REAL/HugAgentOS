@@ -4,11 +4,12 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
 import { createApiResponseError, readErrorMessage } from './utils/apiError';
+import { newOperationId } from './utils/operationId';
 import { t } from './i18n';
 import {
   normalizeSiteEditionFields,
@@ -698,18 +699,59 @@ export async function cancelChatRun(runId: string, userId?: string, chatId?: str
   });
 }
 
-/** Queue a user instruction for the live agent's next pre-tool boundary. */
+export type ChatSteerDeliveryMode = 'steer' | 'followUp' | 'nextRun';
+
+export interface ChatSteerQueueItem {
+  queue_id: string;
+  steer_id: string;
+  run_id: string | null;
+  chat_id: string;
+  steer_seq: number;
+  target_operation_seq: number | null;
+  delivery_mode: 'steer' | 'follow_up' | 'next_run';
+  status: 'accepted' | 'claimed' | 'applied' | 'cancelled' | 'superseded';
+  message: string;
+  delivery_attempt: number;
+  superseded_by: string | null;
+  applied_run_id: string | null;
+  applied_source_run_id: string | null;
+  applied_operation_seq: number | null;
+  applied_user_message_id?: string | null;
+  applied_run_message_id?: string | null;
+  applied_run_status?: string | null;
+}
+
+/** Durably queue a steer, follow-up, or independent next-run instruction. */
 export async function steerChatRun(
   runId: string,
   steerId: string,
   content: string,
   chatId?: string,
-): Promise<void> {
-  await apiRequest<unknown>(`/v1/chat-runs/${encodeURIComponent(runId)}/steer`, {
+  options?: { deliveryMode?: ChatSteerDeliveryMode; replaceLatest?: boolean },
+): Promise<ChatSteerQueueItem> {
+  const wrapped = await apiRequest<unknown>(`/v1/chat-runs/${encodeURIComponent(runId)}/steer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
-    body: JSON.stringify({ steer_id: steerId, message: content }),
+    body: JSON.stringify({
+      steer_id: steerId,
+      message: content,
+      delivery_mode: options?.deliveryMode ?? 'steer',
+      replace_latest: options?.replaceLatest ?? true,
+    }),
   });
+  return unwrapData<ChatSteerQueueItem>(wrapped);
+}
+
+/** Query durable queue state for refresh/recovery UI. */
+export async function getChatRunSteers(
+  runId: string,
+  chatId?: string,
+): Promise<ChatSteerQueueItem[]> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chat-runs/${encodeURIComponent(runId)}/steers`,
+    { headers: { ...chatTargetHeaders(chatId) } },
+  );
+  return unwrapData<{ items?: ChatSteerQueueItem[] }>(wrapped)?.items ?? [];
 }
 
 /** Withdraw an instruction that has not yet reached a tool boundary. */
@@ -914,6 +956,140 @@ export async function listPendingConfirms(): Promise<{
     }
   }
   return { confirms, designPicks };
+}
+
+/** DSH recommendation suffix → display label plus badge state.
+ * The original label stays authoritative in the backend and is what the model
+ * receives in `answers[].selected`; this helper only cleans up presentation. */
+export function parseRecommendedLabel(label: string): {
+  label: string;
+  recommended: boolean;
+} {
+  const suffix = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）)\s*$/i;
+  return suffix.test(label)
+    ? { label: label.replace(suffix, ''), recommended: true }
+    : { label, recommended: false };
+}
+
+/** Backend internal transport → resident-composer state. */
+export function toUserQuestionRequest(raw: Record<string, unknown>): UserQuestionRequest {
+  const rawQuestions = Array.isArray(raw.questions)
+    ? raw.questions as Record<string, unknown>[]
+    : [];
+  return {
+    requestId: String(raw.request_id ?? ''),
+    createdAt: typeof raw.created_at === 'number' ? raw.created_at : undefined,
+    expiresAt: typeof raw.expires_at === 'number' ? raw.expires_at : undefined,
+    questions: rawQuestions
+      .map((question) => {
+        const rawOptions = Array.isArray(question.options)
+          ? question.options as Record<string, unknown>[]
+          : [];
+        return {
+          id: String(question.id ?? ''),
+          header: typeof question.header === 'string' && question.header
+            ? question.header : undefined,
+          question: String(question.question ?? ''),
+          description: typeof question.description === 'string' && question.description
+            ? question.description : undefined,
+          multiSelect: question.multi_select === true,
+          options: rawOptions
+            .map((option) => {
+              const display = parseRecommendedLabel(String(option.label ?? ''));
+              return {
+                id: String(option.id ?? ''),
+                label: display.label,
+                description: typeof option.description === 'string' && option.description
+                  ? option.description : undefined,
+                recommended: option.recommended === true || display.recommended,
+              };
+            })
+            .filter((option) => option.id && option.label),
+        };
+      })
+      .filter((question) => question.id && question.question),
+  };
+}
+
+/** Merge a pending-GET snapshot without dropping requests delivered by SSE
+ * after that GET started. Resolved-event tombstones are applied by uiStore
+ * during hydration, so this helper only protects the newer-arrival side. */
+export function mergePendingUserQuestionRecovery(
+  snapshot: UserQuestionRequest[],
+  current: UserQuestionRequest[],
+  requestIdsAtStart: ReadonlySet<string>,
+): UserQuestionRequest[] {
+  const merged = [...snapshot];
+  for (const request of current) {
+    if (requestIdsAtStart.has(request.requestId)) continue;
+    if (!merged.some((item) => item.requestId === request.requestId)) {
+      merged.push(request);
+    }
+  }
+  return merged;
+}
+
+export async function getPendingUserQuestions(chatId: string): Promise<UserQuestionRequest[]> {
+  const wrapped = await apiRequest<{ requests?: Record<string, unknown>[] }>(
+    `/v1/chats/${chatId}/pending-user-questions`,
+  );
+  const { requests } = unwrapData<{ requests?: Record<string, unknown>[] }>(wrapped);
+  return (Array.isArray(requests) ? requests : [])
+    .map(toUserQuestionRequest)
+    .filter((request) => request.requestId && request.questions.length);
+}
+
+export async function listPendingUserQuestions(): Promise<
+  Array<{ chatId: string; request: UserQuestionRequest }>
+> {
+  const wrapped = await apiRequest<{ items?: Record<string, unknown>[] }>(
+    '/v1/chats/pending-user-questions',
+  );
+  const { items } = unwrapData<{ items?: Record<string, unknown>[] }>(wrapped);
+  const out: Array<{ chatId: string; request: UserQuestionRequest }> = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const chatId = String(item.chat_id ?? '');
+    const request = toUserQuestionRequest(item);
+    if (chatId && request.requestId && request.questions.length) {
+      out.push({ chatId, request });
+    }
+  }
+  return out;
+}
+
+export async function answerUserQuestion(
+  chatId: string,
+  requestId: string,
+  answers: UserQuestionAnswer[],
+): Promise<{
+  ok: boolean;
+  outcome?: string;
+  stale?: boolean;
+  chat_interrupted?: boolean;
+  message?: string;
+}> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${chatId}/user-questions/${encodeURIComponent(requestId)}/answer`,
+    { method: 'POST', body: JSON.stringify({ answers }) },
+  );
+  return unwrapData(wrapped);
+}
+
+export async function cancelUserQuestion(
+  chatId: string,
+  requestId: string,
+): Promise<{
+  ok: boolean;
+  outcome?: string;
+  stale?: boolean;
+  chat_interrupted?: boolean;
+  message?: string;
+}> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${chatId}/user-questions/${encodeURIComponent(requestId)}/cancel`,
+    { method: 'POST' },
+  );
+  return unwrapData(wrapped);
 }
 
 /**
@@ -1299,7 +1475,11 @@ export async function updateMemory(
 ): Promise<void> {
   await apiRequest(`/v1/memories/${memoryId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ text, message_id: messageId }),
+    body: JSON.stringify({
+      text,
+      message_id: messageId,
+      operation_id: newOperationId(),
+    }),
   });
 }
 
@@ -1311,7 +1491,12 @@ export async function updateProfileField(
 ): Promise<void> {
   await apiRequest('/v1/memories/profile/field', {
     method: 'PATCH',
-    body: JSON.stringify({ key, text, message_id: messageId }),
+    body: JSON.stringify({
+      key,
+      text,
+      message_id: messageId,
+      operation_id: newOperationId(),
+    }),
   });
 }
 
@@ -3883,6 +4068,42 @@ export interface ProviderSchema {
   api_key_required?: boolean;
   fields?: ProviderSchemaField[];
   [key: string]: unknown;
+}
+
+/** 上下文窗口自动探测的输入（未保存的表单值即可探测）。 */
+export interface ContextProbeInput {
+  provider: string;
+  provider_type?: string;
+  base_url?: string;
+  api_key?: string;
+  model_name: string;
+  /** 编辑已保存供应商时 API Key 框为空（表示不修改），传 provider_id 让后端复用已存密钥。 */
+  provider_id?: string;
+  /** 允许多花一次「超限报错」探测（上游校验阶段即拒绝，不产生推理费用）。 */
+  allow_error_probe?: boolean;
+}
+
+export interface ContextProbeResult {
+  /** 探到的上下文窗口（token）；0 表示没探到，需人工填写。 */
+  context_length: number;
+  /** models_endpoint | ollama_show | max_tokens_probe | name_heuristic */
+  source: string;
+  source_label: string;
+  /** high = 上游自报；medium = 报错回报；low = 按模型名推断。 */
+  confidence: 'high' | 'medium' | 'low' | 'none';
+  detail: string;
+  /** 逐级说明每个来源看到了什么，供管理员判断该手工填多少。 */
+  notes: string[];
+}
+
+export async function detectModelContextLength(
+  input: ContextProbeInput,
+): Promise<ContextProbeResult> {
+  const wrapped = await apiRequest<unknown>('/v1/models/providers/detect-context', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return unwrapData<ContextProbeResult>(wrapped);
 }
 
 export async function listModelProviders(): Promise<ModelProviderItem[]> {

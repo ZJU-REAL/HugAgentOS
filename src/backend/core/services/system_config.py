@@ -132,19 +132,21 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "ontology",
         False,
     ),
-    # context —— tuning for conversation context compression. In-turn compression (AgentScope ContextConfig) trigger ratio:
-    # compress history when estimated tokens exceed model context window × this value. Admin config takes precedence over env
-    # (CHAT_COMPRESS_IN_TURN_RATIO is only the default); takes effect on new conversations after saving, no restart needed.
+    # context —— the single compaction trigger ratio. Read per turn by
+    # compaction_service.resolve_trigger_ratio and applied by every phase (mid-turn at the ReAct step
+    # boundary, pre-turn before a turn samples, post-turn background pre-warm) — it is no longer an
+    # "in-turn only" knob competing with CHAT_COMPACT_TRIGGER_RATIO. Admin config takes precedence over
+    # env; takes effect on new conversations after saving, no restart needed.
     # ⚠️ Grouped under context, not chat: the chat group is in service_configs._HIDDEN_GROUPS
     # (chat.user_model_switch_enabled is exclusively managed by the model management panel to prevent a double entry point),
     # so attaching to the chat group would hide the whole group in the system config UI.
     (
         "chat.compress_in_turn_ratio",
-        "0.82",
+        "0.80",
         "轮内压缩触发比例",
-        "上下文估算 token 超过「模型窗口 × 该值」时触发轮内压缩（0.5~0.95）。计数用"
-        "字节估算：中文会被高估（实际触发比标称晚）、英文/代码接近真实。调大=更晚压缩"
-        "（上下文更完整，但英文/代码密集会话有触顶风险）；调小=更早压缩。",
+        "上下文占用超过「模型窗口 × 该值」时触发压缩（0.5~0.95）。计数优先用模型返回的"
+        "真实 token 用量，拿不到时才退回字节估算。调大=更晚压缩（上下文更完整，但有触顶"
+        "风险）；调小=更早压缩。该比例对轮内、轮前、轮末三个时机统一生效。",
         "context",
         False,
     ),

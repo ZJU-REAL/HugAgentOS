@@ -19,14 +19,23 @@ from typing import Any, Dict, Iterator, List, Optional
 from sqlalchemy.orm import Session
 
 from core.db.engine import SessionLocal
-from core.db.models import LocalUser, SkillCallLog, SubAgentCallLog, ToolCallLog, UserShadow
+from core.db.models import (
+    LocalUser,
+    SkillCallLog,
+    SubAgentCallLog,
+    ToolCallLog,
+    ToolEffectLedger,
+    UserShadow,
+)
 from core.infra.data_masking import mask_sensitive_data
 from core.infra.logging import chat_id_var, get_logger, trace_id_var, user_id_var
 
 logger = get_logger(__name__)
 
 _current_source: ContextVar[str] = ContextVar("log_current_source", default="main_agent")
-_current_subagent_log_id: ContextVar[Optional[str]] = ContextVar("log_current_subagent", default=None)
+_current_subagent_log_id: ContextVar[Optional[str]] = ContextVar(
+    "log_current_subagent", default=None
+)
 _current_message_id: ContextVar[str] = ContextVar("log_current_message", default="")
 
 TOOL_LOG_ENABLED = os.getenv("TOOL_CALL_LOG_ENABLED", "true").lower() == "true"
@@ -42,10 +51,12 @@ MAX_RESULT_BYTES = int(os.getenv("LOG_MAX_RESULT_BYTES", 64 * 1024))
 MAX_STDOUT_BYTES = int(os.getenv("LOG_MAX_STDOUT_BYTES", 64 * 1024))
 
 _REDACT_FIELDS = [
-    s.strip() for s in os.getenv(
+    s.strip()
+    for s in os.getenv(
         "LOG_REDACT_FIELDS",
         "password,token,api_key,apikey,authorization,secret,access_key",
-    ).split(",") if s.strip()
+    ).split(",")
+    if s.strip()
 ]
 
 # Retain pending tasks so the event loop can't GC them mid-flight when the
@@ -76,7 +87,9 @@ def _truncate_json(payload: Any, limit: int) -> tuple[Any, bool]:
     if payload is None:
         return None, False
     try:
-        encoded = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8", errors="ignore")
+        encoded = json.dumps(payload, ensure_ascii=False, default=str).encode(
+            "utf-8", errors="ignore"
+        )
     except Exception:
         return {"_repr": str(payload)[:limit]}, True
     if len(encoded) <= limit:
@@ -165,43 +178,81 @@ def _effective_status(declared: Optional[str], result: Any) -> str:
     return "error" if _payload_carries_error(result) else "success"
 
 
+def _sanitize_tool_args(value: Any) -> Any:
+    from core.services.tool_effect_ledger import canonical_tool_args
+
+    if isinstance(value, dict):
+        return canonical_tool_args(value)[2]
+    return mask_sensitive_data(value, field_patterns=_REDACT_FIELDS)
+
+
 def _write_tool_call_sync(record: Dict[str, Any]) -> None:
     if not TOOL_LOG_ENABLED:
         return
     db: Session = SessionLocal()
     try:
-        args_safe = mask_sensitive_data(record.get("tool_args"), field_patterns=_REDACT_FIELDS)
+        args_safe = _sanitize_tool_args(record.get("tool_args"))
         args_safe, _ = _truncate_json(args_safe, MAX_RESULT_BYTES)
         result_safe, result_trunc = _truncate_json(record.get("tool_result"), MAX_RESULT_BYTES)
         username = _fetch_username(db, record.get("user_id", ""))
-        row = ToolCallLog(
-            id=record.get("id") or _new_id(),
-            trace_id=record.get("trace_id"),
-            chat_id=record.get("chat_id"),
-            message_id=record.get("message_id"),
-            user_id=record.get("user_id"),
-            user_name=username,
-            tool_name=record["tool_name"],
-            tool_display_name=record.get("tool_display_name"),
-            tool_call_id=record.get("tool_call_id"),
-            mcp_server=record.get("mcp_server"),
-            tool_args=args_safe,
-            tool_result=result_safe,
-            result_truncated=bool(result_trunc),
-            # 载荷里写着 error 就是 error。工具把上游故障"温柔地"包成 {"error": ...} 正常
-            # 返回（MCP 里很常见），审计面却记成 success —— 实测搜索有一半调用被上游 429
-            # 打回，统计上仍是"全部成功"，排障第一眼就被带偏。这里是所有写入路径的必经处，
-            # 放在这兜底比逐个调用方去改可靠。
-            status=_effective_status(record.get("status"), record.get("tool_result")),
-            error_message=record.get("error_message"),
-            duration_ms=record.get("duration_ms"),
-            source=record.get("source") or "main_agent",
-            subagent_log_id=record.get("subagent_log_id"),
-            skill_log_id=record.get("skill_log_id"),
-            sandbox_id=record.get("sandbox_id"),
-            started_at=record.get("started_at"),
-            created_at=record.get("created_at") or now_utc(),
+        effect = None
+        effect_id = str(record.get("effect_id") or "")
+        run_id = str(record.get("run_id") or "")
+        tool_call_id = str(record.get("tool_call_id") or "")
+        if effect_id:
+            effect = (
+                db.query(ToolEffectLedger)
+                .filter(
+                    ToolEffectLedger.effect_id == effect_id,
+                    ToolEffectLedger.event_type == "intent",
+                )
+                .one_or_none()
+            )
+        if effect is None and run_id and tool_call_id:
+            effect = (
+                db.query(ToolEffectLedger)
+                .filter(
+                    ToolEffectLedger.run_id == run_id,
+                    ToolEffectLedger.tool_call_id == tool_call_id,
+                    ToolEffectLedger.event_type == "intent",
+                )
+                .order_by(ToolEffectLedger.event_id.desc())
+                .first()
+            )
+        # ToolCallLog stays a replaceable query projection. The pre-allocated
+        # result id makes retries update the same row, while ToolEffectLedger
+        # remains the append-only recovery authority.
+        row_id = (
+            (effect.result_id if effect is not None else None)
+            or record.get("result_id")
+            or record.get("id")
+            or _new_id()
         )
+        row = db.get(ToolCallLog, row_id) or ToolCallLog(id=row_id)
+        row.effect_id = effect.effect_id if effect is not None else record.get("effect_id")
+        row.trace_id = record.get("trace_id")
+        row.chat_id = record.get("chat_id")
+        row.message_id = record.get("message_id")
+        row.user_id = record.get("user_id")
+        row.user_name = username
+        row.tool_name = record["tool_name"]
+        row.tool_display_name = record.get("tool_display_name")
+        row.tool_call_id = record.get("tool_call_id")
+        row.mcp_server = record.get("mcp_server")
+        row.tool_args = args_safe
+        row.tool_result = result_safe
+        row.result_truncated = bool(result_trunc)
+        # A top-level error payload is a failed projection even when an MCP
+        # adapter declared the transport call successful.
+        row.status = _effective_status(record.get("status"), record.get("tool_result"))
+        row.error_message = record.get("error_message")
+        row.duration_ms = record.get("duration_ms")
+        row.source = record.get("source") or "main_agent"
+        row.subagent_log_id = record.get("subagent_log_id")
+        row.skill_log_id = record.get("skill_log_id")
+        row.sandbox_id = record.get("sandbox_id")
+        row.started_at = record.get("started_at")
+        row.created_at = record.get("created_at") or now_utc()
         db.add(row)
         db.commit()
     except Exception as exc:  # noqa: BLE001
@@ -243,7 +294,9 @@ def _write_subagent_create_sync(record: Dict[str, Any]) -> None:
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        logger.warning("subagent_log_create_failed", error=str(exc), name=record.get("subagent_name"))
+        logger.warning(
+            "subagent_log_create_failed", error=str(exc), name=record.get("subagent_name")
+        )
     finally:
         db.close()
 
@@ -341,9 +394,15 @@ def _write_skill_call_sync(record: Dict[str, Any]) -> None:
 # Note: Read/Grep/Glob are attributed to the "current sandbox" when there is an
 # active sandbox session; details carry the actual path/pattern for tracing.
 _SANDBOX_TOOL_NAMES = {
-    "bash", "Bash",
-    "sandbox_put_artifact", "sandbox_get_artifact",
-    "Write", "Edit", "Read", "Grep", "Glob",
+    "bash",
+    "Bash",
+    "sandbox_put_artifact",
+    "sandbox_get_artifact",
+    "Write",
+    "Edit",
+    "Read",
+    "Grep",
+    "Glob",
 }
 
 
@@ -355,7 +414,9 @@ async def _resolve_sandbox_id(session_id: Optional[str]) -> Optional[str]:
         from core.sandbox import get_sandbox_provider
 
         return await get_sandbox_provider().current_sandbox_id(session_id)
-    except Exception:  # noqa: BLE001 — audit enrichment is best-effort, must never affect the main path
+    except (
+        Exception
+    ):  # noqa: BLE001 — audit enrichment is best-effort, must never affect the main path
         return None
 
 
@@ -398,17 +459,20 @@ def _insert_sandbox_audit(
     db: Session = SessionLocal()
     try:
         # Reuse the audit repository's write (has its own add/commit/rollback; audit failure doesn't block the main path).
-        AuditLogRepository(db).create({
-            "user_id": user_id or None,  # empty string would trip the FK constraint; normalize to NULL
-            "action": action,
-            "resource_type": "sandbox",
-            "resource_id": str(sandbox_id)[:64],
-            "sandbox_id": str(sandbox_id)[:128],
-            "details": details,
-            "trace_id": trace_id,
-            "status": status,
-            "created_at": created_at or now_utc(),
-        })
+        AuditLogRepository(db).create(
+            {
+                "user_id": user_id
+                or None,  # empty string would trip the FK constraint; normalize to NULL
+                "action": action,
+                "resource_type": "sandbox",
+                "resource_id": str(sandbox_id)[:64],
+                "sandbox_id": str(sandbox_id)[:128],
+                "details": details,
+                "trace_id": trace_id,
+                "status": status,
+                "created_at": created_at or now_utc(),
+            }
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("sandbox_audit_write_failed", error=str(exc), sandbox=str(sandbox_id))
     finally:
@@ -427,7 +491,7 @@ def _write_sandbox_audit_sync(record: Dict[str, Any]) -> None:
         return
     tool_name = record.get("tool_name")
     action = _SANDBOX_AUDIT_ACTIONS.get(tool_name, "sandbox.tool.call")
-    args_safe = mask_sensitive_data(record.get("tool_args"), field_patterns=_REDACT_FIELDS)
+    args_safe = _sanitize_tool_args(record.get("tool_args"))
     details: Dict[str, Any] = {"tool": tool_name}
     if isinstance(args_safe, dict):
         cmd = args_safe.get("command")

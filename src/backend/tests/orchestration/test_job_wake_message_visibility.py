@@ -16,12 +16,11 @@
 """
 
 import asyncio
-from typing import Any, Dict, List
 
 import core.db.engine as db_engine
 import pytest
 from core.db.engine import Base
-from core.db.models import ChatSession, Job
+from core.db.models import ChatMessage, ChatSession, Job
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -68,17 +67,12 @@ def _seed(db_session, *, status: str = "completed") -> None:
         db.commit()
 
 
-def _capture_added_messages(monkeypatch, db_session) -> List[Dict[str, Any]]:
-    """拦下唤醒轮真正落库的那条消息，只留 add_message 的入参供断言。"""
-    added: List[Dict[str, Any]] = []
+def _stub_run_dependencies(monkeypatch, db_session) -> None:
+    """Keep the test on the durable admission seam while stubbing model launch."""
 
     class _FakeChatService:
         def __init__(self, db):
             self._db = db
-
-        def add_message(self, **kw):
-            added.append(kw)
-            return None
 
         def get_session(self, chat_id, user_id):
             return (
@@ -101,25 +95,28 @@ def _capture_added_messages(monkeypatch, db_session) -> List[Dict[str, Any]]:
     )
     monkeypatch.setattr(chat_service_mod, "ChatService", _FakeChatService)
     monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)
-    return added
 
 
 def test_finish_wake_message_is_marked_hidden(monkeypatch, db_session):
     _seed(db_session)
-    added = _capture_added_messages(monkeypatch, db_session)
+    _stub_run_dependencies(monkeypatch, db_session)
 
     from orchestration import job_wakeup
 
     assert asyncio.run(job_wakeup.wake_on_job_finish("job_1")) is True
-    assert len(added) == 1
-    extra = added[0]["extra_data"]
+    with db_session() as db:
+        rows = db.query(ChatMessage).filter(ChatMessage.chat_id == "chat_1").all()
+        assert len(rows) == 1
+        extra = rows[0].extra_data
     assert extra["hidden_in_chat"] is True, "唤醒指令没打标记 → 刷新后原文贴进对话"
     assert extra["system_wake"] == "job_finish"
+    assert extra["_context_item"]["kind"] == "reminder"
+    assert extra["_context_item"]["trust"] == "system"
 
 
 def test_progress_wake_message_is_marked_hidden(monkeypatch, db_session):
     _seed(db_session, status="running")
-    added = _capture_added_messages(monkeypatch, db_session)
+    _stub_run_dependencies(monkeypatch, db_session)
 
     from orchestration import chat_run_executor, job_wakeup
 
@@ -134,8 +131,13 @@ def test_progress_wake_message_is_marked_hidden(monkeypatch, db_session):
         )
     )
     assert ok is True
-    assert added[0]["extra_data"]["hidden_in_chat"] is True
-    assert added[0]["extra_data"]["system_wake"] == "job_progress"
+    with db_session() as db:
+        message = db.query(ChatMessage).filter(ChatMessage.chat_id == "chat_1").one()
+        assert message.extra_data["hidden_in_chat"] is True
+        assert message.extra_data["system_wake"] == "job_progress"
+        assert message.extra_data["_context_item"]["origin"].startswith(
+            "harness:job_wakeup"
+        )
 
 
 class _Msg:

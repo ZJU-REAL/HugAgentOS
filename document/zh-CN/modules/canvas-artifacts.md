@@ -107,10 +107,11 @@ MCP 工具 `generate_chart_tool`（`src/backend/mcp_servers/generate_chart_tool_
 
 ## 文档导出如何落到产物
 
-Word 和 Excel 导出由 [Agent 技能](agent-skills.md)完成：word-editing 使用
-`word-cli create --markdown` 生成 Word，excel-editing 负责表格创建、公式和多
-工作表编辑。技能在沙箱中生成文件，并通过工作区产物流程钉入会话；返回的
-文件会出现在附件区和「我的空间」，xlsx 还可在数据画布中继续编辑。
+Word / Excel / PPT 导出由 [Agent 技能](agent-skills.md)完成：officecli-docx、
+officecli-xlsx、officecli-pptx 三个基座技能（以及它们之上的表单、论文、看板、
+财务模型、路演等场景层）驱动沙箱预装的 `officecli` 二进制生成与编辑文件，PDF
+则由 pdf-editing 自带引擎处理。技能在沙箱中生成文件，并通过工作区产物流程钉入
+会话；返回的文件会出现在附件区和「我的空间」，xlsx 还可在数据画布中继续编辑。
 
 ## 端到端示例
 
@@ -118,7 +119,7 @@ Word 和 Excel 导出由 [Agent 技能](agent-skills.md)完成：word-editing �
 
 1. 智能体先用搜索 / 数据工具取数；
 2. 调 `generate_chart_tool` 生成柱状图 → artifact A（PNG，附件区可见，画布可预览）；
-3. 撰写分析文本后调用 word-editing 技能生成 artifact B（docx）；
+3. 撰写分析文本后调用 officecli-docx 技能生成 artifact B（docx）；
 4. 两个产物随 `meta` 事件钉入工作区、由 `persist_artifacts` 落库，出现在「我的空间」；
 5. 用户点击 docx 在画布预览，满意后 `POST /v1/chat-shares` 生成 15 天有效的分享链接发给同事。
 
@@ -134,7 +135,7 @@ Word 和 Excel 导出由 [Agent 技能](agent-skills.md)完成：word-editing �
 | 会话分享 API | `src/backend/api/routes/v1/chat_shares.py` |
 | 分享前端 | `src/frontend/src/SharePreviewApp.tsx`、`src/frontend/src/components/share/ShareRecordsPage.tsx` |
 | 图表生成 MCP | `src/backend/mcp_servers/generate_chart_tool_mcp/server.py`、`chart.py` |
-| 文档导出技能 | `src/backend/skill_bundles/default/word-editing/`、`src/backend/skill_bundles/default/excel-editing/` |
+| 文档导出技能 | `src/backend/skill_bundles/default/officecli-*/`、`src/backend/skill_bundles/default/pdf-editing/` |
 | 我的空间前端 | `src/frontend/src/components/myspace/`、`src/frontend/src/stores/mySpaceStore.ts` |
 
 延伸阅读：[沙箱](sandbox.md) · [项目与我的空间](projects-myspace.md) · [存储](storage.md) · [MCP 工具](mcp-tools.md)

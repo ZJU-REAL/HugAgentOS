@@ -68,6 +68,19 @@ def resolve_bundle_for_run(run_id: str) -> Optional[AssetBundle]:
         return _bundles.get(bundle_id) if bundle_id else None
 
 
+def clear_run_binding(run_id: Optional[str]) -> None:
+    """Fail closed when final request evidence could not be rebound.
+
+    The content-addressed bundle may still be referenced by another run, so we
+    only clear this run's index.  A resolver must never fall back to the stale
+    pre-context bundle and describe it as complete request evidence.
+    """
+    if not run_id:
+        return
+    with _lock:
+        _run_to_bundle.pop(str(run_id), None)
+
+
 def _safe(resolver, label: str, degraded: List[str]) -> List[AssetRef]:
     """Run one resolver, converting any failure into a partial-bundle marker."""
     try:
@@ -96,6 +109,39 @@ def _prompt_refs() -> List[AssetRef]:
                     detail={"label": active.get("label") or ""},
                 )
             )
+    return refs
+
+
+def _prompt_refs_from_manifest(manifest: Dict[str, Any]) -> List[AssetRef]:
+    """Use the exact prompt sections already rendered for this request.
+
+    Reading the active prompt pointer again after rendering has a publish race:
+    the manifest may describe A while a concurrent activation makes the binder
+    observe B. Section records carry the resolved version/content hash and are
+    therefore the authoritative request snapshot.
+    """
+    prompt_manifest = manifest.get("prompt_manifest") or {}
+    sections = prompt_manifest.get("sections") or []
+    refs: List[AssetRef] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("id") or "")
+        content_hash = str(section.get("content_hash") or "")
+        if not section_id or not content_hash:
+            continue
+        refs.append(
+            AssetRef(
+                kind=ASSET_PROMPT,
+                asset_id=section_id,
+                version=str(section.get("version") or content_hash),
+                detail={
+                    "origin": str(section.get("origin") or "unknown"),
+                    "content_hash": content_hash,
+                    "trust": str(section.get("trust") or "runtime"),
+                },
+            )
+        )
     return refs
 
 
@@ -238,6 +284,8 @@ def bind_runtime_assets(
     workspace_id: str = "default",
     workflow_policy_version: Optional[str] = None,
     orchestration_profile_id: Optional[str] = None,
+    execution_manifest: Optional[Any] = None,
+    manifest_required: bool = False,
 ) -> AssetBundle:
     """Resolve and pin everything this run depends on.
 
@@ -247,16 +295,34 @@ def bind_runtime_assets(
     degraded: List[str] = []
     refs: List[AssetRef] = []
 
-    refs += _safe(lambda: _prompt_refs(), "prompt", degraded)
+    try:
+        if execution_manifest is None:
+            manifest_payload: Dict[str, Any] = {}
+        elif hasattr(execution_manifest, "to_dict"):
+            manifest_payload = dict(execution_manifest.to_dict())
+        elif isinstance(execution_manifest, dict):
+            manifest_payload = dict(execution_manifest)
+        else:
+            manifest_payload = {}
+    except Exception as exc:  # evidence conversion must not fail the turn
+        logger.debug("[binder] execution manifest conversion failed: %s", exc)
+        manifest_payload = {}
+        degraded.append("execution_manifest")
+
+    exact_prompt_refs = _prompt_refs_from_manifest(manifest_payload)
+    if exact_prompt_refs:
+        refs += exact_prompt_refs
+    else:
+        refs += _safe(lambda: _prompt_refs(), "prompt", degraded)
+        if manifest_required and "execution_manifest" not in degraded:
+            degraded.append("execution_manifest")
     refs += _safe(lambda: _skill_refs(skill_ids), "skill", degraded)
     refs += _safe(lambda: _ontology_refs(), "ontology", degraded)
     refs += _safe(lambda: _memory_refs(memory_enabled, workspace_id), "memory", degraded)
     refs += _safe(lambda: _model_refs(model_name, model_provider_id), "model", degraded)
     refs += _safe(lambda: _kb_refs(kb_ids), "kb", degraded)
     refs += _safe(
-        lambda: _workflow_refs(
-            chat_mode, workflow_policy_version, orchestration_profile_id
-        ),
+        lambda: _workflow_refs(chat_mode, workflow_policy_version, orchestration_profile_id),
         "workflow",
         degraded,
     )
@@ -265,9 +331,41 @@ def bind_runtime_assets(
         refs,
         partial=bool(degraded),
         captured_at=datetime.now(timezone.utc).isoformat(),
+        execution_manifest=manifest_payload,
     )
     if degraded:
         logger.info("[binder] partial bundle %s (degraded: %s)", bundle.bundle_id, degraded)
+    _remember(bundle, run_id)
+    return bundle
+
+
+def rebind_execution_manifest(
+    *,
+    run_id: Optional[str],
+    base_bundle: AssetBundle,
+    execution_manifest: Any,
+) -> AssetBundle:
+    """Replace request evidence without re-resolving the run's frozen assets.
+
+    Context manifests change per model request, while governed asset versions
+    must remain pinned for the run. Calling ``bind_runtime_assets`` again here
+    would reopen a publish race and could attach newly activated versions that
+    the running Agent never consumed.
+    """
+    if base_bundle is None:
+        raise ValueError("base bundle is required for manifest-only rebind")
+    if hasattr(execution_manifest, "to_dict"):
+        manifest_payload = dict(execution_manifest.to_dict())
+    elif isinstance(execution_manifest, dict):
+        manifest_payload = dict(execution_manifest)
+    else:
+        raise TypeError("execution manifest must be serializable")
+    bundle = build_bundle(
+        list(base_bundle.refs),
+        partial=base_bundle.partial,
+        captured_at=base_bundle.captured_at,
+        execution_manifest=manifest_payload,
+    )
     _remember(bundle, run_id)
     return bundle
 

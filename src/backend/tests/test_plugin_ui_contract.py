@@ -195,7 +195,10 @@ def test_industry_plugin_declaration_validates_cleanly():
 
     # The graph canvas must keep its node drill-down restricted to the tool whose
     # ids the upstream actually recognises.
-    action = contributes["canvas_views"][0]["actions"][0]
+    graph = contributes["canvas_views"][0]
+    assert graph["options"]["default_levels"] == 3
+    assert graph["options"]["max_levels"] == 16
+    action = graph["actions"][0]
     assert action["enabled_for_tools"] == ["get_chain_information"]
 
 
@@ -226,7 +229,14 @@ def test_industry_module_entry_exists_in_the_package():
     manifest = json.loads(IKC_MANIFEST.read_text(encoding="utf-8"))
     ui, _ = normalize_ui(manifest["extensions"]["org.hugagent"]["ui"])
     entry = find_module(ui, "chain-overview")["entry"]
-    assert (IKC_MANIFEST.parent / entry).is_file(), f"missing module asset: {entry}"
+    module_path = IKC_MANIFEST.parent / entry
+    assert module_path.is_file(), f"missing module asset: {entry}"
+
+    # The self-shipped overview must traverse the same depth as the host canvas;
+    # otherwise deeper nodes appear in one view but disappear from the other.
+    graph = ui["contributes"]["canvas_views"][0]
+    max_levels = graph["options"]["max_levels"]
+    assert f"var MAX_LEVELS = {max_levels};" in module_path.read_text(encoding="utf-8")
 
 
 def test_industry_declared_icons_ship_with_the_package():

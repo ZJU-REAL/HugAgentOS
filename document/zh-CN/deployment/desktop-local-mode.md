@@ -1,6 +1,7 @@
 # 桌面端离线本机模式
 
-> 适用于 Windows x86_64、macOS Apple Silicon / Intel、Linux x86_64。
+> 适用于 Windows x86_64、macOS Apple Silicon / Intel、Linux x86_64；UOS 1070
+> aarch64 使用独立的 [Electron 43 桌面发行线](uos1070-desktop.md)。
 
 桌面端默认发行“完整离线包”。安装包同时携带当前平台的 CE 服务源码和私有 CPython 3.11
 运行时，最终用户不需要安装 Python、uv、pip、编译器或 Docker，也不需要在首次启动时访问
@@ -26,6 +27,7 @@ PyPI。联网只用于用户主动配置的在线模型、更新和联网工具�
 | macOS Apple Silicon | CPython 3.11 arm64 | `~/.hugagent` |
 | macOS Intel | CPython 3.11 x86_64 | `~/.hugagent` |
 | Linux x86_64 | CPython 3.11 manylinux/glibc x64 | `~/.hugagent` |
+| UOS 1070 aarch64 | CPython 3.11 manylinux 2.28 ARM64 | `~/.hugagent` |
 
 源码与运行时统一放在 Tauri 应用本地数据目录的 `local-server/releases/`（Windows 使用等价短目录
 `local-server/r/`），按内容指纹复用；Windows 物理目录使用 128-bit 指纹前缀，状态清单仍保存和

@@ -23,10 +23,8 @@ MCP_SERVER_DISPLAY_NAMES: Dict[str, str] = {
     "retrieve_dataset_content": "知识库检索",
     "internet_search": "互联网搜索",
     "generate_chart_tool": "数据可视化",
-    # (Word capability migrated to the word-editing skill; no longer goes by an MCP tool name)
-    # (Excel capability migrated to the excel-editing skill; no longer goes by an MCP tool name)
-    # (PPT capability migrated to the ppt-design skill; no longer goes by an MCP tool name)
-    # (PDF capability migrated to the pdf-editing skill; no longer goes by an MCP tool name)
+    # (Word/Excel/PPT capability migrated to the officecli-* skills, PDF to pdf-editing;
+    #  none of them goes by an MCP tool name any more)
     "web_fetch": "网站信息抓取",
     "batch_runner": "批量执行",
     **edition_mcp_server_display_names(),
@@ -39,10 +37,8 @@ MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
     "retrieve_dataset_content": "从公有/私有知识库中语义检索政策文件、产业报告及用户上传文档，支持混合检索与重排序。",
     "internet_search": "通过互联网实时搜索公开网页、新闻及财经资讯，作为数据库与知识库之外的信息兜底。",
     "generate_chart_tool": "根据给定数据调用 Python 生成柱状图、折线图、饼图等可视化图表，结果以图片形式直接展示。",
-    # (Word capability migrated to the word-editing skill; no longer goes by an MCP tool name)
-    # (Excel capability migrated to the excel-editing skill; no longer goes by an MCP tool name)
-    # (PPT capability migrated to the ppt-design skill; no longer goes by an MCP tool name)
-    # (PDF capability migrated to the pdf-editing skill; no longer goes by an MCP tool name)
+    # (Word/Excel/PPT capability migrated to the officecli-* skills, PDF to pdf-editing;
+    #  none of them goes by an MCP tool name any more)
     "web_fetch": "抓取指定网页 URL 的内容，提取正文文本或 Markdown，支持搜索引擎结果页解析。",
     "batch_runner": "对一组对象（Excel 行/多份文档/文本枚举）批量执行同一个任务；先生成可确认的计划，用户审阅模板后再逐条执行。",
     **edition_mcp_server_descriptions(),
@@ -72,17 +68,15 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # 末尾的合并），不直接写在这张 CE 共享表里——CE 派生的品牌门禁禁止这些
     # 工具名出现在共享文件中。
     "generate_chart_tool": "数据可视化",
-    # (Word capability migrated to the word-editing skill, see src/backend/skill_bundles/word-editing/)
-    # The MCP layer no longer exposes word_mcp; the scripts/*.py CLIs inside the skill are the single entry point.
-    # (Excel capability migrated to the excel-editing skill, see src/backend/skill_bundles/excel-editing/)
-    # The MCP layer no longer exposes excel_mcp; the skill's scripts/excel-cli is the single entry point.
-    # (PPT capability migrated to the ppt-design skill, see src/backend/skill_bundles/ppt-design/)
-    # The MCP layer no longer exposes ppt_mcp; the skill's scripts/ppt-cli is the single entry point.
-    # (PDF capability migrated to the pdf-editing skill, see src/backend/skill_bundles/pdf-editing/)
+    # (Word/Excel/PPT capability migrated to the officecli-* skills under
+    #  src/backend/skill_bundles/default/; they run the pre-installed `officecli`
+    #  binary through Bash, so word_mcp / excel_mcp / ppt_mcp no longer exist.)
+    # (PDF capability migrated to the pdf-editing skill, see src/backend/skill_bundles/default/pdf-editing/)
     # The MCP layer no longer exposes pdf_mcp; the skill's scripts/pdf-cli is the single entry point.
     # Batch execution
     "batch_plan": "批量执行计划",
     # Built-in tools
+    "ask_user_question": "询问用户",
     "get_skills": "查询可用技能",
     "get_agents": "查询可用智能体",
     "get_mcp_tools": "查询 MCP 工具列表",

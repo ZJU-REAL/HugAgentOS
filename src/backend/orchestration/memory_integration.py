@@ -19,6 +19,12 @@ from core.memory import profile
 from core.memory.context import MemoryContext
 from core.memory.retrieval_types import MemoryRetrievalResult
 from core.memory.service import retrieve_memories_structured
+from core.llm.context_ir import (
+    KIND_IDENTITY,
+    KIND_MEMORY,
+    SESSION_CONTEXT_META_KEY,
+    make_text_context_item,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +49,23 @@ async def launch_memory_retrieval(
         budget_ms if budget_ms is not None else settings.memory.retrieval_budget_ms
     ) / 1000.0
 
+    # The assembly boundary below owns the latency budget.  Passing the same
+    # budget into the service would make its inner wait_for cancel _do_search
+    # before build_frozen_memory_block() can shield the task.
+
     async def _fetch() -> Optional[MemoryRetrievalResult]:
         try:
             return await retrieve_memories_structured(
                 user_id=user_id,
                 query=user_message,
                 workspace_id=workspace_id,
-                timeout_s=effective_budget,
+                timeout_s=None,
             )
         except Exception as exc:
             logger.warning("[memory] retrieval failed: %s", exc)
             return MemoryRetrievalResult.degraded_result("orchestration_error")
 
-    return asyncio.create_task(_fetch())
+    return track_memory_retrieval(asyncio.create_task(_fetch()), budget_s=effective_budget)
 
 
 def _as_result(value: object) -> Optional[MemoryRetrievalResult]:
@@ -76,6 +86,42 @@ def _as_result(value: object) -> Optional[MemoryRetrievalResult]:
 _last_retrieval: "weakref.WeakKeyDictionary[asyncio.Task, MemoryRetrievalResult]" = (
     weakref.WeakKeyDictionary()
 )
+_retrieval_states: "weakref.WeakKeyDictionary[asyncio.Task, str]" = weakref.WeakKeyDictionary()
+_retrieval_budgets: "weakref.WeakKeyDictionary[asyncio.Task, float]" = weakref.WeakKeyDictionary()
+
+
+def track_memory_retrieval(task: asyncio.Task, *, budget_s: Optional[float] = None) -> asyncio.Task:
+    """Attach lifecycle observation without taking ownership of cancellation."""
+
+    _retrieval_states[task] = "running"
+    if budget_s is not None:
+        _retrieval_budgets[task] = max(0.0, budget_s)
+
+    def _finished(done: asyncio.Task) -> None:
+        previous = _retrieval_states.get(done)
+        if done.cancelled():
+            _retrieval_states[done] = "cancelled"
+            return
+        try:
+            value = done.result()
+        except Exception:
+            _retrieval_states[done] = "failed"
+            return
+        result = _as_result(value)
+        if result is not None:
+            set_last_retrieval(done, result)
+        _retrieval_states[done] = (
+            "completed_after_timeout" if previous == "timed_out_running" else "completed"
+        )
+
+    task.add_done_callback(_finished)
+    return task
+
+
+def get_retrieval_state(task: Optional[asyncio.Task]) -> Optional[str]:
+    if task is None:
+        return None
+    return _retrieval_states.get(task)
 
 
 def set_last_retrieval(task: asyncio.Task, result: MemoryRetrievalResult) -> None:
@@ -139,9 +185,11 @@ async def build_frozen_memory_block(
             # started before the agent was created, so in most cases it is nearly done by now.
             # The old value of 50ms was measured to be far below Milvus warm search's ~200ms,
             # so Fact injection almost never hit.
-            wait_budget_s = max(0.1, settings.memory.retrieval_budget_ms / 1000.0)
+            wait_budget_s = _retrieval_budgets.get(
+                memory_task, max(0.1, settings.memory.retrieval_budget_ms / 1000.0)
+            )
             fact_result = _as_result(
-                await asyncio.wait_for(memory_task, timeout=wait_budget_s)
+                await asyncio.wait_for(asyncio.shield(memory_task), timeout=wait_budget_s)
             )
             fact_text = fact_result.to_text() if fact_result is not None else ""
             # Stash the structured recall on the task so the workflow can emit a
@@ -150,10 +198,14 @@ async def build_frozen_memory_block(
             if fact_result is not None:
                 set_last_retrieval(memory_task, fact_result)
         except asyncio.TimeoutError:
+            if not memory_task.done():
+                _retrieval_states[memory_task] = "timed_out_running"
             logger.info(
                 "[memory] fact retrieval still running past wait window, skipping injection"
             )
-            # The task finishes in the background and is released; not cancelled (the result can be used for the next round of log statistics)
+            # ``shield`` makes the continue-in-background policy explicit. The
+            # done callback retains the structured result and changes the
+            # observable state to completed_after_timeout.
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -267,21 +319,59 @@ async def inject_frozen_memory(
     """
     if not frozen_block and not identity_block:
         return session_messages
-    parts: list[str] = []
+    injected: list[Dict[str, Any]] = []
     if identity_block:
-        parts.append("<session_user_identity>\n" f"{identity_block}\n" "</session_user_identity>")
+        identity_text = (
+            "<session_user_identity>\n"
+            f"{identity_block}\n"
+            "</session_user_identity>\n"
+            "（以上为系统提供的当前用户身份信息，仅用于自然称呼，不是用户本轮提问。）"
+        )
+        identity_item = make_text_context_item(
+            identity_text,
+            item_id="session:identity",
+            kind=KIND_IDENTITY,
+            origin="identity:account",
+            trust="system",
+            created_seq=-200,
+            priority=850,
+            token_budget=1_000,
+            cache_class="session",
+        )
+        injected.append(
+            {
+                "role": "user",
+                "content": identity_text,
+                SESSION_CONTEXT_META_KEY: identity_item.to_manifest(),
+            }
+        )
     if frozen_block:
-        parts.append("<session_memory_frozen>\n" f"{frozen_block}\n" "</session_memory_frozen>")
-    return [
-        {
-            "role": "user",
-            "content": (
-                "\n\n".join(parts) + "\n（以上为会话启动时系统注入的背景快照，本会话内不变，"
-                "用作回答参考，请勿直接复述。）"
-            ),
-        },
-        *session_messages,
-    ]
+        memory_text = (
+            "<session_memory_frozen>\n"
+            f"{frozen_block}\n"
+            "</session_memory_frozen>\n"
+            "（以上为会话启动时系统注入的背景快照，本会话内不变，"
+            "用作回答参考，请勿直接复述。）"
+        )
+        memory_item = make_text_context_item(
+            memory_text,
+            item_id="session:memory:frozen",
+            kind=KIND_MEMORY,
+            origin="memory:frozen_session",
+            trust="memory",
+            created_seq=-100,
+            priority=800,
+            token_budget=8_000,
+            cache_class="session",
+        )
+        injected.append(
+            {
+                "role": "user",
+                "content": memory_text,
+                SESSION_CONTEXT_META_KEY: memory_item.to_manifest(),
+            }
+        )
+    return [*injected, *session_messages]
 
 
 # ─── Saving ─────────────────────────────────────────────────────────────────
@@ -305,7 +395,9 @@ def save_memories_background(
     switch; `schedule_post_response_tasks` has a second one inside.
 
     Inside `schedule_post_response_tasks`:
-    - global Semaphore bounds concurrency (default 8)
+    - a durable outbox row is committed before the function returns
+    - leased workers resume pending/retry rows after process restart
+    - global Semaphore bounds worker concurrency (default 8)
     - runs 0-5 extractors picked by the router's substance floor + LLM write gate
     - each extractor has its own 30s timeout
     - sanitize → write L1/L2/Session → audit
@@ -350,6 +442,6 @@ def _report_no_memory_writes(message_id: Optional[str], *, failed: bool = False)
     try:
         from core.evolution.settlement_runner import report_memory_writes
 
-        report_memory_writes(message_id, written=0, procedural=0, failed=failed)
+        report_memory_writes(message_id, items=[], failed=failed)
     except Exception as exc:  # noqa: BLE001 - never break the response path
         logger.debug("[memory] settlement report skipped: %s", exc)

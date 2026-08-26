@@ -464,11 +464,39 @@ class AutomationScheduler:
         # Strict workspace gate.
         _workspace_mod.init_state()
 
-        async for chunk in astream_chat_workflow(
-            session_messages=session_messages,
-            user_message=prompt,
-            context=context,
-        ):
+        async def _bound_prompt_chunks():
+            from core.services.run_journal import durable_run_binding
+
+            recovery_context = {
+                **dict(context),
+                "mcp_ids": list(enabled_mcp_ids or []),
+                "skill_ids": list(enabled_skill_ids or []),
+                "kb_ids": list(enabled_kb_ids or []),
+                "model_name": actual_model_name,
+                "automation_run": True,
+            }
+            async with durable_run_binding(
+                user_id=user_id,
+                chat_id=chat_id,
+                kind="automation_prompt",
+                external_id=task_id,
+                request_payload={"task_id": task_id},
+                recovery_snapshot={"worker_args": {"context": recovery_context}},
+                session_factory=SessionLocal,
+            ) as binding:
+                bound_context = {
+                    **dict(context),
+                    "run_id": binding.run_id,
+                    "journal_owner": binding.owner,
+                }
+                async for item in astream_chat_workflow(
+                    session_messages=session_messages,
+                    user_message=prompt,
+                    context=bound_context,
+                ):
+                    yield item
+
+        async for chunk in _bound_prompt_chunks():
             chunk_type = chunk.get("type")
 
             if chunk_type in {"content", "ai_message"}:
@@ -631,18 +659,47 @@ class AutomationScheduler:
         tool_calls_log: List[Dict[str, Any]] = []
         _workspace_mod.init_state()
 
-        with SessionLocal() as db:
-            async for event in astream_execute_plan(
-                plan_id=plan_id,
+        async def _bound_plan_events(db):  # noqa: ANN001
+            from core.llm.middlewares import CURRENT_RUN_BINDING
+            from core.services.run_journal import durable_run_binding
+
+            recovery_context = {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "mcp_ids": list(enabled_mcp_ids or []),
+                "skill_ids": list(enabled_skill_ids or []),
+                "kb_ids": list(enabled_kb_ids or []),
+                "model_name": actual_model_name,
+                "automation_run": True,
+            }
+            async with durable_run_binding(
                 user_id=user_id,
-                db=db,
-                enabled_mcp_ids=enabled_mcp_ids,
-                enabled_skill_ids=enabled_skill_ids,
-                enabled_kb_ids=enabled_kb_ids,
-                enabled_agent_ids=enabled_agent_ids,
                 chat_id=chat_id,
-                model_name=actual_model_name,
-            ):
+                kind="automation_plan",
+                external_id=f"{task_id}:{plan_id}",
+                request_payload={"task_id": task_id, "plan_id": plan_id},
+                recovery_snapshot={"worker_args": {"context": recovery_context}},
+                session_factory=SessionLocal,
+            ) as binding:
+                token = CURRENT_RUN_BINDING.set((binding.run_id, binding.owner))
+                try:
+                    async for item in astream_execute_plan(
+                        plan_id=plan_id,
+                        user_id=user_id,
+                        db=db,
+                        enabled_mcp_ids=enabled_mcp_ids,
+                        enabled_skill_ids=enabled_skill_ids,
+                        enabled_kb_ids=enabled_kb_ids,
+                        enabled_agent_ids=enabled_agent_ids,
+                        chat_id=chat_id,
+                        model_name=actual_model_name,
+                    ):
+                        yield item
+                finally:
+                    CURRENT_RUN_BINDING.reset(token)
+
+        with SessionLocal() as db:
+            async for event in _bound_plan_events(db):
                 evt_type = event.get("type")
                 if evt_type == "plan_complete":
                     # 与 prompt 任务同理：推理模型的 <think> 段会混在总结正文里。

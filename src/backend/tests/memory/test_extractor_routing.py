@@ -15,7 +15,14 @@ Two rules this file exists to hold:
    nominate identity, preference and procedural alike and let the gate judge.
 """
 
-from core.memory.extractors.router import ExtractorType, classify_conversation
+import pytest
+
+from core.memory.context import MemoryContext
+from core.memory.extractors.router import (
+    ExtractorType,
+    classify_conversation,
+    run_extractors_with_timeout,
+)
 
 LONG_ANSWER = "好的，我按你说的口径重新算了一遍，" * 3
 
@@ -94,3 +101,22 @@ def test_graph_extraction_is_deployment_gated(monkeypatch):
         LONG_ANSWER,
     )
     assert ExtractorType.GRAPH in classes
+
+
+@pytest.mark.asyncio
+async def test_durable_strict_extraction_retries_an_undecided_result(monkeypatch):
+    from core.memory.extractors import identity
+
+    async def timed_out(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(identity, "extract", timed_out)
+    with pytest.raises(RuntimeError, match="identity extractor returned no decision"):
+        await run_extractors_with_timeout(
+            {ExtractorType.IDENTITY},
+            "请记住我叫小明",
+            "好的，我会记住。",
+            MemoryContext(user_id="u1", write_enabled=True),
+            timeout_s=1,
+            strict=True,
+        )

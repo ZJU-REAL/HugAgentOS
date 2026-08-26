@@ -27,6 +27,7 @@ next iteration boundary.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -38,8 +39,10 @@ from core.config.catalog import get_enabled_ids
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.config.catalog_resolver import resolve_all_runtime_enabled
 from core.db.engine import SessionLocal
-from core.db.models import BatchPlan
+from core.db.models import BatchPlan, ChatRun
 from core.llm.agent_factory import create_agent_executor
+from core.llm.context_adapter import append_context_text
+from core.llm.context_ir import KIND_REMINDER
 from core.llm.message_compat import strip_thinking
 
 logger = logging.getLogger(__name__)
@@ -148,6 +151,37 @@ def _read_results(plan_id: str) -> tuple[List[Dict[str, Any]], str, Dict[str, in
         return results, plan.status, counts
 
 
+def _blocking_item_run(plan_id: str, item_index: int) -> Optional[str]:
+    """Return an unresolved inner run that forbids regenerating this batch item."""
+    with SessionLocal() as db:
+        rows = (
+            db.query(ChatRun)
+            .filter(ChatRun.status.in_(("pending", "running", "needs_attention")))
+            .order_by(ChatRun.created_at.desc())
+            .all()
+        )
+        for row in rows:
+            payload = row.request_payload if isinstance(row.request_payload, dict) else {}
+            if (
+                payload.get("kind") == "batch_item"
+                and payload.get("plan_id") == plan_id
+                and str(payload.get("item_index", "")) == str(item_index)
+            ):
+                return str(row.run_id)
+    return None
+
+
+def _batch_item_attempt_run_id(
+    user_id: str,
+    plan_id: str,
+    item_index: int,
+    attempt: int,
+) -> str:
+    """Stable admission identity shared by every process for one item attempt."""
+    raw = f"{user_id}:{plan_id}:{item_index}:{attempt}".encode("utf-8")
+    return f"run_batch_{hashlib.sha256(raw).hexdigest()[:48]}"
+
+
 def _append_result(plan_id: str, result: Dict[str, Any]) -> Dict[str, int]:
     """Atomically append a single item result to plan.progress.results
     and bump the success/failed/done counters. Returns updated counts."""
@@ -220,7 +254,9 @@ async def _ensure_background_task(plan_id: str, user_id: str) -> None:
             exc = t.exception()
             if exc is not None:
                 logger.error(
-                    "[batch] runner task crashed plan_id=%s: %s", plan_id, exc,
+                    "[batch] runner task crashed plan_id=%s: %s",
+                    plan_id,
+                    exc,
                 )
 
         task.add_done_callback(_cleanup)
@@ -267,7 +303,6 @@ async def _fallback_recover_final_text(agent: Any, prompt_preview: str) -> str:
                also fails, return an empty string so the caller records ``status="skipped"``
                instead of treating a dirty prelude as success.
     """
-    from agentscope.message import Msg, TextBlock
     from core.llm.message_compat import extract_text_from_chat_response
 
     # ── Step 1 ──
@@ -290,7 +325,9 @@ async def _fallback_recover_final_text(agent: Any, prompt_preview: str) -> str:
                 logger.info(
                     "[batch] fallback step1: picked text-only assistant len=%d "
                     "preview=%r prompt=%r",
-                    len(text), text[:120], prompt_preview,
+                    len(text),
+                    text[:120],
+                    prompt_preview,
                 )
                 return text
     except Exception as e:
@@ -298,8 +335,8 @@ async def _fallback_recover_final_text(agent: Any, prompt_preview: str) -> str:
 
     # ── Step 2 ──
     logger.warning(
-        "[batch] fallback step1 found nothing — entering step2: re-prompt "
-        "synthesis. prompt=%r", prompt_preview,
+        "[batch] fallback step1 found nothing — entering step2: re-prompt " "synthesis. prompt=%r",
+        prompt_preview,
     )
     try:
         synthesis_hint = (
@@ -308,16 +345,22 @@ async def _fallback_recover_final_text(agent: Any, prompt_preview: str) -> str:
             "不要再调用任何工具，不要再输出推理过程或新的工具调用计划，"
             "只输出给用户看的正文。</system-hint>"
         )
-        agent.state.context.append(Msg(
-            name="user", role="user",
-            content=[TextBlock(type="text", text=synthesis_hint)],
-        ))
+        append_context_text(
+            agent,
+            synthesis_hint,
+            kind=KIND_REMINDER,
+            origin="harness:batch_synthesis",
+            trust="system",
+            priority=900,
+            token_budget=2_000,
+        )
         reply_msg = await agent.reply(inputs=None)
         text = (extract_text_from_chat_response(reply_msg) or "").strip()
         if text:
             logger.info(
                 "[batch] fallback step2: synthesis succeeded len=%d preview=%r",
-                len(text), text[:120],
+                len(text),
+                text[:120],
             )
             return text
         logger.warning("[batch] fallback step2: synthesis returned empty text")
@@ -333,6 +376,9 @@ async def _run_item_via_workflow(
     user_id: str,
     sub_mcp_ids: List[str],
     *,
+    chat_id: str,
+    run_id: str,
+    journal_owner: str,
     sub_skill_ids: Optional[List[str]] = None,
     sub_visible_agents: Optional[List[Dict[str, Any]]] = None,
 ) -> tuple[str, List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -351,10 +397,11 @@ async def _run_item_via_workflow(
         attach_tool_result as _attach_tool_result,
         upsert_tool_call as _upsert_tool_call,
     )
-    from core.services.artifact_service import extend_collected_artifacts as _extend_collected_artifacts
+    from core.services.artifact_service import (
+        extend_collected_artifacts as _extend_collected_artifacts,
+    )
     from core.config.display_names import TOOL_DISPLAY_NAMES
     from core.llm import workspace as _workspace_mod
-    from core.llm.message_compat import extract_text_from_chat_response
     from orchestration.citation_anchor import (
         AnchorAllocator,
         attach_allocator,
@@ -394,6 +441,9 @@ async def _run_item_via_workflow(
         enabled_skill_ids=sub_skill_ids,
         enabled_mcp_ids=sub_mcp_ids,
         current_user_id=user_id,
+        chat_id=chat_id,
+        run_id=run_id,
+        journal_owner=journal_owner,
         isolated=True,
         max_iters=50,
         visible_subagents=sub_visible_agents if sub_visible_agents else None,
@@ -437,6 +487,9 @@ async def _run_item_via_workflow(
             session_messages=[{"role": "user", "content": prompt}],
             context={
                 "user_id": user_id,
+                "chat_id": chat_id,
+                "run_id": run_id,
+                "journal_owner": journal_owner,
                 "model_name": DEFAULT_CHAT_MODEL_ALIAS,
                 "enable_thinking": False,
                 "ontology_enabled": ontology_enabled,
@@ -571,6 +624,7 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
         template: str = plan.prompt_template or ""
         max_retries: int = int(plan.max_retries or 2)
         source_type: str = plan.source_type
+        plan_chat_id: Optional[str] = plan.chat_id
         # Mark running on first launch, idempotent on resume.
         if plan.status not in _TERMINAL:
             plan.status = RUNNING
@@ -607,6 +661,7 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
         # if one is configured so disabled built-ins stay disabled.
         try:
             from core.services.user_agent_service import UserAgentService
+
             sub_visible_agents = UserAgentService(_cap_db).list_for_user(user_id) or []
         except Exception as _exc:  # pragma: no cover - defensive
             logger.warning("[batch] visible_subagents load failed plan=%s: %s", plan_id, _exc)
@@ -621,12 +676,25 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
         next_idx = len(results)
         if next_idx >= len(items):
             break
+        blocked_run_id = _blocking_item_run(plan_id, next_idx)
+        if blocked_run_id is not None:
+            logger.error(
+                "[batch] plan=%s item=%d blocked by unresolved run=%s",
+                plan_id,
+                next_idx,
+                blocked_run_id,
+            )
+            _set_status(plan_id, FAILED)
+            return
 
         item = items[next_idx]
         item_summary = _summarize_item(item, source_type)
         logger.info(
             "[batch] plan=%s starting item %d/%d (%s)",
-            plan_id, next_idx, len(items), item_summary,
+            plan_id,
+            next_idx,
+            len(items),
+            item_summary,
         )
 
         success_text: Optional[str] = None
@@ -646,17 +714,60 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
             item_artifacts = []
             item_citations = []
             try:
-                prompt = _safe_format(
-                    template, item if isinstance(item, dict) else {"item": item}
+                prompt = _safe_format(template, item if isinstance(item, dict) else {"item": item})
+                from core.services.run_journal import (
+                    RunAlreadyExists,
+                    durable_run_binding,
                 )
-                accumulated_text, item_tool_calls, item_artifacts, item_citations = \
-                    await _run_item_via_workflow(
-                        prompt,
-                        user_id,
-                        sub_mcp_ids,
-                        sub_skill_ids=sub_skill_ids,
-                        sub_visible_agents=sub_visible_agents,
+
+                try:
+                    async with durable_run_binding(
+                        user_id=user_id,
+                        chat_id=plan_chat_id,
+                        kind="batch_item",
+                        external_id=f"{plan_id}:{next_idx}:{attempt}",
+                        request_payload={"plan_id": plan_id, "item_index": next_idx},
+                        recovery_snapshot={
+                            "worker_args": {
+                                "context": {
+                                    "mcp_ids": list(sub_mcp_ids),
+                                    "skill_ids": list(sub_skill_ids or []),
+                                    "model_name": DEFAULT_CHAT_MODEL_ALIAS,
+                                    "chat_mode": "fast",
+                                }
+                            }
+                        },
+                        binding_run_id=_batch_item_attempt_run_id(
+                            user_id,
+                            plan_id,
+                            next_idx,
+                            attempt,
+                        ),
+                    ) as binding:
+                        accumulated_text, item_tool_calls, item_artifacts, item_citations = (
+                            await _run_item_via_workflow(
+                                prompt,
+                                user_id,
+                                sub_mcp_ids,
+                                chat_id=binding.chat_id,
+                                run_id=binding.run_id,
+                                journal_owner=binding.owner,
+                                sub_skill_ids=sub_skill_ids,
+                                sub_visible_agents=sub_visible_agents,
+                            )
+                        )
+                except RunAlreadyExists as exc:
+                    logger.info(
+                        "[batch] plan=%s item=%d attempt=%d already admitted as run=%s",
+                        plan_id,
+                        next_idx,
+                        attempt,
+                        exc,
                     )
+                    # Another process won the database admission race. It owns
+                    # result persistence and terminal plan status; this runner
+                    # must become a passive follower rather than overwrite it.
+                    return
                 success_text = strip_thinking(accumulated_text).strip()
                 break
             except asyncio.CancelledError:
@@ -667,13 +778,26 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
                 # items would keep running after a user cancellation.
                 raise
             except Exception as exc:
+                from core.services.tool_effect_ledger import find_tool_outcome_unknown
+
+                if find_tool_outcome_unknown(exc) is not None:
+                    logger.error(
+                        "[batch] plan=%s item=%d paused for tool-effect recovery",
+                        plan_id,
+                        next_idx,
+                    )
+                    _set_status(plan_id, FAILED)
+                    return
                 last_error = f"{type(exc).__name__}: {exc}"[:500]
                 logger.warning(
                     "[batch] plan=%s item %d attempt %d failed: %s",
-                    plan_id, next_idx, attempt, last_error,
+                    plan_id,
+                    next_idx,
+                    attempt,
+                    last_error,
                 )
                 if attempt < max_retries:
-                    await asyncio.sleep(min(2 ** attempt, 8))
+                    await asyncio.sleep(min(2**attempt, 8))
 
         record: Dict[str, Any]
         if success_text is not None:
@@ -706,8 +830,12 @@ async def _run_until_done(plan_id: str, user_id: str) -> None:
         counts_after = _append_result(plan_id, record)
         logger.info(
             "[batch] plan=%s item %d/%d persisted status=%s done=%d/%d",
-            plan_id, next_idx, len(items), record.get("status"),
-            counts_after.get("done", 0), len(items),
+            plan_id,
+            next_idx,
+            len(items),
+            record.get("status"),
+            counts_after.get("done", 0),
+            len(items),
         )
 
     # All items processed (or items list was empty). Mark done unless
@@ -754,22 +882,21 @@ class BatchOrchestrator:
         with SessionLocal() as db:
             plan = _load_plan(db, self.plan_id)
             if plan is None:
-                yield {"type": "batch_error", "plan_id": self.plan_id,
-                       "error": "plan not found"}
+                yield {"type": "batch_error", "plan_id": self.plan_id, "error": "plan not found"}
                 return
             if plan.user_id != self.user_id:
-                yield {"type": "batch_error", "plan_id": self.plan_id,
-                       "error": "permission denied"}
+                yield {"type": "batch_error", "plan_id": self.plan_id, "error": "permission denied"}
                 return
             if plan.status not in (CONFIRMED, RUNNING, DONE):
-                yield {"type": "batch_error", "plan_id": self.plan_id,
-                       "error": f"plan not runnable (status={plan.status})"}
+                yield {
+                    "type": "batch_error",
+                    "plan_id": self.plan_id,
+                    "error": f"plan not runnable (status={plan.status})",
+                }
                 return
             total = len(plan.items or [])
             source_type = plan.source_type
-            items_summary = [
-                _summarize_item(it, source_type) for it in (plan.items or [])
-            ]
+            items_summary = [_summarize_item(it, source_type) for it in (plan.items or [])]
 
         # ── Kick off (or attach to) the background runner ──────────────
         # Skip the kick-off if the plan is already terminal so we just

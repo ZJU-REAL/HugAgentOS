@@ -45,6 +45,10 @@ async def test_inject_reminder_uses_user_role():
     text = msg.content[0].text
     assert REMINDER_OPEN in text
     assert "hello" in text
+    provenance = msg.metadata["harness_context_items"][0]
+    assert provenance["kind"] == "reminder"
+    assert provenance["origin"] == "harness:system_reminder"
+    assert provenance["trust"] == "system"
 
 
 @pytest.mark.asyncio

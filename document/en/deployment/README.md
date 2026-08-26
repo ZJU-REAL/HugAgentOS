@@ -9,6 +9,7 @@ HugAgentOS supports several deployment methods, from "zero-dependency single-mac
 | Method | Best for | Docker | Database | Multi-user | Doc |
 |---|---|---|---|---|---|
 | **Windows desktop one-click install** | Personal Windows use; install the local service with the desktop client | Not required | SQLite | No (single user) | [windows-deployment.md](windows-deployment.md) |
+| **UOS 1070 ARM64 desktop** | UOS 1070 aarch64; Electron 43 `.deb` | Not required | SQLite / remote | Local single user / cloud multi-user | [uos1070-desktop.md](uos1070-desktop.md) |
 | **No-Docker quick install** | Personal single-machine trial, development experience; one command and you're running | Not required | SQLite | No (single user) | [quick-install.md](quick-install.md) |
 | **Docker Compose** | The standard form for teams / production — multi-user, full features | Required | PostgreSQL | Yes | [docker-compose.md](docker-compose.md) |
 | **Offline production (Enterprise Edition)** | Air-gapped environments (government intranets); image tarball offline delivery | Required | PostgreSQL | Yes | [offline-production.md](offline-production.md) |
@@ -18,6 +19,7 @@ Cross-platform and reference:
 | Doc | Description |
 |---|---|
 | [Windows Deployment](windows-deployment.md) | Installing the desktop-managed local service, or running Compose through Docker Desktop and WSL2 |
+| [UOS 1070 ARM64 Desktop](uos1070-desktop.md) | Electron 43, glibc 2.28, ARM64 `.deb` build and acceptance |
 | [Environment Variables](environment-variables.md) | Complete variable reference (defaults / purpose / CE·EE relevance) |
 
 ## One-line comparison

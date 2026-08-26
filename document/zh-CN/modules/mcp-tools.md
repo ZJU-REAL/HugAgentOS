@@ -30,10 +30,11 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 端口分配的唯一真源是 `src/backend/mcp_servers/_ports.py`：`core/config/mcp_config.py`（后端拼 `http://mcp:NNNN/mcp/` URL）和 `mcp_servers/_launcher.py`（容器内绑定端口）都从这里读取。
 
 > 历史说明：办公文档编辑与导出（word / excel / ppt / pdf）已整体迁出
-> `mcp` 容器，改为以 [Agent 技能](agent-skills.md)（word-editing /
-> excel-editing / ppt-design / pdf-editing）的形态在沙箱容器内执行，各技能
-> 自带引擎。因此 `report_export_mcp` 已退役，9105 保留但不再启动；9108
-> 由自动化插件提供，9109–9111 仍保留。
+> `mcp` 容器，改为以 [Agent 技能](agent-skills.md)（officecli-docx /
+> officecli-xlsx / officecli-pptx 系列与 pdf-editing）的形态在沙箱容器内
+> 执行：前者驱动沙箱预装的 `officecli` 二进制，后者自带引擎。因此
+> `report_export_mcp` 已退役，9105 保留但不再启动；9108 由自动化插件提供，
+> 9109–9111 仍保留。
 
 ## 内置 MCP Server 一览
 

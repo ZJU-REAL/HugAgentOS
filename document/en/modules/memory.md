@@ -1,6 +1,6 @@
 # Memory System (mem0)
 
-> Last updated: 2026-08-10
+> Last updated: 2026-08-24
 
 HugAgentOS ships with a **layered persistent memory system**. L2 uses [mem0](https://github.com/mem0ai/mem0) with Milvus, while L3 uses a local adapter that connects directly to Neo4j. When enabled, the agent remembers a user's identity, preferences, **how work is done here** (definitions, orderings, red lines), and stable entity relationships across sessions. Memory is organized into three layers by information stability (L1 profile / L2 procedures / L3 knowledge graph) — all three layers are Community Edition capabilities; only **memory auditing** (compliance trail) belongs to the commercial edition (Enterprise Edition, EE).
 
@@ -36,8 +36,8 @@ orchestration/workflow.py
   ├─► build_frozen_memory_block()          ← assembles the "session-frozen" block
   │     · L1 profile: DB read, <20ms, always awaited
   │     · L2 procedures: awaits the retrieval task within a 600ms budget
-  │       (MEMORY_RETRIEVAL_BUDGET_MS); on timeout, injection is skipped
-  │       so agent startup is never blocked
+  │       (MEMORY_RETRIEVAL_BUDGET_MS); timeout shields the background task,
+  │       skips this injection, and leaves completion state observable
   │
   ├─► inject_frozen_memory()               ← frozen block prepended to
   │                                           session_messages as a user-role message
@@ -48,7 +48,9 @@ orchestration/workflow.py
   ▼  after SSE closes (the user never waits)
 save_memories_background()
   └─ core/memory/pipeline.schedule_post_response_tasks()
-       · global semaphore caps concurrency (default 8)
+       · commits a MemoryOutbox pipeline row before returning
+       · leased worker resumes pending/retry rows after restart; failures retry/quarantine
+       · global semaphore caps worker concurrency (default 8)
        · current-turn classification + a bounded recent trajectory (up to 8 messages) → runs 0–5 extractors
        · failure → user-supplied method change → success is retained as a procedural candidate
        · each extractor has its own 30s timeout
@@ -61,11 +63,16 @@ The integration layer for retrieval and injection lives in `src/backend/orchestr
 
 Writes happen only when the user has explicitly enabled `memory_write_enabled` (first gate in `save_memories_background()`, second gate inside `schedule_post_response_tasks()`). Pipeline properties (`core/memory/pipeline.py`):
 
-- **Never awaited**: `schedule_post_response_tasks()` is synchronous and only calls `asyncio.create_task()`;
+- **Durable admission**: `schedule_post_response_tasks()` is synchronous and commits a database Outbox row before returning; the low-latency path only wakes the lifecycle-owned worker, while startup owns recovery;
+- **Lease and idempotency**: Outbox states are `pending/processing/succeeded/retry/quarantined`; `message_id + layer + candidate_hash` deduplicates admission. L2/L3 persist the candidate id as an effect receipt. L2 recovery uses an exact Strong-consistency JSON receipt query instead of a capped `top_k` scan; database advisory lanes order external L2 effects per scope, and receipts from multiple rules in one candidate are merged locally. Crash replay therefore cannot append or reinforce twice; expired leases are reclaimable and failures use backoff;
+- **Atomic checkpoints and settlement**: extracted candidates and every child job are checkpointed in one transaction, so pipeline replay does not call the extraction model again. The evolution-card summary and settlement Outbox acknowledgement also commit together, preventing a half-finished card that can later overwrite user edits;
+- **One long-term write seam**: post-response writes, profile compaction, and interactive L1/L2 edits all commit Outbox rows before touching long-term storage;
 - **Bounded concurrency**: a global `asyncio.Semaphore` (`MEMORY_BG_MAX_CONCURRENCY`, default 8);
 - **Milvus circuit breaker**: after N consecutive failures (default 3) the breaker opens for 60 seconds; retrieval and write paths share the same `milvus_breaker`;
 - **Extractor routing** (`core/memory/extractors/router.py`): keyword cues keep short `identity` and `preference` statements from being missed, while substantive turns nominate both as well; `task` remains gated by explicit task cues; **`procedural` has no keyword gate** and runs on every substantive turn (user ≥ 8 chars, assistant ≥ 30 chars) — a convention is stated in whatever words the user happened to use, so a regex deciding "no procedure here" before the model reads the turn drops them silently and invisibly. An empty classification skips all LLM calls entirely.
 - **Multi-turn correction retention** (`core/memory/trajectory.py`): the post-response pipeline reads at most eight recent messages from the current chat. Both “explicit assistant failure → user method change → later success” and “assistant produced a result → user explicitly corrected the prior method → later success” deterministically retain the `procedural` candidate. The LLM gate cannot erase these result-verified lessons; if the general procedure extractor still returns empty, only this rare signal gets one focused failure-recovery extraction retry. Bare retries, assistant-only “lessons,” and suggestions without success evidence do not trigger it.
+- **Gate failure is not approval**: explicit “remember” requests and verified corrections bypass the LLM judge. Other candidates retry on timeout or malformed output and become `quarantined` after the configured limit instead of failing open into broader writes.
+- **Profile CAS and effect receipts**: each L1 commit increments `revision`; normal updates and compaction compare revisions, and a conflicting compaction reloads and recomputes from the newest profile instead of overwriting concurrent fields. The result of each Outbox effect is stored atomically with the profile, so crash recovery does not mutate it or call the compaction model twice.
 - **L2 stores procedures, not facts**: a fact starts decaying the moment it is written, so remembering it makes the system confidently recall a stale number instead of looking the current one up. What survives repetition — and what a skill can be compiled from — is how work gets done. There is no fact extractor and no fallback path.
 - **L3 stores stable relationships, not procedures**: its extractor accepts user-asserted or user-confirmed affiliation, responsibility, dependency, use, composition, alias, and classification relationships. Volatile measurements, status, news, and one-off instructions never enter the graph. Repeated observations reinforce the same edge by increasing `seen_count` and refreshing `last_seen_at` instead of creating duplicates.
 - **Writes bypass mem0's own inference**: every write passes `infer=False`. By default mem0 re-judges the text with its generic fact-extraction prompt and can silently discard an already-distilled rule, which surfaces as "the write succeeded and stored nothing" — no error in the log, no entry on the card.
@@ -101,8 +108,8 @@ Route file: `src/backend/api/routes/v1/memories.py` (registered in the CE router
 | Method | Path | Description |
 |---|---|---|
 | GET | `/v1/memories` | L2 procedure list; `?project_id=` filters by project workspace |
-| PATCH | `/v1/memories/{id}` | Edit one L2 memory's text (id and metadata preserved) |
-| PATCH | `/v1/memories/profile/field` | Edit one L1 profile field |
+| PATCH | `/v1/memories/{id}` | Edit one L2 memory through the Outbox (id and metadata preserved; optional retry `operation_id`) |
+| PATCH | `/v1/memories/profile/field` | Edit one L1 profile field through the Outbox (optional retry `operation_id`) |
 | DELETE | `/v1/memories/profile/field` | Delete one L1 profile field |
 | GET | `/v1/memories/profile` | L1 profile (full markdown + char cap) |
 | GET | `/v1/memories/graph` | L3 relation list; supports `?project_id=` scope |
@@ -178,10 +185,14 @@ MEMORY_LAYERED_ENABLED=true       # layered memory
 MEMORY_AUDIT_ENABLED=true         # audit side channel (Enterprise Edition, EE)
 MEMORY_RETRIEVAL_BUDGET_MS=600    # retrieval budget
 MEMORY_BG_MAX_CONCURRENCY=8       # background write concurrency
+MEMORY_OUTBOX_LEASE_SECONDS=120   # worker lease
+MEMORY_OUTBOX_MAX_ATTEMPTS=5      # quarantine after this many attempts
+MEMORY_OUTBOX_RETRY_BASE_SECONDS=5 # exponential-backoff base
+MEMORY_OUTBOX_POLL_SECONDS=1      # worker poll interval
 MEMORY_EXTRACT_TIMEOUT_S=30       # per-extractor timeout
 MEMORY_PROFILE_MAX_CHARS=1500     # L1 profile char cap
-MEMORY_FACT_DEFAULT_TTL_DAYS=180  # default L2 TTL (procedure writes pin 365 days)
-MEMORY_FROZEN_TOPK=5              # frozen-block fact Top-K
+MEMORY_FACT_DEFAULT_TTL_DAYS=180  # legacy compatibility; procedures use dedicated TTLs
+MEMORY_FROZEN_TOPK=5              # frozen-block procedure Top-K
 MEMORY_BREAKER_THRESHOLD=3        # Milvus breaker threshold
 MEMORY_BREAKER_COOLDOWN_S=60      # breaker cooldown
 
@@ -201,7 +212,11 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/core/memory/service.py` | mem0 config and async wrappers (Milvus / reranker), plus L3 retrieval merge |
 | `src/backend/core/memory/graph.py` | L3 Neo4j relation persistence, reinforcement, retrieval, and deletion |
 | `src/backend/core/memory/profile.py` | L1 profile: get / patch / compact / delete |
-| `src/backend/core/memory/pipeline.py` | Post-response write pipeline, semaphore, Milvus circuit breaker |
+| `src/backend/core/memory/profile_store.py` | L1 revision CAS and effect-receipt store |
+| `src/backend/core/memory/outbox.py` | Durable admission, leases, retry/quarantine, extraction checkpoints, atomic settlement |
+| `src/backend/core/memory/effect_lane.py` | Per-scope L2 ordering via PostgreSQL advisory locks / SQLite local locks |
+| `src/backend/core/memory/executor.py` | Cancellation-safe bridge that waits for real threaded effects before lease release |
+| `src/backend/core/memory/pipeline.py` | Outbox admission seam, semaphore, Milvus circuit breaker |
 | `src/backend/core/memory/trajectory.py` | Bounded recent chat trajectory and failure → method change → success detection |
 | `src/backend/core/memory/extractors/` | identity / preference / task / procedural / graph extractors + router |
 | `src/backend/core/memory/sanitizer.py` | Sanitizer gate (hardcoded + DB-managed rules) |
@@ -210,7 +225,7 @@ See the [environment variable reference](../deployment/environment-variables.md)
 | `src/backend/orchestration/memory_integration.py` | Retrieval launch, frozen-block assembly and injection, save delegation |
 | `src/backend/orchestration/workflow.py` | Main orchestration: memory hook wiring |
 | `src/backend/api/routes/v1/memories.py` | `/v1/memories` management API |
-| `src/backend/core/db/models/memory.py` | Shared `MemorySanitizerRule` ORM |
+| `src/backend/core/db/models/memory.py` | `ProfileMemory`, `MemoryOutbox`, and `MemorySanitizerRule` ORM |
 | `src/backend/edition_ee/db/models/memory.py` | `MemoryAudit` ORM (EE only) |
 | `src/frontend/src/components/settings/SettingsModal.tsx` | Memory settings + layered memory modal |
 | `src/frontend/src/components/memory/FactsList.tsx` | L2 procedure list component (editable) |

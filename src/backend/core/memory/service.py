@@ -21,6 +21,7 @@ This file only does config assembly + async wrapping beyond that.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import threading
@@ -29,6 +30,7 @@ from typing import List, Optional
 
 from core.config.settings import settings
 from core.memory.context import Confidentiality
+from core.memory.executor import run_effect
 from core.memory.retrieval_types import MemoryRetrievalResult, RetrievedRelation, build_memory_item
 
 logger = logging.getLogger(__name__)
@@ -179,7 +181,9 @@ def _apply_probed_embed_dims(cfg: dict) -> None:
             max_retries=0,
         )
         probed = len(
-            client.embeddings.create(input=["dimension probe"], model=emb["model"]).data[0].embedding
+            client.embeddings.create(input=["dimension probe"], model=emb["model"])
+            .data[0]
+            .embedding
         )
     except Exception as exc:
         logger.warning(
@@ -325,9 +329,7 @@ def _reembed_rows(client, name: str, cfg: dict) -> Optional[list]:
                 text = payload.get("data")
                 if not text:
                     continue  # e.g. malformed legacy rows; nothing to re-embed
-                vector = (
-                    oai.embeddings.create(input=[text], model=emb["model"]).data[0].embedding
-                )
+                vector = oai.embeddings.create(input=[text], model=emb["model"]).data[0].embedding
                 out.append({"id": row.get("id"), "payload": payload, "vector": vector})
             if len(batch) < page:
                 break
@@ -427,7 +429,13 @@ def _is_auth_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     return any(
         kw in msg
-        for kw in ("invalid_api_key", "incorrect api key", "unauthorized", "error code: 401", "401 unauthorized")
+        for kw in (
+            "invalid_api_key",
+            "incorrect api key",
+            "unauthorized",
+            "error code: 401",
+            "401 unauthorized",
+        )
     )
 
 
@@ -753,7 +761,116 @@ async def find_similar_procedure(
     return best if best and best.get("id") else None
 
 
-async def reinforce_procedure_entry(similar: dict, *, strength: str = "weak") -> bool:
+async def find_procedure_by_effect_id(
+    ctx,
+    effect_id: str,
+    *,
+    strict: bool = False,
+) -> Optional[dict]:
+    """Find the durable receipt left by an earlier outbox attempt.
+
+    The receipt lives with the external memory.  That closes the otherwise
+    unavoidable window where mem0 accepted an add/update but the process died
+    before the local outbox row could be acknowledged.
+    """
+
+    if not settings.memory.enabled or not effect_id or not ctx or not ctx.user_id:
+        return None
+    loop = asyncio.get_running_loop()
+    memory = await loop.run_in_executor(None, _get_memory)
+    if memory is None:
+        if strict:
+            raise RuntimeError("memory store unavailable during idempotency lookup")
+        return None
+    filters: dict = {"user_id": ctx.effective_scope_user_id}
+    if ctx.workspace_id:
+        filters["workspace_id"] = ctx.workspace_id
+
+    # mem0's get_all() caps the result set, so scanning it cannot prove an old
+    # item receipt absent once a scope exceeds that cap. The real Milvus store
+    # exposes its scalar-query client: query the scalar and array receipts
+    # directly, with Strong consistency, so the result is exact and observes a
+    # receipt committed immediately before a crash.
+    vector_store = getattr(memory, "vector_store", None)
+    client = getattr(vector_store, "client", None)
+    collection_name = getattr(vector_store, "collection_name", None)
+    if client is not None and collection_name:
+        literal = json.dumps(effect_id, ensure_ascii=False)
+        scope_parts = [f'(metadata["user_id"] == {json.dumps(ctx.effective_scope_user_id)})']
+        if ctx.workspace_id:
+            scope_parts.append(f'(metadata["workspace_id"] == {json.dumps(ctx.workspace_id)})')
+        receipt_filter = (
+            f'((metadata["outbox_effect_id"] == {literal}) or '
+            f'json_contains(metadata["outbox_effect_ids"], {literal}))'
+        )
+        filter_expr = " and ".join([*scope_parts, receipt_filter])
+        try:
+            rows = await run_effect(
+                client.query,
+                collection_name=collection_name,
+                filter=filter_expr,
+                output_fields=["id", "metadata"],
+                limit=5,
+                consistency_level="Strong",
+            )
+        except Exception as exc:
+            if strict:
+                raise RuntimeError("procedure idempotency lookup failed") from exc
+            logger.debug("[MemoryService] exact effect lookup failed: %s", exc)
+            return None
+        for item in rows if isinstance(rows, list) else []:
+            if not isinstance(item, dict):
+                continue
+            meta = item.get("metadata") or {}
+            return {
+                "id": item.get("id"),
+                "memory": meta.get("data") or meta.get("memory") or "",
+                "metadata": meta,
+            }
+        return None
+
+    try:
+        exact_filters = {**filters, "outbox_effect_id": effect_id}
+        exact_result = await loop.run_in_executor(
+            None, lambda: memory.get_all(filters=exact_filters, top_k=5)
+        )
+        result = await loop.run_in_executor(
+            None, lambda: memory.get_all(filters=filters, top_k=200)
+        )
+    except Exception as exc:
+        if strict:
+            raise RuntimeError("procedure idempotency lookup failed") from exc
+        logger.debug("[MemoryService] effect lookup failed: %s", exc)
+        return None
+    exact_items = (
+        exact_result.get("results", []) if isinstance(exact_result, dict) else exact_result
+    )
+    items = result.get("results", []) if isinstance(result, dict) else result
+    combined = [
+        *(exact_items if isinstance(exact_items, list) else []),
+        *(items if isinstance(items, list) else []),
+    ]
+    for item in combined:
+        if not isinstance(item, dict):
+            continue
+        meta = item.get("metadata") or {}
+        receipts = meta.get("outbox_effect_ids") or []
+        if meta.get("outbox_effect_id") == effect_id or effect_id in receipts:
+            return {
+                "id": item.get("id"),
+                "memory": item.get("memory") or item.get("text") or "",
+                "metadata": meta,
+            }
+    return None
+
+
+async def reinforce_procedure_entry(
+    similar: dict,
+    *,
+    strength: str = "weak",
+    effect_id: Optional[str] = None,
+    candidate_receipts: Optional[list[str]] = None,
+) -> bool:
     """Record that an already-stored procedure was stated again.
 
     A restatement is evidence, not new content: bump ``seen_count``, promote the
@@ -779,9 +896,32 @@ async def reinforce_procedure_entry(similar: dict, *, strength: str = "weak") ->
         "ttl_days": int(ttl),
         "last_reinforced_at": datetime.now().isoformat(timespec="seconds"),
     }
+    if effect_id:
+        receipts = list(meta.get("outbox_effect_ids") or [])
+        if meta.get("outbox_effect_id") == effect_id or effect_id in receipts:
+            return True
+        # Retain all receipts belonging to the currently executing candidate
+        # row.  The ordered per-scope effect lane guarantees that an older row
+        # has already been acknowledged before a newer row may replace this
+        # small receipt set, so history does not grow without bound while a
+        # crash midway through a multi-rule candidate remains replay-safe.
+        candidate_id, _, _item_hash = effect_id.rpartition(":")
+        receipts = [
+            receipt
+            for receipt in receipts
+            if isinstance(receipt, str) and receipt.rpartition(":")[0] == candidate_id
+        ]
+        for receipt in [*(candidate_receipts or []), effect_id]:
+            if (
+                isinstance(receipt, str)
+                and receipt.rpartition(":")[0] == candidate_id
+                and receipt not in receipts
+            ):
+                receipts.append(receipt)
+        patch["outbox_effect_id"] = effect_id
+        patch["outbox_effect_ids"] = receipts
     try:
-        await loop.run_in_executor(
-            None,
+        await run_effect(
             lambda: memory.update(
                 memory_id,
                 metadata=patch,
@@ -878,8 +1018,7 @@ async def save_procedure_entry(
 
     for attempt in range(2):
         try:
-            result = await loop.run_in_executor(
-                None,
+            result = await run_effect(
                 # ``infer=False`` stores this text verbatim.
                 #
                 # By default mem0 runs its *own* LLM extraction over whatever it is
@@ -919,7 +1058,9 @@ async def save_procedure_entry(
             # built from an outdated config: reset, rebuild against the current
             # config and retry once. Auth errors stay out of the Milvus breaker.
             if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
-                logger.warning("[MemoryService] mem0 instance looks stale, resetting for retry: %s", exc)
+                logger.warning(
+                    "[MemoryService] mem0 instance looks stale, resetting for retry: %s", exc
+                )
                 _reset_memory()
                 memory = await loop.run_in_executor(None, _get_memory)
                 if memory is not None:
@@ -978,34 +1119,18 @@ def _apply_time_decay(item: dict, base_score: float) -> float:
 
 
 async def save_conversation(user_id: str, user_message: str, assistant_message: str) -> None:
-    """
-    Call mem0.Memory.add() to save conversation memory in the background.
-    This function should be invoked via asyncio.create_task() and never block the main flow.
-    """
+    """Compatibility entry point that durably admits the layered pipeline."""
     if not settings.memory.enabled or not user_id:
         return
-    messages = [
-        {"role": "user", "content": user_message},
-        {"role": "assistant", "content": assistant_message},
-    ]
-    for attempt in range(2):
-        memory = _get_memory()
-        if memory is None:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-            logger.info(
-                "[MemoryService] 开始保存记忆, user_id=%s, msg_len=%d", user_id, len(user_message)
-            )
-            result = await loop.run_in_executor(None, lambda: memory.add(messages, user_id=user_id))
-            logger.info("[MemoryService] 用户 %s 的记忆已保存, result=%s", user_id, result)
-            return
-        except Exception as exc:
-            if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
-                logger.warning("[MemoryService] Milvus 连接断开，正在重置并重试: %s", exc)
-                _reset_memory()
-                continue
-            logger.error("[MemoryService] 记忆保存失败: %s", exc, exc_info=True)
+    from core.memory.context import MemoryContext
+    from core.memory.outbox import enqueue_pipeline_job, kick_outbox_drain
+
+    enqueue_pipeline_job(
+        MemoryContext(user_id=user_id, write_enabled=True),
+        user_message,
+        assistant_message,
+    )
+    kick_outbox_drain()
 
 
 async def get_all_memories(
@@ -1053,7 +1178,7 @@ async def get_all_memories(
     return []
 
 
-async def update_memory(memory_id: str, content: str) -> bool:
+async def update_memory(memory_id: str, content: str, *, strict: bool = False) -> bool:
     """Rewrite one memory's text in place, keeping its id and metadata.
 
     The turn card shows what was just written and lets the user correct it. That
@@ -1062,14 +1187,17 @@ async def update_memory(memory_id: str, content: str) -> bool:
     so a user fixing a typo would silently lose the memory's history.
     """
     if not memory_id or not (content or "").strip():
+        if strict:
+            raise ValueError("memory_id and content are required")
         return False
     for attempt in range(2):
         memory = _get_memory()
         if memory is None:
+            if strict:
+                raise RuntimeError("memory store unavailable")
             return False
         try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, lambda: memory.update(memory_id, content.strip()))
+            await run_effect(lambda: memory.update(memory_id, content.strip()))
             return True
         except Exception as exc:
             if attempt == 0 and (_is_connection_error(exc) or _is_auth_error(exc)):
@@ -1077,6 +1205,8 @@ async def update_memory(memory_id: str, content: str) -> bool:
                 _reset_memory()
                 continue
             logger.warning("[MemoryService] 单条更新失败: %s", exc)
+            if strict:
+                raise
             return False
     return False
 

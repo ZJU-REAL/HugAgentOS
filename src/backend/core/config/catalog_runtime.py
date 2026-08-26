@@ -20,7 +20,7 @@ from core.config.catalog_loader import (
     DB_HIDDEN_SERVERS,
     DB_UMBRELLA_ID,
     _database_query_capability_available,
-    skill_body_from_raw,
+    resolve_skill_detail,
 )
 from core.config.edition_display_names import edition_mcp_icons
 from sqlalchemy.orm import Session
@@ -99,7 +99,7 @@ def _public_db_skill_items(db: Session, *, include_runtime_details: bool) -> Lis
             config={"tags": row.tags or []},
         )
         if include_runtime_details:
-            detail = row.user_intro or skill_body_from_raw(row.skill_content or "")
+            detail = resolve_skill_detail(row.user_intro, row.skill_content or "")
             if detail:
                 item["detail"] = detail
             icon = icons.get(row.skill_id, "")

@@ -7,10 +7,11 @@ read the stream via XRANGE replay + XREAD tailing, which enables "resume the
 live stream after a page refresh".
 
 Public interface:
-- ``start_run(...)``          synchronously create the run + start the background worker
+- ``start_run(...)``          launch a run already accepted by ChatSequencer
+- ``wait_run(run_id)``        wait for a locally launched run without detaching it
 - ``follow_run(run_id, ...)`` SSE follower: read events from the Redis Stream
 - ``cancel_run(run_id, ...)`` cancel the background task + mark status=cancelled
-- ``recover_orphan_runs()``   startup hook: mark leftover running/pending runs as failed
+- ``recover_orphan_runs()``   startup hook: resume from the last durable safe point
 - ``get_run(run_id)``         read the ChatRun row (used by the route layer for authz)
 - ``get_active_run_for_chat(chat_id, user_id)``  probe for an in-progress run
 """
@@ -19,21 +20,40 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import os
+import socket
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Literal, Optional
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+)
 
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun
+from core.harness.hooks import HookPaused, find_hook_paused
 from core.infra.logging import get_logger
 from core.infra.redis import get_redis
+from core.llm import human_interaction
 from core.services import ChatService
-from orchestration.workflow import astream_chat_workflow
+from core.services.run_journal import RecoveryDecision, RunJournal, RunLeaseLost
+from core.services.tool_effect_ledger import (
+    ToolOutcomeUnknown,
+    find_tool_outcome_unknown,
+)
 from redis.exceptions import TimeoutError as RedisTimeoutError
+
+from orchestration.workflow import astream_chat_workflow
 
 logger = get_logger(__name__)
 
@@ -44,14 +64,19 @@ RunKind = Literal["chat", "plan_execute", "plan_generate", "autonomous_loop"]
 
 # Kinds that use cooperative cancellation (no cross-task cancel; they poll is_run_cancelled and stop themselves, avoiding the anyio cancel-scope deadlock)
 _COOPERATIVE_KINDS: tuple[str, ...] = ("plan_execute", "autonomous_loop")
-RunStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
+RunStatus = Literal["pending", "running", "needs_attention", "completed", "failed", "cancelled"]
 
-_TERMINAL_STATUSES: tuple[RunStatus, ...] = ("completed", "failed", "cancelled")
+_TERMINAL_STATUSES: tuple[RunStatus, ...] = (
+    "needs_attention",
+    "completed",
+    "failed",
+    "cancelled",
+)
 _LIVE_STATUSES: tuple[RunStatus, ...] = ("pending", "running")
 
 _STREAM_KEY = "jx:chat:run:{run_id}:events"
 _STREAM_MAXLEN = 5000
-_STREAM_TTL_SECONDS = 3600
+_STREAM_TTL_SECONDS = human_interaction.STREAM_TTL_SECONDS
 _TERMINAL_TYPE = "__terminal__"
 _XREAD_BLOCK_MS = 5000
 # When the SSE stream is silent longer than this, write a `: heartbeat\n\n`
@@ -84,6 +109,13 @@ _STALE_QUIET_SEC = float(os.getenv("CHAT_RUN_STALE_QUIET_SEC", str(_INACTIVITY_T
 # force-reaped past this age, preventing a runaway agent loop from living
 # forever by continuously emitting.
 _HARD_MAX_AGE_SEC = float(os.getenv("CHAT_RUN_HARD_MAX_AGE_SEC", "21600"))
+_RUN_LEASE_SECONDS = max(15, int(os.getenv("CHAT_RUN_LEASE_SECONDS", "90")))
+_RUN_LEASE_HEARTBEAT_SEC = max(1.0, _RUN_LEASE_SECONDS / 3)
+_RUN_RECOVERY_INTERVAL_SEC = max(
+    1.0,
+    float(os.getenv("CHAT_RUN_RECOVERY_INTERVAL_SEC", "15")),
+)
+_WORKER_INSTANCE_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
 
 
 async def _aiter_with_inactivity_timeout(
@@ -125,6 +157,18 @@ async def _aiter_with_inactivity_timeout(
         yield item
 
 
+def _is_chat_run_activity(item: Any, chat_id: str) -> bool:
+    """Classify workflow output for the inactivity watchdog.
+
+    A transport heartbeat is normally not meaningful progress. It becomes
+    progress only while a registered tool is legitimately suspended on a
+    human answer; this keeps true HITL waits alive without weakening zombie
+    detection for every other silent run.
+    """
+
+    return item.get("type") != "heartbeat" or human_interaction.has_pending(chat_id)
+
+
 def _stream_key(run_id: str) -> str:
     return _STREAM_KEY.format(run_id=run_id)
 
@@ -145,10 +189,69 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _journal() -> RunJournal:
+    # Resolve SessionLocal at call time so tests and alternate runtime profiles
+    # can replace the factory without leaving the journal bound to another DB.
+    return RunJournal(SessionLocal)
+
+
+def _new_worker_owner(run_id: str) -> str:
+    return f"{_WORKER_INSTANCE_ID}:{run_id}:{uuid.uuid4().hex[:12]}"
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+async def _lease_heartbeat(
+    run_id: str,
+    owner: str,
+    worker: asyncio.Task,
+    lease_lost: asyncio.Event,
+) -> None:
+    """Renew ownership and fence the local coroutine immediately on lease loss."""
+    interval = _RUN_LEASE_HEARTBEAT_SEC
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            # ``renew`` is a synchronous UPDATE on chat_runs. Run it off the
+            # event loop: whenever that row is locked by another transaction
+            # this call waits inside the driver, and waiting *on the loop*
+            # freezes every coroutine in the process — including the one
+            # holding the lock, which then can never commit and release it.
+            # A blocked heartbeat must only cost this run its lease, never the
+            # whole backend.
+            renewed = await asyncio.to_thread(
+                _journal().renew,
+                run_id,
+                owner=owner,
+                lease_seconds=_RUN_LEASE_SECONDS,
+            )
+            if not renewed:
+                logger.warning("chat_run_lease_lost", run_id=run_id, owner=owner)
+                lease_lost.set()
+                worker.cancel()
+                return
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # DB/driver failures must fail closed
+        logger.error(
+            "chat_run_lease_renew_failed",
+            run_id=run_id,
+            owner=owner,
+            error=str(exc),
+            exc_info=True,
+        )
+        lease_lost.set()
+        worker.cancel()
+
+
 def _update_run_status(run_id: str, **fields: Any) -> None:
     """Single-shot UPDATE on chat_runs; isolated session so it doesn't pollute caller's txn."""
     if not fields:
         return
+    if fields.get("status") in _TERMINAL_STATUSES:
+        fields.setdefault("writer_slot", None)
     with SessionLocal() as db:
         affected = (
             db.query(ChatRun)
@@ -160,22 +263,141 @@ def _update_run_status(run_id: str, **fields: Any) -> None:
         db.commit()
 
 
-def _finalize_run(run_id: str, **fields: Any) -> bool:
+def _claim_run_execution(run_id: str) -> bool:
+    """Fence duplicate initial workers before acquiring the durable lease."""
+
+    with SessionLocal() as db:
+        affected = (
+            db.query(ChatRun)
+            .filter(ChatRun.run_id == run_id, ChatRun.status == "pending")
+            .update(
+                {"status": "running", "started_at": _utcnow()},
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+    return bool(affected)
+
+
+def _finalize_run(
+    run_id: str,
+    *,
+    require_expired_lease: bool = False,
+    **fields: Any,
+) -> bool:
     """CAS variant of writing the terminal state: only updates while the run is still live.
 
     Prevents the race where "the reaper / cancel has already moved the run to a
     terminal state, and the worker's late completed/failed overwrites it back" —
     the side that loses the race abandons its write and returns False.
     """
+    fields.setdefault("lease_owner", None)
+    fields.setdefault("lease_expires_at", None)
+    if fields.get("error_message") and not fields.get("failure_reason"):
+        fields["failure_reason"] = fields["error_message"]
+    if fields.get("status") in _TERMINAL_STATUSES:
+        fields.setdefault("writer_slot", None)
     with SessionLocal() as db:
-        affected = (
-            db.query(ChatRun)
-            .filter(ChatRun.run_id == run_id, ChatRun.status.in_(_LIVE_STATUSES))
-            .update(fields, synchronize_session=False)
+        query = db.query(ChatRun).filter(
+            ChatRun.run_id == run_id,
+            ChatRun.status.in_(_LIVE_STATUSES),
         )
+        if require_expired_lease:
+            from sqlalchemy import or_
+
+            now = _utcnow()
+            query = query.filter(
+                or_(
+                    ChatRun.lease_owner.is_(None),
+                    ChatRun.lease_expires_at.is_(None),
+                    ChatRun.lease_expires_at <= now,
+                )
+            )
+        affected = query.update(fields, synchronize_session=False)
         db.commit()
     if not affected:
         logger.info("chat_run_finalize_skipped", run_id=run_id, fields=list(fields.keys()))
+    return bool(affected)
+
+
+def _request_run_stop(
+    run_id: str,
+    *,
+    status: RunStatus,
+    error_message: Optional[str] = None,
+    require_expired_lease: bool = False,
+) -> bool:
+    """Write an external terminal verdict while retaining the writer fence."""
+
+    if status not in _TERMINAL_STATUSES:
+        raise ValueError(f"not a terminal status: {status}")
+    fields: Dict[str, Any] = {"status": status, "completed_at": _utcnow()}
+    if error_message:
+        fields["error_message"] = error_message[:1000]
+        fields["failure_reason"] = error_message[:1000]
+    with SessionLocal() as db:
+        query = db.query(ChatRun).filter(
+            ChatRun.run_id == run_id,
+            ChatRun.status.in_(_LIVE_STATUSES),
+        )
+        if require_expired_lease:
+            from sqlalchemy import or_
+
+            now = _utcnow()
+            query = query.filter(
+                or_(
+                    ChatRun.lease_owner.is_(None),
+                    ChatRun.lease_expires_at.is_(None),
+                    ChatRun.lease_expires_at <= now,
+                )
+            )
+        affected = query.update(fields, synchronize_session=False)
+        db.commit()
+    return bool(affected)
+
+
+def _request_run_cancel(run_id: str) -> bool:
+    return _request_run_stop(run_id, status="cancelled")
+
+
+def _acknowledge_terminal_writer(run_id: str) -> bool:
+    """Release the writer fence only after the owning worker has stopped writing."""
+
+    with SessionLocal() as db:
+        affected = (
+            db.query(ChatRun)
+            .filter(
+                ChatRun.run_id == run_id,
+                ChatRun.status.in_(_TERMINAL_STATUSES),
+                ChatRun.writer_slot.isnot(None),
+            )
+            .update({"writer_slot": None}, synchronize_session=False)
+        )
+        db.commit()
+    return bool(affected)
+
+
+def _acknowledge_never_started_terminal_writer(run_id: str) -> bool:
+    """Release a terminal fence only when no worker ever claimed the run.
+
+    A duplicate worker can lose the pending-to-running claim while the real
+    worker is active, then observe a concurrent cancellation.  It must not
+    release the real worker's fence in that case.  ``started_at IS NULL`` is
+    the durable proof that there is no owning worker to wait for.
+    """
+
+    with SessionLocal() as db:
+        affected = (
+            db.query(ChatRun)
+            .filter(
+                ChatRun.run_id == run_id,
+                ChatRun.status.in_(_TERMINAL_STATUSES),
+                ChatRun.writer_slot.isnot(None),
+                ChatRun.started_at.is_(None),
+            )
+            .update({"writer_slot": None}, synchronize_session=False)
+        )
+        db.commit()
     return bool(affected)
 
 
@@ -184,26 +406,19 @@ def _create_run_record(
     chat_id: str,
     user_id: str,
     request_payload: Dict[str, Any],
+    recovery_snapshot: Optional[Dict[str, Any]] = None,
 ) -> ChatRun:
-    """Allocate run_id+message_id and INSERT a pending ChatRun row."""
+    """Durably accept a run before any worker task can be spawned."""
     run_id = f"run_{uuid.uuid4().hex[:16]}"
     message_id = f"msg_{uuid.uuid4().hex[:16]}"
-    with SessionLocal() as db:
-        run = ChatRun(
-            run_id=run_id,
-            chat_id=chat_id,
-            user_id=user_id,
-            message_id=message_id,
-            status="pending",
-            request_payload=request_payload,
-            last_event_offset=0,
-        )
-        db.add(run)
-        db.commit()
-        db.refresh(run)
-        # detach so caller doesn't hold a session-bound instance
-        db.expunge(run)
-    return run
+    return _journal().accept(
+        run_id=run_id,
+        message_id=message_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        request_payload=_json_safe(request_payload),
+        recovery_snapshot=_json_safe(recovery_snapshot or {}),
+    )
 
 
 def _register_run_task(run_id: str, coro: Awaitable[None], *, name: str) -> None:
@@ -225,7 +440,6 @@ async def _write_terminal_to_stream(
     Used when the worker isn't around to emit them itself (cross-process cancel,
     orphan recovery). Failure is logged but not raised.
     """
-    redis = get_redis()
     err_event: Dict[str, Any] = {
         "type": "error",
         "error": error_text,
@@ -237,19 +451,12 @@ async def _write_terminal_to_stream(
         err_event["_cancelled"] = True
         term_event["_cancelled"] = True
     try:
-        await redis.xadd(
-            _stream_key(run_id),
-            {"data": json.dumps(err_event, ensure_ascii=False)},
-            maxlen=_STREAM_MAXLEN,
-            approximate=True,
-        )
-        await redis.xadd(
-            _stream_key(run_id),
-            {"data": json.dumps(term_event, ensure_ascii=False)},
-            maxlen=_STREAM_MAXLEN,
-            approximate=True,
-        )
-        await redis.expire(_stream_key(run_id), _STREAM_TTL_SECONDS)
+        journal = _journal()
+        error_offset = journal.allocate_event_offset(run_id, terminal=True)
+        await _xadd_event(run_id, error_offset, err_event)
+        terminal_offset = journal.allocate_event_offset(run_id, terminal=True)
+        await _xadd_event(run_id, terminal_offset, term_event)
+        await _expire_stream(run_id)
     except Exception as exc:
         logger.warning("chat_run_terminal_write_failed", run_id=run_id, error=str(exc))
 
@@ -259,21 +466,56 @@ async def _write_terminal_to_stream(
 
 async def start_run(
     *,
+    accepted_run: Optional[ChatRun] = None,
     chat_id: str,
     user_id: str,
     session_messages: List[Dict[str, Any]],
     effective_user_message: str,
     raw_user_message: str,
     context: Dict[str, Any],
-    request_payload: Dict[str, Any],
+    request_payload: Optional[Dict[str, Any]] = None,
     model_name: Optional[str] = None,
 ) -> ChatRun:
-    """Allocate run_id/message_id, INSERT chat_runs row, spawn background worker.
+    """Launch a ChatRun that ChatSequencer has already durably accepted.
 
-    Caller (chats.py) is expected to have already done auth, _ensure_chat_session,
-    user-message persist, and prepared session_messages / context.
+    Acceptance (user message + pending run) must commit before this function is
+    called.  Keeping launch separate makes a process crash between the two
+    recoverable by the Run Journal in #64 instead of losing the request.
     """
-    run = _create_run_record(chat_id=chat_id, user_id=user_id, request_payload=request_payload)
+    recovery_snapshot = _json_safe(
+        {
+            "kind": "chat",
+            "worker_args": {
+                "session_messages": session_messages,
+                "effective_user_message": effective_user_message,
+                "raw_user_message": raw_user_message,
+                "context": context,
+                "model_name": model_name,
+            },
+        }
+    )
+    if accepted_run is None:
+        run = _create_run_record(
+            chat_id=chat_id,
+            user_id=user_id,
+            request_payload=dict(request_payload or {}),
+            recovery_snapshot=recovery_snapshot,
+        )
+    else:
+        run = accepted_run
+        if run.chat_id != chat_id or run.user_id != user_id or run.status != "pending":
+            raise ValueError("accepted_run does not match the launch request")
+        with SessionLocal() as db:
+            durable_run = db.get(ChatRun, run.run_id)
+            if durable_run is None or durable_run.status != "pending":
+                raise ValueError("accepted_run is no longer pending")
+            durable_run.recovery_snapshot = recovery_snapshot
+            durable_run.snapshot_version = max(int(durable_run.snapshot_version or 0), 1)
+            durable_run.run_phase = durable_run.run_phase or "accepted"
+            durable_run.last_operation_safety = durable_run.last_operation_safety or "replayable"
+            durable_run.updated_at = _utcnow()
+            db.commit()
+    journal_owner = _new_worker_owner(run.run_id)
     _register_run_task(
         run.run_id,
         _run_workflow(
@@ -281,15 +523,246 @@ async def start_run(
             chat_id=chat_id,
             user_id=user_id,
             message_id=run.message_id,
+            assistant_chat_seq=run.assistant_chat_seq,
             session_messages=session_messages,
             effective_user_message=effective_user_message,
             raw_user_message=raw_user_message,
             context=context,
             model_name=model_name,
+            journal_owner=journal_owner,
         ),
         name=f"chat_run:{run.run_id}",
     )
     logger.info("chat_run_started", run_id=run.run_id, chat_id=chat_id, user_id=user_id)
+    return run
+
+
+def _commit_queued_handoff_in_session(
+    db,
+    *,
+    source_run_id: str,
+    chat_id: str,
+    user_id: str,
+    session_messages: List[Dict[str, Any]],
+    assistant_content: str,
+    context: Dict[str, Any],
+    model_name: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Atomically consume one follow-up/next-run item and stage its ChatRun."""
+    from core.db.models.chat import reserve_chat_sequences
+    from core.services.steer_queue import SteerQueue
+
+    source_run = db.get(ChatRun, source_run_id)
+    if source_run is None:
+        return None
+    root_run_id = str(context.get("handoff_root_run_id") or source_run_id)
+    handoff = SteerQueue.consume_next_handoff_in_session(
+        db,
+        source_run_id=source_run_id,
+        root_run_id=root_run_id,
+        chat_id=chat_id,
+        applied_operation_seq=int(source_run.operation_seq or 0) + 1,
+    )
+    if handoff is None or not handoff.applied_run_id:
+        return None
+
+    first_seq = reserve_chat_sequences(
+        db,
+        chat_id,
+        count=2,
+        owner_user_id=user_id,
+    )
+    next_run_id = handoff.applied_run_id
+    next_message_id = (
+        f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{handoff.queue_id}:assistant').hex[:16]}"
+    )
+    queued_user_message_id = (
+        f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{handoff.queue_id}:user').hex[:16]}"
+    )
+    next_context = _json_safe(dict(context or {}))
+    next_context.pop("journal_owner", None)
+    next_context.update(
+        {
+            "run_id": next_run_id,
+            "message_id": next_message_id,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "handoff_queue_id": handoff.queue_id,
+            "handoff_delivery_mode": handoff.delivery_mode,
+            "handoff_root_run_id": root_run_id,
+        }
+    )
+    next_session_messages = _json_safe(list(session_messages or []))
+    if assistant_content:
+        next_session_messages.append({"role": "assistant", "content": assistant_content})
+    next_session_messages.append({"role": "user", "content": handoff.message})
+    worker_args = {
+        "session_messages": next_session_messages,
+        "effective_user_message": handoff.message,
+        "raw_user_message": handoff.message,
+        "context": next_context,
+        "model_name": model_name,
+    }
+    request_payload = dict(source_run.request_payload or {})
+    request_payload.update(
+        {
+            "message": handoff.message,
+            "chat_id": chat_id,
+            "attachments": [],
+            "handoff": {
+                "queue_id": handoff.queue_id,
+                "steer_id": handoff.steer_id,
+                "delivery_mode": handoff.delivery_mode,
+                "source_run_id": source_run_id,
+            },
+        }
+    )
+    RunJournal.accept_in_session(
+        db,
+        run_id=next_run_id,
+        message_id=next_message_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        request_payload=_json_safe(request_payload),
+        recovery_snapshot={"kind": "chat", "worker_args": _json_safe(worker_args)},
+        user_message_id=queued_user_message_id,
+        user_chat_seq=first_seq,
+        assistant_chat_seq=first_seq + 1,
+        writer_slot="main",
+    )
+    ChatService(db).upsert_message(
+        chat_id=chat_id,
+        role="user",
+        content=handoff.message,
+        model=model_name,
+        message_id=queued_user_message_id,
+        chat_seq=first_seq,
+        extra_data={
+            "queued_handoff": True,
+            "steer_queue_id": handoff.queue_id,
+            "steer_id": handoff.steer_id,
+            "steer_seq": handoff.steer_seq,
+            "delivery_mode": handoff.delivery_mode,
+            "source_run_id": source_run_id,
+            "run_id": next_run_id,
+        },
+        commit=False,
+    )
+    return {
+        "run_id": next_run_id,
+        "message_id": next_message_id,
+        "user_message_id": queued_user_message_id,
+        "assistant_chat_seq": first_seq + 1,
+        "queue_id": handoff.queue_id,
+        "steer_id": handoff.steer_id,
+        "steer_seq": handoff.steer_seq,
+        "delivery_mode": handoff.delivery_mode,
+        **worker_args,
+    }
+
+
+def _schedule_queued_handoff(
+    handoff: Dict[str, Any],
+    *,
+    chat_id: str,
+    user_id: str,
+    task_prefix: str = "chat_run_handoff",
+) -> str:
+    """Start a committed handoff; pending DB state remains recovery-safe on failure."""
+    next_run_id = str(handoff["run_id"])
+    next_owner = _new_worker_owner(next_run_id)
+    _register_run_task(
+        next_run_id,
+        _run_workflow(
+            run_id=next_run_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            message_id=str(handoff["message_id"]),
+            assistant_chat_seq=(
+                int(handoff["assistant_chat_seq"])
+                if handoff.get("assistant_chat_seq") is not None
+                else None
+            ),
+            session_messages=list(handoff.get("session_messages") or []),
+            effective_user_message=str(handoff.get("effective_user_message") or ""),
+            raw_user_message=str(handoff.get("raw_user_message") or ""),
+            context=dict(handoff.get("context") or {}),
+            model_name=(str(handoff["model_name"]) if handoff.get("model_name") else None),
+            journal_owner=next_owner,
+        ),
+        name=f"{task_prefix}:{next_run_id}",
+    )
+    return next_run_id
+
+
+def _queued_run_started_event(
+    source_run_id: str,
+    chat_id: str,
+    handoff: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "type": "queued_run_started",
+        "chat_id": chat_id,
+        "source_run_id": source_run_id,
+        "run_id": str(handoff["run_id"]),
+        "message_id": handoff["message_id"],
+        "user_message_id": handoff["user_message_id"],
+        "message": handoff["raw_user_message"],
+        "queue_id": handoff["queue_id"],
+        "steer_id": handoff["steer_id"],
+        "steer_seq": handoff["steer_seq"],
+        "delivery_mode": handoff["delivery_mode"],
+    }
+
+
+async def _write_queued_run_started_projection(
+    source_run_id: str,
+    *,
+    chat_id: str,
+    handoff: Dict[str, Any],
+) -> None:
+    """Best-effort event projection; the queue API is the durable backfill seam."""
+    try:
+        offset = _journal().allocate_event_offset(source_run_id, terminal=True)
+        await _xadd_event(
+            source_run_id,
+            offset,
+            _queued_run_started_event(source_run_id, chat_id, handoff),
+        )
+    except Exception as exc:  # Redis projection must not undo the committed handoff
+        logger.warning(
+            "chat_run_handoff_projection_failed",
+            run_id=source_run_id,
+            child_run_id=handoff.get("run_id"),
+            error=str(exc),
+        )
+
+
+async def wait_run(run_id: str) -> ChatRun:
+    """Wait for a locally launched run and return its durable terminal row.
+
+    Shielding prevents a disconnected non-stream HTTP client from cancelling
+    the detached worker. Explicit ``cancel_run`` still targets the registered
+    task and keeps the database writer fence until that task has stopped.
+    """
+
+    task = _active_runs.get(run_id)
+    if task is not None:
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not task.done():
+                # The waiter (for example a disconnected HTTP request) was
+                # cancelled; shielding keeps the worker alive, and the caller
+                # must still observe its own cancellation.
+                raise
+            # Explicit run cancellation stopped the worker; the durable row
+            # below is the authoritative outcome.
+    run = get_run(run_id)
+    if run is None:
+        raise ChatRunNotFound(f"chat run {run_id} not found")
+    if run.status in _LIVE_STATUSES:
+        raise RuntimeError(f"chat run {run_id} lost its local worker before completion")
     return run
 
 
@@ -319,6 +792,15 @@ async def _expire_stream(run_id: str) -> None:
         logger.warning("chat_run_expire_failed", run_id=run_id, error=str(exc))
 
 
+async def _reset_stream_projection(run_id: str) -> None:
+    """Drop a crashed worker's partial projection before replaying its run."""
+    redis = get_redis()
+    try:
+        await redis.delete(_stream_key(run_id))
+    except Exception as exc:
+        logger.warning("chat_run_projection_reset_failed", run_id=run_id, error=str(exc))
+
+
 # ─── Background worker ─────────────────────────────────────────────────
 
 
@@ -333,6 +815,9 @@ async def _run_workflow(
     raw_user_message: str,
     context: Dict[str, Any],
     model_name: Optional[str],
+    assistant_chat_seq: Optional[int] = None,
+    journal_owner: Optional[str] = None,
+    recovering: bool = False,
 ) -> None:
     """Consume astream_chat_workflow, forward chunks to the Redis Stream, persist at the end.
 
@@ -349,19 +834,103 @@ async def _run_workflow(
         build_tool_call_event,
         build_tool_call_start_event,
         build_tool_result_event,
+        build_user_question_event,
+        build_user_question_resolved_event,
     )
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
 
-    _update_run_status(run_id, status="running", started_at=_utcnow())
+    initial_claimed = False
+    if not recovering:
+        initial_claimed = _claim_run_execution(run_id)
+        if not initial_claimed:
+            _acknowledge_never_started_terminal_writer(run_id)
+            return
+
+    owner = journal_owner or _new_worker_owner(run_id)
+    journal = _journal()
+    if not journal.claim(run_id, owner=owner, lease_seconds=_RUN_LEASE_SECONDS):
+        logger.info("chat_run_claim_skipped", run_id=run_id, owner=owner)
+        if initial_claimed:
+            _acknowledge_terminal_writer(run_id)
+        return
+    try:
+        journal.append_operation(
+            run_id,
+            owner=owner,
+            operation_type="worker_started",
+            phase="pre_model",
+            safety="replayable",
+        )
+    except RunLeaseLost:
+        logger.warning("chat_run_worker_fenced_before_start", run_id=run_id, owner=owner)
+        return
+    worker_task = asyncio.current_task()
+    if worker_task is None:  # pragma: no cover - asyncio always owns this coroutine
+        raise RuntimeError("chat run worker has no asyncio task")
+    lease_lost = asyncio.Event()
+    lease_task = asyncio.create_task(
+        _lease_heartbeat(run_id, owner, worker_task, lease_lost),
+        name=f"chat_run_lease:{run_id}",
+    )
     # 本轮回答总耗时起点 —— 持久化进 extra_data.duration_ms，历史加载后「用时」不再消失
     _run_started_monotonic = time.monotonic()
 
     offset_counter = 0
 
-    async def _emit(event: Dict[str, Any]) -> None:
+    async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
-        offset_counter += 1
+        offset_counter = journal.allocate_event_offset(
+            run_id,
+            owner=None if terminal else owner,
+            terminal=terminal,
+        )
         await _xadd_event(run_id, offset_counter, event)
+
+    async def _pause_for_tool_outcome(exc: BaseException) -> bool:
+        logger.warning("chat_run_tool_outcome_unknown", run_id=run_id, effect_id=str(exc))
+        if not journal.needs_attention(
+            run_id,
+            owner=owner,
+            reason=f"tool outcome pending policy recovery: {exc}",
+        ):
+            current = get_run(run_id)
+            if current is None or current.status != "needs_attention":
+                logger.warning("chat_run_tool_unknown_cas_lost", run_id=run_id, owner=owner)
+                return False
+        await _emit(
+            {
+                "type": "error",
+                "error": "工具调用结果无法安全确定，任务已暂停等待处理",
+                "delta": "工具调用结果无法安全确定，任务已暂停等待处理",
+                "chat_id": chat_id,
+            },
+            terminal=True,
+        )
+        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
+        return True
+
+    async def _pause_for_hook(exc: HookPaused) -> bool:
+        logger.info("chat_run_hook_paused", run_id=run_id, reason=str(exc))
+        if not journal.needs_attention(
+            run_id,
+            owner=owner,
+            reason=f"hook requested pause: {exc}",
+        ):
+            current = get_run(run_id)
+            if current is None or current.status != "needs_attention":
+                logger.warning("chat_run_hook_pause_cas_lost", run_id=run_id, owner=owner)
+                return False
+        await _emit(
+            {
+                "type": "error",
+                "error": "任务已按执行策略暂停，等待后续处理",
+                "delta": "任务已按执行策略暂停，等待后续处理",
+                "chat_id": chat_id,
+            },
+            terminal=True,
+        )
+        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
+        return True
 
     from core.llm import workspace as _workspace_mod
 
@@ -370,8 +939,13 @@ async def _run_workflow(
     # Each segment gets its own message id so persisted history stays in the
     # same chronological order the user saw while streaming.
     current_message_id = message_id
+    current_chat_seq = assistant_chat_seq
     latest_user_message = raw_user_message
+    # Keep an exact prompt history for a queued follow-up. Mid-run steers add
+    # their visible assistant/user segments here as they are durably committed.
+    handoff_session_messages = _json_safe(list(session_messages or []))
     metadata: Dict[str, Any] = {}
+    compaction_budget_inputs: Dict[str, Any] = {}
     tool_calls_log: list = []
     _workspace_mod.init_state()
     # 结构化 reasoning 通道（deepseek 系 reasoning_content/reasoning）的思考增量。
@@ -379,6 +953,7 @@ async def _run_workflow(
     # 到达顺序以 <think>…</think> 块交错并入 full_response（与内联思考模型的存储
     # 格式一致），历史重建（buildHistorySegments）即可原位还原思考块。
     _thinking_parts: List[str] = []
+    next_cancel_poll = 0.0
 
     def _flush_thinking() -> None:
         nonlocal full_response
@@ -392,7 +967,7 @@ async def _run_workflow(
         # 已出、思考收尾的"。"后到）。实时侧把它并回前一个思考块
         # （appendThinkingContentBeforeTrailingText），落库遵循同一规则——
         # 否则 <think> 块会把正文句子从中间切开，刷新后与实时展示不一致。
-        if last_close != -1 and full_response[last_close + len(close):].strip():
+        if last_close != -1 and full_response[last_close + len(close) :].strip():
             full_response = full_response[:last_close] + block + full_response[last_close:]
             # 中段插入使其后的坐标整体右移，已记录的 content_offset 同步平移
             for _tc in tool_calls_log:
@@ -403,6 +978,8 @@ async def _run_workflow(
         full_response += "<think>" + block + close
 
     try:
+        if recovering:
+            await _reset_stream_projection(run_id)
         # First frame: run_started — carries run_id / message_id; the frontend uses these to resume / cancel
         await _emit(
             {
@@ -412,6 +989,15 @@ async def _run_workflow(
                 "chat_id": chat_id,
             }
         )
+        if recovering:
+            await _emit(
+                {
+                    "type": "content_replace",
+                    "content": "",
+                    "reason": "run_recovered",
+                    "chat_id": chat_id,
+                }
+            )
 
         # Compaction notice (mirrors Codex's post-compaction Warning): after the
         # previous turn's stream closed, a new compaction checkpoint was written
@@ -454,6 +1040,7 @@ async def _run_workflow(
         # the run and its pre-allocated assistant message id.
         context.setdefault("run_id", run_id)
         context.setdefault("message_id", message_id)
+        context["journal_owner"] = owner
 
         # Stamp the message id onto tool logging for this run. The plumbing
         # already existed but had no caller, so every tool call was written with
@@ -466,6 +1053,13 @@ async def _run_workflow(
         except Exception:  # pragma: no cover - logging must never fail a run
             pass
 
+        journal.append_operation(
+            run_id,
+            owner=owner,
+            operation_type="model_dispatch",
+            phase="model_inflight",
+            safety="replayable",
+        )
         async for chunk in _aiter_with_inactivity_timeout(
             astream_chat_workflow(
                 session_messages=session_messages,
@@ -473,8 +1067,13 @@ async def _run_workflow(
                 context=context,
             ),
             _INACTIVITY_TIMEOUT_SEC,
-            is_activity=lambda item: item.get("type") != "heartbeat",
+            is_activity=lambda item: _is_chat_run_activity(item, chat_id),
         ):
+            now = time.monotonic()
+            if now >= next_cancel_poll:
+                next_cancel_poll = now + 0.25
+                if is_run_cancelled(run_id):
+                    raise asyncio.CancelledError
             chunk_type = chunk.get("type")
 
             if chunk_type == "thinking":
@@ -522,6 +1121,9 @@ async def _run_workflow(
             elif chunk_type == "steer_applied":
                 _flush_thinking()
                 steer_id = str(chunk.get("steer_id") or "")[:64]
+                steer_queue_id = str(chunk.get("queue_id") or "")[:64]
+                steer_claim_owner = str(chunk.get("claim_owner") or "")[:160]
+                steer_seq = int(chunk.get("steer_seq") or 0)
                 steer_message = str(chunk.get("message") or "").strip()
                 steer_message_id = (
                     f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{run_id}:{steer_id}').hex[:16]}"
@@ -539,7 +1141,20 @@ async def _run_workflow(
                     # user's steer. Persisting in this order is what keeps a
                     # refresh from moving every mid-run user message above the
                     # whole assistant response.
-                    with SessionLocal() as db:
+                    def _commit_steer(db) -> None:
+                        if steer_queue_id and steer_claim_owner:
+                            from core.services.steer_queue import SteerQueue
+
+                            owned_run = db.get(ChatRun, run_id)
+                            SteerQueue.mark_applied_in_session(
+                                db,
+                                queue_id=steer_queue_id,
+                                claim_owner=steer_claim_owner,
+                                applied_run_id=run_id,
+                                applied_operation_seq=int(owned_run.operation_seq or 0) + 1,
+                            )
+                        else:
+                            owned_run = db.get(ChatRun, run_id)
                         chat_service = ChatService(db)
                         if had_assistant_output:
                             chat_service.add_message(
@@ -549,6 +1164,7 @@ async def _run_workflow(
                                 model=model_name,
                                 tool_calls=tool_calls_log if tool_calls_log else None,
                                 message_id=current_message_id,
+                                chat_seq=current_chat_seq,
                                 extra_data={
                                     "timestamp": now_iso(),
                                     "is_markdown": bool(
@@ -563,6 +1179,7 @@ async def _run_workflow(
                                         (time.monotonic() - _run_started_monotonic) * 1000
                                     ),
                                 },
+                                commit=False,
                             )
                         # Persist once the middleware has actually injected the
                         # instruction. A deterministic id makes replay safe.
@@ -576,8 +1193,66 @@ async def _run_workflow(
                                 "steer": True,
                                 "run_id": run_id,
                                 "steer_id": steer_id,
+                                "steer_queue_id": steer_queue_id or None,
+                                "steer_seq": steer_seq or None,
                             },
+                            commit=False,
                         )
+                        # The durable queue acknowledgement and the exact
+                        # post-steer prompt must share one transaction. If this
+                        # worker disappears before the next model snapshot, a
+                        # replacement worker resumes from this context instead
+                        # of losing an already-applied instruction.
+                        post_steer_messages = _json_safe(list(handoff_session_messages))
+                        if had_assistant_output:
+                            post_steer_messages.append(
+                                {"role": "assistant", "content": full_response}
+                            )
+                        post_steer_messages.append({"role": "user", "content": steer_message})
+                        post_steer_context = _json_safe(dict(context or {}))
+                        post_steer_context.pop("journal_owner", None)
+                        post_steer_context.update(
+                            {
+                                "run_id": run_id,
+                                "message_id": next_assistant_message_id,
+                                "chat_id": chat_id,
+                                "user_id": user_id,
+                            }
+                        )
+                        owned_run.recovery_snapshot = {
+                            "kind": "chat",
+                            "worker_args": {
+                                "session_messages": post_steer_messages,
+                                "effective_user_message": steer_message,
+                                "raw_user_message": steer_message,
+                                "context": post_steer_context,
+                                "model_name": model_name,
+                            },
+                        }
+                        owned_run.snapshot_version = int(owned_run.snapshot_version or 0) + 1
+
+                    journal.append_operation(
+                        run_id,
+                        owner=owner,
+                        operation_type="steer_messages_committed",
+                        phase="steer_committed",
+                        safety="side_effect_committed",
+                        payload={
+                            "steer_id": steer_id,
+                            "queue_id": steer_queue_id or None,
+                            "steer_seq": steer_seq or None,
+                            "message_id": steer_message_id,
+                            "previous_assistant_message_id": (
+                                current_message_id if had_assistant_output else None
+                            ),
+                        },
+                        commit_effect=_commit_steer,
+                    )
+                    if had_assistant_output:
+                        handoff_session_messages.append(
+                            {"role": "assistant", "content": full_response}
+                        )
+                    handoff_session_messages.append({"role": "user", "content": steer_message})
                     latest_user_message = steer_message
                 await _emit(
                     {
@@ -585,6 +1260,8 @@ async def _run_workflow(
                         "chat_id": chat_id,
                         "run_id": run_id,
                         "steer_id": steer_id,
+                        "queue_id": steer_queue_id or None,
+                        "steer_seq": steer_seq or None,
                         "message": steer_message,
                         "message_id": steer_message_id,
                         "previous_assistant_message_id": (
@@ -595,6 +1272,7 @@ async def _run_workflow(
                     }
                 )
                 current_message_id = next_assistant_message_id
+                current_chat_seq = None
                 # The workflow reads this dict again when it emits the final
                 # evolution/memory settlement marker, so keep that marker bound
                 # to the post-steer assistant segment too.
@@ -664,7 +1342,9 @@ async def _run_workflow(
                 # tool_calls_log → persisted, so it can be replayed after a refresh.
                 try:
                     attach_subagent_step(
-                        tool_calls_log, str(chunk.get("parent_tool_id", "") or ""), chunk
+                        tool_calls_log,
+                        str(chunk.get("parent_tool_id", "") or ""),
+                        chunk,
                     )
                 except Exception:
                     logger.debug("attach_subagent_step failed (ignored)", exc_info=True)
@@ -708,6 +1388,12 @@ async def _run_workflow(
                         "expired": chunk.get("expired", False),
                     }
                 )
+
+            elif chunk_type == "user_question":
+                await _emit(build_user_question_event(chunk, chat_id))
+
+            elif chunk_type == "user_question_resolved":
+                await _emit(build_user_question_resolved_event(chunk, chat_id))
 
             elif chunk_type == "batch_confirm":
                 # Forward the batch-execution confirmation event to the frontend —
@@ -759,6 +1445,9 @@ async def _run_workflow(
 
             elif chunk_type == "meta":
                 _flush_thinking()
+                internal_budget = chunk.get("_compaction_budget_inputs")
+                if isinstance(internal_budget, dict):
+                    compaction_budget_inputs = dict(internal_budget)
                 # Strict workspace gate: pinned list is the sole source of
                 # user-visible artifacts. See chats.py:_stream_sse_response.
                 _ws_pinned = _workspace_mod.get_pinned()
@@ -786,7 +1475,7 @@ async def _run_workflow(
                 }
                 await _emit(metadata)
 
-                # Persist: assistant message + artifacts — separate session
+                # Persist: assistant message + artifacts
                 usage_payload = chunk.get("usage") or None
                 _persist_extra = {
                     "timestamp": now_iso(),
@@ -804,7 +1493,28 @@ async def _run_workflow(
                     _persist_extra["ontology_governance"] = metadata["ontology_governance"]
                 if context.get("model_provider_id"):
                     _persist_extra["model_provider_id"] = context.get("model_provider_id")
-                with SessionLocal() as db:
+                journal.save_snapshot(
+                    run_id,
+                    owner=owner,
+                    phase="model_completed",
+                    safety="replayable",
+                    snapshot=_json_safe(
+                        {
+                            "assistant_content": full_response,
+                            "message_id": current_message_id,
+                            "model_name": model_name,
+                            "tool_calls": tool_calls_log if tool_calls_log else None,
+                            "usage": usage_payload,
+                            "extra_data": _persist_extra,
+                            "artifacts": _ws_pinned,
+                            "context": context,
+                        }
+                    ),
+                )
+
+                queued_handoff: Dict[str, Any] = {}
+
+                def _commit_output(db) -> None:
                     chat_service = ChatService(db)
                     chat_service.add_message(
                         chat_id=chat_id,
@@ -814,7 +1524,9 @@ async def _run_workflow(
                         tool_calls=tool_calls_log if tool_calls_log else None,
                         usage=usage_payload,
                         message_id=current_message_id,
+                        chat_seq=current_chat_seq,
                         extra_data=_persist_extra,
+                        commit=False,
                     )
                     # Build a ProjectScope from the workflow context and pass it
                     # explicitly so pinned files keep their project ownership.
@@ -826,15 +1538,73 @@ async def _run_workflow(
                         chat_id,
                         _ws_pinned,
                         scope=project_scope_from_context(context),
+                        commit=False,
                     )
+                    prepared = _commit_queued_handoff_in_session(
+                        db,
+                        source_run_id=run_id,
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        session_messages=handoff_session_messages,
+                        assistant_content=full_response,
+                        context=context,
+                        model_name=model_name,
+                    )
+                    if prepared is not None:
+                        queued_handoff.update(prepared)
 
-                _finalize_run(
-                    run_id,
-                    status="completed",
-                    usage=usage_payload,
-                    completed_at=_utcnow(),
-                    last_event_offset=offset_counter,
+                # Offloaded to a worker thread on purpose. This is the one
+                # journal call that commits the turn's real side effects (the
+                # assistant message, pinned artifacts, a queued handoff), so it
+                # is the one that can sit waiting on a row lock. ``complete``
+                # is synchronous SQLAlchemy; calling it inline blocks the event
+                # loop, and a blocked loop cannot run the coroutine holding the
+                # conflicting transaction — the process deadlocks and every
+                # request, stream and health probe stops answering. In a thread
+                # a lock wait costs this run its latency and nothing else.
+                # ``_commit_output`` and everything it calls are plain sync
+                # code, so they are safe to run off the loop.
+                completed = await asyncio.to_thread(
+                    functools.partial(
+                        journal.complete,
+                        run_id,
+                        owner=owner,
+                        status="completed",
+                        usage=usage_payload,
+                        last_event_offset=offset_counter,
+                        commit_effect=_commit_output,
+                        committed_operation={
+                            "operation_type": "message_committed",
+                            "phase": "message_committed",
+                            "safety": "side_effect_committed",
+                            "payload": {"message_id": current_message_id},
+                        },
+                    )
                 )
+                if not completed:
+                    logger.warning(
+                        "chat_run_terminal_cas_lost",
+                        run_id=run_id,
+                        owner=owner,
+                    )
+                    return
+
+                # The DB lease has intentionally ended. Stop the heartbeat
+                # before scheduling the handoff and projecting terminal events;
+                # otherwise its next renew would interpret normal completion as
+                # lease loss and cancel this coroutine mid-handoff.
+                lease_task.cancel()
+
+                if queued_handoff:
+                    _schedule_queued_handoff(
+                        queued_handoff,
+                        chat_id=chat_id,
+                        user_id=user_id,
+                    )
+                    await _emit(
+                        _queued_run_started_event(run_id, chat_id, queued_handoff),
+                        terminal=True,
+                    )
 
                 # Generate follow-ups in the background (same as the original
                 # behavior — doesn't block stream close). Skipped in the batch
@@ -846,6 +1616,7 @@ async def _run_workflow(
                 # at the wrong moment.
                 if not seen_batch_confirm:
                     _spawn_followup_task(
+                        run_id=run_id,
                         chat_id=chat_id,
                         user_msg=latest_user_message,
                         response=full_response,
@@ -857,37 +1628,111 @@ async def _run_workflow(
                 # doesn't block stream close, and failures don't affect the main
                 # conversation.
                 _spawn_compaction_task(
+                    run_id=run_id,
                     chat_id=chat_id,
                     model_name=model_name,
                     usage=usage_payload,
+                    budget_inputs=compaction_budget_inputs,
                 )
 
+        # AgentScope may absorb a tool adapter exception after ToolEffectMiddleware
+        # has already durably paused the run. Re-read the DB before projecting a
+        # normal terminal marker; otherwise allocate_event_offset correctly
+        # rejects the non-completed run and the outer handler overwrites
+        # ``needs_attention`` with ``failed``.
+        try:
+            current = get_run(run_id)
+        except AttributeError:
+            # Some narrow unit adapters replace SessionLocal with a commit-only
+            # fake that intentionally has no query surface.
+            current = None
+        if current is not None:
+            if current.status == "needs_attention":
+                await _pause_for_tool_outcome(
+                    RuntimeError(current.failure_reason or "tool outcome requires recovery")
+                )
+                return
+            if current.status in _TERMINAL_STATUSES and current.status != "completed":
+                raise asyncio.CancelledError
+
         # Workflow returned normally (with or without a meta event): write the terminal marker
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
 
     except asyncio.CancelledError:
-        # Triggered by cancel_run: write a user-cancelled event + terminal marker so followers exit gracefully
-        logger.info("chat_run_cancelled", run_id=run_id)
-        await _emit(
-            {
-                "type": "error",
-                "error": "任务已被用户取消",
-                "delta": "任务已被用户取消",
-                "chat_id": chat_id,
-                "_cancelled": True,
-            }
-        )
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True})
-        # status was already updated in cancel_run(); here we only make sure last_event_offset is in sync
-        _update_run_status(run_id, last_event_offset=offset_counter)
+        if lease_lost.is_set():
+            # Another process owns recovery now. The fenced worker must not
+            # project a user cancellation or mutate the durable row.
+            logger.warning("chat_run_worker_fenced", run_id=run_id, owner=owner)
+        else:
+            current = get_run(run_id)
+            if current is None or current.status != "cancelled":
+                # Reaper/hard-cap/external recovery may cancel the local task
+                # after publishing its own authoritative terminal verdict.
+                logger.warning(
+                    "chat_run_worker_stopped_by_external_terminal",
+                    run_id=run_id,
+                    status=(current.status if current is not None else None),
+                )
+            else:
+                # Triggered by cancel_run: write a user-cancelled event + terminal marker so followers exit gracefully
+                logger.info("chat_run_cancelled", run_id=run_id)
+                await _emit(
+                    {
+                        "type": "error",
+                        "error": "任务已被用户取消",
+                        "delta": "任务已被用户取消",
+                        "chat_id": chat_id,
+                        "_cancelled": True,
+                    },
+                    terminal=True,
+                )
+                await _emit(
+                    {"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True},
+                    terminal=True,
+                )
+
+    except ToolOutcomeUnknown as exc:
+        await _pause_for_tool_outcome(exc)
+
+    except HookPaused as exc:
+        await _pause_for_hook(exc)
+
+    except RunLeaseLost:
+        # A takeover/cancel may race with any journal append. Once fenced, the
+        # old worker must not persist fallback messages or publish a terminal.
+        logger.warning("chat_run_worker_fenced", run_id=run_id, owner=owner)
 
     except Exception as exc:
+        nested_pause = find_hook_paused(exc)
+        if nested_pause is not None:
+            await _pause_for_hook(nested_pause)
+            return
+        nested_unknown = find_tool_outcome_unknown(exc)
+        if nested_unknown is not None:
+            await _pause_for_tool_outcome(nested_unknown)
+            return
         logger.error("chat_run_failed", run_id=run_id, error=str(exc), exc_info=True)
         try:
             user_facing = resolve_user_facing_error(exc)
         except Exception:
             user_facing = "请求处理失败，请稍后重试"
-        # Fallback: persist an empty assistant message + error, matching the existing frontend parsing path
+        failed = journal.complete(
+            run_id,
+            owner=owner,
+            status="failed",
+            failure_reason=str(exc)[:1000],
+            last_event_offset=offset_counter,
+        )
+        if not failed:
+            logger.warning(
+                "chat_run_failure_cas_lost",
+                run_id=run_id,
+                owner=owner,
+            )
+            return
+        # Preserve the historical empty error placeholder, but only after this
+        # owner wins the failed terminal CAS. A cancelled/taken-over worker
+        # must never leave a late message behind.
         try:
             with SessionLocal() as db:
                 ChatService(db).add_message(
@@ -896,34 +1741,57 @@ async def _run_workflow(
                     content="",
                     model=model_name,
                     message_id=current_message_id,
+                    chat_seq=current_chat_seq,
                     error={"error": str(exc), "timestamp": _utcnow().isoformat()},
                 )
         except Exception:
             pass
-        _finalize_run(
-            run_id,
-            status="failed",
-            error_message=str(exc)[:1000],
-            completed_at=_utcnow(),
-            last_event_offset=offset_counter,
-        )
         await _emit(
             {
                 "type": "error",
                 "error": user_facing,
                 "delta": user_facing,
                 "chat_id": chat_id,
-            }
+            },
+            terminal=True,
         )
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
 
     finally:
-        # After the terminal state, extend the stream's TTL by 1h so late resume requests can still fetch the full history
+        # After the terminal state, keep the event stream for the full human
+        # wait window plus a recovery grace period so late reconnects can replay.
         await _expire_stream(run_id)
+        lease_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await lease_task
+        _acknowledge_terminal_writer(run_id)
 
 
-def _spawn_compaction_task(*, chat_id: str, model_name: str, usage: Optional[Dict]) -> None:
-    """Trigger end-of-turn context compaction (fire-and-forget; never affects the main conversation)."""
+def _spawn_compaction_task(
+    *,
+    run_id: str,
+    chat_id: str,
+    model_name: str,
+    usage: Optional[Dict] = None,
+    budget_inputs: Optional[Dict[str, Any]] = None,
+) -> None:
+    """PostTurn phase: background pre-warm of the shared compaction engine.
+
+    Fire-and-forget; never affects the main conversation. This is *not* a second
+    compactor — it calls the same
+    :func:`core.services.compaction_service.run_compaction` the mid-turn hook
+    does, and normally finds nothing to do: a turn that crossed the threshold
+    while it still had steps left has already compacted mid-turn and persisted
+    its checkpoint. It earns its keep only when the threshold is crossed by a
+    turn's *final* reasoning step, where there is no later step boundary to
+    catch it; doing it here rather than at the next turn's PreTurn check keeps
+    the summarisation off the user-visible latency path.
+
+    ``run_id`` and ``budget_inputs`` are threaded through to the Coordinator so
+    the checkpoint is published under the run's hook bus and usage ledger, and
+    so its component estimator reuses the turn's already-frozen execution
+    surface instead of re-deriving one.
+    """
     from core.config.settings import settings as _settings
 
     if not _settings.compaction.enabled:
@@ -935,22 +1803,33 @@ def _spawn_compaction_task(*, chat_id: str, model_name: str, usage: Optional[Dic
             from core.services.compaction_service import (
                 resolve_active_tokens,
                 resolve_token_limit,
+                resolve_trigger_ratio,
                 run_post_turn_compaction,
                 should_compact,
             )
 
-            # Trigger criterion — see resolve_active_tokens: real end-of-turn context occupancy, not the cumulative billing value
+            # Trigger criterion — see resolve_active_tokens: real end-of-turn
+            # context occupancy, not the cumulative billing value. Gating here
+            # keeps a turn that never approached the window from taking the
+            # compaction lease at all; the Coordinator re-checks against the
+            # authoritative snapshot estimate before calling the summariser.
             active_tokens = resolve_active_tokens(usage)
-            limit = resolve_token_limit(resolve_model_context_window(model_name or ""))
+            limit = resolve_token_limit(
+                resolve_model_context_window(model_name or ""), ratio=resolve_trigger_ratio()
+            )
             if not should_compact(active_tokens, limit):
                 return
             logger.info(
-                "chat_compaction_triggered",
+                "chat_compaction_evaluating",
                 chat_id=chat_id,
-                active_tokens=active_tokens,
                 limit=limit,
             )
-            await run_post_turn_compaction(chat_id)
+            await run_post_turn_compaction(
+                chat_id,
+                budget_inputs=dict(budget_inputs or {}),
+                token_limit=limit,
+                run_id=run_id,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("background_compaction_failed", error=str(exc))
 
@@ -960,16 +1839,19 @@ def _spawn_compaction_task(*, chat_id: str, model_name: str, usage: Optional[Dic
         pass
 
 
-def _spawn_followup_task(*, chat_id: str, user_msg: str, response: str, msg_id: str) -> None:
+def _spawn_followup_task(
+    *, run_id: str, chat_id: str, user_msg: str, response: str, msg_id: str
+) -> None:
     """Equivalent to the existing _generate_followups_bg in chats.py."""
     from core.llm.message_compat import strip_thinking
+
     from orchestration.followups import get_followup_generator
 
     async def _bg() -> None:
         try:
             clean_resp = strip_thinking(response)
             questions = await asyncio.wait_for(
-                get_followup_generator().generate(user_msg, clean_resp),
+                get_followup_generator().generate(user_msg, clean_resp, run_id=run_id),
                 timeout=10,
             )
             if questions:
@@ -1166,7 +2048,23 @@ async def start_plan_execute_run(
         "model_name": model_name,
     }
     effective_model_name = model_name or DEFAULT_CHAT_MODEL_ALIAS
-    run = _create_run_record(chat_id=chat_id, user_id=user_id, request_payload=request_payload)
+    run = _create_run_record(
+        chat_id=chat_id,
+        user_id=user_id,
+        request_payload=request_payload,
+        recovery_snapshot={
+            "kind": "plan_execute",
+            "worker_args": {
+                "context": {
+                    "mcp_ids": list(enabled_mcp_ids or []),
+                    "skill_ids": list(enabled_skill_ids or []),
+                    "kb_ids": list(enabled_kb_ids or []),
+                    "model_name": effective_model_name,
+                }
+            },
+        },
+    )
+    journal_owner = _new_worker_owner(run.run_id)
     _register_run_task(
         run.run_id,
         _run_plan_execute_workflow(
@@ -1181,11 +2079,16 @@ async def start_plan_execute_run(
             enabled_agent_ids=enabled_agent_ids,
             session_messages=session_messages,
             model_name=effective_model_name,
+            journal_owner=journal_owner,
         ),
         name=f"plan_run:{run.run_id}",
     )
     logger.info(
-        "plan_run_started", run_id=run.run_id, plan_id=plan_id, chat_id=chat_id, user_id=user_id
+        "plan_run_started",
+        run_id=run.run_id,
+        plan_id=plan_id,
+        chat_id=chat_id,
+        user_id=user_id,
     )
     return run
 
@@ -1203,6 +2106,7 @@ async def _run_plan_execute_workflow(
     enabled_agent_ids: Optional[List[str]],
     session_messages: List[Dict[str, Any]],
     model_name: str,
+    journal_owner: Optional[str] = None,
 ) -> None:
     """Background plan-execute worker. Streams via XADD, persists at end.
 
@@ -1213,16 +2117,48 @@ async def _run_plan_execute_workflow(
     from core.llm import workspace as _workspace_mod
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
     from core.services.plan_service import PlanService
+
     from orchestration.subagents.plan_mode import astream_execute_plan
 
-    _update_run_status(run_id, status="running", started_at=_utcnow())
+    owner = journal_owner or _new_worker_owner(run_id)
+    journal = _journal()
+    if not journal.claim(run_id, owner=owner, lease_seconds=_RUN_LEASE_SECONDS):
+        logger.info("plan_run_claim_skipped", run_id=run_id, owner=owner)
+        return
+    current = asyncio.current_task()
+    lease_lost = asyncio.Event()
+    heartbeat = asyncio.create_task(
+        _lease_heartbeat(run_id, owner, current, lease_lost),
+        name=f"plan_run_lease:{run_id}",
+    )
 
     offset_counter = 0
 
-    async def _emit(event: Dict[str, Any]) -> None:
+    async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
-        offset_counter += 1
+        offset_counter = journal.allocate_event_offset(
+            run_id,
+            owner=None if terminal else owner,
+            terminal=terminal,
+        )
         await _xadd_event(run_id, offset_counter, event)
+
+    async def _pause_plan_tool_outcome(exc: BaseException) -> None:
+        if not journal.needs_attention(
+            run_id,
+            owner=owner,
+            reason=f"tool outcome pending policy recovery: {exc}",
+        ):
+            return
+        await _emit(
+            {
+                "type": "plan_error",
+                "plan_id": plan_id,
+                "error": "工具调用结果无法安全确定，任务已暂停等待处理",
+            },
+            terminal=True,
+        )
+        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
 
     result_text = ""
     completed_steps = 0
@@ -1247,41 +2183,47 @@ async def _run_plan_execute_workflow(
         )
 
         # astream_execute_plan needs a Session; isolate it from the persistence one.
-        with SessionLocal() as stream_db:
-            async for event in astream_execute_plan(
-                plan_id=plan_id,
-                user_id=user_id,
-                db=stream_db,
-                model_name=model_name,
-                enabled_mcp_ids=enabled_mcp_ids,
-                enabled_skill_ids=enabled_skill_ids,
-                enabled_kb_ids=enabled_kb_ids,
-                enabled_agent_ids=enabled_agent_ids,
-                session_messages=session_messages,
-                chat_id=chat_id,
-                run_id=run_id,
-            ):
-                evt_type = event.get("type")
-                if evt_type == "plan_complete":
-                    result_text = event.get("result_text", "")
-                    completed_steps = event.get("completed_steps", 0)
-                    total_steps = event.get("total_steps", 0)
-                    exec_usage = event.get("usage") or None
-                elif evt_type == "tool_call":
-                    tool_calls_log.append(
-                        {
-                            "tool_name": event.get("tool_name"),
-                            "tool_id": event.get("tool_id"),
-                            "tool_args": event.get("tool_args", {}),
-                            "step_id": event.get("step_id"),
-                        }
-                    )
-                elif evt_type == "tool_result":
-                    res = event.get("result")
-                    tid = event.get("tool_id")
-                    tn = event.get("tool_name")
-                    _attach_tool_result(tool_calls_log, tid, tn, res)
-                await _emit(event)
+        from core.llm.middlewares import CURRENT_RUN_BINDING
+
+        binding_token = CURRENT_RUN_BINDING.set((run_id, owner))
+        try:
+            with SessionLocal() as stream_db:
+                async for event in astream_execute_plan(
+                    plan_id=plan_id,
+                    user_id=user_id,
+                    db=stream_db,
+                    model_name=model_name,
+                    enabled_mcp_ids=enabled_mcp_ids,
+                    enabled_skill_ids=enabled_skill_ids,
+                    enabled_kb_ids=enabled_kb_ids,
+                    enabled_agent_ids=enabled_agent_ids,
+                    session_messages=session_messages,
+                    chat_id=chat_id,
+                    run_id=run_id,
+                ):
+                    evt_type = event.get("type")
+                    if evt_type == "plan_complete":
+                        result_text = event.get("result_text", "")
+                        completed_steps = event.get("completed_steps", 0)
+                        total_steps = event.get("total_steps", 0)
+                        exec_usage = event.get("usage") or None
+                    elif evt_type == "tool_call":
+                        tool_calls_log.append(
+                            {
+                                "tool_name": event.get("tool_name"),
+                                "tool_id": event.get("tool_id"),
+                                "tool_args": event.get("tool_args", {}),
+                                "step_id": event.get("step_id"),
+                            }
+                        )
+                    elif evt_type == "tool_result":
+                        res = event.get("result")
+                        tid = event.get("tool_id")
+                        tn = event.get("tool_name")
+                        _attach_tool_result(tool_calls_log, tid, tn, res)
+                    await _emit(event)
+        finally:
+            CURRENT_RUN_BINDING.reset(binding_token)
 
         # Build plan snapshot in its own short session
         plan_snapshot = None
@@ -1305,8 +2247,7 @@ async def _run_plan_execute_workflow(
         artifacts_meta = _ws_pinned
         _ws_files = _workspace_mod.get_pinned_file_ids()
 
-        # Persist assistant message + artifacts in another short session
-        with SessionLocal() as persist_db:
+        def _commit_plan_result(persist_db) -> None:  # noqa: ANN001
             chat_service = ChatService(persist_db)
             content = (
                 result_text or f"计划执行完成：共 {total_steps} 步，完成 {completed_steps} 步。"
@@ -1329,6 +2270,7 @@ async def _run_plan_execute_workflow(
                 },
                 tool_calls=tool_calls_log or None,
                 usage=exec_usage,
+                commit=False,
             )
             # The plan-execute background worker doesn't hold a workflow context
             # dict, so it builds the ProjectScope via the reverse-lookup path
@@ -1341,43 +2283,79 @@ async def _run_plan_execute_workflow(
                 chat_id,
                 _ws_pinned,
                 scope=project_scope_from_chat_id(persist_db, chat_id),
+                commit=False,
             )
 
-        _finalize_run(
+        completed = journal.complete(
             run_id,
+            owner=owner,
             status="completed",
             usage=exec_usage,
-            completed_at=_utcnow(),
             last_event_offset=offset_counter,
+            commit_effect=_commit_plan_result,
+            committed_operation={
+                "operation_type": "message_committed",
+                "phase": "message_committed",
+                "safety": "side_effect_committed",
+                "payload": {"message_id": message_id},
+            },
         )
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        if completed:
+            await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
+        else:
+            logger.warning("plan_run_terminal_cas_lost", run_id=run_id, owner=owner)
 
     except asyncio.CancelledError:
-        logger.info("plan_run_cancelled", run_id=run_id)
-        await _emit(
-            {
-                "type": "plan_error",
-                "plan_id": plan_id,
-                "error": "任务已被用户取消",
-                "_cancelled": True,
-            }
-        )
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True})
-        _update_run_status(run_id, last_event_offset=offset_counter)
+        if lease_lost.is_set():
+            logger.warning("plan_run_worker_fenced", run_id=run_id, owner=owner)
+        elif journal.complete(
+            run_id,
+            owner=owner,
+            status="cancelled",
+            failure_reason="plan worker cancelled",
+            last_event_offset=offset_counter,
+        ):
+            logger.info("plan_run_cancelled", run_id=run_id)
+            await _emit(
+                {
+                    "type": "plan_error",
+                    "plan_id": plan_id,
+                    "error": "任务已被用户取消",
+                    "_cancelled": True,
+                },
+                terminal=True,
+            )
+            await _emit(
+                {"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True},
+                terminal=True,
+            )
 
     except Exception as exc:
+        nested_unknown = find_tool_outcome_unknown(exc)
+        if nested_unknown is not None:
+            await _pause_plan_tool_outcome(nested_unknown)
+            return
         logger.error("plan_run_failed", run_id=run_id, error=str(exc), exc_info=True)
-        _finalize_run(
+        failed = journal.complete(
             run_id,
+            owner=owner,
             status="failed",
-            error_message=str(exc)[:1000],
-            completed_at=_utcnow(),
+            failure_reason=str(exc)[:1000],
             last_event_offset=offset_counter,
         )
-        await _emit({"type": "plan_error", "plan_id": plan_id, "error": str(exc)[:200]})
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        if failed:
+            await _emit(
+                {"type": "plan_error", "plan_id": plan_id, "error": str(exc)[:200]},
+                terminal=True,
+            )
+            await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
 
     finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
         await _expire_stream(run_id)
 
 
@@ -1456,7 +2434,23 @@ async def start_autonomous_loop_run(
             )
     except Exception:  # noqa: BLE001 - 参数存档失败不阻塞启动
         logger.warning("loop start_params persist failed", exc_info=True)
-    run = _create_run_record(chat_id=chat_id, user_id=user_id, request_payload=request_payload)
+    run = _create_run_record(
+        chat_id=chat_id,
+        user_id=user_id,
+        request_payload=request_payload,
+        recovery_snapshot={
+            "kind": "autonomous_loop",
+            "worker_args": {
+                "context": {
+                    "model_name": model_name,
+                    "model_provider_id": model_provider_id,
+                    "chat_mode": chat_mode,
+                    "project_ctx": {"project_id": project_id} if project_id else None,
+                }
+            },
+        },
+    )
+    journal_owner = _new_worker_owner(run.run_id)
     _register_run_task(
         run.run_id,
         _run_autonomous_loop_workflow(
@@ -1476,10 +2470,16 @@ async def start_autonomous_loop_run(
             chat_mode=chat_mode,
             is_resume=is_resume,
             project_id=project_id,
+            journal_owner=journal_owner,
         ),
         name=f"autoloop_run:{run.run_id}",
     )
-    logger.info("autonomous_loop_run_started", run_id=run.run_id, loop_id=loop_id, user_id=user_id)
+    logger.info(
+        "autonomous_loop_run_started",
+        run_id=run.run_id,
+        loop_id=loop_id,
+        user_id=user_id,
+    )
     return run
 
 
@@ -1541,11 +2541,22 @@ async def _run_autonomous_loop_workflow(
     chat_mode: Optional[str] = None,
     is_resume: bool = False,
     project_id: Optional[str] = None,
+    journal_owner: Optional[str] = None,
 ) -> None:
     from orchestration.autonomous_loop import LoopBudget, run_autonomous_loop
     from orchestration.loop_evaluator import GoalSpec
 
-    _update_run_status(run_id, status="running", started_at=_utcnow())
+    owner = journal_owner or _new_worker_owner(run_id)
+    journal = _journal()
+    if not journal.claim(run_id, owner=owner, lease_seconds=_RUN_LEASE_SECONDS):
+        logger.info("autonomous_loop_claim_skipped", run_id=run_id, owner=owner)
+        return
+    current = asyncio.current_task()
+    lease_lost = asyncio.Event()
+    heartbeat = asyncio.create_task(
+        _lease_heartbeat(run_id, owner, current, lease_lost),
+        name=f"autonomous_loop_lease:{run_id}",
+    )
     offset_counter = 0
     # Accumulate the worker's streamed body text + tool cards, and persist them
     # as an assistant message when the stream ends — exactly the same as a
@@ -1558,8 +2569,13 @@ async def _run_autonomous_loop_workflow(
     tool_log: List[Dict[str, Any]] = []
     tool_idx: Dict[str, int] = {}
 
-    async def _emit(event: Dict[str, Any]) -> None:
+    async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
+        offset_counter = journal.allocate_event_offset(
+            run_id,
+            owner=None if terminal else owner,
+            terminal=terminal,
+        )
         et = event.get("type")
         if et == "content":
             _delta = event.get("delta")
@@ -1582,7 +2598,6 @@ async def _run_autonomous_loop_workflow(
                 tool_log[_i]["output"] = event.get("result")
                 tool_log[_i]["status"] = "error" if event.get("error") else "success"
         await _xadd_event(run_id, offset_counter, event)
-        offset_counter += 1
         # At structural checkpoints (requirement flipped / per-iteration
         # evaluation done) persist progress incrementally — so after a mid-run
         # crash/restart/refresh the already-produced body + tool cards are still
@@ -1591,27 +2606,52 @@ async def _run_autonomous_loop_workflow(
         if et in ("requirement_passed", "iteration_evaluated"):
             _flush_loop_message()
 
+    def _loop_message_effect(status: str):
+        if not conversational:
+            return None
+        body = "".join(content_buf).strip()
+        captured_tools = [dict(item) for item in tool_log]
+        if not body and not captured_tools:
+            return None
+
+        def _commit(db) -> None:  # noqa: ANN001
+            ChatService(db).upsert_message(
+                chat_id=chat_id,
+                role="assistant",
+                content=body,
+                message_id=message_id,
+                tool_calls=captured_tools or None,
+                extra_data={
+                    "autonomous_loop": True,
+                    "loop_id": loop_id,
+                    "loop_status": status,
+                },
+                commit=False,
+            )
+
+        return _commit
+
     def _flush_loop_message(status: str = "running") -> None:
         """Upsert the currently accumulated worker body + tool cards into the assistant message (same message_id).
 
         Conversational mode (self_verify) only. Skipped when output is empty
         (no body and no tools yet) to avoid writing an empty bubble.
         """
-        if not conversational:
-            return
-        body = "".join(content_buf).strip()
-        if not body and not tool_log:
+        commit_effect = _loop_message_effect(status)
+        if commit_effect is None:
             return
         try:
-            with SessionLocal() as db:
-                ChatService(db).upsert_message(
-                    chat_id=chat_id,
-                    role="assistant",
-                    content=body,
-                    message_id=message_id,
-                    tool_calls=tool_log if tool_log else None,
-                    extra_data={"autonomous_loop": True, "loop_id": loop_id, "loop_status": status},
-                )
+            journal.append_operation(
+                run_id,
+                owner=owner,
+                operation_type="loop_checkpoint_committed",
+                phase="loop_checkpoint",
+                safety="side_effect_committed",
+                payload={"loop_id": loop_id, "message_id": message_id},
+                commit_effect=commit_effect,
+            )
+        except RunLeaseLost:
+            raise
         except Exception:  # noqa: BLE001 - incremental persist failure must not take down the run
             logger.warning("loop incremental persist failed", exc_info=True)
 
@@ -1636,26 +2676,7 @@ async def _run_autonomous_loop_workflow(
     # packaging share one session); without a project it degrades to the
     # isolated loop-{loop_id} (pure task-style loop).
     project_ctx: Optional[Dict[str, Any]] = None
-    if project_id:
-        try:
-            from core.services.project_scope import build_project_ctx
-
-            with SessionLocal() as db:
-                project_ctx = build_project_ctx(db, project_id)
-                if project_ctx:
-                    # Bind the loop session to the project (publish_site's internal API reverse-looks-up via ChatSession.project_id).
-                    from core.db.models import ChatSession
-
-                    sess = db.query(ChatSession).filter(ChatSession.chat_id == chat_id).first()
-                    if sess is not None and sess.project_id != project_id:
-                        sess.project_id = project_id
-                        db.commit()
-        except (
-            Exception
-        ):  # noqa: BLE001 - project resolution failure degrades to the isolated sandbox; must not take down the loop
-            logger.warning("loop project_ctx resolve failed", exc_info=True)
-            project_ctx = None
-    session_id = chat_id if project_ctx else f"loop-{loop_id}"
+    session_id = f"loop-{loop_id}"
     # Autonomous loops always live on in the chat history as a "normal
     # conversation" (the objective is persisted as a user message and the result
     # as an assistant message, surviving refreshes). Script-verification/form
@@ -1678,19 +2699,79 @@ async def _run_autonomous_loop_workflow(
             return None
 
     def _save_ledger(led: Dict[str, Any]) -> None:
-        with SessionLocal() as db:
-            _LoopSvc(db).save_ledger(loop_id, led)
+        def _commit(db) -> None:  # noqa: ANN001
+            _LoopSvc(db).save_ledger(loop_id, led, commit=False)
+
+        journal.append_operation(
+            run_id,
+            owner=owner,
+            operation_type="loop_ledger_committed",
+            phase="loop_checkpoint",
+            safety="side_effect_committed",
+            payload={"loop_id": loop_id},
+            commit_effect=_commit,
+        )
 
     def _poll_steering() -> List[str]:
         """每轮开工前取走用户运行中追加的指令（POST /v1/loops/{id}/steer）。"""
         try:
-            with SessionLocal() as db:
-                return _LoopSvc(db).consume_steering(loop_id)
+            found: List[str] = []
+
+            def _commit(db) -> None:  # noqa: ANN001
+                found.extend(_LoopSvc(db).consume_steering(loop_id, commit=False))
+
+            journal.append_operation(
+                run_id,
+                owner=owner,
+                operation_type="loop_steering_polled",
+                phase="loop_checkpoint",
+                safety="side_effect_committed",
+                payload={"loop_id": loop_id},
+                commit_effect=_commit,
+            )
+            return found
+        except RunLeaseLost:
+            raise
         except Exception:  # noqa: BLE001
             logger.warning("loop consume_steering failed", exc_info=True)
             return []
 
     try:
+        if project_id:
+            try:
+                from core.db.models import ChatSession
+                from core.services.project_scope import build_project_ctx
+
+                needs_binding = False
+                with SessionLocal() as db:
+                    project_ctx = build_project_ctx(db, project_id)
+                    if project_ctx:
+                        sess = db.get(ChatSession, chat_id)
+                        needs_binding = sess is not None and sess.project_id != project_id
+
+                if project_ctx and needs_binding:
+
+                    def _commit_project_binding(db) -> None:  # noqa: ANN001
+                        sess = db.get(ChatSession, chat_id)
+                        if sess is not None:
+                            sess.project_id = project_id
+
+                    journal.append_operation(
+                        run_id,
+                        owner=owner,
+                        operation_type="loop_project_bound",
+                        phase="pre_model",
+                        safety="side_effect_committed",
+                        payload={"loop_id": loop_id, "project_id": project_id},
+                        commit_effect=_commit_project_binding,
+                    )
+            except RunLeaseLost:
+                raise
+            except Exception:  # noqa: BLE001 - project lookup may safely degrade
+                logger.warning("loop project_ctx resolve failed", exc_info=True)
+                project_ctx = None
+            session_id = chat_id if project_ctx else f"loop-{loop_id}"
+
         await _emit(
             {
                 "type": "run_started",
@@ -1701,136 +2782,216 @@ async def _run_autonomous_loop_workflow(
                 "loop_id": loop_id,
             }
         )
-        if conversational and gs.objective and not is_resume:
-            # Only the first start persists the objective as a user message; "continue" (resume) does not insert it again.
-            try:
-                with SessionLocal() as db:
-                    ChatService(db).add_message(
-                        chat_id=chat_id,
-                        role="user",
-                        content=gs.objective,
-                        extra_data={"autonomous_loop": True, "loop_id": loop_id},
-                    )
-            except Exception:  # noqa: BLE001
-                logger.warning("loop user-msg persist failed", exc_info=True)
-        try:
+
+        def _commit_loop_start(db) -> None:  # noqa: ANN001
             from core.services.loop_service import LoopService
 
-            with SessionLocal() as db:
-                LoopService(db).mark_running(loop_id, workspace_session=session_id)
-        except Exception:  # noqa: BLE001 - audit is non-critical; don't block execution
-            logger.warning("loop mark_running failed", exc_info=True)
+            if conversational and gs.objective and not is_resume:
+                # Only the first start persists the objective; the deterministic
+                # id also makes a transaction retry idempotent.
+                ChatService(db).add_message(
+                    chat_id=chat_id,
+                    role="user",
+                    content=gs.objective,
+                    message_id=f"{message_id}_objective",
+                    extra_data={"autonomous_loop": True, "loop_id": loop_id},
+                    commit=False,
+                )
+            LoopService(db).mark_running(
+                loop_id,
+                workspace_session=session_id,
+                commit=False,
+            )
 
-        from core.auth.tenancy import tenant_of
-
-        result = await run_autonomous_loop(
-            loop_id=loop_id,
-            user_id=user_id,
-            goal_spec=gs,
-            budget=bud,
-            model_name=model_name,
-            model_provider_id=model_provider_id,
-            # 评审/规划模型：显式指定 > 「模型管理 → 角色分配 → loop_reviewer」>
-            # main_agent。不再硬编码 "fast"——评审质量值得一个后台可配的位置。
-            evaluator_model=evaluator_model,
-            worker_max_iters=worker_max_iters,
-            session_id=session_id,
-            hitl_enabled=hitl_enabled,
-            enable_thinking=enable_thinking,
-            chat_mode=chat_mode,
-            emit=_emit,
-            is_cancelled=lambda: is_run_cancelled(run_id),
-            load_ledger=_load_ledger,
-            save_ledger=_save_ledger,
-            poll_steering=_poll_steering,
-            project_ctx=project_ctx,
-            chat_id=chat_id,
-            # Carried explicitly so the loop resolves *this* tenant's
-            # orchestration profile. Omitting it is how one tenant's published
-            # retry counts and budget multiplier became everyone's.
-            tenant_id=tenant_of(user_id),
+        journal.append_operation(
+            run_id,
+            owner=owner,
+            operation_type="loop_started_committed",
+            phase="pre_model",
+            safety="side_effect_committed",
+            payload={"loop_id": loop_id},
+            commit_effect=_commit_loop_start,
         )
 
+        from core.auth.tenancy import tenant_of
+        from core.llm.middlewares import CURRENT_RUN_BINDING
+
+        binding_token = CURRENT_RUN_BINDING.set((run_id, owner))
         try:
+            result = await run_autonomous_loop(
+                loop_id=loop_id,
+                user_id=user_id,
+                goal_spec=gs,
+                budget=bud,
+                model_name=model_name,
+                model_provider_id=model_provider_id,
+                # 评审/规划模型：显式指定 > 「模型管理 → 角色分配 → loop_reviewer」>
+                # main_agent。不再硬编码 "fast"——评审质量值得一个后台可配的位置。
+                evaluator_model=evaluator_model,
+                worker_max_iters=worker_max_iters,
+                session_id=session_id,
+                hitl_enabled=hitl_enabled,
+                enable_thinking=enable_thinking,
+                chat_mode=chat_mode,
+                emit=_emit,
+                is_cancelled=lambda: is_run_cancelled(run_id),
+                load_ledger=_load_ledger,
+                save_ledger=_save_ledger,
+                poll_steering=_poll_steering,
+                project_ctx=project_ctx,
+                chat_id=chat_id,
+                # Carried explicitly so the loop resolves *this* tenant's
+                # orchestration profile. Omitting it is how one tenant's published
+                # retry counts and budget multiplier became everyone's.
+                tenant_id=tenant_of(user_id),
+            )
+        finally:
+            CURRENT_RUN_BINDING.reset(binding_token)
+
+        _asst_content: Optional[str] = None
+        if conversational:
+            # Prefer storing the streamed body (matches what the frontend saw); fall back to the trace table when the worker produced no body at all.
+            _body = "".join(content_buf).strip()
+            _status_zh = _LOOP_STATUS_ZH.get(result.status, result.status)
+            if _body:
+                _asst_content = _body + (
+                    f"\n\n---\n**{_status_zh}** · 共 {result.iterations} 轮"
+                    + (f" · 最终分 {result.final_score}" if result.final_score is not None else "")
+                )
+            else:
+                _asst_content = _loop_transcript_md(gs.objective, result)
+
+        def _commit_loop_result(db) -> None:  # noqa: ANN001
             from core.services.loop_service import LoopService
 
-            with SessionLocal() as db:
-                LoopService(db).persist_result(loop_id, result)
-        except Exception:  # noqa: BLE001
-            logger.warning("loop persist_result failed", exc_info=True)
-
-        if conversational:
-            try:
-                # Prefer storing the streamed body (matches what the frontend saw); fall back to the trace table when the worker produced no body at all.
-                _body = "".join(content_buf).strip()
-                _status_zh = _LOOP_STATUS_ZH.get(result.status, result.status)
-                if _body:
-                    _asst_content = _body + (
-                        f"\n\n---\n**{_status_zh}** · 共 {result.iterations} 轮"
-                        + (
-                            f" · 最终分 {result.final_score}"
-                            if result.final_score is not None
-                            else ""
-                        )
-                    )
-                else:
-                    _asst_content = _loop_transcript_md(gs.objective, result)
-                with SessionLocal() as db:
-                    # upsert: this assistant message was already created during
-                    # incremental persistence (same message_id); at the terminal
-                    # state overwrite it with the final version carrying the
-                    # status footer — no duplicate rows.
-                    ChatService(db).upsert_message(
-                        chat_id=chat_id,
-                        role="assistant",
-                        content=_asst_content,
-                        usage={"total_tokens": result.tokens_spent},
-                        tool_calls=tool_log if tool_log else None,
-                        extra_data={
-                            "autonomous_loop": True,
-                            "loop_id": loop_id,
-                            "loop_status": result.status,
-                        },
-                        message_id=message_id,
-                    )
-            except Exception:  # noqa: BLE001
-                logger.warning("loop assistant-msg persist failed", exc_info=True)
+            LoopService(db).persist_result(loop_id, result, commit=False)
+            if _asst_content is not None:
+                # Upsert and the ChatRun terminal transition share one owner-
+                # fenced transaction, so a superseded worker cannot publish.
+                ChatService(db).upsert_message(
+                    chat_id=chat_id,
+                    role="assistant",
+                    content=_asst_content,
+                    usage={"total_tokens": result.tokens_spent},
+                    tool_calls=tool_log if tool_log else None,
+                    extra_data={
+                        "autonomous_loop": True,
+                        "loop_id": loop_id,
+                        "loop_status": result.status,
+                    },
+                    message_id=message_id,
+                    commit=False,
+                )
 
         run_status = (
             "completed"
             if result.status in ("completed", "budget_exhausted", "awaiting_human")
             else ("cancelled" if result.status == "cancelled" else "failed")
         )
-        _finalize_run(
+        completed = journal.complete(
             run_id,
+            owner=owner,
             status=run_status,
             usage={"total_tokens": result.tokens_spent},
-            completed_at=_utcnow(),
             last_event_offset=offset_counter,
+            commit_effect=_commit_loop_result,
+            committed_operation={
+                "operation_type": "loop_result_committed",
+                "phase": "loop_result_committed",
+                "safety": "side_effect_committed",
+                "payload": {"loop_id": loop_id, "message_id": message_id},
+            },
         )
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        if completed:
+            await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
+        else:
+            logger.warning("autonomous_loop_terminal_cas_lost", run_id=run_id, owner=owner)
     except asyncio.CancelledError:
         # Cancelled: run_autonomous_loop was interrupted and no result is
         # available, so the terminal-state persistence block is skipped — here
         # we persist the progress produced so far (symptoms 2/3); otherwise a
         # reopened chat would only contain the user's objective.
-        _flush_loop_message("cancelled")
-        await _emit({"type": "loop_error", "error": "任务已被用户取消", "_cancelled": True})
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True})
-        _update_run_status(run_id, last_event_offset=offset_counter)
+        if lease_lost.is_set():
+            logger.warning("autonomous_loop_worker_fenced", run_id=run_id, owner=owner)
+        else:
+            partial_effect = _loop_message_effect("cancelled")
+            cancelled = journal.complete(
+                run_id,
+                owner=owner,
+                status="cancelled",
+                failure_reason="autonomous loop worker cancelled",
+                last_event_offset=offset_counter,
+                commit_effect=partial_effect,
+                committed_operation=(
+                    {
+                        "operation_type": "loop_partial_message_committed",
+                        "phase": "loop_partial_message_committed",
+                        "safety": "side_effect_committed",
+                        "payload": {"loop_id": loop_id, "message_id": message_id},
+                    }
+                    if partial_effect is not None
+                    else None
+                ),
+            )
+            if not cancelled:
+                return
+            await _emit(
+                {"type": "loop_error", "error": "任务已被用户取消", "_cancelled": True},
+                terminal=True,
+            )
+            await _emit(
+                {"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True},
+                terminal=True,
+            )
     except Exception as exc:  # noqa: BLE001
+        nested_unknown = find_tool_outcome_unknown(exc)
+        if nested_unknown is not None:
+            if journal.needs_attention(
+                run_id,
+                owner=owner,
+                reason=f"tool outcome pending policy recovery: {nested_unknown}",
+            ):
+                await _emit(
+                    {
+                        "type": "loop_error",
+                        "error": "工具调用结果无法安全确定，任务已暂停等待处理",
+                    },
+                    terminal=True,
+                )
+                await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
+            return
         logger.exception("autonomous_loop_run_failed", run_id=run_id)
-        _flush_loop_message("failed")  # persist partial progress before crashing
-        _finalize_run(
+        partial_effect = _loop_message_effect("failed")
+        failed = journal.complete(
             run_id,
+            owner=owner,
             status="failed",
-            error_message=str(exc)[:1000],
-            completed_at=_utcnow(),
+            failure_reason=str(exc)[:1000],
             last_event_offset=offset_counter,
+            commit_effect=partial_effect,
+            committed_operation=(
+                {
+                    "operation_type": "loop_partial_message_committed",
+                    "phase": "loop_partial_message_committed",
+                    "safety": "side_effect_committed",
+                    "payload": {"loop_id": loop_id, "message_id": message_id},
+                }
+                if partial_effect is not None
+                else None
+            ),
         )
-        await _emit({"type": "loop_error", "error": str(exc)[:500]})
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        if failed:
+            await _emit(
+                {"type": "loop_error", "error": str(exc)[:500]},
+                terminal=True,
+            )
+            await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
     finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
         await _expire_stream(run_id)
 
 
@@ -1862,7 +3023,27 @@ async def start_plan_generate_run(
         "model_name": model_name,
         **({"model_provider_id": model_provider_id} if model_provider_id else {}),
     }
-    run = _create_run_record(chat_id=chat_id, user_id=user_id, request_payload=request_payload)
+    recovery_snapshot = {
+        "kind": "plan_generate",
+        "worker_args": {
+            "task_description": task_description,
+            "model_name": model_name,
+            "model_provider_id": model_provider_id,
+            "enabled_mcp_ids": list(enabled_mcp_ids or []),
+            "enabled_skill_ids": list(enabled_skill_ids or []),
+            "enabled_kb_ids": list(enabled_kb_ids or []),
+            "enabled_agent_ids": list(enabled_agent_ids or []),
+            "session_messages": list(session_messages or []),
+            "uploaded_files": list(uploaded_files or []),
+        },
+    }
+    run = _create_run_record(
+        chat_id=chat_id,
+        user_id=user_id,
+        request_payload=request_payload,
+        recovery_snapshot=recovery_snapshot,
+    )
+    journal_owner = _new_worker_owner(run.run_id)
     _register_run_task(
         run.run_id,
         _run_plan_generate_workflow(
@@ -1879,6 +3060,7 @@ async def start_plan_generate_run(
             enabled_agent_ids=enabled_agent_ids,
             session_messages=session_messages,
             uploaded_files=uploaded_files,
+            journal_owner=journal_owner,
         ),
         name=f"plan_gen_run:{run.run_id}",
     )
@@ -1901,21 +3083,50 @@ async def _run_plan_generate_workflow(
     enabled_agent_ids: Optional[List[str]],
     session_messages: List[Dict[str, Any]],
     uploaded_files: Optional[List[Dict[str, Any]]],
+    journal_owner: Optional[str] = None,
 ) -> None:
     from orchestration.subagents.plan_mode import astream_generate_plan
 
-    _update_run_status(run_id, status="running", started_at=_utcnow())
+    owner = journal_owner or _new_worker_owner(run_id)
+    journal = _journal()
+    if not journal.claim(run_id, owner=owner, lease_seconds=_RUN_LEASE_SECONDS):
+        logger.info("plan_generate_claim_skipped", run_id=run_id, owner=owner)
+        return
+    try:
+        journal.append_operation(
+            run_id,
+            owner=owner,
+            operation_type="worker_started",
+            phase="pre_model",
+            safety="replayable",
+        )
+    except RunLeaseLost:
+        logger.warning("plan_generate_fenced_before_start", run_id=run_id, owner=owner)
+        return
+    worker_task = asyncio.current_task()
+    if worker_task is None:  # pragma: no cover - asyncio always owns this coroutine
+        raise RuntimeError("plan generate worker has no asyncio task")
+    lease_lost = asyncio.Event()
+    heartbeat = asyncio.create_task(
+        _lease_heartbeat(run_id, owner, worker_task, lease_lost),
+        name=f"plan_generate_lease:{run_id}",
+    )
     offset_counter = 0
 
-    async def _emit(event: Dict[str, Any]) -> None:
+    async def _emit(event: Dict[str, Any], *, terminal: bool = False) -> None:
         nonlocal offset_counter
-        offset_counter += 1
+        offset_counter = journal.allocate_event_offset(
+            run_id,
+            owner=None if terminal else owner,
+            terminal=terminal,
+        )
         await _xadd_event(run_id, offset_counter, event)
 
     plan_id_out: Optional[str] = None
     plan_title = ""
     plan_desc = ""
     plan_snapshot: Optional[Dict[str, Any]] = None
+    plan_record: Optional[Dict[str, Any]] = None
     assistant_content = ""
     gen_usage: Optional[Dict[str, Any]] = None
 
@@ -1930,105 +3141,187 @@ async def _run_plan_generate_workflow(
             }
         )
 
-        with SessionLocal() as stream_db:
-            async for event in astream_generate_plan(
-                task_description=task_description,
-                user_id=user_id,
-                db=stream_db,
-                model_name=model_name,
-                model_provider_id=model_provider_id,
-                enabled_mcp_ids=enabled_mcp_ids,
-                enabled_skill_ids=enabled_skill_ids,
-                enabled_kb_ids=enabled_kb_ids,
-                enabled_agent_ids=enabled_agent_ids,
-                session_messages=session_messages,
-                uploaded_files=uploaded_files,
-                chat_id=chat_id,
-            ):
-                if event.get("type") == "plan_generated":
-                    plan_id_out = event.get("plan_id")
-                    plan_title = event.get("title", "")
-                    plan_desc = event.get("description", "")
-                    steps = event.get("steps", [])
-                    step_summary = "\n".join(
-                        f"{i+1}. {s.get('title', '')}" for i, s in enumerate(steps)
-                    )
-                    assistant_content = (
-                        f"已生成执行计划：**{plan_title}**\n\n"
-                        f"{plan_desc}\n\n"
-                        f"**执行步骤：**\n{step_summary}"
-                    )
-                    plan_snapshot = {
-                        "mode": "preview",
-                        "title": plan_title,
-                        "description": plan_desc,
-                        "steps": [
-                            {
-                                "step_order": s.get("step_order", i + 1),
-                                "title": s.get("title", ""),
-                                "description": s.get("description"),
-                                "expected_tools": s.get("expected_tools", []),
-                                "expected_skills": s.get("expected_skills", []),
-                            }
-                            for i, s in enumerate(steps)
-                        ],
-                        "total_steps": len(steps),
-                        "completed_steps": 0,
-                    }
-                    gen_usage = event.get("usage") or None
-                await _emit(event)
+        from core.llm.middlewares import CURRENT_RUN_BINDING
 
-        if assistant_content and plan_id_out:
-            with SessionLocal() as persist_db:
-                ChatService(persist_db).add_message(
+        binding_token = CURRENT_RUN_BINDING.set((run_id, owner))
+        try:
+            with SessionLocal() as stream_db:
+                async for event in astream_generate_plan(
+                    task_description=task_description,
+                    user_id=user_id,
+                    db=stream_db,
+                    model_name=model_name,
+                    model_provider_id=model_provider_id,
+                    enabled_mcp_ids=enabled_mcp_ids,
+                    enabled_skill_ids=enabled_skill_ids,
+                    enabled_kb_ids=enabled_kb_ids,
+                    enabled_agent_ids=enabled_agent_ids,
+                    session_messages=session_messages,
+                    uploaded_files=uploaded_files,
                     chat_id=chat_id,
-                    role="assistant",
-                    content=assistant_content,
-                    model=model_name,
-                    message_id=message_id,
-                    extra_data={
-                        "is_markdown": True,
-                        "plan_id": plan_id_out,
-                        "plan_snapshot": plan_snapshot,
-                        "message_id": message_id,
-                    },
-                    usage=gen_usage,
-                )
+                ):
+                    if event.get("type") == "plan_generated":
+                        plan_record = dict(event)
+                        plan_id_out = event.get("plan_id")
+                        plan_title = event.get("title", "")
+                        plan_desc = event.get("description", "")
+                        steps = event.get("steps", [])
+                        step_summary = "\n".join(
+                            f"{i + 1}. {s.get('title', '')}" for i, s in enumerate(steps)
+                        )
+                        assistant_content = (
+                            f"已生成执行计划：**{plan_title}**\n\n"
+                            f"{plan_desc}\n\n"
+                            f"**执行步骤：**\n{step_summary}"
+                        )
+                        plan_snapshot = {
+                            "mode": "preview",
+                            "title": plan_title,
+                            "description": plan_desc,
+                            "steps": [
+                                {
+                                    "step_order": s.get("step_order", i + 1),
+                                    "title": s.get("title", ""),
+                                    "description": s.get("description"),
+                                    "expected_tools": s.get("expected_tools", []),
+                                    "expected_skills": s.get("expected_skills", []),
+                                }
+                                for i, s in enumerate(steps)
+                            ],
+                            "total_steps": len(steps),
+                            "completed_steps": 0,
+                        }
+                        gen_usage = event.get("usage") or None
+                    await _emit(event)
+        finally:
+            CURRENT_RUN_BINDING.reset(binding_token)
 
-        _finalize_run(
+        def _commit_plan_preview(persist_db) -> None:  # noqa: ANN001
+            if not assistant_content or not plan_id_out or plan_record is None:
+                return
+            from core.services.plan_service import PlanService
+
+            extra_data: Dict[str, Any] = {}
+            if uploaded_files:
+                extra_data["uploaded_files"] = list(uploaded_files)
+            agent_name_map = plan_record.get("agent_name_map")
+            if isinstance(agent_name_map, dict) and agent_name_map:
+                extra_data["agent_name_map"] = dict(agent_name_map)
+            PlanService(persist_db).create_plan(
+                plan_id=str(plan_id_out),
+                user_id=user_id,
+                title=str(plan_record.get("title") or "未命名计划"),
+                description=str(plan_record.get("description") or ""),
+                task_input=task_description,
+                steps=list(plan_record.get("steps") or []),
+                extra_data=extra_data,
+                commit=False,
+            )
+            ChatService(persist_db).add_message(
+                chat_id=chat_id,
+                role="assistant",
+                content=assistant_content,
+                model=model_name,
+                message_id=message_id,
+                extra_data={
+                    "is_markdown": True,
+                    "plan_id": plan_id_out,
+                    "plan_snapshot": plan_snapshot,
+                    "message_id": message_id,
+                },
+                usage=gen_usage,
+                commit=False,
+            )
+
+        completed = journal.complete(
             run_id,
+            owner=owner,
             status="completed",
             usage=gen_usage,
-            completed_at=_utcnow(),
             last_event_offset=offset_counter,
+            commit_effect=_commit_plan_preview,
+            committed_operation={
+                "operation_type": "message_committed",
+                "phase": "message_committed",
+                "safety": "side_effect_committed",
+                "payload": {"message_id": message_id, "plan_id": plan_id_out},
+            },
         )
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        if completed:
+            await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
+        else:
+            logger.warning("plan_generate_terminal_cas_lost", run_id=run_id, owner=owner)
 
     except asyncio.CancelledError:
-        logger.info("plan_generate_run_cancelled", run_id=run_id)
-        await _emit(
-            {
-                "type": "plan_error",
-                "error": "任务已被用户取消",
-                "_cancelled": True,
-            }
-        )
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True})
-        _update_run_status(run_id, last_event_offset=offset_counter)
+        if lease_lost.is_set():
+            logger.warning("plan_generate_worker_fenced", run_id=run_id, owner=owner)
+        else:
+            cancelled = journal.complete(
+                run_id,
+                owner=owner,
+                status="cancelled",
+                failure_reason="plan generation worker cancelled",
+                last_event_offset=offset_counter,
+            )
+            current = get_run(run_id)
+            if cancelled or (current is not None and current.status == "cancelled"):
+                logger.info("plan_generate_run_cancelled", run_id=run_id)
+            else:
+                logger.warning(
+                    "plan_generate_cancel_cas_lost",
+                    run_id=run_id,
+                    owner=owner,
+                )
+                return
+            await _emit(
+                {
+                    "type": "plan_error",
+                    "error": "任务已被用户取消",
+                    "_cancelled": True,
+                },
+                terminal=True,
+            )
+            await _emit(
+                {"type": _TERMINAL_TYPE, "chat_id": chat_id, "_cancelled": True},
+                terminal=True,
+            )
 
     except Exception as exc:
+        nested_unknown = find_tool_outcome_unknown(exc)
+        if nested_unknown is not None:
+            if journal.needs_attention(
+                run_id,
+                owner=owner,
+                reason=f"tool outcome pending policy recovery: {nested_unknown}",
+            ):
+                await _emit(
+                    {
+                        "type": "plan_error",
+                        "error": "工具调用结果无法安全确定，任务已暂停等待处理",
+                    },
+                    terminal=True,
+                )
+                await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
+            return
         logger.error("plan_generate_run_failed", run_id=run_id, error=str(exc), exc_info=True)
-        _finalize_run(
+        failed = journal.complete(
             run_id,
+            owner=owner,
             status="failed",
-            error_message=str(exc)[:1000],
-            completed_at=_utcnow(),
+            failure_reason=str(exc)[:1000],
             last_event_offset=offset_counter,
         )
-        await _emit({"type": "plan_error", "error": str(exc)[:200]})
-        await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id})
+        if failed:
+            await _emit(
+                {"type": "plan_error", "error": str(exc)[:200]},
+                terminal=True,
+            )
+            await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
 
     finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
         await _expire_stream(run_id)
 
 
@@ -2058,12 +3351,23 @@ async def cancel_run(run_id: str, *, user_id: str) -> bool:
     if run.status not in _LIVE_STATUSES:
         return False
 
-    if not _finalize_run(run_id, status="cancelled", completed_at=_utcnow()):
+    if not _journal().cancel(run_id, reason="user cancelled"):
         # Race: the worker/reaper just beat us to writing the terminal state — treat as "no longer running".
         return False
 
     payload = run.request_payload if isinstance(run.request_payload, dict) else {}
     cooperative_only = payload.get("kind") in _COOPERATIVE_KINDS
+
+    # Cooperative workers are fenced by the cancelled DB row and therefore
+    # deliberately stay silent when their heartbeat cancels them. Project the
+    # authoritative cancellation here so followers never wait on the old task.
+    if cooperative_only:
+        await _write_terminal_to_stream(
+            run_id,
+            chat_id=run.chat_id,
+            error_text="任务已被用户取消",
+            cancelled=True,
+        )
 
     task = _active_runs.get(run_id)
     if task is not None and not task.done():
@@ -2080,7 +3384,9 @@ async def cancel_run(run_id: str, *, user_id: str) -> bool:
             pass
         except Exception as exc:
             logger.warning("cancel_run_await_failed", run_id=run_id, error=str(exc))
-    else:
+        if task.done():
+            _acknowledge_terminal_writer(run_id)
+    elif not cooperative_only:
         # Cross-process / post-restart: worker not in this process. Inject the
         # terminal markers ourselves so any active follower exits cleanly.
         await _write_terminal_to_stream(
@@ -2094,38 +3400,271 @@ async def cancel_run(run_id: str, *, user_id: str) -> bool:
 
 
 async def recover_orphan_runs() -> int:
-    """Mark live runs left over from a crashed/restarted process as failed.
+    """Recover claimable runs from their last committed database safe point."""
+    from core.services.tool_effect_ledger import (
+        ToolEffectJournal,
+        recover_incomplete_tool_effects,
+    )
 
-    Bulk-update by status filter; then write terminal markers to each stream so
-    any follower waiting on Redis doesn't hang.
-    """
-    with SessionLocal() as db:
-        orphans = (
-            db.query(ChatRun.run_id, ChatRun.chat_id)
-            .filter(ChatRun.status.in_(_LIVE_STATUSES))
-            .all()
+    effect_decisions = await recover_incomplete_tool_effects(
+        journal=ToolEffectJournal(SessionLocal)
+    )
+    effect_attention_runs = {
+        item.run_id for item in effect_decisions if item.action == "needs_attention"
+    }
+    for run_id in effect_attention_runs:
+        run = get_run(run_id)
+        if run is not None:
+            await _write_terminal_to_stream(
+                run_id,
+                chat_id=run.chat_id or "",
+                error_text="工具调用结果无法安全确定，任务已暂停等待处理",
+            )
+    decisions = _journal().recover()
+    for decision in decisions:
+        if decision.action == "resume":
+            if not _register_recovered_chat(decision):
+                reason = "run kind or recovery snapshot cannot be resumed automatically"
+                if _journal().needs_attention(decision.run_id, reason=reason):
+                    await _write_terminal_to_stream(
+                        decision.run_id,
+                        chat_id=decision.chat_id or "",
+                        error_text="任务缺少可恢复快照，已暂停等待处理",
+                    )
+        elif decision.action == "resume_from_snapshot":
+            snapshot_result = await _commit_recovered_chat_snapshot(decision)
+            if snapshot_result is False:
+                await _write_terminal_to_stream(
+                    decision.run_id,
+                    chat_id=decision.chat_id or "",
+                    error_text="已保存的模型结果无法安全提交，任务已暂停等待处理",
+                )
+        elif decision.action == "needs_attention":
+            if decision.phase == "model_inflight":
+                recovery_error = "模型调用结果不确定，任务已暂停等待恢复决策"
+            elif decision.phase == "legacy_unrecoverable":
+                recovery_error = "旧版本任务缺少恢复快照，已暂停等待处理"
+            else:
+                recovery_error = "任务在工具结果不确定的安全边界暂停，等待恢复决策"
+            await _write_terminal_to_stream(
+                decision.run_id,
+                chat_id=decision.chat_id or "",
+                error_text=recovery_error,
+            )
+        elif decision.action == "completed":
+            await _write_recovered_terminal_marker(
+                decision.run_id,
+                chat_id=decision.chat_id or "",
+            )
+        elif decision.action == "failed":
+            await _write_terminal_to_stream(
+                decision.run_id,
+                chat_id=decision.chat_id or "",
+                error_text="服务重启发生在任务准备完成前，请重新发起",
+            )
+    recovered_count = len({item.run_id for item in decisions} | effect_attention_runs)
+    if recovered_count:
+        logger.info("chat_run_orphan_recovered", count=recovered_count)
+    return recovered_count
+
+
+def _register_recovered_chat(decision: RecoveryDecision) -> bool:
+    snapshot = dict(decision.snapshot or {})
+    if snapshot.get("kind") != "chat":
+        return False
+    args = snapshot.get("worker_args")
+    if not isinstance(args, dict):
+        return False
+    required = {
+        "session_messages",
+        "effective_user_message",
+        "raw_user_message",
+        "context",
+    }
+    if not required.issubset(args):
+        return False
+    owner = _new_worker_owner(decision.run_id)
+    recovered_run = get_run(decision.run_id)
+    _register_run_task(
+        decision.run_id,
+        _run_workflow(
+            run_id=decision.run_id,
+            chat_id=decision.chat_id,
+            user_id=decision.user_id,
+            message_id=decision.message_id,
+            assistant_chat_seq=(
+                int(recovered_run.assistant_chat_seq)
+                if recovered_run is not None and recovered_run.assistant_chat_seq is not None
+                else None
+            ),
+            session_messages=list(args.get("session_messages") or []),
+            effective_user_message=str(args.get("effective_user_message") or ""),
+            raw_user_message=str(args.get("raw_user_message") or ""),
+            context=dict(args.get("context") or {}),
+            model_name=(str(args["model_name"]) if args.get("model_name") else None),
+            journal_owner=owner,
+            recovering=True,
+        ),
+        name=f"chat_run_recovery:{decision.run_id}",
+    )
+    return True
+
+
+async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optional[bool]:
+    snapshot = dict(decision.snapshot or {})
+    content = snapshot.get("assistant_content")
+    message_id = str(snapshot.get("message_id") or decision.message_id)
+    if not isinstance(content, str) or not message_id:
+        paused = _journal().needs_attention(
+            decision.run_id,
+            reason="model-completed snapshot is incomplete",
         )
-        if not orphans:
-            return 0
-        run_chat_pairs = [(r.run_id, r.chat_id) for r in orphans]
-        db.query(ChatRun).filter(ChatRun.status.in_(_LIVE_STATUSES)).update(
-            {
-                "status": "failed",
-                "error_message": "server restarted before run completed",
-                "completed_at": _utcnow(),
+        return False if paused else None
+    owner = _new_worker_owner(decision.run_id)
+    recovered_run = get_run(decision.run_id)
+    journal = _journal()
+    if not journal.claim(
+        decision.run_id,
+        owner=owner,
+        lease_seconds=_RUN_LEASE_SECONDS,
+    ):
+        return None
+    try:
+        from core.services.artifact_service import (
+            persist_artifacts as _persist_artifacts,
+        )
+        from core.services.project_scope import project_scope_from_context
+
+        queued_handoff: Dict[str, Any] = {}
+
+        def _commit_recovered_output(db) -> None:
+            ChatService(db).upsert_message(
+                chat_id=decision.chat_id,
+                role="assistant",
+                content=content,
+                message_id=message_id,
+                chat_seq=(
+                    int(recovered_run.assistant_chat_seq)
+                    if recovered_run is not None and recovered_run.assistant_chat_seq is not None
+                    else None
+                ),
+                model=(
+                    str(snapshot["model_name"]) if snapshot.get("model_name") is not None else None
+                ),
+                tool_calls=(
+                    list(snapshot["tool_calls"])
+                    if isinstance(snapshot.get("tool_calls"), list)
+                    else None
+                ),
+                usage=(
+                    dict(snapshot["usage"]) if isinstance(snapshot.get("usage"), dict) else None
+                ),
+                extra_data=(
+                    dict(snapshot["extra_data"])
+                    if isinstance(snapshot.get("extra_data"), dict)
+                    else {}
+                ),
+                commit=False,
+            )
+            artifacts = snapshot.get("artifacts")
+            if isinstance(artifacts, list):
+                context_snapshot = snapshot.get("context")
+                _persist_artifacts(
+                    db,
+                    decision.user_id,
+                    decision.chat_id,
+                    artifacts,
+                    scope=project_scope_from_context(
+                        dict(context_snapshot) if isinstance(context_snapshot, dict) else {}
+                    ),
+                    commit=False,
+                )
+            worker_args = snapshot.get("worker_args")
+            recovery_args = worker_args if isinstance(worker_args, dict) else {}
+            context_snapshot = snapshot.get("context")
+            prepared = _commit_queued_handoff_in_session(
+                db,
+                source_run_id=decision.run_id,
+                chat_id=decision.chat_id,
+                user_id=decision.user_id,
+                session_messages=(
+                    list(recovery_args["session_messages"])
+                    if isinstance(recovery_args.get("session_messages"), list)
+                    else []
+                ),
+                assistant_content=content,
+                context=(
+                    dict(context_snapshot)
+                    if isinstance(context_snapshot, dict)
+                    else dict(recovery_args.get("context") or {})
+                ),
+                model_name=(
+                    str(snapshot["model_name"])
+                    if snapshot.get("model_name") is not None
+                    else (
+                        str(recovery_args["model_name"])
+                        if recovery_args.get("model_name") is not None
+                        else None
+                    )
+                ),
+            )
+            if prepared is not None:
+                queued_handoff.update(prepared)
+
+        completed = journal.complete(
+            decision.run_id,
+            owner=owner,
+            status="completed",
+            usage=(dict(snapshot["usage"]) if isinstance(snapshot.get("usage"), dict) else None),
+            commit_effect=_commit_recovered_output,
+            committed_operation={
+                "operation_type": "message_committed_from_snapshot",
+                "phase": "message_committed",
+                "safety": "side_effect_committed",
+                "payload": {"message_id": message_id},
             },
-            synchronize_session=False,
         )
-        db.commit()
+        if completed:
+            if queued_handoff:
+                _schedule_queued_handoff(
+                    queued_handoff,
+                    chat_id=decision.chat_id,
+                    user_id=decision.user_id,
+                    task_prefix="chat_run_handoff_recovery",
+                )
+                await _write_queued_run_started_projection(
+                    decision.run_id,
+                    chat_id=decision.chat_id,
+                    handoff=queued_handoff,
+                )
+            await _write_recovered_terminal_marker(
+                decision.run_id,
+                chat_id=decision.chat_id,
+            )
+        return completed
+    except Exception as exc:  # noqa: BLE001 - pause instead of replaying model output
+        logger.error(
+            "chat_run_snapshot_commit_failed",
+            run_id=decision.run_id,
+            error=str(exc),
+            exc_info=True,
+        )
+        paused = journal.needs_attention(
+            decision.run_id,
+            reason=str(exc)[:1000],
+            owner=owner,
+        )
+        return False if paused else None
 
-    for rid, cid in run_chat_pairs:
-        await _write_terminal_to_stream(
-            rid,
-            chat_id=cid or "",
-            error_text="服务重启导致任务中断，请重新发起",
-        )
-    logger.info("chat_run_orphan_recovered", count=len(run_chat_pairs))
-    return len(run_chat_pairs)
+
+async def _write_recovered_terminal_marker(run_id: str, *, chat_id: str) -> None:
+    event = {"type": _TERMINAL_TYPE, "chat_id": chat_id, "_recovered": True}
+    try:
+        offset = _journal().allocate_event_offset(run_id, terminal=True)
+        await _xadd_event(run_id, offset, event)
+        await _expire_stream(run_id)
+    except Exception as exc:  # Redis is only a projection
+        logger.warning("chat_run_recovered_terminal_write_failed", run_id=run_id, error=str(exc))
 
 
 async def resume_running_loops() -> int:
@@ -2144,7 +3683,11 @@ async def resume_running_loops() -> int:
     """
     from core.db.models import AgentLoop
 
-    auto = os.getenv("LOOP_AUTO_RESUME", "false").strip().lower() in ("1", "true", "yes")
+    auto = os.getenv("LOOP_AUTO_RESUME", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     resumed = 0
     with SessionLocal() as db:
         loops = db.query(AgentLoop).filter(AgentLoop.status == "running").all()
@@ -2267,8 +3810,8 @@ async def reap_stale_runs() -> int:
       age-based reaping choked even active runs mid-tool-call once the 30-minute
       mark hit).
     - **Absolute cap**: runs older than ``CHAT_RUN_HARD_MAX_AGE_SEC`` are reaped
-      unconditionally, preventing a runaway agent loop from living forever by
-      continuously emitting.
+      even when actively emitting, except while a registered bounded human
+      interaction is pending (that interaction keeps its own full deadline).
 
     Reaping also cancels the in-process worker task, keeping the DB terminal
     state aligned with the actual task (historical bug: only flipping the DB
@@ -2278,7 +3821,7 @@ async def reap_stale_runs() -> int:
     ``cancel_run`` docstring); it stops itself after ``is_run_cancelled``
     polling observes the terminal state.
 
-    Complements ``recover_orphan_runs`` (startup-only) and the per-run
+    Complements periodic ``recover_orphan_runs`` and the per-run
     inactivity watchdog — also sweeps up historical zombie runs left by
     older code paths.
     """
@@ -2293,6 +3836,7 @@ async def reap_stale_runs() -> int:
                 ChatRun.run_id,
                 ChatRun.chat_id,
                 ChatRun.request_payload,
+                ChatRun.lease_expires_at,
                 func.coalesce(ChatRun.started_at, ChatRun.created_at).label("began_at"),
             )
             .filter(ChatRun.status == "running")
@@ -2306,10 +3850,20 @@ async def reap_stale_runs() -> int:
     reaped = 0
     for row in candidates:
         rid, cid = row.run_id, row.chat_id
+        lease_expires_at = row.lease_expires_at
+        if lease_expires_at is not None and lease_expires_at.tzinfo is None:
+            lease_expires_at = lease_expires_at.replace(tzinfo=timezone.utc)
         began_at = row.began_at
         if began_at is not None and began_at.tzinfo is None:  # SQLite stores naive UTC
             began_at = began_at.replace(tzinfo=timezone.utc)
         hard_expired = began_at is not None and began_at < hard_cutoff
+        if not hard_expired and lease_expires_at is not None and lease_expires_at > now:
+            logger.info(
+                "chat_run_stale_skip_live_lease",
+                run_id=rid,
+                lease_expires_at=lease_expires_at.isoformat(),
+            )
+            continue
         payload = row.request_payload if isinstance(row.request_payload, dict) else {}
 
         # 自主循环豁免统一年龄硬顶：loop 的使命就是「跑到任务完成为止」（去预算化），
@@ -2323,6 +3877,15 @@ async def reap_stale_runs() -> int:
                 logger.info("chat_run_stale_skip_loop_inprocess", run_id=rid)
                 continue
             hard_expired = False  # 孤儿 loop：不按年龄硬杀，交给静默判据
+
+        # A legitimate user decision may begin near the run's absolute-age
+        # ceiling. Its own bounded wait deadline is the authority; do not cut a
+        # newly opened question/confirmation down to the remainder of the run
+        # hard cap. Once the registry resolves or times out, this exemption
+        # disappears automatically on the next sweep.
+        if hard_expired and human_interaction.has_pending(cid):
+            logger.info("chat_run_stale_skip_human_wait", run_id=rid, chat_id=cid)
+            continue
 
         # 工作流模式的批量作业：run 卡在 run_job(wait=True) 里等作业，期间主链路一个
         # 流事件都不产生（逐项结果按设计不进对话），"流静默"判据必然误判。进程内 task
@@ -2357,7 +3920,12 @@ async def reap_stale_runs() -> int:
         else:
             reason = "run exceeded hard max age (stale watchdog)"
 
-        if not _finalize_run(rid, status="failed", error_message=reason, completed_at=_utcnow()):
+        if not _request_run_stop(
+            rid,
+            status="failed",
+            error_message=reason,
+            require_expired_lease=not hard_expired,
+        ):
             continue  # race: the worker just beat us to writing the terminal state
 
         await _write_terminal_to_stream(
@@ -2370,6 +3938,14 @@ async def reap_stale_runs() -> int:
         task = _active_runs.get(rid)
         if task is not None and not task.done() and payload.get("kind") not in _COOPERATIVE_KINDS:
             task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            except Exception as exc:
+                logger.warning("stale_reaper_await_failed", run_id=rid, error=str(exc))
+            if task.done():
+                _acknowledge_terminal_writer(rid)
         reaped += 1
 
     if reaped:
@@ -2378,11 +3954,16 @@ async def reap_stale_runs() -> int:
 
 
 async def run_stale_reaper_loop() -> None:
-    """Background loop started once at app startup; never returns normally."""
+    """Recover expired leases frequently and run the slower stale watchdog."""
+    loop = asyncio.get_running_loop()
+    next_reap_at = loop.time() + _STALE_REAPER_INTERVAL_SEC
     while True:
         try:
-            await asyncio.sleep(_STALE_REAPER_INTERVAL_SEC)
-            await reap_stale_runs()
+            await asyncio.sleep(_RUN_RECOVERY_INTERVAL_SEC)
+            await recover_orphan_runs()
+            if loop.time() >= next_reap_at:
+                await reap_stale_runs()
+                next_reap_at = loop.time() + _STALE_REAPER_INTERVAL_SEC
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -2392,16 +3973,27 @@ async def run_stale_reaper_loop() -> None:
 def get_active_run_for_chat(chat_id: str, user_id: str) -> Optional[ChatRun]:
     """Backing query for GET /v1/chats/{chat_id}/active-run."""
     with SessionLocal() as db:
-        return (
+        rows = (
             db.query(ChatRun)
             .filter(
                 ChatRun.chat_id == chat_id,
                 ChatRun.user_id == user_id,
-                ChatRun.status.in_(_LIVE_STATUSES),
+                (ChatRun.status.in_(_LIVE_STATUSES) | (ChatRun.writer_slot.isnot(None))),
             )
             .order_by(ChatRun.created_at.desc())
-            .first()
+            .all()
         )
+        for row in rows:
+            payload = row.request_payload if isinstance(row.request_payload, dict) else {}
+            if payload.get("kind") not in {
+                "automation_plan",
+                "automation_prompt",
+                "batch_item",
+                "internal_job_agent",
+                "legacy_chat_stream",
+            }:
+                return row
+        return None
 
 
 # ─── SSE wire wrapper (shared by the chats / plans routes) ─────────────

@@ -34,6 +34,15 @@ export const DESKTOP_TARGETS = Object.freeze({
     label: "CPython 3.11 on Linux x86_64",
     executable: "python/bin/python3.11",
   }),
+  "linux-aarch64": Object.freeze({
+    lockFile: "desktop/requirements-desktop-linux-aarch64-py311.lock",
+    // onnxruntime (via markitdown/magika) first publishes aarch64 wheels at
+    // manylinux_2_28. UOS 1070 provides glibc 2.28, so this is both the oldest
+    // resolvable dependency baseline and the exact supported system floor.
+    pythonPlatform: "aarch64-manylinux_2_28",
+    label: "CPython 3.11 on Linux aarch64 (UOS 1070 / manylinux 2.28)",
+    executable: "python/bin/python3.11",
+  }),
 });
 
 export const WINDOWS_DESKTOP_LOCK_FILE =
@@ -58,6 +67,8 @@ export function currentDesktopTarget(platform = process.platform, arch = process
           ? "darwin-x86_64"
           : platform === "linux" && arch === "x64"
             ? "linux-x86_64"
+            : platform === "linux" && arch === "arm64"
+              ? "linux-aarch64"
             : null;
   if (!target) {
     throw new Error(`Unsupported desktop release target: ${platform}/${arch}`);

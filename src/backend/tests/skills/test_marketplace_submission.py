@@ -33,7 +33,9 @@ def db():
         session.close()
 
 
-def _make_user_skill(db, skill_id: str, owner: str) -> AdminSkill:
+def _make_user_skill(
+    db, skill_id: str, owner: str, *, user_intro: str | None = None
+) -> AdminSkill:
     row = AdminSkill(
         skill_id=skill_id,
         skill_content=(
@@ -41,6 +43,7 @@ def _make_user_skill(db, skill_id: str, owner: str) -> AdminSkill:
         ),
         display_name="我的测试技能",
         description="测试用私有技能",
+        user_intro=user_intro,
         version="1.0.0",
         tags=["测试"],
         extra_files={"scripts/run.py": "print('hi')\n"},
@@ -55,7 +58,7 @@ def _make_user_skill(db, skill_id: str, owner: str) -> AdminSkill:
 def test_submit_snapshot_and_slug_strips_fingerprint(db):
     suffix = mk._user_suffix("userA")
     skill_id = f"my-skill-{suffix}"
-    _make_user_skill(db, skill_id, "userA")
+    _make_user_skill(db, skill_id, "userA", user_intro="## 用户介绍\n\n这是完整介绍。")
 
     sub = mk.submit_to_marketplace(
         db, skill_id, owner_user_id="userA", submitter_name="张三", note="求上架", category="办公效率"
@@ -66,6 +69,7 @@ def test_submit_snapshot_and_slug_strips_fingerprint(db):
     assert "测试用私有技能" in row.skill_content
     assert row.extra_files == {"scripts/run.py": "print('hi')\n"}
     assert row.submitter_name == "张三"
+    assert row.user_intro == "## 用户介绍\n\n这是完整介绍。"
 
 
 def test_slug_collision_with_builtin_dir(db):
@@ -142,6 +146,7 @@ def test_approve_publishes_to_listing_detail_and_install(db):
     assert r["action"] == "installed"
     row = db.query(AdminSkill).filter_by(skill_id=r["id"]).one()
     assert row.owner_user_id == "userB"
+    assert row.user_intro is None
     assert row.extra_files == {"scripts/run.py": "print('hi')\n"}
     assert mk.is_installed(db, "pub-skill", owner_user_id="userB") is True
 

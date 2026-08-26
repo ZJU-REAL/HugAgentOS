@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import sqlalchemy as sa
 from core.db.models import ChatMessage, ChatSession
+from core.db.models.chat import reserve_chat_message_sequences
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -97,7 +98,9 @@ class ChatSessionRepository:
             query = query.filter(
                 or_(
                     ChatSession.extra_data.is_(None),
-                    ~func.cast(ChatSession.extra_data, sa.Text).contains('"automation_run"'),
+                    ~func.cast(ChatSession.extra_data, sa.Text).contains(
+                        '"automation_run"'
+                    ),
                 )
             )
 
@@ -124,7 +127,9 @@ class ChatSessionRepository:
         self.db.refresh(session)
         return session
 
-    def update(self, chat_id: str, update_data: Dict[str, Any]) -> Optional[ChatSession]:
+    def update(
+        self, chat_id: str, update_data: Dict[str, Any]
+    ) -> Optional[ChatSession]:
         """Update chat session."""
         session = self.get_by_id(chat_id)
         if not session:
@@ -149,7 +154,12 @@ class ChatSessionRepository:
         return True
 
     def search(
-        self, user_id: str, query: str, page: int = 1, page_size: int = 20, scope: str = "title"
+        self,
+        user_id: str,
+        query: str,
+        page: int = 1,
+        page_size: int = 20,
+        scope: str = "title",
     ) -> tuple[List[Dict[str, Any]], int]:
         """Search chat sessions by title and optionally message content.
 
@@ -206,7 +216,7 @@ class ChatSessionRepository:
                         ChatMessage.role.in_(["user", "assistant"]),
                         ChatMessage.content.ilike(like_pattern),
                     )
-                    .order_by(ChatMessage.created_at)
+                    .order_by(ChatMessage.chat_seq)
                     .limit(20)
                     .all()
                 )
@@ -299,7 +309,11 @@ class ChatMessageRepository:
 
     def get_by_id(self, message_id: str) -> Optional[ChatMessage]:
         """Get message by ID."""
-        return self.db.query(ChatMessage).filter(ChatMessage.message_id == message_id).first()
+        return (
+            self.db.query(ChatMessage)
+            .filter(ChatMessage.message_id == message_id)
+            .first()
+        )
 
     def list_by_chat(
         self, chat_id: str, page: int = 1, page_size: int = 50
@@ -316,7 +330,7 @@ class ChatMessageRepository:
 
         total = query.count()
         messages = (
-            query.order_by(ChatMessage.created_at)
+            query.order_by(ChatMessage.chat_seq)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
@@ -329,52 +343,83 @@ class ChatMessageRepository:
         chat_id: str,
         *,
         limit: int = 8,
-        before: Optional[datetime] = None,
+        before_seq: Optional[int] = None,
     ) -> List[ChatMessage]:
         """Return the newest visible messages in chronological order.
 
-        ``before`` makes a post-response consumer stop at the assistant message
-        it belongs to, so a later overlapping turn cannot leak into its input.
+        ``before_seq`` makes a post-response consumer stop at the assistant
+        message it belongs to, so a later overlapping turn cannot leak in.
         """
 
         query = self.db.query(ChatMessage).filter(
             ChatMessage.chat_id == chat_id,
             ChatMessage.role.in_(("user", "assistant")),
         )
-        if before is not None:
-            query = query.filter(ChatMessage.created_at <= before)
-        messages = query.order_by(ChatMessage.created_at.desc()).limit(max(1, limit)).all()
+        if before_seq is not None:
+            query = query.filter(ChatMessage.chat_seq <= before_seq)
+        messages = query.order_by(ChatMessage.chat_seq.desc()).limit(max(1, limit)).all()
         messages.reverse()
         return messages
 
-    def count_visible_before(self, chat_id: str, before: datetime) -> int:
-        """Count user-facing messages written before an internal checkpoint.
+    def count_visible_through_seq(self, chat_id: str, covered_seq: int) -> int:
+        """Count user-facing messages included in a compaction watermark.
 
         Compaction checkpoints use ``role='system'`` and are intentionally
         excluded, matching :meth:`list_by_chat`.  The count gives clients a
-        stable boundary in the visible history without exposing the checkpoint
-        row or its replacement payload.
+        stable sequence boundary in the visible history without exposing the
+        checkpoint row or its replacement payload.
         """
         return int(
             self.db.query(ChatMessage)
             .filter(
                 ChatMessage.chat_id == chat_id,
                 ChatMessage.role != "system",
-                ChatMessage.created_at < before,
+                ChatMessage.chat_seq <= covered_seq,
             )
             .count()
         )
 
-    def create(self, message_data: Dict[str, Any]) -> ChatMessage:
+    def count_visible_through_seq(self, chat_id: str, covered_seq: int) -> int:
+        """Count user-facing rows at or below an exact compaction watermark."""
+        return int(
+            self.db.query(ChatMessage)
+            .filter(
+                ChatMessage.chat_id == chat_id,
+                ChatMessage.role != "system",
+                ChatMessage.chat_seq <= int(covered_seq),
+            )
+            .count()
+        )
+
+    def create(
+        self, message_data: Dict[str, Any], *, commit: bool = True
+    ) -> ChatMessage:
         """Create a new chat message."""
-        message = ChatMessage(**_strip_nul(message_data))
+        clean = _strip_nul(message_data)
+        if clean.get("chat_seq") is None:
+            next_seq = reserve_chat_message_sequences(
+                self.db, str(clean.get("chat_id") or ""), 1
+            )
+            if next_seq is not None:
+                clean["chat_seq"] = next_seq
+
+        message = ChatMessage(**clean)
         message.created_at = datetime.utcnow()
         self.db.add(message)
-        self.db.commit()
-        self.db.refresh(message)
+        if commit:
+            self.db.commit()
+            self.db.refresh(message)
+        else:
+            self.db.flush()
         return message
 
-    def update(self, message_id: str, update_data: Dict[str, Any]) -> Optional[ChatMessage]:
+    def update(
+        self,
+        message_id: str,
+        update_data: Dict[str, Any],
+        *,
+        commit: bool = True,
+    ) -> Optional[ChatMessage]:
         """Update mutable fields (content / tool_calls / usage / extra_data / …) in place.
 
         Used for scenarios like the autonomous loop where "the same assistant message is
@@ -386,11 +431,16 @@ class ChatMessageRepository:
             return None
         for key, value in update_data.items():
             setattr(message, key, _strip_nul(value))
-        self.db.commit()
-        self.db.refresh(message)
+        if commit:
+            self.db.commit()
+            self.db.refresh(message)
+        else:
+            self.db.flush()
         return message
 
-    def update_extra_data(self, message_id: str, patch: Dict[str, Any]) -> Optional[ChatMessage]:
+    def update_extra_data(
+        self, message_id: str, patch: Dict[str, Any]
+    ) -> Optional[ChatMessage]:
         """Merge *patch* into the message's extra_data JSONB field."""
         message = self.get_by_id(message_id)
         if not message:

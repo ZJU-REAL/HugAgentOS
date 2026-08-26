@@ -8,7 +8,7 @@ with the version that originally created it.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator, Mapping, Optional, Tuple
+from typing import Any, Iterator, Mapping, Optional, Tuple
 
 from sqlalchemy import Column, MetaData, inspect
 from sqlalchemy.engine import Connection, Engine
@@ -62,7 +62,7 @@ def reconcile_metadata_schema(
     bind: Engine | Connection,
     metadata: MetaData,
     *,
-    bootstrap_server_defaults: Optional[Mapping[SchemaItem, str]] = None,
+    bootstrap_server_defaults: Optional[Mapping[SchemaItem, Any]] = None,
 ) -> dict[str, list[str]]:
     """Create missing tables, columns, and indexes from ``metadata``.
 

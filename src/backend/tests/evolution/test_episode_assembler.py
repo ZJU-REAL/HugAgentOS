@@ -6,6 +6,7 @@ without a full asset snapshot is barred from replay.
 """
 
 import pytest
+from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -15,6 +16,7 @@ from core.evolution import events as EV
 from core.evolution import trace_assembler as TA
 from core.evolution import trace_store as TS
 from core.evolution.contract import ASSET_SKILL, AssetRef, build_bundle
+from core.llm.execution_manifest import PromptManifestBuilder
 
 
 @pytest.fixture
@@ -121,6 +123,68 @@ def test_assembly_creates_one_episode(db_factory):
         assert db.query(EvolutionEpisode).count() == 1
 
 
+def test_streaming_wrapper_persists_sanitized_execution_manifest(db_factory, monkeypatch):
+    from core.evolution import settlement_runner, trigger, user_settings
+    from orchestration import memory_integration, workflow
+
+    builder = PromptManifestBuilder(
+        context={
+            "workspace_id": "workspace-70",
+            "project_instructions": "private instruction must not be persisted",
+        }
+    )
+    builder.add_prompt_section(
+        "system/base",
+        "private system prompt",
+        origin="prompt-version:system-v7",
+        trust="admin",
+        priority=10,
+        cache_class="stable_prefix",
+        version="system-v7",
+        sensitive=True,
+    )
+    manifest = builder.build(final_prompt="private system prompt")
+    bundle = build_bundle(
+        [AssetRef(kind=ASSET_SKILL, asset_id="s1", version="v1")],
+        execution_manifest=manifest.to_dict(),
+    )
+    raw_agent = SimpleNamespace(_jx_asset_bundle=bundle)
+    streaming_wrapper = SimpleNamespace(agent=raw_agent)
+
+    monkeypatch.setattr(TA, "emit_tool_events", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(memory_integration, "get_last_retrieval", lambda _task: None)
+    monkeypatch.setattr(
+        user_settings,
+        "resolve_for_user",
+        lambda _user_id: {"privacy_class": "private"},
+    )
+    monkeypatch.setattr(settlement_runner, "register_turn", lambda **_kwargs: None)
+    monkeypatch.setattr(trigger, "schedule_personal", lambda _user_id: None)
+    monkeypatch.setattr(trigger, "schedule_if_due", lambda: None)
+
+    workflow._assemble_episode_background(
+        message_id="manifest-message-70",
+        run_id="manifest-run-70",
+        chat_id="manifest-chat-70",
+        user_id="manifest-user-70",
+        objective="verify persistence",
+        agent=streaming_wrapper,
+    )
+
+    with db_factory() as db:
+        episode = (
+            db.query(EvolutionEpisode)
+            .filter(EvolutionEpisode.message_id == "manifest-message-70")
+            .one()
+        )
+        assert episode.bundle_partial is False
+        assert episode.asset_bundle_id == bundle.bundle_id
+        persisted = episode.asset_bundle["execution_manifest"]
+        assert persisted["aggregate_hash"] == manifest.aggregate_hash
+        assert "private system prompt" not in str(persisted)
+        assert "private instruction must not be persisted" not in str(persisted)
+
+
 def test_assembly_is_idempotent(db_factory):
     first = TA.assemble_episode(message_id="m1", run_id="r1", bundle=_bundle())
     second = TA.assemble_episode(message_id="m1", run_id="r1", bundle=_bundle())
@@ -140,9 +204,7 @@ def test_assembly_backfills_episode_id_onto_earlier_events(db_factory):
 
 
 def test_assembly_never_raises_on_database_failure(monkeypatch):
-    monkeypatch.setattr(
-        TA, "SessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("db down"))
-    )
+    monkeypatch.setattr(TA, "SessionLocal", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
     assert TA.assemble_episode(message_id="m1", run_id="r1") is None
 
 
@@ -187,9 +249,7 @@ def test_backfilled_episode_is_barred_from_replay(db_factory):
 
 
 def test_partial_bundle_is_barred_from_replay(db_factory):
-    partial = build_bundle(
-        [AssetRef(kind=ASSET_SKILL, asset_id="s1", version="v1")], partial=True
-    )
+    partial = build_bundle([AssetRef(kind=ASSET_SKILL, asset_id="s1", version="v1")], partial=True)
     TA.assemble_episode(message_id="m1", bundle=partial)
     with db_factory() as db:
         episode = db.query(EvolutionEpisode).first()

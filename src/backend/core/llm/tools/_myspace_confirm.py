@@ -49,6 +49,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
+from core.llm.human_interaction import MAX_WAIT_SECONDS
+
 logger = logging.getLogger(__name__)
 
 # "Kind" of confirmation gate — determines short-circuit conditions, toggle
@@ -99,7 +101,7 @@ _TTL_S = 1800              # per-chat idle expiry for an **empty registry** (not
 # _TTL_S. 2h covers the common "user steps away and comes back to confirm"
 # case; still bounded — avoids an unbounded suspend pinning the agent task +
 # SSE long connection forever.
-_DEFAULT_WAIT_S = 7200     # 2 hours
+_DEFAULT_WAIT_S = MAX_WAIT_SECONDS
 
 
 @dataclass
@@ -270,6 +272,16 @@ def list_pending_chat_ids() -> list[str]:
             cid for cid, st in _CHATS.items()
             if any(p.decision is None for p in st.pending.values())
         ]
+
+
+def has_pending(chat_id: Optional[str]) -> bool:
+    """Whether this chat has a live suspended confirmation/design wait."""
+
+    if not chat_id:
+        return False
+    with _LOCK:
+        st = _CHATS.get(chat_id)
+        return bool(st and any(p.decision is None for p in st.pending.values()))
 
 
 def set_decision(

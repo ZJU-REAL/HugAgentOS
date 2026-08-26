@@ -129,7 +129,7 @@ class OntologyEvolutionService:
             message_rows = (
                 self.db.query(ChatMessage)
                 .filter(ChatMessage.chat_id.in_(chat_ids))
-                .order_by(ChatMessage.created_at.desc())
+                .order_by(ChatMessage.chat_seq.desc())
                 .limit(300)
                 .all()
             )
@@ -256,9 +256,9 @@ class OntologyEvolutionService:
             .filter(
                 ChatMessage.chat_id == chat_id,
                 ChatMessage.role == "user",
-                ChatMessage.created_at <= assistant.created_at,
+                ChatMessage.chat_seq <= assistant.chat_seq,
             )
-            .order_by(ChatMessage.created_at.desc())
+            .order_by(ChatMessage.chat_seq.desc())
             .first()
         )
         task = prompt_row.content if prompt_row else comment

@@ -524,6 +524,28 @@ export const SETTINGS_DICT: Record<string, string> = {
   '留空表示不修改现有密钥': 'Leave blank to keep the existing key',
   '模型名': 'Model Name',
   '上下文窗口（token，可选）': 'Context window (tokens, optional)',
+  '自动探测': 'Auto-detect',
+  '请先填写模型名': 'Enter the model name first',
+  '请先填写模型名称': 'Enter the model name first',
+  '已探测到上下文窗口 {n} token': 'Detected a context window of {n} tokens',
+  '未能自动探测到上下文窗口，请手工填写':
+    'Could not detect the context window automatically — please enter it manually',
+  '探测失败：{msg}': 'Detection failed: {msg}',
+  '当前值由系统自动探测填入，尚未人工确认；保存即视为确认。':
+    'This value was auto-detected and has not been confirmed by anyone yet; saving confirms it.',
+  '模型真实的上下文长度，用于历史裁剪与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。':
+    "The model's real context length, used for history trimming and the auto-compaction threshold. Leave it blank and the system tries to detect it on save (self-hosted vLLM and friends report it directly); only fill it in manually when detection finds nothing.",
+  '模型支持的最大输入+输出 token 数，用于历史裁剪与自动压缩阈值。常见值：128000 / 131072 / 256000 / 1000000。留空保存时系统会尝试向上游自动探测（自建 vLLM 等会直接上报真实窗口），探不到才需要手工填写。':
+    'Maximum input + output tokens the model supports, used for history trimming and the auto-compaction threshold. Common values: 128000 / 131072 / 256000 / 1000000. Leave it blank and the system tries to detect it from the upstream on save (self-hosted vLLM and friends report their real window); only fill it in manually when detection finds nothing.',
+  '留空自动探测，如：128000': 'Leave blank to auto-detect, e.g. 128000',
+  '已探测到 {n} token（来源：{src}）': 'Detected {n} tokens (source: {src})',
+  '该值按模型名推断，并非上游自报，建议核对后再保存。':
+    'This value is inferred from the model name rather than reported by the upstream — please verify before saving.',
+  '该值来自上游报错信息，建议核对后再保存。':
+    'This value comes from an upstream error message — please verify before saving.',
+  '未探测到上下文窗口，请手工填写。': 'No context window detected — please enter it manually.',
+  '未探测到上下文窗口，请手工填写。探测过程：{notes}':
+    'No context window detected — please enter it manually. Detection trail: {notes}',
   '确认删除该供应商？': 'Delete this provider?',
   '主智能体推理': 'Main Agent Reasoning',
   '标题摘要 + 分类': 'Title Summary + Classification',

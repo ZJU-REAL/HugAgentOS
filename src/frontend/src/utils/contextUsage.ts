@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { ChatMessage, ContextCompactionState, ToolCall } from '../types';
 
 /**
@@ -86,6 +87,41 @@ export function getContextWindow(model?: ContextWindowModel | null, fallbackWind
     }
   }
   return DEFAULT_CONTEXT_WINDOW;
+}
+
+// ── Auto-detection wording ───────────────────────────────────────────────
+// The backend (core/llm/providers/context_probe.py) can read a model's real window off
+// the vendor instead of making the operator look it up. It reports how it learned the
+// number, and the wording below keeps that visible: a window the upstream published is
+// not the same claim as one inferred from the model's name.
+
+export interface ContextProbeSummary {
+  context_length: number;
+  source_label?: string;
+  confidence?: string;
+  detail?: string;
+  notes?: string[];
+}
+
+/** One line explaining a detection result, including how much to trust it. */
+export function describeContextProbe(result: ContextProbeSummary): string {
+  if (!result.context_length) {
+    const notes = (result.notes || []).join('；');
+    return notes
+      ? t('未探测到上下文窗口，请手工填写。探测过程：{notes}', { notes })
+      : t('未探测到上下文窗口，请手工填写。');
+  }
+  const base = t('已探测到 {n} token（来源：{src}）', {
+    n: String(result.context_length),
+    src: result.source_label || '',
+  });
+  if (result.confidence === 'low') {
+    return `${base}｜${t('该值按模型名推断，并非上游自报，建议核对后再保存。')}`;
+  }
+  if (result.confidence === 'medium') {
+    return `${base}｜${t('该值来自上游报错信息，建议核对后再保存。')}`;
+  }
+  return base;
 }
 
 // ── Breakdown computation ────────────────────────────────────────────────

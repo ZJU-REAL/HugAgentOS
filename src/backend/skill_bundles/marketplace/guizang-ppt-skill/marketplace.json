@@ -1,0 +1,24 @@
+{
+  "slug": "guizang-ppt-skill",
+  "entry_name": "guizang-ppt-skill",
+  "display_name": "归藏网页 PPT",
+  "summary": "生成高视觉质量的横向网页演示文稿，内置电子杂志与瑞士国际主义两套设计系统、演讲者视图、观众屏同步和自动版式校验。输出为 HTML/ZIP，不是可编辑的 PPTX。",
+  "category": "办公效率",
+  "tags": [
+    "网页PPT",
+    "演示文稿",
+    "瑞士风",
+    "杂志风",
+    "HTML"
+  ],
+  "version": "2026.8.7",
+  "author": "歸藏",
+  "icon_url": "",
+  "source": "github",
+  "source_url": "https://github.com/op7418/guizang-ppt-skill",
+  "downloads": 0,
+  "stars": 24782,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

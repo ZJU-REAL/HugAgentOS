@@ -2529,6 +2529,308 @@
   .jx-designPicker-thumbWrap img{ height:160px; }
 }
 
+/* 智能体主动提问：在工具挂起期间接管普通 composer。
+   版式参照 deepseek-harness 的 QuestionComposer——一张安静的卡片：标题即问题、
+   选项是扁平的整行、翻页与主次按钮都收在页脚，不用色块图标、双列卡片和描边高亮。 */
+.jx-askQ{
+  display:flex;
+  flex-direction:column;
+  /* 会话列是定高滚动区：卡住高度并让选项区自己滚，标题和页脚按钮才始终够得着。 */
+  max-height:min(60vh, 520px);
+  margin:10px 0 0;
+  padding:0 0 10px;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  background:var(--color-bg-container);
+  box-shadow:var(--shadow-card);
+  overflow:hidden;
+}
+/* 收起后卡片只剩标题条：撤掉高度上限与内部滚动区，把视口让回给上方对话。 */
+.jx-askQ--minimized{ max-height:none; }
+.jx-askQ-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  flex-shrink:0;
+  padding:16px 12px 0 16px;
+}
+.jx-askQ--minimized .jx-askQ-header{ padding-bottom:14px; }
+.jx-askQ-heading{ min-width:0; }
+.jx-askQ-eyebrow{
+  margin-bottom:4px;
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  line-height:16px;
+}
+.jx-askQ-title{
+  margin:0;
+  color:var(--color-text);
+  font-size:16px;
+  font-weight:500;
+  line-height:22px;
+}
+.jx-askQ-headerActions{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  flex-shrink:0;
+}
+.jx-askQ-iconButton{
+  display:grid;
+  place-items:center;
+  width:24px;
+  height:24px;
+  padding:0;
+  border:0;
+  border-radius:999px;
+  color:var(--color-text-tertiary);
+  background:transparent;
+  font-size:12px;
+  cursor:pointer;
+}
+.jx-askQ-iconButton:not(:disabled):hover{
+  color:var(--color-text);
+  background:var(--color-fill-hover);
+}
+.jx-askQ-iconButton:disabled{ color:var(--color-text-placeholder); cursor:default; }
+.jx-askQ-body{
+  display:flex;
+  flex:1 1 auto;
+  flex-direction:column;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.jx-askQ-detail{
+  margin:8px 16px 0;
+  color:var(--color-text-secondary);
+  font-size:14px;
+  line-height:22px;
+}
+.jx-askQ-options{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  margin-top:8px;
+  padding:0 8px;
+}
+.jx-askQ-option{
+  /* flex-start 而非 center：说明换行后指示器要留在第一行上。 */
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  width:100%;
+  min-height:40px;
+  /* 选项行是滚动内容，不当富余空间的吸收者：可压缩的行会缩到 min-height，
+     而换行文案仍占原高度，内容就画到相邻行上去了。滚动交给 .jx-askQ-body。 */
+  flex-shrink:0;
+  padding:8px 12px 8px 8px;
+  border:1px solid transparent;
+  border-radius:12px;
+  color:inherit;
+  background:transparent;
+  text-align:left;
+  cursor:pointer;
+  transition:background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-askQ-option:not(:disabled):hover,
+.jx-askQ-option--selected{ background:var(--color-fill-hover); }
+.jx-askQ-option--selected{ border-color:var(--color-border); }
+.jx-askQ-option:disabled{ cursor:default; }
+/* 前导指示器：单选显示序号，多选换成勾选框；补充作答那行沿用同一位置。 */
+.jx-askQ-number{
+  display:grid;
+  place-items:center;
+  flex:0 0 20px;
+  width:20px;
+  height:20px;
+  /* (22px 首行行高 − 20px 指示器) / 2：在 flex-start 下与第一行文字对齐。 */
+  margin-top:1px;
+  border-radius:var(--radius-xs);
+  color:var(--color-text-secondary);
+  background:var(--color-bg-gray);
+  font-size:12px;
+  font-weight:500;
+  line-height:18px;
+}
+.jx-askQ-checkbox{
+  display:grid;
+  place-items:center;
+  flex:0 0 20px;
+  width:20px;
+  height:20px;
+  margin-top:1px;
+  color:var(--color-text-white);
+  font-size:10px;
+}
+.jx-askQ-checkbox::before{
+  content:'';
+  grid-area:1 / 1;
+  width:14px;
+  height:14px;
+  border:1px solid var(--color-fill);
+  border-radius:4px;
+  transition:background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-askQ-checkbox > .anticon{ grid-area:1 / 1; }
+.jx-askQ-checkbox--checked::before{
+  border-color:var(--color-primary);
+  background:var(--color-primary);
+}
+.jx-askQ-optionCopy{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:baseline;
+  gap:2px 6px;
+  min-width:0;
+  flex:1;
+}
+.jx-askQ-optionLabel{
+  color:var(--color-text);
+  font-size:14px;
+  font-weight:500;
+  line-height:22px;
+}
+.jx-askQ-badge{
+  padding:0 6px;
+  border-radius:var(--radius-xs);
+  color:var(--color-primary);
+  background:var(--color-primary-light);
+  font-size:12px;
+  font-weight:500;
+  line-height:18px;
+}
+.jx-askQ-optionDesc{
+  color:var(--color-text-tertiary);
+  font-size:14px;
+  line-height:22px;
+}
+/* 补充作答：一行与选项同形的输入行，聚焦或已输入时抬到选中态。 */
+.jx-askQ-customRow{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  width:100%;
+  min-height:40px;
+  flex-shrink:0;
+  padding:8px 12px 8px 8px;
+  border:1px solid transparent;
+  border-radius:12px;
+  transition:background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-askQ-customRow:hover,
+.jx-askQ-customRow:focus-within,
+.jx-askQ-customRow--active{ background:var(--color-fill-hover); }
+.jx-askQ-customRow:focus-within,
+.jx-askQ-customRow--active{ border-color:var(--color-border); }
+/* 自增高输入框（见 AnswerField）：镜像层与 textarea 共用一个网格单元，
+   由镜像撑出高度、textarea 拉满。两层的字号、行高、内边距、换行规则必须一致，
+   任一处不同都会让框高对不上正在输入的文字。 */
+.jx-askQ-field{
+  display:grid;
+  min-width:0;
+  --jx-askQ-field-padding:0;
+}
+.jx-askQ-field > *{
+  grid-area:1 / 1;
+  min-width:0;
+  padding:var(--jx-askQ-field-padding);
+  font:inherit;
+  font-size:14px;
+  line-height:22px;
+  white-space:pre-wrap;
+  word-break:break-word;
+  overflow-wrap:anywhere;
+}
+/* 只量高、不显示的标尺。到 6 行封顶：卡片总高有限，超过就让输入框自己滚，
+   而不是把它所属的选项挤出可视区。content-box 覆盖卡片级 border-box，
+   两种形态都按「文字行数」封顶。 */
+.jx-askQ-fieldMirror{
+  box-sizing:content-box;
+  max-height:132px;
+  overflow:hidden;
+  visibility:hidden;
+}
+.jx-askQ-fieldInput{
+  resize:none;
+  overflow-y:auto;
+  border:0;
+  outline:none;
+  color:var(--color-text);
+  background:transparent;
+}
+.jx-askQ-fieldInput::placeholder{ color:var(--color-text-placeholder); }
+.jx-askQ-fieldInput:disabled{ cursor:not-allowed; opacity:.65; }
+.jx-askQ-field--inline{ flex:1; }
+/* 无选项的问题：自由作答就是全部内容，所以它自带边框。左右 12px 加上
+   .jx-askQ-options 的 8px 内边距，与标题的 16px 缩进对齐。 */
+.jx-askQ-field--block{
+  min-height:64px;
+  flex-shrink:0;
+  margin:0 8px;
+  padding:8px 12px;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  background:var(--color-bg-gray);
+  --jx-askQ-field-padding:0;
+}
+.jx-askQ-field--block:focus-within{ border-color:var(--color-primary); }
+.jx-askQ-footer{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-shrink:0;
+  margin-top:12px;
+  padding:0 12px 0 16px;
+}
+.jx-askQ-pager{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-shrink:0;
+}
+.jx-askQ-progress{
+  padding:0 4px;
+  color:var(--color-text-secondary);
+  font-size:14px;
+  font-weight:500;
+  white-space:nowrap;
+}
+.jx-askQ-feedback{
+  flex:1;
+  min-height:16px;
+  color:var(--color-error);
+  font-size:12px;
+  line-height:16px;
+  text-align:right;
+}
+.jx-askQ-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-shrink:0;
+}
+@media (max-width:640px){
+  .jx-askQ{ margin-top:8px; border-radius:var(--radius-sm); }
+  .jx-askQ-header{ padding:12px 8px 0 12px; }
+  .jx-askQ-title{ font-size:15px; line-height:21px; }
+  .jx-askQ-detail{ margin:8px 12px 0; }
+  .jx-askQ-options{ padding:0 4px; }
+  .jx-askQ-option,
+  .jx-askQ-customRow{ padding:8px 6px; }
+  .jx-askQ-footer{ align-items:flex-end; padding:0 8px; }
+}
+@media (prefers-reduced-motion:reduce){
+  .jx-askQ-option,
+  .jx-askQ-customRow,
+  .jx-askQ-checkbox::before{ transition:none; }
+}
+
 /* ══ 批量执行（BatchConfirmModal / BatchProgressPanel）══ */
 /* 占位符 Tag 点击按压反馈 */
 .jx-batch-phTag{

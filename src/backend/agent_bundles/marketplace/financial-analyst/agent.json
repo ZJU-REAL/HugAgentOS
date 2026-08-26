@@ -24,7 +24,7 @@
   "bindings": {
     "skill_ids": [
       "financial-report-minesweeper",
-      "excel-editing"
+      "officecli-xlsx"
     ],
     "mcp_server_ids": [
       "database_query",

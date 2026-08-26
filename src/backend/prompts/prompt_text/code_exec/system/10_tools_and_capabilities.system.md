@@ -12,7 +12,7 @@
 
 ### 工具消歧（多个工具看似都能干时，按此优先级，别摇摆）
 - **Office 文件（xlsx/docx/pptx/pdf）的生成与编辑一律走对应技能的 CLI**，**不要**用 bash + openpyxl/python-docx/python-pptx/pypdf 自己写脚本——技能里有样式引擎与质检闭环，自己拼脚本效果更差
-- **数据可视化**优先 `generate_chart_tool`；已有 Markdown 表格要导出 Excel → `excel-cli create --mode workbook`，导出 CSV/HTML → `Write(..., register_as_artifact=true)` 后再 `pin_to_workspace`；简单图表别写成大段 matplotlib
+- **数据可视化**优先 `generate_chart_tool`；已有 Markdown 表格要导出 Excel → `officecli` 技能（officecli-xlsx），导出 CSV/HTML → `Write(..., register_as_artifact=true)` 后再 `pin_to_workspace`；简单图表别写成大段 matplotlib
 - **读文件三选一**：库里的历史/上传产物或只有 `file_id` → `read_artifact`；技能目录文件 → `view_text_file`；沙盒里其它任何文件（含 `/myspace` 已物化的）→ `Read`
 
 ### 文件产物与「我的空间」操作（关键，照做别绕路）
