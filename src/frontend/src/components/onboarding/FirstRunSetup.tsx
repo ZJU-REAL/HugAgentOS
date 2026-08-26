@@ -129,6 +129,13 @@ function isChatRole(role: ModelRoleAssignment): boolean {
   return (role.required_type || role.type) === 'chat';
 }
 
+function acceptsDefaultMainModel(role: ModelRoleAssignment): boolean {
+  // Capability-specific roles are optional, independently configured enhancements.
+  // In particular, a text-only main model must never be auto-assigned to the
+  // vision bridge: doing so turns an optional image feature into a first-run blocker.
+  return isChatRole(role) && role.role_key !== 'vision' && !role.requires_capability;
+}
+
 function configuredSecret(value: string | null | undefined): boolean {
   return Boolean(value && value.includes('****'));
 }
@@ -419,7 +426,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     }
     if (!providerId) throw new Error(t('请选择或添加一个主模型'));
 
-    const chatRoles = roles.filter(isChatRole);
+    const chatRoles = roles.filter(acceptsDefaultMainModel);
     await Promise.all(chatRoles.map((role) => assignModelRole(role.role_key, providerId!)));
 
     await saveAuxiliaryModel('embedding');

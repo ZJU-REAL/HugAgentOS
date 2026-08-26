@@ -254,6 +254,9 @@ export const LAB_DICT: Record<string, string> = {
 
   // ── 定时任务页（原「自动化」，已拆为侧边栏一级入口） ──
   '新建定时任务': 'New Scheduled Task',
+  '通过对话创建': 'Create through Chat',
+  '首次通过对话创建定时任务需要安装插件，请先在能力中心 → 插件里安装后再创建':
+    'To create a scheduled task through chat, first install the plugin from Capability Center → Plugins.',
   '搜索定时任务…': 'Search scheduled tasks…',
   '定时任务视图': 'Scheduled task views',
   '我的定时任务': 'My Scheduled Tasks',

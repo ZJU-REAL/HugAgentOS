@@ -168,9 +168,9 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuLayoutKeys, labEnabled, hideMySpace]);
 
-  const historyListRef = useRef<HTMLDivElement | null>(null);
-  const showScrollbar = () => historyListRef.current?.classList.add('show-scrollbar');
-  const hideScrollbar = () => historyListRef.current?.classList.remove('show-scrollbar');
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
+  const showScrollbar = () => sidebarScrollRef.current?.classList.add('show-scrollbar');
+  const hideScrollbar = () => sidebarScrollRef.current?.classList.remove('show-scrollbar');
 
   // Group collapse state: all expanded by default; in-memory, reset on refresh.
   const [collapsedGroups, setCollapsedGroups] = useState<Record<HistoryGroupKey, boolean>>({
@@ -392,20 +392,9 @@ export function Sidebar({
       onOk: async () => {
         try {
           const wasOpen = currentProjectId === group.projectId;
+          // 解绑会话上的 projectId/projectName 由 projectStore.deleteProject 统一做
+          // （同时登记跨窗口的"已删除项目"黑名单），这里不再重复一遍。
           await useProjectStore.getState().deleteProject(group.projectId);
-          updateStore((prev) => {
-            let changed = false;
-            const chats = { ...prev.chats };
-            for (const [chatId, chat] of Object.entries(chats)) {
-              if (chat.projectId !== group.projectId) continue;
-              const nextChat = { ...chat };
-              delete nextChat.projectId;
-              delete nextChat.projectName;
-              chats[chatId] = nextChat;
-              changed = true;
-            }
-            return changed ? { ...prev, chats } : prev;
-          });
           if (wasOpen) onNewChat();
           message.success(t('项目已移除'));
         } catch (err) {
@@ -833,9 +822,16 @@ export function Sidebar({
           <span>{cfgBtnNewChat}</span>
         </button>
 
-        {/* Primary nav menu */}
-        {visibleSidebarItems.length > 0 && (
-          <div className="jx-navMenu">
+        {/* Everything below New Chat scrolls together; the top controls remain fixed. */}
+        <div
+          className="jx-sidebarScrollArea"
+          ref={sidebarScrollRef}
+          onMouseEnter={showScrollbar}
+          onMouseLeave={hideScrollbar}
+        >
+          {/* Primary nav menu */}
+          {visibleSidebarItems.length > 0 && (
+            <div className="jx-navMenu">
             {visibleSidebarItems.map(({ key, meta }) => {
               // 无二级列表：还是一个普通导航按钮
               if (!meta.children?.length) {
@@ -897,11 +893,11 @@ export function Sidebar({
                 </div>
               );
             })}
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* History list — the history section title and filter dropdown have been moved down into SearchModal */}
-          <div className="jx-historyListWrap" ref={historyListRef} onMouseEnter={showScrollbar} onMouseLeave={hideScrollbar}>
+          {/* History list — the history section title and filter dropdown have been moved down into SearchModal */}
+          <div className="jx-historyListWrap">
             {chatsLoading ? (
               <div className="jx-historySkeletonList" aria-hidden="true">
                 {historySkeletonGroups.map((group) => (
@@ -1079,6 +1075,7 @@ export function Sidebar({
               })}
             </>)}
           </div>
+        </div>
 
         {/* Footer: user info + help button */}
         <div className="jx-sideFooter">

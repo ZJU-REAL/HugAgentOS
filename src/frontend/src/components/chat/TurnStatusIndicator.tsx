@@ -34,7 +34,7 @@ export function TurnStatusIndicator({ startTs, label }: TurnStatusIndicatorProps
   }, []);
 
   const showClock = now - startTs >= CLOCK_AFTER_MS;
-  const text = label || t('深度拥抱中…');
+  const text = label || t('正在开始执行任务...');
   return (
     <div className="jx-turnStatus" role="status" aria-live="polite">
       <BrandLoader size={18} done={false} label={text} />

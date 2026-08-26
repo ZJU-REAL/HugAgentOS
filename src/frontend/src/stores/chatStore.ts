@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ChatItem, ChatMessage, ChatStore as ChatStoreData, ContextCompactionState, PlanProgressState } from '../types';
-import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, STORAGE_KEY } from '../storage';
+import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
@@ -226,6 +226,8 @@ interface ChatState {
   /** Active plugin referenced via / or + menu. On send: skillIds→skill_ids (injects skill
    *  instructions), mcpIds→mcp_ids (force-enables the plugin's MCP tools into this turn's toolset). */
   activePlugin: { name: string; skillIds: string[]; mcpIds: string[] } | null;
+  /** Active connector selected from the "+" menu for this turn only. */
+  activeConnector: { id: string; name: string } | null;
   /** Active @mention selected via popup; id is the authoritative per-turn direct target. */
   activeMention: { id: string; name: string } | null;
   /** Whether plan mode is enabled */
@@ -299,6 +301,7 @@ interface ChatState {
   setQuotedFollowUp: (quote: { text: string; ts: number } | null) => void;
   setActiveSkill: (skill: { id: string; name: string } | null) => void;
   setActivePlugin: (plugin: { name: string; skillIds: string[]; mcpIds: string[] } | null) => void;
+  setActiveConnector: (connector: { id: string; name: string } | null) => void;
   setActiveMention: (mention: { id: string; name: string } | null) => void;
   setPlanMode: (v: boolean) => void;
   setLoopMode: (v: boolean) => void;
@@ -377,6 +380,9 @@ interface ChatState {
   clearForLogout: () => void;
 }
 
+/** 跨窗口聊天树同步的退订句柄（切换账号 / 登出时解绑）。 */
+let unsubscribeExternalChanges: (() => void) | null = null;
+
 export const useChatStore = create<ChatState>((set, get) => {
   // 合并写盘时：本标签页正在流式输出的会话一律以本内存版本为准
   setStreamingIdsProvider(() => get().sendingChatIds);
@@ -411,6 +417,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   quotedFollowUp: null,
   activeSkill: null,
   activePlugin: null,
+  activeConnector: null,
   activeMention: null,
   planMode: false,
   loopMode: false,
@@ -468,6 +475,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       loopMode: false,
       currentPlanId: null,
       activePlugin: nextActivePlugin,
+      activeConnector: null,
       activeMention: null,
     });
   },
@@ -590,6 +598,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
   setActiveSkill: (skill) => set({ activeSkill: skill }),
   setActivePlugin: (plugin) => set({ activePlugin: plugin }),
+  setActiveConnector: (connector) => set({ activeConnector: connector }),
   setActiveMention: (mention) => set({ activeMention: mention }),
   setPlanMode: (v) => {
     const { currentChatId, currentUserId, store } = get();
@@ -614,10 +623,11 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
   setLoopMode: (v) => set(v ? { loopMode: true, planMode: false } : { loopMode: false }),
   syncComposerForPanel: (panel) => {
-    const { currentChatId, store } = get();
+    const { currentChatId, store, activePlugin } = get();
     const chat = store.chats[currentChatId];
-    // activePlugin keeps the "sites" plugin reference only on "chat panel + site chat"; cleared everywhere else.
-    let nextActivePlugin: ChatState['activePlugin'] = null;
+    // Plugin-first entry points may activate a plugin immediately before navigating to chat.
+    // Keep that reference on entry; leaving chat still clears it so it cannot leak elsewhere.
+    let nextActivePlugin: ChatState['activePlugin'] = panel === 'chat' ? activePlugin : null;
     if (panel === 'chat' && chat?.siteChat) {
       const sitesPlugin = usePluginStore
         .getState()
@@ -632,6 +642,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     }
     set({
       activePlugin: nextActivePlugin,
+      activeConnector: null,
       activeMention: null,
       // Leaving the chat panel exits autonomous-loop mode (projects/other pages shouldn't carry this intent).
       ...(panel !== 'chat' ? { loopMode: false } : {}),
@@ -920,6 +931,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       activeSkill: null,
       // "Sites" plugin installed → activate it automatically (site-builder skill + site_publish tool delivered with this turn).
       activePlugin: sitesActivePlugin,
+      activeConnector: null,
       activeMention: null,
       loopMode: false,
       sending: sendingChatIds.has(targetId),
@@ -940,6 +952,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       quotedFollowUp: null,
       activeSkill: null,
       activePlugin: null,
+      activeConnector: null,
       activeMention: null,
       planMode: false,
       currentPlanId: null,
@@ -989,6 +1002,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         quotedFollowUp: nextChat?.pendingQuote || null,
         activeSkill: null,
         activePlugin: null,
+        activeConnector: null,
         activeMention: null,
       });
     }
@@ -1038,6 +1052,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       quotedFollowUp: store.chats[currentChatId]?.pendingQuote || null,
       activeSkill: null,
       activePlugin: null,
+      activeConnector: null,
       activeMention: null,
       planMode: resolvePlanModeActive(store.chats[currentChatId]),
       loopMode: false,
@@ -1053,12 +1068,22 @@ export const useChatStore = create<ChatState>((set, get) => {
       modeSlug: resolveModeSlug(store.chats[currentChatId]),
       ...restoredEffort(store.chats[currentChatId]),
     });
+    // 多开窗口：另一个窗口改了这个账号的聊天树时，把外部改动即时合回内存，
+    // 免得两个窗口各说各话（新建的会话看不见、已解绑的项目又被贴回来），
+    // 非要刷新才对得上。只读不写，避免两个窗口互相唤醒写盘。
+    unsubscribeExternalChanges?.();
+    unsubscribeExternalChanges = subscribeChatStoreChanges(userId, (disk) => {
+      const merged = mergeChatStores(get().store, disk, { preferAllIds: get().sendingChatIds });
+      set({ store: merged, storeRef: merged });
+    });
   },
 
   clearForLogout: () => {
     // Persist any debounced writes before tearing down — the user's most
     // recent messages must hit disk so they resume correctly on next login.
     flushChatStore();
+    unsubscribeExternalChanges?.();
+    unsubscribeExternalChanges = null;
     // Per-user keys stay on disk so the same user can resume later. We only
     // wipe in-memory state here so the new user (or login screen) never sees
     // the previous user's chats.
@@ -1078,6 +1103,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       quotedFollowUp: null,
       activeSkill: null,
       activePlugin: null,
+      activeConnector: null,
       activeMention: null,
       planMode: false,
       loopMode: false,

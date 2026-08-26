@@ -1,6 +1,6 @@
 # 管理台
 
-> 最后更新：2026-07-28
+> 最后更新：2026-08-25
 
 HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运营和系统管理两类角色：
 
@@ -44,6 +44,8 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 | 授权管理 | License | `config_license.py` |
 
 > 命名提示：`admin_prompts`、`admin_mcp_servers`、`admin_billing` 等路由文件虽以 `admin_` 命名，但鉴权依赖是 `require_config`（`CONFIG_TOKEN`），对应面板渲染在 `/config`——文件名前缀不代表凭证归属。
+
+「页面配置」还负责首页首屏内容：欢迎主标题与副标题可编辑；可启停透明底品牌图标并指定图片地址；可启停建议问题、按行维护问题池（前台每次展示 3 条并支持「换一批」）。首页默认采用暖灰白背景和现代中文无衬线字体栈。首页快捷卡的后台配置已下线，首屏的场景引导统一由建议问题承担；插件仍可通过 `ui.contributes.shortcuts` 贡献首页入口，随插件安装出现、卸载消失。
 
 ## 后端管理路由分组
 
@@ -123,7 +125,7 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 | `GET /docs`、`GET /docs/version` | 公开读 | 前台读取内容块 / 轻量轮询版本 |
 | `PUT /docs/{block_id}` | `ADMIN_TOKEN` | 写内容块：`docs_updates`（功能更新时间轴）、`prompt_hub`（提示词广场）；`docs_capabilities` 仅为旧快照与存量数据兼容保留，当前管理台不提供编辑入口，用户界面也不渲染 |
 | `POST /manual/upload`、`GET /manual` | `ADMIN_TOKEN` 写 | 操作手册 PDF |
-| `PUT /app_config`、`PUT /homepage_shortcuts`、`PUT /page_config`、`POST /page_config/assets/upload` | `CONFIG_TOKEN` | 应用配置 / 首页快捷方式 / 页面品牌（logo、导航、文案） |
+| `PUT /app_config`、`PUT /page_config`、`POST /page_config/assets/upload` | `CONFIG_TOKEN` | 应用配置 / 页面品牌与首页内容（logo、导航、文案、建议问题） |
 | `GET/POST /docs/export|import`、`GET/POST /prompts/export|import` | 管理凭证 | 内容 / 提示词快照迁移 |
 
 ### 用户 / 团队 / 邀请 / 安全 / License 管理

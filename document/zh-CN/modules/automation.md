@@ -1,6 +1,6 @@
 # 自动化与批量执行
 
-> 最后更新：2026-06-11
+> 最后更新：2026-08-25
 
 HugAgentOS 内置三种「把一句话变成可重复 / 可批量的生产力」机制，三者都属**社区版（CE）**能力：
 
@@ -50,7 +50,7 @@ HugAgentOS 内置三种「把一句话变成可重复 / 可批量的生产力」
 
 ### 前端
 
-自动化的管理界面在实验室模块下：`src/frontend/src/components/lab/` 的 `AutomationPanel.tsx`（列表）、`AutomationCreateModal.tsx`（创建，含 cron 配置与能力勾选）、`AutomationCard.tsx`、`AutomationDetailPage.tsx`（详情 + 运行历史）。`src/frontend/src/components/automation/RunTimelinePanel.tsx` 在会话侧呈现按日期分组的运行时间轴。状态由 `stores/automationStore.ts`（任务管理）与 `stores/automationChatStore.ts`（侧边栏会话分组）维护。
+自动化的管理界面在实验室模块下：`src/frontend/src/components/lab/` 的 `AutomationPanel.tsx`（列表）、`AutomationCreateModal.tsx`（创建，含 cron 配置与能力勾选）、`AutomationCard.tsx`、`AutomationDetailPage.tsx`（详情 + 运行历史）。用户既可用视口内滚动的表单直接新建，也可点“通过对话创建”进入主对话；后者会自动引用已安装的“定时任务管理”插件，并预填可编辑模板“我要创建一个定时任务，每【时间间隔】执行【具体任务】”。`src/frontend/src/components/automation/RunTimelinePanel.tsx` 在会话侧呈现按日期分组的运行时间轴。状态由 `stores/automationStore.ts`（任务管理）与 `stores/automationChatStore.ts`（侧边栏会话分组）维护。
 
 ## 计划模式
 

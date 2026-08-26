@@ -77,7 +77,7 @@ the next safe ReAct boundary and confirms it with `steer_applied`.
 current context. Both handoff modes atomically commit the current answer, queued
 user message, queue state, and next `ChatRun`. The status endpoint above lets
 the client reconcile after refresh. Messages containing attachments, skills,
-plugins, or sub-agents still wait and send normally. Pressing `Esc` cancels the
+connectors, plugins, or sub-agents still wait and send normally. Pressing `Esc` cancels the
 run for the chat visible on the current page.
 
 ### Agent construction highlights (core/llm/agent_factory.py)
@@ -245,6 +245,17 @@ sub-agents directly, while choosing **Sub-agents** opens the complete picker.
 Typing `/` groups commands and descriptions by plugin and skill; conversation
 modes are selected through `@`. Both pickers support arrow-key navigation,
 Enter or Tab to confirm, and Escape to go back or close. Unavailable or unauthorized capabilities are omitted.
+
+The `+` menu at the lower-left of the composer also lets users select enabled
+sub-agents, skills, connectors, and plugins directly. Selecting a connector
+adds an `MCP` chip and explicitly activates that connector for the current turn
+only; after sending, the conversation history keeps the connector as a badge.
+An explicit connector selection is a mandatory invocation: the first model
+round is restricted to tools exposed by that connector and must complete at
+least one real tool call before the answer can continue. If the connector
+cannot connect, exposes no callable tools, or the model provider ignores the
+required-call constraint, the turn fails explicitly instead of silently
+answering without the connector.
 
 - **Structured `@` delegation**: selecting one `@sub-agent` in the composer
   sends both `mention_agent_id` and its display name. The backend removes the

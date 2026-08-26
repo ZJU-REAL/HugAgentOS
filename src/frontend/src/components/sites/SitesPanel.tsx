@@ -47,6 +47,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { stablePublicOrigin } from '../../stores/deploymentModeStore';
 import { usePluginStore } from '../../stores/pluginStore';
 import { copyToClipboard } from '../../utils/clipboard';
+import { pickSiteEditChat } from '../../utils/history';
 import { t } from '../../i18n';
 import '../../styles/sites.css';
 
@@ -99,12 +100,9 @@ async function startSiteEdit(site: SiteItem) {
   }
 
   // 先找这个站点已有的建站会话：站点是从某段对话里建出来的，「编辑」理应回到那段
-  // 对话继续改，而不是每点一次就开一个空白新对话（历史里于是堆满同名空会话）。
-  // 认定条件是「建站会话 + 绑定同一个源码工程 + 已经聊过」，取最近更新的那段。
+  // 对话继续改，而不是每点一次就开一个空白新对话（挑选规则见 pickSiteEditChat）。
   const { store, setCurrentChatId } = useChatStore.getState();
-  const existing = Object.values(store.chats)
-    .filter((c) => c.siteChat && c.projectId === site.project_id && (c.messages?.length || 0) > 0)
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  const existing = pickSiteEditChat(Object.values(store.chats), site.project_id);
 
   if (existing) {
     setCurrentChatId(existing.id);

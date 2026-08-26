@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.content.content_blocks import backfill_navigation_entries
+from core.content.content_blocks import (
+    DEFAULT_PAGE_CONFIG,
+    backfill_navigation_entries,
+)
 
 
 def _make_row(payload: dict) -> MagicMock:
@@ -47,6 +50,14 @@ _ALL_TITLES = {
     "sites": "站点",
 }
 _ALL_SUBTITLES = {k: f"{k} sub" for k in _ALL_TITLES}
+
+
+def test_homepage_defaults_focus_on_suggestions():
+    homepage = DEFAULT_PAGE_CONFIG["homepage"]
+    assert homepage["show_logo"] is True
+    assert homepage["logo_url"] == "/icon.png"
+    assert homepage["show_suggestions"] is True
+    assert len(homepage["suggested_questions"]) >= 6
 
 
 def test_no_row_returns_zero():

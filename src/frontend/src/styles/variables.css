@@ -24,6 +24,7 @@
   --color-bg-container:#FFFFFF; /* 卡片、面板、输入区等容器 */
   --color-bg-elevated:#FFFFFF;  /* 弹层、下拉、tooltip 等悬浮面（antd 侧对应 appTheme 的 colorBgElevated，自研浮层引用此令牌） */
   --color-bg-layout:#F5F7FB;    /* 灰底布局区（侧边栏底、分区底） */
+  --color-bg-chat:#FDFDFC;      /* 首页与具体对话页共用的近白暖灰底 */
 
   /* ── 滚动条（深浅只换令牌值，选择器共用下方全局规则） ── */
   --scrollbar-tint:rgba(100,116,139,.14);
@@ -107,6 +108,7 @@
   --font-family:"PingFang SC","Microsoft YaHei","微软雅黑",sans-serif;
   --font-family-number:"DingTalk Sans","PingFang SC","Microsoft YaHei",sans-serif;
   --font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  --font-family-homepage:"Alibaba PuHuiTi 3.0","MiSans","HarmonyOS Sans SC","PingFang SC","Microsoft YaHei UI",sans-serif;
 
   /* ── 字号 ── */
   --font-size-xs:12px;
@@ -190,6 +192,7 @@
   --color-bg-container:#161C25;
   --color-bg-elevated:#1C2330;
   --color-bg-layout:#12171F;
+  --color-bg-chat:#111720;
 
   --scrollbar-tint:rgba(148,163,184,.22);
   --scrollbar-thumb:rgba(148,163,184,.16);

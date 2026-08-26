@@ -1,6 +1,6 @@
 # Admin Consoles
 
-> Last updated: 2026-07-28
+> Last updated: 2026-08-25
 
 HugAgentOS ships **two independent management consoles**, aimed at content operations and system administration respectively:
 
@@ -44,6 +44,8 @@ The CE/EE assignment of backend admin routes has one composed source of truth �
 | Licensing | License | `config_license.py` |
 
 > A naming caveat: route files like `admin_prompts`, `admin_mcp_servers`, and `admin_billing` are named `admin_*` but their auth dependency is `require_config` (`CONFIG_TOKEN`), and their panels render under `/config` — the file-name prefix does not indicate which credential applies.
+
+Page Configuration also owns the homepage's first-screen content. Administrators can edit both greeting lines, enable or disable the transparent brand mark and set its image URL, enable or disable suggested questions, and maintain the question pool one item per line (the homepage shows three at a time with a batch refresh control). The homepage defaults to a warm off-white canvas and a modern Chinese sans-serif stack. Administrator-managed homepage shortcut cards have been retired — suggested questions are now the single first-screen entry point, while plugins can still contribute homepage entries through `ui.contributes.shortcuts`, which appear and disappear with the plugin.
 
 ## Backend admin route groups
 
@@ -123,7 +125,7 @@ There is also an API-oriented global audit query at `/v1/audit` (`api/routes/v1/
 | `GET /docs`, `GET /docs/version` | public read | Frontend reads content blocks / lightweight version polling |
 | `PUT /docs/{block_id}` | `ADMIN_TOKEN` | Write `docs_updates` (release-note timeline) and `prompt_hub` (prompt hub). `docs_capabilities` remains available only for old snapshots and stored-data compatibility; the current admin console has no editor for it, and the user interface doesn't render it. |
 | `POST /manual/upload`, `GET /manual` | `ADMIN_TOKEN` for writes | User manual PDF |
-| `PUT /app_config`, `PUT /homepage_shortcuts`, `PUT /page_config`, `POST /page_config/assets/upload` | `CONFIG_TOKEN` | App config / homepage shortcuts / page branding (logo, navigation, copy) |
+| `PUT /app_config`, `PUT /page_config`, `POST /page_config/assets/upload` | `CONFIG_TOKEN` | App config / page branding and homepage content (logo, navigation, copy, suggested questions) |
 | `GET/POST /docs/export|import`, `GET/POST /prompts/export|import` | admin credentials | Content / prompt snapshot migration |
 
 ### Users / teams / invites / security / license management
