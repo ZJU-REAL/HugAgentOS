@@ -303,7 +303,6 @@ export function OntologyRevisionPanel({
           {(revisionThinking || isRevisionStreaming) && (
             <ThinkingInline
               content={revisionThinking}
-              thinkKey={`${chatMessage.ts}-ontology-revision`}
               isActive={isRevisionStreaming && !hasCandidateContent}
             />
           )}
@@ -311,7 +310,6 @@ export function OntologyRevisionPanel({
             <ToolProgressInline
               message={{ ...chatMessage, toolCalls: revisionToolCalls, isStreaming: isRevisionStreaming }}
               toolCalls={revisionToolCalls}
-              panelKey={`__progress_timeline__-${chatMessage.ts}-ontology`}
             />
           )}
         </>

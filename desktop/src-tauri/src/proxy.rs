@@ -399,15 +399,16 @@ fn html_escape(s: &str) -> String {
 // ── 一体化桌面标题栏 ───────────────────────────────────────────────────────
 //
 // 主窗口关闭系统 decorations，避免「系统标题栏 + 原生菜单栏」占两行。Windows/Linux
-// 只保留一个低频操作入口和窗口控制；侧边栏自己的品牌区直接延伸到窗口顶边，标题栏从
-// 侧边栏右缘开始。中间的大面积空白既延续页面背景，也承担窗口拖动。全部动作走导航哨兵，
-// 由 lib.rs 拦截执行，不依赖远程源下不稳定的 Tauri IPC。
+// 保留一行紧凑菜单、页面前进后退和窗口控制。参考现代桌面应用的层级，最上面是一条全宽、
+// 轻量的菜单 / 标签栏：左段延续侧边栏底色但不重复品牌 Logo，右段显示当前页面/对话名称；
+// 侧边栏自己的品牌区从标题栏下方开始。中间空白仍承担窗口拖动。壳动作走导航哨兵，由
+// lib.rs 拦截执行，不依赖远程源下不稳定的 Tauri IPC。
 
 const TITLEBAR_HEIGHT: u8 = 34;
 const TB_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px}body{box-sizing:border-box!important;padding-top:0!important}.jx-appMainLayout{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}.jx-brandRow{padding-top:8px!important}.jx-miniRail{padding-top:6px!important}.jx-appLoading{height:100%!important}.jx-appLoading-main{box-sizing:border-box!important;padding-top:calc(40px + var(--hugagent-desktop-titlebar-height))!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px;--hugagent-desktop-sidebar-chrome:color-mix(in srgb, var(--color-bg-gray) 72%, transparent)}:root[data-theme='dark']{--hugagent-desktop-sidebar-chrome:var(--color-bg-layout)}body{box-sizing:border-box!important;padding-top:0!important}.jx-appMainLayout{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}.jx-brandRow{padding-top:50px!important}.jx-miniRail{padding-top:48px!important}.jx-appLoading{height:100%!important}.jx-appLoading-main{box-sizing:border-box!important;padding-top:calc(40px + var(--hugagent-desktop-titlebar-height))!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const TB_OFFSET_PAGE: &str =
-    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:34px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px;--hugagent-desktop-sidebar-chrome:var(--color-bg-layout)}body{box-sizing:border-box!important;padding-top:34px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
 // The traffic lights start at y=13 and occupy about 14px. A 28px overlay keeps
 // their hit area clear without stacking a second, visibly empty toolbar above
@@ -429,16 +430,24 @@ const MAC_OFFSET_PAGE: &str =
 // data-theme 对它同样生效，直接引用应用令牌即可两档自动跟随 —— 不需要再写一套深色覆盖，
 // 也不需要 prefers-color-scheme（那会和手动 light/dark/system 三档打架）。
 const TB_CSS: &str = r##"
-#hugagent-titlebar{position:fixed;inset:0 0 auto var(--hugagent-desktop-sidebar-width);height:34px;z-index:2147483647;display:flex;align-items:center;background:var(--color-bg-base);border:0;box-shadow:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text);-webkit-user-select:none;user-select:none}
+#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:34px;z-index:2147483647;display:flex;align-items:stretch;background:var(--color-bg-layout);border:0;box-shadow:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text);-webkit-user-select:none;user-select:none}
 #hugagent-titlebar *{box-sizing:border-box}
+#hugagent-titlebar .tb-sidebarZone{flex:0 0 var(--hugagent-desktop-sidebar-width);min-width:0;height:100%;padding:0 6px 0 10px;display:flex;align-items:center;gap:2px;background:var(--hugagent-desktop-sidebar-chrome,color-mix(in srgb, var(--color-bg-gray) 72%, transparent));transition:flex-basis .16s ease;overflow:visible}
+#hugagent-titlebar .tb-mainChrome{flex:1;min-width:0;height:100%;display:flex;align-items:center;background:var(--hugagent-desktop-main-chrome,var(--color-bg-base));border:0}
+#hugagent-titlebar .tb-historyNav{display:flex;align-items:center;gap:1px;height:100%;flex:0 0 auto}
+#hugagent-titlebar .tb-navButton{width:28px;height:26px;margin:4px 0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;cursor:default}
+#hugagent-titlebar .tb-navButton:hover{background:var(--color-fill-hover);color:var(--color-text)}
+#hugagent-titlebar .tb-navButton:disabled{opacity:.42;background:transparent}
+#hugagent-titlebar .tb-currentTab{min-width:0;max-width:min(440px,46vw);height:26px;margin:4px 4px 4px 8px;padding:0 9px;display:flex;align-items:center;gap:7px;border-radius:6px;color:var(--color-text);font:600 12.5px/1 inherit}
+#hugagent-titlebar .tb-tabIcon{width:15px;height:15px;flex:0 0 15px;color:var(--color-text-secondary)}
+#hugagent-titlebar .tb-tabText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #hugagent-titlebar .tb-spacer{flex:1;height:100%;min-width:48px}
-#hugagent-titlebar .tb-menu{display:flex;align-items:stretch;height:100%;margin-right:2px}
+#hugagent-titlebar .tb-menu{display:flex;align-items:stretch;height:100%;flex:0 0 auto}
 #hugagent-titlebar .tb-menuGroup{position:relative;height:100%;display:flex;align-items:stretch}
-#hugagent-titlebar .tb-menuLabel{width:40px;height:28px;margin:3px 1px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;font:20px/1 inherit;cursor:default}
+#hugagent-titlebar .tb-menuLabel{height:26px;margin:4px 0;padding:0 7px;border:0;border-radius:6px;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;font:12.5px/1 inherit;cursor:default}
 #hugagent-titlebar .tb-menuLabel:hover,#hugagent-titlebar .tb-menuGroup.open>.tb-menuLabel{background:var(--color-fill-hover)}
-#hugagent-titlebar .tb-menuLabel:focus-visible,#hugagent-titlebar .tb-windowButton:focus-visible{outline:2px solid var(--color-primary);outline-offset:-3px}
-#hugagent-titlebar .tb-moreGlyph{display:block;transform:translateY(-2px)}
-#hugagent-titlebar .tb-drop{display:none;position:absolute;top:32px;right:0;left:auto;min-width:224px;padding:6px;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:9px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-text) 16%, transparent)}
+#hugagent-titlebar .tb-navButton:focus-visible,#hugagent-titlebar .tb-menuLabel:focus-visible,#hugagent-titlebar .tb-windowButton:focus-visible{outline:2px solid var(--color-primary);outline-offset:-3px}
+#hugagent-titlebar .tb-drop{display:none;position:absolute;top:32px;left:0;min-width:218px;padding:6px;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:8px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-text) 16%, transparent)}
 #hugagent-titlebar .tb-menuGroup.open>.tb-drop{display:block}
 #hugagent-titlebar .tb-item{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;min-height:34px;padding:7px 11px;border:0;border-radius:6px;background:transparent;color:var(--color-text);font:13px/1.3 inherit;text-align:left;white-space:nowrap;cursor:default}
 #hugagent-titlebar .tb-item:hover,#hugagent-titlebar .tb-item:focus-visible{background:var(--color-primary-light);color:var(--color-primary);outline:none}
@@ -451,22 +460,40 @@ const TB_CSS: &str = r##"
 #hugagent-titlebar .tb-windowButton.close:hover{background:#E81123;color:#fff}
 "##;
 
+const TB_NAV: &str = r##"<div class="tb-historyNav" aria-label="页面导航">
+<button class="tb-navButton" type="button" data-nav="back" aria-label="后退" title="后退"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.75 3.5 5.25 8l4.5 4.5M5.5 8h6" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+<button class="tb-navButton" type="button" data-nav="forward" aria-label="前进" title="前进"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="m6.25 3.5 4.5 4.5-4.5 4.5M10.5 8h-6" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>"##;
+
 const TB_MENU: &str = r##"<nav class="tb-menu" aria-label="应用菜单">
-<div class="tb-menuGroup"><button class="tb-menuLabel" type="button" aria-label="更多菜单" aria-haspopup="menu" aria-expanded="false" aria-controls="hugagent-more-menu" title="更多"><span class="tb-moreGlyph" aria-hidden="true">⋯</span></button><div class="tb-drop" id="hugagent-more-menu" role="menu" aria-label="更多操作">
+<div class="tb-menuGroup" data-menu="file"><button class="tb-menuLabel" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="hugagent-file-menu">File</button><div class="tb-drop" id="hugagent-file-menu" role="menu" aria-label="File">
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="new_chat"><span>新建对话</span><span class="tb-shortcut" aria-hidden="true">Ctrl+N</span></button>
   <div class="tb-sep" role="separator"></div>
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="run_mode">运行模式…</button>
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="server_config">设置服务器地址…</button>
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="local_server">本机服务…</button>
   <div class="tb-sep" role="separator"></div>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-win="quit">退出</button>
+</div></div>
+<div class="tb-menuGroup" data-menu="edit"><button class="tb-menuLabel" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="hugagent-edit-menu">Edit</button><div class="tb-drop" id="hugagent-edit-menu" role="menu" aria-label="Edit">
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-edit="undo"><span>撤销</span><span class="tb-shortcut" aria-hidden="true">Ctrl+Z</span></button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-edit="redo"><span>重做</span><span class="tb-shortcut" aria-hidden="true">Ctrl+Y</span></button>
+  <div class="tb-sep" role="separator"></div>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-edit="cut"><span>剪切</span><span class="tb-shortcut" aria-hidden="true">Ctrl+X</span></button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-edit="copy"><span>复制</span><span class="tb-shortcut" aria-hidden="true">Ctrl+C</span></button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-edit="paste"><span>粘贴</span><span class="tb-shortcut" aria-hidden="true">Ctrl+V</span></button>
+  <div class="tb-sep" role="separator"></div>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-edit="selectAll"><span>全选</span><span class="tb-shortcut" aria-hidden="true">Ctrl+A</span></button>
+</div></div>
+<div class="tb-menuGroup" data-menu="view"><button class="tb-menuLabel" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="hugagent-view-menu">View</button><div class="tb-drop" id="hugagent-view-menu" role="menu" aria-label="View">
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="reload"><span>重新加载</span><span class="tb-shortcut" aria-hidden="true">Ctrl+R</span></button>
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-win="fullscreen"><span>全屏</span><span class="tb-shortcut" aria-hidden="true">F11</span></button>
-  <div class="tb-sep" role="separator"></div>
+</div></div>
+<div class="tb-menuGroup" data-menu="help"><button class="tb-menuLabel" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="hugagent-help-menu">Help</button><div class="tb-drop" id="hugagent-help-menu" role="menu" aria-label="Help">
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="check_update">检查更新…</button>
   <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="website">访问官网</button>
-  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="about">关于</button>
   <div class="tb-sep" role="separator"></div>
-  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-win="quit">退出</button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="about">关于</button>
 </div></div>
 </nav>"##;
 
@@ -482,17 +509,31 @@ var bar=document.getElementById('hugagent-titlebar');if(!bar)return;
 if(new URLSearchParams(location.search).get('quickask')==='1'){
   bar.remove();var style=document.getElementById('hugagent-titlebar-style');if(style)style.remove();return;
 }
-var group=bar.querySelector('.tb-menuGroup');
-var label=bar.querySelector('.tb-menuLabel');
-var drop=bar.querySelector('.tb-drop');
+var groups=Array.prototype.slice.call(bar.querySelectorAll('.tb-menuGroup'));
 var menuItems=Array.prototype.slice.call(bar.querySelectorAll('.tb-item'));
-function setMenuOpen(open,focusIndex){
-  group.classList.toggle('open',open);label.setAttribute('aria-expanded',open?'true':'false');
+function itemsFor(group){return Array.prototype.slice.call(group.querySelectorAll('.tb-item'));}
+function closeMenus(restoreLabel){
+  groups.forEach(function(group){
+    group.classList.remove('open');
+    var label=group.querySelector('.tb-menuLabel');if(label)label.setAttribute('aria-expanded','false');
+  });
   menuItems.forEach(function(item){item.tabIndex=-1;});
-  if(open&&menuItems.length){var index=focusIndex==null?0:focusIndex;menuItems[index].tabIndex=0;menuItems[index].focus();}
+  if(restoreLabel)restoreLabel.focus();
 }
-function closeMenu(restoreFocus){setMenuOpen(false);if(restoreFocus)label.focus();}
+function openMenu(group,focusIndex){
+  closeMenus(false);group.classList.add('open');
+  var label=group.querySelector('.tb-menuLabel');if(label)label.setAttribute('aria-expanded','true');
+  var items=itemsFor(group);
+  if(items.length&&focusIndex!=null){
+    var index=Math.max(0,Math.min(items.length-1,focusIndex));items[index].tabIndex=0;items[index].focus();
+  }
+}
+function adjacentGroup(group,delta){
+  var index=groups.indexOf(group);return groups[(index+delta+groups.length)%groups.length];
+}
 function sentinel(path){window.location.href=path;}
+var lastEditTarget=null;
+document.addEventListener('focusin',function(event){if(!bar.contains(event.target))lastEditTarget=event.target;});
 document.addEventListener('keydown',function(event){
   var key=String(event.key||'').toLowerCase();
   if(event.ctrlKey&&!event.altKey&&key==='n'){
@@ -503,47 +544,116 @@ document.addEventListener('keydown',function(event){
     event.preventDefault();sentinel('/__desktop/win?action=fullscreen');
   }
 });
-label.addEventListener('click',function(event){
-  event.stopPropagation();var open=group.classList.contains('open');if(open)closeMenu(true);else setMenuOpen(true,0);
-});
-label.addEventListener('keydown',function(event){
-  if(event.key==='ArrowDown'||event.key==='Enter'||event.key===' '){event.preventDefault();setMenuOpen(true,0);}
-  else if(event.key==='ArrowUp'){event.preventDefault();setMenuOpen(true,menuItems.length-1);}
-  else if(event.key==='Escape'){event.preventDefault();closeMenu(true);}
-});
-drop.addEventListener('keydown',function(event){
-  var current=menuItems.indexOf(document.activeElement);var next=current;
-  if(event.key==='ArrowDown')next=(current+1+menuItems.length)%menuItems.length;
-  else if(event.key==='ArrowUp')next=(current-1+menuItems.length)%menuItems.length;
-  else if(event.key==='Home')next=0;
-  else if(event.key==='End')next=menuItems.length-1;
-  else if(event.key==='Escape'){event.preventDefault();closeMenu(true);return;}
-  else if(event.key==='Tab'){closeMenu(false);return;}
-  else return;
-  event.preventDefault();menuItems.forEach(function(item){item.tabIndex=-1;});menuItems[next].tabIndex=0;menuItems[next].focus();
+bar.querySelectorAll('[data-nav]').forEach(function(button){button.addEventListener('click',function(event){
+  event.stopPropagation();closeMenus(false);
+  if(button.dataset.nav==='back')history.back();else history.forward();
+});});
+groups.forEach(function(group){
+  var label=group.querySelector('.tb-menuLabel');var drop=group.querySelector('.tb-drop');
+  label.addEventListener('click',function(event){
+    event.stopPropagation();if(group.classList.contains('open'))closeMenus(label);else openMenu(group,0);
+  });
+  label.addEventListener('keydown',function(event){
+    if(event.key==='ArrowDown'||event.key==='Enter'||event.key===' '){event.preventDefault();openMenu(group,0);}
+    else if(event.key==='ArrowUp'){event.preventDefault();openMenu(group,itemsFor(group).length-1);}
+    else if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
+      event.preventDefault();adjacentGroup(group,event.key==='ArrowLeft'?-1:1).querySelector('.tb-menuLabel').focus();
+    }else if(event.key==='Escape'){event.preventDefault();closeMenus(label);}
+  });
+  drop.addEventListener('keydown',function(event){
+    var items=itemsFor(group);var current=items.indexOf(document.activeElement);var next=current;
+    if(event.key==='ArrowDown')next=(current+1+items.length)%items.length;
+    else if(event.key==='ArrowUp')next=(current-1+items.length)%items.length;
+    else if(event.key==='Home')next=0;
+    else if(event.key==='End')next=items.length-1;
+    else if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
+      event.preventDefault();openMenu(adjacentGroup(group,event.key==='ArrowLeft'?-1:1),0);return;
+    }else if(event.key==='Escape'){event.preventDefault();closeMenus(label);return;}
+    else if(event.key==='Tab'){closeMenus(false);return;}
+    else return;
+    event.preventDefault();items.forEach(function(item){item.tabIndex=-1;});items[next].tabIndex=0;items[next].focus();
+  });
 });
 bar.querySelectorAll('[data-win]').forEach(function(item){item.addEventListener('click',function(event){
-  event.stopPropagation();closeMenu(false);sentinel('/__desktop/win?action='+encodeURIComponent(item.dataset.win));
+  event.stopPropagation();closeMenus(false);sentinel('/__desktop/win?action='+encodeURIComponent(item.dataset.win));
 });});
 bar.querySelectorAll('[data-act]').forEach(function(item){item.addEventListener('click',function(event){
-  event.stopPropagation();closeMenu(false);sentinel('/__desktop/menu?action='+encodeURIComponent(item.dataset.act));
+  event.stopPropagation();closeMenus(false);sentinel('/__desktop/menu?action='+encodeURIComponent(item.dataset.act));
 });});
-document.addEventListener('click',function(event){if(!bar.contains(event.target))closeMenu(false);});
+bar.querySelectorAll('[data-edit]').forEach(function(item){item.addEventListener('click',function(event){
+  event.stopPropagation();var command=item.dataset.edit;closeMenus(false);
+  if(lastEditTarget&&lastEditTarget.isConnected&&typeof lastEditTarget.focus==='function'){
+    try{lastEditTarget.focus({preventScroll:true});}catch(error){lastEditTarget.focus();}
+  }
+  document.execCommand(command,false,null);
+});});
+document.addEventListener('click',function(event){if(!bar.contains(event.target))closeMenus(false);});
 var observedSidebar=null;
 var sidebarResizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(syncSidebarWidth):null;
+var tabText=bar.querySelector('.tb-tabText');
+// 标题栏左右两段必须和它正下方的侧边栏 / 主面板同色。两侧底色都是应用令牌算出来的
+// （主面板还会随页面在 --color-bg-chat / --color-bg-container 之间切），所以这里不复刻
+// 配方，直接取下方元素的计算底色写回令牌——换主题、换页面都自动跟随。
+var lastRootVar={};
+function sampleBg(selector){
+  var node=document.querySelector(selector);if(!node)return '';
+  var value=getComputedStyle(node).backgroundColor;
+  if(!value||value==='transparent'||/^rgba\(0,\s*0,\s*0,\s*0\)$/.test(value))return '';
+  return value;
+}
+function setRootVar(name,value){
+  if(!value||lastRootVar[name]===value)return;
+  lastRootVar[name]=value;document.documentElement.style.setProperty(name,value);
+}
+function syncSurfaceTint(){
+  setRootVar('--hugagent-desktop-main-chrome',
+    sampleBg('.jx-primaryPane')||sampleBg('.jx-appLoading-main')||sampleBg('.jx-content')||sampleBg('.jx-appMainLayout')||sampleBg('body'));
+  setRootVar('--hugagent-desktop-sidebar-chrome',
+    sampleBg('.jx-sider')||sampleBg('.jx-appLoading-sidebar'));
+}
 function syncSidebarWidth(){
   var sidebar=document.querySelector('.jx-sider,.jx-appLoading-sidebar');
   if(sidebarResizeObserver&&sidebar&&sidebar!==observedSidebar){
     if(observedSidebar)sidebarResizeObserver.unobserve(observedSidebar);
     observedSidebar=sidebar;sidebarResizeObserver.observe(sidebar);
   }
-  var rect=sidebar?sidebar.getBoundingClientRect():null;
-  var width=rect?Math.max(0,Math.min(window.innerWidth,Math.round(rect.right))):0;
-  document.documentElement.style.setProperty('--hugagent-desktop-sidebar-width',width+'px');
+  if(!sidebar)return;
+  var rect=sidebar.getBoundingClientRect();
+  var width=Math.max(0,Math.min(window.innerWidth,Math.round(rect.right)));
+  setRootVar('--hugagent-desktop-sidebar-width',width+'px');
 }
-syncSidebarWidth();
-new MutationObserver(syncSidebarWidth).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
-window.addEventListener('resize',syncSidebarWidth);
+function cleanLabel(value){return String(value||'').replace(/\s+/g,' ').trim();}
+function resolveTabLabel(){
+  var selectors=[
+    '.jx-historyItem.active .jx-historyTitle',
+    '.jx-projectRow.active .jx-projectRowName',
+    '.jx-navSubItem.active',
+    '.jx-navItem.active span:last-child',
+    '.jx-automation-tab.active',
+    '.jx-mySpace-subTab.active',
+    '.jx-canvasTab.is-active .jx-canvasTab-title'
+  ];
+  for(var i=0;i<selectors.length;i++){
+    var node=document.querySelector(selectors[i]);var value=cleanLabel(node&&node.textContent);
+    if(value)return value;
+  }
+  var title=cleanLabel(document.title).replace(/\s*[·|\-]\s*HugAgentOS(?:OS)?\s*$/i,'');
+  if(title&&!/^HugAgentOS(?:OS)?$/i.test(title))return title;
+  return '新建对话';
+}
+function syncTabLabel(){
+  if(!tabText)return;var value=resolveTabLabel();
+  if(tabText.textContent!==value)tabText.textContent=value;
+  tabText.title=value;bar.setAttribute('aria-label','当前页面：'+value);
+}
+var chromeSyncQueued=false;
+function scheduleChromeSync(){
+  if(chromeSyncQueued)return;chromeSyncQueued=true;
+  requestAnimationFrame(function(){chromeSyncQueued=false;syncSidebarWidth();syncTabLabel();syncSurfaceTint();});
+}
+syncSidebarWidth();syncTabLabel();syncSurfaceTint();
+new MutationObserver(scheduleChromeSync).observe(document.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['class','style','title','data-theme']});
+window.addEventListener('resize',scheduleChromeSync);
 function isControl(target){return target instanceof Element&&!!target.closest('.tb-menu,.tb-controls,button');}
 bar.addEventListener('mousedown',function(event){if(event.button!==0||isControl(event.target))return;sentinel('/__desktop/win?action=drag');});
 bar.addEventListener('dblclick',function(event){if(isControl(event.target))return;sentinel('/__desktop/win?action=toggle-maximize');});
@@ -589,10 +699,13 @@ fn titlebar_block(offset_css: &str) -> String {
     format!(
         "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
 <header id=\"hugagent-titlebar\" data-height=\"{height}\">\
-<div class=\"tb-spacer\"></div>{menu}{controls}</header><script>{script}</script>",
+<div class=\"tb-sidebarZone\">{navigation}{menu}</div><div class=\"tb-mainChrome\">\
+<div class=\"tb-currentTab\" aria-label=\"当前页面\"><svg class=\"tb-tabIcon\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3.25 2.75h3.3l1.2 1.5h5v9h-9.5z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/></svg><span class=\"tb-tabText\">HugAgentOS</span></div>\
+<div class=\"tb-spacer\"></div>{controls}</div></header><script>{script}</script>",
         css = TB_CSS,
         offset = offset_css,
         height = TITLEBAR_HEIGHT,
+        navigation = TB_NAV,
         menu = TB_MENU,
         controls = TB_CONTROLS,
         script = TB_JS,
@@ -1233,14 +1346,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn windows_titlebar_is_seamless_and_collapses_actions_into_one_menu() {
+    fn windows_titlebar_has_compact_menus_navigation_and_a_context_tab() {
         let block = titlebar_block(TB_OFFSET_SPA);
         assert!(!block.contains("tb-logo"));
         assert!(!block.contains(brand::LOGIN_LOGO_URL));
         assert!(!block.contains("tb-name"));
         assert!(!block.contains(&format!(">{}<", brand::NAME)));
-        for old_label in [">文件<", ">编辑<", ">视图<", ">帮助<"] {
-            assert!(!block.contains(old_label));
+        for label in [">File<", ">Edit<", ">View<", ">Help<"] {
+            assert!(block.contains(label));
         }
         for action in [
             "new_chat",
@@ -1254,8 +1367,14 @@ mod tests {
         ] {
             assert!(block.contains(&format!("data-act=\"{action}\"")));
         }
-        assert_eq!(TB_MENU.matches("class=\"tb-menuGroup\"").count(), 1);
-        assert!(block.contains("aria-label=\"更多菜单\""));
+        for edit_action in ["undo", "redo", "cut", "copy", "paste", "selectAll"] {
+            assert!(block.contains(&format!("data-edit=\"{edit_action}\"")));
+        }
+        assert_eq!(TB_MENU.matches("class=\"tb-menuGroup\"").count(), 4);
+        assert!(block.contains("data-nav=\"back\""));
+        assert!(block.contains("data-nav=\"forward\""));
+        assert!(block.contains("history.back()"));
+        assert!(block.contains("history.forward()"));
         assert!(block.contains("aria-haspopup=\"menu\""));
         assert!(block.contains("aria-expanded=\"false\""));
         assert!(block.contains("role=\"menuitem\""));
@@ -1263,15 +1382,28 @@ mod tests {
         assert!(block.contains("event.ctrlKey&&!event.altKey&&key==='n'"));
         assert!(block.contains("event.key==='F11'"));
         assert!(block.contains("event.key==='ArrowDown'"));
-        assert!(block.contains("inset:0 0 auto var(--hugagent-desktop-sidebar-width)"));
-        assert!(block.contains("background:var(--color-bg-base)"));
+        assert!(block.contains("inset:0 0 auto 0"));
+        assert!(block.contains("background:var(--color-bg-layout)"));
+        assert!(block.contains("class=\"tb-sidebarZone\""));
+        assert!(block.contains("class=\"tb-mainChrome\""));
+        assert!(block.contains("class=\"tb-currentTab\""));
+        assert!(block.contains("class=\"tb-tabText\""));
+        assert!(block.contains(".jx-historyItem.active .jx-historyTitle"));
+        assert!(block.contains(".jx-navItem.active span:last-child"));
+        assert!(block.contains("return '新建对话'"));
         assert!(block.contains("body{box-sizing:border-box!important;padding-top:0!important}"));
         assert!(block.contains(
             ".jx-appMainLayout{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}"
         ));
-        assert!(block.contains(".jx-brandRow{padding-top:8px!important}"));
-        assert!(!block.contains("border-bottom"));
-        assert!(block.find("tb-spacer") < block.find("<nav class=\"tb-menu\""));
+        assert!(block.contains(".jx-brandRow{padding-top:50px!important}"));
+        assert!(block.contains(".jx-miniRail{padding-top:48px!important}"));
+        assert!(block.contains("sampleBg('.jx-sider')"));
+        assert!(block.contains("sampleBg('.jx-primaryPane')"));
+        assert!(!block.contains("border-bottom:1px"));
+        assert!(block.find("tb-sidebarZone") < block.find("<nav class=\"tb-menu\""));
+        assert!(
+            block.find("<nav class=\"tb-menu\"") < block.find("class=\"tb-currentTab\"")
+        );
         assert!(block.contains("data-win=\"minimize\""));
         assert!(block.contains("data-win=\"close\""));
     }

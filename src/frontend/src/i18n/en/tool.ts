@@ -105,7 +105,6 @@ export const TOOL_DICT: Record<string, string> = {
   '正在调用 {label}': 'Calling {label}',
   '已调用 {label}': 'Called {label}',
   '等{n}项': ' +{n} more',
-  // ToolTimelinePanel.tsx
   // ThinkingStepRow.tsx
   '思考': 'Thinking',
   // PendingStepRow.tsx
