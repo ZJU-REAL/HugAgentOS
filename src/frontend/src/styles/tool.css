@@ -109,8 +109,10 @@
   color: color-mix(in srgb, var(--color-text) 65%, transparent);
   flex-shrink: 0;
 }
-/* "正在准备调用工具…" 等待文字流光 — 单色灰阶，参数缓冲空窗期的活性信号 */
-.jx-tcr-prefix--shimmer {
+/* "正在准备调用工具…" 等待文字流光 — 单色灰阶，参数缓冲空窗期的活性信号。
+   隐藏工具调用时那行折叠摘要（--live）共用同一套：运行中它是唯一在动的字。 */
+.jx-tcr-prefix--shimmer,
+.jx-inlineSummaryText--live {
   background: linear-gradient(90deg,
     color-mix(in srgb, var(--color-text) 40%, transparent) 0%,
     color-mix(in srgb, var(--color-text) 88%, transparent) 50%,
@@ -454,7 +456,10 @@
 .jx-trs-bodyWrap--open {
   grid-template-rows: 1fr;
 }
-.jx-trs-bodyWrap > .jx-trs-body {
+/* .jx-expandWrap 是隐藏工具调用时那条就地折叠用的通用外壳（variables.css），
+   两种外壳都靠这层 overflow:hidden 做 grid-rows 高度动画 */
+.jx-trs-bodyWrap > .jx-trs-body,
+.jx-expandWrap > .jx-trs-body {
   overflow: hidden;
 }
 .jx-trs-body {
@@ -1632,11 +1637,12 @@
   min-width:0;
   transition:color .15s;
 }
+/* 箭头兼折叠指示：折叠 0° / 展开 90°，与本行其它过渡同一档速度 */
 .jx-inlineSummaryArrow{
   font-size:9px;
   color:color-mix(in srgb, var(--color-text-placeholder) 60%, transparent);
   flex-shrink:0;
-  transition:color .15s;
+  transition:color .15s, transform .2s var(--motion-ease-standard);
 }
 .jx-inlineSummary:hover .jx-inlineSummaryArrow{
   color:color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
@@ -1651,90 +1657,21 @@
 :root[data-theme="dark"] .jx-inlineSummaryArrow{
   color:color-mix(in srgb, var(--color-text-tertiary) 70%, transparent);
 }
-
-/* ── Tool timeline (Canvas panel body) ─── */
-.jx-toolTimeline{
-  display:flex;
-  flex-direction:column;
-  gap:0;
-  position:relative;
-  padding-left:18px;
+/* ── 就地折叠（隐藏工具调用时点摘要行不再跳右侧 Canvas）──────────────────
+   折叠态的那一行外观一个像素都不改；点开后在原位撑高。展开体本身复用
+   .jx-trs-body（导轨 + 嵌套行紧凑化 + 步骤入场都写在那边）——两种模式展开
+   后看到的是同一批 ToolCallRow，密度也必须是同一档。 */
+.jx-inlineFold{
+  align-self:stretch;
+  max-width:100%;
 }
-.jx-toolTimeline::before{
-  content:'';
-  position:absolute;
-  left:5px;top:8px;bottom:8px;
-  width:2px;
-  background:color-mix(in srgb, var(--color-text-placeholder) 42%, transparent);
-  border-radius:1px;
-}
-.jx-toolTimelineStep{
-  display:flex;
-  align-items:flex-start;
-  gap:10px;
-  padding:8px 0;
-  position:relative;
-  cursor:pointer;
-  border-radius:6px;
-  transition:background .12s;
-}
-.jx-toolTimelineStep:hover{
-  background:color-mix(in srgb, var(--color-bg-gray) 70%, transparent);
-}
-.jx-toolTimelineStep.active{
-  background:rgba(59,130,246,.06);
-}
-.jx-toolTimelineDot{
-  position:absolute;
-  left:-15px;top:12px;
-  width:8px;height:8px;
-  border-radius:50%;
-  border:2px solid var(--color-bg-container);
-  box-shadow:0 0 0 1px rgba(148,163,184,.30);
-}
-.jx-toolTimelineDot--running{
-  background:#3b82f6;
-  box-shadow:0 0 0 1px rgba(59,130,246,.35);
-}
-.jx-toolTimelineDot--success{
-  background:#22c55e;
-  box-shadow:0 0 0 1px rgba(34,197,94,.35);
-}
-.jx-toolTimelineDot--error{
-  background:#ef4444;
-  box-shadow:0 0 0 1px rgba(239,68,68,.35);
-}
-.jx-toolTimelineInfo{
-  flex:1;min-width:0;
-}
-.jx-toolTimelineName{
-  font-size:12.5px;
-  font-weight:600;
-  color:color-mix(in srgb, var(--color-text) 88%, transparent);
-  margin-bottom:2px;
-}
-.jx-toolTimelineSummary{
-  font-size:11px;
-  color:color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.jx-toolTimelineChevron{
-  font-size:10px;
-  color:color-mix(in srgb, var(--color-text-tertiary) 45%, transparent);
-  flex-shrink:0;
-  margin-top:3px;
-  transition:transform .2s ease;
-}
-/* 展开输出体（配合 .jx-expandWrap 常驻渲染，与 ToolCallRow 同构） */
-.jx-toolTimelineBody{
-  overflow:hidden;
-  padding-left:4px;
-  padding-bottom:8px;
+/* 内容超出限高才挂遮罩——恒挂会把短内容的最后一行也啃掉一截，看着像渲染缺陷 */
+.jx-inlineFold-fade{
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 24px),transparent 100%);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 24px),transparent 100%);
 }
 
-/* ── Thinking detail (Canvas panel body) ── */
+/* ── Thinking detail（子智能体步骤里的思考正文，见 ThinkingStepRow）── */
 .jx-thinkingDetailBody{
   font-size:13px;
   line-height:1.72;

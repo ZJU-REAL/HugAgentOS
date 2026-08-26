@@ -30,8 +30,10 @@
   padding:8px 58px 8px 16px;
   flex-shrink:0;
   border-bottom:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
-  background:color-mix(in srgb, var(--color-bg-container) 85%, transparent);
-  backdrop-filter:blur(8px);
+  /* 顶栏不铺自己的底色：它压在 .jx-primaryPane 上，铺 --color-bg-container 会比
+     聊天面板的 --color-bg-chat 亮一档，顶部横出一条异色带。transparent 直接吃下方
+     面板底色，聊天页/其他页、深浅档都自动同色。 */
+  background:transparent;
 }
 .jx-appMainLayout{
   position:relative;

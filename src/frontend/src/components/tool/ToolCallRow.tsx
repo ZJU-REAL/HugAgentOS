@@ -167,37 +167,38 @@ function getRunningCodeLabel(tool: ToolCall): { prefix: string; value: string } 
  * of step it was (search / browse / file / code / …). Unknown tools fall back
  * to a small hollow dot.
  */
+const STEP_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  internet_search: SearchOutlined,
+  web_fetch: GlobalOutlined,
+  view_text_file: FileTextOutlined,
+  Write: EditOutlined,
+  Edit: EditOutlined,
+  bash: CodeOutlined,
+  retrieve_dataset_content: DatabaseOutlined,
+  retrieve_local_kb: DatabaseOutlined,
+  list_datasets: DatabaseOutlined,
+  query_database: DatabaseOutlined,
+  load_skill: ThunderboltOutlined,
+  load_plugin: ThunderboltOutlined,
+  get_skills: ThunderboltOutlined,
+  get_mcp_tools: ThunderboltOutlined,
+  call_subagent: RobotOutlined,
+  get_agents: RobotOutlined,
+  list_myspace_files: FolderOutlined,
+  stage_myspace_file: FolderOutlined,
+  ...EDITION_STEP_ICONS,
+  sandbox_put_artifact: FolderOutlined,
+  sandbox_get_artifact: FolderOutlined,
+  list_favorite_chats: FolderOutlined,
+  get_chat_messages: FolderOutlined,
+  generate_chart_tool: BarChartOutlined,
+  word_create_from_markdown: FileWordOutlined,
+  export_report_to_docx: FileWordOutlined,
+  export_table_to_excel: FileExcelOutlined,
+};
+
 function StepIcon({ name }: { name: string }) {
-  const map: Record<string, ComponentType<{ className?: string }>> = {
-    internet_search: SearchOutlined,
-    web_fetch: GlobalOutlined,
-    view_text_file: FileTextOutlined,
-    Write: EditOutlined,
-    Edit: EditOutlined,
-    bash: CodeOutlined,
-    retrieve_dataset_content: DatabaseOutlined,
-    retrieve_local_kb: DatabaseOutlined,
-    list_datasets: DatabaseOutlined,
-    query_database: DatabaseOutlined,
-    load_skill: ThunderboltOutlined,
-    load_plugin: ThunderboltOutlined,
-    get_skills: ThunderboltOutlined,
-    get_mcp_tools: ThunderboltOutlined,
-    call_subagent: RobotOutlined,
-    get_agents: RobotOutlined,
-    list_myspace_files: FolderOutlined,
-    stage_myspace_file: FolderOutlined,
-    ...EDITION_STEP_ICONS,
-    sandbox_put_artifact: FolderOutlined,
-    sandbox_get_artifact: FolderOutlined,
-    list_favorite_chats: FolderOutlined,
-    get_chat_messages: FolderOutlined,
-    generate_chart_tool: BarChartOutlined,
-    word_create_from_markdown: FileWordOutlined,
-    export_report_to_docx: FileWordOutlined,
-    export_table_to_excel: FileExcelOutlined,
-  };
-  const Ico = map[name];
+  const Ico = STEP_ICONS[name];
   if (!Ico) return <span className="jx-tcr-dot" aria-hidden="true" />;
   return <Ico className="jx-tcr-icon jx-tcr-icon--step" />;
 }

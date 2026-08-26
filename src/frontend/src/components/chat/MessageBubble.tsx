@@ -950,7 +950,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                   // OFF mode: thinking that wasn't folded into a tool run still
                   // renders as its inline summary.
                   const isActiveThinking = !!(m.isStreaming && !m.segments!.slice(segIdx + 1).some(s => s.type === 'text'));
-                  return <ThinkingInline key={segKey} content={seg.content || ''} thinkKey={segKey} isActive={isActiveThinking} />;
+                  return <ThinkingInline key={segKey} content={seg.content || ''} isActive={isActiveThinking} />;
                 }
 
                 if (seg.type === 'text') {
@@ -1033,7 +1033,7 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
               dispatchProcessVisible ? (
                 <TurnStatusIndicator startTs={stall.since} label={turnStatusLabel} />
               ) : (
-                <ThinkingInline content="" thinkKey={`${m.ts}-legacy-placeholder`} isActive={true} />
+                <ThinkingInline content="" isActive={true} />
               )
             ) : (
             <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} ${m.isMarkdown ? 'jx-md' : ''} ${m.isStreaming ? 'streaming' : ''}`}>
