@@ -501,6 +501,82 @@ class AgentRuntimeState(AgentState):
         self.ontology_runtime = runtime if isinstance(runtime, dict) else {}
 
 
+class ExplicitConnectorInvocationError(RuntimeError):
+    """The selected connector could not satisfy its mandatory real-call contract."""
+
+
+class ExplicitConnectorToolChoiceMiddleware(MiddlewareBase):
+    """Force and verify a real tool call for a user-selected connector.
+
+    The reasoning hook sends only the selected connector's tool schemas with
+    ``tool_choice=required`` until one of those tools actually passes through
+    the acting hook.  The reply hook is the fail-closed boundary: a provider
+    that ignores ``tool_choice`` cannot silently return a normal answer.
+    """
+
+    def __init__(self, *, connector_ids: List[str], tool_names: List[str]) -> None:
+        self.connector_ids = tuple(dict.fromkeys(str(x) for x in connector_ids if x))
+        self.tool_names = tuple(dict.fromkeys(str(x) for x in tool_names if x))
+        if not self.connector_ids or not self.tool_names:
+            raise ValueError("connector_ids and tool_names must not be empty")
+        self._satisfied = False
+        self._force_logged = False
+
+    async def on_reply(self, agent: Agent, input_kwargs: dict, next_handler):
+        self._satisfied = False
+        self._force_logged = False
+        completed = False
+        try:
+            async for evt in next_handler(**input_kwargs):
+                yield evt
+            completed = True
+        finally:
+            if not completed:
+                self._force_logged = False
+        if not self._satisfied:
+            connector_text = ", ".join(self.connector_ids)
+            raise ExplicitConnectorInvocationError(
+                "显式选择的连接器未完成真实工具调用"
+                f"（{connector_text}）；本轮已停止，避免在未调用连接器的情况下生成回答。"
+            )
+
+    async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):
+        if not self._satisfied:
+            from agentscope.tool import ToolChoice
+
+            input_kwargs = {
+                **input_kwargs,
+                "tool_choice": ToolChoice(
+                    mode="required",
+                    tools=list(self.tool_names),
+                ),
+            }
+            if not self._force_logged:
+                logger.info(
+                    "[connector-required] forcing connector_ids=%s tools=%s",
+                    list(self.connector_ids),
+                    list(self.tool_names),
+                )
+                self._force_logged = True
+        async for evt in next_handler(**input_kwargs):
+            yield evt
+
+    async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):
+        tool_call = input_kwargs.get("tool_call")
+        tool_name = str(getattr(tool_call, "name", "") or "")
+        is_selected_connector_tool = tool_name in self.tool_names
+        completed = False
+        async for evt in next_handler(**input_kwargs):
+            yield evt
+        completed = True
+        if is_selected_connector_tool and completed:
+            self._satisfied = True
+            logger.info(
+                "[connector-required] real connector tool call completed: %s",
+                tool_name,
+            )
+
+
 class SteerMiddleware(MiddlewareBase):
     """Deliver a queued user instruction at the next safe ReAct boundary.
 
@@ -1605,6 +1681,8 @@ class FinishPinGuardMiddleware(MiddlewareBase):
 
 __all__ = [
     "AgentRuntimeState",
+    "ExplicitConnectorInvocationError",
+    "ExplicitConnectorToolChoiceMiddleware",
     "SteerMiddleware",
     "DynamicModelMiddleware",
     "FileContextMiddleware",

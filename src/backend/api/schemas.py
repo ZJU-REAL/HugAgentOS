@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Literal, Optional
 
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ChatMode = Literal["turbo", "fast", "medium", "high", "max"]
 
@@ -147,7 +147,20 @@ class ChatRequest(BaseModel):
     )
     mcp_ids: Optional[List[str]] = Field(
         default=None,
-        description="显式引用插件时一并激活的 MCP server ID 列表（本轮 force-enable 进工具集）",
+        description="显式引用插件或选择连接器时激活的 MCP server ID 列表（本轮 force-enable 进工具集）",
+    )
+    connector_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "用户在输入框中显式选择的连接器 ID。后端会强制模型先真实调用该连接器的至少一个工具；"
+            "连接或调用约束无法满足时，本轮直接报错而不是静默回答。"
+        ),
+        max_length=255,
+    )
+    connector_name: Optional[str] = Field(
+        default=None,
+        description="显式选择的连接器名（用于本轮提示、错误信息与会话记录回显徽标）",
+        max_length=255,
     )
     plugin_name: Optional[str] = Field(
         default=None,
@@ -171,6 +184,18 @@ class ChatRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("Message cannot be empty or whitespace only")
         return v.strip()
+
+    @model_validator(mode="after")
+    def validate_connector_selection(self) -> "ChatRequest":
+        """Keep display metadata and the enforceable connector identity in lockstep."""
+        if self.connector_name and not self.connector_id:
+            raise ValueError("connector_id is required when connector_name is provided")
+        if self.connector_id:
+            mcp_ids = list(self.mcp_ids or [])
+            if self.connector_id not in mcp_ids:
+                mcp_ids.append(self.connector_id)
+            self.mcp_ids = mcp_ids
+        return self
 
     @field_validator("model_name")
     @classmethod

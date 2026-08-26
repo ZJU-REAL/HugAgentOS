@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveDefaultProvisionMode } from "./brand-profile.mjs";
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(desktopDir, "..");
@@ -42,10 +43,17 @@ function run(command, args, options = {}) {
 }
 
 mkdirSync(generated, { recursive: true });
+const brandName = process.env.JX_BRAND_NAME || "HugAgentOS";
+const defaultProvisionMode = resolveDefaultProvisionMode({
+  brandName,
+  flavor,
+  override: process.env.JX_DEFAULT_PROVISION_MODE,
+});
 writeFileSync(join(generated, "brand.json"), `${JSON.stringify({
-  name: process.env.JX_BRAND_NAME || "HugAgentOS",
+  name: brandName,
   website_url: process.env.JX_BRAND_WEBSITE_URL || "",
   local_service_name: process.env.JX_LOCAL_SERVICE_NAME || "hugagent",
+  default_provision_mode: defaultProvisionMode,
 }, null, 2)}\n`);
 
 if (flavor === "full") {

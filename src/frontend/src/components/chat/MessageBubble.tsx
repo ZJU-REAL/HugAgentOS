@@ -617,7 +617,8 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
     const hasMention = !!m.mentionName;
     const hasSkill = !!m.skillName;
     const hasPlugin = !!m.pluginName;
-    if (!hasMention && !hasSkill && !hasPlugin) return null;
+    const hasConnector = !!m.connectorName;
+    if (!hasMention && !hasSkill && !hasPlugin && !hasConnector) return null;
     return (
       <div className="jx-msgChipBadges">
         {hasMention && (
@@ -633,6 +634,11 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
         {hasPlugin && (
           <span className="jx-msgChip jx-msgChip--plugin">
             <span className="jx-msgChip-prefix">/</span>{m.pluginName}
+          </span>
+        )}
+        {hasConnector && (
+          <span className="jx-msgChip jx-msgChip--connector">
+            <span className="jx-msgChip-prefix">MCP</span>{m.connectorName}
           </span>
         )}
       </div>

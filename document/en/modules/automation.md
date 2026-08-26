@@ -1,6 +1,6 @@
 # Automation & Batch Execution
 
-> Last updated: 2026-06-11
+> Last updated: 2026-08-25
 
 HugAgentOS ships three built-in mechanisms for turning a single instruction into repeatable or bulk productivity, all part of the **Community Edition (CE)**:
 
@@ -50,7 +50,7 @@ Each execution produces a **real chat session**: prompt tasks reuse the main cha
 
 ### Frontend
 
-The automation management UI lives under the Lab module: `src/frontend/src/components/lab/` contains `AutomationPanel.tsx` (list), `AutomationCreateModal.tsx` (creation, with cron configuration and capability selection), `AutomationCard.tsx`, and `AutomationDetailPage.tsx` (detail + run history). `src/frontend/src/components/automation/RunTimelinePanel.tsx` renders the date-grouped run timeline on the chat side. State is held in `stores/automationStore.ts` (task management) and `stores/automationChatStore.ts` (sidebar chat groups).
+The automation management UI lives under the Lab module: `src/frontend/src/components/lab/` contains `AutomationPanel.tsx` (list), `AutomationCreateModal.tsx` (creation, with cron configuration and capability selection), `AutomationCard.tsx`, and `AutomationDetailPage.tsx` (detail + run history). Users can either create directly in the viewport-contained, internally scrolling form or choose “Create through chat” to enter the main conversation. The chat path automatically references the installed Scheduled Task Management plugin and prefills the editable template “我要创建一个定时任务，每【时间间隔】执行【具体任务】”. `src/frontend/src/components/automation/RunTimelinePanel.tsx` renders the date-grouped run timeline on the chat side. State is held in `stores/automationStore.ts` (task management) and `stores/automationChatStore.ts` (sidebar chat groups).
 
 ## Plan mode
 

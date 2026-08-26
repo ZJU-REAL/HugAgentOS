@@ -91,3 +91,21 @@ export function isAutomationHistoryChat(
   if (item.planChat || item.agentId) return false;
   return looksLikeAutomationTitle(item.title);
 }
+
+/**
+ * 「编辑站点」该落到哪段会话上。
+ *
+ * 站点是从某段对话里建出来的，「编辑」理应回到那段对话继续改。只认"已经聊过的"
+ * 会话会让连点几次「编辑」造出一串同名空会话挂在同一个源码工程下 —— 它们只存在
+ * 于本地（后端没有对应会话），要刷新才消失，多开窗口时尤其扎眼。所以：聊过的
+ * 优先，没聊过的空会话也复用，都没有才返回 undefined 由调用方新建。
+ */
+export function pickSiteEditChat<T extends Pick<ChatItem, 'siteChat' | 'projectId' | 'updatedAt' | 'messages'>>(
+  chats: T[],
+  projectId: string,
+): T | undefined {
+  const candidates = chats
+    .filter((c) => c.siteChat && c.projectId === projectId)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return candidates.find((c) => (c.messages?.length || 0) > 0) || candidates[0];
+}

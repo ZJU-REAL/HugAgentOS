@@ -26,7 +26,7 @@ import {
 import type { SearchResultItem } from './api';
 import { TOPIC_TAG_COLORS } from './utils/constants';
 import { resolvePlanModeActive } from './utils/chatMode';
-import { SCROLL_FOLLOW_THRESHOLD, distanceFromBottom, scrollElementToBottom } from './utils/scroll';
+import { distanceFromBottom, nextFollowState, scrollElementToBottom } from './utils/scroll';
 import { EASE, SLIDE_EASE } from './utils/motionTokens';
 import { CollapseHeight } from './components/common/CollapseHeight';
 import { Sidebar, SearchModal } from './components/sidebar';
@@ -324,6 +324,8 @@ export default function App() {
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const userScrolledUpRef = useRef(false);
+  // 上一次观察到的 scrollTop：用来判断这次滚动是"往上"还是"内容长高把视口顶下去"。
+  const lastScrollTopRef = useRef(0);
   // The smooth animation fires a scroll event on every frame; the listener must be muted
   // during it, otherwise mid-animation states get misread as "user scrolled up".
   const isAutoScrollingRef = useRef(false);
@@ -518,14 +520,26 @@ export default function App() {
   useEffect(() => {
     const content = document.querySelector<HTMLElement>('.jx-content');
     if (!content) return;
+    // 判据是"这一次滚动有没有把视口往上挪"，而不是"离底部够不够远"。
+    // 旧写法每来一个 scroll 事件就用距离阈值整体重算标志位：滚轮往上先置位
+    // 脱离跟随，紧跟着的 scroll 事件因为才挪了几十 px（不足 100px 的旧阈值）
+    // 又把它抹回 false，下一帧流式增高的 ResizeObserver 立刻把页面拽回底部 ——
+    // 表现就是"输出中往上翻/看前面的内容，界面强制滚到最底"。改成看 scrollTop
+    // 的变化方向后，滚轮、触摸、拖滚动条、PageUp/方向键这些入口一视同仁：
+    // 只要视口往上挪过就脱离跟随，真的回到底部附近才重新跟随。
     const handleScroll = () => {
+      const next = nextFollowState(
+        { userScrolledUp: userScrolledUpRef.current, lastScrollTop: lastScrollTopRef.current },
+        { scrollTop: content.scrollTop, distanceFromBottom: distanceFromBottom(content) },
+      );
+      lastScrollTopRef.current = next.lastScrollTop;
+      // 自动滚动期间只更新基线，不改跟随开关：平滑动画每帧都发 scroll 事件，
+      // 中途状态会被误读成"用户在滚"。
       if (isAutoScrollingRef.current) return;
-      userScrolledUpRef.current = distanceFromBottom(content) > SCROLL_FOLLOW_THRESHOLD;
+      userScrolledUpRef.current = next.userScrolledUp;
     };
-    // 流式输出时列表每帧都在长高，用户一个滚轮往上（几十 px）还没越过
-    // SCROLL_FOLLOW_THRESHOLD 就被 ResizeObserver 拽回底部，表现为"锁死在底部
-    // 滚不上去"。滚轮向上 / 触摸拖动是明确的用户意图，直接置位脱离跟随，
-    // 不等距离阈值。回到底部（scroll 监听）或再次发送会自然复位。
+    // 滚轮向上是明确的用户意图，在浏览器真正滚动之前就置位（顶到头时根本不会
+    // 产生 scroll 事件，只有 wheel）。
     const handleWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) userScrolledUpRef.current = true;
     };
@@ -552,6 +566,9 @@ export default function App() {
     userScrolledUpRef.current = false;
     const content = document.querySelector<HTMLElement>('.jx-content');
     if (!content) return;
+    // 换会话后列表整个换了一棵树，旧的 scrollTop 基线没有意义：不清零的话
+    // 新会话第一帧（scrollTop=0）会被当成"用户往上滚"，一进来就脱离跟随。
+    lastScrollTopRef.current = content.scrollTop;
     isAutoScrollingRef.current = true;
     const raf = requestAnimationFrame(() => scrollElementToBottom(content, true));
     const release = () => { isAutoScrollingRef.current = false; };
@@ -785,7 +802,7 @@ export default function App() {
       />
 
       <Layout className={`jx-appMainLayout${canvasFullscreen ? ' is-canvasFullscreen' : ''}`} style={{ overflow: 'hidden', background: 'var(--color-bg-base)' }}>
-        <div className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}`}>
+        <div className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}${panel === 'chat' ? ' is-chatSurface' : ''}`}>
         {!showChatHeader && (
           <header className="jx-mobileHeader">
             <button
@@ -882,7 +899,7 @@ export default function App() {
 
 
         <div className="jx-mainRow">
-          <Content className="jx-content">
+          <Content className={`jx-content${panel === 'chat' ? ' jx-content--chatSurface' : ''}`}>
             {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
               * switching chats within the chat panel does not replay it. One-way entrance
               * needs no motion — CSS primitives suffice. */}
@@ -901,7 +918,6 @@ export default function App() {
                   continueLoop={continueLoop}
                   exportChatRecord={exportChatRecord}
                   createChatShare={createChatShare}
-                  onCapabilityClick={handleCapabilityClick}
                   handleFileSelect={handleFileSelect}
                   removeFile={removeFile}
                   regenerate={regenerate}

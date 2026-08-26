@@ -181,11 +181,16 @@ export async function startProxy({ webDir, getState, localServer }) {
       const state = await getState();
 
       if (requestUrl.pathname === "/__desktop/login") {
-        return send(res, 200, "text/html; charset=utf-8", loginPage({ waiting: requestUrl.searchParams.get("waiting") === "1" }));
+        return send(res, 200, "text/html; charset=utf-8", loginPage({
+          brand: state.brandName,
+          waiting: requestUrl.searchParams.get("waiting") === "1",
+        }));
       }
       if (requestUrl.pathname === "/__desktop/init") {
         return send(res, 200, "text/html; charset=utf-8", initPage({
+          brand: state.brandName,
           cloudBase: state.cloudServerBase,
+          fixedDual: state.fixedInitMode,
           mode: state.initMode,
           localSupported: state.localSupported,
         }));
@@ -194,7 +199,11 @@ export async function startProxy({ webDir, getState, localServer }) {
         return send(res, 200, "text/html; charset=utf-8", serverConfigPage(state.serverBase));
       }
       if (requestUrl.pathname === "/__desktop/setup") {
-        return send(res, 200, "text/html; charset=utf-8", setupPage({ localSupported: state.localSupported }));
+        return send(res, 200, "text/html; charset=utf-8", setupPage({
+          brand: state.brandName,
+          dual: state.provisionMode === "dual",
+          localSupported: state.localSupported,
+        }));
       }
       if (requestUrl.pathname === "/__desktop/setup/status") {
         const status = await localServer.snapshot();

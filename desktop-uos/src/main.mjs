@@ -62,7 +62,12 @@ const runtime = {
   bridgeSecret: "",
   hybridLocal: false,
   capabilityTimer: null,
-  brand: { name: "HugAgentOS", website_url: "", local_service_name: "hugagent" },
+  brand: {
+    name: "HugAgentOS",
+    website_url: "",
+    local_service_name: "hugagent",
+    default_provision_mode: null,
+  },
 };
 
 function resourcePath(name) {
@@ -300,6 +305,12 @@ async function initializeApp() {
     ...runtime.brand,
     ...(await readJson(resourcePath("brand.json"), {})),
   };
+  if (!["local_only", "cloud_only", "dual"].includes(runtime.brand.default_provision_mode)) {
+    const normalizedBrand = String(runtime.brand.name || "")
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]/g, "");
+    runtime.brand.default_provision_mode = normalizedBrand === "hugagentagent" ? "dual" : "local_only";
+  }
   runtime.config = await loadConfig(configDir);
   runtime.http = createHttpClient({ insecureTls: runtime.config.insecure_tls });
   runtime.bridgeSecret = await loadOrCreateBridgeSecret(configDir);
@@ -357,7 +368,13 @@ async function initializeApp() {
       hybridLocal: runtime.hybridLocal,
       bridgeSecret: runtime.bridgeSecret,
       bridgeUser: runtime.bridgeUser,
-      initMode: !configured && localServer.status.supported ? "local_only" : provisionMode(runtime.config),
+      initMode: !configured
+        ? (localServer.status.supported ? runtime.brand.default_provision_mode : "cloud_only")
+        : provisionMode(runtime.config),
+      fixedInitMode: !configured
+        && localServer.status.supported
+        && runtime.brand.default_provision_mode === "dual",
+      brandName: runtime.brand.name,
       localSupported: localServer.status.supported,
       activeLocal: runtime.config.deployment_mode === "local",
       provisionMode: provisionMode(runtime.config),

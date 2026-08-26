@@ -691,15 +691,52 @@
    我的定时任务·执行记录 Tab / 空态 / 聚合执行记录列表
    ══════════════════════════════════════════════════════════════ */
 
+/* 右侧只剩两个新建按钮，不参与压缩；副标题因此留在标题列里，不会伸到按钮下方。 */
 .jx-automation-headerRight {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .jx-automation-search {
-  width: 240px;
+  width: 200px;
   border-radius: var(--radius-sm);
+}
+
+/* Keep the modal shell, title and footer inside the visual viewport. Only the long form body
+   scrolls, so the page itself never needs to move just to reach Cancel / Create. */
+.jx-automation-createModal {
+  padding-block: 16px;
+  overflow: hidden;
+}
+
+.jx-automation-createModal .ant-modal {
+  top: 0;
+  max-width: calc(100vw - 32px);
+  margin: 0 auto;
+  padding-bottom: 0;
+}
+
+.jx-automation-createModal .ant-modal-container,
+.jx-automation-createModal .ant-modal-content {
+  display: flex;
+  max-height: calc(100dvh - 32px);
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.jx-automation-createModal .ant-modal-header,
+.jx-automation-createModal .ant-modal-footer {
+  flex: 0 0 auto;
+}
+
+.jx-automation-createModal .ant-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 /* ── 推荐任务轮播 ── */
@@ -848,6 +885,14 @@
 
 .jx-automation-tab.active {
   color: var(--color-text);
+}
+
+/* 搜索 + 排序同属列表工具组，跟「我的定时任务 / 执行记录」同一行右对齐。 */
+.jx-automation-listTools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .jx-automation-sort {

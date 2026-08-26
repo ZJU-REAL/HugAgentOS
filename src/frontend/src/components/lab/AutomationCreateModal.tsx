@@ -153,6 +153,7 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
 
   return (
     <Modal
+      wrapClassName="jx-automation-createModal"
       title={t('新建定时任务')}
       open={open}
       onCancel={handleCancel}
@@ -161,6 +162,7 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
       okText={t('创建')}
       cancelText={t('取消')}
       width={620}
+      centered
       destroyOnClose
       maskClosable={false}
       keyboard={false}

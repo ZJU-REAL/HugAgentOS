@@ -9,7 +9,7 @@ import { resolveBatchModeActive, resolveWorkflowModeActive } from '../utils/chat
 import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileStore, useUIStore, useBatchStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
-import { processChatStream, getStreamActivityTs, hasStreamedRun } from './chatStream';
+import { processChatStream, getStreamActivityTs, hasStreamedRun, isRunCancelledByUser, markRunCancelledByUser } from './chatStream';
 import { parseAppliedQueueHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
 import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
@@ -444,7 +444,7 @@ export function useStreaming(
   }
 
   async function send(directMessage?: string) {
-    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeMention, setActiveMention } = useChatStore.getState();
+    const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention } = useChatStore.getState();
     const { catalog } = useCatalogStore.getState();
     const { uploadedFiles, setUploadedFiles, setUploadingFiles, importedSpaceFiles, clearImportedSpaceFiles } = useFileStore.getState();
 
@@ -458,7 +458,12 @@ export function useStreaming(
 
     const currentSkill = activeSkill;
     const currentPlugin = activePlugin;
+    const currentConnector = activeConnector;
     const currentMention = activeMention;
+    const currentMcpIds = Array.from(new Set([
+      ...(currentPlugin?.mcpIds || []),
+      ...(currentConnector ? [currentConnector.id] : []),
+    ]));
 
     // Keep the @name prefix for persisted history/display compatibility. The authoritative
     // routing key is mention_agent_id below, so the backend can bypass the main agent and run
@@ -527,6 +532,7 @@ export function useStreaming(
     if (quotedFollowUp) setQuotedFollowUp(null);
     if (currentSkill) setActiveSkill(null);
     if (currentPlugin) setActivePlugin(null);
+    if (currentConnector) setActiveConnector(null);
     if (currentMention) setActiveMention(null);
     // After sending a message, auto-collapse the "prompt hub" sidebar
     if (useUIStore.getState().promptHubOpen) {
@@ -565,6 +571,7 @@ export function useStreaming(
       }),
       ...(currentSkill ? { skillId: currentSkill.id, skillName: currentSkill.name } : {}),
       ...(currentPlugin ? { pluginName: currentPlugin.name } : {}),
+      ...(currentConnector ? { connectorName: currentConnector.name } : {}),
       ...(currentMention ? { mentionName: currentMention.name } : {}),
     };
 
@@ -663,8 +670,12 @@ export function useStreaming(
           ...(agentId ? { agent_id: agentId } : {}),
           ...(currentSkill ? { skill_id: currentSkill.id, skill_name: currentSkill.name } : {}),
           ...(currentPlugin && currentPlugin.skillIds.length > 0 ? { skill_ids: currentPlugin.skillIds } : {}),
-          ...(currentPlugin && currentPlugin.mcpIds.length > 0 ? { mcp_ids: currentPlugin.mcpIds } : {}),
+          ...(currentMcpIds.length > 0 ? { mcp_ids: currentMcpIds } : {}),
           ...(currentPlugin ? { plugin_name: currentPlugin.name } : {}),
+          ...(currentConnector ? {
+            connector_id: currentConnector.id,
+            connector_name: currentConnector.name,
+          } : {}),
           ...(currentMention ? {
             mention_agent_id: currentMention.id,
             mention_name: currentMention.name,
@@ -1118,10 +1129,24 @@ export function useStreaming(
   function abort(chatId?: string) {
     const targetId = chatId || useChatStore.getState().currentChatId;
     const activeRun = useChatStore.getState().activeRuns[targetId];
+    const uid = useAuthStore.getState().authUser?.user_id;
     if (activeRun?.runId) {
-      const uid = useAuthStore.getState().authUser?.user_id;
+      // 先登记用户意图，再发取消请求：取消是 fire-and-forget，请求失败或后端
+      // 协作式取消慢一拍时，这条登记保证任何重挂路径都不会再把它捡起来重放。
+      markRunCancelledByUser(activeRun.runId);
       // fire-and-forget: a failed cancel call must not block the local abort
       cancelChatRun(activeRun.runId, uid, targetId).catch(() => { /* noop — backend orphan recovery is the safety net */ });
+    } else {
+      // 本窗口没拿到这一轮的 run_id（跟随权在另一个窗口 / 刷新后还没挂上）时，
+      // 旧代码直接跳过取消，后端那轮继续跑；切回来 resumeRunIfAny 一挂就表现成
+      // "已中断的任务又开始执行了"。这里补一次反查，按会话取活的 run 再取消。
+      void getActiveChatRun(targetId, uid)
+        .then((run) => {
+          if (!run?.run_id) return;
+          markRunCancelledByUser(run.run_id);
+          return cancelChatRun(run.run_id, uid, targetId);
+        })
+        .catch(() => { /* noop — 后端孤儿回收兜底 */ });
     }
     const controller = abortControllersRef.current.get(targetId);
     if (controller) {
@@ -1276,6 +1301,8 @@ export function useStreaming(
       return;
     }
     if (!active?.run_id || (active.status !== 'running' && active.status !== 'pending')) return;
+    // 用户按过停止的那一轮：后端可能还没落终态，但用户的意图是终局的，不许重挂
+    if (isRunCancelledByUser(active.run_id)) return;
     // 自己刚跑完那一轮的残影（本地流已收尾、后端还没落终态）——认错了会把同一轮重放成两个气泡
     if (hasStreamedRun(active.run_id)) return;
     // 这轮的用户侧消息（唤醒指令）是后端落的库，本地还没有 → 先把历史拉齐再跟随，
@@ -1326,6 +1353,15 @@ export function useStreaming(
     await reconcileLoopBar(chatId, active);
 
     if (!active || !active.run_id) {
+      settleQueuedMessageAfterRun(chatId, undefined, false);
+      return;
+    }
+    // 用户已经按过停止：即便后端这一轮还挂着 running（协作式取消尚未落终态、
+    // 或取消请求失败），也不许再挂上去重放——那正是"中断的任务又开始执行了"。
+    // 顺手补一刀取消，让后端那轮真的停下来。
+    if (isRunCancelledByUser(active.run_id)) {
+      cancelChatRun(active.run_id, uid, chatId).catch(() => { /* noop */ });
+      cleanupZombieRunState(chatId, 'cancelled');
       settleQueuedMessageAfterRun(chatId, undefined, false);
       return;
     }

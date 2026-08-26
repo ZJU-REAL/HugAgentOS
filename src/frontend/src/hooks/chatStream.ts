@@ -70,6 +70,47 @@ export function hasStreamedRun(runId: string): boolean {
   return _seenRuns.has(runId);
 }
 
+/** 用户按过「停止」的 run。
+ *
+ *  停止会调 /v1/chat-runs/{id}/cancel，但那是 fire-and-forget：请求失败、后端
+ *  协作式取消还没落终态、或者这一轮的 run_id 压根没拿到（多窗口时跟随权在另一个
+ *  窗口）时，DB 里的 run 仍是 running。切走再切回来，resumeRunIfAny / 断连看门狗
+ *  就会把它当成"还活着的后台任务"重新挂上并从 offset 0 全量重放 —— 用户看到的
+ *  就是"已经中断的计划任务自己又开始执行了"。
+ *
+ *  用户的停止意图是终局的：登记下来，任何重挂路径都不许再跟随这个 run。写
+ *  localStorage 是为了多窗口 / 刷新后同样生效（用户就是在两个窗口之间来回切时
+ *  撞上这个问题的）。 */
+const CANCELLED_RUNS_KEY = 'hugagent_ui_cancelled_runs_v1';
+const CANCELLED_RUNS_MAX = 100;
+const _cancelledRuns = new Set<string>();
+
+function loadCancelledRuns(): Set<string> {
+  if (typeof window === 'undefined') return _cancelledRuns;
+  try {
+    const raw = window.localStorage.getItem(CANCELLED_RUNS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) for (const id of parsed) if (typeof id === 'string') _cancelledRuns.add(id);
+  } catch { /* ignore */ }
+  return _cancelledRuns;
+}
+
+export function markRunCancelledByUser(runId: string): void {
+  if (!runId) return;
+  loadCancelledRuns();
+  _cancelledRuns.add(runId);
+  if (typeof window === 'undefined') return;
+  try {
+    const next = [..._cancelledRuns].slice(-CANCELLED_RUNS_MAX);
+    window.localStorage.setItem(CANCELLED_RUNS_KEY, JSON.stringify(next));
+  } catch { /* ignore */ }
+}
+
+export function isRunCancelledByUser(runId: string): boolean {
+  if (!runId) return false;
+  return loadCancelledRuns().has(runId);
+}
+
 /** 管理类插件写操作后，重拉持有那份列表的 store。
  *
  *  刷新不是锦上添花：MCP 跑在自己的容器里，它清掉的能力缓存是**它那个进程**的，不是 backend

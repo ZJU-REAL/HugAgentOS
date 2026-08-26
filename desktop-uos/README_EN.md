@@ -14,6 +14,7 @@ archive, Python dependency profile, and backend authentication/update endpoints.
 ## Ported capabilities
 
 - Local, cloud, and dual-mode provisioning; dual mode keeps cloud identity with a local execution plane.
+- Full packages may set a brand-level first-launch default; fixed dual-mode distributions go straight to one-action initialization without asking for the mode again.
 - `hugagent://` deep-link authentication, one-time ticket redemption, persisted session, and logout cleanup.
 - Loopback proxy, cookie injection, streaming SSE, and backend file/site/docs routes.
 - Local-project request routing, identity bridge, model synchronization, and capability-token refresh.
@@ -22,6 +23,12 @@ archive, Python dependency profile, and backend authentication/update endpoints.
 - Native folder selection/grants, file-manager opening, and background task notifications.
 - Offline CPython 3.11 payload verification, safe extraction, atomic activation, data backup, and rollback.
 - `.deb` update checks, SHA-256 verification, privileged UOS installation, and restart.
+
+The initialization flow now matches the existing desktop client with halo, orbit,
+and progress-highlight motion. It shows only the current stage, percentage, and
+actionable errors; raw logs remain in the local-service log directory for diagnosis
+instead of appearing at the bottom of the page. Set
+`JX_DEFAULT_PROVISION_MODE=local_only|cloud_only|dual` to override the distribution default.
 
 The renderer uses context isolation and the Chromium sandbox with Node integration
 disabled. A narrow preload bridge exposes logout only. Renderer-provided cookies and

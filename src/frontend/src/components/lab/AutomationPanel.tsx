@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Button, Empty, Input, Select, Tooltip } from 'antd';
+import { Button, Empty, Input, Select, Tooltip, message } from 'antd';
 import {
   PlusOutlined, LeftOutlined, RightOutlined,
-  ClockCircleOutlined, SearchOutlined, ReloadOutlined,
+  ClockCircleOutlined, SearchOutlined, ReloadOutlined, MessageOutlined,
 } from '@ant-design/icons';
-import { useAutomationStore, useCatalogStore } from '../../stores';
+import { useAutomationStore } from '../../stores/automationStore';
+import { useCatalogStore } from '../../stores/catalogStore';
+import { useChatStore } from '../../stores/chatStore';
+import { usePluginStore } from '../../stores/pluginStore';
 import { usePanelHeader } from '../../hooks/usePageConfig';
-import { useDelayedFlag } from '../../hooks';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 import { getAutomationRuns } from '../../api';
 import type { AutomationRun, AutomationTask } from '../../types';
 import { EASE } from '../../utils/motionTokens';
 import { formatShortDateTime } from '../../utils/date';
+import {
+  AUTOMATION_CHAT_TEMPLATE,
+  resolveAutomationPluginReference,
+} from '../../utils/automationConversation';
 import { AutomationCard } from './AutomationCard';
 import { AutomationCreateModal } from './AutomationCreateModal';
 import { AutomationDetailPage } from './AutomationDetailPage';
@@ -28,6 +35,25 @@ type SortKey = 'created_desc' | 'created_asc' | 'next_run';
 const RUNS_DISPLAY_LIMIT = 50;
 /** 每个任务取多少条最近执行记录参与合并。 */
 const RUNS_PER_TASK = 10;
+
+/** Start a normal chat with the scheduled-task plugin referenced for the first turn. */
+async function startAutomationCreationInChat() {
+  await usePluginStore.getState().fetchInstalled(true).catch(() => {});
+  const plugin = resolveAutomationPluginReference(usePluginStore.getState().installed);
+
+  if (!plugin) {
+    message.info(t('首次通过对话创建定时任务需要安装插件，请先在能力中心 → 插件里安装后再创建'));
+    useCatalogStore.getState().setAbilityTab('plugins');
+    useCatalogStore.getState().setPanel('ability_center');
+    return;
+  }
+
+  const chat = useChatStore.getState();
+  chat.newChat();
+  chat.setInput(AUTOMATION_CHAT_TEMPLATE);
+  chat.setActivePlugin(plugin);
+  useCatalogStore.getState().setPanel('chat');
+}
 
 /** 执行记录列表项：run 本身不带任务名，聚合展示时要把所属任务带上。 */
 interface AggregatedRun extends AutomationRun {
@@ -49,7 +75,7 @@ export function AutomationPanel() {
 
   const { title, subtitle } = usePanelHeader('automation', {
     title: '定时任务',
-    subtitle: '按计划自动执行任务，也可随时手动触发。在任意对话中描述你想定期做的事，即可快速创建',
+    subtitle: '按计划自动执行任务，也可随时手动触发；在对话中描述即可快速创建',
   });
 
   const [tab, setTab] = useState<AutomationTab>('tasks');
@@ -188,7 +214,7 @@ export function AutomationPanel() {
   };
 
   return (
-    // jx-automationPage 只是移动端样式的作用域锚点：页头「搜索 + 新建」在窄屏要竖排，
+    // jx-automationPage 只是移动端样式的作用域锚点：页头两个新建按钮在窄屏要竖排，
     // 而 .jx-agentPage-header 是能力中心等页共用的通用类，不能直接改。
     <div className="jx-agentPage jx-automationPage">
       <div className="jx-agentPage-header">
@@ -197,17 +223,14 @@ export function AutomationPanel() {
           {subtitle ? <div className="jx-agentPage-subtitle">{subtitle}</div> : null}
         </div>
         <div className="jx-automation-headerRight">
-          <Input
-            allowClear
-            className="jx-automation-search"
-            prefix={<SearchOutlined style={{ color: 'var(--color-text-placeholder)' }} />}
-            placeholder={t('搜索定时任务…')}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate(null)}>
-            {t('新建定时任务')}
-          </Button>
+          <div className="jx-automation-createActions">
+            <Button icon={<MessageOutlined />} onClick={() => void startAutomationCreationInChat()}>
+              {t('通过对话创建')}
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate(null)}>
+              {t('新建定时任务')}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -233,17 +256,28 @@ export function AutomationPanel() {
             ))}
           </div>
           {tab === 'tasks' && (
-            <Select
-              size="small"
-              className="jx-automation-sort"
-              value={sortKey}
-              onChange={setSortKey}
-              options={[
-                { value: 'created_desc', label: t('按创建时间倒序') },
-                { value: 'created_asc', label: t('按创建时间正序') },
-                { value: 'next_run', label: t('按下次执行时间') },
-              ]}
-            />
+            <div className="jx-automation-listTools">
+              <Input
+                allowClear
+                size="small"
+                className="jx-automation-search"
+                prefix={<SearchOutlined style={{ color: 'var(--color-text-placeholder)' }} />}
+                placeholder={t('搜索定时任务…')}
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+              />
+              <Select
+                size="small"
+                className="jx-automation-sort"
+                value={sortKey}
+                onChange={setSortKey}
+                options={[
+                  { value: 'created_desc', label: t('按创建时间倒序') },
+                  { value: 'created_asc', label: t('按创建时间正序') },
+                  { value: 'next_run', label: t('按下次执行时间') },
+                ]}
+              />
+            </div>
           )}
         </div>
 

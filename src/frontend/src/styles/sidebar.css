@@ -387,6 +387,16 @@
    历史区标题 + 时间/类型筛选下拉、内嵌搜索行均已下沉到 SearchModal，
    这里只保留滚动容器自身。 */
 
+/* 「新建对话」是顶部固定区的终点；主导航和历史记录在同一容器内滚动。 */
+.jx-sidebarScrollArea{
+  flex:1; min-height:0; overflow-y:auto;
+  display:flex; flex-direction:column;
+  overscroll-behavior:contain;
+}
+.jx-sidebarScrollArea::-webkit-scrollbar{ width:3px; }
+.jx-sidebarScrollArea::-webkit-scrollbar-thumb{ background:transparent; border-radius:999px; }
+.jx-sidebarScrollArea.show-scrollbar::-webkit-scrollbar-thumb{ background:rgba(31,35,40,.12); }
+
 /* ── History list ── */
 .jx-historyListWrap{
   flex:1; min-height:0; overflow-y:auto;
@@ -395,9 +405,10 @@
   padding:8px 10px;
   margin-top:4px;
 }
-.jx-historyListWrap::-webkit-scrollbar{ width:3px; }
-.jx-historyListWrap::-webkit-scrollbar-thumb{ background:transparent; border-radius:999px; }
-.jx-historyListWrap.show-scrollbar::-webkit-scrollbar-thumb{ background:rgba(31,35,40,.12); }
+/* chat.css 里仍有历史列表的兼容样式；在统一滚动区内显式取消其独立滚动。 */
+.jx-sidebarScrollArea > .jx-historyListWrap{
+  flex:none; min-height:auto; overflow:visible;
+}
 
 @keyframes jxSkeletonShimmer{
   0%{ background-position:200% 0; }
@@ -519,7 +530,7 @@
   appearance:none; border:0; outline:0; background:transparent;
   flex:1; min-width:0; align-self:stretch;
   display:flex; align-items:center; gap:7px;
-  padding:0; color:inherit; text-align:left; cursor:pointer;
+  padding:0; color:inherit; font-family:inherit; text-align:left; cursor:pointer;
 }
 .jx-projectRowIcon{
   font-size:13px;
@@ -529,7 +540,7 @@
 }
 .jx-projectRowName{
   flex:1; min-width:0;
-  font-size:12px; font-weight:500; color:var(--color-text);
+  font-size:14px; font-weight:500; line-height:1.2; color:var(--color-text);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   transition:color .15s;
 }
