@@ -202,6 +202,13 @@ def test_industry_plugin_declaration_validates_cleanly():
     assert action["enabled_for_tools"] == ["get_chain_information"]
 
 
+def test_industry_plugin_does_not_add_a_homepage_shortcut():
+    manifest = json.loads(IKC_MANIFEST.read_text(encoding="utf-8"))
+    ui, _ = normalize_ui(manifest["extensions"]["org.hugagent"]["ui"])
+
+    assert ui["contributes"].get("shortcuts", []) == []
+
+
 def test_industry_declaration_only_references_tools_the_plugin_exposes():
     manifest = json.loads(IKC_MANIFEST.read_text(encoding="utf-8"))
     ext = manifest["extensions"]["org.hugagent"]

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Select, message } from 'antd';
-import { BookOutlined, FileTextOutlined, PieChartOutlined } from '@ant-design/icons';
+import { FileTextOutlined, PieChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
 import { EASE, staggerStyle } from '../../utils/motionTokens';
 import { useDelayedFlag } from '../../hooks';
@@ -9,12 +9,10 @@ import {
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useAuthStore, useEditionStore, usePluginUiStore, useUIStore } from '../../stores';
-import { mergeContributedShortcuts } from '../../stores/pluginUiStore';
+import { useChatStore, useBatchStore, useEditionStore, usePluginUiStore, useUIStore } from '../../stores';
 import { resolveText } from '../../plugin-ui';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useAgentStore } from '../../stores/agentStore';
-import { usePageConfigStore, type HomepageShortcut } from '../../stores/pageConfigStore';
 import { usePageConfig } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
 import { resolveBatchModeActive } from '../../utils/chatMode';
@@ -26,33 +24,10 @@ const SCROLL_BTN_ANIMATE = { opacity: 1, y: 0 };
 const SCROLL_BTN_EXIT = { opacity: 0, y: 6, transition: { duration: 0.12, ease: EASE.exit } };
 const SCROLL_BTN_TRANSITION = { duration: 0.2, ease: EASE.brandOut };
 
-function buildShortcutUrl(base: string, token?: string | null): string {
-  if (!base || !token) return base;
-  const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}token=${encodeURIComponent(token)}`;
-}
 import { MessageBubble } from './MessageBubble';
 
-const MOBILE_QUICK_TASKS = [
-  {
-    id: 'policy',
-    label: '政策解读',
-    prompt: '请帮我解读这份政策，提炼核心要点、适用对象和执行建议。',
-    Icon: BookOutlined,
-  },
-  {
-    id: 'material',
-    label: '材料对比',
-    prompt: '请帮我对比这些材料，梳理主要差异、共同点和结论。',
-    Icon: FileTextOutlined,
-  },
-  {
-    id: 'data',
-    label: '数据分析',
-    prompt: '请帮我分析这组数据，提炼关键指标、趋势和异常。',
-    Icon: PieChartOutlined,
-  },
-] as const;
+const HOME_SUGGESTION_ICONS = [SearchOutlined, FileTextOutlined, PieChartOutlined] as const;
+const HOME_SUGGESTIONS_PER_PAGE = 3;
 import { InputArea } from './InputArea';
 import { PlanProgressStrip } from './PlanProgressStrip';
 import { JobProgressStrip } from './JobProgressStrip';
@@ -97,7 +72,6 @@ interface ChatAreaProps {
     selectedTs: number[],
     expiryOption: '3d' | '15d' | '3m' | 'permanent'
   ) => Promise<{ share_id: string; preview_url: string; expires_at?: string | null; expiry_option: '3d' | '15d' | '3m' | 'permanent' }>;
-  onCapabilityClick: (capabilityId: string) => void;
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement | null>) => void;
   removeFile: (index: number) => void;
   regenerate?: (messageIndex: number) => void;
@@ -109,7 +83,7 @@ interface ChatAreaProps {
 }
 
 export function ChatArea({
-  send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, exportChatRecord, createChatShare, onCapabilityClick, handleFileSelect, removeFile,
+  send, abort, activateQueuedMessage, discardQueuedMessage, continueLoop, exportChatRecord, createChatShare, handleFileSelect, removeFile,
   regenerate, editAndResend,
   inputRef, fileInputRef, chatListRef, messagesEndRef,
 }: ChatAreaProps) {
@@ -129,14 +103,13 @@ export function ChatArea({
     backendSessionIds, loadedMsgIds,
     compactionNotices, dismissCompactionNotice,
   } = useChatStore();
-  const [pendingToastId, setPendingToastId] = useState<string | null>(null);
   const [shareExpiryOption, setShareExpiryOption] = useState<ShareExpiryOption>('15d');
   const [shareExpiryModalOpen, setShareExpiryModalOpen] = useState(false);
   const [creatingShare, setCreatingShare] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [suggestionPage, setSuggestionPage] = useState(0);
   // Shared-session access level: read-only sessions disable the input box.
   const [shareAccessLevel, setShareAccessLevel] = useState<'admin' | 'edit' | 'read' | null>(null);
-  const pendingToastTimerRef = useRef<number | null>(null);
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
 
   const chat = store.chats[currentChatId];
@@ -172,12 +145,6 @@ export function ChatArea({
     setInput(prompt);
     inputRef.current?.focus();
   };
-
-  useEffect(() => () => {
-    if (pendingToastTimerRef.current !== null) {
-      window.clearTimeout(pendingToastTimerRef.current);
-    }
-  }, []);
 
   useEffect(() => {
     useChatStore.getState().clearShareSelection();
@@ -236,50 +203,21 @@ export function ChatArea({
     return () => window.clearTimeout(timer);
   }, [chat?.messages, pendingScrollMessageTs, setPendingScrollMessageTs]);
 
-  const homepageShortcuts = usePageConfigStore((s) => s.homepageShortcuts);
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const pluginContributions = usePluginUiStore((s) => s.items);
-  const enabledShortcuts = useMemo(() => {
+  // 首页快捷入口只保留插件贡献的入口（管理端配置项已下线，场景引导统一走首页建议问题）。
+  const pluginShortcuts = useMemo(() => {
     if (isCE) return [];
-    // 排序去重策略（管理员优先、插件只能建议）统一在 mergeContributedShortcuts 里。
-    return mergeContributedShortcuts(
-      pluginContributions,
-      homepageShortcuts.filter((c) => c.enabled),
-      (s) => ({
-        id: s.id,
-        enabled: true,
-        label: resolveText(s.label, s.id),
-        icon: s.icon || '',
-        url: '',
-        prompt: s.prompt ? resolveText(s.prompt) : '',
-      }),
-    );
-  }, [homepageShortcuts, isCE, pluginContributions]);
-  const ssoToken = useAuthStore((s) => s.authUser?.sso_token ?? null);
-
-  const handleCapabilityCardClick = (card: HomepageShortcut) => {
-    if (card.url) {
-      window.open(buildShortcutUrl(card.url, ssoToken), '_blank', 'noopener,noreferrer');
-      return;
-    }
-    // 插件贡献的入口带 prompt：直接把提示词填进输入框，让用户接着写。
-    if (card.prompt) {
-      useChatStore.getState().setInput(card.prompt);
-      return;
-    }
-    if (card.id === 'knowledge') {
-      onCapabilityClick(card.id);
-      return;
-    }
-    setPendingToastId(card.id);
-    if (pendingToastTimerRef.current !== null) {
-      window.clearTimeout(pendingToastTimerRef.current);
-    }
-    pendingToastTimerRef.current = window.setTimeout(() => {
-      setPendingToastId(null);
-      pendingToastTimerRef.current = null;
-    }, 1600);
-  };
+    return pluginContributions
+      .flatMap((item) => item.contributes.shortcuts || [])
+      .filter((shortcut) => !!shortcut.prompt)
+      .map((shortcut) => ({
+        id: shortcut.id,
+        label: resolveText(shortcut.label, shortcut.id),
+        icon: shortcut.icon || '',
+        prompt: resolveText(shortcut.prompt!),
+      }));
+  }, [isCE, pluginContributions]);
 
   // ── Resolve sub-agent details for welcome page ──
   const { agents } = useAgentStore();
@@ -291,9 +229,32 @@ export function ChatArea({
 
   // ── Page config default values ──
   const cfgHeroTitle = usePageConfig('branding.hero_title', '你好，我是 HugAgentOS');
-  const cfgHeroSubtitle = usePageConfig('branding.hero_subtitle', '基于 AI 能力的场景化智能工作平台');
+  const cfgHeroSubtitle = usePageConfig('branding.hero_subtitle', '今天想从哪里开始？');
+  const cfgProductName = usePageConfig('branding.product_name', 'HugAgentOS');
   const cfgDisclaimer = usePageConfig('branding.disclaimer', '');
   const cfgInputPlaceholder = usePageConfig('texts.input_placeholder', '请输入你的问题，按Enter发送，Shift+Enter换行');
+  const showHomepageLogo = usePageConfig('homepage.show_logo', true);
+  const homepageLogoUrl = usePageConfig('homepage.logo_url', '/icon.png');
+  const showHomepageSuggestions = usePageConfig('homepage.show_suggestions', true);
+  const configuredHomepageSuggestions = usePageConfig<string[]>('homepage.suggested_questions', []);
+  const homepageSuggestions = useMemo(
+    () => showHomepageSuggestions
+      ? configuredHomepageSuggestions.filter((prompt) => typeof prompt === 'string' && prompt.trim())
+      : [],
+    [configuredHomepageSuggestions, showHomepageSuggestions],
+  );
+  const suggestionPageCount = Math.max(
+    1,
+    Math.ceil(homepageSuggestions.length / HOME_SUGGESTIONS_PER_PAGE),
+  );
+  const visibleHomepageSuggestions = useMemo(() => {
+    const start = (suggestionPage % suggestionPageCount) * HOME_SUGGESTIONS_PER_PAGE;
+    return homepageSuggestions.slice(start, start + HOME_SUGGESTIONS_PER_PAGE);
+  }, [homepageSuggestions, suggestionPage, suggestionPageCount]);
+
+  useEffect(() => {
+    setSuggestionPage(0);
+  }, [configuredHomepageSuggestions, showHomepageSuggestions]);
 
   // ── Resolve hero text: sub-agent uses its own name/description ──
   const isAgentChat = !!(chat?.agentId);
@@ -371,7 +332,13 @@ export function ChatArea({
         )}
         <div className="jx-emptyCenter jx-anim-stagger">
           <div className="jx-heroBg" style={staggerStyle(0)}>
-            <img src="/home/title-bg.png" alt="" className="jx-heroBgImg" />
+            {!isAgentChat && !isSiteChat && showHomepageLogo && homepageLogoUrl && (
+              <img
+                src={homepageLogoUrl}
+                alt={`${cfgProductName} Logo`}
+                className="jx-homeBrandMark"
+              />
+            )}
             <h1 className="jx-heroTitle">{heroTitle}</h1>
             <p className="jx-heroSubtitle">{heroSubtitle}</p>
             {!isAgentChat && !isSiteChat && (
@@ -416,38 +383,52 @@ export function ChatArea({
             </div>
           )}
 
-          {/* Capability cards: only on main agent page (kept minimal on the site-builder page, not shown) */}
-          {!isAgentChat && !isSiteChat && enabledShortcuts.length > 0 && (
-            <div className="jx-capCards" style={staggerStyle(2)}>
-              {enabledShortcuts.map((card) => (
-                <button key={card.id} type="button" className="jx-capCard" onClick={() => handleCapabilityCardClick(card)}>
-                  {pendingToastId === card.id ? <span className="jx-capCardToast">{t('建设中')}</span> : null}
-                  {card.icon ? <img src={card.icon} alt="" className="jx-capCardIcon" /> : null}
-                  <span className="jx-capCardLabel">{t(card.label)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!isAgentChat && !isSiteChat && (
-            <div className="jx-mobileQuickTasks" style={staggerStyle(2)}>
-              <div className="jx-mobileQuickTasksLabel">{t('常用任务')}</div>
-              <div className="jx-mobileQuickTasksRow">
-                {MOBILE_QUICK_TASKS.map((task) => {
-                  const TaskIcon = task.Icon;
+          {!isAgentChat && !isSiteChat && visibleHomepageSuggestions.length > 0 && (
+            <div className="jx-homeSuggestions" style={staggerStyle(2)}>
+              <div className="jx-homeSuggestionList">
+                {visibleHomepageSuggestions.map((prompt, idx) => {
+                  const SuggestionIcon = HOME_SUGGESTION_ICONS[idx % HOME_SUGGESTION_ICONS.length];
                   return (
                     <button
-                      key={task.id}
+                      key={prompt}
                       type="button"
-                      className="jx-mobileQuickTask"
-                      onClick={() => applyQuickScenario(task.prompt)}
+                      className="jx-homeSuggestion"
+                      onClick={() => applyQuickScenario(prompt)}
                     >
-                      <TaskIcon className="jx-mobileQuickTaskIcon" />
-                      <span>{t(task.label)}</span>
+                      <SuggestionIcon className="jx-homeSuggestionIcon" aria-hidden="true" />
+                      <span>{t(prompt)}</span>
                     </button>
                   );
                 })}
               </div>
+              {suggestionPageCount > 1 && (
+                <button
+                  type="button"
+                  className="jx-homeSuggestionRefresh"
+                  onClick={() => setSuggestionPage((page) => (page + 1) % suggestionPageCount)}
+                  aria-label={t('换一批')}
+                >
+                  <ReloadOutlined aria-hidden="true" />
+                  <span>{t('换一批')}</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Capability cards: plugin-contributed homepage entries (main agent page only) */}
+          {!isAgentChat && !isSiteChat && pluginShortcuts.length > 0 && (
+            <div className="jx-capCards" style={staggerStyle(2)}>
+              {pluginShortcuts.map((card) => (
+                <button
+                  key={card.id}
+                  type="button"
+                  className="jx-capCard"
+                  onClick={() => applyQuickScenario(card.prompt)}
+                >
+                  {card.icon ? <img src={card.icon} alt="" className="jx-capCardIcon" /> : null}
+                  <span className="jx-capCardLabel">{t(card.label)}</span>
+                </button>
+              ))}
             </div>
           )}
 

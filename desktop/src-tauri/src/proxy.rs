@@ -398,15 +398,16 @@ fn html_escape(s: &str) -> String {
 
 // ── 一体化桌面标题栏 ───────────────────────────────────────────────────────
 //
-// 主窗口关闭系统 decorations，避免「系统标题栏 + 原生菜单栏」占两行。这里把产品图标、
-// 文件/编辑/视图/帮助和窗口控制放进同一行。全部动作走导航哨兵，由 lib.rs 拦截执行，
-// 不依赖远程源下不稳定的 Tauri IPC。
+// 主窗口关闭系统 decorations，避免「系统标题栏 + 原生菜单栏」占两行。Windows/Linux
+// 只保留一个低频操作入口和窗口控制；侧边栏自己的品牌区直接延伸到窗口顶边，标题栏从
+// 侧边栏右缘开始。中间的大面积空白既延续页面背景，也承担窗口拖动。全部动作走导航哨兵，
+// 由 lib.rs 拦截执行，不依赖远程源下不稳定的 Tauri IPC。
 
-const TITLEBAR_HEIGHT: u8 = 36;
+const TITLEBAR_HEIGHT: u8 = 34;
 const TB_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:36px}body{box-sizing:border-box!important;padding-top:36px!important}.jx-appLoading{height:100%!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px}body{box-sizing:border-box!important;padding-top:0!important}.jx-appMainLayout{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}.jx-brandRow{padding-top:8px!important}.jx-miniRail{padding-top:6px!important}.jx-appLoading{height:100%!important}.jx-appLoading-main{box-sizing:border-box!important;padding-top:calc(40px + var(--hugagent-desktop-titlebar-height))!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const TB_OFFSET_PAGE: &str =
-    ":root{--hugagent-desktop-titlebar-height:36px}body{box-sizing:border-box!important;padding-top:36px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:0px}body{box-sizing:border-box!important;padding-top:34px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
 // The traffic lights start at y=13 and occupy about 14px. A 28px overlay keeps
 // their hit area clear without stacking a second, visibly empty toolbar above
@@ -428,21 +429,22 @@ const MAC_OFFSET_PAGE: &str =
 // data-theme 对它同样生效，直接引用应用令牌即可两档自动跟随 —— 不需要再写一套深色覆盖，
 // 也不需要 prefers-color-scheme（那会和手动 light/dark/system 三档打架）。
 const TB_CSS: &str = r##"
-#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:36px;z-index:2147483647;display:flex;align-items:center;background:var(--color-bg-gray);border-bottom:1px solid var(--color-border);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text)}
+#hugagent-titlebar{position:fixed;inset:0 0 auto var(--hugagent-desktop-sidebar-width);height:34px;z-index:2147483647;display:flex;align-items:center;background:var(--color-bg-base);border:0;box-shadow:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text);-webkit-user-select:none;user-select:none}
 #hugagent-titlebar *{box-sizing:border-box}
-#hugagent-titlebar .tb-left{display:flex;align-items:center;height:100%;min-width:0;padding-left:8px}
-#hugagent-titlebar .tb-logo{width:17px;height:17px;border-radius:4px;margin-right:5px;object-fit:cover}
-#hugagent-titlebar .tb-spacer{flex:1;height:100%;min-width:30px}
-#hugagent-titlebar .tb-menu{display:flex;align-items:stretch;height:100%}
+#hugagent-titlebar .tb-spacer{flex:1;height:100%;min-width:48px}
+#hugagent-titlebar .tb-menu{display:flex;align-items:stretch;height:100%;margin-right:2px}
 #hugagent-titlebar .tb-menuGroup{position:relative;height:100%;display:flex;align-items:stretch}
-#hugagent-titlebar .tb-menuLabel{height:100%;padding:0 10px;border:0;background:transparent;color:var(--color-text-secondary);font:12.5px/1 inherit;cursor:default;-webkit-user-select:none;user-select:none}
+#hugagent-titlebar .tb-menuLabel{width:40px;height:28px;margin:3px 1px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;font:20px/1 inherit;cursor:default}
 #hugagent-titlebar .tb-menuLabel:hover,#hugagent-titlebar .tb-menuGroup.open>.tb-menuLabel{background:var(--color-fill-hover)}
-#hugagent-titlebar .tb-drop{display:none;position:absolute;top:35px;left:0;min-width:180px;padding:5px;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:8px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-text) 16%, transparent)}
+#hugagent-titlebar .tb-menuLabel:focus-visible,#hugagent-titlebar .tb-windowButton:focus-visible{outline:2px solid var(--color-primary);outline-offset:-3px}
+#hugagent-titlebar .tb-moreGlyph{display:block;transform:translateY(-2px)}
+#hugagent-titlebar .tb-drop{display:none;position:absolute;top:32px;right:0;left:auto;min-width:224px;padding:6px;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:9px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-text) 16%, transparent)}
 #hugagent-titlebar .tb-menuGroup.open>.tb-drop{display:block}
-#hugagent-titlebar .tb-item{display:flex;align-items:center;width:100%;min-height:30px;padding:6px 11px;border:0;border-radius:6px;background:transparent;color:var(--color-text);font:13px/1.3 inherit;text-align:left;white-space:nowrap;cursor:default}
-#hugagent-titlebar .tb-item:hover{background:var(--color-primary-light);color:var(--color-primary)}
+#hugagent-titlebar .tb-item{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;min-height:34px;padding:7px 11px;border:0;border-radius:6px;background:transparent;color:var(--color-text);font:13px/1.3 inherit;text-align:left;white-space:nowrap;cursor:default}
+#hugagent-titlebar .tb-item:hover,#hugagent-titlebar .tb-item:focus-visible{background:var(--color-primary-light);color:var(--color-primary);outline:none}
+#hugagent-titlebar .tb-shortcut{color:var(--color-text-tertiary);font-size:12px}
 #hugagent-titlebar .tb-sep{height:1px;margin:5px 6px;background:var(--color-border)}
-#hugagent-titlebar .tb-controls{display:flex;align-items:stretch;height:100%;margin-left:4px}
+#hugagent-titlebar .tb-controls{display:flex;align-items:stretch;height:100%;margin-left:0}
 #hugagent-titlebar .tb-windowButton{width:46px;height:100%;padding:0;border:0;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;cursor:default}
 #hugagent-titlebar .tb-windowButton:hover{background:var(--color-fill-hover)}
 /* dark-ok: #E81123 是 Windows 关闭键的平台约定红，两档都得是这个红，不跟主题翻转 */
@@ -450,30 +452,21 @@ const TB_CSS: &str = r##"
 "##;
 
 const TB_MENU: &str = r##"<nav class="tb-menu" aria-label="应用菜单">
-<div class="tb-menuGroup"><button class="tb-menuLabel" type="button">文件</button><div class="tb-drop">
-  <button class="tb-item" type="button" data-act="new_chat">新建对话</button>
-  <button class="tb-item" type="button" data-act="run_mode">运行模式…</button>
-  <button class="tb-item" type="button" data-act="server_config">设置服务器地址…</button>
-  <button class="tb-item" type="button" data-act="local_server">本机服务…</button>
-  <div class="tb-sep"></div><button class="tb-item" type="button" data-win="quit">退出</button>
-</div></div>
-<div class="tb-menuGroup"><button class="tb-menuLabel" type="button">编辑</button><div class="tb-drop">
-  <button class="tb-item" type="button" data-edit="undo">撤销</button>
-  <button class="tb-item" type="button" data-edit="redo">重做</button>
-  <div class="tb-sep"></div>
-  <button class="tb-item" type="button" data-edit="cut">剪切</button>
-  <button class="tb-item" type="button" data-edit="copy">复制</button>
-  <button class="tb-item" type="button" data-edit="paste">粘贴</button>
-  <button class="tb-item" type="button" data-edit="selectAll">全选</button>
-</div></div>
-<div class="tb-menuGroup"><button class="tb-menuLabel" type="button">视图</button><div class="tb-drop">
-  <button class="tb-item" type="button" data-act="reload">重新加载</button>
-  <button class="tb-item" type="button" data-win="fullscreen">全屏</button>
-</div></div>
-<div class="tb-menuGroup"><button class="tb-menuLabel" type="button">帮助</button><div class="tb-drop">
-  <button class="tb-item" type="button" data-act="check_update">检查更新…</button>
-  <button class="tb-item" type="button" data-act="website">访问官网</button>
-  <div class="tb-sep"></div><button class="tb-item" type="button" data-act="about">关于</button>
+<div class="tb-menuGroup"><button class="tb-menuLabel" type="button" aria-label="更多菜单" aria-haspopup="menu" aria-expanded="false" aria-controls="hugagent-more-menu" title="更多"><span class="tb-moreGlyph" aria-hidden="true">⋯</span></button><div class="tb-drop" id="hugagent-more-menu" role="menu" aria-label="更多操作">
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="new_chat"><span>新建对话</span><span class="tb-shortcut" aria-hidden="true">Ctrl+N</span></button>
+  <div class="tb-sep" role="separator"></div>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="run_mode">运行模式…</button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="server_config">设置服务器地址…</button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="local_server">本机服务…</button>
+  <div class="tb-sep" role="separator"></div>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="reload"><span>重新加载</span><span class="tb-shortcut" aria-hidden="true">Ctrl+R</span></button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-win="fullscreen"><span>全屏</span><span class="tb-shortcut" aria-hidden="true">F11</span></button>
+  <div class="tb-sep" role="separator"></div>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="check_update">检查更新…</button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="website">访问官网</button>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-act="about">关于</button>
+  <div class="tb-sep" role="separator"></div>
+  <button class="tb-item" type="button" role="menuitem" tabindex="-1" data-win="quit">退出</button>
 </div></div>
 </nav>"##;
 
@@ -489,33 +482,68 @@ var bar=document.getElementById('hugagent-titlebar');if(!bar)return;
 if(new URLSearchParams(location.search).get('quickask')==='1'){
   bar.remove();var style=document.getElementById('hugagent-titlebar-style');if(style)style.remove();return;
 }
-var lastFocus=null;
-document.addEventListener('focusin',function(event){if(!bar.contains(event.target))lastFocus=event.target;},true);
-function closeMenus(){bar.querySelectorAll('.tb-menuGroup').forEach(function(group){group.classList.remove('open');});}
-function sentinel(path){window.location.href=path;}
-bar.querySelectorAll('.tb-menuLabel').forEach(function(label){
-  label.addEventListener('mousedown',function(event){event.preventDefault();});
-  label.addEventListener('click',function(event){event.stopPropagation();var group=label.parentElement;var open=group.classList.contains('open');closeMenus();if(!open)group.classList.add('open');});
-});
-bar.querySelectorAll('.tb-item,.tb-windowButton').forEach(function(item){item.addEventListener('mousedown',function(event){event.preventDefault();});});
-bar.querySelectorAll('[data-win]').forEach(function(item){item.addEventListener('click',function(event){event.stopPropagation();sentinel('/__desktop/win?action='+encodeURIComponent(item.dataset.win));});});
-bar.querySelectorAll('[data-act]').forEach(function(item){item.addEventListener('click',function(event){event.stopPropagation();sentinel('/__desktop/menu?action='+encodeURIComponent(item.dataset.act));});});
-function pasteText(text){
-  if(lastFocus&&typeof lastFocus.focus==='function')lastFocus.focus();
-  if(lastFocus&&(lastFocus.tagName==='INPUT'||lastFocus.tagName==='TEXTAREA')&&typeof lastFocus.setRangeText==='function'){
-    var start=lastFocus.selectionStart==null?lastFocus.value.length:lastFocus.selectionStart;
-    var end=lastFocus.selectionEnd==null?start:lastFocus.selectionEnd;
-    lastFocus.setRangeText(text,start,end,'end');lastFocus.dispatchEvent(new Event('input',{bubbles:true}));return;
-  }
-  document.execCommand('insertText',false,text);
+var group=bar.querySelector('.tb-menuGroup');
+var label=bar.querySelector('.tb-menuLabel');
+var drop=bar.querySelector('.tb-drop');
+var menuItems=Array.prototype.slice.call(bar.querySelectorAll('.tb-item'));
+function setMenuOpen(open,focusIndex){
+  group.classList.toggle('open',open);label.setAttribute('aria-expanded',open?'true':'false');
+  menuItems.forEach(function(item){item.tabIndex=-1;});
+  if(open&&menuItems.length){var index=focusIndex==null?0:focusIndex;menuItems[index].tabIndex=0;menuItems[index].focus();}
 }
-bar.querySelectorAll('[data-edit]').forEach(function(item){item.addEventListener('click',function(event){
-  event.stopPropagation();closeMenus();if(lastFocus&&typeof lastFocus.focus==='function')lastFocus.focus();
-  var action=item.dataset.edit;
-  if(action==='paste'&&navigator.clipboard&&navigator.clipboard.readText){navigator.clipboard.readText().then(pasteText).catch(function(){document.execCommand('paste');});return;}
-  document.execCommand(action,false,null);
+function closeMenu(restoreFocus){setMenuOpen(false);if(restoreFocus)label.focus();}
+function sentinel(path){window.location.href=path;}
+document.addEventListener('keydown',function(event){
+  var key=String(event.key||'').toLowerCase();
+  if(event.ctrlKey&&!event.altKey&&key==='n'){
+    event.preventDefault();sentinel('/__desktop/menu?action=new_chat');
+  }else if(event.ctrlKey&&!event.altKey&&key==='r'){
+    event.preventDefault();sentinel('/__desktop/menu?action=reload');
+  }else if(event.key==='F11'){
+    event.preventDefault();sentinel('/__desktop/win?action=fullscreen');
+  }
+});
+label.addEventListener('click',function(event){
+  event.stopPropagation();var open=group.classList.contains('open');if(open)closeMenu(true);else setMenuOpen(true,0);
+});
+label.addEventListener('keydown',function(event){
+  if(event.key==='ArrowDown'||event.key==='Enter'||event.key===' '){event.preventDefault();setMenuOpen(true,0);}
+  else if(event.key==='ArrowUp'){event.preventDefault();setMenuOpen(true,menuItems.length-1);}
+  else if(event.key==='Escape'){event.preventDefault();closeMenu(true);}
+});
+drop.addEventListener('keydown',function(event){
+  var current=menuItems.indexOf(document.activeElement);var next=current;
+  if(event.key==='ArrowDown')next=(current+1+menuItems.length)%menuItems.length;
+  else if(event.key==='ArrowUp')next=(current-1+menuItems.length)%menuItems.length;
+  else if(event.key==='Home')next=0;
+  else if(event.key==='End')next=menuItems.length-1;
+  else if(event.key==='Escape'){event.preventDefault();closeMenu(true);return;}
+  else if(event.key==='Tab'){closeMenu(false);return;}
+  else return;
+  event.preventDefault();menuItems.forEach(function(item){item.tabIndex=-1;});menuItems[next].tabIndex=0;menuItems[next].focus();
+});
+bar.querySelectorAll('[data-win]').forEach(function(item){item.addEventListener('click',function(event){
+  event.stopPropagation();closeMenu(false);sentinel('/__desktop/win?action='+encodeURIComponent(item.dataset.win));
 });});
-document.addEventListener('click',closeMenus);
+bar.querySelectorAll('[data-act]').forEach(function(item){item.addEventListener('click',function(event){
+  event.stopPropagation();closeMenu(false);sentinel('/__desktop/menu?action='+encodeURIComponent(item.dataset.act));
+});});
+document.addEventListener('click',function(event){if(!bar.contains(event.target))closeMenu(false);});
+var observedSidebar=null;
+var sidebarResizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(syncSidebarWidth):null;
+function syncSidebarWidth(){
+  var sidebar=document.querySelector('.jx-sider,.jx-appLoading-sidebar');
+  if(sidebarResizeObserver&&sidebar&&sidebar!==observedSidebar){
+    if(observedSidebar)sidebarResizeObserver.unobserve(observedSidebar);
+    observedSidebar=sidebar;sidebarResizeObserver.observe(sidebar);
+  }
+  var rect=sidebar?sidebar.getBoundingClientRect():null;
+  var width=rect?Math.max(0,Math.min(window.innerWidth,Math.round(rect.right))):0;
+  document.documentElement.style.setProperty('--hugagent-desktop-sidebar-width',width+'px');
+}
+syncSidebarWidth();
+new MutationObserver(syncSidebarWidth).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
+window.addEventListener('resize',syncSidebarWidth);
 function isControl(target){return target instanceof Element&&!!target.closest('.tb-menu,.tb-controls,button');}
 bar.addEventListener('mousedown',function(event){if(event.button!==0||isControl(event.target))return;sentinel('/__desktop/win?action=drag');});
 bar.addEventListener('dblclick',function(event){if(isControl(event.target))return;sentinel('/__desktop/win?action=toggle-maximize');});
@@ -561,12 +589,10 @@ fn titlebar_block(offset_css: &str) -> String {
     format!(
         "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
 <header id=\"hugagent-titlebar\" data-height=\"{height}\">\
-<div class=\"tb-left\"><img class=\"tb-logo\" src=\"{logo}\" alt=\"\" onerror=\"this.style.display='none'\"/>{menu}</div>\
-<div class=\"tb-spacer\"></div>{controls}</header><script>{script}</script>",
+<div class=\"tb-spacer\"></div>{menu}{controls}</header><script>{script}</script>",
         css = TB_CSS,
         offset = offset_css,
         height = TITLEBAR_HEIGHT,
-        logo = brand::LOGIN_LOGO_URL,
         menu = TB_MENU,
         controls = TB_CONTROLS,
         script = TB_JS,
@@ -1207,14 +1233,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn windows_titlebar_keeps_icon_and_four_menus_on_one_row() {
+    fn windows_titlebar_is_seamless_and_collapses_actions_into_one_menu() {
         let block = titlebar_block(TB_OFFSET_SPA);
-        assert!(block.contains("tb-logo"));
+        assert!(!block.contains("tb-logo"));
+        assert!(!block.contains(brand::LOGIN_LOGO_URL));
         assert!(!block.contains("tb-name"));
         assert!(!block.contains(&format!(">{}<", brand::NAME)));
-        for label in ["文件", "编辑", "视图", "帮助"] {
-            assert!(block.contains(label));
+        for old_label in [">文件<", ">编辑<", ">视图<", ">帮助<"] {
+            assert!(!block.contains(old_label));
         }
+        for action in [
+            "new_chat",
+            "run_mode",
+            "server_config",
+            "local_server",
+            "reload",
+            "check_update",
+            "website",
+            "about",
+        ] {
+            assert!(block.contains(&format!("data-act=\"{action}\"")));
+        }
+        assert_eq!(TB_MENU.matches("class=\"tb-menuGroup\"").count(), 1);
+        assert!(block.contains("aria-label=\"更多菜单\""));
+        assert!(block.contains("aria-haspopup=\"menu\""));
+        assert!(block.contains("aria-expanded=\"false\""));
+        assert!(block.contains("role=\"menuitem\""));
+        assert!(block.contains("ResizeObserver"));
+        assert!(block.contains("event.ctrlKey&&!event.altKey&&key==='n'"));
+        assert!(block.contains("event.key==='F11'"));
+        assert!(block.contains("event.key==='ArrowDown'"));
+        assert!(block.contains("inset:0 0 auto var(--hugagent-desktop-sidebar-width)"));
+        assert!(block.contains("background:var(--color-bg-base)"));
+        assert!(block.contains("body{box-sizing:border-box!important;padding-top:0!important}"));
+        assert!(block.contains(
+            ".jx-appMainLayout{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}"
+        ));
+        assert!(block.contains(".jx-brandRow{padding-top:8px!important}"));
+        assert!(!block.contains("border-bottom"));
+        assert!(block.find("tb-spacer") < block.find("<nav class=\"tb-menu\""));
         assert!(block.contains("data-win=\"minimize\""));
         assert!(block.contains("data-win=\"close\""));
     }
@@ -1311,7 +1368,7 @@ mod tests {
                 ".ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight"
             ));
         }
-        assert!(titlebar_block(TB_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:36px"));
+        assert!(titlebar_block(TB_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:34px"));
         assert!(
             mac_titlebar_block(MAC_OFFSET_SPA).contains("--hugagent-desktop-titlebar-height:28px")
         );

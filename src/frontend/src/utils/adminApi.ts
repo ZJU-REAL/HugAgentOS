@@ -112,18 +112,6 @@ export async function saveAppConfig(
   });
 }
 
-/**
- * Update the home page shortcut list (uses CONFIG_TOKEN, entry inside /config "Page Config").
- */
-export async function saveHomepageShortcuts(
-  token: string,
-  items: unknown[],
-) {
-  return configFetch(token, '/v1/content/homepage_shortcuts', {
-    method: 'PUT',
-    body: JSON.stringify({ payload: items }),
-  });
-}
 
 export async function uploadPageAsset(
   token: string,

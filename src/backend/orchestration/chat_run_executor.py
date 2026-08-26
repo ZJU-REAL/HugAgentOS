@@ -2249,8 +2249,14 @@ async def _run_plan_execute_workflow(
 
         def _commit_plan_result(persist_db) -> None:  # noqa: ANN001
             chat_service = ChatService(persist_db)
-            content = (
-                result_text or f"计划执行完成：共 {total_steps} 步，完成 {completed_steps} 步。"
+            # 被用户中断的那一轮同样会走到这里（协作式取消让生成器正常收尾），
+            # 照着"执行完成"落库会让用户回到会话时看到一句"计划执行完成"，
+            # 与他刚按下的停止完全对不上。按快照里的中断位分开措辞。
+            _cancelled = bool((plan_snapshot or {}).get("cancelled"))
+            content = result_text or (
+                f"计划执行已中断：共 {total_steps} 步，完成 {completed_steps} 步。"
+                if _cancelled
+                else f"计划执行完成：共 {total_steps} 步，完成 {completed_steps} 步。"
             )
             chat_service.add_message(
                 chat_id=chat_id,

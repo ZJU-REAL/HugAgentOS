@@ -972,10 +972,10 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     - ``skill_id`` (single skill, slash-command selection) / ``skill_ids``
       (skill list, expanded from an explicitly referenced plugin)
       → inject each skill's SKILL.md load instruction.
-    - ``mcp_ids`` (MCP servers activated together when a plugin is explicitly
-      referenced) → these tools are already force-enabled into the toolset
-      (see _build_ctx); here we append a sentence telling the model they are
-      ready and can be called on demand.
+    - ``mcp_ids`` (MCP servers activated by an explicitly referenced plugin or
+      a connector selected in the composer) → these tools are already
+      force-enabled into the toolset (see _build_ctx); here we append a
+      sentence telling the model they are ready and can be called on demand.
 
     Aligned with Claude Code / Codex: once enabled, MCP tools stay resident in
     the toolset and the model calls them by description on its own — no
@@ -987,7 +987,9 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     skill_ids = _explicit_skill_ids_from_context(context)
 
     mcp_ids = [str(m) for m in (context.get("mcp_ids") or []) if m]
+    connector_id = str(context.get("connector_id") or "")
     plugin_name = context.get("plugin_name")
+    connector_name = context.get("connector_name")
 
     if not skill_ids and not mcp_ids:
         return None
@@ -1037,10 +1039,17 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     # ── MCP: activation notice (the tools themselves are already in the toolset; call by description) ──
     if mcp_ids:
-        sections.append(
-            f"MCP 工具：本插件包含的 {len(mcp_ids)} 个 MCP 工具服务已激活并就绪，"
-            "可直接按需调用（无需加载文件），请优先使用它们完成相关任务。"
-        )
+        if connector_id:
+            sections.append(
+                f"MCP 工具：连接器「{connector_name or connector_id}」已被用户显式选择。"
+                "系统会强制先真实调用该连接器暴露的至少一个工具；不得跳过调用直接回答，"
+                "也不得用其他工具冒充该连接器的结果。"
+            )
+        else:
+            sections.append(
+                f"MCP 工具：本轮显式激活的 {len(mcp_ids)} 个 MCP 连接器服务已就绪，"
+                "可直接按需调用（无需加载文件），请优先使用它们完成相关任务。"
+            )
 
     if not sections:
         return None
@@ -1056,11 +1065,17 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "并在结尾建议用户切换到「快速模式」或「思考模式」完整执行该技能。"
         )
 
-    header = (
-        f"用户已显式调用插件「{plugin_name}」，请优先采用其能力："
-        if plugin_name
-        else "用户已显式指定使用以下能力，请优先采用："
-    )
+    if plugin_name and connector_name:
+        header = (
+            f"用户已显式调用插件「{plugin_name}」并选择连接器「{connector_name}」，"
+            "请优先采用这些能力："
+        )
+    elif plugin_name:
+        header = f"用户已显式调用插件「{plugin_name}」，请优先采用其能力："
+    elif connector_name:
+        header = f"用户已显式选择连接器「{connector_name}」，请优先采用其能力："
+    else:
+        header = "用户已显式指定使用以下能力，请优先采用："
     content = (
         "<explicit_invocation>\n"
         + header
@@ -1387,6 +1402,9 @@ def run_chat_workflow(
             invoked_mcp_ids=[
                 m for m in (context.get("mcp_ids") or []) if isinstance(m, str)
             ],
+            required_mcp_ids=(
+                [str(context["connector_id"])] if context.get("connector_id") else None
+            ),
             memory_enabled=_workflow_mem_enabled,
             batch_mode=_workflow_batch_chat if _direct_user_agent is None else False,
             workflow_mode=bool(context.get("workflow_chat", False)),
@@ -2727,6 +2745,9 @@ async def astream_chat_workflow(
             invoked_mcp_ids=[
                 m for m in (context.get("mcp_ids") or []) if isinstance(m, str)
             ],
+            required_mcp_ids=(
+                [str(context["connector_id"])] if context.get("connector_id") else None
+            ),
             memory_enabled=_mem0_enabled,
             visible_subagents=_visible_subagents if _visible_subagents else None,
             plan_mode=_plan_chat,

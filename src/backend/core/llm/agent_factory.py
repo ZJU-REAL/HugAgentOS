@@ -31,6 +31,7 @@ from core.llm.middlewares import (
     AgentRuntimeState,
     CitationAnchorMiddleware,
     DynamicModelMiddleware,
+    ExplicitConnectorToolChoiceMiddleware,
     FileContextMiddleware,
     FinishPinGuardMiddleware,
     GoalAnchorReminderMiddleware,
@@ -313,6 +314,23 @@ def _filter_mcp_servers_by_keys(
     if owned_servers:
         all_servers.update(owned_servers)
     return {k: v for k, v in all_servers.items() if k in enabled_set}
+
+
+def _required_mcp_server_keys(
+    required_mcp_ids: List[str], enabled_mcp_keys: List[str]
+) -> List[str]:
+    """Resolve user-facing connector IDs to the concrete connected servers."""
+    enabled = set(enabled_mcp_keys)
+    resolved: List[str] = []
+    for connector_id in required_mcp_ids:
+        if connector_id == DB_UMBRELLA_ID:
+            candidates = [key for key in enabled_mcp_keys if key in DB_HIDDEN_SERVERS]
+        else:
+            candidates = [connector_id] if connector_id in enabled else []
+        for key in candidates:
+            if key not in resolved:
+                resolved.append(key)
+    return resolved
 
 
 def _filter_skill_ids_for_user(
@@ -731,6 +749,10 @@ async def create_agent_executor(
     # pass-throughs.
     invoked_skill_ids: Optional[List[str]] = None,
     invoked_mcp_ids: Optional[List[str]] = None,
+    # required_mcp_ids: connectors explicitly selected in the composer. Unlike
+    # plugin MCP activation (available on demand), these IDs carry a fail-closed
+    # contract: the first model round must execute one of their real tools.
+    required_mcp_ids: Optional[List[str]] = None,
     # mode_spec: 对话模式的装配契约（core/services/chat_mode_service.ChatModeSpec）。
     # 「模式」把原来写死的极速模式泛化成一张表：工具面 / 技能 / 插件 / 提示词 kind /
     # 迭代上限都由它给。turbo_mode 现在的含义是"这个模式要收窄工具面"，收窄成什么
@@ -764,6 +786,13 @@ async def create_agent_executor(
 
     _log = logging.getLogger(__name__)
     _t0 = time.monotonic()
+    _required_connector_ids = list(
+        dict.fromkeys(
+            str(item).strip()
+            for item in (required_mcp_ids or [])
+            if isinstance(item, str) and item.strip()
+        )
+    )
 
     def _elapsed():
         return f"{(time.monotonic() - _t0) * 1000:.0f}ms"
@@ -868,6 +897,10 @@ async def create_agent_executor(
 
         if not _mode_manual_invoke:
             # Manual summoning disabled by ops: turbo is strictly its own set.
+            if _required_connector_ids:
+                raise RuntimeError(
+                    "当前对话模式禁止手动调用连接器；本轮已停止，未静默忽略用户选择。"
+                )
             turbo_explicit_skill_ids = None
             turbo_explicit_mcp_ids = None
             visible_subagents = None
@@ -923,6 +956,20 @@ async def create_agent_executor(
                     ],
                 ]
             )
+        )
+
+    # A direct connector selection is a stronger per-turn user instruction
+    # than the normal catalog/profile assembly. Keep the ordinary defaults and
+    # add the selected connector; ownership/enabled-server filtering below is
+    # still the final security boundary.
+    if _required_connector_ids:
+        base_mcp_ids = (
+            list(enabled_mcp_ids)
+            if isinstance(enabled_mcp_ids, list)
+            else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
+        )
+        enabled_mcp_ids = list(
+            dict.fromkeys([*base_mcp_ids, *_required_connector_ids])
         )
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
@@ -1107,6 +1154,11 @@ async def create_agent_executor(
             else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
         )
         enabled_mcp_ids = [mcp_id for mcp_id in current_mcp if mcp_id in allowed_tools]
+        # A user-selected connector must not disappear silently behind a learned
+        # profile. It remains subject to the real server/ownership gate below.
+        enabled_mcp_ids = list(
+            dict.fromkeys([*enabled_mcp_ids, *_required_connector_ids])
+        )
         _log.info(
             "[factory] profile %s narrowed MCP servers %d → %d",
             profile.profile_id,
@@ -1175,6 +1227,15 @@ async def create_agent_executor(
         owned_servers=owned_mcp_servers,
         bridge_servers=bridge_mcp_servers,
     )
+    _required_connector_server_keys = _required_mcp_server_keys(
+        _required_connector_ids,
+        enabled_mcp_keys,
+    )
+    if _required_connector_ids and not _required_connector_server_keys:
+        raise RuntimeError(
+            "显式选择的连接器当前不可用或未获授权"
+            f"（{', '.join(_required_connector_ids)}）；本轮已停止，未使用其他能力代替。"
+        )
     enabled_servers = _filter_mcp_servers_by_keys(
         enabled_mcp_keys,
         owned_servers=owned_mcp_servers,
@@ -1408,6 +1469,47 @@ async def create_agent_executor(
             len(mcp_clients),
             len(http_clients),
         )
+
+    _required_connector_tool_names: List[str] = []
+    if _required_connector_server_keys:
+        connected_clients = {
+            str(getattr(client, "name", "") or ""): client
+            for client in [*mcp_clients, *http_clients]
+        }
+        required_clients = [
+            connected_clients[key]
+            for key in _required_connector_server_keys
+            if key in connected_clients
+        ]
+        if required_clients:
+            listed_tools = await asyncio.gather(
+                *(client.list_tools() for client in required_clients),
+                return_exceptions=True,
+            )
+            for server_key, result in zip(
+                [
+                    key
+                    for key in _required_connector_server_keys
+                    if key in connected_clients
+                ],
+                listed_tools,
+            ):
+                if isinstance(result, BaseException):
+                    _log.warning(
+                        "[connector-required] list_tools failed for %s: %s",
+                        server_key,
+                        result,
+                    )
+                    continue
+                for tool in result:
+                    tool_name = str(getattr(tool, "name", "") or "")
+                    if tool_name and tool_name not in _required_connector_tool_names:
+                        _required_connector_tool_names.append(tool_name)
+        if not _required_connector_tool_names:
+            raise RuntimeError(
+                "显式选择的连接器未能连接或没有暴露可调用工具"
+                f"（{', '.join(_required_connector_ids)}）；本轮已停止。"
+            )
 
     # ── Phase 3: Skill registration (fast — metadata already cached) ──
     # disable_tools=True is a "bare LLM" mode used by plan-generate and the
@@ -1809,6 +1911,20 @@ async def create_agent_executor(
     # (consistent with 1.x: subagent tools are registered after
     # get_json_schemas, so they don't enter the system_prompt's tool list).
     tool_schemas = await _build_toolkit().get_tool_schemas()
+    if _required_connector_tool_names:
+        visible_tool_names = {
+            str(schema.get("function", {}).get("name") or "")
+            for schema in tool_schemas
+            if isinstance(schema, dict)
+        }
+        _required_connector_tool_names = [
+            name for name in _required_connector_tool_names if name in visible_tool_names
+        ]
+        if not _required_connector_tool_names:
+            raise RuntimeError(
+                "显式选择的连接器没有可供当前会话调用的工具；本轮已停止，"
+                "未使用其他能力代替。"
+            )
     _log.info(
         "[factory] +%s tool schemas computed (%d)", _elapsed(), len(tool_schemas or [])
     )
@@ -2675,6 +2791,17 @@ async def create_agent_executor(
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
         ToolEffectMiddleware(),  # on_acting: durable Intent before every actual tool invocation
     ]
+    if _required_connector_tool_names:
+        # Place the hard connector contract before all reasoning/acting policy
+        # middleware. Its explicit tool_choice therefore wins, including on the
+        # final iteration where IterBudget would otherwise force text.
+        _policy_middlewares.insert(
+            2,
+            ExplicitConnectorToolChoiceMiddleware(
+                connector_ids=_required_connector_ids,
+                tool_names=_required_connector_tool_names,
+            ),
+        )
     # on_reasoning: 会话里有未收敛的批量作业时，每轮把台账数字回灌进上下文。
     # 进度是外部事实（job_items 表），不是模型的记忆——不主动回灌，隔十几轮之后就会
     # 退化成"边际收益递减，先交付吧"（568 行只补 66 行正是这么停的）。

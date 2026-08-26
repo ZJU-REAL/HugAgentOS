@@ -27,6 +27,13 @@ The UOS window follows the compact macOS client layout: it keeps the native titl
 and window controls but does not render the File/Edit/View/Help application menu, and
 Alt cannot reveal that menu temporarily.
 
+A distribution brand may preset the first-launch mode for a full package. A fixed
+dual-mode build goes directly to one-action initialization. The initialization and
+installation pages use the same halo, orbit, and progress-highlight motion as the
+existing desktop client, while showing only the current stage, percentage, and
+actionable errors. Raw logs remain in the local-service log directory for diagnosis
+instead of appearing at the bottom of the page.
+
 ## Build and verification
 
 Build the full package on native Linux aarch64, preferably UOS 1070 itself. An x86_64

@@ -6,7 +6,6 @@ import type {
   I18nText,
   ModuleContribution,
   PluginContributions,
-  ShortcutContribution,
   ToolMetaContribution,
   ToolViewContribution,
 } from '../plugin-ui/types';
@@ -179,28 +178,4 @@ export const usePluginUiStore = create<PluginUiState>((set, get) => ({
     const entry = (item?.contributes.modules || []).find((module) => module.id === moduleId);
     return entry && item ? { slug: item.slug, contribution: entry } : null;
   },
-
 }));
-
-/**
- * Merge plugin-contributed homepage shortcuts behind the admin's own entries.
- *
- * Decision 2 of the design doc lives here, in one place: admin entries win on
- * id collision and always sort first — the homepage is the admin's surface,
- * plugins may only suggest. A pure function (not a store selector) because it
- * returns a fresh array, which a zustand selector would re-emit every call.
- */
-export function mergeContributedShortcuts<
-  T extends { id: string },
->(
-  items: PluginContributions[],
-  adminShortcuts: T[],
-  toEntry: (shortcut: ShortcutContribution) => T,
-): T[] {
-  const taken = new Set(adminShortcuts.map((entry) => entry.id));
-  const contributed = items
-    .flatMap((item) => item.contributes.shortcuts || [])
-    .filter((shortcut) => !taken.has(shortcut.id))
-    .map(toEntry);
-  return [...adminShortcuts, ...contributed];
-}

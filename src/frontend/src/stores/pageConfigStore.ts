@@ -63,25 +63,6 @@ export const BUILTIN_APPS: AppItem[] = [
   },
 ];
 
-export interface HomepageShortcut {
-  id: string;
-  enabled: boolean;
-  label: string;
-  icon: string;
-  url: string;
-  /** Plugin-contributed entries may seed the composer instead of opening a page. */
-  prompt?: string;
-}
-
-// 只保留与具体行业无关的通用入口；行业相关的快捷入口由对应插件通过
-// ``ui.contributes.shortcuts`` 贡献，插件卸载后入口随之消失。
-export const DEFAULT_HOMEPAGE_SHORTCUTS: HomepageShortcut[] = [
-  { id: 'knowledge', enabled: true, label: '知识检索', icon: '/home/company-research.svg', url: '' },
-  { id: 'policy',    enabled: true, label: '政策对比', icon: '/home/icon3.svg',            url: '' },
-  { id: 'compare',   enabled: true, label: '材料对比', icon: '/home/icon1.svg',            url: '' },
-  { id: 'data',      enabled: true, label: '数据分析', icon: '/home/icon2.svg',            url: '' },
-];
-
 // By default no external sub-apps are built in — administrators add/remove them in "App Configuration".
 // (Historically "Enterprise Profile / Enterprise Research" were preset; after deletion a refresh re-injected them, so this is left empty.)
 export const DEFAULT_APP_CONFIG: AppConfig = {
@@ -116,42 +97,16 @@ function mergeAppConfig(remote: unknown): AppConfig {
   return { apps: [...DEFAULT_APP_CONFIG.apps] };
 }
 
-function normalizeShortcut(raw: unknown): HomepageShortcut | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const id = typeof r.id === 'string' ? r.id.trim() : '';
-  if (!id) return null;
-  return {
-    id,
-    enabled: r.enabled !== false,
-    label: typeof r.label === 'string' && r.label ? r.label : id,
-    icon: typeof r.icon === 'string' ? r.icon : '',
-    url: typeof r.url === 'string' ? r.url : '',
-  };
-}
-
-function mergeHomepageShortcuts(remote: unknown): HomepageShortcut[] {
-  if (!Array.isArray(remote)) return [...DEFAULT_HOMEPAGE_SHORTCUTS];
-  const list = remote.map(normalizeShortcut).filter((c): c is HomepageShortcut => c !== null);
-  return list.length > 0 ? list : [...DEFAULT_HOMEPAGE_SHORTCUTS];
-}
-
-function composeVersionKey(
-  pageVer: string | null,
-  appVer: string | null,
-  shortcutsVer: string | null,
-): string | null {
-  if (!pageVer && !appVer && !shortcutsVer) return null;
-  return `${pageVer || ''}|${appVer || ''}|${shortcutsVer || ''}`;
+function composeVersionKey(pageVer: string | null, appVer: string | null): string | null {
+  if (!pageVer && !appVer) return null;
+  return `${pageVer || ''}|${appVer || ''}`;
 }
 
 interface PageConfigState {
   config: PageConfig;
   appConfig: AppConfig;
-  homepageShortcuts: HomepageShortcut[];
   updatedAt: string | null;
   appConfigUpdatedAt: string | null;
-  homepageShortcutsUpdatedAt: string | null;
   loaded: boolean;
   fetching: boolean;
   fetchConfig: () => Promise<void>;
@@ -163,10 +118,8 @@ interface PageConfigState {
 export const usePageConfigStore = create<PageConfigState>((set, get) => ({
   config: DEFAULT_PAGE_CONFIG,
   appConfig: DEFAULT_APP_CONFIG,
-  homepageShortcuts: [...DEFAULT_HOMEPAGE_SHORTCUTS],
   updatedAt: null,
   appConfigUpdatedAt: null,
-  homepageShortcutsUpdatedAt: null,
   loaded: false,
   fetching: false,
 
@@ -180,14 +133,11 @@ export const usePageConfigStore = create<PageConfigState>((set, get) => ({
       const data = body?.data || {};
       const remote = data.page_config || null;
       const remoteApp = data.app_config || null;
-      const remoteShortcuts = data.homepage_shortcuts || null;
       set({
         config: mergePageConfig(remote),
         appConfig: mergeAppConfig(remoteApp),
-        homepageShortcuts: mergeHomepageShortcuts(remoteShortcuts),
         updatedAt: data.page_config_updated_at || null,
         appConfigUpdatedAt: data.app_config_updated_at || null,
-        homepageShortcutsUpdatedAt: data.homepage_shortcuts_updated_at || null,
         loaded: true,
       });
     } catch {
@@ -204,18 +154,13 @@ export const usePageConfigStore = create<PageConfigState>((set, get) => ({
       const body = await res.json();
       const pageVer = (body?.data?.page_config as string | null) || null;
       const appVer = (body?.data?.app_config as string | null) || null;
-      const shortcutsVer = (body?.data?.homepage_shortcuts as string | null) || null;
-      return composeVersionKey(pageVer, appVer, shortcutsVer);
+      return composeVersionKey(pageVer, appVer);
     } catch {
       return null;
     }
   },
 
-  getVersionKey: () => composeVersionKey(
-    get().updatedAt,
-    get().appConfigUpdatedAt,
-    get().homepageShortcutsUpdatedAt,
-  ),
+  getVersionKey: () => composeVersionKey(get().updatedAt, get().appConfigUpdatedAt),
 
   setConfig: (config, updatedAt) =>
     set({

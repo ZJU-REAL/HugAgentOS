@@ -21,8 +21,11 @@ DOCS_BLOCK_MAP = {
     "prompt_hub": "prompt_hub",
     "page_config": "page_config",
     "app_config": "app_config",
-    "homepage_shortcuts": "homepage_shortcuts",
 }
+
+# Aliases retired from DOCS_BLOCK_MAP; ignored (not rejected) when importing an
+# older snapshot that still carries them.
+RETIRED_BLOCK_ALIASES = {"homepage_shortcuts"}
 
 # Blocks whose payload is a dict instead of a list (default is list).
 DICT_PAYLOAD_BLOCKS = {"page_config", "prompt_versions", "app_config"}
@@ -57,9 +60,24 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
         "logo_url": "/home/header.svg",
         "favicon_url": "/icon.png",
         "page_title": _BRAND_NAME,
-        "hero_title": f"你好，我是{_BRAND_NAME}",
-        "hero_subtitle": "基于 AI 能力的场景化智能工作平台",
+        "hero_title": f"你好，我是 {_BRAND_NAME}",
+        "hero_subtitle": "今天想从哪里开始？",
         "disclaimer": "本平台生成内容由AI大模型生成，不构成任何建议；涉及业务决策请以权威信息为准。",
+    },
+    "homepage": {
+        # The homepage uses the transparent standalone brand mark rather than
+        # the square sidebar logo, mirroring the lighter Qwen Office hero.
+        "show_logo": True,
+        "logo_url": "/icon.png",
+        "show_suggestions": True,
+        "suggested_questions": [
+            "分析新能源汽车产业链的关键环节与代表企业",
+            "对比两份产业政策，提炼支持方向和申报条件",
+            "查询一家企业的基本情况、经营风险和产业链位置",
+            "从这份材料中提炼核心观点和待办事项",
+            "分析这组经营数据的趋势、异常和可能原因",
+            "检索相关政策依据，并给出可核验的来源",
+        ],
     },
     "navigation": {
         "panel_titles": {
@@ -184,45 +202,6 @@ def normalize_app_config(payload: Any) -> dict[str, Any]:
     return {"apps": list(DEFAULT_APP_CONFIG["apps"])}
 
 
-DEFAULT_HOMEPAGE_SHORTCUTS: list[dict[str, Any]] = [
-    {
-        "id": "knowledge",
-        "enabled": True,
-        "label": "知识检索",
-        "icon": "/home/company-research.svg",
-        "url": "",
-    },
-    # 行业相关的快捷入口由对应插件通过 ui.contributes.shortcuts 贡献，
-    # 卸载插件后入口随之消失；这里只留与行业无关的通用入口。
-    {"id": "policy", "enabled": True, "label": "政策对比", "icon": "/home/icon3.svg", "url": ""},
-    {"id": "compare", "enabled": True, "label": "材料对比", "icon": "/home/icon1.svg", "url": ""},
-    {"id": "data", "enabled": True, "label": "数据分析", "icon": "/home/icon2.svg", "url": ""},
-]
-
-
-def normalize_homepage_shortcuts(payload: Any) -> list[dict[str, Any]]:
-    """Normalize homepage shortcut list; fall back to defaults when missing/empty."""
-    if not isinstance(payload, list) or not payload:
-        return [dict(c) for c in DEFAULT_HOMEPAGE_SHORTCUTS]
-    out: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        cid = str(item.get("id") or "").strip()
-        if not cid:
-            continue
-        out.append(
-            {
-                "id": cid,
-                "enabled": bool(item.get("enabled", True)),
-                "label": str(item.get("label") or cid),
-                "icon": str(item.get("icon") or ""),
-                "url": str(item.get("url") or ""),
-            }
-        )
-    return out or [dict(c) for c in DEFAULT_HOMEPAGE_SHORTCUTS]
-
-
 DEFAULT_PROMPT_VERSIONS: dict[str, Any] = {
     "active": {
         "system": "default",
@@ -243,8 +222,6 @@ def _default_payload(alias: str) -> Any:
         return DEFAULT_APP_CONFIG
     if alias == "prompt_versions":
         return DEFAULT_PROMPT_VERSIONS
-    if alias == "homepage_shortcuts":
-        return [dict(c) for c in DEFAULT_HOMEPAGE_SHORTCUTS]
     return {} if alias in DICT_PAYLOAD_BLOCKS else []
 
 
@@ -612,7 +589,7 @@ def normalize_docs_snapshot(
     if not isinstance(raw_blocks, Mapping):
         raise ContentSnapshotError("Snapshot.blocks must be an object")
 
-    unknown_blocks = set(raw_blocks.keys()) - set(block_map.keys())
+    unknown_blocks = set(raw_blocks.keys()) - set(block_map.keys()) - RETIRED_BLOCK_ALIASES
     if unknown_blocks:
         raise ContentSnapshotError(
             f"Unknown blocks in snapshot: {', '.join(sorted(unknown_blocks))}"

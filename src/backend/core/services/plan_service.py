@@ -205,9 +205,15 @@ class PlanService:
         Shared by chat-triggered plan execution (api/routes/v1/plans.py) and
         automation-triggered plan execution (routing/automation_scheduler.py);
         drives the frontend PlanCard(mode="complete") rendering.
+
+        用户中途停掉的计划带上 ``cancelled``：不写这一位的话，下次拉历史时那张
+        卡片会渲染成「执行完成」（甚至因为快照里 mode 还停在执行态而转圈），
+        用户看到的就是"明明已经中断了，回来又在跑/又说跑完了"。
         """
+        cancelled = getattr(plan, "status", None) == "cancelled"
         return {
             "mode": "complete",
+            "cancelled": cancelled,
             "title": plan.title,
             "description": plan.description,
             "steps": [

@@ -51,6 +51,10 @@
   transition:flex-basis var(--motion-duration-slow) var(--motion-ease-brand-out),
     opacity var(--motion-duration-fast) var(--motion-ease-standard);
 }
+.jx-primaryPane.is-chatSurface,
+.jx-content.jx-content--chatSurface{
+  background:var(--color-bg-chat);
+}
 .jx-primaryPane.is-canvasOpen .jx-chatTopbar{
   padding-right:16px;
 }
@@ -1544,41 +1548,38 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   max-width:100%;
   flex:1;
   justify-content:center;
+  font-family:var(--font-family-homepage);
 }
 
-/* Hero with background image */
+/* Homepage hero — transparent mark and compact Qwen Office-style greeting. */
 .jx-heroBg{
   position:relative;
   width:100%;
   display:flex;
   flex-direction:column;
-  align-items:center;
-  padding:20px 0 32px;
-  overflow:hidden;
+  align-items:flex-start;
+  padding:0 0 28px;
+  font-family:var(--font-family-homepage);
 }
-.jx-heroBgImg{
-  position:absolute;
-  top:50%; left:50%;
-  transform:translate(-50%,-50%);
-  width:100%;
-  min-width:600px;
-  height:auto;
-  pointer-events:none;
-  user-select:none;
-}
-/* 装饰底图是带矩形画布的浅色 PNG；暗色下即使低透明度也会露出横向色块。 */
-:root[data-theme='dark'] .jx-heroBgImg{
-  display:none;
+.jx-homeBrandMark{
+  display:block;
+  width:64px;
+  height:64px;
+  margin:0 0 16px;
+  object-fit:contain;
+  object-position:left center;
 }
 .jx-heroTitle{
   position:relative; z-index:1;
-  font-size:44px; font-weight:500; color:var(--color-text);
-  margin:0 0 2px; line-height:1.2; text-align:center;
+  font-size:30px; font-weight:700; color:var(--color-text);
+  margin:0; line-height:1.38; text-align:left;
+  letter-spacing:-.02em;
 }
 .jx-heroSubtitle{
   position:relative; z-index:1;
-  font-size:16px; font-weight:400; color:var(--color-text-tertiary);
-  margin:0; text-align:center;
+  font-size:30px; font-weight:700; color:var(--color-text);
+  margin:0; line-height:1.38; text-align:left;
+  letter-spacing:-.02em;
 }
 
 /* Input container: 840×148 */
@@ -1591,9 +1592,9 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-homeInput .jx-composerWrap{
   position:relative; width:100%; margin-bottom:0;
-  border:1px solid var(--color-primary-disabled);
+  border:1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
   border-radius:20px;
-  box-shadow:0px 2px 14px 1px rgba(102,150,227,0.15);
+  box-shadow:0 1px 2px rgba(15,23,42,.025), 0 14px 42px rgba(15,23,42,.065);
   background:var(--color-bg-container);
 }
 .jx-homeInput .jx-composer{
@@ -1608,12 +1609,18 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 .jx-homeInput .jx-composer .ant-input,
 .jx-homeInput .jx-composer textarea,
 .jx-homeInput textarea.jx-composer,
-.jx-homeInput .jx-composer.ant-input{
+.jx-homeInput .jx-composer.ant-input,
+.jx-homeInput .jx-composerEditor,
+.jx-homeInput .jx-composerPlaceholder{
   height:100% !important;
   padding:16px 16px 50px 16px !important;
   font-size:16px !important;
+  font-family:var(--font-family-homepage) !important;
   color:var(--color-text) !important;
   resize:none !important;
+}
+.jx-homeInput .jx-composerPlaceholder{
+  color:var(--color-text-placeholder) !important;
 }
 .jx-homeInput .jx-composerBar{
   position:absolute;
@@ -1649,6 +1656,76 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 }
 .jx-quickPill:hover{ background:var(--color-fill-hover); }
 
+/* Configurable homepage suggestions — quiet text rows inspired by the Qwen home screen. */
+.jx-homeSuggestions{
+  width:100%;
+  margin-top:24px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+.jx-homeSuggestionList{
+  width:min(760px, 100%);
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.jx-homeSuggestion{
+  appearance:none;
+  width:100%;
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 12px;
+  border:none;
+  border-radius:10px;
+  background:transparent;
+  color:var(--color-text-secondary);
+  font-size:14px;
+  line-height:22px;
+  text-align:left;
+  cursor:pointer;
+  transition:background-color .16s ease, color .16s ease;
+}
+.jx-homeSuggestion:hover{
+  background:var(--color-fill-hover);
+  color:var(--color-text);
+}
+.jx-homeSuggestion:focus-visible,
+.jx-homeSuggestionRefresh:focus-visible{
+  outline:2px solid color-mix(in srgb, var(--color-primary) 38%, transparent);
+  outline-offset:2px;
+}
+.jx-homeSuggestionIcon{
+  flex:0 0 auto;
+  width:16px;
+  height:16px;
+  color:#c026d3;
+}
+.jx-homeSuggestion:nth-child(3n + 2) .jx-homeSuggestionIcon{ color:#ef4444; }
+.jx-homeSuggestion:nth-child(3n + 3) .jx-homeSuggestionIcon{ color:#06b6d4; }
+.jx-homeSuggestionRefresh{
+  appearance:none;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-top:16px;
+  padding:6px 10px;
+  border:none;
+  border-radius:8px;
+  background:transparent;
+  color:var(--color-text-tertiary);
+  font-size:13px;
+  line-height:20px;
+  cursor:pointer;
+  transition:background-color .16s ease, color .16s ease;
+}
+.jx-homeSuggestionRefresh:hover{
+  background:var(--color-fill-hover);
+  color:var(--color-text-secondary);
+}
+
 /* 5 Capability cards — 60px below pills */
 .jx-capCards{
   display:flex; gap:88px; justify-content:center; margin-top:60px;
@@ -1659,33 +1736,9 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
   display:flex; flex-direction:column; align-items:center;
   gap:14px; cursor:pointer;
 }
-.jx-capCardToast{
-  position:absolute;
-  top:-32px;
-  left:50%;
-  transform:translateX(-50%);
-  padding:4px 10px;
-  border-radius:10px;
-  background:rgba(15,23,42,.56);
-  color:var(--color-text-white);
-  font-size:12px;
-  font-weight:400;
-  line-height:1.2;
-  white-space:nowrap;
-  box-shadow:0 6px 18px rgba(15,23,42,.12);
-  pointer-events:none;
-  animation:jxCapToastFade 1.6s ease forwards;
-}
 .jx-capCard:hover .jx-capCardIcon{ transform:translateY(-2px); }
 .jx-capCardIcon{ width:56px; height:56px; transition:transform .18s; }
 .jx-capCardLabel{ font-size:14px; font-weight:400; color:var(--color-text); letter-spacing:0.28px; }
-
-@keyframes jxCapToastFade{
-  0%{ opacity:0; transform:translateX(-50%) translateY(4px); }
-  15%{ opacity:1; transform:translateX(-50%) translateY(0); }
-  80%{ opacity:1; transform:translateX(-50%) translateY(0); }
-  100%{ opacity:0; transform:translateX(-50%) translateY(-2px); }
-}
 
 /* AI Disclaimer — at page bottom */
 .jx-aiDisclaimer{
@@ -1914,6 +1967,9 @@ textarea.jx-composer{
   /* 实色背景防止滚动内容从底部透出；顶部渐变见 ::before */
   background:var(--color-bg-container);
 }
+.jx-primaryPane.is-chatSurface .jx-chatFooter{
+  background:var(--color-bg-chat);
+}
 .jx-inputArea{
   position:relative;
   padding-top:12px;
@@ -1932,6 +1988,9 @@ textarea.jx-composer{
   height:24px;
   pointer-events:none;
   background:linear-gradient(to bottom, transparent 0%, var(--color-bg-container) 100%);
+}
+.jx-primaryPane.is-chatSurface .jx-chatFooter::before{
+  background:linear-gradient(to bottom, transparent 0%, var(--color-bg-chat) 100%);
 }
 /* In empty state, input width matches design */
 .jx-emptyWrap .jx-inputArea,
@@ -3358,6 +3417,10 @@ textarea.jx-composer{
   background: var(--color-tint-purple-bg);
   color: var(--color-tint-purple);
 }
+.jx-editorChip--connector {
+  background: var(--color-tint-teal-bg);
+  color: var(--color-tint-teal);
+}
 .jx-editorChip-prefix {
   font-weight: 700;
 }
@@ -3396,6 +3459,10 @@ textarea.jx-composer{
 .jx-msgChip--plugin {
   background: var(--color-tint-purple-bg);
   color: var(--color-tint-purple);
+}
+.jx-msgChip--connector {
+  background: var(--color-tint-teal-bg);
+  color: var(--color-tint-teal);
 }
 .jx-msgChip-prefix {
   font-weight: 700;

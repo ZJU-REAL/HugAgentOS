@@ -49,10 +49,11 @@ export function loadChatStore(userId: string | null | undefined): ChatStore {
     if (!raw) return { chats: {}, order: [] };
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return { chats: {}, order: [] };
-    return {
+    loadUnboundProjectIds(userId);
+    return stripUnboundProjects({
       chats: parsed.chats || {},
       order: parsed.order || [],
-    };
+    });
   } catch {
     return { chats: {}, order: [] };
   }
@@ -109,6 +110,70 @@ export function registerDeletedChatId(id: string) {
   sessionDeletedChatIds.add(id);
 }
 
+/** 已删除项目的 id。落 localStorage（按账号隔离）而不是只放内存：
+ *  合并写盘是按 chat 的 updatedAt 取新者，而"解绑项目"并不改 updatedAt ——
+ *  A 窗口删了项目、把 chat 的 projectId 摘掉写回磁盘后，还留着旧绑定的 B 窗口
+ *  一写盘就按 updatedAt 平手把绑定又贴了回去。侧边栏于是拿 chat.projectName
+ *  兜底造出一个"已删除项目"的分组，新对话就挂在一个并不存在的项目下。
+ *  记成跨窗口可见的黑名单后，任何一侧合并时都会把这些绑定清干净。 */
+const UNBOUND_PROJECTS_KEY = 'hugagent_ui_unbound_projects_v1';
+const UNBOUND_PROJECTS_MAX = 200;
+// 只保留"当前账号"的那一份：换账号时整体丢弃，别把 A 的已删项目带到 B 的会话上。
+let unboundProjectOwner: string | null = null;
+let unboundProjectIds = new Set<string>();
+
+function unboundProjectsKey(userId: string | null | undefined): string | null {
+  return userScopedKey(UNBOUND_PROJECTS_KEY, userId);
+}
+
+/** 载入该账号已登记的已删除项目（含其他窗口写入的）。 */
+export function loadUnboundProjectIds(userId: string | null | undefined): Set<string> {
+  const owner = userId || null;
+  if (owner !== unboundProjectOwner) {
+    unboundProjectOwner = owner;
+    unboundProjectIds = new Set<string>();
+  }
+  const key = unboundProjectsKey(userId);
+  if (!key || typeof window === 'undefined') return unboundProjectIds;
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) for (const id of parsed) if (typeof id === 'string') unboundProjectIds.add(id);
+  } catch { /* ignore */ }
+  return unboundProjectIds;
+}
+
+/** 项目被删除时登记：本窗口立即生效，其他窗口下次合并/加载时生效。 */
+export function registerUnboundProject(userId: string | null | undefined, projectId: string) {
+  if (!projectId) return;
+  loadUnboundProjectIds(userId).add(projectId);
+  const key = unboundProjectsKey(userId);
+  if (!key || typeof window === 'undefined') return;
+  try {
+    const next = [...unboundProjectIds].slice(-UNBOUND_PROJECTS_MAX);
+    window.localStorage.setItem(key, JSON.stringify(next));
+  } catch { /* ignore */ }
+}
+
+/** 把已删除项目的绑定从聊天树里摘掉（不改 updatedAt，避免侧边栏顺序跳动）。 */
+function stripUnboundProjects(store: ChatStore): ChatStore {
+  if (unboundProjectIds.size === 0) return store;
+  let mutated = false;
+  const chats: ChatStore['chats'] = {};
+  for (const [id, chat] of Object.entries(store.chats || {})) {
+    if (chat?.projectId && unboundProjectIds.has(chat.projectId)) {
+      const next = { ...chat };
+      delete next.projectId;
+      delete next.projectName;
+      chats[id] = next;
+      mutated = true;
+    } else {
+      chats[id] = chat;
+    }
+  }
+  return mutated ? { ...store, chats } : store;
+}
+
 /** 由 chatStore 注册：返回本标签页正在流式输出的 chat id 集合。
  *  合并写盘时这些会话一律以本内存版本为准（磁盘上可能是别的标签页的旧影子）。 */
 let streamingIdsProvider: (() => Set<string>) | null = null;
@@ -142,7 +207,7 @@ export function mergeChatStores(
   const order = Object.values(chats)
     .sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))
     .map((c) => c.id);
-  return { chats, order };
+  return stripUnboundProjects({ chats, order });
 }
 
 function performSave(userId: string, store: ChatStore) {
@@ -185,6 +250,29 @@ export function flushChatStore() {
   const payload = pendingSavePayload;
   pendingSavePayload = null;
   if (payload) performSave(payload.userId, payload.store);
+}
+
+/** 订阅"另一个窗口改了这个账号的聊天树"。
+ *
+ *  多开窗口时每个页面各持一份内存快照，磁盘只在写盘时按会话粒度合并 ——
+ *  所以 A 窗口新建/改名/解绑的会话，B 窗口在刷新之前一直看不到，反过来 B 窗口
+ *  随后的一次写盘还会把自己的旧快照贴回磁盘。用户看到的就是"另开一个窗口就冒出
+ *  一堆记录 / 对话挂在已删除的项目下，刷新后才正常"。这里监听 storage 事件把
+ *  外部改动即时合回内存，两个窗口不再各说各话。
+ *
+ *  只读不写：回调里不得再触发写盘，否则两个窗口会互相唤醒形成写盘乒乓。 */
+export function subscribeChatStoreChanges(
+  userId: string | null | undefined,
+  handler: (disk: ChatStore) => void,
+): () => void {
+  const key = userScopedKey(STORAGE_KEY, userId);
+  if (!key || typeof window === 'undefined') return () => { /* noop */ };
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== key) return;
+    handler(loadChatStore(userId));
+  };
+  window.addEventListener('storage', onStorage);
+  return () => window.removeEventListener('storage', onStorage);
 }
 
 if (typeof window !== 'undefined') {

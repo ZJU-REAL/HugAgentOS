@@ -6,7 +6,7 @@ import {
   FileImageOutlined, FileTextOutlined, CloudDownloadOutlined,
   AppstoreOutlined, FolderOutlined, FolderOpenOutlined, FolderAddOutlined, RobotOutlined,
   OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined, PartitionOutlined,
-  LaptopOutlined, CloseOutlined,
+  LaptopOutlined, CloseOutlined, LinkOutlined,
 } from '@ant-design/icons';
 import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
@@ -185,6 +185,19 @@ function insertChipAtCursor(editor: HTMLElement, prefix: string, name: string, c
   setCaretAfter(space);
 }
 
+/** Insert a chip before the prefilled text used by plugin-first entry points. */
+function insertChipAtStart(editor: HTMLElement, prefix: string, name: string, cls: string, chipType?: string) {
+  const selection = window.getSelection();
+  if (selection) {
+    const range = document.createRange();
+    range.setStart(editor, 0);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  insertChipAtCursor(editor, prefix, name, cls, chipType);
+}
+
 function setEditorPlainText(editor: HTMLElement, text: string) {
   editor.innerHTML = '';
   if (text) {
@@ -275,7 +288,8 @@ export function InputArea({
   const {
     input, setInput, sending: storeSending,
     quotedFollowUp, setQuotedFollowUp,
-    activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeMention, setActiveMention,
+    activeSkill, setActiveSkill, activePlugin, setActivePlugin,
+    activeConnector, setActiveConnector, activeMention, setActiveMention,
     planMode, loopMode, setLoopMode, currentChat, enterChatMode, exitChatMode,
     currentChatId, bindChatProject, unbindChatProject,
     queuedMessages, updateQueuedMessage, activeRuns,
@@ -291,6 +305,8 @@ export function InputArea({
   const batchRunnerAllowed = !Array.isArray(allowedApps) || allowedApps.includes('batch_runner');
   // Skill list (for the skills submenu of the "+" menu)
   const skills = useCatalogStore((s) => s.catalog.skills);
+  // Enabled MCP servers are user-facing "connectors" in the composer.
+  const connectors = useCatalogStore((s) => s.catalog.mcp);
   // Project list (for the toolbar "Project" selector dropdown)
   const projects = useProjectStore((s) => s.list);
   const fetchProjects = useProjectStore((s) => s.fetchProjects);
@@ -507,6 +523,7 @@ export function InputArea({
     const hadMentionChip = !!editor.querySelector('[data-chip="mention"]');
     const hadSkillChip = !!editor.querySelector('[data-chip="skill"]');
     const hadPluginChip = !!editor.querySelector('[data-chip="plugin"]');
+    const hadConnectorChip = !!editor.querySelector('[data-chip="connector"]');
 
     setEditorPlainText(editor, input);
     prevTextRef.current = input;
@@ -514,17 +531,39 @@ export function InputArea({
     if (hadMentionChip && activeMention) setActiveMention(null);
     if (hadSkillChip && activeSkill) setActiveSkill(null);
     if (hadPluginChip && activePlugin) setActivePlugin(null);
+    if (hadConnectorChip && activeConnector) setActiveConnector(null);
 
     if (document.activeElement === editor) {
       moveCaretToEnd(editor);
     }
-  }, [activeMention, activeSkill, activePlugin, input, setActiveMention, setActiveSkill, setActivePlugin]);
+  }, [
+    activeMention, activeSkill, activePlugin, activeConnector, input,
+    setActiveMention, setActiveSkill, setActivePlugin, setActiveConnector,
+  ]);
 
-  // ── Site-building chat: insert the activated "site" plugin into the composer by default as a plugin-reference chip ──
-  // After the pure plugin gating, a site-building chat "references" the site plugin by
-  // default (enterSiteMode already called setActivePlugin). Here it is rendered as an
-  // inline chip identical to plugins picked manually via / or @ (replacing the old
-  // "@site" mode badge).
+  // Connector chips are per-turn composer state. Clear stale DOM chips after switching chats,
+  // panels, users, or starting a new chat, just like the site-plugin safety invariant below.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || activeConnector) return;
+    const stale = editor.querySelectorAll('[data-chip="connector"]');
+    if (stale.length) {
+      stale.forEach((el) => {
+        const next = el.nextSibling;
+        if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith('\u00A0')) {
+          next.textContent = next.textContent.slice(1);
+          if (!next.textContent) next.remove();
+        }
+        el.remove();
+      });
+      syncText();
+    }
+  }, [activeConnector, _currentChat?.id]);
+
+  // ── Plugin-first entry points: render their activated plugin as an inline reference chip ──
+  // Site building and scheduled-task creation can enter chat with a plugin already active.
+  // The chip must be inserted before any prefilled prompt so the user sees both the referenced
+  // plugin and the editable instruction exactly as they would after choosing a plugin manually.
   //
   // Key point (fixes plugin references leaking across chats): the editor DOM is a single
   // element shared by all chats, so plugin chips do not disappear automatically on chat
@@ -532,8 +571,7 @@ export function InputArea({
   // correspond to an activePlugin": whenever activePlugin is empty (setCurrentChatId
   // already recomputed it to null when switching to a non-site chat, or the user deleted
   // the chip), remove all stale plugin chips from the editor. It does not depend on any
-  // "did we switch" check, so nothing slips through. Conversely, in a site chat, insert
-  // the site plugin chip when there is no draft and no chip yet.
+  // "did we switch" check, so nothing slips through.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -545,8 +583,8 @@ export function InputArea({
       }
       return;
     }
-    if (isSiteChat && !editor.querySelector('[data-chip="plugin"]') && !input.trim()) {
-      insertChipAtCursor(editor, '/', activePlugin.name, 'jx-editorChip--plugin', 'plugin');
+    if (!editor.querySelector('[data-chip="plugin"]')) {
+      insertChipAtStart(editor, '/', activePlugin.name, 'jx-editorChip--plugin', 'plugin');
       syncText();
     }
   }, [isSiteChat, activePlugin, _currentChat?.id, input]);
@@ -676,6 +714,34 @@ export function InputArea({
     applyPlugin(p);
   }
 
+  /** Select one connector for this turn and render it as an inline MCP chip. */
+  function applyConnector(connectorId: string, connectorName: string) {
+    const ed = editorRef.current;
+    if (!ed) return;
+    // One direct connector can be selected at a time. Replace an existing connector chip
+    // instead of leaving the DOM with two chips backed by one store value.
+    ed.querySelectorAll('[data-chip="connector"]').forEach((el) => {
+      const next = el.nextSibling;
+      if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith('\u00A0')) {
+        next.textContent = next.textContent.slice(1);
+        if (!next.textContent) next.remove();
+      }
+      el.remove();
+    });
+    insertChipAtCursor(ed, 'MCP', connectorName, 'jx-editorChip--connector', 'connector');
+    setActiveConnector({ id: connectorId, name: connectorName });
+    syncText();
+    ed.focus();
+  }
+
+  function onPickConnectorFromMenu(connectorId: string, connectorName: string) {
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.focus();
+    moveCaretToEnd(ed);
+    applyConnector(connectorId, connectorName);
+  }
+
   function onSlashEntrySelect(entry: SlashEntry) {
     if (entry.kind === 'plugin') {
       onSlashSelectPlugin(entry.plugin);
@@ -787,6 +853,7 @@ export function InputArea({
             if (type === 'mention') setActiveMention(null);
             if (type === 'skill') setActiveSkill(null);
             if (type === 'plugin') setActivePlugin(null);
+            if (type === 'connector') setActiveConnector(null);
             e.preventDefault();
             syncText();
             return;
@@ -803,7 +870,8 @@ export function InputArea({
     }
   }
 
-  const showPlaceholder = !input.trim() && !activeMention && !activeSkill && !activePlugin && !isComposing;
+  const showPlaceholder = !input.trim() && !activeMention && !activeSkill && !activePlugin
+    && !activeConnector && !isComposing;
 
   const hasAttachments = uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
   // A project-detail composer starts a separate chat and deliberately ignores
@@ -814,6 +882,7 @@ export function InputArea({
     && !hasAttachments
     && !activeSkill
     && !activePlugin
+    && !activeConnector
     && !activeMention;
 
   // A terminal run can race with the steer response. Never leave the card in
@@ -1061,6 +1130,22 @@ export function InputArea({
                     key: `skill-${s.id}`,
                     label: s.name,
                     onClick: () => onPickSkillFromMenu(s.id, s.name),
+                  }));
+                })(),
+              },
+              {
+                key: 'connectors',
+                icon: <LinkOutlined />,
+                label: t('连接器'),
+                children: (() => {
+                  const enabled = (connectors || []).filter((c) => c.enabled);
+                  if (enabled.length === 0) {
+                    return [{ key: 'connectors-empty', label: t('暂无可用连接器'), disabled: true }];
+                  }
+                  return enabled.map((c) => ({
+                    key: `connector-${c.id}`,
+                    label: c.name,
+                    onClick: () => onPickConnectorFromMenu(c.id, c.name),
                   }));
                 })(),
               },

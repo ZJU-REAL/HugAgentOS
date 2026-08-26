@@ -20,8 +20,7 @@
 .jx-mobileHeader,
 .jx-mobileMenuBtn,
 .jx-mobileSidebarBackdrop,
-.jx-mobileHeroText,
-.jx-mobileQuickTasks{
+.jx-mobileHeroText{
   display:none;
 }
 
@@ -754,6 +753,7 @@
   }
 
   .jx-emptyPage--main .jx-heroBgImg,
+  .jx-emptyPage--main .jx-homeBrandMark,
   .jx-emptyPage--main .jx-heroTitle,
   .jx-emptyPage--main .jx-heroSubtitle,
   .jx-emptyPage--main .jx-capCards,
@@ -786,70 +786,29 @@
     letter-spacing:.2px;
   }
 
-  .jx-emptyPage--main .jx-mobileQuickTasks{
-    display:block;
-    order:2;
-    width:calc(100% - 20px);
-    align-self:center;
-    margin-top:auto;
-  }
-
-  .jx-mobileQuickTasksLabel{
-    margin:0 0 12px 1px;
-    color:var(--color-text-secondary);
-    font-size:14px;
-    font-weight:400;
-    line-height:20px;
-  }
-
-  .jx-mobileQuickTasksRow{
-    display:grid;
-    grid-template-columns:repeat(3, minmax(0, 1fr));
-    gap:12px;
-  }
-
-  .jx-mobileQuickTask{
-    appearance:none;
-    display:flex;
-    min-width:0;
-    height:32px;
-    align-items:center;
-    justify-content:center;
-    gap:7px;
-    padding:0 8px;
-    border:1px solid color-mix(in srgb, var(--color-text) 15%, transparent);
-    border-radius:7px;
-    background:var(--color-bg-container);
-    color:var(--color-text);
-    font-size:13px;
-    font-weight:400;
-    line-height:1;
-    white-space:nowrap;
-    cursor:pointer;
-    transition:border-color .16s ease, background .16s ease, transform .12s ease;
-  }
-
-  .jx-mobileQuickTask:hover,
-  .jx-mobileQuickTask:focus-visible{
-    border-color:color-mix(in srgb, var(--color-primary) 48%, transparent);
-    background:var(--color-bg-layout);
-  }
-
-  .jx-mobileQuickTask:active{
-    transform:scale(.98);
-  }
-
-  .jx-mobileQuickTaskIcon{
-    flex:none;
-    color:var(--color-primary);
-    font-size:20px;
-  }
-
   .jx-emptyPage--main .jx-homeInput{
     order:3;
     flex:none;
     width:100%;
     margin-top:clamp(10px, 2dvh, 16px);
+  }
+
+  .jx-emptyPage--main .jx-homeSuggestions{
+    order:4;
+    flex:none;
+    width:100%;
+    margin-top:12px;
+  }
+
+  .jx-emptyPage--main .jx-homeSuggestion{
+    min-height:34px;
+    padding:5px 4px;
+    font-size:13px;
+    line-height:20px;
+  }
+
+  .jx-emptyPage--main .jx-homeSuggestionRefresh{
+    margin-top:8px;
   }
 
   /* 这行原来只有桌面端的运行位置胶囊，移动端整行藏掉；现在它还装着
@@ -1036,20 +995,6 @@
     gap:3px;
     padding-right:8px;
     padding-left:8px;
-  }
-
-  .jx-mobileQuickTasksRow{
-    gap:8px;
-  }
-
-  .jx-mobileQuickTask{
-    gap:5px;
-    padding:0 4px;
-    font-size:12px;
-  }
-
-  .jx-mobileQuickTaskIcon{
-    font-size:18px;
   }
 }
 
@@ -1629,16 +1574,6 @@
     color:var(--jx-mobile-secondary);
   }
 
-  .jx-mobileQuickTask{
-    height:36px;
-    border-color:color-mix(in srgb, var(--color-text) 8%, transparent);
-    border-radius:14px;
-    background:color-mix(in srgb, var(--color-bg-container) 78%, transparent);
-    box-shadow:0 4px 14px rgba(42,61,94,.04);
-    backdrop-filter:saturate(170%) blur(16px);
-    -webkit-backdrop-filter:saturate(170%) blur(16px);
-  }
-
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap{
     border-color:color-mix(in srgb, var(--color-text) 9%, transparent);
     border-radius:24px;
@@ -1694,14 +1629,6 @@
   .jx-mobileHeroText p{
     margin-top:8px;
     font-size:14px;
-  }
-
-  .jx-mobileQuickTasksLabel{
-    margin-bottom:8px;
-  }
-
-  .jx-mobileQuickTask{
-    height:32px;
   }
 
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap,
@@ -1976,10 +1903,6 @@
     min-height:36px;
   }
 
-  /* 快捷任务胶囊：原 36px 太矮，点起来要瞄准 */
-  .jx-mobileQuickTask{
-    min-height:var(--jx-touch-min);
-  }
 }
 
 /* ── 4. 触屏交互态 ───────────────────────────────────────────────────
@@ -1994,7 +1917,6 @@
   .jx-navItem,
   .jx-navSubItem,
   .jx-historyItem,
-  .jx-mobileQuickTask,
   .jx-msgActionBtn{
     -webkit-tap-highlight-color:transparent;
   }
@@ -2003,8 +1925,7 @@
      才散——表现为「点过的按钮一直亮着」。放大类的 hover 变换尤其明显
      （发送键点完卡在放大态），统一还原。 */
   .jx-sendBtn:hover,
-  .jx-projectCard:hover,
-  .jx-mobileQuickTask:hover{
+  .jx-projectCard:hover{
     transform:none;
   }
 }
@@ -2020,12 +1941,11 @@
 }
 
 /* ── 6. 首屏空态的纵向配比 ──────────────────────────────────────────
-   原来 .jx-mobileQuickTasks 用 margin-top:auto 把「常用任务 + 输入框」整体推到
-   底部，而 hero 用固定的 margin-top 贴在顶部——富余空间于是全部堆成 hero 下方
-   的一个空洞（393×852 实测约 370px，占屏高 43%）。视觉上不像留白，像没加载完。
+   hero 若只用固定 margin-top 贴顶，富余空间会全部堆成它下方的一个空洞
+   （393×852 实测约 370px，占屏高 43%），视觉上像没加载完。
 
    改成让 hero 自己吃掉上下两侧的富余空间（auto 上 + auto 下各分一半），标题
-   就落在空白区的视觉中心，与底部的任务区、输入框形成三段式节奏。
+   就落在空白区的视觉中心，与下方的建议问题、输入框形成三段式节奏。
 
    守卫条件用朝向而不是高度：横屏本来就没有富余空间（上面另有一套 max-height:700px
    的紧凑规则在管），去动它只会把内容挤出屏幕；而 360×640 这类矮的竖屏机同样会命中
@@ -2036,11 +1956,6 @@
     margin-top:auto;
     margin-bottom:auto;
     padding-top:clamp(16px, 4dvh, 44px);
-  }
-
-  /* 富余空间已由 hero 的 auto 边距吃掉，这里再留 auto 会把空白重新抽回下方 */
-  .jx-emptyPage--main .jx-mobileQuickTasks{
-    margin-top:0;
   }
 }
 
@@ -2072,7 +1987,7 @@
    以后给这几页写移动端规则要一并注意。
    ══════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px){
-  /* ── ① 页头：标题段在上，「搜索 + 新建」作为满宽操作条在下 ── */
+  /* ── ① 页头：标题段在上，两个新建按钮作为满宽操作条在下 ── */
   body .jx-automationPage .jx-agentPage-header{
     flex-direction:column;
     align-items:stretch;
@@ -2082,15 +1997,19 @@
   body .jx-automationPage .jx-automation-headerRight{
     width:100%;
     gap:8px;
+    flex-wrap:wrap;
   }
 
-  /* 搜索框吃掉剩余宽度，按钮保持完整文案不被压缩 */
-  body .jx-automationPage .jx-automation-search.ant-input-affix-wrapper{
-    width:auto;
+  body .jx-automationPage .jx-automation-createActions{
+    display:flex;
+    width:100%;
+    gap:8px;
+  }
+
+  body .jx-automationPage .jx-automation-headerRight .jx-automation-createActions .ant-btn{
+    flex:1 1 0;
     min-width:0;
-    height:var(--jx-touch-min);
-    flex:1 1 auto;
-    border-radius:14px;
+    padding-inline:10px;
   }
 
   body .jx-automationPage .jx-automation-headerRight .ant-btn{
@@ -2098,6 +2017,19 @@
     flex:0 0 auto;
     padding-inline:14px;
     border-radius:14px;
+  }
+
+  body .jx-automation-createModal{
+    padding-block:8px;
+  }
+
+  body .jx-automation-createModal .ant-modal{
+    max-width:calc(100vw - 16px);
+  }
+
+  body .jx-automation-createModal .ant-modal-container,
+  body .jx-automation-createModal .ant-modal-content{
+    max-height:calc(100dvh - 16px);
   }
 
   /* ② 推荐任务的翻页箭头、以及所有触屏热区规则见文末的「触屏档」块 */
@@ -2110,7 +2042,7 @@
     border-radius:var(--jx-mobile-control-radius);
   }
 
-  /* ── ③ Tab 与排序：Tab 独占一行，排序落到第二行右对齐 ── */
+  /* ── ③ Tab 与列表工具：Tab 独占一行，搜索 + 排序落到第二行 ── */
   body .jx-automation-listHeader{
     flex-wrap:wrap;
     gap:10px;
@@ -2129,9 +2061,24 @@
     white-space:nowrap;
   }
 
+  /* 搜索 + 排序在窄屏合占第二行：搜索吃掉剩余宽度，排序保持自身宽度 */
+  body .jx-automation-listTools{
+    width:100%;
+    gap:8px;
+  }
+
+  body .jx-automationPage .jx-automation-search.ant-input-affix-wrapper{
+    width:auto;
+    min-width:0;
+    height:var(--jx-touch-min);
+    flex:1 1 auto;
+    border-radius:14px;
+  }
+
   body .jx-automation-sort{
     min-width:0;
-    margin-left:auto;
+    margin-left:0;
+    flex:0 0 auto;
   }
 
   /* ── 任务卡片 ── */
@@ -2242,7 +2189,6 @@
     margin-left:auto;
   }
 }
-
 
 /* ── 定时任务页 · 触屏档 ────────────────────────────────────────────────
    与上面「排布」那档分开：横屏手机（852×393 这类宽但矮的视口）排布上一行放得下，

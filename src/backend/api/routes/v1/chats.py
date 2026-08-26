@@ -769,6 +769,10 @@ def _build_user_extra_data(
         extra["skill_ids"] = request.skill_ids
     if request.mcp_ids:
         extra["mcp_ids"] = request.mcp_ids
+    if request.connector_id:
+        extra["connector_id"] = request.connector_id
+    if request.connector_name:
+        extra["connector_name"] = request.connector_name
     if request.plugin_name:
         extra["plugin_name"] = request.plugin_name
     if request.mention_name:
@@ -914,6 +918,8 @@ def _build_ctx(
         "skill_id": request.skill_id,
         "skill_ids": request.skill_ids,
         "mcp_ids": request.mcp_ids,
+        "connector_id": request.connector_id,
+        "connector_name": request.connector_name,
         "plugin_name": request.plugin_name,
         "plan_chat": request.plan_chat,
         "batch_chat": request.batch_chat,

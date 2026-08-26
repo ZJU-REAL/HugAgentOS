@@ -430,6 +430,7 @@ export interface ChatMessage {
   skillId?: string;
   skillName?: string;
   pluginName?: string;
+  connectorName?: string;
   mentionName?: string;
   messageId?: string;   // backend message_id, used for feedback submission
   toolCalls?: ToolCall[];

@@ -15,7 +15,6 @@ from core.content.content_blocks import (
     DEFAULT_APP_CONFIG,
     DOCS_BLOCK_MAP,
     normalize_app_config,
-    normalize_homepage_shortcuts,
 )
 from core.db.engine import get_db
 from core.db.models import ContentBlock
@@ -26,14 +25,13 @@ router = APIRouter(prefix="/v1/content", tags=["Content"])
 
 @router.get("/docs", summary="获取文档内容块（前台读取）")
 async def get_docs_content(db: Session = Depends(get_db)):
-    """前台读取全部可编辑内容块：功能更新时间轴、能力中心、提示词广场、页面配置、
-    应用配置与首页快捷卡，并附各块最近更新时间。无需鉴权，DB 缺失时对应字段返回空值。"""
+    """前台读取全部可编辑内容块：功能更新时间轴、能力中心、提示词广场、页面配置与应用配置，
+    并附各块最近更新时间。无需鉴权，DB 缺失时对应字段返回空值。"""
     updates_row = db.query(ContentBlock).filter(ContentBlock.id == "docs_updates").first()
     caps_row = db.query(ContentBlock).filter(ContentBlock.id == "docs_capabilities").first()
     prompt_hub_row = db.query(ContentBlock).filter(ContentBlock.id == "prompt_hub").first()
     page_config_row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
     app_config_row = db.query(ContentBlock).filter(ContentBlock.id == "app_config").first()
-    hs_row = db.query(ContentBlock).filter(ContentBlock.id == "homepage_shortcuts").first()
 
     return success_response(data={
         "updates": updates_row.payload if updates_row else [],
@@ -41,12 +39,10 @@ async def get_docs_content(db: Session = Depends(get_db)):
         "prompt_hub": prompt_hub_row.payload if prompt_hub_row else [],
         "page_config": page_config_row.payload if page_config_row else {},
         "app_config": normalize_app_config(app_config_row.payload if app_config_row else DEFAULT_APP_CONFIG),
-        "homepage_shortcuts": normalize_homepage_shortcuts(hs_row.payload if hs_row else None),
         "updates_updated_at": updates_row.updated_at.isoformat() if updates_row and updates_row.updated_at else None,
         "capabilities_updated_at": caps_row.updated_at.isoformat() if caps_row and caps_row.updated_at else None,
         "page_config_updated_at": page_config_row.updated_at.isoformat() if page_config_row and page_config_row.updated_at else None,
         "app_config_updated_at": app_config_row.updated_at.isoformat() if app_config_row and app_config_row.updated_at else None,
-        "homepage_shortcuts_updated_at": hs_row.updated_at.isoformat() if hs_row and hs_row.updated_at else None,
     })
 
 
