@@ -1,6 +1,6 @@
 # MCP Tool System
 
-> Last updated: 2026-08-11
+> Last updated: 2026-08-26
 
 HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://modelcontextprotocol.io): every category of external capability (internet search, web fetching, database queries, chart generation, ...) is an independent MCP server, all running inside a dedicated `mcp` container that the backend reaches over the streamable-http transport. This design has three payoffs:
 
@@ -235,6 +235,52 @@ The backend connects through AgentScope 2.0's `MCPClient`, centred on two files:
 
 The 2.0 `Toolkit` is constructed once, in `core/llm/agent_factory.py`: `Toolkit(tools=[...], mcps=clients)`.
 
+## Unified tool-permission gateway
+
+`core/llm/tool_permissions.py` provides the run-scoped
+`ToolPermissionRegistry` and `ToolPermissionMiddleware`. The registry is a
+**governed-tool list**, not a mandatory declaration table:
+
+- a tool absent from the registry keeps its existing behavior and passes
+  through without a permission declaration;
+- a registered tool is resolved before effects and real dispatch against local
+  directory grants, dangerous-command policy, My Space write confirmation, or
+  generic tool approval;
+- an allowed call receives a short-lived ticket bound to its tool name, call
+  id, argument hash, and spec key. `OntologyFilteredToolkit.call_tool()` checks
+  it again, while the real Read/Write/Edit/Bash host boundary consumes its path
+  or command constraints;
+- a registered call that needs confirmation is denied in batch, sub-agent,
+  plan, automation, channel, or other runs without a usable approval UI;
+- progressively loaded plugins extend the same live registry before their MCP
+  tools become dispatchable.
+
+Native tools may opt in with
+`ToolCollector.register_tool_function(..., permission=spec)`. The platform's
+local-file, Bash, and My Space rules live in `builtin_tool_permission()`.
+Native tools with neither an explicit spec nor a built-in entry pass through.
+
+MCP rules come only from trusted platform/admin connection configuration; a
+remote server cannot grant itself permission through tool annotations.
+`tool_permissions` accepts per-tool `confirm` or `deny` rules. `allow` means
+the tool stays outside the registry. `permission_default` accepts the same
+values but should be used sparingly. Known persistent mutations in automation,
+skill/plugin/agent management, and site publishing are registered by platform
+code. For example:
+
+```json
+{
+  "tool_permissions": {
+    "query_records": "allow",
+    "update_record": "confirm",
+    "drop_database": "deny"
+  }
+}
+```
+
+Adding an ordinary query tool therefore needs no permission-code change; only
+tools that should be governed need a registry rule.
+
 ## Registration: DB-driven config + catalog gating
 
 The source of truth for MCP server configuration is the `admin_mcp_servers` table (ORM: `core/db/models.py::AdminMcpServer`), read through `core/services/mcp_service.py::McpServerConfigService` with a 30-second TTL cache, in a dict format compatible with the legacy `MCP_SERVERS` (`transport / command / args / env / url / headers / is_stable`). `core/config/mcp_config.py` remains as the URL builder for the built-in servers (first-deployment seeds).
@@ -350,6 +396,7 @@ docker-compose up -d --build mcp
 | `src/backend/mcp_servers/_ports.py` | Single source of truth for server_id → port |
 | `src/backend/core/llm/mcp_pool.py` | MCP connection pool (stdio pooled / HTTP per-request) |
 | `src/backend/core/llm/mcp_manager.py` | MCPClient construction + bare tool-name restoration |
+| `src/backend/core/llm/tool_permissions.py` | Governed-tool registry, decisions, approval routing, and execution tickets |
 | `src/backend/core/services/mcp_service.py` | DB-driven server config service (30 s cache) |
 | `src/backend/core/services/mcp_marketplace_service.py` | Marketplace publishing, review, installation, visibility, and security controls |
 | `src/backend/core/services/mcp_oauth_service.py` | OAuth 2.1 login, SDK metadata discovery, encrypted token storage, and refresh |

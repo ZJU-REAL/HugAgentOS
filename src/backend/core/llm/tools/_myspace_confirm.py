@@ -65,13 +65,18 @@ logger = logging.getLogger(__name__)
 KIND_MYSPACE = "myspace"
 KIND_AUTOMATION = "automation"
 KIND_DESIGN_PICK = "design_pick"
-KIND_LOCAL_CMD = "local_cmd"  # desktop local-mode danger command (rm/system-write/…) confirm
+KIND_LOCAL_CMD = "local_cmd"
+KIND_LOCAL_PATH_PREFIX = "local_path:"
+KIND_TOOL_PERMISSION = "tool_permission"
+KIND_TOOL_PREFIX = "tool:"
 
 # op values (myspace writes)
 OP_WRITE = "write"
 OP_EDIT = "edit"
 OP_DELETE = "delete"
 OP_LOCAL_EXEC = "local_exec"
+OP_LOCAL_READ = "local_read"
+OP_LOCAL_WRITE = "local_write"
 OP_MOVE = "move"
 OP_MKDIR = "mkdir"
 
@@ -126,8 +131,9 @@ class _ChatConfirm:
     pending: Dict[str, _Pending] = field(default_factory=dict)
     # (op, logical_path) → confirm_id; concurrent/duplicate writes dedup to the same pending
     key_index: Dict[Tuple[str, str], str] = field(default_factory=dict)
-    # "allow for this whole session": all subsequent /myspace writes in this chat pass directly
-    session_allow: bool = False
+    # "allow for this whole session" is isolated by permission domain.  A
+    # MySpace approval must never authorize local host commands or automation.
+    session_allow_kinds: set[str] = field(default_factory=set)
     # the stream consumer uses this to push "show confirmation bar" events to the frontend (lazily created on the event loop)
     ui_signals: Optional[asyncio.Queue] = None
     last_ts: float = field(default_factory=time.monotonic)
@@ -158,7 +164,7 @@ def _get_chat(chat_id: str) -> _ChatConfirm:
 
 def allow_session(chat_id: Optional[str]) -> None:
     """Pre-mark the whole session as "allow for this session" — all subsequent
-    /myspace writes pass directly through gate's ``if st.session_allow``, with
+    /myspace writes pass directly through gate's kind-scoped session grant, with
     no confirmation prompt and no suspend.
 
     Used for **inbound channel bots**: the bot runs as the owner, the person
@@ -168,7 +174,7 @@ def allow_session(chat_id: Optional[str]) -> None:
     their own writes"; call once before the run starts.
 
     Note: the ``if not interactive`` check in gate comes before
-    ``session_allow`` — so if a channel run spawns a sub-agent (isolated →
+    the session grant — so if a channel run spawns a sub-agent (isolated →
     non-interactive), its /myspace writes are still rejected as usual; only the
     channel's main agent is affected by this pre-authorization.
     """
@@ -176,7 +182,7 @@ def allow_session(chat_id: Optional[str]) -> None:
         return
     with _LOCK:
         st = _get_chat(chat_id)
-        st.session_allow = True
+        st.session_allow_kinds.add(KIND_MYSPACE)
         st.last_ts = time.monotonic()
 
 
@@ -336,25 +342,24 @@ def set_decision(
         ev = p.event
         op, lp = p.op, p.logical_path
         # "Allow for this session": besides letting subsequent writes pass via
-        # session_allow, we must also **cascade-wake** the other confirmation
+        # the same kind-scoped session grant, we must also **cascade-wake** the other confirmation
         # coroutines already suspended right now. One parallel-tool-call round
         # concurrently registers N writes to different files, each awaiting its
-        # own Event; those coroutines passed gate's `if st.session_allow` check
+        # own Event; those coroutines passed gate's session-grant check
         # before the flag flipped, so a single set_decision won't wake them.
         # Without the cascade they hang until timeout — manifesting as "clicked
         # allow-for-session but later items still prompt one by one" (this bug).
         cascaded: list[str] = []
         cascade_evs: list[asyncio.Event] = []
         if decision == DECISION_ALLOW_SESSION:
-            st.session_allow = True
+            st.session_allow_kinds.add(p.kind)
             for other_cid, op_p in st.pending.items():
                 if other_cid == confirm_id or op_p.decision is not None:
                     continue
-                # design_pick is a "pick one of many" question, not a write
-                # authorization — cascade-waking it with "allow for this
-                # session" would produce an invalid decision; must skip it and
-                # let it keep waiting.
-                if op_p.kind == KIND_DESIGN_PICK:
+                # Session permission is domain-scoped. MySpace, automation, and
+                # local-host confirmations never authorize one another; a
+                # design picker is never an approval domain at all.
+                if op_p.kind != p.kind or op_p.kind == KIND_DESIGN_PICK:
                     continue
                 op_p.decision = DECISION_ALLOW_SESSION
                 cascade_evs.append(op_p.event)
@@ -375,9 +380,14 @@ def _confirm_enabled(kind: str = KIND_MYSPACE) -> bool:
         from core.config.settings import settings as _s
         if kind == KIND_AUTOMATION:
             return bool(getattr(_s.sandbox, "automation_write_confirm", True))
-        if kind == KIND_LOCAL_CMD:
+        if (
+            kind == KIND_LOCAL_CMD
+            or kind.startswith(KIND_LOCAL_PATH_PREFIX)
+            or kind == KIND_TOOL_PERMISSION
+            or kind.startswith(KIND_TOOL_PREFIX)
+        ):
             # Whether to confirm is already decided by the local policy gate
-            # (approval mode + danger disposition); reaching here means "confirm".
+            # or declarative tool policy; reaching here means "confirm".
             return True
         return bool(_s.sandbox.myspace_write_confirm)
     except Exception:  # noqa: BLE001 — on config errors, conservatively still require confirmation
@@ -407,18 +417,31 @@ def _intercept_message(kind: str, phase: str, op: str, logical_path: str, summar
                 f"请简短告知用户超时，让其重新发起。"
             ),
         }[phase]
-    if kind == KIND_LOCAL_CMD:
+    if kind == KIND_LOCAL_CMD or kind.startswith(KIND_LOCAL_PATH_PREFIX):
         tgt = summary or logical_path
         return {
             "dedup": (
-                f"同一命令（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"
+                f"同一本机操作（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"
             ),
             "deny": (
-                f"用户拒绝了执行该命令（{tgt}）。不要重试，请向用户说明已取消，"
+                f"用户拒绝了该本机操作（{tgt}）。不要重试，请向用户说明已取消，"
                 f"或澄清其真实意图后再操作。"
             ),
             "timeout": (
-                f"等待用户确认执行该命令超时（{tgt}），已放弃未执行。请简短告知用户超时。"
+                f"等待用户确认该本机操作超时（{tgt}），已放弃未执行。请简短告知用户超时。"
+            ),
+        }[phase]
+    if kind == KIND_TOOL_PERMISSION or kind.startswith(KIND_TOOL_PREFIX):
+        tgt = summary or logical_path
+        return {
+            "dedup": (
+                f"同一工具操作（{tgt}）的并发重复调用已由首个执行，本次自动跳过，无需重试。"
+            ),
+            "deny": (
+                f"用户拒绝了该工具操作（{tgt}）。不要重试，请向用户说明已取消。"
+            ),
+            "timeout": (
+                f"等待用户确认该工具操作超时（{tgt}），已放弃未执行。请简短告知用户超时。"
             ),
         }[phase]
     return {
@@ -449,7 +472,7 @@ def _register_pending(
 
     Registration skeleton shared by gate()/pick(). ``precheck(st)`` runs first
     inside **the same critical section**; returning ``(value,)`` short-circuits
-    (gate's session_allow pass-through, pick's concurrent-second-question
+    (gate's kind-scoped session pass-through, pick's concurrent-second-question
     rejection), returning None continues registration. Returns
     ``(short, cid, p)``: a non-None short is the short-circuit value; otherwise
     cid/p are ready and waiters has been incremented. Only the "first
@@ -596,6 +619,26 @@ async def gate(
     if not _confirm_enabled(kind):
         return None
     if not interactive:
+        if kind == KIND_LOCAL_CMD or kind.startswith(KIND_LOCAL_PATH_PREFIX):
+            return {
+                "status": STATUS_BLOCKED,
+                "op": op,
+                "logical_path": logical_path,
+                "error": (
+                    "非交互模式（批量/子智能体）无法向用户确认本机操作，"
+                    "该操作已拒绝。请在主对话中由用户亲自执行或预先调整授权。"
+                ),
+            }
+        if kind == KIND_AUTOMATION or kind == KIND_TOOL_PERMISSION or kind.startswith(KIND_TOOL_PREFIX):
+            return {
+                "status": STATUS_BLOCKED,
+                "op": op,
+                "logical_path": logical_path,
+                "error": (
+                    "非交互模式（批量/子智能体/渠道任务）无法向用户确认该工具操作，"
+                    "该操作已拒绝。请在可交互的主对话中由用户亲自执行。"
+                ),
+            }
         return {
             "status": STATUS_BLOCKED,
             "op": op,
@@ -609,7 +652,7 @@ async def gate(
     cid_key = chat_id or "_nochat_"
 
     def _session_allowed(st: _ChatConfirm):
-        return (None,) if st.session_allow else None
+        return (None,) if kind in st.session_allow_kinds else None
 
     short, cid, p = _register_pending(
         cid_key,
@@ -703,7 +746,7 @@ async def pick(
 
     Shares the pending/event/ui_signals state machine and the timeout expire
     path with gate(), but the semantics are "pick one of many": it does not
-    check session_allow (that is a write-authorization short-circuit,
+    check the session write authorization (that is a gate-only short-circuit,
     meaningless for a question) and is not affected by the
     myspace_write_confirm toggle (the picker is not a safety confirmation but a
     required interaction).

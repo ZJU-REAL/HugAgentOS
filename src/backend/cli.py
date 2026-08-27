@@ -566,6 +566,11 @@ def _probe_host_tools() -> dict:
         "npm": shutil.which("npm"),
         "pandoc": shutil.which("pandoc"),
         "libreoffice": find_libreoffice_binary(),
+        "os_sandbox": (
+            shutil.which("bwrap")
+            if sys.platform.startswith("linux")
+            else shutil.which("sandbox-exec") if sys.platform == "darwin" else None
+        ),
     }
 
 
@@ -588,6 +593,19 @@ def _print_capability_summary() -> None:
             ""
             if tools["libreoffice"]
             else "（未装：PPT/Word 无法预览；重新运行一键安装器可选择补装）"
+        )
+    )
+    sandbox_name = (
+        "bubblewrap"
+        if sys.platform.startswith("linux")
+        else "sandbox-exec" if sys.platform == "darwin" else "Windows 强隔离后端"
+    )
+    print(
+        f"  [{'✓' if tools['os_sandbox'] else '·'}] {sandbox_name} — 本机代码执行文件隔离"
+        + (
+            ""
+            if tools["os_sandbox"]
+            else "（未装：严格/标准权限档会拒绝 bash 裸执行）"
         )
     )
 
@@ -859,6 +877,17 @@ def cmd_doctor(args) -> int:
         check("fakeredis 已安装", False, "pip install fakeredis")
 
     _tools = _probe_host_tools()
+    _sandbox_supported = sys.platform.startswith("linux") or sys.platform == "darwin"
+    check(
+        "OS 文件沙箱（本机 bash 强隔离）",
+        _tools["os_sandbox"] is not None,
+        (
+            ""
+            if _tools["os_sandbox"]
+            else "Linux 安装 bubblewrap；Windows 当前严格/标准档会 fail-closed"
+        ),
+        required=_sandbox_supported,
+    )
     check(
         "Node.js + npm（可选，React 对话建站）",
         bool(_tools["node"] and _tools["npm"]),

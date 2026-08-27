@@ -218,81 +218,45 @@ def register_bash(
         if not cmd:
             return _resp_json({"error": "command 不能为空"})
 
-        # ── Local-mode execution policy gate (ticket #07) ─────────────────────
-        # Only in the desktop local host-subprocess sandbox; inert on cloud/web.
-        # deny → block outright; confirm/allow → run but audit. Full interactive
-        # HITL confirmation is layered on top later; the OS-level sandbox
-        # (tickets #09/#11/#12) is the real isolation boundary.
+        # The generic permission middleware has already evaluated policy and
+        # confirmation. The execution boundary consumes its exact command
+        # ticket and applies the precomputed OS confinement constraints.
         from core.config.local_mode import local_mode_enabled
 
+        _confinement_warning = ""
         if local_mode_enabled():
-            from core.sandbox.local_policy import evaluate_local_command
+            from core.llm.tool_permissions import current_local_command_authorization
 
-            try:
-                from core.services.local_grant_service import grants_for_gate, policy_for_gate
-
-                _grants = grants_for_gate()
-                _policy = policy_for_gate()
-            except Exception:
-                from core.sandbox.local_policy import Policy as _Policy
-
-                _grants, _policy = [], _Policy()
-            verdict = evaluate_local_command(
-                cmd,
-                cwd="/workspace",
-                grants=_grants,
-                policy=_policy,
-                workspace_root="/workspace",
-                platform=("windows" if os.name == "nt" else "posix"),
-            )
-            logger.info(
-                "[local-policy] decision=%s reasons=%s cmd=%r",
-                verdict.decision,
-                verdict.reasons,
-                cmd[:200],
-            )
-            if verdict.decision == "deny":
+            authorization = current_local_command_authorization(cmd)
+            if authorization is None:
                 return _resp_json(
                     {
-                        "error": (
-                            "该命令被本地安全策略拦截（"
-                            + "、".join(verdict.reasons)
-                            + "）。如确需执行，请在「设置 → 本地权限」调整策略后重试。"
-                        ),
+                        "error": ("本机命令缺少匹配的预执行授权票据，已拒绝执行"),
                         "exit_code": -1,
                         "blocked": True,
                     }
                 )
 
-            # confirm → suspend the tool and pop an interactive confirmation bar
-            # (true Claude-Code-shaped HITL) before executing. Non-interactive
-            # runs (batch/sub-agent) skip the popup and just run + audit.
-            if verdict.decision == "confirm" and interactive:
-                from core.llm.tools._myspace_confirm import KIND_LOCAL_CMD, OP_LOCAL_EXEC
-                from core.llm.tools._myspace_confirm import gate as _confirm_gate
+            # The confinement contract belongs to the permission preset, not to
+            # this call site: the authorization decides whether isolation is
+            # required, preferred or waived, and this only applies the result.
+            from core.llm.tool_permissions import LocalConfinementUnavailableError
 
-                _reasons = "、".join(verdict.reasons)
-                _blocked = await _confirm_gate(
-                    chat_id=chat_id,
-                    op=OP_LOCAL_EXEC,
-                    logical_path=cmd[:160],
-                    interactive=interactive,
-                    summary=("在本机执行：" + cmd[:200]) + (f"（{_reasons}）" if _reasons else ""),
-                    kind=KIND_LOCAL_CMD,
+            try:
+                confined = authorization.confine(cmd)
+            except LocalConfinementUnavailableError as exc:
+                return _resp_json(
+                    {
+                        "error": str(exc),
+                        "exit_code": -1,
+                        "blocked": True,
+                        "sandbox_unavailable": True,
+                    }
                 )
-                if _blocked is not None:
-                    return _resp_json(_blocked)
-
-            # OS-level sandbox (tickets #09/#12): confine writes to the workspace
-            # + authorized folders. Opt-in (HUGAGENT_LOCAL_OS_SANDBOX=1); no-op
-            # otherwise, so it never breaks the default working setup.
-            from core.sandbox.os_sandbox import os_sandbox_enabled, wrap_command
-
-            if os_sandbox_enabled():
-                from core.sandbox._common import WORKSPACE as _real_ws
-
-                _write_paths = [_real_ws] + [g.path for g in _grants]
-                cmd = wrap_command(cmd, _write_paths)
+            cmd = confined.command
+            if confined.warning:
+                logger.warning("[local-exec] %s cmd=%r", confined.warning, cmd[:200])
+                _confinement_warning = confined.warning
 
         provider = _get_provider()
 
@@ -318,6 +282,10 @@ def register_bash(
             "exit_code": result.exit_code,
             "execution_time_ms": result.execution_time_ms,
         }
+        if _confinement_warning:
+            # Degraded isolation is reported, never silent: the command policy
+            # gate still ran, but the OS write jail did not.
+            payload["confinement_warning"] = _confinement_warning
 
         # Command succeeded and touches a myspace path → reverse-sync the sandbox
         # changes back to My Space (cheap gate: check the command string first; the

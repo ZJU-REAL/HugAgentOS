@@ -1,16 +1,20 @@
 import { t } from '../i18n';
-import type { ChatMessage, ContextCompactionState, ToolCall } from '../types';
+import type {
+  ChatMessage,
+  ContextCompactionState,
+  ContextUsageSnapshot,
+  ContextUsageSource,
+  ToolCall,
+} from '../types';
 
 /**
- * Client-side context-usage estimation.
+ * Context-usage projection helpers.
  *
- * The backend does not expose a live per-conversation token counter, and we
- * intentionally avoid bundling a heavy tokenizer (tiktoken) into the web app.
- * Instead we approximate token counts from character composition, which is
- * accurate enough for a "how full is my context window" gauge:
+ * Completed model calls use the backend's provider-usage snapshot. This light
+ * estimator is restricted to unsent input and the legacy/pre-call fallback:
  *   - CJK / full-width chars ≈ 1 token each
  *   - other chars           ≈ 1 token per ~4 chars
- * All figures shown to the user are labelled as estimates (预估).
+ * The UI labels measured and estimated portions separately.
  */
 
 // Matches CJK ideographs, kana, hangul and full-width forms — the ranges that
@@ -143,8 +147,10 @@ export interface ContextBreakdown {
   total: number;
 }
 
-// Rough baseline for the (client-invisible) system prompt + tool definitions.
-export const SYSTEM_BASE_TOKENS = 1_200;
+// No fabricated system baseline. The old non-runtime 10k reserve and the old
+// 1.2k placeholder both made the first visible percentage look authoritative.
+// The backend supplies the real request total after the first model call.
+export const SYSTEM_BASE_TOKENS = 0;
 // Per historical attachment: the parsed file content is not retained on the
 // client after send, so we estimate a nominal per-file contribution.
 export const ATTACHMENT_EST_TOKENS = 800;
@@ -190,13 +196,8 @@ function tokensForToolCall(tc: ToolCall): number {
   let n = estimateTokens(tc.name || '');
   n += estimateTokens(serialize(tc.input));
   n += estimateTokens(serialize(tc.output));
-  if (tc.subSteps) {
-    for (const s of tc.subSteps) {
-      n += estimateTokens(s.text || '');
-      n += estimateTokens(serialize(s.input));
-      n += estimateTokens(serialize(s.output));
-    }
-  }
+  // subSteps are a display/audit trace. The primary model receives only the
+  // outer call_subagent input/result, never the nested trajectory.
   return n;
 }
 
@@ -211,12 +212,9 @@ function tokensForMessage(m: ChatMessage): MsgTokens {
   if (m.toolCalls) {
     for (const tc of m.toolCalls) tools += tokensForToolCall(tc);
   }
-  if (m.thinking) {
-    for (const th of m.thinking) thinking += estimateTokens(th.content || '');
-  }
-  if (m.attachments && m.attachments.length) {
-    files += m.attachments.length * ATTACHMENT_EST_TOKENS;
-  }
+  // Historical thinking is display-only and stripped from replay. Historical
+  // attachment cards are also not a token proxy; the server decides which
+  // summaries/previews enter each request.
 
   const result: MsgTokens = { messages, tools, thinking, files };
   // Don't cache a still-streaming message: its content keeps growing while the
@@ -233,13 +231,87 @@ export interface BreakdownOptions {
   /** Backend's per-file automatic preview character budget. */
   attachmentPreviewChars?: number;
   /**
-   * Tokens occupied by the system prompt + tool/skill definitions. Prefer the
-   * backend's real reserve (capabilities.system_prompt_tokens); falls back to
-   * SYSTEM_BASE_TOKENS when not provided.
+   * Known system/tool tokens for legacy pre-call estimates. Live gauges use the
+   * backend snapshot instead; the fallback is intentionally zero.
    */
   systemTokens?: number;
   /** Latest server-side compaction checkpoint, when this chat was compacted. */
   compaction?: ContextCompactionState | null;
+}
+
+const CONTEXT_USAGE_SOURCES: ContextUsageSource[] = [
+  'provider',
+  'backend_estimate',
+  'compaction_estimate',
+];
+
+/** Parse and validate the snake_case snapshot returned by API/SSE. */
+export function parseContextUsageSnapshot(value: unknown): ContextUsageSnapshot | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  if (raw.schema_version !== 'context-usage.v1') return null;
+  const source = typeof raw.source === 'string' && CONTEXT_USAGE_SOURCES.includes(raw.source as ContextUsageSource)
+    ? raw.source as ContextUsageSource
+    : null;
+  const usedTokens = Number(raw.used_tokens);
+  const promptTokens = Number(raw.prompt_tokens);
+  const completionTokens = Number(raw.completion_tokens);
+  const contextWindow = Number(raw.context_window);
+  const modelCallIndex = Number(raw.model_call_index ?? 0);
+  const rawBreakdown = raw.breakdown;
+  if (
+    !source
+    || !Number.isFinite(usedTokens) || usedTokens < 0
+    || !Number.isFinite(promptTokens) || promptTokens < 0
+    || !Number.isFinite(completionTokens) || completionTokens < 0
+    || !Number.isFinite(contextWindow) || contextWindow < 0
+    || !Number.isFinite(modelCallIndex) || modelCallIndex < 0
+    || !rawBreakdown || typeof rawBreakdown !== 'object'
+  ) return null;
+
+  const b = rawBreakdown as Record<string, unknown>;
+  const breakdown: ContextBreakdown = {
+    messages: Number(b.messages),
+    tools: Number(b.tools),
+    thinking: Number(b.thinking),
+    files: Number(b.files),
+    system: Number(b.system),
+    input: Number(b.input),
+    total: 0,
+  };
+  const values = [
+    usedTokens,
+    promptTokens,
+    completionTokens,
+    contextWindow,
+    modelCallIndex,
+    breakdown.messages,
+    breakdown.tools,
+    breakdown.thinking,
+    breakdown.files,
+    breakdown.system,
+    breakdown.input,
+  ];
+  if (values.some((n) => !Number.isSafeInteger(n) || n < 0)) return null;
+  const categoryValues = values.slice(5);
+  breakdown.total = categoryValues.reduce((sum, n) => sum + n, 0);
+  if (breakdown.total !== usedTokens || promptTokens + completionTokens !== usedTokens) return null;
+
+  return {
+    source,
+    exact: raw.exact === true && source === 'provider',
+    usedTokens: Math.floor(usedTokens),
+    promptTokens: Math.floor(promptTokens),
+    completionTokens: Math.floor(completionTokens),
+    contextWindow: Math.floor(contextWindow),
+    modelName: typeof raw.model_name === 'string' ? raw.model_name : undefined,
+    modelProviderId: typeof raw.model_provider_id === 'string' ? raw.model_provider_id : undefined,
+    modelCallIndex: Math.floor(modelCallIndex),
+    breakdown: {
+      ...breakdown,
+      total: Math.floor(breakdown.total),
+    },
+  };
 }
 
 /** Parse the snake_case checkpoint projection returned by the API/SSE. */
@@ -252,6 +324,7 @@ export function parseContextCompactionState(value: unknown): ContextCompactionSt
     : Number.NaN;
   const coveredMessageCount = Number(raw.covered_message_count);
   const replacementTokens = Number(raw.replacement_tokens);
+  const contextUsage = parseContextUsageSnapshot(raw.context_usage);
   if (
     !checkpointId
     || !Number.isFinite(coveredMessageCount)
@@ -269,7 +342,24 @@ export function parseContextCompactionState(value: unknown): ContextCompactionSt
       : undefined,
     coveredMessageCount: Math.floor(coveredMessageCount),
     replacementTokens: Math.floor(replacementTokens),
+    ...(contextUsage ? { contextUsage } : {}),
   };
+}
+
+/** Distinguish a newly committed checkpoint from an older polling baseline. */
+export function isCompactionCheckpointForRun(
+  compaction: ContextCompactionState | null,
+  previousCheckpointId: string,
+  runStartedAt: number,
+  expectedCoveredMessageId?: string,
+): boolean {
+  if (!compaction) return false;
+  return (
+    (!!previousCheckpointId && compaction.checkpointId !== previousCheckpointId)
+    || (!!expectedCoveredMessageId
+      && compaction.coveredThroughMessageId === expectedCoveredMessageId)
+    || compaction.checkpointTs >= runStartedAt
+  );
 }
 
 function messagesAfterCompaction(
@@ -337,6 +427,27 @@ export function computeContextBreakdown(
     system: systemTok,
     input: inputTok,
     total,
+  };
+}
+
+/** Add only not-yet-sent composer content to a server-owned snapshot. */
+export function combineContextUsage(
+  snapshot: ContextUsageSnapshot,
+  opts: Pick<BreakdownOptions, 'draft' | 'stagedFiles' | 'attachmentPreviewChars'> = {},
+): ContextBreakdown {
+  const input = estimateTokens(opts.draft || '');
+  let files = 0;
+  for (const file of opts.stagedFiles || []) {
+    files += estimateStagedFileTokens(file, opts.attachmentPreviewChars);
+  }
+  return {
+    messages: snapshot.breakdown.messages,
+    tools: snapshot.breakdown.tools,
+    thinking: snapshot.breakdown.thinking,
+    files: snapshot.breakdown.files + files,
+    system: snapshot.breakdown.system,
+    input: snapshot.breakdown.input + input,
+    total: snapshot.usedTokens + files + input,
   };
 }
 

@@ -132,8 +132,17 @@ async def _read_path_bytes(
 
     if local_mode_enabled():
         try:
+            from core.llm.tool_permissions import (
+                PermissionEnforcementError,
+                require_local_path_permission,
+            )
+
+            require_local_path_permission(physical, "read")
             with open(physical, "rb") as handle:
                 return handle.read()
+        except PermissionEnforcementError as exc:
+            logger.warning("[view_image] permission denied %s: %s", physical, exc)
+            return None
         except OSError as exc:
             logger.info("[view_image] local read failed %s: %s", physical, exc)
             return None

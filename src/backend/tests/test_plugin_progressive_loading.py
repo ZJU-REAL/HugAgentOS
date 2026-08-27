@@ -10,14 +10,13 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 import core.db.engine as dbe
+import pytest
 from core.db.models import ChatSession, InstalledPlugin, UserShadow
 from core.llm import plugin_loader
 from core.llm.tool_collector import ToolCollector
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 USER = "ppl_user"
 CHAT = "ppl_chat_1"
@@ -76,15 +75,11 @@ def ppl_env(tmp_path, monkeypatch):
     )
     from core.services.mcp_service import McpServerConfigService
 
-    monkeypatch.setattr(
-        McpServerConfigService, "get_instance", classmethod(lambda cls: svc)
-    )
+    monkeypatch.setattr(McpServerConfigService, "get_instance", classmethod(lambda cls: svc))
 
     # Skill metadata: crawler skill binds no extra MCP.
     meta = {
-        "crawler-scrape-a1": SimpleNamespace(
-            description="抓取单页", tags=[], mcp_server_ids=[]
-        )
+        "crawler-scrape-a1": SimpleNamespace(description="抓取单页", tags=[], mcp_server_ids=[])
     }
     loader_stub = SimpleNamespace(
         load_all_metadata=lambda: dict(meta),
@@ -94,9 +89,7 @@ def ppl_env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(skills_loader_mod, "get_skill_loader", lambda: loader_stub)
 
-    return SimpleNamespace(
-        Session=TestSession, loader=loader_stub, server_cfgs=server_cfgs
-    )
+    return SimpleNamespace(Session=TestSession, loader=loader_stub, server_cfgs=server_cfgs)
 
 
 def _resolve(env, **overrides):
@@ -180,13 +173,12 @@ class _FakeMCPClient:
 
 @pytest.mark.asyncio
 async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
+    import core.llm.mcp_pool as mcp_pool
     from core.llm.agent_factory import cache_compaction_execution_surface
     from core.ontology.toolkit import OntologyFilteredToolkit
     from core.services import compaction_service as compaction
     from core.services.chat_service import ChatService
     from orchestration.workflow import _compaction_budget_inputs
-
-    import core.llm.mcp_pool as mcp_pool
 
     monkeypatch.setattr(
         mcp_pool,
@@ -215,11 +207,15 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     initial_surface = await tk.freeze_execution_surface()
     close_list: list = []
     permission_context = SimpleNamespace(allow_rules={})
+    from core.llm.tool_permissions import ToolPermissionRegistry
+
+    permission_registry = ToolPermissionRegistry()
     runtime = {
         "activated_slugs": set(),
         "connected_keys": {"internet_search"},
         "toolkit": tk,
         "permission_context": permission_context,
+        "permission_registry": permission_registry,
         "close_list": close_list,
         "loader": ppl_env.loader,
         "chat_id": CHAT,
@@ -227,7 +223,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
         "enabled_kb_ids": [],
         "channel_origin": None,
         "reranker_enabled": False,
-        "confirm_gate": False,
+        "approval_available": False,
         "ontology_runtime": {},
     }
     plugin_loader.register_load_plugin(collector, res.deferred_by_slug(), runtime)
@@ -241,6 +237,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     basic = tk.tool_groups[0]
     assert len(basic.mcps) == 1 and len(close_list) == 1
     assert {r for r in permission_context.allow_rules} == {"crawl_url", "crawl_site"}
+    assert permission_registry.names == frozenset()
     assert len(basic.skills_or_loaders) == 1
     assert "crawler" in runtime["activated_slugs"]
     assert plugin_loader.load_activated_plugin_slugs(CHAT) == ["crawler"]
@@ -267,9 +264,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
         checkpoint = ChatService(db).get_latest_compaction_checkpoint(CHAT)
         estimate = checkpoint.extra_data["replacement_manifest"]["budget_estimate"]
     assert estimate["tool_schema_tokens"] > 0
-    assert estimate["system_prompt_tokens"] > compaction.C.approx_token_count(
-        "base system prompt"
-    )
+    assert estimate["system_prompt_tokens"] > compaction.C.approx_token_count("base system prompt")
     assert estimate["reserved_output_tokens"] == 256
 
     # 重复加载幂等，未知插件报错并列出可用项。
@@ -297,9 +292,8 @@ def test_resolve_bound_defers_http_plugins_and_applies_skill_filter(ppl_env):
 
 
 def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypatch):
-    from agentscope.tool import Toolkit
-
     import core.llm.mcp_pool as mcp_pool
+    from agentscope.tool import Toolkit
 
     monkeypatch.setattr(
         mcp_pool,
@@ -308,11 +302,14 @@ def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypa
     )
     res = plugin_loader.resolve_bound_progressive_plugins(["crawler@global"])
     collector = ToolCollector()
+    from core.llm.tool_permissions import ToolPermissionRegistry
+
     runtime = {
         "activated_slugs": set(),
         "connected_keys": set(),
         "toolkit": Toolkit(tools=[], mcps=[]),
         "permission_context": SimpleNamespace(allow_rules={}),
+        "permission_registry": ToolPermissionRegistry(),
         "close_list": [],
         "persist": False,
         "loader": ppl_env.loader,
@@ -321,7 +318,7 @@ def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypa
         "enabled_kb_ids": [],
         "channel_origin": None,
         "reranker_enabled": False,
-        "confirm_gate": False,
+        "approval_available": False,
         "ontology_runtime": {},
     }
     plugin_loader.register_load_plugin(collector, res.deferred_by_slug(), runtime)
@@ -339,3 +336,29 @@ def test_env_kill_switch(monkeypatch):
     assert plugin_loader.progressive_plugin_loading_enabled() is False
     monkeypatch.delenv("PLUGIN_PROGRESSIVE_LOADING", raising=False)
     assert plugin_loader.progressive_plugin_loading_enabled() is True
+
+
+def test_pre_turn_compaction_inputs_match_the_service_signature():
+    from inspect import signature
+
+    from core.services.compaction_service import maybe_run_pre_turn_compaction
+    from orchestration.workflow import _pre_turn_compaction_inputs
+
+    agent = SimpleNamespace(
+        model=SimpleNamespace(model="model-a"),
+        state=SimpleNamespace(model_name="model-a", model_provider_id="provider-a"),
+        _jx_compaction_system_prompt="system",
+        _jx_compaction_tool_schemas=[],
+        _jx_compaction_reserved_output_tokens=256,
+    )
+    kwargs = _pre_turn_compaction_inputs(agent, 4096, "model-a")
+
+    signature(maybe_run_pre_turn_compaction).bind(
+        "chat-1",
+        [{"role": "user", "content": "hello"}],
+        run_id="run-1",
+        **kwargs,
+    )
+    assert kwargs["model_name"] == "model-a"
+    assert kwargs["context_window"] == 4096
+    assert "model_provider_id" not in kwargs

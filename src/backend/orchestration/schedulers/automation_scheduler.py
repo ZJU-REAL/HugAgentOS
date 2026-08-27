@@ -19,7 +19,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import pytz
-
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.infra.logging import get_logger
 
@@ -195,7 +194,9 @@ class AutomationScheduler:
             enabled_skill_ids = task.enabled_skill_ids or None
             enabled_kb_ids = task.enabled_kb_ids or None
             enabled_agent_ids = task.enabled_agent_ids or None
-            task_metadata = dict(task.extra_data or {})  # includes optional channel delivery destinations
+            task_metadata = dict(
+                task.extra_data or {}
+            )  # includes optional channel delivery destinations
 
         try:
             if task_type == "prompt":
@@ -272,7 +273,7 @@ class AutomationScheduler:
 
             # Multi-target delivery (delivery_targets model, with backward compat for the old flat channel_id/conversation_id).
             # In-app (notification center + sidebar + chat history) is delivered only when targets include inapp; channels and other outbound targets are delivered one by one.
-            from core.services.delivery_targets import resolve_delivery_targets, has_inapp
+            from core.services.delivery_targets import has_inapp, resolve_delivery_targets
 
             if not still_exists:
                 logger.info(
@@ -311,12 +312,17 @@ class AutomationScheduler:
                     if _ok:
                         logger.info(
                             "[scheduler] 渠道投递成功 task=%s channel=%s conv=%s files=%d",
-                            task_id, _ch, _conv, len(_gen_files),
+                            task_id,
+                            _ch,
+                            _conv,
+                            len(_gen_files),
                         )
                     else:
                         logger.warning(
                             "[scheduler] 渠道投递失败（原因见 [channels] 日志）task=%s channel=%s conv=%s",
-                            task_id, _ch, _conv,
+                            task_id,
+                            _ch,
+                            _conv,
                         )
                 except Exception:
                     logger.warning("[scheduler] 渠道投递异常 task=%s", task_id, exc_info=True)
@@ -355,7 +361,9 @@ class AutomationScheduler:
                 svc.finalize_after_run(task_id)
 
             if still_exists:
-                await self._send_notification(user_id, task_id, task_name, "failed", error_msg[:200])
+                await self._send_notification(
+                    user_id, task_id, task_name, "failed", error_msg[:200]
+                )
             else:
                 logger.info(
                     "[scheduler] task %s was deleted while running — skip failure notification",
@@ -385,15 +393,13 @@ class AutomationScheduler:
         automation chats show only bare text without any file attachments or
         tool-call history.
         """
+        from core.chat.tool_log import attach_tool_result as _attach_tool_result
+        from core.chat.tool_log import upsert_tool_call as _upsert_tool_call
         from core.db.engine import SessionLocal
+        from core.llm import workspace as _workspace_mod
+        from core.services.artifact_service import persist_artifacts as _persist_artifacts
         from core.services.chat_service import ChatService
         from orchestration.workflow import astream_chat_workflow
-        from core.chat.tool_log import (
-            attach_tool_result as _attach_tool_result,
-            upsert_tool_call as _upsert_tool_call,
-        )
-        from core.services.artifact_service import persist_artifacts as _persist_artifacts
-        from core.llm import workspace as _workspace_mod
 
         chat_id = f"chat_{uuid.uuid4().hex[:16]}"
         message_id = f"msg_{uuid.uuid4().hex[:16]}"
@@ -437,6 +443,7 @@ class AutomationScheduler:
             "user_id": user_id,
             "chat_id": chat_id,
             "model_name": actual_model_name,
+            "automation_run": True,
             "enable_thinking": False,
             "memory_enabled": False,
             # The keys the workflow side reads are enabled_skills / enabled_mcps / enabled_kbs
@@ -601,9 +608,9 @@ class AutomationScheduler:
         "查看对话" in the run history resolves to a loadable conversation.
         """
         from core.db.engine import SessionLocal
+        from core.services.artifact_service import persist_artifacts as _persist_artifacts
         from core.services.chat_service import ChatService
         from core.services.plan_service import PlanService
-        from core.services.artifact_service import persist_artifacts as _persist_artifacts
         from core.services.user_model_selection import resolve_effective_chat_model_name
         from orchestration.subagents.plan_mode import astream_execute_plan
 
@@ -693,6 +700,7 @@ class AutomationScheduler:
                         enabled_agent_ids=enabled_agent_ids,
                         chat_id=chat_id,
                         model_name=actual_model_name,
+                        automation_run=True,
                     ):
                         yield item
                 finally:
@@ -822,9 +830,14 @@ class AutomationScheduler:
             budget = dict(loop.budget or {})
             try:
                 ChatService(db).ensure_session(
-                    chat_id=chat_id, user_id=user_id,
+                    chat_id=chat_id,
+                    user_id=user_id,
                     title=f"[自主循环] {loop.title or task_name}",
-                    extra_data={"autonomous_loop": True, "loop_id": loop_id},
+                    extra_data={
+                        "autonomous_loop": True,
+                        "automation_run": True,
+                        "loop_id": loop_id,
+                    },
                 )
                 if not loop.chat_id:
                     loop.chat_id = chat_id
@@ -837,8 +850,12 @@ class AutomationScheduler:
             return chat_id, "loop 已在推进中，跳过本次触发", {}
 
         run = await chat_run_executor.start_autonomous_loop_run(
-            loop_id=loop_id, chat_id=chat_id, user_id=user_id,
-            goal_spec=goal_spec, budget=budget,
+            loop_id=loop_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            goal_spec=goal_spec,
+            budget=budget,
+            automation_run=True,
         )
         # Wait for it to reach a terminal state (bounded by the outer TASK_EXECUTION_TIMEOUT_S; on timeout the run continues in the background and the next tick resumes it)
         task = chat_run_executor._active_runs.get(run.run_id)
@@ -850,7 +867,8 @@ class AutomationScheduler:
             loop = LoopService(db).get_loop(loop_id)
             summary = (
                 f"loop status={loop.status} score={loop.final_score} iters={loop.iteration_count}"
-                if loop else "loop 推进完成"
+                if loop
+                else "loop 推进完成"
             )
             usage = {"total_tokens": (loop.tokens_spent if loop else 0)}
         return chat_id, summary, usage
@@ -863,9 +881,10 @@ class AutomationScheduler:
         next_run_at can stay in the past — causing every poll to immediately
         re-fire the same task in a death spiral.
         """
+        from datetime import datetime, timedelta, timezone
+
         from core.db.engine import SessionLocal
-        from core.db.models import ScheduledTaskRun, ScheduledTask
-        from datetime import datetime, timezone, timedelta
+        from core.db.models import ScheduledTask, ScheduledTaskRun
 
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=STUCK_RUNNING_THRESHOLD_S)
         try:
@@ -979,10 +998,7 @@ class AutomationScheduler:
     ):
         try:
             from core.infra.redis import get_redis
-            from core.services.automation_service import (
-                SUMMARY_LIMIT_BRIEF,
-                truncate_summary,
-            )
+            from core.services.automation_service import SUMMARY_LIMIT_BRIEF, truncate_summary
 
             redis = get_redis()
             notification = {

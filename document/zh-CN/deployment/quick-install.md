@@ -1,6 +1,6 @@
 # 无 Docker 一键安装（本地单机）
 
-> 最后更新：2026-07-23 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
+> 最后更新：2026-08-26 ｜ [English](../../en/deployment/quick-install.md) ｜ 返回 [部署指南](README.md)
 
 面向**个人单机尝鲜**与**二次开发体验**的极简部署方式：一条命令装好，终端引导设管理员、配模型，随后单进程起服务并打开浏览器。全程**零 Docker、零 PostgreSQL、零 Redis**。
 
@@ -24,6 +24,7 @@
 | Python | ≥ 3.11 |
 | Node.js | ≥ 20（公开安装器会在本机构建前端） |
 | Rust 与 Cargo | Linux 没有兼容 `ripgrep` 预编译 wheel 时需要，包括 x86_64 且 glibc 低于 2.39 的系统 |
+| OS 文件沙箱 | Linux 需要 `bubblewrap`（命令 `bwrap`，安装器会自动安装）；macOS 使用系统自带 `sandbox-exec` |
 | 网络 | 能访问所配置的大模型 API 端点 |
 
 ## 安装
@@ -38,11 +39,12 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 1. 校验 Python ≥ 3.11、Node.js ≥ 20、npm、Git，以及 Linux 需要源码构建 `ripgrep` 时所需的 Rust；
 2. 把 HugAgentOS 克隆或快进更新到 `~/.hugagent/source`；
-3. 检测可选的 LibreOffice；缺失时说明不可用能力并询问是否立即安装，跳过或安装失败不会阻断其余功能；
-4. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`），并自动重建上次中断留下的不完整环境；
-5. 安装 `requirements.txt`、`hugagent` 控制台命令、内置 Agent Skills 的 Python/Node.js 依赖，以及可选的本地知识库依赖；
-6. 把前端构建到 `src/frontend/dist`；
-7. 进入交互式首次配置向导。
+3. Linux 检测并安装 `bubblewrap`，macOS 检查系统 `sandbox-exec`；强隔离执行器不可用时安装失败，不会降级为裸执行；
+4. 检测可选的 LibreOffice；缺失时说明不可用能力并询问是否立即安装，跳过或安装失败不会阻断其余功能；
+5. 在 `~/.hugagent/venv` 创建虚拟环境（检测到 [uv](https://github.com/astral-sh/uv) 时使用 uv，否则使用 `python -m venv`），并自动重建上次中断留下的不完整环境；
+6. 安装 `requirements.txt`、`hugagent` 控制台命令、内置 Agent Skills 的 Python/Node.js 依赖，以及可选的本地知识库依赖；
+7. 把前端构建到 `src/frontend/dist`；
+8. 进入交互式首次配置向导。
 
 > 把命令加入 PATH 方便日常使用：`export PATH="$HOME/.hugagent/venv/bin:$PATH"`。
 
@@ -138,7 +140,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 
 **开箱可用**
 - **核心对话 + ReAct 工具编排 + 计划模式 + 断线续播 + 引用标注**。
-- **代码执行（bash / Python）**：沙箱以宿主子进程执行（无容器隔离），使用受限环境变量、执行超时和进程组回收兜底；文件工具（读/写/编辑）与产物暂存（`sandbox_put/get_artifact`）均落在 `~/.hugagent/workspace/`。信任边界是「用户在自己机器上跑自己的助手」，与多租户服务器不同。
+- **代码执行（bash / Python）**：以宿主子进程执行，但严格/标准权限档会通过 OS 文件沙箱强制限制写入（Linux `bubblewrap`、macOS `sandbox-exec`）；执行器缺失或不可用时 fail-closed，不会裸跑。文件工具使用同一读写权限策略，工作区位于 `~/.hugagent/workspace/`。这仍是单用户本机形态，不等同于多租户容器隔离。
 - **内置技能**（word / excel / ppt / pdf 编辑等 5 个）：安装时同步到工作区，沙箱可直接调用其脚本。
 - **内置工具型 MCP**：互联网搜索 / 网页抓取 / 批量执行 / 知识库检索等——服务本身正常运行（部分需配置对应外部服务或密钥才有数据，见下）。
 - **数据可视化（图表）**：安装脚本会装 matplotlib；装上即可用。
@@ -172,6 +174,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 启动日志反复出现 `AllocTimestamp` / `Method not implemented` | 停止当前服务并重新运行公开一键安装器。安装器会把 PyMilvus 与 Milvus Lite 校准到兼容版本，不会删除 `~/.hugagent/milvus.db`。 |
 | 想换模型 / 改配置 | 重跑 `hugagent onboard`，或登录后到「设置 → 系统管理 → 模型服务 / 服务配置」调整 |
 | PPT/Word 预览提示 LibreOffice 未安装 | 重新运行一键安装器并在提示时选择安装；Debian/Ubuntu 也可执行 `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`，然后重启 HugAgentOS |
+| bash 提示缺少 OS 沙箱运行器 | Linux 安装 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install bubblewrap`）后重启；严格/标准档不会在缺少执行器时降级裸跑 |
 | 技能执行反复出现 `fork: Resource temporarily unavailable` | 停止当前服务，重新运行公开安装器完成升级，再启动 `hugagent`。旧版本若留下子进程，先检查当前用户的进程，必要时注销当前登录会话后重试。 |
 | 环境是否就绪 | `hugagent doctor` 一次性自检 |
 

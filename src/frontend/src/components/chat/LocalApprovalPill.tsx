@@ -12,7 +12,7 @@ import LocalPermissionsModal from './LocalPermissionsModal';
 
 // 图标与工具行其他入口保持同一套 antd 线性风格（单色、随文字色），不用彩色 emoji。
 const APPROVAL_META: Record<LocalApprovalMode, { icon: ReactNode; label: string; desc: string }> = {
-  strict: { icon: <LockOutlined />, label: '只读/严格', desc: '越权路径与危险命令一律拦截' },
+  strict: { icon: <LockOutlined />, label: '只读/严格', desc: '仅允许读取工作区/授权目录，所有写入一律拦截' },
   standard: { icon: <SafetyOutlined />, label: '标准', desc: '写系统目录/提权拦截，删除/外联需确认' },
   full: { icon: <ThunderboltOutlined />, label: '放开', desc: '全部放行，仅记录审计（谨慎使用）' },
 };

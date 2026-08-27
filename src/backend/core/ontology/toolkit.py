@@ -6,12 +6,18 @@ import asyncio
 import inspect
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, cast
 
 from agentscope.tool import Toolkit
+from agentscope.message import TextBlock, ToolResultState
+from agentscope.tool._response import ToolChunk, ToolResponse
 from jinja2 import Template
 
 from core.llm.execution_manifest import canonical_json, stable_tool_schema_order
+from core.llm.tool_permissions import (
+    CURRENT_PERMISSION_TICKET,
+    ToolPermissionService,
+)
 
 
 @dataclass(frozen=True)
@@ -27,7 +33,7 @@ class ExecutionSurfaceSnapshot:
     def tool_schemas(self) -> list[dict[str, Any]]:
         # AgentScope/provider adapters may normalize dictionaries in place.
         # Decode a detached copy so the content-addressed snapshot cannot drift.
-        return json.loads(self._tool_schemas_json)
+        return cast(list[dict[str, Any]], json.loads(self._tool_schemas_json))
 
 
 SurfaceListener = Callable[[ExecutionSurfaceSnapshot], Optional[Awaitable[None]]]
@@ -51,6 +57,42 @@ class OntologyFilteredToolkit(Toolkit):
         self._execution_surface_listener: Optional[SurfaceListener] = None
         self._capture_surface_skills = False
         self._captured_surface_skills = None
+        self._tool_permission_service: Optional[ToolPermissionService] = None
+
+    def set_tool_permission_service(
+        self, service: Optional[ToolPermissionService]
+    ) -> None:
+        """Bind the run-scoped final dispatch guard.
+
+        The AgentScope middleware makes the decision before effect journaling;
+        this guard only verifies that the exact name/id/arguments reaching the
+        Toolkit still carry that decision.
+        """
+        self._tool_permission_service = service
+
+    async def call_tool(self, tool_call, state):  # noqa: ANN001
+        service = self._tool_permission_service
+        if service is not None and service.registry.contains(tool_call.name):
+            ticket = CURRENT_PERMISSION_TICKET.get()
+            valid = ticket is not None and ticket.matches(tool_call)
+            if valid:
+                spec = service.registry.get(tool_call.name)
+                valid = spec is not None and spec.key == ticket.spec_key
+            if not valid:
+                message = (
+                    "PermissionEnforcementError: tool dispatch is missing a "
+                    "matching declarative permission ticket"
+                )
+                chunk = ToolChunk(
+                    content=[TextBlock(type="text", text=message)],
+                    state=ToolResultState.ERROR,
+                )
+                response = ToolResponse(id=str(getattr(tool_call, "id", "") or ""))
+                yield chunk
+                yield response.append_chunk(chunk)
+                return
+        async for item in super().call_tool(tool_call, state):
+            yield item
 
     async def _get_available_tools(self, groups=None):  # noqa: ANN001
         tools = await super()._get_available_tools(groups)

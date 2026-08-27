@@ -14,9 +14,6 @@ from agentscope.message import ToolCallBlock, UserMsg
 from agentscope.model import ChatResponse, ChatUsage
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.tool import FunctionTool, Toolkit
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from api.routes.v1 import chats as chat_routes
 from core.auth.backend import UserContext
 from core.db.engine import Base
@@ -38,6 +35,8 @@ from core.services.tool_effect_ledger import (
     recover_incomplete_tool_effects,
 )
 from orchestration import chat_run_executor as executor
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture()
@@ -129,9 +128,7 @@ def test_active_run_probe_hides_internal_agent_rows(recovery_env):
 
 
 @pytest.mark.asyncio
-async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(
-    recovery_env, monkeypatch
-):
+async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr(executor, "get_redis", lambda: redis)
@@ -212,9 +209,7 @@ async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(
 
 
 @pytest.mark.asyncio
-async def test_legacy_regenerate_stream_injects_a_durable_tool_binding(
-    recovery_env, monkeypatch
-):
+async def test_legacy_regenerate_stream_injects_a_durable_tool_binding(recovery_env, monkeypatch):
     sessions = recovery_env
     captured = {}
     monkeypatch.setattr(chat_routes, "SessionLocal", sessions)
@@ -292,9 +287,7 @@ async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monk
 
 
 @pytest.mark.asyncio
-async def test_plan_generate_fences_late_message_after_lease_takeover(
-    recovery_env, monkeypatch
-):
+async def test_plan_generate_fences_late_message_after_lease_takeover(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr(executor, "get_redis", lambda: redis)
@@ -493,8 +486,7 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
                 db.query(ChatRun).filter(ChatRun.run_id == run_id).update(
                     {
                         "lease_owner": "successor",
-                        "lease_expires_at": datetime.now(timezone.utc)
-                        + timedelta(seconds=300),
+                        "lease_expires_at": datetime.now(timezone.utc) + timedelta(seconds=300),
                     }
                 )
                 db.commit()
@@ -615,11 +607,13 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
     assert text == "automation result"
     assert captured["run_id"]
     assert captured["journal_owner"]
+    assert captured["automation_run"] is True
     with sessions() as db:
         row = db.get(ChatRun, captured["run_id"])
         assert row.chat_id == chat_id
         assert row.status == "completed"
         context = row.recovery_snapshot["worker_args"]["context"]
+        assert context["automation_run"] is True
         assert context["mcp_ids"] == ["web-search"]
         assert context["skill_ids"] == ["research"]
 
@@ -717,9 +711,7 @@ async def test_startup_recovery_commits_saved_model_output_without_second_model_
 
 
 @pytest.mark.asyncio
-async def test_model_snapshot_recovery_also_commits_queued_handoff(
-    recovery_env, monkeypatch
-):
+async def test_model_snapshot_recovery_also_commits_queued_handoff(recovery_env, monkeypatch):
     sessions = recovery_env
     journal = RunJournal(sessions)
     row = journal.accept(

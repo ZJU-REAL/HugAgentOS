@@ -22,12 +22,10 @@ import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit
-
 from core.services.project_scope import ProjectScope
 
 from . import myspace_vfs as _ms
 from ._common import (
-    myspace_write_guard,
     pin_artifact_to_workspace,
     resolve_sandbox_session,
     resp_json,
@@ -35,7 +33,6 @@ from ._common import (
     shell_quote,
     upsert_myspace_artifact,
 )
-from ._myspace_confirm import OP_WRITE
 from ._paths import (
     PATH_POLICY_DOC,
     basename,
@@ -55,14 +52,16 @@ _BINARY_DOC_EXTS = {"docx", "doc", "xlsx", "xls", "pptx", "ppt", "pdf"}
 
 
 def _make_unified_diff(path: str, old: str, new: str) -> str:
-    return "\n".join(difflib.unified_diff(
-        old.splitlines(),
-        new.splitlines(),
-        fromfile=f"a/{path}",
-        tofile=f"b/{path}",
-        n=3,
-        lineterm="",
-    ))
+    return "\n".join(
+        difflib.unified_diff(
+            old.splitlines(),
+            new.splitlines(),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            n=3,
+            lineterm="",
+        )
+    )
 
 
 def register_write(
@@ -84,11 +83,13 @@ def register_write(
         content: str,
         register_as_artifact: bool = False,
     ) -> "ToolResponse":  # type: ignore[name-defined]
-        from core.sandbox import (
-            SandboxConnectError as _SCE,
-            SandboxError as _SE,
-            get_sandbox_provider as _get_provider,
+        from core.llm.tool_permissions import (
+            PermissionEnforcementError,
+            require_local_path_permission,
         )
+        from core.sandbox import SandboxConnectError as _SCE
+        from core.sandbox import SandboxError as _SE
+        from core.sandbox import get_sandbox_provider as _get_provider
 
         # ── Basic input validation ───────────────────────────────────────
         path_err = validate_workspace_path(file_path)
@@ -108,36 +109,45 @@ def register_write(
         # text and the frontend failed to read it). Reject for both create and overwrite.
         _ext = basename(file_path).rsplit(".", 1)[-1].lower() if "." in basename(file_path) else ""
         if _ext in _BINARY_DOC_EXTS:
-            return resp_json({
-                "error": (
-                    f"Write 只能写 UTF-8 纯文本，不能直接生成 .{_ext} 二进制文档"
-                    "（产物会是无法打开的假文档）。请用 bash 调命令行工具生成"
-                    "（docx 用 python-docx，xlsx 用 openpyxl，pdf 用 reportlab "
-                    "等），生成后写到同一路径即可自动同步。"
-                ),
-            })
+            return resp_json(
+                {
+                    "error": (
+                        f"Write 只能写 UTF-8 纯文本，不能直接生成 .{_ext} 二进制文档"
+                        "（产物会是无法打开的假文档）。请用 bash 调命令行工具生成"
+                        "（docx 用 python-docx，xlsx 用 openpyxl，pdf 用 reportlab "
+                        "等），生成后写到同一路径即可自动同步。"
+                    ),
+                }
+            )
 
         # ── Logical path (/myspace/...) -> physical path (/workspace/myspace/<uid>/...) ──
         physical = to_physical_path(file_path, user_id)
         is_persistent = is_myspace_physical(physical, user_id)
 
-        _g = await myspace_write_guard(
-            chat_id=chat_id, op=OP_WRITE, logical_path=file_path,
-            is_myspace=bool(is_persistent), interactive=interactive,
-            summary=f"写入 {file_path}（{len(content)} 字符）",
-        )
-        if _g is not None:
-            return _g
+        from core.config.local_mode import local_mode_enabled as _local_on
+
+        _is_local = _local_on()
 
         # ── Existing-file detection + invariant ─────────────────────────
         provider = _get_provider()
         existing: Optional[bytes] = None
         try:
-            existing = await provider.get_file(_sess, physical, user_id=user_id)
+            if _is_local:
+                require_local_path_permission(physical, "read")
+                with open(physical, "rb") as _f:
+                    existing = _f.read()
+            else:
+                existing = await provider.get_file(_sess, physical, user_id=user_id)
+        except FileNotFoundError:
+            existing = None
+        except PermissionEnforcementError as exc:
+            return resp_json({"error": str(exc), "blocked": True})
         except _SE:
             existing = None
         except _SCE as exc:
             return resp_json({"error": f"沙盒连接失败: {exc}"})
+        except OSError as exc:
+            return resp_json({"error": f"读取现有文件失败: {exc}"})
 
         # Absent from the sandbox != file does not exist: a myspace file may not yet be
         # materialized into the sandbox (sandbox rebuild / provider without bind mount).
@@ -147,7 +157,11 @@ def register_write(
         if existing is None and is_persistent and user_id:
             try:
                 existing = await _ms.materialize_into_sandbox(
-                    provider, _sess, user_id, file_path, scope=scope,
+                    provider,
+                    _sess,
+                    user_id,
+                    file_path,
+                    scope=scope,
                 )
             except Exception as mexc:  # noqa: BLE001
                 logger.warning("[write] myspace 物化失败 %s: %s", file_path, mexc)
@@ -161,37 +175,44 @@ def register_write(
                 # Also accept that the model Read'd via the logical path
                 entry = state.get(file_path)
             if entry is None:
-                return resp_json({
-                    "error": (
-                        f"{file_path} 已存在，必须先 Read 该文件再 Write "
-                        "（防止覆盖你未读过的内容）。"
-                    ),
-                })
+                return resp_json(
+                    {
+                        "error": (
+                            f"{file_path} 已存在，必须先 Read 该文件再 Write "
+                            "（防止覆盖你未读过的内容）。"
+                        ),
+                    }
+                )
             if entry.parsed_doc:
-                return resp_json({
-                    "error": (
-                        f"{file_path} 是二进制文档（docx/pdf/xlsx/pptx），Read "
-                        "返回的是它的**解析文本**，用 Write 覆盖会损坏文档。"
-                        "请用 bash 调命令行工具（python-docx 等）重新生成。"
-                    ),
-                })
+                return resp_json(
+                    {
+                        "error": (
+                            f"{file_path} 是二进制文档（docx/pdf/xlsx/pptx），Read "
+                            "返回的是它的**解析文本**，用 Write 覆盖会损坏文档。"
+                            "请用 bash 调命令行工具（python-docx 等）重新生成。"
+                        ),
+                    }
+                )
             if entry.offset is not None:
-                return resp_json({
-                    "error": (
-                        f"上次 Read({file_path}) 只读了部分内容；Write 之前"
-                        "需要先完整 Read（不传 offset/limit）。"
-                    ),
-                })
+                return resp_json(
+                    {
+                        "error": (
+                            f"上次 Read({file_path}) 只读了部分内容；Write 之前"
+                            "需要先完整 Read（不传 offset/limit）。"
+                        ),
+                    }
+                )
             cur_sha = hashlib.sha256(existing).hexdigest()
             if cur_sha != entry.sha256:
                 state.forget(physical)
                 state.forget(file_path)
-                return resp_json({
-                    "error": (
-                        f"{file_path} 在 Read 之后被外部修改了，"
-                        "请先重新 Read 再 Write。"
-                    ),
-                })
+                return resp_json(
+                    {
+                        "error": (
+                            f"{file_path} 在 Read 之后被外部修改了，" "请先重新 Read 再 Write。"
+                        ),
+                    }
+                )
             try:
                 original_text = existing.decode("utf-8")
             except UnicodeDecodeError:
@@ -205,12 +226,15 @@ def register_write(
         if pd and pd != "/workspace" and provider.name != "script_runner":
             mk_exit, _, mk_err = await sandbox_exec_bash(
                 f"mkdir -p {shell_quote(pd)}",
-                chat_id=_sess, timeout=10,
+                chat_id=_sess,
+                timeout=10,
             )
             if mk_exit != 0:
-                return resp_json({
-                    "error": f"创建父目录 {pd} 失败: {mk_err}",
-                })
+                return resp_json(
+                    {
+                        "error": f"创建父目录 {pd} 失败: {mk_err}",
+                    }
+                )
 
         # ── Write into the sandbox ─────────────────────────────────────
         new_bytes = content.encode("utf-8")
@@ -223,14 +247,14 @@ def register_write(
         except Exception:
             pass
         try:
-            from core.config.local_mode import local_mode_enabled as _local_on
-
-            if _local_on():
+            if _is_local:
                 # Local desktop mode: the backend runs on the host, so write the
                 # real file directly. This reaches the user's actual folders
                 # (incl. real paths outside the sandbox workspace root), which the
                 # sidecar put_file refuses.
                 import os as _os
+
+                require_local_path_permission(physical, "write")
 
                 parent = _os.path.dirname(physical)
                 if parent:
@@ -239,6 +263,8 @@ def register_write(
                     _f.write(new_bytes)
             else:
                 await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
+        except PermissionEnforcementError as exc:
+            return resp_json({"error": str(exc), "blocked": True})
         except (_SE, _SCE) as exc:
             return resp_json({"error": f"写入失败: {exc}"})
         except OSError as exc:
@@ -246,14 +272,26 @@ def register_write(
 
         # ── Update state (keyed by logical path so the model can Read/Edit with the same path next time) ──
         new_sha = hashlib.sha256(new_bytes).hexdigest()
-        state.record(file_path, ReadEntry(
-            content=new_bytes, sha256=new_sha, offset=None, limit=None,
-        ))
+        state.record(
+            file_path,
+            ReadEntry(
+                content=new_bytes,
+                sha256=new_sha,
+                offset=None,
+                limit=None,
+            ),
+        )
         # Also record the physical path so a later Read/Edit that mixes logical/physical paths still hits
         if physical != file_path:
-            state.record(physical, ReadEntry(
-                content=new_bytes, sha256=new_sha, offset=None, limit=None,
-            ))
+            state.record(
+                physical,
+                ReadEntry(
+                    content=new_bytes,
+                    sha256=new_sha,
+                    offset=None,
+                    limit=None,
+                ),
+            )
 
         # ── Reverse sync: myspace paths auto-persist; other paths follow register_as_artifact ──
         artifact_ref: Optional[dict] = None
@@ -285,7 +323,7 @@ def register_write(
         payload: dict = {
             "ok": True,
             "type": "update" if is_update else "create",
-            "file_path": file_path,   # hand back the path the model originally passed in
+            "file_path": file_path,  # hand back the path the model originally passed in
             "physical_path": physical,
             "size": len(new_bytes),
             "persistent": is_persistent,
@@ -304,8 +342,7 @@ def register_write(
         return resp_json(payload)
 
     Write.__doc__ = (
-        "创建文件或全量覆盖已存在文件。\n\n"
-        + PATH_POLICY_DOC + "\n\n"
+        "创建文件或全量覆盖已存在文件。\n\n" + PATH_POLICY_DOC + "\n\n"
         "写 ``/myspace/<文件夹>/<文件名>`` 时目录层级会映射到我的空间目录树"
         "（缺失文件夹自动建），写入立即同步、同名文件保持同一 file_id。\n\n"
         "**前置**：覆盖现存文件前必须先 ``Read`` 完整读过（不传 offset/limit），否则被拒；"

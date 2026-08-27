@@ -358,7 +358,7 @@ export interface ModelCapabilities {
   user_selectable_models: UserSelectableModel[];
   /** Real context window (tokens) of the main chat model; 0/undefined when unconfigured. */
   main_context_length?: number;
-  /** Tokens the backend reserves for the system prompt + skill/tool descriptions. */
+  /** Legacy capacity reserve; not a live context-usage measurement. */
   system_prompt_tokens?: number;
   /** Maximum text characters automatically previewed per newly attached file. */
   attachment_preview_chars?: number;
@@ -676,6 +676,21 @@ export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
   }));
 }
 
+export interface ChatContextState {
+  context_usage?: unknown;
+  context_compaction?: unknown;
+}
+
+/** Lightweight projection used to observe background compaction completion. */
+export async function getChatContextState(chatId: string): Promise<ChatContextState> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${encodeURIComponent(chatId)}/context-usage`,
+    undefined,
+    isLocalChat(chatId) ? 'local' : undefined,
+  );
+  return unwrapData<ChatContextState>(wrapped);
+}
+
 /** Build "?key=value&..." string while skipping nullish values. */
 function buildQuery(params: Record<string, string | number | undefined | null>): string {
   const parts: string[] = [];
@@ -852,6 +867,7 @@ export async function confirmFileWrite(
   decision?: string;
   op?: string;
   logical_path?: string;
+  cascaded?: string[];
 }> {
   const wrapped = await apiRequest<unknown>(`/v1/chats/${chatId}/file-confirm`, {
     method: 'POST',
@@ -2734,6 +2750,7 @@ export const api = {
   updateSession,
   deleteSession,
   getChatMessages,
+  getChatContextState,
   getFollowUpQuestions,
   getCurrentUser,
   getUserPreferences,

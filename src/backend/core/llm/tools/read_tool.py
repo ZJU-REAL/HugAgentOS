@@ -217,8 +217,16 @@ def register_read(
         _local_read: Optional[bytes] = None
         if _local_on():
             try:
+                from core.llm.tool_permissions import (
+                    PermissionEnforcementError,
+                    require_local_path_permission,
+                )
+
+                require_local_path_permission(physical, "read")
                 with open(physical, "rb") as _f:
                     _local_read = _f.read()
+            except PermissionEnforcementError as exc:
+                return resp_json({"error": str(exc), "blocked": True})
             except OSError as exc:
                 return resp_json({"error": f"读取文件失败: {exc}"})
         try:

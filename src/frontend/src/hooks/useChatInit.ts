@@ -7,10 +7,10 @@ import { attachArtifactsToToolCalls } from '../utils/fileParser';
 import { isAutomationHistoryChat } from '../utils/history';
 import { markResolvedPlanPreviews } from '../utils/planHistory';
 import { stripMcpToolPrefix } from '../utils/constants';
-import { parseContextCompactionState } from '../utils/contextUsage';
+import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, EvolutionSummary, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, ContextUsageSnapshot, EvolutionSummary, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -527,6 +527,12 @@ export function useChatInit() {
                 const mp = await mr.json();
                 const msgItems: any[] = mp?.data?.items || [];
                 const quickMsgs: ChatMessage[] = markResolvedPlanPreviews(msgItems.map(parseHistoryMessage));
+                if (Object.prototype.hasOwnProperty.call(mp?.data || {}, 'context_usage')) {
+                  useChatStore.getState().setContextUsage(
+                    targetChatId,
+                    parseContextUsageSnapshot(mp.data.context_usage),
+                  );
+                }
                 if (Object.prototype.hasOwnProperty.call(mp?.data || {}, 'context_compaction')) {
                   useChatStore.getState().setContextCompaction(
                     targetChatId,
@@ -737,6 +743,8 @@ export function useChatInit() {
         let pendingPlanId: string | null = null;
         let contextCompactionSeen = false;
         let contextCompaction: ContextCompactionState | null = null;
+        let contextUsageSeen = false;
+        let contextUsage: ContextUsageSnapshot | null = null;
 
         while (true) {
           const r = await authFetch(`${effectiveApiUrl}/v1/chats/${chatId}/messages?page=${page}&page_size=100`, { headers: { ...chatTargetHeaders(chatId) } });
@@ -751,6 +759,10 @@ export function useChatInit() {
           if (!contextCompactionSeen && Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_compaction')) {
             contextCompactionSeen = true;
             contextCompaction = parseContextCompactionState(payload.data.context_compaction);
+          }
+          if (!contextUsageSeen && Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_usage')) {
+            contextUsageSeen = true;
+            contextUsage = parseContextUsageSnapshot(payload.data.context_usage);
           }
 
           for (const m of items) {
@@ -770,6 +782,9 @@ export function useChatInit() {
         }
 
         if (!cancelled) {
+          if (contextUsageSeen) {
+            useChatStore.getState().setContextUsage(chatId, contextUsage);
+          }
           if (contextCompactionSeen) {
             useChatStore.getState().setContextCompaction(chatId, contextCompaction);
           }

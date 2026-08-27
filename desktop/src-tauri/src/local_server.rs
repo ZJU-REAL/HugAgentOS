@@ -332,15 +332,39 @@ impl LocalServerManager {
         if self.shutting_down.load(Ordering::SeqCst) {
             return Err("桌面端正在退出，不再启动本机服务".to_string());
         }
-        if self.is_ready().await {
-            self.update("ready", 100, "本机服务已就绪").await;
-            return Ok(());
-        }
         if !self.is_installed() {
             return Err("本机服务尚未安装".to_string());
         }
         let release = local_payload::resolved_active(&self.root)?
             .ok_or_else(|| "本机服务版本状态无效，请重新安装".to_string())?;
+
+        if self.is_ready().await {
+            #[cfg(target_os = "windows")]
+            {
+                // A forced desktop update can leave the previous Python server
+                // alive after active.json has switched to a newer source tree.
+                // The old /health response has the same service name, so do not
+                // accept it until its command line points at the active release.
+                if !windows_local_server_pids(&self.root, Some(&release.source_dir))?.is_empty() {
+                    self.update("ready", 100, "本机服务已就绪").await;
+                    return Ok(());
+                }
+
+                stop_recorded_server(&self.pid_path(), &release.executable, &self.root)?;
+                for pid in windows_local_server_pids(&self.root, None)? {
+                    stop_recorded_process_tree(pid, &self.root)?;
+                }
+                let _ = std::fs::remove_file(self.pid_path());
+                if self.is_ready().await {
+                    return Err("32101 端口被非当前版本的本机服务占用，请退出后重试".to_string());
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                self.update("ready", 100, "本机服务已就绪").await;
+                return Ok(());
+            }
+        }
 
         {
             let mut child_guard = self.child.lock().map_err(|_| "服务进程锁异常")?;
@@ -889,6 +913,64 @@ fn stop_recorded_process_tree(pid: u32, install_root: &Path) -> Result<(), Strin
         Some(3) => Ok(()),
         code => Err(format!("回收上次本机服务进程失败（退出码 {code:?}）")),
     }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_local_server_pids(
+    install_root: &Path,
+    required_source: Option<&Path>,
+) -> Result<Vec<u32>, String> {
+    let script = "$ErrorActionPreference='Stop'; \
+        $root=[IO.Path]::GetFullPath($env:HUGAGENT_INSTALL_ROOT).TrimEnd('\\'); \
+        $source=[string]$env:HUGAGENT_SOURCE_DIR; \
+        $port='--port ' + $env:HUGAGENT_LOCAL_PORT; \
+        Get-CimInstance Win32_Process | ForEach-Object { \
+          $cmd=[string]$_.CommandLine; \
+          $exe=[string]$_.ExecutablePath; \
+          if ($cmd -and $exe -and \
+              [IO.Path]::GetFullPath($exe).StartsWith($root + '\\',[StringComparison]::OrdinalIgnoreCase) -and \
+              $cmd.IndexOf($root,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and \
+              $cmd.IndexOf('cli.py',[StringComparison]::OrdinalIgnoreCase) -ge 0 -and \
+              $cmd.IndexOf(' serve',[StringComparison]::OrdinalIgnoreCase) -ge 0 -and \
+              $cmd.IndexOf($port,[StringComparison]::OrdinalIgnoreCase) -ge 0 -and \
+              (-not $source -or $cmd.IndexOf($source,[StringComparison]::OrdinalIgnoreCase) -ge 0)) { \
+            Write-Output $_.ProcessId \
+          } \
+        }";
+    let mut command = Command::new("powershell.exe");
+    command
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+        ])
+        .env("HUGAGENT_INSTALL_ROOT", install_root)
+        .env(
+            "HUGAGENT_SOURCE_DIR",
+            required_source.map(Path::as_os_str).unwrap_or_default(),
+        )
+        .env("HUGAGENT_LOCAL_PORT", LOCAL_SERVER_PORT.to_string());
+    hide_console(&mut command);
+    let output = command
+        .output()
+        .map_err(|error| format!("无法检查已运行的本机服务：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "检查已运行的本机服务失败（退出码 {:?}）",
+            output.status.code()
+        ));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            line.trim()
+                .parse::<u32>()
+                .map_err(|_| format!("无法解析本机服务进程号：{line}"))
+        })
+        .collect()
 }
 
 #[cfg(target_os = "macos")]

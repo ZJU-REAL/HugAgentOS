@@ -468,6 +468,35 @@ export interface ChatMessage {
   workspaceFiles?: string[] | null;
 }
 
+export type ContextUsageSource = 'provider' | 'backend_estimate' | 'compaction_estimate';
+
+/** Latest primary-model context snapshot.
+ *
+ * provider snapshots have an exact headline total from upstream usage. Their
+ * category mix is reconciled from the backend's final request manifest.
+ * Estimates are explicit fallbacks used before an upstream measurement exists.
+ */
+export interface ContextUsageSnapshot {
+  source: ContextUsageSource;
+  exact: boolean;
+  usedTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  contextWindow: number;
+  modelName?: string;
+  modelProviderId?: string;
+  modelCallIndex: number;
+  breakdown: {
+    messages: number;
+    tools: number;
+    thinking: number;
+    files: number;
+    system: number;
+    input: number;
+    total: number;
+  };
+}
+
 /** Latest backend context-compaction checkpoint used by the context gauge.
  * The full transcript stays visible; messages covered by this boundary have
  * been replaced in the model context by a compacted baseline. */
@@ -477,6 +506,8 @@ export interface ContextCompactionState {
   coveredThroughMessageId?: string;
   coveredMessageCount: number;
   replacementTokens: number;
+  /** Post-compaction backend estimate, present until a newer provider call supersedes it. */
+  contextUsage?: ContextUsageSnapshot;
 }
 
 export interface ChatItem {

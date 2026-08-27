@@ -27,6 +27,7 @@ immediately reverse-synced to the artifact table + myspace_cache.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 # Workspace root: ``/workspace`` inside the Docker sandbox; the no-Docker local
@@ -105,12 +106,13 @@ def validate_workspace_path(path: str) -> Optional[str]:
         return None
     # Local desktop mode: the sandbox IS the host filesystem, so accept real
     # absolute host paths (e.g. /Users/alice/Desktop/x) directly — the agent
-    # works with real paths like a normal coding agent. Authorization is enforced
-    # by the execution policy gate + OS sandbox, not by this prefix check.
+    # works with real paths like a normal coding agent. Every native file tool
+    # applies the canonical read/write Grant gate after this syntax check; bash
+    # additionally receives the command-policy and OS-sandbox layers.
     try:
         from core.config.local_mode import local_mode_enabled
 
-        if local_mode_enabled() and path.startswith("/"):
+        if local_mode_enabled() and os.path.isabs(path):
             return None
     except Exception:
         pass
@@ -154,16 +156,30 @@ def to_physical_path(path: str, user_id: Optional[str]) -> str:
     (caller should validate user_id presence before calling).
     """
     path = canonicalize_ws_path(path)
+    physical = path
     if path == MYSPACE_LOGICAL:
         if not user_id:
-            return path
-        return f"{WORKSPACE_ROOT}/myspace/{user_id}"
-    if path.startswith(MYSPACE_LOGICAL + "/"):
+            physical = path
+        else:
+            physical = f"{WORKSPACE_ROOT}/myspace/{user_id}"
+    elif path.startswith(MYSPACE_LOGICAL + "/"):
         if not user_id:
-            return path
-        rest = path[len(MYSPACE_LOGICAL) + 1:]
-        return f"{WORKSPACE_ROOT}/myspace/{user_id}/{rest}"
-    return path
+            physical = path
+        else:
+            rest = path[len(MYSPACE_LOGICAL) + 1:]
+            physical = f"{WORKSPACE_ROOT}/myspace/{user_id}/{rest}"
+
+    # In local mode, the canonical identity checked by the Grant gate must be
+    # the exact identity later opened/written.  Returning the resolved path
+    # narrows the symlink-swap window and avoids check-one/write-another drift.
+    try:
+        from core.config.local_mode import local_mode_enabled
+
+        if local_mode_enabled():
+            return os.path.realpath(os.path.abspath(os.path.expanduser(physical)))
+    except Exception:
+        pass
+    return physical
 
 
 def is_myspace_physical(physical_path: str, user_id: Optional[str]) -> bool:

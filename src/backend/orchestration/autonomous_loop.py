@@ -30,6 +30,7 @@ Design: internal design docs. State persists to disk, not to
 context (Ralph/Codex): feature_list.json / handoffs.md / PROGRESS.md live in the persistent
 sandbox; each iteration the worker restarts with a fresh context + the previous handoff.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -47,11 +48,7 @@ from orchestration.loop_evaluator import (
     decompose_requirements,
     extract_acceptance_criteria,
 )
-from orchestration.loop_planner import (
-    plan_requirements,
-    replan_remaining,
-    scout_workspace,
-)
+from orchestration.loop_planner import plan_requirements, replan_remaining, scout_workspace
 from orchestration.subagents.loop_reviewer import review_requirement
 
 logger = get_logger(__name__)
@@ -109,6 +106,7 @@ def _build_wrapup_prompt(objective: str, ledger: Dict[str, Any], in_project: boo
         "3. 只整合与说明，不要开工做新需求。"
     )
 
+
 # Loop thresholds come from the active orchestration profile, resolved **per
 # run** and **per tenant** (core.evolution.policies projects the profile onto
 # the knobs this loop uses).
@@ -122,6 +120,7 @@ def _resolve_loop_policy(*, tenant_id: str, user_id: str = ""):
     from core.evolution.policies import load_loop_policy
 
     return load_loop_policy(tenant_id=tenant_id, user_id=user_id)
+
 
 _WORKSPACE = "/workspace"
 _LEDGER_PATH = f"{_WORKSPACE}/feature_list.json"
@@ -202,8 +201,12 @@ async def _sbx_exec(
     )
 
     req = ExecuteRequest(
-        script_content=cmd, script_name="_loop_git.sh", language="bash",
-        timeout=max(1, min(int(timeout), 300)), session_id=session_id, user_id=user_id,
+        script_content=cmd,
+        script_name="_loop_git.sh",
+        language="bash",
+        timeout=max(1, min(int(timeout), 300)),
+        session_id=session_id,
+        user_id=user_id,
     )
     try:
         res = await get_sandbox_provider().execute(req)
@@ -221,7 +224,8 @@ async def _git_init(session_id: str, user_id: str) -> bool:
         "git init -q && git config user.email loop@agent.local && "
         "git config user.name loop && git add -A >/dev/null 2>&1; "
         "git commit -q -m baseline --allow-empty >/dev/null 2>&1 || true",
-        session_id=session_id, user_id=user_id,
+        session_id=session_id,
+        user_id=user_id,
     )
     return code == 0
 
@@ -233,7 +237,8 @@ async def _git_checkpoint(session_id: str, user_id: str, msg: str) -> Optional[s
         f"git add -A >/dev/null 2>&1; "
         f"git commit -q -m {json.dumps(msg)} --allow-empty >/dev/null 2>&1; "
         "git rev-parse --short HEAD",
-        session_id=session_id, user_id=user_id,
+        session_id=session_id,
+        user_id=user_id,
     )
     return out.strip() if code == 0 and out.strip() else None
 
@@ -243,7 +248,8 @@ async def _git_worktree_changed(session_id: str, user_id: str) -> bool:
     code, out, _ = await _sbx_exec(
         f"cd {_WORKSPACE} && git rev-parse --git-dir >/dev/null 2>&1 || exit 42; "
         "git status --porcelain 2>/dev/null | head -1",
-        session_id=session_id, user_id=user_id,
+        session_id=session_id,
+        user_id=user_id,
     )
     return code == 0 and bool(out.strip())
 
@@ -252,7 +258,8 @@ async def _git_diff_stat(session_id: str, user_id: str) -> str:
     code, out, _ = await _sbx_exec(
         f"cd {_WORKSPACE} && git rev-parse --git-dir >/dev/null 2>&1 || exit 42; "
         "git diff HEAD~1 HEAD --stat 2>/dev/null | tail -20",
-        session_id=session_id, user_id=user_id,
+        session_id=session_id,
+        user_id=user_id,
     )
     return out.strip() if code == 0 else ""
 
@@ -276,8 +283,7 @@ def _new_ledger(objective: str, requirements: List[Dict[str, Any]]) -> Dict[str,
     # （停滞判定与停滞告警都看它）；blocked=搁置；check_cmd=只读机检命令（driver
     # 亲自执行，exit 0=客观达标，空=纯语义需求）；last_feedback=本需求最近一次
     # 评审/机检反馈（重规划输入；不跨需求泄漏）。
-    return {"objective": objective, "iteration": 0,
-            "requirements": _init_req_fields(requirements)}
+    return {"objective": objective, "iteration": 0, "requirements": _init_req_fields(requirements)}
 
 
 async def _read_ledger(
@@ -309,7 +315,8 @@ async def _read_ledger(
         # (keyed by loop_id) is the compatibility path for legacy resumes.
         logger.info(
             "[loop %s] ignoring foreign sandbox ledger (stamped %s — recycled sandbox)",
-            loop_id, stamp or "<none>",
+            loop_id,
+            stamp or "<none>",
         )
         return None
     return obj
@@ -318,8 +325,10 @@ async def _read_ledger(
 async def _write_ledger(ledger: Dict[str, Any], *, session_id: str, user_id: str) -> None:
     # Each iteration the driver overwrites with its own authoritative copy → any worker edits to the ledger are discarded (tamper-proofing).
     await _write_file(
-        _LEDGER_PATH, json.dumps(ledger, ensure_ascii=False, indent=2),
-        session_id=session_id, user_id=user_id,
+        _LEDGER_PATH,
+        json.dumps(ledger, ensure_ascii=False, indent=2),
+        session_id=session_id,
+        user_id=user_id,
     )
 
 
@@ -344,7 +353,8 @@ def _pick_fresher_ledger(
 ) -> Optional[Dict[str, Any]]:
     """Between the DB ledger (reliable across rebuild/restart/machine change) and the sandbox
     ledger (freshest within a same-process live session), pick the one with the higher iteration
-    count; ties go to the DB (authoritative source of truth). If either is empty, return the other."""
+    count; ties go to the DB (authoritative source of truth). If either is empty, return the other.
+    """
     if db_led and sbx_led:
         di = int(db_led.get("iteration", 0) or 0)
         si = int(sbx_led.get("iteration", 0) or 0)
@@ -382,6 +392,7 @@ async def _run_worker_iteration(
     is_cancelled: Optional[CancelFn],
     project_ctx: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
+    automation_run: bool = False,
     ontology_enabled: bool = False,
     ontology_runtime: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -400,8 +411,9 @@ async def _run_worker_iteration(
         model_name=model_name,
         model_provider_id=model_provider_id,  # 用户在会话里选定的模型跟随 loop（不再固定默认模型）
         sandbox_session_id=session_id,  # key: same session → files persist across iterations
-        project_ctx=project_ctx,        # key: bind to the user-selected project (site source workspace)
+        project_ctx=project_ctx,  # key: bind to the user-selected project (site source workspace)
         chat_id=chat_id,
+        automation_run=automation_run,
         isolated=True,  # independent MCP clients per iteration, avoids cross-task cancel-scope
         max_iters=worker_max_iters,
         ontology_runtime=ontology_runtime,
@@ -493,8 +505,14 @@ async def _run_worker_iteration(
                     }
                 )
                 if emit:
-                    await emit({"type": "tool_call", "tool_name": payload.get("name"),
-                                "tool_id": payload.get("id"), "tool_args": payload.get("args")})
+                    await emit(
+                        {
+                            "type": "tool_call",
+                            "tool_name": payload.get("name"),
+                            "tool_id": payload.get("id"),
+                            "tool_args": payload.get("args"),
+                        }
+                    )
             elif et == "tool_result":
                 tool_name = payload.get("name")
                 tool_id = payload.get("id")
@@ -509,21 +527,23 @@ async def _run_worker_iteration(
                 )
                 try:
                     parsed_result = (
-                        json.loads(tool_content)
-                        if isinstance(tool_content, str)
-                        else tool_content
+                        json.loads(tool_content) if isinstance(tool_content, str) else tool_content
                     )
                     if isinstance(parsed_result, dict):
                         from orchestration.citation_anchor import collect_citation_dicts
 
-                        citations.extend(
-                            collect_citation_dicts(tool_id or "", _anchor_allocator)
-                        )
+                        citations.extend(collect_citation_dicts(tool_id or "", _anchor_allocator))
                 except (json.JSONDecodeError, TypeError, ValueError):
                     pass
                 if emit:
-                    await emit({"type": "tool_result", "tool_name": payload.get("name"),
-                                "tool_id": payload.get("id"), "result": payload.get("content")})
+                    await emit(
+                        {
+                            "type": "tool_result",
+                            "tool_name": payload.get("name"),
+                            "tool_id": payload.get("id"),
+                            "result": payload.get("content"),
+                        }
+                    )
             elif et == "tool_pending":
                 if emit:
                     await emit({"type": "tool_pending", **(payload or {})})
@@ -630,9 +650,7 @@ def _build_requirement_prompt(
     if handoff:
         parts.append(f"\n## 上一轮交接（git diff + 摘要）\n{handoff}")
     if feedback:
-        parts.append(
-            "\n## 评审反馈（评审员亲自看了你上轮的真实产出，务必针对性改进）\n" + feedback
-        )
+        parts.append("\n## 评审反馈（评审员亲自看了你上轮的真实产出，务必针对性改进）\n" + feedback)
     if strategy_change:
         parts.append(
             "\n## ⚠️ 停滞告警（自我修正）\n这条需求已连续多轮没通过评审。**不要再沿用同一思路**，"
@@ -691,6 +709,7 @@ async def run_autonomous_loop(
     poll_steering: Optional[SteeringFn] = None,
     project_ctx: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
+    automation_run: bool = False,
     tenant_id: str = "default",
 ) -> LoopResult:
     """Drive an autonomous loop until "all requirements in the ledger pass" / budget exhausted / cancelled.
@@ -722,8 +741,12 @@ async def run_autonomous_loop(
     max_attempts_per_req = policy.max_attempts_per_requirement
     logger.info(
         "[loop %s] policy=%s tenant=%s change_after=%d max_attempts=%d budget_x%.2f",
-        loop_id, policy.version, tenant_id, strategy_change_after,
-        max_attempts_per_req, policy.budget_multiplier,
+        loop_id,
+        policy.version,
+        tenant_id,
+        strategy_change_after,
+        max_attempts_per_req,
+        policy.budget_multiplier,
     )
 
     ontology_enabled, ontology_runtime = build_user_ontology_runtime(
@@ -744,18 +767,27 @@ async def run_autonomous_loop(
 
     async def _persist_ledger(led: Dict[str, Any]) -> None:
         """Flush the ledger: dual-write to the sandbox (working cache) + DB mirror (reliable source of truth for resume)."""
-        led["loop_id"] = loop_id  # stamp: _read_ledger rejects foreign ledgers on recycled sandboxes
+        led["loop_id"] = (
+            loop_id  # stamp: _read_ledger rejects foreign ledgers on recycled sandboxes
+        )
         await _write_ledger(led, session_id=session, user_id=user_id)
         if save_ledger:
             try:
                 save_ledger(led)
-            except Exception as exc:  # noqa: BLE001 - a DB mirror failure must not take down the loop
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 - a DB mirror failure must not take down the loop
                 logger.warning("[loop %s] DB ledger mirror failed: %s", loop_id, exc)
 
-    await _emit(emit, {
-        "type": "loop_started", "loop_id": loop_id,
-        "objective": goal_spec.objective, "budget": budget.snapshot(),
-    })
+    await _emit(
+        emit,
+        {
+            "type": "loop_started",
+            "loop_id": loop_id,
+            "objective": goal_spec.objective,
+            "budget": budget.snapshot(),
+        },
+    )
 
     # ── Initializer / resume-from-checkpoint ─────────────────────────────────
     # Resume source-of-truth priority: DB-mirrored ledger (reliable across rebuild/restart/machine
@@ -770,23 +802,42 @@ async def run_autonomous_loop(
     sbx_ledger = await _read_ledger(session_id=session, user_id=user_id, loop_id=loop_id)
     ledger = _pick_fresher_ledger(db_ledger, sbx_ledger)
     if ledger is not None:
-        ledger["loop_id"] = loop_id  # stamp before any backfill (DB mirrors from older builds lack it)
+        ledger["loop_id"] = (
+            loop_id  # stamp before any backfill (DB mirrors from older builds lack it)
+        )
         seq = int(ledger.get("iteration", 0) or 0)
         # Sandbox ledger missing/stale (sandbox wiped after restart or snapshot not flushed) →
         # backfill the authoritative ledger into the sandbox so the worker can read feature_list.json.
         if ledger is not sbx_ledger:
             await _write_ledger(ledger, session_id=session, user_id=user_id)
         handoff = await _read_file(f"{_WORKSPACE}/handoffs.md", session_id=session, user_id=user_id)
-        logger.info("[loop %s] RESUME from iter %d, progress %s (src=%s)", loop_id, seq,
-                    _progress_frac(ledger), "db" if ledger is db_ledger else "sandbox")
-        await _emit(emit, {"type": "loop_resumed", "from_iteration": seq,
-                           "progress": _progress_frac(ledger)})
+        logger.info(
+            "[loop %s] RESUME from iter %d, progress %s (src=%s)",
+            loop_id,
+            seq,
+            _progress_frac(ledger),
+            "db" if ledger is db_ledger else "sandbox",
+        )
+        await _emit(
+            emit,
+            {"type": "loop_resumed", "from_iteration": seq, "progress": _progress_frac(ledger)},
+        )
         # On resume, also send the ledger to the frontend so the "plan bar" can repopulate (the init branch won't run again).
-        await _emit(emit, {"type": "loop_plan", "objective": goal_spec.objective,
-                           "requirements": [
-                               {"id": r["id"], "description": r["description"],
-                                "passes": bool(r.get("passes"))}
-                               for r in ledger["requirements"]]})
+        await _emit(
+            emit,
+            {
+                "type": "loop_plan",
+                "objective": goal_spec.objective,
+                "requirements": [
+                    {
+                        "id": r["id"],
+                        "description": r["description"],
+                        "passes": bool(r.get("passes")),
+                    }
+                    for r in ledger["requirements"]
+                ],
+            },
+        )
     else:
         await _git_init(session, user_id)
         # 规划器 v2：只读侦察员先摸真实工作区/项目 → 规划模型据实拆账本（含可选机检命令）。
@@ -794,19 +845,28 @@ async def run_autonomous_loop(
         survey = ""
         try:
             survey = await scout_workspace(
-                objective=goal_spec.objective, session_id=session, user_id=user_id,
-                project_ctx=project_ctx, chat_id=chat_id, model_name=evaluator_model,
+                objective=goal_spec.objective,
+                session_id=session,
+                user_id=user_id,
+                project_ctx=project_ctx,
+                chat_id=chat_id,
+                model_name=evaluator_model,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[loop %s] scout failed: %s", loop_id, exc)
         if survey:
             await _emit(emit, {"type": "loop_scouted", "survey": survey[:800]})
         reqs = await plan_requirements(
-            goal_spec=goal_spec, survey=survey, model_name=evaluator_model, user_id=user_id,
+            goal_spec=goal_spec,
+            survey=survey,
+            model_name=evaluator_model,
+            user_id=user_id,
         )
         if not reqs:
             reqs = await decompose_requirements(
-                goal_spec=goal_spec, model_name=evaluator_model or "fast", user_id=user_id,
+                goal_spec=goal_spec,
+                model_name=evaluator_model or "fast",
+                user_id=user_id,
             )
         ledger = _new_ledger(goal_spec.objective, reqs)
         if survey:
@@ -815,25 +875,39 @@ async def run_autonomous_loop(
         await _write_file(
             f"{_WORKSPACE}/PROGRESS.md",
             f"# 目标\n{goal_spec.objective}\n\n# 需求账本\n"
-            + _render_ledger_view(ledger, current_id="") + "\n",
-            session_id=session, user_id=user_id,
+            + _render_ledger_view(ledger, current_id="")
+            + "\n",
+            session_id=session,
+            user_id=user_id,
         )
         await _git_checkpoint(session, user_id, "loop: init feature_list")
-        await _emit(emit, {
-            "type": "loop_plan", "objective": goal_spec.objective,
-            "requirements": [
-                {"id": r["id"], "description": r["description"], "passes": bool(r.get("passes"))}
-                for r in ledger["requirements"]
-            ],
-        })
-        logger.info("[loop %s] init ledger with %d requirements", loop_id, len(ledger["requirements"]))
+        await _emit(
+            emit,
+            {
+                "type": "loop_plan",
+                "objective": goal_spec.objective,
+                "requirements": [
+                    {
+                        "id": r["id"],
+                        "description": r["description"],
+                        "passes": bool(r.get("passes")),
+                    }
+                    for r in ledger["requirements"]
+                ],
+            },
+        )
+        logger.info(
+            "[loop %s] init ledger with %d requirements", loop_id, len(ledger["requirements"])
+        )
 
     # Acceptance-criteria resolution (for the reviewer sub-agent's item-by-item verification): reuse from the ledger if present (resume), otherwise extract once and store back into the ledger.
     if not criteria:
         criteria = list(ledger.get("criteria") or [])
     if not criteria:
         criteria = await extract_acceptance_criteria(
-            objective=goal_spec.objective, model_name=evaluator_model or "fast", user_id=user_id,
+            objective=goal_spec.objective,
+            model_name=evaluator_model or "fast",
+            user_id=user_id,
         ) or [goal_spec.objective]
         ledger["criteria"] = criteria
         await _persist_ledger(ledger)
@@ -889,11 +963,26 @@ async def run_autonomous_loop(
             except Exception as exc:  # noqa: BLE001 - steering 读取失败不拖垮循环
                 logger.warning("[loop %s] poll_steering failed: %s", loop_id, exc)
         if steering:
-            await _emit(emit, {"type": "loop_steering_consumed", "seq": seq,
-                               "messages": [s[:200] for s in steering]})
-        await _emit(emit, {"type": "iteration_started", "seq": seq,
-                           "requirement_id": req["id"], "progress": _progress_frac(ledger)})
-        logger.info("[loop %s] iter %d req=%s (%s)", loop_id, seq, req["id"], _progress_frac(ledger))
+            await _emit(
+                emit,
+                {
+                    "type": "loop_steering_consumed",
+                    "seq": seq,
+                    "messages": [s[:200] for s in steering],
+                },
+            )
+        await _emit(
+            emit,
+            {
+                "type": "iteration_started",
+                "seq": seq,
+                "requirement_id": req["id"],
+                "progress": _progress_frac(ledger),
+            },
+        )
+        logger.info(
+            "[loop %s] iter %d req=%s (%s)", loop_id, seq, req["id"], _progress_frac(ledger)
+        )
 
         # 1) Worker runs one iteration (fresh context, fed only the current requirement)
         # 停滞告警看 stalls（连续无实质推进轮数）而非 attempts：健康推进多轮的大需求
@@ -901,20 +990,34 @@ async def run_autonomous_loop(
         # 这与 2026-08-10 的 progress/stall 修复必须同一口径。
         strategy_change = int(req.get("stalls", 0)) >= strategy_change_after
         prompt = _build_requirement_prompt(
-            objective=goal_spec.objective, ledger=ledger, req=req, seq=seq,
-            handoff=handoff, feedback=feedback, strategy_change=strategy_change,
-            in_project=in_project, steering=steering,
+            objective=goal_spec.objective,
+            ledger=ledger,
+            req=req,
+            seq=seq,
+            handoff=handoff,
+            feedback=feedback,
+            strategy_change=strategy_change,
+            in_project=in_project,
+            steering=steering,
         )
         # Per-iteration 异常隔离：worker 内任何未被流层吞掉的异常（网关断流抛错、
         # AgentScope 内部错、沙箱协议外异常）只废掉**本轮**，绝不冒泡杀死整个多小时
         # run。异常轮与零产出轮同待遇：不计 attempt、退避重试；连续多轮才熔断。
         try:
             work = await _run_worker_iteration(
-                prompt=prompt, session_id=session, user_id=user_id, model_name=model_name,
+                prompt=prompt,
+                session_id=session,
+                user_id=user_id,
+                model_name=model_name,
                 model_provider_id=model_provider_id,
-                worker_max_iters=worker_max_iters, enable_thinking=enable_thinking,
-                chat_mode=chat_mode, emit=emit, is_cancelled=is_cancelled,
-                project_ctx=project_ctx, chat_id=chat_id,
+                worker_max_iters=worker_max_iters,
+                enable_thinking=enable_thinking,
+                chat_mode=chat_mode,
+                emit=emit,
+                is_cancelled=is_cancelled,
+                project_ctx=project_ctx,
+                chat_id=chat_id,
+                automation_run=automation_run,
                 ontology_enabled=ontology_enabled,
                 ontology_runtime=ontology_runtime,
             )
@@ -933,7 +1036,11 @@ async def run_autonomous_loop(
         # outage, not evidence about the requirement. Not counted as an
         # attempt/stall; back off and retry. A permanent outage is bounded by
         # the consecutive-infra circuit breaker (LOOP_MAX_CONSECUTIVE_INFRA).
-        if not work["tokens"] and not work["tool_calls"] and not str(work.get("text") or "").strip():
+        if (
+            not work["tokens"]
+            and not work["tool_calls"]
+            and not str(work.get("text") or "").strip()
+        ):
             consecutive_infra += 1
             if consecutive_infra >= _max_consecutive_infra():
                 status = "failed"
@@ -945,13 +1052,25 @@ async def run_autonomous_loop(
             logger.warning(
                 "[loop %s] iter %d req=%s produced nothing (infra failure %d/%d) — "
                 "not counted as attempt; backing off 30s",
-                loop_id, seq, req["id"], consecutive_infra, _max_consecutive_infra(),
+                loop_id,
+                seq,
+                req["id"],
+                consecutive_infra,
+                _max_consecutive_infra(),
             )
-            await _emit(emit, {"type": "iteration_evaluated", "seq": seq,
-                               "requirement_id": req["id"], "verdict": "infra_retry",
-                               "tool_calls": 0, "tokens": 0,
-                               "reason": "本轮无任何产出（疑似模型/网关故障），不计入尝试，稍后重试"
-                                         + (f"：{work.get('_infra_error')}" if work.get("_infra_error") else "")})
+            await _emit(
+                emit,
+                {
+                    "type": "iteration_evaluated",
+                    "seq": seq,
+                    "requirement_id": req["id"],
+                    "verdict": "infra_retry",
+                    "tool_calls": 0,
+                    "tokens": 0,
+                    "reason": "本轮无任何产出（疑似模型/网关故障），不计入尝试，稍后重试"
+                    + (f"：{work.get('_infra_error')}" if work.get("_infra_error") else ""),
+                },
+            )
             await asyncio.sleep(30)
             continue
 
@@ -968,16 +1087,27 @@ async def run_autonomous_loop(
         machine_evidence = ""
         if check_cmd:
             _code, _out, _err = await _sbx_exec(
-                check_cmd, session_id=session, user_id=user_id, timeout=90,
+                check_cmd,
+                session_id=session,
+                user_id=user_id,
+                timeout=90,
             )
             check_passed = _code == 0
             _check_tail = (_out or _err or "").strip()[-500:]
-            machine_evidence = (
-                f"driver 已执行机检命令 `{check_cmd}`，退出码 {_code}"
-                + (f"，输出尾部：{_check_tail}" if _check_tail else "")
+            machine_evidence = f"driver 已执行机检命令 `{check_cmd}`，退出码 {_code}" + (
+                f"，输出尾部：{_check_tail}" if _check_tail else ""
             )
-            await _emit(emit, {"type": "loop_check", "seq": seq, "requirement_id": req["id"],
-                               "cmd": check_cmd, "exit_code": _code, "passed": check_passed})
+            await _emit(
+                emit,
+                {
+                    "type": "loop_check",
+                    "seq": seq,
+                    "requirement_id": req["id"],
+                    "cmd": check_cmd,
+                    "exit_code": _code,
+                    "passed": check_passed,
+                },
+            )
 
         if check_passed is False:
             progressed = await _git_worktree_changed(session, user_id)
@@ -990,26 +1120,41 @@ async def run_autonomous_loop(
             }
         else:
             review = await review_requirement(
-                objective=goal_spec.objective, requirement_desc=req["description"],
-                acceptance_criteria=criteria, worker_summary=work["text"],
+                objective=goal_spec.objective,
+                requirement_desc=req["description"],
+                acceptance_criteria=criteria,
+                worker_summary=work["text"],
                 machine_evidence=machine_evidence,
-                session_id=session, user_id=user_id,
-                project_ctx=project_ctx, chat_id=chat_id,
+                session_id=session,
+                user_id=user_id,
+                project_ctx=project_ctx,
+                chat_id=chat_id,
                 model_name=evaluator_model or model_name,
-                requirement_id=req["id"], emit=emit,
+                requirement_id=req["id"],
+                emit=emit,
             )
         verdict = review.get("verdict")
         evidence = review.get("evidence", "")
 
         rec = {
-            "seq": seq, "requirement_id": req["id"], "verdict": verdict,
-            "tool_calls": work["tool_calls"], "tokens": work["tokens"],
-            "reason": review.get("feedback", ""), "decided_by": "reviewer",
+            "seq": seq,
+            "requirement_id": req["id"],
+            "verdict": verdict,
+            "tool_calls": work["tool_calls"],
+            "tokens": work["tokens"],
+            "reason": review.get("feedback", ""),
+            "decided_by": "reviewer",
         }
         history.append(rec)
         await _emit(emit, {"type": "iteration_evaluated", **rec, "evidence": evidence[:600]})
-        logger.info("[loop %s] iter %d req=%s verdict=%s (attempt %d)",
-                    loop_id, seq, req["id"], verdict, req["attempts"])
+        logger.info(
+            "[loop %s] iter %d req=%s verdict=%s (attempt %d)",
+            loop_id,
+            seq,
+            req["id"],
+            verdict,
+            req["attempts"],
+        )
 
         # 3) Decide the flip (passes: false→true); only the driver may flip.
         #    二次复核降频：机检已过（有客观退出码佐证）且不是收官需求 → 一次语义评审即可翻牌；
@@ -1025,13 +1170,19 @@ async def run_autonomous_loop(
                 passed = True
             else:
                 confirm = await review_requirement(
-                    objective=goal_spec.objective, requirement_desc=req["description"],
-                    acceptance_criteria=criteria, worker_summary=work["text"],
+                    objective=goal_spec.objective,
+                    requirement_desc=req["description"],
+                    acceptance_criteria=criteria,
+                    worker_summary=work["text"],
                     machine_evidence=machine_evidence,
-                    session_id=session, user_id=user_id,
-                    project_ctx=project_ctx, chat_id=chat_id,
-                    model_name=evaluator_model or model_name, second_pass=True,
-                    requirement_id=req["id"], emit=emit,
+                    session_id=session,
+                    user_id=user_id,
+                    project_ctx=project_ctx,
+                    chat_id=chat_id,
+                    model_name=evaluator_model or model_name,
+                    second_pass=True,
+                    requirement_id=req["id"],
+                    emit=emit,
                 )
                 if confirm.get("verdict") == DONE:
                     passed = True
@@ -1053,10 +1204,22 @@ async def run_autonomous_loop(
             req["passes"] = True
             req["evidence"] = evidence[:800]
             git_sha = await _git_checkpoint(session, user_id, f"loop: {req['id']} passed")
-            await _emit(emit, {"type": "requirement_passed", "requirement_id": req["id"],
-                               "progress": _progress_frac(ledger), "commit": git_sha})
-            logger.info("[loop %s] ✓ %s passed (%s) commit=%s",
-                        loop_id, req["id"], _progress_frac(ledger), git_sha)
+            await _emit(
+                emit,
+                {
+                    "type": "requirement_passed",
+                    "requirement_id": req["id"],
+                    "progress": _progress_frac(ledger),
+                    "commit": git_sha,
+                },
+            )
+            logger.info(
+                "[loop %s] ✓ %s passed (%s) commit=%s",
+                loop_id,
+                req["id"],
+                _progress_frac(ledger),
+                git_sha,
+            )
         else:
             # Stall bookkeeping: the reviewer affirms material progress (progress=true,
             # evidence-backed) → reset the streak; otherwise count one stalled round.
@@ -1088,18 +1251,32 @@ async def run_autonomous_loop(
                     break
                 req["blocked"] = True
                 req["last_feedback"] = str(review.get("feedback", "") or "")[:400]
-                await _emit(emit, {"type": "loop_stagnation", "seq": seq,
-                                   "requirement_id": req["id"], "attempts": req["attempts"],
-                                   "stalls": req["stalls"]})
-                logger.info("[loop %s] req %s blocked after %d attempts (%d consecutive stalls)",
-                            loop_id, req["id"], req["attempts"], req["stalls"])
+                await _emit(
+                    emit,
+                    {
+                        "type": "loop_stagnation",
+                        "seq": seq,
+                        "requirement_id": req["id"],
+                        "attempts": req["attempts"],
+                        "stalls": req["stalls"],
+                    },
+                )
+                logger.info(
+                    "[loop %s] req %s blocked after %d attempts (%d consecutive stalls)",
+                    loop_id,
+                    req["id"],
+                    req["attempts"],
+                    req["stalls"],
+                )
                 # 重规划：需求被搁置说明原拆法/方向可能有问题——对剩余未完成部分重拆
                 # （已通过项不动），而不是一条条 blocked 到只剩「部分完成」。次数有护栏。
                 if int(ledger.get("replans", 0) or 0) < _max_replans():
                     new_reqs = await replan_remaining(
-                        goal_spec=goal_spec, ledger=ledger,
+                        goal_spec=goal_spec,
+                        ledger=ledger,
                         survey=str(ledger.get("survey", "") or ""),
-                        model_name=evaluator_model, user_id=user_id,
+                        model_name=evaluator_model,
+                        user_id=user_id,
                     )
                     if new_reqs:
                         ledger["replans"] = int(ledger.get("replans", 0) or 0) + 1
@@ -1107,15 +1284,31 @@ async def run_autonomous_loop(
                         feedback = ""
                         handoff = ""
                         await _persist_ledger(ledger)
-                        await _emit(emit, {"type": "loop_replanned", "seq": seq,
-                                           "replans": ledger["replans"]})
-                        await _emit(emit, {"type": "loop_plan", "objective": goal_spec.objective,
-                                           "requirements": [
-                                               {"id": r["id"], "description": r["description"],
-                                                "passes": bool(r.get("passes"))}
-                                               for r in ledger["requirements"]]})
-                        logger.info("[loop %s] REPLANNED (#%d): %d requirements",
-                                    loop_id, ledger["replans"], len(ledger["requirements"]))
+                        await _emit(
+                            emit,
+                            {"type": "loop_replanned", "seq": seq, "replans": ledger["replans"]},
+                        )
+                        await _emit(
+                            emit,
+                            {
+                                "type": "loop_plan",
+                                "objective": goal_spec.objective,
+                                "requirements": [
+                                    {
+                                        "id": r["id"],
+                                        "description": r["description"],
+                                        "passes": bool(r.get("passes")),
+                                    }
+                                    for r in ledger["requirements"]
+                                ],
+                            },
+                        )
+                        logger.info(
+                            "[loop %s] REPLANNED (#%d): %d requirements",
+                            loop_id,
+                            ledger["replans"],
+                            len(ledger["requirements"]),
+                        )
                         continue
 
         # 评审反馈只属于**当前需求**：翻牌后清空，绝不把上一条需求的反馈当成下一条的
@@ -1142,12 +1335,14 @@ async def run_autonomous_loop(
                 f"{_WORKSPACE}/handoffs.md",
                 f"# 第 {seq} 轮交接（需求 {req['id']} · 进度 {_progress_frac(ledger)}）\n"
                 f"verdict={verdict} passed={passed}\n\n{handoff}\n",
-                session_id=session, user_id=user_id,
+                session_id=session,
+                user_id=user_id,
             ),
             _write_file(
                 f"{_WORKSPACE}/PROGRESS.md",
                 _render_progress(goal_spec, ledger, history),
-                session_id=session, user_id=user_id,
+                session_id=session,
+                user_id=user_id,
             ),
         )
 
@@ -1157,17 +1352,22 @@ async def run_autonomous_loop(
     if status == "budget_exhausted" and _wrapup_enabled():
         _done_n = sum(1 for r in ledger["requirements"] if r.get("passes"))
         if _done_n and not (is_cancelled and is_cancelled()):
-            await _emit(emit, {"type": "loop_wrapup_started",
-                               "progress": _progress_frac(ledger)})
+            await _emit(emit, {"type": "loop_wrapup_started", "progress": _progress_frac(ledger)})
             try:
                 wrap = await _run_worker_iteration(
                     prompt=_build_wrapup_prompt(goal_spec.objective, ledger, in_project),
-                    session_id=session, user_id=user_id, model_name=model_name,
+                    session_id=session,
+                    user_id=user_id,
+                    model_name=model_name,
                     model_provider_id=model_provider_id,
                     worker_max_iters=max(6, worker_max_iters // 2),
-                    enable_thinking=enable_thinking, chat_mode=chat_mode,
-                    emit=emit, is_cancelled=is_cancelled,
-                    project_ctx=project_ctx, chat_id=chat_id,
+                    enable_thinking=enable_thinking,
+                    chat_mode=chat_mode,
+                    emit=emit,
+                    is_cancelled=is_cancelled,
+                    project_ctx=project_ctx,
+                    chat_id=chat_id,
+                    automation_run=automation_run,
                     ontology_enabled=ontology_enabled,
                     ontology_runtime=ontology_runtime,
                 )
@@ -1185,26 +1385,49 @@ async def run_autonomous_loop(
 
     wall = time.monotonic() - t0
     result = LoopResult(
-        status=status, iterations=seq, final_score=final_score,
-        tokens_spent=tokens_spent, wall_clock_s=round(wall, 1),
-        history=history, reason=reason,
+        status=status,
+        iterations=seq,
+        final_score=final_score,
+        tokens_spent=tokens_spent,
+        wall_clock_s=round(wall, 1),
+        history=history,
+        reason=reason,
     )
-    await _emit(emit, {
-        "type": "loop_completed", "status": status, "iterations": seq,
-        "final_score": final_score, "tokens_spent": tokens_spent,
-        "wall_clock_s": result.wall_clock_s, "reason": reason,
-        "progress": _progress_frac(ledger),
-    })
-    logger.info("[loop %s] DONE status=%s iters=%d progress=%s score=%s tokens=%d wall=%.1fs",
-                loop_id, status, seq, _progress_frac(ledger), final_score, tokens_spent, wall)
+    await _emit(
+        emit,
+        {
+            "type": "loop_completed",
+            "status": status,
+            "iterations": seq,
+            "final_score": final_score,
+            "tokens_spent": tokens_spent,
+            "wall_clock_s": result.wall_clock_s,
+            "reason": reason,
+            "progress": _progress_frac(ledger),
+        },
+    )
+    logger.info(
+        "[loop %s] DONE status=%s iters=%d progress=%s score=%s tokens=%d wall=%.1fs",
+        loop_id,
+        status,
+        seq,
+        _progress_frac(ledger),
+        final_score,
+        tokens_spent,
+        wall,
+    )
     return result
 
 
 def _render_progress(
     goal_spec: GoalSpec, ledger: Dict[str, Any], history: List[Dict[str, Any]]
 ) -> str:
-    lines = [f"# 目标\n{goal_spec.objective}\n", "# 需求账本",
-             _render_ledger_view(ledger, current_id=""), "\n# 迭代记录"]
+    lines = [
+        f"# 目标\n{goal_spec.objective}\n",
+        "# 需求账本",
+        _render_ledger_view(ledger, current_id=""),
+        "\n# 迭代记录",
+    ]
     for r in history:
         lines.append(
             f"- 第 {r['seq']} 轮 [{r.get('requirement_id', '')}]: verdict={r['verdict']} "

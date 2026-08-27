@@ -5,7 +5,6 @@
   - file_context  (pre_reply)        → FileContextMiddleware.on_reply
   - workspace_pin_hint (post_acting) → WorkspacePinHintMiddleware.on_reasoning
         (⚠️ on_acting cannot write to context; must use on_reasoning to inject the reminder before the next reasoning round)
-  - goal_anchor (post_acting)        → GoalAnchorReminderMiddleware.on_reasoning
   - finish_pin_guard (post_reasoning)→ FinishPinGuardMiddleware.on_reasoning
   - iter_budget (new in 2.0, no 1.x predecessor) → IterBudgetReminderMiddleware.on_reasoning
 
@@ -48,10 +47,6 @@ from core.llm.context_ir import (
 )
 from core.llm.hooks import (
     _FILE_ID_RE,
-    _GOAL_ANCHOR_INTERVAL,
-    _GOAL_ANCHOR_OUTPUT_TOOLS,
-    _GOAL_ANCHOR_REMINDER_TEMPLATE,
-    _GOAL_ANCHOR_WARMUP_CALLS,
     _PIN_HINT_SKIP_TOOLS,
     _build_file_context,
     _build_historical_files_context,
@@ -1167,53 +1162,6 @@ class WorkspacePinHintMiddleware(MiddlewareBase):
         state["last_reminded_sig"] = sig
 
 
-# ── GoalAnchorReminder ─────────────────────────────────────────────────────
-class GoalAnchorReminderMiddleware(MiddlewareBase):
-    def __init__(self, *, chat_id: str | None = None, batch_mode: bool = False) -> None:
-        self._chat_id = chat_id
-        self._batch_mode = batch_mode
-        self._count = 0
-        self._since_last = 0
-        self._output_seen = False
-
-    async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):
-        if not self._batch_mode:
-            try:
-                self._maybe_remind(agent)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[goal_anchor] failed: %s", exc)
-        async for evt in next_handler(**input_kwargs):
-            yield evt
-
-    def _maybe_remind(self, agent: Agent) -> None:
-        original = (getattr(agent.state, "user_message_text", "") or "").strip()
-        if not original:
-            return
-        self._count += 1
-        self._since_last += 1
-        if self._count < _GOAL_ANCHOR_WARMUP_CALLS:
-            return
-        # Detect whether an output tool call appeared recently
-        output_hit = False
-        if not self._output_seen:
-            for msg in agent.state.context[-6:]:
-                try:
-                    for b in msg.get_content_blocks("tool_call"):
-                        if getattr(b, "name", "") in _GOAL_ANCHOR_OUTPUT_TOOLS:
-                            output_hit = True
-                            break
-                except Exception:  # noqa: BLE001
-                    continue
-        interval_hit = self._since_last >= _GOAL_ANCHOR_INTERVAL
-        if not (interval_hit or output_hit):
-            return
-        reminder = _GOAL_ANCHOR_REMINDER_TEMPLATE.format(original=original)
-        _append_reminder(agent, reminder, origin="harness:goal_anchor")
-        self._since_last = 0
-        if output_hit:
-            self._output_seen = True
-
-
 # ── PlanStaleReminder ──────────────────────────────────────────────────────
 # 停滞满 N 轮催一次，催完重新计时——等价于 Claude Code 那两个都取 10 的阈值。
 _PLAN_REMINDER_INTERVAL = 10
@@ -1687,7 +1635,6 @@ __all__ = [
     "DynamicModelMiddleware",
     "FileContextMiddleware",
     "WorkspacePinHintMiddleware",
-    "GoalAnchorReminderMiddleware",
     "IterBudgetReminderMiddleware",
     "FinishPinGuardMiddleware",
 ]

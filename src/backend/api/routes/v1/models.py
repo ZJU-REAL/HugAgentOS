@@ -489,9 +489,9 @@ async def get_main_capabilities(
     # context-usage gauge reflects the model's true window instead of a guess.
     # 0 when unconfigured — the frontend falls back to a heuristic/default.
     main_context_length = int(cfg.context_length) if cfg and cfg.context_length else 0
-    # Tokens the backend reserves for the system prompt + skill/tool descriptions
-    # (ContextBudget.system_prompt_reserve). Surfaced so the gauge can count the
-    # (client-invisible) system prompt toward context usage rather than a placeholder.
+    # Legacy capacity-planning reserve for the system prompt + skills/tools.
+    # Keep the response field for compatibility, but do not treat this fixed
+    # ceiling as live usage; the chat context_usage snapshot owns that display.
     from core.llm.context_manager import ContextBudget
     from core.content.artifact_reader import ATTACHMENT_PREVIEW_MAX_CHARS
     system_prompt_tokens = ContextBudget.system_prompt_reserve

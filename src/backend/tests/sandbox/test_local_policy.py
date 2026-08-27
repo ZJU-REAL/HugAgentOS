@@ -12,6 +12,8 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import tempfile
+from pathlib import Path
 
 _HERE = os.path.dirname(__file__)
 _MOD_PATH = os.path.normpath(os.path.join(_HERE, "..", "..", "core", "sandbox", "local_policy.py"))
@@ -26,6 +28,24 @@ WS = "/workspace"
 def ev(command, cwd=WS, grants=None, policy=None, platform="posix"):
     return lp.evaluate_local_command(
         command, cwd, grants=grants, policy=policy, workspace_root=WS, platform=platform
+    ).decision
+
+
+def path_ev(
+    path,
+    intent="read",
+    grants=None,
+    policy=None,
+    platform="posix",
+    workspace_root=WS,
+):
+    return lp.evaluate_local_path(
+        path,
+        intent=intent,
+        grants=grants,
+        policy=policy,
+        workspace_root=workspace_root,
+        platform=platform,
     ).decision
 
 
@@ -61,6 +81,34 @@ def test_granted_folder_is_in_scope():
     assert ev("cat /Users/alice/proj/main.py", grants=grants) == lp.ALLOW
 
 
+def test_read_grant_does_not_authorize_write_command():
+    grants = [lp.Grant("/Users/alice/proj", "read")]
+    assert ev("cat /Users/alice/proj/main.py", grants=grants) == lp.ALLOW
+    assert ev("echo x > /Users/alice/proj/main.py", grants=grants) == lp.CONFIRM
+    assert ev(
+        "cp /Users/alice/proj/main.py /workspace/copy.py",
+        grants=grants,
+    ) == lp.ALLOW
+
+
+def test_command_result_exposes_only_write_targets_for_one_shot_sandbox():
+    grants = [lp.Grant("/Users/alice/proj", "read")]
+    result = lp.evaluate_local_command(
+        "cp /Users/alice/proj/main.py /outside/copy.py",
+        WS,
+        grants=grants,
+        workspace_root=WS,
+    )
+    assert result.decision == lp.CONFIRM
+    assert result.write_paths == ["/outside/copy.py"]
+
+
+def test_strict_policy_blocks_workspace_write_command():
+    pol = lp.Policy(workspace_write="block", out_of_scope="block")
+    assert ev("cat /workspace/a.txt", policy=pol) == lp.ALLOW
+    assert ev("echo x > /workspace/a.txt", policy=pol) == lp.DENY
+
+
 def test_sibling_of_grant_is_out_of_scope():
     grants = [lp.Grant("/Users/alice/proj", "readwrite")]
     assert ev("cat /Users/alice/other/main.py", grants=grants) == lp.CONFIRM
@@ -75,6 +123,10 @@ def test_tilde_home_is_out_of_scope_without_grant():
 def test_rm_rf_confirms_even_inside_workspace():
     # delete default disposition is confirm, and it fires regardless of scope
     assert ev("rm -rf build") == lp.CONFIRM
+
+
+def test_plain_rm_also_confirms_inside_workspace():
+    assert ev("rm build.log") == lp.CONFIRM
 
 
 def test_rm_rf_can_be_blocked_by_policy():
@@ -110,10 +162,10 @@ def test_most_restrictive_axis_wins():
     assert ev("rm -rf /Users/alice/x", policy=pol) == lp.DENY
 
 
-def test_out_of_scope_destination_of_copy_confirms():
-    # a non-redirect write into a system dir is out-of-scope -> confirm; the hard
-    # block for system writes is the OS-level sandbox, not this heuristic gate.
-    assert ev("cp report.pdf /usr/local/share/y") == lp.CONFIRM
+def test_system_destination_of_copy_is_blocked():
+    # Structured write-target classification applies the system-write policy
+    # even when the command does not use shell redirection.
+    assert ev("cp report.pdf /usr/local/share/y") == lp.DENY
 
 
 # ── Axis 2: command risk (Windows table) ─────────────────────────────────────
@@ -144,6 +196,11 @@ def test_windows_drive_path_case_insensitive_scope():
     assert ev("type c:\\users\\alice\\proj\\main.py", grants=grants, platform="windows") == lp.ALLOW
 
 
+def test_windows_relative_copy_is_blocked_in_strict_mode():
+    strict = lp.Policy(workspace_write="block", out_of_scope="block")
+    assert ev("copy source.txt dest.txt", policy=strict, platform="windows") == lp.DENY
+
+
 # ── Result object / audit reasons ────────────────────────────────────────────
 
 def test_result_carries_reasons_for_audit():
@@ -163,6 +220,64 @@ def test_result_truthiness_is_allow():
 def test_unbalanced_quotes_do_not_crash():
     # falls back to whitespace scan; must not raise
     assert ev('echo "unbalanced /etc/passwd') in (lp.ALLOW, lp.CONFIRM, lp.DENY)
+
+
+# ── Direct file-tool path access ────────────────────────────────────────────
+
+def test_direct_path_access_honors_workspace_write_policy():
+    strict = lp.Policy(workspace_write="block", out_of_scope="block")
+    assert path_ev("/workspace/a.txt", intent="read", policy=strict) == lp.ALLOW
+    assert path_ev("/workspace/a.txt", intent="write", policy=strict) == lp.DENY
+    assert path_ev(
+        "/data/project/a.txt",
+        intent="write",
+        grants=[lp.Grant("/data/project", "readwrite")],
+        policy=strict,
+    ) == lp.DENY
+
+
+def test_direct_path_access_honors_grant_mode():
+    read = [lp.Grant("/data/project", "read")]
+    readwrite = [lp.Grant("/data/project", "readwrite")]
+    assert path_ev("/data/project/a.txt", intent="read", grants=read) == lp.ALLOW
+    assert path_ev("/data/project/a.txt", intent="write", grants=read) == lp.CONFIRM
+    assert path_ev("/data/project/a.txt", intent="write", grants=readwrite) == lp.ALLOW
+
+
+def test_nested_readwrite_grant_overrides_matching_read_parent():
+    grants = [
+        lp.Grant("/data", "read"),
+        lp.Grant("/data/project", "readwrite"),
+    ]
+    assert path_ev("/data/project/a.txt", intent="write", grants=grants) == lp.ALLOW
+
+
+def test_direct_write_to_system_path_honors_danger_policy():
+    grant = [lp.Grant("/etc", "readwrite")]
+    assert path_ev("/etc/hosts", intent="read", grants=grant) == lp.ALLOW
+    assert path_ev("/etc/hosts", intent="write", grants=grant) == lp.DENY
+
+
+def test_broad_writable_root_is_known_to_overlap_system_paths():
+    assert lp._is_under("/etc/hosts", "/", "posix") is True
+    assert lp.intersects_system_write_area("/") is True
+    assert lp.intersects_system_write_area("/home/alice/project") is False
+
+
+def test_direct_path_access_resolves_symlink_before_scope_check():
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp) / "workspace"
+        outside = Path(tmp) / "outside"
+        workspace.mkdir()
+        outside.mkdir()
+        (workspace / "escape").symlink_to(outside, target_is_directory=True)
+        strict = lp.Policy(workspace_write="block", out_of_scope="block")
+        assert path_ev(
+            str(workspace / "escape" / "secret.txt"),
+            intent="read",
+            policy=strict,
+            workspace_root=str(workspace),
+        ) == lp.DENY
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # MCP 工具系统
 
-> 最后更新：2026-08-11
+> 最后更新：2026-08-26
 
 HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://modelcontextprotocol.io) 之上：每一类外部能力（联网搜索、网页抓取、数据库查询、图表生成……）都是一个独立的 MCP Server，统一运行在专用的 `mcp` 容器中，后端通过 streamable-http 协议连接调用。这种设计带来三点好处：
 
@@ -204,6 +204,42 @@ Server 同样适用（返回 JSON 即可）。回注发生在结果进模型上�
 
 `Toolkit` 在 2.0 是一次性构造，由 `core/llm/agent_factory.py` 统一执行 `Toolkit(tools=[...], mcps=clients)`。
 
+## 统一工具权限网关
+
+`core/llm/tool_permissions.py` 提供运行级 `ToolPermissionRegistry` 与
+`ToolPermissionMiddleware`。Registry 是**受控工具清单**，不是全工具声明表：
+
+- 工具名没有进入 Registry 时保持既有行为，直接放行，不要求新工具声明权限；
+- 工具名命中 Registry 时，Middleware 在副作用和真实分发之前解析调用参数，依次执行
+  本机目录 Grant、危险命令策略、MySpace 写确认或通用工具确认；
+- 通过后产生绑定 `tool name + call id + arguments hash + spec key` 的短期票据；最终
+  `OntologyFilteredToolkit.call_tool()` 会再次核验票据，Read/Write/Edit/Bash 的真实
+  宿主 I/O 边界还会消费票据内的路径或命令约束；
+- 需要确认的受控工具在批处理、子智能体、计划模式、自动化运行或无确认 UI 的渠道运行中
+  一律拒绝，不会再以“记录审计后继续执行”降级；
+- 渐进加载插件把新出现的 MCP 工具加入同一个运行级 Registry，因此热加载不会绕开网关。
+
+原生工具可以在 `ToolCollector.register_tool_function(..., permission=spec)` 注册规则；平台
+内置的本机文件、Bash 与 MySpace 工具集中列在 `builtin_tool_permission()`。没有传
+`permission` 且不在该表中的原生工具不受网关管理。
+
+MCP 规则只接受平台/管理员持有的可信连接配置，不采信远端工具自己的 annotation。
+`tool_permissions` 可按工具名配置 `confirm` 或 `deny`；`allow` 等价于不加入 Registry。
+`permission_default` 也支持同样的值，但应谨慎使用。平台已知的持久化变更工具（定时任务、
+技能/插件/智能体管理和站点发布）由代码内规则自动加入 Registry。例如：
+
+```json
+{
+  "tool_permissions": {
+    "query_records": "allow",
+    "update_record": "confirm",
+    "drop_database": "deny"
+  }
+}
+```
+
+新增普通查询工具无需改权限代码；只有希望纳入治理的工具才需要增加 Registry 规则。
+
 ## 配置注册：DB 驱动 + catalog 门控
 
 MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/models.py::AdminMcpServer`），由 `core/services/mcp_service.py::McpServerConfigService` 以 30 秒 TTL 缓存读出，格式与旧 `MCP_SERVERS` dict 兼容（`transport / command / args / env / url / headers / is_stable`）。`core/config/mcp_config.py` 保留为内置 Server 的 URL 构造器（首次部署种子）。
@@ -315,6 +351,7 @@ docker-compose up -d --build mcp
 | `src/backend/mcp_servers/_ports.py` | server_id → 端口映射唯一真源 |
 | `src/backend/core/llm/mcp_pool.py` | MCP 连接池（stdio 池化 / HTTP per-request） |
 | `src/backend/core/llm/mcp_manager.py` | MCPClient 构造 + 工具裸名还原 |
+| `src/backend/core/llm/tool_permissions.py` | 受控工具 Registry、权限判定、确认路由与执行票据 |
 | `src/backend/core/services/mcp_service.py` | DB 驱动的 Server 配置服务（30s 缓存） |
 | `src/backend/core/services/mcp_marketplace_service.py` | 市场发布、审核、安装、可见性与安全控制 |
 | `src/backend/core/services/mcp_oauth_service.py` | OAuth 2.1 登录、SDK 元数据发现、加密令牌存储与刷新 |

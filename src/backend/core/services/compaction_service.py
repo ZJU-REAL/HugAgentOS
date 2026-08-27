@@ -708,6 +708,21 @@ class CompactionCoordinator:
                 "base_checkpoint_version": snapshot.base_checkpoint_version,
                 "budget_estimate": estimate,
             }
+            replacement_inputs = {
+                **inputs,
+                "messages": replacement,
+                "reserved_output_tokens": 0,
+            }
+            replacement_estimate = estimate_context_budget(**replacement_inputs)
+            from core.llm.context_usage import build_compaction_context_usage
+
+            manifest["replacement_budget_estimate"] = replacement_estimate
+            manifest["replacement_context_usage"] = build_compaction_context_usage(
+                replacement_estimate,
+                context_window=int(inputs.get("context_window") or 0),
+                model_name=str(inputs.get("model_name") or ""),
+                model_provider_id=str(inputs.get("model_provider_id") or ""),
+            )
             await asyncio.to_thread(
                 self._commit,
                 snapshot,
@@ -863,8 +878,15 @@ def estimate_context_budget(
     messages: Optional[List[Dict[str, Any]]] = None,
     reserved_output_tokens: int = 0,
     provider_overhead_tokens: Optional[int] = None,
+    context_window: int = 0,
+    model_name: str = "",
+    model_provider_id: str = "",
 ) -> Dict[str, int]:
     """Return one auditable estimate shared by trigger decisions and manifests."""
+    # These identity fields travel with the frozen budget inputs so the
+    # post-compaction gauge retains the same model/window attribution. They do
+    # not participate in token arithmetic.
+    del context_window, model_name, model_provider_id
     history = messages or []
     serialized_tools = (
         json.dumps(tool_schema, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -914,8 +936,30 @@ def get_compaction_context_state(chat_service: Any, chat_id: str) -> Optional[Di
         replacement = []
     created_at = getattr(ckpt, "created_at", None)
     covered_seq = chat_service._checkpoint_covered_seq(ckpt)
+    replacement_manifest = extra.get("replacement_manifest")
+    replacement_context_usage = (
+        replacement_manifest.get("replacement_context_usage")
+        if isinstance(replacement_manifest, dict)
+        else None
+    )
 
-    return {
+    # A later model call supersedes this estimate with provider usage. Keep
+    # exposing the checkpoint boundary, but attach its token projection only
+    # while it still covers the newest measured assistant row.
+    if isinstance(replacement_context_usage, dict):
+        recent = chat_service.message_repo.list_recent_by_chat(chat_id, limit=50)
+        latest_usage_seq = 0
+        for row in reversed(recent):
+            row_extra = getattr(row, "extra_data", None)
+            if isinstance(row_extra, dict) and isinstance(
+                row_extra.get("context_usage"), dict
+            ):
+                latest_usage_seq = int(getattr(row, "chat_seq", 0) or 0)
+                break
+        if latest_usage_seq > covered_seq:
+            replacement_context_usage = None
+
+    state = {
         "checkpoint_id": getattr(ckpt, "message_id", ""),
         "checkpoint_created_at": created_at.isoformat() if created_at is not None else None,
         "covered_through_message_id": extra.get("covers_up_to_message_id"),
@@ -925,6 +969,9 @@ def get_compaction_context_state(chat_service: Any, chat_id: str) -> Optional[Di
         ),
         "replacement_tokens": estimate_history_tokens(replacement),
     }
+    if isinstance(replacement_context_usage, dict):
+        state["context_usage"] = replacement_context_usage
+    return state
 
 
 async def maybe_run_pre_turn_compaction(

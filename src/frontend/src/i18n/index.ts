@@ -23,6 +23,13 @@ function detectLang(): Lang {
 
 const currentLang: Lang = detectLang();
 
+// Keep the document locale aligned with the language actually selected by the
+// application. Desktop chrome and assistive technologies use this semantic
+// value instead of guessing from the operating-system language.
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = currentLang;
+}
+
 // 英文字典按需加载：中文用户不下载这 ~55KB gz 的字典 chunk。
 // top-level await 保证所有 import 本模块的代码（含模块级 t() 调用）
 // 在字典就绪后才求值。

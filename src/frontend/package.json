@@ -9,6 +9,7 @@
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:dark": "node scripts/check-dark-mode.mjs",
     "test:chat-stream": "esbuild scripts/test-chat-stream-segments.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-chat-stream-segments.mjs && node node_modules/.tmp/test-chat-stream-segments.mjs",
+    "test:context-usage": "esbuild scripts/test-context-usage.ts --bundle --platform=node --format=esm --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-context-usage.mjs && node node_modules/.tmp/test-context-usage.mjs",
     "test:kb-assets": "node scripts/run-kb-asset-test.mjs",
     "test:citation-highlight": "esbuild scripts/test-citation-highlight.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-citation-highlight.mjs && node node_modules/.tmp/test-citation-highlight.mjs",
     "test:plugin-ui": "esbuild scripts/test-plugin-ui-pointer.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-plugin-ui-pointer.mjs && node node_modules/.tmp/test-plugin-ui-pointer.mjs",

@@ -59,6 +59,12 @@ MIDDLEWARE_MIGRATION: tuple[MiddlewareMigration, ...] = (
         "ontology decision returns reject/modify Decision",
     ),
     MiddlewareMigration(
+        "ToolPermissionMiddleware",
+        (HookStage.BEFORE_TOOL, HookStage.AFTER_TOOL),
+        "adapter-covered",
+        "neutral tool runner owns permission tickets and approval routing",
+    ),
+    MiddlewareMigration(
         "CitationAnchorMiddleware",
         (HookStage.AFTER_TOOL,),
         "adapter-covered",
@@ -81,12 +87,6 @@ MIDDLEWARE_MIGRATION: tuple[MiddlewareMigration, ...] = (
         (HookStage.BEFORE_MODEL,),
         "adapter-covered",
         "job projection becomes a neutral context patch",
-    ),
-    MiddlewareMigration(
-        "GoalAnchorReminderMiddleware",
-        (HookStage.BEFORE_MODEL,),
-        "adapter-covered",
-        "goal reminder becomes a neutral context patch",
     ),
     MiddlewareMigration(
         "FinishPinGuardMiddleware",
