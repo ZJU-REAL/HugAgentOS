@@ -89,6 +89,7 @@ async def _sync_myspace_changes(
     Returns ``(synced_refs, blocked_paths)``; any step failure only degrades to a
     warning and never affects the bash result itself.
     """
+    from core.config.settings import settings as _settings
     from core.llm.tools import myspace_vfs as _ms
     from core.llm.tools._common import (
         myspace_write_guard,
@@ -106,9 +107,13 @@ async def _sync_myspace_changes(
     # -mmin -10: only look at recent changes, so sandbox copies left over from
     # earlier turns are not mistaken for this run's modifications (prevents old
     # files the user already deleted in the UI from being "resurrected").
+    # The size cap is the same SANDBOX_ARTIFACT_MAX_BYTES the rest of the sandbox
+    # file delivery uses, so a large file written into /myspace is not dropped here
+    # without a word.
+    max_bytes = _settings.sandbox.artifact_max_bytes
     list_cmd = (
         f"cd {shell_quote(base)} 2>/dev/null && "
-        f"find . -type f -mmin -10 -size -10M -exec md5sum {{}} + 2>/dev/null"
+        f"find . -type f -mmin -10 -size -{max_bytes}c -exec md5sum {{}} + 2>/dev/null"
         f" || true"
     )
     code, out, _err = await sandbox_exec_bash(list_cmd, chat_id=sess, timeout=20)

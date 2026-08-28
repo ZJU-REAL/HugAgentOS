@@ -45,10 +45,17 @@ def test_provider_usage_is_the_exact_total_and_breakdown_is_reconciled():
     assert snapshot["context_window"] == 1_000
     assert snapshot["model_call_index"] == 2
     assert sum(snapshot["breakdown"].values()) == 150
-    assert snapshot["breakdown"]["thinking"] == 0
+    assert snapshot["breakdown"] == {
+        "messages": 60,
+        "tools": 18,
+        "thinking": 0,
+        "files": 12,
+        "system": 60,
+        "input": 0,
+    }
 
 
-def test_missing_provider_usage_falls_back_to_final_request_manifest():
+def test_missing_provider_usage_keeps_tool_definitions_out_of_tool_calls():
     snapshot = build_context_usage_snapshot(
         _agent(),
         prompt_tokens=0,
@@ -63,10 +70,10 @@ def test_missing_provider_usage_falls_back_to_final_request_manifest():
     assert snapshot["used_tokens"] == 100
     assert snapshot["breakdown"] == {
         "messages": 25,
-        "tools": 35,
+        "tools": 15,
         "thinking": 0,
         "files": 10,
-        "system": 30,
+        "system": 50,
         "input": 0,
     }
 
@@ -106,8 +113,8 @@ def test_compaction_snapshot_uses_post_compaction_backend_estimate():
     assert snapshot["exact"] is False
     assert snapshot["used_tokens"] == 82
     assert sum(snapshot["breakdown"].values()) == 82
-    assert snapshot["breakdown"]["system"] == 47
-    assert snapshot["breakdown"]["tools"] == 20
+    assert snapshot["breakdown"]["system"] == 67
+    assert snapshot["breakdown"]["tools"] == 0
     assert snapshot["breakdown"]["messages"] == 15
 
 
@@ -208,6 +215,15 @@ def test_latest_persisted_snapshot_uses_newest_assistant_measurement():
         SimpleNamespace(extra_data={"context_usage": older}),
         SimpleNamespace(extra_data={}),
         SimpleNamespace(extra_data={"context_usage": newer}),
+        SimpleNamespace(
+            extra_data={
+                "context_usage": {
+                    **newer,
+                    "schema_version": "context-usage.v1",
+                    "used_tokens": 999,
+                }
+            }
+        ),
     ]
     service = SimpleNamespace(
         message_repo=SimpleNamespace(

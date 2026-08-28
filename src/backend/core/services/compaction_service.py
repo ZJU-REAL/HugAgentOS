@@ -27,6 +27,9 @@ _CROSS_TURN_TOOL_CHARS = 1_000_000
 # ── History replay (checkpoint-aware) ────────────────────────────────────────
 
 
+_CANCELLED_TURN_MARKER = "[本轮回答被用户中断]"
+
+
 def _normalize_rows(rows: List[Any]) -> List[Dict[str, Any]]:
     """Normalize message rows, excluding internal compaction checkpoints."""
     out: List[Dict[str, Any]] = []
@@ -46,10 +49,19 @@ def _normalize_rows(rows: List[Any]) -> List[Dict[str, Any]]:
                 row[SESSION_CONTEXT_META_KEY] = dict(extra[SESSION_CONTEXT_META_KEY])
             out.append(row)
         elif role == "assistant":
+            assistant_text = content or ""
+            if extra.get("cancelled"):
+                # 用户中途喊停的那一轮。不标这一句，模型下一轮看到的只是一段没头
+                # 没尾断掉的话，容易当成自己已经说完，于是接着往下讲或者从头重来。
+                assistant_text = (
+                    f"{assistant_text}\n\n{_CANCELLED_TURN_MARKER}"
+                    if assistant_text
+                    else _CANCELLED_TURN_MARKER
+                )
             out.extend(
                 build_replay_dicts(
                     "assistant",
-                    content or "",
+                    assistant_text,
                     getattr(msg, "tool_calls", None),
                     max_args_chars=_CROSS_TURN_TOOL_CHARS,
                     max_result_chars=_CROSS_TURN_TOOL_CHARS,

@@ -54,8 +54,11 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 
 ### 大文件产物交付
 
-`sandbox_get_artifact` 默认支持最大 100 MiB（104,857,600 字节）的单个文件，
-上限由 `SANDBOX_ARTIFACT_MAX_BYTES` 统一配置。三种 provider 都实现
+`sandbox_get_artifact` 默认支持最大 100 MiB（104,857,600 字节）的单个文件。
+`SANDBOX_ARTIFACT_MAX_BYTES` 是沙盒文件大小的**唯一开关**，同时约束三条链路：
+`sandbox_get_artifact` 显式取件、`bash` 执行后自动收集产物（单文件与单批总量）、
+artifact 送入沙盒、`bash` 执行后 `/myspace` 写回同步；backend 与 script-runner sidecar
+读取同一变量。三种 provider 都实现
 `get_file_to_path`：script_runner 使用原始 HTTP 响应流，OpenSandbox 使用
 `read_bytes_stream`，Cube 使用 E2B `format="stream"`。后端按流式分块写入
 临时文件，再通过文件接口复制到本地 artifact 目录或上传到 OSS；传输过程中
@@ -132,7 +135,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 |---|---|---|
 | `SANDBOX_PROVIDER` | `script_runner` | provider 选择：`script_runner` / `opensandbox` / `cube` |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 |
-| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | `sandbox_get_artifact` 单文件流式交付上限（默认 100 MiB） |
+| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（默认 100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
 | `OPENSANDBOX_DEFAULT_TIMEOUT_S` | 1800 | 沙箱服务端 TTL |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、2/5、20 | 预热池水位 |

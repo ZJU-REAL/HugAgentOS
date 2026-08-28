@@ -964,6 +964,61 @@ async def _run_workflow(
             return
         full_response += "<think>" + block + close
 
+    def _commit_cancelled_partial() -> None:
+        """把用户按下停止那一刻已产出的正文与工具卡片落库。
+
+        cancel_run 先写终态并清租约，之后 journal.complete 的 CAS 必然失败，
+        worker 再也借不到 commit_effect 提交本轮输出 —— 所以这里直接写库。
+        message_id 固定，用 upsert 保证重复取消 / 恢复不会留下两条。
+        """
+        _flush_thinking()
+        if not (full_response or tool_calls_log):
+            return
+        # 停下来时还没回结果的工具：不标记的话前端按"缺 status 即成功"渲染，
+        # 刷新后一张没跑完的卡片会显示成执行成功。
+        for _tc in tool_calls_log:
+            if "result" not in _tc and not _tc.get("status"):
+                _tc["status"] = "interrupted"
+        _ws_pinned = _workspace_mod.get_pinned()
+        _extra = {
+            "timestamp": now_iso(),
+            "is_markdown": bool(
+                "\n" in full_response or "```" in full_response or "**" in full_response
+            ),
+            "message_id": current_message_id,
+            "run_id": run_id,
+            "cancelled": True,
+            "artifacts": _ws_pinned,
+            "workspace_files": _workspace_mod.get_pinned_file_ids(),
+            "duration_ms": int((time.monotonic() - _run_started_monotonic) * 1000),
+        }
+        if context.get("model_provider_id"):
+            _extra["model_provider_id"] = context.get("model_provider_id")
+        from core.services.project_scope import project_scope_from_context
+
+        with SessionLocal() as db:
+            chat_service = ChatService(db)
+            chat_service.upsert_message(
+                chat_id=chat_id,
+                role="assistant",
+                content=full_response,
+                model=model_name,
+                tool_calls=tool_calls_log if tool_calls_log else None,
+                message_id=current_message_id,
+                chat_seq=current_chat_seq,
+                extra_data=_extra,
+                commit=False,
+            )
+            _persist_artifacts(
+                db,
+                user_id,
+                chat_id,
+                _ws_pinned,
+                scope=project_scope_from_context(context),
+                commit=False,
+            )
+            db.commit()
+
     try:
         if recovering:
             await _reset_stream_projection(run_id)
@@ -1678,8 +1733,18 @@ async def _run_workflow(
                     status=(current.status if current is not None else None),
                 )
             else:
-                # Triggered by cancel_run: write a user-cancelled event + terminal marker so followers exit gracefully
+                # Triggered by cancel_run: persist what was already produced,
+                # then write a user-cancelled event + terminal marker so
+                # followers exit gracefully.
                 logger.info("chat_run_cancelled", run_id=run_id)
+                try:
+                    _commit_cancelled_partial()
+                except Exception:  # noqa: BLE001 - 落库失败不能吞掉取消收尾
+                    logger.warning(
+                        "chat_run_cancelled_partial_persist_failed",
+                        run_id=run_id,
+                        exc_info=True,
+                    )
                 await _emit(
                     {
                         "type": "error",
@@ -2340,7 +2405,23 @@ async def _run_plan_execute_workflow(
         if completed:
             await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
         else:
-            logger.warning("plan_run_terminal_cas_lost", run_id=run_id, owner=owner)
+            # 用户取消时 cancel_run 已先写终态、清租约，上面的 CAS 注定输掉。
+            # 协作式取消让生成器正常收尾，本轮已完成的步骤和正文就在手里 ——
+            # 不落库的话，用户回到会话只剩自己那句话。
+            _current = None if lease_lost.is_set() else get_run(run_id)
+            if _current is not None and _current.status == "cancelled":
+                try:
+                    with SessionLocal() as _db:
+                        _commit_plan_result(_db)
+                        _db.commit()
+                except Exception:  # noqa: BLE001 - 落库失败不能吞掉取消收尾
+                    logger.warning(
+                        "plan_run_cancelled_partial_persist_failed",
+                        run_id=run_id,
+                        exc_info=True,
+                    )
+            else:
+                logger.warning("plan_run_terminal_cas_lost", run_id=run_id, owner=owner)
 
     except asyncio.CancelledError:
         if lease_lost.is_set():

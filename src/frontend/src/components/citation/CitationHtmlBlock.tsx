@@ -2,16 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import CitationBadge from './CitationBadge';
 import type { CitationItem } from '../../types';
+import { patchHtml } from '../../utils/domPatch';
 
 /**
  * CitationHtmlBlock: renders pre-built HTML containing [data-jxcit] placeholder spans,
  * then uses createPortal to inject CitationBadge components inline inside each placeholder.
  *
- * DOM-patching strategy to avoid badge flicker during streaming:
- * - When the citation structure (set of [data-jxcit] IDs) is unchanged, we PRESERVE the
- *   existing span elements (portal targets) by transplanting them into the newly-parsed DOM,
- *   so React portals never detach. Only surrounding text nodes are updated.
- * - When new citations appear (citIds changes), we do a full DOM replacement and update portals.
+ * 每次增量都走 patchHtml 就地改：没变的节点原地保留，[data-jxcit] 占位 span 的子树
+ * 归 React portal 管、不被覆盖（角标不闪），落在正文里的选区也不会被冲掉。引用结构
+ * 变化时才重新登记 portal 挂载点。
  */
 export interface CitationMarker {
   id: string;
@@ -40,33 +39,17 @@ export default function CitationHtmlBlock({
 
     const citIdsKey = markers.map(m => `${m.id}${m.label}`).join('\0');
 
-    if (citIdsKey !== '' && citIdsKey === prevCitIdsKeyRef.current) {
-      const existingSpans = new Map<string, HTMLElement>();
-      container.querySelectorAll<HTMLElement>('[data-jxcit]').forEach(span => {
-        existingSpans.set(span.getAttribute('data-jxcit')!, span);
-      });
+    patchHtml(container, html);
+    if (citIdsKey !== '' && citIdsKey === prevCitIdsKeyRef.current) return;
 
-      const tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      tmp.querySelectorAll<HTMLElement>('[data-jxcit]').forEach(newSpan => {
-        const key = newSpan.getAttribute('data-jxcit')!;
-        const existing = existingSpans.get(key);
-        if (existing) newSpan.parentNode!.replaceChild(existing, newSpan);
-      });
-      while (container.firstChild) container.removeChild(container.firstChild);
-      while (tmp.firstChild) container.appendChild(tmp.firstChild);
-    } else {
-      prevCitIdsKeyRef.current = citIdsKey;
-      container.innerHTML = html;
-      const spans = Array.from(container.querySelectorAll<HTMLElement>('[data-jxcit]'));
-      const next: Array<{ el: HTMLElement; marker: CitationMarker }> = [];
-      spans.forEach(span => {
-        const idx = parseInt(span.getAttribute('data-jxcit') ?? '-1', 10);
-        const marker = markers[idx];
-        if (marker) next.push({ el: span, marker });
-      });
-      setPortals(next);
-    }
+    prevCitIdsKeyRef.current = citIdsKey;
+    const next: Array<{ el: HTMLElement; marker: CitationMarker }> = [];
+    container.querySelectorAll<HTMLElement>('[data-jxcit]').forEach(span => {
+      const idx = parseInt(span.getAttribute('data-jxcit') ?? '-1', 10);
+      const marker = markers[idx];
+      if (marker) next.push({ el: span, marker });
+    });
+    setPortals(next);
   }, [html]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

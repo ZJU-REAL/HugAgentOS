@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Layout, Button, Typography, Tag, Modal,
@@ -26,7 +26,7 @@ import {
 import type { SearchResultItem } from './api';
 import { TOPIC_TAG_COLORS } from './utils/constants';
 import { resolvePlanModeActive } from './utils/chatMode';
-import { distanceFromBottom, nextFollowState, scrollElementToBottom } from './utils/scroll';
+import { distanceFromBottom, hasActiveSelectionIn, nextFollowState, scrollElementToBottom } from './utils/scroll';
 import { EASE, SLIDE_EASE } from './utils/motionTokens';
 import { CollapseHeight } from './components/common/CollapseHeight';
 import { Sidebar, SearchModal } from './components/sidebar';
@@ -322,6 +322,10 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatListRef = useRef<HTMLDivElement | null>(null);
+  // 滚动容器要等认证闸放行才渲染出来。用回调 ref 进 state，元素一出现依赖它的
+  // effect 就重跑挂好监听；挂载时 querySelector 一次的写法会永远拿到 null。
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
+  const handleContentRef = useCallback((el: HTMLElement | null) => setContentEl(el), []);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const userScrolledUpRef = useRef(false);
   // 上一次观察到的 scrollTop：用来判断这次滚动是"往上"还是"内容长高把视口顶下去"。
@@ -329,6 +333,8 @@ export default function App() {
   // The smooth animation fires a scroll event on every frame; the listener must be muted
   // during it, otherwise mid-animation states get misread as "user scrolled up".
   const isAutoScrollingRef = useRef(false);
+  // 鼠标在消息区按下到抬起之间：用户正在拖选（此刻选区可能还是空的），先停跟随。
+  const isSelectingRef = useRef(false);
 
   // ── Initialization hook (auth, sessions, catalog, etc.) ──
   const { effectiveApiUrl, refreshCatalog, searchTimerRef } = useChatInit();
@@ -518,15 +524,9 @@ export default function App() {
 
   // Track whether the user has scrolled up on purpose
   useEffect(() => {
-    const content = document.querySelector<HTMLElement>('.jx-content');
+    const content = contentEl;
     if (!content) return;
-    // 判据是"这一次滚动有没有把视口往上挪"，而不是"离底部够不够远"。
-    // 旧写法每来一个 scroll 事件就用距离阈值整体重算标志位：滚轮往上先置位
-    // 脱离跟随，紧跟着的 scroll 事件因为才挪了几十 px（不足 100px 的旧阈值）
-    // 又把它抹回 false，下一帧流式增高的 ResizeObserver 立刻把页面拽回底部 ——
-    // 表现就是"输出中往上翻/看前面的内容，界面强制滚到最底"。改成看 scrollTop
-    // 的变化方向后，滚轮、触摸、拖滚动条、PageUp/方向键这些入口一视同仁：
-    // 只要视口往上挪过就脱离跟随，真的回到底部附近才重新跟随。
+    // 判据是"这一次滚动有没有把视口往上挪"，滚轮/触摸/拖滚动条/PageUp 一视同仁。
     const handleScroll = () => {
       const next = nextFollowState(
         { userScrolledUp: userScrolledUpRef.current, lastScrollTop: lastScrollTopRef.current },
@@ -538,23 +538,33 @@ export default function App() {
       if (isAutoScrollingRef.current) return;
       userScrolledUpRef.current = next.userScrolledUp;
     };
-    // 滚轮向上是明确的用户意图，在浏览器真正滚动之前就置位（顶到头时根本不会
-    // 产生 scroll 事件，只有 wheel）。
+    // 顶到头时不产生 scroll 事件，只有 wheel —— 所以滚轮向上直接置位。
     const handleWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) userScrolledUpRef.current = true;
     };
     const handleTouchMove = () => {
       if (distanceFromBottom(content) > 1) userScrolledUpRef.current = true;
     };
+    // 拖选正文既不发 wheel 也不发 touchmove，靠这一对标记让跟随让位给选择。
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const list = chatListRef.current;
+      isSelectingRef.current = !!list && e.target instanceof Node && list.contains(e.target);
+    };
+    const handleMouseUp = () => { isSelectingRef.current = false; };
     content.addEventListener('scroll', handleScroll, { passive: true });
     content.addEventListener('wheel', handleWheel, { passive: true });
     content.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('mousedown', handleMouseDown, true);
+    document.addEventListener('mouseup', handleMouseUp, true);
     return () => {
       content.removeEventListener('scroll', handleScroll);
       content.removeEventListener('wheel', handleWheel);
       content.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('mousedown', handleMouseDown, true);
+      document.removeEventListener('mouseup', handleMouseUp, true);
     };
-  }, []);
+  }, [contentEl]);
 
   // Chat switch: reset follow state and smooth-scroll to the bottom (keeping the
   // "pulled down from the top" visual). Height growth from follow-up/action-bar animations
@@ -564,7 +574,7 @@ export default function App() {
   // once messages load asynchronously this effect runs again, ensuring we truly land at the bottom.
   useEffect(() => {
     userScrolledUpRef.current = false;
-    const content = document.querySelector<HTMLElement>('.jx-content');
+    const content = contentEl;
     if (!content) return;
     // 换会话后列表整个换了一棵树，旧的 scrollTop 基线没有意义：不清零的话
     // 新会话第一帧（scrollTop=0）会被当成"用户往上滚"，一进来就脱离跟随。
@@ -581,7 +591,7 @@ export default function App() {
       content.removeEventListener('scrollend', release);
       window.clearTimeout(fallback);
     };
-  }, [currentChatId, hasMessages]);
+  }, [currentChatId, hasMessages, contentEl]);
 
   // Observe chat-list size changes: when streaming chunks or the framer-motion animations
   // of the follow-up/action bar grow the height, snap-align to the bottom as long as the
@@ -592,16 +602,18 @@ export default function App() {
   // when messages exist; when the list goes from none to some we must re-observe the new node.
   useEffect(() => {
     if (panel !== 'chat' || !hasMessages) return;
-    const content = document.querySelector<HTMLElement>('.jx-content');
+    const content = contentEl;
     const list = chatListRef.current;
     if (!content || !list || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
       if (userScrolledUpRef.current || isAutoScrollingRef.current) return;
+      // 正在拖选或已经选中了正文：跟随必须让位，否则选区在手底下被拽走、复制不了。
+      if (isSelectingRef.current || hasActiveSelectionIn(list, window.getSelection())) return;
       content.scrollTop = content.scrollHeight;
     });
     ro.observe(list);
     return () => ro.disconnect();
-  }, [panel, currentChatId, hasMessages]);
+  }, [panel, currentChatId, hasMessages, contentEl]);
 
   // Expanding a history plan card's step details, or expanding a tool-call card to view its
   // output, grows the DOM — the ResizeObserver above would then yank the viewport to the
@@ -899,7 +911,7 @@ export default function App() {
 
 
         <div className="jx-mainRow">
-          <Content className={`jx-content${panel === 'chat' ? ' jx-content--chatSurface' : ''}`}>
+          <Content ref={handleContentRef} className={`jx-content${panel === 'chat' ? ' jx-content--chatSurface' : ''}`}>
             {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
               * switching chats within the chat panel does not replay it. One-way entrance
               * needs no motion — CSS primitives suffice. */}

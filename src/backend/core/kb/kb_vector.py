@@ -297,24 +297,27 @@ def _upsert(client, data: list[dict[str, Any]]) -> None:
 
 
 def _collection_dense_dim(client, *, timeout: float | None = None) -> Optional[int]:
-    """Read the dense_embedding dimension of the existing collection; return None if it can't be read."""
-    try:
-        desc = client.describe_collection(COLLECTION_NAME, timeout=timeout)
-        for f in desc.get("fields", []):
-            if f.get("name") == "dense_embedding":
-                dim = f.get("params", {}).get("dim")
-                return int(dim) if dim is not None else None
-    except Exception:
-        return None
+    """Read the dense_embedding dimension of the existing collection.
+
+    Connection and schema-read errors deliberately propagate to the caller. Treating
+    an unavailable schema as a dimension mismatch used to trigger a destructive
+    collection rebuild.
+    """
+    desc = client.describe_collection(COLLECTION_NAME, timeout=timeout)
+    for f in desc.get("fields", []):
+        if f.get("name") == "dense_embedding":
+            dim = f.get("params", {}).get("dim")
+            return int(dim) if dim is not None else None
     return None
 
 
 def get_or_create_collection(*, timeout: float | None = None) -> None:
     """Idempotently create hugagent_kb_private (hybrid retrieval schema) at the current embedding model's real dimension.
 
-    The dimension auto-follows the model: if an existing collection's dimension differs from the current model's output (meaning
-    the embedding model was changed), it auto-drops and recreates —— old vectors come from another model and are inherently
-    incomparable, so documents must be re-indexed.
+    New collections use the current embedding model's detected dimension. Existing
+    collections are never dropped implicitly: an unreadable schema or dimension
+    mismatch preserves all vectors and aborts the operation until an operator can
+    verify the embedding configuration and explicitly re-index the collection.
     """
     global _VERIFIED_COLLECTION_DIM
     from pymilvus import DataType
@@ -325,18 +328,31 @@ def get_or_create_collection(*, timeout: float | None = None) -> None:
     if client.has_collection(COLLECTION_NAME, timeout=timeout):
         if _VERIFIED_COLLECTION_DIM == target_dim:
             return
-        existing_dim = _collection_dense_dim(client, timeout=timeout)
+        try:
+            existing_dim = _collection_dense_dim(client, timeout=timeout)
+        except Exception as exc:
+            message = (
+                "无法确认现有知识库集合的向量维度，已保留集合并中止本次操作；"
+                "请检查 Milvus 连接后重试。"
+            )
+            logger.error("%s 原因：%s", message, exc, exc_info=True)
+            raise RuntimeError(message) from exc
+        if existing_dim is None:
+            message = (
+                "无法确认现有知识库集合的向量维度，已保留集合并中止本次操作；"
+                "dense_embedding 字段或 dim 参数缺失。"
+            )
+            logger.error(message)
+            raise RuntimeError(message)
         if existing_dim == target_dim:
             _VERIFIED_COLLECTION_DIM = target_dim
             return
-        logger.warning(
-            "KB collection 维度不匹配（已存在=%s，当前模型=%d）：drop 重建。"
-            "旧向量来自不同 embedding 模型、不可复用，需重新索引文档。",
-            existing_dim,
-            target_dim,
+        message = (
+            f"KB collection 维度不匹配（已存在={existing_dim}，当前模型={target_dim}），"
+            "已保留集合并中止本次操作；请核实 embedding 配置并通过显式重建流程重新索引。"
         )
-        client.drop_collection(COLLECTION_NAME, timeout=timeout)
-        _VERIFIED_COLLECTION_DIM = None
+        logger.error(message)
+        raise RuntimeError(message)
 
     lite = _is_lite()
 

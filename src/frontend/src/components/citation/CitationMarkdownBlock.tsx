@@ -5,6 +5,7 @@ import { mdToHtml, ensureKatexLoaded, hasLatex, hasMermaid } from '../../utils/m
 import { MermaidBlock, extractMermaidCharts } from '../chat/MermaidBlock';
 import type { CitationItem } from '../../types';
 import { citationMarkerParts, citationMarkerRe } from '../../utils/citations';
+import { patchHtml } from '../../utils/domPatch';
 
 // 引用标记正则与解析都取自 utils/citations 的唯一真源 —— 这里曾经维护过一份副本，
 // 两边一旦不同步就会出现「一处认得、另一处不认」的漏标记。
@@ -25,6 +26,20 @@ function markerParts(m: RegExpExecArray | RegExpMatchArray): { id: string; label
 }
 
 const EMPTY_MERMAID: Array<{ element: HTMLElement; chart: string }> = [];
+
+/** 正文容器：首帧交给 React，之后每次增量走 patchHtml 就地改（__html 冻住不变）。 */
+function PatchedHtml({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const appliedHtml = useRef(html);
+  const [initialProp] = useState(() => ({ __html: html }));
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || appliedHtml.current === html) return;
+    appliedHtml.current = html;
+    patchHtml(el, html);
+  }, [html]);
+  return <div ref={ref} dangerouslySetInnerHTML={initialProp} />;
+}
 
 function sameCitation(a: CitationItem, b: CitationItem): boolean {
   return a.id === b.id
@@ -49,10 +64,6 @@ function sameCitations(prev: CitationItem[], next: CitationItem[]): boolean {
  * CitationMarkdownBlock: top-level component for rendering text with inline citations.
  * Streaming-aware: strips/renders markers based on citation availability.
  * Supports Mermaid diagrams and LaTeX math rendering.
- *
- * Wrapped with React.memo to prevent unnecessary re-renders that would destroy
- * the browser's active text selection (dangerouslySetInnerHTML DOM nodes get
- * recreated during reconciliation when the parent re-renders).
  */
 const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
   text,
@@ -90,16 +101,10 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     [citations, normalizedText],
   );
 
-  // Memoize the HTML output so the same string reference is reused across renders,
-  // ensuring React skips the DOM update for dangerouslySetInnerHTML.
   const renderedHtml = useMemo(
     () => isMarkdown ? mdToHtml(normalizedText) : '',
     [normalizedText, isMarkdown],
   );
-  // Keep the prop object stable when only portal state changes. Otherwise a
-  // Mermaid scan followed by setState can make React assign innerHTML again,
-  // detaching the freshly discovered portal target before it is used.
-  const renderedHtmlProp = useMemo(() => ({ __html: renderedHtml }), [renderedHtml]);
   const shouldRenderMermaid = !messageIsStreaming
     && isMarkdown
     && hasMermaid(normalizedText);
@@ -114,12 +119,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     }
   }, [normalizedText, isMarkdown]);
 
-  // After render, scan for mermaid placeholders. While text is streaming,
-  // `dangerouslySetInnerHTML` replaces the markdown subtree for every delta.
-  // A portal mounted into one of those placeholders would therefore be
-  // destroyed and recreated repeatedly, making the diagram jump between the
-  // small loading box and the full SVG. Keep the placeholder stable during
-  // streaming and render each diagram once after the message settles.
+  // 图表等消息落定后再渲染一次：流式中途反复挂载 portal 会让图在加载框和成图之间跳。
   useEffect(() => {
     if (!shouldRenderMermaid || !containerRef.current) return;
     // Small delay to let DOM update
@@ -135,7 +135,7 @@ const CitationMarkdownBlock = memo(function CitationMarkdownBlock({
     if (isMarkdown) {
       return (
         <div className={className} ref={containerRef as RefObject<HTMLDivElement>}>
-          <div dangerouslySetInnerHTML={renderedHtmlProp} />
+          <PatchedHtml html={renderedHtml} />
           {visibleMermaidCharts.map((mc, i) =>
             createPortal(<MermaidBlock key={i} chart={mc.chart} />, mc.element)
           )}

@@ -1,31 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { nextFollowState, SCROLL_RESUME_THRESHOLD, type FollowScrollState } from '../src/utils/scroll';
+import { hasActiveSelectionIn, nextFollowState, SCROLL_RESUME_THRESHOLD, type FollowScrollState } from '../src/utils/scroll';
+import { morphChildren } from '../src/utils/domPatch';
 import { pickSiteEditChat } from '../src/utils/history';
 import { markResolvedPlanPreviews } from '../src/utils/planHistory';
 import type { ChatItem, ChatMessage } from '../src/types';
 
-// ── 问题一：流式输出中往上滚，界面被强制拉回底部 ──
+// ── 流式输出中往上滚，界面不许被强制拉回底部 ──
 {
-  // 先把旧判据钉一遍，说明这个 bug 是怎么来的：每来一个 scroll 事件就按"离底距离
-  // 是否超过 100px"整体重算。滚轮往上先把跟随关掉，紧跟着的 scroll 事件才挪了
-  // 40px，于是又判成"还贴着底"，把跟随打开 —— 下一帧流式增高的 ResizeObserver
-  // 立刻 scrollTop = scrollHeight，页面被强制拽回最底。
-  const OLD_FOLLOW_THRESHOLD = 100;
-  const oldRule = (distance: number) => distance > OLD_FOLLOW_THRESHOLD;
-  assert.equal(oldRule(40), false, '旧判据下 40px 的向上滚被当成"还在底部"');
-  // 新判据在同一处输入下保持脱离跟随
-  assert.equal(
-    nextFollowState({ userScrolledUp: false, lastScrollTop: 1000 },
-      { scrollTop: 960, distanceFromBottom: 40 }).userScrolledUp,
-    true,
-  );
-}
-
-{
-  // 一次滚轮往上只挪了 40px（旧实现的阈值是 100px，会当成"还在底部"把跟随开关
-  // 抹回 false，下一帧增高就被拽回底部）。现在只要离开底部就保持脱离跟随。
+  // 一次滚轮往上只挪了 40px：只要离开底部就保持脱离跟随。
   let state: FollowScrollState = { userScrolledUp: false, lastScrollTop: 1000 };
   state = nextFollowState(state, { scrollTop: 960, distanceFromBottom: 40 });
   assert.equal(state.userScrolledUp, true);
@@ -252,6 +236,102 @@ import type { ChatItem, ChatMessage } from '../src/types';
     /\.jx-sidebarScrollArea\s*>\s*\.jx-historyListWrap\s*\{[^}]*flex:none;[^}]*overflow:visible;/s,
     '历史记录自身不能再单独滚动，否则上方导航仍会被锁定',
   );
+}
+
+// ── 流式输出时正文可以边划边复制：增量必须就地改 DOM，不能整棵重建 ──
+{
+  // 最小 DOM 桩：只实现 morphChildren 用到的那几个接口，够验证"节点是不是同一个"。
+  class N {
+    nodeType: number;
+    nodeValue: string | null = null;
+    tagName = '';
+    childNodes: any[] = [];
+    attrs = new Map<string, string>();
+    constructor(nodeType: number) { this.nodeType = nodeType; }
+    get attributes() { return Array.from(this.attrs, ([name, value]) => ({ name, value })); }
+    getAttribute(n: string) { return this.attrs.has(n) ? this.attrs.get(n)! : null; }
+    setAttribute(n: string, v: string) { this.attrs.set(n, v); }
+    removeAttribute(n: string) { this.attrs.delete(n); }
+    hasAttribute(n: string) { return this.attrs.has(n); }
+    appendChild(c: any) { this.childNodes.push(c); return c; }
+    removeChild(c: any) { this.childNodes.splice(this.childNodes.indexOf(c), 1); return c; }
+    replaceChild(next: any, prev: any) { this.childNodes[this.childNodes.indexOf(prev)] = next; return prev; }
+  }
+  const text = (v: string) => { const n = new N(3); n.nodeValue = v; return n; };
+  const el = (tag: string, children: any[] = [], attrs: Record<string, string> = {}) => {
+    const n = new N(1);
+    n.tagName = tag.toUpperCase();
+    n.childNodes = children;
+    Object.entries(attrs).forEach(([k, v]) => n.attrs.set(k, v));
+    return n;
+  };
+
+  // 一帧增量：段落文字变长 + 新长出一段。
+  const container = el('div', [el('p', [text('你好')])]);
+  const keptP = container.childNodes[0];
+  const keptText = keptP.childNodes[0];
+  const incoming = el('div', [el('p', [text('你好，世界')]), el('p', [text('第二段')])]);
+  morphChildren(container as any, incoming as any);
+
+  assert.equal(container.childNodes[0], keptP, '已有段落必须是同一个元素节点（整棵重建会冲掉选区）');
+  assert.equal(container.childNodes[0].childNodes[0], keptText, '变长的文本必须是同一个文本节点，选区偏移才继续有效');
+  assert.equal(keptText.nodeValue, '你好，世界');
+  assert.equal(container.childNodes.length, 2, '新段落追加而不是重建整棵');
+
+  // 引用角标 / mermaid 的挂载点由 React portal 管，新 HTML 里是空壳，不许覆盖其子树。
+  const badge = el('b', [text('角标')]);
+  const host = el('div', [el('span', [badge], { 'data-jxcit': '0' })]);
+  const hostSpan = host.childNodes[0];
+  morphChildren(host as any, el('div', [el('span', [], { 'data-jxcit': '0' })]) as any);
+  assert.equal(host.childNodes[0], hostSpan);
+  assert.equal(hostSpan.childNodes[0], badge, 'portal 挂载点的子树不能被空壳覆盖');
+
+  // 结构真的变了（标签不同）时照常替换。
+  const swap = el('div', [el('p', [text('x')])]);
+  morphChildren(swap as any, el('div', [el('ul', [text('y')])]) as any);
+  assert.equal(swap.childNodes[0].tagName, 'UL');
+}
+
+// ── 拖选正文时不许把页面拽回底部 ──
+{
+  const inList = { c: true } as any;
+  const list = { contains: (n: any) => n === inList } as any;
+  const sel = (isCollapsed: boolean, node: any) => ({
+    isCollapsed,
+    rangeCount: 1,
+    getRangeAt: () => ({ commonAncestorContainer: node }),
+  }) as any;
+
+  assert.equal(hasActiveSelectionIn(list, sel(false, inList)), true, '消息区里选中了文字就要暂停跟随');
+  assert.equal(hasActiveSelectionIn(list, sel(true, inList)), false, '只是点了一下（选区折叠）不算选中');
+  assert.equal(hasActiveSelectionIn(list, sel(false, {})), false, '消息区之外的选区不影响跟随');
+  assert.equal(hasActiveSelectionIn(list, null), false);
+  assert.equal(hasActiveSelectionIn(null, sel(false, inList)), false);
+}
+
+// ── 滚动跟随的监听器必须挂到真实存在的滚动容器上 ──
+{
+  // 认证检查期间 App 直接 return，主界面还没渲染，此时 document.querySelector('.jx-content')
+  // 拿到的是 null。监听器 effect 过去写成空依赖数组，只在挂载时找一次、找不到就永远不再挂 ——
+  // 滚轮/滚动事件根本没人听，userScrolledUp 永远是 false，流式增高照旧把页面拽回底部。
+  const appSource = readFileSync('src/App.tsx', 'utf8');
+
+  assert.doesNotMatch(
+    appSource,
+    /document\.querySelector<HTMLElement>\('\.jx-content'\)/,
+    '不许再用挂载时的一次性 querySelector 找滚动容器：认证闸放行前它还不存在',
+  );
+  assert.match(
+    appSource,
+    /<Content ref=\{handleContentRef\}/,
+    '滚动容器必须通过回调 ref 交给 state，元素出现后依赖它的 effect 才会重跑',
+  );
+  for (const dep of [
+    /content\.addEventListener\('wheel'[\s\S]{0,900}?\}, \[contentEl\]\);/,
+    /new ResizeObserver\([\s\S]{0,600}?\}, \[panel, currentChatId, hasMessages, contentEl\]\);/,
+  ]) {
+    assert.match(appSource, dep, '滚动相关 effect 的依赖里必须带上 contentEl');
+  }
 }
 
 console.log('ui regression checks OK');
