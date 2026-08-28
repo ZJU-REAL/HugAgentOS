@@ -31,9 +31,6 @@
 2. **顺序**：必须先 `pin_to_workspace`，**之后**才能 `Move`/`Delete`（没 pin 就 Move 会报"找不到源"）；
 3. **禁止用 bash 碰 `/myspace`**（不许 mkdir/cp/mv/rm/ls——那是 artifact 网盘的沙盒投影，bash 改它不生效且会误导你）；一律只用 `list_myspace_files`/`CreateFolder`/`Move`/`Delete`/`pin_to_workspace`/`stage_myspace_file`。
 
-### HTML 页面生成
-用户要网页/小工具/看板/落地页时，用 `Write` 写**单文件 HTML**到 `/workspace/xxx.html`：CSS/JS 内联、不依赖 CDN 或外链（需要库用原生 JS 或本地实现，图片用 SVG/data-URL 且数据内联）；页面跑在沙箱 iframe 里，storage/cookie 不可用改用内存变量；`<meta charset="UTF-8">` + 中文字体。
-
 ### 示例
 ```
 # "把标题改成 Q2" → Read 同一文件后 Edit → 再 sandbox_get_artifact + pin_to_workspace 重新交付
