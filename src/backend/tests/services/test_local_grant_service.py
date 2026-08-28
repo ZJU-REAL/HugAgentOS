@@ -23,7 +23,8 @@ def test_add_list_remove_grant(tmp_path, monkeypatch):
     svc.add_grant("~/proj", "readwrite")
     items = svc.list_grants()
     assert len(items) == 1
-    assert items[0]["path"] == os.path.abspath(os.path.expanduser("~/proj"))
+    expected = os.path.realpath(os.path.abspath(os.path.expanduser("~/proj")))
+    assert items[0]["path"] == expected
     assert items[0]["mode"] == "readwrite"
     svc.remove_grant("~/proj")
     assert svc.list_grants() == []
@@ -77,11 +78,13 @@ def test_approval_mode_presets_drive_policy(tmp_path, monkeypatch):
     svc.set_approval_mode("strict")
     pol = svc.policy_for_gate()
     assert pol.out_of_scope == "block"
+    assert pol.workspace_write == "block"
     assert pol.disposition_for("delete") == "block"
     # full → everything allows
     svc.set_approval_mode("full")
     pol = svc.policy_for_gate()
     assert pol.out_of_scope == "allow"
+    assert pol.workspace_write == "allow"
     assert pol.disposition_for("privilege") == "allow"
     # invalid rejected
     try:

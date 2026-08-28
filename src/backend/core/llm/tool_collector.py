@@ -27,6 +27,10 @@ from typing import Any, Callable, List
 
 from agentscope.permission import PermissionBehavior, PermissionDecision
 from agentscope.tool import FunctionTool
+from core.llm.tool_permissions import (
+    ToolPermissionSpec,
+    builtin_tool_permission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,7 @@ class ToolCollector:
     def __init__(self) -> None:
         # name -> AllowedFunctionTool (deduped by name, supports override/skip)
         self._tools: dict[str, AllowedFunctionTool] = {}
+        self._permission_specs: dict[str, ToolPermissionSpec] = {}
         self._tool_order: List[str] = []
         self._skill_loaders: List[Any] = []
 
@@ -57,6 +62,7 @@ class ToolCollector:
         *,
         func_description: str | None = None,
         namesake_strategy: str = "override",
+        permission: ToolPermissionSpec | None = None,
         **_ignored: Any,
     ) -> None:
         """Collect a tool function as an AllowedFunctionTool.
@@ -70,6 +76,7 @@ class ToolCollector:
             if namesake_strategy == "skip":
                 return
             # override: replace, but keep the original ordering position
+        permission_spec = permission or builtin_tool_permission(name)
         try:
             ft = AllowedFunctionTool(
                 func,
@@ -82,6 +89,10 @@ class ToolCollector:
         if name not in self._tools:
             self._tool_order.append(name)
         self._tools[name] = ft
+        if permission_spec is not None:
+            self._permission_specs[name] = permission_spec
+        else:
+            self._permission_specs.pop(name, None)
 
     def register_agent_skill(self, skill_dir: Any) -> None:
         """Collect a skill directory (2.0 Toolkit(skills_or_loaders=) accepts str paths)."""
@@ -101,6 +112,11 @@ class ToolCollector:
     @property
     def function_tools(self) -> List[AllowedFunctionTool]:
         return [self._tools[n] for n in self._tool_order if n in self._tools]
+
+    @property
+    def permission_specs(self) -> dict[str, ToolPermissionSpec]:
+        """Detached declaration map consumed by the run-scoped gateway."""
+        return dict(self._permission_specs)
 
     @property
     def skill_loaders(self) -> List[Any]:

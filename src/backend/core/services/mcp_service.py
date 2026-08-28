@@ -209,6 +209,16 @@ class McpServerConfigService:
             if timeout_value is not None:
                 cfg[timeout_key] = timeout_value
 
+        # Declarative permission policy is developer/admin-owned connection
+        # metadata. It is deliberately not accepted from MCP tool annotations:
+        # a remote server must not be able to label its own mutation as safe.
+        permission_default = extra_config.get("permission_default")
+        if permission_default is not None:
+            cfg["permission_default"] = permission_default
+        tool_permissions = extra_config.get("tool_permissions")
+        if isinstance(tool_permissions, dict):
+            cfg["tool_permissions"] = dict(tool_permissions)
+
         return cfg
 
     def _build_env(self, row: AdminMcpServer) -> Dict[str, str]:

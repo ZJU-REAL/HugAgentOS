@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import type { ChatItem, ChatMessage, ChatStore as ChatStoreData, ContextCompactionState, PlanProgressState } from '../types';
+import type {
+  ChatItem,
+  ChatMessage,
+  ChatStore as ChatStoreData,
+  ContextCompactionState,
+  ContextUsageSnapshot,
+  PlanProgressState,
+} from '../types';
 import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
@@ -258,6 +265,8 @@ interface ChatState {
   visionReading: Record<string, number>;
   /** chatId → latest server checkpoint baseline used by ContextGauge. */
   contextCompactions: Record<string, ContextCompactionState>;
+  /** chatId → latest provider measurement or explicit backend fallback. */
+  contextUsages: Record<string, ContextUsageSnapshot>;
   /** chatId → live plan/progress shown by the plan bar above the input (transient, not persisted).
    *  Fed by the agent's update_plan tool (plan_update SSE) and by manual plan-mode execution. */
   planProgress: Record<string, PlanProgressState | null>;
@@ -352,6 +361,8 @@ interface ChatState {
   dismissCompactionNotice: (chatId: string) => void;
   /** Replace or clear the active compacted-context baseline for a chat. */
   setContextCompaction: (chatId: string, state: ContextCompactionState | null) => void;
+  /** Replace or clear the authoritative context-usage snapshot for a chat. */
+  setContextUsage: (chatId: string, state: ContextUsageSnapshot | null) => void;
 
   /** Bind a chat to a project (Claude-style workspace). Creates the chat entry on demand if it
    *  doesn't exist, making chat.projectId the single source of truth — the next message is sent
@@ -429,6 +440,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   compactionNotices: {},
   visionReading: {},
   contextCompactions: {},
+  contextUsages: {},
   planProgress: {},
 
   setStore: (store) => {
@@ -699,7 +711,17 @@ export const useChatStore = create<ChatState>((set, get) => {
     const next = { ...s.contextCompactions };
     if (state) next[chatId] = state;
     else delete next[chatId];
-    return { contextCompactions: next };
+    if (!state?.contextUsage) return { contextCompactions: next };
+    return {
+      contextCompactions: next,
+      contextUsages: { ...s.contextUsages, [chatId]: state.contextUsage },
+    };
+  }),
+  setContextUsage: (chatId, state) => set((s) => {
+    const next = { ...s.contextUsages };
+    if (state) next[chatId] = state;
+    else delete next[chatId];
+    return { contextUsages: next };
   }),
 
   truncateMessagesFrom: (chatId, ts) => {
@@ -711,7 +733,9 @@ export const useChatStore = create<ChatState>((set, get) => {
       ...store,
       chats: { ...store.chats, [chatId]: { ...chat, messages: filtered, updatedAt: Date.now() } },
     };
-    set({ store: next, storeRef: next });
+    const nextUsages = { ...get().contextUsages };
+    delete nextUsages[chatId];
+    set({ store: next, storeRef: next, contextUsages: nextUsages });
     saveChatStoreDebounced(get().currentUserId, next);
   },
 
@@ -968,9 +992,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     const rest = { ...store.chats };
     delete rest[id];
     const nextCompactions = { ...get().contextCompactions };
+    const nextUsages = { ...get().contextUsages };
     const nextNotices = { ...get().compactionNotices };
     const nextQueued = { ...get().queuedMessages };
     delete nextCompactions[id];
+    delete nextUsages[id];
     delete nextNotices[id];
     delete nextQueued[id];
     const next: ChatStoreData = {
@@ -981,6 +1007,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       store: next,
       storeRef: next,
       contextCompactions: nextCompactions,
+      contextUsages: nextUsages,
       compactionNotices: nextNotices,
       queuedMessages: nextQueued,
     });
@@ -1063,6 +1090,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       queuedMessages: loadQueuedMessages(userId),
       compactionNotices: {},
       contextCompactions: {},
+      contextUsages: {},
       ...applyDefaultChatMode(),
       // 刷新/重新进入时恢复当前对话记录上的模式与思考强度，不再一律掉回默认。
       modeSlug: resolveModeSlug(store.chats[currentChatId]),
@@ -1113,6 +1141,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       queuedMessages: {},
       compactionNotices: {},
       contextCompactions: {},
+      contextUsages: {},
     });
   },
 });

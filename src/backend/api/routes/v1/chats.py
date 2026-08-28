@@ -559,7 +559,33 @@ async def list_messages(
     # checkpoint baseline separately so context-usage estimates do not keep
     # counting messages that the model now sees only through the summary.
     response["data"]["context_compaction"] = get_compaction_context_state(chat_service, chat_id)
+    from core.llm.context_usage import latest_persisted_context_usage
+
+    response["data"]["context_usage"] = latest_persisted_context_usage(
+        chat_service, chat_id
+    )
     return response
+
+
+@router.get("/{chat_id}/context-usage", summary="获取会话上下文占用快照")
+async def get_context_usage(
+    chat_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the latest provider measurement and active compaction baseline."""
+    chat_service = ChatService(db)
+    if chat_service.get_session_with_access(chat_id, str(user.user_id)) is None:
+        raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
+
+    from core.llm.context_usage import latest_persisted_context_usage
+
+    return success_response(
+        data={
+            "context_usage": latest_persisted_context_usage(chat_service, chat_id),
+            "context_compaction": get_compaction_context_state(chat_service, chat_id),
+        }
+    )
 
 
 @router.get("/{chat_id}/messages/{message_id}/followups", summary="获取追问问题")

@@ -169,6 +169,7 @@ class StreamingAgent:
         self._enable_thinking = False
         # usage: accumulated from ModelCallEndEvent
         self._usage_records: List[Dict[str, int]] = []
+        self._context_usage: Optional[Dict[str, Any]] = None
         # tool_id → {tool_name, tool_args(str), started_monotonic, started_at}
         self._pending_tool_calls: Dict[str, Dict[str, Any]] = {}
         # tool_id → name (recorded at ToolCallStart), tool_id → accumulated args string (ToolCallDelta)
@@ -227,6 +228,8 @@ class StreamingAgent:
             "llm_call_count": len(self._usage_records),
             "context_tokens": int(last.get("prompt_tokens", 0) or 0)
             + int(last.get("completion_tokens", 0) or 0),
+            "last_prompt_tokens": int(last.get("prompt_tokens", 0) or 0),
+            "last_completion_tokens": int(last.get("completion_tokens", 0) or 0),
         }
 
     async def aget_usage(self) -> Dict[str, int]:
@@ -268,10 +271,42 @@ class StreamingAgent:
                         "llm_call_count": len(model_attempts),
                         "context_tokens": last.usage.prompt_tokens
                         + last.usage.completion_tokens,
+                        "last_prompt_tokens": last.usage.prompt_tokens,
+                        "last_completion_tokens": last.usage.completion_tokens,
                     }
             except Exception:
                 logger.debug("usage ledger aggregate unavailable", exc_info=True)
         return self.get_usage()
+
+    def get_context_usage(
+        self, usage: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Return the latest provider measurement or canonical fallback."""
+        if self._context_usage and self._context_usage.get("exact"):
+            return dict(self._context_usage)
+        last = self._usage_records[-1] if self._usage_records else {}
+        if usage:
+            prompt = int(usage.get("last_prompt_tokens", 0) or 0)
+            completion = int(usage.get("last_completion_tokens", 0) or 0)
+        else:
+            prompt = int(last.get("prompt_tokens", 0) or 0)
+            completion = int(last.get("completion_tokens", 0) or 0)
+        from core.llm.context_usage import build_context_usage_snapshot
+
+        snapshot = build_context_usage_snapshot(
+            self.agent,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            model_call_index=len(self._usage_records),
+        )
+        self._context_usage = snapshot
+        return dict(snapshot)
+
+    def restore_context_usage(
+        self, snapshot: Optional[Dict[str, Any]]
+    ) -> None:
+        """Restore a snapshot after a transient call that is not replayed next turn."""
+        self._context_usage = dict(snapshot) if snapshot else None
 
     async def _prepare_vision_evidence(self, st: Any) -> AsyncIterator[Tuple[str, Any]]:
         """Transcribe this turn's image attachments, emitting progress around the wait.
@@ -802,6 +837,14 @@ class StreamingAgent:
                     "completion_tokens": _completion_tokens,
                 }
             )
+            from core.llm.context_usage import build_context_usage_snapshot
+
+            self._context_usage = build_context_usage_snapshot(
+                self.agent,
+                prompt_tokens=_prompt_tokens,
+                completion_tokens=_completion_tokens,
+                model_call_index=len(self._usage_records),
+            )
             # Hand the provider's real usage to the agent so the next step
             # boundary measures context occupancy the same way the post-turn
             # trigger does, instead of falling back to the byte estimate that
@@ -825,6 +868,7 @@ class StreamingAgent:
             ):
                 self._structured_marker_sent = True
                 yield ("reasoning_protocol", {"structured_reasoning": True})
+            yield ("context_usage", dict(self._context_usage))
             self._round_index += 1
             self._first_round_text = ""
             # New model call round → reset answer accumulation (the next text segment computes deltas from scratch)

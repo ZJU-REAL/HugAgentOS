@@ -20,6 +20,8 @@ const OP_LABEL: Record<string, string> = {
   cron_delete: t('删除定时任务'),
   // Local-mode (desktop) command execution on the real host (kind === 'local_cmd')
   local_exec: t('在本机执行'),
+  local_read: t('读取本机文件'),
+  local_write: t('修改本机文件'),
 };
 
 /**
@@ -39,7 +41,6 @@ export function FileConfirmBar() {
   const queue = useUIStore((s) => s.pendingConfirm[currentChatId]);
   const enqueuePendingConfirm = useUIStore((s) => s.enqueuePendingConfirm);
   const resolvePendingConfirm = useUIStore((s) => s.resolvePendingConfirm);
-  const clearPendingConfirm = useUIStore((s) => s.clearPendingConfirm);
   const [busy, setBusy] = useState(false);
 
   // The queue head is the item currently awaiting confirmation; the rest count how many are
@@ -50,9 +51,12 @@ export function FileConfirmBar() {
   const info = queue && queue.length ? queue[0] : undefined;
   const remaining = info ? queue.length - 1 : 0;
   const isAuto = info?.kind === 'automation';
-  const isLocalCmd = info?.kind === 'local_cmd';
-  // automation / local_cmd are located by summary (message), myspace by logical path.
-  const detail = info ? (isAuto || isLocalCmd ? info.message || info.logicalPath : info.logicalPath) : '';
+  const isLocalCmd = info?.kind === 'local_cmd' || info?.kind?.startsWith('local_path:');
+  const isGenericTool = info?.kind === 'tool_permission' || info?.kind?.startsWith('tool:');
+  // Non-file permission domains are located by the backend-provided summary.
+  const detail = info
+    ? (isAuto || isLocalCmd || isGenericTool ? info.message || info.logicalPath : info.logicalPath)
+    : '';
 
   const decide = async (decision: FileConfirmDecision) => {
     if (busy || !info) return;
@@ -80,22 +84,30 @@ export function FileConfirmBar() {
           message.info(t('该确认已过期（可能超时），已为你关闭。如仍需要请重新发起。'));
         }
       } else if (decision === 'allow_session') {
-        // "Allow all this session": the backend has cascade-released all current pending items
-        // and set session_allow for subsequent writes. The frontend clears the whole queue at
-        // once instead of popping one by one — otherwise remaining items still show waiting for
-        // the user to click (even though the backend already released them), appearing as
-        // "still confirming after clicking".
-        clearPendingConfirm(currentChatId);
+        // The backend cascade is permission-domain scoped. Remove only the
+        // confirmations it actually released; unrelated local/MySpace/
+        // automation prompts in the same chat must remain visible.
+        for (const confirmId of res.cascaded ?? []) {
+          resolvePendingConfirm(currentChatId, confirmId);
+        }
         message.success(
           head.kind === 'automation'
             ? t('已允许本次会话的全部定时任务操作，后续不再逐个确认。')
-            : t('已允许本次会话的全部「我的空间」写操作，后续不再逐个确认。'),
+            : head.kind === 'local_cmd'
+              ? t('已允许本次会话的全部本机操作，后续不再逐个确认。')
+              : isGenericTool
+                ? t('已允许本次会话中该类工具操作，后续不再逐个确认。')
+                : t('已允许本次会话的全部「我的空间」写操作，后续不再逐个确认。'),
         );
       } else if (decision === 'deny') {
         message.info(
           head.kind === 'automation'
             ? t('已拒绝该操作，定时任务未改动。')
-            : t('已拒绝该操作，文件未改动。如需临时产物可让助手写到 /workspace。'),
+            : head.kind === 'local_cmd'
+              ? t('已拒绝该本机操作，未执行任何改动。')
+              : isGenericTool
+                ? t('已拒绝该工具操作，未执行任何改动。')
+                : t('已拒绝该操作，文件未改动。如需临时产物可让助手写到 /workspace。'),
         );
       }
     } catch (e: unknown) {
@@ -124,8 +136,10 @@ export function FileConfirmBar() {
               isAuto
                 ? t('定时任务操作确认')
                 : isLocalCmd
-                  ? t('本机执行操作确认')
-                  : t('我的空间写操作确认')
+                  ? t('本机操作确认')
+                  : isGenericTool
+                    ? t('工具操作确认')
+                    : t('我的空间写操作确认')
             }
           >
             <span className="jx-confirmBar-icon" aria-hidden="true">
@@ -144,8 +158,10 @@ export function FileConfirmBar() {
                   {isAuto
                     ? t('需要你确认一项定时任务操作')
                     : isLocalCmd
-                      ? t('需要你确认一项本机执行操作')
-                      : t('需要你确认一项「我的空间」写操作')}
+                      ? t('需要你确认一项本机操作')
+                      : isGenericTool
+                        ? t('需要你确认一项工具操作')
+                        : t('需要你确认一项「我的空间」写操作')}
                   {remaining > 0 && (
                     <span className="jx-confirmBar-count">
                       {t('（还有 {n} 项排队，逐个确认）', { n: remaining })}
@@ -162,8 +178,10 @@ export function FileConfirmBar() {
                   {isAuto
                     ? t('该操作会更改你的定时任务安排。确认后助手会在本对话里直接继续完成任务。')
                     : isLocalCmd
-                      ? t('该操作会在你的电脑上直接执行命令，可能修改或删除本机文件。确认后助手会在本对话里直接继续完成任务。')
-                      : t('该操作会修改你的个人网盘（跨会话永久保存）。确认后助手会在本对话里直接继续完成任务。')}
+                      ? t('该操作会直接访问你的电脑文件或执行命令，可能读取、修改或删除本机内容。确认后助手会在本对话里直接继续完成任务。')
+                      : isGenericTool
+                        ? t('该操作可能调用外部服务或修改持久数据。确认后助手会在本对话里直接继续完成任务。')
+                        : t('该操作会修改你的个人网盘（跨会话永久保存）。确认后助手会在本对话里直接继续完成任务。')}
                 </div>
               </motion.div>
             </AnimatePresence>

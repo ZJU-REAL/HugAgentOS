@@ -65,11 +65,11 @@ def test_every_registered_business_middleware_has_a_deletion_entry():
         "IterBudgetReminderMiddleware",
         "StallInterventionMiddleware",
         "OntologyGateMiddleware",
+        "ToolPermissionMiddleware",
         "CitationAnchorMiddleware",
         "ActingToolCallIdMiddleware",
         "ToolEffectMiddleware",
         "JobLedgerReminderMiddleware",
-        "GoalAnchorReminderMiddleware",
         "FinishPinGuardMiddleware",
     }
     assert {item.middleware for item in MIDDLEWARE_MIGRATION} == expected

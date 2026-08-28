@@ -112,6 +112,39 @@ run_as_root() {
     fi
 }
 
+install_bubblewrap() {
+    if command -v apt-get >/dev/null 2>&1; then
+        run_as_root apt-get update &&
+            run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bubblewrap
+    elif command -v dnf >/dev/null 2>&1; then
+        run_as_root dnf install -y bubblewrap
+    elif command -v yum >/dev/null 2>&1; then
+        run_as_root yum install -y bubblewrap
+    elif command -v apk >/dev/null 2>&1; then
+        run_as_root apk add --no-cache bubblewrap
+    elif command -v pacman >/dev/null 2>&1; then
+        run_as_root pacman -S --needed --noconfirm bubblewrap
+    else
+        return 1
+    fi
+}
+
+# Restricted local bash must never silently fall back to an unrestricted host
+# subprocess. Linux therefore requires bubblewrap; macOS ships sandbox-exec.
+case "$(uname -s)" in
+    Linux)
+        if ! command -v bwrap >/dev/null 2>&1; then
+            info "Installing bubblewrap for local filesystem isolation"
+            install_bubblewrap || die "bubblewrap is required for restricted local code execution. Install the 'bubblewrap' package and rerun this installer."
+        fi
+        info "bubblewrap is ready for local filesystem isolation"
+        ;;
+    Darwin)
+        command -v sandbox-exec >/dev/null 2>&1 || die "sandbox-exec is required for restricted local code execution on macOS."
+        info "sandbox-exec is ready for local filesystem isolation"
+        ;;
+esac
+
 install_libreoffice() {
     if command -v apt-get >/dev/null 2>&1; then
         run_as_root apt-get update &&

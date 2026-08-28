@@ -15,12 +15,7 @@ from core.config.catalog_resolver import (
 )
 from core.config.display_names import TOOL_DISPLAY_NAMES
 from core.llm.agent_factory import create_agent_executor
-from core.llm.context_manager import resolve_model_context_window
-from core.llm.context_adapter import (
-    append_context_text,
-    next_request_sequence,
-    render_context_item,
-)
+from core.llm.context_adapter import append_context_text, next_request_sequence, render_context_item
 from core.llm.context_ir import (
     KIND_REMINDER,
     KIND_USER_INPUT,
@@ -30,6 +25,7 @@ from core.llm.context_ir import (
     make_text_context_item,
     session_context_metadata,
 )
+from core.llm.context_manager import resolve_model_context_window
 from core.llm.mcp_manager import close_clients
 from core.llm.message_compat import session_to_msgs, strip_thinking
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
@@ -77,19 +73,13 @@ def _mode_visible_subagents(spec, visible, mentioned_ids):
     里没列的智能体时那次呼唤被无声吞掉。
     """
     allowed = {
-        a
-        for a in (getattr(spec, "agent_ids", ()) or ())
-        if isinstance(a, str) and a.strip()
+        a for a in (getattr(spec, "agent_ids", ()) or ()) if isinstance(a, str) and a.strip()
     }
     wanted = {str(m) for m in (mentioned_ids or []) if m}
     keep = allowed | wanted
     if not keep:
         return []
-    return [
-        item
-        for item in (visible or [])
-        if str((item or {}).get("agent_id") or "") in keep
-    ]
+    return [item for item in (visible or []) if str((item or {}).get("agent_id") or "") in keep]
 
 
 def _resolve_mode_spec(context: dict):
@@ -108,14 +98,10 @@ def _resolve_mode_spec(context: dict):
         from core.services.chat_mode_service import ChatModeService
 
         with SessionLocal() as db:
-            spec = ChatModeService(db).resolve(
-                slug, str(context.get("user_id", "") or "") or None
-            )
+            spec = ChatModeService(db).resolve(slug, str(context.get("user_id", "") or "") or None)
         return spec
     except Exception:  # noqa: BLE001 — 模式是增强不是边界，解析炸了也要让对话跑起来
-        logger.warning(
-            "[workflow] 模式解析失败 slug=%s，按标准模式继续", slug, exc_info=True
-        )
+        logger.warning("[workflow] 模式解析失败 slug=%s，按标准模式继续", slug, exc_info=True)
         return None
 
 
@@ -126,9 +112,7 @@ def _extract_project_ctx(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {k: context.get(k) for k in _PROJECT_CTX_KEYS}
 
 
-def _resolve_agent_model_runtime(
-    agent: Any, fallback_model_name: Any = ""
-) -> Tuple[str, int]:
+def _resolve_agent_model_runtime(agent: Any, fallback_model_name: Any = "") -> Tuple[str, int]:
     """Return the effective model name and context window baked into an agent.
 
     AgentScope chat models expose the upstream name as ``.model``. Some provider
@@ -168,7 +152,28 @@ def _compaction_budget_inputs(agent: Any, context_window: int) -> Dict[str, Any]
         "system_prompt": str(getattr(agent, "_jx_compaction_system_prompt", "") or ""),
         "tool_schema": getattr(agent, "_jx_compaction_tool_schemas", None),
         "reserved_output_tokens": reserved,
+        "context_window": int(context_window or 0),
+        "model_name": str(
+            getattr(getattr(agent, "model", None), "model", None)
+            or getattr(getattr(agent, "state", None), "model_name", None)
+            or ""
+        ),
+        "model_provider_id": str(
+            getattr(getattr(agent, "state", None), "model_provider_id", "") or ""
+        ),
     }
+
+
+def _pre_turn_compaction_inputs(
+    agent: Any,
+    context_window: int,
+    resolved_model_name: str,
+) -> Dict[str, Any]:
+    """Adapt the shared budget snapshot to the pre-turn service signature."""
+    inputs = _compaction_budget_inputs(agent, context_window)
+    inputs.pop("model_provider_id", None)
+    inputs["model_name"] = str(inputs.get("model_name") or resolved_model_name)
+    return inputs
 
 
 def _extract_skill_id_from_path(path: str) -> str:
@@ -211,9 +216,7 @@ def _synthesize_missing_tool_call(
         return None
     displayed_tools.add(tool_id)
     display_name = (
-        "加载技能"
-        if tool_name == "load_skill"
-        else TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
+        "加载技能" if tool_name == "load_skill" else TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
     )
     return {
         "type": "tool_call",
@@ -227,10 +230,7 @@ def _synthesize_missing_tool_call(
 
 def _ontology_review_event_context(runtime: Dict[str, Any]) -> Dict[str, Any]:
     committee_size = max(
-        (
-            int(pack.get("config", {}).get("committee_size", 3))
-            for pack in runtime.get("packs", [])
-        ),
+        (int(pack.get("config", {}).get("committee_size", 3)) for pack in runtime.get("packs", [])),
         default=3,
     )
     workflows = [
@@ -299,9 +299,7 @@ def _ontology_governance_summary(runtime: Dict[str, Any]) -> Optional[Dict[str, 
     ]
     review_state = dict(runtime.get("output_review") or {})
     review_state["level"] = runtime.get("review_level", "none")
-    review_state["committee_size"] = _ontology_review_event_context(runtime)[
-        "committee_size"
-    ]
+    review_state["committee_size"] = _ontology_review_event_context(runtime)["committee_size"]
     if not activations and not gates and review_state.get("status") == "pending":
         return None
     if review_state.get("status") == "pending" and not requires_output_review(runtime):
@@ -384,9 +382,7 @@ def _record_ontology_activations(
                 chat_id=context.get("chat_id"),
             )
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "[ontology] workflow activation audit persistence failed: %s", exc
-        )
+        logger.warning("[ontology] workflow activation audit persistence failed: %s", exc)
 
 
 def _bounded_trace_value(value: Any, max_chars: int = 4000) -> Any:
@@ -650,9 +646,7 @@ async def _run_ontology_repair_round(
                             text_buffer = text_buffer[safe_len:]
                         break
                     before_open = text_buffer[:open_idx]
-                    line_before_open = (thinking_line_prefix + before_open).rsplit(
-                        "\n", 1
-                    )[-1]
+                    line_before_open = (thinking_line_prefix + before_open).rsplit("\n", 1)[-1]
                     if not _is_revision_opening_boundary(line_before_open):
                         # Reasoning models sometimes describe the contract as
                         # `<ontology_revision>...</ontology_revision>`.  A real
@@ -661,9 +655,7 @@ async def _run_ontology_repair_round(
                         # remain folded as examples rather than candidate text.
                         ignored = text_buffer[: open_idx + len("<ontology_revision>")]
                         await _publish_text_thinking(ignored)
-                        text_buffer = text_buffer[
-                            open_idx + len("<ontology_revision>") :
-                        ]
+                        text_buffer = text_buffer[open_idx + len("<ontology_revision>") :]
                         continue
                     if open_idx > 0:
                         await _publish_text_thinking(before_open)
@@ -677,17 +669,13 @@ async def _run_ontology_repair_round(
                     if safe_len > 0:
                         candidate_delta = text_buffer[:safe_len]
                         answer += candidate_delta
-                        await _publish(
-                            {"type": "ontology_revision", "delta": candidate_delta}
-                        )
+                        await _publish({"type": "ontology_revision", "delta": candidate_delta})
                         text_buffer = text_buffer[safe_len:]
                     break
                 if close_idx > 0:
                     candidate_delta = text_buffer[:close_idx]
                     answer += candidate_delta
-                    await _publish(
-                        {"type": "ontology_revision", "delta": candidate_delta}
-                    )
+                    await _publish({"type": "ontology_revision", "delta": candidate_delta})
                 text_buffer = text_buffer[close_idx + len("</ontology_revision>") :]
                 revision_closed = True
                 break
@@ -705,9 +693,7 @@ async def _run_ontology_repair_round(
                     {
                         "type": "tool_call_start",
                         "tool_name": tool_name,
-                        "tool_display_name": TOOL_DISPLAY_NAMES.get(
-                            tool_name, tool_name
-                        ),
+                        "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
                         "tool_id": str(event_payload.get("id") or ""),
                         "scope": "ontology_revision",
                     }
@@ -838,10 +824,8 @@ async def _run_ontology_repair_round(
     return normalize_revision_candidate(answer), events, event_cursor, tool_count
 
 
-from core.chat.plan_progress import (  # noqa: E402
-    save_plan_progress as _save_plan_progress,
-    settle_plan_progress as _settle_plan_progress,
-)
+from core.chat.plan_progress import save_plan_progress as _save_plan_progress  # noqa: E402
+from core.chat.plan_progress import settle_plan_progress as _settle_plan_progress
 from core.llm.plan_update_tool import parse_plan_update_args  # noqa: E402
 
 
@@ -854,9 +838,7 @@ def _chat_has_live_job(chat_id: str) -> bool:
         with _JobSession() as _db:
             return (
                 _db.query(_Job.job_id)
-                .filter(
-                    _Job.chat_id == chat_id, _Job.status.in_(("pending", "running"))
-                )
+                .filter(_Job.chat_id == chat_id, _Job.status.in_(("pending", "running")))
                 .first()
                 is not None
             )
@@ -905,9 +887,7 @@ from orchestration.memory_integration import (  # noqa: F401
 
 # Re-export public helpers for backward compatibility
 from orchestration.message_parser import looks_markdown as _looks_markdown  # noqa: F401
-from orchestration.message_parser import (
-    resolve_sources_conflict as _resolve_sources_conflict,
-)
+from orchestration.message_parser import resolve_sources_conflict as _resolve_sources_conflict
 
 logger = logging.getLogger(__name__)
 
@@ -1023,9 +1003,7 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 if not skill_dir:
                     logger.warning("[skill_inject] skill_id=%s has no skill dir", sid)
                     continue
-                sandbox_dir = (
-                    f"/workspace/skills/{skill_dir.rstrip('/').split('/')[-1]}"
-                )
+                sandbox_dir = f"/workspace/skills/{skill_dir.rstrip('/').split('/')[-1]}"
                 entries.append(
                     f'- 「{meta.name}」：view_text_file(file_path="{sandbox_dir}/SKILL.md")'
                 )
@@ -1184,10 +1162,7 @@ def _load_direct_user_agent(
 ):
     """Load a built-in profile or detach a complete custom-agent configuration."""
     from core.db.engine import SessionLocal
-    from core.llm.builtin_subagents import (
-        build_builtin_runtime_profile,
-        get_builtin_subagent,
-    )
+    from core.llm.builtin_subagents import build_builtin_runtime_profile, get_builtin_subagent
     from core.services.user_agent_service import UserAgentService
 
     builtin_spec = get_builtin_subagent(agent_id)
@@ -1261,21 +1236,15 @@ def run_chat_workflow(
                 "enabled_skill_ids": enabled_skill_ids_from_context(context) or [],
                 "enabled_mcp_ids": enabled_mcp_ids_from_context(context) or [],
                 "enabled_kb_ids": enabled_kb_ids_from_context(context) or [],
-                "sandbox_tools_enabled": bool(
-                    context.get("sandbox_tools_enabled", False)
-                ),
-                "code_capability_enabled": bool(
-                    context.get("code_capability_enabled", False)
-                ),
+                "sandbox_tools_enabled": bool(context.get("sandbox_tools_enabled", False)),
+                "code_capability_enabled": bool(context.get("code_capability_enabled", False)),
             },
         )
         activations = activate_runtime_for_asset(
             _request_ontology_runtime,
             kind="subagent",
             asset_id=_direct_agent_id,
-            tags=list(
-                (_direct_user_agent.extra_config or {}).get("ontology_tags") or []
-            ),
+            tags=list((_direct_user_agent.extra_config or {}).get("ontology_tags") or []),
         )
         _record_ontology_activations(
             activations,
@@ -1289,12 +1258,10 @@ def run_chat_workflow(
             from core.services.user_service import UserService as _UserService
 
             with _SessionLocal() as _db:
-                _visible_subagents = _UAS(_db).list_for_user(
+                _visible_subagents = _UAS(_db).list_for_user(str(context.get("user_id", "")))
+                _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
                     str(context.get("user_id", ""))
                 )
-                _disabled_builtin_ids = _UserService(
-                    _db
-                ).get_disabled_builtin_subagent_ids(str(context.get("user_id", "")))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[workflow] failed to load visible subagents: %s", exc)
             _disabled_builtin_ids = set()
@@ -1326,15 +1293,9 @@ def run_chat_workflow(
         )
 
     warnings: List[str] = []
-    enabled_skill_ids = (
-        None if _direct_user_agent else enabled_skill_ids_from_context(context)
-    )
-    enabled_kb_ids = (
-        None if _direct_user_agent else enabled_kb_ids_from_context(context)
-    )
-    enabled_mcp_ids = (
-        None if _direct_user_agent else enabled_mcp_ids_from_context(context)
-    )
+    enabled_skill_ids = None if _direct_user_agent else enabled_skill_ids_from_context(context)
+    enabled_kb_ids = None if _direct_user_agent else enabled_kb_ids_from_context(context)
+    enabled_mcp_ids = None if _direct_user_agent else enabled_mcp_ids_from_context(context)
 
     enabled_mcp_ids = _resolve_batch_runner_visibility(context, enabled_mcp_ids)
 
@@ -1399,9 +1360,7 @@ def run_chat_workflow(
             # 渐进式插件加载：本轮显式呼唤的能力不得被延迟（用户消息注入已承诺
             # 其可用），并作为会话级激活落库。
             invoked_skill_ids=_explicit_skill_ids_from_context(context),
-            invoked_mcp_ids=[
-                m for m in (context.get("mcp_ids") or []) if isinstance(m, str)
-            ],
+            invoked_mcp_ids=[m for m in (context.get("mcp_ids") or []) if isinstance(m, str)],
             required_mcp_ids=(
                 [str(context["connector_id"])] if context.get("connector_id") else None
             ),
@@ -1431,26 +1390,20 @@ def run_chat_workflow(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[workflow] set agent.state failed: %s", exc)
 
-            _actual_model, _ctx_window = _resolve_agent_model_runtime(
-                agent, _workflow_model_name
-            )
+            _actual_model, _ctx_window = _resolve_agent_model_runtime(agent, _workflow_model_name)
 
             # PreTurn compaction safety net (symmetric with the streaming path
             # — both workflow entry points protect themselves, and future new
             # callers get it automatically). Zero overhead below the threshold.
             _pt_messages = session_messages
             try:
-                from core.services.compaction_service import (
-                    maybe_run_pre_turn_compaction,
-                )
+                from core.services.compaction_service import maybe_run_pre_turn_compaction
 
                 _pt_messages, _ = await maybe_run_pre_turn_compaction(
                     context.get("chat_id"),
                     session_messages,
-                    model_name=_actual_model,
-                    context_window=_ctx_window,
                     run_id=str(context.get("run_id") or ""),
-                    **_compaction_budget_inputs(agent, _ctx_window),
+                    **_pre_turn_compaction_inputs(agent, _ctx_window, _actual_model),
                 )
             except Exception as _pt_exc:  # noqa: BLE001
                 from core.harness.hooks import HookPaused
@@ -1518,9 +1471,7 @@ def run_chat_workflow(
                 response and claim_output_review(ontology_runtime, owner=review_owner)
             )
             if review_claimed:
-                from orchestration.subagents.ontology_reviewer import (
-                    review_ontology_output,
-                )
+                from orchestration.subagents.ontology_reviewer import review_ontology_output
 
                 async def _remediate(payload: Dict[str, Any]) -> str:
                     repair_seq = next_request_sequence(agent.state.context)
@@ -1538,9 +1489,7 @@ def run_chat_workflow(
                         )
                     )
                     repaired_result = await agent.reply(inputs=repair_msg)
-                    return strip_thinking(
-                        repaired_result.get_text_content() or ""
-                    ).strip()
+                    return strip_thinking(repaired_result.get_text_content() or "").strip()
 
                 try:
                     review = await review_ontology_output(
@@ -1626,9 +1575,7 @@ async def _astream_subagent_direct(
     import time as _time
 
     _wf_start = _time.monotonic()
-    _direct_read_only, _direct_allow_bash = _direct_agent_execution_permissions(
-        agent_id
-    )
+    _direct_read_only, _direct_allow_bash = _direct_agent_execution_permissions(agent_id)
 
     user_agent = _load_direct_user_agent(
         agent_id,
@@ -1638,9 +1585,7 @@ async def _astream_subagent_direct(
             "enabled_mcp_ids": enabled_mcp_ids_from_context(context) or [],
             "enabled_kb_ids": enabled_kb_ids_from_context(context) or [],
             "sandbox_tools_enabled": bool(context.get("sandbox_tools_enabled", False)),
-            "code_capability_enabled": bool(
-                context.get("code_capability_enabled", False)
-            ),
+            "code_capability_enabled": bool(context.get("code_capability_enabled", False)),
         },
     )
     from core.services import log_service as log_writer
@@ -1649,17 +1594,13 @@ async def _astream_subagent_direct(
     _direct_tool_count = 0
     _direct_skill_count = 0
     _direct_log_finished = False
-    _is_call_subagent_dispatch = (
-        context.get("direct_agent_source") == "explicit_command_tool"
-    )
+    _is_call_subagent_dispatch = context.get("direct_agent_source") == "explicit_command_tool"
     _direct_log_id = await log_writer.start_subagent_log(
         {
             "user_id": str(context.get("user_id", "")) or None,
             "chat_id": context.get("chat_id"),
             "subagent_name": user_agent.name,
-            "subagent_type": "user_agent"
-            if _is_call_subagent_dispatch
-            else "user_agent_direct",
+            "subagent_type": "user_agent" if _is_call_subagent_dispatch else "user_agent_direct",
             "subagent_id": agent_id,
             "input_messages": {
                 "task": user_message,
@@ -1750,9 +1691,7 @@ async def _astream_subagent_direct(
     # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
     # 中间件与本函数由此共享同一个计数器
     _anchor_allocator = AnchorAllocator(
-        await asyncio.to_thread(
-            anchor_start_for_chat, str(context.get("chat_id") or "") or None
-        )
+        await asyncio.to_thread(anchor_start_for_chat, str(context.get("chat_id") or "") or None)
     )
 
     try:
@@ -1798,9 +1737,7 @@ async def _astream_subagent_direct(
             ontology_runtime=context.get("ontology_runtime"),
         )
 
-        logger.info(
-            "[subagent] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000
-        )
+        logger.info("[subagent] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000)
         _, _ctx_window = _resolve_agent_model_runtime(agent, _stream_model_name)
 
         # 证据锚点：把发号器绑到 agent 上（中间件与本函数由此共享同一个计数器；
@@ -1862,9 +1799,7 @@ async def _astream_subagent_direct(
                     )
                 except StopAsyncIteration:
                     break
-                state_runtime = getattr(
-                    streaming_agent.agent.state, "ontology_runtime", None
-                )
+                state_runtime = getattr(streaming_agent.agent.state, "ontology_runtime", None)
                 if isinstance(state_runtime, dict):
                     _ontology_runtime = state_runtime
                     context["ontology_runtime"] = state_runtime
@@ -1892,15 +1827,16 @@ async def _astream_subagent_direct(
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
 
+                elif event_type == "context_usage":
+                    yield {"type": "context_usage", **(payload or {})}
+
                 elif event_type == "tool_call_start":
                     tool_name = payload.get("name", "unknown")
                     if tool_name != "update_plan":
                         yield {
                             "type": "tool_call_start",
                             "tool_name": tool_name,
-                            "tool_display_name": TOOL_DISPLAY_NAMES.get(
-                                tool_name, tool_name
-                            ),
+                            "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
                             "tool_id": payload.get("id", ""),
                         }
 
@@ -1937,9 +1873,7 @@ async def _astream_subagent_direct(
                     )
                     if is_skill_load and tool_id:
                         skill_load_ids.add(tool_id)
-                        _sid = _extract_skill_id_from_path(
-                            str(tool_args.get("file_path", ""))
-                        )
+                        _sid = _extract_skill_id_from_path(str(tool_args.get("file_path", "")))
                         if _sid:
                             skill_id_by_tool_id[tool_id] = _sid
                     # Non-skill view_text_file also needs trimming at the tool_result stage → record the args
@@ -2005,9 +1939,7 @@ async def _astream_subagent_direct(
                     tool_content = payload.get("content", "")
 
                     try:
-                        tool_result_json = (
-                            json.loads(tool_content) if tool_content else {}
-                        )
+                        tool_result_json = json.loads(tool_content) if tool_content else {}
                     except json.JSONDecodeError:
                         tool_result_json = {"result": tool_content}
 
@@ -2016,9 +1948,9 @@ async def _astream_subagent_direct(
                     # only the SSE payload sent to the frontend — the agent's
                     # own memory still holds the full content
                     if is_skill_result:
-                        _sid = skill_id_by_tool_id.get(
-                            tool_id, ""
-                        ) or _extract_skill_id_from_path(str(tool_content))
+                        _sid = skill_id_by_tool_id.get(tool_id, "") or _extract_skill_id_from_path(
+                            str(tool_content)
+                        )
                         tool_result_json = _build_skill_load_payload(_sid)
                     elif tool_name == "view_text_file":
                         # Plain file read (AgentScope built-in view_text_file): replace with file metadata + short preview
@@ -2031,15 +1963,10 @@ async def _astream_subagent_direct(
                             view_text_file_args.get(tool_id, {}), tool_result_json
                         )
                     elif tool_name == "read_artifact":
-                        tool_result_json = _build_read_artifact_payload(
-                            tool_result_json
-                        )
+                        tool_result_json = _build_read_artifact_payload(tool_result_json)
 
                     extracted_query = ""
-                    if (
-                        isinstance(tool_result_json, dict)
-                        and "result" in tool_result_json
-                    ):
+                    if isinstance(tool_result_json, dict) and "result" in tool_result_json:
                         result_data = tool_result_json["result"]
                         if isinstance(result_data, dict):
                             extracted_query = result_data.get(
@@ -2061,9 +1988,7 @@ async def _astream_subagent_direct(
                     yield {
                         "type": "tool_result",
                         "tool_name": tool_name,
-                        "tool_args": {"query": extracted_query}
-                        if extracted_query
-                        else {},
+                        "tool_args": {"query": extracted_query} if extracted_query else {},
                         "result": tool_result_json,
                         "tool_id": tool_id,
                         "citations": cit_dicts,
@@ -2102,11 +2027,7 @@ async def _astream_subagent_direct(
                         yield {
                             "type": "subagent_event",
                             **(payload or {}),
-                            **(
-                                {"citations": nested_citations}
-                                if nested_citations
-                                else {}
-                            ),
+                            **({"citations": nested_citations} if nested_citations else {}),
                         }
 
                 elif event_type in ("file_confirm", "design_pick"):
@@ -2150,7 +2071,9 @@ async def _astream_subagent_direct(
             raise unknown_outcome from e
 
         if displayed_tools and not full_response:
-            fallback_msg = "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"
+            fallback_msg = (
+                "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"
+            )
             full_response = fallback_msg
             yield {"type": "content", "event": "ai_message", "delta": fallback_msg}
         elif not full_response:
@@ -2160,17 +2083,14 @@ async def _astream_subagent_direct(
             await _finish_direct_log("failed", error=str(e)[:200])
             raise
 
-    pending_ontology_events = _ontology_runtime.get("runtime_events", [])[
-        _ontology_event_cursor:
-    ]
+    pending_ontology_events = _ontology_runtime.get("runtime_events", [])[_ontology_event_cursor:]
     for ontology_event in pending_ontology_events:
         yield dict(ontology_event)
     _ontology_event_cursor += len(pending_ontology_events)
 
     _ontology_review_owner_id = _ontology_review_owner(_ontology_runtime, context)
     _ontology_review_claimed = bool(
-        full_response
-        and claim_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
+        full_response and claim_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
     )
     if _ontology_review_claimed:
         from orchestration.subagents.ontology_reviewer import review_ontology_output
@@ -2185,18 +2105,23 @@ async def _astream_subagent_direct(
 
         async def _remediate(payload: Dict[str, Any]) -> str:
             nonlocal _ontology_event_cursor, _direct_tool_count
-            repaired, _, cursor, tool_count = await _run_ontology_repair_round(
-                streaming_agent=streaming_agent,
-                context=context,
-                payload=payload,
-                runtime=_ontology_runtime,
-                trace=_ontology_trace,
-                citations=all_citations,
-                allocator=_anchor_allocator,
-                event_cursor=_ontology_event_cursor,
-                subagent_log_id=_direct_log_id,
-                event_sink=repair_event_queue.put,
-            )
+            primary_usage = await streaming_agent.aget_usage()
+            primary_context_usage = streaming_agent.get_context_usage(primary_usage)
+            try:
+                repaired, _, cursor, tool_count = await _run_ontology_repair_round(
+                    streaming_agent=streaming_agent,
+                    context=context,
+                    payload=payload,
+                    runtime=_ontology_runtime,
+                    trace=_ontology_trace,
+                    citations=all_citations,
+                    allocator=_anchor_allocator,
+                    event_cursor=_ontology_event_cursor,
+                    subagent_log_id=_direct_log_id,
+                    event_sink=repair_event_queue.put,
+                )
+            finally:
+                streaming_agent.restore_context_usage(primary_context_usage)
             _ontology_event_cursor = cursor
             _direct_tool_count += tool_count
             return repaired
@@ -2211,8 +2136,7 @@ async def _astream_subagent_direct(
                 user_id=str(context.get("user_id", "")),
                 chat_id=context.get("chat_id"),
                 model_name=str(context.get("model_name", "") or "") or None,
-                model_provider_id=str(context.get("model_provider_id", "") or "")
-                or None,
+                model_provider_id=str(context.get("model_provider_id", "") or "") or None,
                 remediate=_remediate,
             )
         )
@@ -2254,9 +2178,7 @@ async def _astream_subagent_direct(
                 "evidence": review.get("evidence") or [],
                 "feedback": review.get("feedback") or [],
                 "manual_review": review.get("manual_review") or {},
-                "candidate_answer": (
-                    review.get("answer") if review.get("revised") else ""
-                ),
+                "candidate_answer": (review.get("answer") if review.get("revised") else ""),
                 "new_tools": review.get("new_tools") or [],
                 "new_citation_count": int(review.get("new_citation_count") or 0),
                 "latency_ms": review.get("latency_ms"),
@@ -2283,6 +2205,7 @@ async def _astream_subagent_direct(
         }
 
     _direct_usage = await streaming_agent.aget_usage()
+    _direct_context_usage = streaming_agent.get_context_usage(_direct_usage)
     await streaming_agent.shutdown()
     _persistent_clients.append((streaming_agent, list(mcp_clients)))
     await _finish_direct_log(
@@ -2299,6 +2222,7 @@ async def _astream_subagent_direct(
         "warnings": warnings,
         "citations": all_citations,
         "usage": _direct_usage,
+        "context_usage": _direct_context_usage,
         # Internal-only handoff consumed by chat_run_executor.  Its whitelist
         # intentionally keeps this prompt/tool surface out of SSE and message
         # metadata while allowing post-turn compaction to use the exact same
@@ -2378,9 +2302,7 @@ def _runtime_evidence_agent(agent: Any) -> Any:
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if hasattr(current, "_jx_asset_bundle") or hasattr(
-            current, "_jx_skill_selection"
-        ):
+        if hasattr(current, "_jx_asset_bundle") or hasattr(current, "_jx_skill_selection"):
             return current
         nested = getattr(current, "agent", None)
         if nested is None or nested is current:
@@ -2427,9 +2349,7 @@ def _assemble_episode_background(
             else None
         )
 
-        sink = TraceSink(
-            run_id=run_id, message_id=message_id, chat_id=chat_id, user_id=user_id
-        )
+        sink = TraceSink(run_id=run_id, message_id=message_id, chat_id=chat_id, user_id=user_id)
         # The rendered memory block has already discarded ids, scores and ranks;
         # this is the only place they still exist.
         retrieval = get_last_retrieval(memory_task)
@@ -2457,9 +2377,7 @@ def _assemble_episode_background(
         if selection is not None:
             from core.evolution.events import EV_SKILL_SELECTED
 
-            sink.append(
-                EV_SKILL_SELECTED, selection.to_event_payload(), asset_kind="skill"
-            )
+            sink.append(EV_SKILL_SELECTED, selection.to_event_payload(), asset_kind="skill")
         sink.flush()
 
         # Stamp the user's contribution choice onto the episode. Doing it at
@@ -2622,9 +2540,7 @@ async def astream_chat_workflow(
     # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
     # 中间件与本函数由此共享同一个计数器
     _anchor_allocator = AnchorAllocator(
-        await asyncio.to_thread(
-            anchor_start_for_chat, str(context.get("chat_id") or "") or None
-        )
+        await asyncio.to_thread(anchor_start_for_chat, str(context.get("chat_id") or "") or None)
     )
 
     try:
@@ -2669,9 +2585,9 @@ async def astream_chat_workflow(
             with _SessionLocal() as _db:
                 _ua_svc = _UAS(_db)
                 _visible_subagents = _ua_svc.list_for_user(_stream_user_id)
-                _disabled_builtin_ids = _UserService(
-                    _db
-                ).get_disabled_builtin_subagent_ids(_stream_user_id)
+                _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
+                    _stream_user_id
+                )
         except Exception as _exc:
             logger.warning("[workflow] failed to load visible subagents: %s", _exc)
             _disabled_builtin_ids = set()
@@ -2691,8 +2607,7 @@ async def astream_chat_workflow(
         # compatibility fallback for callers that only include @name.
         _delegated_agent_id = _explicit_agent_id or _mention_agent_id
         if _delegated_agent_id and any(
-            str(item.get("agent_id") or "") == _delegated_agent_id
-            for item in _visible_subagents
+            str(item.get("agent_id") or "") == _delegated_agent_id for item in _visible_subagents
         ):
             _mentioned_ids = [_delegated_agent_id]
         else:
@@ -2742,9 +2657,7 @@ async def astream_chat_workflow(
             # 渐进式插件加载：本轮显式呼唤的能力不得被延迟（用户消息注入已承诺
             # 其可用），并作为会话级激活落库。
             invoked_skill_ids=_explicit_skill_ids_from_context(context),
-            invoked_mcp_ids=[
-                m for m in (context.get("mcp_ids") or []) if isinstance(m, str)
-            ],
+            invoked_mcp_ids=[m for m in (context.get("mcp_ids") or []) if isinstance(m, str)],
             required_mcp_ids=(
                 [str(context["connector_id"])] if context.get("connector_id") else None
             ),
@@ -2775,9 +2688,7 @@ async def astream_chat_workflow(
             ),
         )
 
-        logger.info(
-            "[workflow] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000
-        )
+        logger.info("[workflow] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000)
 
         # 证据锚点：把发号器绑到 agent 上（中间件与本函数由此共享同一个计数器；
         # 仅靠 ContextVar 不行——本函数是 async generator，与 agent 执行所在的
@@ -2828,9 +2739,7 @@ async def astream_chat_workflow(
                     {
                         "role": "user",
                         "content": _mention_hint,
-                        SESSION_CONTEXT_META_KEY: session_context_metadata(
-                            mention_item
-                        ),
+                        SESSION_CONTEXT_META_KEY: session_context_metadata(mention_item),
                     },
                 )
 
@@ -2850,19 +2759,15 @@ async def astream_chat_workflow(
         # object do we fall back to resolve — unconfigured raises, fail loud,
         # never silently run with the wrong window.
         # preturn and manage_context below share the same value.
-        _actual_model, _ctx_window = _resolve_agent_model_runtime(
-            agent, _stream_model_name
-        )
+        _actual_model, _ctx_window = _resolve_agent_model_runtime(agent, _stream_model_name)
         try:
             from core.services.compaction_service import maybe_run_pre_turn_compaction
 
             session_messages, _ = await maybe_run_pre_turn_compaction(
                 context.get("chat_id"),
                 session_messages,
-                model_name=_actual_model,
-                context_window=_ctx_window,
                 run_id=str(context.get("run_id") or ""),
-                **_compaction_budget_inputs(agent, _ctx_window),
+                **_pre_turn_compaction_inputs(agent, _ctx_window, _actual_model),
             )
         except Exception as _pt_exc:  # noqa: BLE001
             from core.harness.hooks import HookPaused
@@ -2914,12 +2819,8 @@ async def astream_chat_workflow(
         # finishing _persist_artifacts gets the scope explicitly from chats.py.
 
         try:
-            async for event_type, payload in streaming_agent.stream(
-                session_messages, context
-            ):
-                state_runtime = getattr(
-                    streaming_agent.agent.state, "ontology_runtime", None
-                )
+            async for event_type, payload in streaming_agent.stream(session_messages, context):
+                state_runtime = getattr(streaming_agent.agent.state, "ontology_runtime", None)
                 if isinstance(state_runtime, dict):
                     _ontology_runtime = state_runtime
                     context["ontology_runtime"] = state_runtime
@@ -2947,15 +2848,16 @@ async def astream_chat_workflow(
                 elif event_type == "thinking_delta":
                     yield {"type": "thinking", "delta": payload}
 
+                elif event_type == "context_usage":
+                    yield {"type": "context_usage", **(payload or {})}
+
                 elif event_type == "tool_call_start":
                     tool_name = payload.get("name", "unknown")
                     if tool_name != "update_plan":
                         yield {
                             "type": "tool_call_start",
                             "tool_name": tool_name,
-                            "tool_display_name": TOOL_DISPLAY_NAMES.get(
-                                tool_name, tool_name
-                            ),
+                            "tool_display_name": TOOL_DISPLAY_NAMES.get(tool_name, tool_name),
                             "tool_id": payload.get("id", ""),
                         }
 
@@ -3016,9 +2918,7 @@ async def astream_chat_workflow(
                     )
                     if is_skill_load and tool_id:
                         skill_load_ids.add(tool_id)
-                        _sid = _extract_skill_id_from_path(
-                            str(tool_args.get("file_path", ""))
-                        )
+                        _sid = _extract_skill_id_from_path(str(tool_args.get("file_path", "")))
                         if _sid:
                             skill_id_by_tool_id[tool_id] = _sid
                     if (
@@ -3103,17 +3003,15 @@ async def astream_chat_workflow(
 
                     # Parse tool result
                     try:
-                        tool_result_json = (
-                            json.loads(tool_content) if tool_content else {}
-                        )
+                        tool_result_json = json.loads(tool_content) if tool_content else {}
                     except json.JSONDecodeError:
                         tool_result_json = {"result": tool_content}
 
                     # Skill load: replace the full SKILL.md text with the same curated detail used by the capability center
                     if is_skill_result:
-                        _sid = skill_id_by_tool_id.get(
-                            tool_id, ""
-                        ) or _extract_skill_id_from_path(str(tool_content))
+                        _sid = skill_id_by_tool_id.get(tool_id, "") or _extract_skill_id_from_path(
+                            str(tool_content)
+                        )
                         tool_result_json = _build_skill_load_payload(_sid)
                     elif tool_name == "view_text_file":
                         # Plain file read (AgentScope built-in view_text_file): replace with file metadata + short preview
@@ -3126,16 +3024,11 @@ async def astream_chat_workflow(
                             view_text_file_args.get(tool_id, {}), tool_result_json
                         )
                     elif tool_name == "read_artifact":
-                        tool_result_json = _build_read_artifact_payload(
-                            tool_result_json
-                        )
+                        tool_result_json = _build_read_artifact_payload(tool_result_json)
 
                     # Extract query if present
                     extracted_query = ""
-                    if (
-                        isinstance(tool_result_json, dict)
-                        and "result" in tool_result_json
-                    ):
+                    if isinstance(tool_result_json, dict) and "result" in tool_result_json:
                         result_data = tool_result_json["result"]
                         if isinstance(result_data, dict):
                             extracted_query = result_data.get(
@@ -3169,9 +3062,7 @@ async def astream_chat_workflow(
                     yield {
                         "type": "tool_result",
                         "tool_name": tool_name,
-                        "tool_args": {"query": extracted_query}
-                        if extracted_query
-                        else {},
+                        "tool_args": {"query": extracted_query} if extracted_query else {},
                         "result": tool_result_json,
                         "tool_id": tool_id,
                         "citations": cit_dicts,
@@ -3289,11 +3180,7 @@ async def astream_chat_workflow(
                         yield {
                             "type": "subagent_event",
                             **(payload or {}),
-                            **(
-                                {"citations": nested_citations}
-                                if nested_citations
-                                else {}
-                            ),
+                            **({"citations": nested_citations} if nested_citations else {}),
                         }
 
                 elif event_type in ("file_confirm", "design_pick"):
@@ -3337,7 +3224,9 @@ async def astream_chat_workflow(
             raise unknown_outcome from e
 
         if displayed_tools and not full_response:
-            fallback_msg = "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"
+            fallback_msg = (
+                "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"
+            )
             full_response = fallback_msg
             yield {"type": "content", "event": "ai_message", "delta": fallback_msg}
         elif not full_response:
@@ -3346,17 +3235,14 @@ async def astream_chat_workflow(
                 _persistent_clients.append((streaming_agent, list(mcp_clients)))
             raise
 
-    pending_ontology_events = _ontology_runtime.get("runtime_events", [])[
-        _ontology_event_cursor:
-    ]
+    pending_ontology_events = _ontology_runtime.get("runtime_events", [])[_ontology_event_cursor:]
     for ontology_event in pending_ontology_events:
         yield dict(ontology_event)
     _ontology_event_cursor += len(pending_ontology_events)
 
     _ontology_review_owner_id = _ontology_review_owner(_ontology_runtime, context)
     _ontology_review_claimed = bool(
-        full_response
-        and claim_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
+        full_response and claim_output_review(_ontology_runtime, owner=_ontology_review_owner_id)
     )
     if _ontology_review_claimed:
         from orchestration.subagents.ontology_reviewer import review_ontology_output
@@ -3371,17 +3257,22 @@ async def astream_chat_workflow(
 
         async def _remediate(payload: Dict[str, Any]) -> str:
             nonlocal _ontology_event_cursor
-            repaired, _, cursor, _ = await _run_ontology_repair_round(
-                streaming_agent=streaming_agent,
-                context=context,
-                payload=payload,
-                runtime=_ontology_runtime,
-                trace=_ontology_trace,
-                citations=all_citations,
-                allocator=_anchor_allocator,
-                event_cursor=_ontology_event_cursor,
-                event_sink=repair_event_queue.put,
-            )
+            primary_usage = await streaming_agent.aget_usage()
+            primary_context_usage = streaming_agent.get_context_usage(primary_usage)
+            try:
+                repaired, _, cursor, _ = await _run_ontology_repair_round(
+                    streaming_agent=streaming_agent,
+                    context=context,
+                    payload=payload,
+                    runtime=_ontology_runtime,
+                    trace=_ontology_trace,
+                    citations=all_citations,
+                    allocator=_anchor_allocator,
+                    event_cursor=_ontology_event_cursor,
+                    event_sink=repair_event_queue.put,
+                )
+            finally:
+                streaming_agent.restore_context_usage(primary_context_usage)
             _ontology_event_cursor = cursor
             return repaired
 
@@ -3395,8 +3286,7 @@ async def astream_chat_workflow(
                 user_id=str(context.get("user_id", "")),
                 chat_id=context.get("chat_id"),
                 model_name=str(context.get("model_name", "") or "") or None,
-                model_provider_id=str(context.get("model_provider_id", "") or "")
-                or None,
+                model_provider_id=str(context.get("model_provider_id", "") or "") or None,
                 remediate=_remediate,
             )
         )
@@ -3438,9 +3328,7 @@ async def astream_chat_workflow(
                 "evidence": review.get("evidence") or [],
                 "feedback": review.get("feedback") or [],
                 "manual_review": review.get("manual_review") or {},
-                "candidate_answer": (
-                    review.get("answer") if review.get("revised") else ""
-                ),
+                "candidate_answer": (review.get("answer") if review.get("revised") else ""),
                 "new_tools": review.get("new_tools") or [],
                 "new_citation_count": int(review.get("new_citation_count") or 0),
                 "latency_ms": review.get("latency_ms"),
@@ -3500,6 +3388,8 @@ async def astream_chat_workflow(
         if _plan_chat_id and not _chat_has_live_job(_plan_chat_id):
             _settle_plan_progress(_plan_chat_id)
 
+    _main_usage = await streaming_agent.aget_usage()
+    _main_context_usage = streaming_agent.get_context_usage(_main_usage)
     yield {
         "type": "meta",
         "route": "main",
@@ -3508,7 +3398,8 @@ async def astream_chat_workflow(
         "artifacts": [],
         "warnings": warnings,
         "citations": all_citations,
-        "usage": await streaming_agent.aget_usage(),
+        "usage": _main_usage,
+        "context_usage": _main_context_usage,
         "_compaction_budget_inputs": _compaction_budget_inputs(agent, _ctx_window),
         "ontology_governance": _ontology_governance_summary(_ontology_runtime),
         # Settlement has not run yet (memory writes are scheduled below), so all

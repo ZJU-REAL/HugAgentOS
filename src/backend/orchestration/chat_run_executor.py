@@ -27,16 +27,7 @@ import socket
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import (
-    Any,
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Dict,
-    List,
-    Literal,
-    Optional,
-)
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Literal, Optional
 
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import SessionLocal
@@ -47,13 +38,9 @@ from core.infra.redis import get_redis
 from core.llm import human_interaction
 from core.services import ChatService
 from core.services.run_journal import RecoveryDecision, RunJournal, RunLeaseLost
-from core.services.tool_effect_ledger import (
-    ToolOutcomeUnknown,
-    find_tool_outcome_unknown,
-)
-from redis.exceptions import TimeoutError as RedisTimeoutError
-
+from core.services.tool_effect_ledger import ToolOutcomeUnknown, find_tool_outcome_unknown
 from orchestration.workflow import astream_chat_workflow
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 logger = get_logger(__name__)
 
@@ -1314,6 +1301,13 @@ async def _run_workflow(
                     _tc.setdefault("content_offset", len(full_response))
                 await _emit(_tr_evt)
 
+            elif chunk_type == "context_usage":
+                # Provider-reported usage is the authoritative live gauge.
+                # Forward the sanitized snapshot unchanged; unlike subagent
+                # subSteps, every token represented here reached the primary
+                # model wire.
+                await _emit({**chunk, "chat_id": chat_id})
+
             elif chunk_type in ("heartbeat", "model_progress"):
                 # Neither is written to the stream. heartbeat = transport
                 # keep-alive (excluded from is_activity); model_progress = the
@@ -1452,6 +1446,12 @@ async def _run_workflow(
                 # user-visible artifacts. See chats.py:_stream_sse_response.
                 _ws_pinned = _workspace_mod.get_pinned()
                 _ws_files = _workspace_mod.get_pinned_file_ids()
+                usage_payload = chunk.get("usage") or None
+                context_usage_payload = chunk.get("context_usage") or None
+                compaction_pending = _should_schedule_compaction(
+                    model_name=model_name,
+                    usage=usage_payload,
+                )
                 # 本轮总耗时：同一个值既下发给正在看的这一页，也写进 extra_data 供历史
                 # 加载使用。以前只写库不下发，前端只能自己按「占位气泡创建到现在」估一个，
                 # 把网络往返和排队也算了进去 —— 于是同一条回答，实时看到的耗时和刷新后
@@ -1469,6 +1469,8 @@ async def _run_workflow(
                     "message_id": current_message_id,
                     "citations": chunk.get("citations", []),
                     "workspace_files": _ws_files,
+                    "context_usage": context_usage_payload,
+                    "compaction_pending": compaction_pending,
                     "ontology_governance": chunk.get("ontology_governance"),
                     # Skeleton marker: settlement runs after the stream closes.
                     "evolution_pending": chunk.get("evolution_pending"),
@@ -1476,7 +1478,6 @@ async def _run_workflow(
                 await _emit(metadata)
 
                 # Persist: assistant message + artifacts
-                usage_payload = chunk.get("usage") or None
                 _persist_extra = {
                     "timestamp": now_iso(),
                     "route": metadata.get("route"),
@@ -1489,6 +1490,8 @@ async def _run_workflow(
                     "workspace_files": _ws_files,
                     "duration_ms": _duration_ms,
                 }
+                if isinstance(context_usage_payload, dict):
+                    _persist_extra["context_usage"] = context_usage_payload
                 if metadata.get("ontology_governance"):
                     _persist_extra["ontology_governance"] = metadata["ontology_governance"]
                 if context.get("model_provider_id"):
@@ -1633,6 +1636,7 @@ async def _run_workflow(
                     model_name=model_name,
                     usage=usage_payload,
                     budget_inputs=compaction_budget_inputs,
+                    should_schedule=compaction_pending,
                 )
 
         # AgentScope may absorb a tool adapter exception after ToolEffectMiddleware
@@ -1767,6 +1771,36 @@ async def _run_workflow(
         _acknowledge_terminal_writer(run_id)
 
 
+def _should_schedule_compaction(
+    *,
+    model_name: str,
+    usage: Optional[Dict] = None,
+) -> bool:
+    """Return whether the post-turn compactor will be scheduled."""
+    try:
+        from core.config.settings import settings as _settings
+
+        if not _settings.compaction.enabled:
+            return False
+        from core.llm.context_manager import resolve_model_context_window
+        from core.services.compaction_service import (
+            resolve_active_tokens,
+            resolve_token_limit,
+            resolve_trigger_ratio,
+            should_compact,
+        )
+
+        active_tokens = resolve_active_tokens(usage)
+        limit = resolve_token_limit(
+            resolve_model_context_window(model_name or ""),
+            ratio=resolve_trigger_ratio(),
+        )
+        return should_compact(active_tokens, limit)
+    except Exception:
+        logger.debug("compaction_schedule_check_failed", exc_info=True)
+        return False
+
+
 def _spawn_compaction_task(
     *,
     run_id: str,
@@ -1774,6 +1808,7 @@ def _spawn_compaction_task(
     model_name: str,
     usage: Optional[Dict] = None,
     budget_inputs: Optional[Dict[str, Any]] = None,
+    should_schedule: Optional[bool] = None,
 ) -> None:
     """PostTurn phase: background pre-warm of the shared compaction engine.
 
@@ -1792,20 +1827,21 @@ def _spawn_compaction_task(
     so its component estimator reuses the turn's already-frozen execution
     surface instead of re-deriving one.
     """
-    from core.config.settings import settings as _settings
-
-    if not _settings.compaction.enabled:
+    schedule = (
+        _should_schedule_compaction(model_name=model_name, usage=usage)
+        if should_schedule is None
+        else should_schedule
+    )
+    if not schedule:
         return
 
     async def _bg() -> None:
         try:
             from core.llm.context_manager import resolve_model_context_window
             from core.services.compaction_service import (
-                resolve_active_tokens,
                 resolve_token_limit,
                 resolve_trigger_ratio,
                 run_post_turn_compaction,
-                should_compact,
             )
 
             # Trigger criterion — see resolve_active_tokens: real end-of-turn
@@ -1813,12 +1849,9 @@ def _spawn_compaction_task(
             # keeps a turn that never approached the window from taking the
             # compaction lease at all; the Coordinator re-checks against the
             # authoritative snapshot estimate before calling the summariser.
-            active_tokens = resolve_active_tokens(usage)
             limit = resolve_token_limit(
                 resolve_model_context_window(model_name or ""), ratio=resolve_trigger_ratio()
             )
-            if not should_compact(active_tokens, limit):
-                return
             logger.info(
                 "chat_compaction_evaluating",
                 chat_id=chat_id,
@@ -1844,7 +1877,6 @@ def _spawn_followup_task(
 ) -> None:
     """Equivalent to the existing _generate_followups_bg in chats.py."""
     from core.llm.message_compat import strip_thinking
-
     from orchestration.followups import get_followup_generator
 
     async def _bg() -> None:
@@ -2117,7 +2149,6 @@ async def _run_plan_execute_workflow(
     from core.llm import workspace as _workspace_mod
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
     from core.services.plan_service import PlanService
-
     from orchestration.subagents.plan_mode import astream_execute_plan
 
     owner = journal_owner or _new_worker_owner(run_id)
@@ -2396,6 +2427,7 @@ async def start_autonomous_loop_run(
     chat_mode: Optional[str] = None,
     is_resume: bool = False,
     project_id: Optional[str] = None,
+    automation_run: bool = False,
 ) -> ChatRun:
     """Start an autonomous-loop run (background task + Redis Stream, mirroring start_plan_execute_run)."""
     if not chat_id:
@@ -2418,6 +2450,7 @@ async def start_autonomous_loop_run(
         "chat_mode": chat_mode,
         "is_resume": is_resume,
         "project_id": project_id,
+        "automation_run": automation_run,
     }
     # 启动参数跟 loop 持久化（而非只活在本次请求里）：崩溃/重启后的续跑——无论 API
     # resume 还是启动自动续跑——都能还原同一套模型/评审模型/轮数/思考档位，不再悄悄
@@ -2436,6 +2469,7 @@ async def start_autonomous_loop_run(
                     "hitl_enabled": hitl_enabled,
                     "enable_thinking": enable_thinking,
                     "chat_mode": chat_mode,
+                    "automation_run": automation_run,
                 },
             )
     except Exception:  # noqa: BLE001 - 参数存档失败不阻塞启动
@@ -2452,6 +2486,7 @@ async def start_autonomous_loop_run(
                     "model_provider_id": model_provider_id,
                     "chat_mode": chat_mode,
                     "project_ctx": {"project_id": project_id} if project_id else None,
+                    "automation_run": automation_run,
                 }
             },
         },
@@ -2476,6 +2511,7 @@ async def start_autonomous_loop_run(
             chat_mode=chat_mode,
             is_resume=is_resume,
             project_id=project_id,
+            automation_run=automation_run,
             journal_owner=journal_owner,
         ),
         name=f"autoloop_run:{run.run_id}",
@@ -2547,6 +2583,7 @@ async def _run_autonomous_loop_workflow(
     chat_mode: Optional[str] = None,
     is_resume: bool = False,
     project_id: Optional[str] = None,
+    automation_run: bool = False,
     journal_owner: Optional[str] = None,
 ) -> None:
     from orchestration.autonomous_loop import LoopBudget, run_autonomous_loop
@@ -2846,6 +2883,7 @@ async def _run_autonomous_loop_workflow(
                 poll_steering=_poll_steering,
                 project_ctx=project_ctx,
                 chat_id=chat_id,
+                automation_run=automation_run,
                 # Carried explicitly so the loop resolves *this* tenant's
                 # orchestration profile. Omitting it is how one tenant's published
                 # retry counts and budget multiplier became everyone's.
@@ -3407,10 +3445,7 @@ async def cancel_run(run_id: str, *, user_id: str) -> bool:
 
 async def recover_orphan_runs() -> int:
     """Recover claimable runs from their last committed database safe point."""
-    from core.services.tool_effect_ledger import (
-        ToolEffectJournal,
-        recover_incomplete_tool_effects,
-    )
+    from core.services.tool_effect_ledger import ToolEffectJournal, recover_incomplete_tool_effects
 
     effect_decisions = await recover_incomplete_tool_effects(
         journal=ToolEffectJournal(SessionLocal)
@@ -3536,9 +3571,7 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
     ):
         return None
     try:
-        from core.services.artifact_service import (
-            persist_artifacts as _persist_artifacts,
-        )
+        from core.services.artifact_service import persist_artifacts as _persist_artifacts
         from core.services.project_scope import project_scope_from_context
 
         queued_handoff: Dict[str, Any] = {}
@@ -3740,6 +3773,7 @@ async def resume_running_loops() -> int:
                 enable_thinking=bool(params.get("enable_thinking")),
                 chat_mode=params.get("chat_mode"),
                 project_id=project_id,
+                automation_run=bool(params.get("automation_run")),
                 is_resume=True,
             )
             resumed += 1

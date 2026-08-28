@@ -545,34 +545,3 @@ _PIN_HINT_SKIP_TOOLS: frozenset[str] = frozenset(
         "generate_response",  # the ReActAgent finish function
     }
 )
-# ── Goal-anchor reminder hook ─────────────────────────────────────────────
-# Midway through a long-context ReAct task, the model's grip on the user's original
-# constraints gets diluted by the project file listing + intermediate tool results.
-# Borrowing the Claude Code TODO_REMINDER idea: periodically re-inject the original
-# prompt into memory to give the model a chance to reflect. This system has no
-# TodoWrite, so the reminder can only make the model self-assess against the
-# "original prompt"; to compensate for the "no checklist to reconcile against"
-# weakness, we also force one injection on the first "output-producing" tool call
-# (catching the last window where "the model starts writing but drops a user
-# requirement").
-_GOAL_ANCHOR_WARMUP_CALLS = 3
-_GOAL_ANCHOR_INTERVAL = 10
-# These tools hint the model is about to "land" its existing plan into an artifact
-# (markdown draft, bash running officecli, etc.). Hitting any of them forces one
-# injection (at most 1 forced per reply turn).
-# Not included: sandbox_get_artifact / pin_to_workspace (already on the delivery
-# path; reminding again confuses the model into going silent and quitting —
-# empirically on 2026-05-26 the pin rate went 92% → 0%);
-# sandbox_put_artifact (INPUT direction).
-_GOAL_ANCHOR_OUTPUT_TOOLS: frozenset[str] = frozenset(
-    {
-        "bash",
-        "Write",
-        "write_text_file",
-    }
-)
-
-_GOAL_ANCHOR_REMINDER_TEMPLATE = """用户原始请求：
-> {original}
-
-对照一下：你目前获取到的内容、即将产出的东西，跟用户原始请求**完整对得上吗**？有没有漏掉用户列出的某一项？"""

@@ -38,6 +38,11 @@ def _default_state() -> Dict[str, Any]:
     return {"grants": [], "policy": {}}
 
 
+def _canonical_grant_path(path: str) -> str:
+    raw = (path or "").strip()
+    return os.path.realpath(os.path.abspath(os.path.expanduser(raw))) if raw else ""
+
+
 def _load() -> Dict[str, Any]:
     path = _store_path()
     try:
@@ -64,14 +69,18 @@ def list_grants() -> List[Dict[str, Any]]:
 
 
 def add_grant(path: str, mode: str = "readwrite") -> Dict[str, Any]:
-    real = os.path.abspath(os.path.expanduser((path or "").strip()))
+    real = _canonical_grant_path(path)
     if not real:
         raise ValueError("授权路径不能为空")
     if mode not in _VALID_MODES:
         raise ValueError(f"mode 必须是 {_VALID_MODES}")
     with _LOCK:
         data = _load()
-        grants = [g for g in data.get("grants", []) if g.get("path") != real]
+        grants = [
+            g
+            for g in data.get("grants", [])
+            if _canonical_grant_path(str(g.get("path") or "")) != real
+        ]
         entry = {"path": real, "mode": mode}
         grants.append(entry)
         data["grants"] = grants
@@ -80,10 +89,14 @@ def add_grant(path: str, mode: str = "readwrite") -> Dict[str, Any]:
 
 
 def remove_grant(path: str) -> None:
-    real = os.path.abspath(os.path.expanduser((path or "").strip()))
+    real = _canonical_grant_path(path)
     with _LOCK:
         data = _load()
-        data["grants"] = [g for g in data.get("grants", []) if g.get("path") != real]
+        data["grants"] = [
+            g
+            for g in data.get("grants", [])
+            if _canonical_grant_path(str(g.get("path") or "")) != real
+        ]
         _save(data)
 
 
@@ -136,26 +149,34 @@ def set_approval_mode(mode: str) -> str:
     return mode
 
 
-def policy_for_gate() -> Any:
+def policy_for_gate(approval_mode: str | None = None) -> Any:
     """Build the effective ``local_policy.Policy`` from the approval mode + stored dispositions.
 
     The approval mode is the coarse, in-dialog permission dial:
-      - ``strict`` : block out-of-scope paths and every danger category (most cautious).
+      - ``strict`` : globally read-only; block out-of-scope paths and every danger category.
       - ``standard``: per-category policy / built-in defaults (the middle ground).
       - ``full``   : allow everything (only audit-logged) — hands-off autonomy.
     """
     from core.sandbox.local_policy import DELETE, NETWORK, PRIVILEGE, SYSTEM_WRITE, Policy
 
-    mode = get_approval_mode()
+    mode = approval_mode if approval_mode in _VALID_APPROVAL else get_approval_mode()
     categories = (DELETE, SYSTEM_WRITE, NETWORK, PRIVILEGE)
     if mode == "strict":
-        return Policy(out_of_scope="block", danger={c: "block" for c in categories})
+        return Policy(
+            out_of_scope="block",
+            workspace_write="block",
+            danger={c: "block" for c in categories},
+        )
     if mode == "full":
-        return Policy(out_of_scope="allow", danger={c: "allow" for c in categories})
+        return Policy(
+            out_of_scope="allow",
+            workspace_write="allow",
+            danger={c: "allow" for c in categories},
+        )
     stored = get_policy()
     out_of_scope = stored.get("out_of_scope", "confirm")
     danger = {k: v for k, v in stored.items() if k in _DANGER_CATEGORIES}
-    return Policy(out_of_scope=out_of_scope, danger=danger)
+    return Policy(out_of_scope=out_of_scope, workspace_write="allow", danger=danger)
 
 
 __all__ = [

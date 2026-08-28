@@ -19,13 +19,11 @@ from core.services.project_scope import ProjectScope
 
 from . import myspace_vfs as _ms
 from ._common import (
-    myspace_write_guard,
     resolve_sandbox_session,
     resp_json,
     sandbox_exec_bash,
     shell_quote,
 )
-from ._myspace_confirm import OP_DELETE, OP_MKDIR, OP_MOVE
 from ._paths import (
     PATH_POLICY_DOC,
     to_physical_path,
@@ -76,14 +74,6 @@ def register_delete(
             )})
         if rel == "":
             return resp_json({"error": "不允许删除我的空间根目录"})
-
-        _g = await myspace_write_guard(
-            chat_id=chat_id, op=OP_DELETE, logical_path=path,
-            is_myspace=True, interactive=interactive,
-            summary=f"删除 {path}（软删，可恢复但需用户知情）",
-        )
-        if _g is not None:
-            return _g
 
         result = _ms.sync_delete(user_id, path, scope=scope)
         if "error" in result:
@@ -156,14 +146,6 @@ def register_move(
                 "Move 的源和目标都必须在「我的空间」(/myspace/...) 内。"
             )})
 
-        _g = await myspace_write_guard(
-            chat_id=chat_id, op=OP_MOVE, logical_path=src_path,
-            is_myspace=True, interactive=interactive,
-            summary=f"移动/改名 {src_path} → {dst_path}",
-        )
-        if _g is not None:
-            return _g
-
         result = _ms.sync_move(user_id, src_path, dst_path, scope=scope)
         if "error" in result:
             return resp_json(result)
@@ -233,14 +215,6 @@ def register_mkdir(
                 "CreateFolder 只能在「我的空间」(/myspace/...) 内建文件夹。"
                 "沙盒里建临时目录用 bash 的 mkdir。"
             )})
-
-        _g = await myspace_write_guard(
-            chat_id=chat_id, op=OP_MKDIR, logical_path=path,
-            is_myspace=True, interactive=interactive,
-            summary=f"创建文件夹 {path}",
-        )
-        if _g is not None:
-            return _g
 
         result = _ms.sync_mkdir(user_id, path, scope=scope)
         if "error" in result:

@@ -49,7 +49,9 @@ export default function LocalPermissionsModal({ open, onClose }: { open: boolean
   }, []);
 
   useEffect(() => {
-    if (open) refresh();
+    if (!open) return;
+    const timer = window.setTimeout(refresh, 0);
+    return () => window.clearTimeout(timer);
   }, [open, refresh]);
 
   useEffect(() => {
@@ -83,14 +85,26 @@ export default function LocalPermissionsModal({ open, onClose }: { open: boolean
 
         <div className="jx-localPermSection">
           <div className="jx-localPermSectionTitle">已授权目录</div>
-          <div className="jx-localPermHint">默认工作区内自由；此处的目录额外授权，agent 可在其中操作。</div>
+          <div className="jx-localPermHint">工作区权限随当前权限档；额外目录可分别授予只读或读写权限。</div>
           {grants.length === 0 && !loading && <div className="jx-localPermEmpty">暂无授权目录</div>}
           {grants.map((g) => (
             <div key={g.path} className="jx-localPermRow">
               <span className="jx-localPermPath" title={g.path}>
                 {g.path}
               </span>
-              <span className="jx-localPermMode">{g.mode === 'read' ? '只读' : '读写'}</span>
+              <select
+                className="jx-localPermSelect"
+                aria-label={`修改 ${g.path} 的授权模式`}
+                value={g.mode}
+                onChange={(e) =>
+                  addLocalGrant(g.path, e.target.value as 'read' | 'readwrite')
+                    .then(refresh)
+                    .catch((err) => alert('保存授权失败：' + (err?.message || err)))
+                }
+              >
+                <option value="read">只读</option>
+                <option value="readwrite">读写</option>
+              </select>
               <button
                 type="button"
                 className="jx-localPermRemove"

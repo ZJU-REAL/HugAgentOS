@@ -11,22 +11,16 @@ import json
 import logging
 import os
 import re
+import time as _time
 import uuid
 from datetime import datetime
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
-from sqlalchemy.orm import Session
-
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.models import Plan
-from core.services import log_service as log_writer
 from core.infra.logging import LogContext
 from core.llm.agent_factory import create_agent_executor
-from core.llm.context_adapter import (
-    append_context_text,
-    next_request_sequence,
-    render_context_item,
-)
+from core.llm.context_adapter import append_context_text, next_request_sequence, render_context_item
 from core.llm.context_ir import (
     KIND_ATTACHMENT,
     KIND_REMINDER,
@@ -38,15 +32,15 @@ from core.llm.context_ir import (
     session_context_metadata,
 )
 from core.llm.mcp_manager import close_clients
+from core.services import log_service as log_writer
 from core.services.plan_service import PlanService
 from orchestration.chat_run_executor import is_run_cancelled
 from orchestration.streaming import StreamingAgent
 from orchestration.subagents.plugin_visibility import (
     all_plugin_component_ids as _all_plugin_component_ids,
-    load_enabled_plugins as _load_enabled_plugins,
 )
-
-import time as _time
+from orchestration.subagents.plugin_visibility import load_enabled_plugins as _load_enabled_plugins
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -538,8 +532,7 @@ async def astream_generate_plan(
         for index, step_data in enumerate(plan_data.get("steps", [])):
             steps.append(
                 {
-                    "step_id": step_data.get("step_id")
-                    or f"step_{uuid.uuid4().hex[:16]}",
+                    "step_id": step_data.get("step_id") or f"step_{uuid.uuid4().hex[:16]}",
                     "step_order": index + 1,
                     "title": step_data.get("title", ""),
                     "description": step_data.get("description", ""),
@@ -627,6 +620,7 @@ async def astream_execute_plan(
     uploaded_files: Optional[List[Dict[str, Any]]] = None,
     chat_id: Optional[str] = None,
     run_id: Optional[str] = None,
+    automation_run: bool = False,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Phase 2: Execute a plan step by step.
 
@@ -857,6 +851,7 @@ async def astream_execute_plan(
                     chat_id=chat_id,
                     max_iters=_step_max_iters,
                     project_ctx=_project_ctx,
+                    automation_run=automation_run,
                     ontology_runtime=step_ontology_runtime,
                     # top_level_chat not passed (defaults to False) → plan-execution steps
                     # inherently never get enter_plan_mode, ruling out "plan inside a plan"
@@ -1135,9 +1130,7 @@ async def astream_execute_plan(
                     from core.ontology.validator import requires_output_review
 
                     if step_text and requires_output_review(step_ontology_runtime):
-                        from orchestration.subagents.ontology_reviewer import (
-                            review_ontology_output,
-                        )
+                        from orchestration.subagents.ontology_reviewer import review_ontology_output
 
                         yield {
                             "type": "ontology_review",

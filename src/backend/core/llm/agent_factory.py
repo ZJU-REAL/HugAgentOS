@@ -21,11 +21,12 @@ from core.config.catalog import get_enabled_ids
 from core.config.catalog_loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
 from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 from core.llm.chat_models import get_default_model, make_chat_model
-from core.llm.compaction import SUMMARIZATION_PROMPT
 from core.llm.compacting_agent import CompactingAgent
+from core.llm.compaction import SUMMARIZATION_PROMPT
+from core.llm.execution_manifest import PromptManifestBuilder, tool_manifest_from_schemas
+from core.llm.manifest_agent import ManifestBoundAgent
 from core.llm.mcp_manager import close_clients
 from core.llm.mcp_pool import MCPConnectionPool
-from core.llm.manifest_agent import ManifestBoundAgent
 from core.llm.middlewares import (
     ActingToolCallIdMiddleware,
     AgentRuntimeState,
@@ -34,11 +35,10 @@ from core.llm.middlewares import (
     ExplicitConnectorToolChoiceMiddleware,
     FileContextMiddleware,
     FinishPinGuardMiddleware,
-    GoalAnchorReminderMiddleware,
     IterBudgetReminderMiddleware,
     JobLedgerReminderMiddleware,
-    PlanStaleReminderMiddleware,
     OntologyGateMiddleware,
+    PlanStaleReminderMiddleware,
     StallInterventionMiddleware,
     SteerMiddleware,
     ToolEffectMiddleware,
@@ -73,15 +73,7 @@ from core.ontology.validator import register_runtime_asset_tags, render_runtime_
 from core.services.mcp_service import McpServerConfigService
 from dotenv import load_dotenv
 from prompts.prompt_config import load_prompt_config
-from prompts.prompt_runtime import (
-    build_subagent_system_prompt,
-    build_system_prompt,
-    select_tools,
-)
-from core.llm.execution_manifest import (
-    PromptManifestBuilder,
-    tool_manifest_from_schemas,
-)
+from prompts.prompt_runtime import build_subagent_system_prompt, build_system_prompt, select_tools
 
 # Batch-execution-mode system prompt — appended at the end of the regular system prompt.
 # All the details of the trigger rules are still carried by the
@@ -99,15 +91,22 @@ _BATCH_MODE_HINT = (
 )
 
 
-def cache_compaction_execution_surface(
-    agent: Any, base_prompt: str, surface: Any
-) -> None:
+def cache_compaction_execution_surface(agent: Any, base_prompt: str, surface: Any) -> None:
     """Mirror the exact surface used by the latest model request for compaction."""
     skill_instructions = str(getattr(surface, "skill_instructions", "") or "")
     agent._jx_compaction_system_prompt = (
         f"{base_prompt}\n{skill_instructions}" if skill_instructions else base_prompt
     )
     agent._jx_compaction_tool_schemas = getattr(surface, "tool_schemas", None)
+
+
+def _default_allow_builtin_tools(
+    *,
+    channel_origin: Optional[Dict[str, Any]],
+    automation_run: bool,
+) -> bool:
+    """Whether this trusted unattended entry point bypasses built-in policy."""
+    return bool((channel_origin or {}).get("channel_id") or automation_run)
 
 
 # 工作流模式提示段 —— 只在用户显式进入工作流模式时拼进系统提示（与 _BATCH_MODE_HINT 同源做法）。
@@ -241,9 +240,7 @@ def _effective_mcp_server_keys(
     owned_servers: Optional[dict] = None,
     bridge_servers: Optional[dict] = None,
 ) -> list[str]:
-    all_servers = dict(
-        McpServerConfigService.get_instance().get_all_servers(enabled_only=True)
-    )
+    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
     # Config-source precedence (later update wins on same server_id):
     #   global rows < bridge (desktop cloud gateway; cloud is the source of
     #   truth for a capability it takes over) < owned (a user's own private
@@ -266,22 +263,16 @@ def _effective_mcp_server_keys(
     # admin MCP servers that aren't in the static config.
 
     if isinstance(enabled_mcp_ids, list):
-        runtime_set = set(
-            [x for x in enabled_mcp_ids if isinstance(x, str) and x.strip()]
-        )
+        runtime_set = set([x for x in enabled_mcp_ids if isinstance(x, str) and x.strip()])
         allow &= runtime_set
     else:
         catalog_set = set(get_enabled_ids("mcp"))
         allow &= catalog_set
 
     if agent_spec is not None:
-        spec_enabled = (
-            getattr(getattr(agent_spec, "mcp_servers", None), "enabled", None) or []
-        )
+        spec_enabled = getattr(getattr(agent_spec, "mcp_servers", None), "enabled", None) or []
         if spec_enabled:
-            spec_set = set(
-                [x for x in spec_enabled if isinstance(x, str) and x.strip()]
-            )
+            spec_set = set([x for x in spec_enabled if isinstance(x, str) and x.strip()])
             allow &= spec_set
 
     # Note: empty enabled_kb_ids [] means no KBs selected in frontend (e.g. catalog
@@ -305,9 +296,7 @@ def _filter_mcp_servers_by_keys(
     bridge_servers: Optional[dict] = None,
 ) -> dict:
     enabled_set = set(enabled_keys)
-    all_servers = dict(
-        McpServerConfigService.get_instance().get_all_servers(enabled_only=True)
-    )
+    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
     # Same precedence as _effective_mcp_server_keys: global < bridge < owned.
     if bridge_servers:
         all_servers.update(bridge_servers)
@@ -333,9 +322,7 @@ def _required_mcp_server_keys(
     return resolved
 
 
-def _filter_skill_ids_for_user(
-    skill_ids: list[str], user_id: Optional[str]
-) -> list[str]:
+def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> list[str]:
     """Strip out skill ids this user must not load.
 
     Two independent rules, applied at the one choke point every agent (main,
@@ -420,9 +407,7 @@ def _expand_plugin_bindings(plugin_ids: list[str]) -> tuple[list[str], list[str]
 
         with SessionLocal() as db:
             rows = (
-                db.query(InstalledPlugin)
-                .filter(InstalledPlugin.install_id.in_(plugin_ids))
-                .all()
+                db.query(InstalledPlugin).filter(InstalledPlugin.install_id.in_(plugin_ids)).all()
             )
             for r in rows:
                 cids = r.component_ids or {}
@@ -535,9 +520,7 @@ async def warmup_mcp_tools() -> None:
         log.info("[warmup] No MCP servers configured – skipping warmup")
         return
 
-    log.info(
-        "[warmup] Initializing MCP connection pool for %d server(s)…", len(servers)
-    )
+    log.info("[warmup] Initializing MCP connection pool for %d server(s)…", len(servers))
     start = time.monotonic()
 
     try:
@@ -551,9 +534,7 @@ async def warmup_mcp_tools() -> None:
         )
     except Exception as exc:
         elapsed = time.monotonic() - start
-        log.warning(
-            "[warmup] MCP pool initialization failed after %.2fs: %s", elapsed, exc
-        )
+        log.warning("[warmup] MCP pool initialization failed after %.2fs: %s", elapsed, exc)
 
 
 def _vision_bridge_needed() -> bool:
@@ -567,9 +548,7 @@ def _vision_bridge_needed() -> bool:
         from core.services.model_config import ModelConfigService
         from core.vision import is_available, model_supports_vision
 
-        if model_supports_vision(
-            ModelConfigService.get_instance().resolve("main_agent")
-        ):
+        if model_supports_vision(ModelConfigService.get_instance().resolve("main_agent")):
             return False
         return is_available()
     except Exception as exc:  # noqa: BLE001
@@ -579,9 +558,7 @@ def _vision_bridge_needed() -> bool:
 
 def _effective_main_available_skills() -> list[str]:
     """Resolve main-agent skills from currently enabled catalog skills."""
-    enabled_ids = [
-        sid for sid in get_enabled_ids("skills") if isinstance(sid, str) and sid.strip()
-    ]
+    enabled_ids = [sid for sid in get_enabled_ids("skills") if isinstance(sid, str) and sid.strip()]
     if enabled_ids:
         return enabled_ids
 
@@ -804,9 +781,7 @@ async def create_agent_executor(
     if agent_spec is not None and agent_spec.prompt_parts:
         cfg = replace(
             cfg,
-            system_prompt=replace(
-                cfg.system_prompt, parts=list(agent_spec.prompt_parts)
-            ),
+            system_prompt=replace(cfg.system_prompt, parts=list(agent_spec.prompt_parts)),
         )
 
     # ── Sub-agent overrides ──────────────────────────────────────────
@@ -853,13 +828,9 @@ async def create_agent_executor(
                 # Deferred components stay out of the assembly; stdio-transport
                 # plugins (absent from deferred_*) still expand eagerly.
                 p_skills = [
-                    s
-                    for s in p_skills
-                    if s not in _subagent_progressive.deferred_skill_ids
+                    s for s in p_skills if s not in _subagent_progressive.deferred_skill_ids
                 ]
-                p_mcp = [
-                    m for m in p_mcp if m not in _subagent_progressive.deferred_mcp_ids
-                ]
+                p_mcp = [m for m in p_mcp if m not in _subagent_progressive.deferred_mcp_ids]
             enabled_skill_ids = list(dict.fromkeys(enabled_skill_ids + p_skills))
             enabled_mcp_ids = list(dict.fromkeys(enabled_mcp_ids + p_mcp))
 
@@ -875,9 +846,7 @@ async def create_agent_executor(
     if turbo_mode:
         if mode_spec is not None:
             # 模式表是真源：这几个取值全部来自 chat_modes 那一行。
-            _mode_manual_invoke = bool(
-                getattr(mode_spec, "manual_invoke_enabled", True)
-            )
+            _mode_manual_invoke = bool(getattr(mode_spec, "manual_invoke_enabled", True))
             _mode_mcp_ids = list(getattr(mode_spec, "mcp_server_ids", ()) or ())
             _mode_skill_ids = list(getattr(mode_spec, "skill_ids", ()) or ())
             _mode_plugin_ids = list(getattr(mode_spec, "plugin_ids", ()) or ())
@@ -919,11 +888,7 @@ async def create_agent_executor(
             dict.fromkeys(
                 [
                     *_mode_skill_ids,
-                    *[
-                        s
-                        for s in turbo_plugin_skill_ids
-                        if isinstance(s, str) and s.strip()
-                    ],
+                    *[s for s in turbo_plugin_skill_ids if isinstance(s, str) and s.strip()],
                     *[
                         s
                         for s in (turbo_explicit_skill_ids or [])
@@ -944,11 +909,7 @@ async def create_agent_executor(
             dict.fromkeys(
                 [
                     *_mode_mcp_ids,
-                    *[
-                        m
-                        for m in turbo_plugin_mcp_ids
-                        if isinstance(m, str) and m.strip()
-                    ],
+                    *[m for m in turbo_plugin_mcp_ids if isinstance(m, str) and m.strip()],
                     *[
                         m
                         for m in (turbo_explicit_mcp_ids or [])
@@ -968,15 +929,11 @@ async def create_agent_executor(
             if isinstance(enabled_mcp_ids, list)
             else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
         )
-        enabled_mcp_ids = list(
-            dict.fromkeys([*base_mcp_ids, *_required_connector_ids])
-        )
+        enabled_mcp_ids = list(dict.fromkeys([*base_mcp_ids, *_required_connector_ids]))
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
     if enabled_skill_ids:
-        enabled_skill_ids = _filter_skill_ids_for_user(
-            enabled_skill_ids, current_user_id
-        )
+        enabled_skill_ids = _filter_skill_ids_for_user(enabled_skill_ids, current_user_id)
 
     # ── Progressive plugin loading（渐进式插件加载）────────────────────────
     # Main-path only: a sub-agent's plugin binding is the owner's deliberate
@@ -1001,9 +958,7 @@ async def create_agent_executor(
                     )
                 if not isinstance(enabled_mcp_ids, list):
                     enabled_mcp_ids = [
-                        x
-                        for x in get_enabled_ids("mcp")
-                        if isinstance(x, str) and x.strip()
+                        x for x in get_enabled_ids("mcp") if isinstance(x, str) and x.strip()
                     ]
                 _progressive = await asyncio.to_thread(
                     _plug.resolve_progressive_plugins,
@@ -1016,15 +971,11 @@ async def create_agent_executor(
                 )
                 if _progressive.deferred_skill_ids:
                     enabled_skill_ids = [
-                        s
-                        for s in enabled_skill_ids
-                        if s not in _progressive.deferred_skill_ids
+                        s for s in enabled_skill_ids if s not in _progressive.deferred_skill_ids
                     ]
                 if _progressive.deferred_mcp_ids:
                     enabled_mcp_ids = [
-                        m
-                        for m in enabled_mcp_ids
-                        if m not in _progressive.deferred_mcp_ids
+                        m for m in enabled_mcp_ids if m not in _progressive.deferred_mcp_ids
                     ]
                 if not _progressive.directory:
                     _progressive = None
@@ -1038,9 +989,7 @@ async def create_agent_executor(
     # A skill's MCP binding is an explicit capability grant, just like a sub-agent binding.
     # Merge only the MCPs declared by enabled skills; unrelated disabled MCPs remain disabled.
     skill_ids_for_bindings = (
-        enabled_skill_ids
-        if enabled_skill_ids is not None
-        else _effective_main_available_skills()
+        enabled_skill_ids if enabled_skill_ids is not None else _effective_main_available_skills()
     )
     skill_bound_mcp_ids = (
         _mcp_ids_bound_to_skills(skill_ids_for_bindings) if not disable_tools else []
@@ -1134,9 +1083,7 @@ async def create_agent_executor(
             if not route.task_types or str(chat_mode or "chat") in route.task_types
         }
         visible_subagents = [
-            agent
-            for agent in visible_subagents
-            if str(agent.get("agent_id") or "") in routed
+            agent for agent in visible_subagents if str(agent.get("agent_id") or "") in routed
         ]
 
     # The profile's tool allowlist, applied. It can only narrow: the candidate
@@ -1156,9 +1103,7 @@ async def create_agent_executor(
         enabled_mcp_ids = [mcp_id for mcp_id in current_mcp if mcp_id in allowed_tools]
         # A user-selected connector must not disappear silently behind a learned
         # profile. It remains subject to the real server/ownership gate below.
-        enabled_mcp_ids = list(
-            dict.fromkeys([*enabled_mcp_ids, *_required_connector_ids])
-        )
+        enabled_mcp_ids = list(dict.fromkeys([*enabled_mcp_ids, *_required_connector_ids]))
         _log.info(
             "[factory] profile %s narrowed MCP servers %d → %d",
             profile.profile_id,
@@ -1323,35 +1268,28 @@ async def create_agent_executor(
         "：{{ skill.description }}{% endfor %}"
     )
 
-    # Human confirmation for the scheduled-task plugin (borrowed from the §13
-    # My Space write confirmation): the gate is attached to automation-mutating
-    # tools ONLY in web interactive conversations. Channel runs (IM bots, no
-    # approval UI) and non-interactive modes (batch/subagent/plan-execute/no
-    # chat_id) never get the gate → pass through directly, no confirmation
-    # dialog.
-    from core.llm.mcp_confirm import CONFIRM_MCP_SERVERS
-
+    # The declarative permission middleware governs built-in tools only. A
+    # resident web conversation can answer prompts; trusted unattended entry
+    # points (external channels and automation) bypass built-in policy checks.
+    # MCP tools are temporarily a whitelist and never enter this registry.
     _is_channel_run = bool((channel_origin or {}).get("channel_id"))
-    _mcp_confirm_should_gate = (
+    _tool_approval_available = bool(
         chat_id is not None
         and not batch_mode
         and not isolated
         and not plan_mode
         and not _is_channel_run
+        and not automation_run
     )
 
     if not disable_tools and enabled_servers:
         from core.llm.mcp_pool import HTTP_TRANSPORTS, make_client
 
         http_server_cfgs = {
-            k: v
-            for k, v in enabled_servers.items()
-            if v.get("transport") in HTTP_TRANSPORTS
+            k: v for k, v in enabled_servers.items() if v.get("transport") in HTTP_TRANSPORTS
         }
         stdio_servers = {
-            k: v
-            for k, v in enabled_servers.items()
-            if v.get("transport") not in HTTP_TRANSPORTS
+            k: v for k, v in enabled_servers.items() if v.get("transport") not in HTTP_TRANSPORTS
         }
 
         # ``isolated`` callers run in their own event loop (subagent_tool
@@ -1367,12 +1305,8 @@ async def create_agent_executor(
             per_request_http = http_server_cfgs
         else:
             pool = MCPConnectionPool.get_instance()
-            pool_managed = (
-                pool.stable_server_ids if pool.is_initialized else frozenset()
-            )
-            per_request_http = {
-                k: v for k, v in http_server_cfgs.items() if k not in pool_managed
-            }
+            pool_managed = pool.stable_server_ids if pool.is_initialized else frozenset()
+            per_request_http = {k: v for k, v in http_server_cfgs.items() if k not in pool_managed}
             if pool.is_initialized:
                 per_request_stdio = {
                     k: v for k, v in stdio_servers.items() if k not in pool_managed
@@ -1407,21 +1341,7 @@ async def create_agent_executor(
             # liveness probe (lazy connect + enumerate, verifying reachability),
             # after which the Toolkit opens a fresh connection on every call.
             _http_cfg = {**cfg, "url": cfg.get("url", KB_MCP_HTTP_URL)}
-            # Confirm-required servers (e.g. automation_task) are swapped for a
-            # gated client in web interactive conversations: before their
-            # mutating tools' __call__, gate() suspends awaiting user
-            # confirmation.
-            if _mcp_confirm_should_gate and key in CONFIRM_MCP_SERVERS:
-                from core.llm.mcp_confirm import (
-                    confirm_specs_for,
-                    make_confirm_gated_client,
-                )
-
-                client = make_confirm_gated_client(
-                    key, _http_cfg, chat_id=chat_id, specs=confirm_specs_for(key)
-                )
-            else:
-                client = make_client(key, _http_cfg, is_stateful=False)
+            client = make_client(key, _http_cfg, is_stateful=False)
             try:
                 await client.list_tools()
                 _HTTP_MCP_FAIL_AT.pop(key, None)
@@ -1449,10 +1369,7 @@ async def create_agent_executor(
                 # ``is_enabled=true``) was unreachable.
                 if isinstance(exc, asyncio.CancelledError):
                     current = asyncio.current_task()
-                    if (
-                        current is not None
-                        and getattr(current, "cancelling", lambda: 0)() > 0
-                    ):
+                    if current is not None and getattr(current, "cancelling", lambda: 0)() > 0:
                         raise
                 return None
 
@@ -1487,11 +1404,7 @@ async def create_agent_executor(
                 return_exceptions=True,
             )
             for server_key, result in zip(
-                [
-                    key
-                    for key in _required_connector_server_keys
-                    if key in connected_clients
-                ],
+                [key for key in _required_connector_server_keys if key in connected_clients],
                 listed_tools,
             ):
                 if isinstance(result, BaseException):
@@ -1523,9 +1436,7 @@ async def create_agent_executor(
         # evolution-authored ids — but the exposure gate is applied here anyway
         # rather than relying on that. A gate that only covers the paths we
         # happened to think of is not a gate.
-        skill_ids_to_register = _filter_skill_ids_for_user(
-            skill_ids_to_register, current_user_id
-        )
+        skill_ids_to_register = _filter_skill_ids_for_user(skill_ids_to_register, current_user_id)
     # Note: a subagent's (user_agent) enabled_skill_ids is always a list ([]
     # when unconfigured) and never hits the None fallback above — i.e. "a
     # subagent with no skills configured has no skills"; strictly per its own
@@ -1542,10 +1453,7 @@ async def create_agent_executor(
                 allowed_skill_dirs.append(d)
 
     if not disable_tools:
-        from core.agent_skills.config import (
-            get_enabled_skill_sources,
-            get_sandbox_skills_dir,
-        )
+        from core.agent_skills.config import get_enabled_skill_sources, get_sandbox_skills_dir
 
         for src in get_enabled_skill_sources():
             root = str(src.root_dir)
@@ -1661,8 +1569,7 @@ async def create_agent_executor(
 
         _ui_reachable = _interactive and not _is_channel_run and not automation_run
         if skill_ids_to_register and any(
-            design_picker_tool.skill_uses_choose_design(str(sid))
-            for sid in skill_ids_to_register
+            design_picker_tool.skill_uses_choose_design(str(sid)) for sid in skill_ids_to_register
         ):
             design_picker_tool.register_choose_design(
                 toolkit,
@@ -1796,9 +1703,7 @@ async def create_agent_executor(
         # this is how the agent pulls one in on demand. Gated on channel runs so the tool
         # never clutters the toolkit of web conversations, where it could never resolve.
         if _is_channel_run:
-            register_channel_attachment(
-                toolkit, user_id=current_user_id, chat_id=chat_id
-            )
+            register_channel_attachment(toolkit, user_id=current_user_id, chat_id=chat_id)
 
         # ── Phase 3.8: Register pin_to_workspace ──
         # Lets the agent gate which generated files reach the user-visible
@@ -1922,12 +1827,9 @@ async def create_agent_executor(
         ]
         if not _required_connector_tool_names:
             raise RuntimeError(
-                "显式选择的连接器没有可供当前会话调用的工具；本轮已停止，"
-                "未使用其他能力代替。"
+                "显式选择的连接器没有可供当前会话调用的工具；本轮已停止，" "未使用其他能力代替。"
             )
-    _log.info(
-        "[factory] +%s tool schemas computed (%d)", _elapsed(), len(tool_schemas or [])
-    )
+    _log.info("[factory] +%s tool schemas computed (%d)", _elapsed(), len(tool_schemas or []))
     # update_plan 只在下面的非子智能体分支里注册；先给默认值，子智能体分支走完
     # 也能安全判断「要不要挂计划催更中间件」。
     _plan_tool_enabled = False
@@ -2007,7 +1909,7 @@ async def create_agent_executor(
                 "enabled_kb_ids": enabled_kb_ids,
                 "channel_origin": channel_origin,
                 "reranker_enabled": reranker_enabled,
-                "confirm_gate": _mcp_confirm_should_gate,
+                "approval_available": _tool_approval_available,
                 "ontology_runtime": _ontology_runtime,
             }
             _plug.register_load_plugin(
@@ -2171,9 +2073,7 @@ async def create_agent_executor(
         if _progressive is not None:
             from core.llm import plugin_loader as _plug
 
-            _plugin_dir_section = _plug.build_plugin_directory_section(
-                _progressive.directory
-            )
+            _plugin_dir_section = _plug.build_plugin_directory_section(_progressive.directory)
             if _plugin_dir_section:
                 system_prompt += "\n\n" + _plugin_dir_section
                 _manifest_builder.add_prompt_section(
@@ -2198,12 +2098,10 @@ async def create_agent_executor(
                 "enabled_kb_ids": enabled_kb_ids,
                 "channel_origin": channel_origin,
                 "reranker_enabled": reranker_enabled,
-                "confirm_gate": _mcp_confirm_should_gate,
+                "approval_available": _tool_approval_available,
                 "ontology_runtime": _ontology_runtime,
             }
-            _plug.register_load_plugin(
-                toolkit, _progressive.deferred_by_slug(), _plugin_runtime
-            )
+            _plug.register_load_plugin(toolkit, _progressive.deferred_by_slug(), _plugin_runtime)
             _log.info(
                 "[factory] +%s progressive plugins: %d in directory, %d deferred "
                 "(skills=%d, mcp=%d)",
@@ -2245,10 +2143,7 @@ async def create_agent_executor(
         # ── Register call_subagent tool for main agent ──
         if visible_subagents:
             from core.llm.builtin_subagents import refresh_builtin_subagents
-            from core.llm.subagent_tool import (
-                build_subagent_prompt_section,
-                register_subagent_tool,
-            )
+            from core.llm.subagent_tool import build_subagent_prompt_section, register_subagent_tool
 
             # Refresh platform-default rows only after the parent toolset has
             # completed catalog defaults, permission filtering, skill-bound MCP
@@ -2365,9 +2260,7 @@ async def create_agent_executor(
     # the scope is enforced by what is assembled rather than by what the text
     # asks the model to infer.
     if profile.prompt_fragments:
-        fragments = await asyncio.to_thread(
-            _resolve_prompt_fragments, profile.prompt_fragments
-        )
+        fragments = await asyncio.to_thread(_resolve_prompt_fragments, profile.prompt_fragments)
         if fragments:
             _dynamic_block = _render_dynamic_block(fragments)
             system_prompt = system_prompt + "\n\n" + _dynamic_block
@@ -2408,9 +2301,7 @@ async def create_agent_executor(
                 _mode = (chat_mode or "medium").lower()
                 _disable_thinking = _mode in ("fast", "turbo")
                 _supports_effort = bool(
-                    (_selected_provider_cfg.extra or {}).get(
-                        "supports_reasoning_effort"
-                    )
+                    (_selected_provider_cfg.extra or {}).get("supports_reasoning_effort")
                 )
                 _reasoning_effort = (
                     _mode
@@ -2439,9 +2330,7 @@ async def create_agent_executor(
                     _selected_provider_cfg.model_name,
                 )
         except Exception as exc:
-            _log.warning(
-                "[factory] selected model resolve failed: %s, falling back", exc
-            )
+            _log.warning("[factory] selected model resolve failed: %s, falling back", exc)
     _mode_role = model_role or ("plan_agent" if plan_mode else None)
     if default_model is None and _mode_role:
         try:
@@ -2460,9 +2349,7 @@ async def create_agent_executor(
                     provider_extra=_mode_cfg.provider_extra,
                     stream=True,
                 )
-                _log.info(
-                    "[factory] using %s model: %s", _mode_role, _mode_cfg.model_name
-                )
+                _log.info("[factory] using %s model: %s", _mode_role, _mode_cfg.model_name)
         except Exception as exc:
             _log.warning(
                 "[factory] %s model resolve failed: %s, falling back to main_agent",
@@ -2479,11 +2366,7 @@ async def create_agent_executor(
     # A subagent with an explicitly configured model → set the pin; downstream DynamicModelMiddleware must not override it by chat_mode.
     _subagent_model_pinned = False
     if user_agent is not None:
-        _user_temp = (
-            float(user_agent.temperature)
-            if user_agent.temperature is not None
-            else None
-        )
+        _user_temp = float(user_agent.temperature) if user_agent.temperature is not None else None
         _user_max_tokens = user_agent.max_tokens or None
         _user_timeout = user_agent.timeout or None
         _user_provider_id = user_agent.model_provider_id
@@ -2525,9 +2408,7 @@ async def create_agent_executor(
                     else (_fallback_cfg.api_key if _fallback_cfg else None)
                 )
                 if provider:
-                    _final_provider = (
-                        getattr(provider, "provider", None) or "openai_compatible"
-                    )
+                    _final_provider = getattr(provider, "provider", None) or "openai_compatible"
                     _final_provider_extra = split_provider_extra(
                         get_spec(_final_provider), provider.extra_config or {}
                     )
@@ -2535,9 +2416,7 @@ async def create_agent_executor(
                     _final_provider = (
                         _fallback_cfg.provider if _fallback_cfg else "openai_compatible"
                     )
-                    _final_provider_extra = (
-                        _fallback_cfg.provider_extra if _fallback_cfg else {}
-                    )
+                    _final_provider_extra = _fallback_cfg.provider_extra if _fallback_cfg else {}
                 _final_temp = (
                     _user_temp
                     if _user_temp is not None
@@ -2546,9 +2425,7 @@ async def create_agent_executor(
                 _final_max_tokens = _user_max_tokens or (
                     _fallback_cfg.max_tokens if _fallback_cfg else 8192
                 )
-                _final_timeout = _user_timeout or (
-                    _fallback_cfg.timeout if _fallback_cfg else 120
-                )
+                _final_timeout = _user_timeout or (_fallback_cfg.timeout if _fallback_cfg else 120)
 
                 if _final_model and _final_base_url and _final_api_key:
                     default_model = make_chat_model(
@@ -2579,9 +2456,7 @@ async def create_agent_executor(
                         "[factory] subagent override skipped: missing model/base_url/api_key"
                     )
             except Exception as exc:
-                _log.warning(
-                    "[factory] subagent config override failed: %s, using default", exc
-                )
+                _log.warning("[factory] subagent config override failed: %s, using default", exc)
 
     if run_id:
         from core.llm.model_usage import instrument_model_usage
@@ -2618,9 +2493,9 @@ async def create_agent_executor(
         # 模型按需读回）。保持 20k 不再收紧：批量场景已由 run_job 接走（逐项结果根本
         # 不进主上下文），主对话这边继续保留完整的单条可读性更划算。需要时用
         # CHAT_TOOL_RESULT_LIMIT 按部署调。
-        tool_result_limit=int(tool_result_limit)
-        if tool_result_limit
-        else _settings.compaction.tool_result_limit,
+        tool_result_limit=(
+            int(tool_result_limit) if tool_result_limit else _settings.compaction.tool_result_limit
+        ),
         compression_prompt=SUMMARIZATION_PROMPT,
     )
 
@@ -2680,9 +2555,7 @@ async def create_agent_executor(
         _max_iters = max_iters
     elif user_agent is not None:
         _agent_name = (
-            f"subagent_{user_agent.agent_id}"
-            if isolated
-            else f"agent_{user_agent.agent_id}"
+            f"subagent_{user_agent.agent_id}" if isolated else f"agent_{user_agent.agent_id}"
         )
         _max_iters = user_agent.max_iters or (
             _DEFAULT_SUBAGENT_ITERS if isolated else _UNBOUNDED_ITERS
@@ -2747,17 +2620,46 @@ async def create_agent_executor(
     # uploaded_files / historical_files) are set on agent.state by the caller
     # (streaming/workflow) after creation (replacing 1.x's
     # agent._jx_context = ModelContext(...)).
-    # Permissions: MCP tools and built-in tools default to
-    # check_permissions=ASK (docs risk #8), which triggers the native
-    # RequireUserConfirmEvent and pauses execution. Early on we bypassed
-    # everything with PermissionMode.BYPASS, but BYPASS also skips the built-in
-    # tools' bypass-immune danger checks (step 3) — a sledgehammer. We switched
-    # to 2.0's native allow_rules (PermissionEngine order: deny→ask→
-    # tool-specific safety checks→**allow_rules**→BYPASS→default-ask): seed one
-    # ALLOW rule per tool we register (empty rule_content matches any input),
-    # letting our in-house/MCP tools through while keeping the built-in tools'
-    # own safety checks. allow_rules are seeded after toolkit construction once
-    # all tool names are known (see below).
+    # Compile the run-visible built-in-tool registry before constructing the
+    # agent. Registry absence is intentional pass-through; MCP tools never
+    # enter this gateway while the trusted-whitelist policy is active.
+    from core.llm.tool_permissions import (
+        PermissionRuntime,
+        ToolPermissionMiddleware,
+        ToolPermissionRegistry,
+        ToolPermissionService,
+    )
+
+    _builtin_tool_names = {ft.name for ft in toolkit.function_tools}
+    _all_tool_names = {
+        str(s.get("function", {}).get("name") or "")
+        for s in tool_schemas
+        if s.get("function", {}).get("name")
+    } | _builtin_tool_names
+    _permission_registry = ToolPermissionRegistry()
+    for _tool_name, _permission_spec in toolkit.permission_specs.items():
+        _permission_registry.register(
+            _tool_name,
+            _permission_spec,
+            source="native",
+        )
+    _permission_service = ToolPermissionService(
+        _permission_registry,
+        PermissionRuntime(
+            chat_id=chat_id,
+            user_id=current_user_id,
+            interactive=_interactive,
+            approval_available=_tool_approval_available,
+            default_allow=_default_allow_builtin_tools(
+                channel_origin=channel_origin,
+                automation_run=automation_run,
+            ),
+        ),
+    )
+
+    # AgentScope's native permission engine remains a coarse first gate. Names
+    # present in the registry additionally pass ToolPermissionMiddleware and
+    # the final Toolkit ticket guard below.
     from agentscope.permission import PermissionContext
 
     _state = AgentRuntimeState(
@@ -2784,9 +2686,8 @@ async def create_agent_executor(
         # orchestration profile with one field that governed nothing on the axis
         # almost all traffic takes.
         StallInterventionMiddleware(profile.intervention_rules),
-        OntologyGateMiddleware(
-            _ontology_runtime
-        ),  # on_acting: zero-LLM L-a contract gate
+        OntologyGateMiddleware(_ontology_runtime),  # on_acting: zero-LLM L-a contract gate
+        ToolPermissionMiddleware(_permission_service),
         CitationAnchorMiddleware(),  # on_acting: 证据锚点——工具结果回给模型前发号回注 cite_id
         ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
         ToolEffectMiddleware(),  # on_acting: durable Intent before every actual tool invocation
@@ -2810,10 +2711,6 @@ async def create_agent_executor(
         _policy_middlewares.append(
             JobLedgerReminderMiddleware(chat_id=chat_id, user_id=current_user_id)
         )
-    if not batch_mode:
-        _policy_middlewares.append(
-            GoalAnchorReminderMiddleware(chat_id=chat_id, batch_mode=False)
-        )
     # on_reasoning: 计划栏停在半路时把当前清单回灌回去，催模型调 update_plan。
     # 只在真的注册了 update_plan 工具的那条路径上挂（同一个正向开关），派生/非交互
     # 的构造一律拿不到——催一个不存在的工具只会让模型编造调用。
@@ -2823,20 +2720,11 @@ async def create_agent_executor(
     # The Agent sees one framework adapter. Transitional AgentScope policies
     # execute inside its compatibility chain and can be deleted one by one as
     # their neutral HookSpec replacements reach parity.
-    _middlewares: list = [
-        AgentScopeHookAdapter(legacy_middlewares=tuple(_policy_middlewares))
-    ]
+    _middlewares: list = [AgentScopeHookAdapter(legacy_middlewares=tuple(_policy_middlewares))]
 
-    # Collect all tool names (the collector still holds function_tools; tool_schemas covers Python+MCP)
-    _builtin_tool_names = {ft.name for ft in toolkit.function_tools}
-    _all_tool_names = set(_builtin_tool_names)
-    _all_tool_names |= {
-        s.get("function", {}).get("name")
-        for s in tool_schemas
-        if s.get("function", {}).get("name")
-    }
     # At this point the collector has gathered all tools (including any subagent tools) → construct the final Toolkit.
     toolkit = _build_toolkit()
+    toolkit.set_tool_permission_service(_permission_service)
 
     # Allow all registered tools via native allow_rules (replacing BYPASS, see the explanation above).
     from agentscope.permission import PermissionBehavior, PermissionRule
@@ -2847,7 +2735,7 @@ async def create_agent_executor(
                 tool_name=n,
                 rule_content="",
                 behavior=PermissionBehavior.ALLOW,
-                source="jx_trusted",
+                source="jx_permission_manifest",
             )
         ]
         for n in _all_tool_names
@@ -2908,9 +2796,7 @@ async def create_agent_executor(
         _initial_surface = await toolkit.freeze_execution_surface()
         _compaction_tool_schemas = _initial_surface.tool_schemas
         if _initial_surface.skill_instructions:
-            _compaction_system_prompt = (
-                system_prompt + "\n" + _initial_surface.skill_instructions
-            )
+            _compaction_system_prompt = system_prompt + "\n" + _initial_surface.skill_instructions
         execution_manifest = _manifest_for_surface(_initial_surface)
         _log.info(
             "[manifest] generation=%s aggregate=%s prompt=%s tools=%s context=%s",
@@ -2944,10 +2830,7 @@ async def create_agent_executor(
     # mounted when sandbox tools are enabled — otherwise the agent has no
     # Read/bash and spilling is pointless. Uses the same _sbx_sess as bash/Read.
     _offloader = None
-    if (
-        not disable_tools
-        and os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true"
-    ):
+    if not disable_tools and os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() == "true":
         try:
             from core.llm.offloader import SandboxOffloader
             from core.sandbox.factory import get_sandbox_provider

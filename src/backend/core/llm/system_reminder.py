@@ -7,7 +7,7 @@ a mid-conversation system role triggers the model's defensive behavior and cause
 
 Callers must do their own within-turn idempotent dedup (e.g. pin_hint dedups itself using
 ContextVar state). This module does not provide cross-hook dedup — that has been proven to be
-over-engineering: the previous tag mechanism made pin_hint + goal_anchor mask each other, which
+over-engineering: the previous tag mechanism made two reminder producers mask each other, which
 was instead hard to debug.
 """
 

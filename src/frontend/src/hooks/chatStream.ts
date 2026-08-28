@@ -1,6 +1,7 @@
 import { message } from 'antd';
 import { t } from '../i18n';
 import {
+  getChatContextState,
   listChatJobs,
   toDesignPickInfo,
   toFileConfirmInfo,
@@ -9,7 +10,11 @@ import {
 import { normalizeArtifactOutput } from '../utils/fileParser';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { refreshTargetForTool } from '../utils/toolRefresh';
-import { parseContextCompactionState } from '../utils/contextUsage';
+import {
+  isCompactionCheckpointForRun,
+  parseContextCompactionState,
+  parseContextUsageSnapshot,
+} from '../utils/contextUsage';
 import { parseQueuedRunHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
 import { readText, resolveText } from '../plugin-ui';
 import { usePluginUiStore, type CanvasTarget } from '../stores/pluginUiStore';
@@ -68,6 +73,42 @@ const _seenRuns = new Set<string>();
 
 export function hasStreamedRun(runId: string): boolean {
   return _seenRuns.has(runId);
+}
+
+const COMPACTION_REFRESH_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 12_000, 16_000, 20_000];
+
+async function refreshContextAfterCompaction(
+  chatId: string,
+  previousCheckpointId: string,
+  runStartedAt: number,
+  expectedCoveredMessageId?: string,
+): Promise<void> {
+  for (const delayMs of COMPACTION_REFRESH_DELAYS_MS) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      const state = await getChatContextState(chatId);
+      const compaction = parseContextCompactionState(state.context_compaction);
+      const isNewCheckpoint = isCompactionCheckpointForRun(
+        compaction,
+        previousCheckpointId,
+        runStartedAt,
+        expectedCoveredMessageId,
+      );
+      if (!isNewCheckpoint || !compaction) continue;
+      const store = useChatStore.getState();
+      store.setContextCompaction(chatId, compaction);
+      // Older checkpoints may not carry a replacement snapshot. In that case
+      // retain the latest provider measurement rather than fabricating a drop.
+      if (!compaction.contextUsage) {
+        const usage = parseContextUsageSnapshot(state.context_usage);
+        if (usage) store.setContextUsage(chatId, usage);
+      }
+      return;
+    } catch {
+      // Background compaction is best-effort. Keep polling within the bounded
+      // summarizer window and leave the last provider measurement intact.
+    }
+  }
 }
 
 /** 用户按过「停止」的 run。
@@ -336,6 +377,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   // 服务端下发的本轮总耗时（毫秒）。有它就用它——本地用「占位气泡创建到现在」
   // 估出来的值把网络往返也算进去了，跟刷新后从历史读到的 duration_ms 对不上。
   let metaDurationMs: number | null = null;
+  let compactionPending = false;
   let parseBuffer = '';
   let deferredThinkingText: DeferredThinkingTextFragment | undefined;
   let toolPending = false;
@@ -906,6 +948,11 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           if (contextCompaction) chatStore.setContextCompaction(chatId, contextCompaction);
           return;
         }
+        if (eventType === 'context_usage') {
+          const contextUsage = parseContextUsageSnapshot(eventObj);
+          if (contextUsage) useChatStore.getState().setContextUsage(chatId, contextUsage);
+          return;
+        }
         if (eventType === 'end') {
           if (finalizeRunningTools()) appendOrUpdate(true);
           streamEnded = true;
@@ -1441,6 +1488,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
           if (typeof eventObj.duration_ms === 'number' && eventObj.duration_ms >= 0) {
             metaDurationMs = eventObj.duration_ms;
           }
+          const contextUsage = parseContextUsageSnapshot(eventObj.context_usage);
+          if (contextUsage) useChatStore.getState().setContextUsage(chatId, contextUsage);
+          compactionPending = eventObj.compaction_pending === true;
           if (Array.isArray(eventObj.citations) && (eventObj.citations as CitationItem[]).length > 0) {
             allCitations = eventObj.citations as CitationItem[];
           }
@@ -1692,6 +1742,16 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     const nextChat: ChatItem = { ...(c as ChatItem), messages: msgs, updatedAt: Date.now() };
     return { chats: { ...prev.chats, [chatId]: nextChat }, order: [chatId, ...(prev.order || []).filter((x) => x !== chatId)] };
   });
+
+  if (compactionPending && !aborted && !thrown) {
+    const previousCheckpointId = useChatStore.getState().contextCompactions[chatId]?.checkpointId || '';
+    void refreshContextAfterCompaction(
+      chatId,
+      previousCheckpointId,
+      placeholderTs,
+      metaMessageId,
+    );
+  }
 
   // Settle the plan bar: if this turn produced an agent plan, mark it done so
   // the bar renders as settled (it clears on the next send).

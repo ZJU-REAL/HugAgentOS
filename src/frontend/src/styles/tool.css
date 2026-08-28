@@ -1657,6 +1657,14 @@
 :root[data-theme="dark"] .jx-inlineSummaryArrow{
   color:color-mix(in srgb, var(--color-text-tertiary) 70%, transparent);
 }
+/* 运行中的流光（--live 复用 .jx-tcr-prefix--shimmer）要把 color 抢回来：上面这几条
+   摘要行的颜色令牌排得更靠后、深色档特异性还更高，会把流光规则里的 color:transparent
+   压掉，只剩带前缀的 -webkit-text-fill-color 单腿撑着——哪天它被当作冗余清理，字就变回
+   纯色、流光静音。 */
+.jx-inlineSummary .jx-inlineSummaryText--live,
+:root[data-theme="dark"] .jx-inlineSummaryText--live{
+  color:transparent;
+}
 /* ── 就地折叠（隐藏工具调用时点摘要行不再跳右侧 Canvas）──────────────────
    折叠态的那一行外观一个像素都不改；点开后在原位撑高。展开体本身复用
    .jx-trs-body（导轨 + 嵌套行紧凑化 + 步骤入场都写在那边）——两种模式展开

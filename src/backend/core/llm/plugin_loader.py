@@ -111,10 +111,9 @@ def record_plugin_activation(chat_id: Optional[str], slugs: Sequence[str]) -> No
     if not chat_id or not slugs:
         return
     try:
-        from sqlalchemy.orm.attributes import flag_modified
-
         from core.db.engine import SessionLocal
         from core.db.models import ChatSession
+        from sqlalchemy.orm.attributes import flag_modified
 
         with SessionLocal() as db:
             row = db.query(ChatSession).filter(ChatSession.chat_id == chat_id).first()
@@ -164,10 +163,9 @@ def resolve_progressive_plugins(
     this turn — stay eager; explicit invocation is persisted as activation so
     the plugin stays loaded on subsequent turns.
     """
-    from sqlalchemy import or_
-
     from core.db.engine import SessionLocal
     from core.db.models import InstalledPlugin
+    from sqlalchemy import or_
 
     enabled_skills = {s for s in enabled_skill_ids if isinstance(s, str) and s.strip()}
     enabled_mcps = {m for m in enabled_mcp_ids if isinstance(m, str) and m.strip()}
@@ -406,8 +404,10 @@ def register_load_plugin(
       writing under the parent chat's key would leak the activation into the
       main agent's assembly).
     - ``loader`` / ``chat_id`` / ``user_id`` / ``enabled_kb_ids`` /
-      ``channel_origin`` / ``reranker_enabled`` / ``confirm_gate`` /
+      ``channel_origin`` / ``reranker_enabled`` / ``approval_available`` /
       ``ontology_runtime``: assembly context replayed at activation.
+    MCP tools are trusted and therefore never added to the built-in-tool
+    permission registry during progressive activation.
     """
     from agentscope.message import TextBlock
     from agentscope.tool._response import ToolChunk as ToolResponse
@@ -449,7 +449,6 @@ def register_load_plugin(
         mcp_ids = [m for m in [*target.mcp_ids, *target.bound_mcp_ids] if m not in connected]
         if mcp_ids:
             from core.llm.agent_factory import _inject_runtime_headers
-            from core.llm.mcp_confirm import CONFIRM_MCP_SERVERS
             from core.llm.mcp_pool import make_client
             from core.services.mcp_service import McpServerConfigService
 
@@ -476,20 +475,7 @@ def register_load_plugin(
                     failed_servers.append(key)
                     return
                 try:
-                    if runtime.get("confirm_gate") and key in CONFIRM_MCP_SERVERS:
-                        from core.llm.mcp_confirm import (
-                            confirm_specs_for,
-                            make_confirm_gated_client,
-                        )
-
-                        client = make_confirm_gated_client(
-                            key,
-                            cfg,
-                            chat_id=runtime.get("chat_id"),
-                            specs=confirm_specs_for(key),
-                        )
-                    else:
-                        client = make_client(key, cfg, is_stateful=False)
+                    client = make_client(key, cfg, is_stateful=False)
                     tools = await client.list_tools()
                 except BaseException as exc:  # noqa: BLE001 — SSE cleanup may raise CancelledError
                     if isinstance(exc, asyncio.CancelledError):

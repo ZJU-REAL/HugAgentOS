@@ -1,6 +1,6 @@
 # Chat & Agent Orchestration
 
-> Last updated: August 25, 2026
+> Last updated: August 26, 2026
 
 Chat is the core pipeline of HugAgentOS: a user message travels through the FastAPI route, runtime-context assembly, and the streaming orchestrator, then an AgentScope 2.0 ReActAgent drives multi-turn "think → call tool → observe" loops whose events are pushed to the frontend in real time over SSE. This page walks the end-to-end flow as it exists in the code, then covers the citation system, plan mode, sub-agents, conversation summarization, chat sharing, context compression, and oversized-tool-result offloading.
 
@@ -87,7 +87,7 @@ run for the chat visible on the current page.
 - **MCP tools**: after the three-layer filter of catalog + per-user overrides + request context (see [Capability Center](catalog.md)), stable servers reuse the process-level connection pool (`core/llm/mcp_pool.py`); per-request servers (e.g. `retrieve_dataset_content`, which needs per-request HTTP headers) are spawned fresh; the user's self-added private MCP servers are merged in with owner isolation.
 - **Skills**: registered as AgentScope Agent Skills via `core/agent_skills/loader.py`, with `view_text_file` allow-listed to read SKILL.md files (see [Agent Skills](agent-skills.md)).
 - **File / sandbox tools**: `bash`, `sandbox_put_artifact`, `sandbox_get_artifact` are always registered; Read/Edit/Write/Glob/Grep/Delete/Move/mkdir plus the MySpace tools are gated by `CODE_CAPABILITY_ENABLED` and share one `ReadStateTracker` to keep the "must Read before Edit" invariant.
-- **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `GoalAnchorReminderMiddleware`, `FinishPinGuardMiddleware`.
+- **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `FinishPinGuardMiddleware`.
 - **Context compression**: `CompactingAgent` routes the pre-turn, mid-turn, and post-turn trigger points through one persistent checkpoint engine and one Codex-style handoff prompt. `ContextConfig` remains only for tool-result limiting and AgentScope overflow fallback, and that fallback reuses the same prompt. If its structured call still fails, the model adapter returns an L3 synthetic summary so the active reply is not aborted by a compression error.
 - **Permissions**: every registered tool gets a native `PermissionRule(ALLOW)` seed, preserving AgentScope's built-in dangerous-operation checks (no blanket BYPASS).
 - **Iteration caps**: main agent defaults to `max_iters=50`, isolated sub-agents to 10.
@@ -114,8 +114,9 @@ run for the chat visible on the current page.
 | `file_confirm` | A tool is suspended awaiting confirmation of a MySpace write | confirmation context; the tool resumes in place after an out-of-band `POST /v1/chats/{chat_id}/file-confirm` |
 | `user_question` | `ask_user_question` is suspended awaiting the chat owner's answer | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
 | `user_question_resolved` | The server settled an answer, cancellation, or timeout | `request_id`, `outcome`, `chat_id` |
+| `context_usage` | Context snapshot for the latest primary-model call; the total is measured when the provider returns usage | `source`, `exact`, `prompt_tokens`, `completion_tokens`, `used_tokens`, `context_window`, `breakdown` |
 | `compaction_notice` | A new context-compaction checkpoint was created after the previous turn | `chat_id`, `context_compaction` (coverage boundary and replacement-summary token count) |
-| `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
+| `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage`, `context_usage`, `compaction_pending` |
 | `error` | Failure (mapped to a user-friendly message) | `error`, `chat_id` |
 | `heartbeat` | Heartbeat (event-level; a `: heartbeat` comment line also exists) | — |
 
@@ -134,7 +135,9 @@ data: {"type":"tool_result","tool_name":"internet_search","result":{...},"tool_i
 
 data: {"type":"content","event":"ai_message","delta":"Based on the search results…","chat_id":"chat_x"}
 
-data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":1234,"completion_tokens":456,"total_tokens":1690,"llm_call_count":3},"message_id":"msg_..."}
+data: {"type":"context_usage","source":"provider","exact":true,"prompt_tokens":1234,"completion_tokens":456,"used_tokens":1690,"context_window":128000,"breakdown":{...}}
+
+data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":3700,"completion_tokens":900,"total_tokens":4600,"llm_call_count":3},"context_usage":{"source":"provider","exact":true,"prompt_tokens":1234,"completion_tokens":456,"used_tokens":1690,...},"message_id":"msg_..."}
 
 data: [DONE]
 ```
@@ -150,6 +153,19 @@ If the committee changes the answer, the backend sends one `content_replace`
 event, the frontend replaces the body in place, and the database stores only
 the reviewed final answer. It persists `ontology_governance` with the assistant
 message so the module remains available after a history refresh.
+
+`usage` is cumulative billing data across all model calls in the turn.
+The context gauge instead consumes `context_usage`: `prompt_tokens +
+completion_tokens` for the latest primary-model call. It never divides
+cumulative ReAct billing by the context window. When the provider returns
+usage, the `source=provider` headline is authoritative; category values come
+from the final backend request manifest and are reconciled to that measured
+total. Only providers without usage fall back to `backend_estimate`. The
+frontend excludes display-only sub-agent `subSteps`, historical reasoning,
+and fixed system reserves. An unsent draft or staged file has not reached a
+model yet, so it is added only as an explicitly labelled local estimate. The
+snapshot is persisted with the assistant message and is also available from
+`GET /v1/chats/{chat_id}/context-usage`.
 
 History replay recognizes both reasoning protocols. Inline-reasoning models may
 emit `reasoning</think>body`, while the backend normalizes a structured reasoning
@@ -301,7 +317,18 @@ Three complementary layers:
 | Unified context checkpoint | `core/services/compaction_service.py::run_compaction()`; pre-turn, mid-turn, and post-turn share one trigger ratio, handoff prompt, replacement shape, and persistent checkpoint | Context reaches the configured fraction of the model window |
 | Deterministic overflow protection | `ContextConfig.tool_result_limit` bounds individual tool results first; when unified compaction fails or persistence is disabled, the AgentScope fallback compacts the live in-memory context with the same handoff prompt | A tool result is oversized or unified compaction is temporarily unavailable |
 
-Compaction checkpoints are internal `system` messages; they do not hide or delete any user-visible transcript entries. The message-list response and the next turn's `compaction_notice` both expose the latest checkpoint's coverage boundary and replacement-summary token estimate. The frontend context gauge therefore measures `replacement baseline + messages after the checkpoint` instead of continuing to accumulate the full history that the summary has replaced.
+Compaction checkpoints are internal `system` messages; they do not hide or
+delete any user-visible transcript entries. A checkpoint also stores the
+backend's post-compaction estimate for the final system prompt, tool schema,
+replacement history, and provider framing. When end-of-turn background
+compaction starts, `meta.compaction_pending` makes the frontend poll
+`GET /v1/chats/{chat_id}/context-usage` within the bounded summarizer window.
+Once the new checkpoint commits, the gauge immediately switches to
+`compaction_estimate` instead of waiting for another turn or page refresh.
+The next primary model call replaces that estimate with fresh upstream usage.
+Message-list responses and the next turn's `compaction_notice` continue to
+return the same checkpoint boundary so refresh, stream replay, and cross-tab
+recovery stay consistent.
 
 ## Oversized tool-result offloading
 

@@ -1,6 +1,6 @@
 # 对话与智能体编排
 
-> 最后更新：2026-08-25
+> 最后更新：2026-08-26
 
 对话是 HugAgentOS 的核心链路：一条用户消息经过 FastAPI 路由、运行时上下文装配、流式编排器，最终由 AgentScope 2.0 的 ReActAgent 驱动多轮「思考 → 调工具 → 观察」循环，并以 SSE 事件流实时推送到前端。本篇按真实代码走一遍端到端流程，并展开引用系统、计划模式、子智能体、会话摘要、会话分享、上下文压缩与超长结果 offload 等子能力。
 
@@ -73,7 +73,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 - **MCP 工具**：经 catalog + 用户覆盖 + 请求上下文三层过滤后（见 [能力目录](catalog.md)），stable 服务复用进程级连接池（`core/llm/mcp_pool.py`），per-request 服务（如 `retrieve_dataset_content` 需带每请求 HTTP header）每次新建；用户自助添加的私有 MCP 按 owner 现查合入。
 - **技能**：经 `core/agent_skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
 - **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控，共享同一个 `ReadStateTracker` 维持「先 Read 才能 Edit」不变量。
-- **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`GoalAnchorReminderMiddleware`、`FinishPinGuardMiddleware`。
+- **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`FinishPinGuardMiddleware`。
 - **上下文压缩**：`CompactingAgent` 把轮前、轮内和轮末三个触发时机接入同一个持久化 checkpoint 引擎，并共用 Codex 风格交接提示词；`ContextConfig` 只保留工具结果限长和 AgentScope 溢出兜底，兜底也复用同一提示词。若兜底的结构化调用仍失败，模型适配层会返回 L3 占位摘要，避免当前回答因压缩异常直接中断。
 - **权限**：所有已注册工具 seed 原生 `PermissionRule(ALLOW)`，保留 AgentScope 内置工具的危险操作检查（不使用一刀切 BYPASS）。
 - **迭代上限**：主智能体默认 `max_iters=50`，隔离子智能体默认 10。
@@ -100,8 +100,9 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | 确认上下文；用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后工具原地续跑 |
 | `user_question` | `ask_user_question` 已挂起并等待会话属主回答 | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
 | `user_question_resolved` | 回答、取消或超时已由服务端裁决 | `request_id`, `outcome`, `chat_id` |
+| `context_usage` | 最近一次主模型调用的上下文占用快照；供应商返回 usage 时总数为实测值 | `source`, `exact`, `prompt_tokens`, `completion_tokens`, `used_tokens`, `context_window`, `breakdown` |
 | `compaction_notice` | 上一轮结束后已生成新的上下文压缩检查点 | `chat_id`, `context_compaction`（覆盖边界、摘要基线 token 数） |
-| `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage` |
+| `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage`, `context_usage`, `compaction_pending` |
 | `error` | 出错（已映射为用户友好中文文案） | `error`, `chat_id` |
 | `heartbeat` | 心跳（事件级；另有 `: heartbeat` 注释行） | — |
 
@@ -120,12 +121,24 @@ data: {"type":"tool_result","tool_name":"internet_search","result":{...},"tool_i
 
 data: {"type":"content","event":"ai_message","delta":"根据检索结果……","chat_id":"chat_x"}
 
-data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":1234,"completion_tokens":456,"total_tokens":1690,"llm_call_count":3},"message_id":"msg_..."}
+data: {"type":"context_usage","source":"provider","exact":true,"prompt_tokens":1234,"completion_tokens":456,"used_tokens":1690,"context_window":128000,"breakdown":{...}}
+
+data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":3700,"completion_tokens":900,"total_tokens":4600,"llm_call_count":3},"context_usage":{"source":"provider","exact":true,"prompt_tokens":1234,"completion_tokens":456,"used_tokens":1690,...},"message_id":"msg_..."}
 
 data: [DONE]
 ```
 
 `meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`orchestration/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。本体事件在前端汇总为独立的“领域本体治理”模块，不再写入或显示在“思考过程”中。模型草稿保持逐 token 流式展示；委员会仅在实际修订答案时发送一次 `content_replace`，前端原位替换正文，数据库只保存评审后的最终答案。`ontology_governance` 随助手消息持久化，刷新历史会话后仍可回显。
+
+`usage` 是本轮所有模型调用的累计计费数据；上下文仪表使用的是
+`context_usage`，即最近一次主模型调用的 `prompt_tokens + completion_tokens`，
+不能把多次 ReAct 调用的累计账单除以上下文窗口。供应商返回 usage 时，
+`source=provider` 的总数为权威实测；分类明细来自后端最终请求 manifest，并按
+实测总量归一。供应商不返回 usage 时才降级为 `backend_estimate`。前端不会把仅供
+展示的子智能体 `subSteps`、历史 thinking 或固定 system reserve 计入。未发送的
+草稿和待发送文件尚未发生模型调用，只能作为明确标注的本地预估附加在实测基线上。
+该快照随助手消息持久化，并可通过
+`GET /v1/chats/{chat_id}/context-usage` 单独读取。
 
 历史回放先识别两种思考协议：内联思考模型可能只输出
 `reasoning</think>正文`，结构化 reasoning 字段则由后端归一化为
@@ -216,7 +229,13 @@ Enter / Tab 确认和 Escape 返回或关闭；不可用或未授权的能力不
 | 统一上下文检查点 | `core/services/compaction_service.py::run_compaction()`；轮前、轮内、轮末共用同一触发比例、交接提示词、替代历史结构和持久化 checkpoint | 上下文达到模型窗口的配置比例时 |
 | 确定性溢出保护 | `ContextConfig.tool_result_limit` 先限制单条工具结果；统一压缩失败或持久化关闭时，AgentScope 兜底复用同一交接提示词压缩当前内存上下文 | 单条工具结果过大，或统一压缩暂时不可用时 |
 
-压缩检查点是内部 `system` 消息，不会从对话记录中隐藏或删除用户可见的历史消息。消息列表接口与下一轮的 `compaction_notice` 会同时返回最新检查点的覆盖边界和替代摘要 token 估算；前端上下文仪表据此按「摘要基线 + 检查点后的新消息」计算，而不是继续累计已经被摘要替换的完整旧历史。
+压缩检查点是内部 `system` 消息，不会隐藏或删除任何用户可见的对话记录。检查点同时
+保存压缩后最终 system prompt、工具 schema、replacement history 与 provider
+framing 的后端估算。当前回合结束后若后台压缩已启动，`meta.compaction_pending`
+会让前端在摘要超时窗口内有界轮询 `GET /v1/chats/{chat_id}/context-usage`；
+新检查点提交后仪表立即切换为 `compaction_estimate`，不必等下一轮或刷新页面。
+下一次主模型调用结束后，新的上游 usage 会再次替换该估算。消息列表响应和下一轮的
+`compaction_notice` 仍会返回同一检查点边界，保证刷新、断线续播和跨标签页恢复一致。
 
 ## 超长工具结果 offload
 

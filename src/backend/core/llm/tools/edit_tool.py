@@ -26,17 +26,10 @@ import logging
 from typing import Optional
 
 from agentscope.tool import Toolkit
-
 from core.services.project_scope import ProjectScope
 
 from . import myspace_vfs as _ms
-from ._common import (
-    myspace_write_guard,
-    pin_artifact_to_workspace,
-    resolve_sandbox_session,
-    resp_json,
-)
-from ._myspace_confirm import OP_EDIT
+from ._common import pin_artifact_to_workspace, resolve_sandbox_session, resp_json
 from ._paths import (
     PATH_POLICY_DOC,
     is_myspace_physical,
@@ -50,7 +43,10 @@ logger = logging.getLogger(__name__)
 
 
 def _make_unified_diff(
-    path: str, old_content: str, new_content: str, n_context: int = 3,
+    path: str,
+    old_content: str,
+    new_content: str,
+    n_context: int = 3,
 ) -> str:
     diff = difflib.unified_diff(
         old_content.splitlines(keepends=False),
@@ -83,11 +79,13 @@ def register_edit(
         new_string: str,
         replace_all: bool = False,
     ) -> "ToolResponse":  # type: ignore[name-defined]
-        from core.sandbox import (
-            SandboxConnectError as _SCE,
-            SandboxError as _SE,
-            get_sandbox_provider as _get_provider,
+        from core.llm.tool_permissions import (
+            PermissionEnforcementError,
+            require_local_path_permission,
         )
+        from core.sandbox import SandboxConnectError as _SCE
+        from core.sandbox import SandboxError as _SE
+        from core.sandbox import get_sandbox_provider as _get_provider
 
         # ── Basic input validation ───────────────────────────────────────
         path_err = validate_workspace_path(file_path)
@@ -101,54 +99,53 @@ def register_edit(
             return resp_json({"error": "old_string / new_string 必须是字符串"})
 
         if old_string == new_string:
-            return resp_json({
-                "error": "old_string 与 new_string 相同——这次 Edit 不会改变文件内容",
-            })
+            return resp_json(
+                {
+                    "error": "old_string 与 new_string 相同——这次 Edit 不会改变文件内容",
+                }
+            )
 
         physical = to_physical_path(file_path, user_id)
-
-        _g = await myspace_write_guard(
-            chat_id=chat_id, op=OP_EDIT, logical_path=file_path,
-            is_myspace=bool(is_myspace_physical(physical, user_id)),
-            interactive=interactive,
-            summary=f"编辑 {file_path}（替换片段）",
-        )
-        if _g is not None:
-            return _g
 
         # ── invariant 1: must Read first (logical or physical path both fine) ──
         entry = state.get(file_path) or state.get(physical)
         if entry is None:
-            return resp_json({
-                "error": (
-                    f"必须先 Read({file_path}) 再 Edit。Edit 工具依赖你已经知道"
-                    "文件的当前内容来做精确替换。"
-                ),
-            })
+            return resp_json(
+                {
+                    "error": (
+                        f"必须先 Read({file_path}) 再 Edit。Edit 工具依赖你已经知道"
+                        "文件的当前内容来做精确替换。"
+                    ),
+                }
+            )
 
         # ── invariant 2a: binary documents read via parsed-text fallback cannot be Edited ──
         # For docx/pdf/xlsx/pptx in "My Space", Read returns parsed text, not
         # the raw bytes — doing string replacement on the parsed text and
         # writing it back would corrupt the document outright.
         if entry.parsed_doc:
-            return resp_json({
-                "error": (
-                    f"{file_path} 是二进制文档（docx/pdf/xlsx/pptx），Read 返回的"
-                    "是它的**解析文本**，Edit 无法直接修改原文档（会损坏文件）。"
-                    "请改用 bash 调命令行工具处理：docx 用 python-docx 重新生成或"
-                    "修改后另存，再写回同一 /myspace 路径。"
-                ),
-            })
+            return resp_json(
+                {
+                    "error": (
+                        f"{file_path} 是二进制文档（docx/pdf/xlsx/pptx），Read 返回的"
+                        "是它的**解析文本**，Edit 无法直接修改原文档（会损坏文件）。"
+                        "请改用 bash 调命令行工具处理：docx 用 python-docx 重新生成或"
+                        "修改后另存，再写回同一 /myspace 路径。"
+                    ),
+                }
+            )
 
         # ── invariant 2: must be a full Read ─────────────────────────────
         if entry.offset is not None:
-            return resp_json({
-                "error": (
-                    f"上次 Read({file_path}) 用了 offset/limit 只读了部分内容；"
-                    "Edit 需要完整内容做唯一性校验。请先 Read(file_path) 不传 "
-                    "offset/limit。"
-                ),
-            })
+            return resp_json(
+                {
+                    "error": (
+                        f"上次 Read({file_path}) 用了 offset/limit 只读了部分内容；"
+                        "Edit 需要完整内容做唯一性校验。请先 Read(file_path) 不传 "
+                        "offset/limit。"
+                    ),
+                }
+            )
 
         # ── invariant 3: unchanged externally ──────────────────────────
         provider = _get_provider()
@@ -159,10 +156,13 @@ def register_edit(
             if _is_local:
                 # Local desktop mode: read the real host file directly (works for
                 # real paths outside the sandbox workspace, which put/get refuse).
+                require_local_path_permission(physical, "read")
                 with open(physical, "rb") as _f:
                     current_bytes = _f.read()
             else:
                 current_bytes = await provider.get_file(_sess, physical, user_id=user_id)
+        except PermissionEnforcementError as exc:
+            return resp_json({"error": str(exc), "blocked": True})
         except (_SE, _SCE, OSError) as exc:
             return resp_json({"error": f"读取文件失败: {exc}"})
 
@@ -170,12 +170,14 @@ def register_edit(
         if current_sha != entry.sha256:
             state.forget(file_path)
             state.forget(physical)
-            return resp_json({
-                "error": (
-                    f"文件 {file_path} 在 Read 之后被外部修改了，"
-                    "请重新 Read(file_path) 再 Edit。"
-                ),
-            })
+            return resp_json(
+                {
+                    "error": (
+                        f"文件 {file_path} 在 Read 之后被外部修改了，"
+                        "请重新 Read(file_path) 再 Edit。"
+                    ),
+                }
+            )
 
         # ── Uniqueness / replacement ───────────────────────────────────
         try:
@@ -185,20 +187,24 @@ def register_edit(
 
         count = current_text.count(old_string)
         if count == 0:
-            return resp_json({
-                "error": (
-                    "old_string 在文件中找不到。请检查空白/缩进/换行是否与 "
-                    "Read 返回的内容一致（注意：行号前缀不属于内容本身）。"
-                ),
-            })
+            return resp_json(
+                {
+                    "error": (
+                        "old_string 在文件中找不到。请检查空白/缩进/换行是否与 "
+                        "Read 返回的内容一致（注意：行号前缀不属于内容本身）。"
+                    ),
+                }
+            )
         if count > 1 and not replace_all:
-            return resp_json({
-                "error": (
-                    f"old_string 在文件中出现 {count} 次，无法唯一定位。"
-                    "请扩大 old_string 的上下文使其唯一，或显式传 "
-                    "replace_all=true 替换所有匹配。"
-                ),
-            })
+            return resp_json(
+                {
+                    "error": (
+                        f"old_string 在文件中出现 {count} 次，无法唯一定位。"
+                        "请扩大 old_string 的上下文使其唯一，或显式传 "
+                        "replace_all=true 替换所有匹配。"
+                    ),
+                }
+            )
 
         if replace_all:
             new_text = current_text.replace(old_string, new_string)
@@ -220,6 +226,8 @@ def register_edit(
             if _is_local:
                 import os as _os
 
+                require_local_path_permission(physical, "write")
+
                 parent = _os.path.dirname(physical)
                 if parent:
                     _os.makedirs(parent, exist_ok=True)
@@ -227,12 +235,17 @@ def register_edit(
                     _f.write(new_bytes)
             else:
                 await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
+        except PermissionEnforcementError as exc:
+            return resp_json({"error": str(exc), "blocked": True})
         except (_SE, _SCE, OSError) as exc:
             return resp_json({"error": f"写入失败: {exc}"})
 
         new_sha = hashlib.sha256(new_bytes).hexdigest()
         new_entry = ReadEntry(
-            content=new_bytes, sha256=new_sha, offset=None, limit=None,
+            content=new_bytes,
+            sha256=new_sha,
+            offset=None,
+            limit=None,
         )
         state.record(file_path, new_entry)
         if physical != file_path:
@@ -278,8 +291,7 @@ def register_edit(
         return resp_json(payload)
 
     Edit.__doc__ = (
-        "对文本文件做精确字符串替换。\n\n"
-        + PATH_POLICY_DOC + "\n\n"
+        "对文本文件做精确字符串替换。\n\n" + PATH_POLICY_DOC + "\n\n"
         "本工具说明：\n"
         "- 默认改沙盒里的文件（``/workspace/...``），不影响用户数据。\n"
         "- 仅当用户明确要求修改他「我的空间」里的文件时，才 Edit\n"

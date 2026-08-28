@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Popover } from 'antd';
 import { useChatStore, useFileStore, useModelCapabilitiesStore } from '../../stores';
 import {
+  combineContextUsage,
   computeContextBreakdown,
   getContextWindow,
   formatTokens,
@@ -36,9 +37,10 @@ interface GaugeContentProps {
   window: number;
   ratio: number;
   modelName?: string;
+  note: string;
 }
 
-function GaugeContent({ breakdown, window, ratio, modelName }: GaugeContentProps) {
+function GaugeContent({ breakdown, window, ratio, modelName, note }: GaugeContentProps) {
   const pct = Math.round(ratio * 100);
   const rows = CATEGORIES
     .map((c) => ({ ...c, value: breakdown[c.key] as number }))
@@ -85,21 +87,23 @@ function GaugeContent({ breakdown, window, ratio, modelName }: GaugeContentProps
         ))}
       </div>
 
-      <div className="jx-ctxPop-note">{t('数值为预估，仅供参考')}</div>
+      <div className="jx-ctxPop-note">{t(note)}</div>
     </div>
   );
 }
 
 /**
- * A small ring gauge shown beside the model selector that visualises how much
- * of the current model's context window the conversation is estimated to use.
- * Hovering reveals a per-category breakdown (messages / tool calls / files …).
+ * A small ring gauge shown beside the model selector. Completed calls use the
+ * upstream total; only unsent input and explicit fallback states are estimated.
  */
 export function ContextGauge() {
   const currentChatId = useChatStore((s) => s.currentChatId);
   const messages = useChatStore((s) => (s.currentChatId ? s.store.chats[s.currentChatId]?.messages : undefined));
   const compaction = useChatStore((s) => (
     s.currentChatId ? s.contextCompactions[s.currentChatId] : undefined
+  ));
+  const contextUsage = useChatStore((s) => (
+    s.currentChatId ? s.contextUsages[s.currentChatId] : undefined
   ));
   const draft = useChatStore((s) => s.input);
   const uploadedFiles = useFileStore((s) => s.uploadedFiles);
@@ -114,10 +118,8 @@ export function ContextGauge() {
       || models[0]
     );
   });
-  // Backend-provided real values: main model window (used when no model is
-  // explicitly selected / switching disabled) and the system-prompt reserve.
+  // Backend-provided real main-model window, used when switching is disabled.
   const mainContextLength = useModelCapabilitiesStore((s) => s.capabilities.main_context_length || 0);
-  const systemPromptTokens = useModelCapabilitiesStore((s) => s.capabilities.system_prompt_tokens || 0);
   const attachmentPreviewChars = useModelCapabilitiesStore(
     (s) => s.capabilities.attachment_preview_chars || 0,
   );
@@ -130,20 +132,24 @@ export function ContextGauge() {
     [uploadedFiles, importedSpaceFiles],
   );
 
-  const window = useMemo(
-    () => getContextWindow(model, mainContextLength),
-    [model, mainContextLength],
-  );
+  const window = useMemo(() => {
+    const snapshotMatchesModel = !model
+      || !contextUsage?.modelProviderId
+      || model.provider_id === contextUsage.modelProviderId;
+    if (snapshotMatchesModel && contextUsage?.contextWindow) return contextUsage.contextWindow;
+    return getContextWindow(model, mainContextLength);
+  }, [model, mainContextLength, contextUsage]);
 
   const breakdown = useMemo(
-    () => computeContextBreakdown(messages, {
-      draft,
-      stagedFiles,
-      attachmentPreviewChars,
-      systemTokens: systemPromptTokens,
-      compaction,
-    }),
-    [messages, draft, stagedFiles, attachmentPreviewChars, systemPromptTokens, compaction],
+    () => contextUsage
+      ? combineContextUsage(contextUsage, { draft, stagedFiles, attachmentPreviewChars })
+      : computeContextBreakdown(messages, {
+          draft,
+          stagedFiles,
+          attachmentPreviewChars,
+          compaction,
+        }),
+    [contextUsage, messages, draft, stagedFiles, attachmentPreviewChars, compaction],
   );
 
   const hasContent = (messages?.length || 0) > 0 || !!draft.trim() || uploadedFiles.length > 0 || importedSpaceFiles.length > 0;
@@ -152,6 +158,16 @@ export function ContextGauge() {
   const ratio = Math.min(breakdown.total / window, 1);
   const level = levelOf(ratio);
   const pct = Math.round(ratio * 100);
+  const hasPendingInput = !!draft.trim() || stagedFiles.length > 0;
+  const note = contextUsage?.exact
+    ? hasPendingInput
+      ? '已发送内容为上游实测；当前输入与待发送文件为预估'
+      : '总数为上游 usage 实测；分类按后端最终请求清单归一'
+    : contextUsage?.source === 'compaction_estimate'
+      ? '压缩后基线由后端估算；下一次模型调用后按上游 usage 校准'
+      : contextUsage
+        ? '供应商未返回 usage，当前为后端最终请求估算'
+        : '暂无上游实测快照，仅估算当前可见内容；下一次模型调用后校准';
 
   return (
     <Popover
@@ -159,7 +175,15 @@ export function ContextGauge() {
       trigger="hover"
       mouseEnterDelay={0.15}
       overlayClassName="jx-ctxPopover"
-      content={<GaugeContent breakdown={breakdown} window={window} ratio={ratio} modelName={model?.display_name} />}
+      content={(
+        <GaugeContent
+          breakdown={breakdown}
+          window={window}
+          ratio={ratio}
+          modelName={model?.display_name || contextUsage?.modelName}
+          note={note}
+        />
+      )}
     >
       <button
         type="button"
