@@ -40,7 +40,7 @@ import {
 }
 
 const provider = parseContextUsageSnapshot({
-  schema_version: 'context-usage.v1',
+  schema_version: 'context-usage.v2',
   source: 'provider',
   exact: true,
   used_tokens: 150,
@@ -63,6 +63,10 @@ assert.ok(provider);
 
 assert.equal(parseContextUsageSnapshot({
   schema_version: 'context-usage.v1',
+}), null);
+
+assert.equal(parseContextUsageSnapshot({
+  schema_version: 'context-usage.v2',
   source: 'provider',
   exact: true,
   used_tokens: 150,
@@ -96,7 +100,7 @@ assert.equal(parseContextUsageSnapshot({
     covered_message_count: 8,
     replacement_tokens: 15,
     context_usage: {
-      schema_version: 'context-usage.v1',
+      schema_version: 'context-usage.v2',
       source: 'compaction_estimate',
       exact: false,
       used_tokens: 82,
@@ -105,16 +109,18 @@ assert.equal(parseContextUsageSnapshot({
       context_window: 1000,
       breakdown: {
         messages: 15,
-        tools: 20,
+        tools: 0,
         thinking: 0,
         files: 0,
-        system: 47,
+        system: 67,
         input: 0,
       },
     },
   });
   assert.equal(compaction?.contextUsage?.usedTokens, 82);
   assert.equal(compaction?.contextUsage?.source, 'compaction_estimate');
+  assert.equal(compaction?.contextUsage?.breakdown.tools, 0);
+  assert.equal(compaction?.contextUsage?.breakdown.system, 67);
   assert.equal(isCompactionCheckpointForRun(compaction, '', Date.parse('2026-08-27')), false);
   assert.equal(
     isCompactionCheckpointForRun(

@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Mapping, Optional
 
-SCHEMA_VERSION = "context-usage.v1"
+SCHEMA_VERSION = "context-usage.v2"
 BREAKDOWN_KEYS = ("messages", "tools", "thinking", "files", "system", "input")
 _SYSTEM_KINDS = {
     "system_rule",
@@ -55,7 +55,11 @@ def _manifest_breakdown(manifest: Mapping[str, Any]) -> Dict[str, int]:
 
     details = manifest.get("budget_details")
     if isinstance(details, Mapping):
-        breakdown["tools"] += _non_negative(details.get("tool_reserve_tokens"))
+        # Tool definitions are part of the request's fixed instruction surface,
+        # not evidence that the model executed a tool.  Keep them with the
+        # system prompt so the user-facing "tools" bucket represents only
+        # historical tool_call/tool_result content.
+        breakdown["system"] += _non_negative(details.get("tool_reserve_tokens"))
     return breakdown
 
 
@@ -160,17 +164,16 @@ def build_compaction_context_usage(
 ) -> Dict[str, Any]:
     """Project the post-compaction prompt until the provider measures it."""
     system = _non_negative(estimate.get("system_prompt_tokens"))
-    tools = _non_negative(estimate.get("tool_schema_tokens"))
+    tool_schema = _non_negative(estimate.get("tool_schema_tokens"))
     messages = _non_negative(estimate.get("message_tokens"))
     overhead = _non_negative(estimate.get("provider_overhead_tokens"))
     breakdown = _empty_breakdown()
     breakdown.update(
         {
             "messages": messages,
-            "tools": tools,
             # Provider framing is not a user message or tool definition.  Keep
             # it in the system bucket so every token remains accounted for.
-            "system": system + overhead,
+            "system": system + tool_schema + overhead,
         }
     )
     used = sum(breakdown.values())

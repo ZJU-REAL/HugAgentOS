@@ -55,7 +55,12 @@ The sandbox session identity is resolved by `resolve_sandbox_session(sandbox_ses
 ### Large artifact delivery
 
 `sandbox_get_artifact` supports individual files up to 100 MiB (104,857,600
-bytes) by default. `SANDBOX_ARTIFACT_MAX_BYTES` configures the shared limit.
+bytes) by default. `SANDBOX_ARTIFACT_MAX_BYTES` is the **single switch** for
+sandbox file size, bounding all four paths: explicit `sandbox_get_artifact`
+fetches, artifacts auto-collected after a `bash` run (both per-file and
+per-batch total), artifacts pushed into the sandbox, and the `/myspace`
+write-back sync after a `bash` run; the backend and the script-runner sidecar
+read the same variable.
 All three providers implement `get_file_to_path`: script_runner uses a raw HTTP
 response stream, OpenSandbox uses `read_bytes_stream`, and Cube uses the E2B
 `format="stream"` mode. The backend writes streamed chunks to a temporary file,
@@ -136,7 +141,7 @@ All skill files are exposed inside the sandbox through a **single read-only bind
 |---|---|---|
 | `SANDBOX_PROVIDER` | `script_runner` | Provider selection: `script_runner` / `opensandbox` / `cube` |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address |
-| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Per-file streaming delivery limit for `sandbox_get_artifact` (100 MiB by default) |
+| `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Single switch for sandbox file size (100 MiB): fetch, auto-collected artifacts, push-in, and `/myspace` write-back share it |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox server & image |
 | `OPENSANDBOX_DEFAULT_TIMEOUT_S` | 1800 | Server-side sandbox TTL |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3, 2/5, 20 | Warm-pool watermarks |

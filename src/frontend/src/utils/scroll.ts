@@ -35,6 +35,15 @@ export function nextFollowState(
   return { userScrolledUp, lastScrollTop: metrics.scrollTop };
 }
 
+/** 消息区里有没有选中的文字：拖选不产生滚动事件，跟随必须靠它让位。 */
+export function hasActiveSelectionIn(root: Node | null, selection: Selection | null): boolean {
+  if (!root || !selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+  for (let i = 0; i < selection.rangeCount; i += 1) {
+    if (root.contains(selection.getRangeAt(i).commonAncestorContainer)) return true;
+  }
+  return false;
+}
+
 // MQL is a live object (automatically reflects system-setting changes); caching avoids
 // rebuilding it per delta during streaming follow-scroll. 懒创建而不是模块级求值：
 // 这个模块里的纯函数要能在 Node 下被测试直接 import，模块顶层碰 window 会直接炸。

@@ -249,7 +249,7 @@ const CONTEXT_USAGE_SOURCES: ContextUsageSource[] = [
 export function parseContextUsageSnapshot(value: unknown): ContextUsageSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
-  if (raw.schema_version !== 'context-usage.v1') return null;
+  if (raw.schema_version !== 'context-usage.v2') return null;
   const source = typeof raw.source === 'string' && CONTEXT_USAGE_SOURCES.includes(raw.source as ContextUsageSource)
     ? raw.source as ContextUsageSource
     : null;

@@ -28,6 +28,8 @@ __all__ = [
     "MAX_OUTPUT_BYTES",
     "MAX_STDERR_BYTES",
     "MAX_TOTAL_FILE_SIZE",
+    "SANDBOX_RUN_GID",
+    "SANDBOX_RUN_UID",
     "STDIN_FILE",
     "USER_ID_RE",
     "WORKSPACE",
@@ -72,9 +74,16 @@ ALLOWED_EXTENSIONS = {
     ".pptx",
     ".md",
 }
-MAX_FILE_SIZE = 10 * 1024 * 1024
-MAX_TOTAL_FILE_SIZE = 20 * 1024 * 1024
+MAX_FILE_SIZE = settings.sandbox.artifact_max_bytes
+MAX_TOTAL_FILE_SIZE = settings.sandbox.artifact_max_bytes
 MAX_FILE_COUNT = 20
+
+# 沙盒内运行用户代码的身份。与 backend 容器的 appuser 同为 UID 1000，这样 bind mount
+# 进来的 myspace 目录两边同属主，沙盒写的文件 backend 能覆盖和删除。
+# 镜像里 /workspace、/home/ubuntu 也归这个 UID（见 docker/Dockerfile.opensandbox）。
+SANDBOX_RUN_UID = 1000
+SANDBOX_RUN_GID = 1000
+
 MAX_OUTPUT_BYTES = 1024 * 1024
 MAX_STDERR_BYTES = 10240
 

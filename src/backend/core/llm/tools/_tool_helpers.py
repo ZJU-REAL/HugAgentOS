@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from agentscope.message import TextBlock
 from agentscope.tool._response import ToolChunk as ToolResponse
+from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ def _summarize_generated_files(files_data: list[dict[str, Any]]) -> list[dict[st
     return summaries
 
 
-MAX_ARTIFACT_FILE_SIZE = 10 * 1024 * 1024  # 10MB per artifact file
+MAX_ARTIFACT_FILE_SIZE = settings.sandbox.artifact_max_bytes
 
 
 def _resolve_artifact_files(
