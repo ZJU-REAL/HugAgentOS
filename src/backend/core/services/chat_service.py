@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 _CONTENT_MAX = 100_000
 _TRUNC_NOTE = "\n\n…（本条回复过长，已截断保存；完整过程见工具调用记录）"
+# 思考的独立额度。content 有 CHECK 约束卡死 10 万字，thinking 是 JSON 列没有
+# 约束，但也不能无限长——跑飞的一轮能产出几十万字推理。
+_THINKING_MAX = 200_000
 
 
 def clamp_message_content(content: str) -> str:
@@ -36,7 +39,38 @@ def clamp_message_content(content: str) -> str:
         return text
     keep = _CONTENT_MAX - len(_TRUNC_NOTE)
     logger.warning("[chat] message content truncated: %d -> %d chars", len(text), _CONTENT_MAX)
-    return text[:keep] + _TRUNC_NOTE
+    kept = text[:keep]
+    # 老格式的思考是以 <think>…</think> 内联在正文里的。截断点可能落在块中间，
+    # 闭合标签一丢，历史重建就把整段思考当正文渲染出来（思考泄露到页面上）。
+    close = "</think>"
+    if kept.count("<think>") > kept.count(close):
+        kept = kept[: keep - len(close)] + close
+    return kept + _TRUNC_NOTE
+
+
+def clamp_thinking(blocks: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+    """思考单独存一列，有自己的额度，不再和正文抢 content 的 10 万字上限。
+
+    超额时从最早的块开始丢——最后几轮的推理离最终答案最近，对用户回看最有用。
+    """
+    if not blocks:
+        return None
+    kept: List[Dict[str, Any]] = []
+    budget = _THINKING_MAX
+    for block in reversed(blocks):
+        text = str(block.get("content") or "")
+        if not text:
+            continue
+        if len(text) > budget:
+            text = text[len(text) - budget :]
+        if not text:
+            break
+        budget -= len(text)
+        kept.append({**block, "content": text})
+        if budget <= 0:
+            break
+    kept.reverse()
+    return kept or None
 
 
 class CompactionCASConflict(RuntimeError):
@@ -348,6 +382,7 @@ class ChatService:
         role: str,
         content: str,
         model: Optional[str] = None,
+        thinking: Optional[List[Dict[str, Any]]] = None,
         tool_calls: Optional[List[Dict]] = None,
         usage: Optional[Dict] = None,
         error: Optional[Dict] = None,
@@ -364,6 +399,7 @@ class ChatService:
             "role": role,
             "content": clamp_message_content(content),
             "model": model,
+            "thinking": clamp_thinking(thinking),
             "tool_calls": tool_calls,
             "usage": usage,
             "error": error,
@@ -392,6 +428,7 @@ class ChatService:
         *,
         message_id: str,
         model: Optional[str] = None,
+        thinking: Optional[List[Dict[str, Any]]] = None,
         tool_calls: Optional[List[Dict]] = None,
         usage: Optional[Dict] = None,
         extra_data: Dict = None,
@@ -411,6 +448,8 @@ class ChatService:
             update: Dict[str, Any] = {"content": clamp_message_content(content)}
             if model is not None:
                 update["model"] = model
+            if thinking is not None:
+                update["thinking"] = clamp_thinking(thinking)
             if tool_calls is not None:
                 update["tool_calls"] = tool_calls
             if usage is not None:
@@ -431,6 +470,7 @@ class ChatService:
             role=role,
             content=content,
             model=model,
+            thinking=thinking,
             tool_calls=tool_calls,
             usage=usage,
             extra_data=extra_data,

@@ -60,7 +60,7 @@ def test_fresh_sqlite_full_chain_and_harness_roundtrip(tmp_path) -> None:
     engine = create_engine(database_url)
 
     _alembic(repo_root, database_url, "upgrade", "head")
-    assert _revision(engine) == "harness69mem"
+    assert _revision(engine) == "think01split"
     _assert_harness_head(engine)
 
     _alembic(repo_root, database_url, "downgrade", "pluginui01")
@@ -70,6 +70,6 @@ def test_fresh_sqlite_full_chain_and_harness_roundtrip(tmp_path) -> None:
     assert "memory_outbox" not in downgraded_tables
 
     _alembic(repo_root, database_url, "upgrade", "head")
-    assert _revision(engine) == "harness69mem"
+    assert _revision(engine) == "think01split"
     _assert_harness_head(engine)
     engine.dispose()

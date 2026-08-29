@@ -99,3 +99,15 @@ def test_return_echoes_the_canonical_checklist():
     assert "1. [completed] 读方案" in text
     assert "2. [in_progress] 填内容页" in text
     assert "3. [pending] 交付" in text
+
+
+def test_description_forbids_resubmitting_an_unchanged_plan(update_plan_doc):
+    """线上长任务里模型卡在同一步时会每轮重发同一份清单，白烧一整轮上下文。"""
+    assert "状态确实发生变化时才调用" in update_plan_doc
+
+
+def test_prompt_section_forbids_resubmitting_an_unchanged_plan():
+    """系统提示词那节和工具描述要给出同一条口径，否则两处互相抵消。"""
+    from core.llm.plan_update_tool import build_plan_update_prompt_section
+
+    assert "状态确实发生变化时才调用" in build_plan_update_prompt_section()

@@ -1,4 +1,4 @@
-import type { ChatMessage, MessageSegment } from '../types';
+import type { ChatMessage, MessageSegment, ThinkingBlock } from '../types';
 import { isSingleHanCharacter, liftTrailingSegmentsAboveFinalText } from './streamSegments';
 
 /**
@@ -57,7 +57,18 @@ function segmentTextSlice(slice: string, segments: MessageSegment[]): string {
   };
   parts.forEach((part, idx) => {
     const isLast = idx === parts.length - 1;
-    if (isLast) { pushText(part); return; }
+    if (isLast) {
+      // 未闭合的 <think>：落库被截断、或模型漏发闭合标签。其后全部是思考，
+      // 当正文渲染出去就是思考过程泄露到页面上。
+      const unclosedIdx = part.indexOf('<think>');
+      if (unclosedIdx >= 0) {
+        pushText(part.slice(0, unclosedIdx));
+        pushThinking(part.slice(unclosedIdx + 7));
+        return;
+      }
+      pushText(part);
+      return;
+    }
     const openTagIdx = part.indexOf('<think>');
     if (openTagIdx >= 0) {
       // <think> 之前的内容是上一轮的可见正文——不丢弃（问题15）
@@ -79,14 +90,18 @@ function parseHistoricalContent(content: string): {
   visibleContent: string;
 } {
   const parts = content.split('</think>');
-  if (parts.length === 1) {
-    return { thinkingContents: [], visibleContent: content.trim() };
-  }
-
   const thinkingContents: string[] = [];
   let visibleContent = '';
   parts.forEach((part, idx) => {
     if (idx === parts.length - 1) {
+      // 未闭合的 <think>（截断 / 模型漏发闭合标签）后面全是思考，不是正文。
+      const unclosedIdx = part.indexOf('<think>');
+      if (unclosedIdx >= 0) {
+        visibleContent += part.slice(0, unclosedIdx);
+        const tail = part.slice(unclosedIdx + 7).trim();
+        if (tail) thinkingContents.push(tail);
+        return;
+      }
       visibleContent += part;
       return;
     }
@@ -107,10 +122,64 @@ function parseHistoricalContent(content: string): {
   return { thinkingContents, visibleContent: visibleContent.trim() };
 }
 
-export function buildHistorySegments(
+/**
+ * 把独立存储的思考块按 offset 插回正文原位，还原成历史重建认识的内联形态。
+ *
+ * 落库时思考进 chat_messages.thinking 独立一列、正文进 content，两者互不挤占
+ * 长度上限；展示时思考必须回到它当初出现的那个位置，顺序与实时流式一模一样。
+ * 工具卡片的 contentOffset 与正文同坐标系，插入思考后要按插入长度整体右移。
+ * offset 相同时思考排在工具卡片之前（落库顺序即如此：先 flush 思考再记卡片位置）。
+ */
+function restoreThinkingInPlace(
   content: string,
-  toolCalls?: ChatMessage['toolCalls']
+  toolCalls: ChatMessage['toolCalls'],
+  thinking: ThinkingBlock[],
+): { content: string; toolCalls: ChatMessage['toolCalls'] } {
+  const blocks = thinking
+    .map((block, order) => ({
+      order,
+      text: block.content || '',
+      offset: typeof block.offset === 'number' && block.offset >= 0
+        ? Math.min(block.offset, content.length)
+        : content.length,
+    }))
+    .filter((block) => block.text)
+    .sort((a, b) => a.offset - b.offset || a.order - b.order);
+  if (blocks.length === 0) return { content, toolCalls };
+
+  const inserts: { at: number; len: number }[] = [];
+  let restored = '';
+  let cursor = 0;
+  blocks.forEach((block) => {
+    restored += content.slice(cursor, block.offset);
+    const wrapped = `<think>${block.text}</think>`;
+    restored += wrapped;
+    inserts.push({ at: block.offset, len: wrapped.length });
+    cursor = block.offset;
+  });
+  restored += content.slice(cursor);
+
+  const shifted = toolCalls?.map((tc) => {
+    if (typeof tc.contentOffset !== 'number') return tc;
+    const delta = inserts.reduce((sum, ins) => (ins.at <= tc.contentOffset! ? sum + ins.len : sum), 0);
+    return delta ? { ...tc, contentOffset: tc.contentOffset + delta } : tc;
+  });
+  return { content: restored, toolCalls: shifted };
+}
+
+export function buildHistorySegments(
+  rawContent: string,
+  rawToolCalls?: ChatMessage['toolCalls'],
+  thinking?: ThinkingBlock[]
 ): { segments: MessageSegment[] | undefined; cleanContent: string } {
+  // 思考单独存一列的新消息：先按 offset 插回原位，之后完全走原有重建逻辑，
+  // 展示与老的内联存储格式逐字一致。thinking 为空则是老消息，思考仍在 content 里。
+  const hasStoredThinking = Array.isArray(thinking) && thinking.length > 0;
+  const restored = hasStoredThinking
+    ? restoreThinkingInPlace(rawContent, rawToolCalls, thinking!)
+    : { content: rawContent, toolCalls: rawToolCalls };
+  const content = restored.content;
+  const toolCalls = restored.toolCalls;
   // ── 新历史（带 contentOffset）：按流式原顺序把文本与工具卡片交错还原 ──
   // contentOffset = 工具卡片出现时持久化正文累计串（含 <think> 标记）的字符
   // 偏移，与 content 同一坐标系。逐段切片，段内再按 </think> 拆 thinking /
@@ -123,11 +192,13 @@ export function buildHistorySegments(
     && toolCalls.length > 0
     && toolCalls.some((tc) => typeof tc.contentOffset === 'number')
     && toolCalls.every((tc) => typeof tc.contentOffset === 'number' || isArtifactCard(tc));
-  if (hasOffsets) {
+  // 思考单独存一列时每块都带确切位置，没有工具卡片也照样能原位还原——不必退回
+  // 「合并正文」的兜底（那条路会把思考全堆到正文前面，位置就乱了）。
+  if (hasOffsets || (hasStoredThinking && (toolCalls?.length ?? 0) === 0)) {
     const segments: MessageSegment[] = [];
     let cursor = 0;
     let visibleAll = '';
-    toolCalls!.forEach((tc, i) => {
+    (toolCalls ?? []).forEach((tc, i) => {
       const rawOff = typeof tc.contentOffset === 'number' ? tc.contentOffset : content.length;
       const off = Math.min(Math.max(rawOff, cursor), content.length);
       const visible = segmentTextSlice(content.slice(cursor, off), segments);

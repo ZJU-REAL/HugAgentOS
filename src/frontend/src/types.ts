@@ -261,6 +261,12 @@ export interface UserQuestionAnswer {
 export interface ThinkingBlock {
   content: string;
   timestamp?: number;
+  /**
+   * 该思考块出现时正文的字符偏移。落库时思考与正文分列存储（互不挤占长度上限），
+   * 靠这个偏移把它还原回正文里原来的位置——展示顺序与实时流式时一模一样。
+   * 实时流式的块没有它（位置由 segments 直接决定）。
+   */
+  offset?: number;
 }
 
 export interface OntologyActivationSummary {
@@ -1515,6 +1521,7 @@ export interface AdminChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   model: string | null;
+  thinking?: ThinkingBlock[] | null;
   tool_calls: unknown;
   usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
   error: unknown;
