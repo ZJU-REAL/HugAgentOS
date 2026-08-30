@@ -31,7 +31,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Literal,
 
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import SessionLocal
-from core.db.models import ChatRun
+from core.db.models import ChatMessage, ChatRun
 from core.harness.hooks import HookPaused, find_hook_paused
 from core.infra.logging import get_logger
 from core.infra.redis import get_redis
@@ -791,6 +791,19 @@ async def _reset_stream_projection(run_id: str) -> None:
 # ─── Background worker ─────────────────────────────────────────────────
 
 
+def _cancelled_by_user(run_id: str) -> bool:
+    """租约被清掉有两种可能：别的 worker 接管了恢复，或者用户按了停止。
+
+    cancel_run 会先把行写成终态 cancelled 再清租约，之后不会再有人接手这一轮 ——
+    被围栏的 worker 若也闭嘴，用户已经看到的半截回答就没人落库了。
+    """
+    try:
+        current = get_run(run_id)
+    except Exception:  # noqa: BLE001 - 读不到就按"别人接管"处理，宁可不写
+        return False
+    return current is not None and current.status == "cancelled"
+
+
 async def _run_workflow(
     *,
     run_id: str,
@@ -936,33 +949,35 @@ async def _run_workflow(
     tool_calls_log: list = []
     _workspace_mod.init_state()
     # 结构化 reasoning 通道（deepseek 系 reasoning_content/reasoning）的思考增量。
-    # 过去这些只走 SSE thinking 事件、不落库 → 刷新后思考过程无法回放。现在按
-    # 到达顺序以 <think>…</think> 块交错并入 full_response（与内联思考模型的存储
-    # 格式一致），历史重建（buildHistorySegments）即可原位还原思考块。
+    # 落进独立的 thinking 列，不再拼进 full_response —— 拼进正文会把正文顶出
+    # content 的 10 万字上限，截断切掉闭合标签后整段思考会漏成正文。
+    # 每个思考块记录它出现时的正文偏移，历史重建按此原位还原。
     _thinking_parts: List[str] = []
+    _thinking_log: List[Dict[str, Any]] = []
+    # 本轮已开的思考块；跨轮（工具调用边界）置 None 强制另起一块。不设边界的话，
+    # 正文一旦出现，后面每一轮的思考都会并进同一块里无限膨胀。
+    _round_block: Optional[Dict[str, Any]] = None
     next_cancel_poll = 0.0
 
     def _flush_thinking() -> None:
-        nonlocal full_response
+        nonlocal _round_block
         if not _thinking_parts:
             return
         block = "".join(_thinking_parts)
         _thinking_parts.clear()
-        close = "</think>"
-        last_close = full_response.rfind(close)
         # 结构化 reasoning 的尾部增量可能在正文已开始后才到达（正文首 token
         # 已出、思考收尾的"。"后到）。实时侧把它并回前一个思考块
         # （appendThinkingContentBeforeTrailingText），落库遵循同一规则——
-        # 否则 <think> 块会把正文句子从中间切开，刷新后与实时展示不一致。
-        if last_close != -1 and full_response[last_close + len(close) :].strip():
-            full_response = full_response[:last_close] + block + full_response[last_close:]
-            # 中段插入使其后的坐标整体右移，已记录的 content_offset 同步平移
-            for _tc in tool_calls_log:
-                off = _tc.get("content_offset")
-                if isinstance(off, int) and off > last_close:
-                    _tc["content_offset"] = off + len(block)
+        # 否则思考块会把正文句子从中间切开，刷新后与实时展示不一致。
+        if _round_block is not None:
+            _round_block["content"] += block
             return
-        full_response += "<think>" + block + close
+        _round_block = {"content": block, "offset": len(full_response)}
+        _thinking_log.append(_round_block)
+
+    def _thinking_payload() -> Optional[List[Dict[str, Any]]]:
+        blocks = [b for b in _thinking_log if b.get("content")]
+        return blocks or None
 
     def _commit_cancelled_partial() -> None:
         """把用户按下停止那一刻已产出的正文与工具卡片落库。
@@ -1003,6 +1018,7 @@ async def _run_workflow(
                 role="assistant",
                 content=full_response,
                 model=model_name,
+                thinking=_thinking_payload(),
                 tool_calls=tool_calls_log if tool_calls_log else None,
                 message_id=current_message_id,
                 chat_seq=current_chat_seq,
@@ -1018,6 +1034,16 @@ async def _run_workflow(
                 commit=False,
             )
             db.commit()
+
+    def _persist_cancelled_partial() -> None:
+        try:
+            _commit_cancelled_partial()
+        except Exception:  # noqa: BLE001 - 落库失败不能吞掉取消收尾
+            logger.warning(
+                "chat_run_cancelled_partial_persist_failed",
+                run_id=run_id,
+                exc_info=True,
+            )
 
     try:
         if recovering:
@@ -1147,6 +1173,8 @@ async def _run_workflow(
                 replacement = str(chunk.get("content") or "")
                 _thinking_parts.clear()
                 full_response = replacement
+                _round_block = None
+                _thinking_log.clear()
                 # 整体替换后，先前记录的 content_offset 指向旧草稿坐标系，
                 # 已无意义——清掉，让历史重建走「合并正文」兜底而不是错切。
                 for _tc in tool_calls_log:
@@ -1204,6 +1232,7 @@ async def _run_workflow(
                                 role="assistant",
                                 content=full_response,
                                 model=model_name,
+                                thinking=_thinking_payload(),
                                 tool_calls=tool_calls_log if tool_calls_log else None,
                                 message_id=current_message_id,
                                 chat_seq=current_chat_seq,
@@ -1322,6 +1351,8 @@ async def _run_workflow(
                 full_response = ""
                 tool_calls_log = []
                 _thinking_parts.clear()
+                _round_block = None
+                _thinking_log.clear()
                 metadata = {}
                 try:
                     from core.services.log_service import set_current_message_id
@@ -1332,16 +1363,18 @@ async def _run_workflow(
 
             elif chunk_type == "tool_call":
                 _flush_thinking()
+                _round_block = None
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
-                # 记录该工具卡片出现时正文的累计长度（含 <think> 标记，与持久化
-                # content 同一坐标系）：历史重建按此偏移把「文本 ↔ 工具卡片」按
-                # 流式原顺序交错（问题15：刷新后内容与实时不一致）。
+                # 记录该工具卡片出现时正文的累计长度（与持久化 content 同一坐标系，
+                # 思考块的 offset 也是这个坐标系）：历史重建按此偏移把「文本 ↔ 思考
+                # ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
                 for _tc in tool_calls_log:
                     _tc.setdefault("content_offset", len(full_response))
                 await _emit(_tc_evt)
 
             elif chunk_type == "tool_call_start":
                 _flush_thinking()
+                _round_block = None
                 await _emit(build_tool_call_start_event(chunk, chat_id))
 
             elif chunk_type == "tool_call_delta":
@@ -1561,6 +1594,7 @@ async def _run_workflow(
                             "assistant_content": full_response,
                             "message_id": current_message_id,
                             "model_name": model_name,
+                            "thinking": _thinking_payload(),
                             "tool_calls": tool_calls_log if tool_calls_log else None,
                             "usage": usage_payload,
                             "extra_data": _persist_extra,
@@ -1579,6 +1613,7 @@ async def _run_workflow(
                         role="assistant",
                         content=full_response,
                         model=model_name,
+                        thinking=_thinking_payload(),
                         tool_calls=tool_calls_log if tool_calls_log else None,
                         usage=usage_payload,
                         message_id=current_message_id,
@@ -1720,8 +1755,12 @@ async def _run_workflow(
     except asyncio.CancelledError:
         if lease_lost.is_set():
             # Another process owns recovery now. The fenced worker must not
-            # project a user cancellation or mutate the durable row.
+            # project a user cancellation or mutate the durable row. The one
+            # exception is fencing caused by the user's own cancel: nobody will
+            # take that run over, so the partial answer must be persisted here.
             logger.warning("chat_run_worker_fenced", run_id=run_id, owner=owner)
+            if _cancelled_by_user(run_id):
+                _persist_cancelled_partial()
         else:
             current = get_run(run_id)
             if current is None or current.status != "cancelled":
@@ -1737,14 +1776,7 @@ async def _run_workflow(
                 # then write a user-cancelled event + terminal marker so
                 # followers exit gracefully.
                 logger.info("chat_run_cancelled", run_id=run_id)
-                try:
-                    _commit_cancelled_partial()
-                except Exception:  # noqa: BLE001 - 落库失败不能吞掉取消收尾
-                    logger.warning(
-                        "chat_run_cancelled_partial_persist_failed",
-                        run_id=run_id,
-                        exc_info=True,
-                    )
+                _persist_cancelled_partial()
                 await _emit(
                     {
                         "type": "error",
@@ -1768,8 +1800,11 @@ async def _run_workflow(
 
     except RunLeaseLost:
         # A takeover/cancel may race with any journal append. Once fenced, the
-        # old worker must not persist fallback messages or publish a terminal.
+        # old worker must not persist fallback messages or publish a terminal —
+        # except when the fencing came from the user's own cancel.
         logger.warning("chat_run_worker_fenced", run_id=run_id, owner=owner)
+        if _cancelled_by_user(run_id):
+            _persist_cancelled_partial()
 
     except Exception as exc:
         nested_pause = find_hook_paused(exc)
@@ -2388,6 +2423,21 @@ async def _run_plan_execute_workflow(
                 commit=False,
             )
 
+        def _persist_plan_partial() -> None:
+            # _commit_plan_result 走 add_message（非幂等），重复写会撞主键
+            try:
+                with SessionLocal() as _db:
+                    if _db.get(ChatMessage, message_id) is not None:
+                        return
+                    _commit_plan_result(_db)
+                    _db.commit()
+            except Exception:  # noqa: BLE001 - 落库失败不能吞掉取消收尾
+                logger.warning(
+                    "plan_run_cancelled_partial_persist_failed",
+                    run_id=run_id,
+                    exc_info=True,
+                )
+
         completed = journal.complete(
             run_id,
             owner=owner,
@@ -2408,24 +2458,16 @@ async def _run_plan_execute_workflow(
             # 用户取消时 cancel_run 已先写终态、清租约，上面的 CAS 注定输掉。
             # 协作式取消让生成器正常收尾，本轮已完成的步骤和正文就在手里 ——
             # 不落库的话，用户回到会话只剩自己那句话。
-            _current = None if lease_lost.is_set() else get_run(run_id)
-            if _current is not None and _current.status == "cancelled":
-                try:
-                    with SessionLocal() as _db:
-                        _commit_plan_result(_db)
-                        _db.commit()
-                except Exception:  # noqa: BLE001 - 落库失败不能吞掉取消收尾
-                    logger.warning(
-                        "plan_run_cancelled_partial_persist_failed",
-                        run_id=run_id,
-                        exc_info=True,
-                    )
+            if _cancelled_by_user(run_id):
+                _persist_plan_partial()
             else:
                 logger.warning("plan_run_terminal_cas_lost", run_id=run_id, owner=owner)
 
     except asyncio.CancelledError:
         if lease_lost.is_set():
             logger.warning("plan_run_worker_fenced", run_id=run_id, owner=owner)
+            if _cancelled_by_user(run_id):
+                _persist_plan_partial()
         elif journal.complete(
             run_id,
             owner=owner,
@@ -2755,6 +2797,21 @@ async def _run_autonomous_loop_workflow(
 
         return _commit
 
+    def _persist_loop_partial() -> None:
+        effect = _loop_message_effect("cancelled")
+        if effect is None:
+            return
+        try:
+            with SessionLocal() as _db:
+                effect(_db)
+                _db.commit()
+        except Exception:  # noqa: BLE001 - 落库失败不能吞掉取消收尾
+            logger.warning(
+                "autonomous_loop_cancelled_partial_persist_failed",
+                run_id=run_id,
+                exc_info=True,
+            )
+
     def _flush_loop_message(status: str = "running") -> None:
         """Upsert the currently accumulated worker body + tool cards into the assistant message (same message_id).
 
@@ -3038,6 +3095,8 @@ async def _run_autonomous_loop_workflow(
         # reopened chat would only contain the user's objective.
         if lease_lost.is_set():
             logger.warning("autonomous_loop_worker_fenced", run_id=run_id, owner=owner)
+            if _cancelled_by_user(run_id):
+                _persist_loop_partial()
         else:
             partial_effect = _loop_message_effect("cancelled")
             cancelled = journal.complete(
@@ -3671,6 +3730,11 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
                 model=(
                     str(snapshot["model_name"]) if snapshot.get("model_name") is not None else None
                 ),
+                thinking=(
+                    list(snapshot["thinking"])
+                    if isinstance(snapshot.get("thinking"), list)
+                    else None
+                ),
                 tool_calls=(
                     list(snapshot["tool_calls"])
                     if isinstance(snapshot.get("tool_calls"), list)
@@ -4084,6 +4148,13 @@ async def run_stale_reaper_loop() -> None:
             await recover_orphan_runs()
             if loop.time() >= next_reap_at:
                 await reap_stale_runs()
+                from core.services.tool_effect_ledger import ToolEffectJournal
+
+                pruned = await asyncio.to_thread(
+                    ToolEffectJournal(SessionLocal).prune_settled
+                )
+                if pruned:
+                    logger.info("tool_effect_ledger_pruned", count=pruned)
                 next_reap_at = loop.time() + _STALE_REAPER_INTERVAL_SEC
         except asyncio.CancelledError:
             raise

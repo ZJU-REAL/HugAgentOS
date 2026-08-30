@@ -18,6 +18,7 @@
     "test:desktop-overlay": "esbuild scripts/test-desktop-overlay.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-desktop-overlay.mjs && node node_modules/.tmp/test-desktop-overlay.mjs",
     "test:automation-conversation": "esbuild scripts/test-automation-conversation.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-automation-conversation.mjs && node node_modules/.tmp/test-automation-conversation.mjs",
     "test:user-questions": "esbuild scripts/test-user-questions.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-user-questions.mjs && node node_modules/.tmp/test-user-questions.mjs",
+    "test:queued-invocation": "esbuild scripts/test-queued-invocation.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-queued-invocation.mjs && node node_modules/.tmp/test-queued-invocation.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

@@ -9,6 +9,10 @@ def get_provider_name() -> str:
     return ""
 
 
+def get_provider_cache_identity(provider_name: str | None = None) -> str:
+    return f"{provider_name or 'ce'}:disabled"
+
+
 def list_collections(*args, **kwargs) -> list:
     return []
 
@@ -46,6 +50,7 @@ def wiki_module():
 __all__ = [
     "get_allowed_collection_ids",
     "get_document_detail",
+    "get_provider_cache_identity",
     "get_provider_name",
     "is_enabled",
     "list_collections",

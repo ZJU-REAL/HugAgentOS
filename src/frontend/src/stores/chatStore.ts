@@ -12,6 +12,7 @@ import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
 import { resolveModeSlug, resolvePlanModeActive } from '../utils/chatMode';
+import { normalizeChatInvocation, type ChatInvocationContext } from '../utils/chatInvocation';
 
 /** Fixed slug of the site-building plugin (plugin_bundles/marketplace/sites). Site-building
  *  capability (publish_site tool + site-builder guidance skill) is provided by it — removed from
@@ -25,6 +26,8 @@ export interface QueuedChatMessage {
   content: string;
   createdAt: number;
   status: 'queued' | 'steering' | 'applied';
+  /** Explicit skill/plugin/connector/agent chips captured with this queued turn. */
+  invocation?: ChatInvocationContext;
   appliedMessageId?: string;
   /** Run that durably accepted this card; retained across refresh for status reconciliation. */
   targetRunId?: string;
@@ -130,7 +133,7 @@ function loadQueuedMessages(userId: string | null | undefined): Record<string, Q
       if (!q || typeof q.content !== 'string' || !q.content || typeof q.id !== 'string') continue;
       if (!['queued', 'steering', 'applied'].includes(q.status)) continue;
       if (q.status !== 'queued' && !q.targetRunId) continue;
-      out[chatId] = q;
+      out[chatId] = { ...q, invocation: normalizeChatInvocation(q.invocation) };
     }
     return out;
   } catch {

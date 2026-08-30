@@ -10,7 +10,7 @@ import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, ContextUsageSnapshot, EvolutionSummary, OntologyGovernanceSummary, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, ContextUsageSnapshot, EvolutionSummary, OntologyGovernanceSummary, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -77,8 +77,12 @@ function parseHistoryMessage(m: any): ChatMessage {
   );
 
   const rawContent = String(m.content || '');
+  // 思考单独存一列（新消息）；老消息该字段为空，思考仍内联在 content 里。
+  const storedThinking = Array.isArray(m.thinking)
+    ? (m.thinking as ThinkingBlock[]).filter((b) => b && typeof b.content === 'string')
+    : undefined;
   let { segments, cleanContent } = m.role === 'assistant'
-    ? buildHistorySegments(rawContent, toolCalls)
+    ? buildHistorySegments(rawContent, toolCalls, storedThinking)
     : { segments: undefined, cleanContent: rawContent };
 
   // Reconstruct plan segment from saved plan_snapshot metadata

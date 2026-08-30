@@ -35,7 +35,7 @@ def cancel_env(tmp_path, monkeypatch):
     engine.dispose()
 
 
-async def _start_and_cancel(workflow, monkeypatch, ready: asyncio.Event):
+async def _start(workflow, monkeypatch, ready: asyncio.Event):
     monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
     run = await executor.start_run(
         chat_id="chat-1",
@@ -48,10 +48,19 @@ async def _start_and_cancel(workflow, monkeypatch, ready: asyncio.Event):
         model_name="test-model",
     )
     await asyncio.wait_for(ready.wait(), timeout=2)
+    return run
+
+
+async def _await_worker(worker) -> None:
+    with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+        await asyncio.wait_for(worker, timeout=3)
+
+
+async def _start_and_cancel(workflow, monkeypatch, ready: asyncio.Event):
+    run = await _start(workflow, monkeypatch, ready)
     worker = executor._active_runs[run.run_id]
     assert await executor.cancel_run(run.run_id, user_id="user-1") is True
-    with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
-        await asyncio.wait_for(worker, timeout=2)
+    await _await_worker(worker)
     return run
 
 
@@ -84,7 +93,9 @@ async def test_user_cancel_persists_partial_answer(cancel_env, monkeypatch):
     assert len(stored) == 1
     assert stored[0].message_id == run.message_id
     assert "已经写了一半" in stored[0].content
-    assert "<think>再想想</think>" in stored[0].content
+    # 思考不再拼进正文，落在独立的 thinking 列里，并记住它在正文中的位置
+    assert "<think>" not in stored[0].content
+    assert stored[0].thinking == [{"content": "再想想", "offset": len("已经写了一半")}]
     assert stored[0].extra_data["cancelled"] is True
     # 没跑完的工具卡片要落成"已中断"，否则刷新后会渲染成执行成功
     assert [(tc["tool_name"], tc["status"]) for tc in stored[0].tool_calls] == [
@@ -135,3 +146,57 @@ def test_normal_turn_carries_no_interruption_marker():
     rows = [SimpleNamespace(role="assistant", content="查完了", extra_data={}, tool_calls=None)]
 
     assert _normalize_rows(rows) == [{"role": "assistant", "content": "查完了"}]
+
+
+@pytest.mark.asyncio
+async def test_fenced_by_user_cancel_still_persists_partial(cancel_env, monkeypatch):
+    """心跳先于 worker 发现租约被清时（生产上的实际时序），半截回答同样要落库。
+
+    cancel_run 先写终态 cancelled 再清租约。租约心跳一旦抢先发现租约没了就会
+    置位 lease_lost 并 cancel worker，worker 于是走"被围栏"分支 —— 那条分支原本
+    一个字都不写，用户刷新后只剩自己那句提问。
+    """
+    sessions = cancel_env
+    monkeypatch.setattr(executor, "_RUN_LEASE_HEARTBEAT_SEC", 0.01)
+    streamed = asyncio.Event()
+
+    async def half_written_workflow(**_kwargs):
+        yield {"type": "ai_message", "delta": "围栏前写了一半"}
+        streamed.set()
+        await asyncio.Event().wait()
+
+    run = await _start(half_written_workflow, monkeypatch, streamed)
+    worker = executor._active_runs[run.run_id]
+    # 只写终态 + 清租约，不碰 worker：让心跳去发现，复现被围栏的时序
+    assert executor._journal().cancel(run.run_id, reason="user cancelled") is True
+    await _await_worker(worker)
+
+    with sessions() as db:
+        stored = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.chat_id == "chat-1", ChatMessage.role == "assistant")
+            .all()
+        )
+    assert len(stored) == 1
+    assert "围栏前写了一半" in stored[0].content
+    assert stored[0].extra_data["cancelled"] is True
+
+
+def test_fenced_by_takeover_stays_silent(cancel_env, monkeypatch):
+    """租约被别的 worker 抢走（run 仍在跑）时必须闭嘴，避免两个 worker 抢着写。"""
+    sessions = cancel_env
+    with sessions() as db:
+        db.add(
+            ChatRun(
+                run_id="run-live",
+                chat_id="chat-1",
+                user_id="user-1",
+                message_id="msg-live",
+                request_payload={"message": "hi"},
+                status="running",
+            )
+        )
+        db.commit()
+
+    assert executor._cancelled_by_user("run-live") is False
+    assert executor._cancelled_by_user("run-missing") is False

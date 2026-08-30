@@ -10,6 +10,8 @@ import {
 import { Dropdown } from 'antd';
 import type { QueuedChatMessage } from '../../stores/chatStore';
 import { t } from '../../i18n';
+import { chatInvocationMessageProps, hasChatInvocation } from '../../utils/chatInvocation';
+import { InvocationBadges } from './InvocationBadges';
 
 interface QueuedMessageCardProps {
   queued: QueuedChatMessage;
@@ -38,17 +40,17 @@ export function QueuedMessageCard({
     setEditing(false);
   };
 
-  const steerLabel = queued.status === 'steering'
-    ? t('等待执行节点…')
-    : queued.status === 'applied'
-      ? t('已发送，正在调整…')
-      : t('立即开始');
+  const waitsForNextTurn = running && hasChatInvocation(queued.invocation);
+  let steerLabel = waitsForNextTurn ? t('本轮结束后发送') : t('立即开始');
+  if (queued.status === 'steering') steerLabel = t('等待执行节点…');
+  if (queued.status === 'applied') steerLabel = t('已发送，正在调整…');
   const steerDisabled = queued.status !== 'queued' || (running && !canSteer);
   const steerTitle = running && !canSteer
     ? t('带附件、技能、连接器、插件或智能体的消息将在当前任务结束后发送')
     : running
       ? t('在本轮工具完成后、下一轮推理前发送给模型')
       : t('立即开始');
+  const invocation = queued.invocation;
 
   return (
     <div className={`jx-queuedMessage jx-queuedMessage--${queued.status}`}>
@@ -74,7 +76,13 @@ export function QueuedMessageCard({
             }}
           />
         ) : (
-          <div className="jx-queuedMessage-content" title={queued.content}>{queued.content}</div>
+          <div className="jx-queuedMessage-body">
+            <InvocationBadges
+              {...chatInvocationMessageProps(invocation ?? {})}
+              className="jx-queuedMessage-badges"
+            />
+            <div className="jx-queuedMessage-content" title={queued.content}>{queued.content}</div>
+          </div>
         )}
       </div>
       <div className="jx-queuedMessage-actions">

@@ -161,6 +161,9 @@ def _message_to_dict(m) -> dict:
         "role": m.role,
         "content": m.content,
         "model": m.model,
+        # 思考与正文分列存储；带 offset 的块由前端按原位插回正文（老消息为 None，
+        # 思考仍内联在 content 里，走旧解析）。
+        "thinking": m.thinking,
         "tool_calls": m.tool_calls,
         "metadata": m.extra_data or {},
         "created_at": m.created_at.isoformat(),
@@ -1544,31 +1547,31 @@ async def _stream_sse_response(
         tool_calls_log: list = []
         # 本轮回答总耗时起点 —— 持久化进 extra_data.duration_ms
         _stream_started_monotonic = time.monotonic()
-        # 结构化 reasoning 思考增量：按到达顺序以 <think>…</think> 块交错并入
-        # full_response 落库（与内联思考模型一致），刷新后思考过程可回放。
+        # 结构化 reasoning 思考增量：落进独立的 thinking 列，不拼进 full_response。
+        # 每块记录它出现时的正文偏移，刷新后按原位插回。
         _thinking_parts: list = []
+        _thinking_log: List[Dict[str, Any]] = []
+        # 本轮已开的思考块；跨轮（工具调用边界）置 None 强制另起一块。
+        _round_block: Optional[Dict[str, Any]] = None
 
         def _flush_thinking() -> None:
-            nonlocal full_response
+            nonlocal _round_block
             if not _thinking_parts:
                 return
             block = "".join(_thinking_parts)
             _thinking_parts.clear()
-            close = "</think>"
-            last_close = full_response.rfind(close)
             # 结构化 reasoning 的尾部增量可能在正文已开始后才到达（正文首 token
             # 已出、思考收尾的"。"后到）。实时侧把它并回前一个思考块
-            # （appendThinkingContentBeforeTrailingText），落库遵循同一规则——
-            # 否则 <think> 块会把正文句子从中间切开，刷新后与实时展示不一致。
-            if last_close != -1 and full_response[last_close + len(close) :].strip():
-                full_response = full_response[:last_close] + block + full_response[last_close:]
-                # 中段插入使其后的坐标整体右移，已记录的 content_offset 同步平移
-                for _tc in tool_calls_log:
-                    off = _tc.get("content_offset")
-                    if isinstance(off, int) and off > last_close:
-                        _tc["content_offset"] = off + len(block)
+            # （appendThinkingContentBeforeTrailingText），落库遵循同一规则。
+            if _round_block is not None:
+                _round_block["content"] += block
                 return
-            full_response += "<think>" + block + close
+            _round_block = {"content": block, "offset": len(full_response)}
+            _thinking_log.append(_round_block)
+
+        def _thinking_payload() -> Optional[List[Dict[str, Any]]]:
+            blocks = [b for b in _thinking_log if b.get("content")]
+            return blocks or None
 
         # Per-run workspace state — pin_to_workspace tool reads/writes this.
         _workspace_mod.init_state()
@@ -1623,6 +1626,8 @@ async def _stream_sse_response(
             elif chunk_type == "content_replace":
                 _thinking_parts.clear()
                 full_response = str(chunk.get("content") or "")
+                _round_block = None
+                _thinking_log.clear()
                 # 整体替换后，先前记录的 content_offset 指向旧草稿坐标系，
                 # 已无意义——清掉，让历史重建走「合并正文」兜底而不是错切。
                 for _tc in tool_calls_log:
@@ -1631,15 +1636,17 @@ async def _stream_sse_response(
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call":
                 _flush_thinking()
+                _round_block = None
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
-                # 记录该工具卡片出现时正文的累计长度（含 <think> 标记，与持久化
-                # content 同一坐标系）：历史重建按此偏移把「文本 ↔ 工具卡片」按
-                # 流式原顺序交错（问题15：刷新后内容与实时不一致）。
+                # 记录该工具卡片出现时正文的累计长度（与持久化 content 同一坐标系，
+                # 思考块的 offset 也是这个坐标系）：历史重建按此偏移把「文本 ↔ 思考
+                # ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
                 for _tc in tool_calls_log:
                     _tc.setdefault("content_offset", len(full_response))
                 yield f"data: {json.dumps(_tc_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call_start":
                 _flush_thinking()
+                _round_block = None
                 _ts_evt = build_tool_call_start_event(chunk, chat_id)
                 yield f"data: {json.dumps(_ts_evt, ensure_ascii=False)}\n\n"
             elif chunk_type == "tool_call_delta":
@@ -1741,6 +1748,7 @@ async def _stream_sse_response(
                     role="assistant",
                     content=full_response,
                     model=model_name,
+                    thinking=_thinking_payload(),
                     tool_calls=tool_calls_log if tool_calls_log else None,
                     usage=_usage,
                     message_id=pending_message_id,
