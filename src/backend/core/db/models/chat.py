@@ -142,6 +142,11 @@ class ChatMessage(Base):
     chat_seq = Column(BigInteger, nullable=False)
     content = Column(Text, nullable=False)
     model = Column(String(100))
+    # 思考过程，与正文分开存：``[{"content": str, "offset": int}]``，offset 是该思考块
+    # 出现时正文的字符位置。历史上思考是以 <think>…</think> 拼进 content 落库的，
+    # 结果思考把正文顶出 content 的 10 万字上限、截断切掉闭合标签后整段漏成正文。
+    # NULL = 老消息，仍按 content 里的内联标记解析。
+    thinking = Column(JSONType)
     tool_calls = Column(JSONType)
     usage = Column(JSONType)
     error = Column(JSONType)
