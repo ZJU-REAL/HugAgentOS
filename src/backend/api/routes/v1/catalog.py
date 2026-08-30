@@ -14,7 +14,12 @@ from core.db.engine import get_db
 from core.db.repository import KBRepository
 from core.infra.exceptions import BadRequestError
 from core.infra.responses import success_response
-from core.kb.external_provider import is_enabled, list_collections
+from core.kb.external_provider import (
+    get_provider_cache_identity,
+    get_provider_name,
+    is_enabled,
+    list_collections,
+)
 from core.services import CatalogService
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
@@ -23,58 +28,99 @@ from starlette.concurrency import run_in_threadpool
 
 # ── External knowledge collection cache ──
 _external_cache_lock = Lock()
-_external_cache: Optional[tuple] = None  # (expires_at, items)
-_external_cache_refreshing = False
+_external_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+_external_cache_refreshing: set[str] = set()
 _external_cache_async_lock: Optional[asyncio.Lock] = None
 _external_cache_async_lock_loop: Optional[asyncio.AbstractEventLoop] = None
 _EXTERNAL_CACHE_TTL = 30.0
 _EXTERNAL_CACHE_FAILURE_TTL = 5.0
+_EXTERNAL_CACHE_CONTEXT_RETRIES = 2
 
 
-def _list_datasets_cached() -> List[Dict[str, Any]]:
-    """Return external collections with single-flight stale-cache refresh."""
-    global _external_cache, _external_cache_refreshing
+def _external_cache_context() -> tuple[str, str]:
+    provider = get_provider_name() or "dify"
+    return provider, get_provider_cache_identity(provider)
+
+
+def _retry_after_cache_context_change(
+    cache_identity: str,
+    context_retry: int,
+) -> List[Dict[str, Any]]:
+    with _external_cache_lock:
+        _external_cache_refreshing.discard(cache_identity)
+    if context_retry >= _EXTERNAL_CACHE_CONTEXT_RETRIES:
+        raise RuntimeError("Knowledge provider configuration changed repeatedly during refresh")
+    return _list_datasets_cached(_context_retry=context_retry + 1)
+
+
+def _prune_external_cache_locked(now: float, preserve: str) -> None:
+    expired = [
+        identity
+        for identity, (expires_at, _) in _external_cache.items()
+        if identity != preserve and expires_at <= now and identity not in _external_cache_refreshing
+    ]
+    for identity in expired:
+        del _external_cache[identity]
+
+
+def _list_datasets_cached(*, _context_retry: int = 0) -> List[Dict[str, Any]]:
+    """Cache collections by provider config and discard in-flight stale snapshots."""
+    provider, cache_identity = _external_cache_context()
     now = monotonic()
     with _external_cache_lock:
-        if _external_cache is not None:
-            expires_at, items = _external_cache
+        _prune_external_cache_locked(now, cache_identity)
+        cached = _external_cache.get(cache_identity)
+        if cached is not None:
+            expires_at, items = cached
             if now < expires_at:
                 return deepcopy(items)
 
-        stale_items = _external_cache[1] if _external_cache is not None else None
-        if _external_cache_refreshing:
+        stale_items = cached[1] if cached is not None else None
+        if cache_identity in _external_cache_refreshing:
             if stale_items is not None:
                 return deepcopy(stale_items)
             # Async route callers wait for the shared cold refresh before reaching here.
             return []
 
-        _external_cache_refreshing = True
+        _external_cache_refreshing.add(cache_identity)
 
     try:
-        items = list_collections(page=1, limit=100, raise_on_error=True)
+        items = list_collections(
+            page=1,
+            limit=100,
+            raise_on_error=True,
+            provider_name=provider,
+        )
         cache_items = deepcopy(items)
     except Exception as exc:
+        if _external_cache_context() != (provider, cache_identity):
+            return _retry_after_cache_context_change(cache_identity, _context_retry)
         fallback_items = deepcopy(stale_items) if stale_items is not None else []
         with _external_cache_lock:
-            _external_cache = (
+            _external_cache[cache_identity] = (
                 monotonic() + _EXTERNAL_CACHE_FAILURE_TTL,
                 deepcopy(fallback_items),
             )
-            _external_cache_refreshing = False
+            _external_cache_refreshing.discard(cache_identity)
         if stale_items is not None:
             logger.warning("External catalog refresh failed; serving stale cache: %s", exc)
             return fallback_items
         raise
 
+    if _external_cache_context() != (provider, cache_identity):
+        return _retry_after_cache_context_change(cache_identity, _context_retry)
+
     with _external_cache_lock:
-        _external_cache = (monotonic() + _EXTERNAL_CACHE_TTL, cache_items)
-        _external_cache_refreshing = False
+        _external_cache[cache_identity] = (monotonic() + _EXTERNAL_CACHE_TTL, cache_items)
+        _external_cache_refreshing.discard(cache_identity)
     return deepcopy(cache_items)
 
 
 def _external_cache_is_fresh() -> bool:
+    _, cache_identity = _external_cache_context()
     with _external_cache_lock:
-        return _external_cache is not None and monotonic() < _external_cache[0]
+        cached = _external_cache.get(cache_identity)
+        return cached is not None and monotonic() < cached[0]
 
 
 def _get_external_cache_async_lock() -> asyncio.Lock:
@@ -83,10 +129,7 @@ def _get_external_cache_async_lock() -> asyncio.Lock:
 
     loop = asyncio.get_running_loop()
     with _external_cache_lock:
-        if (
-            _external_cache_async_lock is None
-            or _external_cache_async_lock_loop is not loop
-        ):
+        if _external_cache_async_lock is None or _external_cache_async_lock_loop is not loop:
             _external_cache_async_lock = asyncio.Lock()
             _external_cache_async_lock_loop = loop
         return _external_cache_async_lock

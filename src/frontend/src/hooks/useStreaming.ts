@@ -11,6 +11,16 @@ import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
 import { processChatStream, getStreamActivityTs, hasStreamedRun, isRunCancelledByUser, markRunCancelledByUser } from './chatStream';
 import { parseAppliedQueueHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
+import {
+  captureChatInvocation,
+  chatInvocationMessageProps,
+  chatInvocationRequestFields,
+  createQueuedChatTurn,
+  hasChatInvocation,
+  normalizeChatInvocation,
+  queuedChatInvocation,
+  type ChatInvocationContext,
+} from '../utils/chatInvocation';
 import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
@@ -131,7 +141,10 @@ export function useStreaming(
     setUploadedFiles(uploadedFiles.filter((_, i) => i !== index));
   }
 
-  function queueDuringRun(directMessage?: string) {
+  function queueDuringRun(
+    directMessage?: string,
+    invocationOverride?: ChatInvocationContext,
+  ) {
     const state = useChatStore.getState();
     const content = (directMessage ?? state.input).trim();
     if (!content) return;
@@ -144,12 +157,13 @@ export function useStreaming(
       message.info(t('已有一条待发送消息，请先编辑或删除'));
       return;
     }
-    const queued: QueuedChatMessage = {
+    const queued: QueuedChatMessage = createQueuedChatTurn({
       id: `steer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       content,
       createdAt: Date.now(),
-      status: 'queued',
-    };
+      source: state,
+      invocationOverride,
+    });
     state.setQueuedMessage(state.currentChatId, queued);
     if (directMessage === undefined) state.setInput('');
   }
@@ -176,7 +190,7 @@ export function useStreaming(
         latest.setQueuedMessage(chatId, { ...queued, status: 'queued' });
         return;
       }
-      void smartSend(queued.content);
+      void smartSend(queued.content, queuedChatInvocation(queued));
     }, 0);
   }
 
@@ -228,7 +242,9 @@ export function useStreaming(
 
     if (!state.sendingChatIds.has(targetId)) {
       state.setQueuedMessage(targetId, null);
-      if (state.currentChatId === targetId) await smartSend(queued.content);
+      if (state.currentChatId === targetId) {
+        await smartSend(queued.content, queuedChatInvocation(queued));
+      }
       return;
     }
 
@@ -259,6 +275,14 @@ export function useStreaming(
     }
     if (liveRun === null) {
       sendQueuedAsNextTurn(targetId, currentQueued);
+      return;
+    }
+
+    // The current AgentScope executor has already assembled its skills/tools.
+    // Referenced turns must start through the ordinary chat endpoint after this
+    // run completes so the backend can validate and assemble the requested capability.
+    if (hasChatInvocation(currentQueued.invocation)) {
+      message.info(t('带引用的消息将在当前任务结束后发送'));
       return;
     }
 
@@ -397,6 +421,7 @@ export function useStreaming(
         isMarkdown: false,
         ts: Date.now(),
         messageId: queued.appliedMessageId,
+        ...chatInvocationMessageProps(normalizeChatInvocation(queued.invocation)),
       };
       let assistantIndex = assistantTs === undefined
         ? -1
@@ -443,7 +468,7 @@ export function useStreaming(
     }).catch(() => { /* 下次流结束还会再试 */ });
   }
 
-  async function send(directMessage?: string) {
+  async function send(directMessage?: string, invocationOverride?: ChatInvocationContext) {
     const { input, setInput, sending, addSendingChatId, removeSendingChatId, chatMode, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId, quotedFollowUp, setQuotedFollowUp, activeSkill, setActiveSkill, activePlugin, setActivePlugin, activeConnector, setActiveConnector, activeMention, setActiveMention } = useChatStore.getState();
     const { catalog } = useCatalogStore.getState();
     const { uploadedFiles, setUploadedFiles, setUploadingFiles, importedSpaceFiles, clearImportedSpaceFiles } = useFileStore.getState();
@@ -456,14 +481,13 @@ export function useStreaming(
       return;
     }
 
-    const currentSkill = activeSkill;
-    const currentPlugin = activePlugin;
-    const currentConnector = activeConnector;
-    const currentMention = activeMention;
-    const currentMcpIds = Array.from(new Set([
-      ...(currentPlugin?.mcpIds || []),
-      ...(currentConnector ? [currentConnector.id] : []),
-    ]));
+    const currentInvocation = invocationOverride === undefined
+      ? captureChatInvocation({ activeSkill, activePlugin, activeConnector, activeMention })
+      : normalizeChatInvocation(invocationOverride);
+    const currentSkill = currentInvocation.skill;
+    const currentPlugin = currentInvocation.plugin;
+    const currentConnector = currentInvocation.connector;
+    const currentMention = currentInvocation.mention;
 
     // Keep the @name prefix for persisted history/display compatibility. The authoritative
     // routing key is mention_agent_id below, so the backend can bypass the main agent and run
@@ -569,10 +593,7 @@ export function useStreaming(
           download_url: a.download_url,
         })),
       }),
-      ...(currentSkill ? { skillId: currentSkill.id, skillName: currentSkill.name } : {}),
-      ...(currentPlugin ? { pluginName: currentPlugin.name } : {}),
-      ...(currentConnector ? { connectorName: currentConnector.name } : {}),
-      ...(currentMention ? { mentionName: currentMention.name } : {}),
+      ...chatInvocationMessageProps(currentInvocation),
     };
 
     updateStore((prev) => {
@@ -668,18 +689,7 @@ export function useStreaming(
             },
           } : {}),
           ...(agentId ? { agent_id: agentId } : {}),
-          ...(currentSkill ? { skill_id: currentSkill.id, skill_name: currentSkill.name } : {}),
-          ...(currentPlugin && currentPlugin.skillIds.length > 0 ? { skill_ids: currentPlugin.skillIds } : {}),
-          ...(currentMcpIds.length > 0 ? { mcp_ids: currentMcpIds } : {}),
-          ...(currentPlugin ? { plugin_name: currentPlugin.name } : {}),
-          ...(currentConnector ? {
-            connector_id: currentConnector.id,
-            connector_name: currentConnector.name,
-          } : {}),
-          ...(currentMention ? {
-            mention_agent_id: currentMention.id,
-            mention_name: currentMention.name,
-          } : {}),
+          ...chatInvocationRequestFields(currentInvocation),
           ...(batchChat ? { batch_chat: true } : {}),
           ...(workflowChat ? { workflow_chat: true } : {}),
           // Project mount: read from the chat's own projectId (the frontend binds it when
@@ -1105,10 +1115,10 @@ export function useStreaming(
     }
   }
 
-  async function smartSend(directMessage?: string) {
+  async function smartSend(directMessage?: string, invocationOverride?: ChatInvocationContext) {
     const { planMode, loopMode, sending } = useChatStore.getState();
     if (sending) {
-      queueDuringRun(directMessage);
+      queueDuringRun(directMessage, invocationOverride);
       return;
     }
     if (planMode) {
@@ -1117,7 +1127,7 @@ export function useStreaming(
     if (loopMode) {
       return sendLoopMode(abortControllersRef, directMessage);
     }
-    return send(directMessage);
+    return send(directMessage, invocationOverride);
   }
 
   /** Abort the stream for a specific chat (defaults to the currently viewed chat).

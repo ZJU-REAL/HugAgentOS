@@ -24,7 +24,7 @@ from typing import Any, Awaitable, Callable, Mapping, Optional, cast
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun, ToolEffectLease, ToolEffectLedger
@@ -1059,17 +1059,57 @@ class ToolEffectJournal:
 
     def pending_effect_ids(self) -> list[str]:
         with self._sessions() as db:
+            terminal = aliased(ToolEffectLedger)
             rows = (
-                db.query(ToolEffectLedger)
-                .filter(ToolEffectLedger.event_type == "intent")
+                db.query(ToolEffectLedger.effect_id)
+                .filter(
+                    ToolEffectLedger.event_type == "intent",
+                    ~db.query(terminal.event_id)
+                    .filter(terminal.terminal_effect_id == ToolEffectLedger.effect_id)
+                    .exists(),
+                )
                 .order_by(ToolEffectLedger.created_at, ToolEffectLedger.event_id)
                 .all()
             )
-            return [
-                row.effect_id
-                for row in rows
-                if self._terminal_row(db, row.effect_id) is None
-            ]
+            return [row.effect_id for row in rows]
+
+    def prune_settled(self, *, retention_days: int = 7) -> int:
+        """Drop per-run recovery/observability facts of long-terminal runs.
+
+        Covers the tool effect ledger and leases plus the other append-only
+        per-run journals (harness usage attempts, harness events, run
+        operations); without this they grow without bound.
+        """
+        from core.db.models import ChatRunOperation, HarnessEventLog, HarnessUsageAttempt
+
+        cutoff = _aware(self._clock()) - timedelta(days=retention_days)
+        with self._sessions() as db:
+            settled_runs = db.query(ChatRun.run_id).filter(
+                ChatRun.status.notin_((*LIVE_STATUSES, "needs_attention"))
+            )
+            deleted = (
+                db.query(ToolEffectLedger)
+                .filter(
+                    ToolEffectLedger.created_at < cutoff,
+                    ToolEffectLedger.run_id.in_(settled_runs),
+                )
+                .delete(synchronize_session=False)
+            )
+            db.query(ToolEffectLease).filter(
+                ToolEffectLease.updated_at < cutoff,
+                ToolEffectLease.run_id.in_(settled_runs),
+            ).delete(synchronize_session=False)
+            for model in (HarnessUsageAttempt, HarnessEventLog, ChatRunOperation):
+                deleted += (
+                    db.query(model)
+                    .filter(
+                        model.created_at < cutoff,
+                        model.run_id.in_(settled_runs),
+                    )
+                    .delete(synchronize_session=False)
+                )
+            db.commit()
+            return deleted
 
     def settle_terminal_run_intent(self, effect_id: str) -> Optional[ToolIntent]:
         """Close an orphan intent without replay after its owning run is terminal.
@@ -1360,7 +1400,8 @@ class ToolEffectGateway:
         claim_owner = f"tool:{uuid.uuid4().hex}"
         policy = self.registry.resolve(tool_name)
         while True:
-            decision = self.journal.begin_intent(
+            decision = await asyncio.to_thread(
+                self.journal.begin_intent,
                 run_id=run_id,
                 owner=owner,
                 claim_owner=claim_owner,
@@ -1383,7 +1424,9 @@ class ToolEffectGateway:
                 raise ToolOutcomeUnknown(decision.effect_id)
             if decision.action == "wait":
                 await asyncio.sleep(self.poll_interval)
-                terminal = self.journal.terminal_decision(decision.effect_id)
+                terminal = await asyncio.to_thread(
+                    self.journal.terminal_decision, decision.effect_id
+                )
                 if terminal is None:
                     continue
                 if terminal.action == "unknown":
@@ -1400,7 +1443,8 @@ class ToolEffectGateway:
                     f"unsupported tool intent action: {decision.action}"
                 )
 
-            self.journal.acquire_invocation_claim(
+            await asyncio.to_thread(
+                self.journal.acquire_invocation_claim,
                 decision.effect_id,
                 run_owner=owner,
                 claim_owner=claim_owner,
@@ -1436,7 +1480,8 @@ class ToolEffectGateway:
                     if claim_lost.is_set():
                         raise ToolEffectLeaseLost(decision.effect_id)
                     if reconciliation.outcome == "applied":
-                        result = self.journal.commit_result(
+                        result = await asyncio.to_thread(
+                            self.journal.commit_result,
                             decision.effect_id,
                             run_owner=owner,
                             claim_owner=claim_owner,
@@ -1472,7 +1517,8 @@ class ToolEffectGateway:
                 # it can correct the request or explain an authorization issue.
                 # ToolOutcomeUnknown is reserved for invocations that never
                 # produced a result at all (exceptions, disconnects, crashes).
-                result = self.journal.commit_result(
+                result = await asyncio.to_thread(
+                    self.journal.commit_result,
                     decision.effect_id,
                     run_owner=owner,
                     claim_owner=claim_owner,
@@ -1569,7 +1615,7 @@ async def recover_incomplete_tool_effects(
                 logger.debug("tool recovery usage persistence failed", exc_info=True)
 
     decisions: list[RecoverySweepDecision] = []
-    for effect_id in journal.pending_effect_ids():
+    for effect_id in await asyncio.to_thread(journal.pending_effect_ids):
         terminal_intent = journal.settle_terminal_run_intent(effect_id)
         if terminal_intent is not None:
             decisions.append(

@@ -28,6 +28,7 @@ import { CitedTextBody } from '../common/CitedTextBody';
 import { ThinkingInline } from './ThinkingInline';
 import { StreamWaitIndicator } from './StreamWaitIndicator';
 import { TurnStatusIndicator } from './TurnStatusIndicator';
+import { InvocationBadges } from './InvocationBadges';
 import { EvolutionCard } from './EvolutionCard';
 import { OntologyReviewTrigger } from './OntologyReviewTrigger';
 import { useStallDetector } from '../../hooks';
@@ -614,34 +615,13 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
 
   const renderChipBadges = () => {
     if (m.role !== 'user') return null;
-    const hasMention = !!m.mentionName;
-    const hasSkill = !!m.skillName;
-    const hasPlugin = !!m.pluginName;
-    const hasConnector = !!m.connectorName;
-    if (!hasMention && !hasSkill && !hasPlugin && !hasConnector) return null;
     return (
-      <div className="jx-msgChipBadges">
-        {hasMention && (
-          <span className="jx-msgChip jx-msgChip--mention">
-            <span className="jx-msgChip-prefix">@</span>{m.mentionName}
-          </span>
-        )}
-        {hasSkill && (
-          <span className="jx-msgChip jx-msgChip--skill">
-            <span className="jx-msgChip-prefix">/</span>{m.skillName}
-          </span>
-        )}
-        {hasPlugin && (
-          <span className="jx-msgChip jx-msgChip--plugin">
-            <span className="jx-msgChip-prefix">/</span>{m.pluginName}
-          </span>
-        )}
-        {hasConnector && (
-          <span className="jx-msgChip jx-msgChip--connector">
-            <span className="jx-msgChip-prefix">MCP</span>{m.connectorName}
-          </span>
-        )}
-      </div>
+      <InvocationBadges
+        mentionName={m.mentionName}
+        skillName={m.skillName}
+        pluginName={m.pluginName}
+        connectorName={m.connectorName}
+      />
     );
   };
 

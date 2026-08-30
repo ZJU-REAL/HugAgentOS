@@ -765,6 +765,15 @@ a.jx-fileCard--link:hover{
   font-size:18px;
   line-height:1.45;
 }
+.jx-queuedMessage-body{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-width:0;
+}
+.jx-queuedMessage-badges{
+  margin:0;
+}
 .jx-queuedMessage-content{
   min-width:0;
   color:var(--color-text);

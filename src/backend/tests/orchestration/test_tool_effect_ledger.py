@@ -1630,3 +1630,86 @@ def test_tool_call_log_is_a_projection_linked_to_authoritative_effect(effect_env
         assert projection.id == intent.intent.result_id
         assert projection.tool_call_id == "new-provider-call-after-recovery"
         assert projection.tool_result == "replayed contents"
+
+
+def test_prune_settled_drops_only_old_rows_of_settled_runs(effect_env):
+    sessions, make_run = effect_env
+    clock = MutableClock()
+    ledger = ToolEffectJournal(sessions, clock=clock)
+    make_run("run-old")
+    make_run("run-live", chat_id="chat-2")
+    old = ledger.begin_intent(
+        run_id="run-old",
+        owner="worker",
+        claim_owner="invocation",
+        tool_call_id="call-old",
+        tool_name="write",
+        args={"path": "/tmp/a"},
+        recovery_policy="never_replay",
+        idempotency_key="prune-old",
+    )
+    ledger.commit_result(
+        old.effect_id,
+        run_owner="worker",
+        claim_owner="invocation",
+        result={"ok": True},
+    )
+    live = ledger.begin_intent(
+        run_id="run-live",
+        owner="worker",
+        claim_owner="invocation",
+        tool_call_id="call-live",
+        tool_name="write",
+        args={"path": "/tmp/b"},
+        recovery_policy="never_replay",
+        idempotency_key="prune-live",
+    )
+    from core.db.models import ChatRunOperation, HarnessEventLog, HarnessUsageAttempt
+
+    with sessions() as db:
+        run = db.get(ChatRun, "run-old")
+        run.status = "completed"
+        db.add(
+            HarnessUsageAttempt(
+                attempt_id="hat-old",
+                run_id="run-old",
+                attempt_seq=1,
+                kind="tool",
+                operation_name="write",
+                status="success",
+            )
+        )
+        db.add(
+            HarnessEventLog(
+                event_id="hev-old",
+                run_id="run-old",
+                event_seq=1,
+                event_type="tool_result",
+                phase="post",
+                payload={},
+            )
+        )
+        db.commit()
+    clock.advance(8 * 24 * 3600)
+    assert ledger.prune_settled() >= 4
+    with sessions() as db:
+        for model in (
+            ToolEffectLedger,
+            HarnessUsageAttempt,
+            HarnessEventLog,
+            ChatRunOperation,
+        ):
+            assert db.query(model).filter(model.run_id == "run-old").count() == 0
+        assert (
+            db.query(ToolEffectLedger)
+            .filter(ToolEffectLedger.run_id == "run-live")
+            .count()
+            == 1
+        )
+        assert (
+            db.query(ChatRunOperation)
+            .filter(ChatRunOperation.run_id == "run-live")
+            .count()
+            > 0
+        )
+    assert ledger.pending_effect_ids() == [live.effect_id]

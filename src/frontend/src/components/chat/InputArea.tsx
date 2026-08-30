@@ -38,6 +38,7 @@ import ModelEffortChip from './ModelEffortChip';
 import { ContextGauge } from './ContextGauge';
 import { QueuedMessageCard } from './QueuedMessageCard';
 import { extractClipboardImageFiles } from '../../utils/clipboardFiles';
+import { hasChatInvocation } from '../../utils/chatInvocation';
 import { t } from '../../i18n';
 
 interface InputAreaProps {
@@ -880,10 +881,7 @@ export function InputArea({
   const queuedMessage = forceSendMode ? undefined : queuedMessages[currentChatId];
   const canSteerQueued = !!activeRuns[currentChatId]?.runId
     && !hasAttachments
-    && !activeSkill
-    && !activePlugin
-    && !activeConnector
-    && !activeMention;
+    && !hasChatInvocation(queuedMessage?.invocation);
 
   // A terminal run can race with the steer response. Never leave the card in
   // an impossible "waiting for a tool boundary" state once this chat is idle.

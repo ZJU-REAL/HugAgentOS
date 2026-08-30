@@ -197,6 +197,15 @@ async def test_service_group(group_key: str) -> dict:
     if group_key == "knowledge_base":
         from core.services.edition_service_probe import test_external_knowledge
 
+        provider = (svc.get("knowledge_base.provider") or "").strip().lower()
+        if provider in {"custom", "local"}:
+            return {
+                "success": True,
+                "latency_ms": 0,
+                "error": None,
+                "skipped": True,
+                "message": "平台自建知识库模式无需测试外部连接",
+            }
         url = svc.get("knowledge_base.url")
         api_key = svc.get("knowledge_base.api_key")
         if not url:
