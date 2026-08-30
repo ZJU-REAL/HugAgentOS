@@ -277,7 +277,8 @@ Start from [document/README.md](./document/README.md) to browse every guide.
 We welcome bug reports, feature proposals, documentation improvements, and
 reproducible patches. Read [CONTRIBUTING.md](./CONTRIBUTING.md) before you
 start so you understand the boundary between generated and directly editable
-content.
+content. By participating, you agree to follow our bilingual
+[Community Code of Conduct](./CODE_OF_CONDUCT.md).
 
 - Include reproduction steps, expected behavior, actual behavior, and your
   environment in bug reports.
