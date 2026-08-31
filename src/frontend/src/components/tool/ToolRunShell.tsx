@@ -6,7 +6,10 @@ import { ThinkingStepRow } from './ThinkingStepRow';
 import { PendingStepRow } from './PendingStepRow';
 import { computeEffectiveStatus } from './renderers/utils';
 import { t } from '../../i18n';
-import { getToolRunInitialOpen } from '../../utils/toolRunState';
+import { getDoneActionLabel, getRunningActionLabel } from '../../utils/toolActionLabel';
+import { resolveToolDisplayName } from '../../utils/toolMeta';
+import { useChatStore } from '../../stores';
+import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 
 /** Aggregate status of a contiguous step batch. */
 type ShellStatus = 'running' | 'success';
@@ -78,17 +81,14 @@ interface ToolRunShellProps {
   /** Mixed steps (tool calls + thinking) belonging to one contiguous batch. */
   steps: ShellStep[];
   isStreaming?: boolean;
-  /** Keep auto-open active while the assistant is still between tool work and answer text. */
-  holdOpenUntilText?: boolean;
 }
 
 /**
  * Minimal collapsible shell wrapping a contiguous batch of steps.
  *
- * Running  → expanded, header shows "In progress · M min SS sec" with a ticking timer.
- * Done     → collapses to a single "Done · M min SS sec" line; the user can click
- *            to re-expand. Status is conveyed by icon shape, not colour, to
- *            keep the run monochrome and quiet in the chat flow.
+ * 始终折叠成一行，点击才展开——运行中也不例外。那一行报的是实际动作
+ * （"正在执行命令" → "运行了命令"）加耗时、步骤数，信息量足够，不必靠展开
+ * 让用户确认它还活着。状态只靠图标形状表达，不用颜色，保持流里的安静。
  *
  * Thinking segments adjacent to a tool batch are folded in as additional
  * steps so the user sees one unified "agent run" card instead of separate
@@ -96,9 +96,10 @@ interface ToolRunShellProps {
  */
 export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
   const [mountTs] = useState(() => Date.now());
-  // A live run opens on first mount and stays as the user left it. After a
-  // refresh, historical runs mount with isStreaming=false and start folded.
-  const [open, setOpen] = useState(() => getToolRunInitialOpen(isStreaming));
+  // 过程默认收起，跑起来也不自动展开——折叠那一行的文案已经说明了在做什么。
+  const [open, setOpen] = useState(false);
+  const toolDisplayNames = useChatStore((s) => s.toolDisplayNames);
+  const collapseRef = useCollapseHeight(open);
 
   const tools = steps.flatMap((s) => (s.kind === 'tool' ? [s.tool] : []));
   const toolStatuses = tools.map((t) => computeEffectiveStatus(t, isStreaming));
@@ -114,7 +115,20 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
   const startTs = tsList.length ? Math.min(...tsList) : mountTs;
   const endTs = tsList.length ? Math.max(...tsList) : mountTs;
 
-  const title = running ? t('执行中') : t('已完成');
+  // 折叠态下这行是用户唯一看得到的信息，所以报的是实际动作而不是"执行中/已完成"：
+  // 跑的时候跟着当前那个工具走，收尾后按这一批用过的工具类型给结论。
+  // MCP 连接器的名字是会话期动态下发的，先解析好再交给文案表——没登记在表里的
+  // 工具就靠这个名字自报家门。
+  const labeled = tools.map((tc) => ({
+    name: tc.name,
+    displayName: resolveToolDisplayName(tc, toolDisplayNames),
+  }));
+  const runningTool = labeled.find((_, i) => toolStatuses[i] === 'running');
+  const title = running
+    ? (runningTool
+        ? getRunningActionLabel(runningTool)
+        : anyThinkingActive ? t('正在思考') : t('执行中'))
+    : getDoneActionLabel(labeled);
 
   // 折叠态下这行是唯一的进度来源。批量作业（run_job）会把一轮卡在同一个工具里几十分钟，
   // 步骤数一个都不会涨——不把里面那张卡的实时进度顶到头上，用户看到的就是"执行中 · 5 个步骤"
@@ -145,11 +159,20 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
         <span key={title} className="jx-trs-title">{title}</span>
         <ShellTimer startTs={startTs} endTs={endTs} running={running} />
         {runningNote && <span className="jx-trs-note">{runningNote}</span>}
-        <span className="jx-trs-steps">{t('{n} 个步骤', { n: steps.length })}</span>
+        {/* 折叠态下用户最关心的是"到底动了多少次手"，所以有工具就直接报工具数；
+            只有纯思考、没有工具的批次才退回步骤数。 */}
+        <span className="jx-trs-steps">
+          {tools.length > 0
+            ? t('{n} 个工具', { n: tools.length })
+            : t('{n} 个步骤', { n: steps.length })}
+        </span>
         <span className={`jx-trs-chev${open ? ' jx-trs-chev--open' : ''}`} aria-hidden="true" />
       </button>
 
-      <div className={`jx-trs-bodyWrap${open ? ' jx-trs-bodyWrap--open' : ''}`}>
+      <div
+        ref={collapseRef}
+        className={`jx-trs-bodyWrap${open ? ' jx-trs-bodyWrap--open' : ''}`}
+      >
         <div className="jx-trs-body">
           {steps.map((step) => {
             if (step.kind === 'tool') {

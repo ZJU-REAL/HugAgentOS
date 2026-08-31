@@ -56,6 +56,8 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("sites", "router"),
     ("desktop", "router"),
     ("local", "router"),
+    # 工具执行权限档（标准 / 只读 / 自动）——输入框工具栏那颗权限胶囊的数据源
+    ("tool_approval", "router"),
 )
 
 EE_ROUTERS: tuple = ()

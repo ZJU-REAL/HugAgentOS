@@ -6,6 +6,8 @@
  *   CSS 侧由 variables.css 的 :root[data-theme="dark"] 覆盖块接管。
  */
 
+import { writeLocal } from './storage';
+
 export type ThemeMode = 'system' | 'light' | 'dark';
 
 const THEME_STORAGE_KEY = 'hugagent_theme_mode';
@@ -22,7 +24,7 @@ export function loadThemeMode(): ThemeMode {
 
 export function saveThemeMode(mode: ThemeMode): void {
   try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, mode);
+    writeLocal(THEME_STORAGE_KEY, mode);
   } catch {
     /* storage 不可用时静默降级为会话内生效 */
   }

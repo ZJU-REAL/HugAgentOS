@@ -26,8 +26,84 @@ const inflightMsgLoads = new Set<string>();
 // leave the chat stuck on the skeleton until the user switched away and back;
 // now we self-retry a few times with backoff (bumpSessionLoadEpoch re-fires
 // the lazy-load effect), then give up until the next manual visit.
+/** 打开会话先渲染多少条历史；往上滚续拉也按这个粒度。
+ *
+ *  过去是把每一页都拉完再一次性渲染整段历史——跑过大文件的长对话，光这一步就能
+ *  把浏览器压垮。这里只铺第一屏，剩下的交给滚动续拉。 */
+export const MESSAGE_PAGE_SIZE = 30;
+
 const msgLoadRetryCounts = new Map<string, number>();
 const MSG_LOAD_MAX_RETRIES = 3;
+
+/**
+ * 往上滚到顶时续拉更早的一页历史，拼回消息列表的最前面。
+ *
+ * 返回本次真正新增了多少条：0 表示已经到最早的一条、正在拉、或者这一页全是重复。
+ * 去重按 message_id（老消息回落到时间戳）——滚动触发可能与其它路径的写入并发。
+ */
+export async function loadOlderMessages(chatId: string): Promise<number> {
+  const store = useChatStore.getState();
+  const paging = store.messagePaging[chatId];
+  if (!paging || !paging.hasOlder || paging.loading) return 0;
+  store.setMessagePaging(chatId, { ...paging, loading: true });
+  try {
+    const r = await authFetch(
+      `${effectiveApiUrl}/v1/chats/${chatId}/messages`
+      + `?page=${paging.nextPage}&page_size=${MESSAGE_PAGE_SIZE}&order=desc`,
+      { headers: { ...chatTargetHeaders(chatId) } },
+    );
+    if (!r.ok) throw new Error(`older messages: HTTP ${r.status}`);
+    const payload = await r.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const items: any[] = payload?.data?.items || [];
+    const older = items.map(parseHistoryMessage);
+    let added = 0;
+    useChatStore.getState().updateStore((prev) => {
+      const chat = prev.chats[chatId];
+      if (!chat) return prev;
+      const existing = chat.messages || [];
+      const seen = new Set(existing.map((m) => m.messageId || String(m.ts)));
+      const fresh = older.filter((m) => !seen.has(m.messageId || String(m.ts)));
+      added = fresh.length;
+      if (fresh.length === 0) return prev;
+      return {
+        ...prev,
+        chats: {
+          ...prev.chats,
+          [chatId]: { ...chat, messages: markResolvedPlanPreviews([...fresh, ...existing]) },
+        },
+      };
+    });
+    useChatStore.getState().setMessagePaging(chatId, {
+      nextPage: paging.nextPage + 1,
+      hasOlder: !!payload?.data?.pagination?.has_next,
+      loading: false,
+    });
+    return added;
+  } catch {
+    // 失败就把 loading 放掉，让下一次滚动重试；不改 nextPage，不丢游标。
+    const latest = useChatStore.getState().messagePaging[chatId];
+    if (latest) useChatStore.getState().setMessagePaging(chatId, { ...latest, loading: false });
+    return 0;
+  }
+}
+
+/**
+ * 把这个会话剩下的历史全部补齐（一页一页续拉，直到没有更早的）。
+ *
+ * 常规浏览一律走"只铺第一屏 + 滚动续拉"，但有几件事**必须**看到整段历史：导出 PDF、
+ * 计划模式把历史带给后端。这两处在动手前先调一次这里，别拿半截历史当全部。
+ * 上限兜一道：真有异常长的会话也不至于在这儿转到天荒地老。
+ */
+export async function ensureFullMessages(chatId: string, maxPages = 100): Promise<void> {
+  for (let i = 0; i < maxPages; i += 1) {
+    const paging = useChatStore.getState().messagePaging[chatId];
+    if (!paging?.hasOlder) return;
+    const added = await loadOlderMessages(chatId);
+    // 拉不动了（请求失败 / 整页都是重复）就停，避免空转。
+    if (added === 0 && !useChatStore.getState().messagePaging[chatId]?.loading) return;
+  }
+}
 
 // Convert a backend message item (from GET /v1/chats/{id}/messages) into a
 // frontend ChatMessage. Pure — used by both the preload path (during initial
@@ -65,6 +141,8 @@ function parseHistoryMessage(m: any): ChatMessage {
         ...(typeof (tc.content_offset ?? tc.contentOffset) === 'number'
           ? { contentOffset: (tc.content_offset ?? tc.contentOffset) }
           : {}),
+        // 历史列表只给了梗概；展开这张卡时 ToolCallRow 会按需回取完整结果。
+        ...(tc.result_truncated === true ? { outputTruncated: true } : {}),
       }))
     : undefined;
   const revisionToolCalls = allToolCalls?.filter((tool) => tool.scope === 'ontology_revision') ?? [];
@@ -526,7 +604,7 @@ export function useChatInit() {
             // until the next full refresh.
             let preloadComplete = false;
             try {
-              const mr = await authFetch(`${effectiveApiUrl}/v1/chats/${targetChatId}/messages?page=1&page_size=100`, { headers: { ...chatTargetHeaders(targetChatId) } });
+              const mr = await authFetch(`${effectiveApiUrl}/v1/chats/${targetChatId}/messages?page=1&page_size=${MESSAGE_PAGE_SIZE}&order=desc`, { headers: { ...chatTargetHeaders(targetChatId) } });
               if (mr.ok && !cancelled) {
                 const mp = await mr.json();
                 const msgItems: any[] = mp?.data?.items || [];
@@ -543,7 +621,14 @@ export function useChatInit() {
                     parseContextCompactionState(mp.data.context_compaction),
                   );
                 }
-                preloadComplete = !mp?.data?.pagination?.has_next;
+                // 只铺第一屏就算"预载完成"——更早的内容由 ChatArea 滚到顶时续拉，
+                // 不再因为"还有下一页"而回落去把整段历史拉完（那正是要根治的行为）。
+                preloadComplete = true;
+                useChatStore.getState().setMessagePaging(targetChatId, {
+                  nextPage: 2,
+                  hasOlder: !!mp?.data?.pagination?.has_next,
+                  loading: false,
+                });
                 if (!cancelled && quickMsgs.length > 0) {
                   // Detect plan mode from message content (fallback for sessions
                   // created before plan_chat metadata was persisted)
@@ -738,7 +823,7 @@ export function useChatInit() {
       inflightMsgLoads.add(chatId);
       let loaded = false;
       try {
-        let page = 1;
+        const page = 1;
         const allMessages: ChatMessage[] = [];
         let hasPlanMessages = false;
         // Track the latest plan_snapshot across all pages; if its mode remains
@@ -750,8 +835,13 @@ export function useChatInit() {
         let contextUsageSeen = false;
         let contextUsage: ContextUsageSnapshot | null = null;
 
-        while (true) {
-          const r = await authFetch(`${effectiveApiUrl}/v1/chats/${chatId}/messages?page=${page}&page_size=100`, { headers: { ...chatTargetHeaders(chatId) } });
+        // 只取**最近一页**：order=desc 的第 1 页就是最新的 MESSAGE_PAGE_SIZE 条
+        // （后端按 chat_seq 倒序取、页内再正序返回，直接就是可渲染的顺序）。
+        // 过去这里是 while(true) 把每一页都拉完再一次性渲染 —— 跑过大文件的长对话，
+        // 光这一下就能把浏览器压垮。更早的内容由 ChatArea 滚到顶时续拉。
+        let hasOlder = false;
+        {
+          const r = await authFetch(`${effectiveApiUrl}/v1/chats/${chatId}/messages?page=${page}&page_size=${MESSAGE_PAGE_SIZE}&order=desc`, { headers: { ...chatTargetHeaders(chatId) } });
           if (cancelled) return;
           // A non-2xx page (401 blip, 502 during backend restart, 429…) must
           // NOT fall through to the store write below — that would persist an
@@ -780,10 +870,13 @@ export function useChatInit() {
             allMessages.push(parseHistoryMessage(m));
           }
 
-          const pagination = payload?.data?.pagination;
-          if (!pagination?.has_next) break;
-          page++;
+          hasOlder = !!payload?.data?.pagination?.has_next;
         }
+        useChatStore.getState().setMessagePaging(chatId, {
+          nextPage: page + 1,
+          hasOlder,
+          loading: false,
+        });
 
         if (!cancelled) {
           if (contextUsageSeen) {

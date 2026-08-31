@@ -66,6 +66,22 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 追加指令以数据库为准：系统先持久化，再用 Redis 做尽力而为的低延迟唤醒。同一会话按单调 `steer_seq` 排序，状态为 `accepted`、`claimed`、`applied`、`cancelled` 或 `superseded`；认领租约过期后可重新投递。`delivery_mode=steer` 会在下一安全 ReAct 边界注入，并以 `steer_applied` 事件确认；`delivery_mode=followUp` 在当前 run 完成后启动，`delivery_mode=nextRun` 不修改当前上下文，而是成为下一条独立 run。后两种交接会在同一事务中提交当前回答、排队用户消息、队列状态和下一条 `ChatRun`，刷新后可通过上面的状态接口对账。包含附件、技能、连接器、插件或子智能体的消息仍会等待当前回答结束后正常发送。按 `Esc` 会取消当前页面正在显示的会话 run。
 
+### 工具执行权限档
+
+输入框工具栏「项目」选择框旁边有一颗权限胶囊，三档，按用户保存在服务端（`users_shadow.metadata.tool_approval_mode`），读写接口是 `GET/PUT /v1/tool-approval`：
+
+| 档位 | 存储值 | 效果 |
+|---|---|---|
+| 逐项确认（默认） | `ask` | 保持原有行为：写文件、动本机、跑命令前弹确认条等用户点头 |
+| 替我批准 | `auto` | 普通写入 / 编辑直接放行；**删除类操作**（`DESTRUCTIVE_OPS`）与本地策略标了 `danger:<类别>` 的命令仍然停下来问 |
+| 完全放开 | `full` | 所有工具确认一律不再询问 |
+
+档位在 `core/llm/tool_permissions.py` 里统一声明（`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`），随对话上下文传到 `PermissionRuntime`，是所有工具确认闸的唯一判据；任何一档都只跳过"问"这一步，本地安全策略判定的硬拒绝仍然拒绝。"这次危不危险"由 `core/sandbox/local_policy.danger_categories()` 从裁决理由里的 `danger:` 前缀还原，不靠匹配提示文案。读到早期版本存下的 `standard` / `readonly` 时按最保守的 `ask` 兜底。
+
+渠道机器人、定时任务这类无人值守入口走 `default_allow` 分支，不受该档位影响。
+
+**桌面端沿用同一档，不再另存一份权限档。** 原来的「本机操作权限档」（严格 / 标准 / 放开，存本机 `local_grants.json`，接口 `/v1/local/approval-mode`）已整体删除；本机执行策略改由 `core/services/local_grant_service.policy_for_gate(approval_mode)` 按本档位翻译：`full` 全部放行，`ask` / `auto` 走用户配置的分类处置与内置默认。OS 文件沙箱约束同样按档位声明（`LOCAL_CONFINEMENT_BY_MODE`）：`ask` / `auto` 优先约束、缺执行器时降级告警，`full` 显式不约束，读不出本机安全配置时落到 `FAIL_CLOSED_MODE` 这个记号档、要求强制隔离。桌面端仍保留的「授权目录 / 危险命令分类处置」（`/v1/local/grants`、`/v1/local/policy`）管的是"本机哪些目录能动"，与档位是两件事，入口仍在胶囊底部。
+
 ### Agent 构建要点（core/llm/agent_factory.py）
 
 `create_agent_executor()` 是所有模式（主对话、计划、批量、子智能体、自动化）共用的工厂：

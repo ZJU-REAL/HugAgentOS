@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { AbilityTabKey, Catalog, PanelKey } from '../types';
 import { getCatalog, updateCatalogItem } from '../api';
-import { loadCatalog, saveCatalog } from '../storage';
+import { loadCatalog, saveCatalog, removeLocal } from '../storage';
 
 const PANEL_STORAGE_KEY = 'hugagent_active_panel';
 // Keep in sync with authStore.LOGIN_LANDING_KEY (inlined to avoid a circular import).
@@ -54,7 +54,7 @@ function loadActivePanel(): PanelKey {
   // 读完就清掉，之后一律走 sessionStorage。
   try {
     const legacy = window.localStorage.getItem(PANEL_STORAGE_KEY);
-    window.localStorage.removeItem(PANEL_STORAGE_KEY);
+    removeLocal(PANEL_STORAGE_KEY);
     if (legacy && (VALID_PANELS as readonly string[]).includes(legacy)) {
       writeSession(PANEL_STORAGE_KEY, legacy);
       return legacy as PanelKey;

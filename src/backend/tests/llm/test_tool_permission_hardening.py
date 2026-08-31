@@ -201,7 +201,6 @@ async def test_trusted_unattended_run_issues_an_unconfined_builtin_bash_ticket()
     assert outcome.ticket.local_command is not None
     assert outcome.ticket.local_command.command == "touch /tmp/x"
     assert outcome.ticket.local_command.approval_mode == "full"
-    assert outcome.ticket.local_command.read_only is False
     assert outcome.audit["decision"] == "allow_trusted_unattended"
 
 

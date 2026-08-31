@@ -705,6 +705,10 @@ async def create_agent_executor(
     # independently disable bash for a hard read-only boundary.
     read_only: bool = False,
     allow_bash: bool = True,
+    # approval_mode: 用户自选的权限档（core.llm.tool_permissions 的 ask / auto /
+    # full）。auto 让普通写入不再弹确认框、删除等危险操作照旧问；full 一律不问。
+    # 默认 ask，行为与改造前一致。
+    approval_mode: str = "ask",
     # turbo_mode: 极速模式（quick-lookup entry）。Retrieval-only assembly:
     # carries exactly the admin-configured turbo MCP set（系统配置「极速模式」，
     # deliberately independent of catalog enable/disable state）, drops skills,
@@ -760,6 +764,10 @@ async def create_agent_executor(
 
     import logging
     import time
+
+    from core.llm.tool_permissions import normalize_approval_mode
+
+    approval_mode = normalize_approval_mode(approval_mode)
 
     _log = logging.getLogger(__name__)
     _t0 = time.monotonic()
@@ -2654,6 +2662,7 @@ async def create_agent_executor(
                 channel_origin=channel_origin,
                 automation_run=automation_run,
             ),
+            approval_mode=approval_mode,
         ),
     )
 

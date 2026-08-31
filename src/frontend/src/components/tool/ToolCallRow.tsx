@@ -16,7 +16,6 @@ import {
   FileExcelOutlined,
 } from '@ant-design/icons';
 import type { ToolCall } from '../../types';
-import { TOOL_NAME_OVERRIDES } from '../../utils/constants';
 import { useChatStore, useUIStore } from '../../stores';
 import { ElapsedTimer } from '../common';
 import { renderToolOutputBody } from './ToolOutputRenderer';
@@ -26,9 +25,17 @@ import { CodeView } from './renderers/CodeView';
 import { MySpaceBodyContent } from './renderers/MySpaceRenderer';
 import { renderInternetSearchInline } from './renderers/SearchRenderer';
 import { coerceOutput, computeEffectiveStatus } from './renderers/utils';
+import { message } from 'antd';
+import { getToolCallResult } from '../../api';
+import { useToolMessageIdentity } from './ToolMessageContext';
 import { t } from '../../i18n';
+import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
-import { resolvePluginToolLabel, resolvePluginToolStepText } from '../../utils/toolMeta';
+import {
+  resolvePluginToolLabel,
+  resolvePluginToolStepText,
+  resolveToolDisplayName,
+} from '../../utils/toolMeta';
 
 /**
  * Returns a `{ prefix, value, count }` label descriptor for the header row.
@@ -212,6 +219,9 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
   // null follows the automatic streaming default; the first user toggle turns
   // this into an explicit preference so later deltas cannot force the row open.
   const [expandedOverride, setExpandedOverride] = useState<boolean | null>(null);
+  // 开过一次就把内容留在 DOM 里，收起时高度才有得动——随开随卸的话折叠是瞬间的。
+  const [everExpanded, setEverExpanded] = useState(false);
+  const collapseRef = useCollapseHeight(expandedOverride ?? false);
   const toolDisplayNames = useChatStore((s) => s.toolDisplayNames);
   const setDetailModal = useUIStore((s) => s.setDetailModal);
 
@@ -219,11 +229,7 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
   const running = effectiveStatus === 'running';
   const parsed = useMemo(() => coerceOutput(tool.output), [tool.output]);
 
-  const displayName =
-    tool.displayName ||
-    TOOL_NAME_OVERRIDES[tool.name] ||
-    toolDisplayNames[tool.name] ||
-    tool.name;
+  const displayName = resolveToolDisplayName(tool, toolDisplayNames);
 
   const isLiveCode =
     effectiveStatus === 'running' && STREAM_CODE_TOOLS.has(tool.name);
@@ -254,11 +260,51 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
   const liveInputView = isLiveCode && !!liveCode?.code;
   // Sub-agent card: its internal thinking/tool/content sub-steps hang under this card and should be collapsible.
   const hasSubSteps = Array.isArray(tool.subSteps) && tool.subSteps.length > 0;
-  // Argument streaming is collapsed by default. Parent sub-agent cards keep
-  // their established auto-open behaviour so nested progress stays visible.
-  const expanded = expandedOverride ?? hasSubSteps;
+  // 与外层执行卡一致：一切默认收起，包括子智能体的内部过程（展开是好几屏）。
+  const expanded = expandedOverride ?? false;
   const canExpand = (hasOutput && !running) || liveInputView || !!liveArgumentText || hasSubSteps;
-  const toggle = () => { if (canExpand) setExpandedOverride(!expanded); };
+
+  // ── 展开时才取完整结果 ────────────────────────────────────────────────
+  // 历史列表只下发梗概（后端 `_tool_calls_for_history`）：一页 30 条消息、每条挂着
+  // 好几张工具卡，把完整结果一起搬进浏览器正是"打开长对话就卡死"的来源。用户真正
+  // 展开哪张卡，才去取哪一张；取回来写进 store，收起再展开不会重复请求。
+  const messageIdentity = useToolMessageIdentity();
+  const applyToolCallOutput = useChatStore((s) => s.applyToolCallOutput);
+  const [loadingFullOutput, setLoadingFullOutput] = useState(false);
+  const needsFullOutput = !!tool.outputTruncated
+    && !tool.outputLoaded
+    && !!tool.id
+    && !!messageIdentity?.messageId;
+
+  const fetchFullOutput = async () => {
+    if (!messageIdentity?.messageId || !tool.id || loadingFullOutput) return;
+    setLoadingFullOutput(true);
+    try {
+      const detail = await getToolCallResult(
+        messageIdentity.chatId,
+        messageIdentity.messageId,
+        tool.id,
+      );
+      applyToolCallOutput(
+        messageIdentity.chatId,
+        messageIdentity.messageId,
+        tool.id,
+        detail.result,
+      );
+    } catch {
+      message.error(t('加载完整结果失败，请重试'));
+    } finally {
+      setLoadingFullOutput(false);
+    }
+  };
+
+  const toggle = () => {
+    if (!canExpand) return;
+    setEverExpanded(true);
+    const next = !expanded;
+    setExpandedOverride(next);
+    if (next && needsFullOutput) void fetchFullOutput();
+  };
 
   const renderBody = () => {
     if (!tool.output) return null;
@@ -370,9 +416,15 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
       )}
 
       {(liveInputView || liveArgumentText || hasOutput) && (
-        <div className={`jx-expandWrap${expanded ? ' jx-expandWrap--open' : ''}`}>
+        <div
+          ref={collapseRef}
+            className={`jx-collapse${expanded ? ' jx-collapse--open' : ''}`}
+        >
           <div className="jx-tcr-body">
-            {expanded && expandedBody}
+            {expanded && loadingFullOutput && (
+              <div className="jx-tcr-loadingFull" role="status">{t('正在加载完整结果…')}</div>
+            )}
+            {(expanded || everExpanded) && expandedBody}
           </div>
         </div>
       )}

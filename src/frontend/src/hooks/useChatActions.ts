@@ -10,6 +10,7 @@ import { formatDateKey } from '../utils/date';
 import { useChatStore, useCatalogStore, useUIStore, useAutomationChatStore } from '../stores';
 import { usePageConfigStore } from '../stores/pageConfigStore';
 import type { ChatItem, ChatMessage } from '../types';
+import { ensureFullMessages } from './useChatInit';
 
 export function useChatActions(effectiveApiUrl: string) {
   const {
@@ -204,7 +205,12 @@ export function useChatActions(effectiveApiUrl: string) {
     const target = storeRef.current.chats[chatId];
     if (!target) return;
 
-    let messages = target.messages || [];
+    // 导出要的是**整段**对话。常规浏览只铺了最近一屏（见 useChatInit 的
+    // MESSAGE_PAGE_SIZE），所以先把更早的部分补齐，别把半截历史导成 PDF。
+    if (useChatStore.getState().messagePaging[chatId]?.hasOlder) {
+      await ensureFullMessages(chatId);
+    }
+    let messages = storeRef.current.chats[chatId]?.messages || [];
     const needsBackendLoad = messages.length === 0 && !!effectiveApiUrl && backendSessionIds.has(chatId);
     if (needsBackendLoad) {
       try {

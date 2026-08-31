@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { RightOutlined } from '@ant-design/icons';
-import { TOOL_NAME_OVERRIDES } from '../../utils/constants';
 import { useChatStore } from '../../stores';
+import { resolveToolDisplayName } from '../../utils/toolMeta';
+import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 import { BrandLoader, ElapsedTimer } from '../common';
 import { ToolCallRow } from './ToolCallRow';
 import { computeEffectiveStatus } from './renderers/utils';
@@ -29,6 +30,7 @@ export function ToolProgressInline({ message, toolCalls }: ToolProgressInlinePro
   // Rows carry a JSON.parse of their output; a transcript's worth of never-opened
   // folds should not pay for it, so the body only mounts once it is first opened.
   const [mounted, setMounted] = useState(false);
+  const collapseRef = useCollapseHeight(open);
   const tools = toolCalls ?? message.toolCalls ?? [];
   if (tools.length === 0) return null;
 
@@ -42,7 +44,7 @@ export function ToolProgressInline({ message, toolCalls }: ToolProgressInlinePro
     .map(t => t.timestamp as number);
   const startTs = runningTs.length > 0 ? Math.min(...runningTs) : message.ts;
   const names = tools
-    .map(t => t.displayName || TOOL_NAME_OVERRIDES[t.name] || toolDisplayNames[t.name] || t.name)
+    .map(t => resolveToolDisplayName(t, toolDisplayNames))
     .filter((v, i, a) => a.indexOf(v) === i)   // dedupe
     .slice(0, 3);
   const label = names.join('、') + (tools.length > 3 ? t('等{n}项', { n: tools.length }) : '');
@@ -68,7 +70,7 @@ export function ToolProgressInline({ message, toolCalls }: ToolProgressInlinePro
         <RightOutlined className="jx-inlineSummaryArrow" rotate={open ? 90 : 0} />
       </div>
 
-      <div className={`jx-expandWrap${open ? ' jx-expandWrap--open' : ''}`}>
+      <div ref={collapseRef} className={`jx-collapse${open ? ' jx-collapse--open' : ''}`}>
         <div className="jx-trs-body">
           {mounted && tools.map((tool, idx) => (
             <ToolCallRow

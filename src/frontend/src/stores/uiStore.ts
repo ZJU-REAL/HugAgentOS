@@ -4,6 +4,7 @@ import type { UpdateEntry, UpdateCategory, FileConfirmInfo, DesignPickInfo, User
 import type { SearchResultItem } from '../api';
 import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
 import { loadThemeMode, saveThemeMode, type ThemeMode } from '../theme';
+import { writeLocal } from '../storage';
 
 export type HistoryTimeFilter = 'all' | 'today' | '7d' | '30d';
 export type UpdateFilter = '全部' | UpdateCategory;
@@ -326,7 +327,7 @@ export const useUIStore = create<UIState>((set) => ({
   setDispatchProcessVisible: (v) => {
     if (typeof window !== 'undefined') {
       try {
-        window.localStorage.setItem(DISPATCH_PROCESS_STORAGE_KEY, String(v));
+        writeLocal(DISPATCH_PROCESS_STORAGE_KEY, String(v));
       } catch {
         // Keep the in-memory preference usable when browser storage is blocked.
       }

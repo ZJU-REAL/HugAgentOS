@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BulbOutlined, LoadingOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
+import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 
 interface ThinkingStepRowProps {
   content: string;
@@ -13,9 +14,16 @@ interface ThinkingStepRowProps {
  */
 export function ThinkingStepRow({ content, active }: ThinkingStepRowProps) {
   const [expanded, setExpanded] = useState(false);
+  // 同 ToolCallRow：开过就不再卸载，否则收起是瞬间的没有动画。
+  const [everExpanded, setEverExpanded] = useState(false);
+  const collapseRef = useCollapseHeight(expanded);
   const hasContent = !!content.trim();
   const canExpand = hasContent;
-  const toggle = () => { if (canExpand) setExpanded((v) => !v); };
+  const toggle = () => {
+    if (!canExpand) return;
+    setEverExpanded(true);
+    setExpanded((v) => !v);
+  };
 
   return (
     <div className="jx-tcr">
@@ -45,9 +53,12 @@ export function ThinkingStepRow({ content, active }: ThinkingStepRowProps) {
         )}
       </div>
       {hasContent && (
-        <div className={`jx-expandWrap${expanded ? ' jx-expandWrap--open' : ''}`}>
+        <div
+          ref={collapseRef}
+            className={`jx-collapse${expanded ? ' jx-collapse--open' : ''}`}
+        >
           <div className="jx-tcr-body">
-            {expanded && (
+            {(expanded || everExpanded) && (
               <div className={`jx-thinkingDetailBody${active ? ' jx-thinkingDetailBody--streaming' : ''}`}>
                 {content}
               </div>

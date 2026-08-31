@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { AutomationChatGroup, AutomationRun, AutomationTask } from '../types';
-import { userScopedKey } from '../storage';
+import { userScopedKey, writeLocal } from '../storage';
 import { useChatStore } from './chatStore';
 import { useCatalogStore } from './catalogStore';
 import { t } from '../i18n';
@@ -30,7 +30,7 @@ function saveSidebarPrefs(userId: string | null | undefined, prefs: Record<strin
   if (typeof window === 'undefined') return;
   const key = userScopedKey(AUTOMATION_SIDEBAR_PREFS_KEY, userId);
   if (!key) return;
-  window.localStorage.setItem(key, JSON.stringify(prefs));
+  writeLocal(key, JSON.stringify(prefs));
 }
 
 interface AutomationChatState {

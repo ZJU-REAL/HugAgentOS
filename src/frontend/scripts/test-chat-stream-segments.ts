@@ -10,7 +10,6 @@ import {
 } from '../src/utils/streamSegments';
 import { extractCodeFromStreamingArgs } from '../src/utils/codeExecParser';
 import { buildHistorySegments } from '../src/utils/segments';
-import { getToolRunInitialOpen } from '../src/utils/toolRunState';
 import { refreshTargetForTool } from '../src/utils/toolRefresh';
 import { parseAppliedQueueHandoff, parseQueuedRunHandoff } from '../src/utils/streamHandoff';
 
@@ -54,13 +53,6 @@ function tool(toolIndex: number): MessageSegment {
   })?.runId, 'run-child');
 }
 
-{
-  // Live tool details start expanded. A refreshed/history message is mounted
-  // as non-streaming and must start collapsed.
-  assert.equal(getToolRunInitialOpen(true), true);
-  assert.equal(getToolRunInitialOpen(false), false);
-  assert.equal(getToolRunInitialOpen(undefined), false);
-}
 
 {
   const segments: MessageSegment[] = [tool(0), { type: 'text', content: '数' }];

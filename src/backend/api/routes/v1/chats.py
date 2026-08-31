@@ -31,6 +31,7 @@ from core.infra.responses import (
     success_response,
 )
 from core.llm.message_compat import strip_thinking
+from core.llm.tool_permissions import normalize_approval_mode
 from core.llm.tools.user_questions import MAX_QUESTIONS as USER_QUESTION_MAX
 from core.services import ChatService, UserService
 from core.services.compaction_service import get_compaction_context_state
@@ -57,6 +58,7 @@ router = APIRouter(prefix="/v1/chats", tags=["Sessions"])
 # Moved to neutral lower layers so routing/* and core/* can use them without
 # importing this API route module. Re-exported under their original names so
 # the route handlers below stay unchanged.
+from core.chat.display_bounds import bound_result_for_display, bound_result_for_history
 from core.chat.tool_log import (  # noqa: E402
     build_thinking_event,
     build_tool_call_delta_event,
@@ -152,8 +154,36 @@ def _session_view_for_user(db: Session, s, user_id: str, level: str) -> dict:
     return extend_session_view(db, s, user_id, level, _session_to_dict(s))
 
 
+def _tool_calls_for_history(raw) -> Any:
+    """历史列表里的工具卡只给梗概，完整结果留给展开时按需取。
+
+    翻一页历史是 100 条消息，每条可能挂着好几张工具卡。过去这里把库里存的完整
+    ``result`` 原样吐出去——读过一个大文件的会话，刷新一次就要把那几 MB 重新搬进
+    浏览器、塞进聊天树、每次重渲染再遍历一遍。
+
+    这里按 ``bound_result_for_history`` 收紧到梗概，并给被截的那张卡打上
+    ``result_truncated``；前端展开卡片时凭它去
+    ``GET /v1/chats/{chat_id}/messages/{message_id}/tool-calls/{tool_id}`` 取全文。
+    小结果（附件引用、状态字典、短文本）根本够不着阈值，原样返回、行为不变。
+    """
+    if not isinstance(raw, list):
+        return raw
+    out = []
+    for item in raw:
+        if not isinstance(item, dict) or "result" not in item:
+            out.append(item)
+            continue
+        bounded, clipped = bound_result_for_history(item.get("result"))
+        if not clipped:
+            out.append(item)
+            continue
+        out.append({**item, "result": bounded, "result_truncated": True})
+    return out
+
+
 def _message_to_dict(m) -> dict:
     """Convert a ChatMessage ORM object to API response dict."""
+    tool_calls = _tool_calls_for_history(m.tool_calls)
     return {
         "message_id": m.message_id,
         "chat_id": m.chat_id,
@@ -164,7 +194,7 @@ def _message_to_dict(m) -> dict:
         # 思考与正文分列存储；带 offset 的块由前端按原位插回正文（老消息为 None，
         # 思考仍内联在 content 里，走旧解析）。
         "thinking": m.thinking,
-        "tool_calls": m.tool_calls,
+        "tool_calls": tool_calls,
         "metadata": m.extra_data or {},
         "created_at": m.created_at.isoformat(),
     }
@@ -538,6 +568,10 @@ async def list_messages(
     chat_id: str,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+    order: str = Query(
+        "asc",
+        description="asc=第 1 页是最早的一批（默认，兼容老前端）；desc=第 1 页是最近的一批",
+    ),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -549,7 +583,9 @@ async def list_messages(
     if pair is None:
         raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
 
-    messages, total = chat_service.message_repo.list_by_chat(chat_id, page, page_size)
+    messages, total = chat_service.message_repo.list_by_chat(
+        chat_id, page, page_size, newest_first=(order.lower() == "desc")
+    )
     items = [_message_to_dict(m) for m in messages if not _is_internal_message(m)]
     response = paginated_response(
         items=items,
@@ -589,6 +625,51 @@ async def get_context_usage(
             "context_compaction": get_compaction_context_state(chat_service, chat_id),
         }
     )
+
+
+@router.get(
+    "/{chat_id}/messages/{message_id}/tool-calls/{tool_id}",
+    summary="按需获取单个工具调用的完整结果",
+)
+async def get_tool_call_result(
+    chat_id: str,
+    message_id: str,
+    tool_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """返回某条消息里某个工具调用的完整结果。
+
+    历史列表接口只下发梗概（见 ``_tool_calls_for_history``）——一页 100 条消息、每条
+    好几张工具卡，把完整结果一起搬进浏览器正是"打开长对话就卡死"的来源。用户真正
+    展开哪张卡，前端才来这里取哪一张。仍然过一遍 ``bound_result_for_display`` 的宽档
+    上限：单张卡也不该把 5MB 一次性塞进标签页。
+    """
+    chat_service = ChatService(db)
+    if chat_service.get_session_with_access(chat_id, str(user.user_id)) is None:
+        raise ResourceNotFoundError(resource_type="chat_session", resource_id=chat_id)
+
+    msg = chat_service.message_repo.get_by_id(message_id)
+    if msg is None or msg.chat_id != chat_id:
+        raise ResourceNotFoundError(resource_type="chat_message", resource_id=message_id)
+
+    for item in msg.tool_calls or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("tool_id") or "") != tool_id:
+            continue
+        result, truncated = bound_result_for_display(item.get("result"))
+        return success_response(
+            data={
+                "tool_id": tool_id,
+                "tool_name": item.get("tool_name"),
+                "status": item.get("status"),
+                "result": result,
+                "truncated": truncated,
+            }
+        )
+
+    raise ResourceNotFoundError(resource_type="tool_call", resource_id=tool_id)
 
 
 @router.get("/{chat_id}/messages/{message_id}/followups", summary="获取追问问题")
@@ -839,6 +920,7 @@ def _build_ctx(
     actual_model_name: Optional[str] = None,
     ontology_enabled: bool = False,
     ontology_pack_ids: Optional[List[str]] = None,
+    approval_mode: Optional[str] = None,
 ):
     # Explicitly referenced plugins: force-enable the plugin's MCP server into this turn's tool set ("enabled means usable").
     # enabled_mcps being None means using the catalog defaults (which already include enabled owned MCPs), so no forced narrowing is needed.
@@ -927,6 +1009,7 @@ def _build_ctx(
         "memory_enabled": memory_enabled,
         "memory_write_enabled": memory_write_enabled,
         "reranker_enabled": reranker_enabled,
+        "approval_mode": normalize_approval_mode(approval_mode),
         "ontology_enabled": ontology_enabled,
         "ontology_runtime": ontology_runtime,
         # Preserve None so downstream (SkillsMiddleware) falls back to catalog defaults.
@@ -1153,6 +1236,7 @@ async def chat_send(
             actual_model_name=actual_model_name,
             ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
             ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
+            approval_mode=_user_settings.get("tool_approval_mode"),
         )
         if explicit_subagent_command:
             ctx["explicit_subagent_command"] = {
@@ -1341,6 +1425,7 @@ async def chat_stream(
         actual_model_name=actual_model_name,
         ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
         ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
+        approval_mode=_user_settings.get("tool_approval_mode"),
     )
     if explicit_subagent_command:
         context["explicit_subagent_command"] = {
@@ -1892,6 +1977,7 @@ async def regenerate_message(
         actual_model_name=actual_model_name,
         ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
         ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
+        approval_mode=_user_settings.get("tool_approval_mode"),
     )
 
     from core.services.chat_sequencer import ChatBusyError, ChatSequencer
@@ -1994,6 +2080,7 @@ async def edit_and_resend(
         actual_model_name=actual_model_name,
         ontology_enabled=bool(_user_settings.get("ontology_enabled", False)),
         ontology_pack_ids=_user_settings.get("ontology_pack_ids") or None,
+        approval_mode=_user_settings.get("tool_approval_mode"),
     )
 
     from core.services.chat_sequencer import ChatBusyError, ChatSequencer

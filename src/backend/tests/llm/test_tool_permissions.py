@@ -303,10 +303,6 @@ async def test_local_command_ticket_carries_os_sandbox_constraints():
             "core.services.local_grant_service.policy_for_gate",
             return_value=Policy(),
         ),
-        patch(
-            "core.services.local_grant_service.get_approval_mode",
-            return_value="standard",
-        ),
     ):
         outcome = await service.authorize(_tool_call("bash", {"command": "ls"}))
 
@@ -314,7 +310,8 @@ async def test_local_command_ticket_carries_os_sandbox_constraints():
     assert outcome.ticket is not None
     command = outcome.ticket.local_command
     assert command is not None
-    assert command.approval_mode == "standard"
+    # 票据带的就是本次运行的权限档，桌面端不再另存一份
+    assert command.approval_mode == "ask"
     assert "/data/project" in command.write_paths
 
 

@@ -8,6 +8,7 @@ the chat route (``api/routes/v1/chats.py``) and the background run executor
 
 import json
 from typing import Any, Dict
+from core.chat.display_bounds import bound_result_for_display
 
 
 def build_thinking_event(chunk: dict, chat_id: str) -> Dict[str, Any]:
@@ -157,10 +158,13 @@ def build_tool_result_event(chunk: dict, chat_id: str, tool_calls_log: list) -> 
         status = "error"
     else:
         status = "success"
+    # 推给浏览器的是**裁剪过的展示副本**；下面 attach_tool_result 落库的仍是完整的
+    # res（审计与事后回查要用）。读一个 5MB 文件时，这两份的差别就是标签页活不活。
+    display_res, _clipped = bound_result_for_display(res)
     evt: Dict[str, Any] = {
         "type": "tool_result",
         "tool_name": tn,
-        "result": res,
+        "result": display_res,
         "tool_id": tid,
         "chat_id": chat_id,
         "citations": chunk.get("citations", []),

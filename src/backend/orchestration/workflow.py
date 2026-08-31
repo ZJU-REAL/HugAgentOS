@@ -105,6 +105,13 @@ def _resolve_mode_spec(context: dict):
         return None
 
 
+def _approval_mode(context: Dict[str, Any]) -> str:
+    """用户选定的权限档；缺失或不认识的值都按「标准」处理。"""
+    from core.llm.tool_permissions import normalize_approval_mode
+
+    return normalize_approval_mode(context.get("approval_mode"))
+
+
 def _extract_project_ctx(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Extract project-related fields from the workflow context. Returns None when there is no project_id."""
     if not context.get("project_id"):
@@ -1370,6 +1377,7 @@ def run_chat_workflow(
             user_agent=_direct_user_agent,
             read_only=_direct_read_only,
             allow_bash=_direct_allow_bash,
+            approval_mode=_approval_mode(context),
             visible_subagents=_visible_subagents if _visible_subagents else None,
             chat_id=context.get("chat_id"),
             run_id=str(context.get("run_id") or "") or None,
@@ -1721,6 +1729,7 @@ async def _astream_subagent_direct(
             user_agent=user_agent,
             read_only=_direct_read_only,
             allow_bash=_direct_allow_bash,
+            approval_mode=_approval_mode(context),
             # Same as the main agent: pass chat_id → the sandbox session uses
             # the chat_id-keyed "user-bound persistent sandbox" (mounting the
             # per-user credential volumes for lark/dws/email etc.). Omitting it
@@ -2662,6 +2671,7 @@ async def astream_chat_workflow(
                 [str(context["connector_id"])] if context.get("connector_id") else None
             ),
             memory_enabled=_mem0_enabled,
+            approval_mode=_approval_mode(context),
             visible_subagents=_visible_subagents if _visible_subagents else None,
             plan_mode=_plan_chat,
             batch_mode=_batch_chat,

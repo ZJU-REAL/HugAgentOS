@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Button, Drawer, Input, Modal, Pagination, Skeleton, Switch, Tooltip, message, Select, Form, Tag, List, Empty, Dropdown } from 'antd';
-import { PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined, LeftOutlined, RightOutlined, RobotOutlined, AppstoreAddOutlined, UploadOutlined, DownOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, DeleteOutlined, EditOutlined, LeftOutlined, RightOutlined, RobotOutlined, AppstoreAddOutlined, UploadOutlined, DownOutlined, ImportOutlined, ExportOutlined } from '@ant-design/icons';
 import { useAgentStore, type UserAgentItem } from '../../stores/agentStore';
 import { AgentMarketplaceModal } from './AgentMarketplaceModal';
 import {
@@ -205,7 +205,7 @@ interface AgentPanelProps {
 export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
   const {
     agents, loading, fetchAgents, deleteAgent, updateAgent, toggleBuiltinAgent, setCurrentAgent,
-    fetchAvailableResources, availableResources,
+    fetchAvailableResources, availableResources, importAgents, exportAgent,
   } = useAgentStore();
   const { panel, panelEntryNonce, setPanel } = useCatalogStore();
   const { setCurrentChatId, updateStore } = useChatStore();
@@ -333,6 +333,32 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
     setFormPageAgent(undefined);
     setSearch('');
   }, [homePanel, panel, panelEntryNonce]);
+
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleImportFile(file: File) {
+    try {
+      const count = await importAgents(file);
+      message.success(t('已导入 {n} 个智能体', { n: count }));
+    } catch (err: unknown) {
+      message.error(t('导入失败：{msg}', { msg: (err as Error).message }));
+    }
+  }
+
+  async function handleExportAgent(agent: UserAgentItem) {
+    try {
+      const blob = await exportAgent(agent.agent_id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${agent.name}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      message.success(t('智能体已导出：{name}.md', { name: agent.name }));
+    } catch (err: unknown) {
+      message.error(t('导出失败：{msg}', { msg: (err as Error).message }));
+    }
+  }
 
   function startAgentChat(agent: UserAgentItem) {
     setCurrentAgent(agent);
@@ -604,6 +630,14 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
                 >
                   {t('开始对话')}
                 </Button>
+                <Tooltip title={t('导出')}>
+                  <Button
+                    aria-label={t('导出')}
+                    icon={<ExportOutlined />}
+                    className="jx-agentDetail-iconBtn"
+                    onClick={() => void handleExportAgent(selectedAgent)}
+                  />
+                </Tooltip>
                 {canEdit && channelBotEnabled && (
                   <Tooltip title={t('绑定渠道机器人')}>
                     <Button
@@ -780,19 +814,33 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
             className="jx-agentPage-search"
           />
           {canAddAgent && (
-            <Dropdown
-              menu={{
-                items: [
-                  { key: 'create', icon: <PlusOutlined />, label: t('创建智能体'), onClick: () => setFormPageAgent(null) },
-                  { key: 'market', icon: <AppstoreAddOutlined />, label: t('从智能体市场获取'), onClick: () => setMarketOpen(true) },
-                  { key: 'mysubs', icon: <UploadOutlined />, label: t('我的上架申请'), onClick: openMySubs },
-                ],
-              }}
-            >
-              <Button type="primary" icon={<PlusOutlined />} className="jx-agentPage-createBtn">
-                {t('添加智能体')} <DownOutlined />
-              </Button>
-            </Dropdown>
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".md,.zip,.json"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleImportFile(file);
+                  e.target.value = '';
+                }}
+              />
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: 'create', icon: <PlusOutlined />, label: t('创建智能体'), onClick: () => setFormPageAgent(null) },
+                    { key: 'market', icon: <AppstoreAddOutlined />, label: t('从智能体市场获取'), onClick: () => setMarketOpen(true) },
+                    { key: 'import', icon: <ImportOutlined />, label: t('导入智能体'), onClick: () => importInputRef.current?.click() },
+                    { key: 'mysubs', icon: <UploadOutlined />, label: t('我的上架申请'), onClick: openMySubs },
+                  ],
+                }}
+              >
+                <Button type="primary" icon={<PlusOutlined />} className="jx-agentPage-createBtn">
+                  {t('添加智能体')} <DownOutlined />
+                </Button>
+              </Dropdown>
+            </>
           )}
         </div>
       </div>

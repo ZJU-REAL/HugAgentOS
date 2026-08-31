@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getMainModelCapabilities, type ModelCapabilities } from '../api';
+import { writeLocal, removeLocal } from '../storage';
 
 const SELECTED_MODEL_PROVIDER_KEY = 'hugagent_selected_model_provider_id';
 
@@ -10,8 +11,8 @@ function loadSelectedProviderId(): string | null {
 
 function saveSelectedProviderId(providerId: string | null): void {
   if (typeof window === 'undefined') return;
-  if (providerId) window.localStorage.setItem(SELECTED_MODEL_PROVIDER_KEY, providerId);
-  else window.localStorage.removeItem(SELECTED_MODEL_PROVIDER_KEY);
+  if (providerId) writeLocal(SELECTED_MODEL_PROVIDER_KEY, providerId);
+  else removeLocal(SELECTED_MODEL_PROVIDER_KEY);
 }
 
 interface ModelCapabilitiesState {

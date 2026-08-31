@@ -15,6 +15,12 @@ export const defaultCatalog: Catalog = {
  *  time blocks the main thread. We coalesce into one write per window. */
 const SAVE_DEBOUNCE_MS = 800;
 
+/** 流式输出期间的写盘间隔。合并写要把磁盘上整棵聊天树 `JSON.parse` 回来、
+ *  合并、再整棵 `JSON.stringify` 出去 —— 正文越长越贵，边流边每 0.8 秒来一次
+ *  会和正文渲染抢同一条主线程，长回答时两边一起把标签页拖垮。流式期间拉宽到
+ *  4 秒；流结束、切标签、关页面都会立刻 flush，不会少存内容。 */
+const SAVE_DEBOUNCE_STREAMING_MS = 4000;
+
 let pendingSaveTimer: number | null = null;
 let pendingSavePayload: { userId: string; store: ChatStore } | null = null;
 
@@ -210,6 +216,54 @@ export function mergeChatStores(
   return stripUnboundProjects({ chats, order });
 }
 
+/**
+ * 聊天树允许占用的 localStorage 预算。
+ *
+ * 浏览器给**整个站点**的 localStorage 只有 5MB 左右，而这里存的是全部会话的正文。
+ * 长对话 + 长回答几十轮就能把它顶满，后果有两个，都很难查：
+ *   1. 本地聊天缓存从此**再也存不进去**（写入静默失败），刷新就掉最近的内容；
+ *   2. 更糟的是**连累同源的其它写入**——主题、语言、界面偏好、模型选择这些
+ *      小到几十字节的写入也会一起抛 QuotaExceededError。其中发生在 React
+ *      渲染/副作用里的那一次，会被顶层错误边界接住，整页变成"页面显示遇到异常"。
+ * 所以这里主动留出余量：超预算就按最久未用丢弃老会话。会话正文在后端有完整副本
+ * （切回该会话时 useChatInit 会重新拉），本地这份只是加速缓存，丢了不丢数据。
+ */
+const PERSIST_BUDGET_BYTES = 3_500_000;
+
+/** 把聊天树裁到预算之内：按 updatedAt 从旧到新丢会话，正在流式输出的会话不丢。 */
+function capToBudget(store: ChatStore, budget: number, protectedIds: Set<string>): ChatStore {
+  const entries = Object.values(store.chats || {});
+  // 每个会话单独量一次尺寸，避免"删一个重新 stringify 一次"的平方级开销。
+  const sized = entries.map((chat) => {
+    let bytes = 0;
+    try { bytes = JSON.stringify(chat).length; } catch { bytes = 0; }
+    return { chat, bytes };
+  });
+  let total = sized.reduce((n, item) => n + item.bytes, 0);
+  if (total <= budget) return store;
+
+  // 最久未用的排前面，优先丢；受保护的（正在输出）永远留下。
+  const evictable = sized
+    .filter((item) => !protectedIds.has(item.chat.id))
+    .sort((a, b) => (a.chat.updatedAt || 0) - (b.chat.updatedAt || 0));
+
+  const dropped = new Set<string>();
+  for (const item of evictable) {
+    if (total <= budget) break;
+    // 至少留一个会话，否则刷新后侧边栏会整个空掉。
+    if (entries.length - dropped.size <= 1) break;
+    dropped.add(item.chat.id);
+    total -= item.bytes;
+  }
+  if (dropped.size === 0) return store;
+
+  const chats: ChatStore['chats'] = {};
+  for (const [id, chat] of Object.entries(store.chats || {})) {
+    if (!dropped.has(id)) chats[id] = chat;
+  }
+  return { chats, order: (store.order || []).filter((id) => !dropped.has(id)) };
+}
+
 function performSave(userId: string, store: ChatStore) {
   const key = userScopedKey(STORAGE_KEY, userId);
   if (!key) return;
@@ -220,9 +274,20 @@ function performSave(userId: string, store: ChatStore) {
     const merged = mergeChatStores(store, disk, {
       preferAllIds: streamingIdsProvider ? streamingIdsProvider() : undefined,
     });
-    localStorage.setItem(key, JSON.stringify(trimForPersistence(merged)));
+    const protectedIds = streamingIdsProvider ? streamingIdsProvider() : new Set<string>();
+    let payload = capToBudget(trimForPersistence(merged), PERSIST_BUDGET_BYTES, protectedIds);
+    // 预算只是估算（不同浏览器算法不同），真撞上配额就再狠狠砍一轮重试，
+    // 绝不能把上一份接近撑满的旧值原样留在那儿继续挡着别人写。
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        localStorage.setItem(key, JSON.stringify(payload));
+        return;
+      } catch {
+        payload = capToBudget(payload, PERSIST_BUDGET_BYTES >> (attempt + 2), protectedIds);
+      }
+    }
   } catch {
-    // ignore quota errors
+    // localStorage 整体不可用（隐私模式等）——放弃本地缓存，不影响使用
   }
 }
 
@@ -232,12 +297,13 @@ export function saveChatStoreDebounced(userId: string | null | undefined, store:
   if (!userId) return;
   pendingSavePayload = { userId, store };
   if (pendingSaveTimer != null) return;
+  const streaming = !!streamingIdsProvider && streamingIdsProvider().size > 0;
   pendingSaveTimer = window.setTimeout(() => {
     pendingSaveTimer = null;
     const payload = pendingSavePayload;
     pendingSavePayload = null;
     if (payload) performSave(payload.userId, payload.store);
-  }, SAVE_DEBOUNCE_MS);
+  }, streaming ? SAVE_DEBOUNCE_STREAMING_MS : SAVE_DEBOUNCE_MS);
 }
 
 /** Force any queued debounced write to flush synchronously. Call before
@@ -292,6 +358,33 @@ if (typeof window !== 'undefined') {
  * automationChatStore 里各抄了一遍；新的偏好项直接用这两个函数，别再抄第五份。
  * 需要按账号隔离的数据请先用 {@link userScopedKey} 包一下 key。
  */
+/**
+ * 写一个 localStorage 项，永不抛。
+ *
+ * 浏览器的 localStorage 配额是**按站点**算的（约 5MB）。一旦被撑满，哪怕只写
+ * 几十字节也会抛 QuotaExceededError；而这类写入散落在主题、语言、界面偏好、
+ * 模型选择等各处，其中发生在 React 渲染 / 副作用里的那一次会被顶层错误边界接住，
+ * 整页退化成"页面显示遇到异常"——一个无关紧要的偏好写不进去，不该有这种后果。
+ * 新增的 localStorage 写入一律走这两个函数，别再写裸 setItem / removeItem。
+ *
+ * @returns 是否真的写进去了（调用方通常不关心）
+ */
+export function writeLocal(key: string, value: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 删除一个 localStorage 项，永不抛。 */
+export function removeLocal(key: string): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
 export function loadJsonPref<T extends object>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {

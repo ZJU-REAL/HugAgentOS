@@ -78,12 +78,15 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
               XLSX.utils.book_append_sheet(newWb, XLSX.utils.aoa_to_sheet([[]]), sd.name || sheetId);
               continue;
             }
-            const maxRow = Math.max(...rowKeys);
+            // 逐个取最大值，不用 Math.max(...rowKeys)：展开是按函数实参传的，
+            // 十几万行的表格一次就把调用栈撑爆（RangeError: Maximum call stack
+            // size exceeded），保存一个大 Excel 必崩。
+            const maxRow = rowKeys.reduce((a, b) => (b > a ? b : a), 0);
             const aoa: unknown[][] = [];
             for (let r = 0; r <= maxRow; r++) {
               const rowCells = cellData[r] || {};
               const colKeys = Object.keys(rowCells).map(Number);
-              const maxCol = colKeys.length > 0 ? Math.max(...colKeys) : 0;
+              const maxCol = colKeys.reduce((a, b) => (b > a ? b : a), 0);
               const row: unknown[] = [];
               for (let c = 0; c <= maxCol; c++) {
                 row.push(rowCells[c]?.v ?? '');

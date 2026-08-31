@@ -4177,7 +4177,13 @@ textarea.jx-composer{
 
 /* ── legacy 思考块 chevron：单图标 rotate 过渡（替代双图标硬切） ── */
 .jx-thinkingBlockHeader .jx-expandIcon{
-  transition:transform var(--motion-duration-fast) var(--motion-ease-brand-out);
+  /* 与执行卡 / 折叠摘要行的箭头同口径：留位不留形，悬浮或键盘聚焦才淡入 */
+  opacity:0;
+  transition:transform var(--motion-duration-fast) var(--motion-ease-brand-out), opacity .15s ease;
+}
+.jx-thinkingBlockHeader:hover .jx-expandIcon,
+.jx-thinkingBlockHeader:focus-visible .jx-expandIcon{
+  opacity:1;
 }
 .jx-thinkingBlockHeader .jx-expandIcon--open{
   transform:rotate(180deg);
@@ -4382,3 +4388,16 @@ textarea.jx-composer{
 .jx-cloudPromptYes, .jx-cloudPromptNo { border: 0; border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
 .jx-cloudPromptYes { background: var(--color-primary, #165dff); color: var(--color-text-white); }
 .jx-cloudPromptNo { background: transparent; color: var(--color-text, #1d2129); border: 1px solid var(--color-border, #c9cdd4); }
+
+/* 更早的消息：滚到顶自动续拉时的占位提示（哨兵本身，见 ChatArea 的 IntersectionObserver）。
+   刻意做得很轻——它只是"上面还有"的一行注脚，不该抢正文的注意力。 */
+.jx-olderLoader{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:32px;
+  padding:8px 12px;
+  font-size:12px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
+  user-select:none;
+}

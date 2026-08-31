@@ -59,6 +59,8 @@ interface AgentState {
   updateAgent: (agentId: string, data: Partial<UserAgentItem>) => Promise<UserAgentItem>;
   toggleBuiltinAgent: (agentId: string, enabled: boolean) => Promise<UserAgentItem>;
   deleteAgent: (agentId: string) => Promise<void>;
+  importAgents: (file: File) => Promise<number>;
+  exportAgent: (agentId: string) => Promise<Blob>;
   setCurrentAgent: (agent: UserAgentItem | null) => void;
 }
 
@@ -133,6 +135,39 @@ export const useAgentStore = create<AgentState>((set) => ({
       currentAgent: state.currentAgent?.agent_id === agentId ? agent : state.currentAgent,
     }));
     return agent;
+  },
+
+  importAgents: async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${apiBase()}/v1/agents/import`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw createApiResponseError(response.status, payload, `HTTP ${response.status}`);
+    }
+    const payload: unknown = await response.json();
+    const data = (isRecord(payload) && 'data' in payload ? payload.data : payload) as {
+      created?: number;
+      agents?: UserAgentItem[];
+    };
+    const imported = data.agents ?? [];
+    set((state) => ({ agents: [...state.agents, ...imported] }));
+    return data.created ?? imported.length;
+  },
+
+  exportAgent: async (agentId) => {
+    const response = await fetch(`${apiBase()}/v1/agents/${agentId}/export`, {
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw createApiResponseError(response.status, payload, `HTTP ${response.status}`);
+    }
+    return response.blob();
   },
 
   deleteAgent: async (agentId) => {

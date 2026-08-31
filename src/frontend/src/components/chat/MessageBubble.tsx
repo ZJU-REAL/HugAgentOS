@@ -2,7 +2,7 @@ import {
   Button, Input,
 } from 'antd';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 
@@ -35,6 +35,8 @@ import { useStallDetector } from '../../hooks';
 import { PlanCard } from './PlanCard';
 import { ArtifactCardList } from './ArtifactCardList';
 import { CitationMarkdownBlock } from '../citation';
+import { ToolMessageContext } from '../tool/ToolMessageContext';
+import { useShallow } from 'zustand/react/shallow';
 import { FileAttachmentCard } from '../file';
 import { useChatStore, useUIStore } from '../../stores';
 import { authFetch, updatePlanApi } from '../../api';
@@ -117,7 +119,15 @@ interface MessageBubbleProps {
   editAndResend?: (messageIndex: number, newContent: string) => void;
 }
 
-export function MessageBubble({ m, messageIndex, currentChatId, send, exportChatRecord, regenerate, editAndResend }: MessageBubbleProps) {
+/**
+ * 一条消息气泡。
+ *
+ * `memo` 不是锦上添花：不包的话，模型每吐一个字（store 一变）整条对话的**每一条**
+ * 气泡都要重新渲染一遍，长对话里这笔开销随消息数线性上涨。生效的前提有两个，都已
+ * 在上下文里做掉了——回调由 ChatArea 用 useStableCallback 稳住身份，store 逐项订阅
+ * 且 messages 只订到本条为止。
+ */
+export const MessageBubble = memo(function MessageBubble({ m, messageIndex, currentChatId, send, exportChatRecord, regenerate, editAndResend }: MessageBubbleProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const selectionRangeRef = useRef<Range | null>(null);
   const selectionCopiedTimerRef = useRef<number | null>(null);
@@ -127,19 +137,35 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
   const selectionToolbarRef = useRef<{ x: number; y: number; text: string } | null>(null);
   const [selectionToolbar, setSelectionToolbar] = useState<{ x: number; y: number; text: string } | null>(null);
   const [selectionCopied, setSelectionCopied] = useState(false);
-  const {
-    expandedThinking, toggleThinking,
-    chatMode,
-    copiedMsg, setCopiedMsg,
-    feedbackMap, setFeedbackMap,
-    dislikingTs, setDislikingTs,
-    dislikeComment, setDislikeComment,
-    shareSelectionMode, selectedShareMessageTs,
-    toggleShareMessageTs, startShareSelectionWithAll,
-    setQuotedFollowUp,
-  } = useChatStore();
-  const { setDetailModal, dispatchProcessVisible } = useUIStore();
-  const chatMessages = useChatStore(state => state.store.chats[currentChatId]?.messages ?? []);
+  // 逐项订阅，不要 `useChatStore()` 整份取。整份取拿到的是每次 set 都新建的 state
+  // 对象，等于"任何状态一变，所有气泡全部重渲染"——模型每吐一个字都要来一遍，
+  // 外面的 memo 完全白加。动作（set*/toggle*）在 store 里定义一次就不再变，
+  // 逐个选出来天然稳定。
+  const expandedThinking = useChatStore((s) => s.expandedThinking);
+  const toggleThinking = useChatStore((s) => s.toggleThinking);
+  const chatMode = useChatStore((s) => s.chatMode);
+  const copiedMsg = useChatStore((s) => s.copiedMsg);
+  const setCopiedMsg = useChatStore((s) => s.setCopiedMsg);
+  const feedbackMap = useChatStore((s) => s.feedbackMap);
+  const setFeedbackMap = useChatStore((s) => s.setFeedbackMap);
+  const dislikingTs = useChatStore((s) => s.dislikingTs);
+  const setDislikingTs = useChatStore((s) => s.setDislikingTs);
+  const dislikeComment = useChatStore((s) => s.dislikeComment);
+  const setDislikeComment = useChatStore((s) => s.setDislikeComment);
+  const shareSelectionMode = useChatStore((s) => s.shareSelectionMode);
+  const selectedShareMessageTs = useChatStore((s) => s.selectedShareMessageTs);
+  const toggleShareMessageTs = useChatStore((s) => s.toggleShareMessageTs);
+  const startShareSelectionWithAll = useChatStore((s) => s.startShareSelectionWithAll);
+  const setQuotedFollowUp = useChatStore((s) => s.setQuotedFollowUp);
+  const setDetailModal = useUIStore((s) => s.setDetailModal);
+  const dispatchProcessVisible = useUIStore((s) => s.dispatchProcessVisible);
+  // 引用解析只往前找（`resolveConversationCitations` 跳过当前这条、在其余消息里
+  // 补齐缺失的标注），所以只订阅到本条为止。这一刀是 memo 能否生效的关键：
+  // 订阅整份 messages 的话，正在输出的那条每帧换新对象，浅比较必然不等，
+  // 前面所有气泡照样跟着重渲染。切到本条为止后，历史气泡看到的切片逐项不变。
+  const chatMessages = useChatStore(
+    useShallow((state) => (state.store.chats[currentChatId]?.messages ?? []).slice(0, messageIndex + 1)),
+  );
   // 视觉桥正在读图（模型还没开口）→ 轮级状态换成「图像理解中」，别让这几秒看起来
   // 像模型在发呆。识图结束由 chatStream 清空。
   const visionReadingCount = useChatStore(state => state.visionReading[currentChatId] ?? 0);
@@ -625,7 +651,15 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
     );
   };
 
+  const toolMessageIdentity = useMemo(
+    () => ({ chatId: currentChatId, messageId: m.messageId }),
+    [currentChatId, m.messageId],
+  );
+
   return (
+    // 工具卡要知道自己属于哪条消息，才能在展开时按需取回完整结果
+    // （历史列表只下发梗概）。挂在这里一次，省得逐层透传 chatId/messageId。
+    <ToolMessageContext.Provider value={toolMessageIdentity}>
     <div
       className={`jx-msg ${m.role === 'user' ? 'user' : 'assistant'}${isFresh ? ' jx-msg--fresh' : ''}`}
       data-message-ts={m.ts}
@@ -704,10 +738,6 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                 const s = segs[i];
                 return !!s && s.type === 'text' && !(s.content || '').trim();
               };
-              const hasNonEmptyTextAfter = (idx: number): boolean => (
-                segs.slice(idx + 1).some(s => s.type === 'text' && !!(s.content || '').trim())
-              );
-
               type Run = {
                 anchor: number;
                 endIdx: number;
@@ -849,7 +879,6 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                         key={segKey}
                         steps={run.steps}
                         isStreaming={m.isStreaming}
-                        holdOpenUntilText={!!m.isStreaming && !hasNonEmptyTextAfter(run.endIdx)}
                       />
                     );
                   }
@@ -994,7 +1023,6 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                 <ToolRunShell
                   steps={m.toolCalls.map((tool, idx) => ({ kind: 'tool' as const, tool, key: `${m.ts}-legacy-${idx}` }))}
                   isStreaming={m.isStreaming}
-                  holdOpenUntilText={!!m.isStreaming && !(m.content || '').trim()}
                 />
               </div>
             )}
@@ -1205,8 +1233,11 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
                 aria-label={t('生成分享链接')}
                 onClick={() => {
                   // By default select all completed messages in the current conversation, so clicking share can generate the link directly
+                  // 注意读的是**整份** messages，不是上面那份切到本条为止的订阅切片
+                  // （那份是为了让 memo 生效而特意收窄的，拿它全选会漏掉后面的消息）。
+                  const all = useChatStore.getState().store.chats[currentChatId]?.messages ?? [];
                   startShareSelectionWithAll(
-                    chatMessages.filter((msg) => !msg.isStreaming).map((msg) => msg.ts),
+                    all.filter((msg) => !msg.isStreaming).map((msg) => msg.ts),
                   );
                 }}
               >
@@ -1255,5 +1286,6 @@ export function MessageBubble({ m, messageIndex, currentChatId, send, exportChat
       </div>
       </div>
     </div>
+    </ToolMessageContext.Provider>
   );
-}
+});
