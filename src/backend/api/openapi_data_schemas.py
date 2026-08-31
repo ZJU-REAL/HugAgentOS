@@ -237,28 +237,6 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "updated_at": {"type": "string", "format": "date-time"},
         },
     },
-    "AgentExportItem": {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string"},
-            "description": {"type": "string"},
-            "system_prompt": {"type": "string"},
-            "welcome_message": {"type": "string"},
-            "suggested_questions": {"type": "array", "items": {"type": "string"}},
-            "mcp_server_ids": {"type": "array", "items": {"type": "string"}},
-            "skill_ids": {"type": "array", "items": {"type": "string"}},
-            "kb_ids": {"type": "array", "items": {"type": "string"}},
-            "model_provider_id": {"type": "string"},
-            "temperature": {"type": "number"},
-            "max_tokens": {"type": "integer"},
-            "max_iters": {"type": "integer"},
-            "timeout": {"type": "integer"},
-            "is_enabled": {"type": "boolean"},
-            "sort_order": {"type": "integer"},
-            "extra_config": {"type": "object", "additionalProperties": True},
-            "avatar": {"type": "string"},
-        },
-    },
     "AvailableResources": {
         "type": "object",
         "properties": {
@@ -635,6 +613,13 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
     ("GET", "/v1/agents/available-resources"): _ref("AvailableResources"),
     ("GET", "/v1/agents/{agent_id}"): _ref("UserAgentItem"),
     ("POST", "/v1/agents"): _ref("UserAgentItem"),
+    ("POST", "/v1/agents/import"): {
+        "type": "object",
+        "properties": {
+            "created": {"type": "integer"},
+            "agents": {"type": "array", "items": _ref("UserAgentItem")},
+        },
+    },
     ("PUT", "/v1/agents/{agent_id}"): _ref("UserAgentItem"),
     ("DELETE", "/v1/agents/{agent_id}"): {
         "type": "object",
@@ -643,8 +628,15 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
     # ===== Admin Agents =====
     ("GET", "/v1/admin/agents"): {"type": "array", "items": _ref("UserAgentItem")},
     ("POST", "/v1/admin/agents"): _ref("UserAgentItem"),
-    ("GET", "/v1/admin/agents/export"): {"type": "array", "items": _ref("AgentExportItem")},
     ("POST", "/v1/admin/agents/import"): {
+        "type": "object",
+        "properties": {
+            "created": {"type": "integer"},
+            "updated": {"type": "integer"},
+            "message": {"type": "string"},
+        },
+    },
+    ("POST", "/v1/admin/agents/import-file"): {
         "type": "object",
         "properties": {
             "created": {"type": "integer"},

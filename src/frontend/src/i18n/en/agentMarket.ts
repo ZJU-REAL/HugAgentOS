@@ -26,6 +26,9 @@ export const AGENT_MARKET_DICT: Record<string, string> = {
   // 用户侧（AgentPanel）
   '添加智能体': 'Add agent',
   '从智能体市场获取': 'Get from marketplace',
+  '导入智能体': 'Import agent',
+  '已导入 {n} 个智能体': 'Imported {n} agent(s)',
+  '智能体已导出：{name}.md': 'Agent exported: {name}.md',
   '从市场获取': 'Get from marketplace',
   '我的上架': 'My submissions',
   '我的上架申请': 'My marketplace submissions',
