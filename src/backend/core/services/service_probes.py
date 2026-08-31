@@ -206,8 +206,12 @@ async def test_service_group(group_key: str) -> dict:
                 "skipped": True,
                 "message": "平台自建知识库模式无需测试外部连接",
             }
-        url = svc.get("knowledge_base.url")
-        api_key = svc.get("knowledge_base.api_key")
+        selected = provider if provider in {"dify", "fastgpt", "weknora"} else "dify"
+        url = svc.get(f"knowledge_base.{selected}.url")
+        api_key = svc.get(f"knowledge_base.{selected}.api_key")
+        if selected == "dify":
+            url = url or svc.get("knowledge_base.url")
+            api_key = api_key or svc.get("knowledge_base.api_key")
         if not url:
             return {"success": False, "error": "URL 未配置", "latency_ms": 0}
         return await test_external_knowledge(url, api_key or "")

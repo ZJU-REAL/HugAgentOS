@@ -147,9 +147,13 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 
 | Variable | Default | Description | Edition |
 |---|---|---|---|
-| `KNOWLEDGE_BASE` | (empty) | Set `dify` to inject Dify datasets into the capability center | EE (Dify integration) |
+| `KNOWLEDGE_BASE` | (empty) | External KB backend: `dify` / `fastgpt` / `weknora`; leave empty or use `custom` for the built-in KB | EE |
 | `DIFY_URL` / `DIFY_API_KEY` | `http://your-dify-host:3001/v1` / … | Dify knowledge-base API | EE |
 | `DIFY_ALLOWED_DATASET_IDS` | (empty = all) | Expose only the listed datasets (comma / newline / semicolon separated) | EE |
+| `FASTGPT_URL` / `FASTGPT_API_KEY` | `http://your-fastgpt-host:3000` / … | FastGPT knowledge-base API | EE |
+| `FASTGPT_ALLOWED_DATASET_IDS` | (empty = all) | Expose only the listed FastGPT datasets | EE |
+| `WEKNORA_URL` / `WEKNORA_API_KEY` | `http://your-weknora-host:8080` / … | WeKnora knowledge-base API | EE |
+| `WEKNORA_ALLOWED_DATASET_IDS` | (empty = all) | Expose only the listed WeKnora knowledge bases | EE |
 | `KB_DETAIL_CONTENT_MAX_CHARS` | `50000` (code default) | KB detail content truncation limit | CE |
 | `MILVUS_URL` | `http://milvus:19530` | Vector DB shared by self-hosted KB and memory | CE |
 | `MILVUS_TOKEN` | (empty) | Milvus auth token | CE |
@@ -166,6 +170,12 @@ These variables are deployment-level fallbacks for the GitHub binding under `/ad
 | `KB_ASSET_TEXT_MAX_CHARS` | `4000` | Length cap for the caption + OCR transcript stored in `text_content` (that field feeds the vector) | CE |
 | `KB_ASSET_MIN_BYTES` / `KB_ASSET_MIN_EDGE_PX` | `4096` / `64` | Filter out layout noise such as icons and rules (the pixel check needs Pillow; without it only the byte floor applies) | CE |
 | `KB_ASSET_URL_PREFIX` | `/api` | Prefix of the asset URLs written into chunk text; must match the frontend's `VITE_API_BASE_URL` | CE |
+
+The Config console stores the URL, API key, and allowlist independently for
+Dify, FastGPT, and WeKnora. Switching the backend loads that provider's own
+settings instead of reusing the previous provider's address or dataset scope.
+The environment variables above are provider-specific fallbacks used only when
+the database has no value.
 
 ## MCP tools
 

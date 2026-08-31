@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 _CACHE_TTL_SECONDS = 30.0
 
+_PROVIDER_SCOPED_KNOWLEDGE_FIELDS = ("url", "api_key", "allowed_dataset_ids")
+
 # ── Seed definitions (single source of truth) ────────────────────────────────
 # (config_key, default_value, display_name, description, group_key, is_secret)
 SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
@@ -450,24 +452,66 @@ class SystemConfigService:
 
     def _ensure_seed_rows(self, db) -> None:
         """Insert any missing seed config rows. Idempotent."""
-        existing_keys = {r[0] for r in db.query(SystemConfig.config_key).all()}
+        rows_by_key = {row.config_key: row for row in db.query(SystemConfig).all()}
+        existing_keys = set(rows_by_key)
+        inserted_keys: set[str] = set()
         inserted = 0
         for key, val, display, desc, group, secret in SEED_CONFIGS:
             if key not in existing_keys:
-                db.add(
-                    SystemConfig(
-                        config_key=key,
-                        config_value=val,
-                        display_name=display,
-                        description=desc,
-                        group_key=group,
-                        is_secret=secret,
-                    )
+                row = SystemConfig(
+                    config_key=key,
+                    config_value=val,
+                    display_name=display,
+                    description=desc,
+                    group_key=group,
+                    is_secret=secret,
                 )
+                db.add(row)
+                rows_by_key[key] = row
+                inserted_keys.add(key)
                 inserted += 1
-        if inserted:
+        migrated = self._migrate_legacy_knowledge_config(rows_by_key, inserted_keys)
+        if inserted or migrated:
             db.commit()
-            logger.info("[SystemConfigService] Inserted %d missing seed row(s)", inserted)
+            logger.info(
+                "[SystemConfigService] Inserted %d missing seed row(s), migrated %d legacy KB value(s)",
+                inserted,
+                migrated,
+            )
+
+    @staticmethod
+    def _migrate_legacy_knowledge_config(
+        rows_by_key: dict[str, SystemConfig],
+        inserted_keys: set[str],
+    ) -> int:
+        """Move the old shared KB connection into one provider exactly once.
+
+        Older releases stored every external backend in the shared
+        knowledge_base.url/api_key/allowed_dataset_ids rows. Those rows cannot
+        prove which dropdown option they belonged to, and copying them into the
+        currently selected provider can reproduce the original cross-provider
+        leak. Treat them as Dify compatibility values and leave FastGPT/WeKnora
+        empty until each provider is configured explicitly.
+
+        inserted_keys is the one-time guard: after scoped rows exist, later
+        legacy edits can never overwrite provider-specific values.
+        """
+        migrated = 0
+        for field in _PROVIDER_SCOPED_KNOWLEDGE_FIELDS:
+            destination_key = f"knowledge_base.dify.{field}"
+            if destination_key not in inserted_keys:
+                continue
+            destination = rows_by_key.get(destination_key)
+            legacy = rows_by_key.get(f"knowledge_base.{field}")
+            legacy_value = getattr(legacy, "config_value", None)
+            if (
+                destination is not None
+                and not getattr(destination, "config_value", None)
+                and legacy_value not in (None, "")
+            ):
+                destination.config_value = legacy_value
+                migrated += 1
+        return migrated
 
     def _load_from_db(self) -> None:
         new_cache: dict[str, Optional[str]] = {}
