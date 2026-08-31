@@ -1,18 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeftOutlined, CloseOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowLeftOutlined,
+  CloseOutlined,
+  CompressOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { Button, Empty, Spin, message } from 'antd';
 import { getWikiGraph, getWikiPage } from '../../api';
 import type { WikiGraphData, WikiGraphNode, WikiPageDetail } from '../../types';
 import { mdToHtml } from '../../utils/markdown';
-import { ConceptGraph } from './ConceptGraph';
+import { ConceptGraph, type ConceptGraphHandle } from './ConceptGraph';
 import { GRAPH_TYPE_STYLE } from './wikiGraphTheme';
 
 /**
- * 概念图谱视图：图 + 图例过滤 + 右侧节点详情面板。
+ * 概念图谱视图：交互式力导向图 + 图例过滤 + 右侧节点详情抽屉。
  *
  * 全库两千多节点、上万条边，一次性画出来既卡也读不出结构，所以取的是**按关联度
  * 排序的前 N 个枢纽**（overview）或**某节点的邻域**（ego）；节点数可由用户调档。
- * 点节点不直接跳走，而是在右侧开一个面板讲清楚「这是什么、连着谁」，想深入再跳。
+ * 点节点在右侧滑出**悬浮抽屉**讲清楚「这是什么、连着谁」——抽屉浮在画布上层，
+ * 不挤压画布、不触发重排，看完关掉画布原样。双击节点直接以它为中心展开。
  */
 
 // 默认 40：这个量级标签还读得出；再多就只适合看整体形态了
@@ -33,6 +39,8 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
   const [selected, setSelected] = useState<WikiGraphNode | null>(null);
   const [detail, setDetail] = useState<WikiPageDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  const graphRef = useRef<ConceptGraphHandle>(null);
 
   const loadGraph = useCallback(
     async (nextCenter = '', nextBudget = budget) => {
@@ -68,7 +76,7 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kbId]);
 
-  // 选中节点后拉它的页面详情，用于右侧面板
+  // 选中节点后拉它的页面详情，用于右侧抽屉
   useEffect(() => {
     if (!selected) {
       setDetail(null);
@@ -107,7 +115,7 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
     };
   }, [graph, hiddenTypes]);
 
-  /** 当前图里与选中节点直接相连的节点——右侧面板的「关联邻居」 */
+  /** 当前图里与选中节点直接相连的节点——抽屉的「关联邻居」 */
   const neighbours = useMemo(() => {
     if (!graph || !selected) return [];
     const linked = new Set<string>();
@@ -132,9 +140,12 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
   );
 
   const meta = graph?.meta;
+  // 自建库返回 total/returned；外接后端可能只带旧键，逐级兜底避免展示 undefined
+  const metaTotal = meta?.total ?? meta?.total_pages;
+  const metaReturned = meta?.returned ?? graph?.nodes.length;
 
   return (
-    <div className={`jx-wikiGraphWrap${selected ? ' has-panel' : ''}`}>
+    <div className="jx-wikiGraphWrap">
       <div className="jx-wikiGraphToolbar">
         {center ? (
           <Button icon={<ArrowLeftOutlined />} onClick={() => void loadGraph('')}>
@@ -161,11 +172,18 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
           ))}
         </div>
 
-        {meta?.truncated && (
+        {meta?.truncated && metaTotal != null && (
           <span className="jx-wikiGraphTruncated">
-            共 {meta.total?.toLocaleString()} 个节点，已按关联度取前 {meta.returned}
+            共 {metaTotal.toLocaleString()} 个节点，已按关联度取前 {metaReturned}
           </span>
         )}
+        <Button
+          type="text"
+          icon={<CompressOutlined />}
+          onClick={() => graphRef.current?.fitToView()}
+        >
+          适应屏幕
+        </Button>
         <Button
           type="text"
           icon={<ReloadOutlined />}
@@ -184,10 +202,13 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
             </div>
           ) : visibleGraph && visibleGraph.nodes.length ? (
             <ConceptGraph
+              ref={graphRef}
               data={visibleGraph}
               centerSlug={center}
               selectedSlug={selected?.slug}
               onSelectNode={setSelected}
+              onExpandNode={(n) => void loadGraph(n.slug)}
+              onClearSelect={() => setSelected(null)}
             />
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无图谱数据" />
@@ -212,107 +233,107 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
                 );
               })}
               <span className="jx-wikiGraphLegendHint">
-                圆越大关联越多 · 点图例可只看某一类 · 点节点看详情
+                拖拽节点 · 滚轮缩放 · 单击看详情 · 双击以此展开
               </span>
             </div>
           )}
-        </div>
 
-        {selected && (
-          <aside className="jx-wikiGraphPanel">
-            <div className="jx-wikiGraphPanelHead">
-              <span
-                className={`jx-wikiTypeTag jx-wikiTypeTag--${selected.page_type}`}
-              >
-                {GRAPH_TYPE_STYLE[selected.page_type]?.label || selected.page_type}
-              </span>
-              <h3 title={selected.title}>{selected.title}</h3>
-              <Button
-                type="text"
-                size="small"
-                icon={<CloseOutlined />}
-                aria-label="关闭"
-                onClick={() => setSelected(null)}
-              />
-            </div>
-
-            <div className="jx-wikiGraphPanelMeta">
-              <span>
-                关联 <b>{selected.link_count ?? neighbours.length}</b> 条
-              </span>
-              {detail?.source_refs?.length ? (
-                <span>
-                  来源 <b>{detail.source_refs.length}</b> 篇
+          {selected && (
+            <aside className="jx-wikiGraphDrawer">
+              <div className="jx-wikiGraphPanelHead">
+                <span
+                  className={`jx-wikiTypeTag jx-wikiTypeTag--${selected.page_type}`}
+                >
+                  {GRAPH_TYPE_STYLE[selected.page_type]?.label || selected.page_type}
                 </span>
-              ) : null}
-            </div>
-
-            <div className="jx-wikiGraphPanelActions">
-              <Button
-                size="small"
-                type="primary"
-                disabled={center === selected.slug}
-                onClick={() => void loadGraph(selected.slug)}
-              >
-                以此为中心展开
-              </Button>
-              <Button size="small" onClick={() => onOpenPage(selected.slug)}>
-                阅读全文
-              </Button>
-            </div>
-
-            <div className="jx-wikiGraphPanelBody">
-              {detailLoading ? (
-                <div className="jx-wikiGraphPanelLoading">
-                  <Spin size="small" />
-                </div>
-              ) : detail ? (
-                <>
-                  {detail.summary ? (
-                    <p className="jx-wikiGraphPanelSummary">{detail.summary}</p>
-                  ) : null}
-                  {detailHtml ? (
-                    <div
-                      className="jx-wikiGraphPanelContent jx-md"
-                      dangerouslySetInnerHTML={{ __html: detailHtml }}
-                    />
-                  ) : null}
-                </>
-              ) : (
-                <p className="jx-wikiGraphPanelSummary">未能加载该页面内容。</p>
-              )}
-
-              <div className="jx-wikiGraphPanelNeighbours">
-                <h4>关联邻居（{neighbours.length}）</h4>
-                {neighbours.length === 0 ? (
-                  <p className="jx-wikiGraphPanelSummary">当前视图里没有它的邻居，可展开看看。</p>
-                ) : (
-                  <div className="jx-wikiGraphNeighbourList">
-                    {neighbours.slice(0, 30).map((n) => (
-                      <button
-                        key={n.slug}
-                        type="button"
-                        className="jx-wikiGraphNeighbour"
-                        onClick={() => setSelected(n)}
-                        title={n.title}
-                      >
-                        <span
-                          className="jx-wikiGraphNeighbourDot"
-                          style={{
-                            background: GRAPH_TYPE_STYLE[n.page_type]?.fill,
-                            borderColor: GRAPH_TYPE_STYLE[n.page_type]?.stroke,
-                          }}
-                        />
-                        <span className="jx-wikiGraphNeighbourName">{n.title}</span>
-                        <span className="jx-wikiGraphNeighbourCount">{n.link_count ?? 0}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <h3 title={selected.title}>{selected.title}</h3>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  aria-label="关闭"
+                  onClick={() => setSelected(null)}
+                />
               </div>
-            </div>
-          </aside>
-        )}
+
+              <div className="jx-wikiGraphPanelMeta">
+                <span>
+                  关联 <b>{selected.link_count ?? neighbours.length}</b> 条
+                </span>
+                {detail?.source_refs?.length ? (
+                  <span>
+                    来源 <b>{detail.source_refs.length}</b> 篇
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="jx-wikiGraphPanelActions">
+                <Button
+                  size="small"
+                  type="primary"
+                  disabled={center === selected.slug}
+                  onClick={() => void loadGraph(selected.slug)}
+                >
+                  以此为中心展开
+                </Button>
+                <Button size="small" onClick={() => onOpenPage(selected.slug)}>
+                  阅读全文
+                </Button>
+              </div>
+
+              <div className="jx-wikiGraphPanelBody">
+                {detailLoading ? (
+                  <div className="jx-wikiGraphPanelLoading">
+                    <Spin size="small" />
+                  </div>
+                ) : detail ? (
+                  <>
+                    {detail.summary ? (
+                      <p className="jx-wikiGraphPanelSummary">{detail.summary}</p>
+                    ) : null}
+                    {detailHtml ? (
+                      <div
+                        className="jx-wikiGraphPanelContent jx-md"
+                        dangerouslySetInnerHTML={{ __html: detailHtml }}
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="jx-wikiGraphPanelSummary">未能加载该页面内容。</p>
+                )}
+
+                <div className="jx-wikiGraphPanelNeighbours">
+                  <h4>关联邻居（{neighbours.length}）</h4>
+                  {neighbours.length === 0 ? (
+                    <p className="jx-wikiGraphPanelSummary">当前视图里没有它的邻居，可展开看看。</p>
+                  ) : (
+                    <div className="jx-wikiGraphNeighbourList">
+                      {neighbours.slice(0, 30).map((n) => (
+                        <button
+                          key={n.slug}
+                          type="button"
+                          className="jx-wikiGraphNeighbour"
+                          onClick={() => setSelected(n)}
+                          title={n.title}
+                        >
+                          <span
+                            className="jx-wikiGraphNeighbourDot"
+                            style={{
+                              background: GRAPH_TYPE_STYLE[n.page_type]?.fill,
+                              borderColor: GRAPH_TYPE_STYLE[n.page_type]?.stroke,
+                            }}
+                          />
+                          <span className="jx-wikiGraphNeighbourName">{n.title}</span>
+                          <span className="jx-wikiGraphNeighbourCount">{n.link_count ?? 0}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </aside>
+          )}
+        </div>
       </div>
     </div>
   );

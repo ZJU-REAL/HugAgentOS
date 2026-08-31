@@ -147,9 +147,13 @@
 
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
-| `KNOWLEDGE_BASE` | （空） | 设 `dify` 时把 Dify 数据集注入能力中心 | EE（Dify 对接） |
+| `KNOWLEDGE_BASE` | （空） | 外部知识库后端：`dify` / `fastgpt` / `weknora`；留空或设 `custom` 使用平台自建知识库 | EE |
 | `DIFY_URL` / `DIFY_API_KEY` | `http://your-dify-host:3001/v1` / …… | Dify 知识库 API | EE |
 | `DIFY_ALLOWED_DATASET_IDS` | （空 = 全部） | 仅暴露指定数据集（逗号 / 换行 / 分号分隔） | EE |
+| `FASTGPT_URL` / `FASTGPT_API_KEY` | `http://your-fastgpt-host:3000` / …… | FastGPT 知识库 API | EE |
+| `FASTGPT_ALLOWED_DATASET_IDS` | （空 = 全部） | 仅暴露指定 FastGPT 数据集 | EE |
+| `WEKNORA_URL` / `WEKNORA_API_KEY` | `http://your-weknora-host:8080` / …… | WeKnora 知识库 API | EE |
+| `WEKNORA_ALLOWED_DATASET_IDS` | （空 = 全部） | 仅暴露指定 WeKnora 知识库 | EE |
 | `KB_DETAIL_CONTENT_MAX_CHARS` | `50000`（代码默认） | KB 详情内容截断上限 | CE |
 | `MILVUS_URL` | `http://milvus:19530` | 自建知识库 / 记忆共用的向量库地址 | CE |
 | `MILVUS_TOKEN` | （空） | Milvus 鉴权 token | CE |
@@ -166,6 +170,10 @@
 | `KB_ASSET_TEXT_MAX_CHARS` | `4000` | 图注 + OCR 转写写入 `text_content` 的长度上限（该字段要参与向量化） | CE |
 | `KB_ASSET_MIN_BYTES` / `KB_ASSET_MIN_EDGE_PX` | `4096` / `64` | 过滤版面切出的图标 / 分割线等噪声图（像素判定需 Pillow，缺失时只按字节数） | CE |
 | `KB_ASSET_URL_PREFIX` | `/api` | 写入分块正文的资产 URL 前缀，需与前端 `VITE_API_BASE_URL` 一致 | CE |
+
+Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与白名单。
+切换后端时加载对应供应商自己的配置，不会复用上一家供应商的地址或数据集范围；
+上述环境变量仅作为数据库未配置时的供应商专属兜底。
 
 ## MCP 工具
 

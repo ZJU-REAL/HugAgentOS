@@ -1708,6 +1708,8 @@ export interface WikiGraphData {
     mode?: string;
     total?: number;
     returned?: number;
+    /** 旧键，外接后端可能仍在返回；等价 total */
+    total_pages?: number;
     truncated?: boolean;
     center?: string;
     depth?: number;

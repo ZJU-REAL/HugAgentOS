@@ -377,7 +377,19 @@ def wiki_graph(
     if mode == "ego":
         selected = _ego_nodes(undirected, center, depth, limit)
         if not selected:
-            return {"nodes": [], "edges": [], "meta": {"mode": "ego", "center": center}}
+            return {
+                "nodes": [],
+                "edges": [],
+                "meta": {
+                    "mode": "ego",
+                    "center": center,
+                    "depth": depth,
+                    "truncated": False,
+                    "total": len(rows),
+                    "returned": 0,
+                    "total_pages": len(rows),
+                },
+            }
     else:
         ranked = sorted(rows, key=lambda r: len(undirected.get(r.slug, ())), reverse=True)
         selected = {r.slug for r in ranked[:limit]}
@@ -410,7 +422,11 @@ def wiki_graph(
         "meta": {
             "mode": mode,
             "center": center,
+            "depth": depth if mode == "ego" else None,
             "truncated": len(rows) > len(selected),
+            # 前端类型声明读 total/returned；total_pages 是旧键，保留兼容
+            "total": len(rows),
+            "returned": len(nodes),
             "total_pages": len(rows),
         },
     }

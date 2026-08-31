@@ -69,7 +69,8 @@ def register_plan_update_tool(toolkit: Toolkit) -> None:
 
         做下一步之前先把已完成的步骤标成 completed；如果一遍就把多个步骤做完了，直接
         一次性全部标成 completed。只在步骤状态确实发生变化时才调用：和上次提交的清单
-        完全相同就不要再调，重复提交同一份清单没有任何作用。
+        完全相同就不要再调，重复提交同一份清单没有任何作用。所有步骤都标成 completed
+        之后计划即告终结，不要再调用本工具，直接输出最终文字回复。
 
         Args:
             steps (`list`):
@@ -103,14 +104,17 @@ def register_plan_update_tool(toolkit: Toolkit) -> None:
             f"  {i}. [{s['status']}] {s['title']}"
             for i, s in enumerate(parsed["steps"], start=1)
         )
-        return ToolResponse(content=[TextBlock(
-            type="text",
-            text=(
-                f"计划已更新：{counts['pending']} 待办，"
-                f"{counts['in_progress']} 进行中，{counts['completed']} 已完成。\n"
-                f"当前清单（这是计划栏的权威状态，以此为准）：\n{checklist}"
-            ),
-        )])
+        text = (
+            f"计划已更新：{counts['pending']} 待办，"
+            f"{counts['in_progress']} 进行中，{counts['completed']} 已完成。\n"
+            f"当前清单（这是计划栏的权威状态，以此为准）：\n{checklist}"
+        )
+        if counts["completed"] == len(parsed["steps"]):
+            text += (
+                "\n全部步骤已完成，计划终结：不要再调用 update_plan，也不要原样重复"
+                "任何已成功的工具调用，请直接输出面向用户的最终文字回复。"
+            )
+        return ToolResponse(content=[TextBlock(type="text", text=text)])
 
     toolkit.register_tool_function(update_plan, namesake_strategy="skip")
 
@@ -122,7 +126,8 @@ def build_plan_update_prompt_section() -> str:
         "你可以使用 `update_plan` 工具追踪步骤与进度，并把它渲染给用户。用这个工具能表明"
         "你已经理解了任务，也让用户看清你打算怎么做。计划能让复杂、有歧义或多阶段的工作"
         "对用户更清楚、更可协作。一份好的计划把任务拆成有意义、有先后逻辑、且随做随能"
-        "核验的步骤。\n"
+        "核验的步骤。所有步骤都标成 completed 之后计划即告终结，不要再调用 "
+        "`update_plan`，直接输出最终文字回复。\n"
         "注意计划不是用无关紧要的步骤给简单工作凑数，也不是把显而易见的事说一遍。计划内容"
         "不应包含你根本做不到的事（比如别去测你没法测的东西）。对于你能直接做完或直接回答"
         "的简单、单步请求，不要使用计划。\n"
