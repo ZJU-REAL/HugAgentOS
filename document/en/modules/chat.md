@@ -80,6 +80,22 @@ the client reconcile after refresh. Messages containing attachments, skills,
 connectors, plugins, or sub-agents still wait and send normally. Pressing `Esc` cancels the
 run for the chat visible on the current page.
 
+### Tool permission presets
+
+A permission chip sits next to the project selector in the composer toolbar. It has three presets, stored per user on the server (`users_shadow.metadata.tool_approval_mode`) and read/written through `GET/PUT /v1/tool-approval`:
+
+| Preset | Stored value | Effect |
+|---|---|---|
+| Ask for approval (default) | `ask` | Unchanged behavior: writing files, touching the host, or running commands raises a confirmation bar first |
+| Approve for me | `auto` | Ordinary writes and edits pass silently; **destructive operations** (`DESTRUCTIVE_OPS`) and commands the local policy tagged `danger:<category>` still stop and ask |
+| Full access | `full` | No tool confirmation is ever raised |
+
+The vocabulary is declared once in `core/llm/tool_permissions.py` (`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`), travels with the chat context into `PermissionRuntime`, and is the single criterion every tool confirmation gate consults. No preset does more than skip the *asking* — a hard deny from the local security policy still denies. Whether a given call counts as dangerous is recovered by `core/sandbox/local_policy.danger_categories()` from the `danger:` prefix in the verdict reasons, never by matching prose. Legacy stored values (`standard`, `readonly`) fall back to the most conservative preset, `ask`.
+
+Trusted unattended entry points (channel bots, scheduled automation) take the `default_allow` branch and are unaffected by the preset.
+
+**The desktop client uses this same preset and no longer stores one of its own.** The former host permission preset (strict / standard / full, persisted in `local_grants.json` and exposed at `/v1/local/approval-mode`) has been removed entirely. The local execution policy is now derived from this preset by `core/services/local_grant_service.policy_for_gate(approval_mode)`: `full` allows everything, while `ask` / `auto` follow the user's per-category dispositions and the built-in defaults. The OS file-sandbox contract is declared per preset the same way (`LOCAL_CONFINEMENT_BY_MODE`): `ask` / `auto` prefer confinement and degrade with a warning when no runner exists, `full` explicitly opts out, and an unreadable local security configuration falls back to the `FAIL_CLOSED_MODE` sentinel, which demands confinement. What the desktop still keeps — authorized folders and per-category danger dispositions (`/v1/local/grants`, `/v1/local/policy`) — governs *which folders may be touched*, a separate concern, still reachable from the bottom of the chip's menu.
+
 ### Agent construction highlights (core/llm/agent_factory.py)
 
 `create_agent_executor()` is the shared factory for every mode (main chat, plan, batch, sub-agents, automation):

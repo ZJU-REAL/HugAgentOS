@@ -19,12 +19,30 @@ import type {
 
 // Matches CJK ideographs, kana, hangul and full-width forms — the ranges that
 // tokenize to roughly one token per character.
-const CJK_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯＀-／０-￯]/g;
+//
+// 原实现是一条正则 `/[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯＀-／０-￯]/g`，
+// 这里展开成等价的码位区间做逐码元判定（全 BMP 逐码位比对过，计数完全一致）。
+// 注意第三段是原正则里 `一-鿿` 与 `豈-﫿` 两段合并后的结果，连带把韩文区和
+// 代理区码元也算作 CJK —— 这是现状行为，改它会让界面上的 token 估算数字变化，故原样保留。
+function isCjkCodeUnit(c: number): boolean {
+  return (c >= 0x3040 && c <= 0x30ff)
+    || (c >= 0x3400 && c <= 0x4dbf)
+    || (c >= 0x4e00 && c <= 0xfaff)
+    || (c >= 0xff00 && c <= 0xffef);
+}
 
-/** Rough token estimate for a piece of mixed CN/EN text. */
+/** Rough token estimate for a piece of mixed CN/EN text.
+ *
+ *  逐码元累计，不用 `text.match(CJK_RE)`：后者会把每一个命中字符都物化成一个
+ *  独立字符串塞进数组 —— 一份 300 万字的工具结果光这一步就要多申请 67MB 堆，
+ *  而上下文用量条在流式输出期间是每帧重算的，几帧就能把标签页的内存打爆。
+ *  结果与原实现在整个 BMP 上逐码位一致，界面数字不变。 */
 export function estimateTokens(text: string): number {
   if (!text) return 0;
-  const cjk = (text.match(CJK_RE) || []).length;
+  let cjk = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (isCjkCodeUnit(text.charCodeAt(i))) cjk += 1;
+  }
   const other = text.length - cjk;
   return Math.ceil(cjk + other / 4);
 }
@@ -192,12 +210,22 @@ interface MsgTokens {
 // that changed during streaming.
 const msgCache = new WeakMap<ChatMessage, MsgTokens>();
 
+// 工具调用同样是不可变快照（chatStream 每次更新都整个替换对象），所以也能按对象
+// 身份记账。这一层缓存是必须的：正在流式输出的那条消息**不进** msgCache，于是它
+// 名下每个工具结果都会被逐帧重新 JSON.stringify + 重新扫一遍 —— 读一个大文件的
+// 结果动辄几 MB，每秒重算十几次，内存和主线程都撑不住。已经跑完的工具调用对象
+// 身份不再变化，缓存一次即可；还在跑的那个换了新对象，自然重算。
+const toolCallCache = new WeakMap<ToolCall, number>();
+
 function tokensForToolCall(tc: ToolCall): number {
+  const cached = toolCallCache.get(tc);
+  if (cached !== undefined) return cached;
   let n = estimateTokens(tc.name || '');
   n += estimateTokens(serialize(tc.input));
   n += estimateTokens(serialize(tc.output));
   // subSteps are a display/audit trace. The primary model receives only the
   // outer call_subagent input/result, never the nested trajectory.
+  toolCallCache.set(tc, n);
   return n;
 }
 

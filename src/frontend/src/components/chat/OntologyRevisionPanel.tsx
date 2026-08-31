@@ -38,8 +38,20 @@ interface OntologyRevisionPanelProps {
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
+// 只是想知道"有没有够 8 个有效字符"，却用 match(/g) 把命中的每个字符都物化成
+// 一个独立字符串塞进数组 —— 候选答案是模型生成的，可以很长，白白申请一大片内存
+// （与 contextUsage.estimateTokens 同一类毛病）。数够 8 个就收工。
 function hasSubstantiveCandidate(value: string): boolean {
-  return (value.match(/[A-Za-z0-9\u3400-\u9fff]/g) || []).length >= 8;
+  let n = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const c = value.charCodeAt(i);
+    const substantive = (c >= 0x30 && c <= 0x39)
+      || (c >= 0x41 && c <= 0x5a)
+      || (c >= 0x61 && c <= 0x7a)
+      || (c >= 0x3400 && c <= 0x9fff);
+    if (substantive && (n += 1) >= 8) return true;
+  }
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -295,7 +307,6 @@ export function OntologyRevisionPanel({
           <ToolRunShell
             steps={revisionRunSteps}
             isStreaming={isRevisionStreaming}
-            holdOpenUntilText={isRevisionStreaming && !hasCandidateContent}
           />
         )
       ) : (

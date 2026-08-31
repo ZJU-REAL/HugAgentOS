@@ -4,6 +4,7 @@ import { checkSession, desktopHandoff, exchangeSsoCredential, getSsoAuthorizeUrl
 import { isEditionAccessError } from '../editionAccessError';
 import { useChatStore } from './chatStore';
 import { useAutomationChatStore } from './automationChatStore';
+import { writeLocal, removeLocal } from '../storage';
 
 export const LOGIN_LANDING_KEY = 'hugagent_login_landing';
 // Desktop client plan B: the system browser opens `<web>/?desktop=1` to start login;
@@ -189,7 +190,7 @@ async function bridgeToDesktop(): Promise<boolean> {
     try {
       window.sessionStorage.removeItem(DESKTOP_LOGIN_FLAG);
       try {
-        window.localStorage.removeItem(DESKTOP_LOGIN_FLAG);
+        removeLocal(DESKTOP_LOGIN_FLAG);
       } catch {
         // ignore
       }
@@ -298,7 +299,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           // ignore (private mode etc.) — bridging degrades gracefully
         }
         try {
-          window.localStorage.setItem(DESKTOP_LOGIN_FLAG, String(Date.now()));
+          writeLocal(DESKTOP_LOGIN_FLAG, String(Date.now()));
         } catch {
           // ignore
         }

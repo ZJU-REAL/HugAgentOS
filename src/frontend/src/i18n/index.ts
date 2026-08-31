@@ -1,4 +1,5 @@
 import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
+import { writeLocal } from '../storage';
 
 /**
  * 轻量 i18n：中文原文作 key，英文字典翻译，缺失回退中文。
@@ -45,7 +46,7 @@ export function getLang(): Lang {
 export function setLang(lang: Lang): void {
   if (lang === currentLang) return;
   try {
-    localStorage.setItem(LANG_STORAGE_KEY, lang);
+    writeLocal(LANG_STORAGE_KEY, lang);
   } catch {
     // 存不进去也照样切换本次会话
   }

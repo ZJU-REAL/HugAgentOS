@@ -136,7 +136,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 
 **Works out of the box**
 - **Core chat + ReAct tool orchestration + plan mode + reconnect replay + citations.**
-- **Code execution (bash / Python)**: runs as a host subprocess, but Strict and Standard enforce write boundaries through the OS file sandbox (Linux `bubblewrap`, macOS `sandbox-exec`). A missing or unusable runner fails closed rather than executing raw. Native file tools use the same read/write policy, and the workspace lives at `~/.hugagent/workspace/`. This remains a single-user local profile, not multi-tenant container isolation.
+- **Code execution (bash / Python)**: runs as a host subprocess, but the *Ask for approval* and *Approve for me* presets prefer to enforce write boundaries through the OS file sandbox (Linux `bubblewrap`, macOS `sandbox-exec`). On a host without a runner those two degrade to the local command policy alone and say so; an unreadable local security configuration fails closed instead of executing raw. Native file tools use the same read/write policy, and the workspace lives at `~/.hugagent/workspace/`. This remains a single-user local profile, not multi-tenant container isolation.
 - **Built-in skills** (the 5 word / excel / ppt / pdf editing skills): synced into the workspace at install time so the sandbox can run their scripts directly.
 - **Built-in tool MCPs**: internet search / web fetch / batch execution / KB retrieval, etc. — the servers run fine (some need a configured external service or key to return data, see below).
 - **Data visualization (charts)**: the installer installs matplotlib; works once present.
@@ -172,7 +172,7 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 | Startup logs repeatedly report `AllocTimestamp` / `Method not implemented` | Stop the service and rerun the public one-command installer. The installer reconciles PyMilvus and Milvus Lite to compatible versions without deleting `~/.hugagent/milvus.db`. |
 | Want to switch model / change config | Re-run `hugagent onboard`, or log in and adjust under Settings → System → Model Services / Service Config |
 | PPT/Word preview reports that LibreOffice isn't installed | Re-run the one-command installer and choose to install it when prompted. On Debian/Ubuntu, you can instead run `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`, then restart HugAgentOS. |
-| bash reports a missing OS sandbox runner | Install `bubblewrap` on Linux (`sudo apt-get install bubblewrap` on Debian/Ubuntu), then restart. Strict and Standard never fall back to raw execution when the runner is missing. |
+| bash reports a missing OS sandbox runner | Install `bubblewrap` on Linux (`sudo apt-get install bubblewrap` on Debian/Ubuntu), then restart. Only with the runner installed are host commands OS-confined; without it the local command policy alone governs them and the tool result says so. |
 | Skill execution repeatedly reports `fork: Resource temporarily unavailable` | Stop the current service, rerun the public installer to upgrade, and start `hugagent` again. If an older version left child processes behind, inspect processes owned by the current user and, when needed, sign out of the login session before retrying. |
 | Is the environment ready | `hugagent doctor` runs a one-shot self-check |
 

@@ -12,7 +12,22 @@
 
 import { fillTemplate, resolveText } from '../plugin-ui';
 import { usePluginUiStore } from '../stores/pluginUiStore';
-import { TOOL_ICONS } from './constants';
+import { TOOL_ICONS, TOOL_NAME_OVERRIDES } from './constants';
+
+/**
+ * 一个工具对外显示的名字：这条链路原先在 ToolCallRow / ToolProgressInline /
+ * ToolRunShell 里各抄了一遍，收敛到这里，三处口径不会再走偏。
+ * 后端下发的 displayName → 宿主覆盖表 → 会话内动态名（MCP 连接器）→ 裸工具名。
+ */
+export function resolveToolDisplayName(
+  tool: { name: string; displayName?: string },
+  dynamicNames: Record<string, string> = {},
+): string {
+  return tool.displayName
+    || TOOL_NAME_OVERRIDES[tool.name]
+    || dynamicNames[tool.name]
+    || tool.name;
+}
 
 /** Icon URL for a tool: plugin contribution → host table → caller's fallback. */
 export function resolveToolIcon(toolName: string, fallback = '/icons/knowledge.png'): string {

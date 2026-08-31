@@ -7,7 +7,7 @@ import type {
   ContextUsageSnapshot,
   PlanProgressState,
 } from '../types';
-import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY } from '../storage';
+import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY, writeLocal, removeLocal } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
@@ -93,7 +93,7 @@ function saveCurrentChatId(userId: string | null | undefined, chatId: string) {
   const key = userScopedKey(CURRENT_CHAT_KEY, userId);
   if (!key) return;
   try { window.sessionStorage.setItem(key, chatId); } catch { /* ignore */ }
-  window.localStorage.setItem(key, chatId);
+  writeLocal(key, chatId);
 }
 
 function loadPendingScrollMessageTs(userId: string | null | undefined) {
@@ -111,10 +111,10 @@ function savePendingScrollMessageTs(userId: string | null | undefined, ts: numbe
   const key = userScopedKey(PENDING_SCROLL_MESSAGE_TS_KEY, userId);
   if (!key) return;
   if (ts === null) {
-    window.localStorage.removeItem(key);
+    removeLocal(key);
     return;
   }
-  window.localStorage.setItem(key, String(ts));
+  writeLocal(key, String(ts));
 }
 
 const QUEUED_MESSAGES_KEY = 'hugagent_queued_messages';
@@ -152,8 +152,8 @@ function saveQueuedMessages(
     q?.status === 'queued' || !!q?.targetRunId
   ));
   try {
-    if (persistable.length === 0) window.localStorage.removeItem(key);
-    else window.localStorage.setItem(key, JSON.stringify(Object.fromEntries(persistable)));
+    if (persistable.length === 0) removeLocal(key);
+    else writeLocal(key, JSON.stringify(Object.fromEntries(persistable)));
   } catch { /* localStorage 不可用时放弃持久化，不影响内存态 */ }
 }
 
@@ -223,6 +223,24 @@ interface ChatState {
   backendSessionIds: Set<string>;
   /** Chat IDs whose messages have been loaded from backend */
   loadedMsgIds: Set<string>;
+  /** 每个会话的历史分页游标。
+   *
+   *  打开会话只拉最近一页（后端 order=desc 的第 1 页），用户往上滚到顶再续拉更早的。
+   *  过去是 while(true) 把每一页都拉完再一次性渲染 —— 一个跑过大文件的长对话，
+   *  光这一下就能把浏览器压垮。`nextPage` 是下一次要取的 desc 页码；`hasOlder`
+   *  为 false 表示已经到最早的一条；`loading` 防止滚动抖动触发并发拉取。 */
+  messagePaging: Record<string, { nextPage: number; hasOlder: boolean; loading: boolean }>;
+  setMessagePaging: (
+    chatId: string,
+    paging: { nextPage: number; hasOlder: boolean; loading: boolean } | null,
+  ) => void;
+  /** 把按需取回的完整工具结果写回对应的那张工具卡（见 ToolCallRow 的展开取全文）。 */
+  applyToolCallOutput: (
+    chatId: string,
+    messageId: string,
+    toolId: string,
+    output: unknown,
+  ) => void;
   /** Whether share selection mode is enabled */
   shareSelectionMode: boolean;
   /** Selected message timestamps for share generation */
@@ -425,6 +443,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   toolDisplayNames: {},
   backendSessionIds: new Set(),
   loadedMsgIds: new Set(),
+  messagePaging: {},
   shareSelectionMode: false,
   selectedShareMessageTs: new Set(),
   pendingScrollMessageTs: null,
@@ -576,6 +595,33 @@ export const useChatStore = create<ChatState>((set, get) => {
     return { loadedMsgIds: next };
   }),
   clearLoadedMsgIds: () => set({ loadedMsgIds: new Set() }),
+  setMessagePaging: (chatId, paging) => set((s) => {
+    const next = { ...s.messagePaging };
+    if (paging) next[chatId] = paging;
+    else delete next[chatId];
+    return { messagePaging: next };
+  }),
+  applyToolCallOutput: (chatId, messageId, toolId, output) => set((s) => {
+    const chat = s.store.chats[chatId];
+    if (!chat) return {};
+    let touched = false;
+    const messages = (chat.messages || []).map((m) => {
+      if (m.messageId !== messageId || !Array.isArray(m.toolCalls)) return m;
+      const toolCalls = m.toolCalls.map((tc) => {
+        if (tc.id !== toolId) return tc;
+        touched = true;
+        // outputLoaded 一旦置上就不再回退：同一张卡展开/收起多次只取一次全文。
+        return { ...tc, output, outputTruncated: false, outputLoaded: true };
+      });
+      return touched ? { ...m, toolCalls } : m;
+    });
+    if (!touched) return {};
+    const store = {
+      ...s.store,
+      chats: { ...s.store.chats, [chatId]: { ...chat, messages } },
+    };
+    return { store, storeRef: store };
+  }),
   setShareSelectionMode: (v) => set((s) => ({
     shareSelectionMode: v,
     selectedShareMessageTs: v ? s.selectedShareMessageTs : new Set(),
@@ -1077,6 +1123,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       sendingChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
+  messagePaging: {},
       shareSelectionMode: false,
       selectedShareMessageTs: new Set(),
       quotedFollowUp: store.chats[currentChatId]?.pendingQuote || null,
@@ -1128,6 +1175,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       sendingChatIds: new Set(),
       backendSessionIds: new Set(),
       loadedMsgIds: new Set(),
+  messagePaging: {},
       shareSelectionMode: false,
       selectedShareMessageTs: new Set(),
       pendingScrollMessageTs: null,

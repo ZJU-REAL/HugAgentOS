@@ -34,7 +34,7 @@ import posixpath
 import re
 import shlex
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Sequence, Set
 
 # ── Decision vocabulary ──────────────────────────────────────────────────────
 ALLOW = "allow"
@@ -51,6 +51,21 @@ DELETE = "delete"
 SYSTEM_WRITE = "system_write"
 NETWORK = "network"
 PRIVILEGE = "privilege"
+
+# A triggered danger category is recorded in ``EvalResult.reasons`` under this
+# prefix. Callers that need to know *why* a command needs confirming read it
+# back through ``danger_categories`` instead of matching the prose.
+DANGER_REASON_PREFIX = "danger:"
+
+
+def danger_categories(reasons: Sequence[str]) -> Set[str]:
+    """Danger categories behind a verdict, recovered from its reasons."""
+    return {
+        reason[len(DANGER_REASON_PREFIX) :]
+        for reason in reasons
+        if reason.startswith(DANGER_REASON_PREFIX)
+    }
+
 
 # Policy dispositions (what the user configures per category) → decision.
 _DISPOSITION_TO_DECISION = {"block": DENY, "confirm": CONFIRM, "allow": ALLOW}

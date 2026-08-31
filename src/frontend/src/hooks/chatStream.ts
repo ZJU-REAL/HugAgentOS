@@ -30,6 +30,7 @@ import {
 } from '../utils/streamSegments';
 import { useChatStore, useCatalogStore, useUIStore, useBatchStore, useCanvasStore, useAgentStore, usePluginStore } from '../stores';
 import type { ChatItem, ChatMessage, CitationItem, EvolutionSummary, MessageSegment, OntologyGovernanceSummary, SubagentStep, ToolCall } from '../types';
+import { writeLocal } from '../storage';
 
 /**
  * Unified chat SSE stream processor (single source of truth).
@@ -143,7 +144,7 @@ export function markRunCancelledByUser(runId: string): void {
   if (typeof window === 'undefined') return;
   try {
     const next = [..._cancelledRuns].slice(-CANCELLED_RUNS_MAX);
-    window.localStorage.setItem(CANCELLED_RUNS_KEY, JSON.stringify(next));
+    writeLocal(CANCELLED_RUNS_KEY, JSON.stringify(next));
   } catch { /* ignore */ }
 }
 
@@ -720,7 +721,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     if (!canAutoOpenCanvas()) return;
     useCanvasStore.getState().openOntology({ chatId, messageTs: placeholderTs });
   };
-  const appendOrUpdate = (
+  const commitUpdate = (
     streaming: boolean,
     cits?: CitationItem[],
     persistedMessageId?: string,
@@ -783,6 +784,72 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
       const nextChat: ChatItem = { ...(c as ChatItem), messages: msgs };
       return { chats: { ...prev.chats, [chatId]: nextChat }, order: prev.order };
     });
+  };
+
+  // 流式增量的合并写。每个 SSE 事件都直接落 store 时，气泡每长一点就要把**整篇**
+  // 正文重新解析成 markdown、重建整棵 DOM 再 diff 回去 —— 单次开销随正文长度线性
+  // 增长，一轮回答累计下来是平方级。实测 95KB 的回答光 markdown 解析就要 16s 主线程
+  // （3228 个增量 × 逐次全量解析），叠加 DOM 重建后标签页直接被撑爆，用户看到的就是
+  // "输出太长页面崩溃"。这里把流式写入按时间窗合并，窗口随正文长度自适应放大；
+  // 终态（streaming=false）永远立即写，收尾结果与合并前完全一致。
+  let pendingStreamingUpdate: { cits?: CitationItem[]; persistedMessageId?: string } | null = null;
+  let streamingUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastStreamingCommitAt = 0;
+
+  /** 正文越长，全量重排一次越贵，合并窗口就越宽——但**上限必须保持在肉眼仍读作
+   *  流式输出的范围内**，不能为了给极端长文留余量把常规观感一起牺牲掉。
+   *  5 万字以内维持 50ms（≈20 次/秒，与逐字输出无异）；再长按长度线性放宽，
+   *  封顶 250ms（≈4 次/秒，仍是一段段往外流，不是整段蹦出来）。 */
+  const streamingCommitDelay = () => Math.min(250, Math.max(50, Math.round(full.length / 1000)));
+
+  const cancelStreamingUpdate = () => {
+    if (streamingUpdateTimer != null) {
+      clearTimeout(streamingUpdateTimer);
+      streamingUpdateTimer = null;
+    }
+    pendingStreamingUpdate = null;
+  };
+
+  const flushStreamingUpdate = () => {
+    if (streamingUpdateTimer != null) {
+      clearTimeout(streamingUpdateTimer);
+      streamingUpdateTimer = null;
+    }
+    const pending = pendingStreamingUpdate;
+    pendingStreamingUpdate = null;
+    if (!pending) return;
+    lastStreamingCommitAt = Date.now();
+    commitUpdate(true, pending.cits, pending.persistedMessageId);
+  };
+
+  const appendOrUpdate = (
+    streaming: boolean,
+    cits?: CitationItem[],
+    persistedMessageId?: string,
+  ) => {
+    if (!streaming) {
+      // 终态先把待写的增量丢掉：它携带的是同一份可变状态的旧快照，
+      // 而下面这次写入本来就带着最新的全量内容。
+      cancelStreamingUpdate();
+      lastStreamingCommitAt = Date.now();
+      commitUpdate(false, cits, persistedMessageId);
+      return;
+    }
+    // 参数按"最后给出的非空值"合并：合并窗口内多次调用只有一次落盘，
+    // 但引用列表 / message_id 这类附带信息不能被后来的裸调用抹掉。
+    pendingStreamingUpdate = {
+      cits: cits !== undefined ? cits : pendingStreamingUpdate?.cits,
+      persistedMessageId: persistedMessageId ?? pendingStreamingUpdate?.persistedMessageId,
+    };
+    if (streamingUpdateTimer != null) return;
+    const delay = streamingCommitDelay();
+    const elapsed = Date.now() - lastStreamingCommitAt;
+    // 首帧与空闲后的第一帧立即出，不给用户"迟迟不吐字"的观感。
+    if (elapsed >= delay) {
+      flushStreamingUpdate();
+      return;
+    }
+    streamingUpdateTimer = setTimeout(flushStreamingUpdate, delay - elapsed);
   };
 
   const applySteerBoundary = (eventObj: Record<string, unknown>) => {
@@ -883,7 +950,10 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   const hookApi: ChatStreamApi = {
     appendText: (txt: string) => appendTextSeg(txt),
     hasText: () => full.length > 0,
-    refresh: () => appendOrUpdate(true, allCitations),
+    refresh: () => {
+      appendOrUpdate(true, allCitations);
+      flushStreamingUpdate();
+    },
   };
 
   appendOrUpdate(true);
@@ -1717,6 +1787,9 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   deferredThinkingText = restoreDeferredThinkingTextFragment(segments, deferredThinkingText);
   // 收尾统一规则：工具卡/思考块不留在最终答案之后（与历史重建一致，刷新前后不跳变）
   liftTrailingSegmentsAboveFinalText(segments);
+  // 收尾直接写 store（不走 appendOrUpdate），所以必须先撤掉还挂着的合并写定时器 ——
+  // 否则它会在收尾之后补一帧 isStreaming:true，把气泡永久钉在"生成中"。
+  cancelStreamingUpdate();
   const isMd = /\n|```|\*\*|^\s*#\s/m.test(full);
   useChatStore.getState().updateStore((prev) => {
     const c = prev.chats[chatId];

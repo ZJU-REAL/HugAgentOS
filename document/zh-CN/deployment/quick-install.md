@@ -140,7 +140,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 
 **开箱可用**
 - **核心对话 + ReAct 工具编排 + 计划模式 + 断线续播 + 引用标注**。
-- **代码执行（bash / Python）**：以宿主子进程执行，但严格/标准权限档会通过 OS 文件沙箱强制限制写入（Linux `bubblewrap`、macOS `sandbox-exec`）；执行器缺失或不可用时 fail-closed，不会裸跑。文件工具使用同一读写权限策略，工作区位于 `~/.hugagent/workspace/`。这仍是单用户本机形态，不等同于多租户容器隔离。
+- **代码执行（bash / Python）**：以宿主子进程执行，但「逐项确认」「替我批准」两档会优先通过 OS 文件沙箱限制写入（Linux `bubblewrap`、macOS `sandbox-exec`）；这两档在缺执行器的宿主上降级为只由本地命令策略把关并给出告警，本机安全配置读不出来时则 fail-closed、拒绝裸跑。文件工具使用同一读写权限策略，工作区位于 `~/.hugagent/workspace/`。这仍是单用户本机形态，不等同于多租户容器隔离。
 - **内置技能**（word / excel / ppt / pdf 编辑等 5 个）：安装时同步到工作区，沙箱可直接调用其脚本。
 - **内置工具型 MCP**：互联网搜索 / 网页抓取 / 批量执行 / 知识库检索等——服务本身正常运行（部分需配置对应外部服务或密钥才有数据，见下）。
 - **数据可视化（图表）**：安装脚本会装 matplotlib；装上即可用。
@@ -174,7 +174,7 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 启动日志反复出现 `AllocTimestamp` / `Method not implemented` | 停止当前服务并重新运行公开一键安装器。安装器会把 PyMilvus 与 Milvus Lite 校准到兼容版本，不会删除 `~/.hugagent/milvus.db`。 |
 | 想换模型 / 改配置 | 重跑 `hugagent onboard`，或登录后到「设置 → 系统管理 → 模型服务 / 服务配置」调整 |
 | PPT/Word 预览提示 LibreOffice 未安装 | 重新运行一键安装器并在提示时选择安装；Debian/Ubuntu 也可执行 `sudo apt-get update && sudo apt-get install -y libreoffice-impress libreoffice-writer libreoffice-calc`，然后重启 HugAgentOS |
-| bash 提示缺少 OS 沙箱运行器 | Linux 安装 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install bubblewrap`）后重启；严格/标准档不会在缺少执行器时降级裸跑 |
+| bash 提示缺少 OS 沙箱运行器 | Linux 安装 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install bubblewrap`）后重启；装上后本机命令才受 OS 沙箱约束，缺执行器时只由本地命令策略把关并给出告警 |
 | 技能执行反复出现 `fork: Resource temporarily unavailable` | 停止当前服务，重新运行公开安装器完成升级，再启动 `hugagent`。旧版本若留下子进程，先检查当前用户的进程，必要时注销当前登录会话后重试。 |
 | 环境是否就绪 | `hugagent doctor` 一次性自检 |
 

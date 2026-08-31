@@ -194,6 +194,10 @@ export interface ToolCall {
    * 历史重建按此偏移把「文本 ↔ 工具卡片」按流式原顺序交错还原。
    */
   contentOffset?: number;
+  /** 历史列表只给了梗概，完整结果要展开时按需回取（后端 result_truncated）。 */
+  outputTruncated?: boolean;
+  /** 已经按需取回过完整结果，别重复请求。 */
+  outputLoaded?: boolean;
 }
 
 /** §13 MySpace write confirmation decision (literal counterparts of the backend's _myspace_confirm.DECISION_*). */

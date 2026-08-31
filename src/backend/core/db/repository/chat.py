@@ -316,12 +316,22 @@ class ChatMessageRepository:
         )
 
     def list_by_chat(
-        self, chat_id: str, page: int = 1, page_size: int = 50
+        self,
+        chat_id: str,
+        page: int = 1,
+        page_size: int = 50,
+        *,
+        newest_first: bool = False,
     ) -> tuple[List[ChatMessage], int]:
         """List messages for a chat session with pagination.
 
         Excludes role='system' rows — these include compaction checkpoints (internal
         artifacts, not visible to the user).
+
+        ``newest_first`` 让第 1 页是**最近**的一批。前端打开会话时要的正是这个：
+        先拿最近 N 条渲染出来，用户往上滚再要第 2、3 页。按正序分页做不到这件事——
+        不先跑一趟拿总数就不知道最后一页是第几页。返回的这一页内部仍是时间正序，
+        调用方直接往列表前面拼即可。
         """
         query = self.db.query(ChatMessage).filter(
             ChatMessage.chat_id == chat_id,
@@ -329,12 +339,15 @@ class ChatMessageRepository:
         )
 
         total = query.count()
+        order = ChatMessage.chat_seq.desc() if newest_first else ChatMessage.chat_seq
         messages = (
-            query.order_by(ChatMessage.chat_seq)
+            query.order_by(order)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
         )
+        if newest_first:
+            messages.reverse()
 
         return messages, total
 

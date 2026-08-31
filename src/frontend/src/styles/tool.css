@@ -152,13 +152,16 @@
   border-style: solid;
   border-width: 4px 0 4px 5px;
   border-color: transparent transparent transparent color-mix(in srgb, var(--color-text) 35%, transparent);
-  transition: transform 0.18s ease, border-color 0.15s;
+  transition: transform 0.18s ease, border-color 0.15s, opacity 0.15s ease;
   margin-left: 2px;
+  opacity: 0;
 }
 .jx-tcr-arrow--open {
   transform: rotate(90deg);
 }
-.jx-tcr-header[role="button"]:hover .jx-tcr-arrow {
+.jx-tcr-header[role="button"]:hover .jx-tcr-arrow,
+.jx-tcr-header[role="button"]:focus-visible .jx-tcr-arrow {
+  opacity: 1;
   border-left-color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
@@ -438,23 +441,33 @@
   border-right: 1.5px solid color-mix(in srgb, var(--color-text) 40%, transparent);
   border-bottom: 1.5px solid color-mix(in srgb, var(--color-text) 40%, transparent);
   transform: rotate(-45deg);
-  transition: transform 0.2s ease;
+  /* 常驻的箭头在一屏好几张折叠卡时是纯噪音——留位不留形，悬浮/键盘聚焦才淡入，
+     用 opacity 而不是 display 保证标题行不会跳。 */
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.15s ease;
 }
 .jx-trs-chev--open {
   transform: rotate(45deg);
 }
-.jx-trs-head:hover .jx-trs-chev {
+.jx-trs-head:hover .jx-trs-chev,
+.jx-trs-head:focus-visible .jx-trs-chev {
+  opacity: 1;
   border-color: color-mix(in srgb, var(--color-text) 62%, transparent);
 }
 
 /* ── Expanded body: grid-rows collapse animation + thin guide line ── */
 .jx-trs-bodyWrap {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.24s ease;
+  /* 高度由 useCollapseHeight 量好后写在 style 上；这里只负责裁切与过渡曲线。
+     原来用 grid-template-rows:0fr→1fr，那套在部分浏览器/内容结构下不插值，
+     点开就是"啪"一下没有过程。 */
+  overflow: hidden;
+  height: 0;
+  transition: height 0.24s var(--motion-ease-brand-out),
+              opacity 0.2s var(--motion-ease-standard);
+  opacity: 0;
 }
 .jx-trs-bodyWrap--open {
-  grid-template-rows: 1fr;
+  opacity: 1;
 }
 /* .jx-expandWrap 是隐藏工具调用时那条就地折叠用的通用外壳（variables.css），
    两种外壳都靠这层 overflow:hidden 做 grid-rows 高度动画 */
@@ -1642,9 +1655,13 @@
   font-size:9px;
   color:color-mix(in srgb, var(--color-text-placeholder) 60%, transparent);
   flex-shrink:0;
-  transition:color .15s, transform .2s var(--motion-ease-standard);
+  /* 与执行卡的箭头同口径：常驻箭头是噪音，留位不留形，悬浮/键盘聚焦才淡入。 */
+  opacity:0;
+  transition:color .15s, opacity .15s ease, transform .2s var(--motion-ease-standard);
 }
-.jx-inlineSummary:hover .jx-inlineSummaryArrow{
+.jx-inlineSummary:hover .jx-inlineSummaryArrow,
+.jx-inlineSummary:focus-visible .jx-inlineSummaryArrow{
+  opacity:1;
   color:color-mix(in srgb, var(--color-text-tertiary) 75%, transparent);
 }
 /* 深色下这行「已深度思考 N 秒 / 已调用 N 个工具」的折叠摘要要抬一档。
@@ -2783,4 +2800,11 @@
 }
 .jx-batch-phTag:active{
   transform:scale(.94);
+}
+
+/* 展开工具卡时按需回取完整结果的过渡提示（见 ToolCallRow 的 fetchFullOutput）。 */
+.jx-tcr-loadingFull{
+  padding:6px 0;
+  font-size:12px;
+  color:var(--color-text-tertiary, var(--color-text-tertiary));
 }

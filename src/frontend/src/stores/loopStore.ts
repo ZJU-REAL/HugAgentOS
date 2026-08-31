@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { LoopItem } from '../types';
 import { listLoops, getLoop } from '../api';
+import { writeLocal, removeLocal } from '../storage';
 
 /** One requirement of an in-conversation autonomous loop (for plan-bar display). */
 export interface LoopPlanReq {
@@ -57,8 +58,8 @@ function loadLivePlan(): LoopLivePlan | null {
 }
 function saveLivePlan(p: LoopLivePlan | null) {
   try {
-    if (p) localStorage.setItem(LIVE_PLAN_KEY, JSON.stringify(p));
-    else localStorage.removeItem(LIVE_PLAN_KEY);
+    if (p) writeLocal(LIVE_PLAN_KEY, JSON.stringify(p));
+    else removeLocal(LIVE_PLAN_KEY);
   } catch {
     /* ignore quota / privacy-mode errors */
   }

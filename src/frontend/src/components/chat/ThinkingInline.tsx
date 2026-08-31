@@ -4,6 +4,7 @@ import { useOverflowFade } from '../../hooks';
 import { scrollElementToBottom } from '../../utils/scroll';
 import { BrandLoader } from '../common';
 import { t } from '../../i18n';
+import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 
 interface ThinkingInlineProps {
   content: string;
@@ -21,6 +22,7 @@ interface ThinkingInlineProps {
 export function ThinkingInline({ content, isActive }: ThinkingInlineProps) {
   const [open, setOpen] = useState(false);
   const [boxRef, innerRef, overflowing] = useOverflowFade(open);
+  const collapseRef = useCollapseHeight(open);
 
   useEffect(() => {
     if (open && isActive && boxRef.current) scrollElementToBottom(boxRef.current);
@@ -41,7 +43,7 @@ export function ThinkingInline({ content, isActive }: ThinkingInlineProps) {
       </div>
 
       {hasContent && (
-        <div className={`jx-expandWrap${open ? ' jx-expandWrap--open' : ''}`}>
+        <div ref={collapseRef} className={`jx-collapse${open ? ' jx-collapse--open' : ''}`}>
           <div
             ref={boxRef}
             className={`jx-thinkingContent${overflowing ? ' jx-inlineFold-fade' : ''}`}

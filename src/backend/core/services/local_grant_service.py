@@ -129,45 +129,21 @@ def grants_for_gate() -> List[Any]:
     ]
 
 
-# ── Approval mode (Codex-style in-dialog permission bar, ticket #06+) ─────────
-_VALID_APPROVAL = ("strict", "standard", "full")
-_DEFAULT_APPROVAL = "standard"
+def policy_for_gate(approval_mode: str) -> Any:
+    """Build the effective ``local_policy.Policy`` for one run's permission preset.
 
+    桌面端不再另存一份「本机操作权限档」——粗档就是用户在输入框那颗胶囊里选的
+    那一档（``core.llm.tool_permissions`` 的 ask / auto / full），本文件只负责把
+    它翻译成本机策略：
 
-def get_approval_mode() -> str:
-    mode = _load().get("approval_mode", _DEFAULT_APPROVAL)
-    return mode if mode in _VALID_APPROVAL else _DEFAULT_APPROVAL
-
-
-def set_approval_mode(mode: str) -> str:
-    if mode not in _VALID_APPROVAL:
-        raise ValueError(f"approval_mode 必须是 {_VALID_APPROVAL}")
-    with _LOCK:
-        data = _load()
-        data["approval_mode"] = mode
-        _save(data)
-    return mode
-
-
-def policy_for_gate(approval_mode: str | None = None) -> Any:
-    """Build the effective ``local_policy.Policy`` from the approval mode + stored dispositions.
-
-    The approval mode is the coarse, in-dialog permission dial:
-      - ``strict`` : globally read-only; block out-of-scope paths and every danger category.
-      - ``standard``: per-category policy / built-in defaults (the middle ground).
-      - ``full``   : allow everything (only audit-logged) — hands-off autonomy.
+      - ``full``      ：全部放行（仅记审计），完全不管。
+      - ``ask``/``auto``：走用户配置的分类处置 / 内置默认（中间地带）；两档在
+        本机策略上一致，区别是"要不要停下来问"，那由权限网关按危险类别决定。
     """
     from core.sandbox.local_policy import DELETE, NETWORK, PRIVILEGE, SYSTEM_WRITE, Policy
 
-    mode = approval_mode if approval_mode in _VALID_APPROVAL else get_approval_mode()
-    categories = (DELETE, SYSTEM_WRITE, NETWORK, PRIVILEGE)
-    if mode == "strict":
-        return Policy(
-            out_of_scope="block",
-            workspace_write="block",
-            danger={c: "block" for c in categories},
-        )
-    if mode == "full":
+    if approval_mode == "full":
+        categories = (DELETE, SYSTEM_WRITE, NETWORK, PRIVILEGE)
         return Policy(
             out_of_scope="allow",
             workspace_write="allow",
@@ -185,8 +161,6 @@ __all__ = [
     "remove_grant",
     "get_policy",
     "set_policy",
-    "get_approval_mode",
-    "set_approval_mode",
     "grants_for_gate",
     "policy_for_gate",
 ]

@@ -14,6 +14,8 @@ import { resolveText } from '../../plugin-ui';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePageConfig } from '../../hooks/usePageConfig';
+import { loadOlderMessages } from '../../hooks/useChatInit';
+import { useStableCallback } from '../../hooks/useStableCallback';
 import { t } from '../../i18n';
 import { resolveBatchModeActive } from '../../utils/chatMode';
 
@@ -131,6 +133,48 @@ export function ChatArea({
       ro?.disconnect();
     };
   }, []);
+
+  // 这四个回调在上层是每次渲染重新定义的普通函数。不稳住身份，MessageBubble 的
+  // memo 就完全不起作用——模型每吐一个字，整条对话的所有气泡都要重渲染一遍。
+  const stableSend = useStableCallback(send);
+  const stableExportChatRecord = useStableCallback(exportChatRecord);
+  const stableRegenerate = useStableCallback(regenerate);
+  const stableEditAndResend = useStableCallback(editAndResend);
+
+  // ── 更早的消息：滚到顶自动续拉 ──────────────────────────────────────
+  // 打开会话只铺最近一屏（见 useChatInit 的 MESSAGE_PAGE_SIZE）。这里在列表最上方
+  // 放一个哨兵，滚进视野就续拉一页拼到前面。拼完必须把滚动位置补回去，否则新插入
+  // 的内容会把用户正在看的那一段整个顶走。
+  const olderSentinelRef = useRef<HTMLDivElement>(null);
+  const messagePaging = useChatStore((s) => s.messagePaging[currentChatId]);
+  const hasOlderMessages = !!messagePaging?.hasOlder;
+  useEffect(() => {
+    const sentinel = olderSentinelRef.current;
+    const scroller = document.querySelector<HTMLElement>('.jx-content');
+    if (!sentinel || !scroller || !hasOlderMessages) return;
+    let disposed = false;
+    const observer = new IntersectionObserver(async (entries) => {
+      if (disposed || !entries.some((entry) => entry.isIntersecting)) return;
+      const heightBefore = scroller.scrollHeight;
+      const added = await loadOlderMessages(currentChatId);
+      if (disposed) return;
+      if (added > 0) {
+        requestAnimationFrame(() => {
+          if (!disposed) scroller.scrollTop += scroller.scrollHeight - heightBefore;
+        });
+      }
+      // 观察器只在"进出视野"的跳变时回调。续拉一页后哨兵往往仍留在视野里
+      // （第一屏不够高、或用户还停在顶部），不重新 observe 就再也不会触发，
+      // 表现成"滚到顶卡住不再加载"。重新挂一次会立刻按当前状态回调一次。
+      observer.unobserve(sentinel);
+      observer.observe(sentinel);
+    }, { root: scroller, rootMargin: '200px 0px 0px 0px' });
+    observer.observe(sentinel);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+    };
+  }, [currentChatId, hasOlderMessages]);
 
   const scrollToBottom = () => {
     const content = document.querySelector<HTMLElement>('.jx-content');
@@ -555,6 +599,11 @@ export function ChatArea({
         </div>
       )}
       <div className="jx-chatList" ref={chatListRef}>
+        {messagePaging?.hasOlder && (
+          <div className="jx-olderLoader" ref={olderSentinelRef} role="status">
+            {messagePaging.loading ? t('正在加载更早的消息…') : t('向上滚动查看更早的消息')}
+          </div>
+        )}
         {(chat.messages || []).map((m, idx) => (
           <ContentErrorBoundary
             key={m.ts}
@@ -569,10 +618,10 @@ export function ChatArea({
               m={m}
               messageIndex={idx}
               currentChatId={currentChatId}
-              send={send}
-              exportChatRecord={exportChatRecord}
-              regenerate={regenerate}
-              editAndResend={editAndResend}
+              send={stableSend}
+              exportChatRecord={stableExportChatRecord}
+              regenerate={stableRegenerate}
+              editAndResend={stableEditAndResend}
             />
           </ContentErrorBoundary>
         ))}

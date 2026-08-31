@@ -676,6 +676,36 @@ export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
   }));
 }
 
+export interface ToolCallResultPayload {
+  tool_id: string;
+  tool_name?: string;
+  status?: string;
+  result: unknown;
+  /** 后端在宽档上限下仍然截断了（极端大结果）——展开后正文里带说明。 */
+  truncated: boolean;
+}
+
+/**
+ * 按需取回某个工具调用的完整结果。
+ *
+ * 历史列表只下发梗概（后端 `_tool_calls_for_history`）：一页 100 条消息、每条挂着
+ * 好几张工具卡，把完整结果一起搬进浏览器正是"打开长对话就卡死"的来源。用户真正
+ * 展开哪张卡，才来取哪一张。
+ */
+export async function getToolCallResult(
+  chatId: string,
+  messageId: string,
+  toolId: string,
+): Promise<ToolCallResultPayload> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`
+    + `/tool-calls/${encodeURIComponent(toolId)}`,
+    undefined,
+    isLocalChat(chatId) ? 'local' : undefined,
+  );
+  return unwrapData<ToolCallResultPayload>(wrapped);
+}
+
 export interface ChatContextState {
   context_usage?: unknown;
   context_compaction?: unknown;
@@ -3172,13 +3202,17 @@ export interface LocalSnapshotFile {
   path: string;
   count: number;
 }
-export type LocalApprovalMode = 'strict' | 'standard' | 'full';
-export async function getLocalApprovalMode(): Promise<LocalApprovalMode> {
-  const wrapped = await apiRequest<{ mode: LocalApprovalMode }>('/v1/local/approval-mode', undefined, 'local');
-  return unwrapData<{ mode: LocalApprovalMode }>(wrapped).mode || 'standard';
+// ── 工具执行权限档（逐项确认 / 替我批准 / 完全放开）──────────────────────
+// 网页端与桌面端共用这一档，每个用户一份存在服务端；桌面端的本机策略由它翻译
+// 而来，不再另存一份「本机操作权限档」。上面的授权目录管的是"本机哪些目录能动"，
+// 与档位是两件事，只在桌面端有。
+export type ToolApprovalMode = 'ask' | 'auto' | 'full';
+export async function getToolApprovalMode(): Promise<ToolApprovalMode> {
+  const wrapped = await apiRequest<{ mode: ToolApprovalMode }>('/v1/tool-approval');
+  return unwrapData<{ mode: ToolApprovalMode }>(wrapped).mode || 'ask';
 }
-export async function setLocalApprovalMode(mode: LocalApprovalMode): Promise<void> {
-  await apiRequest('/v1/local/approval-mode', { method: 'PUT', body: JSON.stringify({ mode }) }, 'local');
+export async function setToolApprovalMode(mode: ToolApprovalMode): Promise<void> {
+  await apiRequest('/v1/tool-approval', { method: 'PUT', body: JSON.stringify({ mode }) });
 }
 
 export async function listLocalSnapshots(): Promise<LocalSnapshotFile[]> {

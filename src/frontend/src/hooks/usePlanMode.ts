@@ -5,6 +5,7 @@ import { stripMcpToolPrefix } from '../utils/constants';
 import { useChatStore, useCatalogStore, useFileStore, useModelCapabilitiesStore } from '../stores';
 import { useProjectStore } from '../stores/projectStore';
 import type { ChatItem, ChatMessage, MessageSegment, ToolCall } from '../types';
+import { ensureFullMessages } from './useChatInit';
 
 /** Mark the approval decision on the newest preview plan segment carrying planId
  *  (hides the confirm/discard buttons on the card afterwards). */
@@ -461,13 +462,19 @@ export async function sendPlanMode(
   const appendAssistant = makePlanAppender(currentChatId, placeholderTs);
   appendAssistant('', true);
 
-  const chatForHistory = useChatStore.getState().store.chats[currentChatId];
+  let chatForHistory = useChatStore.getState().store.chats[currentChatId];
   // Project mounting: prefer the projectId bound to the session itself; when the session was just minted and hasn't been written back yet, fall back to
   // the currently active project (consistent with the logic in useStreaming.send).
   const projectId =
     (chatForHistory as { projectId?: string } | undefined)?.projectId ||
     useProjectStore.getState().currentProjectId ||
     undefined;
+  // 计划模式要把整段历史带给后端。常规浏览只铺了最近一屏（见 useChatInit 的
+  // MESSAGE_PAGE_SIZE），这里先补齐再取，别只把最近几轮当成全部上下文。
+  if (useChatStore.getState().messagePaging[currentChatId]?.hasOlder) {
+    await ensureFullMessages(currentChatId);
+    chatForHistory = useChatStore.getState().store.chats[currentChatId];
+  }
   const historyMessages: Array<{ role: string; content: string }> = [];
   if (chatForHistory?.messages) {
     for (const m of chatForHistory.messages) {

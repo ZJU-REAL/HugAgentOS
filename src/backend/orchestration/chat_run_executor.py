@@ -837,6 +837,7 @@ async def _run_workflow(
         build_user_question_event,
         build_user_question_resolved_event,
     )
+    from core.chat.display_bounds import bound_result_for_display
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
 
     initial_claimed = False
@@ -1431,7 +1432,9 @@ async def _run_workflow(
                 except Exception:
                     logger.debug("attach_subagent_step failed (ignored)", exc_info=True)
                 chunk["chat_id"] = chat_id
-                await _emit(chunk)
+                # 落库（attach_subagent_step）已在上面完成，推给浏览器的这一份走展示上限：
+                # 子智能体的工具结果和主链路一样能有几 MB。
+                await _emit(bound_result_for_display(chunk)[0])
 
             elif chunk_type == "file_confirm":
                 # §13: some tool coroutine is suspended, waiting for the user to
@@ -1523,7 +1526,7 @@ async def _run_workflow(
             }:
                 ontology_event = dict(chunk)
                 ontology_event["chat_id"] = chat_id
-                await _emit(ontology_event)
+                await _emit(bound_result_for_display(ontology_event)[0])
 
             elif chunk_type == "meta":
                 _flush_thinking()

@@ -10,7 +10,9 @@ from unittest.mock import AsyncMock, patch
 
 from agentscope.message import ToolCallBlock
 from core.llm.tool_permissions import (
+    APPROVAL_ASK,
     CURRENT_PERMISSION_TICKET,
+    FAIL_CLOSED_MODE,
     PermissionRuntime,
     ToolPermissionRegistry,
     ToolPermissionService,
@@ -47,7 +49,7 @@ def _payload(response) -> dict:
     return json.loads(text)
 
 
-async def _authorize(command: str, *, interactive: bool):
+async def _authorize(command: str, *, interactive: bool, approval_mode: str = APPROVAL_ASK):
     registry = ToolPermissionRegistry()
     spec = builtin_tool_permission("bash")
     assert spec is not None
@@ -59,6 +61,7 @@ async def _authorize(command: str, *, interactive: bool):
             user_id="user-1",
             interactive=interactive,
             approval_available=interactive,
+            approval_mode=approval_mode,
         ),
     )
     return await service.authorize(
@@ -70,8 +73,8 @@ async def _authorize(command: str, *, interactive: bool):
     )
 
 
-async def _run_authorized(command: str, *, interactive: bool):
-    outcome = await _authorize(command, interactive=interactive)
+async def _run_authorized(command: str, *, interactive: bool, approval_mode: str = APPROVAL_ASK):
+    outcome = await _authorize(command, interactive=interactive, approval_mode=approval_mode)
     assert outcome.proceed is True
     assert outcome.ticket is not None
     token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
@@ -107,8 +110,8 @@ async def test_local_bash_execution_boundary_rejects_missing_ticket():
     assert "授权票据" in payload["error"]
 
 
-async def test_strict_mode_rejects_missing_os_sandbox():
-    """``strict`` promises nothing on the host changes, so it refuses unconfined."""
+async def test_fail_closed_mode_rejects_missing_os_sandbox():
+    """本机安全配置读不出来时的记号档要求强隔离，拿不到就拒跑，不裸跑。"""
     unavailable = OsSandboxUnavailableError("sandbox unavailable")
     with (
         patch.dict("os.environ", {"SANDBOX_TOOLS_ENABLED": "true"}),
@@ -118,16 +121,15 @@ async def test_strict_mode_rejects_missing_os_sandbox():
             "core.services.local_grant_service.policy_for_gate",
             return_value=Policy(),
         ),
-        patch("core.services.local_grant_service.get_approval_mode", return_value="strict"),
         patch("core.sandbox.os_sandbox.wrap_command", side_effect=unavailable),
     ):
-        response = await _run_authorized("ls -la", interactive=True)
+        response = await _run_authorized("ls -la", interactive=True, approval_mode=FAIL_CLOSED_MODE)
     payload = _payload(response)
     assert payload["blocked"] is True
     assert payload["sandbox_unavailable"] is True
 
 
-async def test_standard_mode_degrades_instead_of_losing_the_shell():
+async def test_asking_preset_degrades_instead_of_losing_the_shell():
     """No bundled backend (Windows, bwrap-less Linux) must not mean "no bash"."""
     unavailable = OsSandboxUnavailableError("sandbox unavailable")
     executed = {}
@@ -147,7 +149,6 @@ async def test_standard_mode_degrades_instead_of_losing_the_shell():
             "core.services.local_grant_service.policy_for_gate",
             return_value=Policy(),
         ),
-        patch("core.services.local_grant_service.get_approval_mode", return_value="standard"),
         patch("core.sandbox.os_sandbox.wrap_command", side_effect=unavailable),
         patch(
             "core.sandbox.get_sandbox_provider",
@@ -192,19 +193,21 @@ async def test_approved_copy_only_adds_destination_to_one_shot_write_set():
                 return_value=Policy(),
             ),
             patch(
-                "core.services.local_grant_service.get_approval_mode",
-                return_value="strict",
-            ),
-            patch(
                 "core.llm.tools._myspace_confirm.gate",
                 new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "core.sandbox.os_sandbox.confinement_unavailable_reason",
+                return_value="",
             ),
             patch(
                 "core.sandbox.os_sandbox.wrap_command",
                 side_effect=capture_and_stop,
             ),
         ):
-            response = await _run_authorized(f"cp {source} {destination}", interactive=True)
+            response = await _run_authorized(
+                f"cp {source} {destination}", interactive=True, approval_mode=FAIL_CLOSED_MODE
+            )
 
     payload = _payload(response)
     assert payload["sandbox_unavailable"] is True
@@ -232,15 +235,15 @@ async def test_system_overlapping_grant_is_not_a_standing_os_write_bind():
             return_value=Policy(),
         ),
         patch(
-            "core.services.local_grant_service.get_approval_mode",
-            return_value="strict",
+            "core.sandbox.os_sandbox.confinement_unavailable_reason",
+            return_value="",
         ),
         patch(
             "core.sandbox.os_sandbox.wrap_command",
             side_effect=capture_and_stop,
         ),
     ):
-        response = await _run_authorized("ls", interactive=True)
+        response = await _run_authorized("ls", interactive=True, approval_mode=FAIL_CLOSED_MODE)
 
     assert _payload(response)["sandbox_unavailable"] is True
     assert "/" not in captured["write_paths"]

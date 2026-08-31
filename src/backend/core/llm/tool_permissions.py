@@ -42,6 +42,29 @@ READ = "read"
 WRITE = "write"
 EXECUTE = "execute"
 
+# 权限档：用户在输入框工具栏自己选的一档，决定"要不要为工具调用停下来问他"。
+# ask  —— 逐项确认，保持原有行为。
+# auto —— 替我批准：普通写入直接过，删除等被判定为危险的操作仍然问一句。
+# full —— 完全放开：一律不问。
+APPROVAL_ASK = "ask"
+APPROVAL_AUTO = "auto"
+APPROVAL_FULL = "full"
+APPROVAL_MODES = (APPROVAL_ASK, APPROVAL_AUTO, APPROVAL_FULL)
+
+# 早期版本用过的名字，读到时按最保守的一档兜底，不让老值静默变成放行。
+_LEGACY_APPROVAL_ALIASES = {"standard": APPROVAL_ASK, "readonly": APPROVAL_ASK}
+
+# 「替我批准」档下仍要停下来问的操作：删掉的东西找不回来，值得多按一次。
+DESTRUCTIVE_OPS = frozenset({"delete", "cron_delete"})
+
+
+def normalize_approval_mode(raw: Any) -> str:
+    """Coerce a stored or user-supplied preset name onto the known vocabulary."""
+    mode = str(raw or "").strip().lower()
+    if mode in APPROVAL_MODES:
+        return mode
+    return _LEGACY_APPROVAL_ALIASES.get(mode, APPROVAL_ASK)
+
 
 def _json_hash(value: Any) -> str:
     encoded = json.dumps(
@@ -77,6 +100,10 @@ class PermissionRuntime:
     set for trusted unattended entry points (external channels and automation):
     governed built-ins bypass policy prompts but still receive a matching
     execution ticket for the final file/command boundary.
+
+    ``approval_mode`` is the user's own preset for this run: ``auto`` answers
+    an ordinary confirmation with "yes" instead of suspending the tool but
+    still asks about destructive/dangerous ones, and ``full`` never asks.
     """
 
     chat_id: Optional[str]
@@ -84,6 +111,7 @@ class PermissionRuntime:
     interactive: bool
     approval_available: bool
     default_allow: bool = False
+    approval_mode: str = APPROVAL_ASK
 
 
 # What an intent does when no live UI can answer a confirmation (batch runs,
@@ -134,17 +162,19 @@ CONFINE_NONE = "none"
 CONFINE_PREFERRED = "preferred"
 CONFINE_REQUIRED = "required"
 
-# Declarative confinement contract per approval preset. ``full`` is the single
-# explicit opt-out. ``strict`` refuses to run at all without OS confinement,
-# because its whole promise is "nothing on this machine changes". ``standard``
-# prefers confinement but degrades to the command-policy gate alone on hosts
-# with no bundled backend (Windows today, a Linux box without bubblewrap) —
-# refusing there would leave the desktop client with no shell whatsoever.
+# 本机 OS 沙箱约束契约，按权限档声明。``full`` 是唯一显式放弃约束的一档；
+# ``ask`` / ``auto`` 优先约束，但在没有可用执行器的宿主上（今天的 Windows、
+# 没装 bubblewrap 的 Linux）退化为只靠命令策略闸——在那里硬拒会让桌面客户端
+# 彻底没有 shell 可用。表里没有的档位（例如配置读不出来的 fail-closed 记号）
+# 一律按最严格的契约处理。
 LOCAL_CONFINEMENT_BY_MODE: Mapping[str, str] = {
-    "strict": CONFINE_REQUIRED,
-    "standard": CONFINE_PREFERRED,
-    "full": CONFINE_NONE,
+    APPROVAL_ASK: CONFINE_PREFERRED,
+    APPROVAL_AUTO: CONFINE_PREFERRED,
+    APPROVAL_FULL: CONFINE_NONE,
 }
+
+# 本机安全配置读不出来时用的记号档：不属于任何用户可选档位，落到最严格的契约。
+FAIL_CLOSED_MODE = "fail_closed"
 
 
 class LocalConfinementUnavailableError(Exception):
@@ -165,7 +195,6 @@ class LocalCommandAuthorization:
     command: str
     approval_mode: str
     write_paths: tuple[str, ...] = ()
-    read_only: bool = False
 
     @property
     def confinement(self) -> str:
@@ -192,7 +221,7 @@ class LocalCommandAuthorization:
         if not reason:
             try:
                 return ConfinedCommand(
-                    wrap_command(command, list(self.write_paths), read_only=self.read_only),
+                    wrap_command(command, list(self.write_paths)),
                     confined=True,
                 )
             except OsSandboxUnavailableError as exc:
@@ -204,14 +233,14 @@ class LocalCommandAuthorization:
         if contract == CONFINE_REQUIRED:
             raise LocalConfinementUnavailableError(
                 f"{reason}；当前「{self.approval_mode}」权限档要求强制文件系统隔离，"
-                "已拒绝执行。如确需在本机直接运行，请在「设置 → 本地权限」切换权限档。"
+                "已拒绝执行。如确需在本机直接运行，请在输入框上方切换权限档。"
             )
         return ConfinedCommand(
             command,
             confined=False,
             warning=(
                 f"{reason}；本次命令未受 OS 沙箱约束，仅由本地命令策略把关。"
-                "如需强隔离请安装对应运行器或切换到只读/严格档。"
+                "如需强隔离请安装对应运行器。"
             ),
         )
 
@@ -255,7 +284,6 @@ class PermissionTicket:
             "local_command": (
                 {
                     "approval_mode": self.local_command.approval_mode,
-                    "read_only": self.local_command.read_only,
                     "write_paths": list(self.local_command.write_paths),
                 }
                 if self.local_command is not None
@@ -615,9 +643,8 @@ class ToolPermissionService:
                 (
                     LocalCommandAuthorization(
                         command=intent.target,
-                        approval_mode="full",
+                        approval_mode=APPROVAL_FULL,
                         write_paths=(),
-                        read_only=False,
                     )
                     for intent in intents
                     if intent.domain == DOMAIN_LOCAL_COMMAND
@@ -683,6 +710,18 @@ class ToolPermissionService:
         )
         return PermissionOutcome(True, ticket=ticket, audit=ticket.audit_dict())
 
+    def _answers_for_user(self, *, dangerous: bool) -> bool:
+        """Whether a would-be confirmation is answered "yes" without asking.
+
+        「完全放开」一律不问；「替我批准」只替用户过普通操作，删除和被本地
+        安全策略判为危险的那些仍旧停下来问。任何一档都只跳过"问"这一步——
+        策略判定的硬拒绝照样拒绝。
+        """
+        mode = self.runtime.approval_mode
+        if mode == APPROVAL_FULL:
+            return True
+        return mode == APPROVAL_AUTO and not dangerous
+
     async def _authorize_intent(self, intent: PermissionIntent) -> dict[str, Any]:
         if intent.domain == DOMAIN_DENY:
             return {"payload": self._blocked(intent.summary), "reasons": [intent.summary]}
@@ -701,23 +740,23 @@ class ToolPermissionService:
             "reasons": ["unknown_permission_domain"],
         }
 
-    @staticmethod
-    def _safe_local_security():
+    def _safe_local_security(self):
+        """Grants + effective local policy for this run's own permission preset.
+
+        桌面端不再另存一份权限档：粗档就是 ``runtime.approval_mode``，本机策略
+        由它翻译而来，授权目录与分类处置仍来自本机存储。
+        """
         from core.sandbox.local_policy import DELETE, NETWORK, PRIVILEGE, SYSTEM_WRITE, Policy
 
+        mode = self.runtime.approval_mode
         try:
-            from core.services.local_grant_service import (
-                get_approval_mode,
-                grants_for_gate,
-                policy_for_gate,
-            )
+            from core.services.local_grant_service import grants_for_gate, policy_for_gate
 
-            mode = get_approval_mode()
             return mode, grants_for_gate(), policy_for_gate(mode)
         except Exception:  # unreadable configuration must never grant access
             logger.exception("[tool-permission] local security config unreadable; failing closed")
             return (
-                "strict",
+                FAIL_CLOSED_MODE,
                 [],
                 Policy(
                     out_of_scope="block",
@@ -737,7 +776,7 @@ class ToolPermissionService:
         if not local_mode_enabled():
             return {}
         from core.sandbox._common import WORKSPACE
-        from core.sandbox.local_policy import evaluate_local_path
+        from core.sandbox.local_policy import danger_categories, evaluate_local_path
 
         _mode, grants, policy = self._safe_local_security()
         verdict = evaluate_local_path(
@@ -766,6 +805,10 @@ class ToolPermissionService:
             }
         if verdict.decision != "confirm":
             return {"reasons": verdict.reasons}
+        if self._answers_for_user(dangerous=bool(danger_categories(verdict.reasons))):
+            return {
+                "reasons": [*verdict.reasons, f"approved_by_preset:{self.runtime.approval_mode}"]
+            }
 
         from core.llm.tools import _myspace_confirm as confirm
 
@@ -793,6 +836,7 @@ class ToolPermissionService:
         from core.sandbox.local_policy import (
             SYSTEM_WRITE,
             Grant,
+            danger_categories,
             evaluate_local_command,
             intersects_system_write_area,
         )
@@ -820,7 +864,9 @@ class ToolPermissionService:
                 ),
                 "reasons": verdict.reasons,
             }
-        if verdict.decision == "confirm":
+        if verdict.decision == "confirm" and not self._answers_for_user(
+            dangerous=bool(danger_categories(verdict.reasons))
+        ):
             from core.llm.tools import _myspace_confirm as confirm
 
             blocked = await confirm.gate(
@@ -864,7 +910,6 @@ class ToolPermissionService:
                 command=intent.target,
                 approval_mode=approval_mode,
                 write_paths=tuple(write_paths),
-                read_only=approval_mode == "strict",
             ),
         }
 
@@ -875,6 +920,16 @@ class ToolPermissionService:
         interactive: bool,
     ) -> dict[str, Any]:
         from core.llm.tools import _myspace_confirm as confirm
+
+        op = intent.op or intent.action
+        if self._answers_for_user(dangerous=op in DESTRUCTIVE_OPS):
+            logger.info(
+                "[tool-permission] preset=%s answered the confirmation; not asking op=%s target=%r",
+                self.runtime.approval_mode,
+                op,
+                intent.target,
+            )
+            return {"reasons": [f"approved_by_preset:{self.runtime.approval_mode}"]}
 
         if not interactive and intent.on_no_ui == FALLBACK_ALLOW:
             logger.info(

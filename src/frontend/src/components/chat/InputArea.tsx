@@ -29,9 +29,10 @@ import LoopPlanBar from '../loop/LoopPlanBar';
 import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
 import { DropOverlay } from '../common/DropOverlay';
+import { ContentErrorBoundary } from '../common';
 import { ChipChevron } from '../common/ChipChevron';
 import { IconPlus } from '../common/DshIcons';
-import LocalApprovalPill from './LocalApprovalPill';
+import ApprovalPill from './ApprovalPill';
 import DeploymentSwitcher from './DeploymentSwitcher';
 import ChatModeSwitch from './ChatModeSwitch';
 import ModelEffortChip from './ModelEffortChip';
@@ -39,6 +40,7 @@ import { ContextGauge } from './ContextGauge';
 import { QueuedMessageCard } from './QueuedMessageCard';
 import { extractClipboardImageFiles } from '../../utils/clipboardFiles';
 import { hasChatInvocation } from '../../utils/chatInvocation';
+import { exceedsPreviewLimit, getPreviewLimitBytes } from '../../utils/filePreviewSafety';
 import { t } from '../../i18n';
 
 interface InputAreaProps {
@@ -414,9 +416,17 @@ export function InputArea({
     [input, installedPlugins, skills],
   );
 
-  // Object URLs for uploaded image files — revoked when files change
+  // Object URLs for uploaded image files — revoked when files change.
+  // 超大图不给缩略图：浏览器画这张小卡片也要把整幅图解码成未压缩位图（一张
+  // 一亿像素的扫描件就是几百 MB 显存/内存），几张下去标签页当场被内存打崩。
+  // 阈值复用 filePreviewSafety 里的图片预览上限，别再单开一个常量。
   const uploadedImageUrls = useMemo(() => {
-    return uploadedFiles.map((f) => (f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined));
+    const imageLimit = getPreviewLimitBytes('image');
+    return uploadedFiles.map((f) => (
+      f.type.startsWith('image/') && !exceedsPreviewLimit(f.size, imageLimit)
+        ? URL.createObjectURL(f)
+        : undefined
+    ));
   }, [uploadedFiles]);
   useEffect(() => {
     return () => { uploadedImageUrls.forEach((u) => u && URL.revokeObjectURL(u)); };
@@ -1338,7 +1348,7 @@ export function InputArea({
             );
           })()}
 
-      {!projectComposer && <LocalApprovalPill />}
+      {!projectComposer && <ApprovalPill />}
 
           {/* Mode chips report "you are in this mode" and carry their own ✕ at the top-right —
               that ✕ is the way out, so an accidentally started mode is always one click from
@@ -1402,7 +1412,13 @@ export function InputArea({
           <ModelEffortChip />
 
           {/* Context-usage ring: estimated context-window occupancy for the current conversation */}
-          <ContextGauge />
+          {/* 上下文用量条是装饰性的：它要遍历整轮工具结果算 token，成本随内容涨。
+              万一在这里抛错，它长在消息列表那圈 ContentErrorBoundary **之外**，
+              会一路捅到顶层错误边界、整页变成"页面显示遇到异常"——为一条进度条
+              赔上整个页面不值当。单独兜一层，出事就让它自己消失。 */}
+          <ContentErrorBoundary fallback={null}>
+            <ContextGauge />
+          </ContentErrorBoundary>
 
           {/* While a run is active, an empty composer keeps the stop button; typing switches
               back to send so Enter/click can queue a follow-up without cancelling the run. */}

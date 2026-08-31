@@ -65,33 +65,27 @@ def test_grants_and_policy_for_gate(tmp_path, monkeypatch):
     svc.set_policy({"delete": "block"})
     gate_grants = svc.grants_for_gate()
     assert len(gate_grants) == 1 and gate_grants[0].path == "/data/proj"
-    pol = svc.policy_for_gate()
+    pol = svc.policy_for_gate("ask")
     assert pol.disposition_for("delete") == "block"
     # unspecified category falls back to the built-in default
     assert pol.disposition_for("privilege") == "block"
 
 
-def test_approval_mode_presets_drive_policy(tmp_path, monkeypatch):
+def test_chat_permission_preset_drives_the_local_policy(tmp_path, monkeypatch):
+    """桌面端不再另存权限档：本机策略直接由聊天界面那一档翻译而来。"""
     svc = _fresh_service(tmp_path, monkeypatch)
-    assert svc.get_approval_mode() == "standard"
-    # strict → everything blocks
-    svc.set_approval_mode("strict")
-    pol = svc.policy_for_gate()
-    assert pol.out_of_scope == "block"
-    assert pol.workspace_write == "block"
-    assert pol.disposition_for("delete") == "block"
-    # full → everything allows
-    svc.set_approval_mode("full")
-    pol = svc.policy_for_gate()
+    svc.set_policy({"delete": "block"})
+    # 逐项确认 / 替我批准 → 走用户配置的分类处置
+    for mode in ("ask", "auto"):
+        pol = svc.policy_for_gate(mode)
+        assert pol.out_of_scope == "confirm"
+        assert pol.workspace_write == "allow"
+        assert pol.disposition_for("delete") == "block"
+    # 完全放开 → 全部放行
+    pol = svc.policy_for_gate("full")
     assert pol.out_of_scope == "allow"
     assert pol.workspace_write == "allow"
     assert pol.disposition_for("privilege") == "allow"
-    # invalid rejected
-    try:
-        svc.set_approval_mode("yolo")
-        raise AssertionError("expected ValueError")
-    except ValueError:
-        pass
 
 
 def test_persistence_across_reload(tmp_path, monkeypatch):
