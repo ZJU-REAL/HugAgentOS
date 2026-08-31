@@ -447,10 +447,8 @@ async def _run_item_via_workflow(
         isolated=True,
         max_iters=50,
         visible_subagents=sub_visible_agents if sub_visible_agents else None,
-        # Batch items run concurrently: force an ephemeral sandbox — each item gets its own
-        # temporary container, reclaimed on finish — so multiple items don't fight over the
-        # same persistent kernel state and cross-contaminate (docs §4.1).
-        sandbox_session_id="",
+        # The conversation is the only sandbox boundary. Batch items keep their own model,
+        # MCP and workspace-UI state, but share this chat's live sandbox filesystem.
         ontology_runtime=ontology_runtime,
     )
     # 证据锚点：发号器绑到 agent，中间件与本函数共享同一计数器

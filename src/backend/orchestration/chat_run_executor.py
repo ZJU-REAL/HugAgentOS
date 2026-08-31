@@ -828,6 +828,7 @@ async def _run_workflow(
     """
     from core.chat.context import now_iso, resolve_user_facing_error
     from core.chat.tool_log import (
+        StepSequencer,
         attach_subagent_step,
         build_thinking_event,
         build_tool_call_delta_event,
@@ -955,6 +956,9 @@ async def _run_workflow(
     # 每个思考块记录它出现时的正文偏移，历史重建按此原位还原。
     _thinking_parts: List[str] = []
     _thinking_log: List[Dict[str, Any]] = []
+    # 思考块与工具卡片分两列存，光靠 offset 排不出先后（两次可见正文之间发生的
+    # 一切共用同一个 offset）。统一发号，回放时按 (offset, step_seq) 归并。
+    _steps = StepSequencer()
     # 本轮已开的思考块；跨轮（工具调用边界）置 None 强制另起一块。不设边界的话，
     # 正文一旦出现，后面每一轮的思考都会并进同一块里无限膨胀。
     _round_block: Optional[Dict[str, Any]] = None
@@ -973,7 +977,7 @@ async def _run_workflow(
         if _round_block is not None:
             _round_block["content"] += block
             return
-        _round_block = {"content": block, "offset": len(full_response)}
+        _round_block = _steps.new_thinking_block(block, len(full_response))
         _thinking_log.append(_round_block)
 
     def _thinking_payload() -> Optional[List[Dict[str, Any]]]:
@@ -1178,8 +1182,7 @@ async def _run_workflow(
                 _thinking_log.clear()
                 # 整体替换后，先前记录的 content_offset 指向旧草稿坐标系，
                 # 已无意义——清掉，让历史重建走「合并正文」兜底而不是错切。
-                for _tc in tool_calls_log:
-                    _tc.pop("content_offset", None)
+                StepSequencer.clear_tool_positions(tool_calls_log)
                 await _emit(
                     {
                         "type": "content_replace",
@@ -1366,11 +1369,10 @@ async def _run_workflow(
                 _flush_thinking()
                 _round_block = None
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
-                # 记录该工具卡片出现时正文的累计长度（与持久化 content 同一坐标系，
-                # 思考块的 offset 也是这个坐标系）：历史重建按此偏移把「文本 ↔ 思考
-                # ↔ 工具卡片」按流式原顺序交错（问题15：刷新后内容与实时不一致）。
-                for _tc in tool_calls_log:
-                    _tc.setdefault("content_offset", len(full_response))
+                # 记录该工具卡片出现时正文的累计长度，外加统一发的先后号：历史重建
+                # 按 (offset, step_seq) 把「文本 ↔ 思考 ↔ 工具卡片」按流式原顺序交错
+                # （问题15：刷新后内容与实时不一致）。
+                _steps.stamp_tools(tool_calls_log, len(full_response))
                 await _emit(_tc_evt)
 
             elif chunk_type == "tool_call_start":
@@ -1384,10 +1386,9 @@ async def _run_workflow(
             elif chunk_type == "tool_result":
                 _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
                 # attach_tool_result 可能刚补录了一个没有 tool_call 事件的条目：
-                # 此刻就补记 offset，否则它要等下一个 tool_call 才拿到（晚一个
+                # 此刻就补记位置，否则它要等下一个 tool_call 才拿到（晚一个
                 # 叙述段），最后一个工具则永远缺失 → 整条消息退化成堆叠展示。
-                for _tc in tool_calls_log:
-                    _tc.setdefault("content_offset", len(full_response))
+                _steps.stamp_tools(tool_calls_log, len(full_response))
                 await _emit(_tr_evt)
 
             elif chunk_type == "context_usage":

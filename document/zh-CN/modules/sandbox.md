@@ -1,10 +1,12 @@
 # 沙箱执行系统
 
-> 最后更新：2026-08-11
+> 最后更新：2026-08-31
 
 沙箱是 HugAgentOS 中智能体执行代码的隔离环境：模型在对话里调用 `bash` 跑命令、运行[技能](agent-skills.md)脚本、生成可下载产物，全部发生在沙箱里而非后端主进程。系统通过统一的 **Provider 协议**抽象出三种可切换的执行后端——从单机轻量的 script_runner 到带持久会话、快照恢复的 OpenSandbox，再到远端 MicroVM 集群的 Cube——上层工具代码对此完全无感。
 
 按[版本划分](../editions/overview.md)：**轻量沙箱（script_runner）+ 沙箱工具/offload 基础设施属社区版 CE**；**持久沙箱（opensandbox / cube，会话保持、环境复用、快照恢复）属商业版 EE**——社区版派生树剔除这两个 provider 文件，工厂自动回退轻量实现。
+
+沙箱遵循一个统一边界：**`session_id`（对话中即 `chat_id`）是唯一隔离键**。不同会话使用不同沙箱；同一会话的主智能体、内置子智能体、用户自建子智能体和批量项共享同一个 `/workspace`。智能体的模型上下文、工具权限和执行线程仍可独立，但不会再在会话内部创建第二个文件沙箱。
 
 ## Provider 协议（core/sandbox/protocol.py）
 
@@ -21,16 +23,16 @@
 | `health()` | 健康探测 |
 | `admin_*` 系列 | 安全管理台只读视图（能力声明 / 实例枚举 / 单实例详情 / 池统计），不支持的能力抛 `SandboxAdminNotSupported` 由 UI 置灰 |
 
-`ExecuteRequest` 的两个关键可选字段：
+`ExecuteRequest` 的两个关键字段：
 
-- **`session_id`**：持久型 provider 用它把多次 `execute` 绑定到同一个底层沙箱实例（= 跨调用保留变量、pip 包、/workspace 文件）；ephemeral provider 忽略；
+- **`session_id`**：所有 provider 都用它路由会话工作区；相同 ID 跨调用保留 `/workspace` 文件，不同 ID 互不可见。OpenSandbox / Cube 还会据此复用底层容器、MicroVM 或 kernel；
 - **`user_id`**：触发 myspace 文件可见性（bind-mount 或 seed），见下文 Plan F。
 
 ## 三个 Provider 实现
 
 | Provider | 文件 | 形态 | 适用场景 | 版本 |
 |---|---|---|---|---|
-| `script_runner` | `script_runner_provider.py` | 包装 `hugagent-script-runner` sidecar 容器的 HTTP 调用（容器内 setrlimit 子进程），无状态 | 单机部署、一次性代码执行，默认值 | CE |
+| `script_runner` | `script_runner_provider.py` | 单 sidecar + 按 `session_id` 分目录的持久文件工作区；每次命令仍由 setrlimit 子进程执行 | 单机部署、轻量代码执行，默认值 | CE |
 | `opensandbox` | `opensandbox_provider.py` + `_opensandbox_*.py` | 阿里 OpenSandbox（Docker 容器 + Jupyter 持久 kernel），per-chat 持久会话 + 预热池 + 快照 | 多轮迭代分析、技能重工作流 | **EE** |
 | `cube` | `cube_provider.py` | 腾讯 CubeSandbox（E2B 兼容 MicroVM），**远端节点**——后端通过 `e2b_code_interpreter` SDK 跨网访问，无本地 sidecar | 后端宿主机资源紧张 / 需要强隔离（MicroVM 级）/ 沙箱算力独立扩容的部署 | **EE** |
 
@@ -48,7 +50,7 @@ Cube 的设计取舍（远端节点版的代价）：所有语言统一走"写�
 | `sandbox_put_artifact(artifact_id, dest_path)` | 把平台 artifact（用户上传文件、图表工具产物等）的字节拷入沙箱路径——沙箱不会自动看到上传文件 |
 | `sandbox_get_artifact(src_path)` | 把沙箱内文件流式登记为可下载 artifact；默认单文件上限 100 MiB——bash 产物不会自动出现在附件区 |
 
-沙箱会话标识由 `resolve_sandbox_session(sandbox_session_id, chat_id)` 解析：主对话/计划执行 → `chat_id`（per-chat 持久 kernel）；批量项/子智能体 → `""`（ephemeral）。
+沙箱会话标识由 `resolve_sandbox_session(sandbox_session_id, chat_id)` 解析：非空显式 ID 优先，未传或传空值时统一回落到 `chat_id`。主智能体、计划执行、批量项和所有子智能体因此使用同一个会话沙箱；子智能体结束时不会销毁它。
 
 **MySpace 回写闭环**：`bash` 命令成功且命令串包含 `myspace` 时，`_sync_myspace_changes` 列出沙箱 `/workspace/myspace/{uid}` 下近 10 分钟修改的文件、与后端镜像缓存做 md5 比对，差异文件逐个过用户确认门（`MYSPACE_WRITE_CONFIRM`，非交互模式直接拒写）后以**同 file_id 就地回写**「我的空间」——下载/预览链接不变。这闭合了"模型用 python-docx 在沙箱改了 docx、用户空间却纹丝不动"的断链。
 

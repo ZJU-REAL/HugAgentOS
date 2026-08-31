@@ -141,6 +141,9 @@ function parseHistoryMessage(m: any): ChatMessage {
         ...(typeof (tc.content_offset ?? tc.contentOffset) === 'number'
           ? { contentOffset: (tc.content_offset ?? tc.contentOffset) }
           : {}),
+        ...(typeof (tc.step_seq ?? tc.stepSeq) === 'number'
+          ? { stepSeq: (tc.step_seq ?? tc.stepSeq) }
+          : {}),
         // 历史列表只给了梗概；展开这张卡时 ToolCallRow 会按需回取完整结果。
         ...(tc.result_truncated === true ? { outputTruncated: true } : {}),
       }))
@@ -157,7 +160,15 @@ function parseHistoryMessage(m: any): ChatMessage {
   const rawContent = String(m.content || '');
   // 思考单独存一列（新消息）；老消息该字段为空，思考仍内联在 content 里。
   const storedThinking = Array.isArray(m.thinking)
-    ? (m.thinking as ThinkingBlock[]).filter((b) => b && typeof b.content === 'string')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? (m.thinking as any[])
+        .filter((b) => b && typeof b.content === 'string')
+        .map((b): ThinkingBlock => ({
+          ...b,
+          ...(typeof (b.step_seq ?? b.stepSeq) === 'number'
+            ? { stepSeq: (b.step_seq ?? b.stepSeq) }
+            : {}),
+        }))
     : undefined;
   let { segments, cleanContent } = m.role === 'assistant'
     ? buildHistorySegments(rawContent, toolCalls, storedThinking)

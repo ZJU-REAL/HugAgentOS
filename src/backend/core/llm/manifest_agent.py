@@ -134,7 +134,16 @@ class ManifestBoundAgent(Agent):
             getattr(self, "_jx_execution_manifest", None),
         )
         if base_manifest is not None:
-            items.extend(adapter.reference_items_from_execution_manifest(base_manifest))
+            # Prompt-side material (live project content) belongs to the prefix,
+            # behind the system prompt and ahead of the conversation. The
+            # assembler emits items in the order it receives them, so place them
+            # here instead of appending and relying on a sort to hoist them back.
+            references = adapter.reference_items_from_execution_manifest(base_manifest)
+            if references:
+                head = 0
+                while head < len(items) and items[head].render_role == "system":
+                    head += 1
+                items[head:head] = references
 
         context_size = int(getattr(self.model, "context_size", 0) or 0)
         # Leave a deterministic 15% response reserve and separately account

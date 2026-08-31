@@ -57,19 +57,24 @@ async def test_stream_to_file_rejects_one_byte_over_and_removes_partial(tmp_path
 
 @pytest.mark.asyncio
 async def test_script_runner_raw_endpoint_enforces_limit(monkeypatch, tmp_path):
-    within = tmp_path / "within.pdf"
-    within.write_bytes(b"12345678")
-    over = tmp_path / "over.pdf"
-    over.write_bytes(b"123456789")
     monkeypatch.setattr(runner_server, "WORKSPACE_ROOT", str(tmp_path))
+    workspace = runner_server._session_workspace("chat-1", create=True)
+    within = workspace / "within.pdf"
+    within.write_bytes(b"12345678")
+    over = workspace / "over.pdf"
+    over.write_bytes(b"123456789")
     monkeypatch.setattr(runner_server, "MAX_ARTIFACT_EXPORT_BYTES", 8)
 
-    response = await runner_server.get_file_raw(runner_server.GetFileRequest(path=str(within)))
+    response = await runner_server.get_file_raw(
+        runner_server.GetFileRequest(session_id="chat-1", path="/workspace/within.pdf")
+    )
     assert Path(response.path) == within
     assert response.headers["x-artifact-size"] == "8"
 
     with pytest.raises(HTTPException) as exc_info:
-        await runner_server.get_file_raw(runner_server.GetFileRequest(path=str(over)))
+        await runner_server.get_file_raw(
+            runner_server.GetFileRequest(session_id="chat-1", path="/workspace/over.pdf")
+        )
     assert exc_info.value.status_code == 413
 
 
@@ -107,7 +112,11 @@ class _ScriptRunnerClient:
     def stream(self, method: str, url: str, json: dict):
         assert method == "POST"
         assert url.endswith("/get_file_raw")
-        assert json == {"path": "/workspace/report.pdf"}
+        assert json == {
+            "session_id": "chat-1",
+            "user_id": None,
+            "path": "/workspace/report.pdf",
+        }
         return _StreamContext()
 
 
@@ -119,7 +128,7 @@ async def test_script_runner_streams_file_to_path(monkeypatch, tmp_path):
     )
     destination = tmp_path / "script-runner.pdf"
     written = await ScriptRunnerProvider().get_file_to_path(
-        None,
+        "chat-1",
         "/workspace/report.pdf",
         destination,
         max_bytes=8,
@@ -158,7 +167,7 @@ async def test_script_runner_reports_sidecar_limit(monkeypatch, tmp_path):
     destination = tmp_path / "too-large.bin"
     with pytest.raises(SandboxFileTooLargeError) as exc_info:
         await ScriptRunnerProvider().get_file_to_path(
-            None,
+            "chat-1",
             "/workspace/too-large.bin",
             destination,
             max_bytes=10,

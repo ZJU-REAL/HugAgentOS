@@ -25,6 +25,7 @@ from core.llm.context_ir import (
     POLICY_NEVER,
     make_text_context_item,
 )
+from core.llm.tools._common import resolve_sandbox_session
 from core.services import log_service as log_writer
 
 logger = logging.getLogger(__name__)
@@ -270,20 +271,15 @@ def _run_subagent_in_thread(
                     user_agent.timeout,
                 )
 
-        # Platform built-ins share the main project's sandbox so they see the same live
-        # workspace. User-defined agents retain the existing independent, user-bound
-        # persistent sandbox: a unique session keeps concurrent custom agents isolated and
-        # is explicitly destroyed after the run. Conversation inheritance is an orthogonal
-        # policy controlled by shared_messages below.
+        # A conversation is the only sandbox boundary. Every built-in and user-defined
+        # child agent inherits the parent's sandbox session and therefore sees the same
+        # live workspace. Conversation/context inheritance remains an orthogonal policy
+        # controlled by shared_messages below.
         runtime = parent_runtime or {}
-        if builtin_spec is not None:
-            # Explorer/reviewer inspect the live workspace read-only; worker can continue
-            # the bounded implementation task there.
-            sub_session_id = runtime.get("sandbox_session_id") or runtime.get("chat_id")
-            should_close_sandbox = False
-        else:
-            sub_session_id = f"sub-{agent_id}-{uuid.uuid4().hex[:12]}"
-            should_close_sandbox = True
+        sub_session_id = resolve_sandbox_session(
+            runtime.get("sandbox_session_id"),
+            runtime.get("chat_id"),
+        )
         agent, mcp_clients = await create_agent_executor(
             user_agent=user_agent,
             current_user_id=current_user_id,
@@ -374,18 +370,8 @@ def _run_subagent_in_thread(
             response_text = (final_msg.get_text_content() if final_msg else "") or ""
             return True, strip_thinking(response_text), _ws.get_pinned()
         finally:
-            # Destroy only a custom agent's dedicated sandbox session. Platform built-ins
-            # share the parent session and therefore must never close it here.
-            # close_session is a SandboxProvider protocol method; each provider decides its
-            # own semantics (opensandbox/cube destroy; script_runner no-op), so no getattr
-            # fallback is needed.
-            if should_close_sandbox:
-                try:
-                    from core.sandbox import get_sandbox_provider
-
-                    await get_sandbox_provider().close_session(sub_session_id)
-                except BaseException as exc:
-                    logger.debug("subagent close_session error (ignored): %s", exc)
+            # Child agents share the parent conversation sandbox. Its lifecycle is owned
+            # by the conversation/session manager, never by an individual child run.
             try:
                 await close_clients(mcp_clients)
             except BaseException as exc:

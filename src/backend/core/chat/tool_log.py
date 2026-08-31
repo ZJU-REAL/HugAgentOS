@@ -7,8 +7,55 @@ the chat route (``api/routes/v1/chats.py``) and the background run executor
 """
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 from core.chat.display_bounds import bound_result_for_display
+
+
+class StepSequencer:
+    """Stamp one monotonic emission order across thinking blocks and tool cards.
+
+    ``content_offset`` alone cannot order them. It counts visible characters, so
+    everything a turn emits between two pieces of visible text lands on the same
+    offset — a turn that reasons, calls five sub-agents, reasons again and runs
+    bash stores ten items at one offset. Thinking and tool cards are also
+    persisted in two separate columns, so replay could only guess: it rendered
+    every thinking block first and every tool card after, instead of
+    interleaving them the way they ran.
+
+    The stamp is per-stream and strictly increasing, so replay merges the two
+    columns by ``(offset, step_seq)`` and reproduces the live order exactly.
+    """
+
+    def __init__(self) -> None:
+        self._next = 0
+
+    def take(self) -> int:
+        value = self._next
+        self._next += 1
+        return value
+
+    def stamp_tools(self, tool_calls_log: List[Dict[str, Any]], content_offset: int) -> None:
+        """Give every not-yet-placed tool card its offset and its order."""
+        for tool_call in tool_calls_log:
+            if "content_offset" in tool_call:
+                continue
+            tool_call["content_offset"] = content_offset
+            tool_call["step_seq"] = self.take()
+
+    @staticmethod
+    def clear_tool_positions(tool_calls_log: List[Dict[str, Any]]) -> None:
+        """Drop stale positions after ``content_replace`` rewrites the draft."""
+        for tool_call in tool_calls_log:
+            tool_call.pop("content_offset", None)
+            tool_call.pop("step_seq", None)
+
+    def new_thinking_block(self, content: str, content_offset: int) -> Dict[str, Any]:
+        """Open one persisted thinking block at the current position."""
+        return {
+            "content": content,
+            "offset": content_offset,
+            "step_seq": self.take(),
+        }
 
 
 def build_thinking_event(chunk: dict, chat_id: str) -> Dict[str, Any]:

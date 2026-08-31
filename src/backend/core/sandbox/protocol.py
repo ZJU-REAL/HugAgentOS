@@ -31,18 +31,15 @@ class ExecuteRequest:
     arguments appended after the interpreter invocation; the remaining keys
     are serialized as JSON and written to stdin.
 
-    ``user_id``: optional. When the opensandbox provider detects this field,
-    it automatically seeds every file under
+    ``user_id``: optional. Providers use it to expose the caller's files under
     ``STORAGE_PATH/myspace_cache/{user_id}/`` into the sandbox at
     ``/workspace/myspace/{user_id}/``, so that files staged via
-    ``stage_files`` are visible in subsequent execute calls. The
-    script_runner provider ignores this field.
+    ``stage_files`` are visible in subsequent execute calls.
 
-    ``session_id``: optional. Persistent-sandbox providers (e.g.
-    opensandbox) use this field to bind multiple ``execute`` calls to the
-    same underlying sandbox instance, so that Jupyter kernel state
-    (variables, imports, pip-installed packages) is reused across rounds.
-    Ephemeral providers ignore this field.
+    ``session_id``: the conversation-level sandbox identity. Every provider
+    uses it as the sole isolation boundary: main agents, child agents and
+    batch work in the same session workspace; different sessions do not.
+    Container providers additionally reuse their language/kernel state.
 
     ``expected_output_files``: optional. The caller declares in advance the
     list of output file names it expects to retrieve from the sandbox (file
@@ -171,10 +168,9 @@ class SandboxProvider(Protocol):
         """Write bytes to the given path in the sandbox (parent directories
         are created automatically if needed).
 
-        ``session_id``: persistent-session providers use this to bind to the
-        corresponding sandbox; ephemeral providers may ignore it (but must
-        guarantee that subsequent execute calls can see the written file —
-        e.g. script_runner satisfies this via the shared work_dir).
+        ``session_id``: binds the operation to the corresponding conversation
+        workspace; every provider must preserve visibility for later calls
+        carrying the same id and isolate calls carrying a different id.
         ``user_id``: if this call would create a **new** session, used to
         bind the sandbox to that user (mounting their myspace/credential
         volumes). Omitting it lets a file operation that precedes execute
@@ -229,9 +225,8 @@ class SandboxProvider(Protocol):
           ``sess.sandbox.id``; after the session is destroyed by
           ``_destroy_session`` and a new sandbox is created, the id is
           guaranteed to change.
-        - script_runner-like sidecars: ``/workspace`` is globally persistent
-          for the container's lifetime and there is no "per-session sandbox"
-          concept — return a constant (e.g. the provider name).
+        - script_runner-like sidecars: return a stable identity derived from
+          the logical session workspace.
         - If ``session_id`` is not bound to any sandbox (not yet created),
           return None; callers should treat this as "sandbox identity not
           yet determined" and query again after a real operation has created
@@ -244,13 +239,9 @@ class SandboxProvider(Protocol):
 
     async def close_session(self, session_id: Optional[str]) -> None:
         """Explicitly destroy a persistent-session sandbox (for
-        "run-and-discard" callers, e.g. a sub-agent that creates a unique
-        session per invocation and reclaims it on finish, avoiding sandbox
-        leaks).
+        conversation lifecycle cleanup or an explicit rebuild).
 
-        Providers with no session lifecycle concept (script_runner shared
-        sidecar) implement this as a no-op; an unknown session_id is also a
-        no-op. Never raises.
+        An unknown session_id is a no-op. Never raises.
         """
         ...
 

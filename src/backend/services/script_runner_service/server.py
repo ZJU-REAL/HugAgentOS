@@ -8,6 +8,7 @@ database/Redis/API-key access.
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import mimetypes
@@ -45,8 +46,10 @@ MAX_MEMORY_MB = int(os.getenv("SCRIPT_MAX_MEMORY_MB", "256"))
 # ``/workspace`` (a mounted tmpfs). In the no-Docker local profile the runner is
 # a plain host subprocess, so the CLI points it at a real host dir such as
 # ``~/.hugagent/workspace`` via ``SCRIPT_RUNNER_WORKSPACE``. Everything under here
-# is created on first use; ``_validate_workspace_path`` confines writes to it.
+# is created on first use; ``.sessions/<hash>`` is the per-conversation boundary
+# and ``_validate_workspace_path`` confines file API access to that directory.
 WORKSPACE_ROOT = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
+SESSION_WORKSPACES_DIR = ".sessions"
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
 MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
 MAX_ARTIFACT_EXPORT_BYTES = max(
@@ -158,14 +161,68 @@ def _execution_workspace_root(
     return f"/{drive.lower()}/{rest.replace(chr(92), '/')}"
 
 
-def _rewrite_execution_paths(value: str, language: str) -> str:
-    target_root = _execution_workspace_root(language)
-    if target_root != WORKSPACE_ROOT:
+def _rewrite_execution_paths(
+    value: str,
+    language: str,
+    workspace_root: str = WORKSPACE_ROOT,
+) -> str:
+    if WORKSPACE_ROOT != "/workspace" and workspace_root != WORKSPACE_ROOT:
+        # Native file tools may return the host-expanded root. Normalize it back
+        # to the canonical spelling before routing it into the session workspace.
+        value = value.replace(WORKSPACE_ROOT.rstrip("/\\"), "/workspace")
+    target_root = _execution_workspace_root(language, workspace_root)
+    if target_root != workspace_root:
         # File tools may already have expanded /workspace to the native root.
-        value = value.replace(WORKSPACE_ROOT, target_root)
+        value = value.replace(workspace_root, target_root)
     if language == "bash":
         return _rewrite_bash_workspace_refs(value, target_root)
     return _rewrite_workspace_refs(value, target_root)
+
+
+def _validate_session_id(session_id: str) -> str:
+    """Validate a logical conversation id before deriving its opaque path key."""
+    value = (session_id or "").strip()
+    if not value:
+        raise HTTPException(400, "session_id 不能为空")
+    if len(value) > 512:
+        raise HTTPException(400, "session_id 过长")
+    return value
+
+
+def _ensure_shared_dir_link(link: Path, target: Path) -> None:
+    """Expose a shared read-mostly directory inside one session workspace.
+
+    Linux/Docker uses a symlink, preserving the existing live skills/MySpace view.
+    Windows local mode may not permit symlink creation, so it degrades to a copy.
+    """
+    if link.exists() or link.is_symlink() or not target.exists():
+        return
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target.resolve(), target_is_directory=True)
+    except OSError:
+        shutil.copytree(target, link, dirs_exist_ok=True)
+
+
+def _session_workspace(
+    session_id: str,
+    *,
+    create: bool = False,
+    user_id: Optional[str] = None,
+) -> Path:
+    """Return the durable filesystem root owned by one conversation session."""
+    value = _validate_session_id(session_id)
+    key = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    workspace = Path(WORKSPACE_ROOT) / SESSION_WORKSPACES_DIR / key
+    if create:
+        workspace.mkdir(parents=True, exist_ok=True)
+        _ensure_shared_dir_link(workspace / "skills", Path(WORKSPACE_ROOT) / "skills")
+        if user_id:
+            _validate_user_id(user_id)
+            shared_myspace = Path(WORKSPACE_ROOT) / "myspace" / user_id
+            shared_myspace.mkdir(parents=True, exist_ok=True)
+            _ensure_shared_dir_link(workspace / "myspace" / user_id, shared_myspace)
+    return workspace
 
 
 def _resolve_bash_executable() -> Optional[str]:
@@ -351,6 +408,8 @@ class ExecuteRequest(BaseModel):
     resource_files: Optional[Dict[str, str]] = None
     input_files: Optional[Dict[str, str]] = None
     input_files_b64: Optional[Dict[str, str]] = None
+    session_id: str
+    user_id: Optional[str] = None
 
 
 class FileOutput(BaseModel):
@@ -411,7 +470,7 @@ async def stage_files(req: StageRequest):
             raise HTTPException(400, f"文件 {f.name} 的 base64 内容无效")
         dest = base_dir / f.name
         dest.write_bytes(content)
-        staged.append({"name": f.name, "path": str(dest)})
+        staged.append({"name": f.name, "path": f"/workspace/myspace/{req.user_id}/{f.name}"})
 
     return StageResponse(staged=staged)
 
@@ -422,11 +481,15 @@ async def health():
 
 
 class PutFileRequest(BaseModel):
+    session_id: str
+    user_id: Optional[str] = None
     path: str
     content_b64: str
 
 
 class GetFileRequest(BaseModel):
+    session_id: str
+    user_id: Optional[str] = None
     path: str
 
 
@@ -435,33 +498,47 @@ class GetFileResponse(BaseModel):
     size: int
 
 
-def _canon_ws(path: str) -> str:
-    """Alias a container-canonical ``/workspace[/...]`` path to the real root.
-
-    No-op in Docker (root == /workspace); in the no-Docker local profile the model
-    and plugin backends pass /workspace paths that must map to SCRIPT_RUNNER_WORKSPACE.
+def _canon_ws(path: str, session_id: str, user_id: Optional[str] = None) -> str:
+    """Alias canonical ``/workspace[/...]`` to one session's physical root.
 
     Mirror of ``core.llm.tools._paths.canonicalize_ws_path`` — this sidecar imports
     nothing from ``core`` (it ships as a standalone image), so the logic is copied;
     keep the two in sync.
     """
-    if not isinstance(path, str) or WORKSPACE_ROOT == "/workspace":
+    if not isinstance(path, str):
         return path
+    workspace = str(_session_workspace(session_id, create=True, user_id=user_id))
     if path == "/workspace":
-        return WORKSPACE_ROOT
+        return workspace
     if path.startswith("/workspace/"):
-        return WORKSPACE_ROOT.rstrip("/") + path[len("/workspace") :]
+        return workspace.rstrip("/\\") + path[len("/workspace") :]
+    physical_root = WORKSPACE_ROOT.rstrip("/\\")
+    if path == physical_root:
+        return workspace
+    if path.startswith(physical_root + "/") or path.startswith(physical_root + "\\"):
+        return workspace.rstrip("/\\") + path[len(physical_root) :]
     return path
 
 
-def _validate_workspace_path(path: str) -> Path:
-    """Ensure the path is inside the workspace root and reject path traversal."""
-    p = Path(_canon_ws(path)).resolve()
-    workspace = Path(WORKSPACE_ROOT).resolve()
-    try:
-        p.relative_to(workspace)
-    except ValueError:
-        raise HTTPException(400, f"路径必须在 {WORKSPACE_ROOT} 下: {path}")
+def _validate_workspace_path(
+    path: str,
+    session_id: str,
+    user_id: Optional[str] = None,
+) -> Path:
+    """Confine file APIs to this session plus its explicitly bound MySpace."""
+    workspace = _session_workspace(session_id, create=True, user_id=user_id).resolve()
+    p = Path(_canon_ws(path, session_id, user_id)).resolve()
+    allowed_roots = [workspace]
+    if user_id:
+        allowed_roots.append((Path(WORKSPACE_ROOT) / "myspace" / user_id).resolve())
+    for allowed in allowed_roots:
+        try:
+            p.relative_to(allowed)
+            break
+        except ValueError:
+            continue
+    else:
+        raise HTTPException(400, f"路径必须在当前会话 /workspace 下: {path}")
     return p
 
 
@@ -473,7 +550,7 @@ async def put_file(req: PutFileRequest):
     **not** cleaned up when execute finishes, which suits multi-step flows like
     sandbox_put_artifact ("stage first, then call bash").
     """
-    p = _validate_workspace_path(req.path)
+    p = _validate_workspace_path(req.path, req.session_id, req.user_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     try:
         content = base64.b64decode(req.content_b64)
@@ -494,7 +571,7 @@ MAX_FETCH_FILE_SIZE = 64 * 1024 * 1024
 @app.post("/get_file", response_model=GetFileResponse)
 async def get_file(req: GetFileRequest):
     """Read a file from the sandbox and return it base64-encoded."""
-    p = _validate_workspace_path(req.path)
+    p = _validate_workspace_path(req.path, req.session_id, req.user_id)
     if not p.is_file():
         raise HTTPException(404, f"文件不存在: {req.path}")
     data = p.read_bytes()
@@ -509,7 +586,7 @@ async def get_file(req: GetFileRequest):
 @app.post("/get_file_raw", response_class=FileResponse)
 async def get_file_raw(req: GetFileRequest) -> FileResponse:
     """Stream a sandbox file without Base64 expansion."""
-    p = _validate_workspace_path(req.path)
+    p = _validate_workspace_path(req.path, req.session_id, req.user_id)
     if not p.is_file():
         raise HTTPException(404, f"文件不存在: {req.path}")
     size = p.stat().st_size
@@ -566,19 +643,29 @@ async def execute(req: ExecuteRequest):
         raise HTTPException(400, f"脚本过大: {len(req.script_content)} > {MAX_SCRIPT_SIZE}")
     timeout = min(req.timeout, MAX_TIMEOUT)
 
-    # Local profile: the model writes container-canonical /workspace/... paths (from
-    # the system prompt, skills, and plugin scripts). Alias them to the real root so
-    # bash/python that touch /workspace resolve.  A callable replacement is
-    # essential on Windows because ``C:\\Users`` contains regex escape syntax.
-    if WORKSPACE_ROOT != "/workspace":
-        req.script_content = _rewrite_execution_paths(req.script_content, req.language)
-        if isinstance(req.params, dict) and req.params:
-            _args = req.params.get("_args")
-            if isinstance(_args, list):
-                req.params["_args"] = [
-                    _rewrite_execution_paths(a, req.language) if isinstance(a, str) else a
-                    for a in _args
-                ]
+    # The model always sees /workspace. Map that canonical path to the one durable
+    # directory owned by this conversation, in Docker and local profiles alike.
+    session_workspace = _session_workspace(
+        req.session_id,
+        create=True,
+        user_id=req.user_id,
+    )
+    req.script_content = _rewrite_execution_paths(
+        req.script_content,
+        req.language,
+        str(session_workspace),
+    )
+    if isinstance(req.params, dict) and req.params:
+        _args = req.params.get("_args")
+        if isinstance(_args, list):
+            req.params["_args"] = [
+                (
+                    _rewrite_execution_paths(a, req.language, str(session_workspace))
+                    if isinstance(a, str)
+                    else a
+                )
+                for a in _args
+            ]
 
     # ── Filename safety validation (prevent path traversal) ──
     _validate_filename(req.script_name)
@@ -587,13 +674,12 @@ async def execute(req: ExecuteRequest):
             _validate_filename(fname)
 
     # ── Prepare temporary working directory ──
-    Path(WORKSPACE_ROOT).mkdir(parents=True, exist_ok=True)
-    work_dir = Path(tempfile.mkdtemp(prefix="skill_", dir=WORKSPACE_ROOT))
+    work_dir = Path(tempfile.mkdtemp(prefix="skill_", dir=session_workspace))
     seeded_files: set[str] = set()
     # Snapshot existing files in the workspace root before execution
     _pre_existing_root_files: set = set()
     try:
-        for _f in Path(WORKSPACE_ROOT).iterdir():
+        for _f in session_workspace.iterdir():
             if _f.is_file():
                 _pre_existing_root_files.add(_f.name)
     except Exception:
@@ -638,7 +724,7 @@ async def execute(req: ExecuteRequest):
         total_size = 0
         seen_names: set = set()
         # Track files already present in the workspace root before execution, to avoid collecting them by mistake
-        workspace_root = Path(WORKSPACE_ROOT)
+        workspace_root = session_workspace
 
         def _collect_file(fpath: Path) -> bool:
             """Try to collect a file. Returns True if collected."""
@@ -701,10 +787,32 @@ async def execute(req: ExecuteRequest):
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
-        # Note: do NOT wipe /workspace root here. Files in /workspace are
-        # intentionally durable between calls: sandbox_put_artifact stages
-        # inputs and bash-emitted outputs are read back by sandbox_get_artifact.
-        # The sidecar container's lifecycle is the cleanup boundary.
+        # Do not wipe the session root here. Files remain durable for every main/
+        # child-agent call in the same conversation; close_session is the boundary.
+
+
+class SessionRequest(BaseModel):
+    session_id: str
+
+
+@app.post("/sessions/close")
+async def close_session(req: SessionRequest):
+    """Delete exactly one conversation workspace."""
+    workspace = _session_workspace(req.session_id)
+    existed = workspace.exists()
+    if existed:
+        shutil.rmtree(workspace, ignore_errors=True)
+    return {"closed": existed}
+
+
+@app.post("/sessions/touch")
+async def touch_session(req: SessionRequest):
+    """Refresh one existing conversation workspace's activity timestamp."""
+    workspace = _session_workspace(req.session_id)
+    if not workspace.is_dir():
+        return {"touched": False}
+    os.utime(workspace, None)
+    return {"touched": True}
 
 
 async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str) -> Dict[str, Any]:

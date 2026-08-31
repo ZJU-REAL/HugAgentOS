@@ -122,49 +122,58 @@ function parseHistoricalContent(content: string): {
   return { thinkingContents, visibleContent: visibleContent.trim() };
 }
 
+/** 一个待还原的过程步骤：思考块或工具卡片，带它在正文里的位置与先后号。 */
+type StoredStep =
+  | { kind: 'thinking'; at: number; seq: number | undefined; order: number; content: string }
+  | { kind: 'tool'; at: number; seq: number | undefined; order: number; toolIndex: number };
+
 /**
- * 把独立存储的思考块按 offset 插回正文原位，还原成历史重建认识的内联形态。
+ * 把两列结构化数据（thinking 与 toolCalls）归并成一条按发生顺序排列的步骤表。
  *
- * 落库时思考进 chat_messages.thinking 独立一列、正文进 content，两者互不挤占
- * 长度上限；展示时思考必须回到它当初出现的那个位置，顺序与实时流式一模一样。
- * 工具卡片的 contentOffset 与正文同坐标系，插入思考后要按插入长度整体右移。
- * offset 相同时思考排在工具卡片之前（落库顺序即如此：先 flush 思考再记卡片位置）。
+ * 思考早已单独存进 chat_messages.thinking，正文里不再有它——所以还原时不必把
+ * `<think>` 拼回正文再切一遍，直接按位置排就行。offset 与 contentOffset 都是
+ * 落库正文的字符偏移，同一坐标系，可直接比较。
+ *
+ * 两次可见正文之间发生的一切共用同一个 offset，光比 offset 排不出先后，得靠落库
+ * 时统一发的 step_seq。老消息没有这个号，退回旧规则：同一位置上思考排在工具卡片
+ * 之前（当时的落库顺序就是先 flush 思考再记卡片位置）。
  */
-function restoreThinkingInPlace(
-  content: string,
+function mergeStoredSteps(
+  contentLength: number,
   toolCalls: ChatMessage['toolCalls'],
-  thinking: ThinkingBlock[],
-): { content: string; toolCalls: ChatMessage['toolCalls'] } {
-  const blocks = thinking
-    .map((block, order) => ({
+  thinking: ThinkingBlock[] | undefined,
+): StoredStep[] {
+  const clamp = (value: unknown): number =>
+    typeof value === 'number' && value >= 0 ? Math.min(value, contentLength) : contentLength;
+
+  const steps: StoredStep[] = [];
+  (thinking ?? []).forEach((block, order) => {
+    if (!block?.content) return;
+    steps.push({
+      kind: 'thinking',
+      at: clamp(block.offset),
+      seq: typeof block.stepSeq === 'number' ? block.stepSeq : undefined,
       order,
-      text: block.content || '',
-      offset: typeof block.offset === 'number' && block.offset >= 0
-        ? Math.min(block.offset, content.length)
-        : content.length,
-    }))
-    .filter((block) => block.text)
-    .sort((a, b) => a.offset - b.offset || a.order - b.order);
-  if (blocks.length === 0) return { content, toolCalls };
-
-  const inserts: { at: number; len: number }[] = [];
-  let restored = '';
-  let cursor = 0;
-  blocks.forEach((block) => {
-    restored += content.slice(cursor, block.offset);
-    const wrapped = `<think>${block.text}</think>`;
-    restored += wrapped;
-    inserts.push({ at: block.offset, len: wrapped.length });
-    cursor = block.offset;
+      content: block.content,
+    });
   });
-  restored += content.slice(cursor);
-
-  const shifted = toolCalls?.map((tc) => {
-    if (typeof tc.contentOffset !== 'number') return tc;
-    const delta = inserts.reduce((sum, ins) => (ins.at <= tc.contentOffset! ? sum + ins.len : sum), 0);
-    return delta ? { ...tc, contentOffset: tc.contentOffset + delta } : tc;
+  (toolCalls ?? []).forEach((tc, toolIndex) => {
+    steps.push({
+      kind: 'tool',
+      at: clamp(tc.contentOffset),
+      seq: typeof tc.stepSeq === 'number' ? tc.stepSeq : undefined,
+      order: toolIndex,
+      toolIndex,
+    });
   });
-  return { content: restored, toolCalls: shifted };
+
+  const legacyKindRank = (step: StoredStep) => (step.kind === 'thinking' ? 0 : 1);
+  return steps.sort((a, b) => {
+    if (a.at !== b.at) return a.at - b.at;
+    if (a.seq !== undefined && b.seq !== undefined) return a.seq - b.seq;
+    if (a.kind !== b.kind) return legacyKindRank(a) - legacyKindRank(b);
+    return a.order - b.order;
+  });
 }
 
 export function buildHistorySegments(
@@ -172,18 +181,15 @@ export function buildHistorySegments(
   rawToolCalls?: ChatMessage['toolCalls'],
   thinking?: ThinkingBlock[]
 ): { segments: MessageSegment[] | undefined; cleanContent: string } {
-  // 思考单独存一列的新消息：先按 offset 插回原位，之后完全走原有重建逻辑，
-  // 展示与老的内联存储格式逐字一致。thinking 为空则是老消息，思考仍在 content 里。
+  // thinking 为空则是老消息，思考仍内联在 content 里，走下面的兜底解析。
   const hasStoredThinking = Array.isArray(thinking) && thinking.length > 0;
-  const restored = hasStoredThinking
-    ? restoreThinkingInPlace(rawContent, rawToolCalls, thinking!)
-    : { content: rawContent, toolCalls: rawToolCalls };
-  const content = restored.content;
-  const toolCalls = restored.toolCalls;
-  // ── 新历史（带 contentOffset）：按流式原顺序把文本与工具卡片交错还原 ──
-  // contentOffset = 工具卡片出现时持久化正文累计串（含 <think> 标记）的字符
-  // 偏移，与 content 同一坐标系。逐段切片，段内再按 </think> 拆 thinking /
-  // text。刷新后的历史与实时流式展示保持一致（问题15）。
+  const content = rawContent;
+  const toolCalls = rawToolCalls;
+  // ── 新历史：思考块与工具卡片都带位置，按发生顺序与正文交错还原 ──
+  // 思考存在 chat_messages.thinking 独立一列，正文里没有它；两列的 offset /
+  // contentOffset 是同一坐标系，直接归并即可，不必把 `<think>` 拼回正文再解析。
+  // 切出来的正文片段仍走 segmentTextSlice：内联 reasoning 的模型可能在正文里
+  // 留下 `<think>`，那部分照旧要剥离。刷新后与实时流式展示一致（问题15）。
   // 附件伪工具卡（attachArtifactsToToolCalls 追加的 artifact_*）没有 offset，
   // 视为「排在正文末尾」，不因它们把整条消息打回堆叠兜底。
   const isArtifactCard = (tc: NonNullable<ChatMessage['toolCalls']>[number]) =>
@@ -198,14 +204,18 @@ export function buildHistorySegments(
     const segments: MessageSegment[] = [];
     let cursor = 0;
     let visibleAll = '';
-    (toolCalls ?? []).forEach((tc, i) => {
-      const rawOff = typeof tc.contentOffset === 'number' ? tc.contentOffset : content.length;
-      const off = Math.min(Math.max(rawOff, cursor), content.length);
+    const takeVisibleUpTo = (at: number) => {
+      const off = Math.min(Math.max(at, cursor), content.length);
       const visible = segmentTextSlice(content.slice(cursor, off), segments);
       if (visible) visibleAll += (visibleAll ? '\n\n' : '') + visible;
       cursor = off;
-      segments.push({ type: 'tool', toolIndex: i });
-    });
+    };
+    mergeStoredSteps(content.length, toolCalls, hasStoredThinking ? thinking : undefined)
+      .forEach((step) => {
+        takeVisibleUpTo(step.at);
+        if (step.kind === 'tool') segments.push({ type: 'tool', toolIndex: step.toolIndex });
+        else segments.push({ type: 'thinking', content: step.content });
+      });
     const finalVisible = segmentTextSlice(content.slice(cursor), segments);
     if (finalVisible) visibleAll += (visibleAll ? '\n\n' : '') + finalVisible;
     // 与实时视图一致的碎片归并：思考型模型偶尔把下一句的首个汉字与工具调用

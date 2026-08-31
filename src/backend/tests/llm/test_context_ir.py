@@ -98,13 +98,21 @@ def test_framework_neutral_fake_adapter_drives_canonical_assembly_and_rendering(
     )
     assembly = ContextAssembler(total_budget=100).assemble(candidates)
 
+    # Context order wins: a lower sequence does not jump the queue.
     assert adapter.messages_from_items(assembly.included) == [
-        {"id": "earlier", "text": "first"},
         {"id": "later", "text": "second"},
+        {"id": "earlier", "text": "first"},
     ]
 
 
-def test_different_input_order_produces_identical_canonical_output_and_manifest():
+def test_assembly_preserves_context_order_regardless_of_sequence():
+    """The assembler selects and truncates; it must never reorder.
+
+    Sorting by sequence here moved the live user instruction — parked 64 strides
+    above the context tail — behind the whole turn it had just started, and the
+    model re-ran that turn as if the request were new.
+    """
+
     items = [
         _item("u2", "second", created_seq=20),
         _item(
@@ -122,11 +130,16 @@ def test_different_input_order_produces_identical_canonical_output_and_manifest(
     ]
 
     left = ContextAssembler(total_budget=500).assemble(items)
-    right = ContextAssembler(total_budget=500).assemble(reversed(items))
+    right = ContextAssembler(total_budget=500).assemble(list(reversed(items)))
 
-    assert [item.item_id for item in left.included] == ["system", "u1", "u2"]
-    assert [item.item_id for item in right.included] == ["system", "u1", "u2"]
-    assert left.manifest_hash == right.manifest_hash
+    assert [item.item_id for item in left.included] == ["u2", "system", "u1"]
+    assert [item.item_id for item in right.included] == ["u1", "system", "u2"]
+
+    # The audit guarantee the canonical sort was introduced for: one input,
+    # one hash. Reproducibility never required reordering the conversation.
+    assert ContextAssembler(total_budget=500).assemble(items).manifest_hash == (
+        left.manifest_hash
+    )
 
 
 def test_low_trust_content_cannot_displace_critical_system_item():
@@ -211,11 +224,11 @@ def test_tool_call_and_result_are_kept_or_excluded_as_one_pair():
         pair_id="t1",
     )
 
-    fits = ContextAssembler(total_budget=90).assemble([result, call])
+    fits = ContextAssembler(total_budget=90).assemble([call, result])
     assert {item.kind for item in fits.included} == {"tool_call", "tool_result"}
     assert fits.included[1].content["output"].endswith("R" * 10)
 
-    dropped = ContextAssembler(total_budget=1).assemble([result, call])
+    dropped = ContextAssembler(total_budget=1).assemble([call, result])
     assert dropped.included == ()
     assert {entry["reason"] for entry in dropped.manifest["excluded"]} == {"paired_budget"}
 
