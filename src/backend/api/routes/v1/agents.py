@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
-from core.infra.exceptions import AccessDeniedError
+from core.infra.exceptions import AccessDeniedError, BadRequestError
 from core.infra.responses import error_response, success_response
+from core.services.agent_markdown import agent_filename, agent_to_markdown, parse_agents_upload
 from core.services.user_agent_service import UserAgentService
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -83,6 +85,103 @@ async def available_resources(
 ):
     data = UserAgentService(db).list_available_resources(owner_user_id=str(user.user_id))
     return success_response(data=data)
+
+
+_IMPORT_FIELDS = [
+    "name",
+    "avatar",
+    "description",
+    "system_prompt",
+    "welcome_message",
+    "suggested_questions",
+    "mcp_server_ids",
+    "skill_ids",
+    "plugin_ids",
+    "kb_ids",
+    "model_provider_id",
+    "temperature",
+    "max_tokens",
+    "max_iters",
+    "timeout",
+    "is_enabled",
+    "extra_config",
+]
+
+
+@router.post("/import", summary="导入子智能体（markdown / zip）")
+async def import_agents(
+    file: UploadFile = File(...),
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """从上传文件导入个人子智能体：单个 frontmatter markdown（.md）或批量 zip。
+
+    文件格式与导出一致（frontmatter 写配置、正文即 system prompt），也兼容旧版
+    JSON 数组文件。需 ``can_add_agent`` 权限。
+    """
+    _require_can_add_agent(str(user.user_id), db)
+    raw = await file.read()
+    try:
+        items = parse_agents_upload(file.filename or "", raw)
+    except ValueError as exc:
+        raise BadRequestError(str(exc))
+
+    svc = UserAgentService(db)
+    agents = []
+    for item in items:
+        data = {k: item[k] for k in _IMPORT_FIELDS if k in item}
+        try:
+            agents.append(
+                svc.create(
+                    user_id=user.user_id,
+                    operator_name=user.username,
+                    owner_type="user",
+                    data=data,
+                )
+            )
+        except ValueError as exc:
+            return error_response(code=400, message=f"{item.get('name')}: {exc}")
+    logger.info("user_agents_imported: user=%s created=%d", user.user_id, len(agents))
+    return success_response(data={"created": len(agents), "agents": agents})
+
+
+@router.get("/{agent_id}/export", summary="导出子智能体为 markdown")
+async def export_agent(
+    agent_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """把单个子智能体导出为 frontmatter markdown 文件（正文即 system prompt），
+    对齐 Claude Code / pi agent 一类 harness 的 subagent 文件格式，可直接重新导入。
+    """
+    from core.llm.builtin_subagents import list_builtin_subagents
+
+    agent = next(
+        (
+            item
+            for item in list_builtin_subagents(include_prompt=True)
+            if item["agent_id"] == agent_id
+        ),
+        None,
+    )
+    if agent is None:
+        svc = UserAgentService(db)
+        try:
+            agent = svc.get_by_id(agent_id, user_id=user.user_id)
+        except LookupError:
+            return error_response(code=404, message="Agent not found")
+        except PermissionError:
+            return error_response(code=403, message="Access denied")
+
+    text = agent_to_markdown(agent)
+    fname = agent_filename(str(agent.get("name") or "agent"))
+    return Response(
+        content=text,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"agent.md\"; filename*=UTF-8''{quote(fname)}"
+        },
+    )
 
 
 @router.get("/{agent_id}", summary="子智能体详情")
