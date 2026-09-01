@@ -68,6 +68,19 @@ def _stored(sessions, message_id: str) -> ChatMessage:
         return db.get(ChatMessage, message_id)
 
 
+def _shape(stored: ChatMessage) -> list:
+    """把落库的段落表翻译成一串可读的展示顺序。"""
+    out = []
+    for seg in (stored.extra_data or {}).get("segments") or []:
+        if seg["type"] == "text":
+            out.append(("text", seg["text"]))
+        elif seg["type"] == "thinking":
+            out.append(("think", stored.thinking[seg["index"]]["content"]))
+        else:
+            out.append(("tool", stored.tool_calls[seg["index"]]["tool_id"]))
+    return out
+
+
 @pytest.mark.asyncio
 async def test_reasoning_is_stored_out_of_the_body(run_env, monkeypatch):
     """多轮「思考 → 工具 → 正文」：正文一个思考标记都不许有，思考各自成块。"""
@@ -94,8 +107,8 @@ async def test_reasoning_is_stored_out_of_the_body(run_env, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_each_block_records_where_it_belongs_in_the_body(run_env, monkeypatch):
-    """offset 必须是该块出现时的正文长度——刷新后靠它插回原位，顺序不能乱。"""
+async def test_display_order_is_recorded_as_it_streams(run_env, monkeypatch):
+    """展示顺序在产生的那一刻就记下来，刷新后照着渲染，不做任何反推。"""
 
     async def multi_round_workflow(**_kwargs):
         for i in range(3):
@@ -113,19 +126,19 @@ async def test_each_block_records_where_it_belongs_in_the_body(run_env, monkeypa
     message_id = await _run_to_completion(multi_round_workflow, monkeypatch)
     stored = _stored(run_env, message_id)
 
-    # 每轮正文 2 字：第 0 块在正文最前，之后每块各推后一轮正文的长度。
-    assert [b["offset"] for b in stored.thinking] == [0, 2, 4]
-    # 工具卡片与思考共用正文坐标系，同一轮里思考在前、卡片在同一位置。
-    assert [tc["content_offset"] for tc in stored.tool_calls] == [0, 2, 4]
+    assert _shape(stored) == [
+        ("think", "想0"), ("tool", "call-0"), ("text", "正文"),
+        ("think", "想1"), ("tool", "call-1"), ("text", "正文"),
+        ("think", "想2"), ("tool", "call-2"), ("text", "正文"),
+    ]
 
 
 @pytest.mark.asyncio
 async def test_steps_between_two_bodies_keep_their_true_order(run_env, monkeypatch):
-    """同一个 offset 上的思考与工具卡片，先后必须可还原。
+    """两次可见正文之间发生的一串步骤，先后必须原样落库。
 
-    offset 数的是可见正文的字符，所以两次正文之间发生的一切共用同一个值；思考与
-    工具卡片又分两列存。没有 step_seq 时刷新后只能猜，实际是把思考全堆在前、卡片
-    全堆在后——真实顺序「想→跑→想→跑」被还原成「想想→跑跑」。
+    这是过去反推顺序失败的地方：靠正文字符偏移排序时，这些步骤全落在同一个偏移上，
+    刷新后被还原成「想想→跑跑」，而不是真实的「想→跑→想→跑」。
     """
 
     async def interleaved_workflow(**_kwargs):
@@ -151,19 +164,12 @@ async def test_steps_between_two_bodies_keep_their_true_order(run_env, monkeypat
     message_id = await _run_to_completion(interleaved_workflow, monkeypatch)
     stored = _stored(run_env, message_id)
 
-    # 四个步骤全落在正文之前，offset 一律为 0——排序只能靠 step_seq。
-    assert [b["offset"] for b in stored.thinking] == [0, 0]
-    assert [tc["content_offset"] for tc in stored.tool_calls] == [0, 0]
-
-    replayed = sorted(
-        [(b["step_seq"], "think", b["content"]) for b in stored.thinking]
-        + [(tc["step_seq"], "tool", tc["tool_id"]) for tc in stored.tool_calls]
-    )
-    assert [(kind, label) for _, kind, label in replayed] == [
+    assert _shape(stored) == [
         ("think", "先想想"),
         ("tool", "call-0"),
         ("think", "再想想"),
         ("tool", "call-1"),
+        ("text", "答案"),
     ]
 
 
@@ -182,7 +188,8 @@ async def test_late_reasoning_tail_merges_into_the_same_round_block(run_env, mon
     stored = _stored(run_env, message_id)
 
     assert stored.content == "答案是42"
-    assert stored.thinking == [{"content": "想好了。", "offset": 0, "step_seq": 0}]
+    assert stored.thinking == [{"content": "想好了。"}]
+    assert _shape(stored) == [("think", "想好了。"), ("text", "答案是42")]
 
 
 @pytest.mark.asyncio
@@ -209,21 +216,39 @@ async def test_runaway_reasoning_no_longer_evicts_the_answer(run_env, monkeypatc
 
 
 def test_thinking_has_its_own_budget_and_keeps_the_latest_rounds():
-    blocks = [
-        {"content": "旧" * _THINKING_MAX, "offset": 0},
-        {"content": "新", "offset": 10},
-    ]
+    blocks = [{"content": "旧" * _THINKING_MAX}, {"content": "新"}]
 
-    kept = clamp_thinking(blocks)
+    kept, _ = clamp_thinking(blocks)
 
     assert sum(len(b["content"]) for b in kept) <= _THINKING_MAX
     # 最后一轮离最终答案最近，必须留下；被裁的是最早那块。
-    assert kept[-1] == {"content": "新", "offset": 10}
+    assert kept[-1] == {"content": "新"}
+
+
+def test_clamping_thinking_keeps_the_segment_indices_pointing_at_the_right_block():
+    """段落表按下标引用思考块，丢块必须同步改下标，否则展示会错位。"""
+
+    # 最后一块就吃满额度 → 更早的那块整块被丢。
+    blocks = [{"content": "旧"}, {"content": "新" * _THINKING_MAX}]
+    segments = [
+        {"type": "thinking", "index": 0},
+        {"type": "text", "text": "答案"},
+        {"type": "thinking", "index": 1},
+    ]
+
+    kept, kept_segments = clamp_thinking(blocks, segments)
+
+    # 第 0 块被丢 → 引用它的段落一并剔除；第 1 块变成第 0 块，引用要跟着改。
+    assert len(kept) == 1 and kept[0]["content"].startswith("新")
+    assert kept_segments == [
+        {"type": "text", "text": "答案"},
+        {"type": "thinking", "index": 0},
+    ]
 
 
 def test_clamp_thinking_passes_small_payloads_through():
-    blocks = [{"content": "想", "offset": 0}, {"content": "再想", "offset": 3}]
+    blocks = [{"content": "想"}, {"content": "再想"}]
 
-    assert clamp_thinking(blocks) == blocks
-    assert clamp_thinking([]) is None
-    assert clamp_thinking(None) is None
+    assert clamp_thinking(blocks) == (blocks, None)
+    assert clamp_thinking([]) == (None, None)
+    assert clamp_thinking(None) == (None, None)

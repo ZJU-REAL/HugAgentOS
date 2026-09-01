@@ -48,16 +48,23 @@ def clamp_message_content(content: str) -> str:
     return kept + _TRUNC_NOTE
 
 
-def clamp_thinking(blocks: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+def clamp_thinking(
+    blocks: Optional[List[Dict[str, Any]]],
+    segments: Optional[List[Dict[str, Any]]] = None,
+) -> tuple[Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
     """思考单独存一列，有自己的额度，不再和正文抢 content 的 10 万字上限。
 
     超额时从最早的块开始丢——最后几轮的推理离最终答案最近，对用户回看最有用。
+
+    ``metadata.segments`` 按下标引用思考块，丢块会让下标错位，所以两者必须一起夹取：
+    返回夹取后的块列表，以及下标已重映射、引用了被丢块的段落已剔除的段落表。
     """
     if not blocks:
-        return None
+        return None, segments or None
     kept: List[Dict[str, Any]] = []
+    kept_indices: List[int] = []
     budget = _THINKING_MAX
-    for block in reversed(blocks):
+    for offset, block in enumerate(reversed(blocks)):
         text = str(block.get("content") or "")
         if not text:
             continue
@@ -67,10 +74,34 @@ def clamp_thinking(blocks: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict
             break
         budget -= len(text)
         kept.append({**block, "content": text})
+        kept_indices.append(len(blocks) - 1 - offset)
         if budget <= 0:
             break
     kept.reverse()
-    return kept or None
+    kept_indices.reverse()
+    if not kept:
+        return None, _drop_thinking_segments(segments, {})
+    remap = {old: new for new, old in enumerate(kept_indices)}
+    return kept, _drop_thinking_segments(segments, remap)
+
+
+def _drop_thinking_segments(
+    segments: Optional[List[Dict[str, Any]]],
+    remap: Dict[int, int],
+) -> Optional[List[Dict[str, Any]]]:
+    """把段落表里的思考下标重映射到夹取后的位置，引用已丢块的段落直接剔除。"""
+    if not segments:
+        return segments or None
+    rebuilt: List[Dict[str, Any]] = []
+    for segment in segments:
+        if segment.get("type") != "thinking":
+            rebuilt.append(segment)
+            continue
+        new_index = remap.get(segment.get("index"))
+        if new_index is None:
+            continue
+        rebuilt.append({**segment, "index": new_index})
+    return rebuilt or None
 
 
 class CompactionCASConflict(RuntimeError):
@@ -392,6 +423,10 @@ class ChatService:
         chat_seq: Optional[int] = None,
     ) -> ChatMessage:
         """Add a message to a chat session."""
+        extra = dict(extra_data or {})
+        kept_thinking, kept_segments = clamp_thinking(thinking, extra.get("segments"))
+        if "segments" in extra:
+            extra["segments"] = kept_segments
         message_data = {
             "message_id": message_id or f"msg_{uuid.uuid4().hex[:16]}",
             "chat_id": chat_id,
@@ -399,11 +434,11 @@ class ChatService:
             "role": role,
             "content": clamp_message_content(content),
             "model": model,
-            "thinking": clamp_thinking(thinking),
+            "thinking": kept_thinking,
             "tool_calls": tool_calls,
             "usage": usage,
             "error": error,
-            "extra_data": extra_data or {},
+            "extra_data": extra,
         }
 
         message = self.message_repo.create(message_data, commit=commit)
@@ -446,16 +481,22 @@ class ChatService:
         existing = self.message_repo.get_by_id(message_id)
         if existing is not None:
             update: Dict[str, Any] = {"content": clamp_message_content(content)}
+            extra = dict(extra_data) if extra_data is not None else None
+            kept_thinking, kept_segments = clamp_thinking(
+                thinking, (extra or {}).get("segments")
+            )
             if model is not None:
                 update["model"] = model
             if thinking is not None:
-                update["thinking"] = clamp_thinking(thinking)
+                update["thinking"] = kept_thinking
             if tool_calls is not None:
                 update["tool_calls"] = tool_calls
             if usage is not None:
                 update["usage"] = usage
-            if extra_data is not None:
-                update["extra_data"] = extra_data
+            if extra is not None:
+                if "segments" in extra:
+                    extra["segments"] = kept_segments
+                update["extra_data"] = extra
             msg = self.message_repo.update(message_id, update, commit=commit)
             session = self.session_repo.get_by_id(chat_id)
             if session:

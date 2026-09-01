@@ -142,14 +142,19 @@ class ChatMessage(Base):
     chat_seq = Column(BigInteger, nullable=False)
     content = Column(Text, nullable=False)
     model = Column(String(100))
-    # 思考过程，与正文分开存：``[{"content": str, "offset": int}]``，offset 是该思考块
-    # 出现时正文的字符位置。历史上思考是以 <think>…</think> 拼进 content 落库的，
-    # 结果思考把正文顶出 content 的 10 万字上限、截断切掉闭合标签后整段漏成正文。
-    # NULL = 老消息，仍按 content 里的内联标记解析。
+    # 思考过程，与正文分开存：``[{"content": str}]``。历史上思考是以 <think>…</think>
+    # 拼进 content 落库的，结果思考把正文顶出 content 的 10 万字上限、截断切掉闭合
+    # 标签后整段漏成正文。NULL = 老消息，思考仍内联在 content 里。
+    # 展示顺序不在这里——它记在 ``metadata.segments``（见下）。
     thinking = Column(JSONType)
     tool_calls = Column(JSONType)
     usage = Column(JSONType)
     error = Column(JSONType)
+    # ``metadata.segments`` 记这条消息的展示顺序，形如
+    # ``[{"type":"text","text":str} | {"type":"thinking","index":int}
+    #    | {"type":"tool","index":int}]``：顺序在实时流式的那一刻就已确定，原样记下，
+    # 刷新后照着渲染。正文片段内联，思考与工具卡片按下标引用上面两列，长推理不存两份。
+    # 缺失 = 段落表上线之前的老消息，展示退化成「正文 + 工具卡片」，不做顺序反推。
     extra_data = Column("metadata", JSONType, default={})
     created_at = Column(TIMESTAMP(timezone=True), default=datetime.utcnow)
 

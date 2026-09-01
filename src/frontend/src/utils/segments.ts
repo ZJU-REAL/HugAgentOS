@@ -1,4 +1,4 @@
-import type { ChatMessage, MessageSegment, ThinkingBlock } from '../types';
+import type { ChatMessage, MessageSegment, StoredSegment, ThinkingBlock } from '../types';
 import { isSingleHanCharacter, liftTrailingSegmentsAboveFinalText } from './streamSegments';
 
 /**
@@ -122,156 +122,94 @@ function parseHistoricalContent(content: string): {
   return { thinkingContents, visibleContent: visibleContent.trim() };
 }
 
-/** 一个待还原的过程步骤：思考块或工具卡片，带它在正文里的位置与先后号。 */
-type StoredStep =
-  | { kind: 'thinking'; at: number; seq: number | undefined; order: number; content: string }
-  | { kind: 'tool'; at: number; seq: number | undefined; order: number; toolIndex: number };
-
 /**
- * 把两列结构化数据（thinking 与 toolCalls）归并成一条按发生顺序排列的步骤表。
+ * 按落库的段落表还原一条历史消息的展示形态。
  *
- * 思考早已单独存进 chat_messages.thinking，正文里不再有它——所以还原时不必把
- * `<think>` 拼回正文再切一遍，直接按位置排就行。offset 与 contentOffset 都是
- * 落库正文的字符偏移，同一坐标系，可直接比较。
- *
- * 两次可见正文之间发生的一切共用同一个 offset，光比 offset 排不出先后，得靠落库
- * 时统一发的 step_seq。老消息没有这个号，退回旧规则：同一位置上思考排在工具卡片
- * 之前（当时的落库顺序就是先 flush 思考再记卡片位置）。
+ * 正文、思考、工具卡片的先后，在实时流式的那一刻就已经确定，落库时原样记进
+ * `metadata.segments`，这里照着渲染即可——不做任何位置反推。段落表里正文片段内联，
+ * 思考与工具卡片按下标引用各自的列。
  */
-function mergeStoredSteps(
-  contentLength: number,
+function renderStoredSegments(
+  stored: StoredSegment[],
   toolCalls: ChatMessage['toolCalls'],
   thinking: ThinkingBlock[] | undefined,
-): StoredStep[] {
-  const clamp = (value: unknown): number =>
-    typeof value === 'number' && value >= 0 ? Math.min(value, contentLength) : contentLength;
+): { segments: MessageSegment[] | undefined; cleanContent: string } {
+  const segments: MessageSegment[] = [];
+  const placedTools = new Set<number>();
+  let visibleAll = '';
 
-  const steps: StoredStep[] = [];
-  (thinking ?? []).forEach((block, order) => {
-    if (!block?.content) return;
-    steps.push({
-      kind: 'thinking',
-      at: clamp(block.offset),
-      seq: typeof block.stepSeq === 'number' ? block.stepSeq : undefined,
-      order,
-      content: block.content,
-    });
-  });
-  (toolCalls ?? []).forEach((tc, toolIndex) => {
-    steps.push({
-      kind: 'tool',
-      at: clamp(tc.contentOffset),
-      seq: typeof tc.stepSeq === 'number' ? tc.stepSeq : undefined,
-      order: toolIndex,
-      toolIndex,
-    });
+  stored.forEach((entry) => {
+    if (entry.type === 'text') {
+      // 内联 reasoning 的模型会把 <think> 写进正文流，这里照旧剥掉，
+      // 否则推理过程会当作正文渲染出来。
+      const visible = segmentTextSlice(entry.text || '', segments);
+      if (visible) visibleAll += (visibleAll ? '\n\n' : '') + visible;
+      return;
+    }
+    if (entry.type === 'thinking') {
+      const block = thinking?.[entry.index];
+      if (block?.content) segments.push({ type: 'thinking', content: block.content });
+      return;
+    }
+    if (toolCalls && entry.index >= 0 && entry.index < toolCalls.length) {
+      placedTools.add(entry.index);
+      segments.push({ type: 'tool', toolIndex: entry.index });
+    }
   });
 
-  const legacyKindRank = (step: StoredStep) => (step.kind === 'thinking' ? 0 : 1);
-  return steps.sort((a, b) => {
-    if (a.at !== b.at) return a.at - b.at;
-    if (a.seq !== undefined && b.seq !== undefined) return a.seq - b.seq;
-    if (a.kind !== b.kind) return legacyKindRank(a) - legacyKindRank(b);
-    return a.order - b.order;
+  // 附件伪工具卡（attachArtifactsToToolCalls 在加载后追加的 artifact_*）不在段落表
+  // 里，它们描述的是本条消息的产物，排在最后。
+  (toolCalls ?? []).forEach((_, index) => {
+    if (!placedTools.has(index)) segments.push({ type: 'tool', toolIndex: index });
   });
+
+  // 与实时视图一致的碎片归并：思考型模型偶尔把下一句的首个汉字与工具调用同轮吐出，
+  // 实时侧用 deferThinkingTextFragmentBeforeTool 把它挪到工具卡之后的正文开头——
+  // 历史照做同样的归并，刷新前后才逐字一致。
+  for (let i = segments.length - 2; i >= 0; i--) {
+    const seg = segments[i];
+    if (seg.type !== 'text' || !isSingleHanCharacter(seg.content || '')) continue;
+    if (segments[i + 1]?.type !== 'tool') continue;
+    const followsProcess = segments
+      .slice(0, i)
+      .some((s) => s.type === 'tool' || s.type === 'thinking');
+    if (!followsProcess) continue;
+    const next = segments.slice(i + 1).find((s) => s.type === 'text');
+    if (!next) continue;
+    next.content = (seg.content || '') + (next.content || '');
+    segments.splice(i, 1);
+  }
+  // 硬规则：工具卡/思考块不允许落在正文末尾之后——最终答案必须是消息的最后一段。
+  liftTrailingSegmentsAboveFinalText(segments);
+
+  const lastToolIdx = segments.map((s) => s.type).lastIndexOf('tool');
+  const tailText = segments
+    .slice(lastToolIdx + 1)
+    .filter((s) => s.type === 'text')
+    .map((s) => s.content || '')
+    .join('\n\n');
+  return {
+    segments: segments.length > 0 ? segments : undefined,
+    cleanContent: tailText || visibleAll,
+  };
 }
 
+/**
+ * 还原一条历史消息：有落库的段落表就照它渲染，没有就只给正文。
+ *
+ * 没有段落表的老消息**不做顺序反推**——展示顺序在当时没有被记下来，猜出来的顺序
+ * 只会是错的。这类消息退化成「正文 + 工具卡片」的堆叠展示，正文里内联的 `<think>`
+ * 仍会剥掉，避免推理过程漏成正文。
+ */
 export function buildHistorySegments(
   rawContent: string,
   rawToolCalls?: ChatMessage['toolCalls'],
-  thinking?: ThinkingBlock[]
+  thinking?: ThinkingBlock[],
+  storedSegments?: StoredSegment[] | null,
 ): { segments: MessageSegment[] | undefined; cleanContent: string } {
-  // thinking 为空则是老消息，思考仍内联在 content 里，走下面的兜底解析。
-  const hasStoredThinking = Array.isArray(thinking) && thinking.length > 0;
-  const content = rawContent;
-  const toolCalls = rawToolCalls;
-  // ── 新历史：思考块与工具卡片都带位置，按发生顺序与正文交错还原 ──
-  // 思考存在 chat_messages.thinking 独立一列，正文里没有它；两列的 offset /
-  // contentOffset 是同一坐标系，直接归并即可，不必把 `<think>` 拼回正文再解析。
-  // 切出来的正文片段仍走 segmentTextSlice：内联 reasoning 的模型可能在正文里
-  // 留下 `<think>`，那部分照旧要剥离。刷新后与实时流式展示一致（问题15）。
-  // 附件伪工具卡（attachArtifactsToToolCalls 追加的 artifact_*）没有 offset，
-  // 视为「排在正文末尾」，不因它们把整条消息打回堆叠兜底。
-  const isArtifactCard = (tc: NonNullable<ChatMessage['toolCalls']>[number]) =>
-    typeof tc.id === 'string' && tc.id.startsWith('artifact_');
-  const hasOffsets = Array.isArray(toolCalls)
-    && toolCalls.length > 0
-    && toolCalls.some((tc) => typeof tc.contentOffset === 'number')
-    && toolCalls.every((tc) => typeof tc.contentOffset === 'number' || isArtifactCard(tc));
-  // 思考单独存一列时每块都带确切位置，没有工具卡片也照样能原位还原——不必退回
-  // 「合并正文」的兜底（那条路会把思考全堆到正文前面，位置就乱了）。
-  if (hasOffsets || (hasStoredThinking && (toolCalls?.length ?? 0) === 0)) {
-    const segments: MessageSegment[] = [];
-    let cursor = 0;
-    let visibleAll = '';
-    const takeVisibleUpTo = (at: number) => {
-      const off = Math.min(Math.max(at, cursor), content.length);
-      const visible = segmentTextSlice(content.slice(cursor, off), segments);
-      if (visible) visibleAll += (visibleAll ? '\n\n' : '') + visible;
-      cursor = off;
-    };
-    mergeStoredSteps(content.length, toolCalls, hasStoredThinking ? thinking : undefined)
-      .forEach((step) => {
-        takeVisibleUpTo(step.at);
-        if (step.kind === 'tool') segments.push({ type: 'tool', toolIndex: step.toolIndex });
-        else segments.push({ type: 'thinking', content: step.content });
-      });
-    const finalVisible = segmentTextSlice(content.slice(cursor), segments);
-    if (finalVisible) visibleAll += (visibleAll ? '\n\n' : '') + finalVisible;
-    // 与实时视图一致的碎片归并：思考型模型偶尔把下一句的首个汉字与工具调用
-    // 同轮吐出，实时侧用 deferThinkingTextFragmentBeforeTool 把它挪到工具卡
-    // 之后的正文开头——历史重建做同样的归并，刷新前后展示才逐字一致。
-    for (let i = segments.length - 2; i >= 0; i--) {
-      const seg = segments[i];
-      if (seg.type !== 'text' || !isSingleHanCharacter(seg.content || '')) continue;
-      if (segments[i + 1]?.type !== 'tool') continue;
-      const followsProcess = segments
-        .slice(0, i)
-        .some((s) => s.type === 'tool' || s.type === 'thinking');
-      if (!followsProcess) continue;
-      const next = segments.slice(i + 1).find((s) => s.type === 'text');
-      if (!next) continue;
-      next.content = (seg.content || '') + (next.content || '');
-      segments.splice(i, 1);
-    }
-    // 硬规则：工具卡/思考块不允许落在正文末尾之后——最终答案必须是消息的
-    // 最后一段。
-    liftTrailingSegmentsAboveFinalText(segments);
-    const lastToolIdx = segments.map((s) => s.type).lastIndexOf('tool');
-    const tailText = segments
-      .slice(lastToolIdx + 1)
-      .filter((s) => s.type === 'text')
-      .map((s) => s.content || '')
-      .join('\n\n');
-    return {
-      segments: segments.length > 0 ? segments : undefined,
-      // cleanContent 维持「最终可见正文」语义：取最后一个工具卡之后的文本；没有则用全部可见文本
-      cleanContent: tailText || visibleAll,
-    };
+  if (Array.isArray(storedSegments) && storedSegments.length > 0) {
+    return renderStoredSegments(storedSegments, rawToolCalls, thinking);
   }
-
-  // ── 兜底（无 contentOffset 的旧历史）：reasoning 块与工具卡片配对，可见
-  // 正文合并成一个 Markdown 块，避免瞎猜切分点。 ──
-  // Both reasoning protocols are normalized in persisted content:
-  // - inline models may emit `reasoning</think>answer` without an opening tag;
-  // - structured reasoning events are stored as `<think>reasoning</think>`.
-  const { thinkingContents, visibleContent } = parseHistoricalContent(content);
-  const toolCount = toolCalls?.length ?? 0;
-  const segments: MessageSegment[] = [];
-  thinkingContents.forEach((thinking, idx) => {
-    segments.push({ type: 'thinking', content: thinking });
-    if (idx < toolCount) segments.push({ type: 'tool', toolIndex: idx });
-  });
-
-  // Any calls left after pairing with reasoning still happened before the
-  // final answer, so keep them above the answer instead of dumping them below.
-  for (let i = thinkingContents.length; i < toolCount; i++) {
-    segments.push({ type: 'tool', toolIndex: i });
-  }
-  if (visibleContent) segments.push({ type: 'text', content: visibleContent });
-
-  return {
-    segments: segments.length > 0 ? segments : undefined,
-    cleanContent: visibleContent,
-  };
+  const { visibleContent } = parseHistoricalContent(rawContent);
+  return { segments: undefined, cleanContent: visibleContent };
 }

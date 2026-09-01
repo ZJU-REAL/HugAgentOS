@@ -7,55 +7,66 @@ the chat route (``api/routes/v1/chats.py``) and the background run executor
 """
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from core.chat.display_bounds import bound_result_for_display
 
 
-class StepSequencer:
-    """Stamp one monotonic emission order across thinking blocks and tool cards.
+class SegmentRecorder:
+    """Record the assistant message's display shape while it streams.
 
-    ``content_offset`` alone cannot order them. It counts visible characters, so
-    everything a turn emits between two pieces of visible text lands on the same
-    offset — a turn that reasons, calls five sub-agents, reasons again and runs
-    bash stores ten items at one offset. Thinking and tool cards are also
-    persisted in two separate columns, so replay could only guess: it rendered
-    every thinking block first and every tool card after, instead of
-    interleaving them the way they ran.
+    The order of body text, reasoning and tool cards is already known the moment
+    each piece is emitted, so it is simply written down here and persisted as
+    ``metadata.segments``. Replay reads that list and renders it.
 
-    The stamp is per-stream and strictly increasing, so replay merges the two
-    columns by ``(offset, step_seq)`` and reproduces the live order exactly.
+    Nothing reconstructs the order afterwards. Reconstructing it from a
+    character offset into the body cannot work: the offset only moves when
+    visible text is emitted, so everything a turn does between two sentences
+    shares one value, and reasoning and tool cards live in separate columns —
+    replay could only guess, and it guessed "all the reasoning, then all the
+    cards" instead of the way they actually ran.
+
+    Body text is stored inline (it is capped alongside ``content``); reasoning
+    and tool cards are referenced by their index in ``thinking`` / ``tool_calls``
+    so a long reasoning block is never stored twice.
     """
 
     def __init__(self) -> None:
-        self._next = 0
+        self._segments: List[Dict[str, Any]] = []
+        self._pending_text = ""
+        self._placed_tools = 0
 
-    def take(self) -> int:
-        value = self._next
-        self._next += 1
-        return value
+    def reset(self) -> None:
+        """Start a fresh assistant message (steer split, or a redrafted body)."""
+        self._segments = []
+        self._pending_text = ""
+        self._placed_tools = 0
 
-    def stamp_tools(self, tool_calls_log: List[Dict[str, Any]], content_offset: int) -> None:
-        """Give every not-yet-placed tool card its offset and its order."""
-        for tool_call in tool_calls_log:
-            if "content_offset" in tool_call:
-                continue
-            tool_call["content_offset"] = content_offset
-            tool_call["step_seq"] = self.take()
+    def add_text(self, delta: str) -> None:
+        if delta:
+            self._pending_text += delta
 
-    @staticmethod
-    def clear_tool_positions(tool_calls_log: List[Dict[str, Any]]) -> None:
-        """Drop stale positions after ``content_replace`` rewrites the draft."""
-        for tool_call in tool_calls_log:
-            tool_call.pop("content_offset", None)
-            tool_call.pop("step_seq", None)
+    def _flush_text(self) -> None:
+        if self._pending_text:
+            self._segments.append({"type": "text", "text": self._pending_text})
+            self._pending_text = ""
 
-    def new_thinking_block(self, content: str, content_offset: int) -> Dict[str, Any]:
-        """Open one persisted thinking block at the current position."""
-        return {
-            "content": content,
-            "offset": content_offset,
-            "step_seq": self.take(),
-        }
+    def add_thinking(self, index: int) -> None:
+        """Place the reasoning block just appended at ``thinking[index]``."""
+        self._flush_text()
+        self._segments.append({"type": "thinking", "index": index})
+
+    def add_tools(self, tool_calls_log: List[Dict[str, Any]]) -> None:
+        """Place every card that has appeared since the last call, in order."""
+        if len(tool_calls_log) <= self._placed_tools:
+            return
+        self._flush_text()
+        for index in range(self._placed_tools, len(tool_calls_log)):
+            self._segments.append({"type": "tool", "index": index})
+        self._placed_tools = len(tool_calls_log)
+
+    def payload(self) -> Optional[List[Dict[str, Any]]]:
+        self._flush_text()
+        return list(self._segments) or None
 
 
 def build_thinking_event(chunk: dict, chat_id: str) -> Dict[str, Any]:

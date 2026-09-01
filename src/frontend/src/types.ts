@@ -189,13 +189,6 @@ export interface ToolCall {
    *  工具跑完后由 tool_result 说明结局，历史里不该留一行过期数字。 */
   progressNote?: string;
   scope?: 'ontology_revision' | string;
-  /**
-   * 该工具卡片出现时，持久化正文（含 <think> 标记）的累计字符偏移。
-   * 历史重建按此偏移把「文本 ↔ 工具卡片」按流式原顺序交错还原。
-   */
-  contentOffset?: number;
-  /** 与思考块共用的先后号，同一 contentOffset 下靠它排序。见 ThinkingBlock.stepSeq。 */
-  stepSeq?: number;
   /** 历史列表只给了梗概，完整结果要展开时按需回取（后端 result_truncated）。 */
   outputTruncated?: boolean;
   /** 已经按需取回过完整结果，别重复请求。 */
@@ -267,18 +260,19 @@ export interface UserQuestionAnswer {
 export interface ThinkingBlock {
   content: string;
   timestamp?: number;
-  /**
-   * 该思考块出现时正文的字符偏移。落库时思考与正文分列存储（互不挤占长度上限），
-   * 靠这个偏移把它还原回正文里原来的位置——展示顺序与实时流式时一模一样。
-   * 实时流式的块没有它（位置由 segments 直接决定）。
-   */
-  offset?: number;
-  /**
-   * 落库时统一发的先后号，跨思考块与工具卡片单调递增。两次可见正文之间发生的
-   * 一切共用同一个 offset，只有这个号能排出它们真正的先后。老消息没有。
-   */
-  stepSeq?: number;
 }
+
+/**
+ * 一条历史消息的展示顺序，落库在 `metadata.segments`。
+ *
+ * 顺序在实时流式的那一刻就已确定，后端原样记下来；刷新后照着渲染，不再从字符偏移
+ * 之类的辅助字段反推。正文片段内联，思考与工具卡片按下标引用 `thinking` /
+ * `tool_calls` 两列，长推理不会被存两份。
+ */
+export type StoredSegment =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; index: number }
+  | { type: 'tool'; index: number };
 
 export interface OntologyActivationSummary {
   pack_id?: string;
@@ -1536,7 +1530,7 @@ export interface AdminChatMessage {
   tool_calls: unknown;
   usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
   error: unknown;
-  metadata: unknown;
+  metadata?: { segments?: StoredSegment[] } | null;
   created_at: string;
 }
 
