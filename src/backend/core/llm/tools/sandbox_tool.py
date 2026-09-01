@@ -203,8 +203,8 @@ def register_bash(
 
     The sandbox session is bound to ``chat_id`` so OpenSandbox keeps a single
     persistent container per conversation (variables, pip packages, /workspace
-    files all persist between bash calls). script_runner provider ignores
-    ``session_id`` since its sidecar's /workspace is globally durable.
+    files all persist between bash calls). script_runner uses the same identity
+    to select a session-scoped workspace inside its sidecar.
     """
     if os.getenv("SANDBOX_TOOLS_ENABLED", "true").lower() != "true":
         return

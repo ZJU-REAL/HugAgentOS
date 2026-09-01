@@ -1,10 +1,12 @@
 # Sandbox Execution System
 
-> Last updated: 2026-08-11
+> Last updated: 2026-08-31
 
 The sandbox is the isolated environment where HugAgentOS's agents execute code: every `bash` call the model makes in a conversation, every [skill](agent-skills.md) script run, every generated deliverable happens inside the sandbox rather than the backend process. A single **provider protocol** abstracts three interchangeable execution backends — from the single-host lightweight script_runner, through OpenSandbox with persistent sessions and snapshot recovery, to a remote MicroVM fleet (Cube) — with the tool layer above completely agnostic to the choice.
 
 Edition split (see [editions](../editions/overview.md)): the **lightweight sandbox (script_runner) plus the sandbox tool / offload infrastructure are Community CE**; the **persistent sandboxes (opensandbox / cube — session retention, environment reuse, snapshot recovery) are Enterprise EE** — the CE derivation strips those two provider files and the factory transparently falls back to the lightweight implementation.
+
+All providers follow one boundary rule: **`session_id` (`chat_id` in a conversation) is the sole isolation key**. Different conversations use different sandboxes; the main agent, built-in subagents, user-defined subagents, and batch items in one conversation share the same `/workspace`. Model context, tool permissions, and execution threads may remain independent, but no second file sandbox is created inside a conversation.
 
 ## The provider protocol (core/sandbox/protocol.py)
 
@@ -21,16 +23,16 @@ Every provider implements the same `SandboxProvider` Protocol, whose field contr
 | `health()` | Health probe |
 | `admin_*` family | Read-only views for the security console (capability declaration / instance listing / detail / pool stats); unsupported abilities raise `SandboxAdminNotSupported` and the UI greys them out |
 
-Two key optional fields on `ExecuteRequest`:
+Two key fields on `ExecuteRequest`:
 
-- **`session_id`**: persistent providers use it to bind multiple `execute` calls to the same underlying sandbox instance (variables, pip packages and `/workspace` files persist across calls); ephemeral providers ignore it;
+- **`session_id`**: every provider uses it to route the conversation workspace; calls with the same ID retain `/workspace` files, while different IDs cannot see each other. OpenSandbox and Cube additionally reuse the underlying container, MicroVM, or kernel;
 - **`user_id`**: enables myspace file visibility (bind-mount or seeding) — see Plan F below.
 
 ## The three provider implementations
 
 | Provider | File | Form | When to use | Edition |
 |---|---|---|---|---|
-| `script_runner` | `script_runner_provider.py` | Wraps HTTP calls to the `hugagent-script-runner` sidecar container (setrlimit subprocesses inside), stateless | Single-host deployments, one-shot code execution; the default | CE |
+| `script_runner` | `script_runner_provider.py` | One sidecar with persistent per-`session_id` filesystem directories; each command still runs in a setrlimit subprocess | Single-host lightweight execution; the default | CE |
 | `opensandbox` | `opensandbox_provider.py` + `_opensandbox_*.py` | Alibaba OpenSandbox (Docker containers + persistent Jupyter kernels): per-chat persistent sessions, warm pools, snapshots | Multi-turn iterative analysis, heavy skill workflows | **EE** |
 | `cube` | `cube_provider.py` | Tencent CubeSandbox (E2B-compatible MicroVMs) on a **remote node** — the backend reaches it over the network via the `e2b_code_interpreter` SDK, no local sidecar | Deployments where the backend host is resource-constrained, stronger (MicroVM-grade) isolation is required, or sandbox compute must scale independently | **EE** |
 
@@ -48,7 +50,7 @@ Cube's design trade-offs (the price of being remote): every language goes throug
 | `sandbox_put_artifact(artifact_id, dest_path)` | Copy a platform artifact's bytes (user uploads, chart-tool outputs, …) into a sandbox path — uploads are never auto-visible in the sandbox |
 | `sandbox_get_artifact(src_path)` | Stream a sandbox file into a downloadable artifact; the default per-file limit is 100 MiB — bash outputs never auto-appear in the attachment area |
 
-The sandbox session identity is resolved by `resolve_sandbox_session(sandbox_session_id, chat_id)`: main chat / plan execution → `chat_id` (per-chat persistent kernel); batch items / sub-agents → `""` (ephemeral).
+The sandbox identity is resolved by `resolve_sandbox_session(sandbox_session_id, chat_id)`: a non-empty explicit ID wins, while a missing or empty value falls back to `chat_id`. The main agent, plan execution, batch items, and every subagent therefore use one conversation sandbox, and a child run never destroys it when it finishes.
 
 **MySpace write-back loop**: when a `bash` command succeeds and its string mentions `myspace`, `_sync_myspace_changes` lists files modified in the last 10 minutes under the sandbox's `/workspace/myspace/{uid}`, md5-diffs them against the backend mirror cache, routes each changed file through the user-confirmation gate (`MYSPACE_WRITE_CONFIRM`; non-interactive contexts are denied outright), then writes approved changes back to "My Space" **in place under the same file_id** — download/preview links stay valid. This closes the gap where the model edits a docx with python-docx in the sandbox while the user's copy never changes.
 

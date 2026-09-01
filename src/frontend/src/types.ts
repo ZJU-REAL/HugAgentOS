@@ -194,6 +194,8 @@ export interface ToolCall {
    * 历史重建按此偏移把「文本 ↔ 工具卡片」按流式原顺序交错还原。
    */
   contentOffset?: number;
+  /** 与思考块共用的先后号，同一 contentOffset 下靠它排序。见 ThinkingBlock.stepSeq。 */
+  stepSeq?: number;
   /** 历史列表只给了梗概，完整结果要展开时按需回取（后端 result_truncated）。 */
   outputTruncated?: boolean;
   /** 已经按需取回过完整结果，别重复请求。 */
@@ -271,6 +273,11 @@ export interface ThinkingBlock {
    * 实时流式的块没有它（位置由 segments 直接决定）。
    */
   offset?: number;
+  /**
+   * 落库时统一发的先后号，跨思考块与工具卡片单调递增。两次可见正文之间发生的
+   * 一切共用同一个 offset，只有这个号能排出它们真正的先后。老消息没有。
+   */
+  stepSeq?: number;
 }
 
 export interface OntologyActivationSummary {

@@ -39,9 +39,13 @@ def resolve_sandbox_session(
     sandbox_session_id: Optional[str],
     chat_id: Optional[str],
 ) -> Optional[str]:
-    """``sandbox_session_id`` wins; ``None`` means 'unspecified' → fall back to
-    ``chat_id`` (legacy behavior). Explicit ``""`` stays ephemeral."""
-    return chat_id if sandbox_session_id is None else sandbox_session_id
+    """Resolve the one sandbox identity for the current conversation.
+
+    A non-empty explicit override wins. Missing or empty overrides fall back to
+    ``chat_id`` so callers cannot accidentally create a second sandbox inside
+    the same conversation.
+    """
+    return sandbox_session_id or chat_id
 
 
 async def myspace_write_guard(

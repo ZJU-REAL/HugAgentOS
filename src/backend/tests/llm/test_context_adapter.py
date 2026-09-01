@@ -119,7 +119,7 @@ def test_tool_blocks_roundtrip_and_remain_paired_after_assembly():
     ]
 
     items = adapter.items_from_messages(messages)
-    assembly = ContextAssembler(total_budget=200).assemble(reversed(items))
+    assembly = ContextAssembler(total_budget=200).assemble(items)
     rendered = adapter.messages_from_items(assembly.included)
 
     assert [item.kind for item in items] == [KIND_TOOL_CALL, KIND_TOOL_RESULT]

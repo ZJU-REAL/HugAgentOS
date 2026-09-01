@@ -71,6 +71,8 @@ class ScriptRunnerProvider:
             "resource_files": req.resource_files,
             "input_files": req.input_files,
             "input_files_b64": req.input_files_b64,
+            "session_id": req.session_id,
+            "user_id": req.user_id,
         }
 
         last_exc: Exception | None = None
@@ -129,14 +131,10 @@ class ScriptRunnerProvider:
         content: bytes,
         user_id: Optional[str] = None,
     ) -> None:
-        """Write bytes into the sandbox via the sidecar's /put_file.
-
-        ``session_id`` / ``user_id`` are ignored under the script_runner provider — the
-        sidecar's ``/workspace`` is globally shared for the container's lifetime, with no
-        notion of a "session"/user binding.
-        """
-        del session_id, user_id
+        """Write bytes into this conversation's sidecar workspace."""
         body = {
+            "session_id": session_id,
+            "user_id": user_id,
             "path": path,
             "content_b64": base64.b64encode(content).decode("ascii"),
         }
@@ -156,11 +154,13 @@ class ScriptRunnerProvider:
         path: str,
         user_id: Optional[str] = None,
     ) -> bytes:
-        """Read sandbox file bytes via the sidecar's /get_file. ``session_id`` / ``user_id`` ignored."""
-        del session_id, user_id
+        """Read bytes from this conversation's sidecar workspace."""
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(f"{self._base_url}/get_file", json={"path": path})
+                resp = await client.post(
+                    f"{self._base_url}/get_file",
+                    json={"session_id": session_id, "user_id": user_id, "path": path},
+                )
                 resp.raise_for_status()
                 payload = resp.json()
         except httpx.ConnectError as e:
@@ -183,7 +183,6 @@ class ScriptRunnerProvider:
         user_id: Optional[str] = None,
     ) -> int:
         """Stream a sandbox file from the sidecar into a local path."""
-        del session_id, user_id
         timeout = httpx.Timeout(
             float(settings.sandbox.max_timeout),
             connect=10.0,
@@ -194,7 +193,7 @@ class ScriptRunnerProvider:
                 async with client.stream(
                     "POST",
                     f"{self._base_url}/get_file_raw",
-                    json={"path": path},
+                    json={"session_id": session_id, "user_id": user_id, "path": path},
                 ) as resp:
                     if resp.status_code >= 400:
                         body = (await resp.aread()).decode("utf-8", errors="replace")
@@ -235,23 +234,37 @@ class ScriptRunnerProvider:
             raise SandboxError(f"get_file {path} 流式读取失败: {exc}") from exc
 
     async def close_session(self, session_id: Optional[str]) -> None:
-        """No-op: the sidecar's ``/workspace`` is globally shared; there is no per-session sandbox to destroy."""
-        del session_id
+        """Delete one conversation workspace without affecting other sessions."""
+        if not session_id:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{self._base_url}/sessions/close",
+                    json={"session_id": session_id},
+                )
+                resp.raise_for_status()
+        except Exception as exc:  # protocol requires lifecycle cleanup to never raise
+            logger.warning("[script_runner] close_session failed sid=%s: %s", session_id, exc)
 
     async def touch_session(self, session_id: str) -> bool:
-        """No-op: no per-session lifecycle, nothing to keep alive."""
-        del session_id
-        return False
+        """Touch an existing conversation workspace."""
+        if not session_id:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{self._base_url}/sessions/touch",
+                    json={"session_id": session_id},
+                )
+                resp.raise_for_status()
+                return bool(resp.json().get("touched"))
+        except Exception:
+            return False
 
     async def current_sandbox_id(self, session_id: Optional[str]) -> Optional[str]:
-        """The script_runner sidecar's ``/workspace`` is global to the container
-        and persists for the container's lifetime. There is no "per-session
-        sandbox" to invalidate, so we return a constant — callers tracking
-        sandbox identity will treat the value as stable and skill files
-        materialized once never need to be re-pushed.
-        """
-        del session_id
-        return "script_runner"
+        """Return the stable logical identity of one session workspace."""
+        return f"script_runner:{session_id}" if session_id else None
 
     async def health(self) -> bool:
         try:
@@ -262,15 +275,14 @@ class ScriptRunnerProvider:
             return False
 
     # ── Read-only admin interface ─────────────────────────────────────────────────────
-    # The sidecar is a single-container global /workspace with no notion of an "instance" —
-    # it only exposes a capability declaration; everything else raises
-    # SandboxAdminNotSupported, which the security admin backend downgrades to a single "shared sidecar" card.
+    # The sidecar is one container with session-scoped workspaces. It does not expose
+    # administrative enumeration, so the security UI still shows one sidecar card.
 
     def admin_capabilities(self) -> SandboxAdminCapabilities:
         return SandboxAdminCapabilities(provider=self.name)
 
     async def admin_list_sandboxes(self, include_server: bool = False) -> list[SandboxInfo]:
-        raise SandboxAdminNotSupported("script_runner 是共享 sidecar，无可枚举实例")
+        raise SandboxAdminNotSupported("script_runner 未开放会话工作区枚举")
 
     async def admin_get_sandbox(self, sandbox_id: str) -> Optional[SandboxInfo]:
         raise SandboxAdminNotSupported("script_runner 不支持实例详情")

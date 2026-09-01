@@ -555,16 +555,17 @@ def test_workspace_path_alias_in_local_mode(monkeypatch):
     assert p.canonicalize_ws_path("/workspace/site-src/foo") == "/workspace/site-src/foo"
 
 
-def test_runner_canon_ws_and_bash_rewrite(monkeypatch):
-    """The script_runner service must alias /workspace at its path chokepoint and in
-    the bash/python it executes, so model-written /workspace paths resolve locally."""
+def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
+    """The runner maps canonical and expanded paths into the chat workspace."""
     import services.script_runner_service.server as srv
 
-    local_root = "/Users/test/Library/Application Support/HugAgentOS/workspace"
+    local_root = str(tmp_path / "Application Support" / "HugAgentOS" / "workspace")
     monkeypatch.setattr(srv, "WORKSPACE_ROOT", local_root)
-    assert srv._canon_ws("/workspace") == local_root
-    assert srv._canon_ws("/workspace/a.txt") == f"{local_root}/a.txt"
-    assert srv._canon_ws("/workspaces/x") == "/workspaces/x"
+    session_root = str(srv._session_workspace("chat-1", create=True))
+    assert srv._canon_ws("/workspace", "chat-1") == session_root
+    assert srv._canon_ws("/workspace/a.txt", "chat-1") == f"{session_root}/a.txt"
+    assert srv._canon_ws(f"{local_root}/a.txt", "chat-1") == f"{session_root}/a.txt"
+    assert srv._canon_ws("/workspaces/x", "chat-1") == "/workspaces/x"
 
     # Existing quotes remain intact, while an unquoted canonical path gains a
     # safely quoted prefix when the macOS Application Support mapping adds

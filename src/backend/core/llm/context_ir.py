@@ -40,19 +40,7 @@ POLICY_TAIL = "tail"
 VISIBILITY_MODEL = "model"
 VISIBILITY_MANIFEST_ONLY = "manifest_only"
 
-_SYSTEM_KINDS = {KIND_SYSTEM_RULE, KIND_PROJECT, KIND_REFERENCE}
 _TOOL_KINDS = {KIND_TOOL_CALL, KIND_TOOL_RESULT}
-_TRUST_RANK = {
-    "platform": 0,
-    "admin": 1,
-    "system": 2,
-    "memory": 3,
-    "tool": 4,
-    "assistant": 5,
-    "user": 6,
-    "external": 7,
-    "untrusted": 8,
-}
 
 
 class ContextAdapterProtocol(Protocol):
@@ -412,21 +400,18 @@ class ContextAssembly:
         return manifest
 
 
-def _canonical_key(item: ContextItem) -> tuple[Any, ...]:
-    phase = 0 if item.kind in _SYSTEM_KINDS else 1
-    if item.kind in {KIND_REMINDER, KIND_STEER}:
-        phase = 2
-    return (
-        phase,
-        item.created_seq,
-        _TRUST_RANK.get(item.trust, 99),
-        -item.priority,
-        item.item_id,
-    )
-
-
 class ContextAssembler:
-    """Canonical ordering, explicit truncation and explainable selection."""
+    """Explicit truncation and explainable selection, in context order.
+
+    Ordering is **not** the assembler's job: items arrive in the order the agent
+    context already holds them, and they leave in that same order. Deciding the
+    conversation's shape here used to reorder it — the live user instruction
+    carries a sequence 64 strides above the context tail (see
+    ``next_request_sequence``), so sorting by sequence moved it behind every tool
+    call and tool result of the turn it had just started. The model then read its
+    own finished work first and the user's request last, took that for a fresh
+    ask, and ran the whole turn again.
+    """
 
     def __init__(
         self,
@@ -519,7 +504,8 @@ class ContextAssembler:
         )
         if duplicates:
             raise ValueError(f"context item_id values must be unique: {duplicates}")
-        original_items = sorted(raw_items, key=_canonical_key)
+        original_items = list(raw_items)
+        arrival = {item.item_id: index for index, item in enumerate(original_items)}
         records: dict[str, dict[str, Any]] = {}
         capped: list[ContextItem] = []
         excluded: list[ContextItem] = []
@@ -558,7 +544,9 @@ class ContextAssembler:
             unit for unit in units if any(self._mandatory(item) for item in unit)
         ]
         optional = [unit for unit in units if unit not in mandatory]
-        mandatory.sort(key=lambda unit: _canonical_key(min(unit, key=_canonical_key)))
+        mandatory.sort(key=lambda unit: min(arrival[item.item_id] for item in unit))
+        # Selection order only: which optional units get the remaining budget.
+        # It never reaches the output, which is re-sorted into context order.
         optional.sort(key=self._unit_key)
 
         included: list[ContextItem] = []
@@ -632,9 +620,9 @@ class ContextAssembler:
             )
             excluded.append(item)
 
-        included.sort(key=_canonical_key)
+        included.sort(key=lambda item: arrival[item.item_id])
         excluded_by_id = {item.item_id: item for item in excluded}
-        excluded = sorted(excluded_by_id.values(), key=_canonical_key)
+        excluded = sorted(excluded_by_id.values(), key=lambda item: arrival[item.item_id])
 
         included_manifest = []
         excluded_manifest = []

@@ -120,6 +120,54 @@ async def test_each_block_records_where_it_belongs_in_the_body(run_env, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_steps_between_two_bodies_keep_their_true_order(run_env, monkeypatch):
+    """同一个 offset 上的思考与工具卡片，先后必须可还原。
+
+    offset 数的是可见正文的字符，所以两次正文之间发生的一切共用同一个值；思考与
+    工具卡片又分两列存。没有 step_seq 时刷新后只能猜，实际是把思考全堆在前、卡片
+    全堆在后——真实顺序「想→跑→想→跑」被还原成「想想→跑跑」。
+    """
+
+    async def interleaved_workflow(**_kwargs):
+        yield {"type": "thinking", "delta": "先想想"}
+        yield {
+            "type": "tool_call",
+            "tool_name": "bash",
+            "tool_id": "call-0",
+            "tool_args": {"command": "ls"},
+        }
+        yield {"type": "tool_result", "tool_id": "call-0", "content": "ok"}
+        yield {"type": "thinking", "delta": "再想想"}
+        yield {
+            "type": "tool_call",
+            "tool_name": "bash",
+            "tool_id": "call-1",
+            "tool_args": {"command": "pwd"},
+        }
+        yield {"type": "tool_result", "tool_id": "call-1", "content": "ok"}
+        yield {"type": "ai_message", "delta": "答案"}
+        yield {"type": "meta"}
+
+    message_id = await _run_to_completion(interleaved_workflow, monkeypatch)
+    stored = _stored(run_env, message_id)
+
+    # 四个步骤全落在正文之前，offset 一律为 0——排序只能靠 step_seq。
+    assert [b["offset"] for b in stored.thinking] == [0, 0]
+    assert [tc["content_offset"] for tc in stored.tool_calls] == [0, 0]
+
+    replayed = sorted(
+        [(b["step_seq"], "think", b["content"]) for b in stored.thinking]
+        + [(tc["step_seq"], "tool", tc["tool_id"]) for tc in stored.tool_calls]
+    )
+    assert [(kind, label) for _, kind, label in replayed] == [
+        ("think", "先想想"),
+        ("tool", "call-0"),
+        ("think", "再想想"),
+        ("tool", "call-1"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_late_reasoning_tail_merges_into_the_same_round_block(run_env, monkeypatch):
     """同一轮里正文开头之后才到的思考尾巴，并回本轮的块，不另起一块、不改位置。"""
 
@@ -134,7 +182,7 @@ async def test_late_reasoning_tail_merges_into_the_same_round_block(run_env, mon
     stored = _stored(run_env, message_id)
 
     assert stored.content == "答案是42"
-    assert stored.thinking == [{"content": "想好了。", "offset": 0}]
+    assert stored.thinking == [{"content": "想好了。", "offset": 0, "step_seq": 0}]
 
 
 @pytest.mark.asyncio

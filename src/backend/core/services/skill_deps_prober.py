@@ -139,6 +139,7 @@ async def probe_still_missing(
                 script_name="skill_dep_probe.py",
                 language="python",
                 timeout=timeout,
+                session_id="system:skill-dependency-probe",
             )
         )
     except Exception as exc:  # noqa: BLE001 - a probe failure is always uncertain

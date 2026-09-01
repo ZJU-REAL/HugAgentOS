@@ -734,11 +734,14 @@ def next_context_sequence(messages: Sequence[Any]) -> int:
 
 
 def next_request_sequence(messages: Sequence[Any]) -> int:
-    """Reserve a small pre-reply lane, then place the user instruction last.
+    """Reserve a pre-reply lane above the context tail for the user instruction.
 
     AgentScope runs ``on_reply`` middleware before it appends ``inputs`` to
     state. File/project attachment middleware can therefore add a few explicit
-    context items first without colliding with, or sorting after, the request.
+    context items first without colliding with the request's sequence. The
+    sequence no longer decides message order — the assembler emits items in
+    context order — it only keeps identifiers distinct and marks recency for
+    budget eviction.
     """
     pre_reply_slots = 64
     return next_context_sequence(messages) + pre_reply_slots * CONTEXT_SEQUENCE_STRIDE
