@@ -49,6 +49,11 @@ MAX_MEMORY_MB = int(os.getenv("SCRIPT_MAX_MEMORY_MB", "256"))
 # is created on first use; ``.sessions/<hash>`` is the per-conversation boundary
 # and ``_validate_workspace_path`` confines file API access to that directory.
 WORKSPACE_ROOT = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
+# Skills reach this container as two read-only mounts (see docker-compose.yml):
+# the shared tree, and the root holding every user's per-user view. A session
+# gets its own user's view linked in as ``<workspace>/skills``.
+SHARED_SKILLS_DIR = "sandbox_skills"
+USER_SKILLS_DIR = ".skills_u"
 SESSION_WORKSPACES_DIR = ".sessions"
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1MB
 MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
@@ -204,6 +209,25 @@ def _ensure_shared_dir_link(link: Path, target: Path) -> None:
         shutil.copytree(target, link, dirs_exist_ok=True)
 
 
+def _skills_dir_for(user_id: Optional[str]) -> Path:
+    """The skill tree one session may see: the user's own view, else shared-only.
+
+    The user view holds that user's private skills plus a relative symlink per
+    shared skill, so another user's private skill files (a market skill's
+    secrets.json among them) are never reachable from this session. Falls back to
+    the shared tree when the user has no view yet, and to the legacy single mount
+    when a deployment has not picked up the two skill mounts yet.
+    """
+    shared = Path(WORKSPACE_ROOT) / SHARED_SKILLS_DIR
+    if user_id:
+        view = Path(WORKSPACE_ROOT) / USER_SKILLS_DIR / user_id
+        if view.is_dir():
+            return view
+    if shared.is_dir():
+        return shared
+    return Path(WORKSPACE_ROOT) / "skills"
+
+
 def _session_workspace(
     session_id: str,
     *,
@@ -216,9 +240,10 @@ def _session_workspace(
     workspace = Path(WORKSPACE_ROOT) / SESSION_WORKSPACES_DIR / key
     if create:
         workspace.mkdir(parents=True, exist_ok=True)
-        _ensure_shared_dir_link(workspace / "skills", Path(WORKSPACE_ROOT) / "skills")
         if user_id:
             _validate_user_id(user_id)
+        _ensure_shared_dir_link(workspace / "skills", _skills_dir_for(user_id))
+        if user_id:
             shared_myspace = Path(WORKSPACE_ROOT) / "myspace" / user_id
             shared_myspace.mkdir(parents=True, exist_ok=True)
             _ensure_shared_dir_link(workspace / "myspace" / user_id, shared_myspace)

@@ -18,6 +18,7 @@ import { EmailConnect } from '../settings/EmailConnect';
 import { YidaConnect } from '../settings/YidaConnect';
 import { LarkAppInitCard } from './LarkAppInitCard';
 import { PluginAvatar, PluginIconPicker } from './PluginIconPicker';
+import { CardTail } from '../common/CardTail';
 import {
   listPlugins, listInstalledPlugins, getInstalledPluginDetail,
   installPlugin, importPlugin, uninstallPlugin, setPluginEnabled, setInstalledPluginMeta,
@@ -562,24 +563,22 @@ export function PluginsPage() {
                   </div>
                   {/* Users can enable/disable for themselves (global plugins are also a personal switch, not affecting each other);
                       non-global plugins can be uninstalled directly on the card, without entering the detail page first. */}
-                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
-                    onClick={(e) => e.stopPropagation()}>
-                    <Switch size="small" checked={p.enabled !== false}
-                      onChange={(v) => void handleToggle(p.install_id, v)}
-                      checkedChildren={t('启用')} unCheckedChildren={t('停用')} />
-                    {!p.is_global && (
-                      <Button type="text" size="small" icon={<EditOutlined />}
-                        title={t('编辑展示信息')} onClick={(e) => { e.stopPropagation(); openMeta(p); }} />
+                  <CardTail
+                    checked={p.enabled !== false}
+                    onChange={(v) => void handleToggle(p.install_id, v)}
+                    actions={!p.is_global && (
+                      <>
+                        <Button type="text" size="small" icon={<EditOutlined />}
+                          title={t('编辑展示信息')} onClick={(e) => { e.stopPropagation(); openMeta(p); }} />
+                        <Popconfirm title={t('确定卸载该插件？其技能与 MCP 将一并移除')}
+                          okText={t('卸载')} cancelText={t('取消')} okButtonProps={{ danger: true }}
+                          onConfirm={() => void handleUninstall(p.install_id, p.name)}>
+                          <Button type="text" size="small" danger icon={<DeleteOutlined />}
+                            title={t('卸载插件')} onClick={(e) => e.stopPropagation()} />
+                        </Popconfirm>
+                      </>
                     )}
-                    {!p.is_global && (
-                      <Popconfirm title={t('确定卸载该插件？其技能与 MCP 将一并移除')}
-                        okText={t('卸载')} cancelText={t('取消')} okButtonProps={{ danger: true }}
-                        onConfirm={() => void handleUninstall(p.install_id, p.name)}>
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />}
-                          title={t('卸载插件')} onClick={(e) => e.stopPropagation()} />
-                      </Popconfirm>
-                    )}
-                  </div>
+                  />
                 </div>
                 <div className="jx-mcp-cardDesc">{p.description}</div>
               </div>

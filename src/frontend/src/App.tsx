@@ -37,7 +37,7 @@ import { DocsPanel, AppCenterPanel } from './components/docs';
 import LabPanel from './components/lab/LabPanel';
 import { AutomationPanel } from './components/lab/AutomationPanel';
 import { SitesPanel } from './components/sites';
-import { MySpacePanel } from './components/myspace';
+import { MySpacePanel, MySpaceRail } from './components/myspace';
 import { ProjectsPanel, ProjectDetailPanel } from './components/projects';
 import { useProjectStore } from './stores/projectStore';
 import { RightSidebarPanel } from './components/canvas';
@@ -806,6 +806,9 @@ export default function App() {
           aria-label={t('关闭侧边栏')}
         />
       )}
+      {/* 「我的空间」二级边栏：紧贴主侧边栏右侧，窄屏由 CSS 隐藏、退回面板顶部 Tab */}
+      {panel === 'my_space' && <MySpaceRail />}
+
       {/* Global search modal: triggered by the search button / ⌘K / Ctrl+K */}
       <SearchModal
         onNewChat={handleNewChat}

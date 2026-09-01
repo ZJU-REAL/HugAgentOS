@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
@@ -60,6 +61,7 @@ class ScriptRunnerProvider:
         return settings.sandbox.runner_url
 
     async def execute(self, req: ExecuteRequest) -> ExecuteResult:
+        _refresh_skill_view(req.user_id)
         # 30s margin covers the sidecar's own overhead (base64 encoding, transfer, etc.)
         http_timeout = req.timeout + 30
         body = {
@@ -289,6 +291,33 @@ class ScriptRunnerProvider:
 
     def admin_pool_stats(self) -> dict:
         raise SandboxAdminNotSupported("script_runner 无连接池")
+
+
+_SKILL_VIEW_SYNCED: dict[str, float] = {}
+_SKILL_VIEW_TTL_S = 60.0
+
+
+def _refresh_skill_view(user_id: Optional[str]) -> None:
+    """Keep this user's skill view (mounted into the sidecar) in step with the shared skills.
+
+    Only shared skills need the refresh — a private skill is materialized straight
+    into the user's own dir and is visible at once — so a TTL is enough, and it
+    keeps this off the hot path of every bash call. Costs one listdir; failure is
+    never worth failing an execution over.
+    """
+    uid = (user_id or "").strip()
+    if not uid:
+        return
+    now = time.monotonic()
+    if now - _SKILL_VIEW_SYNCED.get(uid, 0.0) < _SKILL_VIEW_TTL_S:
+        return
+    _SKILL_VIEW_SYNCED[uid] = now
+    try:
+        from core.agent_skills.config import sync_user_skill_view
+
+        sync_user_skill_view(uid)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[script_runner] 技能视图刷新失败 user=%s: %s", uid, exc)
 
 
 def _payload_to_result(payload: dict[str, Any]) -> ExecuteResult:

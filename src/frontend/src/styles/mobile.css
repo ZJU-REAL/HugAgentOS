@@ -1332,12 +1332,7 @@
     line-height:18px;
   }
 
-  .jx-agentLibraryPage .jx-agentCard-badge.on{
-    background:var(--color-primary-light);
-    color:var(--color-primary);
-  }
-
-  .jx-agentLibraryPage .jx-agentCard-ops{
+  .jx-agentLibraryPage .jx-cardTailActions{
     display:none;
   }
 

@@ -331,7 +331,8 @@ services:
     - /tmp:size=256m,uid=1001,gid=1001
     - /workspace:size=256m,uid=1001,gid=1001
     volumes:
-    - ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}/sandbox_skills:/workspace/skills:ro
+    - ${HOST_STORAGE_PATH:?HOST_STORAGE_PATH must be set in .env (host absolute path to storage dir)}/sandbox_skills:/workspace/sandbox_skills:ro
+    - ${HOST_STORAGE_PATH}/sandbox_skills_u:/workspace/.skills_u:ro
     - ${HOST_STORAGE_PATH}/yida_cache/__shared__/workspace:/home/ubuntu/yida-workspace
     security_opt:
     - no-new-privileges:true

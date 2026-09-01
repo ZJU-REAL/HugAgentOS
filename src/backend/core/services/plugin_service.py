@@ -569,6 +569,7 @@ def _apply_normalized(
             )
             .delete(synchronize_session=False)
         )
+        _purge_sandbox_skill_files(stale_skill_ids)
     if stale_server_ids:
         (
             db.query(AdminMcpServer)
@@ -635,6 +636,17 @@ def _apply_normalized(
         "action": action,
         "import_report": import_report,
     }
+
+
+def _purge_sandbox_skill_files(skill_ids) -> None:
+    """Drop the materialized files of skills a plugin no longer owns, so they stop showing up under /workspace/skills/."""
+    from core.agent_skills.config import purge_skill_sandbox_files
+
+    for sid in skill_ids or []:
+        try:
+            purge_skill_sandbox_files(sid)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("purge sandbox files for skill %s failed: %s", sid, exc)
 
 
 def _refresh_after_change(owner_user_id: Optional[str]) -> None:
@@ -1719,6 +1731,12 @@ def uninstall_plugin(
             else model.owner_user_id.is_(None)
         )
 
+    removed_skill_ids = [
+        sid
+        for (sid,) in db.query(AdminSkill.skill_id).filter(
+            AdminSkill.source_plugin == slug, _owner_filter(AdminSkill)
+        )
+    ]
     n_sk = (
         db.query(AdminSkill)
         .filter(AdminSkill.source_plugin == slug, _owner_filter(AdminSkill))
@@ -1732,6 +1750,7 @@ def uninstall_plugin(
 
     db.delete(row)
     db.commit()
+    _purge_sandbox_skill_files(removed_skill_ids)
     _refresh_after_change(owner_user_id)
     logger.info("plugin_uninstalled: id=%s slug=%s skills=%d mcp=%d", install_id, slug, n_sk, n_mcp)
     return {"install_id": install_id, "slug": slug, "removed_skills": n_sk, "removed_mcp": n_mcp}

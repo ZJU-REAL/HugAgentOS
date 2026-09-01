@@ -91,12 +91,21 @@
 
 ### 技能文件如何到达沙箱
 
-所有技能（内置 + DB/管理员导入）通过**单一只读 host bind mount** 暴露进沙箱（详见[沙箱模块](sandbox.md)）：
+所有技能（内置 + DB/管理员导入）都以只读 bind mount 出现在沙箱的同一路径 `/workspace/skills/<id>`
+（详见[沙箱模块](sandbox.md)）。宿主侧分两层，**按归属隔离**：
 
-- 统一宿主目录由 `core/agent_skills/config.py::get_sandbox_skills_dir()` 决定（默认 `$STORAGE_PATH/sandbox_skills`，可用 `SANDBOX_SKILLS_DIR` 覆盖）；
-- 后端启动时 `sync_builtin_skills_to_sandbox_dir()` 把内置技能拷入该目录（幂等覆盖，重启即同步编辑）；
-- DB 技能按需物化到同一目录（`loader._materialize_skill_files`）；
-- 远端 cube 沙箱无 host mount，改为运行时把命中 `/workspace/skills` 的技能文件推送进沙箱（`CUBE_SKILL_PREPUSH` 系列配置）。
+- **公共技能库**（内置技能 + `owner_user_id` 为空的全局技能）由
+  `core/agent_skills/config.py::get_sandbox_skills_dir()` 决定（默认 `$STORAGE_PATH/sandbox_skills`，
+  可用 `SANDBOX_SKILLS_DIR` 覆盖）；后端启动时 `sync_builtin_skills_to_sandbox_dir()`
+  把内置技能拷进来（幂等覆盖，重启即同步编辑）；
+- **每用户技能视图** `<公共库同级>/sandbox_skills_u/<user_id>/`：该用户自己创建或从市场安装的私有技能
+  物化在这里（`loader._materialize_skill_files` 按 owner 选目录），并为每个公共技能建一条相对软链
+  `../skills_shared/<id>`。沙箱挂的就是这份视图，公共库另挂到 `/workspace/skills_shared` 供软链解析；
+- 因此一个用户的沙箱里只有公共技能 + 他自己的私有技能，**看不到别人安装的技能及其
+  `secrets.json`**；视图只有软链、不复制文件，每次建沙箱刷新一次约 1ms；
+- 删除技能时 `purge_skill_sandbox_files()` 连带删掉物化文件，启动时
+  `prune_orphan_sandbox_skill_dirs()` 再扫一遍历史残留；
+- 远端 cube 沙箱无 host mount，改为运行时把命中 `/workspace/skills` 的技能文件推送进沙箱（`CUBE_SKILL_PREPUSH` 系列配置）。技能 id 来自模型写的命令，所以现推前要过归属闸门（`loader.get_skill_owner()`）：私有技能只推给属主，报别人的 id 什么也拿不到；预推只走全局 catalog，本就不含私有技能。
 
 ### 插件的渐进式加载（Progressive Plugin Loading）
 

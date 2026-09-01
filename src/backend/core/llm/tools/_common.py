@@ -72,6 +72,13 @@ async def myspace_write_guard(
     # layer so the generic gate() stays kind-agnostic.
     if not is_myspace:
         return None
+    from core.llm.tool_permissions import preset_answers_confirmation
+
+    # 权限档同样管这条路：bash 把沙盒改动回写「我的空间」是工具自己发起的确认，
+    # 不经过 ToolPermissionMiddleware 的判定，得在这里问一次同一个档位，
+    # 否则用户选了「完全放开」照样被逐个文件拦下来。
+    if preset_answers_confirmation(op=op):
+        return None
     from core.llm.tools import _myspace_confirm as _mc
 
     blk = await _mc.gate(

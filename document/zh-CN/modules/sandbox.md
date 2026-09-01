@@ -120,7 +120,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 
 ## 技能目录只读挂载
 
-所有技能文件通过**单一只读 bind mount** 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volume`）：挂载源是统一技能目录 `$HOST_STORAGE_PATH/sandbox_skills`（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
+技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到 `/workspace/skills_shared` 供软链解析（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。预热的临时（light）沙箱会发给任意用户，只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
 
 ## 超长工具结果 offload
 

@@ -193,12 +193,12 @@ def register_bash(
 ) -> None:
     """Register the generic ``bash`` tool.
 
-    ALL skill files — built-in and DB/admin-imported — are exposed via a single
-    read-only host bind mount at ``/workspace/skills/<id>`` (see
-    ``opensandbox_provider._make_skills_volume`` + ``config.get_sandbox_skills_dir``):
-    built-in skills are copied into the unified host dir at startup and DB skills
-    are materialized into it on demand, so there's one in-sandbox path for every
-    skill. This registration just sets up the bash tool itself; ``loader`` /
+    Skill files — built-in and DB/admin-imported alike — are exposed read-only at
+    the one path ``/workspace/skills/<id>`` (see
+    ``opensandbox_provider._make_skills_volumes`` + ``config.get_sandbox_skills_dir``):
+    what is bound there is the **caller's own skill view**, holding the shared
+    skills plus that user's private ones, so no one sees another user's skill
+    files. This registration just sets up the bash tool itself; ``loader`` /
     ``loaded_skill_ids`` are kept for backward compat with existing callers.
 
     The sandbox session is bound to ``chat_id`` so OpenSandbox keeps a single

@@ -452,6 +452,12 @@ def delete_skill(*, user_id: str, skill_ref: str) -> Dict[str, Any]:
         db.delete(row)
         db.commit()
         try:
+            from core.agent_skills.config import purge_skill_sandbox_files
+
+            purge_skill_sandbox_files(deleted_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("skill_manager delete: sandbox purge failed (%s)", exc)
+        try:
             from core.agent_skills.cache_refresh import refresh_skill_caches
 
             refresh_skill_caches()

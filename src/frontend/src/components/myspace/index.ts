@@ -1,4 +1,6 @@
 export { MySpacePanel } from './MySpacePanel';
+export { MySpaceRail } from './MySpaceRail';
+export { MySpaceSearchModal } from './MySpaceSearchModal';
 export { DocumentList } from './DocumentList';
 export { ImageGrid } from './ImageGrid';
 export { FavoriteList } from './FavoriteList';

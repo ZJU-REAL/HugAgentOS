@@ -84,10 +84,6 @@
   pointer-events: none;
 }
 
-.jx-mySpace-tabInk--sub {
-  height: 2px;
-}
-
 .jx-mySpace-tabInk--filter {
   height: 2px;
   bottom: 2px;
@@ -104,21 +100,6 @@
   line-height: 20px;
   text-align: center;
   font-family: var(--font-family-number);
-}
-
-.jx-mySpace-subHeader {
-  padding-top: 14px;
-}
-
-.jx-mySpace-subHeader-shares {
-  padding-top: 12px;
-}
-
-.jx-mySpace-desc {
-  margin: 0;
-  color: var(--color-text-tertiary);
-  font-size: 14px;
-  line-height: 1.7;
 }
 
 .jx-mySpace-assetBar {
@@ -1237,4 +1218,194 @@ iframe.jx-spaceImportPreview-frame.is-loaded {
   .jx-mySpace-docTable-col--time {
     display: none;
   }
+}
+
+/* ══════════════════════════════════════════
+   「我的空间」二级边栏（贴主侧边栏右侧的一列导航）
+   ══════════════════════════════════════════ */
+.jx-msRail{
+  width:240px;
+  min-width:240px;
+  max-width:240px;
+  flex-shrink:0;
+  height:100%;
+  border-right:1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
+  background:color-mix(in srgb, var(--color-bg-gray) 42%, var(--color-bg-container));
+  overflow:hidden;
+  /* 与主侧边栏收起用同一条缓动和时长，两处收放看起来是同一个动作 */
+  transition:width .3s cubic-bezier(0.4, 0, 0.2, 1),
+             min-width .3s cubic-bezier(0.4, 0, 0.2, 1),
+             max-width .3s cubic-bezier(0.4, 0, 0.2, 1),
+             border-right-color .3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.jx-msRail.is-collapsed{
+  width:0;
+  min-width:0;
+  max-width:0;
+  border-right-color:transparent;
+}
+
+/* 定宽内层：栏宽收到 0 的过程里文字不会被挤到换行变形 */
+.jx-msRail-inner{
+  width:240px;
+  height:100%;
+  box-sizing:border-box;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:14px 12px;
+  overflow-y:auto;
+  visibility:visible;
+  /* 收完再隐藏：塌缩过程中仍要看得见，收完后摘掉 tab 焦点 */
+  transition:visibility 0s;
+}
+
+.jx-msRail.is-collapsed .jx-msRail-inner{
+  visibility:hidden;
+  transition:visibility 0s .3s;
+}
+
+.jx-msRail-title{
+  padding:6px 8px 10px;
+  font-size:18px;
+  font-weight:600;
+  color:var(--color-text);
+}
+
+.jx-msRail-nav{ display:flex; flex-direction:column; gap:2px; }
+
+.jx-msRail-item{
+  appearance:none;
+  border:none;
+  background:transparent;
+  width:100%;
+  height:34px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 10px;
+  border-radius:10px;
+  cursor:pointer;
+  font-size:13px;
+  color:var(--color-text);
+  text-align:left;
+  transition:background .15s, transform .12s;
+}
+.jx-msRail-item:hover{ background:var(--color-fill-hover); }
+.jx-msRail-item:active{ transform:scale(.98); transition-duration:.06s; }
+.jx-msRail-item.active{ background:var(--color-fill-hover); font-weight:500; }
+.jx-msRail-item > span:nth-child(2){ flex:1; min-width:0; }
+
+.jx-msRail-icon{
+  width:18px;
+  display:inline-flex;
+  justify-content:center;
+  flex-shrink:0;
+  font-size:15px;
+  color:color-mix(in srgb, var(--color-text) 62%, transparent);
+}
+
+.jx-msRail-groupHeader{ display:flex; align-items:center; }
+.jx-msRail-groupHeader .jx-msRail-item{ flex:1; min-width:0; }
+
+.jx-msRail-caret{
+  appearance:none;
+  border:none;
+  background:transparent;
+  width:22px;
+  height:22px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:6px;
+  cursor:pointer;
+  font-size:10px;
+  color:color-mix(in srgb, var(--color-text) 45%, transparent);
+  transition:background .15s, transform .18s;
+}
+.jx-msRail-caret:hover{ background:var(--color-fill-hover); }
+.jx-msRail-group.is-collapsed .jx-msRail-caret{ transform:rotate(-90deg); }
+
+.jx-msRail-group > .jx-expandWrap{ --expand-dur:var(--motion-duration-normal); }
+/* min-height:0 + overflow:hidden 是 .jx-expandWrap 的 grid 行真正收缩的前提，
+   少了这两条，收起后下面的项不会补上来、只剩一块空白 */
+.jx-msRail-group > .jx-expandWrap > .jx-msRail-subList{
+  min-height:0;
+  overflow:hidden;
+}
+.jx-msRail-subList{ display:flex; flex-direction:column; gap:2px; padding-top:2px; }
+
+.jx-msRail-subItem{
+  appearance:none;
+  border:none;
+  background:transparent;
+  width:100%;
+  height:32px;
+  display:flex;
+  align-items:center;
+  padding:0 10px 0 36px;
+  border-radius:10px;
+  cursor:pointer;
+  font-size:13px;
+  color:color-mix(in srgb, var(--color-text) 62%, transparent);
+  text-align:left;
+  transition:background .15s, color .15s, transform .12s;
+}
+.jx-msRail-subItem:hover{ background:var(--color-fill-hover); color:var(--color-text); }
+.jx-msRail-subItem:active{ transform:scale(.98); transition-duration:.06s; }
+.jx-msRail-subItem.active{ background:var(--color-fill-hover); color:var(--color-text); font-weight:500; }
+
+.jx-mySpace-titleBar{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:4px;
+  padding-bottom:16px;
+}
+
+.jx-mySpace-railToggle{
+  appearance:none;
+  border:none;
+  background:transparent;
+  padding:0;
+  width:32px;
+  height:32px;
+  /* 图标在按钮里居中，(32-22)/2 = 5px；左移这 5px 才与下方标题的文字左缘齐平 */
+  margin-left:-5px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:6px;
+  cursor:pointer;
+  transition:background .15s, transform .12s;
+}
+.jx-mySpace-railToggle:hover{ background:var(--color-border); }
+.jx-mySpace-railToggle:active{ transform:scale(.92); transition-duration:.06s; }
+.jx-mySpace-railToggle img{ width:22px; height:22px; }
+
+.jx-mySpace-title{
+  margin:0;
+  font-size:26px;
+  font-weight:700;
+  line-height:1.3;
+  color:var(--color-text);
+}
+
+/* 宽屏由二级栏承担导航，面板顶部那两排 Tab 收起来（同一份状态，两种画法） */
+@media (min-width:769px){
+  .jx-mySpace-tabs{ display:none; }
+}
+@media (max-width:768px){
+  /* 窄屏没有二级栏，也就没有可收起的东西 */
+  .jx-msRail,
+  .jx-mySpace-railToggle{ display:none; }
+  .jx-mySpace-title{ font-size:20px; }
+}
+
+/* 搜索弹窗里的文件类型图标（弹窗其余样式复用侧边栏那套 .jx-search*） */
+.jx-msSearchIcon{
+  width:22px;
+  height:22px;
+  flex-shrink:0;
 }

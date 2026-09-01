@@ -29,6 +29,7 @@ import { nowId } from '../../storage';
 import { formatDateTime } from '../../utils/date';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
+import { CardTail } from '../common/CardTail';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { AgentCreatePage } from './AgentCreatePage';
 import { usePanelHeader } from '../../hooks/usePageConfig';
@@ -858,6 +859,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
         >
           {pagedAgents.map((agent, idx) => {
             const canEdit = canEditAgent(agent);
+            const canToggle = canEdit || agent.owner_type === 'builtin';
             return (
               <div key={agent.agent_id} className="jx-agentCard jx-card-lift"
                 style={staggerStyle(idx)}
@@ -872,22 +874,25 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
                     <div className="jx-agentCard-nameRow">
                       <span className="jx-agentCard-name">{agent.name}</span>
                       <EditionAgentBadge agent={agent} />
-                      <span className={`jx-agentCard-badge${agent.is_enabled ? ' on' : ''}`}>
-                        {agent.is_enabled ? t('已启用') : t('未启用')}
-                      </span>
                     </div>
-                    {/* edit / delete on hover */}
-                    {canEdit && (
-                      <span className="jx-agentCard-ops" onClick={(e) => e.stopPropagation()}>
-                        <Tooltip title={t('编辑')}>
-                          <button onClick={() => setFormPageAgent(agent)}><EditOutlined /></button>
-                        </Tooltip>
-                        <Tooltip title={t('删除')}>
-                          <button className="danger" onClick={(e) => handleDelete(agent, e)}>
-                            <DeleteOutlined />
-                          </button>
-                        </Tooltip>
-                      </span>
+                    {/* 启停开关常驻，编辑/删除悬浮才显形；无权启停的智能体整个尾部都不出现 */}
+                    {canToggle && (
+                      <CardTail
+                        checked={agent.is_enabled}
+                        onChange={(v) => void handleToggleEnabled(agent, v)}
+                        actions={canEdit && (
+                          <>
+                            <Tooltip title={t('编辑')}>
+                              <button onClick={() => setFormPageAgent(agent)}><EditOutlined /></button>
+                            </Tooltip>
+                            <Tooltip title={t('删除')}>
+                              <button className="danger" onClick={(e) => handleDelete(agent, e)}>
+                                <DeleteOutlined />
+                              </button>
+                            </Tooltip>
+                          </>
+                        )}
+                      />
                     )}
                     <RightOutlined className="jx-agentCard-disclosure" aria-hidden="true" />
                   </div>

@@ -21,6 +21,9 @@ _FLAGS = (
 
 def _settings(**overrides):
     values = {name: False for name in _FLAGS}
+    # Host storage configured means the skill view is per-user too; off by
+    # default here so each flag can be tested on its own.
+    values["opensandbox_host_storage_path"] = ""
     values.update(overrides)
     return SimpleNamespace(sandbox=SimpleNamespace(**values))
 
@@ -28,6 +31,13 @@ def _settings(**overrides):
 @pytest.mark.parametrize("enabled_flag", _FLAGS)
 def test_each_private_mount_requires_user_bound_sandbox(monkeypatch, enabled_flag):
     monkeypatch.setattr(internals, "settings", _settings(**{enabled_flag: True}))
+
+    assert internals._user_bound_sandbox_required() is True
+
+
+def test_per_user_skill_view_requires_user_bound_sandbox(monkeypatch):
+    """Host storage alone is enough: /workspace/skills is that user's own view."""
+    monkeypatch.setattr(internals, "settings", _settings(opensandbox_host_storage_path="/srv/storage"))
 
     assert internals._user_bound_sandbox_required() is True
 
