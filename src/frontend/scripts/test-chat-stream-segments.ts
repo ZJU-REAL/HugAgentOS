@@ -150,9 +150,9 @@ function tool(toolIndex: number): MessageSegment {
 }
 
 {
-  // When there are more tool calls than persisted thinking blocks, every
-  // unmatched tool still happened before the final answer and must not be
-  // appended below it after refresh.
+  // Legacy history has no persisted segment table. Its original process order
+  // is unknowable, so history cleanup keeps only the visible body instead of
+  // guessing how thinking blocks and tool cards were interleaved.
   const toolCalls = [0, 1, 2].map((i) => ({
     id: `tool-${i}`,
     name: 'demo',
@@ -163,20 +163,12 @@ function tool(toolIndex: number): MessageSegment {
     toolCalls,
   );
 
-  assert.deepEqual(segments?.map((segment) => segment.type), [
-    'thinking',
-    'tool',
-    'tool',
-    'tool',
-    'text',
-  ]);
+  assert.equal(segments, undefined);
   assert.equal(cleanContent, '最终回答');
 }
 
 {
-  // Without persisted offsets (legacy history), there is no reliable cut
-  // point, so the fallback keeps the visible answer as one Markdown block
-  // instead of guessing splits around every tool call.
+  // Visible legacy narration remains intact even when old tool records exist.
   const phases = [
     '我来',
     '帮你查找最新的自进化相关文章。首先让我确认一下当前可访问的项目。',
@@ -193,24 +185,33 @@ function tool(toolIndex: number): MessageSegment {
   }));
   const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
   assert.equal(cleanContent, content);
-  assert.deepEqual(segments?.map((segment) => segment.type), [
-    'tool', 'tool', 'tool', 'tool', 'tool', 'text',
-  ]);
-  assert.equal(segments?.at(-1)?.content, content);
+  assert.equal(segments, undefined);
 }
 
 {
-  // With persisted contentOffset, history restores the original streaming
-  // interleave: text ↔ tool cards in chronological order, thinking blocks
-  // split inside each slice.
-  const content = '<think>先想</think>先查一下。<think>再想</think>查到了，继续。最终结论。';
-  const off0 = content.indexOf('<think>再想');
-  const off1 = content.indexOf('最终结论。');
+  // The persisted segment table is the single source of truth for the original
+  // stream order. Text is inline; thinking and tools reference their columns.
+  const content = '先查一下。查到了，继续。最终结论。';
   const toolCalls = [
-    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: off0 },
-    { id: 'tool-1', name: 'demo', status: 'success' as const, contentOffset: off1 },
+    { id: 'tool-0', name: 'demo', status: 'success' as const },
+    { id: 'tool-1', name: 'demo', status: 'success' as const },
   ];
-  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  const thinking = [{ content: '先想' }, { content: '再想' }];
+  const storedSegments = [
+    { type: 'thinking' as const, index: 0 },
+    { type: 'text' as const, text: '先查一下。' },
+    { type: 'tool' as const, index: 0 },
+    { type: 'thinking' as const, index: 1 },
+    { type: 'text' as const, text: '查到了，继续。' },
+    { type: 'tool' as const, index: 1 },
+    { type: 'text' as const, text: '最终结论。' },
+  ];
+  const { segments, cleanContent } = buildHistorySegments(
+    content,
+    toolCalls,
+    thinking,
+    storedSegments,
+  );
   assert.deepEqual(segments, [
     { type: 'thinking', content: '先想' },
     { type: 'text', content: '先查一下。' },
@@ -224,15 +225,27 @@ function tool(toolIndex: number): MessageSegment {
 }
 
 {
-  // Offset path mirrors the live defer rule: a single Han character stranded
+  // Segment-table replay mirrors the live defer rule: a single Han character stranded
   // right before a tool card is merged into the narration after it, so the
   // refreshed history matches what the live stream rendered.
   const content = '第一步完成。数仓确认无误，输出结果。';
   const toolCalls = [
-    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: '第一步完成。'.length },
-    { id: 'tool-1', name: 'demo', status: 'success' as const, contentOffset: '第一步完成。数'.length },
+    { id: 'tool-0', name: 'demo', status: 'success' as const },
+    { id: 'tool-1', name: 'demo', status: 'success' as const },
   ];
-  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  const storedSegments = [
+    { type: 'text' as const, text: '第一步完成。' },
+    { type: 'tool' as const, index: 0 },
+    { type: 'text' as const, text: '数' },
+    { type: 'tool' as const, index: 1 },
+    { type: 'text' as const, text: '仓确认无误，输出结果。' },
+  ];
+  const { segments, cleanContent } = buildHistorySegments(
+    content,
+    toolCalls,
+    undefined,
+    storedSegments,
+  );
   assert.deepEqual(segments, [
     { type: 'text', content: '第一步完成。' },
     tool(0),
@@ -243,34 +256,54 @@ function tool(toolIndex: number): MessageSegment {
 }
 
 {
-  // Real-world corruption from structured reasoning: the tail of a thinking
-  // sentence ("。") arrives after the first answer token and was persisted as
-  // `答<think>。</think>案` — a think block puncturing the visible sentence.
-  // History rebuild must mirror the live merge rule: fold the late tail into
-  // the previous thinking block and rejoin the sentence seamlessly.
-  const content = '<think>整理今日资讯</think>内部<think>。</think>产业资讯数据源今日暂时无法返回。';
-  const toolCalls = [
-    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: 0 },
+  // Inline thinking markers inside a recorded text segment are still stripped,
+  // so a provider cannot leak structured reasoning into visible history.
+  const content = '内部产业资讯数据源今日暂时无法返回。';
+  const toolCalls = [{ id: 'tool-0', name: 'demo', status: 'success' as const }];
+  const thinking = [{ content: '整理今日资讯。' }];
+  const storedSegments = [
+    { type: 'thinking' as const, index: 0 },
+    { type: 'tool' as const, index: 0 },
+    {
+      type: 'text' as const,
+      text: '<think>不应显示的迟到尾巴</think>内部产业资讯数据源今日暂时无法返回。',
+    },
   ];
-  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  const { segments, cleanContent } = buildHistorySegments(
+    content,
+    toolCalls,
+    thinking,
+    storedSegments,
+  );
   assert.deepEqual(segments, [
-    tool(0),
     { type: 'thinking', content: '整理今日资讯。' },
+    tool(0),
+    { type: 'thinking', content: '不应显示的迟到尾巴' },
     { type: 'text', content: '内部产业资讯数据源今日暂时无法返回。' },
   ]);
   assert.equal(cleanContent, '内部产业资讯数据源今日暂时无法返回。');
 }
 
 {
-  // Artifact pseudo-cards (appended from metadata.artifacts without offsets)
-  // must not knock the whole message back to the stacked fallback — they sort
-  // to the end while real tool calls keep their recorded interleave.
+  // Artifact pseudo-cards appended after loading are absent from the stored
+  // table. They still render above the final answer without disturbing the
+  // recorded real-tool interleave.
   const content = '先查询。查询完成，结论如下。';
   const toolCalls = [
-    { id: 'tool-0', name: 'demo', status: 'success' as const, contentOffset: '先查询。'.length },
+    { id: 'tool-0', name: 'demo', status: 'success' as const },
     { id: 'artifact_f1', name: '附件', status: 'success' as const },
   ];
-  const { segments, cleanContent } = buildHistorySegments(content, toolCalls);
+  const storedSegments = [
+    { type: 'text' as const, text: '先查询。' },
+    { type: 'tool' as const, index: 0 },
+    { type: 'text' as const, text: '查询完成，结论如下。' },
+  ];
+  const { segments, cleanContent } = buildHistorySegments(
+    content,
+    toolCalls,
+    undefined,
+    storedSegments,
+  );
   // 工具/附件卡不允许落在正文末尾之后：排尾的附件卡挪到最终答案上方
   assert.deepEqual(segments, [
     { type: 'text', content: '先查询。' },
@@ -282,8 +315,8 @@ function tool(toolIndex: number): MessageSegment {
 }
 
 {
-  // Visible narration emitted between reasoning rounds must survive history
-  // cleanup, while still rendering as one answer block.
+  // Multiple inline reasoning blocks in legacy history are stripped from the
+  // body, but no process order is fabricated for them.
   const toolCalls = [0, 1].map((i) => ({
     id: `thinking-tool-${i}`,
     name: 'demo',
@@ -295,13 +328,7 @@ function tool(toolIndex: number): MessageSegment {
   );
 
   assert.equal(cleanContent, '第一段第二段第三段');
-  assert.deepEqual(segments, [
-    { type: 'thinking', content: '思考一' },
-    tool(0),
-    { type: 'thinking', content: '思考二' },
-    tool(1),
-    { type: 'text', content: '第一段第二段第三段' },
-  ]);
+  assert.equal(segments, undefined);
 }
 
 {
@@ -313,11 +340,7 @@ function tool(toolIndex: number): MessageSegment {
   );
 
   assert.equal(cleanContent, '这是最终回答。');
-  assert.deepEqual(segments, [
-    { type: 'thinking', content: '先分析用户问题，再决定调用工具' },
-    tool(0),
-    { type: 'text', content: '这是最终回答。' },
-  ]);
+  assert.equal(segments, undefined);
 }
 
 {
@@ -329,11 +352,7 @@ function tool(toolIndex: number): MessageSegment {
   );
 
   assert.equal(cleanContent, '这是结构化模型的正文。');
-  assert.deepEqual(segments, [
-    { type: 'thinking', content: '结构化 reasoning 字段里的内容' },
-    tool(0),
-    { type: 'text', content: '这是结构化模型的正文。' },
-  ]);
+  assert.equal(segments, undefined);
 }
 
 {

@@ -10,7 +10,7 @@ import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, ContextUsageSnapshot, EvolutionSummary, OntologyGovernanceSummary, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, ContextUsageSnapshot, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -138,12 +138,6 @@ function parseHistoryMessage(m: any): ChatMessage {
           ? { subagentName: tc.subagent_name ?? tc.subagentName }
           : {}),
         ...(typeof tc.scope === 'string' ? { scope: tc.scope } : {}),
-        ...(typeof (tc.content_offset ?? tc.contentOffset) === 'number'
-          ? { contentOffset: (tc.content_offset ?? tc.contentOffset) }
-          : {}),
-        ...(typeof (tc.step_seq ?? tc.stepSeq) === 'number'
-          ? { stepSeq: (tc.step_seq ?? tc.stepSeq) }
-          : {}),
         // 历史列表只给了梗概；展开这张卡时 ToolCallRow 会按需回取完整结果。
         ...(tc.result_truncated === true ? { outputTruncated: true } : {}),
       }))
@@ -160,18 +154,14 @@ function parseHistoryMessage(m: any): ChatMessage {
   const rawContent = String(m.content || '');
   // 思考单独存一列（新消息）；老消息该字段为空，思考仍内联在 content 里。
   const storedThinking = Array.isArray(m.thinking)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ? (m.thinking as any[])
-        .filter((b) => b && typeof b.content === 'string')
-        .map((b): ThinkingBlock => ({
-          ...b,
-          ...(typeof (b.step_seq ?? b.stepSeq) === 'number'
-            ? { stepSeq: (b.step_seq ?? b.stepSeq) }
-            : {}),
-        }))
+    ? (m.thinking as ThinkingBlock[]).filter((b) => b && typeof b.content === 'string')
+    : undefined;
+  // 展示顺序由后端在流式那一刻记下，落在 metadata.segments；这里原样取出。
+  const storedSegments = Array.isArray(m.metadata?.segments)
+    ? (m.metadata.segments as StoredSegment[])
     : undefined;
   let { segments, cleanContent } = m.role === 'assistant'
-    ? buildHistorySegments(rawContent, toolCalls, storedThinking)
+    ? buildHistorySegments(rawContent, toolCalls, storedThinking, storedSegments)
     : { segments: undefined, cleanContent: rawContent };
 
   // Reconstruct plan segment from saved plan_snapshot metadata

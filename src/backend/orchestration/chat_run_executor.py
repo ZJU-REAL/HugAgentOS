@@ -828,7 +828,7 @@ async def _run_workflow(
     """
     from core.chat.context import now_iso, resolve_user_facing_error
     from core.chat.tool_log import (
-        StepSequencer,
+        SegmentRecorder,
         attach_subagent_step,
         build_thinking_event,
         build_tool_call_delta_event,
@@ -956,9 +956,9 @@ async def _run_workflow(
     # 每个思考块记录它出现时的正文偏移，历史重建按此原位还原。
     _thinking_parts: List[str] = []
     _thinking_log: List[Dict[str, Any]] = []
-    # 思考块与工具卡片分两列存，光靠 offset 排不出先后（两次可见正文之间发生的
-    # 一切共用同一个 offset）。统一发号，回放时按 (offset, step_seq) 归并。
-    _steps = StepSequencer()
+    # 正文 / 思考 / 工具卡片的先后，在它们产生的那一刻就记下来，落进
+    # metadata.segments；刷新后照着渲染，不做任何反推。
+    _segments = SegmentRecorder()
     # 本轮已开的思考块；跨轮（工具调用边界）置 None 强制另起一块。不设边界的话，
     # 正文一旦出现，后面每一轮的思考都会并进同一块里无限膨胀。
     _round_block: Optional[Dict[str, Any]] = None
@@ -977,8 +977,9 @@ async def _run_workflow(
         if _round_block is not None:
             _round_block["content"] += block
             return
-        _round_block = _steps.new_thinking_block(block, len(full_response))
+        _round_block = {"content": block}
         _thinking_log.append(_round_block)
+        _segments.add_thinking(len(_thinking_log) - 1)
 
     def _thinking_payload() -> Optional[List[Dict[str, Any]]]:
         blocks = [b for b in _thinking_log if b.get("content")]
@@ -1011,6 +1012,7 @@ async def _run_workflow(
             "artifacts": _ws_pinned,
             "workspace_files": _workspace_mod.get_pinned_file_ids(),
             "duration_ms": int((time.monotonic() - _run_started_monotonic) * 1000),
+            "segments": _segments.payload(),
         }
         if context.get("model_provider_id"):
             _extra["model_provider_id"] = context.get("model_provider_id")
@@ -1162,6 +1164,7 @@ async def _run_workflow(
                 if delta:
                     _flush_thinking()
                     full_response += delta
+                    _segments.add_text(delta)
                     await _emit(
                         {
                             "type": "content",
@@ -1180,9 +1183,9 @@ async def _run_workflow(
                 full_response = replacement
                 _round_block = None
                 _thinking_log.clear()
-                # 整体替换后，先前记录的 content_offset 指向旧草稿坐标系，
-                # 已无意义——清掉，让历史重建走「合并正文」兜底而不是错切。
-                StepSequencer.clear_tool_positions(tool_calls_log)
+                # 整体替换后，先前记下的段落描述的是旧草稿，已无意义——重记。
+                _segments.reset()
+                _segments.add_text(replacement)
                 await _emit(
                     {
                         "type": "content_replace",
@@ -1253,6 +1256,7 @@ async def _run_workflow(
                                     "duration_ms": int(
                                         (time.monotonic() - _run_started_monotonic) * 1000
                                     ),
+                                    "segments": _segments.payload(),
                                 },
                                 commit=False,
                             )
@@ -1357,6 +1361,7 @@ async def _run_workflow(
                 _thinking_parts.clear()
                 _round_block = None
                 _thinking_log.clear()
+                _segments.reset()
                 metadata = {}
                 try:
                     from core.services.log_service import set_current_message_id
@@ -1369,10 +1374,7 @@ async def _run_workflow(
                 _flush_thinking()
                 _round_block = None
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
-                # 记录该工具卡片出现时正文的累计长度，外加统一发的先后号：历史重建
-                # 按 (offset, step_seq) 把「文本 ↔ 思考 ↔ 工具卡片」按流式原顺序交错
-                # （问题15：刷新后内容与实时不一致）。
-                _steps.stamp_tools(tool_calls_log, len(full_response))
+                _segments.add_tools(tool_calls_log)
                 await _emit(_tc_evt)
 
             elif chunk_type == "tool_call_start":
@@ -1385,10 +1387,9 @@ async def _run_workflow(
 
             elif chunk_type == "tool_result":
                 _tr_evt = build_tool_result_event(chunk, chat_id, tool_calls_log)
-                # attach_tool_result 可能刚补录了一个没有 tool_call 事件的条目：
-                # 此刻就补记位置，否则它要等下一个 tool_call 才拿到（晚一个
-                # 叙述段），最后一个工具则永远缺失 → 整条消息退化成堆叠展示。
-                _steps.stamp_tools(tool_calls_log, len(full_response))
+                # attach_tool_result 可能刚补录了一个没有 tool_call 事件的条目，
+                # 此刻就把它排进段落表，否则它会缺席整条消息的展示顺序。
+                _segments.add_tools(tool_calls_log)
                 await _emit(_tr_evt)
 
             elif chunk_type == "context_usage":
@@ -1581,6 +1582,7 @@ async def _run_workflow(
                     "message_id": current_message_id,
                     "workspace_files": _ws_files,
                     "duration_ms": _duration_ms,
+                    "segments": _segments.payload(),
                 }
                 if isinstance(context_usage_payload, dict):
                     _persist_extra["context_usage"] = context_usage_payload
