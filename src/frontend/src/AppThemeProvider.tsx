@@ -11,7 +11,13 @@ import { getLang } from './i18n';
 dayjs.locale(getLang() === 'en' ? 'en' : 'zh-cn');
 import { getAppTheme } from './appTheme';
 import { useUIStore } from './stores/uiStore';
-import { applyThemeToDom, systemPrefersDark, watchSystemTheme } from './theme';
+import {
+  applyThemeToDom,
+  systemPrefersDark,
+  systemPrefersReducedMotion,
+  watchReducedMotion,
+  watchSystemTheme,
+} from './theme';
 
 interface AppThemeProviderProps {
   children: ReactNode;
@@ -29,13 +35,15 @@ export function AppThemeProvider({ children, forceLight = false }: AppThemeProvi
   const themeMode = useUIStore((s) => s.themeMode);
   const sysDark = useSyncExternalStore(watchSystemTheme, systemPrefersDark);
   const isDark = !forceLight && (themeMode === 'dark' || (themeMode === 'system' && sysDark));
+  // 系统开了「减弱动画」就顺手关掉 antd 自己的过渡（它的加载转圈不受影响，见 appTheme.ts）
+  const reducedMotion = useSyncExternalStore(watchReducedMotion, systemPrefersReducedMotion);
 
   useEffect(() => {
     applyThemeToDom(isDark);
   }, [isDark]);
 
   return (
-    <ConfigProvider theme={getAppTheme(isDark)} locale={getLang() === 'en' ? enUS : zhCN}>
+    <ConfigProvider theme={getAppTheme(isDark, reducedMotion)} locale={getLang() === 'en' ? enUS : zhCN}>
       {children}
     </ConfigProvider>
   );

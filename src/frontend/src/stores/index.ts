@@ -1,5 +1,5 @@
 export { LOGIN_LANDING_KEY, useAuthStore } from './authStore';
-export { useChatStore } from './chatStore';
+export { useChatStore, isLocalDraftChat } from './chatStore';
 export { useCatalogStore } from './catalogStore';
 export { useKbStore } from './kbStore';
 export { useSettingsStore } from './settingsStore';

@@ -78,7 +78,7 @@ export function PromptHubPanel() {
 
       <div className="jx-promptHub-list">
         {showSkeleton ? (
-          <div className="jx-promptHub-skeletonList" aria-hidden="true">
+          <div className="jx-promptHub-skeletonList" aria-hidden="true" aria-busy="true">
             {Array.from({ length: 5 }).map((_, idx) => (
               <div key={idx} className="jx-promptHub-card jx-promptHub-card--skeleton">
                 <div className="jx-skeletonBlock jx-promptHub-skTitle" />

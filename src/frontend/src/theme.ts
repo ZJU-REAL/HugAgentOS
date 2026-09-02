@@ -51,6 +51,22 @@ export function applyThemeToDom(isDark: boolean): void {
 }
 
 /** 监听系统外观变化；返回取消函数。非浏览器环境（SSR/测试）为 no-op。 */
+/** 系统是否开启「减弱动画」（Windows 节电模式会自动开启）。 */
+export function systemPrefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
+export function watchReducedMotion(onChange: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
+  const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+  media.addEventListener('change', onChange);
+  return () => media.removeEventListener('change', onChange);
+}
+
 export function watchSystemTheme(onChange: () => void): () => void {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
   const media = window.matchMedia('(prefers-color-scheme: dark)');

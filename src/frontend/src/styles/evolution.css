@@ -280,6 +280,11 @@
   from { opacity: 0; transform: translateY(-3px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-evoApproval-reveal { from, to { opacity: 1; transform: translateY(0) } }
+}
+
 .jx-evoApproval-detailPanel section { display: flex; flex-direction: column; gap: 5px; }
 .jx-evoApproval-detailPanel section > strong { font-size: 11.5px; font-weight: 650; }
 .jx-evoApproval-detailPanel section > p {

@@ -700,6 +700,12 @@
     transform: translateX(0);
   }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-pv-chain-companyPanelIn { from, to { opacity: 1;
+    transform: translateX(0) } }
+}
+
 
 .jx-pv-chain-companyHeader {
   display: flex;

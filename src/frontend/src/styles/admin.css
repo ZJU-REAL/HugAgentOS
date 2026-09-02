@@ -10,18 +10,33 @@
   0%   { background-color: var(--color-error-light); }
   100% { background-color: var(--color-bg-container); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes admin-flash-error { from, to { background-color: var(--color-bg-container) } }
+}
+
 
 /* 计数徽标 0→n 的一次性脉冲 */
 @keyframes admin-pulse {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.15); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes admin-pulse { from, to { transform: scale(1) } }
+}
+
 
 /* 日志呼吸光标 */
 @keyframes admin-caret {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0; }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes admin-caret { from, to { opacity: 1 } }
+}
+
 
 /* ── 表格行反馈（一律 rowClassName + CSS，不在 antd Table 里塞 motion） ── */
 
@@ -116,6 +131,7 @@
 
 /* ── 长任务日志：run 进行中底部呼吸光标 ─────────────────────── */
 
+/* motion-stop: 日志尾随光标，定格成一根竖线仍然可读，闪烁本身是纯装饰 */
 .admin-log-caret {
   display: inline-block;
   width: 8px;

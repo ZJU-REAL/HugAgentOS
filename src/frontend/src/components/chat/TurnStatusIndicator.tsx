@@ -38,8 +38,7 @@ export function TurnStatusIndicator({ startTs, label }: TurnStatusIndicatorProps
   return (
     <div className="jx-turnStatus" role="status" aria-live="polite">
       <BrandLoader size={18} done={false} label={text} />
-      {/* jx-anim-keep: "system at work" indicator; under reduced-motion the shimmer slows down but is preserved */}
-      <span className="jx-turnStatus-label jx-anim-keep">{text}</span>
+      <span className="jx-turnStatus-label">{text}</span>
       {showClock && <ElapsedTimer startTs={startTs} className="jx-turnStatus-clock" />}
     </div>
   );

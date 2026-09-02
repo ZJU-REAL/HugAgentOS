@@ -660,6 +660,7 @@ class CompactionCoordinator:
                 return None
             inputs = dict(budget_inputs or {})
             if self.hook_bus is not None:
+                from core.harness.events import thaw_value
                 from core.harness.hooks import HookStage, Invocation
 
                 before = await self.hook_bus.enforce(
@@ -671,9 +672,9 @@ class CompactionCoordinator:
                     )
                 )
                 if before.data.get("history") is not None:
-                    history = list(before.data["history"])
+                    history = thaw_value(before.data["history"])
                 if before.data.get("budget") is not None:
-                    inputs = dict(before.data["budget"])
+                    inputs = thaw_value(before.data["budget"])
             inputs["messages"] = history
             if "system_prompt" not in inputs:
                 inputs["system_prompt"] = _load_base_system_prompt()
@@ -701,6 +702,7 @@ class CompactionCoordinator:
                 max_tokens=cfg.recent_user_max_tokens,
             )
             if self.hook_bus is not None:
+                from core.harness.events import thaw_value
                 from core.harness.hooks import HookStage, Invocation
 
                 after = await self.hook_bus.enforce(
@@ -712,7 +714,7 @@ class CompactionCoordinator:
                     )
                 )
                 if after.data.get("replacement") is not None:
-                    replacement = list(after.data["replacement"])
+                    replacement = thaw_value(after.data["replacement"])
             manifest: Dict[str, Any] = {
                 "phase": phase.value,
                 "source_high_watermark_seq": snapshot.covered_seq,

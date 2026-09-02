@@ -9,7 +9,7 @@ import { markResolvedPlanPreviews } from '../utils/planHistory';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
-import { LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
+import { isLocalDraftChat, LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
 import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, ContextUsageSnapshot, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
@@ -755,6 +755,8 @@ export function useChatInit() {
     // the user hasn't typed into yet), the 404 response short-circuits us.
     const hydrateSessionIfMissing = async (): Promise<boolean> => {
       if (state.backendSessionIds.has(chatId)) return true;
+      // 只在浏览器里存在、还没发过一句话的新对话：服务端必然 404，别去问。
+      if (isLocalDraftChat(chatId)) return false;
       const localChat = state.store.chats[chatId];
       if (localChat && localChat.messages.length > 0) {
         // Local-only chat with content — don't hit backend

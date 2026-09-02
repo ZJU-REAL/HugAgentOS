@@ -324,7 +324,7 @@ async def test_oauth_callback_and_status_are_shared_without_plaintext_code(monke
     import fakeredis.aioredis
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(oauth_service, "get_redis", lambda: fake_redis)
+    monkeypatch.setattr(oauth_service, "get_redis", lambda **_: fake_redis)
     flow = oauth_service.OAuthInstallFlow(
         flow_id="mcpoauth_test",
         slug="gitlab-official",
@@ -355,7 +355,7 @@ async def test_oauth_cancel_marks_flow_failed_and_wakes_worker(monkeypatch):
     import fakeredis.aioredis
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(oauth_service, "get_redis", lambda: fake_redis)
+    monkeypatch.setattr(oauth_service, "get_redis", lambda **_: fake_redis)
     flow = oauth_service.OAuthInstallFlow(
         flow_id="mcpoauth_cancel",
         slug="gitlab-official",

@@ -523,6 +523,7 @@
 /* ── 流式打字光标：尾随圆点呼吸（非竖线闪烁——markdown 全量重渲染会重置相位，
    圆点 pulse 对相位不敏感）。.jx-msgText 是 CitationMarkdownBlock 的包装层。 ── */
 .jx-msg.assistant .jx-bubble.streaming > .jx-msgText > div > :last-child::after,
+/* motion-stop: 流式输出末尾的光标，停在实心态仍是一根光标，不影响判断在不在跑 */
 .jx-msg.assistant .jx-bubble.streaming > span.jx-msgText::after{
   content:'';
   display:inline-block;
@@ -547,6 +548,11 @@
   0%, 100% { opacity:.35; transform:scale(.8); }
   50%      { opacity:.9;  transform:scale(1); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jxStreamCaret { from, to { opacity:.35; transform:scale(.8) } }
+}
+
 
 .jx-msgContent::selection,
 .jx-msgContent *::selection{
@@ -560,6 +566,7 @@
   margin-left:8px;
   vertical-align:middle;
 }
+/* motion-keep: 流式输出中的三点，停下就分不清还在生成还是断流 */
 .jx-streamingDot{
   width:5px;
   height:5px;
@@ -591,9 +598,11 @@
   white-space:nowrap;
 }
 /* logo 动图与运行中的工具壳同款轻呼吸 */
+/* motion-keep: 「正在执行」的品牌动图，停下就只剩一枚静止图标，读起来像卡死 */
 .jx-turnStatus .jx-brandLoader{
   animation:jx-trs-breathe 1.8s ease-in-out infinite;
 }
+/* motion-keep: 状态行流光，靠 background-clip 抠字，定格会变成一段忽深忽浅的灰字 */
 .jx-turnStatus-label{
   /* 中灰而非近黑：slate-400 打底、slate-600 做流光高亮，加粗后仍显轻盈 */
   background:linear-gradient(90deg,
@@ -2422,6 +2431,11 @@ textarea.jx-composer{
   from{ opacity:0; transform:translate(-50%, -100%) translateY(4px) scale(.96); }
   to{ opacity:1; transform:translate(-50%, -100%); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jxSelToolbarIn { from, to { opacity:1; transform:translate(-50%, -100%) } }
+}
+
 .jx-selectionToolbarBtn{
   appearance:none;
   border:none;

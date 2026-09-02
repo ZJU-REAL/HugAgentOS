@@ -279,7 +279,7 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
       {loading ? (
         <div className="jx-shareRecordsLoading">
           {loadingCards.map((item) => (
-            <div key={item} className="jx-shareRecordCard jx-shareRecordCardSkeleton" aria-hidden="true">
+            <div key={item} className="jx-shareRecordCard jx-shareRecordCardSkeleton" aria-hidden="true" aria-busy="true">
               <div className="jx-shareRecordTop">
                 <div className="jx-shareRecordMain">
                   <div className="jx-shareRecordTitleRow">

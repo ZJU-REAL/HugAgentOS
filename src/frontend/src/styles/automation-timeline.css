@@ -425,11 +425,21 @@
   0%   { border-color: var(--color-success); box-shadow: 0 0 0 3px rgba(2, 181, 137, 0.18); }
   100% { border-color: var(--color-border); box-shadow: 0 0 0 0 rgba(2, 181, 137, 0); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-runTimeline-finishFlash { from, to { border-color: var(--color-border) } }
+}
+
 
 @keyframes jx-runTimeline-finishFlashFail {
   0%   { border-color: var(--color-error); box-shadow: 0 0 0 3px rgba(252, 93, 93, 0.16); }
   100% { border-color: var(--color-border); box-shadow: 0 0 0 0 rgba(252, 93, 93, 0); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-runTimeline-finishFlashFail { from, to { border-color: var(--color-border) } }
+}
+
 
 .jx-runTimeline-item:hover:not(.is-disabled) {
   border-color: var(--color-primary);

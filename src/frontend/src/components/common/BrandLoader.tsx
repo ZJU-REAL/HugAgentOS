@@ -14,6 +14,9 @@ interface BrandLoaderProps {
  * - active: `/loader.gif` brand-blue dynamic drawing
  * - done: `/loader-done.png` slate-gray frozen final state + a brief fade-in
  *
+ * The active state carries `aria-busy`, which is both the screen-reader truth
+ * and what keeps its motion alive under reduced-motion (see motion.css).
+ *
  * Used at inline summary positions like ThinkingInline, ToolProgressInline,
  * replacing the earlier two scattered visuals breathingOrbs + pulseDot.
  */
@@ -22,6 +25,7 @@ export function BrandLoader({ size = 16, label, done = false }: BrandLoaderProps
     <span
       className={`jx-brandLoader${done ? ' jx-brandLoader--done' : ''}`}
       role="img"
+      aria-busy={!done}
       aria-label={label ?? (done ? t('已完成') : t('加载中'))}
       style={{ width: size, height: size }}
     />

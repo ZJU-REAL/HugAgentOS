@@ -53,7 +53,7 @@ def reaper_env(monkeypatch):
     session_factory = sessionmaker(bind=engine)
     fake_redis = FakeRedis()
     monkeypatch.setattr(executor, "SessionLocal", session_factory)
-    monkeypatch.setattr(executor, "get_redis", lambda: fake_redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: fake_redis)
     yield session_factory, fake_redis
     engine.dispose()
 

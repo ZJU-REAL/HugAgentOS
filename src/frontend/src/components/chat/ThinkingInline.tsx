@@ -36,7 +36,7 @@ export function ThinkingInline({ content, isActive }: ThinkingInlineProps) {
       <div className="jx-inlineSummary" role="button" tabIndex={0} aria-expanded={open} onClick={toggle}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}>
         <BrandLoader done={!isActive} label={isActive ? t('正在思考') : t('思考完成')} />
-        <span className={`jx-inlineSummaryText${isActive ? ' jx-inlineSummaryText--live jx-anim-keep' : ''}`}>
+        <span className={`jx-inlineSummaryText${isActive ? ' jx-inlineSummaryText--live' : ''}`}>
           {isActive ? t('正在思考…') : t('思考过程')}
         </span>
         {hasContent && <RightOutlined className="jx-inlineSummaryArrow" rotate={open ? 90 : 0} />}

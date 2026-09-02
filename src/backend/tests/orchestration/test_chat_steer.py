@@ -48,7 +48,7 @@ async def test_pending_steer_round_trip_is_single_consumer(
     durable_steer_env, monkeypatch
 ):
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(chat_steer_service, "get_redis", lambda: redis)
+    monkeypatch.setattr(chat_steer_service, "get_redis", lambda **_: redis)
 
     payload = {"steer_id": "s1", "message": "换一种实现", "run_id": "r1"}
     await chat_steer_service.put_pending_steer("r1", payload)
@@ -64,7 +64,7 @@ async def test_pending_steer_round_trip_is_single_consumer(
 @pytest.mark.asyncio
 async def test_withdraw_only_removes_matching_steer(durable_steer_env, monkeypatch):
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(chat_steer_service, "get_redis", lambda: redis)
+    monkeypatch.setattr(chat_steer_service, "get_redis", lambda **_: redis)
     await chat_steer_service.put_pending_steer(
         "r1",
         {"steer_id": "newer", "message": "保留这条"},
@@ -79,7 +79,7 @@ async def test_redis_loss_does_not_drop_database_instruction(
     durable_steer_env, monkeypatch
 ):
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(chat_steer_service, "get_redis", lambda: redis)
+    monkeypatch.setattr(chat_steer_service, "get_redis", lambda **_: redis)
     await chat_steer_service.put_pending_steer(
         "r1",
         {"steer_id": "db-first", "message": "数据库里的指令"},
@@ -103,7 +103,7 @@ async def test_redis_notification_failure_happens_after_durable_accept(
         async def set(self, *_args, **_kwargs):
             raise ConnectionError("redis unavailable")
 
-    monkeypatch.setattr(chat_steer_service, "get_redis", lambda: BrokenRedis())
+    monkeypatch.setattr(chat_steer_service, "get_redis", lambda **_: BrokenRedis())
     accepted = await chat_steer_service.put_pending_steer(
         "r1",
         {"steer_id": "db-before-redis", "message": "先写数据库"},

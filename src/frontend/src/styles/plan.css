@@ -39,6 +39,7 @@
 .jx-plan-card--complete::after{
   opacity:1;
 }
+/* motion-keep: 计划执行中的进度流光，停下就看不出计划还在跑 */
 .jx-plan-card--executing::before{
   background:linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-hover) 50%, var(--color-primary) 100%);
   background-size:200% 100%;
@@ -146,6 +147,11 @@
   35%{filter:brightness(1.4)}
   100%{filter:brightness(1)}
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-plan-fillFlash { from, to { filter:brightness(1) } }
+}
+
 .jx-plan-progressLabel{
   flex-shrink:0;
   font-size:12px;
@@ -213,6 +219,11 @@
   0%{background-color:rgba(2,181,137,.16);}
   100%{background-color:transparent;}
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-plan-stepDoneFlash { from, to { background-color:transparent } }
+}
+
 .jx-plan-stepHeader{
   display:flex;
   align-items:center;

@@ -995,7 +995,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   if (loading) {
     return (
       <div className="jx-firstRun-root">
-        <div className="jx-firstRun-loading"><Skeleton active paragraph={{ rows: 5 }} /></div>
+        <div className="jx-firstRun-loading" aria-busy="true"><Skeleton active paragraph={{ rows: 5 }} /></div>
       </div>
     );
   }

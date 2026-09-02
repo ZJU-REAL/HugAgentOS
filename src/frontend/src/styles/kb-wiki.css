@@ -204,6 +204,11 @@
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-wikiItemIn { from, to { opacity: 1; transform: translateY(0) } }
+}
+
 
 .jx-wikiListItem:hover {
   background: var(--color-bg-gray);
@@ -1216,6 +1221,12 @@
     transform: translateX(0);
   }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-wikiGraphDrawerIn { from, to { opacity: 1;
+    transform: translateX(0) } }
+}
+
 
 .jx-wikiGraphPanelHead {
   display: flex;

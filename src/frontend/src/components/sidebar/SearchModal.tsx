@@ -224,7 +224,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
   let body: React.ReactNode;
   if (hasKeyword && searchLoading) {
     body = (
-      <div key="skeleton" className="jx-searchSkeletonList" aria-hidden="true">
+      <div key="skeleton" className="jx-searchSkeletonList" aria-hidden="true" aria-busy="true">
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="jx-searchSkeletonItem">
             <div className="jx-skeletonBlock jx-searchSkTitle" />

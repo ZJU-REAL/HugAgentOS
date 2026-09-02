@@ -415,30 +415,23 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
     };
   }, []);
 
-  /** Render a thinking block */
-  const renderThinkingBlock = (content: string, thinkKey: string, isActiveThinking: boolean) => {
-    const isExpanded = isActiveThinking || expandedThinking.has(thinkKey);
-    const toggleThink = () => {
-      if (isActiveThinking) return;
-      toggleThinking(thinkKey);
-    };
+  /** Render a settled thinking block. Live thinking is rendered by ThinkingInline. */
+  const renderThinkingBlock = (content: string, thinkKey: string) => {
+    const isExpanded = expandedThinking.has(thinkKey);
+    const toggleThink = () => toggleThinking(thinkKey);
     return (
       <div key={thinkKey} className="jx-thinkingBlock">
-        <div className={`jx-thinkingBlockHeader${isActiveThinking ? ' jx-thinkingActive' : ''}`}
+        <div className="jx-thinkingBlockHeader"
           role="button" tabIndex={0} onClick={toggleThink}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleThink(); } }}>
           <div className="jx-thinkingHeaderLeft">
-            {isActiveThinking ? <div className="jx-thinkingSpinner" /> : <BulbFilled className="jx-thinkingIcon" />}
-            <span className="jx-thinkingLabel">{isActiveThinking ? t('正在思考…') : t('思考过程')}</span>
+            <BulbFilled className="jx-thinkingIcon" />
+            <span className="jx-thinkingLabel">{t('思考过程')}</span>
           </div>
-          {!isActiveThinking && (
-            <DownOutlined className={`jx-expandIcon${isExpanded ? ' jx-expandIcon--open' : ''}`} />
-          )}
+          <DownOutlined className={`jx-expandIcon${isExpanded ? ' jx-expandIcon--open' : ''}`} />
         </div>
         <div className={`jx-expandWrap${isExpanded ? ' jx-expandWrap--open' : ''}`}>
-          <div className="jx-thinkingContent" ref={(el) => { if (el && isActiveThinking) el.scrollTop = el.scrollHeight; }}>
-            {(isExpanded || isActiveThinking) && content}
-          </div>
+          <div className="jx-thinkingContent">{isExpanded && content}</div>
         </div>
       </div>
     );
@@ -1033,7 +1026,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
                   <span className="jx-sectionTitle">{t('思考过程 ({n})', { n: m.thinking.length })}</span>
                 </div>
                 <div className="jx-thinkingList">
-                  {m.thinking.map((think, idx) => renderThinkingBlock(think.content, `${m.ts}-think-${idx}`, false))}
+                  {m.thinking.map((think, idx) => renderThinkingBlock(think.content, `${m.ts}-think-${idx}`))}
                 </div>
               </div>
             )}

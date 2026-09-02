@@ -1592,6 +1592,27 @@ async def chat_active_run(
 # ── Regenerate / Edit ────────────────────────────────────────────────────
 
 
+# Explicit per-turn selections persisted on the user message. Regenerating or
+# editing that turn must replay the same skill / plugin / connector / @agent,
+# otherwise the rerun silently loses the capabilities the user picked.
+_INVOCATION_EXTRA_KEYS = (
+    "skill_id",
+    "skill_name",
+    "skill_ids",
+    "mcp_ids",
+    "connector_id",
+    "connector_name",
+    "plugin_name",
+    "mention_agent_id",
+    "mention_name",
+)
+
+
+def _restore_invocation(extra: Any) -> Dict[str, Any]:
+    """Rebuild the original turn's invocation fields from extra_data."""
+    return {key: extra[key] for key in _INVOCATION_EXTRA_KEYS if extra.get(key)}
+
+
 def _restore_attachments(saved: List[Dict]) -> List[AttachmentItem]:
     """Reconstruct AttachmentItem list from extra_data['attachments'] metadata."""
     return [
@@ -1952,6 +1973,7 @@ async def regenerate_message(
         quoted_follow_up=user_extra.get("quoted_follow_up"),
         attachments=attachment_items,
         model_provider_id=user_extra.get("model_provider_id"),
+        **_restore_invocation(user_extra),
     )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, regen_request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(
@@ -2047,13 +2069,19 @@ async def edit_and_resend(
     target_extra = target_msg.extra_data or {}
     saved_attachments = target_extra.get("attachments", [])
     attachment_items = _restore_attachments(saved_attachments)
+    # Editing rewrites the text only: the files the user uploaded and the
+    # skill / plugin / connector / @agent this turn referenced are carried over.
+    saved_invocation = _restore_invocation(target_extra)
+    saved_quoted_follow_up = target_extra.get("quoted_follow_up")
 
     edit_request = ChatRequest(
         chat_id=chat_id,
         message=body.new_content,
         model_name="qwen",
         attachments=attachment_items,
+        quoted_follow_up=saved_quoted_follow_up,
         model_provider_id=target_extra.get("model_provider_id"),
+        **saved_invocation,
     )
     selected_model_provider_id = _resolve_selected_model_provider_id(db, edit_request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(edit_request, selected_model_provider_id)
@@ -2061,9 +2089,11 @@ async def edit_and_resend(
     _user_settings = UserService(db).get_user_settings(db_user_id)
 
     # Persist the edited user message
-    _edit_extra: Dict[str, Any] = {"timestamp": now_iso()}
+    _edit_extra: Dict[str, Any] = {"timestamp": now_iso(), **saved_invocation}
     if saved_attachments:
         _edit_extra["attachments"] = saved_attachments
+    if saved_quoted_follow_up:
+        _edit_extra["quoted_follow_up"] = saved_quoted_follow_up
     if selected_model_provider_id:
         _edit_extra["model_provider_id"] = selected_model_provider_id
 
@@ -2109,7 +2139,9 @@ async def edit_and_resend(
             chat_id=chat_id,
             user_id=db_user_id,
             session_messages=session_messages,
-            effective_user_message=body.new_content,
+            effective_user_message=_build_effective_user_message(
+                body.new_content, edit_request.quoted_follow_up
+            ),
             raw_user_message=body.new_content,
             context=context,
             model_name=actual_model_name,

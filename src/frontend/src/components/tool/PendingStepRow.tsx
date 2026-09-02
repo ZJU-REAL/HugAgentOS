@@ -25,8 +25,7 @@ export function PendingStepRow({ startTs }: PendingStepRowProps) {
           <LoadingOutlined spin className="jx-tcr-icon jx-tcr-icon--running" />
         </span>
         <span className="jx-tcr-label">
-          {/* jx-anim-keep: "system at work" indicator; under reduced-motion it slows down but is preserved rather than frozen */}
-          <span className="jx-tcr-prefix jx-tcr-prefix--shimmer jx-anim-keep">{t('正在准备调用工具…')}</span>
+          <span className="jx-tcr-prefix jx-tcr-prefix--shimmer">{t('正在准备调用工具…')}</span>
         </span>
         <ElapsedTimer startTs={startTs} className="jx-tcr-timer" />
       </div>

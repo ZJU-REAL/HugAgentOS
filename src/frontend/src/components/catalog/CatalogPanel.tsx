@@ -976,7 +976,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
             >
               {catalogLoading ? (
                 libraryLoadingCards.map((item) => (
-                  <div key={item} className="jx-kbLibraryCard jx-kbLibraryCardSkeleton" aria-hidden="true">
+                  <div key={item} className="jx-kbLibraryCard jx-kbLibraryCardSkeleton" aria-hidden="true" aria-busy="true">
                     <div className="jx-kbLibraryCardTop">
                       <div className="jx-skeletonBlock jx-kbSkIcon" />
                       <div className="jx-kbLibraryMain">
@@ -1274,7 +1274,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                 </div>
 
                 {kbDocsLoadingId === selectedItem.id ? (
-                  <div className="jx-kbDocLoadingWrap" aria-hidden="true">
+                  <div className="jx-kbDocLoadingWrap" aria-hidden="true" aria-busy="true">
                     {docLoadingRows.map((item) => (
                       <div key={item} className="jx-kbDocRow jx-kbDocRowSkeleton">
                         <div className="jx-kbDocNameCell">

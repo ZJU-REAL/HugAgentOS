@@ -1,6 +1,6 @@
 export function AppLoadingSkeleton() {
   return (
-    <div className="jx-appLoading" aria-hidden="true">
+    <div className="jx-appLoading" aria-hidden="true" aria-busy="true">
       <aside className="jx-appLoading-sidebar">
         <div className="jx-appLoading-brand">
           <div className="jx-skeletonBlock jx-appLoading-skLogo" />

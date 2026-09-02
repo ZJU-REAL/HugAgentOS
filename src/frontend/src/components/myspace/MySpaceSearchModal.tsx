@@ -101,7 +101,7 @@ export function MySpaceSearchModal({ onOpenChat, onPreviewFile }: Props) {
     );
   } else if (!ready) {
     body = (
-      <div key="skeleton" className="jx-searchSkeletonList" aria-hidden="true">
+      <div key="skeleton" className="jx-searchSkeletonList" aria-hidden="true" aria-busy="true">
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="jx-searchSkeletonItem">
             <div className="jx-skeletonBlock jx-searchSkTitle" />

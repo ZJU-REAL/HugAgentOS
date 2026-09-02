@@ -1082,9 +1082,18 @@ export function useStreaming(
         truncateMessagesFrom(streamChatId, targetMsg.ts);
       }
 
-      // Add the edited user message to local store
+      // Add the edited user message to local store. Editing only rewrites the text —
+      // the backend replays the original turn's attachments and its skill / plugin /
+      // connector / @agent selection, so the local echo has to keep showing them.
       const userMsg: ChatMessage = {
         role: 'user', content: newContent.trim(), isMarkdown: false, ts: Date.now(),
+        ...(targetMsg?.attachments?.length ? { attachments: targetMsg.attachments } : {}),
+        ...(targetMsg?.quotedFollowUp ? { quotedFollowUp: targetMsg.quotedFollowUp } : {}),
+        ...(targetMsg?.skillId ? { skillId: targetMsg.skillId } : {}),
+        ...(targetMsg?.skillName ? { skillName: targetMsg.skillName } : {}),
+        ...(targetMsg?.pluginName ? { pluginName: targetMsg.pluginName } : {}),
+        ...(targetMsg?.connectorName ? { connectorName: targetMsg.connectorName } : {}),
+        ...(targetMsg?.mentionName ? { mentionName: targetMsg.mentionName } : {}),
       };
       useChatStore.getState().updateStore((prev) => {
         const c = prev.chats[streamChatId];

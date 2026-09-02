@@ -111,6 +111,7 @@
 }
 /* "正在准备调用工具…" 等待文字流光 — 单色灰阶，参数缓冲空窗期的活性信号。
    隐藏工具调用时那行折叠摘要（--live）共用同一套：运行中它是唯一在动的字。 */
+/* motion-keep: 工具运行中的文字流光，定格会变成一段忽深忽浅的灰字 */
 .jx-tcr-prefix--shimmer,
 .jx-inlineSummaryText--live {
   background: linear-gradient(90deg,
@@ -394,7 +395,13 @@
   0%   { transform: scale(0.55); opacity: 0.9; }
   100% { transform: scale(1.55); opacity: 0; }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-trs-ring { from, to { transform: scale(1.55); opacity: 0 } }
+}
+
 /* Gentle breathing on the live brand GIF for extra life */
+/* motion-keep: 「正在执行」的品牌动图，停下就只剩一枚静止图标，读起来像卡死 */
 .jx-trs-mark--running .jx-brandLoader {
   animation: jx-trs-breathe 1.8s ease-in-out infinite;
 }
@@ -1119,6 +1126,11 @@
   from{opacity:0;transform:translate(-50%, 8px);}
   to  {opacity:1;transform:translate(-50%, 0);}
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-imgPreviewToolbarIn { from, to { opacity:1;transform:translate(-50%, 0) } }
+}
+
 .jx-imagePreviewZoomLabel{
   min-width:46px;
   text-align:center;
@@ -1578,20 +1590,6 @@
 .jx-thinkingContent::-webkit-scrollbar{width:5px}
 .jx-thinkingContent::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-drag);border-radius:3px}
 
-/* 思考中旋转动画 */
-.jx-thinkingSpinner{
-  width:12px;
-  height:12px;
-  border:2px solid color-mix(in srgb, var(--color-text-placeholder) 50%, transparent);
-  border-top-color:color-mix(in srgb, var(--color-text-secondary) 86%, transparent);
-  border-radius:50%;
-  animation:jxThinkSpin .8s linear infinite;
-  flex-shrink:0;
-}
-@keyframes jxThinkSpin{
-  to{transform:rotate(360deg);}
-}
-
 /* ══════════════════════════════════════════════════════════════════════════
    Inline Summary + Canvas Detail (tool progress & thinking)
    ══════════════════════════════════════════════════════════════════════════ */
@@ -1616,6 +1614,11 @@
   from{opacity:0;transform:scale(.85);}
   to  {opacity:1;transform:scale(1);}
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jxBrandSettle { from, to { opacity:1;transform:scale(1) } }
+}
+
 /* 深色下把「已完成」定格标记提亮一档。
    它是一张单一色值（slate-400 #94A3B8）铺满的 PNG，CSS 改不了图里的颜色，只能上滤镜；
    ×1.15 后约 #AABBD4，与旁边的浅色文字同一亮度带，仍明显区别于运行中的品牌蓝动图。
@@ -1972,6 +1975,7 @@
   gap:10px;
   padding:10px 0 2px;
 }
+/* motion-keep: 代码执行运行态脉冲 */
 .jx-ce-runningPulse{
   width:7px;height:7px;
   border-radius:50%;
@@ -1988,6 +1992,7 @@
   color:var(--color-text-secondary);
   display:flex;align-items:center;gap:4px;
 }
+/* motion-keep: 代码执行运行态图标闪烁 */
 .jx-ce-runningIcon{
   font-size:10px;
   color:var(--color-primary);
@@ -2316,6 +2321,11 @@
   from{ opacity:0; transform:translateY(8px); }
   to{ opacity:1; transform:translateY(0); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-confirmBar-in { from, to { opacity:1; transform:translateY(0) } }
+}
+
 .jx-confirmBar-icon{
   flex:none;
   display:flex; align-items:center; justify-content:center;

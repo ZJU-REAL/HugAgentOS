@@ -56,9 +56,7 @@ export function ToolProgressInline({ message, toolCalls }: ToolProgressInlinePro
       <div className="jx-inlineSummary" role="button" tabIndex={0} aria-expanded={open} onClick={toggle}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}>
         <BrandLoader done={!anyRunning} label={anyRunning ? t('正在调用工具') : t('工具调用完成')} />
-        {/* jx-anim-keep：减弱动效下流光不能被冻住——它是靠 background-clip:text 抠出来的字，
-            停在任意一帧就变成一段忽深忽浅的灰，反而比动起来更难读（motion.css 的白名单） */}
-        <span className={`jx-inlineSummaryText${anyRunning ? ' jx-inlineSummaryText--live jx-anim-keep' : ''}`}>
+        <span className={`jx-inlineSummaryText${anyRunning ? ' jx-inlineSummaryText--live' : ''}`}>
           {anyRunning ? t('正在调用 {label}', { label }) : t('已调用 {label}', { label })}
         </span>
         {/* 长工具（批量作业）的实时进度：这条摘要行在折叠态是用户唯一的信息源 */}

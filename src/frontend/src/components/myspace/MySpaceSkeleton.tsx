@@ -15,7 +15,7 @@ export function MySpaceSkeleton({ tab, assetFilter, rows }: Props) {
 
 function DocumentTableSkeleton({ count }: { count: number }) {
   return (
-    <div className="jx-mySpace-docTable" aria-hidden="true">
+    <div className="jx-mySpace-docTable" aria-hidden="true" aria-busy="true">
       <div className="jx-mySpace-docTable-header">
         <div className="jx-mySpace-docTable-col jx-mySpace-docTable-col--check" />
         <div className="jx-mySpace-docTable-col jx-mySpace-docTable-col--name">
@@ -59,7 +59,7 @@ function DocumentTableSkeleton({ count }: { count: number }) {
 
 function ImageGridSkeleton({ count }: { count: number }) {
   return (
-    <div className="jx-mySpace-imgGrid" aria-hidden="true">
+    <div className="jx-mySpace-imgGrid" aria-hidden="true" aria-busy="true">
       {Array.from({ length: count }).map((_, idx) => (
         <div key={idx} className="jx-mySpace-imgItem jx-mySpace-imgItem--skeleton">
           <div className="jx-skeletonBlock jx-mySpace-skImgCell" />
@@ -71,7 +71,7 @@ function ImageGridSkeleton({ count }: { count: number }) {
 
 function FavoriteSkeleton({ count }: { count: number }) {
   return (
-    <div className="jx-mySpace-favList" aria-hidden="true">
+    <div className="jx-mySpace-favList" aria-hidden="true" aria-busy="true">
       {Array.from({ length: count }).map((_, idx) => (
         <div key={idx} className="jx-mySpace-favCard jx-mySpace-favCard--skeleton">
           <div className="jx-mySpace-favHeader">

@@ -546,6 +546,7 @@
   font-size: 13px;
 }
 
+/* motion-keep: 画布加载转圈，停下会被读成渲染卡死 */
 .jx-canvas-spinner {
   width: 28px;
   height: 28px;

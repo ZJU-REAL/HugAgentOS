@@ -434,3 +434,45 @@ export function nowId(prefix = 'chat') {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${prefix}_${ts}_${rand}`;
 }
+
+/** 只在浏览器里存在、还没在服务端建档的对话 id（点了「新对话」但一句话没发）。
+ *
+ *  这类 id 刷新后仍会被恢复成「当前对话」，前端随后拿它去问会话详情 / 待确认 /
+ *  待回答提问，服务端一律 404。功能上这就是「没东西可恢复」，但浏览器会把每个
+ *  404 响应打成红色报错，看着像页面坏了。登记下来，就能在发请求前先跳过。
+ *
+ *  登记只增不减：这段对话一旦真发了消息，它就有了本地消息、也会进
+ *  backendSessionIds，isLocalDraftChat 的另外两个条件不再成立，登记项自然失效。
+ *  按账号隔离并封顶，避免长期积累。 */
+const DRAFT_CHAT_IDS_KEY = 'hugagent_ui_draft_chat_ids_v1';
+const DRAFT_CHAT_IDS_MAX = 50;
+
+function readDraftChatIds(userId: string | null | undefined): string[] {
+  const key = userScopedKey(DRAFT_CHAT_IDS_KEY, userId);
+  if (!key || typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function registerDraftChatId(userId: string | null | undefined, chatId: string) {
+  const key = userScopedKey(DRAFT_CHAT_IDS_KEY, userId);
+  if (!key || !chatId || typeof window === 'undefined') return;
+  const next = [...readDraftChatIds(userId).filter((id) => id !== chatId), chatId]
+    .slice(-DRAFT_CHAT_IDS_MAX);
+  try { window.localStorage.setItem(key, JSON.stringify(next)); } catch { /* ignore */ }
+}
+
+export function isDraftChatId(userId: string | null | undefined, chatId: string): boolean {
+  return !!chatId && readDraftChatIds(userId).includes(chatId);
+}
+
+/** 新开一段本地对话：生成 id 的同时登记为草稿。 */
+export function newDraftChatId(userId: string | null | undefined): string {
+  const id = nowId('chat');
+  registerDraftChatId(userId, id);
+  return id;
+}

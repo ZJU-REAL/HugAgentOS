@@ -817,7 +817,13 @@
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-4px); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-mySpace-emptyFloat { from, to { transform: translateY(0) } }
+}
 
+
+/* motion-stop: 空态插画漂浮，纯装饰 */
 .jx-mySpace-emptyIcon {
   margin-bottom: 12px;
   opacity: 0.54;

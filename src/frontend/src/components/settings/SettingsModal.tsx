@@ -1083,7 +1083,7 @@ export default function SettingsPage() {
         width={720}
       >
         {memoryLoading ? (
-          <Skeleton active title={false} paragraph={{ rows: 4 }} style={{ padding: '16px 0' }} />
+          <div aria-busy="true"><Skeleton active title={false} paragraph={{ rows: 4 }} style={{ padding: '16px 0' }} /></div>
         ) : (
           <Tabs
             activeKey={memoryTab}

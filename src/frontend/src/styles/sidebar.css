@@ -137,6 +137,11 @@
   from{ opacity:0; transform:translateX(-6px); }
   to  { opacity:1; transform:none; }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-siderContentIn { from, to { opacity:1; transform:none } }
+}
+
 .jx-siderInner,
 .jx-miniRail{
   animation:jx-kf-siderContentIn var(--motion-duration-slow) var(--motion-ease-standard) both;
@@ -416,6 +421,7 @@
   100%{ background-position:-200% 0; }
 }
 
+/* motion-keep: 全站骨架屏基础块，停下就是一片静止灰条，读起来像加载失败 */
 .jx-skeletonBlock{
   border-radius:999px;
   /* 从文字令牌派生的低透明度灰，深浅两个主题下都是「比底色深/亮一点」的微光 */
@@ -677,6 +683,7 @@
 .jx-historyItem:hover .jx-historyTypeIcon{ color:color-mix(in srgb, var(--color-text) 55%, transparent); }
 
 /* ── Running indicator (pulse dot) ── */
+/* motion-keep: 会话「正在运行」小圆点 */
 .jx-historyRunningDot{
   flex-shrink:0;
   width:7px; height:7px;
@@ -749,6 +756,11 @@
   from{ opacity:0; transform:scaleX(.98); }
   to  { opacity:1; transform:none; }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-renameIn { from, to { opacity:1; transform:none } }
+}
+
 .jx-historyEditInput{
   flex:1; min-width:0;
   transform-origin:left center;
