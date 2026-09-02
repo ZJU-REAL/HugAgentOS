@@ -1075,7 +1075,6 @@
   max-width: 840px;
   margin: 0 auto;
   padding: 32px 24px 60px;
-  font-family: 'PingFang SC', -apple-system, sans-serif;
 }
 
 /* ── Header ─────────────────────────────────────────────────────── */
@@ -1551,7 +1550,6 @@
 /* ── Version + divider ──────────────────────────────────────────── */
 
 .jx-sk-version {
-  font-family: 'PingFang SC', -apple-system, sans-serif;
   font-weight: 400;
   font-size: 13px;
   color: var(--color-text-placeholder);
@@ -1648,7 +1646,6 @@
   max-width: 840px;
   margin: 0 auto;
   padding: 28px 24px 80px;
-  font-family: 'PingFang SC', -apple-system, sans-serif;
 }
 
 /* ── Header: title left, search right ────────────────────────── */
@@ -1666,14 +1663,12 @@
   margin-top: 2px;
 }
 .jx-agentPage-title {
-  font-family: 'PingFang SC', -apple-system, sans-serif;
   font-size: 20px;
   font-weight: 500;
   color: var(--color-text);
   margin: 0 0 6px;
 }
 .jx-agentPage-subtitle {
-  font-family: 'PingFang SC', -apple-system, sans-serif;
   font-size: 14px;
   color: var(--color-text-placeholder);
   font-weight: 400;

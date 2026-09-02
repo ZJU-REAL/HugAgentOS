@@ -18,7 +18,6 @@ from core.services.project_scope import ProjectScope
 from . import myspace_vfs as _ms
 from ._common import resolve_sandbox_session, resp_json, sandbox_exec_bash, shell_quote
 from ._paths import (
-    PATH_POLICY_DOC,
     to_physical_path,
     validate_project_scope_path,
     validate_workspace_path,
@@ -175,7 +174,6 @@ def register_grep(
 
     Grep.__doc__ = (
         "按正则搜索文件内容。优先用 ripgrep，缺失则 fallback grep。\n\n"
-        + PATH_POLICY_DOC + "\n\n"
         "搜 ``/myspace`` 时会先把该子树的**文本**文件批量物化进沙盒再搜"
         "（返回 ``myspace_materialized`` 计数）；二进制文档搜不到，改用 Read 看解析文本。\n\n"
         "Args:\n"

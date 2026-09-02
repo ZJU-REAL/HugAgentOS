@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
-  Checkbox,
   Empty,
   Form,
   Input,
@@ -32,24 +31,22 @@ import {
   startMcpMarketOAuth,
 } from '../../api';
 import type { McpMarketItem } from '../../types';
+import { PENDING_USER_OAUTH_STATUSES } from '../../utils/constants';
 import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
 
 const PAGE_SIZE = 10;
+const OAUTH_STAGE_HINTS: Record<string, string> = {
+  starting: '正在等待授权页准备就绪…',
+  waiting_for_user: '请在新标签页完成登录授权…',
+  processing_callback: '正在换取访问令牌…',
+  installing: '正在连接服务并读取工具列表…',
+};
 
 interface McpMarketplaceModalProps {
   open: boolean;
   canInstall: boolean;
   onClose: () => void;
   onInstalled?: () => void;
-}
-
-function riskTag(level: McpMarketItem['risk_level']) {
-  const config = {
-    low: { color: 'green', label: t('低风险') },
-    medium: { color: 'gold', label: t('中风险') },
-    high: { color: 'red', label: t('高风险') },
-  }[level];
-  return <Tag color={config.color}>{config.label}</Tag>;
 }
 
 function MarketIcon({ item, size = 40 }: { item: McpMarketItem; size?: number }) {
@@ -75,6 +72,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   const [detailLoading, setDetailLoading] = useState(false);
   const [installTarget, setInstallTarget] = useState<McpMarketItem | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [oauthStage, setOauthStage] = useState('');
   const [installForm] = Form.useForm();
   const selectedAuthMethod = Form.useWatch('auth_method', installForm);
   const oauthAttemptRef = useRef<{
@@ -158,7 +156,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     const methodId = selectedAuthMethod || installTarget.auth_config?.default_method;
     const method = installTarget.auth_config?.methods?.find((row) => row.id === methodId);
     const popup = method?.type === 'oauth2' && !credentialsManaged
-      ? window.open('about:blank', '_blank', 'width=720,height=760')
+      ? window.open('about:blank', '_blank')
       : null;
     let values;
     try {
@@ -168,6 +166,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
       return;
     }
     setInstalling(true);
+    setOauthStage(method?.type === 'oauth2' ? 'starting' : '');
     const oauthAttempt = method?.type === 'oauth2'
       ? { flowId: '', popup, cancelled: false }
       : null;
@@ -181,7 +180,6 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
           credentials: values.credentials || {},
           client_id: values.oauth_client_id || '',
           client_secret: values.oauth_client_secret || '',
-          confirm_high_risk: values.confirm_high_risk === true,
         });
         if (!popup) throw new Error(t('浏览器阻止了 OAuth 登录窗口，请允许弹窗后重试'));
         oauthAttempt!.flowId = started.flow_id;
@@ -190,16 +188,30 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
           throw new Error(t('OAuth 登录已取消'));
         }
         popup.opener = null;
-        popup.location.href = started.authorization_url;
+        let authorizationUrl = started.authorization_url || '';
+        if (authorizationUrl) {
+          popup.location.href = authorizationUrl;
+        } else {
+          message.info(t('正在与服务方建立安全连接，请稍候…'));
+        }
         let status = await getMcpMarketOAuthStatus(started.flow_id);
         for (let attempt = 0; attempt < 300 && !['completed', 'failed'].includes(status.status); attempt += 1) {
           await new Promise((resolve) => window.setTimeout(resolve, 1000));
           if (oauthAttempt!.cancelled) throw new Error(t('OAuth 登录已取消'));
           status = await getMcpMarketOAuthStatus(started.flow_id);
-          if (popup.closed && status.status === 'waiting_for_user') {
-            oauthAttempt!.cancelled = true;
-            await cancelMcpMarketOAuth(started.flow_id);
-            throw new Error(t('OAuth 登录已取消'));
+          setOauthStage(status.status);
+          if (!authorizationUrl && status.authorization_url) {
+            authorizationUrl = status.authorization_url;
+            popup.location.href = authorizationUrl;
+          }
+          if (popup.closed && PENDING_USER_OAUTH_STATUSES.includes(status.status)) {
+            await new Promise((resolve) => window.setTimeout(resolve, 1000));
+            status = await getMcpMarketOAuthStatus(started.flow_id);
+            if (PENDING_USER_OAUTH_STATUSES.includes(status.status)) {
+              oauthAttempt!.cancelled = true;
+              await cancelMcpMarketOAuth(started.flow_id);
+              throw new Error(t('OAuth 登录已取消'));
+            }
           }
         }
         popup.close();
@@ -209,7 +221,6 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
         result = await installMcpMarketItem(
           installTarget.slug,
           values.credentials || {},
-          values.confirm_high_risk === true,
           methodId,
         );
       }
@@ -236,6 +247,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
       }
     } finally {
       if (oauthAttemptRef.current === oauthAttempt) oauthAttemptRef.current = null;
+      setOauthStage('');
       setInstalling(false);
     }
   }, [installForm, installTarget, onInstalled, selectedAuthMethod]);
@@ -283,7 +295,6 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                 <Typography.Title level={4}>{detail.display_name}</Typography.Title>
                 <div>
                   <Tag>{detail.category}</Tag>
-                  {riskTag(detail.risk_level)}
                   <Tag color={detail.source === 'admin' ? 'blue' : 'purple'}>
                     {detail.source === 'admin' ? t('平台精选') : t('社区共享')}
                   </Tag>
@@ -300,16 +311,8 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                 ? <span><KeyOutlined /> {t('管理员已配置凭据，安装时无需填写')}</span>
                 : detail.requires_user_credentials && <span><KeyOutlined /> {t('安装时需配置凭据')}</span>}
             </div>
-            {detail.risk_level === 'high' && (
-              <Alert
-                type="warning"
-                showIcon
-                message={t('该 MCP 包含高风险操作，安装时需要明确确认')}
-                description={(detail.risk_report.high_risk_tools || []).join('、')}
-              />
-            )}
             <Typography.Title level={5}>{t('工具清单（{n}）', { n: detail.tool_count })}</Typography.Title>
-            {detail.risk_report.discovery_mode === 'per_install' && (
+            {detail.listing_notice.discovery_mode === 'per_install' && (
               <Typography.Paragraph type="secondary">
                 {t('这里展示能力示例；完整工具清单将在使用你的凭据安装时动态发现。')}
               </Typography.Paragraph>
@@ -355,11 +358,10 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                     <div className="jx-mcp-marketCardBody">
                       <div className="jx-mcp-marketCardTitle">
                         <Typography.Text strong>{item.display_name}</Typography.Text>
-                        {riskTag(item.risk_level)}
                       </div>
                       <Typography.Paragraph ellipsis={{ rows: 2 }}>{item.description}</Typography.Paragraph>
                       <div className="jx-mcp-marketCardMeta">
-                        <span>{item.risk_report.discovery_mode === 'per_install'
+                        <span>{item.listing_notice.discovery_mode === 'per_install'
                           ? t('安装时发现工具')
                           : `${item.tool_count} ${t('个工具')}`}</span>
                         <span>{item.publisher_name || t('平台')}</span>
@@ -400,13 +402,18 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
             ? t('该 MCP 使用管理员托管凭据，安装时无需填写 Token；凭据仅由后端使用，不会向用户展示。')
             : t('市场不会共享发布者凭据。请填写你自己的认证信息，凭据将加密保存到个人安装实例。')}
         </Typography.Paragraph>
-        {installTarget?.risk_report.install_notice && (
+        {installTarget?.listing_notice.install_notice && (
           <Alert
             style={{ marginBottom: 16 }}
-            type={installTarget.risk_level === 'high' ? 'warning' : 'info'}
+            type="info"
             showIcon
-            message={installTarget.risk_report.install_notice}
+            message={installTarget.listing_notice.install_notice}
           />
+        )}
+        {installing && OAUTH_STAGE_HINTS[oauthStage] && (
+          <Typography.Paragraph type="secondary">
+            {t(OAUTH_STAGE_HINTS[oauthStage])}
+          </Typography.Paragraph>
         )}
         <Form form={installForm} layout="vertical">
           {!installTarget?.credentials_managed_by_admin && (installTarget?.auth_config?.methods?.length || 0) > 1 && (
@@ -423,7 +430,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               showIcon
               icon={<LoginOutlined />}
               style={{ marginBottom: 16 }}
-              message={installTarget.auth_config.methods.find((method) => method.id === selectedAuthMethod)?.help_text || t('点击安装后将在新窗口完成 OAuth 登录。')}
+              message={installTarget.auth_config.methods.find((method) => method.id === selectedAuthMethod)?.help_text || t('点击安装后将在新标签页完成 OAuth 登录。')}
             />
           )}
           {!installTarget?.credentials_managed_by_admin && installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.client_id_required && (
@@ -456,19 +463,6 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                 : <Input placeholder={field.placeholder} />}
             </Form.Item>
           ))}
-          {installTarget?.risk_level === 'high' && (
-            <Form.Item
-              name="confirm_high_risk"
-              valuePropName="checked"
-              rules={[{
-                validator: (_, checked) => checked
-                  ? Promise.resolve()
-                  : Promise.reject(new Error(t('请确认你了解高风险工具的影响'))),
-              }]}
-            >
-              <Checkbox>{t('我了解该 MCP 可能执行删除、发送、发布或其他高风险操作')}</Checkbox>
-            </Form.Item>
-          )}
         </Form>
       </Modal>
     </>

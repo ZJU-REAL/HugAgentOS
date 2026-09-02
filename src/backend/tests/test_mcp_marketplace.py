@@ -27,7 +27,6 @@ from core.services import mcp_management_service as management
 from core.services import mcp_marketplace_service as market
 from core.services import mcp_oauth_service as oauth_service
 from core.services.mcp_management_service import (
-    assess_mcp_risk,
     decrypt_mcp_headers,
     encrypt_legacy_mcp_headers,
     encrypt_mcp_headers,
@@ -170,9 +169,8 @@ def _private_server(db, *, owner: str = "u1", server_id: str = "umcp_source"):
     return row
 
 
-def _approved_market(db, *, tools=None, risk_tool: str | None = None):
-    snapshot = tools or _tools(risk_tool or "search_documents")
-    risk, report = assess_mcp_risk(snapshot)
+def _approved_market(db, *, tools=None):
+    snapshot = tools or _tools("search_documents")
     item = McpMarketItem(
         slug="acme-search",
         display_name="Acme Search",
@@ -201,8 +199,6 @@ def _approved_market(db, *, tools=None, risk_tool: str | None = None):
         ],
         tools_json=snapshot,
         tool_hash=tool_snapshot_hash(snapshot),
-        risk_level=risk,
-        risk_report=report,
         source_server_id="umcp_source",
     )
     db.add_all([item, version])
@@ -332,7 +328,6 @@ async def test_oauth_callback_and_status_are_shared_without_plaintext_code(monke
         installed_by="u1",
         auth_method="oauth2",
         credentials={},
-        confirm_high_risk=True,
         callback_url="https://app.example.test/api/v1/mcp-market/oauth/callback",
         status="waiting_for_user",
     )
@@ -351,6 +346,46 @@ async def test_oauth_callback_and_status_are_shared_without_plaintext_code(monke
 
 
 @pytest.mark.asyncio
+async def test_oauth_start_hands_back_before_discovery_finishes(db, monkeypatch):
+    """Slow authorization-URL discovery must keep the flow pollable, never fail the install."""
+    import fakeredis.aioredis
+
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    monkeypatch.setattr(oauth_service, "get_redis", lambda **_: fake_redis)
+    monkeypatch.setattr(oauth_service, "_DISCOVERY_GRACE_SECONDS", 0.05)
+    market.ensure_curated_market_items(db)
+
+    async def slow_discovery(flow):
+        await asyncio.sleep(0.3)
+        flow.authorization_url = "https://provider.example.test/authorize?code_challenge=x"
+        flow.status = "waiting_for_user"
+        await oauth_service._store_flow_status(flow)
+        flow.ready.set()
+
+    monkeypatch.setattr(oauth_service, "_run_flow", slow_discovery)
+    try:
+        started = await oauth_service.start_oauth_install(
+            db,
+            slug="gitlab-official",
+            owner_user_id="u1",
+            installed_by="u1",
+            auth_method="oauth2",
+            credentials={},
+            callback_url_base="https://app.example.test/api/v1/mcp-market/oauth/callback",
+        )
+        assert started["status"] == "starting"
+        assert started["authorization_url"] == ""
+
+        await asyncio.sleep(0.4)
+        status = await oauth_service.get_flow_status(started["flow_id"], owner_user_id="u1")
+        assert status["status"] == "waiting_for_user"
+        assert status["authorization_url"].startswith("https://provider.example.test/authorize")
+    finally:
+        oauth_service._flows.clear()
+        await fake_redis.aclose()
+
+
+@pytest.mark.asyncio
 async def test_oauth_cancel_marks_flow_failed_and_wakes_worker(monkeypatch):
     import fakeredis.aioredis
 
@@ -363,7 +398,6 @@ async def test_oauth_cancel_marks_flow_failed_and_wakes_worker(monkeypatch):
         installed_by="u1",
         auth_method="oauth2",
         credentials={},
-        confirm_high_risk=True,
         callback_url="https://app.example.test/api/v1/mcp-market/oauth/callback",
         status="waiting_for_user",
     )
@@ -628,14 +662,10 @@ async def test_remote_url_security_rejects_fake_ip_when_public_dns_is_private(mo
         await validate_remote_mcp_url("https://example.com/mcp")
 
 
-def test_tool_hash_is_order_independent_and_risk_is_explained():
+def test_tool_hash_is_order_independent():
     first = _tools("search", "delete_record")
     second = list(reversed(first))
     assert tool_snapshot_hash(first) == tool_snapshot_hash(second)
-    level, report = assess_mcp_risk(first)
-    assert level == "high"
-    assert report["high_risk_tools"] == ["delete_record"]
-    assert report["requires_confirmation"] is True
 
 
 @pytest.mark.asyncio
@@ -1085,7 +1115,7 @@ async def test_create_market_mcp_with_blank_token_requires_each_installer(db, mo
     assert listed["credentials_managed_by_admin"] is False
     assert listed["supports_admin_credentials"] is True
     assert listed["auth_config"]["credential_mode"] == "installer"
-    assert listed["risk_report"]["discovery_mode"] == "per_install"
+    assert listed["listing_notice"]["discovery_mode"] == "per_install"
     assert listed["tool_count"] == 0
 
     async def _authenticated_probe(row, db=None):
@@ -1191,7 +1221,7 @@ async def test_create_market_mcp_with_oauth_defers_authorization_to_installer(db
     assert listed["requires_user_credentials"] is True
     assert listed["auth_config"]["default_method"] == "oauth2"
     assert listed["auth_config"]["methods"][0]["type"] == "oauth2"
-    assert listed["risk_report"]["discovery_mode"] == "per_install"
+    assert listed["listing_notice"]["discovery_mode"] == "per_install"
 
 
 @pytest.mark.asyncio
@@ -1311,6 +1341,7 @@ async def test_curated_templates_seed_once_and_materialize_user_query_key(db, mo
         "github-official",
         "gitlab-official",
         "alibaba-cloud-observability",
+        "notion-official",
     }
     assert market.ensure_curated_market_items(db) == []
     gitlab_item = market.get_market_item(
@@ -1374,29 +1405,6 @@ async def test_curated_bearer_token_gets_prefix_and_can_be_rotated(db, monkeypat
     db.refresh(server)
     assert updated["action"] == "existing"
     assert decrypt_mcp_headers(server.headers)["Authorization"] == "Bearer second-key"
-
-
-@pytest.mark.asyncio
-async def test_high_risk_install_requires_explicit_confirmation(db, monkeypatch):
-    _approved_market(db, risk_tool="delete_records")
-    _patch_probe(monkeypatch)
-    with pytest.raises(BadRequestError, match="高风险"):
-        await market.install_market_item(
-            db,
-            "acme-search",
-            owner_user_id="u2",
-            installed_by="u2",
-            credentials={"Authorization": "Bearer u2"},
-        )
-    result = await market.install_market_item(
-        db,
-        "acme-search",
-        owner_user_id="u2",
-        installed_by="u2",
-        credentials={"Authorization": "Bearer u2"},
-        confirm_high_risk=True,
-    )
-    assert result["risk_level"] == "high"
 
 
 @pytest.mark.asyncio
@@ -1657,8 +1665,6 @@ def _admin_private_market(db, *, auth_schema=None, url: str = "http://mcp:9102/m
         auth_schema=auth_schema or [],
         tools_json=snapshot,
         tool_hash=tool_snapshot_hash(snapshot),
-        risk_level="low",
-        risk_report={},
     )
     db.add_all([item, version])
     db.commit()

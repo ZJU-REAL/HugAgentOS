@@ -82,6 +82,9 @@ export const AGENT_MARKETPLACE_CATEGORIES = [
 /** folder_id sentinel for GET /v1/artifacts: root directory only (user_folder_id IS NULL). See the backend constant of the same name in core/db/repository.py. */
 export const ROOT_FOLDER_SENTINEL = '__root__';
 
+/** OAuth 安装流程中"仍在等用户操作"的状态。回调一到后端就把状态前移，此后关闭授权窗口属于正常收尾，不能当成放弃。见 core/services/mcp_oauth_service.py。 */
+export const PENDING_USER_OAUTH_STATUSES = ['starting', 'waiting_for_user'];
+
 /** API base URL (e.g. '/api') */
 export const getApiBase = (): string =>
   (import.meta.env.VITE_API_BASE_URL as string || '/api').replace(/\/+$/, '');

@@ -58,17 +58,6 @@ def canonicalize_ws_path(path: str) -> str:
     return path
 
 
-# The **single** path-policy reminder shared by the seven file tools. The full
-# rules live in exactly one place, the system prompt (code_exec's
-# 10_tools_and_capabilities); only a one-line pointer is kept here, to avoid
-# copying the whole policy into 7 tool descriptions and repeating it 8 times
-# per request. Core: sandbox first; touch /myspace only when the user
-# explicitly asks.
-PATH_POLICY_DOC = (
-    "【路径】默认写沙盒 ``/workspace/``；``/myspace/`` 仅在用户明确要求时读写"
-    "（完整规则见系统提示词「路径策略」）。"
-)
-
 
 def _is_traversal_or_bad(path: str) -> Optional[str]:
     """Reject traversal/double-slash early. Returns error message or None."""

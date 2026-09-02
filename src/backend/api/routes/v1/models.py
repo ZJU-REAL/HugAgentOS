@@ -256,22 +256,15 @@ def _upsert_pricing(
     db.commit()
 
 
-def _normalize_base_url(
-    base_url: str, provider_type: str, provider: str = "openai_compatible"
-) -> str:
-    """Normalize base_url.
+def _normalize_base_url(base_url: str) -> str:
+    """Trim the base_url, keeping the path exactly as entered.
 
-    Only append the '/v1' suffix for the **generic** openai_compatible vendor (users often omit it);
-    all other vendors (domestic vendors with preset base_urls, e.g. Zhipu uses /v4; Azure;
-    Anthropic/Gemini/DashScope/Ollama native; litellm) are left untouched — their base_url shapes
-    vary and '/v1' must not be force-appended.
+    The version segment belongs to the vendor, not to us: `/v1` (OpenAI, DeepSeek),
+    `/v4` (Zhipu, z.ai), `/compatible-mode/v1` (DashScope) are all valid. Rewriting the
+    path here would break every endpoint that is not `/v1`, so the URL is used as entered —
+    it is expected to be complete.
     """
-    url = (base_url or "").strip().rstrip("/")
-    if provider != "openai_compatible":
-        return url
-    if provider_type in ("chat", "embedding") and url and not url.endswith("/v1"):
-        url = url + "/v1"
-    return url
+    return (base_url or "").strip().rstrip("/")
 
 
 async def _validate_provider_config(
@@ -283,7 +276,7 @@ async def _validate_provider_config(
     extra_config: Optional[dict] = None,
 ) -> None:
     """Validate provider config at save time. Raises HTTPException on failure."""
-    normalized_url = _normalize_base_url(base_url, provider_type, provider)
+    normalized_url = _normalize_base_url(base_url)
     result = await _test_connection(
         provider,
         provider_type,
@@ -566,7 +559,7 @@ async def create_provider_endpoint(
     if err:
         raise HTTPException(status_code=400, detail=err)
 
-    normalized_url = _normalize_base_url(body.base_url, body.provider_type, body.provider)
+    normalized_url = _normalize_base_url(body.base_url)
     await _validate_provider_config(
         normalized_url,
         body.api_key,
@@ -645,22 +638,22 @@ async def update_provider_endpoint(
         raise HTTPException(status_code=400, detail=err)
 
     if any(k in fields for k in ("base_url", "api_key", "model_name", "provider", "extra_config")):
-        normalized_url = _normalize_base_url(new_url, new_type, new_provider)
+        new_url = _normalize_base_url(new_url)
         await _validate_provider_config(
-            normalized_url,
+            new_url,
             new_key,
             new_model,
             new_type,
             provider=new_provider,
             extra_config=new_extra,
         )
-        fields["base_url"] = normalized_url
+        fields["base_url"] = new_url
 
     if "extra_config" in fields:
         await _autofill_context_length(
             new_provider,
             new_type,
-            _normalize_base_url(new_url, new_type, new_provider),
+            _normalize_base_url(new_url),
             new_key,
             new_model,
             fields["extra_config"],
@@ -714,7 +707,7 @@ async def test_saved_provider(
         raise HTTPException(status_code=404, detail="Provider not found")
 
     prov = getattr(provider, "provider", "openai_compatible")
-    test_url = _normalize_base_url(provider.base_url, provider.provider_type, prov)
+    test_url = _normalize_base_url(provider.base_url)
     result = await _test_connection(
         prov,
         provider.provider_type,
@@ -733,7 +726,7 @@ async def test_unsaved_provider(
     _: None = Depends(require_system_settings),
 ):
     """对一份尚未保存的供应商配置做连通性预检。仅限管理员；用于新增/编辑表单提交前验证 URL、令牌与模型名，不落库。"""
-    test_url = _normalize_base_url(body.base_url, body.provider_type, body.provider)
+    test_url = _normalize_base_url(body.base_url)
     result = await _test_connection(
         body.provider,
         body.provider_type,
@@ -766,7 +759,7 @@ async def detect_context_length(
 
     result = await discover_context_length(
         provider=body.provider,
-        base_url=_normalize_base_url(body.base_url, body.provider_type, body.provider),
+        base_url=_normalize_base_url(body.base_url),
         api_key=api_key,
         model_name=body.model_name,
         allow_error_probe=body.allow_error_probe,

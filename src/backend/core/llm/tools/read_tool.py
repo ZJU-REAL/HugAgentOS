@@ -25,7 +25,6 @@ from core.services.project_scope import ProjectScope
 from . import myspace_vfs as _ms
 from ._common import resolve_sandbox_session, resp_json
 from ._paths import (
-    PATH_POLICY_DOC,
     basename,
     is_myspace_physical,
     to_physical_path,
@@ -432,19 +431,14 @@ def register_read(
         return resp_json(payload)
 
     Read.__doc__ = (
-        "读取文本文件，返回带行号的内容（``cat -n`` 风格）。\n\n" + PATH_POLICY_DOC + "\n\n"
-        "本工具说明：\n"
-        "- 默认读沙盒里的文件（``/workspace/...``）。\n"
-        "- 当用户提到他「我的空间」里的文件时，可直接读 ``/myspace/...``：\n"
-        "  即使当前沙盒里没有也会**自动按需拉取**（懒加载），无需先 stage。\n"
-        "- 读「我的空间」里的二进制文档（docx/pdf/xlsx/pptx）会自动返回**解析\n"
-        "  文本**，``parsed_text=true``；**图片**（png/jpg/gif/webp/bmp）在配置了\n"
-        "  视觉模型时自动返回转写证据 ``type=image_evidence``，需要追问图中某处\n"
-        "  细节请改用 ``view_image(file_path=..., focus=...)``；其余二进制返回\n"
-        "  type=binary。\n"
-        "- 默认读前 2000 行；超长文件用 ``offset`` (1-indexed) + ``limit`` 分段。\n"
-        "- **Read 后内容会被记录**：``Edit`` / ``Write`` 改已存在文件前必须先\n"
-        "  完整 Read 一次（offset/limit 为 0），否则会被拒绝。\n\n"
+        "读取文本文件，返回带行号的内容（``cat -n`` 风格）。\n\n"
+        "- 读 ``/myspace/...`` 无需先 stage，沙盒里没有会自动按需拉取。\n"
+        "- 二进制文档（docx/pdf/xlsx/pptx）自动返回**解析文本**（``parsed_text=true``）；\n"
+        "  **图片**在配了视觉模型时返回转写证据（``type=image_evidence``），追问图中\n"
+        "  细节改用 ``view_image(file_path=..., focus=...)``；其余返回 type=binary。\n"
+        "- 默认读前 2000 行；超长文件用 ``offset``(1-indexed) + ``limit`` 分段。\n"
+        "- **Read 会被记录**：``Edit``/``Write`` 改已存在文件前必须先完整 Read 一次\n"
+        "  （不传 offset/limit），否则被拒。\n\n"
         "Args:\n"
         "    file_path (`str`): 文件绝对路径。默认沙盒 ``/workspace/...``；\n"
         "        仅当用户要看他「我的空间」的文件时用 ``/myspace/...``。\n"

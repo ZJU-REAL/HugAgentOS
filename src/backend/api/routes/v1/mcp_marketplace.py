@@ -62,7 +62,6 @@ class InstallRequest(BaseModel):
     slug: str = Field(..., min_length=1, max_length=128)
     auth_method: Optional[str] = Field(None, min_length=1, max_length=64)
     credentials: Dict[str, str] = Field(default_factory=dict)
-    confirm_high_risk: bool = False
 
 
 class OAuthStartRequest(BaseModel):
@@ -71,7 +70,6 @@ class OAuthStartRequest(BaseModel):
     credentials: Dict[str, str] = Field(default_factory=dict)
     client_id: str = Field("", max_length=512)
     client_secret: str = Field("", max_length=2000)
-    confirm_high_risk: bool = False
 
 
 @router.post("/oauth/start", summary="启动 MCP OAuth 登录")
@@ -97,7 +95,6 @@ async def start_oauth(
             installed_by=user_id,
             auth_method=body.auth_method,
             credentials=body.credentials,
-            confirm_high_risk=body.confirm_high_risk,
             callback_url_base=mcp_oauth_service.public_oauth_callback_url(request),
             client_id=body.client_id,
             client_secret=body.client_secret,
@@ -169,7 +166,6 @@ async def install_item(
         installed_by=user_id,
         credentials=body.credentials,
         auth_method=body.auth_method,
-        confirm_high_risk=body.confirm_high_risk,
     )
     return created_response(data=result)
 

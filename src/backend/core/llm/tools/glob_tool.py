@@ -17,7 +17,6 @@ from core.services.project_scope import ProjectScope
 from . import myspace_vfs as _ms
 from ._common import resolve_sandbox_session, resp_json, sandbox_exec_bash, shell_quote
 from ._paths import (
-    PATH_POLICY_DOC,
     to_physical_path,
     validate_project_scope_path,
     validate_workspace_path,
@@ -134,14 +133,10 @@ def register_glob(
 
     Glob.__doc__ = (
         "按 glob 模式查找文件，按修改时间倒序返回前 100 条。\n\n"
-        + PATH_POLICY_DOC + "\n\n"
-        "本工具说明：\n"
-        "- ``path`` 默认 ``/workspace``（沙盒）。仅当用户要在他「我的空间」里\n"
-        "  找文件时，传 ``path='/myspace'``（或其子文件夹）——此时直接按我的\n"
-        "  空间真实文件夹树匹配，结果与 ``list_myspace_files`` 一致。\n"
-        "- ``pattern`` 两种风格：\n"
-        "    - 普通 glob：``*.py`` / ``report_*.xlsx``（只在 ``path`` 当层匹配）\n"
-        "    - 深度匹配：``**/*.py`` / ``src/**/test_*.py``（跨子目录）\n"
+        "- ``path`` 默认 ``/workspace``；传 ``/myspace``（或其子文件夹）则按我的\n"
+        "  空间真实目录树匹配。\n"
+        "- ``pattern``：普通 glob ``*.py``（只在 ``path`` 当层匹配）、深度匹配\n"
+        "  ``**/*.py`` / ``src/**/test_*.py``（跨子目录）。\n"
         "- 只返回文件（不返回目录）；最多 100 条，超出标 truncated=true。\n\n"
         "Args:\n"
         "    pattern (`str`): glob 模式。\n"

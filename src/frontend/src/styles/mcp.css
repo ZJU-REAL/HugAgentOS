@@ -6,7 +6,6 @@
   max-width: 840px;
   margin: 0 auto;
   padding: 32px 24px 60px;
-  font-family: 'PingFang SC', -apple-system, sans-serif;
 }
 
 /* ── Header ─────────────────────────────────────────────────────── */
@@ -17,6 +16,17 @@
   justify-content: space-between;
   margin-bottom: 24px;
 }
+
+/* antd 的 Spin 会在包裹层重新声明行高。插件页把整个卡片列表包在 Spin 里，列表文字的行高
+   因此和同页其他内容、以及技能/连接器/智能体三个页面对不上。内容排版不该因为外面多包了
+   一层加载态而改变，这里让包裹层透传上层行高。字体族已由 --font-family 真源统一，不需要
+   在这里再兜一次。 */
+.jx-mcp-page .ant-spin,
+.jx-mcp-page .ant-spin-nested-loading,
+.jx-mcp-page .ant-spin-container {
+  line-height: inherit;
+}
+
 
 .jx-mcp-title {
   font-size: 20px;
@@ -283,6 +293,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
 }
 
 .jx-mcp-cardName {

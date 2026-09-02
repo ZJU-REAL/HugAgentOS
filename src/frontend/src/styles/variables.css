@@ -105,9 +105,8 @@
   --space-xl:40px;
 
   /* ── 字体 ── */
-  --font-family:"PingFang SC","Microsoft YaHei","微软雅黑",sans-serif;
+  --font-family:"PingFang SC",-apple-system,sans-serif;
   --font-family-number:"DingTalk Sans","PingFang SC","Microsoft YaHei",sans-serif;
-  --font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
   --font-family-homepage:"Alibaba PuHuiTi 3.0","MiSans","HarmonyOS Sans SC","PingFang SC","Microsoft YaHei UI",sans-serif;
 
   /* ── 字号 ── */

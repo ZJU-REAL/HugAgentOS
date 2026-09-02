@@ -19,6 +19,10 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 _PROBE_TIMEOUT_S = 10.0
+# A remote provider answers over the public internet — often behind a proxy, and
+# with a large tool catalogue to enumerate — so it needs a far looser ceiling than
+# a local stdio server before a probe may call the endpoint unreachable.
+_REMOTE_PROBE_TIMEOUT_S = 60.0
 _ENC_PREFIX = "enc:v1:"
 _RUNTIME_SECRET_PREFIX = "__hugagent_runtime_secret__"
 _URL_OVERRIDE_STORAGE_KEY = f"{_RUNTIME_SECRET_PREFIX}url"
@@ -41,33 +45,10 @@ _PUBLIC_DOH_ENDPOINTS = (
     "https://cloudflare-dns.com/dns-query",
     "https://dns.google/resolve",
 )
-
-_HIGH_RISK_TERMS = {
-    "delete",
-    "drop",
-    "remove",
-    "destroy",
-    "execute",
-    "shell",
-    "command",
-    "payment",
-    "transfer",
-    "send_email",
-    "send_message",
-    "publish",
-    "admin",
-}
-_MEDIUM_RISK_TERMS = {
-    "create",
-    "update",
-    "write",
-    "edit",
-    "upload",
-    "post",
-    "insert",
-    "invite",
-    "approve",
-}
+# Install-time checks run once per user action, and a cold TLS handshake through
+# a corporate proxy or TUN client routinely costs several seconds, so the budget
+# must tolerate that instead of rejecting reachable public endpoints.
+_DNS_CHECK_TIMEOUT_S = 8.0
 
 
 def encrypt_mcp_headers(headers: Dict[str, str] | None) -> Dict[str, str]:
@@ -203,25 +184,6 @@ def tool_snapshot_hash(tools: Iterable[Dict[str, Any]] | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def assess_mcp_risk(tools: Iterable[Dict[str, Any]] | None) -> tuple[str, Dict[str, Any]]:
-    """Classify a reviewed tool snapshot and explain which tools raised the level."""
-    high: List[str] = []
-    medium: List[str] = []
-    for item in tools or []:
-        name = str(item.get("name") or "")
-        haystack = f"{name} {item.get('description') or ''}".lower().replace("-", "_")
-        if any(term in haystack for term in _HIGH_RISK_TERMS):
-            high.append(name)
-        elif any(term in haystack for term in _MEDIUM_RISK_TERMS):
-            medium.append(name)
-    level = "high" if high else "medium" if medium else "low"
-    return level, {
-        "high_risk_tools": sorted(set(high)),
-        "medium_risk_tools": sorted(set(medium)),
-        "requires_confirmation": bool(high),
-    }
-
-
 def _is_forbidden_ip(address: str) -> bool:
     ip = ipaddress.ip_address(address)
     return bool(
@@ -269,7 +231,9 @@ async def _resolve_public_dns_via_doh(hostname: str) -> set[str]:
     """
     for endpoint in _PUBLIC_DOH_ENDPOINTS:
         try:
-            async with httpx.AsyncClient(timeout=3.0, follow_redirects=False) as client:
+            async with httpx.AsyncClient(
+                timeout=_DNS_CHECK_TIMEOUT_S, follow_redirects=False
+            ) as client:
                 responses = await asyncio.gather(
                     *(
                         client.get(
@@ -342,7 +306,7 @@ async def validate_remote_mcp_url(
     try:
         infos = await asyncio.wait_for(
             asyncio.to_thread(socket.getaddrinfo, parsed.hostname, port, type=socket.SOCK_STREAM),
-            timeout=3.0,
+            timeout=_DNS_CHECK_TIMEOUT_S,
         )
     except Exception as exc:  # noqa: BLE001
         raise BadRequestError(message=f"MCP 服务域名解析失败：{type(exc).__name__}") from exc
@@ -398,10 +362,17 @@ async def probe_mcp_connectivity(
     row: AdminMcpServer,
     db: Session | None = None,
     oauth_provider: Any = None,
-    timeout_seconds: float = _PROBE_TIMEOUT_S,
+    timeout_seconds: float | None = None,
 ) -> tuple[bool, str]:
     """Return whether an MCP server can connect and enumerate its tools."""
     from core.services.mcp_service import McpServerConfigService
+
+    if timeout_seconds is None:
+        timeout_seconds = (
+            _REMOTE_PROBE_TIMEOUT_S
+            if row.transport in ("streamable_http", "sse")
+            else _PROBE_TIMEOUT_S
+        )
 
     cfg = McpServerConfigService.get_instance()._row_to_config(row)
     if oauth_provider is not None:

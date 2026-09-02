@@ -1018,11 +1018,7 @@ export interface McpMarketItem extends EditionMarketplaceItemFields {
   tools: McpMarketTool[];
   tool_count: number;
   tool_hash: string;
-  risk_level: 'low' | 'medium' | 'high';
-  risk_report: {
-    high_risk_tools?: string[];
-    medium_risk_tools?: string[];
-    requires_confirmation?: boolean;
+  listing_notice: {
     discovery_mode?: 'reviewed' | 'per_install';
     install_notice?: string;
     docs_url?: string;
@@ -1060,8 +1056,7 @@ export interface McpMarketSubmission {
   auth_config: McpMarketAuthConfig;
   tool_count: number;
   tool_hash: string;
-  risk_level: 'low' | 'medium' | 'high';
-  risk_report: Record<string, unknown>;
+  listing_notice: Record<string, unknown>;
   note: string;
   status: 'pending' | 'approved' | 'rejected';
   review_note: string;

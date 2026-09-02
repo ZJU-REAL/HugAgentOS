@@ -25,7 +25,6 @@ from core.db.models import (
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.services import marketplace_listing as ml
 from core.services.mcp_management_service import (
-    assess_mcp_risk,
     auth_schema_from_headers,
     decrypt_mcp_headers,
     encrypt_mcp_headers,
@@ -73,8 +72,8 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                 if existing_version and existing_version.approved_by == "system-curated":
                     schema = list(definition.get("auth_schema") or [])
                     auth_config = _normalize_auth_config(definition.get("auth_config"), schema)
-                    report = dict(existing_version.risk_report or {})
-                    report.update(
+                    notice = dict(existing_version.listing_notice or {})
+                    notice.update(
                         {
                             "discovery_mode": "per_install",
                             "install_notice": str(definition.get("install_notice") or ""),
@@ -87,7 +86,7 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                     changed = (
                         list(existing_version.auth_schema or []) != schema
                         or dict(existing_version.auth_config or {}) != auth_config
-                        or dict(existing_version.risk_report or {}) != report
+                        or dict(existing_version.listing_notice or {}) != notice
                         or (existing_item.description or "") != description
                         or (existing_item.user_intro or "") != user_intro
                         or (existing_item.icon or "") != icon
@@ -95,7 +94,7 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                     if changed:
                         existing_version.auth_schema = schema
                         existing_version.auth_config = auth_config
-                        existing_version.risk_report = report
+                        existing_version.listing_notice = notice
                         existing_item.description = description
                         existing_item.user_intro = user_intro
                         existing_item.icon = icon
@@ -115,19 +114,11 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                         updated = True
             continue
         tools = list(definition.get("tools") or [])
-        assessed_level, assessed_report = assess_mcp_risk(tools)
-        risk_level = str(definition.get("risk_level") or assessed_level)
-        risk_report = dict(assessed_report)
-        if risk_level == "high" and not risk_report.get("high_risk_tools"):
-            risk_report["high_risk_tools"] = [str(tool.get("name") or "") for tool in tools]
-        risk_report.update(
-            {
-                "requires_confirmation": risk_level == "high",
-                "discovery_mode": "per_install",
-                "install_notice": str(definition.get("install_notice") or ""),
-                "docs_url": str(definition.get("docs_url") or ""),
-            }
-        )
+        listing_notice = {
+            "discovery_mode": "per_install",
+            "install_notice": str(definition.get("install_notice") or ""),
+            "docs_url": str(definition.get("docs_url") or ""),
+        }
         version_id = f"mcpver_curated_{slug}"
         item = McpMarketItem(
             slug=slug,
@@ -162,8 +153,7 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                 ),
                 tools_json=tools,
                 tool_hash=tool_snapshot_hash(tools),
-                risk_level=risk_level,
-                risk_report=risk_report,
+                listing_notice=listing_notice,
                 source_server_id=None,
                 approved_by="system-curated",
                 approved_at=now,
@@ -396,8 +386,7 @@ def _item_dict(
         "tools": list(version.tools_json or []),
         "tool_count": len(version.tools_json or []),
         "tool_hash": version.tool_hash,
-        "risk_level": version.risk_level,
-        "risk_report": dict(version.risk_report or {}),
+        "listing_notice": dict(version.listing_notice or {}),
         "status": item.status,
         "status_reason": item.status_reason or "",
         "last_verified_at": item.last_verified_at.isoformat() if item.last_verified_at else None,
@@ -530,7 +519,6 @@ async def submit_to_marketplace(
     tools = list(row.tools_json or [])
     if not tools:
         raise BadRequestError(message="MCP 未发现任何工具，不能申请上架")
-    risk_level, risk_report = assess_mcp_risk(tools)
     template_url, auth_schema = _credential_free_connection(row)
     now = datetime.utcnow()
     submission = McpMarketSubmission(
@@ -552,8 +540,6 @@ async def submit_to_marketplace(
         auth_config=_normalize_auth_config(None, auth_schema),
         tools_json=tools,
         tool_hash=tool_snapshot_hash(tools),
-        risk_level=risk_level,
-        risk_report=risk_report,
         note=(note or "").strip(),
         status="pending",
         created_at=now,
@@ -584,8 +570,7 @@ def _submission_dict(row: McpMarketSubmission, *, detail: bool = False) -> Dict[
         "auth_config": _normalize_auth_config(row.auth_config, list(row.auth_schema or [])),
         "tool_count": len(row.tools_json or []),
         "tool_hash": row.tool_hash,
-        "risk_level": row.risk_level,
-        "risk_report": dict(row.risk_report or {}),
+        "listing_notice": dict(row.listing_notice or {}),
         "note": row.note or "",
         "status": row.status,
         "review_note": row.review_note or "",
@@ -689,7 +674,6 @@ def _publish_snapshot(
     # same stable marketplace slug without colliding on the primary key.
     item = db.query(McpMarketItem).filter(McpMarketItem.slug == slug).first()
     version_id = f"mcpver_{uuid.uuid4().hex}"
-    risk_level, risk_report = assess_mcp_risk(tools)
     if item is None:
         item = McpMarketItem(
             slug=slug,
@@ -736,8 +720,6 @@ def _publish_snapshot(
             auth_config=_normalize_auth_config(auth_config, auth_schema),
             tools_json=tools,
             tool_hash=tool_snapshot_hash(tools),
-            risk_level=risk_level,
-            risk_report=risk_report,
             source_server_id=source_server_id,
             approved_by=approved_by,
             approved_at=now,
@@ -1031,8 +1013,8 @@ async def publish_admin_server(
     db.flush()
     if allow_deferred_discovery:
         market_version = _version_for_item(db, item)
-        market_version.risk_report = {
-            **dict(market_version.risk_report or {}),
+        market_version.listing_notice = {
+            **dict(market_version.listing_notice or {}),
             "discovery_mode": "per_install",
             "install_notice": "该 MCP 的完整工具清单将在用户完成认证后动态发现。",
         }
@@ -1213,7 +1195,6 @@ async def install_market_item(
     credentials: Optional[Dict[str, str]] = None,
     auth_method: Optional[str] = None,
     oauth_bundle: Optional[Dict[str, Any]] = None,
-    confirm_high_risk: bool = False,
 ) -> Dict[str, Any]:
     item = (
         db.query(McpMarketItem)
@@ -1243,9 +1224,6 @@ async def install_market_item(
         raise BadRequestError(message="请先完成 OAuth 登录")
     if selected["type"] != "oauth2" and oauth_bundle:
         raise BadRequestError(message="当前认证方式不能写入 OAuth 凭据")
-    if version.risk_level == "high" and not confirm_high_risk:
-        raise BadRequestError(message="该 MCP 包含高风险操作，安装前必须明确确认风险")
-
     existing = db.query(McpMarketInstallation).filter(McpMarketInstallation.slug == slug)
     existing = (
         existing.filter(McpMarketInstallation.owner_user_id.is_(None))
@@ -1319,8 +1297,7 @@ async def install_market_item(
             ),
             "market_slug": slug,
             "market_version": version.version,
-            "risk_level": version.risk_level,
-            "risk_report": dict(version.risk_report or {}),
+            "listing_notice": dict(version.listing_notice or {}),
             "auth_method": selected_method,
         },
         tools_json=list(version.tools_json or []),
@@ -1335,15 +1312,10 @@ async def install_market_item(
     ok, error = await probe_mcp_connectivity(candidate, db)
     if not ok:
         raise BadRequestError(message=f"MCP 安装检测失败：{error}")
-    discovery_mode = str((version.risk_report or {}).get("discovery_mode") or "reviewed")
-    effective_risk, effective_report = assess_mcp_risk(candidate.tools_json or [])
+    discovery_mode = str((version.listing_notice or {}).get("discovery_mode") or "reviewed")
     if discovery_mode == "per_install":
-        if effective_risk == "high" and not confirm_high_risk:
-            raise BadRequestError(message="该 MCP 实际返回了高风险工具，请确认风险后重新安装")
         candidate.extra_config = {
             **dict(candidate.extra_config or {}),
-            "risk_level": effective_risk,
-            "risk_report": effective_report,
             "discovery_mode": discovery_mode,
         }
     else:
@@ -1354,7 +1326,6 @@ async def install_market_item(
             item.updated_at = now
             db.commit()
             raise BadRequestError(message="远程 MCP 工具清单已发生变化，已暂停安装并等待重新审核")
-        effective_risk = version.risk_level
 
     server = existing_server or AdminMcpServer(server_id=server_id)
     for field in (
@@ -1412,7 +1383,6 @@ async def install_market_item(
         "server_id": server.server_id,
         "slug": slug,
         "version": version.version,
-        "risk_level": effective_risk,
         "action": action,
     }
 
@@ -1709,7 +1679,7 @@ async def revalidate_market_item(
     if not item:
         raise ResourceNotFoundError("mcp_market_item", slug)
     version = _version_for_item(db, item)
-    if str((version.risk_report or {}).get("discovery_mode") or "") == "per_install":
+    if str((version.listing_notice or {}).get("discovery_mode") or "") == "per_install":
         # Curated templates have no shared provider credential, so their live
         # tools are intentionally discovered with each installer's credential.
         # Revalidation checks only a fixed public endpoint; private endpoint

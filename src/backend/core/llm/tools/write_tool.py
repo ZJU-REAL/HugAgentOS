@@ -34,7 +34,6 @@ from ._common import (
     upsert_myspace_artifact,
 )
 from ._paths import (
-    PATH_POLICY_DOC,
     basename,
     is_myspace_physical,
     parent_dir,
@@ -342,7 +341,7 @@ def register_write(
         return resp_json(payload)
 
     Write.__doc__ = (
-        "创建文件或全量覆盖已存在文件。\n\n" + PATH_POLICY_DOC + "\n\n"
+        "创建文件或全量覆盖已存在文件。\n\n"
         "写 ``/myspace/<文件夹>/<文件名>`` 时目录层级会映射到我的空间目录树"
         "（缺失文件夹自动建），写入立即同步、同名文件保持同一 file_id。\n\n"
         "**前置**：覆盖现存文件前必须先 ``Read`` 完整读过（不传 offset/limit），否则被拒；"

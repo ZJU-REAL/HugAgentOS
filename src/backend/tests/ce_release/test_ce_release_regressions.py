@@ -261,6 +261,84 @@ def test_ce_schema_reconcile_repairs_legacy_sqlite_columns(tmp_path):
         engine.dispose()
 
 
+def test_ce_mcp_market_risk_migration_preserves_existing_notices(tmp_path):
+    import importlib.util
+    import json
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine
+
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "ce_0008_drop_mcp_market_risk_level.py"
+    )
+    spec = importlib.util.spec_from_file_location("ce_0008_migration", migration_path)
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'ce-marketplace-upgrade.db'}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE mcp_market_versions ("
+                "id VARCHAR(64) PRIMARY KEY, "
+                "risk_level VARCHAR(16) NOT NULL DEFAULT 'low', "
+                "risk_report JSON)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TABLE mcp_market_submissions ("
+                "id VARCHAR(64) PRIMARY KEY, "
+                "risk_level VARCHAR(16) NOT NULL DEFAULT 'low', "
+                "risk_report JSON, "
+                "listing_notice JSON)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_market_versions (id, risk_level, risk_report) "
+                "VALUES ('v1', 'high', '{\"docs_url\":\"https://example.test/version\"}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO mcp_market_submissions "
+                "(id, risk_level, risk_report, listing_notice) "
+                "VALUES ('s1', 'medium', "
+                "'{\"docs_url\":\"https://example.test/submission\"}', NULL)"
+            )
+        )
+
+        context = MigrationContext.configure(connection)
+        with Operations.context(context):
+            migration.upgrade()
+
+        expected_urls = {
+            "mcp_market_versions": "https://example.test/version",
+            "mcp_market_submissions": "https://example.test/submission",
+        }
+        for table, expected_url in expected_urls.items():
+            columns = {
+                column["name"] for column in inspect_database(connection).get_columns(table)
+            }
+            assert "listing_notice" in columns
+            assert "risk_level" not in columns
+            assert "risk_report" not in columns
+            notice = connection.execute(
+                text(f'SELECT listing_notice FROM "{table}"')
+            ).scalar_one()
+            if isinstance(notice, str):
+                notice = json.loads(notice)
+            assert notice["docs_url"] == expected_url
+
+    engine.dispose()
+
+
 def test_ce_startup_seams_and_compose_defaults_are_ce_safe():
     from core.services.edition_startup import (
         bootstrap_edition_plugins,

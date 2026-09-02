@@ -44,15 +44,13 @@ def register_pin_to_workspace(
         任何二进制产物），生成完**必须**调本工具收尾：没 pin = 用户看不到。纯文字
         回答不调。
 
-        **一次传完所有产物**：同时给 Word+Excel+图表就一次
-        ``pin_to_workspace(file_ids=["fid_a","fid_b","fid_c"])``，不要分三次；单个也传
-        列表。中间稿（编辑链里的临时文件、调试草图）不要 pin。重复调用会累加、已 pin
-        的自动去重，个别 ID 失败不影响其余文件交付。
+        **一次传完所有产物**：``pin_to_workspace(file_ids=["fid_a","fid_b","fid_c"])``，
+        不要分多次；单个也传列表。中间稿（编辑链里的临时文件、调试草图）不要 pin。
+        重复调用会累加、已 pin 的自动去重，个别 ID 失败不影响其余文件交付。
 
-        **file_id 从哪来**：沙盒里生成的文件先 ``sandbox_get_artifact`` 登记拿 ID；
-        ``generate_chart_tool`` 等工具和 word/ppt/excel/pdf-cli 直接返回 ID；用户上传或
-        我的空间里的文件用 ``list_myspace_files`` 拿 ID。**只传 ID，不要传路径或文件名**
-        （含 ``/`` 或 ``.docx`` 就是错的）。
+        **只传 ID，不要传路径或文件名**（含 ``/`` 或 ``.docx`` 就是错的）。ID 来源：
+        沙盒文件先 ``sandbox_get_artifact`` 登记；``generate_chart_tool`` 与
+        word/ppt/excel/pdf-cli 直接返回；我的空间文件用 ``list_myspace_files``。
 
         Args:
             file_ids (`List[str]`):

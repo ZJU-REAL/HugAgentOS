@@ -27,7 +27,7 @@ def _tool(
     }
 
 
-# ``risk_report.discovery_mode = per_install`` means the examples below are
+# ``listing_notice.discovery_mode = per_install`` means the examples below are
 # descriptive only.  The authenticated endpoint is probed on every install and
 # the concrete private MCP instance keeps the tools actually returned for that
 # user/token.  This is necessary because official providers can vary tools by
@@ -59,7 +59,6 @@ CURATED_MCP_MARKET_ITEMS: List[Dict[str, Any]] = [
             }
         ],
         "auth_config": {"default_method": "token", "methods": [{"id": "token", "type": "token", "label": "API Key"}]},
-        "risk_level": "low",
         "tools": [
             _tool("maps_geo", "将结构化地址转换为经纬度坐标。", {"address": {"type": "string"}}, ["address"]),
             _tool("maps_regeocode", "将经纬度坐标转换为结构化地址。", {"location": {"type": "string"}}, ["location"]),
@@ -98,7 +97,6 @@ CURATED_MCP_MARKET_ITEMS: List[Dict[str, Any]] = [
             }
         ],
         "auth_config": {"default_method": "token", "methods": [{"id": "token", "type": "token", "label": "API Key"}]},
-        "risk_level": "low",
         "tools": [
             _tool(
                 "metaso_web_search",
@@ -155,7 +153,6 @@ CURATED_MCP_MARKET_ITEMS: List[Dict[str, Any]] = [
                 },
             ],
         },
-        "risk_level": "high",
         "tools": [
             _tool("get_file_contents", "读取仓库文件或目录内容。"),
             _tool("search_code", "搜索 GitHub 代码。"),
@@ -208,7 +205,6 @@ CURATED_MCP_MARKET_ITEMS: List[Dict[str, Any]] = [
                 {"id": "token", "type": "token", "label": "已有 OAuth Access Token"},
             ],
         },
-        "risk_level": "high",
         "tools": [
             _tool("get_issue", "读取 GitLab Issue。"),
             _tool("create_issue", "创建 GitLab Issue。"),
@@ -245,7 +241,6 @@ CURATED_MCP_MARKET_ITEMS: List[Dict[str, Any]] = [
             }
         ],
         "auth_config": {"default_method": "endpoint", "methods": [{"id": "endpoint", "type": "token", "label": "个人服务地址"}]},
-        "risk_level": "medium",
         "tools": [
             _tool("sls_list_projects", "列出可访问的日志项目。"),
             _tool("sls_execute_sql", "在 SLS 中执行 SQL 查询。"),
@@ -256,5 +251,43 @@ CURATED_MCP_MARKET_ITEMS: List[Dict[str, Any]] = [
         ],
         "install_notice": "阿里云官方明确不建议把配置了 AK/SK 的服务无保护暴露到公网。HugAgentOS 不直接收集云 AK/SK；这里只保存你个人的受保护 SSE 地址。部分智能分析工具可能产生 STAROps 费用。",
         "docs_url": "https://help.aliyun.com/en/cms/cloudmonitor-2-0/use-cases/observable-mcp-service-access-to-implement-data-query-and-analysis",
+    },
+    {
+        "slug": "notion-official",
+        "display_name": "Notion MCP",
+        "description": "Notion 官方远程 MCP，可搜索、读取、创建和更新工作区的页面与数据库，并访问评论、成员和团队空间。",
+        "user_intro": "适合知识库检索、会议纪要整理、文档撰写和项目表格维护。安装时用浏览器登录 Notion 授权即可，无需自建应用或粘贴令牌。",
+        "category": "办公协作",
+        "tags": ["Notion", "知识库", "文档", "数据库", "协作", "官方"],
+        "icon": "/home/mcp/knowledge.svg",
+        "publisher_name": "Notion",
+        "version": "official-2026.09",
+        "transport": "streamable_http",
+        "url": "https://mcp.notion.com/mcp",
+        "auth_schema": [],
+        "auth_config": {
+            "default_method": "oauth2",
+            "methods": [
+                {
+                    "id": "oauth2",
+                    "type": "oauth2",
+                    "label": "OAuth 登录",
+                    "client_registration": "dynamic",
+                    "scopes": [],
+                    "help_text": "Notion 支持动态客户端注册，浏览器登录并选择要授权的工作区即可，系统使用 PKCE 保存并自动刷新令牌。",
+                }
+            ],
+        },
+        "tools": [
+            _tool("notion-search", "搜索 Notion 工作区及已连接应用中的内容。", {"query": {"type": "string"}}, ["query"]),
+            _tool("notion-fetch", "读取页面、数据库、数据源或视图的内容。", {"id": {"type": "string"}}, ["id"]),
+            _tool("notion-create-pages", "创建一个或多个页面并写入属性与正文。"),
+            _tool("notion-update-page", "更新页面的属性、正文、图标或封面。"),
+            _tool("notion-query-data-sources", "按条件查询数据源或运行已有视图。"),
+            _tool("notion-create-comment", "在页面或指定内容上发表评论。"),
+            _tool("notion-get-users", "查询工作区成员与访客信息。"),
+        ],
+        "install_notice": "授权后该连接器可读写你在所选工作区里能访问的全部内容，建议在 Notion 授权页只勾选需要的页面或团队空间。企业版可在 Notion 的 Settings → Connections 统一查看和吊销连接。",
+        "docs_url": "https://developers.notion.com/guides/mcp/overview",
     },
 ]
