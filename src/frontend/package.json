@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-i18n.mjs && node scripts/check-dark-mode.mjs && tsc -b && vite build && node scripts/precompress-dist.mjs",
+    "build": "node scripts/check-i18n.mjs && node scripts/check-dark-mode.mjs && node scripts/check-loading-motion.mjs && tsc -b && vite build && node scripts/precompress-dist.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:dark": "node scripts/check-dark-mode.mjs",
+    "check:motion": "node scripts/check-loading-motion.mjs",
     "test:chat-stream": "esbuild scripts/test-chat-stream-segments.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-chat-stream-segments.mjs && node node_modules/.tmp/test-chat-stream-segments.mjs",
     "test:context-usage": "esbuild scripts/test-context-usage.ts --bundle --platform=node --format=esm --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-context-usage.mjs && node node_modules/.tmp/test-context-usage.mjs",
     "test:kb-assets": "node scripts/run-kb-asset-test.mjs",

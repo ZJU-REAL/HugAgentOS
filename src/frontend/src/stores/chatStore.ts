@@ -7,7 +7,7 @@ import type {
   ContextUsageSnapshot,
   PlanProgressState,
 } from '../types';
-import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY, writeLocal, removeLocal } from '../storage';
+import { loadChatStore, saveChatStoreDebounced, flushChatStore, nowId, newDraftChatId, isDraftChatId, userScopedKey, purgeLegacyUnscopedKeys, mergeChatStores, registerDeletedChatId, setStreamingIdsProvider, subscribeChatStoreChanges, STORAGE_KEY, writeLocal, removeLocal } from '../storage';
 import { usePageConfigStore } from './pageConfigStore';
 import { usePluginStore } from './pluginStore';
 import { t } from '../i18n';
@@ -85,7 +85,20 @@ function loadCurrentChatId(userId: string | null | undefined) {
     const tabLocal = window.sessionStorage.getItem(key);
     if (tabLocal) return tabLocal;
   } catch { /* sessionStorage 不可用时退回 localStorage */ }
-  return window.localStorage.getItem(key) || nowId('chat');
+  return window.localStorage.getItem(key) || newDraftChatId(userId);
+}
+
+/** 这段对话只在浏览器里存在、服务端还没有：登记过是本地草稿、不在服务端会话列表里、
+ *  本地也一条消息都没有。三条同时成立才算 —— 任何一条不成立都退回原来的行为（照常
+ *  请求服务端），所以自动化生成、通知点进来的会话不会被误判。
+ *
+ *  用途是免掉必然 404 的会话详情 / 待确认 / 待回答提问请求：浏览器会把 404 响应打成
+ *  红色报错，刷新一次刷屏一片，看着像页面坏了。 */
+export function isLocalDraftChat(chatId: string): boolean {
+  const s = useChatStore.getState();
+  if (!chatId || s.backendSessionIds.has(chatId)) return false;
+  if ((s.store.chats[chatId]?.messages?.length ?? 0) > 0) return false;
+  return isDraftChatId(s.currentUserId, chatId);
 }
 
 function saveCurrentChatId(userId: string | null | undefined, chatId: string) {
@@ -866,7 +879,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     // inPlace: always switch the current chat in place (no new chat, no navigation).
     // Otherwise: current chat has no messages yet → reuse in place; has messages → create a new chat in that mode.
     const reuse = inPlace || !existing || existing.messages.length === 0;
-    const targetId = reuse ? currentChatId : nowId('chat');
+    const targetId = reuse ? currentChatId : newDraftChatId(currentUserId);
     const base: ChatItem = reuse && existing
       ? existing
       : {
@@ -960,7 +973,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     const now = Date.now();
     // If the current chat is empty and this isn't an edit, reuse in place; otherwise create a new site-building chat (consistent with enterChatMode).
     const reuse = !isEdit && (!existing || existing.messages.length === 0);
-    const targetId = reuse ? currentChatId : nowId('chat');
+    const targetId = reuse ? currentChatId : newDraftChatId(currentUserId);
     const base: ChatItem = reuse && existing
       ? existing
       : {
@@ -1013,7 +1026,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
 
   newChat: () => {
-    const id = nowId('chat');
+    const id = newDraftChatId(get().currentUserId);
     saveCurrentChatId(get().currentUserId, id);
     set({
       currentChatId: id,
@@ -1063,7 +1076,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     saveChatStoreDebounced(currentUserId, next);
     saveQueuedMessages(currentUserId, nextQueued);
     if (currentChatId === id) {
-      const newId = next.order[0] || nowId('chat');
+      const newId = next.order[0] || newDraftChatId(currentUserId);
       const nextChat = next.chats[newId];
       saveCurrentChatId(currentUserId, newId);
       set({

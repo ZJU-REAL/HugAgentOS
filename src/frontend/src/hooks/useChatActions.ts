@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { Modal, message } from 'antd';
 import { t } from '../i18n';
 import { authFetch } from '../api';
-import { nowId, registerDeletedChatId } from '../storage';
+import { newDraftChatId, registerDeletedChatId } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { triggerPdfDownload, toSafeFileName } from '../utils/export';
 import { SUMMARY_MAX_ROUNDS } from '../utils/constants';
@@ -31,7 +31,7 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   function newChat(inputRef: React.RefObject<HTMLTextAreaElement | null>) {
-    const id = nowId('chat');
+    const id = newDraftChatId(useChatStore.getState().currentUserId);
     if (useAutomationChatStore.getState().activeGroup) {
       useAutomationChatStore.getState().exitAutomationChat();
     }
@@ -60,7 +60,7 @@ export function useChatActions(effectiveApiUrl: string) {
           const next = { chats: { ...prev.chats }, order: (prev.order || []).filter((x) => x !== id) };
           delete (next.chats as any)[id];
           if (currentChatId === id) {
-            const nextId = next.order?.[0] || nowId('chat');
+            const nextId = next.order?.[0] || newDraftChatId(useChatStore.getState().currentUserId);
             setCurrentChatId(nextId);
           }
           return next;

@@ -19,12 +19,22 @@
   from { opacity: 0; transform: translateY(var(--fadeInUp-distance, 10px)); }
   to   { opacity: 1; transform: translateY(0); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-fadeInUp { from, to { opacity: 1; transform: translateY(0) } }
+}
+
 .jx-anim-fadeInUp {
   animation: jx-kf-fadeInUp var(--motion-duration-slow) var(--motion-ease-brand-out) backwards;
 }
 
 /* 2. fade-in：纯透明度入场（不适合位移的大面积区域 / iframe 容器） */
 @keyframes jx-kf-fadeIn { from { opacity: 0; } to { opacity: 1; } }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-fadeIn { from, to { opacity: 1 } }
+}
+
 .jx-anim-fadeIn {
   animation: jx-kf-fadeIn var(--motion-duration-normal) var(--motion-ease-standard) backwards;
 }
@@ -34,6 +44,11 @@
   from { opacity: 0; transform: translateY(6px) scale(.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-scaleIn { from, to { opacity: 1; transform: translateY(0) scale(1) } }
+}
+
 .jx-anim-scaleIn {
   animation: jx-kf-scaleIn var(--motion-duration-fast) var(--motion-ease-brand-out) backwards;
   transform-origin: top center;
@@ -52,6 +67,7 @@
   0%, 100% { opacity: .35; }
   50%      { opacity: .85; }
 }
+/* motion-keep: 通用「进行中」脉冲工具类 */
 .jx-anim-pulse { animation: jx-kf-pulse 1.6s var(--motion-ease-standard) infinite; }
 
 /* 6. shimmer：骨架屏流光 */
@@ -59,6 +75,7 @@
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+/* motion-keep: 通用「加载中」流光工具类 */
 .jx-anim-shimmer {
   background: linear-gradient(90deg,
     var(--color-bg-gray) 0%, var(--color-fill-hover) 50%, var(--color-bg-gray) 100%);
@@ -74,6 +91,11 @@
   0%   { background-color: var(--flash-color, var(--color-primary-bg)); }
   100% { background-color: transparent; }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-flash { from, to { background-color: transparent } }
+}
+
 .jx-anim-flash { animation: jx-kf-flash var(--flash-dur, 1.2s) var(--motion-ease-standard) 1; }
 .jx-anim-flash-row > td { animation: jx-kf-flash var(--flash-dur, 1.2s) var(--motion-ease-standard) 1; }
 
@@ -82,6 +104,11 @@
   from { opacity: 0; transform: scale(.7); }
   to   { opacity: 1; transform: scale(1); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-statusIn { from, to { opacity: 1; transform: scale(1) } }
+}
+
 .jx-anim-statusIn {
   animation: jx-kf-statusIn var(--motion-duration-fast) var(--motion-ease-brand-out) backwards;
 }
@@ -92,7 +119,13 @@
   from { transform: scale(1); opacity: .45; }
   to   { transform: scale(var(--ripple-scale, 1.9)); opacity: 0; }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-ripple { from, to { transform: scale(var(--ripple-scale, 1.9)); opacity: 0 } }
+}
+
 .jx-anim-ripple { position: relative; }
+/* motion-stop: 涟漪强调，纯装饰 */
 .jx-anim-ripple::after {
   content: '';
   position: absolute;
@@ -109,6 +142,11 @@
   25%      { transform: translateX(-3px); }
   75%      { transform: translateX(3px); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-kf-shakeX { from, to { transform: translateX(0) } }
+}
+
 .jx-anim-shake { animation: jx-kf-shakeX .3s var(--motion-ease-standard) 1; }
 
 /* 11. card-lift：卡片 hover 抬升三件套（transition + hover + 按压回落）。
@@ -121,29 +159,33 @@
 .jx-card-lift:hover { transform: translateY(-2px); }
 .jx-card-lift:active { transform: translateY(0); transition-duration: var(--motion-duration-instant); }
 
-/* ══════════ 无障碍：reduced motion 全局降级 ══════════
- * 策略：动画压到 1ms（保留 fill-mode 终态），过渡直接归零。
- * 不能把全局 transition-duration 设成正数：CSS 初始 transition-property 是 all，
- * 这会让 Ant Design 弹层定位用的 left/top 也产生过渡；rc-trigger 在同一帧同步测量时
- * 会读到 -1000vw 的动画起点，导致下拉框永久停在屏幕外。
- * 白名单豁免纯 opacity 的"系统在工作"指示器（降速保留，去掉会损害可用性）。
- * 区域内需保留的工作指示器可自挂 .jx-anim-keep 进入白名单。
- * 旧的零散 @media (prefers-reduced-motion) 块已由本规则统一替代。 */
+/* ══════════ 无障碍：reduced motion ══════════
+ * 边界：**我们只降级自己的动效**，第三方组件的动效交给它自己的开关。
+ *
+ * 1) 过渡（transition）全局归零。过渡是一次性的，归零不会让任何东西看起来卡住。
+ *    不能改成正数：CSS 初始 transition-property 是 all，会让 Ant Design 弹层定位用的
+ *    left/top 也产生过渡；rc-trigger 在同一帧同步测量时会读到 -1000vw 的动画起点，
+ *    导致下拉框永久停在屏幕外。
+ *
+ * 2) 动画（animation）**不做全局压制**。历史上这里是一条
+ *    `*{animation-iteration-count:1 !important}`，它会把一切循环动画冻住——包括第三方
+ *    组件的加载转圈。转圈停下就不再表示「在跑」，只剩一枚静止残圈，比动起来更像卡死；
+ *    而 antd 里只有 Spin 输出 aria-busy，按钮 / 下拉 / 上传的转圈都没有任何可判定的语义，
+ *    我们又不该去枚举别人家的类名来挽救（人家改版就悄悄失效）。
+ *    现在改为：**每条装饰性关键帧在自己的定义处就地给出一份「定格在终态」的同名覆盖版**
+ *    （同名 @keyframes 后定义者胜，用到它的规则自动一起降级，不需要任何选择器，
+ *    也就不可能误伤第三方）。工作指示器的关键帧不给覆盖版，于是原样继续动。
+ *    构建门禁 scripts/check-loading-motion.mjs 强制每条关键帧二选一，漏了就挂构建。
+ *
+ * 3) antd 自己的动效由它自己的 motion token 关闭（见 appTheme.ts）：该开关只归零过渡
+ *    时长，不碰 Spin / 按钮 loading 的转圈——正是我们要的语义。
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0s !important;
     transition-delay: 0s !important;
     scroll-behavior: auto !important;
-  }
-  .jx-streamingDot,
-  .jx-skeletonBlock,
-  .jx-anim-shimmer,
-  .jx-anim-keep {
-    animation-duration: 2.4s !important;
-    animation-iteration-count: infinite !important;
   }
 }

@@ -98,7 +98,7 @@ export default function SharePreviewApp() {
   if (loading) {
     return (
       <div className="jx-sharePage">
-        <div className="jx-shareCard jx-shareCardSkeleton" aria-hidden="true">
+        <div className="jx-shareCard jx-shareCardSkeleton" aria-hidden="true" aria-busy="true">
           <div className="jx-shareHeader">
             <div className="jx-shareHeaderTop">
               <div className="jx-skeletonBlock jx-sharePreviewSkEyebrow" />

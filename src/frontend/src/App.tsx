@@ -48,7 +48,7 @@ import { CreateKBModal, ReindexModal } from './components/kb';
 import { BatchConfirmModal } from './components/batch';
 import {
   useUIStore, useChatStore, useCatalogStore, useCanvasStore, useAuthStore,
-  useAutomationChatStore, useModelCapabilitiesStore, useEditionStore,
+  useAutomationChatStore, useModelCapabilitiesStore, useEditionStore, isLocalDraftChat,
 } from './stores';
 import type { ChatMode } from './stores/chatStore';
 import { RunTimelinePanel } from './components/automation/RunTimelinePanel';
@@ -395,6 +395,8 @@ export default function App() {
   // restore from it (or clear ones that are no longer valid).
   useEffect(() => {
     if (!authUser || !currentChatId) return;
+    // 只在浏览器里存在、还没发过一句话的新对话：服务端没有它，两个恢复请求必然 404。
+    if (isLocalDraftChat(currentChatId)) return;
     let cancelled = false;
     const chatId = currentChatId;
     const questionIdsAtRequestStart = new Set(

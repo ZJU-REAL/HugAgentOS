@@ -469,6 +469,12 @@
     transform:translateY(-56px);
   }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-appCenterFadeIn { from, to { opacity:1;
+    transform:translateY(-56px) } }
+}
+
 
 /* Skill metadata card */
 .jx-skillMeta{

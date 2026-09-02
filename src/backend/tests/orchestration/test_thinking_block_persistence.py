@@ -34,7 +34,7 @@ def run_env(tmp_path, monkeypatch):
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(executor, "SessionLocal", sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     executor._active_runs.clear()
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))

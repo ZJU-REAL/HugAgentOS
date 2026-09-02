@@ -9,7 +9,7 @@ import {
   distanceFromBottom,
   scrollElementToBottom,
 } from '../../utils/scroll';
-import { useChatStore, useBatchStore, useEditionStore, usePluginUiStore, useUIStore } from '../../stores';
+import { useChatStore, useBatchStore, useEditionStore, usePluginUiStore, useUIStore, isLocalDraftChat } from '../../stores';
 import { resolveText } from '../../plugin-ui';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { useAgentStore } from '../../stores/agentStore';
@@ -210,7 +210,8 @@ export function ChatArea({
   // Proactively fetch the access level when switching sessions — even if ChatShareBanner
   // is not mounted because it hit the hasNoMessages early-return branch, we still need to know the read level to hide the input box.
   useEffect(() => {
-    if (!currentChatId) {
+    // 只在浏览器里存在、还没发过一句话的新对话：服务端没有它，问详情必然 404。
+    if (!currentChatId || isLocalDraftChat(currentChatId)) {
       setShareAccessLevel(null);
       return;
     }
@@ -341,7 +342,7 @@ export function ChatArea({
       return <div className="jx-emptyPage jx-chatSkeleton" />;
     }
     return (
-      <div className="jx-emptyPage jx-chatSkeleton">
+      <div className="jx-emptyPage jx-chatSkeleton" aria-busy="true">
         <div className="jx-chatSkeletonCenter">
           <div className="jx-chatSkeletonHero">
             <div className="jx-skeletonBlock jx-chatSkeletonTitle" />

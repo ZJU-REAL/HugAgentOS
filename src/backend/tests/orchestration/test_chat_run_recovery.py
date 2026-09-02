@@ -131,7 +131,7 @@ def test_active_run_probe_hides_internal_agent_rows(recovery_env):
 async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-agent-timeout",
@@ -249,7 +249,7 @@ async def test_legacy_regenerate_stream_injects_a_durable_tool_binding(recovery_
 async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-tool-unknown",
@@ -290,7 +290,7 @@ async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monk
 async def test_plan_generate_fences_late_message_after_lease_takeover(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-generate-fenced",
@@ -353,7 +353,7 @@ async def test_plan_generate_commits_message_and_terminal_state_atomically(
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-generate-complete",
@@ -419,7 +419,7 @@ async def test_autonomous_worker_pauses_nested_unknown_without_partial_stale_wri
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-loop-tool-unknown",
@@ -459,7 +459,7 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-loop-project-fenced",
@@ -960,7 +960,7 @@ async def test_public_start_follow_and_history_complete_on_durable_offsets(
             "usage": {"input_tokens": 2, "output_tokens": 2},
         }
 
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
     monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
     monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
@@ -1002,7 +1002,7 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-partial-stream",
@@ -1074,7 +1074,7 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
 async def test_active_run_probe_replays_the_complete_existing_prefix(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-refresh-replay",
@@ -1201,7 +1201,7 @@ async def test_reaper_terminal_cancels_worker_without_late_user_cancel_projectio
         yield {"type": "model_progress"}
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(executor, "get_redis", lambda: redis)
+    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
     monkeypatch.setattr(executor, "astream_chat_workflow", blocked_workflow)
     run = await executor.start_run(
         chat_id="chat-1",

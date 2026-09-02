@@ -2014,8 +2014,12 @@ async def follow_run(run_id: str, *, from_offset: int = 0) -> AsyncIterator[Dict
     2. XREAD STREAMS key {last_id} BLOCK 5000 blocks waiting for new events
     3. Stop when a ``__terminal__``-typed event is received
     4. Block timeout + run in a terminal state → exit gracefully (backstop so the follower never hangs forever)
+
+    Uses the dedicated stream pool: the blocking read below holds its
+    connection for the whole BLOCK window, so followers must not draw from the
+    connections that ordinary API requests need.
     """
-    redis = get_redis()
+    redis = get_redis(blocking=True)
     key = _stream_key(run_id)
 
     run = get_run(run_id)

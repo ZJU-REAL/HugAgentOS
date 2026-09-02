@@ -128,7 +128,7 @@ function DocxRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
   if (error) return <div className="jx-canvas-error">{error}</div>;
   return (
     <>
-      {loading && <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在渲染文档…')}</span></div>}
+      {loading && <div className="jx-canvas-loading" aria-busy="true"><div className="jx-canvas-spinner" /><span>{t('正在渲染文档…')}</span></div>}
       {/* fadeIn class is only attached once rendering finishes, so the entrance
           animation starts exactly when the document becomes visible. */}
       <div
@@ -209,7 +209,7 @@ function PptRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
   }, [maxBytes, url]);
 
   if (error) return <div className="jx-canvas-error">{error}</div>;
-  if (loading || !pdfUrl) return <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在渲染演示文稿…')}</span></div>;
+  if (loading || !pdfUrl) return <div className="jx-canvas-loading" aria-busy="true"><div className="jx-canvas-spinner" /><span>{t('正在渲染演示文稿…')}</span></div>;
 
   return (
     <div className="jx-canvas-pdf">
@@ -263,7 +263,7 @@ function TextRenderer({ url, maxBytes }: { url: string; maxBytes: number }) {
   const { content, loading, error } = useRemoteText(url, maxBytes);
 
   if (error) return <div className="jx-canvas-error">{error}</div>;
-  if (loading) return <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在加载…')}</span></div>;
+  if (loading) return <div className="jx-canvas-loading" aria-busy="true"><div className="jx-canvas-spinner" /><span>{t('正在加载…')}</span></div>;
   return (
     <div className="jx-canvas-text jx-canvas-fadeIn">
       <pre className="jx-canvas-text-pre">{content}</pre>
@@ -275,7 +275,7 @@ function MarkdownRenderer({ url, maxBytes }: { url: string; maxBytes: number }) 
   const { content, loading, error } = useRemoteText(url, maxBytes);
 
   if (error) return <div className="jx-canvas-error">{error}</div>;
-  if (loading) return <div className="jx-canvas-loading"><div className="jx-canvas-spinner" /><span>{t('正在加载…')}</span></div>;
+  if (loading) return <div className="jx-canvas-loading" aria-busy="true"><div className="jx-canvas-spinner" /><span>{t('正在加载…')}</span></div>;
   return (
     <CitationMarkdownBlock
       text={content}

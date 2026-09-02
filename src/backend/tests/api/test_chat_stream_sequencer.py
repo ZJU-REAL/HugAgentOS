@@ -398,6 +398,86 @@ def test_edit_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
     engine.dispose()
 
 
+def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
+    import api.routes.v1.chats as chats
+    from core.services.chat_service import ChatService
+    from orchestration import chat_run_executor
+
+    engine, Session = _route_database(tmp_path, "edit-invocation.db")
+    saved_extra = {
+        "attachments": [{"name": "a.png", "mime_type": "image/png", "file_id": "file-1"}],
+        "skill_id": "skill-1",
+        "skill_name": "PPT 设计",
+        "skill_ids": ["skill-1"],
+        "mcp_ids": ["mcp-1"],
+        "connector_id": "mcp-1",
+        "connector_name": "内网检索",
+        "plugin_name": "办公套件",
+        "mention_agent_id": "agent-1",
+        "mention_name": "研究员",
+        "quoted_follow_up": {"text": "原文引用"},
+    }
+    with Session() as db:
+        service = ChatService(db)
+        service.add_message(
+            chat_id="chat-1", role="user", content="old wording", extra_data=saved_extra
+        )
+        service.add_message(chat_id="chat-1", role="assistant", content="old reply")
+
+    _patch_common_chat_route(monkeypatch, chats)
+    captured = {}
+
+    def capture_ctx(request, *_args, **_kwargs):
+        captured["request"] = request
+        return {}
+
+    monkeypatch.setattr(chats, "_build_ctx", capture_ctx)
+    monkeypatch.setattr(chats, "_load_session_messages", lambda *_args: [])
+    monkeypatch.setattr(chats, "_release_request_session", lambda _db: None)
+    monkeypatch.setattr(chats, "sse_response", lambda stream: stream)
+    monkeypatch.setattr(chat_run_executor, "follow_run_as_sse", lambda *_a, **_k: None)
+
+    async def fake_start_run(**kwargs):
+        captured["start_run"] = kwargs
+        return kwargs["accepted_run"]
+
+    monkeypatch.setattr(chat_run_executor, "start_run", fake_start_run)
+
+    with Session() as db:
+        asyncio.run(
+            chats.edit_and_resend(
+                "chat-1",
+                chats.EditAndResendRequest(message_index=0, new_content="new wording"),
+                user=_user(),
+                db=db,
+            )
+        )
+
+    request = captured["request"]
+    assert [item.file_id for item in request.attachments] == ["file-1"]
+    assert (request.skill_id, request.skill_name) == ("skill-1", "PPT 设计")
+    assert (request.connector_id, request.connector_name) == ("mcp-1", "内网检索")
+    assert request.mcp_ids == ["mcp-1"]
+    assert request.plugin_name == "办公套件"
+    assert (request.mention_agent_id, request.mention_name) == ("agent-1", "研究员")
+    assert "原文引用" in captured["start_run"]["effective_user_message"]
+
+    with Session() as db:
+        edited = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.role == "user")
+            .order_by(ChatMessage.chat_seq)
+            .all()[-1]
+        )
+    assert edited.content == "new wording"
+    assert edited.extra_data["attachments"] == saved_extra["attachments"]
+    assert edited.extra_data["skill_name"] == "PPT 设计"
+    assert edited.extra_data["connector_name"] == "内网检索"
+    assert edited.extra_data["plugin_name"] == "办公套件"
+    assert edited.extra_data["mention_name"] == "研究员"
+    engine.dispose()
+
+
 def test_batch_resume_busy_does_not_delete_triggering_turn(monkeypatch, tmp_path):
     import api.routes.v1.batch as batch
     import api.routes.v1.chats as chats

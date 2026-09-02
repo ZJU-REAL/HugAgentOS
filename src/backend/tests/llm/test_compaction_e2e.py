@@ -160,3 +160,44 @@ async def test_second_compaction_rolls_summary_not_resummarize(patched_sessionlo
     assert "summary-v2" in ck.content
     # Both times actually called the summarizer (rolling), without re-counting the old summary as a user message
     assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_compaction_commits_when_the_hook_bus_is_active(
+    patched_sessionlocal, monkeypatch
+):
+    """A run_id activates the HookBus, which freezes every payload it hands back.
+
+    Without a recursive thaw the checkpoint rows stay MappingProxyType and the
+    JSONB write dies with "Object of type mappingproxy is not JSON
+    serializable" — swallowed, so compaction silently never publishes. The
+    cases above pass no run_id, so they never reach that path.
+    """
+    import json
+
+    db = patched_sessionlocal
+    db.add(ChatSession(chat_id=CHAT_ID, user_id="u1", title="hooked"))
+    db.commit()
+    svc = ChatService(db)
+
+    _u(svc, 1, "第一轮问题" * 50)
+    _a(svc, 1, "第一轮回答", [{"tool_name": "web_fetch", "result": "详情" * 2000}])
+    _u(svc, 2, "第二轮问题" * 50)
+    _a(svc, 2, "第二轮回答", [{"tool_name": "web_fetch", "result": "项目" * 2000}])
+
+    async def _fake_summarize(history, *, timeout):
+        return "已完成两轮；待办：无"
+
+    monkeypatch.setattr(S, "_summarize", _fake_summarize)
+
+    ok = await S.run_post_turn_compaction(CHAT_ID, run_id="run_hooked_1")
+    assert ok is True, "hook bus 激活时压缩必须仍能成功落库"
+
+    ck = svc.get_latest_compaction_checkpoint(CHAT_ID)
+    assert ck is not None
+    assert C.is_summary_message(ck.content)
+
+    # Everything persisted must be plain JSON types, not frozen proxies.
+    json.dumps(ck.extra_data, ensure_ascii=False)
+    for row in ck.extra_data["replacement_history"]:
+        assert type(row) is dict

@@ -27,7 +27,7 @@ export function PluginCanvasPanel() {
     if (!target) return <div className="jx-rightSidebar-empty">{t('暂无可展示内容')}</div>;
     if (target.status === 'loading') {
       return (
-        <div className="jx-canvas-loading">
+        <div className="jx-canvas-loading" aria-busy="true">
           <div className="jx-canvas-spinner" />
           <span>{t('正在获取数据，完成后将在这里自动展开')}</span>
         </div>

@@ -147,7 +147,7 @@ def test_day_lock_denied_when_another_instance_holds_it(monkeypatch):
         async def set(self, *_a, **_kw):
             return None  # NX failed → someone else holds it
 
-    monkeypatch.setattr(wb, "get_redis", lambda: _Redis())
+    monkeypatch.setattr(wb, "get_redis", lambda **_: _Redis())
     assert _run(wb.acquire_day_lock("t:", log_tag="test")) is False
 
 
@@ -159,7 +159,7 @@ def test_day_lock_acquired_when_free(monkeypatch):
             captured.update(key=key, ex=ex, nx=nx)
             return True
 
-    monkeypatch.setattr(wb, "get_redis", lambda: _Redis())
+    monkeypatch.setattr(wb, "get_redis", lambda **_: _Redis())
     assert _run(wb.acquire_day_lock("t:", ttl_s=99, today="20260729", log_tag="test")) is True
     assert captured["key"] == "t:20260729"
     assert captured["nx"] is True and captured["ex"] == 99

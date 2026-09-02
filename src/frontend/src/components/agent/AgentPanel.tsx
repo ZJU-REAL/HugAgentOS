@@ -143,7 +143,7 @@ function AgentListSkeleton() {
   return (
     <div className="jx-agentPage-grid">
       {Array.from({ length: 6 }, (_, idx) => (
-        <div key={idx} className="jx-agentCard jx-agentCardSkeleton" aria-hidden="true">
+        <div key={idx} className="jx-agentCard jx-agentCardSkeleton" aria-hidden="true" aria-busy="true">
           <div className="jx-agentCard-body">
             <div className="jx-agentCard-head">
               <Skeleton.Avatar active size={28} shape="circle" />
@@ -162,7 +162,7 @@ function AgentListSkeleton() {
 
 function AgentDetailSkeleton() {
   return (
-    <div className="jx-agentPage jx-agentLibraryPage">
+    <div className="jx-agentPage jx-agentLibraryPage" aria-busy="true">
       <div className="jx-agentDetail-top">
         <button className="jx-agentDetail-backBtn" type="button" aria-hidden="true">
           <LeftOutlined style={{ fontSize: 14 }} />

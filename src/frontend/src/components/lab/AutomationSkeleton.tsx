@@ -3,7 +3,7 @@ import { t } from '../../i18n';
 
 export function AutomationListSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className="jx-automation-section" aria-hidden="true">
+    <div className="jx-automation-section" aria-hidden="true" aria-busy="true">
       <div className="jx-skeletonBlock jx-automation-skSectionTitle" />
       {Array.from({ length: count }).map((_, idx) => (
         <div key={idx} className="jx-automation-card jx-automation-card--skeleton">
@@ -29,7 +29,7 @@ export function AutomationListSkeleton({ count = 4 }: { count?: number }) {
 
 export function AutomationDetailSkeleton({ onBack }: { onBack?: () => void }) {
   return (
-    <div className="jx-automation-detail-top" aria-hidden="true">
+    <div className="jx-automation-detail-top" aria-hidden="true" aria-busy="true">
       <button
         className="jx-automation-detail-backBtn"
         onClick={onBack}

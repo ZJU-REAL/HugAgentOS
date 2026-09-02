@@ -899,7 +899,7 @@ export function Sidebar({
           {/* History list — the history section title and filter dropdown have been moved down into SearchModal */}
           <div className="jx-historyListWrap">
             {chatsLoading ? (
-              <div className="jx-historySkeletonList" aria-hidden="true">
+              <div className="jx-historySkeletonList" aria-hidden="true" aria-busy="true">
                 {historySkeletonGroups.map((group) => (
                   <div key={group.key} className="jx-historyGroup">
                     <div className="jx-historyGroupTitle">{group.label}</div>

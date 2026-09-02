@@ -205,6 +205,11 @@
   from { opacity: 0; transform: translate3d(0, 6px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
+/* motion-stop: 减弱动效下定格在终态（同名关键帧后定义者胜，用到它的规则一起生效） */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-ontologyInlineEnter { from, to { opacity: 1; transform: translate3d(0, 0, 0) } }
+}
+
 
 .jx-ontologyRevision {
   position: relative;

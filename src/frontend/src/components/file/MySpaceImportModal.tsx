@@ -83,7 +83,7 @@ function foldersToOptions(folders: PersonalFolderNode[]): ScopeTreeNode[] {
 
 function FileListSkeleton() {
   return (
-    <div className="jx-spaceImportList" aria-hidden="true">
+    <div className="jx-spaceImportList" aria-hidden="true" aria-busy="true">
       {Array.from({ length: 5 }).map((_, index) => (
         <div key={index} className="jx-spaceImportItem jx-spaceImportItem--skeleton">
           <div className="jx-skeletonBlock jx-spaceImportItem-skCheckbox" />

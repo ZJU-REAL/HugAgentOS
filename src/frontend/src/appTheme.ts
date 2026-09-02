@@ -48,7 +48,9 @@ const darkToken = {
   colorBgSpotlight: '#1C2330',
 };
 
-// 模块级预建常量：同主题下引用稳定，ConfigProvider 无需重算派生 token
+// 模块级预建常量：同主题下引用稳定，ConfigProvider 无需重算派生 token。
+// 「减弱动画」再乘二：antd 的 motion=false 只把自己的过渡时长归零，不碰 Spin / 按钮
+// loading 的转圈——第三方动效交给第三方自己的开关，我们不去枚举人家的类名。
 const LIGHT_THEME: ThemeConfig = {
   algorithm: antdTheme.defaultAlgorithm,
   token: { ...sharedToken, ...lightToken },
@@ -57,7 +59,16 @@ const DARK_THEME: ThemeConfig = {
   algorithm: antdTheme.darkAlgorithm,
   token: { ...sharedToken, ...darkToken },
 };
+const LIGHT_THEME_STILL: ThemeConfig = {
+  ...LIGHT_THEME,
+  token: { ...LIGHT_THEME.token, motion: false },
+};
+const DARK_THEME_STILL: ThemeConfig = {
+  ...DARK_THEME,
+  token: { ...DARK_THEME.token, motion: false },
+};
 
-export function getAppTheme(isDark: boolean): ThemeConfig {
-  return isDark ? DARK_THEME : LIGHT_THEME;
+export function getAppTheme(isDark: boolean, reducedMotion = false): ThemeConfig {
+  if (isDark) return reducedMotion ? DARK_THEME_STILL : DARK_THEME;
+  return reducedMotion ? LIGHT_THEME_STILL : LIGHT_THEME;
 }
