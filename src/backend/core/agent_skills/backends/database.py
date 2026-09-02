@@ -98,6 +98,7 @@ class DatabaseBackend:
                     AdminSkill.version,
                     AdminSkill.tags,
                     AdminSkill.allowed_tools,
+                    AdminSkill.owner_user_id,
                 )
                 .filter(AdminSkill.is_enabled == True)
                 .order_by(AdminSkill.skill_id)
@@ -135,6 +136,10 @@ class DatabaseBackend:
                             "tags": list(row.tags or []),
                             "allowed_tools": list(row.allowed_tools or []),
                             "mcp_server_ids": mcp_bindings.get(row.skill_id, []),
+                            # Decides where the skill's files are materialized:
+                            # a private skill goes to its owner's dir, which is
+                            # the only sandbox that gets it mounted.
+                            "owner_user_id": row.owner_user_id or None,
                         },
                         is_database=True,
                     )

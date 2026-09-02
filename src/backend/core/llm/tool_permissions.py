@@ -66,6 +66,52 @@ def normalize_approval_mode(raw: Any) -> str:
     return _LEGACY_APPROVAL_ALIASES.get(mode, APPROVAL_ASK)
 
 
+CURRENT_APPROVAL_MODE: ContextVar[str] = ContextVar(
+    "jx_current_approval_mode", default=APPROVAL_ASK
+)
+
+
+def resolve_approval_mode(explicit: Any, *, user_id: Optional[str]) -> str:
+    """本次运行的权限档：调用方显式给了就用它，否则回落到用户自己存的那一档。
+
+    权限档是**每个用户一份**的设置，任何一个新起 agent 的入口（子智能体、
+    计划步骤、批量执行）都该拿到同一份。靠每个调用点各自透传，漏一个就等于
+    悄悄退回「逐项确认」——用户明明选了「完全放开」，换条路径照样被问。
+    """
+    if explicit is not None:
+        return normalize_approval_mode(explicit)
+    if not user_id:
+        return APPROVAL_ASK
+    try:
+        from core.db.engine import SessionLocal
+        from core.services.user_service import UserService
+
+        with SessionLocal() as db:
+            stored = UserService(db).get_user_settings(str(user_id)).get("tool_approval_mode")
+    except Exception:  # noqa: BLE001 - 读不到就按最保守的一档
+        logger.warning("[tool-permission] 权限档读取失败，本次按逐项确认处理", exc_info=True)
+        return APPROVAL_ASK
+    return normalize_approval_mode(stored)
+
+
+def _preset_answers(mode: str, *, dangerous: bool) -> bool:
+    if mode == APPROVAL_FULL:
+        return True
+    return mode == APPROVAL_AUTO and not dangerous
+
+
+def preset_answers_confirmation(*, op: str = "", dangerous: bool = False) -> bool:
+    """执行期复查：当前权限档是否已经替用户答了这次确认。
+
+    留给工具在 dispatch 之后**自己发起**的确认（bash 把沙盒改动回写「我的
+    空间」就是这一类）：它不经过 ``on_acting``，拿不到 ``PermissionRuntime``，
+    但判定必须和这里同源，不能各写一份。
+    """
+    return _preset_answers(
+        CURRENT_APPROVAL_MODE.get(), dangerous=dangerous or op in DESTRUCTIVE_OPS
+    )
+
+
 def _json_hash(value: Any) -> str:
     encoded = json.dumps(
         value,
@@ -717,10 +763,7 @@ class ToolPermissionService:
         安全策略判为危险的那些仍旧停下来问。任何一档都只跳过"问"这一步——
         策略判定的硬拒绝照样拒绝。
         """
-        mode = self.runtime.approval_mode
-        if mode == APPROVAL_FULL:
-            return True
-        return mode == APPROVAL_AUTO and not dangerous
+        return _preset_answers(self.runtime.approval_mode, dangerous=dangerous)
 
     async def _authorize_intent(self, intent: PermissionIntent) -> dict[str, Any]:
         if intent.domain == DOMAIN_DENY:
@@ -976,6 +1019,16 @@ class ToolPermissionMiddleware(MiddlewareBase):
         self.service = service
 
     async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):  # noqa: ANN001
+        # 权限档绑到执行期上下文：工具体内自己发起的确认（bash 回写「我的空间」）
+        # 不经过这里的判定，但必须看到同一档位。
+        mode_token = CURRENT_APPROVAL_MODE.set(self.service.runtime.approval_mode)
+        try:
+            async for item in self._act(input_kwargs, next_handler):
+                yield item
+        finally:
+            CURRENT_APPROVAL_MODE.reset(mode_token)
+
+    async def _act(self, input_kwargs: dict, next_handler):  # noqa: ANN001
         tool_call = input_kwargs.get("tool_call")
         outcome = await self.service.authorize(tool_call)
         if not outcome.proceed:
@@ -1013,6 +1066,7 @@ __all__ = [
     "CONFINE_NONE",
     "CONFINE_PREFERRED",
     "CONFINE_REQUIRED",
+    "CURRENT_APPROVAL_MODE",
     "CURRENT_PERMISSION_TICKET",
     "FALLBACK_ALLOW",
     "FALLBACK_DENY",
@@ -1037,6 +1091,8 @@ __all__ = [
     "local_command_tool",
     "local_path_tool",
     "mcp_tool_permission",
+    "preset_answers_confirmation",
     "register_mcp_client_permissions",
     "require_local_path_permission",
+    "resolve_approval_mode",
 ]

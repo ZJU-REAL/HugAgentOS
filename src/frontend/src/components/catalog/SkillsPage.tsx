@@ -17,6 +17,7 @@ import { SkillAvatar } from './skillIcons';
 import { SkillIconPicker } from './SkillIconPicker';
 import { OntologyBuildValidationModal } from '../common/OntologyBuildValidationModal';
 import { OntologyTagSelect } from '../common/OntologyTagSelect';
+import { CardTail } from '../common/CardTail';
 import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
 
 const SKILLS_DETAIL_ID_STORAGE_KEY = 'hugagent_skills_detail_id';
@@ -634,9 +635,6 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
               <SkillAvatar icon={(item as any).icon} name={item.name} seed={item.id} size={28} round />
               <div className="jx-sk-cardNameGroup">
                 <span className="jx-sk-cardName">{item.name}</span>
-                {item.enabled && (
-                  <Tag className="jx-sk-tag" color="blue">{t('已启用')}</Tag>
-                )}
                 {item.owner === 'self' && (
                   <Tag style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)', border: 'none' }}>{t('我的')}</Tag>
                 )}
@@ -653,83 +651,84 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
                   );
                 })()}
               </div>
-              {item.owner === 'self' && (
-                // Note: Popconfirm's confirm button renders in a portal, but React synthetic events bubble along the component tree,
-                // so they still reach the card onClick through this container. Only stopPropagation at the container level can block "clicking confirm jumps to detail".
-                <div className="jx-sk-cardActions" style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}
-                  onClick={(e) => e.stopPropagation()}>
-                  {(() => {
-                    const sub = subBySkill.get(item.id);
-                    if (sub?.status === 'pending') {
-                      return (
-                        <Popconfirm
-                          title={t('撤回上架申请？')}
-                          okText={t('撤回')}
-                          cancelText={t('取消')}
-                          onConfirm={() => handleWithdraw(sub.submission_id)}
-                        >
+              <CardTail
+                checked={!!item.enabled}
+                onChange={(v) => toggleEnabled('skills', item.id, v)}
+                actions={item.owner === 'self' && (
+                  <>
+                    {(() => {
+                      const sub = subBySkill.get(item.id);
+                      if (sub?.status === 'pending') {
+                        return (
+                          <Popconfirm
+                            title={t('撤回上架申请？')}
+                            okText={t('撤回')}
+                            cancelText={t('取消')}
+                            onConfirm={() => handleWithdraw(sub.submission_id)}
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<CloudUploadOutlined />}
+                              title={t('上架审核中，点击撤回申请')}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </Popconfirm>
+                        );
+                      }
+                      if (sub?.status === 'approved') {
+                        return (
                           <Button
                             type="text"
                             size="small"
-                            icon={<CloudUploadOutlined />}
-                            title={t('上架审核中，点击撤回申请')}
+                            icon={<CloudUploadOutlined style={{ color: '#02B589' }} />}
+                            title={t('已上架技能市场，如需下架请联系管理员')}
                             onClick={(e) => e.stopPropagation()}
                           />
-                        </Popconfirm>
-                      );
-                    }
-                    if (sub?.status === 'approved') {
+                        );
+                      }
                       return (
                         <Button
                           type="text"
                           size="small"
-                          icon={<CloudUploadOutlined style={{ color: '#02B589' }} />}
-                          title={t('已上架技能市场，如需下架请联系管理员')}
-                          onClick={(e) => e.stopPropagation()}
+                          icon={<CloudUploadOutlined />}
+                          title={sub?.status === 'rejected' ? t('重新申请上架') : t('申请上架技能市场')}
+                          onClick={(e) => { e.stopPropagation(); openApply(item.id); }}
                         />
                       );
-                    }
-                    return (
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<CloudUploadOutlined />}
-                        title={sub?.status === 'rejected' ? t('重新申请上架') : t('申请上架技能市场')}
-                        onClick={(e) => { e.stopPropagation(); openApply(item.id); }}
-                      />
-                    );
-                  })()}
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<EditOutlined />}
-                    title={t('编辑技能')}
-                    onClick={(e) => { e.stopPropagation(); void handleEditSkill(item.id); }}
-                  />
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<DownloadOutlined />}
-                    title={t('导出技能包（zip）')}
-                    onClick={(e) => { e.stopPropagation(); void handleExportSkill(item.id); }}
-                  />
-                  <Popconfirm
-                    title={t('删除这个私有技能？')}
-                    okText={t('删除')}
-                    cancelText={t('取消')}
-                    okButtonProps={{ danger: true }}
-                    onConfirm={() => handleDeleteSkill(item.id)}
-                  >
+                    })()}
                     <Button
                       type="text"
                       size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={(e) => e.stopPropagation()}
+                      icon={<EditOutlined />}
+                      title={t('编辑技能')}
+                      onClick={(e) => { e.stopPropagation(); void handleEditSkill(item.id); }}
                     />
-                  </Popconfirm>
-                </div>
-              )}
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<DownloadOutlined />}
+                      title={t('导出技能包（zip）')}
+                      onClick={(e) => { e.stopPropagation(); void handleExportSkill(item.id); }}
+                    />
+                    <Popconfirm
+                      title={t('删除这个私有技能？')}
+                      okText={t('删除')}
+                      cancelText={t('取消')}
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => handleDeleteSkill(item.id)}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Popconfirm>
+                  </>
+                )}
+              />
             </div>
             <div className="jx-sk-cardDesc">{item.desc}</div>
           </div>
@@ -774,10 +773,11 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
                   <SkillAvatar icon={(item as any).icon} name={item.name} seed={item.id} size={28} round />
                   <div className="jx-sk-cardNameGroup">
                     <span className="jx-sk-cardName">{item.name}</span>
-                    {item.enabled && (
-                      <Tag className="jx-sk-tag" color="blue">{t('已启用')}</Tag>
-                    )}
                   </div>
+                  <CardTail
+                    checked={!!item.enabled}
+                    onChange={(v) => toggleEnabled('agents', item.id, v)}
+                  />
                 </div>
                 <div className="jx-sk-cardDesc">{item.desc}</div>
               </div>

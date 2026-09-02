@@ -1,5 +1,6 @@
 /** English translations used by CE source but owned by mixed EE/CE dictionaries upstream. */
 export const CE_SHARED_DICT: Record<string, string> = {
+  '团队文件夹': 'Team Folder',
   '发布': 'Publish',
   '重新加载': 'Reload',
   '必填': 'Required',

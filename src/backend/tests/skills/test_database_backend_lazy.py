@@ -65,6 +65,8 @@ def test_database_skill_listing_projects_metadata_and_defers_full_content(
         "tags": ["ontology:Enterprise"],
         "allowed_tools": ["search_company"],
         "mcp_server_ids": ["company_mcp"],
+        # Routes materialization: a private skill's files go to its owner's dir.
+        "owner_user_id": None,
     }
     select_sql = "\n".join(statements).lower()
     assert "admin_skills.extra_files" not in select_sql

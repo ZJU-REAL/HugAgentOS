@@ -92,12 +92,13 @@ user request ──▶ system prompt (skill name+description+/workspace/skills/<
 
 ### How skill files reach the sandbox
 
-All skills — built-in and DB/admin-imported — are exposed inside the sandbox through a **single read-only host bind mount** at `/workspace/skills/<id>` (details in the [sandbox module](sandbox.md)):
+All skills — built-in and DB/admin-imported — appear inside the sandbox at the one read-only path `/workspace/skills/<id>` (details in the [sandbox module](sandbox.md)). On the host they live in two layers, **split by ownership**:
 
-- the unified host directory is resolved by `core/agent_skills/config.py::get_sandbox_skills_dir()` (default `$STORAGE_PATH/sandbox_skills`, overridable via `SANDBOX_SKILLS_DIR`);
-- at backend startup `sync_builtin_skills_to_sandbox_dir()` copies built-ins into it (idempotent overlay, so edits propagate on restart);
-- DB skills are materialized into the same directory on demand (`loader._materialize_skill_files`);
-- the remote cube sandbox has no host mounts, so skill files matching `/workspace/skills` are pushed into the sandbox at runtime instead (`CUBE_SKILL_PREPUSH*` settings).
+- the **shared skill dir** (built-ins plus global skills, i.e. those with no `owner_user_id`) is resolved by `core/agent_skills/config.py::get_sandbox_skills_dir()` (default `$STORAGE_PATH/sandbox_skills`, overridable via `SANDBOX_SKILLS_DIR`); at backend startup `sync_builtin_skills_to_sandbox_dir()` copies built-ins into it (idempotent overlay, so edits propagate on restart);
+- the **per-user skill view** `<sibling of the shared dir>/sandbox_skills_u/<user_id>/` holds the skills that user created or installed from the marketplace (`loader._materialize_skill_files` picks the dir by owner), plus one relative symlink `../skills_shared/<id>` per shared skill. The view is what the sandbox mounts; the shared dir is mounted alongside at `/workspace/skills_shared` so those symlinks resolve;
+- so a user's sandbox holds the shared skills plus their own private ones and **never another user's skills or their `secrets.json`**. The view is symlinks only — nothing is copied — and refreshing it on sandbox creation costs about 1 ms;
+- deleting a skill removes its materialized files via `purge_skill_sandbox_files()`, and `prune_orphan_sandbox_skill_dirs()` sweeps older leftovers at startup;
+- the remote cube sandbox has no host mounts, so skill files matching `/workspace/skills` are pushed into the sandbox at runtime instead (`CUBE_SKILL_PREPUSH*` settings). Those ids come out of a model-written command, so an on-demand push first checks ownership (`loader.get_skill_owner()`): a private skill only ever goes to its owner, and naming someone else's id yields nothing. Pre-push only walks the global catalog, which holds no private skills.
 
 ### Progressive Plugin Loading
 

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 from .backends import CompositeBackend, DatabaseBackend, FilesystemBackend, SkillFileInfo
 from .binary_files import decode_binary, is_binary_value
-from .config import get_enabled_skill_sources, get_sandbox_skills_dir
+from .config import get_enabled_skill_sources, skill_files_dir
 from .registry import (
     AgentSkillMetadata,
     AgentSkillSpec,
@@ -348,6 +348,21 @@ class MultiSourceSkillLoader:
         # DB skills: materialize to a persistent cache dir
         return self._materialize_skill_files(skill_id)
 
+    def get_skill_owner(self, skill_id: str) -> Optional[str]:
+        """The user a private skill belongs to (None for built-in / global skills).
+
+        Callers that hand skill files to a sandbox use this to refuse someone
+        else's private skill — the loader itself is global and resolves every id.
+        """
+        try:
+            info = self._backend.get_skill_info(skill_id)
+        except Exception:  # noqa: BLE001
+            return None
+        if info is None or not info.metadata:
+            return None
+        owner = info.metadata.get("owner_user_id")
+        return str(owner) if owner else None
+
     def _materialize_skill_files(
         self, skill_id: str, extra_files: Optional[Dict[str, str]] = None
     ) -> str:
@@ -366,11 +381,12 @@ class MultiSourceSkillLoader:
         Returns:
             Absolute path to the materialized directory.
         """
-        # Materialize into the unified sandbox skills dir so the same host bind
-        # mount that exposes built-in skills also exposes DB skills at
-        # /workspace/skills/<id> (single in-sandbox path). See
-        # config.get_sandbox_skills_dir / opensandbox_provider._make_skills_volume.
-        cache_root = get_sandbox_skills_dir() / skill_id
+        # Materialize where the skill's owner can see it: a private skill lands in
+        # its owner's dir, a shared one in the common dir. Both surface at the same
+        # /workspace/skills/<id> inside the sandbox, but only the owner's sandbox
+        # mounts the private files. See config's layout note and
+        # opensandbox_provider._make_skills_volumes.
+        cache_root = skill_files_dir(skill_id, self.get_skill_owner(skill_id))
 
         # Check in-memory cache — skip I/O if recently materialized
         if skill_id in self._materialized_cache:

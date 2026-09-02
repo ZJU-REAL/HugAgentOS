@@ -1296,6 +1296,9 @@ export interface SystemConfigGroup {
 
 export type MySpaceTab = 'assets' | 'kb' | 'favorites' | 'shares' | 'notifications';
 
+/** 知识库分档：公共库 / 私有库 */
+export type KbTabKey = 'public' | 'private';
+
 // ── Automation types ────────────────────────────────────────────
 export type AutomationTaskType = 'prompt' | 'plan';
 export type AutomationStatus = 'active' | 'paused' | 'disabled' | 'completed' | 'expired';

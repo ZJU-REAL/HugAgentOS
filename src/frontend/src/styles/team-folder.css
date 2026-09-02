@@ -6,58 +6,6 @@
    ══════════════════════════════════════════ */
 
 
-/* ─── 文件资产 → 个人/团队 子 Tab ───────────────────────────
-   视觉语言完全对齐 .jx-mySpace-tab，仅字号更小 */
-
-.jx-mySpace-subTabs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.jx-mySpace-subTabs::-webkit-scrollbar {
-  display: none;
-}
-
-.jx-mySpace-subTab {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  appearance: none;
-  border: none;
-  background: none;
-  padding: 8px 0 12px;
-  margin-right: 24px;
-  font-family: var(--font-family);
-  font-size: 16px;
-  font-weight: 400;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition: color 0.18s ease;
-}
-
-.jx-mySpace-subTab:last-child {
-  margin-right: 0;
-}
-
-/* 下划线由 motion layoutId 共享滑动接管（.jx-mySpace-tabInk--sub），不再用 ::after */
-.jx-mySpace-subTab:hover {
-  color: var(--color-text-secondary);
-}
-
-.jx-mySpace-subTab.active {
-  color: var(--color-text);
-  font-weight: 500;
-}
-
-
 /* ─── 文档/图片 筛选 Tab（更小号，同下划线风格） ───────────── */
 
 .jx-mySpace-filterTabs {

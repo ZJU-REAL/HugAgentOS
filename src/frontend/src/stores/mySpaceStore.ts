@@ -36,6 +36,46 @@ type PersonalScope = { kind: 'personal'; folderId: string | null };
 const PAGE_SIZE = 20;
 const AUTOMATION_FAVORITE_CHAT_PREFIX = 'automation:';
 const AUTOMATION_FAVORITE_ITEM_PREFIX = 'favorite-automation:';
+const MY_SPACE_TAB_STORAGE_KEY = 'hugagent_my_space_active_tab';
+const MY_SPACE_RAIL_STORAGE_KEY = 'hugagent_my_space_rail_collapsed';
+const VALID_MY_SPACE_TABS: readonly MySpaceTab[] = [
+  'assets',
+  'kb',
+  'favorites',
+  'shares',
+  'notifications',
+];
+
+function loadRailCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(MY_SPACE_RAIL_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function loadActiveMySpaceTab(): MySpaceTab {
+  if (typeof window === 'undefined') return 'assets';
+  try {
+    const saved = window.localStorage.getItem(MY_SPACE_TAB_STORAGE_KEY);
+    if (saved && (VALID_MY_SPACE_TABS as readonly string[]).includes(saved)) {
+      return saved as MySpaceTab;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return 'assets';
+}
+
+function saveActiveMySpaceTab(tab: MySpaceTab): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(MY_SPACE_TAB_STORAGE_KEY, tab);
+  } catch {
+    // localStorage unavailable
+  }
+}
 
 function isAutomationFavoriteChatId(chatId: string): boolean {
   return chatId.startsWith(AUTOMATION_FAVORITE_CHAT_PREFIX);
@@ -127,6 +167,9 @@ interface MySpaceState {
   loading: boolean;
   tab: MySpaceTab;
   searchKeyword: string;
+  railCollapsed: boolean;
+  searchOpen: boolean;
+  globalQuery: string;
   assetFilter: AssetFilter;
   sourceFilter: SourceFilter;
   page: number;
@@ -135,6 +178,7 @@ interface MySpaceState {
   favPage: number;
   favTotal: number;
   favHasMore: boolean;
+  assetScope: 'personal' | 'team';
   selectedScope: PersonalScope;
   personalFolderTree: PersonalFolderNode[];
   personalChildFolders: PersonalFolderNode[];
@@ -144,6 +188,11 @@ interface MySpaceState {
   notifSelectedIds: Set<string>;
   setTab: (tab: MySpaceTab) => void;
   setSearchKeyword: (keyword: string) => void;
+  setGlobalQuery: (query: string) => void;
+  openSearch: () => void;
+  closeSearch: () => void;
+  toggleRail: () => void;
+  setAssetScope: (scope: 'personal' | 'team') => void;
   setAssetFilter: (value: AssetFilter) => void;
   setSourceFilter: (value: SourceFilter) => void;
   fetchResources: (reset?: boolean) => Promise<void>;
@@ -176,8 +225,11 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
   resources: [],
   favorites: [],
   loading: false,
-  tab: 'assets',
+  tab: loadActiveMySpaceTab(),
   searchKeyword: '',
+  railCollapsed: loadRailCollapsed(),
+  searchOpen: false,
+  globalQuery: '',
   assetFilter: 'document',
   sourceFilter: 'all',
   page: 1,
@@ -186,6 +238,7 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
   favPage: 1,
   favTotal: 0,
   favHasMore: false,
+  assetScope: 'personal',
   selectedScope: { kind: 'personal', folderId: null },
   personalFolderTree: [],
   personalChildFolders: [],
@@ -196,6 +249,7 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
 
   setTab: (tab) => {
     const previous = get().tab;
+    saveActiveMySpaceTab(tab);
     set({ tab, page: 1, favPage: 1, resources: [], favorites: [], hasMore: false, favHasMore: false });
     if (previous === 'notifications' && tab !== 'notifications') {
       set({ notifSelectedIds: new Set<string>() });
@@ -205,6 +259,22 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
     if (tab === 'notifications') void get().fetchNotifications();
   },
   setSearchKeyword: (searchKeyword) => set({ searchKeyword }),
+  setGlobalQuery: (globalQuery) => set({ globalQuery }),
+  openSearch: () => set({ searchOpen: true }),
+  closeSearch: () => set({ searchOpen: false, globalQuery: '' }),
+  toggleRail: () => set((state) => {
+    const next = !state.railCollapsed;
+    try {
+      window.localStorage.setItem(MY_SPACE_RAIL_STORAGE_KEY, next ? '1' : '0');
+    } catch {
+      // localStorage unavailable
+    }
+    return { railCollapsed: next };
+  }),
+  setAssetScope: () => {
+    set({ assetScope: 'personal' });
+    void get().fetchResources(true);
+  },
   setAssetFilter: (assetFilter) => {
     if (get().assetFilter === assetFilter) return;
     set({ assetFilter, page: 1, resources: [], hasMore: false });

@@ -899,6 +899,34 @@ async def _startup_preload():
 
             n = sync_builtin_skills_to_sandbox_dir()
             logger.info("[startup] Built-in skills synced to sandbox dir: %d", n)
+            # Pre-create the per-user skills root for the same reason as above:
+            # script-runner bind-mounts it, and a dockerd-created one is root-owned.
+            try:
+                from core.agent_skills.config import get_user_skills_root
+
+                get_user_skills_root()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[startup] pre-create user skills root failed: %s", exc)
+            # Sweep leftovers against the live skills: files of deleted skills
+            # (nothing used to remove them) and private skills still sitting in
+            # the shared dir, which every sandbox mounts. Dropped files of a live
+            # skill re-materialize on demand.
+            try:
+                from core.agent_skills.config import prune_orphan_sandbox_skill_dirs
+                from core.db.engine import SessionLocal
+                from core.db.models import AdminSkill
+
+                with SessionLocal() as _db:
+                    owners = {
+                        sid: owner
+                        for sid, owner in _db.query(
+                            AdminSkill.skill_id, AdminSkill.owner_user_id
+                        )
+                    }
+                n_pruned = prune_orphan_sandbox_skill_dirs(owners)
+                logger.info("[startup] Stale skill dirs pruned: %d", n_pruned)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[startup] prune stale skill dirs failed: %s", exc)
             # Pre-create the Yida workspace for the script-runner shared sandbox
             # (0777: the runner is uid 1001 and needs write, backend is 1000).
             # If the directory doesn't exist, the compose volume mount gets

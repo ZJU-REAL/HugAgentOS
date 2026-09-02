@@ -1312,11 +1312,6 @@
   text-overflow: ellipsis;
 }
 
-/* 长名截断时保住右侧操作图标不被挤压 */
-.jx-sk-cardActions {
-  flex-shrink: 0;
-}
-
 .jx-sk-cardDesc {
   font-size: 14px;
   color: var(--color-text-placeholder);
@@ -1785,27 +1780,14 @@
   line-height: 1.4;
   transition: var(--motion-transition-hover);
 }
-.jx-agentCard-badge.on {
-  color: var(--color-primary);
-  background: var(--color-tint-blue-bg);
-}
-
 .jx-agentCard-badge--builtin {
   color: var(--color-tint-amber);
   background: var(--color-tint-amber-bg);
 }
 
-/* Edit / delete — visible on hover */
-.jx-agentCard-ops {
-  display: flex;
-  gap: 2px;
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity .15s;
-  flex-shrink: 0;
-}
-.jx-agentCard:hover .jx-agentCard-ops { opacity: 1; }
-.jx-agentCard-ops button {
+/* 编辑/删除按钮的皮肤（显形时机由共用的 .jx-cardTailActions 统一管，见文件末尾）。
+   这里用原生 button 而非 antd Button，所以皮肤要限定在智能体卡片内，别外溢到其他卡片。 */
+.jx-agentCard .jx-cardTailActions button {
   appearance: none;
   border: none;
   background: none;
@@ -1817,11 +1799,11 @@
   line-height: 1;
   transition: color .12s, background .12s;
 }
-.jx-agentCard-ops button:hover {
+.jx-agentCard .jx-cardTailActions button:hover {
   color: var(--color-primary);
   background: var(--color-primary-light);
 }
-.jx-agentCard-ops button.danger:hover {
+.jx-agentCard .jx-cardTailActions button.danger:hover {
   color: var(--color-error);
   background: var(--color-error-light);
 }
@@ -4697,4 +4679,79 @@
 /* 上传文档弹窗：config(520)↔preview(720) 宽度过渡 */
 .jx-kbUploadModal .ant-modal {
   transition: width var(--motion-duration-slow) var(--motion-ease-brand-out);
+}
+
+/* ── 能力卡片右侧尾部：常驻启停开关 + 悬浮才出现的操作按钮 ──────────────
+   技能 / 智能体 / 连接器 / 插件四类卡片共用（见 components/common/CardTail.tsx），
+   启停一律在详情页外完成 */
+
+.jx-cardTail {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.jx-cardTailActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard),
+              transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+/* 只有能悬浮的设备才藏起来；触控设备没有 hover，保持常驻。
+   触发挂在 .jx-card-lift 上（四类卡片都带），新增卡片类型自动继承，不必再改这里。 */
+@media (hover: hover) {
+  .jx-cardTailActions {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(4px);
+  }
+  /* :focus-within 保证 Popconfirm 弹出后指针移开、触发按钮也不会消失 */
+  .jx-card-lift:hover .jx-cardTailActions,
+  .jx-card-lift:focus-within .jx-cardTailActions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+/* 胶囊开关：无文字、轨道 40x24、开启态主色蓝。三个尺寸由变量派生，改一处即可 */
+.jx-cardSwitch.ant-switch {
+  --jx-switch-pad: 2px;
+  --jx-switch-handle: 20px;
+  min-width: 40px;
+  height: calc(var(--jx-switch-handle) + var(--jx-switch-pad) * 2);
+  border-radius: 999px;
+  background: var(--color-fill);
+}
+
+.jx-cardSwitch.ant-switch:hover:not(.ant-switch-disabled) {
+  background: var(--color-fill-deep);
+}
+
+.jx-cardSwitch.ant-switch.ant-switch-checked {
+  background: var(--color-primary);
+}
+
+.jx-cardSwitch.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
+  background: var(--color-primary-hover);
+}
+
+.jx-cardSwitch.ant-switch .ant-switch-handle {
+  width: var(--jx-switch-handle);
+  height: var(--jx-switch-handle);
+  top: var(--jx-switch-pad);
+  inset-inline-start: var(--jx-switch-pad);
+}
+
+.jx-cardSwitch.ant-switch .ant-switch-handle::before {
+  border-radius: 50%;
+  box-shadow: var(--shadow-card);
+}
+
+.jx-cardSwitch.ant-switch.ant-switch-checked .ant-switch-handle {
+  inset-inline-start: calc(100% - var(--jx-switch-handle) - var(--jx-switch-pad));
 }

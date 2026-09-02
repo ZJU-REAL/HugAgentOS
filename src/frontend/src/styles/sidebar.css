@@ -312,6 +312,7 @@
 :root[data-theme='dark'] .jx-miniRailIcon:not(.jx-miniRailIcon--primary),
 :root[data-theme='dark'] .jx-searchBtn img,
 :root[data-theme='dark'] .jx-collapseBtn img,
+:root[data-theme='dark'] .jx-mySpace-railToggle img,
 :root[data-theme='dark'] .jx-helpBtn img,
 :root[data-theme='dark'] .jx-historyTypeIcon--agent,
 :root[data-theme='dark'] .jx-historyTypeIcon--plan,

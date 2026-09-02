@@ -19,6 +19,7 @@ import {
 import type { McpMarketSubmission } from '../../types';
 import { McpMarketplaceModal } from './McpMarketplaceModal';
 import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
+import { CardTail } from '../common/CardTail';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
@@ -351,13 +352,6 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
               <McpIcon id={item.id} icon={item.icon} />
               <div className="jx-mcp-cardNameGroup">
                 <span className="jx-mcp-cardName">{item.name}</span>
-                <Tag className="jx-mcp-enabledTag"
-                  style={item.enabled
-                    ? { background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: 'none' }
-                    : { background: 'var(--color-bg-gray)', color: 'var(--color-text-placeholder)', border: 'none' }
-                  }>
-                  {item.enabled ? t('已启用') : t('未启用')}
-                </Tag>
                 {item.owner === 'self' && (
                   <Tag style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)', border: 'none' }}>{t('我的')}</Tag>
                 )}
@@ -373,54 +367,56 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
                   );
                 })()}
               </div>
-              {item.owner === 'self' && (
-                // Container-level stopPropagation: the Popconfirm confirm button is in a portal, but React synthetic events
-                // bubble along the component tree, otherwise clicking "delete" would bubble to the card onClick and jump into the detail view.
-                <span className="jx-mcp-cardActions" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                  {(() => {
-                    if (item.marketplace_installed) return null;
-                    const submission = submissionByServer.get(item.id);
-                    if (submission?.status === 'pending') {
+              <CardTail
+                checked={!!item.enabled}
+                onChange={(v) => toggleEnabled(item.id, v)}
+                actions={item.owner === 'self' && (
+                  <>
+                    {(() => {
+                      if (item.marketplace_installed) return null;
+                      const submission = submissionByServer.get(item.id);
+                      if (submission?.status === 'pending') {
+                        return (
+                          <Popconfirm
+                            title={t('撤回 MCP 上架申请？')}
+                            onConfirm={() => void withdrawApply(submission.submission_id)}
+                            okText={t('撤回')}
+                            cancelText={t('取消')}
+                          >
+                            <Button type="text" size="small" icon={<CloudUploadOutlined />} />
+                          </Popconfirm>
+                        );
+                      }
+                      if (submission?.status === 'approved') {
+                        return <Button type="text" size="small" disabled icon={<CloudUploadOutlined />} />;
+                      }
                       return (
-                        <Popconfirm
-                          title={t('撤回 MCP 上架申请？')}
-                          onConfirm={() => void withdrawApply(submission.submission_id)}
-                          okText={t('撤回')}
-                          cancelText={t('取消')}
-                        >
-                          <Button type="text" size="small" icon={<CloudUploadOutlined />} />
-                        </Popconfirm>
+                        <Button
+                          type="text"
+                          size="small"
+                          title={t('申请上架 MCP 市场')}
+                          icon={<CloudUploadOutlined />}
+                          onClick={() => openApply(item.id)}
+                        />
                       );
-                    }
-                    if (submission?.status === 'approved') {
-                      return <Button type="text" size="small" disabled icon={<CloudUploadOutlined />} />;
-                    }
-                    return (
+                    })()}
+                    <Popconfirm
+                      title={t('删除这个私有 MCP？')}
+                      okText={t('删除')}
+                      cancelText={t('取消')}
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => handleDeleteMcp(item.id)}
+                    >
                       <Button
                         type="text"
                         size="small"
-                        title={t('申请上架 MCP 市场')}
-                        icon={<CloudUploadOutlined />}
-                        onClick={() => openApply(item.id)}
+                        danger
+                        icon={<DeleteOutlined />}
                       />
-                    );
-                  })()}
-                  <Popconfirm
-                    title={t('删除这个私有 MCP？')}
-                    okText={t('删除')}
-                    cancelText={t('取消')}
-                    okButtonProps={{ danger: true }}
-                    onConfirm={() => handleDeleteMcp(item.id)}
-                  >
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                    />
-                  </Popconfirm>
-                </span>
-              )}
+                    </Popconfirm>
+                  </>
+                )}
+              />
             </div>
             <div className="jx-mcp-cardDesc">{item.desc}</div>
           </div>

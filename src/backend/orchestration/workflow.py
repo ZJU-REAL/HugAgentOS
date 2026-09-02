@@ -105,11 +105,9 @@ def _resolve_mode_spec(context: dict):
         return None
 
 
-def _approval_mode(context: Dict[str, Any]) -> str:
-    """用户选定的权限档；缺失或不认识的值都按「标准」处理。"""
-    from core.llm.tool_permissions import normalize_approval_mode
-
-    return normalize_approval_mode(context.get("approval_mode"))
+def _approval_mode(context: Dict[str, Any]) -> Optional[str]:
+    """本轮上下文里带的权限档；没带就交回 None，由工厂读用户自己存的那一档。"""
+    return context.get("approval_mode")
 
 
 def _extract_project_ctx(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -2,6 +2,7 @@
 export const MYSPACE_DICT: Record<string, string> = {
   // ── Tab labels ──────────────────────────────────────────────────────
   '文件资产': 'File Assets',
+  '云文档': 'Cloud Docs',
   '会话收藏': 'Saved Chats',
   '消息通知': 'Notifications',
 
@@ -14,6 +15,15 @@ export const MYSPACE_DICT: Record<string, string> = {
   '文件归属': 'File Scope',
   '类型筛选': 'Filter by type',
   '个人文件夹': 'Personal Folder',
+
+  // ── Secondary rail / global search ──────────────────────────────────
+  '搜索我的空间': 'Search My Space',
+  '云文档、知识库、会话收藏与分享记录': 'Cloud docs, knowledge bases, saved chats and share records',
+  '搜索云文档、知识库、会话收藏与分享记录…': 'Search cloud docs, knowledge bases, saved chats and share records…',
+  '试试换个关键词': 'Try a different keyword',
+  '收起二级栏': 'Collapse sidebar',
+  '展开二级栏': 'Expand sidebar',
+  '有效': 'Valid',
 
   // ── Folder operations ───────────────────────────────────────────────
   '重命名文件夹': 'Rename Folder',

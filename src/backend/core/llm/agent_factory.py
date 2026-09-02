@@ -707,8 +707,9 @@ async def create_agent_executor(
     allow_bash: bool = True,
     # approval_mode: 用户自选的权限档（core.llm.tool_permissions 的 ask / auto /
     # full）。auto 让普通写入不再弹确认框、删除等危险操作照旧问；full 一律不问。
-    # 默认 ask，行为与改造前一致。
-    approval_mode: str = "ask",
+    # 留空表示"照用户自己存的那一档"——子智能体、计划步骤这些新起 agent 的入口
+    # 不必逐个透传，也就不会漏掉一个就悄悄退回逐项确认。
+    approval_mode: Optional[str] = None,
     # turbo_mode: 极速模式（quick-lookup entry）。Retrieval-only assembly:
     # carries exactly the admin-configured turbo MCP set（系统配置「极速模式」，
     # deliberately independent of catalog enable/disable state）, drops skills,
@@ -765,9 +766,9 @@ async def create_agent_executor(
     import logging
     import time
 
-    from core.llm.tool_permissions import normalize_approval_mode
+    from core.llm.tool_permissions import resolve_approval_mode
 
-    approval_mode = normalize_approval_mode(approval_mode)
+    approval_mode = resolve_approval_mode(approval_mode, user_id=current_user_id)
 
     _log = logging.getLogger(__name__)
     _t0 = time.monotonic()
@@ -1461,18 +1462,27 @@ async def create_agent_executor(
                 allowed_skill_dirs.append(d)
 
     if not disable_tools:
-        from core.agent_skills.config import get_enabled_skill_sources, get_sandbox_skills_dir
+        from core.agent_skills.config import (
+            get_enabled_skill_sources,
+            get_sandbox_skills_dir,
+            get_user_skills_dir,
+        )
 
         for src in get_enabled_skill_sources():
             root = str(src.root_dir)
             if os.path.isdir(root) and root not in allowed_skill_dirs:
                 allowed_skill_dirs.append(root)
-        # Unified skills dir (DB skills materialize here; see get_sandbox_skills_dir).
-        # Blanket-allow it so view_text_file can read any materialized skill, even
-        # one not in skill_ids_to_register.
-        _skills_root = str(get_sandbox_skills_dir())
-        if _skills_root not in allowed_skill_dirs:
-            allowed_skill_dirs.append(_skills_root)
+        # Shared skills dir + this user's own dir (see the layout note in
+        # agent_skills.config). Blanket-allow both so view_text_file can read any
+        # materialized skill the user is entitled to, even one not in
+        # skill_ids_to_register — and only those: another user's private skill
+        # files stay outside the allow-list.
+        _own_roots = [get_sandbox_skills_dir(), get_user_skills_dir(current_user_id)]
+        for _root in _own_roots:
+            if _root is None:
+                continue
+            if str(_root) not in allowed_skill_dirs:
+                allowed_skill_dirs.append(str(_root))
 
     _log.info("[factory] +%s skills registered", _elapsed())
 

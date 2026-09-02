@@ -50,7 +50,6 @@ import { useStatusFlash } from '../../hooks/useFlash';
 import { useAuthStore } from '../../stores/authStore';
 
 type KBTabKey = 'public' | 'private';
-const KB_TAB_STORAGE_KEY = 'hugagent_kb_active_tab';
 
 type UploadChunkMethodOption = {
   value: string;
@@ -82,17 +81,6 @@ const DOC_FILTERS = [
   { key: 'processing', label: t('索引中'), countKey: 'processing' },
 ] as const;
 type DocStatusFilter = typeof DOC_FILTERS[number]['key'];
-
-function loadActiveKbTab(): KBTabKey {
-  if (typeof window === 'undefined') return 'public';
-  const raw = window.localStorage.getItem(KB_TAB_STORAGE_KEY);
-  return raw === 'private' ? 'private' : 'public';
-}
-
-function saveActiveKbTab(tab: KBTabKey) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(KB_TAB_STORAGE_KEY, tab);
-}
 
 function resolveVisibility(item: KBItem): KBTabKey {
   // private = the user's own private library (goes to the "private" Tab); everything else (public / scoped
@@ -253,6 +241,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     manageQuery, setManageQuery,
     selectedId, setSelectedId,
     fetchCatalog, toggleItem,
+    kbTab: activeTab, setKbTab: setActiveTab,
   } = useCatalogStore();
 
   // There are two kinds of create-knowledge-base permission: private (self only) / public (visible to everyone by default, can be further restricted by authorization).
@@ -291,9 +280,6 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     chunkSaving, setChunkSaving,
   } = useKbStore();
 
-  const [activeTab, setActiveTab] = useState<KBTabKey>(() => (
-    isCE ? 'private' : loadActiveKbTab()
-  ));
   const [detailDescExpanded, setDetailDescExpanded] = useState(false);
   const [detailDescOverflow, setDetailDescOverflow] = useState(false);
   // LLM Wiki：仅当知识库后端提供这层产物、且当前库确实生成过 Wiki 时才出现入口
@@ -470,10 +456,6 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
     }, 10000);
     return () => window.clearInterval(timer);
   }, [wikiGenerating, selectedItem?.id, selectedItem?.source]);
-
-  useEffect(() => {
-    saveActiveKbTab(activeTab);
-  }, [activeTab]);
 
   useEffect(() => {
     const updateIndicator = () => {
@@ -929,6 +911,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                 </div>
               </div>
             )}
+            {!embedded && (
             <section className="jx-kbTabsWrap">
               <div className="jx-kbTabs" ref={tabsRef}>
                 {((isCE ? ['private'] : ['public', 'private']) as KBTabKey[]).map((tab) => {
@@ -957,6 +940,7 @@ export function CatalogPanel({ embedded = false }: CatalogPanelProps = {}) {
                 />
               </div>
             </section>
+            )}
 
             <section className="jx-kbToolbar">
               <Input

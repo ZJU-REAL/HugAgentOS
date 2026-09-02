@@ -12,3 +12,4 @@ export { OntologyTagSelect } from './OntologyTagSelect';
 export { ChipChevron } from './ChipChevron';
 export { CitedTextBody } from './CitedTextBody';
 export { WindowedText } from './WindowedText';
+export { CardTail } from './CardTail';

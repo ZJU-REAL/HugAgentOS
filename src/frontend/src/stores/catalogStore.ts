@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AbilityTabKey, Catalog, PanelKey } from '../types';
+import type { AbilityTabKey, Catalog, KbTabKey, PanelKey } from '../types';
 import { getCatalog, updateCatalogItem } from '../api';
 import { loadCatalog, saveCatalog, removeLocal } from '../storage';
 
@@ -30,6 +30,10 @@ const VALID_PANELS: readonly PanelKey[] = [
  */
 const ABILITY_TAB_STORAGE_KEY = 'hugagent_ability_tab';
 const VALID_ABILITY_TABS: readonly AbilityTabKey[] = ['agents', 'skills', 'mcp', 'plugins'];
+
+/** 知识库的公共/私有分档。原本是 CatalogPanel 内部的 Tab 状态，现在同一份状态还要被
+ *  「我的空间」二级栏的两个二级项驱动，所以提到 store 里由两边共读。 */
+const KB_TAB_STORAGE_KEY = 'hugagent_kb_active_tab';
 
 function readSession(key: string): string | null {
   if (typeof window === 'undefined') return null;
@@ -67,6 +71,13 @@ function saveActivePanel(panel: PanelKey) {
   writeSession(PANEL_STORAGE_KEY, panel);
 }
 
+function loadKbTab(): KbTabKey {
+  if (typeof window === 'undefined') return 'public';
+  try {
+    return window.localStorage.getItem(KB_TAB_STORAGE_KEY) === 'private' ? 'private' : 'public';
+  } catch { return 'public'; }
+}
+
 function loadAbilityTab(): AbilityTabKey {
   const saved = readSession(ABILITY_TAB_STORAGE_KEY);
   return saved && (VALID_ABILITY_TABS as readonly string[]).includes(saved)
@@ -91,6 +102,8 @@ interface CatalogState {
    *  拉一份列表，全挂等于一次打出四份请求。累积在这里而不是页面内部：切换动作发生在侧边栏，
    *  放在 setAbilityTab 里是唯一不需要靠 effect 追赶的位置。 */
   visitedAbilityTabs: readonly AbilityTabKey[];
+  /** 知识库当前看的是公共库还是私有库 */
+  kbTab: KbTabKey;
 
   setCatalog: (catalog: Catalog) => void;
   setCatalogLoading: (v: boolean) => void;
@@ -98,6 +111,7 @@ interface CatalogState {
   setManageQuery: (query: string) => void;
   setSelectedId: (id: string | null) => void;
   setAbilityTab: (tab: AbilityTabKey) => void;
+  setKbTab: (tab: KbTabKey) => void;
 
   /** Fetch catalog from backend, merge with localStorage enabled state */
   fetchCatalog: () => Promise<void>;
@@ -115,6 +129,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   abilityTab: loadAbilityTab(),
   // 恢复出来的 Tab 也要算作「已访问」，否则刷新后能力中心不会挂载它对应的 pane、一片空白
   visitedAbilityTabs: [loadAbilityTab()],
+  kbTab: loadKbTab(),
 
   setCatalog: (catalog) => {
     set({ catalog });
@@ -143,6 +158,11 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
         : [...state.visitedAbilityTabs, tab],
     };
   }),
+
+  setKbTab: (tab) => {
+    try { window.localStorage.setItem(KB_TAB_STORAGE_KEY, tab); } catch { /* localStorage 不可用 */ }
+    set({ kbTab: tab, manageQuery: '' });
+  },
 
   fetchCatalog: async () => {
     try {
