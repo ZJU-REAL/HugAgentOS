@@ -9,6 +9,7 @@ the resulting bundle is encrypted inside the concrete installation only.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
@@ -40,6 +41,10 @@ from mcp.shared.auth import (
 from sqlalchemy.orm import Session
 
 _FLOW_TTL_SECONDS = 10 * 60
+# Authorization-URL discovery costs several sequential round trips (protected
+# resource metadata, authorization server metadata, dynamic registration), so a
+# slow link must keep the flow polling instead of failing the install outright.
+_DISCOVERY_GRACE_SECONDS = 5.0
 
 
 class OAuthBundleStorage(TokenStorage):
@@ -166,7 +171,6 @@ class OAuthInstallFlow:
     installed_by: Optional[str]
     auth_method: str
     credentials: Dict[str, str]
-    confirm_high_risk: bool
     callback_url: str
     client_id: str = ""
     client_secret: str = ""
@@ -198,6 +202,7 @@ async def _store_flow_status(flow: OAuthInstallFlow) -> None:
         "slug": flow.slug,
         "owner_user_id": flow.owner_user_id,
         "status": flow.status,
+        "authorization_url": flow.authorization_url,
         "error": flow.error,
         "result": dict(flow.result or {}),
     }
@@ -273,7 +278,6 @@ async def start_oauth_install(
     installed_by: Optional[str],
     auth_method: str,
     credentials: Dict[str, str],
-    confirm_high_risk: bool,
     callback_url_base: str,
     client_id: str = "",
     client_secret: str = "",
@@ -293,9 +297,6 @@ async def start_oauth_install(
         raise BadRequestError(message="该 OAuth 服务需要 Client ID")
     if method.get("client_secret_required") and not client_secret.strip():
         raise BadRequestError(message="该 OAuth 服务需要 Client Secret")
-    if version.risk_level == "high" and not confirm_high_risk:
-        raise BadRequestError(message="该 MCP 包含高风险操作，OAuth 登录前必须明确确认风险")
-
     flow_id = f"mcpoauth_{uuid.uuid4().hex}"
     callback_url = f"{callback_url_base}?{urlencode({'flow_id': flow_id})}"
     flow = OAuthInstallFlow(
@@ -305,7 +306,6 @@ async def start_oauth_install(
         installed_by=installed_by,
         auth_method=auth_method,
         credentials=dict(credentials or {}),
-        confirm_high_risk=confirm_high_risk,
         callback_url=callback_url,
         client_id=client_id.strip(),
         client_secret=client_secret.strip(),
@@ -313,14 +313,9 @@ async def start_oauth_install(
     _flows[flow_id] = flow
     await _store_flow_status(flow)
     asyncio.create_task(_run_flow(flow), name=f"mcp-oauth-{flow_id}")
-    try:
-        await asyncio.wait_for(flow.ready.wait(), timeout=30.0)
-    except asyncio.TimeoutError as exc:
-        flow.status = "failed"
-        flow.error = "OAuth 元数据发现超时"
-        await _store_flow_status(flow)
-        raise BadRequestError(message=flow.error) from exc
-    if not flow.authorization_url:
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(flow.ready.wait(), timeout=_DISCOVERY_GRACE_SECONDS)
+    if flow.status == "failed":
         raise BadRequestError(message=flow.error or "无法启动 OAuth 登录")
     return {
         "flow_id": flow.flow_id,
@@ -443,7 +438,6 @@ async def _run_flow(flow: OAuthInstallFlow) -> None:
             credentials=flow.credentials,
             auth_method=flow.auth_method,
             oauth_bundle=bundle,
-            confirm_high_risk=flow.confirm_high_risk,
         )
         flow.status = "completed"
         await _store_flow_status(flow)
@@ -518,6 +512,7 @@ async def get_flow_status(flow_id: str, *, owner_user_id: Optional[str]) -> Dict
     return {
         "flow_id": flow_id,
         "status": str(payload.get("status") or "starting"),
+        "authorization_url": str(payload.get("authorization_url") or ""),
         "error": str(payload.get("error") or ""),
         "result": dict(payload.get("result") or {}),
     }

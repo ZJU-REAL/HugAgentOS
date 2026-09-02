@@ -7,13 +7,21 @@ import { APP_ICON_LIBRARY, PLUGIN_ICON_LIBRARY } from '../../utils/iconLibrary';
 
 const MAX_UPLOAD_BYTES = 80 * 1024; // raw image cap; ~107KB after base64, < the backend's 200KB cap
 
-/** Plugin avatar: built-in library path / data-URI / URL; falls back to the generic plugin glyph. */
-export function PluginAvatar({ icon, size = 36 }: { icon?: string | null; size?: number }) {
+/** Plugin avatar: built-in library path / data-URI / URL; falls back to the generic plugin glyph.
+ *  `round` matches the circular avatars the skill / connector / agent cards use. */
+export function PluginAvatar({ icon, size = 36, round = false }: { icon?: string | null; size?: number; round?: boolean }) {
   const value = String(icon || '').trim();
   if (value) {
     return (
       <img src={value} alt="" width={size} height={size}
-        style={{ borderRadius: 8, objectFit: 'contain', display: 'block', background: 'var(--color-bg-container)' }} />
+        style={{
+          borderRadius: round ? '50%' : 8,
+          objectFit: 'contain',
+          display: 'block',
+          background: 'var(--color-bg-container)',
+          border: round ? '1px solid var(--color-border)' : undefined,
+          flexShrink: 0,
+        }} />
     );
   }
   return (

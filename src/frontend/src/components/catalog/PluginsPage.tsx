@@ -37,8 +37,8 @@ function normSecret(s: string | PluginRequiredSecret): PluginRequiredSecret {
   return typeof s === 'string' ? { key: s, label: s, required: true } : s;
 }
 
-function PluginIcon({ icon, size = 36 }: { icon?: string | null; size?: number }) {
-  return <PluginAvatar icon={icon} size={size} />;
+function PluginIcon({ icon, size = 28, round = true }: { icon?: string | null; size?: number; round?: boolean }) {
+  return <PluginAvatar icon={icon} size={size} round={round} />;
 }
 
 function sourceLabel(source?: string): string | null {
@@ -616,7 +616,7 @@ export function PluginsPage() {
                 <div className="jx-mcp-cardTop">
                   <PluginIcon icon={p.icon} />
                   <div className="jx-mcp-cardNameGroup">
-                    <span className="jx-mcp-cardName">{p.name}</span>
+                    <span className="jx-mk-cardName" title={p.name}>{p.name}</span>
                     {p.category && <Tag>{p.category}</Tag>}
                   </div>
                   <Button type="primary" size="small" loading={busySlug === p.slug}

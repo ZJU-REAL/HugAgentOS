@@ -1722,7 +1722,6 @@ export async function getMcpMarketItem(slug: string): Promise<McpMarketItem> {
 export async function installMcpMarketItem(
   slug: string,
   credentials: Record<string, string> = {},
-  confirmHighRisk = false,
   authMethod?: string,
 ): Promise<{ server_id: string; action: string }> {
   const wrapped = await apiRequest<unknown>('/v1/mcp-market/install', {
@@ -1731,7 +1730,6 @@ export async function installMcpMarketItem(
       slug,
       auth_method: authMethod,
       credentials,
-      confirm_high_risk: confirmHighRisk,
     }),
   });
   return unwrapData<{ server_id: string; action: string }>(wrapped);
@@ -1743,7 +1741,6 @@ export async function startMcpMarketOAuth(input: {
   credentials?: Record<string, string>;
   client_id?: string;
   client_secret?: string;
-  confirm_high_risk?: boolean;
 }): Promise<{ flow_id: string; authorization_url: string; status: string }> {
   const wrapped = await apiRequest<unknown>('/v1/mcp-market/oauth/start', {
     method: 'POST',
@@ -1754,6 +1751,7 @@ export async function startMcpMarketOAuth(input: {
 
 export async function getMcpMarketOAuthStatus(flowId: string): Promise<{
   status: string;
+  authorization_url?: string;
   error?: string;
   result?: { server_id?: string; action?: string };
 }> {

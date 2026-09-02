@@ -131,7 +131,7 @@ export function PluginMarketplaceModal({
                       <AppstoreOutlined style={{ color: 'var(--color-tint-purple)' }} />
                     </div>
                     <div className="jx-mcp-cardNameGroup">
-                      <span className="jx-mcp-cardName">{plugin.name}</span>
+                      <span className="jx-mk-cardName" title={plugin.name}>{plugin.name}</span>
                       {plugin.category && <Tag>{plugin.category}</Tag>}
                     </div>
                     <Button

@@ -31,7 +31,6 @@ from core.services.project_scope import ProjectScope
 from . import myspace_vfs as _ms
 from ._common import pin_artifact_to_workspace, resolve_sandbox_session, resp_json
 from ._paths import (
-    PATH_POLICY_DOC,
     is_myspace_physical,
     to_physical_path,
     validate_project_scope_path,
@@ -291,12 +290,8 @@ def register_edit(
         return resp_json(payload)
 
     Edit.__doc__ = (
-        "对文本文件做精确字符串替换。\n\n" + PATH_POLICY_DOC + "\n\n"
-        "本工具说明：\n"
-        "- 默认改沙盒里的文件（``/workspace/...``），不影响用户数据。\n"
-        "- 仅当用户明确要求修改他「我的空间」里的文件时，才 Edit\n"
-        "  ``/myspace/...``：改完**立即**同步回我的空间，同一 file_id，\n"
-        "  下载/预览链接不变，用户立刻看到改动。\n\n"
+        "对文本文件做精确字符串替换。改 ``/myspace/...`` 的文件会立即同步回我的\n"
+        "空间，同一 file_id、下载链接不变。\n\n"
         "前置条件（缺一不可）：\n"
         "- 必须先 ``Read(file_path)`` 完整读过该文件（不传 offset/limit）。\n"
         "- ``old_string`` 必须**精确**匹配文件内容（不含行号前缀；空白/缩进/\n"

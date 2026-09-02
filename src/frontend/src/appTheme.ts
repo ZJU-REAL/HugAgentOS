@@ -10,7 +10,7 @@ const sharedToken = {
   borderRadius: 10,
   borderRadiusLG: 16,
   borderRadiusSM: 6,
-  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
+  fontFamily: 'var(--font-family)',
   fontSize: 14,
   fontSizeSM: 12,
   fontSizeLG: 16,

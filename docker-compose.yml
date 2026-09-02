@@ -57,6 +57,8 @@ services:
       target: production
     container_name: hugagent-backend
     logging: *id001
+    dns_opt:
+    - use-vc
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       JX_EDITION: ${JX_EDITION:-ce}
@@ -216,6 +218,8 @@ services:
       dockerfile: docker/Dockerfile.mcp
     container_name: hugagent-mcp
     logging: *id001
+    dns_opt:
+    - use-vc
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       DATABASE_URL: postgresql://hugagent_user:${DB_PASSWORD:-hugagent_dev_password}@postgres:5432/hugagent

@@ -239,8 +239,7 @@ class McpMarketVersion(Base):
     auth_config = Column(JSONType, default=dict)
     tools_json = Column(JSONType, default=list)
     tool_hash = Column(String(64), nullable=False)
-    risk_level = Column(String(16), nullable=False, default="low")
-    risk_report = Column(JSONType, default=dict)
+    listing_notice = Column(JSONType, default=dict)
     source_server_id = Column(String(100))
     approved_by = Column(String(64))
     approved_at = Column(TIMESTAMP(timezone=True))
@@ -250,10 +249,6 @@ class McpMarketVersion(Base):
         CheckConstraint(
             "transport IN ('streamable_http', 'sse')",
             name="mcp_market_versions_transport_check",
-        ),
-        CheckConstraint(
-            "risk_level IN ('low', 'medium', 'high')",
-            name="mcp_market_versions_risk_check",
         ),
         UniqueConstraint("slug", "version", name="uq_mcp_market_versions_slug_version"),
         Index("idx_mcp_market_versions_slug", "slug", "created_at"),
@@ -283,8 +278,7 @@ class McpMarketSubmission(Base):
     auth_config = Column(JSONType, default=dict)
     tools_json = Column(JSONType, default=list)
     tool_hash = Column(String(64), nullable=False)
-    risk_level = Column(String(16), nullable=False, default="low")
-    risk_report = Column(JSONType, default=dict)
+    listing_notice = Column(JSONType, default=dict)
     note = Column(Text, nullable=False, default="")
     status = Column(String(16), nullable=False, default="pending")
     review_note = Column(Text)
@@ -304,10 +298,6 @@ class McpMarketSubmission(Base):
         CheckConstraint(
             "transport IN ('streamable_http', 'sse')",
             name="mcp_market_submissions_transport_check",
-        ),
-        CheckConstraint(
-            "risk_level IN ('low', 'medium', 'high')",
-            name="mcp_market_submissions_risk_check",
         ),
         Index("idx_mcp_market_submissions_status", "status", "created_at"),
         Index("idx_mcp_market_submissions_owner", "owner_user_id", "created_at"),
