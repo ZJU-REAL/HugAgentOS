@@ -145,6 +145,8 @@ export const CHAT_DICT: Record<string, string> = {
   '技能': 'Skills',
   '暂无可用技能': 'No skills available',
   '暂无可用连接器': 'No connectors available',
+  '未启用，仅本轮调用': 'Disabled · this turn only',
+  '未启用，调用后本会话保持加载': 'Disabled · stays loaded in this chat after use',
   '添加到项目': 'Add to project',
   '暂无项目': 'No projects',
   '新建项目': 'New Project',

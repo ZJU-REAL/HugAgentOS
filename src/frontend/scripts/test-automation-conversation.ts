@@ -29,9 +29,8 @@ const plugin = resolveAutomationPluginReference([
 ]);
 
 assert.deepEqual(plugin, {
+  id: 'automation@global',
   name: '定时任务管理',
-  skillIds: ['scheduled-tasks'],
-  mcpIds: ['automation_task'],
 });
 
 assert.equal(

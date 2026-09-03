@@ -157,6 +157,89 @@ def _owned_enabled_ids(
     )
 
 
+def resolve_explicit_runtime_capabilities(
+    db: Session,
+    user_id: str,
+    *,
+    skill_ids: Optional[List[str]] = None,
+    mcp_ids: Optional[List[str]] = None,
+) -> Tuple[List[str], List[str], List[str], List[str]]:
+    """Resolve capabilities that may be summoned explicitly for one turn.
+
+    A user's catalog override controls default assembly and discovery, not an
+    explicit ``/`` or ``+`` selection. The global/admin state remains a hard
+    boundary: disabled or dependency-blocked public capabilities cannot be
+    resurrected, and private capabilities are eligible only for their owner.
+
+    Returns ``(allowed_skills, allowed_mcps, unavailable_skills,
+    unavailable_mcps)`` while preserving request order.
+    """
+
+    def _clean(raw: Optional[List[str]]) -> List[str]:
+        return list(
+            dict.fromkeys(
+                str(item).strip()
+                for item in (raw or [])
+                if isinstance(item, str) and item.strip()
+            )
+        )
+
+    requested_skills = _clean(skill_ids)
+    requested_mcps = _clean(mcp_ids)
+    if not requested_skills and not requested_mcps:
+        return [], [], [], []
+
+    base_catalog = get_runtime_catalog(db, include_runtime_details=False)
+    allowed_skill_ids = {
+        str(item.get("id") or "").strip()
+        for item in (base_catalog.get("skills") or [])
+        if isinstance(item, dict) and bool(item.get("enabled", True))
+    }
+    allowed_mcp_ids = {
+        str(item.get("id") or "").strip()
+        for item in (base_catalog.get("mcp") or [])
+        if isinstance(item, dict) and bool(item.get("enabled", True))
+    }
+
+    # Private capabilities are deliberately absent from the global runtime
+    # catalog. Their persisted global/readiness state is still authoritative;
+    # only the per-user override is ignored for this explicit turn.
+    from core.db.models import AdminMcpServer, AdminSkill
+
+    unresolved_skills = [sid for sid in requested_skills if sid not in allowed_skill_ids]
+    if unresolved_skills:
+        owned_rows = (
+            db.query(AdminSkill.skill_id)
+            .filter(
+                AdminSkill.skill_id.in_(unresolved_skills),
+                AdminSkill.owner_user_id == user_id,
+                AdminSkill.is_enabled.is_(True),
+                AdminSkill.dep_status == "ready",
+            )
+            .all()
+        )
+        allowed_skill_ids.update(str(row[0]) for row in owned_rows if row[0])
+
+    unresolved_mcps = [mid for mid in requested_mcps if mid not in allowed_mcp_ids]
+    if unresolved_mcps:
+        owned_rows = (
+            db.query(AdminMcpServer.server_id)
+            .filter(
+                AdminMcpServer.server_id.in_(unresolved_mcps),
+                AdminMcpServer.owner_user_id == user_id,
+                AdminMcpServer.is_enabled.is_(True),
+            )
+            .all()
+        )
+        allowed_mcp_ids.update(str(row[0]) for row in owned_rows if row[0])
+
+    allowed_skills = [sid for sid in requested_skills if sid in allowed_skill_ids]
+    allowed_mcps = [mid for mid in requested_mcps if mid in allowed_mcp_ids]
+    unavailable_skills = [sid for sid in requested_skills if sid not in allowed_skill_ids]
+    unavailable_mcps = [mid for mid in requested_mcps if mid not in allowed_mcp_ids]
+    return allowed_skills, allowed_mcps, unavailable_skills, unavailable_mcps
+
+
 def _apply_desktop_cloud_bridge(result):
     """双端桌面本机后端：把云端授权 MCP 合并进 enabled_mcps（含本机同基名抑制）。
 

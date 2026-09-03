@@ -23,7 +23,7 @@ def test_connector_selection_is_persisted_in_user_message_metadata():
 
     extra = _build_user_extra_data(request)
 
-    assert extra["mcp_ids"] == ["internet_search"]
+    assert "mcp_ids" not in extra
     assert extra["connector_id"] == "internet_search"
     assert extra["connector_name"] == "联网搜索"
 

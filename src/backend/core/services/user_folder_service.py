@@ -14,6 +14,7 @@ this shared service.
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from dataclasses import dataclass
@@ -25,6 +26,8 @@ from core.db.repository import ArtifactRepository, AuditLogRepository
 from core.services.artifact_edition import is_personal_artifact, personal_artifact_create_fields
 from core.storage import get_storage
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 MAX_FOLDER_DEPTH = 8
 
@@ -184,6 +187,36 @@ class UserFolderService:
         )
         return FolderResult(True, "文件夹已创建", folder_id=folder_id)
 
+    def _drop_mirror(self, user_id: str, rel: str, *, is_dir: bool) -> None:
+        """把沙箱镜像目录里旧路径上的副本清掉。
+
+        改名/移动只改数据库里的归属，镜像目录里旧路径上的文件还在。不清掉，沙箱里会同时
+        看到新旧两份，读时对账还会把旧路径当成"没登记过的新文件"重新登记回用户空间 ——
+        用户改个名字，界面上冒出两个文件。新路径由正向同步按需重新物化，这里只负责收拾旧的。
+        """
+        if not rel:
+            return
+        try:
+            from core.llm.tools.myspace_vfs import _remove_cache
+
+            _remove_cache(user_id, rel, is_dir=is_dir)
+        except Exception as exc:  # noqa: BLE001 — 清镜像失败不该让改名/移动失败
+            logger.warning("[user_folder] 清理镜像旧路径失败 %s: %s", rel, exc)
+
+    def _folder_rel(self, folder: UserFolder) -> str:
+        """文件夹相对用户根目录的路径（用当前 DB 状态算，调用方须在改动前调用）。"""
+        names = [folder.name]
+        cur = folder.parent_folder_id
+        seen: set = set()
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            row = self.get(cur)
+            if row is None:
+                break
+            names.append(row.name)
+            cur = row.parent_folder_id
+        return "/".join(reversed(names))
+
     def rename_folder(self, folder_id: str, name: str, actor: str) -> FolderResult:
         folder = self.get(folder_id)
         if folder is None or folder.user_id != actor:
@@ -213,9 +246,11 @@ class UserFolderService:
         if duplicate:
             return FolderResult(False, "同级已有同名文件夹")
 
+        old_rel = self._folder_rel(folder)
         folder.name = cleaned
         folder.updated_at = datetime.utcnow()
         self.db.commit()
+        self._drop_mirror(folder.user_id, old_rel, is_dir=True)
 
         self.audit.create(
             {
@@ -276,9 +311,11 @@ class UserFolderService:
         if duplicate:
             return FolderResult(False, "目标位置已有同名文件夹")
 
+        old_rel = self._folder_rel(folder)
         folder.parent_folder_id = new_parent_id
         folder.updated_at = datetime.utcnow()
         self.db.commit()
+        self._drop_mirror(folder.user_id, old_rel, is_dir=True)
 
         self.audit.create(
             {
@@ -395,9 +432,13 @@ class UserFolderService:
             if target is None or target.user_id != actor:
                 return FolderResult(False, "目标文件夹不存在")
 
+        old_folder = self.get(artifact.user_folder_id) if artifact.user_folder_id else None
+        old_rel = f"{self._folder_rel(old_folder)}/" if old_folder is not None else ""
+        old_rel += str(artifact.filename or "")
         artifact.user_folder_id = target_folder_id
         artifact.updated_at = datetime.utcnow()
         self.db.commit()
+        self._drop_mirror(str(artifact.user_id), old_rel, is_dir=False)
 
         self.audit.create(
             {

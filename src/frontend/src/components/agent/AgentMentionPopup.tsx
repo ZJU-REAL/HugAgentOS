@@ -45,7 +45,10 @@ interface AgentMentionPopupProps {
 const POPUP_MAX_HEIGHT = 320;
 
 function agentDescription(agent: UserAgentItem): string {
-  return agent.description.trim() || agent.welcome_message.trim();
+  const description = agent.description.trim() || agent.welcome_message.trim();
+  return [agent.is_enabled ? '' : t('未启用，仅本轮调用'), description]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function matchesAgent(agent: UserAgentItem, query: string): boolean {
@@ -198,10 +201,10 @@ export function useAgentMention(input: string, actions: MentionLauncherAction[])
   }, [agents.length, canMentionAgents, fetchAgents, mentionVisible]);
 
   const candidates = useMemo<MentionCandidate[]>(() => {
-    const enabledAgents = canMentionAgents
-      ? agents.filter((agent) => agent.is_enabled && matchesAgent(agent, query))
+    const callableAgents = canMentionAgents
+      ? agents.filter((agent) => matchesAgent(agent, query))
       : [];
-    const agentCandidates = enabledAgents.map((agent) => ({
+    const agentCandidates = callableAgents.map((agent) => ({
       kind: 'agent' as const,
       agent,
       description: agentDescription(agent),

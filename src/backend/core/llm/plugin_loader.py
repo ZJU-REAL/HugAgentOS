@@ -11,9 +11,10 @@
   server（追加进 Toolkit basic 组的 mcps）、注册其技能（追加 LocalSkillLoader），
   下一轮 ReAct 请求里工具 schema 与技能清单即出现（AS2 的
   ``_prepare_model_input`` 每轮重算，无缓存）。
-- **粘滞性**：激活写入 ``ChatSession.extra_data["activated_plugins"]``——同一会话
-  后续轮次装配期直接不再延迟该插件（其组件回到常规装配位置）。显式呼唤插件
-  （``/`` 斜杠、``+`` 菜单展开的 skill_ids/mcp_ids）视同激活并同样落库。
+- **粘滞性**：激活以精确 ``install_id`` 写入
+  ``ChatSession.extra_data["activated_plugins"]``——同一会话后续轮次在个人开关
+  筛选前恢复该插件（其组件回到常规装配位置）。通过 ``/`` 或 ``+`` 显式选择
+  插件视同激活；管理员停用、卸载、依赖或归属门控仍在每轮重新校验。
 
 与前缀缓存（prefix caching）的关系：插件目录段内容与顺序对同一用户稳定（按
 slug 排序、不随激活状态变化），激活行为本身会在「激活那一轮」与「激活后的下一
@@ -49,6 +50,10 @@ def progressive_plugin_loading_enabled() -> bool:
 class DeferredPlugin:
     """One deferral-eligible plugin and its in-play components."""
 
+    # Stable installation identity. ``slug`` is the user-facing selector and
+    # is not globally unique (a private and global installation may share it),
+    # so durable activation must use this value.
+    install_id: str
     slug: str
     name: str
     description: str
@@ -87,7 +92,13 @@ _ACTIVATED_KEY = "activated_plugins"
 
 
 def load_activated_plugin_slugs(chat_id: Optional[str]) -> List[str]:
-    """Read the chat's sticky activation list (activation order preserved)."""
+    """Read sticky activation tokens (installation ids; legacy slugs accepted).
+
+    The historical function name is kept because it is internal and widely
+    referenced, but newly written values are exact ``InstalledPlugin.install_id``
+    strings. Existing chat rows containing slugs remain readable so an
+    already-loaded plugin does not disappear mid-conversation after upgrade.
+    """
     if not chat_id:
         return []
     try:
@@ -106,9 +117,9 @@ def load_activated_plugin_slugs(chat_id: Optional[str]) -> List[str]:
         return []
 
 
-def record_plugin_activation(chat_id: Optional[str], slugs: Sequence[str]) -> None:
-    """Append slugs to the chat's sticky activation list (idempotent)."""
-    if not chat_id or not slugs:
+def record_plugin_activation(chat_id: Optional[str], install_ids: Sequence[str]) -> None:
+    """Append exact installation ids to the chat's sticky list (idempotent)."""
+    if not chat_id or not install_ids:
         return
     try:
         from core.db.engine import SessionLocal
@@ -122,9 +133,9 @@ def record_plugin_activation(chat_id: Optional[str], slugs: Sequence[str]) -> No
             data = dict(row.extra_data or {})
             current = [s for s in (data.get(_ACTIVATED_KEY) or []) if isinstance(s, str)]
             added = False
-            for slug in slugs:
-                if slug and slug not in current:
-                    current.append(slug)
+            for install_id in install_ids:
+                if install_id and install_id not in current:
+                    current.append(install_id)
                     added = True
             if not added:
                 return
@@ -134,6 +145,119 @@ def record_plugin_activation(chat_id: Optional[str], slugs: Sequence[str]) -> No
             db.commit()
     except Exception as exc:  # noqa: BLE001
         logger.warning("[plugin-loader] activation persist failed: %s", exc)
+
+
+@dataclass
+class StickyPluginCapabilities:
+    """Authorized plugin components restored for a chat's later turns."""
+
+    install_ids: List[str] = field(default_factory=list)
+    slugs: List[str] = field(default_factory=list)
+    skill_ids: List[str] = field(default_factory=list)
+    mcp_ids: List[str] = field(default_factory=list)
+
+
+def resolve_sticky_plugin_capabilities(
+    *,
+    user_id: str,
+    chat_id: Optional[str],
+) -> StickyPluginCapabilities:
+    """Resolve durable plugin activations before normal capability narrowing.
+
+    Personal catalog switches intentionally do not participate: once the user
+    explicitly loads a plugin in a chat, its components remain expanded for
+    that chat. Every turn still revalidates the installation's visibility and
+    each component's admin/global state, dependency readiness and ownership;
+    uninstalling or administratively disabling a component therefore removes
+    it immediately.
+    """
+    tokens = load_activated_plugin_slugs(chat_id)
+    result = StickyPluginCapabilities()
+    if not tokens or not user_id:
+        return result
+
+    try:
+        from core.config.catalog_resolver import resolve_explicit_runtime_capabilities
+        from core.db.engine import SessionLocal
+        from core.db.models import InstalledPlugin
+        from sqlalchemy import or_
+
+        with SessionLocal() as db:
+            rows = (
+                db.query(InstalledPlugin)
+                .filter(
+                    or_(
+                        InstalledPlugin.owner_user_id == user_id,
+                        InstalledPlugin.owner_user_id.is_(None),
+                    )
+                )
+                .all()
+            )
+            by_id = {str(row.install_id): row for row in rows}
+            by_slug: Dict[str, List[Any]] = {}
+            for row in rows:
+                by_slug.setdefault(str(row.slug), []).append(row)
+
+            selected: List[Any] = []
+            seen_install_ids: Set[str] = set()
+            for token in tokens:
+                row = by_id.get(token)
+                if row is None:
+                    # Legacy activation rows stored only the slug. Prefer the
+                    # user's own installation when a private/global duplicate
+                    # exists, matching catalog visibility semantics.
+                    matches = by_slug.get(token) or []
+                    matches = sorted(
+                        matches,
+                        key=lambda item: (item.owner_user_id != user_id, str(item.install_id)),
+                    )
+                    row = matches[0] if matches else None
+                install_id = str(getattr(row, "install_id", "") or "")
+                if row is not None and install_id and install_id not in seen_install_ids:
+                    selected.append(row)
+                    seen_install_ids.add(install_id)
+
+            requested_skills: List[str] = []
+            requested_mcps: List[str] = []
+            for row in selected:
+                component_ids = row.component_ids or {}
+                requested_skills.extend(
+                    str(item).strip()
+                    for item in (component_ids.get("skills") or [])
+                    if isinstance(item, str) and item.strip()
+                )
+                requested_mcps.extend(
+                    str(item).strip()
+                    for item in (component_ids.get("mcp") or [])
+                    if isinstance(item, str) and item.strip()
+                )
+            requested_skills = list(dict.fromkeys(requested_skills))
+            requested_mcps = list(dict.fromkeys(requested_mcps))
+            allowed_skills, allowed_mcps, unavailable_skills, unavailable_mcps = (
+                resolve_explicit_runtime_capabilities(
+                    db,
+                    user_id,
+                    skill_ids=requested_skills,
+                    mcp_ids=requested_mcps,
+                )
+            )
+
+            result.install_ids = [str(row.install_id) for row in selected]
+            result.slugs = [str(row.slug) for row in selected]
+            result.skill_ids = allowed_skills
+            result.mcp_ids = allowed_mcps
+            if unavailable_skills or unavailable_mcps:
+                logger.info(
+                    "[plugin-loader] sticky activation partially unavailable "
+                    "chat=%s installs=%s skipped_skills=%s skipped_mcps=%s",
+                    chat_id,
+                    result.install_ids,
+                    unavailable_skills,
+                    unavailable_mcps,
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[plugin-loader] sticky capability resolve failed: %s", exc)
+    return result
 
 
 # ── Assembly-time resolution ─────────────────────────────────────────────────
@@ -198,7 +322,7 @@ def resolve_progressive_plugins(
     activated = load_activated_plugin_slugs(chat_id)
     activated_set = set(activated)
 
-    res = ProgressiveResolution(activated_slugs=list(activated))
+    res = ProgressiveResolution()
     eligible: List[DeferredPlugin] = []
     newly_pinned: List[str] = []
     try:
@@ -234,6 +358,7 @@ def resolve_progressive_plugins(
                 if server_id and server_id not in bound and server_id not in in_play_mcps:
                     bound.append(server_id)
         plugin = DeferredPlugin(
+            install_id=str(r.install_id),
             slug=str(r.slug),
             name=str(r.name or r.slug),
             description=str(r.description or ""),
@@ -244,12 +369,16 @@ def resolve_progressive_plugins(
         eligible.append(plugin)
 
         components = set(in_play_skills) | set(in_play_mcps)
-        if plugin.slug in activated_set:
+        if plugin.install_id in activated_set or plugin.slug in activated_set:
+            if plugin.slug not in res.activated_slugs:
+                res.activated_slugs.append(plugin.slug)
             continue
         if invoked & components:
             # Explicit invocation this turn = activation; persist below so the
             # next turn keeps the plugin eager without re-invocation.
-            newly_pinned.append(plugin.slug)
+            newly_pinned.append(plugin.install_id)
+            if plugin.slug not in res.activated_slugs:
+                res.activated_slugs.append(plugin.slug)
             continue
         res.deferred.append(plugin)
         res.deferred_skill_ids.update(in_play_skills)
@@ -257,7 +386,6 @@ def resolve_progressive_plugins(
 
     if newly_pinned:
         record_plugin_activation(chat_id, newly_pinned)
-        res.activated_slugs.extend(newly_pinned)
 
     res.directory = sorted(eligible, key=lambda p: p.slug)
     return res
@@ -333,6 +461,7 @@ def resolve_bound_progressive_plugins(
                 if server_id and server_id not in bound and server_id not in mcps:
                     bound.append(server_id)
         plugin = DeferredPlugin(
+            install_id=str(r.install_id),
             slug=str(r.slug),
             name=str(r.name or r.slug),
             description=str(r.description or ""),
@@ -552,7 +681,11 @@ def register_load_plugin(
 
         activated.add(target.slug)
         if runtime.get("persist", True):
-            await asyncio.to_thread(record_plugin_activation, runtime.get("chat_id"), [target.slug])
+            await asyncio.to_thread(
+                record_plugin_activation,
+                runtime.get("chat_id"),
+                [target.install_id],
+            )
 
         # Tool/skill enumeration is shared with the execution manifest. The
         # next ReAct request must publish a new explicit surface generation,
@@ -583,6 +716,7 @@ def register_load_plugin(
 __all__ = [
     "DeferredPlugin",
     "ProgressiveResolution",
+    "StickyPluginCapabilities",
     "build_plugin_directory_section",
     "load_activated_plugin_slugs",
     "progressive_plugin_loading_enabled",
@@ -590,4 +724,5 @@ __all__ = [
     "register_load_plugin",
     "resolve_bound_progressive_plugins",
     "resolve_progressive_plugins",
+    "resolve_sticky_plugin_capabilities",
 ]

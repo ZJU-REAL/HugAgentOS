@@ -17,6 +17,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -60,39 +61,203 @@ def _detect_dws_pat_authorization(exit_code: int, stdout: str, stderr: str) -> O
     }
 
 
+async def _pull_myspace_updates(user_id: str) -> None:
+    """执行 bash 前把「我的空间」的最新状态落进镜像目录，命令看到的就是用户当下的文件。
+
+    界面上的上传、改名、删除只动 artifact 记录，不碰镜像目录；不补这一步，``ls /myspace``
+    看到的就是过期视图 —— 用户刚传的看不见，刚删的还在。bind mount 下写进镜像即刻对沙箱
+    可见，其余 provider 由各自的按需物化路径兜底。
+    """
+    from core.llm.tools import myspace_mirror as _mm
+
+    try:
+        await asyncio.to_thread(_mm.pull_myspace_updates, user_id=user_id)
+    except Exception as exc:  # noqa: BLE001 — 正向同步失败不该拦住命令本身
+        logger.warning("[bash.myspace-sync] 正向同步失败（不影响执行）: %s", exc)
+
+
+async def _confirm_myspace_change(
+    *,
+    interactive: bool,
+    chat_id: Optional[str],
+    op: str,
+    logical_path: str,
+    summary: str,
+) -> Optional[dict]:
+    """要不要为这次改动征求用户同意；返回 None 表示放行。
+
+    **问不到人就直接放行**：子智能体、批量执行、定时任务没有对话可弹确认，此时拒绝并不能
+    阻止事情发生 —— 文件在沙箱里早就改了/删了，被拦住的只是"把这件事同步回用户空间"，
+    结果是界面上还是旧状态、两边不一致。确认门是用来征求意见的，不是用来在无人应答时
+    兜底拒绝的。
+    """
+    if not interactive:
+        return None
+    from core.llm.tools._common import myspace_write_guard
+
+    return await myspace_write_guard(
+        chat_id=chat_id,
+        op=op,
+        logical_path=logical_path,
+        is_myspace=True,
+        interactive=True,
+        summary=summary,
+    )
+
+
+async def _snapshot_myspace(user_id: str) -> dict:
+    """记下镜像目录当前的 {路径: mtime}（失败返回空字典，退化成只按时间窗口对账）。"""
+    from core.llm.tools import myspace_mirror as _mm
+    from core.sandbox import get_sandbox_provider as _get_provider
+
+    if not getattr(_get_provider(), "myspace_mirror_live", False):
+        return {}
+    try:
+        return await asyncio.to_thread(_mm.snapshot_mirror_state, user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[bash.myspace-sync] 快照失败（退化为时间窗口对账）: %s", exc)
+        return {}
+
+
 async def _sync_myspace_changes(
     *,
     sess: Optional[str],
     user_id: str,
     chat_id: Optional[str],
     interactive: bool,
+    since_ts: float,
+    mirror_before: Optional[dict] = None,
+) -> tuple[list[dict], list[str], list[str]]:
+    """bash 执行完后，把沙箱对「我的空间」的改动登记回用户空间。
+
+    写在 ``/myspace`` 下的文件**就是**用户的文件，两类分开处理：
+
+    - **新文件**（还没有 artifact 记录）：直接登记、直接展示，不打断用户。子智能体、批量、
+      定时任务写的也一样 —— 内容已经落在用户空间的磁盘上，此时再拦只会造出"界面看不见却
+      删不掉、还被下一个会话挂到"的隐形文件。
+    - **改动用户已有的文件**：主对话里过 ``MYSPACE_WRITE_CONFIRM`` 确认门，覆盖既有文件
+      要用户点头；子智能体 / 批量 / 定时任务这类问不到人的场景直接生效，不拒绝 ——
+      拒绝拦不住已经发生的改动，只会让两边不一致。
+    - **删掉用户已有的文件**（``rm`` 不经过任何工具，靠命令前后的清单差集认出来）：同上，
+      主对话问一声、非交互直接生效。被用户拒绝时不删，下一条命令的正向同步会把文件拉回
+      镜像 —— 两边仍然一致。
+
+    判定基准是 **artifact 记录**，不是镜像缓存。开了 myspace bind mount 之后沙箱的
+    ``/workspace/myspace/{uid}`` 和后端 ``myspace_cache/{uid}`` 是同一份目录，旧实现
+    "沙箱文件 md5 == 缓存文件 md5 就跳过"在这种拓扑下恒等为真，于是一个文件也没同步出去。
+
+    判定用的是**执行前拍的目录快照**（``mirror_before``）与执行后的差集 —— 拿目录自己和
+    自己比，不依赖任何时钟，长命令、短命令一视同仁。拿不到快照时退化成时间窗口
+    （``since_ts``，内部会为内核粗粒度时钟让出余量）。用户已经删掉的文件绝不复活。
+
+    返回 ``(已登记的 artifact ref, 被确认门拦下的路径, 已同步删除的路径)``；任何一步失败
+    都只降级为告警，不影响 bash 本身的结果。
+    """
+    from core.llm.tools import myspace_mirror as _mm
+    from core.llm.tools._common import pin_artifact_to_workspace
+    from core.llm.tools._myspace_confirm import OP_DELETE, OP_WRITE
+    from core.sandbox import get_sandbox_provider as _get_provider
+
+    if not getattr(_get_provider(), "myspace_mirror_live", False):
+        synced, blocked = await _sync_via_sandbox_copy(
+            sess=sess,
+            user_id=user_id,
+            chat_id=chat_id,
+            interactive=interactive,
+            since_ts=since_ts,
+        )
+        return synced, blocked, []
+
+    # 优先拿执行前的快照做差集：文件 mtime 取自内核粗粒度时钟，会比 time.time() 慢几毫秒，
+    # 单靠时间窗口会把命令刚写出来的文件判成"窗口之前的"而漏掉（实测慢 6~10ms）。
+    changes = await asyncio.to_thread(
+        _mm.collect_mirror_changes,
+        user_id=user_id,
+        since_ts=None if mirror_before else since_ts,
+        baseline=mirror_before or None,
+    )
+    synced: list[dict] = []
+    blocked: list[str] = []
+    deleted: list[str] = []
+
+    # 新文件不需要逐个问用户，可以并发登记：登记要把内容传进对象存储，一条命令产出几十个
+    # 分片时串行等于几十次往返串起来。并发度压在 8，别把存储端打爆。
+    if changes.new:
+        sem = asyncio.Semaphore(8)
+
+        async def _register(entry):
+            async with sem:
+                return await asyncio.to_thread(
+                    _mm.register_entry, user_id=user_id, chat_id=chat_id, entry=entry
+                )
+
+        synced.extend(
+            ref for ref in await asyncio.gather(*(_register(e) for e in changes.new)) if ref
+        )
+
+    for entry in changes.modified:
+        guard = await _confirm_myspace_change(
+            interactive=interactive,
+            chat_id=chat_id,
+            op=OP_WRITE,
+            logical_path=entry.logical_path,
+            summary=f"bash 修改了 {entry.logical_path}，同步回我的空间",
+        )
+        if guard is not None:
+            blocked.append(entry.logical_path)
+            continue
+        ref = await asyncio.to_thread(
+            _mm.register_entry, user_id=user_id, chat_id=chat_id, entry=entry
+        )
+        if ref:
+            synced.append(ref)
+
+    for rel in await asyncio.to_thread(
+        _mm.deleted_since, user_id=user_id, snapshot=mirror_before or {}
+    ):
+        logical = f"/myspace/{rel}"
+        guard = await _confirm_myspace_change(
+            interactive=interactive,
+            chat_id=chat_id,
+            op=OP_DELETE,
+            logical_path=logical,
+            summary=f"bash 删除了 {logical}，同步删除我的空间里的文件",
+        )
+        if guard is not None:
+            blocked.append(logical)
+            continue
+        if await asyncio.to_thread(_mm.delete_registered, user_id=user_id, rel=rel):
+            deleted.append(logical)
+
+    # 只有"这条命令就产出一个文件"时才往对话产物区钉卡片 —— 那就是它的结果。批量作业一次
+    # 落几十个分片，逐个钉卡会把产物区淹掉；它们在「我的空间」里照样看得见、可下载。
+    if len(synced) == 1:
+        pin_artifact_to_workspace(synced[0])
+    if synced or blocked or deleted:
+        logger.info(
+            "[bash.myspace-sync] user=%s 新登记=%d 改动=%d 删除=%d 被拦=%d",
+            user_id, len(changes.new), len(changes.modified), len(deleted), len(blocked),
+        )
+    return synced, blocked, deleted
+
+
+async def _sync_via_sandbox_copy(
+    *,
+    sess: Optional[str],
+    user_id: str,
+    chat_id: Optional[str],
+    interactive: bool,
+    since_ts: float,
 ) -> tuple[list[dict], list[str]]:
-    """After bash runs, reverse-sync modified myspace files in the sandbox back to My Space.
+    """沙箱与镜像不是同一份目录时（script_runner / cube）：把改动取回来再登记。
 
-    Background: for binary documents (docx etc.), Edit/Write steer the model toward
-    "use bash to call python-docx, modify, and write back to the same /myspace
-    path", but the sandbox filesystem has no write-back path to artifact storage
-    (the bind-mount only shares the seeding cache) — after bash finishes, the
-    sandbox copy has changed while the user's file in "My Space" is untouched,
-    yet the model reports "done". This function closes that loop:
-
-    1. List files under the sandbox ``/workspace/myspace/{uid}`` modified recently
-       (within 10min) with their md5;
-    2. Compare against the backend mirror cache (myspace_cache, maintained in sync
-       with artifact content); skip files whose md5 matches;
-    3. Each differing file passes the §13 confirmation gate (same gate as
-       Write/Edit: rejected outright in non-interactive mode, suspended awaiting
-       user approval in interactive mode); once approved, ``sync_upsert`` writes
-       back in place (same file_id, download/preview links unchanged) and pins to
-       the workspace.
-
-    Returns ``(synced_refs, blocked_paths)``; any step failure only degrades to a
-    warning and never affects the bash result itself.
+    这种拓扑下镜像缓存确实等于「我的空间」里的内容，所以仍用 md5 比对判断有没有改；新旧
+    文件的分工与 bind mount 路径一致 —— 新文件直接登记，改用户已有文件要过确认门。
     """
     from core.config.settings import settings as _settings
+    from core.llm.tools import myspace_mirror as _mm
     from core.llm.tools import myspace_vfs as _ms
     from core.llm.tools._common import (
-        myspace_write_guard,
         pin_artifact_to_workspace,
         sandbox_exec_bash,
         shell_quote,
@@ -104,25 +269,17 @@ async def _sync_myspace_changes(
     from core.sandbox._common import WORKSPACE as _WS
 
     base = f"{_WS}/myspace/{user_id}"
-    # -mmin -10: only look at recent changes, so sandbox copies left over from
-    # earlier turns are not mistaken for this run's modifications (prevents old
-    # files the user already deleted in the UI from being "resurrected").
-    # The size cap is the same SANDBOX_ARTIFACT_MAX_BYTES the rest of the sandbox
-    # file delivery uses, so a large file written into /myspace is not dropped here
-    # without a word.
     max_bytes = _settings.sandbox.artifact_max_bytes
     list_cmd = (
         f"cd {shell_quote(base)} 2>/dev/null && "
-        f"find . -type f -mmin -10 -size -{max_bytes}c -exec md5sum {{}} + 2>/dev/null"
-        f" || true"
+        f"find . -type f -newermt @{int(since_ts)} -size -{max_bytes}c "
+        f"-exec md5sum {{}} + 2>/dev/null || true"
     )
     code, out, _err = await sandbox_exec_bash(list_cmd, chat_id=sess, timeout=20)
     if code != 0 or not out.strip():
         return [], []
 
-    synced: list[dict] = []
-    blocked: list[str] = []
-    provider = _get_provider()
+    candidates: list[str] = []
     for line in out.strip().splitlines():
         parts = line.strip().split(None, 1)
         if len(parts) != 2:
@@ -130,9 +287,6 @@ async def _sync_myspace_changes(
         sandbox_md5, rel = parts[0], parts[1].strip().removeprefix("./")
         if not rel:
             continue
-        # Compare against the mirror cache: the cache is maintained in sync with
-        # artifact content (both materialize and sync_upsert mirror), so an equal
-        # md5 = the user space already holds this content.
         try:
             cache_fp = _ms.myspace_cache_file(user_id, rel)
             cache_md5 = (
@@ -140,44 +294,45 @@ async def _sync_myspace_changes(
             )
         except Exception:  # noqa: BLE001
             cache_md5 = None
-        if cache_md5 == sandbox_md5:
-            continue
+        if cache_md5 != sandbox_md5:
+            candidates.append(rel)
+    if not candidates:
+        return [], []
 
+    states = await asyncio.to_thread(_mm.classify_rels, user_id=user_id, rels=candidates)
+    provider = _get_provider()
+    synced: list[dict] = []
+    blocked: list[str] = []
+    for rel in candidates:
+        state = states.get(rel, "new")
+        if state == "deleted":
+            continue  # 用户删掉的文件不复活
         logical = f"/myspace/{rel}"
-        guard = await myspace_write_guard(
-            chat_id=chat_id,
-            op=OP_WRITE,
-            logical_path=logical,
-            is_myspace=True,
-            interactive=interactive,
-            summary=f"bash 修改了 {logical}，同步回我的空间",
-        )
-        if guard is not None:
-            blocked.append(logical)
-            continue
+        if state == "modified":
+            guard = await _confirm_myspace_change(
+                interactive=interactive,
+                chat_id=chat_id,
+                op=OP_WRITE,
+                logical_path=logical,
+                summary=f"bash 修改了 {logical}，同步回我的空间",
+            )
+            if guard is not None:
+                blocked.append(logical)
+                continue
         try:
-            # The cube provider returns bytearray, and OSS put_object treats
-            # non-bytes as a file-like object (requiring .read) — normalize to bytes.
+            # cube provider 返回 bytearray，而 OSS put_object 会把非 bytes 当文件对象处理，
+            # 统一转成 bytes。
             data = bytes(await provider.get_file(sess, f"{base}/{rel}", user_id=user_id))
         except (_SE, _SCE) as exc:
             logger.warning("[bash.myspace-sync] get_file %s 失败: %s", rel, exc)
             continue
-        ref = _ms.sync_upsert(
-            user_id=user_id,
-            chat_id=chat_id,
-            logical_path=logical,
-            content=data,
+        ref = await asyncio.to_thread(
+            _mm.register_bytes, user_id=user_id, chat_id=chat_id, rel=rel, content=data
         )
         if ref:
-            pin_artifact_to_workspace(ref)
             synced.append(ref)
-            logger.info(
-                "[bash.myspace-sync] %s → artifact %s (%dB, in_place=%s)",
-                logical,
-                ref.get("file_id"),
-                len(data),
-                ref.get("in_place_update"),
-            )
+    if len(synced) == 1:
+        pin_artifact_to_workspace(synced[0])
     return synced, blocked
 
 
@@ -274,6 +429,14 @@ def register_bash(
             session_id=_sess,
             user_id=user_id,
         )
+        # 先把「我的空间」的最新状态落进镜像，命令看到的才是用户当下的文件；随后记下镜像
+        # 里现有哪些文件，命令跑完做差集才认得出沙箱里删掉了什么（rm 不经过任何工具）。
+        mirror_before: dict = {}
+        if user_id:
+            await _pull_myspace_updates(user_id)
+            mirror_before = await _snapshot_myspace(user_id)
+
+        started_at = time.time()
         try:
             result = await provider.execute(req)
         except _SandboxTimeoutError as exc:
@@ -292,25 +455,36 @@ def register_bash(
             # gate still ran, but the OS write jail did not.
             payload["confinement_warning"] = _confinement_warning
 
-        # Command succeeded and touches a myspace path → reverse-sync the sandbox
-        # changes back to My Space (cheap gate: check the command string first; the
-        # real diff detection is in _sync_myspace_changes).
-        if result.exit_code == 0 and user_id and "myspace" in cmd:
+        # 命令跑完就对账，不看命令文本、不看退出码：路径可以由变量拼出、可以先 cd 再用
+        # 相对路径，靠命令里有没有 "myspace" 字样判断必然漏；命令失败前写出的文件同样已经
+        # 落盘，一样要登记。真正的差异判定在 _sync_myspace_changes 里，没有变化时只有一次
+        # 目录遍历。
+        if user_id:
             try:
-                synced, blocked = await _sync_myspace_changes(
+                synced, blocked, deleted = await _sync_myspace_changes(
                     sess=_sess,
                     user_id=user_id,
                     chat_id=chat_id,
                     interactive=interactive,
+                    since_ts=started_at,
+                    mirror_before=mirror_before,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[bash.myspace-sync] 同步异常（不影响 bash 结果）: %s", exc)
-                synced, blocked = [], []
+                synced, blocked, deleted = [], [], []
             if synced:
-                payload["myspace_synced"] = synced
+                # 批量作业一条命令可能落几十上百个文件，全塞进工具结果会把上下文撑爆：
+                # 只回条数和前若干条，完整清单用户在「我的空间」里看得到。
+                payload["myspace_synced_count"] = len(synced)
+                payload["myspace_synced"] = synced[:10]
                 payload["note"] = (
-                    "检测到命令修改了「我的空间」文件，已自动同步回用户空间"
-                    "（同 file_id，下载/预览链接不变），无需再调其他工具。"
+                    f"命令写入「我的空间」的 {len(synced)} 个文件已同步（同 file_id，"
+                    "下载/预览链接不变），无需再调其他工具。"
+                )
+            if deleted:
+                payload["myspace_deleted"] = deleted
+                payload["note_deleted"] = (
+                    "命令删除的文件已同步从「我的空间」移除：" + "、".join(deleted[:10])
                 )
             if blocked:
                 payload["myspace_sync_blocked"] = blocked

@@ -18,8 +18,8 @@ import {
 } from '../../api';
 import type { McpMarketSubmission } from '../../types';
 import { McpMarketplaceModal } from './McpMarketplaceModal';
-import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
 import { CardTail } from '../common/CardTail';
+import { McpIcon } from './McpIcon';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
@@ -27,28 +27,6 @@ import { CardTail } from '../common/CardTail';
 // Number of cards per page in the grid (2-column layout, 6 rows)
 const MCP_PAGE_SIZE = 12;
 const MCP_MARKET_CATEGORIES = ['信息检索', '数据分析', '内容创作', '办公协作', '研发工具', '业务系统', '自动化', '通用工具'];
-
-function McpIcon({ id, icon }: { id: string; icon?: string }) {
-  const normalizedIcon = normalizeMcpIconUrl(icon);
-  const [failedIcon, setFailedIcon] = useState('');
-  if (normalizedIcon && failedIcon !== normalizedIcon) {
-    return (
-      <div className="jx-mcp-iconWrap">
-        <img
-          src={normalizedIcon}
-          alt=""
-          className="jx-mcp-iconImg"
-          onError={() => setFailedIcon(normalizedIcon)}
-        />
-      </div>
-    );
-  }
-  return (
-    <div className="jx-mcp-iconWrap jx-mcp-iconFallback">
-      <span>{(id || '?')[0].toUpperCase()}</span>
-    </div>
-  );
-}
 
 export function McpPage({ embedded = false }: { embedded?: boolean }) {
   const {

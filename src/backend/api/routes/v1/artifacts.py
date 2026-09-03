@@ -5,6 +5,7 @@ GET    /v1/artifacts/favorites  favorited conversation list
 DELETE /v1/artifacts/{id}       soft-delete a resource
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -43,6 +44,31 @@ router = APIRouter(prefix="/v1/artifacts", tags=["artifacts"])
 _backfilled_users: set = set()
 _backfilling_users: set = set()
 _backfill_lock = threading.Lock()
+
+
+# 读时对账：列「我的空间」之前先把沙箱镜像目录里新落盘的文件登记上，并把界面上已删的
+# 文件从镜像里清掉。沙箱写文件到 /myspace 是随时发生的，只在 bash 结束时对账仍会让用户
+# 在长命令跑到一半时看到过期视图 —— 读时再对一次，用户任何时候打开看到的都是当下状态。
+# 这里只登记"新文件"，不碰"改动了用户已有文件"那一类：那类要过写入确认门，HTTP 读路径
+# 没有确认通道，留给 bash 工具处理。
+_mirror_reconcile_lock = threading.Lock()
+_mirror_reconciling: set = set()
+
+
+def _reconcile_mirror_on_read(user_id: str) -> None:
+    with _mirror_reconcile_lock:
+        if user_id in _mirror_reconciling:
+            return  # 并发轮询只让一个进去，其余直接读当前已提交的结果
+        _mirror_reconciling.add(user_id)
+    try:
+        from core.llm.tools import myspace_mirror as mirror
+
+        mirror.reconcile_on_read(user_id=user_id)
+    except Exception as exc:  # noqa: BLE001 — 对账失败不该让列表打不开
+        logger.warning("[myspace-mirror] 读时对账失败 user=%s: %s", user_id, exc)
+    finally:
+        with _mirror_reconcile_lock:
+            _mirror_reconciling.discard(user_id)
 
 
 class AddArtifactToKBRequest(BaseModel):
@@ -374,6 +400,10 @@ async def list_user_artifacts(
         finally:
             with _backfill_lock:
                 _backfilling_users.discard(uid)
+
+    if scope != "all":
+        # 文件 IO + 可能的对象存储下载，丢到线程里做，别卡住事件循环
+        await asyncio.to_thread(_reconcile_mirror_on_read, uid)
 
     repo = ArtifactRepository(db)
     mime_prefix = None

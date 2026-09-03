@@ -16,6 +16,10 @@ import { useModelCapabilitiesStore } from '../../stores/modelCapabilitiesStore';
 import type { UserAgentItem } from '../../stores/agentStore';
 import { FileAttachmentCard, MySpaceImportModal } from '../file';
 import CreateProjectModal from '../projects/CreateProjectModal';
+import { AgentIcon } from '../agent/AgentIcon';
+import { SkillAvatar } from '../catalog/skillIcons';
+import { McpIcon } from '../catalog/McpIcon';
+import { PluginAvatar } from '../catalog/PluginIconPicker';
 import { getApiUrl, createLocalProject } from '../../api';
 import type { InstalledPluginItem } from '../../types';
 import {
@@ -389,27 +393,39 @@ export function InputArea({
     return () => window.removeEventListener('hugagent:local-folder', onFolder as EventListener);
   }, [projectComposer, isDesktopShell, localCapable]);
 
-  // `/` is reserved for installed plugins and enabled skills; conversation modes live in the
-  // `@` launcher. Keyboard selection and popup rendering share this candidate list.
+  // `/` lists every installed/access-authorized plugin and skill. A personal
+  // capability switch only controls default assembly. An off skill is attached
+  // to this turn; an explicitly loaded plugin stays expanded for this chat.
   const slashEntries = useMemo<SlashEntry[]>(
     () => {
       const query = input.startsWith('/') ? input.slice(1).toLowerCase() : '';
       const pluginEntries: SlashEntry[] = installedPlugins
         .filter((plugin) => (
-          !query
-          || plugin.name.toLowerCase().includes(query)
-          || plugin.description.toLowerCase().includes(query)
+          plugin.callable !== false
+          && (
+            !query
+            || plugin.name.toLowerCase().includes(query)
+            || plugin.description.toLowerCase().includes(query)
+          )
         ))
         .map((plugin) => ({
           kind: 'plugin', id: plugin.install_id, name: plugin.name,
-          description: plugin.description.trim(), plugin,
+          description: [
+            plugin.enabled === false ? t('未启用，调用后本会话保持加载') : '',
+            plugin.description.trim(),
+          ].filter(Boolean).join(' · '),
+          plugin,
         }));
       const skillEntries: SlashEntry[] = (skills || [])
-        .filter((skill) => skill.enabled && (
+        .filter((skill) => (
           !query || skill.name.toLowerCase().includes(query) || skill.desc.toLowerCase().includes(query)
         ))
         .map((skill) => ({
-          kind: 'skill', id: skill.id, name: skill.name, description: skill.desc.trim(),
+          kind: 'skill', id: skill.id, name: skill.name,
+          description: [
+            skill.enabled ? '' : t('未启用，调用后本会话保持加载'),
+            skill.desc.trim(),
+          ].filter(Boolean).join(' · '),
         }));
       return [...pluginEntries, ...skillEntries];
     },
@@ -699,12 +715,15 @@ export function InputArea({
     applySkill(skillId, skillName);
   }
 
-  /** Insert a plugin chip and set it as the currently active plugin (shared by the / popup and the "+" menu). On send, its skillIds expand into skill_ids. */
+  /** Insert a plugin chip and retain its authoritative installation id for server-side expansion. */
   function applyPlugin(p: InstalledPluginItem) {
     const ed = editorRef.current;
     if (!ed) return;
     insertChipAtCursor(ed, '/', p.name, 'jx-editorChip--plugin', 'plugin');
-    setActivePlugin({ name: p.name, skillIds: p.skills || [], mcpIds: p.mcp || [] });
+    setActivePlugin({
+      id: p.install_id,
+      name: p.name,
+    });
     setSlashVisible(false);
     syncText();
     ed.focus();
@@ -1114,12 +1133,13 @@ export function InputArea({
                 icon: <RobotOutlined />,
                 label: t('@智能体'),
                 children: (() => {
-                  const enabled = (agents || []).filter((a) => a.is_enabled);
-                  if (enabled.length === 0) {
+                  const callable = agents || [];
+                  if (callable.length === 0) {
                     return [{ key: 'agents-empty', label: t('暂无可用智能体'), disabled: true }];
                   }
-                  return enabled.map((a) => ({
+                  return callable.map((a) => ({
                     key: `agent-${a.agent_id}`,
+                    icon: <AgentIcon agent={a} size={20} />,
                     label: a.name,
                     onClick: () => onPickAgentFromMenu(a),
                   }));
@@ -1130,12 +1150,13 @@ export function InputArea({
                 icon: <AppstoreOutlined />,
                 label: t('技能'),
                 children: (() => {
-                  const enabled = (skills || []).filter((s) => s.enabled);
-                  if (enabled.length === 0) {
+                  const callable = skills || [];
+                  if (callable.length === 0) {
                     return [{ key: 'skills-empty', label: t('暂无可用技能'), disabled: true }];
                   }
-                  return enabled.map((s) => ({
+                  return callable.map((s) => ({
                     key: `skill-${s.id}`,
+                    icon: <SkillAvatar icon={s.icon} name={s.name} seed={s.id} size={20} round />,
                     label: s.name,
                     onClick: () => onPickSkillFromMenu(s.id, s.name),
                   }));
@@ -1146,12 +1167,13 @@ export function InputArea({
                 icon: <LinkOutlined />,
                 label: t('连接器'),
                 children: (() => {
-                  const enabled = (connectors || []).filter((c) => c.enabled);
-                  if (enabled.length === 0) {
+                  const callable = connectors || [];
+                  if (callable.length === 0) {
                     return [{ key: 'connectors-empty', label: t('暂无可用连接器'), disabled: true }];
                   }
-                  return enabled.map((c) => ({
+                  return callable.map((c) => ({
                     key: `connector-${c.id}`,
+                    icon: <McpIcon id={c.id} icon={c.icon} size={20} />,
                     label: c.name,
                     onClick: () => onPickConnectorFromMenu(c.id, c.name),
                   }));
@@ -1162,11 +1184,13 @@ export function InputArea({
                 icon: <ApiOutlined />,
                 label: t('插件'),
                 children: (() => {
-                  if (installedPlugins.length === 0) {
+                  const callable = installedPlugins.filter((p) => p.callable !== false);
+                  if (callable.length === 0) {
                     return [{ key: 'plugins-empty', label: t('暂无已安装插件'), disabled: true }];
                   }
-                  return installedPlugins.map((p) => ({
+                  return callable.map((p) => ({
                     key: `plugin-${p.install_id}`,
+                    icon: <PluginAvatar icon={p.icon} size={20} round />,
                     label: p.name,
                     onClick: () => onPickPluginFromMenu(p),
                   }));

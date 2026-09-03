@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Literal, Optional
 
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 ChatMode = Literal["turbo", "fast", "medium", "high", "max"]
 
@@ -34,6 +34,10 @@ class ChatRequest(BaseModel):
     """聊天请求模型"""
 
     model_config = ConfigDict(protected_namespaces=())
+    _resolved_skill_ids: List[str] = PrivateAttr(default_factory=list)
+    _resolved_mcp_ids: List[str] = PrivateAttr(default_factory=list)
+    _resolved_plugin_skill_ids: List[str] = PrivateAttr(default_factory=list)
+    _resolved_plugin_mcp_ids: List[str] = PrivateAttr(default_factory=list)
 
     chat_id: str = Field(..., description="会话ID，用于维持对话上下文", max_length=100)
     message: str = Field(..., description="用户消息内容", min_length=1, max_length=10000)
@@ -141,14 +145,6 @@ class ChatRequest(BaseModel):
         ),
         max_length=255,
     )
-    skill_ids: Optional[List[str]] = Field(
-        default=None,
-        description="显式调用的技能 ID 列表（显式引用插件时由其包含技能展开而来）",
-    )
-    mcp_ids: Optional[List[str]] = Field(
-        default=None,
-        description="显式引用插件或选择连接器时激活的 MCP server ID 列表（本轮 force-enable 进工具集）",
-    )
     connector_id: Optional[str] = Field(
         default=None,
         description=(
@@ -166,6 +162,14 @@ class ChatRequest(BaseModel):
         default=None,
         description="显式引用的插件名（用于注入提示，可选）",
         max_length=255,
+    )
+    plugin_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "显式引用的已安装插件实例 ID。后端据此校验安装归属，并从安装记录展开本轮可用组件；"
+            "不信任客户端自行声明的插件组件列表。"
+        ),
+        max_length=160,
     )
     quoted_follow_up: Optional[QuotedFollowUpItem] = Field(
         default=None,
@@ -185,16 +189,26 @@ class ChatRequest(BaseModel):
             raise ValueError("Message cannot be empty or whitespace only")
         return v.strip()
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_client_expanded_capabilities(cls, data):
+        """Plugin components are server-resolved; clients may only send stable selection IDs."""
+        if isinstance(data, dict):
+            forbidden = [key for key in ("skill_ids", "mcp_ids") if key in data]
+            if forbidden:
+                raise ValueError(
+                    "client-expanded capability fields are not supported; "
+                    "send plugin_id, skill_id, or connector_id instead"
+                )
+        return data
+
     @model_validator(mode="after")
     def validate_connector_selection(self) -> "ChatRequest":
-        """Keep display metadata and the enforceable connector identity in lockstep."""
+        """Keep display metadata and enforceable capability identities in lockstep."""
         if self.connector_name and not self.connector_id:
             raise ValueError("connector_id is required when connector_name is provided")
-        if self.connector_id:
-            mcp_ids = list(self.mcp_ids or [])
-            if self.connector_id not in mcp_ids:
-                mcp_ids.append(self.connector_id)
-            self.mcp_ids = mcp_ids
+        if self.plugin_name and not self.plugin_id:
+            raise ValueError("plugin_id is required when plugin_name is provided")
         return self
 
     @field_validator("model_name")

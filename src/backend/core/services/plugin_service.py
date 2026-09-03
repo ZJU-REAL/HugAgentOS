@@ -839,7 +839,11 @@ def set_plugin_market_enabled(
 def list_installed(
     db: Session, owner_user_id: Optional[str], *, include_global: bool = False
 ) -> List[Dict[str, Any]]:
-    """Installed plugins, with an aggregated enabled flag (enabled if any component is enabled).
+    """Installed plugins with personal ``enabled`` and hard ``callable`` flags.
+
+    ``enabled`` uses the current user's overrides; ``callable`` ignores those
+    overrides and reports whether at least one component passes the global
+    admin/dependency runtime gates for an explicit per-turn invocation.
 
     - owner_user_id=None: global plugins only (admin view).
     - owner_user_id=<user> + include_global=False: that user's private ones only.
@@ -871,6 +875,41 @@ def list_installed(
     if owner_user_id is not None and include_global:
         global_slugs = {r.slug for r in rows if r.owner_user_id is None}
         rows = [r for r in rows if r.owner_user_id is None or r.slug not in global_slugs]
+    all_skill_ids: set = set()
+    all_mcp_ids: set = set()
+    for r in rows:
+        cids = r.component_ids or {}
+        all_skill_ids.update(cids.get("skills") or [])
+        all_mcp_ids.update(cids.get("mcp") or [])
+
+    callable_skills = (
+        {
+            row[0]
+            for row in db.query(AdminSkill.skill_id)
+            .filter(
+                AdminSkill.skill_id.in_(all_skill_ids),
+                AdminSkill.is_enabled.is_(True),
+                AdminSkill.dep_status == "ready",
+            )
+            .all()
+        }
+        if all_skill_ids
+        else set()
+    )
+    callable_mcps = (
+        {
+            row[0]
+            for row in db.query(AdminMcpServer.server_id)
+            .filter(
+                AdminMcpServer.server_id.in_(all_mcp_ids),
+                AdminMcpServer.is_enabled.is_(True),
+            )
+            .all()
+        }
+        if all_mcp_ids
+        else set()
+    )
+
     # Enabled state:
     # - user view (owner_user_id non-empty): determined by the user's
     #   "effectively enabled" set (including per-user overrides), so the user's
@@ -883,12 +922,6 @@ def list_installed(
         enabled_skills = set(eff_skills or [])
         enabled_mcps = set(eff_mcps or [])
     else:
-        all_skill_ids: set = set()
-        all_mcp_ids: set = set()
-        for r in rows:
-            cids = r.component_ids or {}
-            all_skill_ids.update(cids.get("skills") or [])
-            all_mcp_ids.update(cids.get("mcp") or [])
         enabled_skills = (
             {
                 row[0]
@@ -918,11 +951,19 @@ def list_installed(
         enabled = any(s in enabled_skills for s in (cids.get("skills") or [])) or any(
             m in enabled_mcps for m in (cids.get("mcp") or [])
         )
-        out.append(_installed_to_dict(r, enabled=enabled))
+        callable_now = any(s in callable_skills for s in (cids.get("skills") or [])) or any(
+            m in callable_mcps for m in (cids.get("mcp") or [])
+        )
+        out.append(_installed_to_dict(r, enabled=enabled, callable_now=callable_now))
     return out
 
 
-def _installed_to_dict(r: InstalledPlugin, *, enabled: bool = True) -> Dict[str, Any]:
+def _installed_to_dict(
+    r: InstalledPlugin,
+    *,
+    enabled: bool = True,
+    callable_now: bool = True,
+) -> Dict[str, Any]:
     cids = r.component_ids or {}
     return {
         "install_id": r.install_id,
@@ -935,6 +976,9 @@ def _installed_to_dict(r: InstalledPlugin, *, enabled: bool = True) -> Dict[str,
         "icon": r.icon,
         "source": r.source,
         "enabled": enabled,
+        # Hard runtime availability, independent of the current user's
+        # personal catalog switch. Explicit pickers hide false entries.
+        "callable": callable_now,
         "skills": cids.get("skills") or [],
         "mcp": cids.get("mcp") or [],
         "import_report": r.import_report or {},

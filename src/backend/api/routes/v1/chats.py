@@ -601,9 +601,7 @@ async def list_messages(
     response["data"]["context_compaction"] = get_compaction_context_state(chat_service, chat_id)
     from core.llm.context_usage import latest_persisted_context_usage
 
-    response["data"]["context_usage"] = latest_persisted_context_usage(
-        chat_service, chat_id
-    )
+    response["data"]["context_usage"] = latest_persisted_context_usage(chat_service, chat_id)
     return response
 
 
@@ -723,6 +721,104 @@ def _resolve_actual_chat_model_name(
     )
 
 
+def _resolve_explicit_capability_invocation(
+    db: Session,
+    request: ChatRequest,
+    user_id: str,
+) -> ChatRequest:
+    """Validate and expand capabilities explicitly selected for this turn.
+
+    Personal catalog switches only control default assembly. Explicit ``/``
+    and ``+`` selections may therefore use a personally-disabled capability,
+    but they still cannot cross installation, ownership, admin-disable, or
+    dependency-readiness boundaries.
+    """
+    from core.config.catalog_resolver import resolve_explicit_runtime_capabilities
+
+    def _ids(raw) -> List[str]:
+        return list(
+            dict.fromkeys(
+                str(item).strip() for item in (raw or []) if isinstance(item, str) and item.strip()
+            )
+        )
+
+    plugin_skill_ids: List[str] = []
+    plugin_mcp_ids: List[str] = []
+    allowed_plugin_skills: List[str] = []
+    allowed_plugin_mcps: List[str] = []
+    plugin_name = request.plugin_name
+    if request.plugin_id:
+        from core.db.models import InstalledPlugin
+
+        installed = (
+            db.query(InstalledPlugin)
+            .filter(InstalledPlugin.install_id == request.plugin_id)
+            .first()
+        )
+        if installed is None or (
+            installed.owner_user_id is not None and installed.owner_user_id != user_id
+        ):
+            raise HTTPException(status_code=403, detail="无法访问该插件，可能已卸载")
+        component_ids = installed.component_ids or {}
+        plugin_skill_ids = _ids(component_ids.get("skills"))
+        plugin_mcp_ids = _ids(component_ids.get("mcp"))
+        plugin_name = str(installed.name or installed.slug or request.plugin_name or "插件")
+
+    # Clients submit only stable selection IDs. Plugin component lists always
+    # come from the authoritative server-side installation record.
+    strict_skill_ids = _ids([request.skill_id])
+    strict_mcp_ids = _ids([request.connector_id])
+    allowed_skills, allowed_mcps, unavailable_skills, unavailable_mcps = (
+        resolve_explicit_runtime_capabilities(
+            db,
+            user_id,
+            skill_ids=strict_skill_ids,
+            mcp_ids=strict_mcp_ids,
+        )
+    )
+    if unavailable_skills or unavailable_mcps:
+        logger.warning(
+            "explicit capability denied user=%s skills=%s mcps=%s",
+            user_id,
+            unavailable_skills,
+            unavailable_mcps,
+        )
+        raise HTTPException(status_code=403, detail="显式选择的能力不可用或无权访问")
+
+    if request.plugin_id:
+        (
+            allowed_plugin_skills,
+            allowed_plugin_mcps,
+            unavailable_plugin_skills,
+            unavailable_plugin_mcps,
+        ) = resolve_explicit_runtime_capabilities(
+            db,
+            user_id,
+            skill_ids=plugin_skill_ids,
+            mcp_ids=plugin_mcp_ids,
+        )
+        if unavailable_plugin_skills or unavailable_plugin_mcps:
+            logger.info(
+                "explicit plugin partially available plugin=%s skipped_skills=%s skipped_mcps=%s",
+                request.plugin_id,
+                unavailable_plugin_skills,
+                unavailable_plugin_mcps,
+            )
+        if not allowed_plugin_skills and not allowed_plugin_mcps:
+            raise HTTPException(status_code=403, detail="该插件当前没有可调用的运行时能力")
+        allowed_skills = _ids([*allowed_skills, *allowed_plugin_skills])
+        allowed_mcps = _ids([*allowed_mcps, *allowed_plugin_mcps])
+
+    single_skill_id = str(request.skill_id or "").strip()
+    expanded_skill_ids = [sid for sid in allowed_skills if sid != single_skill_id]
+    resolved = request.model_copy(update={"plugin_name": plugin_name})
+    resolved._resolved_skill_ids = expanded_skill_ids
+    resolved._resolved_mcp_ids = allowed_mcps
+    resolved._resolved_plugin_skill_ids = allowed_plugin_skills
+    resolved._resolved_plugin_mcp_ids = allowed_plugin_mcps
+    return resolved
+
+
 def _resolve_chat_agent_targets(
     db: Session,
     request: ChatRequest,
@@ -733,7 +829,9 @@ def _resolve_chat_agent_targets(
     ``agent_id`` binds a dedicated sub-agent conversation and is therefore
     persisted on the chat session. ``mention_agent_id`` is an explicit @mention
     delegation for this turn only. Older clients send only ``mention_name``;
-    accept that form when it resolves to exactly one accessible enabled agent.
+    accept that form when it resolves to exactly one accessible agent. A
+    personal disabled flag suppresses autonomous discovery, not an explicit
+    target selected for this turn.
 
     A strict natural-language command (``调用「完整名称」子智能体：...``) is
     returned separately as ``explicit_command``. It must not be rewritten to
@@ -747,9 +845,10 @@ def _resolve_chat_agent_targets(
 
     service = UserAgentService(db)
     disabled_ids = UserService(db).get_disabled_builtin_subagent_ids(user_id)
-    available_delegates = merge_builtin_subagents(
+    explicitly_callable_delegates = merge_builtin_subagents(
         service.list_for_user(user_id),
         disabled_agent_ids=disabled_ids,
+        include_disabled=True,
     )
     persistent_agent_name: Optional[str] = None
     execution_message = request.message
@@ -757,7 +856,11 @@ def _resolve_chat_agent_targets(
 
     if request.agent_id:
         persistent = next(
-            (item for item in available_delegates if item.get("agent_id") == request.agent_id),
+            (
+                item
+                for item in explicitly_callable_delegates
+                if item.get("agent_id") == request.agent_id
+            ),
             None,
         )
         if persistent is None:
@@ -771,7 +874,7 @@ def _resolve_chat_agent_targets(
 
         explicit_command = parse_explicit_subagent_command(
             request.message,
-            available_delegates,
+            explicitly_callable_delegates,
         )
         if explicit_command:
             return request, persistent_agent_name, explicit_command.task, explicit_command
@@ -780,7 +883,11 @@ def _resolve_chat_agent_targets(
         builtin = get_builtin_subagent(mention_agent_id)
         if builtin is not None:
             mentioned = next(
-                (item for item in available_delegates if item.get("agent_id") == mention_agent_id),
+                (
+                    item
+                    for item in explicitly_callable_delegates
+                    if item.get("agent_id") == mention_agent_id
+                ),
                 None,
             )
             if mentioned is None:
@@ -805,9 +912,7 @@ def _resolve_chat_agent_targets(
                 execution_message = command.task
     elif mention_agent_name:
         exact_matches = [
-            item
-            for item in available_delegates
-            if item.get("name") == mention_agent_name and item.get("is_enabled", True)
+            item for item in explicitly_callable_delegates if item.get("name") == mention_agent_name
         ]
         if not exact_matches:
             raise HTTPException(status_code=403, detail="无法访问 @ 指定的子智能体")
@@ -876,16 +981,14 @@ def _build_user_extra_data(
         extra["skill_id"] = request.skill_id
     if request.skill_name:
         extra["skill_name"] = request.skill_name
-    if request.skill_ids:
-        extra["skill_ids"] = request.skill_ids
-    if request.mcp_ids:
-        extra["mcp_ids"] = request.mcp_ids
     if request.connector_id:
         extra["connector_id"] = request.connector_id
     if request.connector_name:
         extra["connector_name"] = request.connector_name
     if request.plugin_name:
         extra["plugin_name"] = request.plugin_name
+    if request.plugin_id:
+        extra["plugin_id"] = request.plugin_id
     if request.mention_name:
         extra["mention_name"] = request.mention_name
     if request.mention_agent_id:
@@ -923,10 +1026,17 @@ def _build_ctx(
     ontology_pack_ids: Optional[List[str]] = None,
     approval_mode: Optional[str] = None,
 ):
-    # Explicitly referenced plugins: force-enable the plugin's MCP server into this turn's tool set ("enabled means usable").
-    # enabled_mcps being None means using the catalog defaults (which already include enabled owned MCPs), so no forced narrowing is needed.
-    if request.mcp_ids and enabled_mcps is not None:
-        enabled_mcps = sorted(set(enabled_mcps) | {m for m in request.mcp_ids if m})
+    # Explicit selection is a per-turn addition to the user's default assembly.
+    # Authorization was already checked by _resolve_explicit_capability_invocation.
+    explicit_skill_ids = [
+        item
+        for item in [request.skill_id, *request._resolved_skill_ids]
+        if isinstance(item, str) and item.strip()
+    ]
+    if explicit_skill_ids:
+        enabled_skills = sorted(set(enabled_skills or []) | set(explicit_skill_ids))
+    if request._resolved_mcp_ids:
+        enabled_mcps = sorted(set(enabled_mcps or []) | {m for m in request._resolved_mcp_ids if m})
     current_attachments = (
         [a.model_dump() for a in request.attachments] if request.attachments else []
     )
@@ -1029,11 +1139,19 @@ def _build_ctx(
         "direct_agent_id": request.agent_id,
         "direct_agent_source": "dedicated_chat" if request.agent_id else None,
         "skill_id": request.skill_id,
-        "skill_ids": request.skill_ids,
-        "mcp_ids": request.mcp_ids,
+        "skill_name": request.skill_name,
+        "skill_ids": request._resolved_skill_ids or None,
+        "mcp_ids": request._resolved_mcp_ids or None,
+        # Keep the plugin's authoritative component set separate from other
+        # explicitly selected capabilities. The runtime uses these fields to
+        # prove that the plugin itself was used, not merely some connector that
+        # happened to be selected in the same turn.
+        "plugin_skill_ids": request._resolved_plugin_skill_ids or None,
+        "plugin_mcp_ids": request._resolved_plugin_mcp_ids or None,
         "connector_id": request.connector_id,
         "connector_name": request.connector_name,
         "plugin_name": request.plugin_name,
+        "plugin_id": request.plugin_id,
         "plan_chat": request.plan_chat,
         "batch_chat": request.batch_chat,
         "workflow_chat": request.workflow_chat,
@@ -1144,6 +1262,7 @@ async def chat_send(
             db_user_id,
         )
     )
+    request = _resolve_explicit_capability_invocation(db, request, db_user_id)
     effective_user_message = _build_effective_user_message(
         execution_message, request.quoted_follow_up
     )
@@ -1346,6 +1465,7 @@ async def chat_stream(
             db_user_id,
         )
     )
+    request = _resolve_explicit_capability_invocation(db, request, db_user_id)
     effective_user_message = _build_effective_user_message(
         execution_message, request.quoted_follow_up
     )
@@ -1598,11 +1718,10 @@ async def chat_active_run(
 _INVOCATION_EXTRA_KEYS = (
     "skill_id",
     "skill_name",
-    "skill_ids",
-    "mcp_ids",
     "connector_id",
     "connector_name",
     "plugin_name",
+    "plugin_id",
     "mention_agent_id",
     "mention_name",
 )
@@ -1975,6 +2094,7 @@ async def regenerate_message(
         model_provider_id=user_extra.get("model_provider_id"),
         **_restore_invocation(user_extra),
     )
+    regen_request = _resolve_explicit_capability_invocation(db, regen_request, db_user_id)
     selected_model_provider_id = _resolve_selected_model_provider_id(db, regen_request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(
         regen_request,
@@ -2083,6 +2203,7 @@ async def edit_and_resend(
         model_provider_id=target_extra.get("model_provider_id"),
         **saved_invocation,
     )
+    edit_request = _resolve_explicit_capability_invocation(db, edit_request, db_user_id)
     selected_model_provider_id = _resolve_selected_model_provider_id(db, edit_request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(edit_request, selected_model_provider_id)
     enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(db, db_user_id)
