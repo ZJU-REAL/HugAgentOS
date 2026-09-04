@@ -244,7 +244,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     res = _resolve(ppl_env)
     collector = ToolCollector()
     tk = OntologyFilteredToolkit(tools=[], mcps=[])
-    budget_agent = SimpleNamespace(_jx_compaction_reserved_output_tokens=256)
+    budget_agent = SimpleNamespace()
     tk.set_execution_surface_listener(
         lambda surface: cache_compaction_execution_surface(
             budget_agent, "base system prompt", surface
@@ -311,7 +311,6 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
         estimate = checkpoint.extra_data["replacement_manifest"]["budget_estimate"]
     assert estimate["tool_schema_tokens"] > 0
     assert estimate["system_prompt_tokens"] > compaction.C.approx_token_count("base system prompt")
-    assert estimate["reserved_output_tokens"] == 256
 
     # 重复加载幂等，未知插件报错并列出可用项。
     resp2 = await tool._func(plugin="crawler")
@@ -395,7 +394,6 @@ def test_pre_turn_compaction_inputs_match_the_service_signature():
         state=SimpleNamespace(model_name="model-a", model_provider_id="provider-a"),
         _jx_compaction_system_prompt="system",
         _jx_compaction_tool_schemas=[],
-        _jx_compaction_reserved_output_tokens=256,
     )
     kwargs = _pre_turn_compaction_inputs(agent, 4096, "model-a")
 

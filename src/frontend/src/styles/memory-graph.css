@@ -1,0 +1,187 @@
+/* ── L3 图谱记忆：实体关系力导向图 ───────────────────────────────────────────
+   画布本身沿用知识库概念图谱的 .jx-wikiGraphCanvas（ConceptGraph 自带），这里只
+   管外围：工具条、舞台高度、浮在画布上的图例与关系抽屉。尺寸按「我的分层记忆」
+   弹窗收紧，比知识库整页那版矮一档、抽屉也窄一档。 */
+
+.jx-memGraphWrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.jx-memGraphToolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.jx-memGraphToolbarLabel {
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.jx-memGraphStage {
+  position: relative;
+  height: 440px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.jx-memGraphEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 13px;
+  color: var(--color-text-placeholder);
+}
+
+.jx-memGraphLegend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 20px);
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--color-bg-container) 92%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+}
+
+.jx-memGraphLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: opacity 0.14s ease, background 0.14s ease;
+}
+
+.jx-memGraphLegendItem:hover { background: var(--color-bg-gray); }
+
+.jx-memGraphLegendItem.is-off {
+  opacity: 0.38;
+  text-decoration: line-through;
+}
+
+.jx-memGraphLegendItem i,
+.jx-memGraphDrawerHead i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid;
+}
+
+.jx-memGraphLegendHint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-placeholder);
+}
+
+/* 关系抽屉：浮在画布上层，不挤压画布 */
+.jx-memGraphDrawer {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  bottom: 10px;
+  width: 280px;
+  max-width: calc(100% - 20px);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-container);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  overflow: hidden;
+  animation: jx-memGraphDrawerIn 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes jx-memGraphDrawerIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+/* motion-stop: 减弱动效下定格在终态 */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes jx-memGraphDrawerIn { from, to { opacity: 1; transform: translateX(0) } }
+}
+
+.jx-memGraphDrawerHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.jx-memGraphDrawerHead h4 {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jx-memGraphDrawerMeta {
+  padding: 8px var(--space-sm) 0;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.jx-memGraphDrawerBody {
+  flex: 1;
+  padding: 8px var(--space-sm) var(--space-sm);
+  overflow: auto;
+}
+
+.jx-memGraphTriple {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border-light, var(--color-border));
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.jx-memGraphTriple:last-child { border-bottom: none; }
+
+.jx-memGraphTripleEnd {
+  padding: 1px 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-gray);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.jx-memGraphTripleEnd:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.jx-memGraphTripleEnd.is-self {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.jx-memGraphTripleRel {
+  color: var(--color-text-tertiary);
+}

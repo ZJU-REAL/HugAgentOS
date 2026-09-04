@@ -21,6 +21,7 @@ from core.llm.context_ir import (
     ContextAssembler,
     make_text_context_item,
 )
+from core.llm.context_manager import FALLBACK_CONTEXT_WINDOW, usable_context_window
 
 
 def select_skills_for_query(
@@ -140,8 +141,8 @@ Select relevant skill IDs (return JSON array):"""
                     truncation_policy=POLICY_HEAD_TAIL,
                 ),
             ]
-            context_size = int(getattr(model, "context_size", 0) or 32_768)
-            assembly = ContextAssembler(total_budget=max(0, int(context_size * 0.85))).assemble(
+            context_size = int(getattr(model, "context_size", 0) or FALLBACK_CONTEXT_WINDOW)
+            assembly = ContextAssembler(total_budget=usable_context_window(context_size)).assemble(
                 items
             )
             messages = AgentScopeContextAdapter().messages_from_items(assembly.included)

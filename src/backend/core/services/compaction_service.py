@@ -12,10 +12,16 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from core.chat import inflight
 from core.chat.context import build_effective_user_message
 from core.config.settings import settings
 from core.llm import compaction as C
 from core.llm.context_ir import SESSION_CONTEXT_META_KEY
+from core.llm.context_manager import (
+    AUTO_COMPACT_MAX_RATIO,
+    resolve_model_context_window,
+    usable_context_window,
+)
 from core.llm.message_compat import build_replay_dicts, flatten_tool_output
 
 logger = logging.getLogger(__name__)
@@ -30,13 +36,39 @@ _CROSS_TURN_TOOL_CHARS = 1_000_000
 _CANCELLED_TURN_MARKER = "[本轮回答被用户中断]"
 
 
-def _normalize_rows(rows: List[Any]) -> List[Dict[str, Any]]:
-    """Normalize message rows, excluding internal compaction checkpoints."""
+def _live_run_ids(chat_service: Any, rows: List[Any]) -> frozenset:
+    """Runs referenced by in-flight markers among ``rows`` that are still live."""
+    from core.db.models import ChatRun
+
+    run_ids = {
+        m["run_id"]
+        for m in (inflight.marker(getattr(msg, "extra_data", None)) for msg in rows)
+        if m
+    }
+    if not run_ids:
+        return frozenset()
+    return frozenset(
+        run_id
+        for (run_id,) in chat_service.db.query(ChatRun.run_id)
+        .filter(ChatRun.run_id.in_(run_ids), ChatRun.status.in_(("pending", "running")))
+        .all()
+    )
+
+
+def _normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> List[Dict[str, Any]]:
+    """Normalize message rows, excluding internal compaction checkpoints.
+
+    A row still being written by a live run is skipped: it is half-written by
+    definition and would show the model a truncated version of its own reply.
+    """
     out: List[Dict[str, Any]] = []
     for msg in rows:
         role = getattr(msg, "role", None)
         extra = getattr(msg, "extra_data", None) or {}
         if role == "system" and extra.get("kind") == C.COMPACTION_CHECKPOINT_KIND:
+            continue
+        owner = inflight.marker(extra)
+        if owner and owner["run_id"] in live_run_ids:
             continue
         content = getattr(msg, "content", "")
         if role == "user":
@@ -124,13 +156,14 @@ def _load_history(chat_service: Any, chat_id: str, *, repair: bool = True) -> Li
         else None
     )
     if ckpt is None:
-        return _normalize_rows(_rows_after_seq(chat_service, chat_id, 0, repair=repair))
+        rows = _rows_after_seq(chat_service, chat_id, 0, repair=repair)
+        return _normalize_rows(rows, _live_run_ids(chat_service, rows))
 
     extra = getattr(ckpt, "extra_data", None) or {}
     replacement: List[Dict[str, Any]] = list(extra.get("replacement_history") or [])
     covered_seq = chat_service._checkpoint_covered_seq(ckpt)
     tail_rows = _rows_after_seq(chat_service, chat_id, covered_seq, repair=repair)
-    return replacement + _normalize_rows(tail_rows)
+    return replacement + _normalize_rows(tail_rows, _live_run_ids(chat_service, tail_rows))
 
 
 def load_session_history(
@@ -156,7 +189,7 @@ def load_session_history(
 # stored value is ignored (a 0.99 ratio leaves no room for the summary call
 # itself; a 0.3 ratio compacts a session into uselessness).
 _TRIGGER_RATIO_MIN = 0.5
-_TRIGGER_RATIO_MAX = 0.95
+_TRIGGER_RATIO_MAX = AUTO_COMPACT_MAX_RATIO
 
 # Memo of the console-resolved ratio: (value, expires_at_monotonic). Matches
 # SystemConfigService's own cache window, so several turns starting at once cost
@@ -221,15 +254,18 @@ def resolve_token_limit(
     """Resolve the compaction trigger threshold (real prompt tokens).
 
     Explicit ``CHAT_COMPACT_TOKEN_LIMIT`` config takes precedence; otherwise
-    derive it as model window × trigger_ratio. Window undeterminable → None
-    (never trigger, conservative).
+    derive it as model window × trigger_ratio, capped at
+    ``AUTO_COMPACT_MAX_RATIO`` of the window. Window undeterminable → None
+    (never trigger, conservative) for the derived case, while an explicit limit
+    still stands: there is nothing to cap it against.
     """
     cfg = settings.compaction
-    if cfg.token_limit and cfg.token_limit > 0:
-        return cfg.token_limit
-    if context_window and context_window > 0:
-        return int(context_window * (cfg.trigger_ratio if ratio is None else ratio))
-    return None
+    limit = cfg.token_limit if cfg.token_limit and cfg.token_limit > 0 else None
+    if not context_window or context_window <= 0:
+        return limit
+    if limit is None:
+        limit = int(context_window * (cfg.trigger_ratio if ratio is None else ratio))
+    return min(limit, int(context_window * AUTO_COMPACT_MAX_RATIO))
 
 
 def should_compact(active_tokens: Optional[int], limit: Optional[int]) -> bool:
@@ -411,13 +447,11 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
 
     # (1) Pre-trim (when the window is known)
     try:
-        from core.llm.context_manager import resolve_model_context_window
-
         window = resolve_model_context_window(model)
     except Exception:  # noqa: BLE001
         window = None
     if window and window > 0:
-        budget = int(window * 0.9)
+        budget = usable_context_window(window)
         dropped = 0
         while len(messages) - droppable_start > 2 and _estimate_flat_tokens(messages) > budget:
             messages.pop(droppable_start)
@@ -722,11 +756,7 @@ class CompactionCoordinator:
                 "base_checkpoint_version": snapshot.base_checkpoint_version,
                 "budget_estimate": estimate,
             }
-            replacement_inputs = {
-                **inputs,
-                "messages": replacement,
-                "reserved_output_tokens": 0,
-            }
+            replacement_inputs = {**inputs, "messages": replacement}
             replacement_estimate = estimate_context_budget(**replacement_inputs)
             from core.llm.context_usage import build_compaction_context_usage
 
@@ -890,13 +920,19 @@ def estimate_context_budget(
     system_prompt: str = "",
     tool_schema: Any = None,
     messages: Optional[List[Dict[str, Any]]] = None,
-    reserved_output_tokens: int = 0,
     provider_overhead_tokens: Optional[int] = None,
     context_window: int = 0,
     model_name: str = "",
     model_provider_id: str = "",
 ) -> Dict[str, int]:
-    """Return one auditable estimate shared by trigger decisions and manifests."""
+    """Return one auditable estimate shared by trigger decisions and manifests.
+
+    The estimate covers exactly what the request will send — system prompt, tool
+    schemas, history and protocol overhead. Reserving the model's ``max_tokens``
+    on top of that is deliberately absent: output headroom is carried once, as
+    the window share in ``EFFECTIVE_CONTEXT_WINDOW_PERCENT``, so a per-model
+    output cap the operator never configured cannot move the trigger line.
+    """
     # These identity fields travel with the frozen budget inputs so the
     # post-compaction gauge retains the same model/window attribution. They do
     # not participate in token arithmetic.
@@ -910,7 +946,6 @@ def estimate_context_budget(
     system_tokens = C.approx_token_count(system_prompt or "")
     tool_tokens = C.approx_token_count(serialized_tools)
     message_tokens = estimate_history_tokens(history)
-    reserved_tokens = max(0, int(reserved_output_tokens or 0))
     overhead_tokens = (
         max(0, int(provider_overhead_tokens))
         if provider_overhead_tokens is not None
@@ -920,10 +955,9 @@ def estimate_context_budget(
         "system_prompt_tokens": system_tokens,
         "tool_schema_tokens": tool_tokens,
         "message_tokens": message_tokens,
-        "reserved_output_tokens": reserved_tokens,
         "provider_overhead_tokens": overhead_tokens,
         "total_estimated_tokens": (
-            system_tokens + tool_tokens + message_tokens + reserved_tokens + overhead_tokens
+            system_tokens + tool_tokens + message_tokens + overhead_tokens
         ),
     }
 
@@ -996,7 +1030,6 @@ async def maybe_run_pre_turn_compaction(
     context_window: Optional[int] = None,
     system_prompt: Optional[str] = None,
     tool_schema: Any = None,
-    reserved_output_tokens: int = 0,
     provider_overhead_tokens: Optional[int] = None,
     run_id: str = "",
 ) -> tuple[List[Dict[str, Any]], bool]:
@@ -1009,10 +1042,9 @@ async def maybe_run_pre_turn_compaction(
     path.
 
     Args:
-        context_window: model window already resolved by the caller (e.g. the
-            workflow layer needs it in the same turn to build
-            ContextWindowManager); passing it saves one resolution; None →
-            resolved internally.
+        context_window: model window already resolved by the caller (the
+            workflow layer reads it off the model object in the same turn);
+            passing it saves one resolution; None → resolved internally.
 
     Returns:
         ``(history, compacted)``: on trigger-and-success, returns the compacted
@@ -1025,8 +1057,6 @@ async def maybe_run_pre_turn_compaction(
 
     try:
         if context_window is None:
-            from core.llm.context_manager import resolve_model_context_window
-
             context_window = resolve_model_context_window(model_name or "")
         limit = resolve_token_limit(context_window, ratio=resolve_trigger_ratio())
         effective_system_prompt = (
@@ -1036,7 +1066,6 @@ async def maybe_run_pre_turn_compaction(
             system_prompt=effective_system_prompt,
             tool_schema=tool_schema,
             messages=history,
-            reserved_output_tokens=reserved_output_tokens,
             provider_overhead_tokens=provider_overhead_tokens,
         )
         if not should_compact(budget_estimate["total_estimated_tokens"], limit):
@@ -1054,7 +1083,6 @@ async def maybe_run_pre_turn_compaction(
             budget_inputs={
                 "system_prompt": effective_system_prompt,
                 "tool_schema": tool_schema,
-                "reserved_output_tokens": reserved_output_tokens,
                 "provider_overhead_tokens": provider_overhead_tokens,
             },
             token_limit=limit,

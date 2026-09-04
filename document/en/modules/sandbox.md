@@ -123,15 +123,15 @@ chat_id ──▶ _get_or_create_session ──▶ _Session (sandbox + CodeInter
 Key points (`_opensandbox_session.py` / `_opensandbox_internals.py`):
 
 - **Per-chat heavy sandboxes**: one Jupyter-equipped container per conversation; variables, pip packages and `/workspace` files persist across bash calls;
-- **TTL & renewal**: server-side sandbox TTL defaults to 1800 s (`OPENSANDBOX_DEFAULT_TIMEOUT_S`); every session activity triggers a rate-limited (60 s) background renew that never blocks the request path; renew failures distinguish lifecycle signals (immediate stale mark) from transient network errors (escalated only after 3 consecutive failures);
-- **Two-layer warm pools**: the generic two-bucket pool is pre-warmed at process start; with Plan F enabled, user-bound traffic goes through a per-user `_JupyterUserPool` instead (a sandbox carrying one user's myspace volume must never be handed to another user), and the idle reaper (600 s, `OPENSANDBOX_IDLE_REAP_S`) returns idle sessions' sandboxes — kernels scrubbed and `/workspace` wiped — to the user idle pool for reuse rather than destroying them. The wipe keeps only the `myspace` and `skills` mount points and rebuilds `scratch`: the container is reused across chats, so scripts and intermediate files left in `/workspace` would be read by the next session as its own context. If the wipe fails the sandbox is destroyed instead of reused.
+- **TTL & renewal**: the server-side sandbox TTL is `SANDBOX_IDLE_TTL_S` (default 3600 s — the same number as the idle threshold); every session activity triggers a rate-limited (60 s) background renew that never blocks the request path; renew failures distinguish lifecycle signals (immediate stale mark) from transient network errors (escalated only after 3 consecutive failures);
+- **Two-layer warm pools**: the generic two-bucket pool is pre-warmed at process start; with Plan F enabled, user-bound traffic goes through a per-user `_JupyterUserPool` instead (a sandbox carrying one user's myspace volume must never be handed to another user), and the idle reaper (`SANDBOX_IDLE_TTL_S`, default 3600 s) snapshots an idle session and then returns its sandbox — kernels scrubbed and `/workspace` wiped — to the user idle pool for reuse rather than destroying it. The wipe keeps only the `myspace` and `skills` mount points and rebuilds `scratch`: the container is reused across chats, so scripts and intermediate files left in `/workspace` would be read by the next session as its own context. If the wipe fails the sandbox is destroyed instead of reused.
 
 ## Snapshot persistence (EE)
 
 Full design in [sandbox-snapshot-design.md](../../sandbox-snapshot-design.md). Goal: stop idle sessions from squatting on Docker resources while letting users resume **with their filesystem intact**.
 
-- **Park**: a background worker scans every 60 s; sessions idle beyond `OPENSANDBOX_IDLE_SNAPSHOT_THRESHOLD_S` (default 1500 s) get a snapshot (accept→Ready measured at ~60 s, a docker commit), then the `chat_sandbox_snapshots` row is upserted (chat_id is the primary key) and the container destroyed; at most 3 concurrent parks per round to protect the docker daemon;
-- **Restore**: `_create_session_for` checks the Q2 user idle pool first (~7 s warm path), then the DB snapshot (~15–20 s restore, still faster than a fresh create), and only then creates fresh. When booting from a snapshot the volumes **must be re-declared** — docker commit does not preserve mount configuration, otherwise bind mounts like `/workspace/skills/` are lost;
+- **Park**: a background worker scans every 60 s; sessions idle beyond `SANDBOX_IDLE_TTL_S` (default 3600 s) get a snapshot (accept→Ready measured at ~60 s, a docker commit), then the `chat_sandbox_snapshots` row is upserted (chat_id is the primary key) and the wiped container goes back to the idle pool; at most 3 concurrent parks per round to protect the docker daemon. **This is the only path that reclaims a chat sandbox** — a second 600 s reaper used to wipe and release without snapshotting, and being the shorter threshold it always won, so files were lost with no backup to restore from; the two are now one;
+- **Restore**: `_create_session_for` checks the DB snapshot **first** (~15–20 s restore, still faster than a fresh create), falling back to the Q2 user idle pool (~7 s warm path) only for chats with nothing to restore, and creating fresh last. The order matters — idle-pool containers are wiped clean, so handing one to a chat that has a snapshot silently drops its files. When booting from a snapshot the volumes **must be re-declared** — docker commit does not preserve mount configuration, otherwise bind mounts like `/workspace/skills/` are lost;
 - **Single-use**: once a snapshot has been consumed as a boot image it is marked for 1-hour short retention (an immediate DELETE would 409 because the new container still references the image layer);
 - **GC**: an hourly sweep deletes expired snapshots (DB row + remote; default retention `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7`), retrying delete conflicts on the next round;
 - master switch `OPENSANDBOX_SNAPSHOT_ENABLED` (default true); off reverts to the old "idle = gone" behaviour.
@@ -166,11 +166,9 @@ Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through r
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Single switch for sandbox file size (100 MiB): fetch, auto-collected artifacts, push-in, and `/myspace` write-back share it |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox server & image |
-| `OPENSANDBOX_DEFAULT_TIMEOUT_S` | 1800 | Server-side sandbox TTL |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3, 2/5, 20 | Warm-pool watermarks |
-| `OPENSANDBOX_IDLE_REAP_S` | 600 | Idle-session reap (return-to-idle-pool) threshold |
+| `SANDBOX_IDLE_TTL_S` | 3600 | The one sandbox lifetime parameter: server-side TTL = idle threshold = keepalive basis; snapshot first, release second |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | Snapshot system master switch |
-| `OPENSANDBOX_IDLE_SNAPSHOT_THRESHOLD_S` | 1500 | Idle time before parking |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | Snapshot retention |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | 120 | Max wait for snapshot Ready |
 | `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | true | Plan F myspace direct-mount switch |
@@ -178,7 +176,7 @@ Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through r
 | `SANDBOX_SKILLS_DIR` | `$STORAGE_PATH/sandbox_skills` | Unified skills directory override |
 | `MYSPACE_WRITE_CONFIRM` | true | Hard user-confirmation gate for /myspace writes |
 | `CUBE_API_URL` / `CUBE_API_KEY` / `CUBE_TEMPLATE` / `CUBE_API_SANDBOX_DOMAIN` | — | Cube node connection |
-| `CUBE_IDLE_REAP_S` / `CUBE_POOL_MIN_IDLE` / `CUBE_OWNER_TAG` | 600 / 2 / — | Cube reaping, pre-warm, ownership tag for shared nodes |
+| `CUBE_POOL_MIN_IDLE` / `CUBE_OWNER_TAG` | 2 / — | Cube pre-warm, ownership tag for shared nodes (reclaim timing also comes from `SANDBOX_IDLE_TTL_S`) |
 | `CUBE_SKILL_PREPUSH*` | true / 20 MB / 3 | Skill pre-push switch / size cap / concurrency |
 | `CUBE_NODE_SSH_*` / `CUBE_BUILD_*` | — | Remote-node SSH and build parameters for the admin dependency rebuild |
 

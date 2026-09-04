@@ -110,10 +110,12 @@
   flex-shrink: 0;
 }
 /* "正在准备调用工具…" 等待文字流光 — 单色灰阶，参数缓冲空窗期的活性信号。
-   隐藏工具调用时那行折叠摘要（--live）共用同一套：运行中它是唯一在动的字。 */
+   隐藏工具调用时那行折叠摘要（--live）、展开后的壳标题（--live）共用同一套：
+   运行中它们是唯一在动的字。 */
 /* motion-keep: 工具运行中的文字流光，定格会变成一段忽深忽浅的灰字 */
 .jx-tcr-prefix--shimmer,
-.jx-inlineSummaryText--live {
+.jx-inlineSummaryText--live,
+.jx-trs-title--live {
   background: linear-gradient(90deg,
     color-mix(in srgb, var(--color-text) 40%, transparent) 0%,
     color-mix(in srgb, var(--color-text) 88%, transparent) 50%,
@@ -123,7 +125,7 @@
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  animation: jx-kf-shimmer 1.6s linear infinite;
+  animation: jx-kf-shimmer 2.2s linear infinite;
 }
 /* Value rendered as a subtle chip (light gray background pill) */
 .jx-tcr-value {
@@ -414,6 +416,18 @@
   font-weight: 500;
   letter-spacing: 0.01em;
   color: color-mix(in srgb, var(--color-text) 78%, transparent);
+}
+/* 运行中的壳标题跟着一起流光：展开工具调用后这行取代了 .jx-turnStatus-label 的位置，
+   同一段等待却只剩一个静止的标题，读起来像卡住了。渐变本体写在上面那组共用规则里，
+   这里只把 .jx-trs-title 系列压掉的 color / animation 抢回来。
+   选择器必须带 .jx-trs 前缀：标题上还挂着入场 fade，历史回放那条
+   `.jx-trs--static .jx-trs-title{animation:none}` 又是两个类——单写 --live 只有一个类，
+   打不过它们，流光会静默失效（隐藏模式那行没人跟它抢 animation，所以一直好使）。
+   跑完摘掉 --live 落回基础规则，"执行中 → 已完成"那一次翻转照旧淡入。 */
+/* motion-keep: 运行中的标题流光，定格会变成一段忽深忽浅的灰字 */
+.jx-trs .jx-trs-title--live {
+  color: transparent;
+  animation: jx-kf-shimmer 2.2s linear infinite;
 }
 .jx-trs-sep {
   color: color-mix(in srgb, var(--color-text) 25%, transparent);

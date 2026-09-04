@@ -114,7 +114,7 @@ curl -N http://localhost:3000/api/v1/chats/stream \
 | `tool_call` | 参数完整、即将执行工具 | `tool_name`、`tool_display_name`、`tool_args`、`tool_id`、`subagent_name?` |
 | `tool_result` | 工具返回结果 | `tool_name`、`result`（JSON）、`tool_id`、`status`、`citations`（引用项列表） |
 | `steer_applied` | 追加指令已在安全 ReAct 边界注入 | `steer_id`、`message`、`message_id`、`chat_id` |
-| `queued_run_started` | 已提交的 `followUp` / `nextRun` 子运行开始，客户端应立即接力续播 | `run_id`、`message_id`、`user_message_id`、`message`、`queue_id`、`steer_id`、`delivery_mode` |
+| `queued_run_started` | 已提交的 `followUp` / `nextRun`，或错过最后安全边界的 `steer` 子运行开始，客户端应立即接力续播 | `run_id`、`message_id`、`user_message_id`、`message`、`queue_id`、`steer_id`、`delivery_mode` |
 | `tool_pending` | 提供商未暴露可解析增量时的等待兜底 | `reason`（如 `llm_buffering`） |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | `confirm_id`、`op`、`logical_path`、`message`、`expired`；流不结束，用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后续跑 |
 | `user_question` | 智能体调用 `ask_user_question` 并原地等待 | `request_id`、`questions[]`、`created_at`、`expires_at`、`chat_id` |
@@ -186,7 +186,7 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
   -H "Authorization: Bearer sk-jx-xxxxxxxx"
 ```
 
-续播、Steer 和取消都会校验 run 归属：非属主返回 403、run 不存在返回 404。追加指令先写数据库，Redis 仅做尽力而为的 worker 唤醒。`delivery_mode` 可取 `steer`、`followUp` 或 `nextRun`：Steer 注入进行中的普通对话 run，后两者在当前 run 完成后按序启动独立 run。若工具正在执行，Steer 会在该工具结果进入上下文后、下一轮模型推理前注入；若下一批工具尚未开始，则先中止旧调用再注入。两种路径都以 `steer_applied` 事件确认。`DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` 可撤回尚未被消费的指令。`GET /v1/chats/{chat_id}/active-run` 可查询某会话当前是否有进行中的 run（前端刷新页面后据此重连）。run 静默超过 `CHAT_RUN_INACTIVITY_TIMEOUT_SEC`（默认 600 秒）会被判定为僵死并终止；只有后端确实存在待回答/待确认的人机交互时，内部心跳才会续活该看门狗，最长等待由 `HUMAN_INTERACTION_MAX_WAIT_SECONDS` 控制。
+续播、Steer 和取消都会校验 run 归属：非属主返回 403、run 不存在返回 404。追加指令先写数据库，Redis 仅做尽力而为的 worker 唤醒。`delivery_mode` 可取 `steer`、`followUp` 或 `nextRun`：Steer 注入进行中的普通对话 run；若接纳时 run 已越过最后一个安全边界，完成事务会把它原子转交给新的后继 run；后两种模式则在当前 run 完成后按序启动独立 run。若工具正在执行，Steer 会在该工具结果进入上下文后、下一轮模型推理前注入；若下一批工具尚未开始，则先中止旧调用再注入。前两种运行中注入路径以 `steer_applied` 事件确认，后继 run 路径以 `queued_run_started` 确认并可通过队列状态接口恢复。`DELETE /v1/chat-runs/{run_id}/steer/{steer_id}` 可撤回尚未被消费的指令。`GET /v1/chats/{chat_id}/active-run` 可查询某会话当前是否有进行中的 run（前端刷新页面后据此重连）。run 静默超过 `CHAT_RUN_INACTIVITY_TIMEOUT_SEC`（默认 600 秒）会被判定为僵死并终止；只有后端确实存在待回答/待确认的人机交互时，内部心跳才会续活该看门狗，最长等待由 `HUMAN_INTERACTION_MAX_WAIT_SECONDS` 控制。
 
 ### 其他 SSE 端点
 

@@ -8,6 +8,7 @@ from datetime import datetime
 from threading import Barrier
 
 import pytest
+from core.chat import inflight
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
 from core.db.models.chat import reserve_chat_sequences
@@ -46,7 +47,11 @@ def test_accept_main_run_commits_user_message_and_reserved_reply_sequence_togeth
     assert stored_run.user_message_id == stored_message.message_id
     assert stored_run.writer_slot == "main"
     assert stored_chat.next_message_seq == 3
-    assert stored_chat.message_count == 1
+    # 助手行在接纳时就已存在：空正文、占着预留的序号、带 in-flight 标记。
+    reply = db_session.get(ChatMessage, stored_run.message_id)
+    assert (reply.role, reply.chat_seq, reply.content) == ("assistant", 2, "")
+    assert inflight.marker(reply.extra_data)["run_id"] == stored_run.run_id
+    assert stored_chat.message_count == 2
 
 
 def test_busy_chat_rejects_second_run_without_orphan_message_or_sequence_gap(db_session):
@@ -68,7 +73,10 @@ def test_busy_chat_rejects_second_run_without_orphan_message_or_sequence_gap(db_
 
     db_session.expire_all()
     assert raised.value.active_run.run_id == first.run.run_id
-    assert db_session.query(ChatMessage).filter_by(chat_id="chat-1").count() == 1
+    # 只有赢家的两行（用户 + in-flight 助手行）；输家的用户行与助手行随事务一起回滚。
+    rows = db_session.query(ChatMessage).filter_by(chat_id="chat-1").all()
+    assert sorted(row.role for row in rows) == ["assistant", "user"]
+    assert all(row.content != "must-not-persist" for row in rows)
     assert db_session.get(ChatSession, "chat-1").next_message_seq == 3
 
 
@@ -373,7 +381,12 @@ def test_existing_user_turn_can_reserve_a_new_reply_without_duplicating_user_mes
 
     assert accepted.run.user_chat_seq == 1
     assert accepted.run.assistant_chat_seq == 2
-    assert db_session.query(ChatMessage).filter_by(chat_id="chat-1").count() == 1
+    assert [
+        (row.role, row.chat_seq)
+        for row in db_session.query(ChatMessage)
+        .filter_by(chat_id="chat-1")
+        .order_by(ChatMessage.chat_seq)
+    ] == [("user", 1), ("assistant", 2)]
 
 
 def test_busy_rewrite_rolls_back_history_deletion_and_sequence_reservation(db_session):
@@ -404,7 +417,7 @@ def test_busy_rewrite_rolls_back_history_deletion_and_sequence_reservation(db_se
     assert [
         (row.chat_seq, row.content)
         for row in db_session.query(ChatMessage).order_by(ChatMessage.chat_seq)
-    ] == [(1, "question"), (2, "answer"), (3, "currently running")]
+    ] == [(1, "question"), (2, "answer"), (3, "currently running"), (4, "")]
     assert db_session.get(ChatSession, "chat-1").next_message_seq == next_before
 
 
@@ -424,12 +437,13 @@ def test_existing_user_rewrite_deletes_tail_in_the_admission_transaction(db_sess
         request_payload={"kind": "regenerate"},
     )
 
-    assert [(row.chat_seq, row.content) for row in db_session.query(ChatMessage).all()] == [
-        (1, "question")
-    ]
+    assert [
+        (row.chat_seq, row.content)
+        for row in db_session.query(ChatMessage).order_by(ChatMessage.chat_seq)
+    ] == [(1, "question"), (4, "")]
     assert accepted.run.user_chat_seq == 1
     assert accepted.run.assistant_chat_seq == 4
-    assert db_session.get(ChatSession, "chat-1").message_count == 1
+    assert db_session.get(ChatSession, "chat-1").message_count == 2
 
 
 def test_rewrite_rejects_a_stale_delete_anchor_without_deleting_newer_history(db_session):
@@ -481,10 +495,10 @@ def test_replacement_user_and_tail_deletion_are_one_admission_transaction(db_ses
     assert [
         (row.chat_seq, row.content)
         for row in db_session.query(ChatMessage).order_by(ChatMessage.chat_seq)
-    ] == [(1, "keep"), (4, "new wording")]
+    ] == [(1, "keep"), (4, "new wording"), (5, "")]
     assert accepted.user_message.chat_seq == accepted.run.user_chat_seq == 4
     assert accepted.run.assistant_chat_seq == 5
-    assert db_session.get(ChatSession, "chat-1").message_count == 2
+    assert db_session.get(ChatSession, "chat-1").message_count == 3
 
 
 def test_message_order_uses_chat_seq_when_timestamps_are_identical(db_session):
@@ -571,7 +585,8 @@ def test_different_chats_accept_concurrently_without_sharing_a_writer_lock(tmp_p
     ]
     with Session() as db:
         assert db.query(ChatRun).count() == 2
-        assert db.query(ChatMessage).count() == 2
+        # 每个会话一条用户行 + 一条 in-flight 助手行
+        assert db.query(ChatMessage).count() == 4
     engine.dispose()
 
 
@@ -619,7 +634,7 @@ def test_two_concurrent_admissions_have_exactly_one_winner(tmp_path):
     assert sorted(kind for kind, _run_id in outcomes) == ["accepted", "busy"]
     assert outcomes[0][1] == outcomes[1][1]
     with Session() as db:
-        assert db.query(ChatMessage).count() == 1
+        assert db.query(ChatMessage).count() == 2
         assert db.query(ChatRun).count() == 1
         assert db.get(ChatSession, "chat-1").next_message_seq == 3
     engine.dispose()

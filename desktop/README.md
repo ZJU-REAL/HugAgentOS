@@ -84,6 +84,20 @@ Windows 机器上打，**Linux 包可在任意装好 Rust 的 Linux / WSL 环境
   `~/Library/Application Support/com.hugagent.desktop`，Linux `~/.config/com.hugagent.desktop`
 - `deployment_mode` 可取 `remote` / `local`；切换本机服务时客户端会把地址固定为
   `http://127.0.0.1:32101`
+- 双端模式的工具定义以云端动态 capability manifest 为唯一真源。本机不内置或
+  维护工具 schema，只缓存云端当前 revision 的完整脱敏 schema；后台使用 ETag
+  定期检查 revision，云端配置变化后自动替换本机快照
+- Agent 装配不逐个跨公网探测云端 MCP。模型真正选择工具时才调用 JSON 网关，
+  云端会按最新用户授权、服务状态、工具 allowlist 和 schema hash 再校验；过期
+  快照不会继续执行，也不会压掉本机可用工具或阻塞模型首轮响应
+- 本机只接受当前 capability manifest 协议，不包含旧 schema 形态或工具名单的
+  兼容分支。已安装旧客户端继续由云端透明 MCP 端点承接，协议演进集中在云端
+- 技能同样以云端为真源：本机随同一轮询、同一枚 token 拉取技能清单
+  （`/v1/desktop/capability/skills/manifest`，含每个技能的内容哈希），哈希变化的
+  技能按需下载完整 zip 包落到 `<sandbox_skills>_cloud/<skill_id>/`，并镜像进共享
+  沙箱技能目录，沙箱里同样在 `/workspace/skills/<skill_id>`。云端目录以最高优先级
+  注册为技能来源，同 id 的本机内置技能被云端版本覆盖；云端停用的技能本机一并
+  停用，本机独有的技能保留。云端断线沿用上一份快照，切换账号整目录清空
 - 也可用环境变量 `HUGAGENT_SERVER_BASE` 覆盖（优先级高于 server.json，并强制切回远程模式）
 - `cookie_name` 必须与后端 `SESSION_COOKIE_NAME` 一致（默认 `jx_session`）
 - 内网自签 HTTPS 时把 `insecure_tls` 设为 `true`

@@ -29,7 +29,6 @@
   "model": {
     "default_model_name": "deepseek",
     "temperature": 0.6,
-    "max_tokens": 8192,
     "timeout": 120,
     "env": {
       "base_url": "MODEL_URL",

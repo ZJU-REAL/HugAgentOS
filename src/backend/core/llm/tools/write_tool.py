@@ -31,6 +31,7 @@ from ._common import (
     resp_json,
     sandbox_exec_bash,
     shell_quote,
+    myspace_mutation_refusal,
     upsert_myspace_artifact,
 )
 from ._paths import (
@@ -122,6 +123,13 @@ def register_write(
         # ── Logical path (/myspace/...) -> physical path (/workspace/myspace/<uid>/...) ──
         physical = to_physical_path(file_path, user_id)
         is_persistent = is_myspace_physical(physical, user_id)
+
+        # 只读作用域（团队项目）必须在写字节之前就拒绝，否则文件已经落在用户的镜像
+        # 目录里，而登记那一步才被拦下 —— 对模型是"成功"，对用户是哪儿都看不见。
+        if is_persistent:
+            _refusal = myspace_mutation_refusal(scope, file_path, "写入文件")
+            if _refusal is not None:
+                return resp_json(_refusal)
 
         from core.config.local_mode import local_mode_enabled as _local_on
 
@@ -226,6 +234,7 @@ def register_write(
             mk_exit, _, mk_err = await sandbox_exec_bash(
                 f"mkdir -p {shell_quote(pd)}",
                 chat_id=_sess,
+                user_id=user_id,
                 timeout=10,
             )
             if mk_exit != 0:

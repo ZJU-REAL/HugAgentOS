@@ -118,15 +118,15 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 要点（`_opensandbox_session.py` / `_opensandbox_internals.py`）：
 
 - **per-chat 重沙箱**：一个会话一个带 Jupyter 的容器，变量、pip 包、`/workspace` 文件跨 bash 调用持久；
-- **TTL 与续期**：沙箱服务端 TTL 默认 1800s（`OPENSANDBOX_DEFAULT_TIMEOUT_S`）；每次会话活动触发限频（60s）的后台 renew，不阻塞请求路径；renew 失败区分 lifecycle 信号（立即标 stale）与瞬时网络错误（连续 3 次才升级）；
-- **双层暖池**：进程启动即预热通用双桶池；Plan F 开启后 user-bound 流量改走 per-user 的 `_JupyterUserPool`（避免挂了别人 myspace volume 的沙盒被串用），idle reaper（600s，`OPENSANDBOX_IDLE_REAP_S`）把空闲会话的沙盒**洗净 kernel、清空 `/workspace` 后回 user idle 池**复用而非销毁。清空只保留 `myspace` 与 `skills` 两个挂载点并重建 `scratch`——容器跨会话复用，上一轮的脚本和中间结果留在 `/workspace` 会被下一个会话当成自己的上文；擦不干净就放弃复用、直接销毁。
+- **TTL 与续期**：沙箱服务端 TTL 取 `SANDBOX_IDLE_TTL_S`（默认 3600s，与空闲回收同一个数）；每次会话活动触发限频（60s）的后台 renew，不阻塞请求路径；renew 失败区分 lifecycle 信号（立即标 stale）与瞬时网络错误（连续 3 次才升级）；
+- **双层暖池**：进程启动即预热通用双桶池；Plan F 开启后 user-bound 流量改走 per-user 的 `_JupyterUserPool`（避免挂了别人 myspace volume 的沙盒被串用），idle reaper（`SANDBOX_IDLE_TTL_S`，默认 3600s）把空闲会话的沙盒**洗净 kernel、清空 `/workspace` 后回 user idle 池**复用而非销毁。清空只保留 `myspace` 与 `skills` 两个挂载点并重建 `scratch`——容器跨会话复用，上一轮的脚本和中间结果留在 `/workspace` 会被下一个会话当成自己的上文；擦不干净就放弃复用、直接销毁。
 
 ## 快照持久化（EE）
 
 完整设计见 [sandbox-snapshot-design.md](../../sandbox-snapshot-design.md)。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
 
-- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `OPENSANDBOX_IDLE_SNAPSHOT_THRESHOLD_S`（默认 1500s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、销毁容器；单轮最多并发 park 3 个保护 docker daemon；
-- **restore（恢复）**：`_create_session_for` 优先查 Q2 user idle 池（~7s 暖路径），未命中再查 DB snapshot（~15–20s restore，仍快于全新创建），都没有才全新建。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
+- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、擦净 `/workspace` 把容器还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
+- **restore（恢复）**：`_create_session_for` **优先查 DB snapshot**（~15–20s restore，仍快于全新创建）；本会话没有快照时才走 Q2 user idle 池（~7s 暖路径），都没有才全新建。顺序不能反——idle 池里的容器是擦干净的，端给有快照的会话等于把它的文件悄悄丢掉。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
 - **一次性消耗**：snapshot 被用作启动镜像后立即标 1 小时短保留（立刻 DELETE 会因镜像层被新容器引用而 409）；
 - **GC**：每小时清理过期快照（DB 行 + 远端，默认保留 `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7` 天），删除冲突自动下轮重试；
 - 总开关 `OPENSANDBOX_SNAPSHOT_ENABLED`（默认 true），关闭即回退"idle 即丢"的旧行为。
@@ -161,11 +161,9 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（默认 100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
-| `OPENSANDBOX_DEFAULT_TIMEOUT_S` | 1800 | 沙箱服务端 TTL |
 | `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、2/5、20 | 预热池水位 |
-| `OPENSANDBOX_IDLE_REAP_S` | 600 | 空闲会话回收（回 idle 池）阈值 |
+| `SANDBOX_IDLE_TTL_S` | 3600 | 沙箱唯一的时长参数：服务端 TTL = 空闲阈值 = 保活间隔基准；到点先 snapshot 再释放 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | 快照体系总开关 |
-| `OPENSANDBOX_IDLE_SNAPSHOT_THRESHOLD_S` | 1500 | idle 多久触发 park |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | 快照保留天数 |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | 120 | 等 snapshot Ready 的轮询上限 |
 | `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | true | Plan F myspace 直挂开关 |
@@ -173,7 +171,7 @@ chat_id ──▶ _get_or_create_session ──▶ _Session（sandbox + CodeInte
 | `SANDBOX_SKILLS_DIR` | `$STORAGE_PATH/sandbox_skills` | 统一技能目录覆盖 |
 | `MYSPACE_WRITE_CONFIRM` | true | /myspace 写操作用户确认硬保险 |
 | `CUBE_API_URL` / `CUBE_API_KEY` / `CUBE_TEMPLATE` / `CUBE_API_SANDBOX_DOMAIN` | — | Cube 节点接入 |
-| `CUBE_IDLE_REAP_S` / `CUBE_POOL_MIN_IDLE` / `CUBE_OWNER_TAG` | 600 / 2 / — | Cube 回收、预热、多环境共用节点时的归属标签 |
+| `CUBE_POOL_MIN_IDLE` / `CUBE_OWNER_TAG` | 2 / — | Cube 预热、多环境共用节点时的归属标签（回收时长同样取 `SANDBOX_IDLE_TTL_S`） |
 | `CUBE_SKILL_PREPUSH*` | true / 20MB / 3 | 技能文件预推送开关/上限/并发 |
 | `CUBE_NODE_SSH_*` / `CUBE_BUILD_*` | — | 管理员依赖重建的远端节点 SSH 与构建参数 |
 

@@ -153,8 +153,10 @@ def test_two_concurrent_stream_requests_have_one_durable_winner(monkeypatch, tmp
     assert busy.status_code == 409
     assert busy.detail["code"] == "chat_busy"
     with Session() as db:
-        message = db.query(ChatMessage).one()
+        message = db.query(ChatMessage).filter_by(role="user").one()
+        reply = db.query(ChatMessage).filter_by(role="assistant").one()
         run = db.query(ChatRun).one()
+        assert (reply.message_id, reply.content) == (run.message_id, "")
         assert busy.detail["active_run"] == {
             "run_id": run.run_id,
             "message_id": run.message_id,
@@ -194,7 +196,10 @@ def test_non_stream_send_returns_busy_without_running_or_persisting(monkeypatch,
     assert raised.value.status_code == 409
     assert raised.value.detail["active_run"]["run_id"] == winner.run.run_id
     with Session() as db:
-        assert [row.content for row in db.query(ChatMessage).all()] == ["already running"]
+        assert [row.content for row in db.query(ChatMessage).order_by(ChatMessage.chat_seq)] == [
+            "already running",
+            "",
+        ]
     engine.dispose()
 
 
@@ -206,7 +211,7 @@ def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch
     _patch_common_chat_route(monkeypatch, chats)
 
     def load_after_accept(service, _chat_id, _user_id):
-        stored = service.db.query(ChatMessage).one()
+        stored = service.db.query(ChatMessage).filter_by(role="user").one()
         assert (stored.role, stored.chat_seq, stored.content) == ("user", 1, "hello")
         return [{"role": "user", "content": stored.content}]
 
@@ -221,22 +226,16 @@ def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch
     async def fake_wait_run(_run_id):
         accepted = launched["accepted_run"]
         with Session() as worker_db:
-            worker_db.add(
-                ChatMessage(
-                    message_id=accepted.message_id,
-                    chat_id="chat-1",
-                    chat_seq=accepted.assistant_chat_seq,
-                    role="assistant",
-                    content="world",
-                    extra_data={
-                        "route": "main",
-                        "is_markdown": False,
-                        "sources": [],
-                        "artifacts": [],
-                        "warnings": [],
-                    },
-                )
-            )
+            # 助手行在接纳时已经存在；worker 只是把它定稿。
+            reply = worker_db.get(ChatMessage, accepted.message_id)
+            reply.content = "world"
+            reply.extra_data = {
+                "route": "main",
+                "is_markdown": False,
+                "sources": [],
+                "artifacts": [],
+                "warnings": [],
+            }
             run = worker_db.get(ChatRun, accepted.run_id)
             run.status = "completed"
             run.writer_slot = None
@@ -300,6 +299,7 @@ def test_regenerate_busy_does_not_delete_existing_history(monkeypatch, tmp_path)
             "question",
             "answer",
             "already running",
+            "",
         ]
     engine.dispose()
 
@@ -320,7 +320,9 @@ def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypat
     launched = {}
 
     def load_after_admission(service, _chat_id, _user_id):
-        assert [row.content for row in service.db.query(ChatMessage).all()] == ["question"]
+        assert [
+            row.content for row in service.db.query(ChatMessage).order_by(ChatMessage.chat_seq)
+        ] == ["question", ""]
         return [{"role": "user", "content": "question"}]
 
     async def fake_start_run(**kwargs):
@@ -395,6 +397,7 @@ def test_edit_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
             "old wording",
             "old reply",
             "already running",
+            "",
         ]
     engine.dispose()
 
@@ -539,5 +542,6 @@ def test_batch_resume_busy_does_not_delete_triggering_turn(monkeypatch, tmp_path
             "batch question",
             "",
             "already running",
+            "",
         ]
     engine.dispose()

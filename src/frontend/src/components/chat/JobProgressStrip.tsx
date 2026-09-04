@@ -4,6 +4,7 @@ import { CloseOutlined, LoadingOutlined, StopOutlined, WarningOutlined } from '@
 import { DUR, EASE } from '../../utils/motionTokens';
 import { listChatJobs, cancelJobApi, getJobApi, getChatDetail, toPlanProgress } from '../../api';
 import { useChatStore } from '../../stores';
+import { reloadChatHistory } from '../../hooks/useChatInit';
 import type { JobBrief } from '../../types';
 import { t } from '../../i18n';
 
@@ -174,8 +175,7 @@ export function JobProgressStrip({ chatId }: { chatId: string }) {
       // 本地已经在跟这条会话的流了（用户自己发的消息 / 已经挂上了交付轮）→ 让它去写，
       // 这里重载只会把正在流式渲染的气泡整段盖掉。
       if (store.sendingChatIds.has(chatId) || store.activeRuns[chatId]) return;
-      store.removeLoadedMsgId(chatId);
-      store.bumpSessionLoadEpoch();
+      void reloadChatHistory(chatId);
     };
 
     const tick = async () => {

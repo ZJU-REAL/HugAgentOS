@@ -22,12 +22,14 @@ import time
 from typing import Any, Dict, List
 
 import httpx
+import mcp.types
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import ConfigDict, Field
 
 from agentscope.mcp import MCPClient, StdioMCPConfig
-from agentscope.tool import MCPTool
+from agentscope.permission import PermissionBehavior, PermissionDecision
+from agentscope.tool import MCPTool, ToolBase, ToolChunk
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,144 @@ class BareNameMCPClient(MCPClient):
         tools = await super().list_tools()
         self._lt_cache = (time.monotonic() + _LIST_TOOLS_TTL_S, tools)
         return tools
+
+
+class GatewayMCPTool(ToolBase):
+    """MCP-shaped tool built from a cloud-owned runtime manifest snapshot."""
+
+    is_mcp = True
+    is_state_injected = False
+    is_external_tool = False
+    is_concurrency_safe = False
+
+    def __init__(
+        self,
+        *,
+        mcp_name: str,
+        tool: mcp.types.Tool,
+        invoke_url: str,
+        schema_hash: str,
+        headers: Dict[str, str],
+        timeout: float,
+        transport: Any = None,
+    ) -> None:
+        self.mcp_name = mcp_name
+        self.name = tool.name
+        self.description = tool.description or ""
+        schema = dict(tool.inputSchema or {})
+        schema.setdefault("type", "object")
+        schema.setdefault("properties", {})
+        schema.setdefault("required", [])
+        self.input_schema = schema
+        self.is_read_only = bool(
+            tool.annotations and getattr(tool.annotations, "readOnlyHint", False)
+        )
+        self._invoke_url = invoke_url
+        self._schema_hash = schema_hash
+        self._headers = dict(headers)
+        self._timeout = max(1.0, float(timeout or 120.0))
+        self._transport = transport
+
+    async def check_permissions(self, *_args: Any, **_kwargs: Any) -> PermissionDecision:
+        if self.is_read_only:
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message="This is a read-only MCP tool. Allowing execution.",
+            )
+        return PermissionDecision(
+            behavior=PermissionBehavior.ASK,
+            message="MCP tools must be explicitly allowed by the user.",
+        )
+
+    async def __call__(self, **kwargs: Any) -> ToolChunk:
+        headers = dict(self._headers)
+        headers["accept-encoding"] = "identity"
+        client_kwargs: Dict[str, Any] = {
+            "timeout": httpx.Timeout(
+                connect=min(10.0, self._timeout),
+                read=self._timeout,
+                write=min(60.0, self._timeout),
+                pool=min(10.0, self._timeout),
+            )
+        }
+        if self._transport is not None:
+            client_kwargs["transport"] = self._transport
+        try:
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                response = await client.post(
+                    self._invoke_url,
+                    headers=headers,
+                    json={
+                        "tool_name": self.name,
+                        "arguments": kwargs,
+                        "schema_hash": self._schema_hash,
+                    },
+                )
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(data, dict):
+                raise ValueError("cloud gateway returned no tool result")
+            chunk = ToolChunk.model_validate(data)
+            chunk.metadata.setdefault("origin", "cloud")
+            chunk.metadata.setdefault("mcp_server_id", self.mcp_name)
+            return chunk
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(f"云端工具 {self.name} 调用超时，请稍后重试") from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 409:
+                raise RuntimeError(
+                    f"云端工具 {self.name} 已更新，请刷新能力清单后重试"
+                ) from exc
+            raise RuntimeError(
+                f"云端工具 {self.name} 暂时不可用（HTTP {exc.response.status_code}）"
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError(f"云端工具 {self.name} 返回异常，请稍后重试") from exc
+
+
+class ManifestMCPClient(BareNameMCPClient):
+    """Network-free MCP discovery backed only by the current cloud manifest."""
+
+    manifest_tools: List[Dict[str, Any]] = Field(default_factory=list, exclude=True)
+    gateway_invoke_url: str = Field(exclude=True)
+    schema_hash: str = Field(exclude=True)
+    gateway_transport: Any = Field(default=None, exclude=True)
+
+    def _raw_manifest_tools(self) -> List[mcp.types.Tool]:
+        tools: List[mcp.types.Tool] = []
+        for item in self.manifest_tools:
+            try:
+                tool = mcp.types.Tool.model_validate(item)
+            except Exception as exc:  # noqa: BLE001 - isolate one malformed tool
+                logger.warning("Invalid manifest tool in MCP '%s': %s", self.name, exc)
+                continue
+            if self.enable_tools is not None and tool.name not in self.enable_tools:
+                continue
+            if self.disable_tools is not None and tool.name in self.disable_tools:
+                continue
+            tools.append(tool)
+        return tools
+
+    async def list_raw_tools(self) -> List[mcp.types.Tool]:
+        return self._raw_manifest_tools()
+
+    async def get_tool(self, name: str) -> GatewayMCPTool:
+        for tool in self._raw_manifest_tools():
+            if tool.name == name:
+                return GatewayMCPTool(
+                    mcp_name=self.name,
+                    tool=tool,
+                    invoke_url=self.gateway_invoke_url,
+                    schema_hash=self.schema_hash,
+                    headers=dict(self.mcp_config.headers or {}),
+                    timeout=float(self.execution_timeout or 120.0),
+                    transport=self.gateway_transport,
+                )
+        raise ValueError(f"Tool '{name}' not found in cloud manifest MCP '{self.name}'")
+
+    async def list_tools(self) -> List[GatewayMCPTool]:
+        return [await self.get_tool(tool.name) for tool in self._raw_manifest_tools()]
 
 
 def make_stdio_client(server_name: str, server_cfg: dict) -> MCPClient:

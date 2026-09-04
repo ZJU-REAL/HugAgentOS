@@ -82,7 +82,8 @@ def register_delete(
         physical = to_physical_path(path, user_id)
         try:
             await sandbox_exec_bash(
-                f"rm -rf {shell_quote(physical)}", chat_id=_sess, timeout=15,
+                f"rm -rf {shell_quote(physical)}", chat_id=_sess, user_id=user_id,
+                timeout=15,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[delete] 清沙盒副本失败 %s: %s", physical, exc)
@@ -153,7 +154,7 @@ def register_move(
             await sandbox_exec_bash(
                 f"mkdir -p {shell_quote(parent)} && "
                 f"mv {shell_quote(src_phys)} {shell_quote(dst_phys)} 2>/dev/null || true",
-                chat_id=_sess, timeout=15,
+                chat_id=_sess, user_id=user_id, timeout=15,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[move] 沙盒侧 mv 失败 %s→%s: %s", src_phys, dst_phys, exc)
@@ -216,7 +217,7 @@ def register_mkdir(
             phys = to_physical_path(path, user_id)
             await sandbox_exec_bash(
                 f"mkdir -p {shell_quote(phys)} 2>/dev/null || true",
-                chat_id=_sess, timeout=15,
+                chat_id=_sess, user_id=user_id, timeout=15,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[mkdir] 沙盒侧 mkdir 失败 %s: %s", path, exc)

@@ -114,7 +114,7 @@ The request body is a `ChatRequest` (`src/backend/api/schemas.py`): `chat_id` an
 | `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, `subagent_name?` |
 | `tool_result` | Tool returns | `tool_name`, `result` (JSON), `tool_id`, `status`, `citations` (citation items) |
 | `steer_applied` | A follow-up entered the context at a safe ReAct boundary | `steer_id`, `message`, `message_id`, `chat_id` |
-| `queued_run_started` | A committed `followUp` / `nextRun` child starts; clients should follow it immediately | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
+| `queued_run_started` | A committed `followUp` / `nextRun`, or a `steer` that missed the final safe boundary, starts as a child; clients should follow it immediately | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `tool_pending` | Waiting fallback when the provider exposes no parseable deltas | `reason` (e.g. `llm_buffering`) |
 | `file_confirm` | A tool is suspended awaiting user confirmation of a "My Space" write | `confirm_id`, `op`, `logical_path`, `message`, `expired`; the stream stays open — the user confirms out-of-band via `POST /v1/chats/{chat_id}/file-confirm` and the tool resumes |
 | `user_question` | The model called `ask_user_question` and is suspended in place | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
@@ -189,12 +189,16 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
 Resume, Steer, and cancel validate run ownership: a non-owner gets 403, and a
 missing run gets 404. Queued input is committed to the database before Redis
 sends a best-effort worker notification. `delivery_mode` is `steer`, `followUp`,
-or `nextRun`: Steer injects into the active regular-chat run; the latter two
-start ordered independent runs after it completes. If a tool is running, the worker injects
+or `nextRun`: Steer injects into the active regular-chat run. If it is accepted
+after that run has crossed its final safe boundary, the completion transaction
+atomically hands it to a successor run. The latter two modes start ordered
+independent runs after the current run completes. If a tool is running, the worker injects
 the instruction after that tool result enters the context and before the next
 model call. If the next tool batch hasn't started, the worker interrupts the
 old call before injecting the instruction. Both paths confirm delivery with a
-`steer_applied` event. `DELETE /v1/chat-runs/{run_id}/steer/{steer_id}`
+`steer_applied` event. A successor run is announced with `queued_run_started`
+and is recoverable through the durable queue status endpoint.
+`DELETE /v1/chat-runs/{run_id}/steer/{steer_id}`
 withdraws an instruction that hasn't been consumed.
 `GET /v1/chats/{chat_id}/active-run` reports whether a chat currently has a run
 in progress, which the frontend uses to reconnect after a page refresh. A run

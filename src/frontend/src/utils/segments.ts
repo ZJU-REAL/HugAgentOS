@@ -81,6 +81,11 @@ function segmentTextSlice(slice: string, segments: MessageSegment[]): string {
   return visible;
 }
 
+/** 正文停在一个没闭合的 `<think>` 里（落库截断 / 模型漏发闭合标签）。 */
+export function hasUnclosedThink(text: string): boolean {
+  return text.lastIndexOf('<think>') > text.lastIndexOf('</think>');
+}
+
 /**
  * Separate persisted reasoning from visible text without breaking the visible
  * response into one Markdown block per tool phase.

@@ -11,6 +11,7 @@ from api.schemas import AttachmentItem, ChatRequest, ChatResponse
 from api.routes.v1.chat_admission import chat_busy_http_exception
 from core.auth.backend import UserContext, get_current_user
 from core.auth.permissions_iface import can_delete_session
+from core.chat import inflight
 from core.chat.context import build_effective_user_message as _build_effective_user_message
 from core.chat.context import (
     build_runtime_context,
@@ -182,9 +183,10 @@ def _tool_calls_for_history(raw) -> Any:
     return out
 
 
-def _message_to_dict(m) -> dict:
+def _message_to_dict(m, live_run_ids: frozenset = frozenset()) -> dict:
     """Convert a ChatMessage ORM object to API response dict."""
     tool_calls = _tool_calls_for_history(m.tool_calls)
+    owner = inflight.marker(m.extra_data)
     return {
         "message_id": m.message_id,
         "chat_id": m.chat_id,
@@ -197,6 +199,9 @@ def _message_to_dict(m) -> dict:
         "thinking": m.thinking,
         "tool_calls": tool_calls,
         "metadata": m.extra_data or {},
+        "error": m.error,
+        # ``{run_id, phase, event_offset}`` of the live run still writing this row, else null.
+        "in_flight": owner if owner and owner["run_id"] in live_run_ids else None,
         "created_at": m.created_at.isoformat(),
     }
 
@@ -587,7 +592,10 @@ async def list_messages(
     messages, total = chat_service.message_repo.list_by_chat(
         chat_id, page, page_size, newest_first=(order.lower() == "desc")
     )
-    items = [_message_to_dict(m) for m in messages if not _is_internal_message(m)]
+    from core.services.compaction_service import _live_run_ids
+
+    live = _live_run_ids(chat_service, messages)
+    items = [_message_to_dict(m, live) for m in messages if not _is_internal_message(m)]
     response = paginated_response(
         items=items,
         page=page,

@@ -425,6 +425,7 @@ async def publish(
     _check_internal_token(x_internal_token)
 
     from core.llm.tools._common import resolve_sandbox_session
+    from core.llm.tools._paths import to_physical_path
     from core.llm.tools._tool_helpers import _validate_workspace_path
 
     user_id = (body.user_id or "").strip()
@@ -440,9 +441,12 @@ async def publish(
     # folder's old code as the new version (page "changed but looks the same").
     # Either way, after publishing _ensure_project_for_site + _mirror land the files into the (new or existing) project.
     project_id, project_dir = _resolve_project_context(body.chat_id or "", user_id)
+    # 逻辑路径 /myspace/... 先翻成物理路径：模型拿不到自己的 uid，只会写 /myspace/x，
+    # 直接拿去校验会被判成"不在 /workspace/ 下"。
     src = (body.src_dir or "").strip().rstrip("/")
     if not src or src == ".":
         src = project_dir if project_id else "/workspace/site"
+    src = to_physical_path(src, user_id)
 
     path_err = _validate_workspace_path(src + "/")
     if path_err:
@@ -451,6 +455,7 @@ async def publish(
     # Build-style site: source_dir = the source-code workspace directory (that is what gets mirrored into the project, not the dist output)
     source_dir = (body.source_dir or "").strip().rstrip("/")
     if source_dir:
+        source_dir = to_physical_path(source_dir, user_id)
         src_err = _validate_workspace_path(source_dir + "/")
         if src_err:
             return success_response(data={"error": f"source_dir 非法: {src_err}"})

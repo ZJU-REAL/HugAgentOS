@@ -66,7 +66,14 @@ class SegmentRecorder:
 
     def payload(self) -> Optional[List[Dict[str, Any]]]:
         self._flush_text()
-        return list(self._segments) or None
+        return self.snapshot()
+
+    def snapshot(self) -> Optional[List[Dict[str, Any]]]:
+        """Read-only view: the text run in progress stays open (mid-stream persistence)."""
+        segments = list(self._segments)
+        if self._pending_text:
+            segments.append({"type": "text", "text": self._pending_text})
+        return segments or None
 
 
 def build_thinking_event(chunk: dict, chat_id: str) -> Dict[str, Any]:

@@ -67,6 +67,23 @@ MAX_ARTIFACT_EXPORT_BYTES = max(
 # path boundary so an unrelated substring like /workspaces is left alone.
 _WS_PATH_RE = re.compile(r'(?<![A-Za-z0-9_.\\/-])/workspace(?=/|$|["\'\s:;)&|])')
 
+# 模型只认识 /myspace 这一种写法。opensandbox / cube 一人一沙箱，能在容器里建软链；
+# 这个 runner 是所有用户共用一个服务，根上建全局软链会指向"最后一个用的人"，属于跨用户
+# 串数据。所以改成按请求里的 user_id 就地改写路径，根目录映射仍交给既有的 /workspace 链路。
+_MYSPACE_PATH_RE = re.compile(r'(?<![A-Za-z0-9_.\\/-])/myspace(?=/|$|["\'\s:;)&|])')
+
+
+def _rewrite_myspace_refs(value: str, user_id: Optional[str]) -> str:
+    """把 /myspace[/...] 展开成 /workspace/myspace/{uid}[/...]。
+
+    没有 user_id 时原样返回 —— 无从判断是谁的空间，宁可让路径不存在而报错，
+    也不能猜一个用户。
+    """
+    if not isinstance(value, str) or not user_id:
+        return value
+    _validate_user_id(user_id)
+    return _MYSPACE_PATH_RE.sub(f"/workspace/myspace/{user_id}", value)
+
 
 def _rewrite_workspace_refs(value: str, workspace_root: str = WORKSPACE_ROOT) -> str:
     """Map canonical workspace references without treating ``\\`` as regex escapes."""
@@ -170,7 +187,11 @@ def _rewrite_execution_paths(
     value: str,
     language: str,
     workspace_root: str = WORKSPACE_ROOT,
+    user_id: Optional[str] = None,
 ) -> str:
+    # 先把 /myspace 展开成 /workspace/myspace/{uid}，后面的根目录映射与引号处理
+    # 就全部复用既有逻辑，不必再写一套。
+    value = _rewrite_myspace_refs(value, user_id)
     if WORKSPACE_ROOT != "/workspace" and workspace_root != WORKSPACE_ROOT:
         # Native file tools may return the host-expanded root. Normalize it back
         # to the canonical spelling before routing it into the session workspace.
@@ -532,6 +553,8 @@ def _canon_ws(path: str, session_id: str, user_id: Optional[str] = None) -> str:
     """
     if not isinstance(path, str):
         return path
+    # 文件类接口同样只认 /myspace 这一种写法，先展开成物理写法再往下走。
+    path = _rewrite_myspace_refs(path, user_id)
     workspace = str(_session_workspace(session_id, create=True, user_id=user_id))
     if path == "/workspace":
         return workspace
@@ -679,13 +702,16 @@ async def execute(req: ExecuteRequest):
         req.script_content,
         req.language,
         str(session_workspace),
+        user_id=req.user_id,
     )
     if isinstance(req.params, dict) and req.params:
         _args = req.params.get("_args")
         if isinstance(_args, list):
             req.params["_args"] = [
                 (
-                    _rewrite_execution_paths(a, req.language, str(session_workspace))
+                    _rewrite_execution_paths(
+                        a, req.language, str(session_workspace), user_id=req.user_id
+                    )
                     if isinstance(a, str)
                     else a
                 )

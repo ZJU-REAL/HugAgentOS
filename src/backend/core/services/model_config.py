@@ -11,7 +11,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from core.db.engine import SessionLocal
 from core.db.models import ModelProvider, ModelRoleAssignment
@@ -19,6 +19,17 @@ from core.db.models import ModelProvider, ModelRoleAssignment
 logger = logging.getLogger(__name__)
 
 _CACHE_TTL_SECONDS = 30.0
+
+
+def _optional_int(raw: Any) -> Optional[int]:
+    """Parse an optional numeric setting; blank / unparsable means unset."""
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 @dataclass(frozen=True)
@@ -29,7 +40,8 @@ class ResolvedModelConfig:
     api_key: str
     model_name: str
     temperature: float = 0.6
-    max_tokens: int = 8192
+    # None = 不限制输出长度：请求里干脆不带 max_tokens，由模型供应商自己的默认值决定。
+    max_tokens: Optional[int] = None
     context_length: int = 0  # 0 = not configured; the caller falls back to a default
     timeout: int = 120
     provider: str = "openai_compatible"  # vendor/protocol, see core/llm/providers/registry.py
@@ -145,11 +157,7 @@ class ModelConfigService:
         from core.llm.providers.registry import get_spec, split_provider_extra
 
         extra = dict(provider.extra_config or {})
-        ctx_len_raw = extra.pop("context_length", 0)
-        try:
-            ctx_len = int(ctx_len_raw) if ctx_len_raw else 0
-        except (TypeError, ValueError):
-            ctx_len = 0
+        ctx_len = _optional_int(extra.pop("context_length", None)) or 0
         provider_id = getattr(provider, "provider", None) or "openai_compatible"
         spec = get_spec(provider_id)
         # Separate vendor-specific credentials (api_version / deployment / aws_*) from extra into provider_extra
@@ -161,7 +169,7 @@ class ModelConfigService:
             api_key=provider.api_key,
             model_name=provider.model_name,
             temperature=float(extra.pop("temperature", 0.6)),
-            max_tokens=int(extra.pop("max_tokens", 8192)),
+            max_tokens=_optional_int(extra.pop("max_tokens", None)),
             context_length=ctx_len,
             timeout=int(extra.pop("timeout", 120)),
             provider=provider_id,

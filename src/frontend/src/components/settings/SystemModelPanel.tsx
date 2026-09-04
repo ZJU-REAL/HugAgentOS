@@ -420,7 +420,7 @@ export function SystemModelPanel() {
               name="context_length"
               label={t('上下文窗口（token，可选）')}
               style={{ flex: 1 }}
-              tooltip={t('模型真实的上下文长度，用于历史裁剪与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。')}
+              tooltip={t('模型真实的上下文长度，用于请求装配预算与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。')}
               extra={probeHint || undefined}
             >
               <Input

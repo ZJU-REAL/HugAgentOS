@@ -39,7 +39,7 @@ def dict_to_msg(d: Dict[str, Any], *, created_seq: int = 0) -> Any:
     # to assistant messages (user allows only text/data, system only text). The
     # 1.x practice of putting tool_result on "tool"→"user" is rejected by Msg
     # validation in 2.0, so "tool" now maps to "assistant".
-    # (The dict layer still keeps the "tool" marker; trim_history uses it to
+    # (The dict layer still keeps the "tool" marker; replay uses it to
     # skip turn boundaries — see build_replay_dicts.)
     role_map = {"human": "user", "ai": "assistant", "tool": "assistant"}
     role = role_map.get(role, role)
@@ -266,9 +266,8 @@ def build_replay_dicts(
       - ``{role: "assistant", content: [TextBlock?, ToolUseBlock, ToolUseBlock, …]}``
       - ``{role: "tool", content: [ToolResultBlock, ToolResultBlock, …]}``
 
-    The ``"tool"`` role marks the tool_result carrier so
-    :func:`core.llm.context_manager.trim_history` won't treat it as a
-    turn boundary (cleanup loop already skips non-user roles).
+    The ``"tool"`` role marks the tool_result carrier so replay and compaction
+    won't treat it as a turn boundary.
     :func:`dict_to_msg` maps ``"tool"`` to ``role="user"`` for Msg
     construction — AgentScope only supports user/assistant/system.
     """

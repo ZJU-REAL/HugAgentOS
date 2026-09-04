@@ -100,7 +100,7 @@ def register_glob(
         )
 
         exit_code, stdout, stderr = await sandbox_exec_bash(
-            script, chat_id=_sess, timeout=20,
+            script, chat_id=_sess, user_id=user_id, timeout=20,
         )
         if exit_code != 0:
             return resp_json({

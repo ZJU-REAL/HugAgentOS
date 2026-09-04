@@ -356,9 +356,6 @@ export const CHAT_DICT: Record<string, string> = {
   '这条消息包含无法显示的旧格式数据，已跳过异常内容。': 'This message contains legacy data that cannot be displayed. The invalid content was skipped.',
   // Turn card: the memories this turn wrote, each editable in place.
   '本轮新增记忆': 'Remembered from this turn',
-  '本轮记忆写入失败': 'Memory write failed',
-  '这轮对话的记忆没有写入成功，本轮内容不会被记住。':
-    'This turn could not be written to memory, so nothing from it will be remembered.',
   '用户画像': 'Profile',
   '做法沉淀': 'Way of working',
   '适用于': 'Applies to',

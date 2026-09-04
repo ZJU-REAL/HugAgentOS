@@ -100,7 +100,6 @@ def test_compaction_snapshot_uses_post_compaction_backend_estimate():
             "system_prompt_tokens": 40,
             "tool_schema_tokens": 20,
             "message_tokens": 15,
-            "reserved_output_tokens": 0,
             "provider_overhead_tokens": 7,
             "total_estimated_tokens": 82,
         },

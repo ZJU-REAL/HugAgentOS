@@ -7,11 +7,12 @@
   → 本模块后台拉取云端 manifest（当前用户最终可用的 MCP 清单）
   → catalog_resolver 解析 enabled_mcp_ids 时把云端 server 追加进清单并按
     组件基名抑制本机重复实现（logical 去重，云端为真源），agent 装配时
-    云端 server 以「HTTP MCP 指向云端能力网关」的连接配置接入。
+    直接使用 manifest 内完整 schema 注册虚拟 MCP 工具；模型真正调用后
+    才通过普通 JSON 网关在云端网络内执行真实 MCP。
 
 硬边界（与设计文档一致）：
 - 本机拿不到云端真实 MCP URL / 密钥——只有网关地址 + capability token；
-- 云端断线时云端工具结构化不可用（既有 HTTP MCP 探活/冷却机制兜底），
+- 云端断线不会阻塞 Agent 装配；云端工具真正被调用时会返回明确错误，
   **不**静默回退本机同名旧实现；
 - ``DESKTOP_LOCAL_MCP_KEEP`` 声明保留在本机的组件基名（默认
   batch_runner / site_publish / generate_chart_tool / automation_task ——
@@ -23,6 +24,8 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import logging
 import os
 import threading
@@ -38,8 +41,8 @@ BRIDGE_BLOCK_ID = "desktop_cloud_bridge"
 # 双端本机默认保留的组件基名（其余同基名能力以云端为准）。
 DEFAULT_LOCAL_KEEP = "batch_runner,site_publish,generate_chart_tool,automation_task"
 
-_MANIFEST_TTL_S = 300.0
 _MANIFEST_NEG_TTL_S = 30.0
+_MANIFEST_REFRESH_DEFAULT_S = 30.0
 
 _state_lock = threading.Lock()
 _state: Optional[Dict[str, Any]] = None  # {"cloud_base", "token", "expires_at"}
@@ -50,6 +53,33 @@ _manifest: Optional[Dict[str, Any]] = None
 _manifest_ts: float = 0.0
 _manifest_error: Optional[str] = None
 _manifest_fetching = False
+
+
+def _state_fingerprint(state: Optional[Dict[str, Any]]) -> str:
+    """Bind a manifest snapshot to exactly one cloud/token identity."""
+    if not state:
+        return ""
+    from core.services.desktop_capability_protocol import token_subject
+
+    token = str(state.get("token") or "")
+    # A rotated token for the same account keeps the snapshot; only a real
+    # account switch (or an opaque token) invalidates it.
+    payload = f"{state.get('cloud_base') or ''}\0{token_subject(token) or token}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _manifest_refresh_interval() -> float:
+    """Resolve the dynamic-manifest polling interval from deployment config."""
+    try:
+        value = float(
+            os.getenv(
+                "DESKTOP_CLOUD_MANIFEST_REFRESH_SECONDS",
+                str(_MANIFEST_REFRESH_DEFAULT_S),
+            )
+        )
+    except (TypeError, ValueError):
+        value = _MANIFEST_REFRESH_DEFAULT_S
+    return max(5.0, min(value, 300.0))
 
 
 def _bridge_switch_on() -> bool:
@@ -102,15 +132,26 @@ def get_state() -> Optional[Dict[str, Any]]:
 
 def set_state(cloud_base: str, token: str, expires_in: int) -> None:
     """壳侧推送桥配置（幂等）。立即触发一次后台 manifest 刷新。"""
-    global _state, _state_loaded
+    global _manifest, _manifest_error, _manifest_ts, _state, _state_loaded
     payload = {
         "cloud_base": cloud_base.strip().rstrip("/"),
         "token": token.strip(),
         "expires_at": time.time() + max(60, int(expires_in or 0)),
     }
     with _state_lock:
+        changed = _state_fingerprint(_state) != _state_fingerprint(payload)
         _state = payload
         _state_loaded = True
+    if changed:
+        # Never expose a previous cloud account's tools or skill files while
+        # the replacement dynamic manifest is still in flight.
+        with _manifest_lock:
+            _manifest = None
+            _manifest_ts = 0.0
+            _manifest_error = None
+        from core.services import desktop_cloud_skills
+
+        desktop_cloud_skills.purge_all()
     try:
         from core.db.engine import SessionLocal
         from core.db.models import ContentBlock
@@ -138,25 +179,52 @@ def bridge_active() -> bool:
 def _fetch_manifest_blocking(st: Dict[str, Any]) -> None:
     global _manifest, _manifest_ts, _manifest_error, _manifest_fetching
     url = f"{st['cloud_base']}/api/v1/desktop/capability/manifest"
+    refresh_replacement = False
     try:
         import httpx
+        from core.services.desktop_capability_protocol import validate_manifest
+
+        headers = {"Authorization": f"Bearer {st['token']}"}
+        with _manifest_lock:
+            current_revision = str((_manifest or {}).get("revision") or "")
+        if current_revision:
+            headers["If-None-Match"] = f'"{current_revision}"'
 
         resp = httpx.get(
             url,
-            headers={"Authorization": f"Bearer {st['token']}"},
+            headers=headers,
             timeout=httpx.Timeout(10.0, connect=5.0),
         )
-        resp.raise_for_status()
-        body = resp.json()
-        data = body.get("data") if isinstance(body, dict) else None
-        servers = (data or {}).get("servers")
-        if not isinstance(servers, list):
-            raise ValueError("manifest 结构异常（缺 servers）")
-        with _manifest_lock:
-            _manifest = {"servers": servers}
-            _manifest_ts = time.monotonic()
-            _manifest_error = None
-        logger.info("[cloud-bridge] manifest 已刷新：云端可用 MCP %d 个", len(servers))
+        if resp.status_code == 304:
+            with _manifest_lock:
+                _manifest_ts = time.monotonic()
+                _manifest_error = None
+        else:
+            resp.raise_for_status()
+            body = resp.json()
+            data = body.get("data") if isinstance(body, dict) else None
+            manifest = validate_manifest(data)
+            # A login/account switch may have happened while this request was in
+            # flight. Discard the old response instead of racing it into the new
+            # account's cache.
+            if _state_fingerprint(get_state()) != _state_fingerprint(st):
+                logger.info("[cloud-bridge] manifest response discarded after identity change")
+                refresh_replacement = True
+                return
+            with _manifest_lock:
+                _manifest = manifest
+                _manifest_ts = time.monotonic()
+                _manifest_error = None
+            logger.info(
+                "[cloud-bridge] manifest refreshed revision=%s servers=%d",
+                manifest["revision"][:12],
+                len(manifest["servers"]),
+            )
+        # Skills ride the same poll and token: the cloud skill set is mirrored
+        # into local files right after the tool manifest is known to be current.
+        from core.services import desktop_cloud_skills
+
+        desktop_cloud_skills.sync_blocking(st)
     except Exception as exc:  # noqa: BLE001
         with _manifest_lock:
             _manifest_ts = time.monotonic()
@@ -165,6 +233,8 @@ def _fetch_manifest_blocking(st: Dict[str, Any]) -> None:
     finally:
         with _manifest_lock:
             _manifest_fetching = False
+        if refresh_replacement:
+            _refresh_manifest_async(force=True)
 
 
 def _refresh_manifest_async(force: bool = False) -> None:
@@ -176,7 +246,11 @@ def _refresh_manifest_async(force: bool = False) -> None:
         if _manifest_fetching:
             return
         age = time.monotonic() - _manifest_ts
-        ttl = _MANIFEST_NEG_TTL_S if _manifest is None or _manifest_error else _MANIFEST_TTL_S
+        ttl = (
+            _MANIFEST_NEG_TTL_S
+            if _manifest is None or _manifest_error
+            else _manifest_refresh_interval()
+        )
         if not force and _manifest_ts and age < ttl:
             return
         _manifest_fetching = True
@@ -192,7 +266,7 @@ def get_cached_manifest() -> Optional[Dict[str, Any]]:
     """
     _refresh_manifest_async()
     with _manifest_lock:
-        return dict(_manifest) if _manifest else None
+        return copy.deepcopy(_manifest) if _manifest else None
 
 
 # ── 混合能力解析（云端注入 + 本机抑制） ────────────────────────────────
@@ -216,6 +290,11 @@ def _bridge_context() -> Optional[Dict[str, Any]]:
     for s in manifest.get("servers") or []:
         if not isinstance(s, dict):
             continue
+        # A server with no current tool contracts cannot replace a local
+        # implementation. The manifest validator already guarantees every
+        # non-empty entry contains complete, cloud-supplied schemas.
+        if not s.get("tools"):
+            continue
         sid = str(s.get("server_id") or "").strip()
         if not sid:
             continue
@@ -228,25 +307,37 @@ def _bridge_context() -> Optional[Dict[str, Any]]:
         servers.append(entry)
     if not servers:
         return None
-    return {"state": st, "servers": servers}
+    return {
+        "state": st,
+        "servers": servers,
+        "manifest_revision": str(manifest["revision"]),
+    }
 
 
 def cloud_gateway_mcp_configs() -> Dict[str, dict]:
-    """云端 server → 本机可直接使用的 HTTP MCP 连接配置（指向云端网关）。"""
+    """Build virtual MCP configs from the current cloud-owned manifest."""
     ctx = _bridge_context()
     if not ctx:
         return {}
     st = ctx["state"]
+    manifest_revision = ctx["manifest_revision"]
     configs: Dict[str, dict] = {}
     for s in ctx["servers"]:
         sid = s["server_id"]
+        invoke_url = f"{st['cloud_base']}/api/v1/desktop/capability/gateway/{sid}/call"
         configs[sid] = {
             "transport": "streamable_http",
-            "url": f"{st['cloud_base']}/api/v1/desktop/capability/gateway/{sid}/mcp",
+            # HttpMCPConfig requires a URL, but ManifestMCPClient never performs
+            # discovery against it. The same JSON endpoint is the only remote hop.
+            "url": invoke_url,
             "headers": {"Authorization": f"Bearer {st['token']}"},
-            # 网关串了一跳，给云端工具稍宽的执行预算
             "execution_timeout": 180,
             "is_stable": False,
+            "schema_source": "cloud_manifest",
+            "manifest_revision": manifest_revision,
+            "manifest_tools": copy.deepcopy(s["tools"]),
+            "schema_hash": str(s["schema_hash"]),
+            "gateway_invoke_url": invoke_url,
         }
     return configs
 
@@ -299,12 +390,27 @@ def apply_to_enabled_mcp_ids(mcp_ids: Optional[List[str]]) -> Optional[List[str]
     return kept
 
 
+def apply_to_enabled_skill_ids(skill_ids: Optional[List[str]]) -> Optional[List[str]]:
+    """把云端技能合并进本轮 enabled_skill_ids（云端为真源，见 desktop_cloud_skills）。"""
+    if skill_ids is None or not bridge_active():
+        return skill_ids
+    from core.services import desktop_cloud_skills
+
+    return desktop_cloud_skills.apply_to_enabled_skill_ids(skill_ids)
+
+
 def bridge_status() -> Dict[str, Any]:
     """诊断视图（/v1/desktop/capability/cloud-bridge/status）。"""
+    from core.services import desktop_cloud_skills
+
     st = get_state()
     with _manifest_lock:
         servers = (_manifest or {}).get("servers") or []
         err = _manifest_error
+        manifest_revision = str((_manifest or {}).get("revision") or "")
+        schema_ready_count = sum(
+            1 for server in servers if isinstance(server, dict) and bool(server.get("tools"))
+        )
     return {
         "switch_on": _bridge_switch_on(),
         "configured": st is not None,
@@ -312,6 +418,9 @@ def bridge_status() -> Dict[str, Any]:
         "active": bridge_active(),
         "keep_local": sorted(keep_local_bases()),
         "cloud_server_count": len(servers),
+        "manifest_revision": manifest_revision,
+        "schema_mode": "dynamic_manifest" if manifest_revision else "none",
+        "schema_ready_server_count": schema_ready_count,
         "cloud_servers": [
             {
                 "server_id": s.get("server_id"),
@@ -323,11 +432,14 @@ def bridge_status() -> Dict[str, Any]:
             if isinstance(s, dict)
         ],
         "last_error": err,
+        "skills": desktop_cloud_skills.status(),
     }
 
 
 def reset_for_tests() -> None:  # pragma: no cover - 仅测试用
     global _state, _state_loaded, _manifest, _manifest_ts, _manifest_error, _manifest_fetching
+    from core.services import desktop_cloud_skills
+
     with _state_lock:
         _state = None
         _state_loaded = False
@@ -336,3 +448,4 @@ def reset_for_tests() -> None:  # pragma: no cover - 仅测试用
         _manifest_ts = 0.0
         _manifest_error = None
         _manifest_fetching = False
+    desktop_cloud_skills.reset_for_tests()

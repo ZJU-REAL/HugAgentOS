@@ -29,6 +29,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Literal, Optional
 
+from core.chat import inflight
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage, ChatRun
@@ -38,6 +39,7 @@ from core.infra.redis import get_redis
 from core.llm import human_interaction
 from core.services import ChatService
 from core.services.run_journal import RecoveryDecision, RunJournal, RunLeaseLost
+from orchestration.message_parser import looks_markdown
 from core.services.tool_effect_ledger import ToolOutcomeUnknown, find_tool_outcome_unknown
 from orchestration.workflow import astream_chat_workflow
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -535,7 +537,12 @@ def _commit_queued_handoff_in_session(
     context: Dict[str, Any],
     model_name: Optional[str],
 ) -> Optional[Dict[str, Any]]:
-    """Atomically consume one follow-up/next-run item and stage its ChatRun."""
+    """Atomically consume one terminal queued item and stage its ChatRun.
+
+    This includes a steer accepted after the source run crossed its final safe
+    model/tool boundary. Such an instruction can no longer enter the source
+    ReAct loop, so completion hands it to a successor instead of stranding it.
+    """
     from core.db.models.chat import reserve_chat_sequences
     from core.services.steer_queue import SteerQueue
 
@@ -635,6 +642,17 @@ def _commit_queued_handoff_in_session(
         },
         commit=False,
     )
+    db.add(
+        inflight.new_assistant_row(
+            message_id=next_message_id,
+            chat_id=chat_id,
+            chat_seq=first_seq + 1,
+            run_id=next_run_id,
+            model=model_name,
+            created_at=_utcnow(),
+        )
+    )
+    db.flush()
     return {
         "run_id": next_run_id,
         "message_id": next_message_id,
@@ -838,7 +856,7 @@ async def _run_workflow(
         build_user_question_event,
         build_user_question_resolved_event,
     )
-    from core.chat.display_bounds import bound_result_for_display
+    from core.chat.display_bounds import bound_result_for_display, bound_result_for_history
     from core.services.artifact_service import persist_artifacts as _persist_artifacts
 
     initial_claimed = False
@@ -985,6 +1003,85 @@ async def _run_workflow(
         blocks = [b for b in _thinking_log if b.get("content")]
         return blocks or None
 
+    def _turn_extra(**more: Any) -> Dict[str, Any]:
+        return {
+            "timestamp": now_iso(),
+            "message_id": current_message_id,
+            "run_id": run_id,
+            "is_markdown": looks_markdown(full_response),
+            **more,
+        }
+
+    # In-flight persistence. The assistant row was created at admission and is
+    # refreshed with this turn's display state — right away at tool boundaries,
+    # and by the checkpoint task every couple of seconds while text streams —
+    # so the server holds the turn at all times, not only at the end. Each
+    # refresh is one lease-guarded UPDATE off the event loop; the lock keeps a
+    # boundary flush from racing the periodic one with an older snapshot.
+    _flush_lock = asyncio.Lock()
+    _flushed_offset = 0
+    _INFLIGHT_INTERVAL_S = 2.0
+    checkpoint_task: Optional[asyncio.Task] = None
+
+    def _write_inflight_row(snapshot: Dict[str, Any]) -> bool:
+        with SessionLocal() as db:
+            owned = ChatService(db).refresh_streaming_message(
+                run_id=run_id,
+                owner=owner,
+                message_id=snapshot["message_id"],
+                content=snapshot["content"],
+                thinking=snapshot["thinking"],
+                tool_calls=snapshot["tool_calls"],
+                extra_data={
+                    inflight.IN_FLIGHT_KEY: inflight.mark(
+                        run_id, "streaming", event_offset=snapshot["event_offset"]
+                    ),
+                    "message_id": snapshot["message_id"],
+                    "run_id": run_id,
+                    "is_markdown": looks_markdown(snapshot["content"]),
+                    "segments": snapshot["segments"],
+                },
+            )
+            db.commit()
+            return owned
+
+    async def _flush_inflight() -> None:
+        nonlocal _flushed_offset
+        if offset_counter == _flushed_offset or not (full_response or tool_calls_log):
+            return
+        async with _flush_lock:
+            if offset_counter == _flushed_offset:
+                return
+            # Tool results go in at history size; the read path bounds them the
+            # same way, and the final write carries the full payload.
+            snapshot = _json_safe(
+                {
+                    "content": full_response,
+                    "thinking": _thinking_payload(),
+                    "tool_calls": [
+                        {**tc, "result": bound_result_for_history(tc["result"])[0]}
+                        if "result" in tc
+                        else tc
+                        for tc in tool_calls_log
+                    ]
+                    or None,
+                    "segments": _segments.snapshot(),
+                    "message_id": current_message_id,
+                    "event_offset": offset_counter,
+                }
+            )
+            try:
+                if not await asyncio.to_thread(_write_inflight_row, snapshot):
+                    logger.warning("chat_run_inflight_fenced", run_id=run_id, owner=owner)
+            except Exception:  # noqa: BLE001 - a missed checkpoint must not fail the run
+                logger.warning("chat_run_inflight_persist_failed", run_id=run_id, exc_info=True)
+            _flushed_offset = snapshot["event_offset"]
+
+    async def _checkpoint_loop() -> None:
+        while True:
+            await asyncio.sleep(_INFLIGHT_INTERVAL_S)
+            await _flush_inflight()
+
     def _commit_cancelled_partial() -> None:
         """把用户按下停止那一刻已产出的正文与工具卡片落库。
 
@@ -1128,13 +1225,7 @@ async def _run_workflow(
         except Exception:  # pragma: no cover - logging must never fail a run
             pass
 
-        journal.append_operation(
-            run_id,
-            owner=owner,
-            operation_type="model_dispatch",
-            phase="model_inflight",
-            safety="replayable",
-        )
+        checkpoint_task = asyncio.create_task(_checkpoint_loop())
         async for chunk in _aiter_with_inactivity_timeout(
             astream_chat_workflow(
                 session_messages=session_messages,
@@ -1151,7 +1242,16 @@ async def _run_workflow(
                     raise asyncio.CancelledError
             chunk_type = chunk.get("type")
 
-            if chunk_type == "thinking":
+            if chunk_type == "model_dispatch":
+                journal.append_operation(
+                    run_id,
+                    owner=owner,
+                    operation_type="model_dispatch",
+                    phase="model_inflight",
+                    safety="replayable",
+                )
+
+            elif chunk_type == "thinking":
                 _thinking_evt = build_thinking_event(chunk, chat_id)
                 # 只累积真实思考增量；进度提示（message）与 structured_reasoning
                 # 协议标记不落库
@@ -1194,6 +1294,7 @@ async def _run_workflow(
                         "chat_id": chat_id,
                     }
                 )
+                await _flush_inflight()
 
             elif chunk_type == "steer_applied":
                 _flush_thinking()
@@ -1234,7 +1335,7 @@ async def _run_workflow(
                             owned_run = db.get(ChatRun, run_id)
                         chat_service = ChatService(db)
                         if had_assistant_output:
-                            chat_service.add_message(
+                            chat_service.upsert_message(
                                 chat_id=chat_id,
                                 role="assistant",
                                 content=full_response,
@@ -1276,6 +1377,18 @@ async def _run_workflow(
                                 "steer_seq": steer_seq or None,
                             },
                             commit=False,
+                        )
+                        # The next segment's row exists before its first token,
+                        # like every other admitted turn.
+                        db.add(
+                            inflight.new_assistant_row(
+                                message_id=next_assistant_message_id,
+                                chat_id=chat_id,
+                                chat_seq=None,
+                                run_id=run_id,
+                                model=model_name,
+                                created_at=_utcnow(),
+                            )
                         )
                         # The durable queue acknowledgement and the exact
                         # post-steer prompt must share one transaction. If this
@@ -1376,6 +1489,7 @@ async def _run_workflow(
                 _tc_evt = build_tool_call_event(chunk, chat_id, tool_calls_log)
                 _segments.add_tools(tool_calls_log)
                 await _emit(_tc_evt)
+                await _flush_inflight()
 
             elif chunk_type == "tool_call_start":
                 _flush_thinking()
@@ -1391,6 +1505,7 @@ async def _run_workflow(
                 # 此刻就把它排进段落表，否则它会缺席整条消息的展示顺序。
                 _segments.add_tools(tool_calls_log)
                 await _emit(_tr_evt)
+                await _flush_inflight()
 
             elif chunk_type == "context_usage":
                 # Provider-reported usage is the authoritative live gauge.
@@ -1614,7 +1729,11 @@ async def _run_workflow(
 
                 def _commit_output(db) -> None:
                     chat_service = ChatService(db)
-                    chat_service.add_message(
+                    # The row already exists (created at admission, refreshed
+                    # while streaming); this is the final write that also drops
+                    # the in-flight marker because ``_persist_extra`` never
+                    # carries it.
+                    chat_service.upsert_message(
                         chat_id=chat_id,
                         role="assistant",
                         content=full_response,
@@ -1826,12 +1945,34 @@ async def _run_workflow(
             user_facing = resolve_user_facing_error(exc)
         except Exception:
             user_facing = "请求处理失败，请稍后重试"
+        def _commit_failed_output(db) -> None:
+            # Whatever the turn produced before failing stays in the row, with
+            # the error beside it. Runs in the failed-terminal transaction so a
+            # fenced worker can never leave a late message behind.
+            ChatService(db).upsert_message(
+                chat_id=chat_id,
+                role="assistant",
+                content=full_response,
+                model=model_name,
+                thinking=_thinking_payload(),
+                tool_calls=tool_calls_log if tool_calls_log else None,
+                message_id=current_message_id,
+                chat_seq=current_chat_seq,
+                error={"error": str(exc), "timestamp": _utcnow().isoformat()},
+                extra_data=_turn_extra(
+                    duration_ms=int((time.monotonic() - _run_started_monotonic) * 1000),
+                    segments=_segments.payload(),
+                ),
+                commit=False,
+            )
+
         failed = journal.complete(
             run_id,
             owner=owner,
             status="failed",
             failure_reason=str(exc)[:1000],
             last_event_offset=offset_counter,
+            commit_effect=_commit_failed_output,
         )
         if not failed:
             logger.warning(
@@ -1840,22 +1981,6 @@ async def _run_workflow(
                 owner=owner,
             )
             return
-        # Preserve the historical empty error placeholder, but only after this
-        # owner wins the failed terminal CAS. A cancelled/taken-over worker
-        # must never leave a late message behind.
-        try:
-            with SessionLocal() as db:
-                ChatService(db).add_message(
-                    chat_id=chat_id,
-                    role="assistant",
-                    content="",
-                    model=model_name,
-                    message_id=current_message_id,
-                    chat_seq=current_chat_seq,
-                    error={"error": str(exc), "timestamp": _utcnow().isoformat()},
-                )
-        except Exception:
-            pass
         await _emit(
             {
                 "type": "error",
@@ -1868,6 +1993,8 @@ async def _run_workflow(
         await _emit({"type": _TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
 
     finally:
+        if checkpoint_task is not None:
+            checkpoint_task.cancel()
         # After the terminal state, keep the event stream for the full human
         # wait window plus a recovery grace period so late reconnects can replay.
         await _expire_stream(run_id)

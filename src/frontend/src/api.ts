@@ -358,8 +358,6 @@ export interface ModelCapabilities {
   user_selectable_models: UserSelectableModel[];
   /** Real context window (tokens) of the main chat model; 0/undefined when unconfigured. */
   main_context_length?: number;
-  /** Legacy capacity reserve; not a live context-usage measurement. */
-  system_prompt_tokens?: number;
   /** Maximum text characters automatically previewed per newly attached file. */
   attachment_preview_chars?: number;
   /** 当前部署能不能读图：主模型原生多模态，或配了「图像理解（视觉桥）」角色。 */
@@ -473,7 +471,6 @@ export async function getMainModelCapabilities(): Promise<ModelCapabilities> {
     user_model_switch_enabled: !!switchInfo.enabled,
     user_selectable_models: models,
     main_context_length: typeof main.context_length === 'number' ? main.context_length : 0,
-    system_prompt_tokens: typeof main.system_prompt_tokens === 'number' ? main.system_prompt_tokens : 0,
     can_read_image: !!vision.can_read_image,
     vision_bridge_enabled: !!vision.bridge_enabled,
     attachment_preview_chars: typeof main.attachment_preview_chars === 'number'

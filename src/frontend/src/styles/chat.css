@@ -614,7 +614,7 @@
   background-clip:text;
   -webkit-text-fill-color:transparent;
   color:transparent;
-  animation:jx-kf-shimmer 1.6s linear infinite;
+  animation:jx-kf-shimmer 2.2s linear infinite;
 }
 /* 深色下把流光方向掰回来：上面那条渐变是「slate-400 打底 + slate-600 高光」，
    靠"把字压暗"做高光——浅色底成立，暗底上就完全反了，高光处 (#475569) 对比度不到 2，

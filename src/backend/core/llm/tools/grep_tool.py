@@ -94,7 +94,7 @@ def register_grep(
         # Probe for rg
         probe_exit, probe_out, _ = await sandbox_exec_bash(
             "command -v rg >/dev/null 2>&1 && echo rg || echo grep",
-            chat_id=_sess, timeout=5,
+            chat_id=_sess, user_id=user_id, timeout=5,
         )
         binary = (probe_out or "").strip() or "grep"
         if probe_exit != 0:
@@ -147,7 +147,7 @@ def register_grep(
         cmd = " ".join(args) + f" 2>/dev/null | head -{head + 1}"
 
         exit_code, stdout, stderr = await sandbox_exec_bash(
-            cmd, chat_id=_sess, timeout=30,
+            cmd, chat_id=_sess, user_id=user_id, timeout=30,
         )
         # grep/rg exits 1 when there are no matches, which is not an error
         if exit_code not in (0, 1):

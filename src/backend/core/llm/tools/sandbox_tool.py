@@ -275,7 +275,9 @@ async def _sync_via_sandbox_copy(
         f"find . -type f -newermt @{int(since_ts)} -size -{max_bytes}c "
         f"-exec md5sum {{}} + 2>/dev/null || true"
     )
-    code, out, _err = await sandbox_exec_bash(list_cmd, chat_id=sess, timeout=20)
+    code, out, _err = await sandbox_exec_bash(
+        list_cmd, chat_id=sess, user_id=user_id, timeout=20
+    )
     if code != 0 or not out.strip():
         return [], []
 
@@ -516,7 +518,8 @@ def register_bash(
         "约定：\n"
         f"- 工作目录默认 {_WS}。已加载的技能文件位于 {_WS}/skills/<skill_id>/，\n"
         f'  典型用法：bash(command="cd {_WS}/skills/<id> && bash scripts/foo.sh")。\n'
-        f"- 用户「我的空间」在沙盒里的位置是 {_WS}/myspace/<uid>/。\n"
+        "- 用户「我的空间」在沙盒里就挂在 /myspace/ 下，写进去的文件会自动同步回\n"
+        "  「我的空间」，不必再登记。路径只有 /myspace/... 这一种写法。\n"
         f"- 多步骤工作流可以连用多次 bash——{_WS} 在整轮对话内是持久的，\n"
         "  上一条命令写下的文件下一条命令直接能读。\n"
         "- 用户上传的文件不会自动出现在沙盒里。需要时先调 \n"

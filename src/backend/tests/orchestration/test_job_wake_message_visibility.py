@@ -105,7 +105,11 @@ def test_finish_wake_message_is_marked_hidden(monkeypatch, db_session):
 
     assert asyncio.run(job_wakeup.wake_on_job_finish("job_1")) is True
     with db_session() as db:
-        rows = db.query(ChatMessage).filter(ChatMessage.chat_id == "chat_1").all()
+        rows = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.chat_id == "chat_1", ChatMessage.role == "user")
+            .all()
+        )
         assert len(rows) == 1
         extra = rows[0].extra_data
     assert extra["hidden_in_chat"] is True, "唤醒指令没打标记 → 刷新后原文贴进对话"
@@ -132,12 +136,14 @@ def test_progress_wake_message_is_marked_hidden(monkeypatch, db_session):
     )
     assert ok is True
     with db_session() as db:
-        message = db.query(ChatMessage).filter(ChatMessage.chat_id == "chat_1").one()
+        message = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.chat_id == "chat_1", ChatMessage.role == "user")
+            .one()
+        )
         assert message.extra_data["hidden_in_chat"] is True
         assert message.extra_data["system_wake"] == "job_progress"
-        assert message.extra_data["_context_item"]["origin"].startswith(
-            "harness:job_wakeup"
-        )
+        assert message.extra_data["_context_item"]["origin"].startswith("harness:job_wakeup")
 
 
 class _Msg:

@@ -27,7 +27,7 @@ Two tables (`core/db/models.py`): `model_providers` (base_url / api_key / model_
 
 ### Context-window auto-detection
 
-`context_length` drives history trimming and the auto-compaction threshold. Getting it wrong makes a model compact at half its real window, so there is **no runtime fallback** — a model left with an empty value cannot serve traffic. To spare operators the manual lookup, the field is filled in from the upstream when a provider is saved with it empty, and the model form carries an "Auto-detect" button that triggers the same discovery on demand (endpoint: `POST /v1/models/providers/detect-context`).
+`context_length` drives the request-assembly budget and the auto-compaction threshold. Getting it wrong makes a model compact at half its real window, so there is **no runtime fallback** — a model left with an empty value cannot serve traffic. To spare operators the manual lookup, the field is filled in from the upstream when a provider is saved with it empty, and the model form carries an "Auto-detect" button that triggers the same discovery on demand (endpoint: `POST /v1/models/providers/detect-context`).
 
 Sources are tried in order of trust, stopping at the first hit:
 

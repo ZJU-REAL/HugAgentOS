@@ -102,6 +102,17 @@ export const SETTINGS_DICT: Record<string, string> = {
   '每次会话启动时冻结注入 · {used}/{max} 字 ({pct}%)': 'Frozen at session start · {used}/{max} chars ({pct}%)',
   '暂无实体关系': 'No entity relations yet',
   '图谱记忆未启用（需配置 MEM0_GRAPH_ENABLED + Neo4j）': 'Graph memory not enabled (requires MEM0_GRAPH_ENABLED + Neo4j)',
+  // L3 graph view: entities as nodes, relations as labelled edges
+  '{entities} 个实体 · {relations} 条关系': '{entities} entities · {relations} relations',
+  '适应屏幕': 'Fit to view',
+  '当前筛选下没有实体': 'No entities match the current filter',
+  '点击显示': 'Click to show',
+  '点击隐藏': 'Click to hide',
+  '拖拽节点 · 滚轮缩放 · 单击看关系': 'Drag nodes · scroll to zoom · click to see relations',
+  '{role} · 参与 {n} 条关系': '{role} · in {n} relations',
+  '枢纽实体': 'Hub entity',
+  '主体': 'Subject',
+  '关联对象': 'Object',
   // error / success messages
   '用户名不能为空': 'Username cannot be empty',
   '用户名长度不能超过 32 位': 'Username must not exceed 32 characters',
@@ -533,10 +544,10 @@ export const SETTINGS_DICT: Record<string, string> = {
   '探测失败：{msg}': 'Detection failed: {msg}',
   '当前值由系统自动探测填入，尚未人工确认；保存即视为确认。':
     'This value was auto-detected and has not been confirmed by anyone yet; saving confirms it.',
-  '模型真实的上下文长度，用于历史裁剪与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。':
-    "The model's real context length, used for history trimming and the auto-compaction threshold. Leave it blank and the system tries to detect it on save (self-hosted vLLM and friends report it directly); only fill it in manually when detection finds nothing.",
-  '模型支持的最大输入+输出 token 数，用于历史裁剪与自动压缩阈值。常见值：128000 / 131072 / 256000 / 1000000。留空保存时系统会尝试向上游自动探测（自建 vLLM 等会直接上报真实窗口），探不到才需要手工填写。':
-    'Maximum input + output tokens the model supports, used for history trimming and the auto-compaction threshold. Common values: 128000 / 131072 / 256000 / 1000000. Leave it blank and the system tries to detect it from the upstream on save (self-hosted vLLM and friends report their real window); only fill it in manually when detection finds nothing.',
+  '模型真实的上下文长度，用于请求装配预算与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。':
+    "The model's real context length, used for the request-assembly budget and the auto-compaction threshold. Leave it blank and the system tries to detect it on save (self-hosted vLLM and friends report it directly); only fill it in manually when detection finds nothing.",
+  '模型支持的最大输入+输出 token 数，用于请求装配预算与自动压缩阈值。常见值：128000 / 131072 / 256000 / 1000000。留空保存时系统会尝试向上游自动探测（自建 vLLM 等会直接上报真实窗口），探不到才需要手工填写。':
+    'Maximum input + output tokens the model supports, used for the request-assembly budget and the auto-compaction threshold. Common values: 128000 / 131072 / 256000 / 1000000. Leave it blank and the system tries to detect it from the upstream on save (self-hosted vLLM and friends report their real window); only fill it in manually when detection finds nothing.',
   '留空自动探测，如：128000': 'Leave blank to auto-detect, e.g. 128000',
   '已探测到 {n} token（来源：{src}）': 'Detected {n} tokens (source: {src})',
   '该值按模型名推断，并非上游自报，建议核对后再保存。':

@@ -44,9 +44,7 @@ def durable_steer_env(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pending_steer_round_trip_is_single_consumer(
-    durable_steer_env, monkeypatch
-):
+async def test_pending_steer_round_trip_is_single_consumer(durable_steer_env, monkeypatch):
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr(chat_steer_service, "get_redis", lambda **_: redis)
 
@@ -75,9 +73,7 @@ async def test_withdraw_only_removes_matching_steer(durable_steer_env, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_redis_loss_does_not_drop_database_instruction(
-    durable_steer_env, monkeypatch
-):
+async def test_redis_loss_does_not_drop_database_instruction(durable_steer_env, monkeypatch):
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr(chat_steer_service, "get_redis", lambda **_: redis)
     await chat_steer_service.put_pending_steer(
@@ -224,6 +220,10 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
                 recovery_snapshot=None,
             )
 
+        def add(self, row):
+            # 下一段的助手行在 steer 边界就建出来（空正文），和接纳时的契约一致。
+            persisted.append((row.role, row.content, row.message_id))
+
     class FakeChatService:
         def __init__(self, _db):
             pass
@@ -317,18 +317,18 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
     assert [(role, content) for role, content, _ in persisted] == [
         ("assistant", "前半段"),
         ("user", "改用第二种方案"),
+        ("assistant", ""),
         ("assistant", "后半段"),
     ]
     steer_event = next(event for event in emitted if event.get("type") == "steer_applied")
     assert steer_event["previous_assistant_message_id"] == "m1"
+    assert persisted[-2][2] == steer_event["next_assistant_message_id"]
     assert persisted[-1][2] == steer_event["next_assistant_message_id"]
     assert context["message_id"] == steer_event["next_assistant_message_id"]
 
 
 @pytest.mark.asyncio
-async def test_executor_atomically_applies_claimed_queue_item(
-    durable_steer_env, monkeypatch
-):
+async def test_executor_atomically_applies_claimed_queue_item(durable_steer_env, monkeypatch):
     sessions = durable_steer_env
     queue = SteerQueue(sessions)
     accepted = queue.accept(

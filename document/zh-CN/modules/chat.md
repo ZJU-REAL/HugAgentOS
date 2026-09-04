@@ -64,7 +64,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 首页与会话页的输入框都会随多行内容自动增高，达到可视高度上限后再在框内滚动；`Shift+Enter` 可输入换行。
 
-追加指令以数据库为准：系统先持久化，再用 Redis 做尽力而为的低延迟唤醒。同一会话按单调 `steer_seq` 排序，状态为 `accepted`、`claimed`、`applied`、`cancelled` 或 `superseded`；认领租约过期后可重新投递。`delivery_mode=steer` 会在下一安全 ReAct 边界注入，并以 `steer_applied` 事件确认；`delivery_mode=followUp` 在当前 run 完成后启动，`delivery_mode=nextRun` 不修改当前上下文，而是成为下一条独立 run。后两种交接会在同一事务中提交当前回答、排队用户消息、队列状态和下一条 `ChatRun`，刷新后可通过上面的状态接口对账。包含附件、技能、连接器、插件或子智能体的消息仍会等待当前回答结束后正常发送。按 `Esc` 会取消当前页面正在显示的会话 run。
+追加指令以数据库为准：系统先持久化，再用 Redis 做尽力而为的低延迟唤醒。同一会话按单调 `steer_seq` 排序，状态为 `accepted`、`claimed`、`applied`、`cancelled` 或 `superseded`；认领租约过期后可重新投递。`delivery_mode=steer` 会在下一安全 ReAct 边界注入，并以 `steer_applied` 事件确认；如果接纳时当前 run 已越过最后一个安全边界，完成事务会把该指令原子转交给新的后继 run，避免永久停留在 `accepted`。`delivery_mode=followUp` 在当前 run 完成后启动，`delivery_mode=nextRun` 不修改当前上下文，而是成为下一条独立 run。所有后继 run 交接都会在同一事务中提交当前回答、排队用户消息、队列状态和下一条 `ChatRun`，刷新后可通过上面的状态接口对账。包含附件、技能、连接器、插件或子智能体的消息仍会等待当前回答结束后正常发送。按 `Esc` 会取消当前页面正在显示的会话 run。
 
 ### 工具执行权限档
 
@@ -108,7 +108,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | `tool_call` | 工具参数已完整、即将执行 | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`，调子智能体时附 `subagent_name` |
 | `tool_result` | 工具调用结果 | `tool_name`, `result`, `tool_id`, `status`, `citations[]` |
 | `steer_applied` | 运行中追加指令已注入 ReAct 上下文 | `steer_id`, `message`, `message_id`, `chat_id` |
-| `queued_run_started` | 已原子提交的 `followUp` / `nextRun` 子运行开始，前端立即接力续播 | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
+| `queued_run_started` | 已原子提交的 `followUp` / `nextRun`，或错过最后安全边界的 `steer` 子运行开始，前端立即接力续播 | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `subagent_event` | 子智能体内部过程，挂在父 `call_subagent` 卡片下 | `parent_tool_id`, `sub_type`, `agent_name`，以及内部工具或内容字段 |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | 本体治理状态，不属于模型思考 | 工作流、门禁决策、委员会状态与结论 |
 | `tool_pending` | 提供商没有暴露可解析参数增量时的等待兜底 | `reason` |

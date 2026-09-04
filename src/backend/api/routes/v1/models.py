@@ -482,12 +482,7 @@ async def get_main_capabilities(
     # context-usage gauge reflects the model's true window instead of a guess.
     # 0 when unconfigured — the frontend falls back to a heuristic/default.
     main_context_length = int(cfg.context_length) if cfg and cfg.context_length else 0
-    # Legacy capacity-planning reserve for the system prompt + skills/tools.
-    # Keep the response field for compatibility, but do not treat this fixed
-    # ceiling as live usage; the chat context_usage snapshot owns that display.
-    from core.llm.context_manager import ContextBudget
     from core.content.artifact_reader import ATTACHMENT_PREVIEW_MAX_CHARS
-    system_prompt_tokens = ContextBudget.system_prompt_reserve
     # Image reading: either the main model is natively multimodal, or a `vision` role
     # model is assigned and the vision bridge transcribes images into text evidence.
     # The frontend uses `can_read_image` alone to decide whether to offer image upload;
@@ -502,7 +497,6 @@ async def get_main_capabilities(
                 "supports_reasoning_effort": supports,
                 "supports_vision": main_native_vision,
                 "context_length": main_context_length,
-                "system_prompt_tokens": system_prompt_tokens,
                 "attachment_preview_chars": ATTACHMENT_PREVIEW_MAX_CHARS,
             },
             "vision": {

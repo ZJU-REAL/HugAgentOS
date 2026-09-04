@@ -71,11 +71,14 @@ Queued input is database-authoritative: acceptance happens before Redis sends a
 best-effort wake-up. Each chat gets a monotonic `steer_seq`; rows move through
 `accepted`, `claimed`, `applied`, `cancelled`, or `superseded`, and expired
 claim leases are redelivered. `delivery_mode=steer` injects the instruction at
-the next safe ReAct boundary and confirms it with `steer_applied`.
+the next safe ReAct boundary and confirms it with `steer_applied`. If the run
+has already crossed its final safe boundary when the instruction is accepted,
+the completion transaction atomically hands it to a successor run instead of
+leaving it in `accepted`.
 `delivery_mode=followUp` starts after the current run completes, while
 `delivery_mode=nextRun` becomes the next independent run without modifying the
-current context. Both handoff modes atomically commit the current answer, queued
-user message, queue state, and next `ChatRun`. The status endpoint above lets
+current context. Every successor-run handoff atomically commits the current
+answer, queued user message, queue state, and next `ChatRun`. The status endpoint above lets
 the client reconcile after refresh. Messages containing attachments, skills,
 connectors, plugins, or sub-agents still wait and send normally. Pressing `Esc` cancels the
 run for the chat visible on the current page.
@@ -122,7 +125,7 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 | `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, plus `subagent_name` for sub-agent calls |
 | `tool_result` | Tool invocation result | `tool_name`, `result`, `tool_id`, `status`, `citations[]` |
 | `steer_applied` | A mid-run instruction entered the ReAct context | `steer_id`, `message`, `message_id`, `chat_id` |
-| `queued_run_started` | A transactionally committed `followUp` / `nextRun` child starts and the frontend follows it immediately | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
+| `queued_run_started` | A transactionally committed `followUp` / `nextRun`, or a `steer` that missed the final safe boundary, starts as a child and the frontend follows it immediately | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `subagent_event` | Child execution details nested under the parent `call_subagent` card | `parent_tool_id`, `sub_type`, `agent_name`, plus child tool or content fields |
 | `ontology_activation` / `ontology_gate` / `ontology_review` | Ontology-governance state, separate from model reasoning | workflow activation, gate decision, and committee status or verdict |
 | `tool_pending` | Waiting fallback when the provider exposes no parseable argument deltas | `reason` |
