@@ -1,8 +1,8 @@
 # Capability Center (Catalog)
 
-> Last updated: 2026-06-11
+> Last updated: 2026-09-02
 
-The capability catalog is the **single source of truth** for "what is available" in HugAgentOS: skills, sub-agents (agents), MCP tools (mcp), and knowledge bases (kb) are all registered in the catalog, which gates everything from MCP tool loading and system-prompt assembly to the frontend Capability Center. On top of the system-level defaults, every user has a personal override layer (catalog_overrides) and self-added private capabilities (owner-isolated).
+The capability catalog is the **single source of truth** for hard availability and default assembly in HugAgentOS: skills, sub-agents (agents), MCP tools (mcp), and knowledge bases (kb) are all registered in the catalog, which gates everything from MCP tool loading and system-prompt assembly to the frontend Capability Center. On top of the system-level defaults, every user has a personal override layer (catalog_overrides) and self-added private capabilities (owner-isolated). A per-user **off** switch means “omit from initial context and automatic discovery”; it does not revoke that user's ability to invoke the capability explicitly.
 
 ## Architecture
 
@@ -15,6 +15,7 @@ core/config/catalog.py              public API: get_catalog / is_enabled / get_e
         ▼
 core/config/catalog_resolver.py     merge layer: catalog.json defaults ∩ per-user DB overrides
         │  resolve_all_runtime_enabled(db, user_id) → (skills, agents, mcps)
+        │  resolve_explicit_runtime_capabilities(...) → per-turn invocation (ignores personal switches, keeps hard gates)
         ▼
 Consumed along the request path:
   api/routes/v1/chats.py → core/chat/context.py   written into the workflow context
@@ -58,8 +59,14 @@ When a user toggles a capability in the Capability Center, the change is written
 - **Merge algorithm** (`catalog_resolver.py::_merge_kind`): overrides can only flip the enabled flag of items that *exist* in the base catalog; they can never resurrect deleted items.
 - **Admin lock**: items disabled in the base catalog (`enabled=false`) **cannot** be re-enabled by user overrides, and are completely hidden from the user-facing `/v1/catalog` response.
 - Resolution results are cached per user_id for 30 seconds (`resolve_all_runtime_enabled`).
+- **Meaning of personal off**: the item is removed from default assembly, automatic discovery, and autonomous routing. It remains selectable through `/`, `+`, or `@` without changing the saved switch. Sub-agent delegation applies only to that turn. Successfully assembled skills and connectors are retained by exact capability id, while plugins are retained by exact installation id; all remain expanded on later turns in that chat.
+- **Hard gates remain**: explicit invocation still rejects globally disabled capabilities, uninstalled plugins, skills whose dependencies are not ready, and private capabilities owned by another user.
+- **Plugin request contract**: clients submit only the installed plugin's `plugin_id`; the backend expands its skill and MCP components from the installation record. Chat requests do not accept client-supplied `skill_ids` or `mcp_ids`, and legacy plugin requests without `plugin_id` are rejected.
+- **Explicit skill execution contract**: after a skill is selected through `/`, the model must use `view_text_file` to read that exact skill's `SKILL.md`; reading another skill does not count. The turn fails explicitly if it cannot be loaded.
+- **Explicit plugin execution contract**: selecting a plugin is not a soft preference. The model must read one of that plugin's own `SKILL.md` files or make a real call to one of that plugin's MCP tools before it may finish. Reading another skill or calling another connector does not count; if the contract cannot be satisfied, the turn fails explicitly instead of answering silently.
+- **Chat-sticky capability restoration**: later turns restore activated skills, connectors, and plugin components before personal-switch filtering, keeping the skill list and tool names/prefixes stable in that chat. Installation, global admin state, dependency readiness, and ownership are revalidated each turn, so hard-gate changes take effect immediately.
 
-On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the merged result into the workflow context (explicit lists in the request body take precedence).
+On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the default merged result into the workflow context. `api/routes/v1/chats.py::_resolve_explicit_capability_invocation()` then verifies plugin installations and capability ownership, resolves components from the server-side installation record, and merges hard-gate-approved explicit selections into that turn. On later turns, `core/llm/session_capabilities.py` and `core/llm/plugin_loader.py::resolve_sticky_plugin_capabilities()` restore chat-activated capabilities.
 
 ## The /v1/catalog route and KB injection
 

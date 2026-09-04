@@ -18,6 +18,7 @@ import asyncio
 import base64
 import json
 import logging
+import posixpath
 import time
 from contextlib import suppress
 from contextvars import ContextVar
@@ -109,9 +110,7 @@ def _append_state_payload(
     )
 
 
-def _cyfunc_probe() -> (
-    None
-):  # once compiled by Cython, its type is cython_function_or_method
+def _cyfunc_probe() -> None:  # once compiled by Cython, its type is cython_function_or_method
     pass
 
 
@@ -131,9 +130,7 @@ _CYFUNCTION_TYPE = type(_cyfunc_probe)
 # in the **same task call chain**, so it can read it.
 # Concurrent tool calls each run in separate tasks spawned by asyncio.gather (each with its own
 # copy of the context), so ContextVars don't cross-contaminate — naturally aligned with parallel subagents.
-CURRENT_TOOL_CALL_ID: ContextVar[str] = ContextVar(
-    "jx_current_tool_call_id", default=""
-)
+CURRENT_TOOL_CALL_ID: ContextVar[str] = ContextVar("jx_current_tool_call_id", default="")
 CURRENT_RUN_BINDING: ContextVar[tuple[str, str] | None] = ContextVar(
     "jx_current_run_binding", default=None
 )
@@ -200,11 +197,7 @@ class ToolEffectMiddleware(MiddlewareBase):
         raw = payload.get("tool_response") if isinstance(payload, dict) else None
         if not isinstance(raw, dict):
             return ToolResponse(
-                content=[
-                    render_text_block(
-                        json.dumps(payload, ensure_ascii=False, default=str)
-                    )
-                ],
+                content=[render_text_block(json.dumps(payload, ensure_ascii=False, default=str))],
                 state=ToolResultState.SUCCESS,
             )
         blocks = []
@@ -298,9 +291,7 @@ class ToolEffectMiddleware(MiddlewareBase):
                             ),
                         )
                     except Exception:  # usage cannot change tool execution
-                        logger.debug(
-                            "tool usage attempt persistence failed", exc_info=True
-                        )
+                        logger.debug("tool usage attempt persistence failed", exc_info=True)
             if final is None:
                 from core.services.tool_effect_ledger import ToolEffectError
 
@@ -309,10 +300,7 @@ class ToolEffectMiddleware(MiddlewareBase):
 
         def _response_failed(payload: Any) -> bool:
             raw = payload.get("tool_response") if isinstance(payload, dict) else None
-            return bool(
-                isinstance(raw, dict)
-                and str(raw.get("state") or "success") != "success"
-            )
+            return bool(isinstance(raw, dict) and str(raw.get("state") or "success") != "success")
 
         task = asyncio.create_task(
             self._gateway.execute_outcome(
@@ -341,10 +329,7 @@ class ToolEffectMiddleware(MiddlewareBase):
             elif not task.cancelled():
                 task.exception()
         response = self._response_from_payload(outcome.result)
-        if (
-            outcome.result_state == "error"
-            and response.state == ToolResultState.SUCCESS
-        ):
+        if outcome.result_state == "error" and response.state == ToolResultState.SUCCESS:
             response.state = ToolResultState.ERROR
         linkage = {
             "effect_id": outcome.effect_id,
@@ -414,9 +399,7 @@ class CitationAnchorMiddleware(MiddlewareBase):
                     # 保证编号在该 agent 的整条流里唯一
                     allocator = resolve_allocator(agent)
                     full_text = "".join((b.text or "") for b in text_blocks)
-                    new_text, items = annotate_tool_result(
-                        tool_name, tool_id, full_text, allocator
-                    )
+                    new_text, items = annotate_tool_result(tool_name, tool_id, full_text, allocator)
                     if items:
                         allocator.register(tool_id, items)
                         final.content = [render_text_block(new_text)]
@@ -572,6 +555,194 @@ class ExplicitConnectorToolChoiceMiddleware(MiddlewareBase):
             )
 
 
+class ExplicitPluginInvocationError(RuntimeError):
+    """The selected plugin did not satisfy its mandatory real-use contract."""
+
+
+class ExplicitPluginToolChoiceMiddleware(MiddlewareBase):
+    """Force and verify real use of a user-selected plugin.
+
+    A plugin can expose Agent Skills, MCP tools, or both. Reading one of the
+    selected plugin's own ``SKILL.md`` files counts as using a skill; executing
+    one of its MCP tools counts as using its connector surface. Merely having
+    the components registered in the agent is deliberately not sufficient.
+    """
+
+    _SKILL_TOOL_NAME = "view_text_file"
+
+    def __init__(
+        self,
+        *,
+        plugin_id: str,
+        plugin_name: str,
+        skill_ids: List[str],
+        mcp_tool_names: List[str],
+    ) -> None:
+        self.plugin_id = str(plugin_id or "").strip()
+        self.plugin_name = str(plugin_name or self.plugin_id or "插件").strip()
+        self.skill_ids = tuple(dict.fromkeys(str(x) for x in skill_ids if x))
+        self.mcp_tool_names = tuple(dict.fromkeys(str(x) for x in mcp_tool_names if x))
+        force_tools = list(self.mcp_tool_names)
+        if self.skill_ids:
+            force_tools.append(self._SKILL_TOOL_NAME)
+        self.tool_names = tuple(dict.fromkeys(force_tools))
+        self._allowed_skill_paths = {
+            posixpath.normpath(f"/workspace/skills/{skill_id}/SKILL.md")
+            for skill_id in self.skill_ids
+        }
+        if not self.plugin_id or not self.tool_names:
+            raise ValueError("plugin_id and at least one plugin capability must be present")
+        self._satisfied = False
+        self._force_logged = False
+
+    @staticmethod
+    def _tool_args(tool_call) -> dict:  # noqa: ANN001
+        raw = getattr(tool_call, "input", "") or "{}"
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _is_plugin_capability_call(self, tool_call) -> bool:  # noqa: ANN001
+        tool_name = str(getattr(tool_call, "name", "") or "")
+        if tool_name in self.mcp_tool_names:
+            return True
+        if tool_name != self._SKILL_TOOL_NAME or not self.skill_ids:
+            return False
+        args = self._tool_args(tool_call)
+        raw_path = args.get("file_path") or args.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return False
+        normalized = posixpath.normpath(raw_path.strip().replace("\\", "/"))
+        return normalized in self._allowed_skill_paths
+
+    async def on_reply(self, agent: Agent, input_kwargs: dict, next_handler):
+        self._satisfied = False
+        self._force_logged = False
+        completed = False
+        try:
+            async for evt in next_handler(**input_kwargs):
+                yield evt
+            completed = True
+        finally:
+            if not completed:
+                self._force_logged = False
+        if not self._satisfied:
+            raise ExplicitPluginInvocationError(
+                f"显式调用的插件「{self.plugin_name}」未实际读取其技能或调用其 MCP 工具；"
+                "本轮已停止，避免在未使用插件的情况下生成回答。"
+            )
+
+    async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):
+        if not self._satisfied:
+            from agentscope.tool import ToolChoice
+
+            input_kwargs = {
+                **input_kwargs,
+                "tool_choice": ToolChoice(
+                    mode="required",
+                    tools=list(self.tool_names),
+                ),
+            }
+            if not self._force_logged:
+                logger.info(
+                    "[plugin-required] forcing plugin_id=%s skills=%s tools=%s",
+                    self.plugin_id,
+                    list(self.skill_ids),
+                    list(self.mcp_tool_names),
+                )
+                self._force_logged = True
+        async for evt in next_handler(**input_kwargs):
+            yield evt
+
+    async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):
+        tool_call = input_kwargs.get("tool_call")
+        is_plugin_capability = self._is_plugin_capability_call(tool_call)
+        completed = False
+        async for evt in next_handler(**input_kwargs):
+            yield evt
+        completed = True
+        if is_plugin_capability and completed:
+            self._satisfied = True
+            logger.info(
+                "[plugin-required] real plugin capability completed: plugin_id=%s tool=%s",
+                self.plugin_id,
+                str(getattr(tool_call, "name", "") or ""),
+            )
+
+
+class ExplicitSkillInvocationError(RuntimeError):
+    """The selected skill did not satisfy its mandatory load contract."""
+
+
+class ExplicitSkillToolChoiceMiddleware(MiddlewareBase):
+    """Force and verify loading the exact skill selected with ``/``."""
+
+    _TOOL_NAME = "view_text_file"
+
+    def __init__(self, *, skill_id: str, skill_name: str) -> None:
+        self.skill_id = str(skill_id or "").strip()
+        self.skill_name = str(skill_name or self.skill_id or "技能").strip()
+        if not self.skill_id:
+            raise ValueError("skill_id must not be empty")
+        self._allowed_path = posixpath.normpath(f"/workspace/skills/{self.skill_id}/SKILL.md")
+        self._satisfied = False
+        self._force_logged = False
+
+    def _is_selected_skill_load(self, tool_call) -> bool:  # noqa: ANN001
+        if str(getattr(tool_call, "name", "") or "") != self._TOOL_NAME:
+            return False
+        args = ExplicitPluginToolChoiceMiddleware._tool_args(tool_call)
+        raw_path = args.get("file_path") or args.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return False
+        normalized = posixpath.normpath(raw_path.strip().replace("\\", "/"))
+        return normalized == self._allowed_path
+
+    async def on_reply(self, agent: Agent, input_kwargs: dict, next_handler):
+        self._satisfied = False
+        self._force_logged = False
+        completed = False
+        try:
+            async for evt in next_handler(**input_kwargs):
+                yield evt
+            completed = True
+        finally:
+            if not completed:
+                self._force_logged = False
+        if not self._satisfied:
+            raise ExplicitSkillInvocationError(
+                f"显式调用的技能「{self.skill_name}」未实际读取其 SKILL.md；"
+                "本轮已停止，避免在未使用技能的情况下生成回答。"
+            )
+
+    async def on_reasoning(self, agent: Agent, input_kwargs: dict, next_handler):
+        if not self._satisfied:
+            from agentscope.tool import ToolChoice
+
+            input_kwargs = {
+                **input_kwargs,
+                "tool_choice": ToolChoice(mode="required", tools=[self._TOOL_NAME]),
+            }
+            if not self._force_logged:
+                logger.info("[skill-required] forcing skill_id=%s", self.skill_id)
+                self._force_logged = True
+        async for evt in next_handler(**input_kwargs):
+            yield evt
+
+    async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):
+        tool_call = input_kwargs.get("tool_call")
+        is_selected_skill = self._is_selected_skill_load(tool_call)
+        completed = False
+        async for evt in next_handler(**input_kwargs):
+            yield evt
+        completed = True
+        if is_selected_skill and completed:
+            self._satisfied = True
+            logger.info("[skill-required] selected skill loaded: %s", self.skill_id)
+
+
 class SteerMiddleware(MiddlewareBase):
     """Deliver a queued user instruction at the next safe ReAct boundary.
 
@@ -608,9 +779,7 @@ class SteerMiddleware(MiddlewareBase):
                 yield item
             return
 
-        notice = (
-            "用户追加了新指令；本工具调用已在执行前中止，等待模型按新指令重新规划。"
-        )
+        notice = "用户追加了新指令；本工具调用已在执行前中止，等待模型按新指令重新规划。"
         block = render_text_block(notice)
         yield ToolChunk(content=[block], state=ToolResultState.INTERRUPTED)
         yield ToolResponse(content=[block], state=ToolResultState.INTERRUPTED)
@@ -686,11 +855,7 @@ class OntologyGateMiddleware(MiddlewareBase):
         tool_name = str(getattr(tool_call, "name", "") or "")
         raw_input = getattr(tool_call, "input", "{}")
         try:
-            tool_input = (
-                raw_input
-                if isinstance(raw_input, dict)
-                else json.loads(raw_input or "{}")
-            )
+            tool_input = raw_input if isinstance(raw_input, dict) else json.loads(raw_input or "{}")
         except (TypeError, json.JSONDecodeError):
             tool_input = {}
         asset_kind, asset_id = self._resolve_invoked_asset(tool_name, tool_input)
@@ -713,8 +878,7 @@ class OntologyGateMiddleware(MiddlewareBase):
             if contract:
                 _append_reminder(
                     agent,
-                    "检测到受领域本体治理的运行时资产，策略已升级且本轮不可降级。\n"
-                    f"{contract}",
+                    "检测到受领域本体治理的运行时资产，策略已升级且本轮不可降级。\n" f"{contract}",
                     origin="harness:ontology_gate",
                 )
             await self._audit_activations(agent, runtime, activations)
@@ -741,9 +905,7 @@ class OntologyGateMiddleware(MiddlewareBase):
             if denial_count >= strategy_threshold:
                 guidance.append("同一规则已重复拦截，请改变执行策略，不要原样重试。")
             if denial_count >= breaker_threshold:
-                guidance.append(
-                    "本体门禁已触发熔断；停止调用该工具，并向用户说明缺失条件。"
-                )
+                guidance.append("本体门禁已触发熔断；停止调用该工具，并向用户说明缺失条件。")
             await self._audit(
                 agent,
                 runtime,
@@ -753,9 +915,7 @@ class OntologyGateMiddleware(MiddlewareBase):
                 denial_count=denial_count,
                 circuit_breaker=denial_count >= breaker_threshold,
             )
-            if denial_count == strategy_threshold and getattr(
-                agent.state, "chat_id", None
-            ):
+            if denial_count == strategy_threshold and getattr(agent.state, "chat_id", None):
                 try:
                     from core.services.ontology_evolution_service import (
                         schedule_ontology_evolution,
@@ -838,9 +998,7 @@ class OntologyGateMiddleware(MiddlewareBase):
                 "pack_id": pack_id,
                 "version_id": version_id,
                 "rule_id": first.get("rule_id")
-                or (
-                    decision.matched_rule_ids[0] if decision.matched_rule_ids else None
-                ),
+                or (decision.matched_rule_ids[0] if decision.matched_rule_ids else None),
                 "stage": "tool",
                 "event_type": "tool_call_gate",
                 "decision": decision.decision,
@@ -861,9 +1019,7 @@ class OntologyGateMiddleware(MiddlewareBase):
             logger.warning("[ontology] audit event persistence failed: %s", exc)
 
     @staticmethod
-    def _resolve_invoked_asset(
-        tool_name: str, tool_input: dict[str, Any]
-    ) -> tuple[str, str]:
+    def _resolve_invoked_asset(tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str]:
         if tool_name == "call_subagent" and tool_input.get("agent_id"):
             return "subagent", str(tool_input["agent_id"])
         if tool_name == "view_text_file":
@@ -971,9 +1127,7 @@ class FileContextMiddleware(MiddlewareBase):
         #    millisecond once it returned, and even /health stalled. The visible symptom is
         #    "streaming stopped working" on the very turn a document is attached.
         text_context = (
-            await asyncio.to_thread(
-                _build_file_context, uploaded_files, user_id=user_id
-            )
+            await asyncio.to_thread(_build_file_context, uploaded_files, user_id=user_id)
             if uploaded_files
             else ""
         )
@@ -998,9 +1152,7 @@ class FileContextMiddleware(MiddlewareBase):
         if _effective_model_supports_vision(st):
             # Same reason: each image is downloaded from storage (S3/OSS in deployments
             # that use them) and base64-encoded — blocking I/O plus CPU on the loop.
-            await asyncio.to_thread(
-                self._inject_native_images, st, image_files, user_id
-            )
+            await asyncio.to_thread(self._inject_native_images, st, image_files, user_id)
         else:
             await self._inject_vision_evidence(st, image_files, user_id)
 
@@ -1043,9 +1195,7 @@ class FileContextMiddleware(MiddlewareBase):
         )
 
     @staticmethod
-    async def _inject_vision_evidence(
-        st: AgentState, image_files: list, user_id
-    ) -> None:
+    async def _inject_vision_evidence(st: AgentState, image_files: list, user_id) -> None:
         """Text-only model: inject the images as text evidence from the vision bridge.
 
         The streaming entry point usually transcribes ahead of time (so it can report
@@ -1172,6 +1322,7 @@ _PLAN_STALE_REMINDER_TEMPLATE = """`update_plan` 已经 {rounds} 轮没有用过
 如果其中有步骤其实已经做完，可以调用一次 `update_plan` 把状态补上（传全量列表）；如果这份
 清单已经不符合你正在做的事，重写它比让它停在原地更好。仅在确实相关时才使用——这只是一条
 温和的提醒，不适用就忽略，不要为了回应它而打断手上的工作。不要向用户提起这条提醒。"""
+
 
 def _block_attr(block: Any, name: str, default: Any = None) -> Any:
     """内容块在 AS2 里是 pydantic 对象，但历史路径上也出现过 dict —— 两种都读。"""
@@ -1317,9 +1468,7 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
         cur_iter = int(getattr(agent.state, "cur_iter", 0) or 0)
         return max_iters, cur_iter, max_iters - cur_iter
 
-    def _maybe_force_text(
-        self, input_kwargs: dict, max_iters: int, remaining: int
-    ) -> dict:
+    def _maybe_force_text(self, input_kwargs: dict, max_iters: int, remaining: int) -> dict:
         """Final round: force tool_choice="none" so the model can only produce text.
 
         The reminder alone is advisory — a model that still emits a tool call in
@@ -1341,9 +1490,7 @@ class IterBudgetReminderMiddleware(MiddlewareBase):
         )
         return {**input_kwargs, "tool_choice": ToolChoice(mode="none")}
 
-    def _maybe_remind(
-        self, agent: Agent, max_iters: int, cur_iter: int, remaining: int
-    ) -> None:
+    def _maybe_remind(self, agent: Agent, max_iters: int, cur_iter: int, remaining: int) -> None:
         if max_iters <= self._threshold + 1:
             return
         if remaining > self._threshold:
@@ -1489,17 +1636,13 @@ class StallInterventionMiddleware(MiddlewareBase):
         try:
             signature = (
                 tool_name,
-                json.dumps(
-                    getattr(tool_call, "input", None), sort_keys=True, default=str
-                ),
+                json.dumps(getattr(tool_call, "input", None), sort_keys=True, default=str),
             )
         except Exception:  # noqa: BLE001
             signature = (tool_name, "")
 
         if signature == self._last_call:
-            self._signals["repeated_actions"] = (
-                self._signals.get("repeated_actions", 0) + 1
-            )
+            self._signals["repeated_actions"] = self._signals.get("repeated_actions", 0) + 1
         else:
             # A streak is consecutive by definition; a different call breaks it.
             self._signals["repeated_actions"] = 0
@@ -1516,9 +1659,7 @@ class StallInterventionMiddleware(MiddlewareBase):
             ToolResultState.INTERRUPTED,
         }
         if failed:
-            self._signals["tool_error_streak"] = (
-                self._signals.get("tool_error_streak", 0) + 1
-            )
+            self._signals["tool_error_streak"] = self._signals.get("tool_error_streak", 0) + 1
             self._signals["no_progress"] = self._signals.get("no_progress", 0) + 1
         else:
             self._signals["tool_error_streak"] = 0
@@ -1631,6 +1772,10 @@ __all__ = [
     "AgentRuntimeState",
     "ExplicitConnectorInvocationError",
     "ExplicitConnectorToolChoiceMiddleware",
+    "ExplicitPluginInvocationError",
+    "ExplicitPluginToolChoiceMiddleware",
+    "ExplicitSkillInvocationError",
+    "ExplicitSkillToolChoiceMiddleware",
     "SteerMiddleware",
     "DynamicModelMiddleware",
     "FileContextMiddleware",

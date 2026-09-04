@@ -227,9 +227,11 @@ All three appear directly in the user-facing **Sub-agents** page with a
 **Built-in** badge and start enabled for every user. Each user can toggle them
 independently; the disabled set is persisted in
 `users_shadow.metadata.disabled_builtin_subagent_ids`, so it follows the
-account across browsers. A disabled role remains in the library so it can be
-re-enabled, but is removed from `@` candidates, explicit-language delegation,
-and autonomous routing, and cannot start a dedicated conversation. Its prompt
+account across browsers. A disabled role remains in the library and in the `@`
+picker, labelled **Disabled · this turn only**. It is absent from the main
+agent's initial context and autonomous routing table, and is added temporarily
+only when the user explicitly selects it with `@` or a strict invocation
+command. Its prompt
 is shown read-only on the detail page instead of as an editable Config prompt
 tab. The detail page's **Capability Policy** shows that these roles load the
 main agent's effective capabilities dynamically at runtime and makes the
@@ -276,18 +278,41 @@ execution, workflow mode, and autonomous loops; continued typing searches
 sub-agents directly, while choosing **Sub-agents** opens the complete picker.
 Typing `/` groups commands and descriptions by plugin and skill; conversation
 modes are selected through `@`. Both pickers support arrow-key navigation,
-Enter or Tab to confirm, and Escape to go back or close. Unavailable or unauthorized capabilities are omitted.
+Enter or Tab to confirm, and Escape to go back or close. Skills, plugins, and
+sub-agents switched off personally in the Capability Center remain in the
+pickers. Sub-agents are labelled **Disabled · this turn only**; skills and
+plugins are labelled **Disabled · stays loaded in this chat after use**. None
+of these selections changes the Capability Center switch, but a successfully
+loaded skill or plugin stays assembled on later turns in the
+same chat. Globally
+disabled, uninstalled, dependency-blocked, or unauthorized capabilities remain
+omitted and cannot be reached by forging an ID.
 
-The `+` menu at the lower-left of the composer also lets users select enabled
-sub-agents, skills, connectors, and plugins directly. Selecting a connector
-adds an `MCP` chip and explicitly activates that connector for the current turn
-only; after sending, the conversation history keeps the connector as a badge.
+The `+` menu at the lower-left of the composer also lets users select every
+accessible sub-agent, skill, connector, and plugin directly, including items
+they personally switched off. Selecting a connector adds an `MCP` chip and
+explicitly activates that connector; after sending, the conversation history
+keeps the connector as a badge. Once it is assembled successfully, the
+connector also stays expanded on later turns in the same chat.
 An explicit connector selection is a mandatory invocation: the first model
 round is restricted to tools exposed by that connector and must complete at
 least one real tool call before the answer can continue. If the connector
 cannot connect, exposes no callable tools, or the model provider ignores the
 required-call constraint, the turn fails explicitly instead of silently
 answering without the connector.
+After a skill is explicitly selected through `/`, the model must first read
+that exact skill's `SKILL.md`; reading another skill does not count, and the
+turn stops explicitly if the file cannot be loaded. Once loaded successfully,
+the skill remains in the skill list on later turns in the same chat.
+An explicit plugin selection has the same hard execution semantics: before
+completing the answer, the model must read one of that plugin's own skill files
+or make a real call to one of its MCP tools. Other skills or connectors do not
+satisfy the contract. If no plugin capability can execute, or the model
+bypasses the constraint, the turn fails explicitly. Once loading succeeds, the
+backend records the exact plugin installation id in chat state. Later turns
+restore and revalidate it before default capability filtering, keeping MCP tool
+names and prefixes stable. Uninstalled, globally disabled, dependency-blocked,
+or no-longer-owned components are not restored.
 
 - **Structured `@` delegation**: selecting one `@sub-agent` in the composer
   sends both `mention_agent_id` and its display name. The backend removes the
@@ -311,9 +336,10 @@ answering without the connector.
   the model issues the real call. Child reasoning and tools arrive as
   `subagent_event` entries under that card, and the main model then streams its
   integrated final answer. The turn keeps the `main` route, while
-  `call_subagent` and child tools retain their real audit logs. Ambiguous names,
-  disabled targets, empty tasks, and discussion questions don't trigger forced
-  delegation.
+  `call_subagent` and child tools retain their real audit logs. A personally
+  disabled target can still be invoked through this explicit path. Ambiguous
+  names, administrator-disabled or unauthorized targets, empty tasks, and
+  discussion questions don't trigger forced delegation.
 - **Dedicated conversation**: a chat opened from the sub-agent detail page uses
   `agent_id`, so subsequent turns continue with that sub-agent.
 - **Autonomous main-agent dispatch**: when neither a structured `@` selection

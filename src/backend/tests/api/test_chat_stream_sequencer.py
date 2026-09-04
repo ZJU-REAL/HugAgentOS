@@ -325,6 +325,7 @@ def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypat
 
     async def fake_start_run(**kwargs):
         launched.update(kwargs)
+        launched["accepted_assistant_chat_seq"] = kwargs["accepted_run"].assistant_chat_seq
         return kwargs["accepted_run"]
 
     async def empty_follow(_run_id, *, chat_id):
@@ -343,7 +344,7 @@ def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypat
         )
 
     assert launched["raw_user_message"] == "question"
-    assert launched["accepted_run"].assistant_chat_seq == 4
+    assert launched["accepted_assistant_chat_seq"] == 4
     with Session() as db:
         run = db.query(ChatRun).one()
         assert (run.status, run.writer_slot, run.user_chat_seq, run.assistant_chat_seq) == (
@@ -408,10 +409,9 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
         "attachments": [{"name": "a.png", "mime_type": "image/png", "file_id": "file-1"}],
         "skill_id": "skill-1",
         "skill_name": "PPT 设计",
-        "skill_ids": ["skill-1"],
-        "mcp_ids": ["mcp-1"],
         "connector_id": "mcp-1",
         "connector_name": "内网检索",
+        "plugin_id": "office@user-1",
         "plugin_name": "办公套件",
         "mention_agent_id": "agent-1",
         "mention_name": "研究员",
@@ -426,6 +426,12 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
 
     _patch_common_chat_route(monkeypatch, chats)
     captured = {}
+
+    def resolve_invocation(_db, request, _user_id):
+        request._resolved_mcp_ids = [request.connector_id] if request.connector_id else []
+        return request
+
+    monkeypatch.setattr(chats, "_resolve_explicit_capability_invocation", resolve_invocation)
 
     def capture_ctx(request, *_args, **_kwargs):
         captured["request"] = request
@@ -457,7 +463,8 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
     assert [item.file_id for item in request.attachments] == ["file-1"]
     assert (request.skill_id, request.skill_name) == ("skill-1", "PPT 设计")
     assert (request.connector_id, request.connector_name) == ("mcp-1", "内网检索")
-    assert request.mcp_ids == ["mcp-1"]
+    assert request._resolved_mcp_ids == ["mcp-1"]
+    assert request.plugin_id == "office@user-1"
     assert request.plugin_name == "办公套件"
     assert (request.mention_agent_id, request.mention_name) == ("agent-1", "研究员")
     assert "原文引用" in captured["start_run"]["effective_user_message"]

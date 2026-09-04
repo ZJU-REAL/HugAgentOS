@@ -760,6 +760,8 @@ export interface InstalledPluginItem {
   icon?: string | null;
   source: string;
   enabled?: boolean;
+  /** Hard runtime availability (admin state/dependency readiness), independent of the user's switch. */
+  callable?: boolean;
   is_global?: boolean;   // installed globally by the admin (read-only on the user side; cannot be disabled/uninstalled)
   skills: string[];
   mcp: string[];

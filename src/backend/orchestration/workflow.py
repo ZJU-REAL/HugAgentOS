@@ -82,6 +82,34 @@ def _mode_visible_subagents(spec, visible, mentioned_ids):
     return [item for item in (visible or []) if str((item or {}).get("agent_id") or "") in keep]
 
 
+def _runtime_visible_subagents(
+    user_agents,
+    parent_runtime,
+    disabled_builtin_ids,
+    explicit_agent_ids,
+):
+    """Build the default agent directory plus any agent summoned this turn.
+
+    Disabled agents stay out of the main agent's initial context. An explicit
+    ``@``/command may add exactly the selected accessible agent for this turn;
+    the route layer has already enforced ownership and platform visibility.
+    """
+    from core.llm.builtin_subagents import merge_builtin_subagents
+
+    explicitly_selected = {str(agent_id) for agent_id in (explicit_agent_ids or []) if agent_id}
+    all_accessible = merge_builtin_subagents(
+        user_agents,
+        parent_runtime,
+        disabled_agent_ids=disabled_builtin_ids,
+        include_disabled=True,
+    )
+    return [
+        item
+        for item in all_accessible
+        if item.get("is_enabled", True) or str(item.get("agent_id") or "") in explicitly_selected
+    ]
+
+
 def _resolve_mode_spec(context: dict):
     """从 context 解析这段对话的模式装配契约。
 
@@ -962,10 +990,10 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
       force-enabled into the toolset (see _build_ctx); here we append a
       sentence telling the model they are ready and can be called on demand.
 
-    Aligned with Claude Code / Codex: once enabled, MCP tools stay resident in
-    the toolset and the model calls them by description on its own — no
-    per-tool pinning; explicit invocation only ensures "skill instructions are
-    present + plugin tools are activated with a hint to prefer them".
+    Once enabled, ambient MCP tools stay resident and the model calls them by
+    description on its own. A plugin explicitly selected for this turn is
+    stronger: the runtime also forces and verifies at least one read of that
+    plugin's SKILL.md or one call to that plugin's MCP tools.
 
     Returns a dict {"role": "user", "content": "..."} or None.
     """
@@ -973,6 +1001,8 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     mcp_ids = [str(m) for m in (context.get("mcp_ids") or []) if m]
     connector_id = str(context.get("connector_id") or "")
+    skill_id = str(context.get("skill_id") or "")
+    skill_name = context.get("skill_name")
     plugin_name = context.get("plugin_name")
     connector_name = context.get("connector_name")
 
@@ -1028,6 +1058,12 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 "系统会强制先真实调用该连接器暴露的至少一个工具；不得跳过调用直接回答，"
                 "也不得用其他工具冒充该连接器的结果。"
             )
+        elif plugin_name:
+            sections.append(
+                f"MCP 工具：插件「{plugin_name}」的 {len(mcp_ids)} 个 MCP 服务已就绪。"
+                "系统会强制实际调用该插件的一个 MCP 工具，或先读取该插件的一个技能文件；"
+                "不得跳过插件能力直接回答。"
+            )
         else:
             sections.append(
                 f"MCP 工具：本轮显式激活的 {len(mcp_ids)} 个 MCP 连接器服务已就绪，"
@@ -1054,9 +1090,17 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "请优先采用这些能力："
         )
     elif plugin_name:
-        header = f"用户已显式调用插件「{plugin_name}」，请优先采用其能力："
+        header = (
+            f"用户已显式调用插件「{plugin_name}」。这不是可忽略的偏好："
+            "回答前必须真实使用该插件的至少一个能力："
+        )
     elif connector_name:
         header = f"用户已显式选择连接器「{connector_name}」，请优先采用其能力："
+    elif skill_id:
+        header = (
+            f"用户已显式调用技能「{skill_name or skill_id}」。这不是可忽略的偏好："
+            "回答前必须先读取该技能的 SKILL.md："
+        )
     else:
         header = "用户已显式指定使用以下能力，请优先采用："
     content = (
@@ -1314,16 +1358,15 @@ def run_chat_workflow(
     _workflow_batch_chat = bool(context.get("batch_chat", False))
 
     if _direct_user_agent is None:
-        from core.llm.builtin_subagents import merge_builtin_subagents
-
-        _visible_subagents = merge_builtin_subagents(
+        _visible_subagents = _runtime_visible_subagents(
             _visible_subagents,
             {
                 "enabled_skill_ids": enabled_skill_ids or [],
                 "enabled_mcp_ids": enabled_mcp_ids or [],
                 "enabled_kb_ids": enabled_kb_ids or [],
             },
-            disabled_agent_ids=_disabled_builtin_ids,
+            _disabled_builtin_ids,
+            [_explicit_agent_id, _mention_agent_id],
         )
 
     _workflow_mode_spec = _resolve_mode_spec(context)
@@ -1369,6 +1412,20 @@ def run_chat_workflow(
             required_mcp_ids=(
                 [str(context["connector_id"])] if context.get("connector_id") else None
             ),
+            required_skill_id=str(context.get("skill_id") or "") or None,
+            required_skill_name=str(context.get("skill_name") or "") or None,
+            required_plugin_id=str(context.get("plugin_id") or "") or None,
+            required_plugin_name=str(context.get("plugin_name") or "") or None,
+            required_plugin_skill_ids=[
+                str(item)
+                for item in (context.get("plugin_skill_ids") or [])
+                if isinstance(item, str) and item
+            ],
+            required_plugin_mcp_ids=[
+                str(item)
+                for item in (context.get("plugin_mcp_ids") or [])
+                if isinstance(item, str) and item
+            ],
             memory_enabled=_workflow_mem_enabled,
             batch_mode=_workflow_batch_chat if _direct_user_agent is None else False,
             workflow_mode=bool(context.get("workflow_chat", False)),
@@ -1728,6 +1785,20 @@ async def _astream_subagent_direct(
             read_only=_direct_read_only,
             allow_bash=_direct_allow_bash,
             approval_mode=_approval_mode(context),
+            required_skill_id=str(context.get("skill_id") or "") or None,
+            required_skill_name=str(context.get("skill_name") or "") or None,
+            required_plugin_id=str(context.get("plugin_id") or "") or None,
+            required_plugin_name=str(context.get("plugin_name") or "") or None,
+            required_plugin_skill_ids=[
+                str(item)
+                for item in (context.get("plugin_skill_ids") or [])
+                if isinstance(item, str) and item
+            ],
+            required_plugin_mcp_ids=[
+                str(item)
+                for item in (context.get("plugin_mcp_ids") or [])
+                if isinstance(item, str) and item
+            ],
             # Same as the main agent: pass chat_id → the sandbox session uses
             # the chat_id-keyed "user-bound persistent sandbox" (mounting the
             # per-user credential volumes for lark/dws/email etc.). Omitting it
@@ -2599,16 +2670,15 @@ async def astream_chat_workflow(
             logger.warning("[workflow] failed to load visible subagents: %s", _exc)
             _disabled_builtin_ids = set()
 
-        from core.llm.builtin_subagents import merge_builtin_subagents
-
-        _visible_subagents = merge_builtin_subagents(
+        _visible_subagents = _runtime_visible_subagents(
             _visible_subagents,
             {
                 "enabled_skill_ids": enabled_skill_ids or [],
                 "enabled_mcp_ids": enabled_mcp_ids or [],
                 "enabled_kb_ids": enabled_kb_ids or [],
             },
-            disabled_agent_ids=_disabled_builtin_ids,
+            _disabled_builtin_ids,
+            [_explicit_agent_id, _mention_agent_id],
         )
         # Prefer the structured per-turn target. Text parsing remains a
         # compatibility fallback for callers that only include @name.
@@ -2668,6 +2738,20 @@ async def astream_chat_workflow(
             required_mcp_ids=(
                 [str(context["connector_id"])] if context.get("connector_id") else None
             ),
+            required_skill_id=str(context.get("skill_id") or "") or None,
+            required_skill_name=str(context.get("skill_name") or "") or None,
+            required_plugin_id=str(context.get("plugin_id") or "") or None,
+            required_plugin_name=str(context.get("plugin_name") or "") or None,
+            required_plugin_skill_ids=[
+                str(item)
+                for item in (context.get("plugin_skill_ids") or [])
+                if isinstance(item, str) and item
+            ],
+            required_plugin_mcp_ids=[
+                str(item)
+                for item in (context.get("plugin_mcp_ids") or [])
+                if isinstance(item, str) and item
+            ],
             memory_enabled=_mem0_enabled,
             approval_mode=_approval_mode(context),
             visible_subagents=_visible_subagents if _visible_subagents else None,

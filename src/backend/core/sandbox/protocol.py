@@ -154,6 +154,12 @@ class SandboxProvider(Protocol):
 
     name: str
 
+    # 沙箱里的 ``/workspace/myspace/{uid}`` 是否就是后端的 myspace_cache 目录本身
+    # （bind mount），而不是一份需要来回搬运的副本。True 时沙箱里的写入立刻落在后端磁盘
+    # 上，对账可以直接读本地目录、不必再走沙箱取文件；也意味着"沙箱副本和镜像缓存一致"
+    # 不再等于"已登记进我的空间"，判定必须以 artifact 记录为准。
+    myspace_mirror_live: bool = False
+
     async def execute(self, req: ExecuteRequest) -> ExecuteResult: ...
 
     async def stage_files(self, user_id: str, files: list[StageFile]) -> list[StagedFile]: ...

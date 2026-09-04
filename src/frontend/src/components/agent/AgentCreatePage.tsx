@@ -14,7 +14,7 @@ import { getOntologyBuildFailure } from '../../utils/apiError';
 import type { OntologyBuildFailure } from '../../utils/apiError';
 import { OntologyBuildValidationModal } from '../common/OntologyBuildValidationModal';
 import { AgentFormFields } from './AgentFormFields';
-import { getRandomIconUrl } from './AgentPanel';
+import { getRandomIconUrl } from './AgentIcon';
 
 interface AgentCreatePageProps {
   onBack: () => void;

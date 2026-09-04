@@ -52,7 +52,28 @@ Cube's design trade-offs (the price of being remote): every language goes throug
 
 The sandbox identity is resolved by `resolve_sandbox_session(sandbox_session_id, chat_id)`: a non-empty explicit ID wins, while a missing or empty value falls back to `chat_id`. The main agent, plan execution, batch items, and every subagent therefore use one conversation sandbox, and a child run never destroys it when it finishes.
 
-**MySpace write-back loop**: when a `bash` command succeeds and its string mentions `myspace`, `_sync_myspace_changes` lists files modified in the last 10 minutes under the sandbox's `/workspace/myspace/{uid}`, md5-diffs them against the backend mirror cache, routes each changed file through the user-confirmation gate (`MYSPACE_WRITE_CONFIRM`; non-interactive contexts are denied outright), then writes approved changes back to "My Space" **in place under the same file_id** — download/preview links stay valid. This closes the gap where the model edits a docx with python-docx in the sandbox while the user's copy never changes.
+**MySpace real-time reconciliation**: a file written under `/myspace` **is** a file in the user's My Space, and both sides must show the same state at any moment. Reconciliation runs at three points (`core/llm/tools/myspace_mirror.py`):
+
+| When | Direction | What happens |
+|---|---|---|
+| Before every `bash` | My Space → sandbox | UI uploads/edits land in the mirror directory (immediately visible under the bind mount); files deleted in the UI are removed from the mirror |
+| After every `bash` | Sandbox → My Space | Files written during that command are registered as artifacts |
+| On opening the My Space listing | Both | A read-time pass, so the user sees current state even mid-way through a long command |
+
+Registration splits by the nature of the file — it is **not** a blanket push:
+
+- **New files** (no artifact record yet) → registered and shown directly, without interrupting the user; sub-agents, batch runs and scheduled tasks included. The bytes already sit on the user's disk, so blocking here would only mint invisible-but-undeletable files that the next session still mounts.
+- **Edits to / deletions of the user's existing files** → routed through the `MYSPACE_WRITE_CONFIRM` gate in an interactive chat; overwriting or removing an existing file needs the user's approval there. **Non-interactive contexts (sub-agents, batch runs, scheduled tasks) apply the change directly instead of being denied** — denial cannot undo what already happened in the sandbox, it only leaves the UI showing stale state. Deletions are detected by diffing the mirror listing before and after the command (`rm` goes through no tool).
+- **Files the user deleted are never resurrected**: leftover mirror copies are never registered — the forward pass removes them instead. Only a same-named file written *after* the deletion counts as new content.
+
+Other points:
+
+- **Neither the command text nor the exit code gates it**: paths can be assembled from variables or reached after a `cd`, so keying off the literal `myspace` is guaranteed to miss writes; files produced before a command fails must be registered too.
+- **The signal is a before/after directory snapshot diff, not a time window**: `{path: (mtime, size)}` is captured before the command and re-listed after; anything absent from the snapshot or changed is what the command touched. Measured on a real box, Linux records file mtimes from the kernel's **coarse-grained clock**, 6-10 ms behind `time.time()`, so a plain "since the command started" window drops files the command just wrote. Diffing the directory against itself is clock-independent and treats long and short commands alike.
+- **The reference point is the artifact record, not the mirror cache**: with the bind mount on, the sandbox's `/workspace/myspace/{uid}` *is* the backend's `myspace_cache/{uid}`, so "sandbox file matches mirror cache" is trivially true and can no longer mean "already registered". That mismatch used to make write-back a permanent no-op.
+- A file is pinned to the conversation's artifact tray only when the command produced exactly one; batch jobs dropping dozens of files would flood it, and those files stay visible and downloadable in My Space.
+
+Use `scripts/reconcile_myspace_mirror.py` (start with `--dry-run`) to settle the backlog that accumulated before this shipped.
 
 ### Large artifact delivery
 
@@ -103,7 +124,7 @@ Key points (`_opensandbox_session.py` / `_opensandbox_internals.py`):
 
 - **Per-chat heavy sandboxes**: one Jupyter-equipped container per conversation; variables, pip packages and `/workspace` files persist across bash calls;
 - **TTL & renewal**: server-side sandbox TTL defaults to 1800 s (`OPENSANDBOX_DEFAULT_TIMEOUT_S`); every session activity triggers a rate-limited (60 s) background renew that never blocks the request path; renew failures distinguish lifecycle signals (immediate stale mark) from transient network errors (escalated only after 3 consecutive failures);
-- **Two-layer warm pools**: the generic two-bucket pool is pre-warmed at process start; with Plan F enabled, user-bound traffic goes through a per-user `_JupyterUserPool` instead (a sandbox carrying one user's myspace volume must never be handed to another user), and the idle reaper (600 s, `OPENSANDBOX_IDLE_REAP_S`) returns idle sessions' sandboxes — kernels scrubbed — to the user idle pool for reuse rather than destroying them.
+- **Two-layer warm pools**: the generic two-bucket pool is pre-warmed at process start; with Plan F enabled, user-bound traffic goes through a per-user `_JupyterUserPool` instead (a sandbox carrying one user's myspace volume must never be handed to another user), and the idle reaper (600 s, `OPENSANDBOX_IDLE_REAP_S`) returns idle sessions' sandboxes — kernels scrubbed and `/workspace` wiped — to the user idle pool for reuse rather than destroying them. The wipe keeps only the `myspace` and `skills` mount points and rebuilds `scratch`: the container is reused across chats, so scripts and intermediate files left in `/workspace` would be read by the next session as its own context. If the wipe fails the sandbox is destroyed instead of reused.
 
 ## Snapshot persistence (EE)
 

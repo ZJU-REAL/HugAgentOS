@@ -33,6 +33,8 @@ from core.llm.middlewares import (
     CitationAnchorMiddleware,
     DynamicModelMiddleware,
     ExplicitConnectorToolChoiceMiddleware,
+    ExplicitPluginToolChoiceMiddleware,
+    ExplicitSkillToolChoiceMiddleware,
     FileContextMiddleware,
     FinishPinGuardMiddleware,
     IterBudgetReminderMiddleware,
@@ -735,6 +737,18 @@ async def create_agent_executor(
     # plugin MCP activation (available on demand), these IDs carry a fail-closed
     # contract: the first model round must execute one of their real tools.
     required_mcp_ids: Optional[List[str]] = None,
+    # required_skill_*: the exact skill selected through the slash picker. It
+    # must be loaded through view_text_file before the model can finish.
+    required_skill_id: Optional[str] = None,
+    required_skill_name: Optional[str] = None,
+    # required_plugin_*: authoritative components of the plugin explicitly
+    # selected this turn. Unlike ordinary activation, this is a real-use
+    # contract: the model must read one of the plugin's SKILL.md files or call
+    # one of its MCP tools before it may finish the answer.
+    required_plugin_id: Optional[str] = None,
+    required_plugin_name: Optional[str] = None,
+    required_plugin_skill_ids: Optional[List[str]] = None,
+    required_plugin_mcp_ids: Optional[List[str]] = None,
     # mode_spec: 对话模式的装配契约（core/services/chat_mode_service.ChatModeSpec）。
     # 「模式」把原来写死的极速模式泛化成一张表：工具面 / 技能 / 插件 / 提示词 kind /
     # 迭代上限都由它给。turbo_mode 现在的含义是"这个模式要收窄工具面"，收窄成什么
@@ -779,6 +793,32 @@ async def create_agent_executor(
             if isinstance(item, str) and item.strip()
         )
     )
+    _required_skill_id = str(required_skill_id or "").strip()
+    _required_skill_name = str(required_skill_name or _required_skill_id or "技能").strip()
+    _required_plugin_id = str(required_plugin_id or "").strip()
+    _required_plugin_name = str(required_plugin_name or _required_plugin_id or "插件").strip()
+    _required_plugin_skill_ids = list(
+        dict.fromkeys(
+            str(item).strip()
+            for item in (required_plugin_skill_ids or [])
+            if isinstance(item, str) and item.strip()
+        )
+    )
+    _required_plugin_mcp_ids = list(
+        dict.fromkeys(
+            str(item).strip()
+            for item in (required_plugin_mcp_ids or [])
+            if isinstance(item, str) and item.strip()
+        )
+    )
+    if _required_plugin_id and not (_required_plugin_skill_ids or _required_plugin_mcp_ids):
+        raise RuntimeError(
+            f"显式调用的插件「{_required_plugin_name}」当前没有可执行能力；本轮已停止。"
+        )
+    _sticky_plugin_skill_ids: List[str] = []
+    _sticky_plugin_mcp_ids: List[str] = []
+    _sticky_direct_skill_ids: List[str] = []
+    _sticky_direct_mcp_ids: List[str] = []
 
     def _elapsed():
         return f"{(time.monotonic() - _t0) * 1000:.0f}ms"
@@ -852,6 +892,7 @@ async def create_agent_executor(
     # 收窄的是 MCP/技能/插件面，沙箱与文件工具照常注册——"收窄=无代码"只是
     # 内置极速模式的契约，不是所有收窄模式的。
     _turbo_code_exec = False
+    _mode_manual_invoke = True
     if turbo_mode:
         if mode_spec is not None:
             # 模式表是真源：这几个取值全部来自 chat_modes 那一行。
@@ -875,9 +916,10 @@ async def create_agent_executor(
 
         if not _mode_manual_invoke:
             # Manual summoning disabled by ops: turbo is strictly its own set.
-            if _required_connector_ids:
+            if _required_connector_ids or _required_plugin_id or _required_skill_id:
                 raise RuntimeError(
-                    "当前对话模式禁止手动调用连接器；本轮已停止，未静默忽略用户选择。"
+                    "当前对话模式禁止手动调用技能、连接器或插件；"
+                    "本轮已停止，未静默忽略用户选择。"
                 )
             turbo_explicit_skill_ids = None
             turbo_explicit_mcp_ids = None
@@ -928,6 +970,33 @@ async def create_agent_executor(
             )
         )
 
+    # A plugin explicitly selected for this turn is stronger than the default
+    # catalog, a dedicated agent's saved bindings, and a restricted mode's
+    # ordinary capability set. The API already enforced ownership/admin/deps;
+    # merge only those authoritative components here so the execution guard
+    # below has a real surface to require.
+    if _required_plugin_id:
+        base_skill_ids = (
+            list(enabled_skill_ids)
+            if isinstance(enabled_skill_ids, list)
+            else _effective_main_available_skills()
+        )
+        enabled_skill_ids = list(dict.fromkeys([*base_skill_ids, *_required_plugin_skill_ids]))
+        base_mcp_ids = (
+            list(enabled_mcp_ids)
+            if isinstance(enabled_mcp_ids, list)
+            else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
+        )
+        enabled_mcp_ids = list(dict.fromkeys([*base_mcp_ids, *_required_plugin_mcp_ids]))
+
+    if _required_skill_id:
+        base_skill_ids = (
+            list(enabled_skill_ids)
+            if isinstance(enabled_skill_ids, list)
+            else _effective_main_available_skills()
+        )
+        enabled_skill_ids = list(dict.fromkeys([*base_skill_ids, _required_skill_id]))
+
     # A direct connector selection is a stronger per-turn user instruction
     # than the normal catalog/profile assembly. Keep the ordinary defaults and
     # add the selected connector; ownership/enabled-server filtering below is
@@ -939,6 +1008,67 @@ async def create_agent_executor(
             else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
         )
         enabled_mcp_ids = list(dict.fromkeys([*base_mcp_ids, *_required_connector_ids]))
+
+    # Successful explicit activation is a chat-level capability grant, not a
+    # one-request hint. Restore plugins, direct skills and direct connectors
+    # before progressive deferral and profile narrowing so later turns keep
+    # exactly the same surface even while personal catalog switches remain off.
+    # Both resolvers recheck visibility, admin state and dependencies each turn.
+    if (
+        not disable_tools
+        and current_user_id
+        and chat_id
+        and (not turbo_mode or _mode_manual_invoke)
+    ):
+        from core.llm import plugin_loader as _sticky_plugins
+        from core.llm import session_capabilities as _sticky_direct
+
+        try:
+            _sticky, _direct = await asyncio.gather(
+                asyncio.to_thread(
+                    _sticky_plugins.resolve_sticky_plugin_capabilities,
+                    user_id=str(current_user_id),
+                    chat_id=chat_id,
+                ),
+                asyncio.to_thread(
+                    _sticky_direct.resolve_session_activated_capabilities,
+                    user_id=str(current_user_id),
+                    chat_id=chat_id,
+                ),
+            )
+            _sticky_plugin_skill_ids = list(_sticky.skill_ids)
+            _sticky_plugin_mcp_ids = list(_sticky.mcp_ids)
+            _sticky_direct_skill_ids = list(_direct.skill_ids)
+            _sticky_direct_mcp_ids = list(_direct.mcp_ids)
+            sticky_skill_ids = list(
+                dict.fromkeys([*_sticky_plugin_skill_ids, *_sticky_direct_skill_ids])
+            )
+            sticky_mcp_ids = list(dict.fromkeys([*_sticky_plugin_mcp_ids, *_sticky_direct_mcp_ids]))
+            if sticky_skill_ids:
+                base_skill_ids = (
+                    list(enabled_skill_ids)
+                    if isinstance(enabled_skill_ids, list)
+                    else _effective_main_available_skills()
+                )
+                enabled_skill_ids = list(dict.fromkeys([*base_skill_ids, *sticky_skill_ids]))
+            if sticky_mcp_ids:
+                base_mcp_ids = (
+                    list(enabled_mcp_ids)
+                    if isinstance(enabled_mcp_ids, list)
+                    else [item for item in get_enabled_ids("mcp") if isinstance(item, str)]
+                )
+                enabled_mcp_ids = list(dict.fromkeys([*base_mcp_ids, *sticky_mcp_ids]))
+            if _sticky.install_ids or sticky_skill_ids or sticky_mcp_ids:
+                _log.info(
+                    "[factory] sticky capabilities restored chat=%s installs=%s "
+                    "skills=%d mcp=%d",
+                    chat_id,
+                    _sticky.install_ids,
+                    len(sticky_skill_ids),
+                    len(sticky_mcp_ids),
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("[factory] sticky capability restore failed: %s", exc)
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
     if enabled_skill_ids:
@@ -1053,6 +1183,31 @@ async def create_agent_executor(
         ] or list(profile.skill_ids)
         if enabled_skill_ids is not None:
             enabled_skill_ids = [sid for sid in enabled_skill_ids if sid in allowed]
+        # A learned/default orchestration profile may narrow ambient skills,
+        # but it must not erase chat-sticky or currently explicit capabilities.
+        skill_ids_for_bindings = list(
+            dict.fromkeys(
+                [
+                    *skill_ids_for_bindings,
+                    *_sticky_plugin_skill_ids,
+                    *_sticky_direct_skill_ids,
+                    *_required_plugin_skill_ids,
+                    *([_required_skill_id] if _required_skill_id else []),
+                ]
+            )
+        )
+        if enabled_skill_ids is not None:
+            enabled_skill_ids = list(
+                dict.fromkeys(
+                    [
+                        *enabled_skill_ids,
+                        *_sticky_plugin_skill_ids,
+                        *_sticky_direct_skill_ids,
+                        *_required_plugin_skill_ids,
+                        *([_required_skill_id] if _required_skill_id else []),
+                    ]
+                )
+            )
 
     # ── Skill availability evidence (GCE ticket 10) ─────────────────────────
     # Which skills were available to the model this turn. Skill *loading* keeps
@@ -1112,7 +1267,17 @@ async def create_agent_executor(
         enabled_mcp_ids = [mcp_id for mcp_id in current_mcp if mcp_id in allowed_tools]
         # A user-selected connector must not disappear silently behind a learned
         # profile. It remains subject to the real server/ownership gate below.
-        enabled_mcp_ids = list(dict.fromkeys([*enabled_mcp_ids, *_required_connector_ids]))
+        enabled_mcp_ids = list(
+            dict.fromkeys(
+                [
+                    *enabled_mcp_ids,
+                    *_sticky_plugin_mcp_ids,
+                    *_sticky_direct_mcp_ids,
+                    *_required_connector_ids,
+                    *_required_plugin_mcp_ids,
+                ]
+            )
+        )
         _log.info(
             "[factory] profile %s narrowed MCP servers %d → %d",
             profile.profile_id,
@@ -1185,10 +1350,23 @@ async def create_agent_executor(
         _required_connector_ids,
         enabled_mcp_keys,
     )
+    _required_plugin_server_keys = _required_mcp_server_keys(
+        _required_plugin_mcp_ids,
+        enabled_mcp_keys,
+    )
     if _required_connector_ids and not _required_connector_server_keys:
         raise RuntimeError(
             "显式选择的连接器当前不可用或未获授权"
             f"（{', '.join(_required_connector_ids)}）；本轮已停止，未使用其他能力代替。"
+        )
+    if (
+        _required_plugin_id
+        and _required_plugin_mcp_ids
+        and not _required_plugin_server_keys
+        and not _required_plugin_skill_ids
+    ):
+        raise RuntimeError(
+            f"显式调用的插件「{_required_plugin_name}」的 MCP 服务当前不可用；本轮已停止。"
         )
     enabled_servers = _filter_mcp_servers_by_keys(
         enabled_mcp_keys,
@@ -1396,42 +1574,57 @@ async def create_agent_executor(
             len(http_clients),
         )
 
-    _required_connector_tool_names: List[str] = []
+    connected_clients = {
+        str(getattr(client, "name", "") or ""): client for client in [*mcp_clients, *http_clients]
+    }
+
+    async def _mcp_tool_names_for_servers(server_keys: List[str], *, log_prefix: str) -> List[str]:
+        connected_keys = [key for key in server_keys if key in connected_clients]
+        if not connected_keys:
+            return []
+        listed_tools = await asyncio.gather(
+            *(connected_clients[key].list_tools() for key in connected_keys),
+            return_exceptions=True,
+        )
+        names: List[str] = []
+        for server_key, result in zip(connected_keys, listed_tools):
+            if isinstance(result, BaseException):
+                _log.warning(
+                    "[%s] list_tools failed for %s: %s",
+                    log_prefix,
+                    server_key,
+                    result,
+                )
+                continue
+            for tool in result:
+                tool_name = str(getattr(tool, "name", "") or "")
+                if tool_name and tool_name not in names:
+                    names.append(tool_name)
+        return names
+
+    _required_connector_tool_names = await _mcp_tool_names_for_servers(
+        _required_connector_server_keys,
+        log_prefix="connector-required",
+    )
     if _required_connector_server_keys:
-        connected_clients = {
-            str(getattr(client, "name", "") or ""): client
-            for client in [*mcp_clients, *http_clients]
-        }
-        required_clients = [
-            connected_clients[key]
-            for key in _required_connector_server_keys
-            if key in connected_clients
-        ]
-        if required_clients:
-            listed_tools = await asyncio.gather(
-                *(client.list_tools() for client in required_clients),
-                return_exceptions=True,
-            )
-            for server_key, result in zip(
-                [key for key in _required_connector_server_keys if key in connected_clients],
-                listed_tools,
-            ):
-                if isinstance(result, BaseException):
-                    _log.warning(
-                        "[connector-required] list_tools failed for %s: %s",
-                        server_key,
-                        result,
-                    )
-                    continue
-                for tool in result:
-                    tool_name = str(getattr(tool, "name", "") or "")
-                    if tool_name and tool_name not in _required_connector_tool_names:
-                        _required_connector_tool_names.append(tool_name)
         if not _required_connector_tool_names:
             raise RuntimeError(
                 "显式选择的连接器未能连接或没有暴露可调用工具"
                 f"（{', '.join(_required_connector_ids)}）；本轮已停止。"
             )
+
+    _required_plugin_mcp_tool_names = await _mcp_tool_names_for_servers(
+        _required_plugin_server_keys,
+        log_prefix="plugin-required",
+    )
+    if (
+        _required_plugin_id
+        and not _required_plugin_skill_ids
+        and not _required_plugin_mcp_tool_names
+    ):
+        raise RuntimeError(
+            f"显式调用的插件「{_required_plugin_name}」没有可供当前会话执行的能力；" "本轮已停止。"
+        )
 
     # ── Phase 3: Skill registration (fast — metadata already cached) ──
     # disable_tools=True is a "bare LLM" mode used by plan-generate and the
@@ -1834,12 +2027,12 @@ async def create_agent_executor(
     # (consistent with 1.x: subagent tools are registered after
     # get_json_schemas, so they don't enter the system_prompt's tool list).
     tool_schemas = await _build_toolkit().get_tool_schemas()
+    visible_tool_names = {
+        str(schema.get("function", {}).get("name") or "")
+        for schema in tool_schemas
+        if isinstance(schema, dict)
+    }
     if _required_connector_tool_names:
-        visible_tool_names = {
-            str(schema.get("function", {}).get("name") or "")
-            for schema in tool_schemas
-            if isinstance(schema, dict)
-        }
         _required_connector_tool_names = [
             name for name in _required_connector_tool_names if name in visible_tool_names
         ]
@@ -1847,6 +2040,54 @@ async def create_agent_executor(
             raise RuntimeError(
                 "显式选择的连接器没有可供当前会话调用的工具；本轮已停止，" "未使用其他能力代替。"
             )
+    _required_skill_registered = bool(
+        _required_skill_id
+        and _required_skill_id in (skill_ids_to_register or [])
+        and loader.get_skill_dir(_required_skill_id)
+        and "view_text_file" in visible_tool_names
+    )
+    if _required_skill_id and not _required_skill_registered:
+        raise RuntimeError(
+            f"显式调用的技能「{_required_skill_name}」没有可供当前会话读取的 SKILL.md；"
+            "本轮已停止，未使用其他能力代替。"
+        )
+    _required_plugin_mcp_tool_names = [
+        name for name in _required_plugin_mcp_tool_names if name in visible_tool_names
+    ]
+    _required_plugin_registered_skill_ids = [
+        skill_id
+        for skill_id in _required_plugin_skill_ids
+        if skill_id in (skill_ids_to_register or [])
+        and loader.get_skill_dir(skill_id)
+        and "view_text_file" in visible_tool_names
+    ]
+    if _required_plugin_id and not (
+        _required_plugin_registered_skill_ids or _required_plugin_mcp_tool_names
+    ):
+        raise RuntimeError(
+            f"显式调用的插件「{_required_plugin_name}」没有可供当前会话执行的能力；"
+            "本轮已停止，未使用其他能力代替。"
+        )
+    if _required_plugin_id and chat_id:
+        # Progressive loading normally persists this during its resolution.
+        # Persist here as well so explicit activation is sticky in restricted
+        # modes, dedicated-agent chats and when progressive loading is disabled.
+        from core.llm import plugin_loader as _plugin_activation
+
+        await asyncio.to_thread(
+            _plugin_activation.record_plugin_activation,
+            chat_id,
+            [_required_plugin_id],
+        )
+    if chat_id and (_required_skill_registered or _required_connector_tool_names):
+        from core.llm.session_capabilities import record_session_capability_activation
+
+        await asyncio.to_thread(
+            record_session_capability_activation,
+            chat_id,
+            skill_ids=[_required_skill_id] if _required_skill_registered else None,
+            mcp_ids=_required_connector_ids if _required_connector_tool_names else None,
+        )
     _log.info("[factory] +%s tool schemas computed (%d)", _elapsed(), len(tool_schemas or []))
     # update_plan 只在下面的非子智能体分支里注册；先给默认值，子智能体分支走完
     # 也能安全判断「要不要挂计划催更中间件」。
@@ -2720,6 +2961,27 @@ async def create_agent_executor(
             ExplicitConnectorToolChoiceMiddleware(
                 connector_ids=_required_connector_ids,
                 tool_names=_required_connector_tool_names,
+            ),
+        )
+    if _required_plugin_id:
+        # A plugin chip is an execution request, not a hint. Restrict the model
+        # to this plugin's own skill loader/MCP tools until one completes, then
+        # release the normal tool surface for the rest of the answer.
+        _policy_middlewares.insert(
+            2,
+            ExplicitPluginToolChoiceMiddleware(
+                plugin_id=_required_plugin_id,
+                plugin_name=_required_plugin_name,
+                skill_ids=_required_plugin_registered_skill_ids,
+                mcp_tool_names=_required_plugin_mcp_tool_names,
+            ),
+        )
+    if _required_skill_id:
+        _policy_middlewares.insert(
+            2,
+            ExplicitSkillToolChoiceMiddleware(
+                skill_id=_required_skill_id,
+                skill_name=_required_skill_name,
             ),
         )
     # on_reasoning: 会话里有未收敛的批量作业时，每轮把台账数字回灌进上下文。

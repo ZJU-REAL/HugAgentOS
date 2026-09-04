@@ -207,7 +207,7 @@ def test_builtin_subagent_natural_language_command_is_resolved_without_db_row(mo
     assert explicit_command.agent_id == "builtin.explorer"
 
 
-def test_disabled_builtin_subagent_is_rejected_as_explicit_target(monkeypatch):
+def test_disabled_builtin_subagent_can_be_explicitly_targeted_for_one_turn(monkeypatch):
     import core.services.user_agent_service as service_module
     import core.services.user_service as user_service_module
 
@@ -225,10 +225,37 @@ def test_disabled_builtin_subagent_is_rejected_as_explicit_target(monkeypatch):
         mention_name="探索员",
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        _resolve_chat_agent_targets(SimpleNamespace(), request, "user_1")
+    resolved, _, execution_message, explicit_command = _resolve_chat_agent_targets(
+        SimpleNamespace(), request, "user_1"
+    )
 
-    assert exc_info.value.status_code == 403
+    assert resolved.mention_agent_id == "builtin.explorer"
+    assert resolved.mention_name == "探索员"
+    assert execution_message == "查清登录失败的代码路径"
+    assert explicit_command is None
+
+
+def test_disabled_agent_is_absent_by_default_and_added_only_when_explicit():
+    custom = [{"agent_id": "ua_off", "name": "停用智能体", "is_enabled": False}]
+
+    default_visible = workflow._runtime_visible_subagents(
+        custom,
+        {},
+        {"builtin.explorer"},
+        [],
+    )
+    explicit_visible = workflow._runtime_visible_subagents(
+        custom,
+        {},
+        {"builtin.explorer"},
+        ["builtin.explorer", "ua_off"],
+    )
+
+    assert "builtin.explorer" not in {item["agent_id"] for item in default_visible}
+    assert "ua_off" not in {item["agent_id"] for item in default_visible}
+    assert {"builtin.explorer", "ua_off"}.issubset(
+        {item["agent_id"] for item in explicit_visible}
+    )
 
 
 def test_parent_and_child_share_the_same_ontology_runtime_object():

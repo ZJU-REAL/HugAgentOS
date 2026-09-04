@@ -1,13 +1,13 @@
 export interface ChatInvocationContext {
   skill?: { id: string; name: string };
-  plugin?: { name: string; skillIds: string[]; mcpIds: string[] };
+  plugin?: { id: string; name: string };
   connector?: { id: string; name: string };
   mention?: { id: string; name: string };
 }
 
 export interface ChatInvocationSource {
   activeSkill?: { id: string; name: string } | null;
-  activePlugin?: { name: string; skillIds: string[]; mcpIds: string[] } | null;
+  activePlugin?: { id: string; name: string } | null;
   activeConnector?: { id: string; name: string } | null;
   activeMention?: { id: string; name: string } | null;
 }
@@ -24,15 +24,11 @@ const cleanString = (value: unknown): string => (
   typeof value === 'string' ? value.trim().slice(0, 512) : ''
 );
 
-const cleanIds = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.map(cleanString).filter(Boolean))).slice(0, 100);
-};
-
 /** Snapshot composer capability chips before clearing the contentEditable input. */
 export function captureChatInvocation(source: ChatInvocationSource): ChatInvocationContext {
   const skillId = cleanString(source.activeSkill?.id);
   const skillName = cleanString(source.activeSkill?.name);
+  const pluginId = cleanString(source.activePlugin?.id);
   const pluginName = cleanString(source.activePlugin?.name);
   const connectorId = cleanString(source.activeConnector?.id);
   const connectorName = cleanString(source.activeConnector?.name);
@@ -41,13 +37,7 @@ export function captureChatInvocation(source: ChatInvocationSource): ChatInvocat
   const invocation: ChatInvocationContext = {};
 
   if (skillId && skillName) invocation.skill = { id: skillId, name: skillName };
-  if (pluginName) {
-    invocation.plugin = {
-      name: pluginName,
-      skillIds: cleanIds(source.activePlugin?.skillIds),
-      mcpIds: cleanIds(source.activePlugin?.mcpIds),
-    };
-  }
+  if (pluginId && pluginName) invocation.plugin = { id: pluginId, name: pluginName };
   if (connectorId && connectorName) {
     invocation.connector = { id: connectorId, name: connectorName };
   }
@@ -95,9 +85,8 @@ export function normalizeChatInvocation(value: unknown): ChatInvocationContext {
   return captureChatInvocation({
     activeSkill: skill ? { id: cleanString(skill.id), name: cleanString(skill.name) } : null,
     activePlugin: plugin ? {
+      id: cleanString(plugin.id),
       name: cleanString(plugin.name),
-      skillIds: cleanIds(plugin.skillIds),
-      mcpIds: cleanIds(plugin.mcpIds),
     } : null,
     activeConnector: connector
       ? { id: cleanString(connector.id), name: cleanString(connector.name) }
@@ -125,19 +114,15 @@ export function hasChatInvocation(invocation?: ChatInvocationContext): boolean {
 
 /** Fields shared by the ordinary /v1/chats/stream request contract. */
 export function chatInvocationRequestFields(invocation: ChatInvocationContext) {
-  const pluginMcpIds = invocation.plugin?.mcpIds ?? [];
-  const mcpIds = Array.from(new Set([
-    ...pluginMcpIds,
-    ...(invocation.connector ? [invocation.connector.id] : []),
-  ]));
   return {
     ...(invocation.skill ? {
       skill_id: invocation.skill.id,
       skill_name: invocation.skill.name,
     } : {}),
-    ...(invocation.plugin?.skillIds.length ? { skill_ids: invocation.plugin.skillIds } : {}),
-    ...(mcpIds.length ? { mcp_ids: mcpIds } : {}),
-    ...(invocation.plugin ? { plugin_name: invocation.plugin.name } : {}),
+    ...(invocation.plugin ? {
+      plugin_id: invocation.plugin.id,
+      plugin_name: invocation.plugin.name,
+    } : {}),
     ...(invocation.connector ? {
       connector_id: invocation.connector.id,
       connector_name: invocation.connector.name,

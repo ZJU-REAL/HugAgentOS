@@ -112,9 +112,12 @@ A backend mirror cache sits between MySpace files and the code sandbox (details 
 - Cache directory: `{STORAGE_PATH}/myspace_cache/{user_id}/...` (`core/sandbox/_common.py::myspace_cache_dir`); team files have a shared `team_cache_dir(team_id)`;
 - **Seed**: when a persistent sandbox session is first created, cache files are seeded into the sandbox at `/workspace/myspace/{user_id}/`, then incrementally synced by mtime;
 - **Lazy loading**: when sandbox-side Read/Glob/Grep miss a file, the path is resolved to an artifact, downloaded on demand from object storage, and materialized into the sandbox (`core/llm/tools/myspace_vfs.py::materialize_into_sandbox`);
-- **Reverse sync**: Write/Edit/Delete/Move tools propagate sandbox-side changes back — updating both the `artifacts` table (object storage) and the myspace_cache mirror, keeping the next seed consistent.
+- **Reverse sync**: Write/Edit/Delete/Move tools propagate sandbox-side changes back — updating both the `artifacts` table (object storage) and the myspace_cache mirror, keeping the next seed consistent;
+- **Real-time reconciliation**: files written directly by `bash` bypass those tools, so `core/llm/tools/myspace_mirror.py` reconciles before and after every command and when the My Space listing is opened (new files registered and shown, edits to existing files routed through the confirmation gate, UI deletions cleared from the mirror). See [Sandbox](./sandbox.md).
 
 Object storage is therefore the **single source of truth**; myspace_cache is just an acceleration mirror that can be wiped and rebuilt at any time.
+
+> ⚠️ With `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` on, the mirror directory *is* the `/workspace/myspace/{uid}` the sandbox sees, so "the file is in the mirror" does **not** mean "it is registered in My Space" — always decide from the `artifacts` records. Confirm reconciliation has completed before wiping the mirror, or unregistered files are lost for real; use `scripts/reconcile_myspace_mirror.py` to settle a backlog.
 
 ## Best practices
 

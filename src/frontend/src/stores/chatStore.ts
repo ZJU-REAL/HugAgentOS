@@ -264,9 +264,9 @@ interface ChatState {
   quotedFollowUp: { text: string; ts: number } | null;
   /** Active skill selected via / slash command */
   activeSkill: { id: string; name: string } | null;
-  /** Active plugin referenced via / or + menu. On send: skillIds→skill_ids (injects skill
-   *  instructions), mcpIds→mcp_ids (force-enables the plugin's MCP tools into this turn's toolset). */
-  activePlugin: { name: string; skillIds: string[]; mcpIds: string[] } | null;
+  /** Active plugin referenced via / or + menu. The request sends only its installation id;
+   *  the backend resolves all component skills and MCP servers authoritatively. */
+  activePlugin: { id: string; name: string } | null;
   /** Active connector selected from the "+" menu for this turn only. */
   activeConnector: { id: string; name: string } | null;
   /** Active @mention selected via popup; id is the authoritative per-turn direct target. */
@@ -343,7 +343,7 @@ interface ChatState {
   setPendingScrollMessageTs: (ts: number | null) => void;
   setQuotedFollowUp: (quote: { text: string; ts: number } | null) => void;
   setActiveSkill: (skill: { id: string; name: string } | null) => void;
-  setActivePlugin: (plugin: { name: string; skillIds: string[]; mcpIds: string[] } | null) => void;
+  setActivePlugin: (plugin: { id: string; name: string } | null) => void;
   setActiveConnector: (connector: { id: string; name: string } | null) => void;
   setActiveMention: (mention: { id: string; name: string } | null) => void;
   setPlanMode: (v: boolean) => void;
@@ -501,9 +501,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         .installed.find((p) => p.slug === SITES_PLUGIN_SLUG && p.enabled !== false);
       if (sitesPlugin) {
         nextActivePlugin = {
+          id: sitesPlugin.install_id,
           name: sitesPlugin.name,
-          skillIds: sitesPlugin.skills || [],
-          mcpIds: sitesPlugin.mcp || [],
         };
       }
     }
@@ -708,9 +707,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         .installed.find((p) => p.slug === SITES_PLUGIN_SLUG && p.enabled !== false);
       if (sitesPlugin) {
         nextActivePlugin = {
+          id: sitesPlugin.install_id,
           name: sitesPlugin.name,
-          skillIds: sitesPlugin.skills || [],
-          mcpIds: sitesPlugin.mcp || [],
         };
       }
     }
@@ -964,7 +962,10 @@ export const useChatStore = create<ChatState>((set, get) => {
       .getState()
       .installed.find((p) => p.slug === SITES_PLUGIN_SLUG && p.enabled !== false);
     const sitesActivePlugin = sitesPlugin
-      ? { name: sitesPlugin.name, skillIds: sitesPlugin.skills || [], mcpIds: sitesPlugin.mcp || [] }
+      ? {
+          id: sitesPlugin.install_id,
+          name: sitesPlugin.name,
+        }
       : null;
     const projectId = opts?.projectId?.trim() || undefined;
     // When editing an existing site, name the chat after the site title and avoid reusing the current empty chat (switch to a clean editing chat).

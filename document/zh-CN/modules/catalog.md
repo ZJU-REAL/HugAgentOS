@@ -1,8 +1,8 @@
 # 能力目录（Capability Center）
 
-> 最后更新：2026-06-11
+> 最后更新：2026-09-02
 
-能力目录（catalog）是 HugAgentOS 中"哪些能力可用"的**单一真源**：技能（skills）、子智能体（agents）、MCP 工具（mcp）、知识库（kb）四类能力都登记在 catalog 里，从 MCP 工具加载、系统提示词拼装到前端能力中心展示，全部经由它门控。在系统级默认之上，每个用户还有自己的覆盖层（catalog_overrides）与自助添加的私有能力（owner 隔离）。
+能力目录（catalog）是 HugAgentOS 中能力硬可用性与默认装配状态的**单一真源**：技能（skills）、子智能体（agents）、MCP 工具（mcp）、知识库（kb）四类能力都登记在 catalog 里，从 MCP 工具加载、系统提示词拼装到前端能力中心展示，全部经由它门控。在系统级默认之上，每个用户还有自己的覆盖层（catalog_overrides）与自助添加的私有能力（owner 隔离）。用户级「关闭」表示不放入智能体的初始上下文和自动发现范围，不等同于撤销当前用户显式调用它的权限。
 
 ## 体系结构
 
@@ -15,6 +15,7 @@ core/config/catalog.py              公共 API：get_catalog / is_enabled / get_
         ▼
 core/config/catalog_resolver.py     合并层：catalog.json 默认 ∩ 用户 DB 覆盖
         │  resolve_all_runtime_enabled(db, user_id) → (skills, agents, mcps)
+        │  resolve_explicit_runtime_capabilities(...) → 本轮显式调用（忽略个人开关，保留硬门控）
         ▼
 请求链路消费：
   api/routes/v1/chats.py → core/chat/context.py   写入 workflow context
@@ -58,8 +59,14 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 - **合并算法**（`catalog_resolver.py::_merge_kind`）：覆盖只能翻转 base catalog 中**已存在**项的启用位，不能复活已删除项。
 - **管理员锁**：base catalog 中 `enabled=false` 的项，用户覆盖**不可**重新启用，且在 `/v1/catalog` 响应中对前台完全隐藏。
 - 解析结果按 user_id 缓存 30 秒（`resolve_all_runtime_enabled`）。
+- **个人关闭的语义**：从默认装配、自动发现和自主路由中移除；仍可从对话输入框用 `/`、`+`、`@` 显式选择，不会回写开关。智能体委派只作用于该回合；技能和连接器首次装配成功后以精确能力 ID 记入会话，插件以精确安装实例 ID 记入会话，后续回合保持展开。
+- **硬门控不变**：管理员全局停用、插件未安装、技能依赖未就绪或不属于当前用户的私有能力，显式调用同样拒绝。
+- **插件请求契约**：客户端只提交已安装插件的 `plugin_id`；插件包含的技能和 MCP 组件由后端根据安装记录展开。聊天接口不接受客户端提交 `skill_ids` / `mcp_ids`，缺少 `plugin_id` 的旧插件请求会直接拒绝。
+- **显式技能执行契约**：通过 `/` 选择技能后，模型必须先用 `view_text_file` 读取该技能自己的 `SKILL.md`；读取其他技能不能替代。无法加载时本轮明确失败。
+- **显式插件执行契约**：选择插件不是普通偏好。模型必须先读取该插件自己的一个 `SKILL.md`，或真实调用该插件的一个 MCP 工具，随后才能完成回答；读取其他技能或调用其他连接器不计入。若插件能力无法执行，或模型未遵守强制调用，本轮明确失败而不是静默回答。
+- **会话级能力恢复**：后续回合在个人开关筛选前恢复已激活的技能、连接器及插件组件，使技能清单与工具名/前缀在该会话中稳定；恢复时仍重新校验安装、管理员全局状态、依赖与归属，硬门控变化会立即生效。
 
-每次对话时 `core/chat/context.py::resolve_enabled_capabilities()` 把合并结果写入 workflow context（请求体显式传入的列表优先）。
+每次对话时 `core/chat/context.py::resolve_enabled_capabilities()` 把默认合并结果写入 workflow context；`api/routes/v1/chats.py::_resolve_explicit_capability_invocation()` 再校验插件安装实例与能力归属，从服务端安装记录解析组件，并把通过硬门控的显式选择并入当前回合。`core/llm/session_capabilities.py` 和 `core/llm/plugin_loader.py::resolve_sticky_plugin_capabilities()` 在后续回合恢复会话已激活能力。
 
 ## /v1/catalog 路由与 KB 注入
 

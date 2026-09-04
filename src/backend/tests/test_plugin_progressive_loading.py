@@ -139,7 +139,53 @@ def test_explicit_invocation_pins_activation(ppl_env):
     assert res.deferred == []
     assert "crawler" in res.activated_slugs
     # 落库粘滞：下一轮装配读到激活态。
-    assert plugin_loader.load_activated_plugin_slugs(CHAT) == ["crawler"]
+    assert plugin_loader.load_activated_plugin_slugs(CHAT) == ["crawler@global"]
+
+
+def test_sticky_activation_restores_personally_disabled_components(ppl_env, monkeypatch):
+    """A later turn restores a plugin before the normal enabled-set gate."""
+    with ppl_env.Session() as db:
+        row = db.query(ChatSession).filter(ChatSession.chat_id == CHAT).first()
+        # Exact ids are the new durable format.
+        row.extra_data = {"activated_plugins": ["crawler@global"]}
+        db.commit()
+
+    import core.config.catalog_resolver as resolver
+
+    def allow_explicit(db, user_id, *, skill_ids=None, mcp_ids=None):
+        return list(skill_ids or []), list(mcp_ids or []), [], []
+
+    monkeypatch.setattr(resolver, "resolve_explicit_runtime_capabilities", allow_explicit)
+    sticky = plugin_loader.resolve_sticky_plugin_capabilities(user_id=USER, chat_id=CHAT)
+    assert sticky.install_ids == ["crawler@global"]
+    assert sticky.slugs == ["crawler"]
+    assert sticky.skill_ids == ["crawler-scrape-a1"]
+    assert sticky.mcp_ids == ["crawler_mcp"]
+
+
+def test_sticky_activation_accepts_existing_slug_rows(ppl_env, monkeypatch):
+    """Chats activated before the exact-install-id upgrade keep working."""
+    with ppl_env.Session() as db:
+        row = db.query(ChatSession).filter(ChatSession.chat_id == CHAT).first()
+        row.extra_data = {"activated_plugins": ["crawler"]}
+        db.commit()
+
+    import core.config.catalog_resolver as resolver
+
+    monkeypatch.setattr(
+        resolver,
+        "resolve_explicit_runtime_capabilities",
+        lambda db, user_id, *, skill_ids=None, mcp_ids=None: (
+            list(skill_ids or []),
+            list(mcp_ids or []),
+            [],
+            [],
+        ),
+    )
+    sticky = plugin_loader.resolve_sticky_plugin_capabilities(user_id=USER, chat_id=CHAT)
+    assert sticky.install_ids == ["crawler@global"]
+    assert sticky.skill_ids == ["crawler-scrape-a1"]
+    assert sticky.mcp_ids == ["crawler_mcp"]
 
 
 def test_directory_section_stable_and_empty_safe(ppl_env):
@@ -240,7 +286,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     assert permission_registry.names == frozenset()
     assert len(basic.skills_or_loaders) == 1
     assert "crawler" in runtime["activated_slugs"]
-    assert plugin_loader.load_activated_plugin_slugs(CHAT) == ["crawler"]
+    assert plugin_loader.load_activated_plugin_slugs(CHAT) == ["crawler@global"]
 
     final_surface = await tk.freeze_execution_surface()
     assert final_surface.generation > initial_surface.generation

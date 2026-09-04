@@ -199,9 +199,10 @@ def merge_builtin_subagents(
 ) -> List[Dict[str, Any]]:
     """Prepend enabled built-ins and preserve all non-conflicting user agents.
 
-    ``include_disabled`` is reserved for management/library views.  Runtime
-    routing deliberately omits disabled platform roles so they cannot be
-    selected by mentions, natural-language delegation, or autonomous routing.
+    ``include_disabled`` is used by management/library views and by callers
+    building an explicit-invocation candidate set. Normal runtime assembly
+    leaves it false; explicit callers must narrow the result to the selected
+    role before exposing it to the model.
     """
     builtins = list_builtin_subagents(
         parent_runtime,
