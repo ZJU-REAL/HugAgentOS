@@ -2,7 +2,7 @@
 
 Why this exists
 ---------------
-``extra_config.context_length`` is the single source of truth for history trimming and
+``extra_config.context_length`` is the single source of truth for the request-assembly budget and
 the auto-compaction trigger (see ``core/llm/context_manager.resolve_model_context_window``),
 and it has **no runtime fallback** on purpose: a silent 128k default once made a real
 256k model compact at half its window. That correctness choice pushed the cost onto

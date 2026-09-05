@@ -379,8 +379,8 @@ interface ChatState {
   enterSiteMode: (opts?: { projectId?: string; projectName?: string; title?: string }) => boolean;
   setEditingMessageTs: (ts: number | null) => void;
   bumpSessionLoadEpoch: () => void;
-  /** Truncate messages from the given timestamp (inclusive) */
-  truncateMessagesFrom: (chatId: string, ts: number) => void;
+  /** Truncate messages from the given message (inclusive): by server message_id when known, else by timestamp */
+  truncateMessagesFrom: (chatId: string, anchor: Pick<ChatMessage, 'ts' | 'messageId'>) => void;
   setActiveRun: (chatId: string, info: { runId: string; messageId: string; lastOffset?: number }) => void;
   clearActiveRun: (chatId: string) => void;
   setQueuedMessage: (chatId: string, queued: QueuedChatMessage | null) => void;
@@ -784,11 +784,15 @@ export const useChatStore = create<ChatState>((set, get) => {
     return { contextUsages: next };
   }),
 
-  truncateMessagesFrom: (chatId, ts) => {
+  truncateMessagesFrom: (chatId, anchor) => {
     const { store } = get();
     const chat = store.chats[chatId];
     if (!chat) return;
-    const filtered = chat.messages.filter((m) => m.ts < ts);
+    // 身份优先用服务端 message_id：本地 ts 与历史 ts 来自两个时钟，比大小会错位。
+    const idx = chat.messages.findIndex((m) => (
+      anchor.messageId ? m.messageId === anchor.messageId : m.ts === anchor.ts
+    ));
+    const filtered = idx >= 0 ? chat.messages.slice(0, idx) : chat.messages.filter((m) => m.ts < anchor.ts);
     const next: ChatStoreData = {
       ...store,
       chats: { ...store.chats, [chatId]: { ...chat, messages: filtered, updatedAt: Date.now() } },

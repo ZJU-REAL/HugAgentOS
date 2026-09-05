@@ -17,6 +17,7 @@ from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.chat import inflight
 from core.db.models import ChatMessage, ChatRun, ChatSession
 from core.db.models.chat import reserve_chat_sequences
 from core.services.chat_service import clamp_message_content
@@ -52,6 +53,19 @@ class ChatSequencer:
 
     def __init__(self, db: Session):
         self.db = db
+
+    def _recount(self, chat_id: str, now: datetime, *, touch_last_message: bool = False) -> None:
+        """Bring ``message_count`` in line with the rows this transaction just wrote."""
+        self.db.flush()
+        remaining = (
+            self.db.query(func.count(ChatMessage.message_id))
+            .filter(ChatMessage.chat_id == chat_id)
+            .scalar()
+        )
+        values: Dict[str, Any] = {"message_count": remaining, "updated_at": now}
+        if touch_last_message:
+            values["last_message_at"] = now
+        self.db.execute(update(ChatSession).where(ChatSession.chat_id == chat_id).values(**values))
 
     def get_active_run(self, chat_id: str) -> Optional[ActiveRunRef]:
         run = (
@@ -123,16 +137,16 @@ class ChatSequencer:
                 last_event_offset=0,
                 created_at=now,
             )
-            self.db.add_all((user_message, run))
-            self.db.execute(
-                update(ChatSession)
-                .where(ChatSession.chat_id == chat_id)
-                .values(
-                    message_count=func.coalesce(ChatSession.message_count, 0) + 1,
-                    updated_at=now,
-                    last_message_at=now,
-                )
+            assistant_message = inflight.new_assistant_row(
+                message_id=assistant_message_id,
+                chat_id=chat_id,
+                chat_seq=first_seq + 1,
+                run_id=run_id,
+                model=model,
+                created_at=now,
             )
+            self.db.add_all((user_message, assistant_message, run))
+            self._recount(chat_id, now, touch_last_message=True)
             self.db.commit()
             self.db.refresh(user_message)
             self.db.refresh(run)
@@ -164,6 +178,9 @@ class ChatSequencer:
         both the deletion and the sequence reservation before returning busy.
         """
 
+        now = datetime.now(timezone.utc)
+        run_id = f"run_{uuid.uuid4().hex[:16]}"
+        assistant_message_id = f"msg_{uuid.uuid4().hex[:16]}"
         try:
             assistant_seq = reserve_chat_sequences(
                 self.db,
@@ -202,10 +219,10 @@ class ChatSequencer:
                 if not deleted:
                     raise ValueError("rewrite boundary no longer exists")
             run = ChatRun(
-                run_id=f"run_{uuid.uuid4().hex[:16]}",
+                run_id=run_id,
                 chat_id=chat_id,
                 user_id=user_id,
-                message_id=f"msg_{uuid.uuid4().hex[:16]}",
+                message_id=assistant_message_id,
                 user_message_id=user_message.message_id,
                 user_chat_seq=user_message.chat_seq,
                 assistant_chat_seq=assistant_seq,
@@ -213,21 +230,22 @@ class ChatSequencer:
                 status="pending",
                 request_payload=dict(request_payload or {}),
                 last_event_offset=0,
-                created_at=datetime.now(timezone.utc),
+                created_at=now,
             )
-            self.db.add(run)
-            if delete_from_chat_seq is not None:
-                self.db.flush()
-                remaining = (
-                    self.db.query(func.count(ChatMessage.message_id))
-                    .filter(ChatMessage.chat_id == chat_id)
-                    .scalar()
+            self.db.add_all(
+                (
+                    run,
+                    inflight.new_assistant_row(
+                        message_id=assistant_message_id,
+                        chat_id=chat_id,
+                        chat_seq=assistant_seq,
+                        run_id=run_id,
+                        model=user_message.model,
+                        created_at=now,
+                    ),
                 )
-                self.db.execute(
-                    update(ChatSession)
-                    .where(ChatSession.chat_id == chat_id)
-                    .values(message_count=remaining, updated_at=datetime.now(timezone.utc))
-                )
+            )
+            self._recount(chat_id, now)
             self.db.commit()
             self.db.refresh(run)
             return AcceptedChatRun(run=run, user_message=user_message)
@@ -302,22 +320,16 @@ class ChatSequencer:
                 last_event_offset=0,
                 created_at=now,
             )
-            self.db.add_all((user_message, run))
-            self.db.flush()
-            remaining = (
-                self.db.query(func.count(ChatMessage.message_id))
-                .filter(ChatMessage.chat_id == chat_id)
-                .scalar()
+            assistant_message = inflight.new_assistant_row(
+                message_id=assistant_message_id,
+                chat_id=chat_id,
+                chat_seq=first_seq + 1,
+                run_id=run_id,
+                model=model,
+                created_at=now,
             )
-            self.db.execute(
-                update(ChatSession)
-                .where(ChatSession.chat_id == chat_id)
-                .values(
-                    message_count=remaining,
-                    updated_at=now,
-                    last_message_at=now,
-                )
-            )
+            self.db.add_all((user_message, assistant_message, run))
+            self._recount(chat_id, now, touch_last_message=True)
             self.db.commit()
             self.db.refresh(user_message)
             self.db.refresh(run)

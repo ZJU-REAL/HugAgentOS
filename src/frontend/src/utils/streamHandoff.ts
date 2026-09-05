@@ -5,7 +5,7 @@ export interface QueuedRunHandoff {
   message: string;
   queueId: string;
   steerId: string;
-  deliveryMode: 'follow_up' | 'next_run';
+  deliveryMode: 'steer' | 'follow_up' | 'next_run';
 }
 
 /** Validate and normalize the durable handoff frame before the UI follows it. */
@@ -21,7 +21,7 @@ export function parseQueuedRunHandoff(
   const deliveryMode = event.delivery_mode;
   if (
     !runId || !messageId || !userMessageId || !message || !queueId || !steerId
-    || (deliveryMode !== 'follow_up' && deliveryMode !== 'next_run')
+    || (deliveryMode !== 'steer' && deliveryMode !== 'follow_up' && deliveryMode !== 'next_run')
   ) {
     return undefined;
   }
@@ -39,8 +39,10 @@ export function parseQueuedRunHandoff(
 /** Rebuild the same descriptor from the durable queue when the SSE projection was lost. */
 export function parseAppliedQueueHandoff(
   item: Record<string, unknown>,
+  sourceRunId?: string,
 ): QueuedRunHandoff | undefined {
-  return parseQueuedRunHandoff({
+  if (item.status !== 'applied') return undefined;
+  const handoff = parseQueuedRunHandoff({
     run_id: item.applied_run_id,
     message_id: item.applied_run_message_id,
     user_message_id: item.applied_user_message_id,
@@ -49,4 +51,8 @@ export function parseAppliedQueueHandoff(
     steer_id: item.steer_id,
     delivery_mode: item.delivery_mode,
   });
+  // A normal steer applies within its source run and is not a child to follow.
+  // Only the terminal-race fallback has a distinct applied run id.
+  if (!handoff || (sourceRunId && handoff.runId === sourceRunId)) return undefined;
+  return handoff;
 }

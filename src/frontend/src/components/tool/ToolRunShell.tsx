@@ -156,7 +156,7 @@ export function ToolRunShell({ steps, isStreaming }: ToolRunShellProps) {
           />
         </span>
         {/* keyed remount → 0.15s fade when In progress ↔ Done flips */}
-        <span key={title} className="jx-trs-title">{title}</span>
+        <span key={title} className={`jx-trs-title${running ? ' jx-trs-title--live' : ''}`}>{title}</span>
         <ShellTimer startTs={startTs} endTs={endTs} running={running} />
         {runningNote && <span className="jx-trs-note">{runningNote}</span>}
         {/* 折叠态下用户最关心的是"到底动了多少次手"，所以有工具就直接报工具数；

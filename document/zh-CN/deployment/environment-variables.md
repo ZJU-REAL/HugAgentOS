@@ -207,6 +207,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `SANDBOX_MAX_CONCURRENT` | `4` | 单进程并发沙盒执行数（预留） | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 | CE |
 | `SANDBOX_TOOLS_TIMEOUT` / `SANDBOX_TOOLS_MAX_TIMEOUT` | `30` / `120` | 单条 bash 命令默认 / 最大超时（秒） | CE |
+| `SANDBOX_IDLE_TTL_S` | `3600` | 沙盒唯一的时长参数（秒，最小 60，全 provider 共用）：服务端 TTL、空闲回收阈值、长任务保活间隔都由它推导。会话闲置超过它，先 snapshot 再释放，下轮从快照还原 | CE |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 | CE |
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner 内存上限（MB） | CE |
 | `MYSPACE_WRITE_CONFIRM` | `true`（代码默认） | 沙盒对 `/myspace` 写操作须用户带外确认 | CE |
@@ -218,16 +219,13 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `OPENSANDBOX_DOMAIN` | `http://opensandbox:8080` | OpenSandbox server 地址 |
 | `OPENSANDBOX_API_KEY` | （空 = insecure 模式） | 上生产必须填强随机串 |
 | `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest`（compose 默认；代码兜底 `opensandbox/code-interpreter:v1.0.2`） | 沙盒运行时镜像；自建镜像预装项目全部依赖（`docker/Dockerfile.opensandbox`） |
-| `OPENSANDBOX_DEFAULT_TIMEOUT_S` | `1800` | 沙盒 TTL（秒），到期未续期自动销毁 |
 | `OPENSANDBOX_READY_TIMEOUT_S` | `90` | 等沙盒就绪上限（秒） |
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | 单次 HTTP 调用超时（秒） |
 | `OPENSANDBOX_PORT` | `8910` | host 调试映射端口（容器内固定 8080） |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | Jupyter 预热池（持久会话桶） |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | 轻量桶（一次性执行） |
 | `OPENSANDBOX_POOL_MAX_TOTAL` | `20` | 全池上限（含使用中） |
-| `OPENSANDBOX_IDLE_REAP_S` | `600`（compose 默认） | 持久会话空闲主动回收阈值（秒），`<=0` 关闭 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
-| `OPENSANDBOX_IDLE_SNAPSHOT_THRESHOLD_S` | `1500` | idle 超此值后台 snapshot + kill 让出资源（须小于沙盒 TTL） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |
 | `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | `true` | myspace 直挂：把 backend `myspace_cache/{uid}` bind 进沙盒 `/workspace/myspace/{uid}`，免 HTTP PUT 同步；`false` 回退全量 PUT 路径 |
@@ -241,9 +239,8 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `CUBE_API_KEY` | （空） | 控制面鉴权（CubeSandbox 默认 `e2b_000000`） |
 | `CUBE_API_SANDBOX_DOMAIN` | `cube.app:38573` | 数据面沙盒域名（可带端口） |
 | `CUBE_TEMPLATE` | （**必填**） | 沙盒模板 id |
-| `CUBE_DEFAULT_TIMEOUT_S` / `CUBE_REQUEST_TIMEOUT_S` | `1800` / `120` | 沙盒 TTL / 单请求超时（秒） |
+| `CUBE_REQUEST_TIMEOUT_S` | `120` | 单请求超时（秒） |
 | `CUBE_CA_BUNDLE` | （空） | mkcert rootCA 容器内路径（注入 `SSL_CERT_FILE`） |
-| `CUBE_IDLE_REAP_S` | `600` | 空闲主动回收阈值（秒），`<=0` 关闭 |
 | `CUBE_POOL_MIN_IDLE` | `2` | 预热池目标空闲数，`<=0` 关闭 |
 | `CUBE_OWNER_TAG` | （空 = 关闭孤儿清扫） | 环境 owner 标签；多环境共用节点时必须各设唯一值 |
 | `CUBE_SKILL_PREPUSH` / `CUBE_SKILL_PREPUSH_MAX_MB` / `CUBE_SKILL_PREPUSH_CONCURRENCY` | `true` / `20` / `3` | 技能 tar 打包预推优化 |
@@ -300,9 +297,9 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
 | `CHAT_COMPACT_ENABLED` | `true` | 压缩总开关；关闭后历史全量回放，不生成也不消费检查点 | CE |
-| `CHAT_COMPACT_TRIGGER_RATIO` | `0.8` | 触发比例：上下文占用超过「模型窗口 × 该值」即压缩。**运行时以配置台「系统配置 → context → 轮内压缩触发比例」为准**，本变量只是默认值 | CE |
+| `CHAT_COMPACT_TRIGGER_RATIO` | `0.9` | 触发比例：上下文占用超过「模型窗口 × 该值」即压缩，实际生效值不超过窗口的 90%。占用只算请求本身（系统提示词 + 工具定义 + 历史），不含模型输出长度——输出余量由「窗口 95% 可用」统一预留。**运行时以配置台「系统配置 → context → 轮内压缩触发比例」为准**，本变量只是默认值 | CE |
 | `CHAT_COMPRESS_IN_TURN_RATIO` | （未设） | 已废弃的别名，仅在未设置 `CHAT_COMPACT_TRIGGER_RATIO` 时生效，保留给只调过轮内比例的存量部署 | CE |
-| `CHAT_COMPACT_TOKEN_LIMIT` | `0` | 直接指定触发阈值（真实 token 数）；`>0` 时优先于比例换算 | CE |
+| `CHAT_COMPACT_TOKEN_LIMIT` | `0` | 直接指定触发阈值（真实 token 数）；`>0` 时优先于比例换算，同样不得超过窗口的 90% | CE |
 | `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | 压缩后逐字保留的近期用户消息 token 预算 | CE |
 | `CHAT_COMPACT_SUMMARIZE_TIMEOUT_S` | `60` | 摘要 LLM 调用超时（秒） | CE |
 | `CHAT_TOOL_RESULT_LIMIT` | `20000` | 单条工具结果进上下文的字符上限（不调模型的确定性截断层）；超出部分由 offloader 落盘到沙箱 `/workspace/.offload`，模型可按需读回 | CE |

@@ -75,7 +75,8 @@ class ModelEnvConfig:
 class ModelConfig:
     default_model_name: str = "deepseek"  # semantic default, used by middleware
     temperature: float = 0.6
-    max_tokens: int = 8192
+    # None = 不限制输出长度，交给模型供应商自己的默认值。
+    max_tokens: Optional[int] = None
     timeout: int = 120
     env: ModelEnvConfig = field(default_factory=ModelEnvConfig)
 
@@ -197,7 +198,7 @@ def load_prompt_config(path: Optional[str] = None) -> PromptConfig:
     model = ModelConfig(
         default_model_name=str(model_raw.get("default_model_name", ModelConfig().default_model_name)),
         temperature=float(model_raw.get("temperature", ModelConfig().temperature)),
-        max_tokens=int(model_raw.get("max_tokens", ModelConfig().max_tokens)),
+        max_tokens=int(_max_tokens) if (_max_tokens := model_raw.get("max_tokens")) else None,
         timeout=int(model_raw.get("timeout", ModelConfig().timeout)),
         env=env,
     )

@@ -69,7 +69,7 @@ def test_custom_subagent_reuses_parent_session(monkeypatch):
     )
     monkeypatch.setattr("core.llm.mcp_manager.close_clients", no_op)
     monkeypatch.setattr("core.infra.redis.close_redis", no_op)
-    ok, text, _pinned = _run_subagent_in_thread(
+    ok, text, _pinned, _messages = _run_subagent_in_thread(
         "custom-1",
         "Custom",
         "do work",

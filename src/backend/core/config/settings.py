@@ -473,8 +473,8 @@ class CompactionSettings:
     trigger_ratio: float = field(
         default_factory=lambda: float(
             _env("CHAT_COMPACT_TRIGGER_RATIO", "")
-            or _env("CHAT_COMPRESS_IN_TURN_RATIO", "0.8")
-            or "0.8"
+            or _env("CHAT_COMPRESS_IN_TURN_RATIO", "0.9")
+            or "0.9"
         )
     )
     # Token budget for the recent user messages kept after compaction.
@@ -529,6 +529,14 @@ class SandboxSettings:
     max_timeout: int = field(
         default_factory=lambda: _int(_env("SANDBOX_TOOLS_MAX_TIMEOUT", "120"), 120)
     )
+    # The one lifetime parameter for sandboxes (seconds), shared by every
+    # provider: server-side TTL, the idle snapshot-then-release threshold and the
+    # keepalive interval are all derived from it. It used to be four separate
+    # knobs (opensandbox/cube x TTL/idle-reap) that could disagree, letting the
+    # shortest one reclaim a chat sandbox before the others had snapshotted it.
+    idle_ttl_s: int = field(
+        default_factory=lambda: max(60, _int(_env("SANDBOX_IDLE_TTL_S", "3600"), 3600))
+    )
     artifact_max_bytes: int = field(
         default_factory=lambda: max(
             1,
@@ -546,9 +554,6 @@ class SandboxSettings:
     opensandbox_api_key: str = field(default_factory=lambda: _env("OPENSANDBOX_API_KEY", ""))
     opensandbox_image: str = field(
         default_factory=lambda: _env("OPENSANDBOX_IMAGE", "opensandbox/code-interpreter:v1.0.2")
-    )
-    opensandbox_default_timeout_s: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_DEFAULT_TIMEOUT_S", "1800"), 1800)
     )
     opensandbox_ready_timeout_s: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_READY_TIMEOUT_S", "90"), 90)
@@ -598,33 +603,12 @@ class SandboxSettings:
     opensandbox_pool_liveness_probe_timeout_s: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_POOL_LIVENESS_PROBE_TIMEOUT_S", "5"), 5)
     )
-    # Active idle-reap threshold for persistent sessions (seconds). A chat-level
-    # persistent sandbox with no business requests beyond this value is
-    # destroyed by a background task instead of waiting for the server-side
-    # 30min TTL. <=0 disables active reaping. A hard prerequisite for keeping
-    # the pool from being saturated by idle sessions once file tools are
-    # enabled in all modes (see docs/code-execution-merge-proposal §4.2).
-    opensandbox_idle_reap_threshold_s: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_IDLE_REAP_S", "600"), 600)
-    )
     # ─── Snapshot persistence (see internal design docs) ─────────────
     # Master switch: true → enable snapshot park/restore + background worker;
     # false → fall back to the status quo (idle sandboxes are lost when reaped;
     # on reconnect, bash returns 404 if the sandbox is already dead).
     opensandbox_snapshot_enabled: bool = field(
         default_factory=lambda: _bool(_env("OPENSANDBOX_SNAPSHOT_ENABLED", "true"))
-    )
-    # When a session is idle beyond this value (seconds), the background worker
-    # proactively snapshots + kills it to free resources. Default was 300s
-    # (5min). Must be < opensandbox_default_timeout_s (1800), otherwise GC gets
-    # there first. Plan F Q2 coordination: default raised from 300s (5 min) to
-    # 1500s (25 min), aligned with the OpenSandbox server-side sandbox TTL
-    # (opensandbox_default_timeout_s default 1800s = 30 min). With the old
-    # value, a typical user reading a response for 5 minutes got repeatedly
-    # snapshot+killed and rebuilt (measured ~21s restore) — very poor UX. The
-    # new value gives the Q2 idle pool ample time to handle short-term reuse.
-    opensandbox_idle_snapshot_threshold_s: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_IDLE_SNAPSHOT_THRESHOLD_S", "1500"), 1500)
     )
     # Snapshot retention in the DB (days); expired ones are deleted by the GC worker (DB row + opensandbox side).
     opensandbox_snapshot_retention_days: int = field(
@@ -745,19 +729,11 @@ class SandboxSettings:
     )
     # Required: sandbox template id (CubeSandbox requires it when creating a sandbox)
     cube_template: str = field(default_factory=lambda: _env("CUBE_TEMPLATE", "").strip())
-    # Sandbox TTL (seconds); CubeMaster does not yet support set_timeout renewal, so this is the at-creation upper bound
-    cube_default_timeout_s: int = field(
-        default_factory=lambda: _int(_env("CUBE_DEFAULT_TIMEOUT_S", "1800"), 1800)
-    )
     cube_request_timeout_s: int = field(
         default_factory=lambda: _int(_env("CUBE_REQUEST_TIMEOUT_S", "120"), 120)
     )
     # mkcert rootCA bundle (in-container path); when non-empty, injects SSL_CERT_FILE so the SDK trusts the self-signed cert
     cube_ca_bundle: str = field(default_factory=lambda: _env("CUBE_CA_BUNDLE", "").strip())
-    # Active idle-reap threshold for session sandboxes (seconds); <=0 disables active reaping (rely on CubeSandbox's built-in TTL)
-    cube_idle_reap_threshold_s: int = field(
-        default_factory=lambda: _int(_env("CUBE_IDLE_REAP_S", "600"), 600)
-    )
     # Warm-pool target idle count: refilled in the background to this value on
     # startup / after each take, so a new session's first run gets a warm
     # sandbox, skipping AsyncSandbox.create's MicroVM cold start (~10s). <=0

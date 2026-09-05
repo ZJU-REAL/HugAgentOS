@@ -117,29 +117,36 @@ def resolve_enabled_capabilities(
 ):
     """Resolve effective enabled capabilities, merging request overrides with DB state."""
     if request_skills is not None and request_agents is not None and request_mcps is not None:
-        return request_skills, request_agents, _apply_desktop_cloud_bridge(request_mcps)
+        return (
+            _apply_desktop_cloud_bridge(request_skills, "skill"),
+            request_agents,
+            _apply_desktop_cloud_bridge(request_mcps, "mcp"),
+        )
 
     # resolve_all_runtime_enabled 的结果已含桌面双端桥合并（见 catalog_resolver），
-    # 这里只需对「前端显式覆写 MCP 清单」的路径补同一处理。
+    # 这里只需对「前端显式覆写技能 / MCP 清单」的路径补同一处理。
     db_skills, db_agents, db_mcps = resolve_all_runtime_enabled(db, user_id)
     return (
-        request_skills if request_skills is not None else db_skills,
+        _apply_desktop_cloud_bridge(request_skills, "skill")
+        if request_skills is not None
+        else db_skills,
         request_agents if request_agents is not None else db_agents,
-        _apply_desktop_cloud_bridge(request_mcps) if request_mcps is not None else db_mcps,
+        _apply_desktop_cloud_bridge(request_mcps, "mcp") if request_mcps is not None else db_mcps,
     )
 
 
-def _apply_desktop_cloud_bridge(mcps):
-    """双端桌面本机后端：合并云端授权 MCP、抑制被云端接管的本机同名实现。
+def _apply_desktop_cloud_bridge(ids, kind: str):
+    """双端桌面本机后端：合并云端授权 MCP / 技能、抑制被云端接管的本机同名实现。
 
     云端部署 / 纯本机模式下桥未激活，原样返回（零行为变化）。
     """
     try:
-        from core.services.desktop_cloud_bridge import apply_to_enabled_mcp_ids
+        from core.services import desktop_cloud_bridge as bridge
 
-        return apply_to_enabled_mcp_ids(list(mcps) if mcps is not None else None)
+        apply = bridge.apply_to_enabled_skill_ids if kind == "skill" else bridge.apply_to_enabled_mcp_ids
+        return apply(list(ids) if ids is not None else None)
     except Exception:  # noqa: BLE001 - 桥故障不能影响会话装配
-        return mcps
+        return ids
 
 
 def build_runtime_context(

@@ -11,16 +11,17 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
+from core.db.models import AdminMcpServer
+from core.db.model_repository import assign_role, create_provider
 from core.services import desktop_capability as cap
 from core.services import desktop_cloud_bridge as bridge
-from core.db.model_repository import assign_role, create_provider
+from core.services.desktop_capability_protocol import build_manifest, canonical_hash
 from sqlalchemy.orm import sessionmaker
 
 
 # ── capability token ────────────────────────────────────────────────────
-
-
-import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -176,7 +177,8 @@ def _activate_bridge(monkeypatch, servers):
     """把桥置为激活态并注入假 manifest（绕开网络与 DB）。"""
     monkeypatch.delenv("DESKTOP_CLOUD_MCP_BRIDGE_ENABLED", raising=False)
     monkeypatch.setattr(bridge, "bridge_enabled", lambda: True)
-    monkeypatch.setattr(bridge, "get_cached_manifest", lambda: {"servers": servers})
+    manifest = build_manifest(servers)
+    monkeypatch.setattr(bridge, "get_cached_manifest", lambda: manifest)
     monkeypatch.setattr(
         bridge,
         "get_state",
@@ -199,16 +201,48 @@ def _activate_bridge(monkeypatch, servers):
     )
 
 
+def _cloud_server(server_id, component, tool_name):
+    tools = [
+        {
+            "name": tool_name,
+            "description": f"Dynamic schema for {tool_name}",
+            "inputSchema": {"type": "object", "properties": {}},
+        }
+    ]
+    return {
+        "server_id": server_id,
+        "component": component,
+        "tools": tools,
+        "schema_hash": canonical_hash(tools),
+    }
+
+
 _CLOUD_SERVERS = [
-    {"server_id": "internet_search", "component": "internet_search"},
+    _cloud_server("internet_search", "internet_search", "internet_search"),
     {
         "server_id": "industry-knowledge-center-ai_chain_information_mcp",
         "component": "ai_chain_information_mcp",
+        "tools": [
+            {
+                "name": "ai_chain_information",
+                "description": "Query industry knowledge",
+                "inputSchema": {"type": "object", "properties": {}},
+            }
+        ],
+        "schema_hash": canonical_hash(
+            [
+                {
+                    "name": "ai_chain_information",
+                    "description": "Query industry knowledge",
+                    "inputSchema": {"type": "object", "properties": {}},
+                }
+            ]
+        ),
     },
-    {"server_id": "skill-manager-skill_manager", "component": "skill_manager"},
+    _cloud_server("skill-manager-skill_manager", "skill_manager", "skill_manager"),
     # KEEP 基名：云端也有 site_publish / batch_runner，但本机保留，不得合并
-    {"server_id": "sites-site_publish", "component": "site_publish"},
-    {"server_id": "batch_runner", "component": "batch_runner"},
+    _cloud_server("sites-site_publish", "site_publish", "site_publish"),
+    _cloud_server("batch_runner", "batch_runner", "run_batch"),
 ]
 
 
@@ -256,8 +290,12 @@ def test_cloud_gateway_configs_shape(monkeypatch):
     assert sid in cfgs
     cfg = cfgs[sid]
     assert cfg["transport"] == "streamable_http"
-    assert cfg["url"] == f"https://cloud.example/api/v1/desktop/capability/gateway/{sid}/mcp"
+    assert cfg["url"] == f"https://cloud.example/api/v1/desktop/capability/gateway/{sid}/call"
     assert cfg["headers"]["Authorization"].startswith("Bearer ")
+    assert cfg["schema_source"] == "cloud_manifest"
+    assert cfg["manifest_revision"]
+    assert cfg["manifest_tools"][0]["name"] == "ai_chain_information"
+    assert cfg["schema_hash"]
     # KEEP 基名不生成云端配置
     assert "sites-site_publish" not in cfgs
     assert "batch_runner" not in cfgs
@@ -268,3 +306,149 @@ def test_keep_local_bases_env_override(monkeypatch):
     assert bridge.keep_local_bases() == {"batch_runner", "foo_bar"}
     monkeypatch.delenv("DESKTOP_LOCAL_MCP_KEEP")
     assert "site_publish" in bridge.keep_local_bases()
+
+
+def test_bridge_account_switch_clears_previous_manifest(monkeypatch):
+    from core.db import engine
+
+    monkeypatch.setattr(
+        bridge,
+        "_state",
+        {
+            "cloud_base": "https://cloud-a.example",
+            "token": "token-a",
+            "expires_at": time.time() + 3600,
+        },
+    )
+    monkeypatch.setattr(bridge, "_state_loaded", True)
+    monkeypatch.setattr(bridge, "_manifest", build_manifest([]))
+    monkeypatch.setattr(bridge, "_manifest_ts", 123.0)
+    monkeypatch.setattr(bridge, "_manifest_error", "old error")
+    refreshed = []
+    monkeypatch.setattr(
+        bridge,
+        "_refresh_manifest_async",
+        lambda force=False: refreshed.append(force),
+    )
+    monkeypatch.setattr(
+        engine,
+        "SessionLocal",
+        lambda: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    )
+
+    bridge.set_state("https://cloud-b.example", "token-b", 3600)
+
+    assert bridge._manifest is None
+    assert bridge._manifest_ts == 0.0
+    assert bridge._manifest_error is None
+    assert refreshed == [True]
+
+
+def test_capability_manifest_contains_current_sanitized_schemas(monkeypatch, db_session):
+    _use_test_database(monkeypatch, db_session)
+    row = AdminMcpServer(
+        server_id="private-search",
+        display_name="Private Search",
+        description="Search without exposing its credential",
+        transport="streamable_http",
+        url="https://mcp.example/mcp?api_key=must-not-leak",
+        headers={"Authorization": "encrypted-secret"},
+        is_stable=False,
+        is_enabled=True,
+        tools_json=[
+            {
+                "name": "search",
+                "description": "Search documents",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+                "annotations": {
+                    "readOnlyHint": True,
+                    "privateExtension": "must-not-leak",
+                },
+                "credential": "must-not-leak",
+            }
+        ],
+    )
+    db_session.add(row)
+    db_session.commit()
+    monkeypatch.setattr(
+        cap,
+        "_user_effective_configs",
+        lambda _uid: (
+            ["private-search"],
+            {
+                "private-search": {
+                    "transport": "streamable_http",
+                    "url": row.url,
+                    "headers": {"Authorization": "real-secret"},
+                }
+            },
+        ),
+    )
+
+    manifest = cap.build_user_capability_manifest("user-1")
+
+    assert manifest["version"] == 2
+    assert len(manifest["revision"]) == 64
+    server = manifest["servers"][0]
+    assert len(server["schema_hash"]) == 64
+    assert server["tools"][0]["inputSchema"]["required"] == ["query"]
+    assert server["tools"][0]["annotations"] == {"readOnlyHint": True}
+    serialized = __import__("json").dumps(manifest)
+    assert "must-not-leak" not in serialized
+    assert "real-secret" not in serialized
+    assert "mcp.example" not in serialized
+
+
+def test_resolve_gateway_tool_rejects_a_stale_schema(monkeypatch, db_session):
+    from core.services.desktop_capability_protocol import CapabilityManifestStaleError
+
+    _use_test_database(monkeypatch, db_session)
+    tools = [
+        {
+            "name": "allowed_tool",
+            "description": "Allowed tool",
+            "inputSchema": {"type": "object", "properties": {}},
+        }
+    ]
+    db_session.add(
+        AdminMcpServer(
+            server_id="allowed-server",
+            display_name="Allowed",
+            description="",
+            transport="streamable_http",
+            url="https://mcp.example/mcp",
+            is_stable=False,
+            is_enabled=True,
+            tools_json=tools,
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        cap,
+        "resolve_gateway_target",
+        lambda uid, sid, **kwargs: (
+            {"transport": "streamable_http", "url": "https://mcp.example/mcp"}
+            if (uid, sid, kwargs.get("fresh"))
+            == ("user-1", "allowed-server", True)
+            else None
+        ),
+    )
+
+    resolved = cap.resolve_gateway_tool(
+        "user-1",
+        "allowed-server",
+        "allowed_tool",
+        schema_hash=canonical_hash(tools),
+    )
+    assert resolved is not None
+    with pytest.raises(CapabilityManifestStaleError):
+        cap.resolve_gateway_tool(
+            "user-1",
+            "allowed-server",
+            "allowed_tool",
+            schema_hash="0" * 64,
+        )

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import type { WikiGraphData, WikiGraphNode } from '../../types';
-import { graphStyleOf as styleOf } from './wikiGraphTheme';
+import { graphStyleOf, type GraphTypeStyle } from './wikiGraphTheme';
 
 /**
  * 概念图谱可视化：交互式 SVG 力导向图（渲染逻辑移植自 WeKnora WikiBrowser）。
@@ -29,6 +29,10 @@ interface ConceptGraphProps {
   onExpandNode?: (node: WikiGraphNode) => void;
   /** 点击空白处：外部清除选中、关抽屉 */
   onClearSelect?: () => void;
+  /** 节点配色解析；不给就用知识库那套按页面类型的配色 */
+  styleOf?: (type: string) => GraphTypeStyle;
+  /** 在边的中点画 edge.label；关系动词是实体关系图谱的主要信息，概念图谱不需要 */
+  showEdgeLabels?: boolean;
 }
 
 export interface ConceptGraphHandle {
@@ -58,6 +62,10 @@ interface NodeEl {
 
 interface EdgeEl {
   line: SVGLineElement;
+  /** 关系名文字，仅 showEdgeLabels 时创建 */
+  label?: SVGTextElement;
+  /** 关系名在当前高亮态下的目标不透明度；缩得太小时整体压成 0 */
+  labelOpacity: number;
   source: string;
   target: string;
 }
@@ -84,12 +92,32 @@ function setEdgePositions(line: SVGLineElement, s: GNode, t: GNode): void {
   line.setAttribute('y2', String(t.y - uy * rT));
 }
 
+/** 边线 + 关系名一起摆位；关系名压在中点上方一点，避免盖住线本身 */
+function setEdgeGeometry(e: EdgeEl, s: GNode, t: GNode): void {
+  setEdgePositions(e.line, s, t);
+  if (!e.label) return;
+  e.label.setAttribute('x', String((s.x + t.x) / 2));
+  e.label.setAttribute('y', String((s.y + t.y) / 2 - 4));
+}
+
 export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
   function ConceptGraph(
-    { data, centerSlug, selectedSlug, onSelectNode, onExpandNode, onClearSelect },
+    {
+      data,
+      centerSlug,
+      selectedSlug,
+      onSelectNode,
+      onExpandNode,
+      onClearSelect,
+      styleOf: styleOfProp,
+      showEdgeLabels,
+    },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
+    const styleOf = styleOfProp || graphStyleOf;
+    // 关系名同时受「高亮态」和「当前缩放」两套规则约束，合并到一处上色避免互相覆盖
+    const edgeLabelsVisibleRef = useRef(true);
 
     // 图状态跨 render 存活；React 只负责挂容器，SVG 全部命令式维护
     const nodesRef = useRef<GNode[]>([]);
@@ -110,6 +138,11 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
     const hoveredRef = useRef<string | null>(null);
     const cbRef = useRef({ onSelectNode, onExpandNode, onClearSelect });
     cbRef.current = { onSelectNode, onExpandNode, onClearSelect };
+
+    const paintEdgeLabel = (e: EdgeEl) => {
+      if (!e.label) return;
+      e.label.style.opacity = String(edgeLabelsVisibleRef.current ? e.labelOpacity : 0);
+    };
 
     const applyHighlight = (slug: string, hoverSlug?: string) => {
       const adjacency = adjacencyRef.current;
@@ -156,11 +189,14 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
           e.line.setAttribute('stroke-opacity', '0.9');
           e.line.setAttribute('stroke-width', '2');
           e.line.setAttribute('stroke', focusColorOf(focusSlug));
+          e.labelOpacity = 1;
         } else {
           e.line.setAttribute('stroke-opacity', '0.08');
           e.line.setAttribute('stroke-width', '1');
           e.line.setAttribute('stroke', EDGE_COLOR);
+          e.labelOpacity = 0.08;
         }
+        paintEdgeLabel(e);
       }
     };
 
@@ -179,6 +215,8 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
         e.line.setAttribute('stroke', EDGE_COLOR);
         e.line.setAttribute('stroke-width', '1.2');
         e.line.setAttribute('stroke-opacity', '0.4');
+        e.labelOpacity = 0.85;
+        paintEdgeLabel(e);
       }
     };
 
@@ -298,7 +336,24 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
         line.setAttribute('stroke-opacity', '0.4');
         line.style.transition = 'stroke 0.2s, stroke-width 0.2s, stroke-opacity 0.2s';
         edgeG.appendChild(line);
-        edgeEls.push({ line, source: edge.source, target: edge.target });
+        let label: SVGTextElement | undefined;
+        if (showEdgeLabels && edge.label) {
+          label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          label.setAttribute('text-anchor', 'middle');
+          label.setAttribute('class', 'jx-wikiGraphEdgeLabel');
+          label.setAttribute('pointer-events', 'none');
+          label.style.transition = 'opacity 0.2s';
+          label.textContent =
+            edge.label.length > 10 ? `${edge.label.substring(0, 10)}…` : edge.label;
+          edgeG.appendChild(label);
+        }
+        edgeEls.push({
+          line,
+          label,
+          labelOpacity: 0.85,
+          source: edge.source,
+          target: edge.target,
+        });
       }
       edgeElsRef.current = edgeEls;
 
@@ -451,7 +506,7 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
               if (edge.source !== n.slug && edge.target !== n.slug) continue;
               const sn = nodeMap.get(edge.source);
               const tn = nodeMap.get(edge.target);
-              if (sn && tn) setEdgePositions(edge.line, sn, tn);
+              if (sn && tn) setEdgeGeometry(edge, sn, tn);
             }
           };
           const onEnd = () => {
@@ -491,6 +546,9 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
           else if (node.linkCount > 2) threshold = 0.45;
           text.style.opacity = scale < threshold ? '0' : '1';
         }
+        // 关系名比节点名更密，缩到半屏以下就整体收起，否则线上全是糊字
+        edgeLabelsVisibleRef.current = scale >= 0.6;
+        for (const e of edgeEls) paintEdgeLabel(e);
       };
 
       const applyTransform = () => {
@@ -673,7 +731,7 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
         for (const e of edgeEls) {
           const s = nodeMap.get(e.source);
           const t = nodeMap.get(e.target);
-          if (s && t) setEdgePositions(e.line, s, t);
+          if (s && t) setEdgeGeometry(e, s, t);
         }
 
         animFrameRef.current = requestAnimationFrame(tick);
@@ -685,7 +743,7 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
       for (const e of edgeEls) {
         const s = nodeMap.get(e.source);
         const t = nodeMap.get(e.target);
-        if (s && t) setEdgePositions(e.line, s, t);
+        if (s && t) setEdgeGeometry(e, s, t);
       }
       applyTransform();
       if (selectedRef.current && nodeMap.has(selectedRef.current)) {

@@ -825,6 +825,9 @@ class StreamingAgent:
         if nm == "ModelCallStartEvent":
             # Marks the wire as "waiting on the model" — see _model_call_inflight.
             self._model_call_inflight = True
+            # Agent construction and manifest-backed tool assembly happen before
+            # this event. Surface the provider-dispatch boundary accurately.
+            yield ("model_call_start", None)
             return
 
         if nm == "ModelCallEndEvent":

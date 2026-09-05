@@ -22,6 +22,7 @@ import './projects.css';
 import './admin.css';
 import './ontology.css';
 import './evolution.css';
+import './memory-graph.css';
 import './onboarding.css';
 import './apidoc.css';
 import './share-preview.css';

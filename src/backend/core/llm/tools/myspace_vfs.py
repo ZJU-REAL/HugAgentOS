@@ -877,10 +877,15 @@ def glob_tree(
 
     recursive = "**" in pattern
     pat = pattern.replace("**", "*")
+    # ``**/`` 按惯例也匹配零层目录（pathlib / Claude Code 的 Glob 都是如此），所以再拿
+    # 去掉开头 ``*/`` 的形式比一次，让 ``**/*.txt`` 也命中根下的文件。这里必须切片而不是
+    # lstrip("*/") —— 后者按字符集剥，会把 ``*/*.txt`` 一路啃成 ``.txt``，于是根下的文件
+    # 一个都匹配不上，而调用方只会看到一个空列表、不会看到任何错误。
+    flat = pat[2:] if pat.startswith("*/") else pat
     hits: list[str] = []
     for rel_path, _art in entries:
         if recursive:
-            if fnmatch.fnmatch(rel_path, pat) or fnmatch.fnmatch(rel_path, pat.lstrip("*/")):
+            if fnmatch.fnmatch(rel_path, pat) or fnmatch.fnmatch(rel_path, flat):
                 hits.append(f"{base}/{rel_path}")
         else:
             if "/" in rel_path:

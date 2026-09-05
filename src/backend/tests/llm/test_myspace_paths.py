@@ -32,3 +32,18 @@ def test_split_rel():
     assert split_rel("") == ([], None)
     assert split_rel("/") == ([], None)
     assert split_rel("a//b.txt") == (["a"], "b.txt")
+
+
+def test_logical_myspace_path_passes_workspace_validation():
+    """publish_site 收到的 /myspace/... 必须先翻成物理路径才过得了工作区校验。
+
+    模型拿不到自己的 uid，只会写 /myspace/<项目>；直接送进校验会被判成"不在
+    /workspace/ 下"而报错，逼得技能文档去写填不出来的 <uid> 占位符。
+    """
+    from core.llm.tools._paths import to_physical_path
+    from core.llm.tools._tool_helpers import _validate_workspace_path
+
+    assert _validate_workspace_path("/myspace/site-a/") is not None
+    physical = to_physical_path("/myspace/site-a", "u1")
+    assert physical == "/workspace/myspace/u1/site-a"
+    assert _validate_workspace_path(physical + "/") is None

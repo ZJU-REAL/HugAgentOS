@@ -63,12 +63,14 @@ def test_terminal_commit_atomically_transfers_writer_and_sequence(harness_sessio
     prepared: dict = {}
 
     def commit_output_and_handoff(db) -> None:
-        ChatService(db).add_message(
+        # 助手行在接纳时已存在，worker 的定稿是一次 upsert。
+        ChatService(db).upsert_message(
             chat_id="chat-1",
             role="assistant",
             content="first answer",
             message_id=accepted.run.message_id,
             chat_seq=accepted.run.assistant_chat_seq,
+            extra_data={},
             commit=False,
         )
         handoff = executor._commit_queued_handoff_in_session(
@@ -110,6 +112,7 @@ def test_terminal_commit_atomically_transfers_writer_and_sequence(harness_sessio
             (1, "user", "first turn"),
             (2, "assistant", "first answer"),
             (3, "user", "queued follow-up"),
+            (4, "assistant", ""),
         ]
         with pytest.raises(ChatBusyError):
             ChatSequencer(db).accept_main_run(
@@ -118,6 +121,75 @@ def test_terminal_commit_atomically_transfers_writer_and_sequence(harness_sessio
                 user_content="must remain fenced",
                 request_payload={"kind": "chat"},
             )
+
+
+def test_terminal_commit_hands_late_steer_to_successor_run(harness_sessions, monkeypatch):
+    """A steer accepted after the final model boundary must not be stranded."""
+
+    sessions = harness_sessions
+    with sessions() as db:
+        accepted = ChatSequencer(db).accept_main_run(
+            chat_id="chat-1",
+            user_id="user-1",
+            user_content="first turn",
+            request_payload={"kind": "chat"},
+        )
+
+    journal = RunJournal(sessions)
+    owner = "late-steer-finisher"
+    assert journal.claim(accepted.run.run_id, owner=owner, lease_seconds=90)
+
+    # The worker has already crossed its final model/tool boundary, but the
+    # run still reports running until the terminal transaction commits.
+    queued = SteerQueue(sessions).accept(
+        target_run_id=accepted.run.run_id,
+        chat_id="chat-1",
+        user_id="user-1",
+        steer_id="late-steer",
+        message="answer this instead",
+        delivery_mode="steer",
+        replace_latest=False,
+    )
+    prepared: dict = {}
+
+    def commit_output_and_handoff(db) -> None:
+        handoff = executor._commit_queued_handoff_in_session(
+            db,
+            source_run_id=accepted.run.run_id,
+            chat_id="chat-1",
+            user_id="user-1",
+            session_messages=[{"role": "user", "content": "first turn"}],
+            assistant_content="first answer",
+            context={"chat_id": "chat-1", "user_id": "user-1"},
+            model_name="test-model",
+        )
+        assert handoff is not None
+        prepared.update(handoff)
+
+    assert journal.complete(
+        accepted.run.run_id,
+        owner=owner,
+        status="completed",
+        commit_effect=commit_output_and_handoff,
+    )
+
+    with sessions() as db:
+        source = db.get(ChatRun, accepted.run.run_id)
+        successor = db.get(ChatRun, prepared["run_id"])
+        queue_row = db.get(ChatSteerQueueItem, queued.queue_id)
+        assert (source.status, source.writer_slot) == ("completed", None)
+        assert (successor.status, successor.writer_slot) == ("pending", "main")
+        assert queue_row.status == "applied"
+        assert queue_row.applied_run_id == successor.run_id
+        assert successor.recovery_snapshot["worker_args"]["raw_user_message"] == queued.message
+
+    from core.services import chat_steer_service
+
+    monkeypatch.setattr(chat_steer_service, "SessionLocal", sessions)
+    payload = chat_steer_service.list_run_steers(accepted.run.run_id)[0]
+    assert payload["applied_run_message_id"] == successor.message_id
+    assert payload["applied_user_message_id"] == prepared["user_message_id"]
+    assert payload["applied_run_status"] == "pending"
 
 
 @pytest.mark.asyncio

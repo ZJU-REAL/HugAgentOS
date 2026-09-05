@@ -120,12 +120,12 @@ bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/s
 
 1. 先 `glob('/myspace/<项目文件夹名>/', '**/*')` 看现有文件。
 2. **看到 `package.json` = React 构建型工程**：
-   - 先跑 `bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /workspace/myspace/<uid>/<项目文件夹名>`
+   - 先跑 `bash "${SITE_TEMPLATE_HOME:-/opt/site-template}/init-react-site.sh" /myspace/<项目文件夹名>`
      自愈依赖环境（幂等，重开会话后 node_modules 链接可能已失效，必跑）；
    - **只改源码**（`src/` 等原文件增量改），禁止直接改产物、禁止另起新站；
    - 改完 `npm run build` → `publish_site(title=...,
      src_dir='/workspace/.site-dist/<项目文件夹名>',
-     source_dir='/workspace/myspace/<uid>/<项目文件夹名>')`。
+     source_dir='/myspace/<项目文件夹名>')`。
 3. **没有 `package.json` = 老静态站**：在原文件上增量改，改完直接
    `publish_site(title='站点名称')`（后端按会话绑定项目自动定位，URL 不变、版本 +1）。
    返回里的 `packed_dir` 用于确认打包目录正确。

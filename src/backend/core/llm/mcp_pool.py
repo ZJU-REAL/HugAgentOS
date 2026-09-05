@@ -42,8 +42,7 @@ from threading import Lock
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from agentscope.mcp import HttpMCPConfig, MCPClient, StdioMCPConfig
-from agentscope.tool import Toolkit
-from core.llm.mcp_manager import BareNameMCPClient
+from core.llm.mcp_manager import BareNameMCPClient, ManifestMCPClient
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,24 @@ def is_http_cfg(cfg: dict) -> bool:
     return cfg.get("transport") in HTTP_TRANSPORTS
 
 
+def uses_manifest_schema(cfg: dict) -> bool:
+    """Return whether a config contains a complete dynamic cloud manifest."""
+    tools = cfg.get("manifest_tools")
+    return bool(
+        cfg.get("schema_source") == "cloud_manifest"
+        and str(cfg.get("gateway_invoke_url") or "").strip()
+        and str(cfg.get("schema_hash") or "").strip()
+        and isinstance(tools, list)
+        and tools
+        and all(
+            isinstance(tool, dict)
+            and bool(str(tool.get("name") or "").strip())
+            and isinstance(tool.get("inputSchema"), dict)
+            for tool in tools
+        )
+    )
+
+
 def make_client(
     name: str,
     cfg: dict,
@@ -103,16 +120,29 @@ def make_client(
         # HTTPStatusError outright and triggers an anyio cancel-scope crash. Strip the
         # trailing slash to match the server's canonical form and avoid the redirect.
         _url = (cfg.get("url") or "").rstrip("/")
-        return client_cls(
-            name=name,
-            is_stateful=is_stateful,
-            oauth_provider=cfg.get("oauth_provider"),
-            mcp_config=HttpMCPConfig(
+        client_kwargs = {
+            "name": name,
+            "is_stateful": is_stateful,
+            "oauth_provider": cfg.get("oauth_provider"),
+            "mcp_config": HttpMCPConfig(
                 url=_url,
                 headers=cfg.get("headers") or None,
                 timeout=_http_transport_timeout(name, cfg, execution_timeout),
             ),
-            execution_timeout=execution_timeout,
+            "execution_timeout": execution_timeout,
+        }
+        if cfg.get("schema_source") == "cloud_manifest":
+            if not uses_manifest_schema(cfg):
+                raise ValueError(f"MCP '{name}' has an invalid cloud capability manifest")
+            return ManifestMCPClient(
+                **client_kwargs,
+                manifest_tools=list(cfg["manifest_tools"]),
+                gateway_invoke_url=str(cfg["gateway_invoke_url"]),
+                schema_hash=str(cfg["schema_hash"]),
+                gateway_transport=cfg.get("gateway_transport"),
+            )
+        return client_cls(
+            **client_kwargs,
         )
     return client_cls(
         name=name,

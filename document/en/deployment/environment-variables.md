@@ -209,6 +209,7 @@ the database has no value.
 | `SANDBOX_MAX_CONCURRENT` | `4` | Concurrent sandbox executions per backend process (reserved) | CE |
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address | CE |
 | `SANDBOX_TOOLS_TIMEOUT` / `SANDBOX_TOOLS_MAX_TIMEOUT` | `30` / `120` | Default / maximum timeout per bash command (s) | CE |
+| `SANDBOX_IDLE_TTL_S` | `3600` | The one sandbox lifetime parameter (s, minimum 60, shared by every provider): server-side TTL, the idle reclaim threshold and the keepalive interval are all derived from it. A session idle beyond it is snapshotted, then released, and restored from the snapshot on the next turn | CE |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Single switch for sandbox file size (100 MiB): fetch, auto-collected artifacts, push-in, and `/myspace` write-back share it | CE |
 | `SANDBOX_TOOLS_MAX_MEMORY` | `256` | script_runner memory cap (MB) | CE |
 | `MYSPACE_WRITE_CONFIRM` | `true` (code default) | Sandbox writes to `/myspace` require out-of-band user confirmation | CE |
@@ -220,16 +221,13 @@ the database has no value.
 | `OPENSANDBOX_DOMAIN` | `http://opensandbox:8080` | OpenSandbox server address |
 | `OPENSANDBOX_API_KEY` | (empty = insecure mode) | Must be a strong random string in production |
 | `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest` (compose default; code fallback `opensandbox/code-interpreter:v1.0.2`) | Sandbox runtime image; the custom image pre-installs all project dependencies (`docker/Dockerfile.opensandbox`) |
-| `OPENSANDBOX_DEFAULT_TIMEOUT_S` | `1800` | Sandbox TTL (s); destroyed when expired without renewal |
 | `OPENSANDBOX_READY_TIMEOUT_S` | `90` | Maximum wait for sandbox readiness (s) |
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | Per-HTTP-call timeout (s) |
 | `OPENSANDBOX_PORT` | `8910` | Host debug port mapping (fixed 8080 in-container) |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3; compose defaults 2/3 | Jupyter warm pool (persistent-session bucket) |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | Light bucket (one-shot executions) |
 | `OPENSANDBOX_POOL_MAX_TOTAL` | `20` | Pool ceiling (idle + in use) |
-| `OPENSANDBOX_IDLE_REAP_S` | `600` (compose default) | Idle reap threshold for persistent sessions (s); `<=0` disables |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | Snapshot persistence master switch (snapshot+kill when idle, restore on reconnect) |
-| `OPENSANDBOX_IDLE_SNAPSHOT_THRESHOLD_S` | `1500` | Idle beyond this triggers background snapshot + kill (must be below the sandbox TTL) |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | Snapshot retention (GC sweeps expired rows) |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | Maximum poll for snapshot readiness (s) |
 | `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | `true` | Direct myspace mount: binds the backend `myspace_cache/{uid}` into the sandbox at `/workspace/myspace/{uid}`, avoiding HTTP PUT sync; `false` falls back to the full-PUT path |
@@ -243,9 +241,8 @@ the database has no value.
 | `CUBE_API_KEY` | (empty) | Control-plane auth (CubeSandbox default `e2b_000000`) |
 | `CUBE_API_SANDBOX_DOMAIN` | `cube.app:38573` | Data-plane sandbox domain (port allowed) |
 | `CUBE_TEMPLATE` | (**required**) | Sandbox template id |
-| `CUBE_DEFAULT_TIMEOUT_S` / `CUBE_REQUEST_TIMEOUT_S` | `1800` / `120` | Sandbox TTL / per-request timeout (s) |
+| `CUBE_REQUEST_TIMEOUT_S` | `120` | Per-request timeout (s) |
 | `CUBE_CA_BUNDLE` | (empty) | mkcert rootCA path inside the container (injected as `SSL_CERT_FILE`) |
-| `CUBE_IDLE_REAP_S` | `600` | Idle reap threshold (s); `<=0` disables |
 | `CUBE_POOL_MIN_IDLE` | `2` | Warm-pool idle target; `<=0` disables |
 | `CUBE_OWNER_TAG` | (empty = orphan sweep off) | Environment owner tag; must be unique per environment when sharing one cube node |
 | `CUBE_SKILL_PREPUSH` / `CUBE_SKILL_PREPUSH_MAX_MB` / `CUBE_SKILL_PREPUSH_CONCURRENCY` | `true` / `20` / `3` | Skill tar-packaging prepush optimization |
@@ -306,9 +303,9 @@ estimate only when it is not.
 | Variable | Default | Description | Edition |
 |---|---|---|---|
 | `CHAT_COMPACT_ENABLED` | `true` | Master switch; when off, history is replayed in full and no checkpoint is produced or consumed | CE |
-| `CHAT_COMPACT_TRIGGER_RATIO` | `0.8` | Trigger ratio: compact once occupancy exceeds `model window × this value`. **The runtime authority is the admin console's "System config → context → in-turn compaction trigger ratio"**; this variable is only the default | CE |
+| `CHAT_COMPACT_TRIGGER_RATIO` | `0.9` | Trigger ratio: compact once occupancy exceeds `model window × this value`, capped at 90% of the window. Occupancy counts the request itself (system prompt + tool schemas + history) and never the model's output length — output headroom is the single 95%-usable-window allowance. **The runtime authority is the admin console's "System config → context → in-turn compaction trigger ratio"**; this variable is only the default | CE |
 | `CHAT_COMPRESS_IN_TURN_RATIO` | (unset) | Deprecated alias, honoured only when `CHAT_COMPACT_TRIGGER_RATIO` is unset, so deployments that only ever tuned the in-turn knob keep their tuning | CE |
-| `CHAT_COMPACT_TOKEN_LIMIT` | `0` | Absolute trigger threshold in real tokens; takes precedence over the ratio when `> 0` | CE |
+| `CHAT_COMPACT_TOKEN_LIMIT` | `0` | Absolute trigger threshold in real tokens; takes precedence over the ratio when `> 0`, and is likewise capped at 90% of the window | CE |
 | `CHAT_COMPACT_RECENT_USER_MAX_TOKENS` | `20000` | Token budget of the recent user messages kept verbatim after compaction | CE |
 | `CHAT_COMPACT_SUMMARIZE_TIMEOUT_S` | `60` | Summarisation LLM call timeout (seconds) | CE |
 | `CHAT_TOOL_RESULT_LIMIT` | `20000` | Per-tool-result character cap entering the context (the deterministic, model-free layer); the overflow is spilled by the offloader to `/workspace/.offload` in the sandbox, where the model can read it back on demand | CE |

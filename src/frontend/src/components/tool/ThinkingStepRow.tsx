@@ -46,7 +46,9 @@ export function ThinkingStepRow({ content, active }: ThinkingStepRowProps) {
           }
         </span>
         <span className="jx-tcr-label">
-          <span className="jx-tcr-prefix">{active ? t('正在思考…') : t('思考')}</span>
+          <span className={`jx-tcr-prefix${active ? ' jx-tcr-prefix--shimmer' : ''}`}>
+            {active ? t('正在思考…') : t('思考')}
+          </span>
         </span>
         {canExpand && (
           <span className={`jx-tcr-arrow${expanded ? ' jx-tcr-arrow--open' : ''}`} />

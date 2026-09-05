@@ -3,9 +3,12 @@
 云端侧（部署在云端 / 预发 / 生产后端）：
   POST /v1/desktop/capability/token                  会话换取短时 capability token
   GET  /v1/desktop/capability/manifest               当前用户最终可用 MCP 清单
-  ANY  /v1/desktop/capability/gateway/{sid}/mcp      MCP streamable-http 透明反代网关
+  POST /v1/desktop/capability/gateway/{sid}/call     动态 manifest 的 JSON 工具调用网关
+  ANY  /v1/desktop/capability/gateway/{sid}/mcp      已安装旧客户端使用的透明反代网关
   GET  /v1/desktop/capability/models                 无密钥模型拓扑
   POST /v1/desktop/capability/gateway/models/...     模型流式反代网关
+  GET  /v1/desktop/capability/skills/manifest        当前用户最终可用技能清单（含内容哈希）
+  GET  /v1/desktop/capability/skills/{id}/bundle     单个授权技能的完整 zip 包
 
 本机侧（桌面壳孵化的本机后端）：
   POST /v1/desktop/capability/cloud-bridge           壳推送 {cloud_base, token}
@@ -24,15 +27,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 from typing import Optional
 
 import httpx
 from api.deps import require_config
 from core.auth.backend import UserContext, get_current_user
 from core.infra.responses import success_response
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
@@ -90,10 +95,20 @@ def _require_capability_user(
 
 
 @router.get("/manifest", summary="当前用户的云端能力清单")
-async def get_manifest(user_id: str = Depends(_require_capability_user)):
+async def get_manifest(
+    request: Request,
+    response: Response,
+    user_id: str = Depends(_require_capability_user),
+):
     from core.services.desktop_capability import build_user_capability_manifest
 
-    return success_response(data=build_user_capability_manifest(user_id))
+    manifest = build_user_capability_manifest(user_id)
+    etag = f'"{manifest["revision"]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return success_response(data=manifest)
 
 
 @router.get("/models", summary="桌面本机执行面的无密钥模型清单")
@@ -101,6 +116,42 @@ async def get_model_manifest(user_id: str = Depends(_require_capability_user)):
     from core.services.desktop_capability import build_user_model_manifest
 
     return success_response(data=build_user_model_manifest(user_id))
+
+
+@router.get("/skills/manifest", summary="当前用户的云端技能清单")
+async def get_skill_manifest(
+    request: Request,
+    response: Response,
+    user_id: str = Depends(_require_capability_user),
+):
+    from core.services.desktop_capability import build_user_skill_manifest
+
+    manifest = build_user_skill_manifest(user_id)
+    etag = f'"{manifest["revision"]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return success_response(data=manifest)
+
+
+@router.get("/skills/{skill_id}/bundle", summary="下载一个当前授权技能的完整 zip 包")
+async def get_skill_bundle(
+    skill_id: str,
+    request: Request,
+    user_id: str = Depends(_require_capability_user),
+):
+    from core.services.desktop_capability import resolve_skill_bundle
+
+    resolved = resolve_skill_bundle(user_id, skill_id)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="skill not available")
+    data, content_hash = resolved
+    etag = f'"{content_hash}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type="application/zip", headers=headers)
 
 
 # ── MCP 网关（云端，capability token 鉴权，透明反代） ──────────────────
@@ -133,6 +184,79 @@ _DROP_REQUEST_HEADERS = {
 }
 # 响应侧透传的头。
 _FWD_RESPONSE_HEADERS = ("content-type", "mcp-session-id", "mcp-protocol-version")
+_RUNTIME_CONTEXT_HEADERS = {
+    "x-chat-id",
+    "x-channel-id",
+    "x-conversation-id",
+    "x-allowed-dataset-ids",
+    "x-reranker-enabled",
+}
+
+
+class GatewayToolCallBody(BaseModel):
+    tool_name: str = Field(..., min_length=1, max_length=200)
+    arguments: dict = Field(default_factory=dict)
+    schema_hash: str = Field(..., min_length=64, max_length=64)
+
+
+@router.post(
+    "/gateway/{server_id}/call",
+    summary="桌面云端工具调用网关（动态 manifest schema + JSON invocation）",
+)
+async def gateway_mcp_call(
+    server_id: str,
+    body: GatewayToolCallBody,
+    request: Request,
+    user_id: str = Depends(_require_capability_user),
+):
+    """Execute a currently-authorized MCP tool from the cloud network."""
+    from core.services.desktop_capability import invoke_gateway_tool, resolve_gateway_tool
+    from core.services.desktop_capability_protocol import CapabilityManifestStaleError
+
+    try:
+        resolved = resolve_gateway_tool(
+            user_id,
+            server_id,
+            body.tool_name,
+            schema_hash=body.schema_hash,
+        )
+    except CapabilityManifestStaleError as exc:
+        raise HTTPException(status_code=409, detail="capability manifest changed") from exc
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="tool not available")
+
+    runtime_headers = {
+        k: v for k, v in request.headers.items() if k.lower() in _RUNTIME_CONTEXT_HEADERS
+    }
+    started = time.monotonic()
+    try:
+        result = await invoke_gateway_tool(resolved, body.arguments, runtime_headers)
+    except asyncio.TimeoutError as exc:
+        logger.warning(
+            "[desktop-capability] tool call timeout user=%s server=%s tool=%s",
+            user_id,
+            server_id,
+            body.tool_name,
+        )
+        raise HTTPException(status_code=504, detail="upstream mcp tool timed out") from exc
+    except Exception as exc:  # noqa: BLE001 - never expose cloud credentials/errors
+        logger.warning(
+            "[desktop-capability] tool call failed user=%s server=%s tool=%s error_type=%s",
+            user_id,
+            server_id,
+            body.tool_name,
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=502, detail="upstream mcp tool failed") from exc
+
+    logger.info(
+        "[desktop-capability] tool call user=%s server=%s tool=%s duration_ms=%.0f",
+        user_id,
+        server_id,
+        body.tool_name,
+        (time.monotonic() - started) * 1000,
+    )
+    return success_response(data=result)
 
 
 @router.post(
@@ -235,10 +359,15 @@ async def gateway_mcp(
             headers[k] = v
     # 身份以 capability token 为准，客户端注入的同名头已在 deny-list 拦下。
     headers["X-Current-User-Id"] = user_id
+    # StreamingResponse 使用 aiter_raw 原样转发，因此不允许上游压缩后再丢失
+    # Content-Encoding；这是旧客户端透明 MCP 端点的传输完整性要求。
+    headers["accept-encoding"] = "identity"
 
     body = await request.body()
     client = _client()
-    upstream_req = client.build_request(request.method, target["url"], headers=headers, content=body)
+    upstream_req = client.build_request(
+        request.method, target["url"], headers=headers, content=body
+    )
     try:
         upstream = await client.send(upstream_req, stream=True)
     except httpx.HTTPError as exc:

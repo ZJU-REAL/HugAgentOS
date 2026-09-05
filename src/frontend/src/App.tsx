@@ -383,9 +383,7 @@ export default function App() {
   // ── Resume: when switching/refreshing into a chat, re-subscribe if the backend still has a run in progress ──
   useEffect(() => {
     if (!authUser || !currentChatId) return;
-    // Leave a short window for the message list to load, avoiding a race (resumeRunIfAny re-checks sendingChatIds internally)
-    const timer = window.setTimeout(() => { resumeRunIfAny(currentChatId); }, 300);
-    return () => window.clearTimeout(timer);
+    void resumeRunIfAny(currentChatId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChatId, authUser?.user_id]);
 

@@ -23,6 +23,7 @@ from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
 from core.llm.chat_models import get_default_model, make_chat_model
 from core.llm.compacting_agent import CompactingAgent
 from core.llm.compaction import SUMMARIZATION_PROMPT
+from core.llm.context_manager import AUTO_COMPACT_MAX_RATIO
 from core.llm.execution_manifest import PromptManifestBuilder, tool_manifest_from_schemas
 from core.llm.manifest_agent import ManifestBoundAgent
 from core.llm.mcp_manager import close_clients
@@ -1470,7 +1471,7 @@ async def create_agent_executor(
     )
 
     if not disable_tools and enabled_servers:
-        from core.llm.mcp_pool import HTTP_TRANSPORTS, make_client
+        from core.llm.mcp_pool import HTTP_TRANSPORTS, make_client, uses_manifest_schema
 
         http_server_cfgs = {
             k: v for k, v in enabled_servers.items() if v.get("transport") in HTTP_TRANSPORTS
@@ -1528,7 +1529,26 @@ async def create_agent_executor(
             # liveness probe (lazy connect + enumerate, verifying reachability),
             # after which the Toolkit opens a fresh connection on every call.
             _http_cfg = {**cfg, "url": cfg.get("url", KB_MCP_HTTP_URL)}
+            if _http_cfg.get("schema_source") == "cloud_manifest" and not uses_manifest_schema(
+                _http_cfg
+            ):
+                _log.warning(
+                    "[factory] HTTP MCP '%s' ignored because its cloud manifest is invalid",
+                    key,
+                )
+                return None
             client = make_client(key, _http_cfg, is_stateful=False)
+            if uses_manifest_schema(_http_cfg):
+                # The complete, authorized schema arrived in the dynamic cloud
+                # manifest. Agent construction is network-free; only a model-
+                # selected tool call reaches the JSON gateway.
+                _HTTP_MCP_FAIL_AT.pop(key, None)
+                _log.info(
+                    "[factory] HTTP MCP '%s' loaded from cloud manifest (%d tools)",
+                    key,
+                    len(_http_cfg.get("manifest_tools") or []),
+                )
+                return client
             try:
                 await client.list_tools()
                 _HTTP_MCP_FAIL_AT.pop(key, None)
@@ -2682,7 +2702,7 @@ async def create_agent_executor(
                     else (_fallback_cfg.temperature if _fallback_cfg else 0.6)
                 )
                 _final_max_tokens = _user_max_tokens or (
-                    _fallback_cfg.max_tokens if _fallback_cfg else 8192
+                    _fallback_cfg.max_tokens if _fallback_cfg else None
                 )
                 _final_timeout = _user_timeout or (_fallback_cfg.timeout if _fallback_cfg else 120)
 
@@ -2733,21 +2753,23 @@ async def create_agent_executor(
     # disagreed with the actually effective value).
     _ctx_window = int(getattr(default_model, "context_size", 0) or 0)
     # Resolve the shared ratio once instead of reading config at each ReAct step.
-    from core.services.compaction_service import resolve_trigger_ratio
+    from core.services.compaction_service import resolve_token_limit, resolve_trigger_ratio
 
     _trigger_ratio = resolve_trigger_ratio()
     _log.info(
-        "[factory] compaction: model=%s, context_size=%d, trigger_threshold=%d (ratio=%s)",
+        "[factory] compaction: model=%s, context_size=%d, trigger_threshold=%s (ratio=%s)",
         getattr(default_model, "model", None) or "(unknown)",
         _ctx_window,
-        int(_ctx_window * _trigger_ratio),
+        resolve_token_limit(_ctx_window, ratio=_trigger_ratio),
         _trigger_ratio,
     )
 
     # ContextConfig handles tool-result offloading and the AgentScope fallback.
-    # Its ratio must stay below 0.9, so clamp the shared value.
+    # AgentScope rejects a ratio of 0.9 or above — its own constraint, unrelated
+    # to our compaction policy, so it is expressed against that policy's ceiling
+    # rather than restated as a literal.
     context_config = ContextConfig(
-        trigger_ratio=min(_trigger_ratio, 0.89),
+        trigger_ratio=min(_trigger_ratio, AUTO_COMPACT_MAX_RATIO - 0.01),
         # 单条工具结果进上下文的上限（超出部分 offloader 落盘到 /workspace/.offload，
         # 模型按需读回）。保持 20k 不再收紧：批量场景已由 run_job 接走（逐项结果根本
         # 不进主上下文），主对话这边继续保留完整的单条可读性更划算。需要时用
@@ -3139,9 +3161,6 @@ async def create_agent_executor(
     # surface instead of re-querying MCPs on the pre-turn latency path.
     agent._jx_compaction_system_prompt = _compaction_system_prompt
     agent._jx_compaction_tool_schemas = _compaction_tool_schemas
-    agent._jx_compaction_reserved_output_tokens = int(
-        getattr(getattr(default_model, "parameters", None), "max_tokens", 0) or 0
-    )
 
     # Stamp the console-resolved trigger ratio so the step-boundary compaction
     # check stays a pure computation (resolving it per step would put a DB read,

@@ -424,7 +424,6 @@ def test_context_budget_estimator_has_stable_component_manifest():
                 ],
             },
         ],
-        reserved_output_tokens=512,
         provider_overhead_tokens=17,
     )
     assert estimate == {
@@ -447,7 +446,6 @@ def test_context_budget_estimator_has_stable_component_manifest():
                 },
             ]
         ),
-        "reserved_output_tokens": 512,
         "provider_overhead_tokens": 17,
         "total_estimated_tokens": 0,
     } | {
@@ -519,7 +517,6 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
             context_window=10_000,
             system_prompt="sys",
             tool_schema=[{"name": "tool"}],
-            reserved_output_tokens=256,
             provider_overhead_tokens=9,
         )
     )
@@ -530,7 +527,6 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
         "system_prompt_tokens",
         "tool_schema_tokens",
         "message_tokens",
-        "reserved_output_tokens",
         "provider_overhead_tokens",
         "total_estimated_tokens",
     }
@@ -539,7 +535,6 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
     post_inputs = {
         "system_prompt": "post-system",
         "tool_schema": [{"name": "post-tool"}],
-        "reserved_output_tokens": 768,
         "provider_overhead_tokens": 13,
     }
     assert (
@@ -553,7 +548,6 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
     assert second_budget["tool_schema_tokens"] == C.approx_token_count(
         '[{"name":"post-tool"}]'
     )
-    assert second_budget["reserved_output_tokens"] == 768
     assert second_budget["provider_overhead_tokens"] == 13
 
 

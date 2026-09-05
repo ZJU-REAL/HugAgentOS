@@ -144,11 +144,12 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
     # so attaching to the chat group would hide the whole group in the system config UI.
     (
         "chat.compress_in_turn_ratio",
-        "0.80",
+        "0.90",
         "轮内压缩触发比例",
-        "上下文占用超过「模型窗口 × 该值」时触发压缩（0.5~0.95）。计数优先用模型返回的"
-        "真实 token 用量，拿不到时才退回字节估算。调大=更晚压缩（上下文更完整，但有触顶"
-        "风险）；调小=更早压缩。该比例对轮内、轮前、轮末三个时机统一生效。",
+        "上下文占用超过「模型窗口 × 该值」时触发压缩（0.5~0.90）。计数优先用模型返回的"
+        "真实 token 用量，拿不到时才退回字节估算，两者都不含模型输出长度——输出余量已由"
+        "「窗口 95% 可用」统一预留。调大=更晚压缩（上下文更完整）；调小=更早压缩。"
+        "该比例对轮内、轮前、轮末三个时机统一生效。",
         "context",
         False,
     ),

@@ -881,6 +881,7 @@ async def test_real_worker_journals_model_and_message_safe_points(recovery_env, 
     emitted = []
 
     async def workflow(**_kwargs):
+        yield {"type": "model_dispatch"}
         yield {"type": "content", "delta": "durable "}
         yield {"type": "content", "delta": "answer"}
         yield {

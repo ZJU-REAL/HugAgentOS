@@ -388,7 +388,7 @@ class SteerQueue:
         now: Optional[datetime] = None,
     ) -> Optional[SteerRecord]:
         applied_at = now or _utcnow()
-        follow_up_targets = {source_run_id, str(root_run_id or source_run_id)}
+        handoff_targets = {source_run_id, str(root_run_id or source_run_id)}
         candidate = (
             db.query(ChatSteerQueueItem)
             .filter(
@@ -396,8 +396,8 @@ class SteerQueue:
                 ChatSteerQueueItem.status == "accepted",
                 or_(
                     and_(
-                        ChatSteerQueueItem.delivery_mode == "follow_up",
-                        ChatSteerQueueItem.target_run_id.in_(follow_up_targets),
+                        ChatSteerQueueItem.delivery_mode.in_(("steer", "follow_up")),
+                        ChatSteerQueueItem.target_run_id.in_(handoff_targets),
                     ),
                     ChatSteerQueueItem.delivery_mode == "next_run",
                 ),

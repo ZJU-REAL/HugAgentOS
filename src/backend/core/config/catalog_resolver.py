@@ -241,7 +241,7 @@ def resolve_explicit_runtime_capabilities(
 
 
 def _apply_desktop_cloud_bridge(result):
-    """双端桌面本机后端：把云端授权 MCP 合并进 enabled_mcps（含本机同基名抑制）。
+    """双端桌面本机后端：把云端授权 MCP / 技能合并进 enabled 清单（含本机同名抑制）。
 
     这里是 enabled 能力解析的单一真源——主对话、定时任务、批量子代理、作业
     唤醒等全部装配路径共用，桥合并在此做一次即全链路生效。故意应用在缓存
@@ -249,15 +249,17 @@ def _apply_desktop_cloud_bridge(result):
     模式下桥未激活，原样返回（零行为变化）。
     """
     skills, agents, mcps = result
-    if mcps is None:
-        return result
     try:
-        from core.services.desktop_cloud_bridge import apply_to_enabled_mcp_ids
+        from core.services.desktop_cloud_bridge import (
+            apply_to_enabled_mcp_ids,
+            apply_to_enabled_skill_ids,
+        )
 
-        bridged = apply_to_enabled_mcp_ids(list(mcps))
+        bridged_mcps = apply_to_enabled_mcp_ids(list(mcps)) if mcps is not None else None
+        bridged_skills = apply_to_enabled_skill_ids(list(skills)) if skills is not None else None
     except Exception:  # noqa: BLE001 - 桥故障不能影响能力解析
         return result
-    return (skills, agents, bridged)
+    return (bridged_skills, agents, bridged_mcps)
 
 
 def resolve_all_runtime_enabled(

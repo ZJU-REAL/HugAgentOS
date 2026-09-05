@@ -170,7 +170,7 @@ class SandboxPool:
         """Background periodic maintenance: probe idle handles, evict server-reclaimed dead ones, then refill to min_idle.
 
         Pre-warmed sandboxes are **never renewed** — they get reclaimed when the
-        server-side TTL (``opensandbox_default_timeout_s``, default 1800s) hits.
+        server-side TTL (``settings.sandbox.idle_ttl_s``) hits.
         The problem: ``_kick_refill`` only fires on ``acquire``/``release``, so during
         zero-traffic periods nothing triggers it → after 30min the whole pool is drained
         into a heap of dead handles, and every user's first sandbox creation afterwards

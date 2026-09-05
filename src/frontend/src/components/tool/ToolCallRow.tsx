@@ -354,7 +354,7 @@ export function ToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
           {effectiveStatus !== 'running' && <StepIcon name={tool.name} />}
         </span>
         <span className="jx-tcr-label">
-          <span className="jx-tcr-prefix">{prefix}</span>
+          <span className={`jx-tcr-prefix${running ? ' jx-tcr-prefix--shimmer' : ''}`}>{prefix}</span>
           {value && <span className="jx-tcr-value">{value}</span>}
           {count != null && <span className="jx-tcr-count">&nbsp;({count})</span>}
         </span>

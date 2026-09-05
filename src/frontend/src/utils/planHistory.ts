@@ -1,5 +1,21 @@
 import type { ChatMessage } from '../types';
 
+/** 一页历史里的计划痕迹：有没有计划消息；最后一个计划快照若仍是 preview，它的 plan_id。
+ *  后者用来在刷新后让"确认执行"接着执行已有计划，而不是重新生成一个。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function scanPlanSnapshots(items: any[]): { hasPlanMessages: boolean; pendingPlanId: string | null } {
+  let hasPlanMessages = false;
+  let pendingPlanId: string | null = null;
+  for (const m of items) {
+    const snap = m?.metadata?.plan_snapshot;
+    if (m?.role !== 'assistant' || !snap) continue;
+    hasPlanMessages = true;
+    const pid = m?.metadata?.plan_id;
+    pendingPlanId = ((snap as { mode?: string }).mode || 'complete') === 'preview' && pid ? String(pid) : null;
+  }
+  return { hasPlanMessages, pendingPlanId };
+}
+
 /** 历史消息后处理：把「已经决策过」的计划预览卡片标回已决策。
  *
  *  决策位（decided）只在本地内存里打，不进 plan_snapshot；所以拉一次历史之后，

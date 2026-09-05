@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 from agentscope.credential import (
     AnthropicCredential,
@@ -75,7 +75,7 @@ def build_native_model(
     *,
     model: str,
     temperature: float,
-    max_tokens: int,
+    max_tokens: Optional[int],
     base_url: str,
     api_key: str,
     context_size: int,
@@ -244,7 +244,7 @@ def build_litellm_model(
     *,
     model: str,
     temperature: float,
-    max_tokens: int,
+    max_tokens: Optional[int],
     timeout: int,
     provider_extra: dict,
     context_size: int,

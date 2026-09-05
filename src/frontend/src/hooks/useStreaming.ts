@@ -10,6 +10,7 @@ import { useChatStore, useAuthStore, useCatalogStore, useChatModeStore, useFileS
 import { useProjectStore } from '../stores/projectStore';
 import { isThinkingMode } from '../stores/chatStore';
 import { processChatStream, getStreamActivityTs, hasStreamedRun, isRunCancelledByUser, markRunCancelledByUser } from './chatStream';
+import { reloadChatHistory } from './useChatInit';
 import { parseAppliedQueueHandoff, type QueuedRunHandoff } from '../utils/streamHandoff';
 import {
   captureChatInvocation,
@@ -24,6 +25,7 @@ import {
 import { sendPlanMode } from './usePlanMode';
 import { sendLoopMode, processLoopStream, continueLoop as continueLoopImpl } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
+import { hasUnclosedThink } from '../utils/segments';
 import type { ChatItem, ChatMessage } from '../types';
 import type { QueuedChatMessage } from '../stores/chatStore';
 
@@ -210,8 +212,7 @@ export function useStreaming(
         // A restored durable card has no local SSE message id. Its user turn
         // is already committed in the DB, so reload history instead of
         // inventing a duplicate local message.
-        store.removeLoadedMsgId(chatId);
-        store.bumpSessionLoadEpoch();
+        void reloadChatHistory(chatId);
       }
       store.setQueuedMessage(chatId, null);
       return;
@@ -704,13 +705,10 @@ export function useStreaming(
       });
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      const outcome = await processChatStreamWithHandoffRecovery(
-        r,
-        streamChatId,
-        isThinkingMode(chatMode),
-        undefined,
-        abortController.signal,
-      );
+      const outcome = await processChatStreamWithHandoffRecovery(r, streamChatId, {
+        enableThinking: isThinkingMode(chatMode),
+        signal: abortController.signal,
+      });
       streamOutcome = outcome;
 
       addBackendSessionId(currentChatId);
@@ -845,20 +843,19 @@ export function useStreaming(
    * `enableThinking`: this run's thinking mode — the <think> stripper must start in the correct
    * initial phase, otherwise replayed/regenerated reasoning gets flattened into the visible body.
    */
+  interface FollowStreamOptions {
+    enableThinking?: boolean;
+    pendingNotice?: string;
+    signal?: AbortSignal;
+    seedFrom?: ChatMessage;
+  }
+
   async function processRegenerateStream(
     response: Response,
     chatId: string,
-    pendingNotice?: string,
-    enableThinking: boolean = false,
-    signal?: AbortSignal,
+    opts: FollowStreamOptions = {},
   ) {
-    const outcome = await processChatStreamWithHandoffRecovery(
-      response,
-      chatId,
-      enableThinking,
-      pendingNotice,
-      signal,
-    );
+    const outcome = await processChatStreamWithHandoffRecovery(response, chatId, opts);
     useChatStore.getState().addBackendSessionId(chatId);
     useChatStore.getState().addLoadedMsgId(chatId);
     syncManualTitleToBackend(chatId);
@@ -873,14 +870,14 @@ export function useStreaming(
   ): Promise<QueuedRunHandoff | undefined> {
     try {
       const items = await getChatRunSteers(sourceRunId, chatId);
-      const applied = items.find((item) => (
-        item.status === 'applied'
-        && (item.delivery_mode === 'follow_up' || item.delivery_mode === 'next_run')
-        && !!item.applied_run_id
-      ));
-      return applied
-        ? parseAppliedQueueHandoff(applied as unknown as Record<string, unknown>)
-        : undefined;
+      for (const item of items) {
+        const handoff = parseAppliedQueueHandoff(
+          item as unknown as Record<string, unknown>,
+          sourceRunId,
+        );
+        if (handoff) return handoff;
+      }
+      return undefined;
     } catch {
       return undefined;
     }
@@ -890,13 +887,11 @@ export function useStreaming(
   async function processChatStreamWithHandoffRecovery(
     response: Response,
     chatId: string,
-    enableThinking: boolean,
-    pendingNotice?: string,
-    signal?: AbortSignal,
+    { enableThinking = false, pendingNotice, signal, seedFrom }: FollowStreamOptions = {},
   ) {
     let outcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
     try {
-      outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice });
+      outcome = await processChatStream(response, { chatId, enableThinking, pendingNotice, seedFrom });
     } catch (error) {
       const sourceRunId = useChatStore.getState().activeRuns[chatId]?.runId;
       const recovered = await followQueuedRunChain(
@@ -916,7 +911,8 @@ export function useStreaming(
   }
 
   /**
-   * A followUp/nextRun is committed together with the source run's completion.
+   * A followUp/nextRun, or a steer that missed the final safe boundary, is
+   * committed together with the source run's completion.
    * Follow the committed child immediately so a fast child cannot finish in the
    * background before the 20-second active-run poll notices it.
    */
@@ -988,8 +984,7 @@ export function useStreaming(
     if (usedDurableBackfill) {
       // The projection was incomplete, so DB history is the final authority
       // for any child that finished before its replay was attached.
-      useChatStore.getState().removeLoadedMsgId(chatId);
-      useChatStore.getState().bumpSessionLoadEpoch();
+      await reloadChatHistory(chatId);
     }
     return outcome;
   }
@@ -1008,19 +1003,16 @@ export function useStreaming(
       const chat = useChatStore.getState().store.chats[streamChatId];
       const targetMsg = chat?.messages[messageIndex];
       if (targetMsg) {
-        truncateMessagesFrom(streamChatId, targetMsg.ts);
+        truncateMessagesFrom(streamChatId, targetMsg);
       }
 
       const r = await regenerateMessage(streamChatId, messageIndex, abortController.signal);
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      await processRegenerateStream(
-        r,
-        streamChatId,
-        undefined,
-        isThinkingMode(useChatStore.getState().chatMode),
-        abortController.signal,
-      );
+      await processRegenerateStream(r, streamChatId, {
+        enableThinking: isThinkingMode(useChatStore.getState().chatMode),
+        signal: abortController.signal,
+      });
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('重新生成失败：{msg}', { msg: e?.message || String(e) }));
@@ -1079,7 +1071,7 @@ export function useStreaming(
       const chat = useChatStore.getState().store.chats[streamChatId];
       const targetMsg = chat?.messages[messageIndex];
       if (targetMsg) {
-        truncateMessagesFrom(streamChatId, targetMsg.ts);
+        truncateMessagesFrom(streamChatId, targetMsg);
       }
 
       // Add the edited user message to local store. Editing only rewrites the text —
@@ -1107,13 +1099,10 @@ export function useStreaming(
       const r = await editAndRegenerate(streamChatId, messageIndex, newContent.trim(), abortController.signal);
       if (!r.ok || !r.body) throw new Error(await r.text());
 
-      await processRegenerateStream(
-        r,
-        streamChatId,
-        undefined,
-        isThinkingMode(useChatStore.getState().chatMode),
-        abortController.signal,
-      );
+      await processRegenerateStream(r, streamChatId, {
+        enableThinking: isThinkingMode(useChatStore.getState().chatMode),
+        signal: abortController.signal,
+      });
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('编辑重发失败：{msg}', { msg: e?.message || String(e) }));
@@ -1286,11 +1275,8 @@ export function useStreaming(
 
       if (!live) {
         // 后端那轮已经终态：结束僵尸 UI，并把库里的最终消息拉回来——用户不用再手动刷新。
-        // 先让上面的 abort 把气泡收尾写完，再拉历史，免得收尾把刚拉回来的最终消息盖掉。
         cleanupZombieRunState(chatId, active?.status || 'completed');
-        await new Promise((r) => setTimeout(r, 300));
-        useChatStore.getState().removeLoadedMsgId(chatId);
-        useChatStore.getState().bumpSessionLoadEpoch();
+        await reloadChatHistory(chatId);
         return;
       }
 
@@ -1300,7 +1286,7 @@ export function useStreaming(
         await new Promise((r) => setTimeout(r, 250));
       }
       if (useChatStore.getState().sendingChatIds.has(chatId)) return; // 没让开就等下一轮
-      await resumeRunIfAny(chatId, { rebuildTail: true });
+      await resumeRunIfAny(chatId);
     } finally {
       reconcilingRef.current.delete(chatId);
     }
@@ -1324,13 +1310,8 @@ export function useStreaming(
     if (isRunCancelledByUser(active.run_id)) return;
     // 自己刚跑完那一轮的残影（本地流已收尾、后端还没落终态）——认错了会把同一轮重放成两个气泡
     if (hasStreamedRun(active.run_id)) return;
-    // 这轮的用户侧消息（唤醒指令）是后端落的库，本地还没有 → 先把历史拉齐再跟随，
-    // 否则回答会孤零零挂在上一轮后面。
-    store.removeLoadedMsgId(chatId);
-    store.bumpSessionLoadEpoch();
-    // 与刷新进来时同一条时序：先让历史落地，再挂流。抢在前面挂，重放中的气泡会被
-    // 随后到达的历史整体盖掉。
-    await new Promise((r) => setTimeout(r, 800));
+    // 这轮的用户侧消息（唤醒指令）和助手行都是后端落的库；resumeRunIfAny 会先把历史
+    // 拉齐、再以库里那行为基态接上流。
     await resumeRunIfAny(chatId);
   }
 
@@ -1354,7 +1335,7 @@ export function useStreaming(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function resumeRunIfAny(chatId: string, opts?: { rebuildTail?: boolean }) {
+  async function resumeRunIfAny(chatId: string) {
     const uid = useAuthStore.getState().authUser?.user_id;
     let active: Awaited<ReturnType<typeof getActiveChatRun>> = null;
     try {
@@ -1391,16 +1372,8 @@ export function useStreaming(
       // message with isStreaming=true. Explicitly clean up this zombie UI state, and for the
       // failed path show a toast once so the user resends.
       cleanupZombieRunState(chatId, active.status);
-      // Race safety net: a plan generate/execute run may finish exactly between "first message
-      // fetch after refresh" and "the active-run lookup here". By then the live stream's
-      // onSetCurrentPlanId died with the old page, and the plan wasn't yet persisted at first
-      // message fetch → currentPlanId stays null, so the subsequent "confirm execute" gets
-      // treated as a fresh generation round. Force a message rescan so useChatInit's history
-      // scan restores currentPlanId from the persisted plan_snapshot(mode=preview).
-      if (active.kind === 'plan_generate' || active.kind === 'plan_execute') {
-        useChatStore.getState().removeLoadedMsgId(chatId);
-        useChatStore.getState().bumpSessionLoadEpoch();
-      }
+      // 终态的行已经在库里定稿（正文、工具卡、错误或计划快照都在），拉一次就是最终样子。
+      await reloadChatHistory(chatId);
       return;
     }
 
@@ -1421,7 +1394,7 @@ export function useStreaming(
     // "回答无对应问题"（问题17）。Web Locks 随标签页关闭自动释放。
     const runLockName = `hugagent_run_follow_${active.run_id}`;
     const activeRun = active;
-    const doFollowRun = () => followActiveRun(chatId, activeRun, uid, opts?.rebuildTail);
+    const doFollowRun = () => followActiveRun(chatId, activeRun, uid);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const locksApi = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
     if (locksApi?.request) {
@@ -1440,9 +1413,6 @@ export function useStreaming(
     chatId: string,
     active: NonNullable<Awaited<ReturnType<typeof getActiveChatRun>>>,
     uid: string | undefined,
-    /** 断连重挂：本地气泡是被掐断的半截，而重挂是从头全量重放 —— 先摘掉它再重建，
-     *  否则同一轮会并排出现两个气泡（刷新进来时没有这半截，所以默认不摘）。 */
-    rebuildTail?: boolean,
   ) {
     const { addSendingChatId, removeSendingChatId } = useChatStore.getState();
 
@@ -1462,8 +1432,7 @@ export function useStreaming(
             onAfterComplete: (cid) => {
               // After replay completes, refresh the message list, replacing client-built state
               // with the final message in the DB, ensuring the stop button, isStreaming flag, etc. wind down correctly.
-              useChatStore.getState().removeLoadedMsgId(cid);
-              useChatStore.getState().bumpSessionLoadEpoch();
+              void reloadChatHistory(cid);
             },
           });
         } else if (active.kind === 'plan_generate') {
@@ -1472,14 +1441,12 @@ export function useStreaming(
             onSetCurrentPlanId: useChatStore.getState().setCurrentPlanId,
           });
           // Also refresh after generate completes: pick up the DB-persisted assistant message + plan_snapshot
-          useChatStore.getState().removeLoadedMsgId(chatId);
-          useChatStore.getState().bumpSessionLoadEpoch();
+          await reloadChatHistory(chatId);
         }
       } catch (e: any) {
         if (e?.name !== 'AbortError') {
-          // Replay-failure safety net: refresh the message list (the task may have already finished in the DB)
-          useChatStore.getState().removeLoadedMsgId(chatId);
-          useChatStore.getState().bumpSessionLoadEpoch();
+          // The task may have already finished in the DB; history is the final authority.
+          await reloadChatHistory(chatId);
         }
       } finally {
         abortControllersRef.current.delete(chatId);
@@ -1494,16 +1461,8 @@ export function useStreaming(
     // (loop_plan/iteration_started/requirement_passed).
     if (active.kind === 'autonomous_loop') {
       addSendingChatId(chatId);
-      // The backend's incrementally persisted "in progress" assistant message is already shown by
-      // history loading; the replay rebuilds the same bubble in full from offset 0, so keeping
-      // both would duplicate it. Remove the trailing assistant placeholder before rebuilding and
-      // let the replay redraw it (when the run is dead and there's no replay, this path isn't
-      // taken and the last progress is kept untouched).
-      const _chat = useChatStore.getState().store.chats[chatId];
-      const _msgs = _chat?.messages;
-      if (_msgs && _msgs.length > 0 && _msgs[_msgs.length - 1]?.role === 'assistant') {
-        useChatStore.getState().truncateMessagesFrom(chatId, _msgs[_msgs.length - 1].ts);
-      }
+      // The replay's run_started frame carries the message_id, so it takes over the bubble
+      // history already rendered for this run instead of drawing a second one.
       const ac = new AbortController();
       abortControllersRef.current.set(chatId, ac);
       try {
@@ -1519,15 +1478,13 @@ export function useStreaming(
       return;
     }
 
-    // 断连重挂：本地留着的是被掐断的半截气泡，而 active-run 会为刷新客户端返回
-    // offset 0 以全量重放；不摘掉旧气泡就会并排出现两个同轮气泡。
-    if (rebuildTail) {
-      const _msgs = useChatStore.getState().store.chats[chatId]?.messages;
-      const _last = _msgs && _msgs.length > 0 ? _msgs[_msgs.length - 1] : undefined;
-      if (_last?.role === 'assistant') {
-        useChatStore.getState().truncateMessagesFrom(chatId, _last.ts);
-      }
-    }
+    // 服务端那一行是这一轮的基态：从它记下的 event_offset 之后接着喂流。基态停在一个
+    // 没闭合的 <think> 里时剥离器接不上，只能从头重放。
+    await reloadChatHistory(chatId);
+    const base = useChatStore.getState().store.chats[chatId]?.messages
+      .find((m) => m.role === 'assistant' && m.messageId === active.message_id);
+    const seedFrom = base && !hasUnclosedThink(base.content) ? base : undefined;
+    const fromOffset = seedFrom?.inFlight?.eventOffset ?? 0;
 
     addSendingChatId(chatId);
 
@@ -1536,15 +1493,13 @@ export function useStreaming(
     let streamOutcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
 
     try {
-      const r = await followChatRun(active.run_id, active.last_event_offset || 0, abortController.signal, uid, chatId);
+      const r = await followChatRun(active.run_id, fromOffset, abortController.signal, uid, chatId);
       if (!r.ok || !r.body) return;
-      streamOutcome = await processRegenerateStream(
-        r,
-        chatId,
-        undefined,
-        !!active.enable_thinking,
-        abortController.signal,
-      );
+      streamOutcome = await processRegenerateStream(r, chatId, {
+        enableThinking: !!active.enable_thinking,
+        signal: abortController.signal,
+        seedFrom,
+      });
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         // Resume failure is handled silently — UX-wise it's equivalent to "the task runs in the background and the final message arrives via the next refresh"
@@ -1586,7 +1541,7 @@ export function useStreaming(
       for (let i = chat.messages.length - 1; i >= 0; i--) {
         const m = chat.messages[i];
         if (m.role === 'assistant') {
-          truncateMessagesFrom(chatId, m.ts);
+          truncateMessagesFrom(chatId, m);
           break;
         }
       }
@@ -1609,13 +1564,10 @@ export function useStreaming(
       }
       // The endpoint streams the same SSE shape as /chats/regenerate, so
       // we can reuse the existing consumer.
-      await processRegenerateStream(
-        r,
-        chatId,
-        undefined,
-        isThinkingMode(useChatStore.getState().chatMode),
-        abortController.signal,
-      );
+      await processRegenerateStream(r, chatId, {
+        enableThinking: isThinkingMode(useChatStore.getState().chatMode),
+        signal: abortController.signal,
+      });
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         message.error(t('取消批量并继续失败：{msg}', { msg: e?.message || String(e) }));

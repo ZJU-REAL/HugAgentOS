@@ -178,13 +178,9 @@ def _resolve_agent_model_runtime(agent: Any, fallback_model_name: Any = "") -> T
 
 def _compaction_budget_inputs(agent: Any, context_window: int) -> Dict[str, Any]:
     """Read the exact frozen prompt/tool surface cached by agent_factory."""
-    reserved = int(getattr(agent, "_jx_compaction_reserved_output_tokens", 0) or 0)
-    if reserved <= 0:
-        reserved = max(1, int(context_window * 0.15))
     return {
         "system_prompt": str(getattr(agent, "_jx_compaction_system_prompt", "") or ""),
         "tool_schema": getattr(agent, "_jx_compaction_tool_schemas", None),
-        "reserved_output_tokens": reserved,
         "context_window": int(context_window or 0),
         "model_name": str(
             getattr(getattr(agent, "model", None), "model", None)
@@ -1908,6 +1904,9 @@ async def _astream_subagent_direct(
                 elif event_type == "context_usage":
                     yield {"type": "context_usage", **(payload or {})}
 
+                elif event_type == "model_call_start":
+                    yield {"type": "model_dispatch"}
+
                 elif event_type == "tool_call_start":
                     tool_name = payload.get("name", "unknown")
                     if tool_name != "update_plan":
@@ -2850,7 +2849,7 @@ async def astream_chat_workflow(
         # streaming path one synchronous DB query; only if missing on the
         # object do we fall back to resolve — unconfigured raises, fail loud,
         # never silently run with the wrong window.
-        # preturn and manage_context below share the same value.
+        # Pre-turn compaction and the request assembler share this value.
         _actual_model, _ctx_window = _resolve_agent_model_runtime(agent, _stream_model_name)
         try:
             from core.services.compaction_service import maybe_run_pre_turn_compaction
@@ -2942,6 +2941,9 @@ async def astream_chat_workflow(
 
                 elif event_type == "context_usage":
                     yield {"type": "context_usage", **(payload or {})}
+
+                elif event_type == "model_call_start":
+                    yield {"type": "model_dispatch"}
 
                 elif event_type == "tool_call_start":
                     tool_name = payload.get("name", "unknown")

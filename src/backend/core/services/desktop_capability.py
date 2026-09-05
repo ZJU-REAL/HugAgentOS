@@ -2,8 +2,9 @@
 
 双端模式下，桌面本机后端不再各自维护一套 MCP 能力，而是从云端拉取
 「当前用户最终可用」的 MCP 清单（manifest），并把工具调用经云端能力网关
-（/v1/desktop/capability/gateway/{server_id}/mcp 透明反代）路由回云端真实
-MCP 进程。本模块提供两块地基：
+路由回云端真实 MCP 进程。桌面本机侧从 manifest 缓存完整工具 schema，只有
+模型真正调用工具时才请求 JSON 调用网关；旧版 MCP 透明反代端点继续兼容。
+本模块提供两块地基：
 
 1. **capability token**：短时、最小权限的桌面能力令牌。桌面壳用云端会话
    cookie 换取，再下发给本机后端；本机后端凭它访问 manifest、
@@ -19,18 +20,30 @@ MCP 进程。本模块提供两块地基：
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import json
 import logging
 import secrets
+import copy
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.db.engine import SessionLocal
 from core.db.models import AdminMcpServer, ContentBlock, ModelProvider, ModelRoleAssignment
+from core.services.desktop_capability_protocol import (
+    CapabilityManifestStaleError,
+    build_manifest,
+    build_skill_manifest,
+    canonical_hash,
+    public_tool_schema,
+    public_tool_schemas,
+    skill_content_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +179,9 @@ _effective_cache: Dict[str, Tuple[float, List[str], Dict[str, dict]]] = {}
 _effective_lock = threading.Lock()
 
 
-def _user_effective_configs(user_id: str) -> Tuple[List[str], Dict[str, dict]]:
+def _user_effective_configs(
+    user_id: str, *, use_cache: bool = True
+) -> Tuple[List[str], Dict[str, dict]]:
     """当前用户最终可用的 (server_id 有序列表, {server_id: 已物化连接配置})。
 
     复用 agent 装配同一条门控链（catalog resolver + 全局/私有配置合并），
@@ -174,10 +189,11 @@ def _user_effective_configs(user_id: str) -> Tuple[List[str], Dict[str, dict]]:
     """
     uid = str(user_id)
     now = time.monotonic()
-    with _effective_lock:
-        hit = _effective_cache.get(uid)
-        if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
-            return list(hit[1]), dict(hit[2])
+    if use_cache:
+        with _effective_lock:
+            hit = _effective_cache.get(uid)
+            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
+                return list(hit[1]), dict(hit[2])
 
     from core.config.catalog_resolver import resolve_all_runtime_enabled
     from core.llm.agent_factory import _effective_mcp_server_keys
@@ -199,7 +215,7 @@ def _user_effective_configs(user_id: str) -> Tuple[List[str], Dict[str, dict]]:
 
 
 def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
-    """构建当前用户的云端能力 manifest（server 级 + 工具名列表）。
+    """构建当前用户的云端能力 manifest（server 级 + 完整脱敏 schema）。
 
     只收 ``streamable_http`` 传输的 server——网关按 MCP streamable-http 协议
     透明反代；stdio / sse 传输的（本就极少）不进桌面清单。凭据（URL 内嵌
@@ -221,13 +237,8 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
             continue
         row = meta.get(sid)
         source_plugin = row.source_plugin if row else None
-        tools: List[str] = []
         raw_tools = row.tools_json if row else None
-        if isinstance(raw_tools, list):
-            for t in raw_tools:
-                name = t.get("name") if isinstance(t, dict) else None
-                if isinstance(name, str) and name.strip():
-                    tools.append(name.strip())
+        tools = public_tool_schemas(raw_tools)
         servers.append(
             {
                 "server_id": sid,
@@ -240,19 +251,23 @@ def build_user_capability_manifest(user_id: str) -> Dict[str, Any]:
                 "origin": "cloud",
                 "execution_scope": "cloud",
                 "tools": tools,
+                "schema_hash": canonical_hash(tools),
             }
         )
-    return {"version": 1, "servers": servers}
+    # The revision intentionally excludes credentials, URLs and timestamps.
+    return build_manifest(servers)
 
 
-def resolve_gateway_target(user_id: str, server_id: str) -> Optional[dict]:
+def resolve_gateway_target(
+    user_id: str, server_id: str, *, fresh: bool = False
+) -> Optional[dict]:
     """网关调用前的授权解析：server 必须在该用户当前有效集合内。
 
     命中返回**已物化**（含云端侧凭据/headers、URL 已去尾斜杠）的连接配置——
     只在云端进程内使用，绝不回传桌面。未命中 / 非 streamable_http / 无 URL
     一律返回 None（调用方 404，不区分“不存在/无权”）。
     """
-    keys, all_cfgs = _user_effective_configs(user_id)
+    keys, all_cfgs = _user_effective_configs(user_id, use_cache=not fresh)
     if server_id not in keys:
         return None
     target = all_cfgs.get(server_id)
@@ -264,6 +279,179 @@ def resolve_gateway_target(user_id: str, server_id: str) -> Optional[dict]:
     target = dict(target)
     target["url"] = url
     return target
+
+
+def resolve_gateway_tool(
+    user_id: str,
+    server_id: str,
+    tool_name: str,
+    *,
+    schema_hash: str,
+) -> Optional[dict]:
+    """Resolve one currently-authorized tool and its private cloud target.
+
+    The desktop's cached schema is discovery data, never an authorization
+    grant. Every invocation rechecks both server visibility and the current
+    DB tool allowlist before any upstream connection is opened.
+    """
+    target = resolve_gateway_target(user_id, server_id, fresh=True)
+    wanted = str(tool_name or "").strip()
+    if target is None or not wanted:
+        return None
+    with SessionLocal() as db:
+        row = db.get(AdminMcpServer, server_id)
+        raw_tools = row.tools_json if row is not None else None
+    tools = public_tool_schemas(raw_tools)
+    if canonical_hash(tools) != str(schema_hash or ""):
+        raise CapabilityManifestStaleError("capability manifest changed")
+    for tool in tools:
+        if tool["name"] == wanted:
+            return {
+                "user_id": str(user_id),
+                "server_id": str(server_id),
+                "target": target,
+                "tool": tool,
+            }
+    return None
+
+
+async def invoke_gateway_tool(
+    resolved: Dict[str, Any],
+    arguments: Dict[str, Any],
+    runtime_headers: Dict[str, str],
+) -> Dict[str, Any]:
+    """Execute one MCP tool inside the cloud network and return a ToolChunk.
+
+    This deliberately terminates the desktop-facing hop as ordinary JSON. The
+    cloud process still uses the native MCP client directly against the private
+    target, preserving OAuth, upstream credentials and MCP result conversion
+    without extending an MCP SSE session across the public gateway.
+    """
+    import mcp.types
+
+    from core.llm.mcp_pool import make_client
+
+    target = dict(resolved["target"])
+    upstream_headers = {
+        str(k).lower(): str(v)
+        for k, v in (runtime_headers or {}).items()
+        if isinstance(k, str) and isinstance(v, str)
+    }
+    # Cloud-owned credentials override every desktop-supplied header. Identity
+    # is bound to the verified capability token, never to a client header.
+    for key, value in dict(target.get("headers") or {}).items():
+        if isinstance(key, str) and isinstance(value, str):
+            upstream_headers[key.lower()] = value
+    upstream_headers["x-current-user-id"] = str(resolved["user_id"])
+    upstream_headers["accept-encoding"] = "identity"
+    target["headers"] = upstream_headers
+
+    client = make_client(str(resolved["server_id"]), target, is_stateful=False)
+    raw_tool = mcp.types.Tool.model_validate(resolved["tool"])
+    # Skip a second tools/list call in the cloud: the allowlisted schema was read
+    # from the same DB row immediately above. get_tool then performs only the
+    # real initialize + tools/call lifecycle against the private MCP target.
+    client._cached_tools = [raw_tool]  # noqa: SLF001 - AgentScope has no public preload API
+    tool = await client.get_tool(raw_tool.name)
+    timeout = max(1.0, float(client.execution_timeout or 120.0)) + 10.0
+    chunk = await asyncio.wait_for(tool(**dict(arguments or {})), timeout=timeout)
+    chunk.metadata.setdefault("origin", "cloud")
+    chunk.metadata.setdefault("mcp_server_id", str(resolved["server_id"]))
+    return chunk.model_dump(mode="json")
+
+
+# ── 技能清单 / 技能包（云端为真源，本机只缓存文件快照） ───────────────────
+
+_SKILL_SKIP_PARTS = {"__pycache__", ".git", ".svn", ".hg", "__MACOSX"}
+_skill_manifest_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def _skill_snapshot(skill_id: str) -> Optional[Tuple[str, Dict[str, str], Optional[Path]]]:
+    """(SKILL.md 正文, {相对路径: 内容}, 文件系统技能目录或 None)。"""
+    from core.agent_skills.binary_files import pack_directory
+    from core.agent_skills.loader import get_skill_loader
+
+    loader = get_skill_loader()
+    info = loader._backend.get_skill_info(skill_id)
+    if info is None:
+        return None
+    if not info.is_database and info.content is None and info.file_path is not None:
+        skill_dir = Path(info.file_path).parent
+        files = {
+            rel: body
+            for rel, body in pack_directory(skill_dir).items()
+            if not _SKILL_SKIP_PARTS.intersection(rel.split("/")) and not rel.endswith(".pyc")
+        }
+        return files.pop("SKILL.md", ""), files, skill_dir
+    content = loader._backend.read_skill_file(skill_id) if info.is_database else info.content
+    return str(content or ""), dict(loader.get_extra_files(skill_id) or {}), None
+
+
+def build_user_skill_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
+    """当前用户最终可用技能的清单（含内容哈希）以及云端可见但当前不可用的 id。
+
+    ``skills`` 与会话装配走同一条门控链（catalog resolver + 归属/发布过滤），
+    ``suppressed_ids`` 让本机把云端已停用的同名技能一并停掉，做到两端一致。
+    """
+    uid = str(user_id)
+    now = time.monotonic()
+    if use_cache:
+        with _effective_lock:
+            hit = _skill_manifest_cache.get(uid)
+            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
+                return copy.deepcopy(hit[1])
+
+    from core.agent_skills.loader import get_skill_loader
+    from core.config.catalog_resolver import resolve_all_runtime_enabled
+    from core.llm.agent_factory import _filter_skill_ids_for_user
+
+    with SessionLocal() as db:
+        enabled, _agents, _mcps = resolve_all_runtime_enabled(db, uid)
+    enabled_ids = _filter_skill_ids_for_user(list(enabled or []), uid)
+    loader = get_skill_loader()
+    metadata = loader.load_all_metadata()
+    visible = {sid for sid in metadata if loader.get_skill_owner(sid) in (None, uid)}
+
+    skills: List[Dict[str, Any]] = []
+    for sid in enabled_ids:
+        meta = metadata.get(sid)
+        snapshot = _skill_snapshot(sid) if meta is not None else None
+        if snapshot is None:
+            continue
+        content, files, _dir = snapshot
+        skills.append(
+            {
+                "skill_id": sid,
+                "display_name": meta.name,
+                "description": meta.description,
+                "version": meta.version,
+                "scope": "private" if loader.get_skill_owner(sid) else "shared",
+                "content_hash": skill_content_hash(content, files),
+                "mcp_server_ids": list(meta.mcp_server_ids or []),
+            }
+        )
+    manifest = build_skill_manifest(skills, sorted(visible - {s["skill_id"] for s in skills}))
+    with _effective_lock:
+        _skill_manifest_cache[uid] = (now, copy.deepcopy(manifest))
+    return manifest
+
+
+def resolve_skill_bundle(user_id: str, skill_id: str) -> Optional[Tuple[bytes, str]]:
+    """打包一个当前授权技能为 zip，返回 (bytes, content_hash)；未授权返回 None。"""
+    from core.services.marketplace_service import build_skill_zip, build_skill_zip_from_dir
+
+    manifest = build_user_skill_manifest(user_id, use_cache=False)
+    if not any(s["skill_id"] == skill_id for s in manifest["skills"]):
+        return None
+    snapshot = _skill_snapshot(skill_id)
+    if snapshot is None:
+        return None
+    content, files, skill_dir = snapshot
+    if skill_dir is not None:
+        data = build_skill_zip_from_dir(skill_id, skill_dir)
+    else:
+        data = build_skill_zip(skill_id, content, files)
+    return data, skill_content_hash(content, files)
 
 
 # ── 模型清单 / 网关目标（云端真实凭据永不离开本进程） ─────────────────────

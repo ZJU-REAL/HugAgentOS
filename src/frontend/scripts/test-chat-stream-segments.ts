@@ -41,6 +41,44 @@ function tool(toolIndex: number): MessageSegment {
     delivery_mode: 'follow_up',
   }), undefined);
   assert.equal(parseAppliedQueueHandoff({ status: 'accepted' }), undefined);
+  assert.deepEqual(parseQueuedRunHandoff({
+    type: 'queued_run_started',
+    run_id: 'run-late-steer',
+    message_id: 'msg-late-steer-assistant',
+    user_message_id: 'msg-late-steer-user',
+    message: '最后输出阶段追加的指令',
+    queue_id: 'queue-late-steer',
+    steer_id: 'steer-late',
+    delivery_mode: 'steer',
+  }), {
+    runId: 'run-late-steer',
+    messageId: 'msg-late-steer-assistant',
+    userMessageId: 'msg-late-steer-user',
+    message: '最后输出阶段追加的指令',
+    queueId: 'queue-late-steer',
+    steerId: 'steer-late',
+    deliveryMode: 'steer',
+  });
+  assert.equal(parseAppliedQueueHandoff({
+    status: 'applied',
+    applied_run_id: 'run-source',
+    applied_run_message_id: 'msg-source',
+    applied_user_message_id: 'msg-user',
+    message: '已注入当前运行',
+    queue_id: 'queue-mid-run',
+    steer_id: 'steer-mid-run',
+    delivery_mode: 'steer',
+  }, 'run-source'), undefined);
+  assert.equal(parseAppliedQueueHandoff({
+    status: 'applied',
+    applied_run_id: 'run-late-steer',
+    applied_run_message_id: 'msg-late-steer-assistant',
+    applied_user_message_id: 'msg-late-steer-user',
+    message: '最后输出阶段追加的指令',
+    queue_id: 'queue-late-steer',
+    steer_id: 'steer-late',
+    delivery_mode: 'steer',
+  }, 'run-source')?.runId, 'run-late-steer');
   assert.equal(parseAppliedQueueHandoff({
     status: 'applied',
     applied_run_id: 'run-child',

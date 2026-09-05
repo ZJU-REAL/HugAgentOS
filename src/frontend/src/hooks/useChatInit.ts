@@ -5,12 +5,13 @@ import { nowId, saveCatalog } from '../storage';
 import { buildHistorySegments } from '../utils/segments';
 import { attachArtifactsToToolCalls } from '../utils/fileParser';
 import { isAutomationHistoryChat } from '../utils/history';
-import { markResolvedPlanPreviews } from '../utils/planHistory';
+import { markResolvedPlanPreviews, scanPlanSnapshots } from '../utils/planHistory';
+import { mergeHistoryPage } from '../utils/historyMerge';
 import { stripMcpToolPrefix } from '../utils/constants';
 import { parseContextCompactionState, parseContextUsageSnapshot } from '../utils/contextUsage';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { isLocalDraftChat, LOGIN_LANDING_KEY, useAuthStore, useSettingsStore, useUIStore, useChatStore, useCatalogStore, useAutomationChatStore, useBatchStore, useSidebarOrderStore } from '../stores';
-import type { Catalog, ChatItem, ChatMessage, CitationItem, ContextCompactionState, ContextUsageSnapshot, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
+import type { Catalog, ChatItem, ChatMessage, CitationItem, EvolutionSummary, OntologyGovernanceSummary, StoredSegment, ThinkingBlock, ToolCall, UpdateEntry, BatchPlanMeta, BatchSourceType, BatchItemResult } from '../types';
 
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
@@ -86,6 +87,73 @@ export async function loadOlderMessages(chatId: string): Promise<number> {
     if (latest) useChatStore.getState().setMessagePaging(chatId, { ...latest, loading: false });
     return 0;
   }
+}
+
+const pendingReloads = new Map<string, Promise<boolean>>();
+
+/**
+ * 取这个会话的最近一页并并进本地。首屏加载、对账、重挂、回放收尾、后端自起轮次——
+ * 所有需要历史的地方都走这里。服务端那一行从轮次接纳起就存在并持续刷新，所以这一页
+ * 天然包含正在跑的那一轮。同一会话并发的请求合并成一次。
+ */
+export function reloadChatHistory(chatId: string): Promise<boolean> {
+  const pending = pendingReloads.get(chatId);
+  if (pending) return pending;
+  const task = fetchAndMergeHistoryPage(chatId).finally(() => pendingReloads.delete(chatId));
+  pendingReloads.set(chatId, task);
+  return task;
+}
+
+async function fetchAndMergeHistoryPage(chatId: string): Promise<boolean> {
+  const r = await authFetch(
+    `${effectiveApiUrl}/v1/chats/${chatId}/messages?page=1&page_size=${MESSAGE_PAGE_SIZE}&order=desc`,
+    { headers: { ...chatTargetHeaders(chatId) } },
+  );
+  if (!r.ok) return false;
+  const payload = await r.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items: any[] = payload?.data?.items || [];
+  const page = items.map(parseHistoryMessage);
+  const { hasPlanMessages, pendingPlanId } = scanPlanSnapshots(items);
+  const st = useChatStore.getState();
+  if (Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_usage')) {
+    st.setContextUsage(chatId, parseContextUsageSnapshot(payload.data.context_usage));
+  }
+  if (Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_compaction')) {
+    st.setContextCompaction(chatId, parseContextCompactionState(payload.data.context_compaction));
+  }
+  // 更早的页可能已经滚上去加载过了，游标只能前进不能回拨。
+  st.setMessagePaging(chatId, {
+    nextPage: Math.max(2, st.messagePaging[chatId]?.nextPage ?? 0),
+    hasOlder: !!payload?.data?.pagination?.has_next,
+    loading: false,
+  });
+  st.updateStore((prev) => {
+    const c = prev.chats[chatId];
+    if (!c) return prev;
+    const merged = mergeHistoryPage(c.messages || [], page, {
+      localIsWriter: useChatStore.getState().sendingChatIds.has(chatId),
+    });
+    return {
+      ...prev,
+      chats: {
+        ...prev.chats,
+        [chatId]: {
+          ...c,
+          messages: markResolvedPlanPreviews(merged),
+          ...(hasPlanMessages && !c.planChat ? { planChat: true } : {}),
+        },
+      },
+    };
+  });
+  st.addLoadedMsgId(chatId);
+  const latest = useChatStore.getState();
+  if (chatId !== latest.currentChatId) return true;
+  if (hasPlanMessages && shouldRestorePlanModeFromHistory(latest.store.chats[chatId]) && !latest.planMode) {
+    latest.setPlanMode(true);
+  }
+  if (pendingPlanId) latest.setCurrentPlanId(pendingPlanId);
+  return true;
 }
 
 /**
@@ -321,6 +389,15 @@ function parseHistoryMessage(m: any): ChatMessage {
     ...(typeof m.message_id === 'string' && m.message_id && { messageId: m.message_id }),
     ...(m.role === 'assistant' && typeof m.metadata?.duration_ms === 'number' && m.metadata.duration_ms >= 0
       && { durationMs: m.metadata.duration_ms }),
+    // 后端在轮次接纳时就建好了这一行、跑的过程中持续刷新：带 in_flight 的就是
+    // 正在跑的那一轮。按活气泡渲染，跟随流的时候从 event_offset 接着补，不从头重放。
+    ...(m.role === 'assistant' && m.in_flight && {
+      isStreaming: true,
+      inFlight: {
+        ...(typeof m.in_flight.event_offset === 'number' && { eventOffset: m.in_flight.event_offset as number }),
+      },
+    }),
+    ...(m.role === 'assistant' && m.error && typeof m.error.error === 'string' && { error: m.error.error as string }),
   } as ChatMessage;
 }
 
@@ -331,7 +408,7 @@ export function useChatInit() {
   const {
     updateStore, setCurrentChatId, setChatsLoading, setToolDisplayNames,
     addBackendSessionId, clearBackendSessionIds,
-    addLoadedMsgId, clearLoadedMsgIds,
+    clearLoadedMsgIds,
     currentChatId, sessionLoadEpoch, bumpSessionLoadEpoch,
     hydrateForUser,
   } = useChatStore();
@@ -603,88 +680,14 @@ export function useChatInit() {
             // more pages exist, re-bump the epoch so the lazy-load effect
             // actually retries — otherwise the chat is stuck on the skeleton
             // until the next full refresh.
+            // 只铺第一屏就算"预载完成"——更早的内容由 ChatArea 滚到顶时续拉。
             let preloadComplete = false;
             try {
-              const mr = await authFetch(`${effectiveApiUrl}/v1/chats/${targetChatId}/messages?page=1&page_size=${MESSAGE_PAGE_SIZE}&order=desc`, { headers: { ...chatTargetHeaders(targetChatId) } });
-              if (mr.ok && !cancelled) {
-                const mp = await mr.json();
-                const msgItems: any[] = mp?.data?.items || [];
-                const quickMsgs: ChatMessage[] = markResolvedPlanPreviews(msgItems.map(parseHistoryMessage));
-                if (Object.prototype.hasOwnProperty.call(mp?.data || {}, 'context_usage')) {
-                  useChatStore.getState().setContextUsage(
-                    targetChatId,
-                    parseContextUsageSnapshot(mp.data.context_usage),
-                  );
-                }
-                if (Object.prototype.hasOwnProperty.call(mp?.data || {}, 'context_compaction')) {
-                  useChatStore.getState().setContextCompaction(
-                    targetChatId,
-                    parseContextCompactionState(mp.data.context_compaction),
-                  );
-                }
-                // 只铺第一屏就算"预载完成"——更早的内容由 ChatArea 滚到顶时续拉，
-                // 不再因为"还有下一页"而回落去把整段历史拉完（那正是要根治的行为）。
-                preloadComplete = true;
-                useChatStore.getState().setMessagePaging(targetChatId, {
-                  nextPage: 2,
-                  hasOlder: !!mp?.data?.pagination?.has_next,
-                  loading: false,
-                });
-                if (!cancelled && quickMsgs.length > 0) {
-                  // Detect plan mode from message content (fallback for sessions
-                  // created before plan_chat metadata was persisted)
-                  const hasPlanMessages = msgItems.some((m: any) => m.metadata?.plan_snapshot);
-                  // If the most recent plan_snapshot is still in 'preview' mode,
-                  // the plan was generated but never executed — restore
-                  // currentPlanId so a follow-up "确认执行" triggers Phase 2
-                  // (execute) instead of Phase 1 (generate a new plan).
-                  let pendingPlanId: string | null = null;
-                  for (const m of msgItems) {
-                    const snap = m?.metadata?.plan_snapshot;
-                    if (m?.role !== 'assistant' || !snap) continue;
-                    const mode = (snap as any).mode || 'complete';
-                    const pid = m?.metadata?.plan_id;
-                    pendingPlanId = mode === 'preview' && pid ? String(pid) : null;
-                  }
-                  updateStore(prev => {
-                    const c = prev.chats[targetChatId];
-                    if (!c) return prev;
-                    return {
-                      ...prev,
-                      chats: {
-                        ...prev.chats,
-                        [targetChatId]: {
-                          ...c,
-                          messages: quickMsgs,
-                          ...(hasPlanMessages && !c.planChat ? { planChat: true } : {}),
-                        },
-                      },
-                    };
-                  });
-                  // Legacy sessions may lack plan_chat metadata, so their history remains a
-                  // fallback for the initial mode. An explicit false is the user's persisted
-                  // choice to continue as an ordinary conversation and must never be overwritten.
-                  const latestState = useChatStore.getState();
-                  const latestChat = latestState.store.chats[targetChatId];
-                  if (
-                    hasPlanMessages
-                    && targetChatId === latestState.currentChatId
-                    && shouldRestorePlanModeFromHistory(latestChat)
-                    && !latestState.planMode
-                  ) {
-                    latestState.setPlanMode(true);
-                  }
-                  if (pendingPlanId) {
-                    useChatStore.getState().setCurrentPlanId(pendingPlanId);
-                  }
-                }
-              }
+              preloadComplete = await reloadChatHistory(targetChatId);
             } catch { /* ignore — lazy-load retries via the epoch bump below */ }
             inflightMsgLoads.delete(targetChatId);
             if (!cancelled) {
-              if (preloadComplete) {
-                addLoadedMsgId(targetChatId);
-              } else {
+              if (!preloadComplete) {
                 // The lazy-load effect already ran (and skipped) while this
                 // preload held the in-flight lock; bump the epoch so it
                 // re-fires now that the lock is released.
@@ -826,102 +829,11 @@ export function useChatInit() {
       inflightMsgLoads.add(chatId);
       let loaded = false;
       try {
-        const page = 1;
-        const allMessages: ChatMessage[] = [];
-        let hasPlanMessages = false;
-        // Track the latest plan_snapshot across all pages; if its mode remains
-        // 'preview' by the end, restore currentPlanId so "确认执行" after
-        // refresh executes the existing plan instead of generating a new one.
-        let pendingPlanId: string | null = null;
-        let contextCompactionSeen = false;
-        let contextCompaction: ContextCompactionState | null = null;
-        let contextUsageSeen = false;
-        let contextUsage: ContextUsageSnapshot | null = null;
-
-        // 只取**最近一页**：order=desc 的第 1 页就是最新的 MESSAGE_PAGE_SIZE 条
-        // （后端按 chat_seq 倒序取、页内再正序返回，直接就是可渲染的顺序）。
-        // 过去这里是 while(true) 把每一页都拉完再一次性渲染 —— 跑过大文件的长对话，
-        // 光这一下就能把浏览器压垮。更早的内容由 ChatArea 滚到顶时续拉。
-        let hasOlder = false;
-        {
-          const r = await authFetch(`${effectiveApiUrl}/v1/chats/${chatId}/messages?page=${page}&page_size=${MESSAGE_PAGE_SIZE}&order=desc`, { headers: { ...chatTargetHeaders(chatId) } });
-          if (cancelled) return;
-          // A non-2xx page (401 blip, 502 during backend restart, 429…) must
-          // NOT fall through to the store write below — that would persist an
-          // empty/partial message list under a "loaded" mark. Throw so the
-          // finally-rollback lets the next visit retry.
-          if (!r.ok) throw new Error(`messages page ${page}: HTTP ${r.status}`);
-          const payload = await r.json();
-          const items: any[] = payload?.data?.items || [];
-          if (!contextCompactionSeen && Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_compaction')) {
-            contextCompactionSeen = true;
-            contextCompaction = parseContextCompactionState(payload.data.context_compaction);
-          }
-          if (!contextUsageSeen && Object.prototype.hasOwnProperty.call(payload?.data || {}, 'context_usage')) {
-            contextUsageSeen = true;
-            contextUsage = parseContextUsageSnapshot(payload.data.context_usage);
-          }
-
-          for (const m of items) {
-            const planSnapshot = m?.metadata?.plan_snapshot;
-            if (m?.role === 'assistant' && planSnapshot) {
-              hasPlanMessages = true;
-              const mode = (planSnapshot as any).mode || 'complete';
-              const pid = m.metadata?.plan_id;
-              pendingPlanId = mode === 'preview' && pid ? String(pid) : null;
-            }
-            allMessages.push(parseHistoryMessage(m));
-          }
-
-          hasOlder = !!payload?.data?.pagination?.has_next;
-        }
-        useChatStore.getState().setMessagePaging(chatId, {
-          nextPage: page + 1,
-          hasOlder,
-          loading: false,
-        });
-
-        if (!cancelled) {
-          if (contextUsageSeen) {
-            useChatStore.getState().setContextUsage(chatId, contextUsage);
-          }
-          if (contextCompactionSeen) {
-            useChatStore.getState().setContextCompaction(chatId, contextCompaction);
-          }
-          loaded = true;
-          msgLoadRetryCounts.delete(chatId);
-          addLoadedMsgId(chatId);
-          updateStore(prev => {
-            const c = prev.chats[chatId];
-            if (!c) return prev;
-            return {
-              ...prev,
-              chats: {
-                ...prev.chats,
-                [chatId]: {
-                  ...c,
-                  messages: markResolvedPlanPreviews(allMessages),
-                  ...(hasPlanMessages && !c.planChat ? { planChat: true } : {}),
-                },
-              },
-            };
-          });
-          // Sync the legacy default only when the user has not explicitly disabled plan mode.
-          const latestState = useChatStore.getState();
-          const latestChat = latestState.store.chats[chatId];
-          if (
-            hasPlanMessages
-            && chatId === latestState.currentChatId
-            && shouldRestorePlanModeFromHistory(latestChat)
-            && !latestState.planMode
-          ) {
-            latestState.setPlanMode(true);
-          }
-          // Restore pending plan id (if any) for the active chat
-          if (pendingPlanId && chatId === useChatStore.getState().currentChatId) {
-            useChatStore.getState().setCurrentPlanId(pendingPlanId);
-          }
-        }
+        // A non-2xx page (401 blip, 502 during backend restart, 429…) must not
+        // leave the chat marked "loaded" — throw so the retry below kicks in.
+        if (!(await reloadChatHistory(chatId))) throw new Error('history page failed');
+        loaded = true;
+        msgLoadRetryCounts.delete(chatId);
       } catch {
         // HTTP/网络失败：有限次自动重试（问题16：历史对话长时间停在骨架屏）。
         // 超过上限后放弃，等用户下次切入该会话再试。

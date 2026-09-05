@@ -328,6 +328,9 @@ export interface ChatStreamOptions {
   pendingNotice?: string;
   /** Path-specific event preprocessing (the autonomous loop's loop_*). Return true = handled, skip built-in dispatch. */
   onEvent?: (ev: Record<string, unknown>, api: ChatStreamApi) => boolean;
+  /** 续接：以服务端持续刷新的那一行为基态（正文/工具卡/思考/段落照搬），流从它记下的
+   *  event_offset 之后接着喂。这样重挂不必从头重放，Redis 事件流被裁掉多早的内容都无所谓。 */
+  seedFrom?: ChatMessage;
 }
 
 export interface ChatStreamOutcome {
@@ -341,7 +344,7 @@ export interface ChatStreamOutcome {
   metaFollowUps: string[];
   /** Stream aborted by the user (AbortError) — the bubble has already wound down normally */
   aborted: boolean;
-  /** A durable followUp/nextRun handoff committed by the backend at this run's boundary. */
+  /** A durable queued-input handoff committed by the backend at this run's boundary. */
   queuedRun?: QueuedRunHandoff;
 }
 
@@ -710,6 +713,20 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   };
 
   let placeholderTs = Date.now();
+  const seed = opts.seedFrom;
+  if (seed) {
+    placeholderTs = seed.ts;
+    metaMessageId = seed.messageId;
+    full = seed.content || '';
+    toolCalls = (seed.toolCalls || []).map((tool) => ({ ...tool }));
+    thinking.push(...(seed.thinking || []).map((block) => ({
+      content: block.content,
+      timestamp: block.timestamp ?? seed.ts,
+    })));
+    segments.push(...(seed.segments || []));
+    // 基态里已有正文：思考阶段早就过了，剥离器等下一个 <think> 再重新武装。
+    if (full) thinkingPhaseActive = false;
+  }
   const autoOpenOntologySidebar = () => {
     if (ontologySidebarAutoOpened) return;
     ontologySidebarAutoOpened = true;
@@ -721,6 +738,14 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     if (!canAutoOpenCanvas()) return;
     useCanvasStore.getState().openOntology({ chatId, messageTs: placeholderTs });
   };
+  /** 本轮气泡在列表里的位置：先按服务端 message_id，还没拿到时按本地占位 ts。 */
+  const findOwnBubble = (msgs: ChatMessage[]): number => {
+    const byId = metaMessageId
+      ? msgs.findIndex((m) => m.role === 'assistant' && m.messageId === metaMessageId)
+      : -1;
+    return byId >= 0 ? byId : msgs.findIndex((m) => m.role === 'assistant' && m.ts === placeholderTs);
+  };
+
   const commitUpdate = (
     streaming: boolean,
     cits?: CitationItem[],
@@ -729,7 +754,6 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
     useChatStore.getState().updateStore((prev) => {
       const c = prev.chats[chatId];
       const msgs = [...(c?.messages || [])];
-      const last = msgs[msgs.length - 1];
       // While the model hasn't produced any real content yet (MiniMax may buffer the whole
       // turn), show the placeholder notice instead of an empty bubble. The placeholder never
       // enters full/segments, so it is never persisted.
@@ -768,12 +792,17 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         lastActivityTs: Date.now(),
       };
       if (persistedMessageId) updatedMsg.messageId = persistedMessageId;
-      if (!streaming) updatedMsg.durationMs = metaDurationMs ?? (Date.now() - placeholderTs);
+      if (!streaming) {
+        updatedMsg.durationMs = metaDurationMs ?? (Date.now() - placeholderTs);
+        updatedMsg.inFlight = undefined;
+      }
       if (cits !== undefined) updatedMsg.citations = cits.length > 0 ? cits : undefined;
       if (metaFollowUps.length > 0) updatedMsg.followUpQuestions = metaFollowUps;
 
-      if (last?.role === 'assistant' && last.ts === placeholderTs) {
-        msgs[msgs.length - 1] = { ...last, ...updatedMsg };
+      // 身份是服务端 message_id（run_started 第一帧就有）；还没拿到时退回本地占位 ts。
+      const idx = findOwnBubble(msgs);
+      if (idx >= 0) {
+        msgs[idx] = { ...msgs[idx], ...updatedMsg };
       } else {
         msgs.push({ role: 'assistant', ts: placeholderTs, ...updatedMsg });
       }
@@ -989,6 +1018,24 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
             if (_seenRuns.size > 200) _seenRuns.clear();
             _seenRuns.add(runId);
             useChatStore.getState().setActiveRun(chatId, { runId, messageId });
+          }
+          if (messageId) {
+            // 第一帧就认领服务端身份。后端在接纳轮次时已经建好了这一行，如果历史里
+            // 已经把它渲染出来（重载/刷新后跟随），就直接接管那个气泡，不再另起一个。
+            metaMessageId = messageId;
+            useChatStore.getState().updateStore((prev) => {
+              const c = prev.chats[chatId];
+              if (!c) return prev;
+              const msgs = c.messages || [];
+              const owned = msgs.find((m) => m.role === 'assistant' && m.messageId === messageId);
+              if (!owned || owned.ts === placeholderTs) return prev;
+              const withoutPlaceholder = msgs.filter(
+                (m) => !(m.role === 'assistant' && m.ts === placeholderTs && !m.messageId),
+              );
+              placeholderTs = owned.ts;
+              return { ...prev, chats: { ...prev.chats, [chatId]: { ...c, messages: withoutPlaceholder } } };
+            });
+            appendOrUpdate(true, undefined, messageId);
           }
           return;
         }
@@ -1794,10 +1841,10 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
   useChatStore.getState().updateStore((prev) => {
     const c = prev.chats[chatId];
     const msgs = [...(c?.messages || [])];
-    const last = msgs[msgs.length - 1];
-    if (last?.role === 'assistant' && last.ts === placeholderTs) {
-      msgs[msgs.length - 1] = {
-        ...last,
+    const idx = findOwnBubble(msgs);
+    if (idx >= 0) {
+      msgs[idx] = {
+        ...msgs[idx],
         content: full,
         isMarkdown: isMd,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
@@ -1809,6 +1856,7 @@ export async function processChatStream(resp: Response, opts: ChatStreamOptions)
         messageId: metaMessageId,
         workspaceFiles: metaWorkspaceFiles,
         isStreaming: false,
+        inFlight: undefined,
         durationMs: metaDurationMs ?? (Date.now() - placeholderTs),
       };
     }

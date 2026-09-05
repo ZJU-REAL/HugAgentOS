@@ -13,12 +13,14 @@ from core.auth.permissions_iface import (
     can_delete_session,
     resolve_chat_access,
 )
-from core.db.models import ChatCompactionState, ChatMessage, ChatSession
+from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession
 from core.db.repository import (
     AuditLogRepository,
     ChatMessageRepository,
     ChatSessionRepository,
 )
+from core.db.repository.chat import _strip_nul
+from sqlalchemy import exists, update
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from sqlalchemy.orm import Session
 
@@ -61,6 +63,8 @@ def clamp_thinking(
     """
     if not blocks:
         return None, segments or None
+    if sum(len(str(b.get("content") or "")) for b in blocks) <= _THINKING_MAX:
+        return blocks, segments or None
     kept: List[Dict[str, Any]] = []
     kept_indices: List[int] = []
     budget = _THINKING_MAX
@@ -455,6 +459,46 @@ class ChatService:
 
         return message
 
+    def refresh_streaming_message(
+        self,
+        *,
+        run_id: str,
+        owner: str,
+        message_id: str,
+        content: str,
+        thinking: Optional[List[Dict[str, Any]]],
+        tool_calls: Optional[List[Dict]],
+        extra_data: Dict[str, Any],
+    ) -> bool:
+        """Overwrite the in-flight assistant row while its run streams.
+
+        One statement, conditioned on the run lease, so a superseded worker
+        cannot clobber its successor's row and no row lock is held across
+        Python work. Nothing else is touched — in particular no session
+        timestamps, so pollers do not mistake a checkpoint for a new message.
+        Returns False when the caller no longer owns the run.
+        """
+        extra = dict(extra_data)
+        kept_thinking, kept_segments = clamp_thinking(thinking, extra.get("segments"))
+        if "segments" in extra:
+            extra["segments"] = kept_segments
+        owned = exists().where(
+            ChatRun.run_id == run_id,
+            ChatRun.lease_owner == owner,
+            ChatRun.status.in_(("pending", "running")),
+        )
+        result = self.db.execute(
+            update(ChatMessage)
+            .where(ChatMessage.message_id == message_id, owned)
+            .values(
+                content=clamp_message_content(content),
+                thinking=_strip_nul(kept_thinking),
+                tool_calls=_strip_nul(tool_calls),
+                extra_data=_strip_nul(extra),
+            )
+        )
+        return result.rowcount > 0
+
     def upsert_message(
         self,
         chat_id: str,
@@ -466,6 +510,7 @@ class ChatService:
         thinking: Optional[List[Dict[str, Any]]] = None,
         tool_calls: Optional[List[Dict]] = None,
         usage: Optional[Dict] = None,
+        error: Optional[Dict] = None,
         extra_data: Dict = None,
         commit: bool = True,
         chat_seq: Optional[int] = None,
@@ -493,6 +538,8 @@ class ChatService:
                 update["tool_calls"] = tool_calls
             if usage is not None:
                 update["usage"] = usage
+            if error is not None:
+                update["error"] = error
             if extra is not None:
                 if "segments" in extra:
                     extra["segments"] = kept_segments
@@ -514,6 +561,7 @@ class ChatService:
             thinking=thinking,
             tool_calls=tool_calls,
             usage=usage,
+            error=error,
             extra_data=extra_data,
             message_id=message_id,
             commit=commit,

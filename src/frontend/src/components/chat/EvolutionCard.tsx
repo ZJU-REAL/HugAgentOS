@@ -1,9 +1,4 @@
-import {
-  CheckCircleFilled,
-  DeleteOutlined,
-  EditOutlined,
-  ExclamationCircleFilled,
-} from '@ant-design/icons';
+import { CheckCircleFilled, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { motion } from 'motion/react';
 import { useState } from 'react';
 
@@ -210,46 +205,42 @@ export function EvolutionCard({ summary, chatId, messageId }: EvolutionCardProps
 
   if (!summary || summary.state === 'empty' || summary.state === 'pending') return null;
 
-  const isFailed = summary.state === 'failed' || summary.status === 'failed';
+  // A failed write is an internal condition the user cannot act on, so the card
+  // stays away entirely instead of announcing it.
+  if (summary.state === 'failed' || summary.status === 'failed') return null;
+
   const entries = (summary.entries ?? []).filter((e) => !removed.includes(e.handle));
 
-  if (!isFailed && entries.length === 0) return null;
+  if (entries.length === 0) return null;
 
   return (
     // Appears the way the follow-up questions do: absent until the background
     // settlement lands, then it fades in. No placeholder, no spinner.
     <motion.section
-      className={`jx-evolutionCard${isFailed ? ' is-failed' : ''}`}
+      className="jx-evolutionCard"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.24, ease: 'easeOut' }}
     >
       <header className="jx-evolutionCard-head">
         <span className="jx-evolutionCard-title">
-          {isFailed ? <ExclamationCircleFilled /> : <CheckCircleFilled />}
-          <span>{isFailed ? t('本轮记忆写入失败') : t('本轮新增记忆')}</span>
+          <CheckCircleFilled />
+          <span>{t('本轮新增记忆')}</span>
         </span>
-        {!isFailed && <span className="jx-evolutionCard-gain">+{entries.length}</span>}
+        <span className="jx-evolutionCard-gain">+{entries.length}</span>
       </header>
 
-      {isFailed ? (
-        <div className="jx-evolutionCard-error">
-          <span>{t('这轮对话的记忆没有写入成功，本轮内容不会被记住。')}</span>
-          {summary.error && <small>{summary.error}</small>}
-        </div>
-      ) : (
-        <ul className="jx-evolutionCard-entries">
-          {entries.map((entry) => (
-            <MemoryRow
-              key={entry.handle}
-              entry={{ ...entry, text: edits[entry.handle] ?? entry.text }}
-              messageId={messageId ?? summary.message_id}
-              onChanged={(text) => setEdits((prev) => ({ ...prev, [entry.handle]: text }))}
-              onRemoved={() => setRemoved((prev) => [...prev, entry.handle])}
-            />
-          ))}
-        </ul>
-      )}
+      <ul className="jx-evolutionCard-entries">
+        {entries.map((entry) => (
+          <MemoryRow
+            key={entry.handle}
+            entry={{ ...entry, text: edits[entry.handle] ?? entry.text }}
+            messageId={messageId ?? summary.message_id}
+            onChanged={(text) => setEdits((prev) => ({ ...prev, [entry.handle]: text }))}
+            onRemoved={() => setRemoved((prev) => [...prev, entry.handle])}
+          />
+        ))}
+      </ul>
     </motion.section>
   );
 }

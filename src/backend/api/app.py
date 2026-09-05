@@ -576,8 +576,8 @@ async def _startup_idle_session_reaper():
     """Background periodic reaping of idle persistent sandbox sessions (only opensandbox has reap_idle_sessions).
 
     With file/sandbox tools enabled in all modes, every ordinary conversation
-    may bind a chat-level persistent container; the server-side 30min TTL is too
-    long, so this reaps earlier per OPENSANDBOX_IDLE_REAP_S.
+    may bind a chat-level persistent container; idle ones are reclaimed per
+    SANDBOX_IDLE_TTL_S.
     Fire-and-forget, does not block startup; canceled by _shutdown_pools on
     process exit.
     """

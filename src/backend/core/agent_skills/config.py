@@ -115,6 +115,20 @@ def get_default_skill_sources() -> List[SkillSourceConfig]:
         )
     )
 
+    # 5. Cloud skills synced into the desktop hybrid local runtime. The cloud
+    #    is the source of truth there, so this source outranks every local one.
+    from core.auth.desktop_bridge import bridge_enabled
+
+    if bridge_enabled():
+        sources.append(
+            SkillSourceConfig(
+                name="cloud",
+                root_dir=get_cloud_skills_dir(),
+                priority=200,
+                enabled=True,
+            )
+        )
+
     return sources
 
 
@@ -125,6 +139,14 @@ def get_enabled_skill_sources() -> List[SkillSourceConfig]:
         List of enabled SkillSourceConfig in priority order.
     """
     return [src for src in get_default_skill_sources() if src.enabled]
+
+
+def get_cloud_skills_dir() -> Path:
+    """Where the desktop local runtime keeps the cloud skill snapshots (sibling of the shared dir)."""
+    shared = get_sandbox_skills_dir()
+    root = shared.parent / f"{shared.name}_cloud"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 def get_sandbox_skills_dir() -> Path:

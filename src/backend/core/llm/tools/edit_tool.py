@@ -29,7 +29,12 @@ from agentscope.tool import Toolkit
 from core.services.project_scope import ProjectScope
 
 from . import myspace_vfs as _ms
-from ._common import pin_artifact_to_workspace, resolve_sandbox_session, resp_json
+from ._common import (
+    myspace_mutation_refusal,
+    pin_artifact_to_workspace,
+    resolve_sandbox_session,
+    resp_json,
+)
 from ._paths import (
     is_myspace_physical,
     to_physical_path,
@@ -105,6 +110,12 @@ def register_edit(
             )
 
         physical = to_physical_path(file_path, user_id)
+
+        # 与 Write 同理：只读作用域下改动要在落盘前拒绝，不能等到同步那一步才被拦。
+        if is_myspace_physical(physical, user_id):
+            _refusal = myspace_mutation_refusal(scope, file_path, "编辑文件")
+            if _refusal is not None:
+                return resp_json(_refusal)
 
         # ── invariant 1: must Read first (logical or physical path both fine) ──
         entry = state.get(file_path) or state.get(physical)

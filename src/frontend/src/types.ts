@@ -452,6 +452,11 @@ export interface ChatMessage {
   citations?: CitationItem[];   // tool-call citation registry
   followUpQuestions?: string[]; // follow-up questions (clickable to send)
   isStreaming?: boolean;
+  /** Set on an assistant row the backend is still writing: the last SSE event
+   *  it folded in. Resuming follows the run stream from there. */
+  inFlight?: { eventOffset?: number };
+  /** Terminal error recorded on the row when its run failed. */
+  error?: string;
   /** Total generation duration of this agent answer (ms): total wall-clock time from
    *  initiating the answer to the end of streaming output. Only carried by locally
    *  newly-generated assistant messages; backend history messages lack this field. Used
@@ -1704,6 +1709,8 @@ export interface WikiGraphNode {
 export interface WikiGraphEdge {
   source: string;
   target: string;
+  /** 边上的关系名；概念图谱不带，实体关系图谱（L3）用它画关系动词 */
+  label?: string;
 }
 
 export interface WikiGraphData {

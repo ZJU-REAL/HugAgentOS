@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
-  Alert, Modal, Switch, Button, Tag, List, Typography, Slider, message, Tabs, Empty, Input, Select,
+  Alert, Modal, Switch, Button, Tag, Slider, message, Tabs, Empty, Input, Select,
   Skeleton, Spin, Tooltip,
 } from 'antd';
 import {
@@ -41,6 +41,7 @@ import { MyLogsPanel } from './MyLogsPanel';
 import { PasswordManagementPanel } from './PasswordManagementPanel';
 import { ChatModesPanel } from './ChatModesPanel';
 import { FactsList } from '../memory/FactsList';
+import { MemoryGraphView } from '../memory/MemoryGraphView';
 import { OntologyManager } from '../ontology';
 import { getLang, setLang, t, type Lang } from '../../i18n';
 import type { ThemeMode } from '../../theme';
@@ -1080,7 +1081,8 @@ export default function SettingsPage() {
         open={memoryPanelOpen}
         onCancel={() => setMemoryPanelOpen(false)}
         footer={null}
-        width={720}
+        // 图谱页要摆得下画布 + 关系抽屉，比另外两页宽一档
+        width={memoryTab === 'graph' ? 960 : 720}
       >
         {memoryLoading ? (
           <div aria-busy="true"><Skeleton active title={false} paragraph={{ rows: 4 }} style={{ padding: '16px 0' }} /></div>
@@ -1104,7 +1106,7 @@ export default function SettingsPage() {
               {
                 key: 'graph',
                 label: tabLabel(t('图谱 L3'), memoryGraphEnabled ? memoryGraph.length : undefined),
-                pane: renderGraphTab(memoryGraph, memoryGraphEnabled),
+                pane: renderGraphTab(memoryGraph, memoryGraphEnabled, loadMemories),
               },
             ].map(({ key, label, pane }) => ({
               key,
@@ -1194,32 +1196,7 @@ function renderFactsTab(
 function renderGraphTab(
   relations: import('../../types').MemoryGraphRelation[],
   enabled: boolean,
+  reload: () => void,
 ) {
-  if (!enabled) {
-    return <Empty className="jx-anim-fadeIn" description={t('图谱记忆未启用（需配置 MEM0_GRAPH_ENABLED + Neo4j）')} />;
-  }
-  if (!relations.length) {
-    return <Empty className="jx-anim-fadeIn" description={t('暂无实体关系')} />;
-  }
-  return (
-    <List
-      dataSource={relations}
-      size="small"
-      renderItem={(r, i) => (
-        <List.Item>
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: EASE.brandOut, delay: Math.min(i, 10) * 0.03 }}
-          >
-            <Typography.Text style={{ fontSize: 13 }}>
-              <Tag color="blue">{r.source}</Tag>
-              <span style={{ color: '#888', margin: '0 8px' }}>{r.relationship}</span>
-              <Tag color="green">{r.target}</Tag>
-            </Typography.Text>
-          </motion.div>
-        </List.Item>
-      )}
-    />
-  );
+  return <MemoryGraphView relations={relations} enabled={enabled} onReload={reload} />;
 }

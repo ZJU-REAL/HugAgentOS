@@ -601,6 +601,18 @@
   stroke-linejoin: round;
 }
 
+/* 关系名：比节点名更小更淡，白描边保证压在边线上仍读得清 */
+.jx-wikiGraphEdgeLabel {
+  font-size: 10px;
+  fill: var(--color-text-tertiary);
+  pointer-events: none;
+  paint-order: stroke;
+  /* 描边取画布底色而不是写死白，深色主题下同样能把线从字底下挡开 */
+  stroke: var(--color-bg-gray);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
 .jx-wikiGraphLegend {
   display: flex;
   align-items: center;

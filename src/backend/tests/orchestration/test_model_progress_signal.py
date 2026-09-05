@@ -127,6 +127,14 @@ async def test_inflight_model_call_silence_emits_model_progress(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_model_call_start_surfaces_the_real_dispatch_boundary(monkeypatch):
+    monkeypatch.setattr(streaming_mod, "_QUEUE_POLL_INTERVAL_S", 0.01)
+    out = await _collect(_slow_model_agent([ModelCallStartEvent()], silence_s=0.01))
+
+    assert ("model_call_start", None) in out
+
+
+@pytest.mark.asyncio
 async def test_silence_without_inflight_model_call_stays_heartbeat(monkeypatch):
     # Same silence but no model call in flight (e.g. a tool executing) keeps the
     # historical heartbeat semantics — excluded from watchdog activity.

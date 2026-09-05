@@ -151,12 +151,18 @@ def list_run_steers(run_id: str) -> list[Dict[str, Any]]:
     payloads: list[Dict[str, Any]] = []
     for item in records:
         payload = item.as_payload()
-        if item.delivery_mode in {"follow_up", "next_run"} and item.applied_run_id:
+        # A steer normally applies inside its target run. If it arrived after
+        # that run's final safe boundary, terminal commit hands it to a child
+        # run instead; expose the child identity for the same durable UI
+        # recovery path used by follow_up/next_run.
+        if item.applied_run_id and item.applied_run_id != item.target_run_id:
             child = children.get(item.applied_run_id)
             payload.update(
                 {
                     "applied_user_message_id": (
-                        f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{item.queue_id}:user').hex[:16]}"
+                        str(child.user_message_id)
+                        if child is not None and child.user_message_id
+                        else f"msg_{uuid.uuid5(uuid.NAMESPACE_URL, f'{item.queue_id}:user').hex[:16]}"
                     ),
                     "applied_run_message_id": (
                         str(child.message_id) if child is not None else None

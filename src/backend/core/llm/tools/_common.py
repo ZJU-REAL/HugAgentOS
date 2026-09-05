@@ -91,10 +91,29 @@ async def myspace_write_guard(
     return resp_json(blk) if blk is not None else None
 
 
+def myspace_mutation_refusal(
+    scope: Any,
+    logical_path: str,
+    action: str,
+) -> Optional[dict]:
+    """只读作用域（团队等）下的写类操作，在动手之前拒绝；不该拒绝时返回 None。
+
+    ``sync_upsert`` 遇到只读作用域返回 ``None``，而 ``None`` 在它的契约里表示"同步
+    失败"、约定"同步失败不要拦住写入本身"——两件事撞在一个返回值上，于是字节照写、
+    还回 ok，只在用户镜像目录里留下一个谁也看不见的孤儿文件。
+
+    ``action`` 用中文动词，与 myspace_vfs 里删除/移动/建文件夹的拒绝话术一致。
+    """
+    if not organization_mutation_blocked(scope):
+        return None
+    return {"error": f"当前项目范围不支持通过 agent {action}：{logical_path}"}
+
+
 async def sandbox_exec_bash(
     script: str,
     *,
     chat_id: Optional[str],
+    user_id: Optional[str] = None,
     timeout: int = 30,
 ) -> tuple[int, str, str]:
     """Run a bash script in the sandbox and return ``(exit_code, stdout, stderr)``.
@@ -105,6 +124,9 @@ async def sandbox_exec_bash(
     NOTE: ``chat_id`` here is the *sandbox session id* — callers pass the
     resolved ``_sess`` (``sandbox_session_id`` or chat_id fallback), never a
     DB-scoping chat id. Kept named ``chat_id`` to avoid churning call sites.
+
+    ``user_id`` 必须传：沙箱首次执行时靠它建 ``/myspace`` 软链，漏传会让这个沙箱里
+    所有 ``/myspace/...`` 路径都不存在。
     """
     from core.sandbox import ExecuteRequest, SandboxConnectError, SandboxError, get_sandbox_provider
 
@@ -117,6 +139,7 @@ async def sandbox_exec_bash(
                 language="bash",
                 timeout=max(1, min(int(timeout or 30), 60)),
                 session_id=chat_id,
+                user_id=user_id,
             )
         )
         return result.exit_code, result.stdout, result.stderr

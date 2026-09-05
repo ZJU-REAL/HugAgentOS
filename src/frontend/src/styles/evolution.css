@@ -9,8 +9,6 @@
   background: var(--color-bg-layout);
 }
 
-.jx-evolutionCard.is-failed { border-color: var(--color-error-bg); }
-
 .jx-evolutionCard-head {
   display: flex;
   align-items: center;
@@ -131,15 +129,6 @@
   color: var(--color-primary);
 }
 .jx-evolutionCard-entryActions button:disabled { cursor: default; opacity: .5; }
-
-.jx-evolutionCard-error {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--color-error);
-}
-.jx-evolutionCard-error small { color: var(--color-text-tertiary); }
 
 /* ── Settings: contribution details card ─────────────────────────────────── */
 

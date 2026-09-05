@@ -13,6 +13,7 @@ from core.llm.context_ir import (
     ContextAssembler,
     estimate_context_tokens,
 )
+from core.llm.context_manager import FALLBACK_CONTEXT_WINDOW, usable_context_window
 
 
 class ManifestBoundAgent(Agent):
@@ -23,6 +24,7 @@ class ManifestBoundAgent(Agent):
     ) -> None:  # noqa: ANN002,ANN003
         super().__init__(*args, **kwargs)
         self._context_adapter_factory = context_adapter_factory or AgentScopeContextAdapter
+        self._tool_reserve_memo: Optional[tuple[int, int]] = None
 
     @property
     def context_adapter_factory(self):  # noqa: ANN201
@@ -116,11 +118,31 @@ class ManifestBoundAgent(Agent):
         await self._publish_context_assembly(assembly, base_manifest)
         return adapter.provider_messages_from_items(assembly.included)
 
+    def _tool_reserve_tokens(self, snapshot: Any, tools: Any) -> int:
+        """Token cost of the frozen tool schemas, recomputed only when they change.
+
+        The estimate walks and re-serializes every schema — milliseconds per
+        call on a large tool surface, and this runs on every model call in the
+        ReAct loop. The surface is content-addressed by ``generation``, and the
+        tools AgentScope hands us come from the same frozen enumeration, so the
+        generation is an exact cache key rather than a heuristic.
+        """
+        generation = getattr(snapshot, "generation", None)
+        if generation is None:
+            return estimate_context_tokens(tools)
+        memo = self._tool_reserve_memo
+        if memo is not None and memo[0] == generation:
+            return memo[1]
+        reserve = estimate_context_tokens(tools)
+        self._tool_reserve_memo = (generation, reserve)
+        return reserve
+
     async def _prepare_model_input(self):  # noqa: ANN202
+        snapshot = None
         freeze = getattr(self.toolkit, "freeze_execution_surface", None)
         if freeze is not None:
             groups = self.state.tool_context.activated_groups
-            await freeze(groups)
+            snapshot = await freeze(groups)
         model_input = await super()._prepare_model_input()
 
         adapter = self._context_adapter_factory()
@@ -146,16 +168,13 @@ class ManifestBoundAgent(Agent):
                 items[head:head] = references
 
         context_size = int(getattr(self.model, "context_size", 0) or 0)
-        # Leave a deterministic 15% response reserve and separately account
-        # for final tool schemas. Models without a declared window retain a
-        # conservative, usable 32k total window.
-        effective_window = context_size or 32_768
-        response_reserve = max(0, effective_window - int(effective_window * 0.85))
-        tool_reserve = estimate_context_tokens(model_input.get("tools") or [])
-        request_budget = max(0, effective_window - response_reserve - tool_reserve)
+        # The usable share already carries the headroom for the response, so the
+        # only thing subtracted here is the measured tool schema.
+        effective_window = context_size or FALLBACK_CONTEXT_WINDOW
+        tool_reserve = self._tool_reserve_tokens(snapshot, model_input.get("tools") or [])
+        request_budget = max(0, usable_context_window(effective_window) - tool_reserve)
         budget_details = {
             "context_window": effective_window,
-            "response_reserve_tokens": response_reserve,
             "tool_reserve_tokens": tool_reserve,
             "message_budget": request_budget,
         }
