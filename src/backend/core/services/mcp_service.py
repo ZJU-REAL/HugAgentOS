@@ -47,7 +47,14 @@ def _rewrite_builtin_mcp_host(url: str) -> str:
         if parts.hostname != "mcp":
             return url
         host = settings.server.mcp_host
-        netloc = f"{host}:{parts.port}" if parts.port else host
+        port = parts.port
+        if port:
+            # 插件清单只知道内置服务器的基准端口；本机执行面按品牌端口命名空间
+            # （HUGAGENT_LOCAL_MCP_PORT_OFFSET）监听，地址要按同一登记表换算。
+            from mcp_servers._ports import _BASE_PORTS, PORTS
+
+            port = {base: PORTS[sid] for sid, base in _BASE_PORTS.items()}.get(port, port)
+        netloc = f"{host}:{port}" if port else host
         return urlunparse(parts._replace(netloc=netloc))
     except Exception:
         return url
@@ -116,6 +123,9 @@ class McpServerConfigService:
                     .order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id)
                     .all()
                 )
+                from core.config.mcp_config import builtin_launcher_serves_this_plane, launcher_backed
+
+                launcher_here = builtin_launcher_serves_this_plane()
                 for row in rows:
                     if is_removed_builtin_mcp_server(
                         row.server_id,
@@ -123,6 +133,11 @@ class McpServerConfigService:
                     ):
                         continue
                     cfg = self._row_to_config(row)
+                    # 桌面双模式下本机不运行内置 launcher：内置服务器与本地引导的
+                    # 原生插件 MCP 都指向 launcher 端口段，此时既不可用也不该被列出，
+                    # 否则每轮都要对着没人监听的端口等超时。
+                    if not launcher_here and launcher_backed(cfg.get("url") or ""):
+                        continue
                     all_map[row.server_id] = cfg
                     if row.is_enabled:
                         enabled_map[row.server_id] = cfg

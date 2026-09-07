@@ -136,7 +136,7 @@ def test_day_lock_fails_closed_when_redis_is_unreachable(monkeypatch):
     def broken_redis():
         raise RuntimeError("no redis")
 
-    monkeypatch.setattr(wb, "get_redis", broken_redis)
+    monkeypatch.setattr("core.infra.ephemeral.get_redis", broken_redis)
     # Failing closed: skipping a cycle beats running it twice, because duplicate
     # runs pollute the evidence chain.
     assert _run(wb.acquire_day_lock("t:", log_tag="test")) is False
@@ -147,7 +147,7 @@ def test_day_lock_denied_when_another_instance_holds_it(monkeypatch):
         async def set(self, *_a, **_kw):
             return None  # NX failed → someone else holds it
 
-    monkeypatch.setattr(wb, "get_redis", lambda **_: _Redis())
+    monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: _Redis())
     assert _run(wb.acquire_day_lock("t:", log_tag="test")) is False
 
 
@@ -159,7 +159,7 @@ def test_day_lock_acquired_when_free(monkeypatch):
             captured.update(key=key, ex=ex, nx=nx)
             return True
 
-    monkeypatch.setattr(wb, "get_redis", lambda **_: _Redis())
+    monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: _Redis())
     assert _run(wb.acquire_day_lock("t:", ttl_s=99, today="20260729", log_tag="test")) is True
     assert captured["key"] == "t:20260729"
     assert captured["nx"] is True and captured["ex"] == 99

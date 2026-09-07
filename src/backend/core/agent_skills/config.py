@@ -77,7 +77,14 @@ def get_default_skill_sources() -> List[SkillSourceConfig]:
         )
     )
 
-    # 3. User skills
+    from core.capabilities.paths import capabilities_enabled
+
+    caps_mode = capabilities_enabled()
+
+    # 3. User skills (flat ``<id>/SKILL.md`` folders). On a desktop with a
+    #    capability store this directory *is* ``<root>/skills`` and is owned by
+    #    the store (profile sub-trees); hand-dropped folders are imported into
+    #    the ``local`` profile by the startup migration instead of being scanned.
     user_skills_dir = os.getenv(
         "HUGAGENT_USER_SKILLS_DIR",
         "~/.hugagent/skills",
@@ -87,14 +94,15 @@ def get_default_skill_sources() -> List[SkillSourceConfig]:
         "true",
         "yes",
     )
-    sources.append(
-        SkillSourceConfig(
-            name="user",
-            root_dir=Path(user_skills_dir).expanduser().resolve(),
-            priority=50,
-            enabled=not user_disabled,
+    if not caps_mode:
+        sources.append(
+            SkillSourceConfig(
+                name="user",
+                root_dir=Path(user_skills_dir).expanduser().resolve(),
+                priority=50,
+                enabled=not user_disabled,
+            )
         )
-    )
 
     # 4. Project skills
     project_skills_dir = os.getenv(
@@ -115,16 +123,18 @@ def get_default_skill_sources() -> List[SkillSourceConfig]:
         )
     )
 
-    # 5. Cloud skills synced into the desktop hybrid local runtime. The cloud
-    #    is the source of truth there, so this source outranks every local one.
-    from core.auth.desktop_bridge import bridge_enabled
+    # 5. The current cloud account's installed skills, read from the desktop
+    #    capability store. Not a priority override: a same-named skill from two
+    #    sources is decided by the resolver (core.capabilities.skills) and shown
+    #    to the user, never silently replaced.
+    if caps_mode:
+        from core.capabilities.paths import kind_root
 
-    if bridge_enabled():
         sources.append(
             SkillSourceConfig(
                 name="cloud",
-                root_dir=get_cloud_skills_dir(),
-                priority=200,
+                root_dir=kind_root("skill"),
+                priority=150,
                 enabled=True,
             )
         )
@@ -139,14 +149,6 @@ def get_enabled_skill_sources() -> List[SkillSourceConfig]:
         List of enabled SkillSourceConfig in priority order.
     """
     return [src for src in get_default_skill_sources() if src.enabled]
-
-
-def get_cloud_skills_dir() -> Path:
-    """Where the desktop local runtime keeps the cloud skill snapshots (sibling of the shared dir)."""
-    shared = get_sandbox_skills_dir()
-    root = shared.parent / f"{shared.name}_cloud"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
 
 
 def get_sandbox_skills_dir() -> Path:
@@ -196,6 +198,17 @@ def sync_builtin_skills_to_sandbox_dir() -> int:
     """
     import shutil
 
+    from core.capabilities.paths import capabilities_enabled
+
+    if capabilities_enabled():
+        # Desktop store: the shared dir is a link view — built-ins are linked to
+        # the shipped bundle, nothing is copied.
+        from core.capabilities.skills import rebuild_device_view
+
+        report = rebuild_device_view()
+        logger.info("[skills-sync] device view rebuilt → %s", report.view_dir)
+        return len(report.linked) + len(report.relinked)
+
     dest_root = get_sandbox_skills_dir()  # guaranteed to exist
 
     count = 0
@@ -237,6 +250,11 @@ def get_user_skills_root() -> Path:
     shared = get_sandbox_skills_dir()
     root = shared.parent / f"{shared.name}_u"
     root.mkdir(parents=True, exist_ok=True)
+    from core.capabilities.paths import capabilities_enabled
+
+    if capabilities_enabled():
+        # Desktop store: user views link straight into the store, no shared hop.
+        return root
     link = root / SHARED_LINK_NAME
     # Relative so the same link works from the host, from inside a sandbox and
     # from the script-runner container — see the layout note above.
@@ -286,6 +304,13 @@ def sync_user_skill_view(user_id: Optional[str]) -> Optional[Path]:
     view = get_user_skills_dir(user_id)
     if view is None:
         return None
+    from core.capabilities.paths import capabilities_enabled
+
+    if capabilities_enabled():
+        from core.capabilities.skills import rebuild_user_view
+
+        rebuild_user_view(user_id)
+        return view
     view.mkdir(parents=True, exist_ok=True)
     shared = get_sandbox_skills_dir()
 
@@ -326,6 +351,14 @@ def purge_skill_sandbox_files(skill_id: str) -> bool:
         return False
     if (_builtin_skills_dir() / skill_id).is_dir():
         return False
+    from core.capabilities.paths import capabilities_enabled
+
+    if capabilities_enabled():
+        from core.capabilities.skills import rebuild_views, remove_local_skill
+
+        removed = remove_local_skill(skill_id)
+        rebuild_views(None)
+        return removed
 
     removed = False
     roots = [get_sandbox_skills_dir()] + [
@@ -361,6 +394,13 @@ def prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:
     sweep is safe; built-in bundles are re-synced at every startup.
     """
     import shutil
+
+    from core.capabilities.paths import capabilities_enabled
+
+    if capabilities_enabled():
+        from core.capabilities.skills import prune_local
+
+        return prune_local(live_skill_owners)
 
     builtin = {d.name for d in _builtin_skills_dir().iterdir() if d.is_dir()}
     removed = 0

@@ -12,7 +12,6 @@ import contextlib
 from pathlib import Path
 from typing import Dict, Any
 
-from dotenv import load_dotenv
 
 # 把项目根目录加入 sys.path，供 core/artifacts 等包使用
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,7 +30,8 @@ from core.llm.chat_models import make_chat_model
 from core.llm.message_compat import extract_text_from_chat_response
 from core.artifacts.store import save_artifact_bytes
 
-load_dotenv()
+# Repo-level env files are loaded once by core.config.settings (repo root only,
+# process env wins). A bare load_dotenv() here searched parent directories too.
 
 # 方正中文字体目录解析（与源码位置解耦）：
 #   1. JX_FONT_DIR 环境变量覆盖

@@ -4,7 +4,7 @@
 
 The simplest way to deploy, aimed at **personal single-machine trials** and **development experience**: one command installs everything, a terminal wizard sets the admin account and configures the model, then a single process starts the server and opens the browser. Zero **Docker, PostgreSQL, and Redis**.
 
-Technical shape: a single uvicorn process (serving both the frontend static assets and the API) + SQLite + in-process fakeredis + subprocess MCP / sandbox. All data lives under `~/.hugagent/`.
+Technical shape: a single uvicorn process (serving both the frontend static assets and the API) + SQLite + an in-process event log / ephemeral state + subprocess MCP / sandbox. All data lives under `~/.hugagent/`.
 
 > ⚠️ **Positioning**: this is a **single-process, single-user** form built for personal trials and development. It is **not suitable for multi-user collaboration or production** — use [Docker Compose](docker-compose.md) for those. The two forms coexist and do not affect each other.
 
@@ -185,6 +185,6 @@ The no-Docker single-machine mode is built to be lightweight. Here is how it dif
 | Local-mode switch | `src/backend/core/config/settings.py` (`DeploySettings`, `DEPLOY_PROFILE=local`) |
 | Frontend static hosting + `/api` bridge | `src/backend/api/local_hosting.py` |
 | MCP / sandbox subprocess supervision | `src/backend/orchestration/local_subprocess.py` |
-| In-process fakeredis | `src/backend/core/infra/redis.py` (`REDIS_URL=memory://`) |
+| In-process event log / ephemeral state | `src/backend/orchestration/run_event_stream.py`, `src/backend/core/infra/ephemeral.py` (enabled by leaving `REDIS_URL` empty) |
 | Built-in MCP catalog seed | `src/backend/core/services/mcp_service.py` (`seed_builtin_mcp_servers_if_empty`) |
 | Environment variables | [environment-variables.md](environment-variables.md) (the "No-Docker local mode" section) |

@@ -7,6 +7,7 @@ import './tool.css';
 import './data-view.css';
 import './code-highlight.css';
 import './catalog.css';
+import './device-capability.css';
 import './kb-wiki.css';
 import './common.css';
 import './settings.css';

@@ -2,7 +2,6 @@
 
 import asyncio
 import threading
-from typing import Optional
 from weakref import WeakKeyDictionary
 
 import redis.asyncio as aioredis
@@ -32,21 +31,29 @@ _stream_pools: WeakKeyDictionary[asyncio.AbstractEventLoop, aioredis.Redis] = (
     WeakKeyDictionary()
 )
 _redis_pools_lock = threading.Lock()
-_fake_server: Optional[object] = None
+
+
+def redis_configured() -> bool:
+    """Whether this deployment has a Redis to talk to.
+
+    The single predicate every store-agnostic seam branches on
+    (:mod:`core.infra.ephemeral`, :mod:`orchestration.run_event_stream`). A
+    deployment without Redis — the desktop's single-process backend — leaves
+    ``REDIS_URL`` empty and those seams use their in-process backend instead.
+    """
+    return bool(settings.redis.url.strip())
 
 
 def _create_client(max_connections: int) -> tuple[aioredis.Redis, str]:
-    """Build one client; ``memory://`` returns a shared in-process fake."""
-    global _fake_server
+    """Build one client for the configured Redis."""
     url = settings.redis.url
-    if url.startswith("memory://"):
-        import fakeredis.aioredis as _fakeredis
-
-        if _fake_server is None:
-            _fake_server = _fakeredis.FakeServer()
-        return (
-            _fakeredis.FakeRedis(server=_fake_server, decode_responses=True),
-            "fakeredis",
+    if not redis_configured():
+        # Never substitute an imitation: a store-agnostic seam picks its
+        # in-process backend from redis_configured() long before reaching here,
+        # so arriving with no URL means a caller bypassed one.
+        raise RuntimeError(
+            "REDIS_URL is not configured; use core.infra.ephemeral / "
+            "orchestration.run_event_stream instead of get_redis()"
         )
     # NOTE: redis-py 8.0 changed the default socket_timeout from None -> 5s.
     # The chat-stream follower blocks on `XREAD BLOCK 5000`; if the socket
@@ -104,13 +111,13 @@ def get_redis(*, blocking: bool = False) -> aioredis.Redis:
     process-wide client eventually raises ``Future attached to a different
     loop`` in normal API requests. Keep one pool per running loop instead.
 
-    ``REDIS_URL=memory://`` (local/quick-install profile) returns an in-process
-    ``fakeredis`` client. All loop-local clients share one fake server, so the
-    chat-stream XADD writer and the follower's blocking
-    ``XREAD BLOCK`` reader share the same fake server (verified: fakeredis 2.36+
-    honours blocking XREAD, GETDEL, INCRBYFLOAT, pipelines, sorted sets). This is
-    an **explicit** opt-in value — we never silently fall back on a connection
-    error, so a mis-configured production Redis surfaces as a hard failure.
+    Only call this where Redis is known to be configured. Deployments without
+    one (the desktop backend) leave ``REDIS_URL`` empty and reach the same
+    capabilities through :mod:`core.infra.ephemeral` and
+    :mod:`orchestration.run_event_stream`, which pick an in-process backend.
+    There is deliberately no imitation Redis to fall back on: an imitation has
+    to track redis-py's wire protocol, and a mismatch shows up as a silent
+    stall rather than a clear failure.
     """
     if blocking:
         return _get_pooled(

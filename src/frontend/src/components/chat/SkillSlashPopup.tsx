@@ -13,6 +13,7 @@ type SlashEntryBase = {
 };
 
 export type SlashEntry =
+  | (SlashEntryBase & { kind: 'command' })
   | (SlashEntryBase & { kind: 'skill' })
   | (SlashEntryBase & { kind: 'plugin'; plugin: InstalledPluginItem });
 
@@ -27,6 +28,7 @@ interface SkillSlashPopupProps {
 const POPUP_MAX_HEIGHT = 320;
 
 function sectionLabel(kind: SlashEntry['kind']): string {
+  if (kind === 'command') return t('项目命令');
   if (kind === 'plugin') return t('插件');
   return t('技能');
 }
@@ -104,7 +106,7 @@ export function useSkillSlash() {
   function handleSlashInputChange(value: string, prevValue: string) {
     const v = value.trimEnd();   // contentEditable may append \n
     const p = prevValue.trimEnd();
-    if (p === '' && v === '/') {
+    if (p === '' && /^\/[^\s]*$/.test(v)) {
       setSlashVisible(true);
       setSelectedIndex(0);
       return;

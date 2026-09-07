@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import time
+import asyncio
 
 import pytest
 
@@ -31,28 +32,44 @@ def _fixed_secret(monkeypatch):
     yield
 
 
-def test_token_roundtrip():
-    data = cap.issue_capability_token("user-1", ttl_s=3600)
-    assert data["token"].startswith("dcap1.")
-    assert cap.verify_capability_token(data["token"]) == "user-1"
+def _issue_test_token(monkeypatch, ttl_s=600):
+    from core.auth import session
+
+    monkeypatch.setattr(session, "_MEMORY_SESSIONS", {})
+    monkeypatch.setattr(session, "_use_memory_store", lambda: True)
+    cookie = asyncio.run(session.create_session({"user_id": "user-1", "user_center_id": "center-1"}))
+    digest = session._hash_token(cookie)
+    return cap.issue_capability_token("user-1", ttl_s=ttl_s, device_id="test-device",
+        issuer="https://test.example", session_hash=digest, user_center_id="center-1",
+        authorization_epoch=cap.session_authorization_epoch(session._MEMORY_SESSIONS[digest]["payload"]))
+
+
+def _verify_test_token(token):
+    return asyncio.run(cap.verify_capability_token(token, device_id="test-device", issuer="https://test.example"))
+
+
+def test_token_roundtrip(monkeypatch):
+    data = _issue_test_token(monkeypatch)
+    assert data["token"].startswith("dcap2.")
+    assert _verify_test_token(data["token"]) == "user-1"
     assert data["scope"] == "desktop_runtime"
 
 
-def test_token_tamper_rejected():
-    token = cap.issue_capability_token("user-1")["token"]
+def test_token_tamper_rejected(monkeypatch):
+    token = _issue_test_token(monkeypatch)["token"]
     prefix, body, sig = token.split(".", 2)
-    assert cap.verify_capability_token(f"{prefix}.{body}x.{sig}") is None
-    assert cap.verify_capability_token(f"{prefix}.{body}.{'0' * len(sig)}") is None
-    assert cap.verify_capability_token("") is None
-    assert cap.verify_capability_token("garbage") is None
+    assert _verify_test_token(f"{prefix}.{body}x.{sig}") is None
+    assert _verify_test_token(f"{prefix}.{body}.{'0' * len(sig)}") is None
+    assert _verify_test_token("") is None
+    assert _verify_test_token("garbage") is None
 
 
 def test_token_expiry(monkeypatch):
-    token = cap.issue_capability_token("user-1", ttl_s=61)["token"]
-    assert cap.verify_capability_token(token) == "user-1"
+    token = _issue_test_token(monkeypatch, ttl_s=61)["token"]
+    assert _verify_test_token(token) == "user-1"
     real_time = time.time
     monkeypatch.setattr(time, "time", lambda: real_time() + 7200)
-    assert cap.verify_capability_token(token) is None
+    assert _verify_test_token(token) is None
 
 
 # ── 模型能力清单 / 网关授权 ───────────────────────────────────────
@@ -106,6 +123,110 @@ def test_model_manifest_contains_no_upstream_credentials(monkeypatch, db_session
     for item in manifest["providers"]:
         assert "base_url" not in item
         assert "api_key" not in item
+
+
+def test_credential_equal_to_a_public_model_identifier_is_not_a_secret(monkeypatch, db_session):
+    """api_key 与 model_name 字面相同：模型名对所有登录用户可见，不是机密。
+    这样的模型照常下发（生产上 main_agent 就绑在这种配置上），清单仍通过出口守卫。"""
+    _use_test_database(monkeypatch, db_session)
+    from core.services import user_model_selection
+
+    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
+    keyless = create_provider(
+        db_session,
+        display_name="Keyless Vision",
+        provider_type="chat",
+        provider="openai_compatible",
+        base_url="http://192.0.2.10:1029/v1",
+        api_key="deepseekv4-flash",
+        model_name="deepseekv4-flash",
+    )
+    assert assign_role(db_session, "main_agent", keyless.provider_id)
+
+    manifest = cap.build_user_model_manifest("user-1")
+
+    assert [p["provider_id"] for p in manifest["providers"]] == [keyless.provider_id]
+    assert "withheld" not in manifest
+    assert manifest["role_assignments"] == [{"role_key": "main_agent", "provider_id": keyless.provider_id}]
+    assert cap.guard_capability_content("user-1", manifest) is manifest
+    assert "deepseekv4-flash" not in cap._known_cloud_secrets("user-1")
+
+
+def test_gateway_stream_secrets_exclude_the_target_model_name_but_keep_real_keys(monkeypatch, db_session):
+    """网关转发这条模型的输出时，每个流式分片都带 model 字段；模型名不是机密，
+    不能因此把整段回复拦成 upstream content blocked。真实密钥仍被屏蔽。"""
+    _use_test_database(monkeypatch, db_session)
+    keyless = create_provider(
+        db_session,
+        display_name="Keyless Vision",
+        provider_type="chat",
+        provider="openai_compatible",
+        base_url="http://192.0.2.10:1029/v1",
+        api_key="deepseekv4-flash",
+        model_name="deepseekv4-flash",
+    )
+    create_provider(
+        db_session,
+        display_name="Other",
+        provider_type="chat",
+        provider="openai",
+        base_url="https://model.example/v1",
+        api_key="sk-other-real-key-7d2c",
+        model_name="other-model",
+    )
+    target = {"url": "http://192.0.2.10:1029/v1/chat/completions", "api_key": keyless.api_key, "model_name": keyless.model_name}
+
+    secrets = cap.gateway_stream_secrets("user-1", target)
+
+    assert "deepseekv4-flash" not in secrets
+    assert "sk-other-real-key-7d2c" in secrets
+    chunks = [b'data: {"model":"deepseekv4-flash","choices":[{"delta":{"content":"hi"}}]}\n\n']
+
+    async def upstream():
+        for chunk in chunks:
+            yield chunk
+
+    import asyncio
+
+    async def collect():
+        return [c async for c in cap.guard_capability_stream(upstream(), secrets)]
+
+    assert b"".join(asyncio.run(collect())) == b"".join(chunks)
+
+
+def test_model_manifest_withholds_only_the_provider_that_would_leak_a_real_credential(monkeypatch, db_session):
+    """另一条模型的真实密钥出现在某模型的展示名里：只扣留这一条并点名字段，其余照常下发。"""
+    _use_test_database(monkeypatch, db_session)
+    from core.services import user_model_selection
+
+    monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: False)
+    healthy = create_provider(
+        db_session,
+        display_name="Healthy",
+        provider_type="chat",
+        provider="openai",
+        base_url="https://model.example/v1",
+        api_key="sk-real-secret-value-9f3a",
+        model_name="healthy-model",
+    )
+    leaking = create_provider(
+        db_session,
+        display_name="Notes sk-real-secret-value-9f3a",
+        provider_type="chat",
+        provider="openai",
+        base_url="https://other.example/v1",
+        api_key="sk-other-secret",
+        model_name="leaky-model",
+    )
+    assert assign_role(db_session, "main_agent", healthy.provider_id)
+    assert assign_role(db_session, "vision", leaking.provider_id)
+
+    manifest = cap.build_user_model_manifest("user-1")
+
+    assert [p["provider_id"] for p in manifest["providers"]] == [healthy.provider_id]
+    assert manifest["withheld"] == [{"provider_id": leaking.provider_id, "fields": ["display_name"]}]
+    assert manifest["role_assignments"] == [{"role_key": "main_agent", "provider_id": healthy.provider_id}]
+    assert cap.guard_capability_content("user-1", manifest) is manifest
 
 
 def test_model_gateway_target_is_role_or_user_switch_allowlisted(monkeypatch, db_session):

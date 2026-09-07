@@ -26,6 +26,14 @@ from .registry import (
 _SCRIPT_EXTENSIONS = {".py", ".js", ".sh", ".r", ".R"}
 
 
+def _bound_skill_id(skill_info: SkillFileInfo, declared_id: str) -> str:
+    # Capability names come from the resolved view, independently of the file's
+    # original frontmatter. Ordinary source files keep their existing ID rules.
+    if skill_info.source_name == "prepared" or (skill_info.origin or {}).get("install_id"):
+        return skill_info.skill_id
+    return declared_id
+
+
 def _auto_detect_scripts(
     extra_files: Dict[str, str],
     skill_info: "SkillFileInfo",
@@ -109,11 +117,17 @@ class MultiSourceSkillLoader:
         Returns:
             CompositeBackend configured with enabled skill sources.
         """
+        from core.capabilities.paths import capabilities_enabled
+
         sources = get_enabled_skill_sources()
         backends = []
         for src in sources:
             if src.name == "admin":
                 backends.append(DatabaseBackend(priority=src.priority))
+            elif src.name == "cloud":
+                from .backends.capability_store import CapabilityStoreBackend
+
+                backends.append(CapabilityStoreBackend(priority=src.priority))
             else:
                 backends.append(
                     FilesystemBackend(
@@ -122,7 +136,19 @@ class MultiSourceSkillLoader:
                         priority=src.priority,
                     )
                 )
-        return CompositeBackend(backends)
+        if not capabilities_enabled():
+            return CompositeBackend(backends)
+
+        from .backends.capability_store import CapabilityStoreBackend
+        backends.append(CapabilityStoreBackend(local=True))
+
+        # Desktop store: same-id clashes go to the resolver, never to priority.
+        from core.capabilities.skills import merge_skill_infos
+
+        return CompositeBackend(
+            backends,
+            merge=lambda groups, backend_hash: merge_skill_infos(groups, backend_hash=backend_hash),
+        )
 
     def _get_backend_change_token(self) -> Optional[Any]:
         """Return a backend change token when the backend supports it."""
@@ -190,7 +216,7 @@ class MultiSourceSkillLoader:
                     metadata = _load_skill_metadata_from_file(skill_info.file_path)
                 # Add source information to skill_path for debugging
                 metadata_with_source = AgentSkillMetadata(
-                    id=metadata.id,
+                    id=_bound_skill_id(skill_info, metadata.id),
                     name=metadata.name,
                     description=metadata.description,
                     version=metadata.version,
@@ -199,7 +225,7 @@ class MultiSourceSkillLoader:
                     mcp_server_ids=metadata.mcp_server_ids,
                     skill_path=f"{skill_info.source_name}:{skill_info.file_path}",
                 )
-                metadata_map[metadata.id] = metadata_with_source
+                metadata_map[metadata_with_source.id] = metadata_with_source
             except Exception as e:
                 # Log warning but continue loading other skills
                 logger.warning("Failed to load skill metadata from %s: %s", skill_info.file_path, e)
@@ -288,7 +314,7 @@ class MultiSourceSkillLoader:
 
             # Add source information to skill_path
             spec_with_source = AgentSkillSpec(
-                id=spec.id,
+                id=_bound_skill_id(skill_info, spec.id),
                 name=spec.name,
                 description=spec.description,
                 version=spec.version,
@@ -381,34 +407,41 @@ class MultiSourceSkillLoader:
         Returns:
             Absolute path to the materialized directory.
         """
-        # Materialize where the skill's owner can see it: a private skill lands in
-        # its owner's dir, a shared one in the common dir. Both surface at the same
-        # /workspace/skills/<id> inside the sandbox, but only the owner's sandbox
-        # mounts the private files. See config's layout note and
-        # opensandbox_provider._make_skills_volumes.
-        cache_root = skill_files_dir(skill_id, self.get_skill_owner(skill_id))
-
         # Check in-memory cache — skip I/O if recently materialized
         if skill_id in self._materialized_cache:
             cached_path, cached_time = self._materialized_cache[skill_id]
             if time.monotonic() - cached_time < 300:  # 5 min TTL
                 return cached_path
 
-        cache_root.mkdir(parents=True, exist_ok=True)
-
-        # Write SKILL.md
         skill_info = self._backend.get_skill_info(skill_id)
+        content = ""
         if skill_info:
             if skill_info.is_database:
                 content = self._backend.read_skill_file(skill_id)
             else:
-                content = skill_info.content
-            if content:
-                (cache_root / "SKILL.md").write_text(content, encoding="utf-8")
-
-        # Write extra files (reuse pre-fetched data if available)
+                content = skill_info.content or ""
         if extra_files is None:
             extra_files = self._backend.get_extra_files(skill_id)
+        owner = self.get_skill_owner(skill_id)
+
+        from core.capabilities.paths import capabilities_enabled
+
+        if capabilities_enabled():
+            # Desktop store: one immutable revision per content hash under the
+            # local profile; the runtime view links the name to it afterwards.
+            result_path = self._publish_to_store(skill_id, content, extra_files, owner)
+            self._materialized_cache[skill_id] = (result_path, time.monotonic())
+            return result_path
+
+        # Materialize where the skill's owner can see it: a private skill lands in
+        # its owner's dir, a shared one in the common dir. Both surface at the same
+        # /workspace/skills/<id> inside the sandbox, but only the owner's sandbox
+        # mounts the private files. See config's layout note and
+        # opensandbox_provider._make_skills_volumes.
+        cache_root = skill_files_dir(skill_id, owner)
+        cache_root.mkdir(parents=True, exist_ok=True)
+        if content:
+            (cache_root / "SKILL.md").write_text(content, encoding="utf-8")
         for filename, content in extra_files.items():
             file_path = cache_root / filename
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -425,6 +458,38 @@ class MultiSourceSkillLoader:
             "Materialized skill '%s' to %s (%d files)", skill_id, cache_root, len(extra_files)
         )
         return result_path
+
+    def _publish_to_store(
+        self,
+        skill_id: str,
+        content: str,
+        extra_files: Dict[str, str],
+        owner: Optional[str],
+    ) -> str:
+        """Desktop store path of a DB skill: publish its current content, link the views."""
+        from core.capabilities import skills as caps_skills
+        from core.services.desktop_capability_protocol import skill_content_hash
+
+        info = self._backend.get_skill_info(skill_id)
+        meta = dict(info.metadata or {}) if info else {}
+        files: Dict[str, bytes | str] = {"SKILL.md": content}
+        for filename, body in extra_files.items():
+            files[filename] = decode_binary(body) if is_binary_value(body) else str(body)
+        comp = caps_skills.publish_local_skill(
+            skill_id,
+            files=files,
+            content_hash=skill_content_hash(content, extra_files),
+            owner_user_id=owner,
+            source="plugin" if meta.get("source_plugin") else "local",
+            source_plugin=meta.get("source_plugin"),
+            display_name=str(meta.get("name") or skill_id),
+            description=str(meta.get("description") or ""),
+            version=str(meta.get("version") or ""),
+            from_db=True,
+        )
+        caps_skills.rebuild_views(owner)
+        logger.info("Published skill '%s' to store revision %s", skill_id, comp.revision)
+        return str(comp.path)
 
     def get_skill_dir(self, skill_id: str) -> Optional[str]:
         """Get the on-disk directory for a skill.
@@ -481,21 +546,18 @@ class MultiSourceSkillLoader:
                 skill_dir = self.get_skill_dir(sid)
                 if skill_dir is None:
                     continue
-                toolkit.register_agent_skill(skill_dir)
-                # AgentScope reads SKILL.md from skill_dir AND surfaces that exact
-                # path as ``{dir}`` in the system prompt. skill_dir is a *backend*
-                # path (DB skills → /app/storage/sandbox_skills/<id>; built-ins →
-                # source tree). But in the sandbox the skill lives at
-                # /workspace/skills/<id> (built-ins baked there; DB skills
-                # runtime-pushed by cube_provider / bind-mounted by opensandbox).
-                # The prompt-facing dir is repointed to that sandbox path at the
-                # *render* layer — agent_factory._SKILL_INSTRUCTION_TEMPLATE rewrites
-                # ``{{ skill.dir }}`` to /workspace/skills/<basename>. (An earlier
-                # attempt to mutate the registered entry's dir here was a no-op: the
-                # ``toolkit`` passed in is a ToolCollector, which has no ``.skills``
-                # dict — the real Toolkit is rebuilt later from the raw skill_loaders.)
-                # view_text_file still maps the sandbox path back to the backend file
-                # via _resolve_skill_path.
+                from core.capabilities.paths import capabilities_enabled
+
+                prepared = getattr(self, "capability_run", None)
+                if prepared is not None or capabilities_enabled():
+                    # Native Toolkit deduplicates by Skill.name. Preserve the
+                    # resolved alias even if frontmatter keeps a source name or
+                    # the physical directory ends in a content revision.
+                    toolkit.register_agent_skill(
+                        skill_dir, runtime_name=sid, capability_run=prepared
+                    )
+                else:
+                    toolkit.register_agent_skill(skill_dir)
                 count += 1
             except Exception as e:
                 logger.warning("Failed to register skill '%s': %s", sid, e)

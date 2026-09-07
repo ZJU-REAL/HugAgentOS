@@ -65,6 +65,9 @@ def test_database_extra_config_exposes_timeout_overrides(monkeypatch):
         url="http://remote/mcp",
         headers={},
         extra_config={"execution_timeout": 180, "transport_timeout": 190},
+        # Provenance columns every AdminMcpServer row carries (read for logical dedup).
+        source_plugin=None,
+        owner_user_id=None,
     )
     service = McpServerConfigService()
     monkeypatch.setattr(service, "_build_env", lambda _row: {})

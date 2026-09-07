@@ -763,14 +763,32 @@ def _resolve_explicit_capability_invocation(
             .filter(InstalledPlugin.install_id == request.plugin_id)
             .first()
         )
-        if installed is None or (
-            installed.owner_user_id is not None and installed.owner_user_id != user_id
-        ):
-            raise HTTPException(status_code=403, detail="无法访问该插件，可能已卸载")
-        component_ids = installed.component_ids or {}
-        plugin_skill_ids = _ids(component_ids.get("skills"))
-        plugin_mcp_ids = _ids(component_ids.get("mcp"))
-        plugin_name = str(installed.name or installed.slug or request.plugin_name or "插件")
+        if installed is None:
+            from core.capabilities.paths import capabilities_enabled
+            from core.capabilities.errors import CapabilityError
+            from core.capabilities.invocation import cloud_plugin_selection
+
+            try:
+                cloud_plugin = (
+                    cloud_plugin_selection(request.plugin_id, user_id=user_id)
+                    if capabilities_enabled() else None
+                )
+            except CapabilityError as exc:
+                raise HTTPException(status_code=409, detail="所选插件尚不可用，请检查能力中心状态") from exc
+            if cloud_plugin is None:
+                raise HTTPException(status_code=403, detail="无法访问该插件，可能已卸载")
+            request = request.model_copy(update={"plugin_id": cloud_plugin["install_id"]})
+            plugin_skill_ids = cloud_plugin["skills"]
+            plugin_mcp_ids = cloud_plugin["mcp"]
+            plugin_name = cloud_plugin["name"]
+        else:
+            if installed.owner_user_id is not None and installed.owner_user_id != user_id:
+                raise HTTPException(status_code=403, detail="无法访问该插件，可能已卸载")
+            from core.services.plugin_service import _component_keys
+            component_ids = installed.component_ids or {}
+            plugin_skill_ids = _component_keys(component_ids, "skills")
+            plugin_mcp_ids = _component_keys(component_ids, "mcp")
+            plugin_name = str(installed.name or installed.slug or request.plugin_name or "插件")
 
     # Clients submit only stable selection IDs. Plugin component lists always
     # come from the authoritative server-side installation record.
@@ -851,6 +869,12 @@ def _resolve_chat_agent_targets(
     from core.services.user_agent_service import UserAgentService
     from core.services.user_service import UserService
 
+    from core.services.project_init import resolve_project_init
+
+    initialized = resolve_project_init(db, request, user_id)
+    if initialized is not None:
+        return request, None, initialized, None
+
     service = UserAgentService(db)
     disabled_ids = UserService(db).get_disabled_builtin_subagent_ids(user_id)
     explicitly_callable_delegates = merge_builtin_subagents(
@@ -874,6 +898,7 @@ def _resolve_chat_agent_targets(
         if persistent is None:
             raise HTTPException(status_code=403, detail="无法访问该子智能体")
         persistent_agent_name = str(persistent["name"])
+        request._resolved_agent_profile = str(persistent.get("profile") or "local")
 
     mention_agent_id = request.mention_agent_id
     mention_agent_name = request.mention_name
@@ -945,6 +970,17 @@ def _resolve_chat_agent_targets(
             }
         )
 
+    if mention_agent_id:
+        target = next(
+            (
+                item
+                for item in explicitly_callable_delegates
+                if str(item.get("agent_id")) == str(mention_agent_id)
+            ),
+            None,
+        )
+        if target is not None:
+            request._resolved_mention_agent_profile = str(target.get("profile") or "local")
     return request, persistent_agent_name, execution_message, explicit_command
 
 
@@ -985,6 +1021,10 @@ def _build_user_extra_data(
             extra["attachments"] = upload_meta
     if request.quoted_follow_up:
         extra["quoted_follow_up"] = request.quoted_follow_up.model_dump()
+    if request.agent_id:
+        extra["agent_id"] = request.agent_id
+        if getattr(request, "_resolved_agent_profile", None):
+            extra["agent_profile"] = request._resolved_agent_profile
     if request.skill_id:
         extra["skill_id"] = request.skill_id
     if request.skill_name:
@@ -1001,6 +1041,8 @@ def _build_user_extra_data(
         extra["mention_name"] = request.mention_name
     if request.mention_agent_id:
         extra["mention_agent_id"] = request.mention_agent_id
+        if getattr(request, "_resolved_mention_agent_profile", None):
+            extra["mention_agent_profile"] = request._resolved_mention_agent_profile
     return extra
 
 
@@ -1063,6 +1105,7 @@ def _build_ctx(
     project_id = getattr(request, "project_id", None)
     project_ctx: Dict[str, Any] = {
         "project_id": project_id,
+        "project_init": request.message.strip() in ("/init", "/初始化指令"),
         "project_name": None,
         "project_instructions": None,
         "project_folder_name": None,
@@ -1081,6 +1124,8 @@ def _build_ctx(
                     project_ctx.update(resolved_project_ctx)
                     memory_enabled = bool(project_ctx.pop("_memory_enabled", True))
                     memory_write_enabled = bool(project_ctx.pop("_memory_write_enabled", True))
+        except HTTPException:
+            raise
         except Exception:
             logger.warning("[chat] project ctx lookup failed for %s", project_id, exc_info=True)
 
@@ -1724,6 +1769,7 @@ async def chat_active_run(
 # editing that turn must replay the same skill / plugin / connector / @agent,
 # otherwise the rerun silently loses the capabilities the user picked.
 _INVOCATION_EXTRA_KEYS = (
+    "agent_id",
     "skill_id",
     "skill_name",
     "connector_id",
@@ -1738,6 +1784,80 @@ _INVOCATION_EXTRA_KEYS = (
 def _restore_invocation(extra: Any) -> Dict[str, Any]:
     """Rebuild the original turn's invocation fields from extra_data."""
     return {key: extra[key] for key in _INVOCATION_EXTRA_KEYS if extra.get(key)}
+
+
+def _saved_agent_source_profile(
+    db, *, chat_id, user_id, agent_id, user_message_id, assistant_message_id=None
+):
+    """Read only the identity from a proven old run; never reuse its definition."""
+    import hashlib
+    from core.db.models import ChatRun, ContentBlock
+
+    query = db.query(ChatRun).filter(ChatRun.chat_id == chat_id, ChatRun.user_id == user_id)
+    if assistant_message_id:
+        query = query.filter(ChatRun.message_id == assistant_message_id)
+    else:
+        query = query.filter(ChatRun.user_message_id == user_message_id)
+    for run in query.order_by(ChatRun.created_at.desc()).limit(32):
+        key = (
+            "desktop_capability_agent:"
+            + hashlib.sha256((str(run.run_id) + ":" + str(agent_id)).encode()).hexdigest()
+        )
+        row = db.get(ContentBlock, key)
+        if row is None:
+            continue
+        saved = row.payload or {}
+        definition = saved.get("definition") or {}
+        if (
+            saved.get("run_id") != run.run_id
+            or saved.get("user_id") != user_id
+            or definition.get("agent_id") != agent_id
+        ):
+            continue
+        profile = saved.get("profile") or definition.get("profile") or "local"
+        if definition.get("profile", profile) == profile:
+            return str(profile)
+    return None
+
+
+def _resolve_rerun_agent_targets(
+    db, request, user_id, session, user_message, *, assistant_message_id=None
+):
+    """Restore legacy dedicated chats and recheck each saved source before admission."""
+    extra = user_message.extra_data or {}
+    if not request.agent_id:
+        agent_id = (session.extra_data or {}).get("agent_id")
+        if agent_id:
+            request = request.model_copy(update={"agent_id": str(agent_id)})
+    request, name, execution_message, command = _resolve_chat_agent_targets(db, request, user_id)
+    for id_field, profile_field, resolved_field in (
+        ("agent_id", "agent_profile", "_resolved_agent_profile"),
+        ("mention_agent_id", "mention_agent_profile", "_resolved_mention_agent_profile"),
+    ):
+        agent_id = getattr(request, id_field, None)
+        if not agent_id:
+            continue
+        expected = extra.get(profile_field)
+        if not expected:
+            expected = _saved_agent_source_profile(
+                db,
+                chat_id=request.chat_id,
+                user_id=user_id,
+                agent_id=agent_id,
+                user_message_id=user_message.message_id,
+                assistant_message_id=assistant_message_id,
+            )
+        current = getattr(request, resolved_field, None)
+        if current and current not in ("local", "builtin") and not expected:
+            raise HTTPException(
+                status_code=409, detail="无法确认历史云端子智能体的来源，请重新选择该子智能体后发送"
+            )
+        if expected and current != expected:
+            raise HTTPException(
+                status_code=403,
+                detail="历史子智能体的来源账号已变化，请重新选择；未切换到同名智能体",
+            )
+    return request, name, execution_message, command
 
 
 def _restore_attachments(saved: List[Dict]) -> List[AttachmentItem]:
@@ -2094,6 +2214,7 @@ async def regenerate_message(
 
     regen_request = ChatRequest(
         chat_id=chat_id,
+        project_id=_sess.project_id,
         message=user_content,
         model_name="qwen",
         enable_thinking=user_extra.get("enable_thinking", False),
@@ -2102,7 +2223,14 @@ async def regenerate_message(
         model_provider_id=user_extra.get("model_provider_id"),
         **_restore_invocation(user_extra),
     )
+    regen_request, _, execution_message, explicit_subagent_command = _resolve_rerun_agent_targets(
+        db, regen_request, db_user_id, _sess, user_msg,
+        assistant_message_id=target_msg.message_id,
+    )
     regen_request = _resolve_explicit_capability_invocation(db, regen_request, db_user_id)
+    from core.services.project_init import resolve_project_init
+
+    init_message = resolve_project_init(db, regen_request, db_user_id)
     selected_model_provider_id = _resolve_selected_model_provider_id(db, regen_request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(
         regen_request,
@@ -2111,7 +2239,7 @@ async def regenerate_message(
     enabled_skills, enabled_agents, enabled_mcps = resolve_enabled_capabilities(db, db_user_id)
     _user_settings = UserService(db).get_user_settings(db_user_id)
     effective_msg = _build_effective_user_message(
-        regen_request.message, regen_request.quoted_follow_up
+        init_message or execution_message, regen_request.quoted_follow_up
     )
 
     context = _build_ctx(
@@ -2135,6 +2263,14 @@ async def regenerate_message(
 
     request_payload = regen_request.model_dump(exclude_none=True)
     request_payload["operation"] = "regenerate"
+    if explicit_subagent_command:
+        command = {
+            "agent_id": explicit_subagent_command.agent_id,
+            "agent_name": explicit_subagent_command.agent_name,
+            "task": explicit_subagent_command.task,
+        }
+        request_payload["explicit_subagent_command"] = command
+        context["explicit_subagent_command"] = command
     try:
         accepted = ChatSequencer(db).accept_existing_user_run(
             chat_id=chat_id,
@@ -2204,6 +2340,7 @@ async def edit_and_resend(
 
     edit_request = ChatRequest(
         chat_id=chat_id,
+        project_id=_sess.project_id,
         message=body.new_content,
         model_name="qwen",
         attachments=attachment_items,
@@ -2211,6 +2348,12 @@ async def edit_and_resend(
         model_provider_id=target_extra.get("model_provider_id"),
         **saved_invocation,
     )
+    edit_request, _, execution_message, explicit_subagent_command = _resolve_rerun_agent_targets(
+        db, edit_request, db_user_id, _sess, target_msg,
+    )
+    from core.services.project_init import resolve_project_init
+
+    init_message = resolve_project_init(db, edit_request, db_user_id)
     edit_request = _resolve_explicit_capability_invocation(db, edit_request, db_user_id)
     selected_model_provider_id = _resolve_selected_model_provider_id(db, edit_request, db_user_id)
     actual_model_name = _resolve_actual_chat_model_name(edit_request, selected_model_provider_id)
@@ -2219,6 +2362,12 @@ async def edit_and_resend(
 
     # Persist the edited user message
     _edit_extra: Dict[str, Any] = {"timestamp": now_iso(), **saved_invocation}
+    if edit_request.agent_id:
+        _edit_extra["agent_id"] = edit_request.agent_id
+        if getattr(edit_request, "_resolved_agent_profile", None):
+            _edit_extra["agent_profile"] = edit_request._resolved_agent_profile
+    if getattr(edit_request, "_resolved_mention_agent_profile", None):
+        _edit_extra["mention_agent_profile"] = edit_request._resolved_mention_agent_profile
     if saved_attachments:
         _edit_extra["attachments"] = saved_attachments
     if saved_quoted_follow_up:
@@ -2247,6 +2396,14 @@ async def edit_and_resend(
 
     request_payload = edit_request.model_dump(exclude_none=True)
     request_payload["operation"] = "edit"
+    if explicit_subagent_command:
+        command = {
+            "agent_id": explicit_subagent_command.agent_id,
+            "agent_name": explicit_subagent_command.agent_name,
+            "task": explicit_subagent_command.task,
+        }
+        request_payload["explicit_subagent_command"] = command
+        context["explicit_subagent_command"] = command
     try:
         accepted = ChatSequencer(db).accept_replacement_user_run(
             chat_id=chat_id,
@@ -2269,7 +2426,7 @@ async def edit_and_resend(
             user_id=db_user_id,
             session_messages=session_messages,
             effective_user_message=_build_effective_user_message(
-                body.new_content, edit_request.quoted_follow_up
+                init_message or execution_message, edit_request.quoted_follow_up
             ),
             raw_user_message=body.new_content,
             context=context,

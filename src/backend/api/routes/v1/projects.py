@@ -58,7 +58,8 @@ class CreateProjectBody(BaseModel):
 class UpdateProjectBody(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=120)
     description: Optional[str] = Field(None, max_length=2000)
-    instructions: Optional[str] = Field(None, max_length=8000)
+    instructions: Optional[str] = Field(None, max_length=32768)
+    instructions_revision: Optional[str] = Field(None, max_length=64)
     pinned: Optional[bool] = None
     icon_color: Optional[str] = Field(None, max_length=20)
     # 项目级记忆开关（读 / 写）—— 进入项目后完全覆盖用户级 memory_enabled / memory_write_enabled。
@@ -67,7 +68,8 @@ class UpdateProjectBody(BaseModel):
 
 
 class UpdateInstructionsBody(BaseModel):
-    instructions: str = Field("", max_length=8000)
+    instructions: str = Field("", max_length=32768)
+    instructions_revision: Optional[str] = Field(None, max_length=64)
 
 
 # ── List / Create ────────────────────────────────────────────────────────
@@ -208,7 +210,7 @@ async def update_instructions(
     data = svc.update(
         access.project.project_id,
         access.user_id,
-        {"instructions": body.instructions},
+        {"instructions": body.instructions, "instructions_revision": body.instructions_revision},
         level=access.level,
     )
     if data is None:

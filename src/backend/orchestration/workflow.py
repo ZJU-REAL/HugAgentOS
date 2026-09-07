@@ -52,6 +52,7 @@ _PROJECT_CTX_KEYS = (
     "project_id",
     "project_name",
     "project_instructions",
+    "project_init",
     "project_folder_name",
     "project_folder_kind",
     "project_folder_id",
@@ -1027,16 +1028,16 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 # (/app/storage/sandbox_skills/<id>) — the backend path does
                 # not exist inside the sandbox, and if the model uses it with
                 # bash (cat/ls/python) it gets No such file or directory.
-                # Same scheme as agent_factory._SKILL_INSTRUCTION_TEMPLATE:
-                # the basename is the skill id; on view_text_file reads,
-                # skill_tool._resolve_skill_path maps it back to the backend file.
+                # The server-resolved sid is the sandbox alias. The physical
+                # directory may end in a content revision, and a copied file's
+                # frontmatter may retain its original source name.
                 skill_dir = loader.get_skill_dir(sid)
                 if not skill_dir:
                     logger.warning("[skill_inject] skill_id=%s has no skill dir", sid)
                     continue
-                sandbox_dir = f"/workspace/skills/{skill_dir.rstrip('/').split('/')[-1]}"
+                sandbox_dir = f"/workspace/skills/{sid}"
                 entries.append(
-                    f'- 「{meta.name}」：view_text_file(file_path="{sandbox_dir}/SKILL.md")'
+                    f'- 「{sid}」：view_text_file(file_path="{sandbox_dir}/SKILL.md")'
                 )
             if entries:
                 sections.append(
@@ -2107,14 +2108,19 @@ async def _astream_subagent_direct(
                             **({"citations": nested_citations} if nested_citations else {}),
                         }
 
-                elif event_type in ("file_confirm", "design_pick"):
-                    # Confirmation-type events (§13 MySpace write confirm /
-                    # site-design pick-one-of-three): a tool coroutine has
-                    # suspended waiting for the user's out-of-band action.
-                    # Pass through to the frontend to show the confirmation
-                    # card; the agent task stays blocked in that tool and this
-                    # SSE stream does not end — after the out-of-band
-                    # POST /file-confirm the tool resumes in place.
+                elif event_type in (
+                    "file_confirm",
+                    "design_pick",
+                    "user_question",
+                    "user_question_resolved",
+                ):
+                    # Human-interaction events (§13 MySpace write confirm /
+                    # site-design pick-one-of-three / ask_user_question): a tool
+                    # coroutine has suspended waiting for the user's out-of-band
+                    # action. Pass through to the frontend to show the card; the
+                    # agent task stays blocked in that tool and this SSE stream
+                    # does not end — after the out-of-band answer POST the tool
+                    # resumes in place.
                     yield {"type": event_type, **(payload or {})}
 
                 elif event_type == "error":
@@ -2147,13 +2153,11 @@ async def _astream_subagent_direct(
                 raise
             raise unknown_outcome from e
 
-        if displayed_tools and not full_response:
-            fallback_msg = (
-                "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"
-            )
-            full_response = fallback_msg
-            yield {"type": "content", "event": "ai_message", "delta": fallback_msg}
-        elif not full_response:
+        if not full_response:
+            # No answer was produced: the caller gets the failure itself. Tool
+            # results already streamed stay visible; the run is recorded as
+            # failed with a structured error instead of a fabricated reply that
+            # would read as a completed answer.
             if "streaming_agent" in locals():
                 await streaming_agent.shutdown()
                 _persistent_clients.append((streaming_agent, list(mcp_clients)))
@@ -2910,7 +2914,16 @@ async def astream_chat_workflow(
         # finishing _persist_artifacts gets the scope explicitly from chats.py.
 
         try:
-            async for event_type, payload in streaming_agent.stream(session_messages, context):
+            # Project initialization is a server-expanded command. The DB row
+            # deliberately remains /init; only the live model input is expanded.
+            stream_options = (
+                {"effective_user_message": user_message}
+                if context.get("project_init")
+                else {}
+            )
+            async for event_type, payload in streaming_agent.stream(
+                session_messages, context, **stream_options
+            ):
                 state_runtime = getattr(streaming_agent.agent.state, "ontology_runtime", None)
                 if isinstance(state_runtime, dict):
                     _ontology_runtime = state_runtime
@@ -3277,14 +3290,19 @@ async def astream_chat_workflow(
                             **({"citations": nested_citations} if nested_citations else {}),
                         }
 
-                elif event_type in ("file_confirm", "design_pick"):
-                    # Confirmation-type events (§13 MySpace write confirm /
-                    # site-design pick-one-of-three): a tool coroutine has
-                    # suspended waiting for the user's out-of-band action.
-                    # Pass through to the frontend to show the confirmation
-                    # card; the agent task stays blocked in that tool and this
-                    # SSE stream does not end — after the out-of-band
-                    # POST /file-confirm the tool resumes in place.
+                elif event_type in (
+                    "file_confirm",
+                    "design_pick",
+                    "user_question",
+                    "user_question_resolved",
+                ):
+                    # Human-interaction events (§13 MySpace write confirm /
+                    # site-design pick-one-of-three / ask_user_question): a tool
+                    # coroutine has suspended waiting for the user's out-of-band
+                    # action. Pass through to the frontend to show the card; the
+                    # agent task stays blocked in that tool and this SSE stream
+                    # does not end — after the out-of-band answer POST the tool
+                    # resumes in place.
                     yield {"type": event_type, **(payload or {})}
 
                 elif event_type == "error":
@@ -3317,13 +3335,11 @@ async def astream_chat_workflow(
                 raise
             raise unknown_outcome from e
 
-        if displayed_tools and not full_response:
-            fallback_msg = (
-                "抱歉，我在整理工具调用的结果时遇到了问题。以上是已获取的工具执行结果，请参考。"
-            )
-            full_response = fallback_msg
-            yield {"type": "content", "event": "ai_message", "delta": fallback_msg}
-        elif not full_response:
+        if not full_response:
+            # No answer was produced: propagate. The run executor persists the
+            # tool cards already shown together with the error and emits a
+            # structured ``error`` event — no fabricated "please refer to the
+            # tool results above" reply that would read as a completed answer.
             if "streaming_agent" in locals():
                 await streaming_agent.shutdown()
                 _persistent_clients.append((streaming_agent, list(mcp_clients)))

@@ -124,8 +124,6 @@ et-xmlfile==2.0.0
     # via openpyxl
 faiss-cpu==1.15.0
     # via milvus-lite
-fakeredis==2.37.1
-    # via -r desktop/requirements-desktop.txt
 fastapi==0.141.1
     # via -r desktop/requirements-desktop.txt
 fastuuid==0.14.0
@@ -489,9 +487,7 @@ qdrant-client==1.19.0
 qrcode==8.2
     # via -r desktop/requirements-desktop.txt
 redis==8.1.0
-    # via
-    #   -r desktop/requirements-desktop.txt
-    #   fakeredis
+    # via -r desktop/requirements-desktop.txt
 referencing==0.37.0
     # via
     #   jsonschema
@@ -556,8 +552,6 @@ sniffio==1.3.1
     #   anthropic
     #   google-genai
     #   openai
-sortedcontainers==2.4.0
-    # via fakeredis
 soupsieve==2.9.2
     # via beautifulsoup4
 sqlalchemy==2.0.52

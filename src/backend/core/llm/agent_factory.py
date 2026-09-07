@@ -74,7 +74,6 @@ from core.llm.tools._common import resolve_sandbox_session
 from core.ontology.toolkit import OntologyFilteredToolkit
 from core.ontology.validator import register_runtime_asset_tags, render_runtime_prompt
 from core.services.mcp_service import McpServerConfigService
-from dotenv import load_dotenv
 from prompts.prompt_config import load_prompt_config
 from prompts.prompt_runtime import build_subagent_system_prompt, build_system_prompt, select_tools
 
@@ -199,7 +198,9 @@ _WORKFLOW_MODE_HINT = (
 
 from orchestration.registry import AgentSpec
 
-load_dotenv()
+# Repo-level env files are loaded once by core.config.settings (repo root only,
+# process env wins). A bare load_dotenv() here walked *up* the directory tree
+# and pulled a parent checkout's .env into worktrees and tests.
 
 # Per-server failure cooldown for HTTP MCP connects. When a server fails
 # (upstream 503, transient SSE drop, etc.), skip it for COOLDOWN seconds
@@ -325,6 +326,40 @@ def _required_mcp_server_keys(
     return resolved
 
 
+def _device_available_skill_ids(
+    skill_ids: list[str], *, plugin_ids: list[str], user_id: Optional[str]
+) -> list[str]:
+    """把一批绑定技能收敛到本设备真正可用的集合。
+
+    在桌面能力层启用时（双端 / 本机模式），一个智能体可能绑定了本账号在此设备上并未拥有
+    的云端技能（如别的插件/范围里的技能）。云端才是能力真源：先按需准备这批技能里属于当前
+    账号的云端条目，再只保留解析器能选出的（已就绪、无冲突）名字。拿不到的绑定技能被丢弃，
+    智能体用可用技能照常运行，而不是整轮硬失败。非能力层部署原样返回。
+    """
+    if not skill_ids:
+        return skill_ids
+    import logging as _logging
+
+    _log = _logging.getLogger(__name__)
+    from core.capabilities.paths import capabilities_enabled
+
+    if not capabilities_enabled():
+        return skill_ids
+    from core.capabilities import skills as _caps_skills
+    from core.capabilities.preparation import ensure_cloud_ready
+
+    try:
+        ensure_cloud_ready(user_id, skill_keys=skill_ids, plugin_keys=plugin_ids)
+        available = set(_caps_skills.filter_available_names(skill_ids, user_id=_caps_skills.current_local_user_id()))
+    except Exception as exc:  # noqa: BLE001 — 解析失败时不放大成整轮失败，退回原始集合
+        _log.warning("[factory] device skill availability filter failed: %s", exc)
+        return skill_ids
+    dropped = [sid for sid in skill_ids if sid not in available]
+    if dropped:
+        _log.info("[factory] agent bound skills unavailable on this device, skipped: %s", dropped)
+    return [sid for sid in skill_ids if sid in available]
+
+
 def _filter_skill_ids_for_user(skill_ids: list[str], user_id: Optional[str]) -> list[str]:
     """Strip out skill ids this user must not load.
 
@@ -393,7 +428,9 @@ def _filter_kb_ids_for_user(kb_ids: list[str], user_id: Optional[str]) -> list[s
         return kb_ids
 
 
-def _expand_plugin_bindings(plugin_ids: list[str]) -> tuple[list[str], list[str]]:
+def _expand_plugin_bindings(
+    plugin_ids: list[str], *, user_id: Optional[str] = None
+) -> tuple[list[str], list[str]]:
     """Expand bound plugin install_ids into (skill id list, MCP server id list).
 
     Takes each plugin's bundled skills / mcp from
@@ -414,11 +451,21 @@ def _expand_plugin_bindings(plugin_ids: list[str]) -> tuple[list[str], list[str]
             )
             for r in rows:
                 cids = r.component_ids or {}
-                skills.extend(cids.get("skills") or [])
-                mcp.extend(cids.get("mcp") or [])
+                from core.services.plugin_service import _component_keys
+
+                skills.extend(_component_keys(cids, "skills"))
+                mcp.extend(_component_keys(cids, "mcp"))
     except Exception:  # noqa: BLE001
-        return [], []
-    return skills, mcp
+        skills, mcp = [], []
+    from core.capabilities.paths import capabilities_enabled
+
+    if capabilities_enabled():
+        from core.capabilities.plugins import cloud_binding_ids
+
+        cloud_skills, cloud_mcp = cloud_binding_ids(plugin_ids, user_id=user_id)
+        skills.extend(cloud_skills)
+        mcp.extend(cloud_mcp)
+    return list(dict.fromkeys(skills)), list(dict.fromkeys(mcp))
 
 
 from core.config.settings import settings as _settings
@@ -561,15 +608,24 @@ def _vision_bridge_needed() -> bool:
 
 def _effective_main_available_skills() -> list[str]:
     """Resolve main-agent skills from currently enabled catalog skills."""
+    def available(names):
+        from core.capabilities.paths import capabilities_enabled
+
+        if capabilities_enabled():
+            from core.capabilities import skills
+
+            return skills.filter_available_names(names, user_id=skills.current_local_user_id())
+        return names
+
     enabled_ids = [sid for sid in get_enabled_ids("skills") if isinstance(sid, str) and sid.strip()]
     if enabled_ids:
-        return enabled_ids
+        return available(enabled_ids)
 
     try:
         loader = get_skill_loader()
         discovered = sorted(loader.load_all_metadata().keys())
         if discovered:
-            return discovered
+            return available(discovered)
     except Exception:
         pass
 
@@ -695,6 +751,7 @@ async def create_agent_executor(
     # versions were in play. Optional — non-chat paths simply bind anonymously.
     run_id: Optional[str] = None,
     journal_owner: Optional[str] = None,
+    capability_scope: str = "",
     # Workspace scope is part of the frozen memory-policy ref and execution
     # context hash. Keep the default for non-chat/internal callers.
     workspace_id: str = "default",
@@ -771,12 +828,30 @@ async def create_agent_executor(
         Tuple of (agent, mcp_clients). Caller is responsible for closing
         mcp_clients after use via close_clients().
     """
+    import asyncio
     from core.llm.middlewares import CURRENT_RUN_BINDING
 
     inherited_run_binding = CURRENT_RUN_BINDING.get()
     if inherited_run_binding is not None:
         run_id = run_id or inherited_run_binding[0]
         journal_owner = journal_owner or inherited_run_binding[1]
+
+    from core.capabilities.paths import capabilities_enabled
+
+    _capability_run_key = run_id
+    if capabilities_enabled():
+        from core.capabilities import runtime as capability_runtime
+        import uuid as _cap_uuid
+
+        _capability_run_key = run_id or "ephemeral:" + _cap_uuid.uuid4().hex
+        if user_agent is not None:
+            user_agent = await asyncio.to_thread(
+                capability_runtime.pin_agent_definition,
+                _capability_run_key,
+                str(current_user_id or ""),
+                user_agent,
+                scope_id=capability_scope,
+            )
 
     import logging
     import time
@@ -816,6 +891,7 @@ async def create_agent_executor(
         raise RuntimeError(
             f"显式调用的插件「{_required_plugin_name}」当前没有可执行能力；本轮已停止。"
         )
+    _sticky_plugin_ids: List[str] = []
     _sticky_plugin_skill_ids: List[str] = []
     _sticky_plugin_mcp_ids: List[str] = []
     _sticky_direct_skill_ids: List[str] = []
@@ -844,14 +920,30 @@ async def create_agent_executor(
     if user_agent is not None:
         # Override capability bindings from user_agent config
         enabled_mcp_ids = list(user_agent.mcp_server_ids or [])
-        enabled_skill_ids = list(user_agent.skill_ids or [])
+        enabled_skill_ids = _device_available_skill_ids(
+            list(user_agent.skill_ids or []),
+            plugin_ids=list(user_agent.plugin_ids or []),
+            user_id=current_user_id,
+        )
+        # Keep the definition the capability runtime inspects in sync with the
+        # device-available set: preflight re-derives dependencies from the agent
+        # definition, so a bound-but-unavailable skill must be dropped here too,
+        # otherwise it re-raises DependencyMissing for a skill this device lacks.
+        if list(user_agent.skill_ids or []) != enabled_skill_ids:
+            import dataclasses as _dc
+
+            user_agent = _dc.replace(user_agent, skill_ids=list(enabled_skill_ids))
         enabled_kb_ids = user_agent.kb_ids or []
         # Expand bound plugins into their component skills + MCPs (a plugin = a detachable capability bundle). Merge with the loose bindings, deduplicated.
         plugin_ids = user_agent.plugin_ids or []
         if plugin_ids:
             from core.llm import plugin_loader as _plug_sub
 
-            if not disable_tools and _plug_sub.progressive_plugin_loading_enabled():
+            if (
+                not disable_tools
+                and not capabilities_enabled()
+                and _plug_sub.progressive_plugin_loading_enabled()
+            ):
                 try:
 
                     def _resolve_bound():
@@ -873,7 +965,7 @@ async def create_agent_executor(
                         exc,
                     )
                     _subagent_progressive = None
-            p_skills, p_mcp = _expand_plugin_bindings(plugin_ids)
+            p_skills, p_mcp = _expand_plugin_bindings(plugin_ids, user_id=current_user_id)
             if _subagent_progressive is not None:
                 # Deferred components stay out of the assembly; stdio-transport
                 # plugins (absent from deferred_*) still expand eagerly.
@@ -893,6 +985,7 @@ async def create_agent_executor(
     # 收窄的是 MCP/技能/插件面，沙箱与文件工具照常注册——"收窄=无代码"只是
     # 内置极速模式的契约，不是所有收窄模式的。
     _turbo_code_exec = False
+    _mode_plugin_ids: List[str] = []
     _mode_manual_invoke = True
     if turbo_mode:
         if mode_spec is not None:
@@ -930,7 +1023,7 @@ async def create_agent_executor(
         # (e.g. a crawler, a ticket system) ship only as a plugin and have no
         # loose MCP row to pick, so without this they were unreachable in turbo.
         turbo_plugin_skill_ids, turbo_plugin_mcp_ids = _expand_plugin_bindings(
-            list(_mode_plugin_ids)
+            list(_mode_plugin_ids), user_id=current_user_id
         )
         # Skills in turbo = admin-configured set (turbo.skill_ids + those bundled
         # with a configured plugin) + the ones explicitly summoned this turn.
@@ -1037,6 +1130,7 @@ async def create_agent_executor(
                     chat_id=chat_id,
                 ),
             )
+            _sticky_plugin_ids = list(_sticky.install_ids)
             _sticky_plugin_skill_ids = list(_sticky.skill_ids)
             _sticky_plugin_mcp_ids = list(_sticky.mcp_ids)
             _sticky_direct_skill_ids = list(_direct.skill_ids)
@@ -1069,6 +1163,8 @@ async def create_agent_executor(
                     len(sticky_mcp_ids),
                 )
         except Exception as exc:  # noqa: BLE001
+            if capabilities_enabled():
+                raise  # a saved source must not silently disappear or change account
             _log.warning("[factory] sticky capability restore failed: %s", exc)
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
@@ -1087,7 +1183,7 @@ async def create_agent_executor(
     if not disable_tools and not turbo_mode and user_agent is None and current_user_id:
         from core.llm import plugin_loader as _plug
 
-        if _plug.progressive_plugin_loading_enabled():
+        if not capabilities_enabled() and _plug.progressive_plugin_loading_enabled():
             try:
                 # Normalize the None fallbacks to their concrete resolutions
                 # (identical sources to the later phases) so the subtraction
@@ -1331,12 +1427,46 @@ async def create_agent_executor(
     # 作为独立配置源（bridge_servers）进入装配，最终仍受 enabled_mcp_ids
     # allowlist 收口。云端部署 / 纯本机模式下桥未激活，此处为空 dict。
     bridge_mcp_servers: dict = {}
+    _capability_mcp_resolution = []
     try:
         from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
 
-        bridge_mcp_servers = cloud_gateway_mcp_configs()
-    except Exception:  # noqa: BLE001 - 桥故障不能影响会话装配
+        bridge_mcp_servers = cloud_gateway_mcp_configs(
+            enabled_mcp_ids, resolution_out=_capability_mcp_resolution
+        )
+    except Exception:  # noqa: BLE001
+        if capabilities_enabled():
+            raise  # a desktop binding failure must not fall back to another source
         bridge_mcp_servers = {}
+
+    _prepared_capabilities = None
+    if capabilities_enabled() and not disable_tools:
+        from core.capabilities import runtime as capability_runtime
+
+        _caps_loader = get_skill_loader()
+        _caps_skill_ids = (
+            enabled_skill_ids
+            if enabled_skill_ids is not None
+            else _effective_main_available_skills()
+        )
+        for _sid in _caps_skill_ids or []:
+            _caps_loader.get_skill_dir(_sid)
+        _dependency_plugins = [
+            *list(getattr(user_agent, "plugin_ids", None) or []),
+            *_sticky_plugin_ids,
+            *_mode_plugin_ids,
+        ]
+        if _required_plugin_id:
+            _dependency_plugins.append(_required_plugin_id)
+        _prepared_capabilities = await asyncio.to_thread(
+            capability_runtime.prepare,
+            _capability_run_key,
+            str(current_user_id or ""),
+            skill_ids=_caps_skill_ids,
+            scope_id=capability_scope,
+            agent_definition=user_agent,
+            plugin_ids=list(dict.fromkeys(_dependency_plugins)),
+        )
 
     # Determine which MCP servers to connect
     enabled_mcp_keys = _effective_mcp_server_keys(
@@ -1374,6 +1504,32 @@ async def create_agent_executor(
         owned_servers=owned_mcp_servers,
         bridge_servers=bridge_mcp_servers,
     )
+    if _prepared_capabilities is not None:
+        enabled_servers = await asyncio.to_thread(
+            capability_runtime.bind_mcp,
+            _prepared_capabilities,
+            enabled_servers,
+            _capability_mcp_resolution[0] if _capability_mcp_resolution else None,
+        )
+
+    if _prepared_capabilities is not None:
+        _dependency_plugins = [
+            *list(getattr(user_agent, "plugin_ids", None) or []),
+            *_sticky_plugin_ids,
+            *_mode_plugin_ids,
+        ]
+        if _required_plugin_id:
+            _dependency_plugins.append(_required_plugin_id)
+        _prepared_capabilities = await asyncio.to_thread(
+            capability_runtime.preflight,
+            _prepared_capabilities,
+            skill_ids=_caps_skill_ids,
+            agent_definition=user_agent,
+            plugin_ids=list(dict.fromkeys(_dependency_plugins)),
+            available_mcp=set(enabled_servers),
+            available_kb=set(enabled_kb_ids or []),
+        )
+
     enabled_servers = _inject_runtime_headers(
         enabled_servers,
         current_user_id=current_user_id,
@@ -1422,26 +1578,11 @@ async def create_agent_executor(
     # skills effectively unloaded, invocable only manually via /). Keeps the
     # Chinese view_text_file guidance + restores the skill-list loop.
     #
-    # ⚠️ ``skill.dir`` is the **backend materialized path** AgentScope received
-    # when registering the skill (DB skills → /app/storage/sandbox_skills/<id>;
-    # built-ins → the source tree). Rendering it directly makes the model take
-    # the backend path into bash / file tools (relative references like
-    # `./references/...` also get joined onto it), while in the sandbox the
-    # skill actually lives at /workspace/skills/<id>. The backend path doesn't
-    # exist in the sandbox → ls/python report `No such file or directory`. The
-    # _repoint at registration time modifies the ToolCollector (which has no
-    # .skills) and has no effect on the final real Toolkit, so here at the
-    # render layer we rewrite dir to the sandbox path: the basename IS the skill
-    # id (holds uniformly for DB / built-in / private / market skills), and when
-    # view_text_file reads it, _resolve_skill_path maps back to the backend
-    # file.
-    # One line per skill instead of a five-tag XML block. The old shape spent
-    # ~120 characters per skill on scaffolding plus a verbatim second copy of
-    # the id inside <dir> — with 20+ skills installed that was ~2.5k characters
-    # (≈1k tokens) of pure redundancy re-prefilled on every request and every
-    # ReAct round. The directory is stated once as a template here because the
-    # basename is always the skill id (holds for DB / built-in / private /
-    # market skills alike, per the note above).
+    # Desktop registrations project each native Skill to its resolved runtime
+    # alias and /workspace/skills/<alias>, keeping the immutable physical path
+    # private to the loader. Legacy registrations still use their directory ID.
+    # Never infer a desktop name from the store's trailing revision or from a
+    # copied file's original frontmatter name.
     _SKILL_INSTRUCTION_TEMPLATE = (
         "# 技能（Agent Skills）\n"
         "以下是当前可用的技能列表。**技能不是工具，不能直接调用。**\n"
@@ -1664,6 +1805,17 @@ async def create_agent_executor(
     # subagent with no skills configured has no skills"; strictly per its own
     # config, no inheriting the full catalog set.
 
+    if _prepared_capabilities is not None:
+        missing = set(skill_ids_to_register or []) - set(_prepared_capabilities.bindings)
+        if missing:
+            from core.capabilities.errors import PackageMissing
+
+            raise PackageMissing(
+                "selected skills are absent from this prepared run",
+                details={"skills": sorted(missing)},
+            )
+        loader = await asyncio.to_thread(capability_runtime.frozen_loader, _prepared_capabilities)
+
     allowed_skill_dirs: list[str] = []
     if not disable_tools and skill_ids_to_register:
         n = loader.register_skills_to_toolkit(toolkit, skill_ids_to_register)
@@ -1674,7 +1826,7 @@ async def create_agent_executor(
             if d:
                 allowed_skill_dirs.append(d)
 
-    if not disable_tools:
+    if not disable_tools and not capabilities_enabled():
         from core.agent_skills.config import (
             get_enabled_skill_sources,
             get_sandbox_skills_dir,
@@ -1696,6 +1848,13 @@ async def create_agent_executor(
                 continue
             if str(_root) not in allowed_skill_dirs:
                 allowed_skill_dirs.append(str(_root))
+
+    if _prepared_capabilities is not None:
+        # File tools may read exactly this run's revisions, never the entire
+        # capability root (which contains other accounts and business data).
+        allowed_skill_dirs = [
+            os.path.realpath(loader.get_skill_dir(name)) for name in _prepared_capabilities.bindings
+        ]
 
     _log.info("[factory] +%s skills registered", _elapsed())
 
@@ -1725,6 +1884,15 @@ async def create_agent_executor(
             toolkit,
             chat_id=chat_id,
             interactive=True,
+        )
+
+    if not disable_tools and (project_ctx or {}).get("project_id"):
+        from core.llm.tools.project_instructions_tool import register_project_instruction_tools
+
+        register_project_instruction_tools(
+            toolkit, project_id=project_ctx["project_id"], user_id=current_user_id,
+            allow_write=bool(project_ctx.get("project_init")) and not read_only,
+            local_path=project_ctx.get("project_local_path") if project_ctx.get("project_is_local") else None,
         )
 
     if not disable_tools and turbo_mode and not _turbo_code_exec:
@@ -2098,6 +2266,7 @@ async def create_agent_executor(
             _plugin_activation.record_plugin_activation,
             chat_id,
             [_required_plugin_id],
+            user_id=str(current_user_id or ""),
         )
     if chat_id and (_required_skill_registered or _required_connector_tool_names):
         from core.llm.session_capabilities import record_session_capability_activation
@@ -2448,6 +2617,7 @@ async def create_agent_executor(
                 "automation_run": automation_run,
                 "run_id": run_id,
                 "journal_owner": journal_owner,
+                "capability_scope": capability_scope,
             }
             visible_subagents = refresh_builtin_subagents(
                 visible_subagents,
@@ -2952,6 +3122,7 @@ async def create_agent_executor(
         chat_id=chat_id,
         run_id=run_id,
         journal_owner=journal_owner,
+        capability_scope=capability_scope,
         ontology_enabled=bool(_ontology_runtime.get("enabled")),
         ontology_runtime=_ontology_runtime,
         permission_context=PermissionContext(),
@@ -3076,6 +3247,7 @@ async def create_agent_executor(
 
         return bind_runtime_assets(
             run_id=run_id,
+            capability_scope=capability_scope,
             skill_ids=skill_ids_for_bindings,
             kb_ids=enabled_kb_ids,
             model_name=model_name,
@@ -3159,6 +3331,7 @@ async def create_agent_executor(
     )
     # Compaction trigger accounting reuses the exact already-frozen execution
     # surface instead of re-querying MCPs on the pre-turn latency path.
+    agent._jx_prepared_capabilities = _prepared_capabilities
     agent._jx_compaction_system_prompt = _compaction_system_prompt
     agent._jx_compaction_tool_schemas = _compaction_tool_schemas
 
@@ -3186,6 +3359,7 @@ async def create_agent_executor(
 
             request_bundle = rebind_execution_manifest(
                 run_id=run_id,
+                capability_scope=capability_scope,
                 base_bundle=getattr(agent, "_jx_asset_bundle", None),
                 execution_manifest=request_manifest,
             )
@@ -3204,7 +3378,7 @@ async def create_agent_executor(
             agent.clear_request_evidence(request_manifest)
             from core.evolution.runtime_binding import clear_run_binding
 
-            clear_run_binding(run_id)
+            clear_run_binding(run_id, capability_scope=capability_scope)
 
     agent.set_context_manifest_listener(_publish_context_manifest)
 

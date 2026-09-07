@@ -301,6 +301,8 @@ export default function App() {
   // fetched from the backend only carry projectId, so fall back to looking the name up
   // in the project list.
   const projectList = useProjectStore((s) => s.list);
+  // 订阅而不是 getState()：刷新后项目 id 由 sessionStorage 恢复，读快照会漏掉这次更新。
+  const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const chatProjectName = chat?.projectId
     ? (chat.projectName || projectList.find((p) => p.project_id === chat.projectId)?.name || '')
     : '';
@@ -954,9 +956,9 @@ export default function App() {
               {panel === 'settings' && <SettingsPage />}
               {panel === 'my_space' && <MySpacePanel />}
               {panel === 'projects' && <ProjectsPanel onOpenProject={(pid) => { useProjectStore.getState().openProject(pid); setCatalogPanel('project_detail'); }} />}
-              {panel === 'project_detail' && useProjectStore.getState().currentProjectId && (
+              {panel === 'project_detail' && currentProjectId && (
                 <ProjectDetailPanel
-                  projectId={useProjectStore.getState().currentProjectId!}
+                  projectId={currentProjectId}
                   onBack={() => setCatalogPanel('projects')}
                   handleFileSelect={handleFileSelect}
                   removeFile={removeFile}

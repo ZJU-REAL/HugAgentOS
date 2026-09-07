@@ -83,6 +83,8 @@ Use **File → Set server address…** to switch to a team server. Use
 > not currently available on native Windows. Multi-user, production,
 > high-availability, and full container sandbox use still require Docker Compose.
 
+The Windows title bar matches the sidebar background across its full width and follows the light or dark theme. File, Edit, View, and Help use compact text aligned to the left, without back or forward arrows. The empty title area remains draggable, with minimize, maximize, and close controls on the right.
+
 ## Team deployment with Docker Desktop and WSL2
 
 HugAgentOS uses Linux container orchestration for standard team deployments. On a

@@ -169,3 +169,18 @@ Three complementary paths:
 | `src/frontend/src/components/myspace/` | MySpace frontend components |
 
 Related docs: [Memory System](./memory.md) · [Object Storage](./storage.md) · [Sandbox](./sandbox.md) · [Knowledge Base](./knowledge-base.md) · [Auth & Teams](./auth.md) · [Edition Comparison](../editions/overview.md)
+
+## Project instructions and AGENTS.md
+
+The project-root `AGENTS.md` is the source of project instructions. Local projects read the bound filesystem directory; cloud projects read the root file in their linked folder. Nested AGENTS.md files are not promoted to project-wide instructions.
+
+- Creating, uploading, or editing the root file updates project details and subsequent conversation turns. The instruction card refreshes every 10 seconds and on window focus; an in-progress response retains its starting snapshot.
+- Saving in the instruction editor writes the same file. The editor submits `instructions_revision`; concurrent changes return 409 and require reloading and merging.
+- Legacy projects retain their database instructions until a root file is discovered or instructions are saved. After adoption, deleting the file clears effective instructions without reviving old database text. Cloud storage represents cleared instructions with a newline.
+- UTF-8 (including BOM) is required, with a 32 KiB limit. Root symlinks, invalid encoding, oversized files, duplicate root files, and unavailable storage produce explicit errors.
+
+In a specific project with edit access, type `/` in a standard project conversation to select initialization, or send `/init` or `/初始化指令`. The entry is unavailable in default chats, read-only projects, and plan/batch/workflow/autonomous-loop modes. Remove selected skills, plugins, connectors, or sub-agents first. Initialization uses standard tools for that turn without changing the saved mode for subsequent turns.
+
+The prompt lives in `src/backend/prompts/project_init.md`. The model inspects existing rules and representative project material, creates or incrementally improves applicable instructions, preserves human-authored constraints, then persists and verifies through project-bound `read_project_instructions` / `save_project_instructions` tools. Runtime file permissions and approval modes still apply; conflicts or denied approvals are not reported as successful saves.
+
+Initialization does not automatically execute installation, deployment, or publishing commands discovered in project material. No database migration is required. CE and EE share synchronization and initialization logic with edition-specific folder scope providers.

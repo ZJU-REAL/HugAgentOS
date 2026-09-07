@@ -58,6 +58,13 @@ CancelFn = Callable[[], bool]
 SteeringFn = Callable[[], List[str]]
 
 
+def _loop_scope(loop_id: str, phase: str, iteration: int = 0, requirement_id: str = "-") -> str:
+    """Stable across process restarts; the durable loop ledger supplies iteration."""
+    from core.capabilities.runtime import child_scope
+
+    return child_scope("", "autonomous-loop", loop_id, phase, str(iteration), requirement_id)
+
+
 def _env_int(name: str, default: int, *, floor: int = 1) -> int:
     import os
 
@@ -395,6 +402,7 @@ async def _run_worker_iteration(
     automation_run: bool = False,
     ontology_enabled: bool = False,
     ontology_runtime: Optional[Dict[str, Any]] = None,
+    capability_scope: str = "",
 ) -> Dict[str, Any]:
     """Run a brand-new tools-enabled agent (bound to the persistent sandbox); returns {text, tokens, tool_calls}.
 
@@ -423,6 +431,7 @@ async def _run_worker_iteration(
         # ITERATION on the 200-page-report workload. Full content stays readable
         # via /workspace/.offload. Env-tunable.
         tool_result_limit=_loop_tool_result_limit(),
+        capability_scope=capability_scope,
     )
     sa = StreamingAgent(agent, clients)
     text = ""
@@ -573,6 +582,7 @@ async def _run_worker_iteration(
             user_id=user_id,
             chat_id=chat_id,
             model_name=model_name,
+            capability_scope=capability_scope,
         )
         text = review["answer"]
         if emit:
@@ -851,6 +861,7 @@ async def run_autonomous_loop(
                 project_ctx=project_ctx,
                 chat_id=chat_id,
                 model_name=evaluator_model,
+                capability_scope=_loop_scope(loop_id, "scout"),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[loop %s] scout failed: %s", loop_id, exc)
@@ -861,12 +872,14 @@ async def run_autonomous_loop(
             survey=survey,
             model_name=evaluator_model,
             user_id=user_id,
+            capability_scope=_loop_scope(loop_id, "plan"),
         )
         if not reqs:
             reqs = await decompose_requirements(
                 goal_spec=goal_spec,
                 model_name=evaluator_model or "fast",
                 user_id=user_id,
+                capability_scope=_loop_scope(loop_id, "decompose"),
             )
         ledger = _new_ledger(goal_spec.objective, reqs)
         if survey:
@@ -908,6 +921,7 @@ async def run_autonomous_loop(
             objective=goal_spec.objective,
             model_name=evaluator_model or "fast",
             user_id=user_id,
+            capability_scope=_loop_scope(loop_id, "criteria"),
         ) or [goal_spec.objective]
         ledger["criteria"] = criteria
         await _persist_ledger(ledger)
@@ -1020,6 +1034,7 @@ async def run_autonomous_loop(
                 automation_run=automation_run,
                 ontology_enabled=ontology_enabled,
                 ontology_runtime=ontology_runtime,
+                capability_scope=_loop_scope(loop_id, "worker", seq, req["id"]),
             )
         except asyncio.CancelledError:
             raise
@@ -1132,6 +1147,7 @@ async def run_autonomous_loop(
                 model_name=evaluator_model or model_name,
                 requirement_id=req["id"],
                 emit=emit,
+                capability_scope=_loop_scope(loop_id, "review", seq, req["id"]),
             )
         verdict = review.get("verdict")
         evidence = review.get("evidence", "")
@@ -1183,6 +1199,7 @@ async def run_autonomous_loop(
                     second_pass=True,
                     requirement_id=req["id"],
                     emit=emit,
+                    capability_scope=_loop_scope(loop_id, "confirm", seq, req["id"]),
                 )
                 if confirm.get("verdict") == DONE:
                     passed = True
@@ -1277,6 +1294,9 @@ async def run_autonomous_loop(
                         survey=str(ledger.get("survey", "") or ""),
                         model_name=evaluator_model,
                         user_id=user_id,
+                        capability_scope=_loop_scope(
+                            loop_id, "replan", seq, str(ledger.get("replans", 0))
+                        ),
                     )
                     if new_reqs:
                         ledger["replans"] = int(ledger.get("replans", 0) or 0) + 1
@@ -1370,6 +1390,7 @@ async def run_autonomous_loop(
                     automation_run=automation_run,
                     ontology_enabled=ontology_enabled,
                     ontology_runtime=ontology_runtime,
+                    capability_scope=_loop_scope(loop_id, "wrapup", seq),
                 )
                 tokens_spent += wrap["tokens"]
             except Exception as exc:  # noqa: BLE001 - 收尾失败不改变终态

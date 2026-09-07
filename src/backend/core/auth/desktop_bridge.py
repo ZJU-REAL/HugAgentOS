@@ -105,6 +105,16 @@ def resolve_bridge_user(request: Request, db: Session):
         logger.warning("desktop-bridge: malformed user header")
         return None
 
+    # The shell header must belong to the current signed cloud identity. A
+    # header captured before account switch/logout must never create a local user.
+    from core.capabilities.paths import capabilities_enabled
+    if capabilities_enabled():
+        from core.services.desktop_cloud_bridge import get_identity_state
+        identity = get_identity_state()
+        # 壳送来的是按云端地址加了命名空间的标识；本机侧从凭据推出同样的标识再比对。
+        if not identity or identity.get("shell_user_center_id") != info["user_center_id"]:
+            return None
+
     from core.auth.backend import UserContext
     from core.services import UserService
 

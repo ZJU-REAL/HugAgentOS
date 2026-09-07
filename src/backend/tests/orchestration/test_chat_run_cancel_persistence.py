@@ -25,7 +25,7 @@ def cancel_env(tmp_path, monkeypatch):
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(executor, "SessionLocal", sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     executor._active_runs.clear()
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))
@@ -93,9 +93,14 @@ async def test_user_cancel_persists_partial_answer(cancel_env, monkeypatch):
     assert len(stored) == 1
     assert stored[0].message_id == run.message_id
     assert "已经写了一半" in stored[0].content
-    # 思考不再拼进正文，落在独立的 thinking 列里，并记住它在正文中的位置
+    # 思考不再拼进正文，落在独立的 thinking 列里；它在正文中的位置由 segments 记录
+    # （文本 → 工具卡片 → 思考 的先后顺序），不再用字符 offset。
     assert "<think>" not in stored[0].content
-    assert stored[0].thinking == [{"content": "再想想", "offset": len("已经写了一半")}]
+    assert stored[0].thinking == [{"content": "再想想"}]
+    segments = stored[0].extra_data["segments"]
+    assert [s["type"] for s in segments] == ["text", "tool", "thinking"]
+    assert segments[0]["text"] == "已经写了一半"
+    assert segments[2]["index"] == 0
     assert stored[0].extra_data["cancelled"] is True
     # 没跑完的工具卡片要落成"已中断"，否则刷新后会渲染成执行成功
     assert [(tc["tool_name"], tc["status"]) for tc in stored[0].tool_calls] == [

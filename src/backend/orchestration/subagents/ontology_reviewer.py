@@ -9,6 +9,8 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from core.capabilities.runtime import child_scope
+
 from core.infra.logging import get_logger
 from core.ontology.revision import is_substantive_revision
 from core.ontology.validator import evaluate_output
@@ -128,6 +130,7 @@ async def _run_text_agent(
     model_name: str | None,
     model_provider_id: str | None,
     runtime: dict[str, Any],
+    capability_scope: str = "",
 ) -> str:
     from core.llm.agent_factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
@@ -143,6 +146,7 @@ async def _run_text_agent(
         max_iters=2,
         isolated=True,
         ontology_runtime=runtime,
+        capability_scope=child_scope(capability_scope, "ontology-model", "text"),
     )
     stream = StreamingAgent(agent, clients)
     text = ""
@@ -188,6 +192,9 @@ async def _review_once(
             model_name=kwargs.get("model_name"),
             model_provider_id=kwargs.get("model_provider_id"),
             runtime=kwargs["runtime"],
+            capability_scope=child_scope(
+                kwargs.get("capability_scope", ""), "ontology-review", perspective
+            ),
         )
         obj = _parse_json_lenient(text)
         if not isinstance(obj, dict) or obj.get("verdict") not in _VALID_VERDICTS:
@@ -237,6 +244,7 @@ async def _revise_answer(
     model_name: str | None,
     model_provider_id: str | None,
     runtime: dict[str, Any],
+    capability_scope: str = "",
 ) -> str:
     prompt = (
         "你是本体校验后的答案修订员。严格根据评审意见修正答案，不新增没有证据的事实。"
@@ -251,6 +259,7 @@ async def _revise_answer(
             model_name=model_name,
             model_provider_id=model_provider_id,
             runtime=runtime,
+            capability_scope=child_scope(capability_scope, "ontology-model", "revise"),
         )
     ).strip()
 
@@ -355,6 +364,7 @@ async def review_ontology_output(
     trace_complete: bool = True,
     remediate: RemediationCallback | None = None,
     max_repair_attempts: int = _DEFAULT_MAX_REPAIR_ATTEMPTS,
+    capability_scope: str = "",
 ) -> dict[str, Any]:
     """Review one answer, repair it with the originating agent, and audit the session."""
     started = time.monotonic()
@@ -443,6 +453,7 @@ async def review_ontology_output(
             all_feedback.append("自动修订未生成完整正文，已保留原文。")
 
     common = {
+        "capability_scope": capability_scope,
         "task": task,
         "answer": current_answer,
         "runtime": runtime,
@@ -530,6 +541,7 @@ async def review_ontology_output(
                     model_name=model_name,
                     model_provider_id=model_provider_id,
                     runtime=runtime,
+                    capability_scope=capability_scope,
                 )
             else:
                 revised = ""

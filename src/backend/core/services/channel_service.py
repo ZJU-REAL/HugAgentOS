@@ -304,22 +304,22 @@ class ChannelService:
         except Exception as exc:  # noqa: BLE001
             raise BadRequestError(f"获取微信二维码失败：{exc}")
         bind_id = f"wxbind_{uuid.uuid4().hex[:16]}"
-        from core.infra.redis import get_redis
+        from core.infra.ephemeral import get_ephemeral_state
 
-        await get_redis().set(
+        await get_ephemeral_state().put(
             f"{_WEIXIN_BIND_PREFIX}{bind_id}",
             json.dumps({"owner_id": owner_id, "qrcode": qr["qrcode"], "agent_id": agent_id}),
-            ex=_WEIXIN_BIND_TTL,
+            ttl=_WEIXIN_BIND_TTL,
         )
         return {"bind_id": bind_id, "qrcode_img": qr.get("qrcode_img_content", "")}
 
     async def poll_weixin_bind(self, owner_id: str, bind_id: str) -> Dict[str, Any]:
         """Poll the QR-scan status; confirmed → persist ChannelConnection + start long polling, returns {status, channel_id?}."""
-        from core.infra.redis import get_redis
+        from core.infra.ephemeral import get_ephemeral_state
 
-        redis = get_redis()
+        state = get_ephemeral_state()
         key = f"{_WEIXIN_BIND_PREFIX}{bind_id}"
-        raw = await redis.get(key)
+        raw = await state.get(key)
         ctx = json.loads(raw) if raw else None
         if ctx is None or ctx.get("owner_id") != owner_id:
             raise ResourceNotFoundError("weixin_bind", bind_id)
@@ -332,7 +332,7 @@ class ChannelService:
             return {"status": status.get("status") or "waiting"}
 
         # confirmed → create the connection (app_id is derived from bot_token, satisfying the unique constraint)
-        await redis.delete(key)
+        await state.drop(key)
         bot_token = status["bot_token"]
         app_id = f"wx_{hashlib.sha256(bot_token.encode()).hexdigest()[:24]}"
         existing = self.repo.get_by_app_id("weixin", app_id)

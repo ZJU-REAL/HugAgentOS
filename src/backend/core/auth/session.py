@@ -163,6 +163,28 @@ async def validate_session(token: str) -> Optional[Dict[str, Any]]:
     return data
 
 
+async def find_session_by_hash(token_hash: str) -> Optional[Dict[str, Any]]:
+    """Read an existing session for a derived token without renewing its lifetime.
+
+    The digest is an identifier, never accepted as a login cookie. Capability
+    requests must not keep the shell's login session alive on their own.
+    """
+    if len(token_hash) != 64 or any(c not in "0123456789abcdef" for c in token_hash):
+        return None
+    if _use_memory_store():
+        _prune_expired_memory_sessions()
+        entry = _MEMORY_SESSIONS.get(token_hash)
+        return dict(entry["payload"]) if entry else None
+    raw = await get_redis().get(f"{SESSION_KEY_PREFIX}{token_hash}")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def revoke_session(token: str) -> bool:
     """Revoke (delete) a session.
 

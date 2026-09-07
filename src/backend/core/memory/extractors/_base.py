@@ -44,24 +44,50 @@ def _resolve_memory_model_config() -> tuple[str, str, str]:
     return cfg.model_url or "", cfg.api_key or "", cfg.model_name or ""
 
 
+def _client_identity(base_url: str, api_key: str) -> tuple:
+    """桌面网关引用绑定账号：桥接身份变了就要换客户端（凭据轮换不换）。"""
+    from core.services.desktop_model_credentials import bind, is_reference
+
+    if not is_reference(api_key):
+        return (base_url, api_key)
+    from core.services.desktop_cloud_bridge import _state_fingerprint
+
+    return (base_url, api_key, _state_fingerprint(bind(api_key, base_url)))
+
+
+_client_identity_key: tuple | None = None
+
+
 async def _get_client() -> tuple[object, str]:
     """A dedicated memory LLM client, not shared with the main conversation. Returns (client, model_name)."""
-    global _client, _model_name
-    if _client is not None and _model_name is not None:
+    global _client, _model_name, _client_identity_key
+    base_url, api_key, model_name = _resolve_memory_model_config()
+    if not base_url or not api_key or not model_name:
+        raise RuntimeError(
+            f"memory LLM config incomplete: base_url={bool(base_url)} "
+            f"api_key={bool(api_key)} model_name={bool(model_name)}"
+        )
+    identity = _client_identity(base_url, api_key)
+    if _client is not None and _model_name is not None and _client_identity_key == identity:
         return _client, _model_name
     async with _client_lock:
-        if _client is not None and _model_name is not None:
+        if _client is not None and _model_name is not None and _client_identity_key == identity:
             return _client, _model_name
         from openai import AsyncOpenAI
-        base_url, api_key, model_name = _resolve_memory_model_config()
-        if not base_url or not api_key or not model_name:
-            raise RuntimeError(
-                f"memory LLM config incomplete: base_url={bool(base_url)} "
-                f"api_key={bool(api_key)} model_name={bool(model_name)}"
-            )
+        from core.services.desktop_model_credentials import is_reference, request_hook
+
+        http_client = None
+        if is_reference(api_key):
+            # 桌面本机执行面：模型行存的是账号绑定的网关引用，凭据由请求钩子按当前
+            # 桥接状态实时注入（与主对话同一来源），不随导入时的快照过期。
+            import httpx
+
+            hook, _captured = request_hook(api_key, base_url)
+            http_client = httpx.AsyncClient(timeout=180.0, event_hooks={"request": [hook]})
         _client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
+            http_client=http_client,
             # Deliberately above every caller's own timeout. This client used to
             # cap at 30s while extractors asked for 60, so the HTTP layer gave up
             # first and the caller's budget never applied — a reasoning model
@@ -71,6 +97,7 @@ async def _get_client() -> tuple[object, str]:
             timeout=180.0,
         )
         _model_name = model_name
+        _client_identity_key = identity
         logger.info("[extractor] memory LLM client initialized model=%s base=%s",
                     model_name, base_url)
         return _client, _model_name

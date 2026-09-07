@@ -370,8 +370,23 @@ class StreamingAgent:
         self,
         session_messages: List[Dict[str, Any]],
         context: Dict[str, Any],
+        *,
+        effective_user_message: Optional[str] = None,
     ) -> AsyncIterator[Tuple[str, Any]]:
         agent = self.agent
+
+        # Commands keep their short spelling in persisted history, while this
+        # request must execute the expanded instructions. Copy the current row
+        # so neither stored history nor earlier user turns are rewritten.
+        if effective_user_message is not None:
+            session_messages = list(session_messages)
+            if session_messages and session_messages[-1].get("role") in ("user", "human"):
+                session_messages[-1] = {
+                    **session_messages[-1],
+                    "content": effective_user_message,
+                }
+            else:
+                session_messages.append({"role": "user", "content": effective_user_message})
 
         _last_user_text = ""
         if session_messages:

@@ -257,9 +257,9 @@ class VisionBridge:
     @staticmethod
     async def _cache_get(key: str) -> Optional[VisionResult]:
         try:
-            from core.infra.redis import get_redis
+            from core.infra.ephemeral import get_ephemeral_state
 
-            raw = await get_redis().get(key)
+            raw = await get_ephemeral_state().get(key)
             if not raw:
                 return None
             payload = json.loads(raw)
@@ -279,7 +279,7 @@ class VisionBridge:
     @staticmethod
     async def _cache_set(key: str, result: VisionResult) -> None:
         try:
-            from core.infra.redis import get_redis
+            from core.infra.ephemeral import get_ephemeral_state
 
             payload = json.dumps(
                 {
@@ -292,7 +292,7 @@ class VisionBridge:
                 },
                 ensure_ascii=False,
             )
-            await get_redis().set(key, payload, ex=CACHE_TTL_SECONDS)
+            await get_ephemeral_state().put(key, payload, ttl=CACHE_TTL_SECONDS)
         except Exception as exc:  # noqa: BLE001
             logger.debug("[vision] cache write skipped: %s", exc)
 

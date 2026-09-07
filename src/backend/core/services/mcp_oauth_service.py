@@ -22,7 +22,7 @@ from core.db.engine import SessionLocal
 from core.db.models import AdminMcpServer, McpMarketItem, McpMarketVersion
 from core.infra.crypto import decrypt_secret, encrypt_secret
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
-from core.infra.redis import get_redis
+from core.infra.ephemeral import get_ephemeral_state
 from core.services.mcp_management_service import (
     decrypt_mcp_headers,
     encrypt_mcp_headers,
@@ -206,10 +206,10 @@ async def _store_flow_status(flow: OAuthInstallFlow) -> None:
         "error": flow.error,
         "result": dict(flow.result or {}),
     }
-    await get_redis().set(
+    await get_ephemeral_state().put(
         _flow_key(flow.flow_id),
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-        ex=_FLOW_TTL_SECONDS,
+        ttl=_FLOW_TTL_SECONDS,
     )
 
 
@@ -379,7 +379,7 @@ async def _run_flow(flow: OAuthInstallFlow) -> None:
                     if flow.error:
                         raise RuntimeError(flow.error)
                     return flow.callback_code, flow.callback_state
-                raw = await get_redis().get(_callback_key(flow.flow_id))
+                raw = await get_ephemeral_state().get(_callback_key(flow.flow_id))
                 if raw:
                     payload = json.loads(raw)
                     callback_error = str(payload.get("error") or "")
@@ -422,7 +422,7 @@ async def _run_flow(flow: OAuthInstallFlow) -> None:
             raise RuntimeError(f"OAuth MCP 连接失败：{error}")
         if flow.error:
             raise RuntimeError(flow.error)
-        persisted = await get_redis().get(_flow_key(flow.flow_id))
+        persisted = await get_ephemeral_state().get(_flow_key(flow.flow_id))
         if persisted:
             persisted_status = json.loads(persisted)
             if persisted_status.get("status") == "failed":
@@ -459,10 +459,10 @@ async def complete_callback(
     error: str = "",
 ) -> None:
     flow = _flows.get(flow_id)
-    public_raw = await get_redis().get(_flow_key(flow_id))
+    public_raw = await get_ephemeral_state().get(_flow_key(flow_id))
     if not flow and not public_raw:
         raise ResourceNotFoundError("mcp_oauth_flow", flow_id)
-    await get_redis().set(
+    await get_ephemeral_state().put(
         _callback_key(flow_id),
         json.dumps(
             {
@@ -473,7 +473,7 @@ async def complete_callback(
             ensure_ascii=False,
             separators=(",", ":"),
         ),
-        ex=_FLOW_TTL_SECONDS,
+        ttl=_FLOW_TTL_SECONDS,
     )
     if flow:
         flow.callback_code = code
@@ -486,10 +486,10 @@ async def complete_callback(
         payload = json.loads(public_raw)
         payload["status"] = "failed" if error else "processing_callback"
         payload["error"] = error
-        await get_redis().set(
+        await get_ephemeral_state().put(
             _flow_key(flow_id),
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            ex=_FLOW_TTL_SECONDS,
+            ttl=_FLOW_TTL_SECONDS,
         )
 
 
@@ -503,7 +503,7 @@ async def cancel_flow(flow_id: str, *, owner_user_id: Optional[str]) -> Dict[str
 
 
 async def get_flow_status(flow_id: str, *, owner_user_id: Optional[str]) -> Dict[str, Any]:
-    raw = await get_redis().get(_flow_key(flow_id))
+    raw = await get_ephemeral_state().get(_flow_key(flow_id))
     if not raw:
         raise ResourceNotFoundError("mcp_oauth_flow", flow_id)
     payload = json.loads(raw)

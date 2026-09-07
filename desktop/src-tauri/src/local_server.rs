@@ -4,6 +4,7 @@
 //! 这里负责离线安装、启动服务、轮询健康状态，并在桌面进程退出时回收整个进程组。
 //! 运行环境位于应用本地数据目录；macOS/Linux 业务数据统一放在 ``~/.hugagent``。
 
+use crate::child_process::hide_console;
 use crate::local_payload::{self, PayloadPaths};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
@@ -16,8 +17,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
-pub const LOCAL_SERVER_PORT: u16 = 32101;
-pub const LOCAL_SERVER_BASE: &str = "http://127.0.0.1:32101";
+pub const LOCAL_SERVER_PORT: u16 = crate::brand::LOCAL_SERVER_PORT;
+
+/// 本机后端基址。端口是白标可配的（见 `brand.rs`），所以只能在运行时拼，不能再当常量用。
+pub fn local_server_base() -> String {
+    format!("http://127.0.0.1:{LOCAL_SERVER_PORT}")
+}
 const MAX_LOG_LINES: usize = 80;
 const MAX_DATA_BACKUPS: usize = 3;
 const BACKUP_FILES: &[&str] = &[
@@ -125,7 +130,7 @@ impl Default for LocalServerStatus {
             installed: false,
             ready: false,
             supported: local_payload::current_target() != "unsupported",
-            server_base: LOCAL_SERVER_BASE.to_string(),
+            server_base: local_server_base(),
         }
     }
 }
@@ -185,6 +190,14 @@ impl LocalServerManager {
 
     fn data_dir(&self) -> PathBuf {
         self.data_root.clone()
+    }
+
+    /// 能力文件存储根：`local-server` 的父目录，即 Tauri 应用本地数据目录。
+    fn capability_root(&self) -> PathBuf {
+        self.root
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.root.clone())
     }
 
     fn node_runtime_dir(&self) -> PathBuf {
@@ -289,7 +302,7 @@ impl LocalServerManager {
     }
 
     pub async fn is_ready(&self) -> bool {
-        let target = format!("{LOCAL_SERVER_BASE}/health");
+        let target = format!("{}/health", local_server_base());
         let Ok(response) = self
             .http
             .get(target)
@@ -356,7 +369,9 @@ impl LocalServerManager {
                 }
                 let _ = std::fs::remove_file(self.pid_path());
                 if self.is_ready().await {
-                    return Err("32101 端口被非当前版本的本机服务占用，请退出后重试".to_string());
+                    return Err(format!(
+                        "{LOCAL_SERVER_PORT} 端口被非当前版本的本机服务占用，请退出后重试"
+                    ));
                 }
             }
             #[cfg(not(target_os = "windows"))]
@@ -411,10 +426,21 @@ impl LocalServerManager {
                     .arg("--no-browser")
                     .current_dir(&release.source_dir)
                     .env("HUGAGENT_HOME", self.data_dir())
+                    // 能力文件存储根（skills/ plugins/ agents/ mcp.json）：应用本地数据目录
+                    // 本身（Windows 即 %LOCALAPPDATA%\<identifier>），不是 local-server 子目录。
+                    .env("HUGAGENT_CAPS_ROOT", self.capability_root())
                     .env("PYTHONUTF8", "1")
                     .env("PYTHONIOENCODING", "utf-8")
                     .env("PYTHONDONTWRITEBYTECODE", "1")
-                    .env("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1")
+                    // sidecar 端口跟着壳的品牌命名空间走，后端不再假定 8900 / 9100 段。
+                    .env(
+                        "SANDBOX_RUNNER_URL",
+                        format!("http://127.0.0.1:{}", crate::brand::LOCAL_SCRIPT_RUNNER_PORT),
+                    )
+                    .env(
+                        "HUGAGENT_LOCAL_MCP_PORT_OFFSET",
+                        crate::brand::LOCAL_MCP_PORT_OFFSET.to_string(),
+                    )
                     .env(
                         "FRONTEND_DIST_DIR",
                         release.source_dir.join("src").join("frontend").join("dist"),
@@ -429,9 +455,12 @@ impl LocalServerManager {
                     .stderr(Stdio::from(stderr));
                 self.apply_tool_path(&mut command);
                 // 混合架构：把桥接秘密注入本机后端（身份桥 + 壳持有的本机控制台令牌）。
+                // 工具全部来自云端：本机不引导带 MCP 的默认插件，也不起内置 MCP。
                 if let Some(secret) = self.bridge_secret.get() {
                     command.env("HUGAGENT_DESKTOP_BRIDGE_SECRET", secret);
                     command.env("CONFIG_TOKEN", secret);
+                } else {
+                    command.env("HUGAGENT_BOOTSTRAP_DEFAULT_PLUGINS", "1");
                 }
                 configure_process_group(&mut command);
                 hide_console(&mut command);
@@ -800,16 +829,6 @@ fn prune_data_backups(backups_root: &Path) {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn hide_console(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(target_os = "windows"))]
-fn hide_console(_command: &mut Command) {}
-
 #[cfg(unix)]
 fn configure_process_group(command: &mut Command) {
     use std::os::unix::process::CommandExt;
@@ -1141,11 +1160,19 @@ mod tests {
 
         assert!(hooks.contains("NSIS_HOOK_PREUNINSTALL"));
         assert!(hooks.contains("taskkill.exe /PID"));
+        // 卸载前按可执行文件位置结束安装根下的全部进程，不再只认记录的 PID。
+        assert!(hooks.contains("ExecutablePath).StartsWith($$root"));
+        assert!(!hooks.contains("server.pid"));
         assert!(hooks.contains("HUGAGENT_DELETE_DATA"));
         assert!(hooks.contains("MB_DEFBUTTON2"));
         assert!(hooks.contains("GetTempFileName"));
         assert!(hooks.contains("ExecShell"));
         assert!(!hooks.contains("RMDir /r"));
+        assert!(!hooks.contains("RD /S"));
+        assert!(hooks.contains("-ValidateOnly"));
+        assert!(hooks.contains("-DetachedRuntime"));
+        assert!(hooks.contains("uninstall-cleanup.ps1"));
+        assert!(hooks.contains("remove-$R9"));
     }
 
     #[test]

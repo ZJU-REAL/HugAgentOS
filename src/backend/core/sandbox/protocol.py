@@ -67,6 +67,8 @@ class ExecuteRequest:
     user_id: Optional[str] = None
     session_id: Optional[str] = None
     expected_output_files: Optional[list[str]] = None
+    capability_run_id: Optional[str] = None
+    capability_scope: str = ""
 
 
 @dataclass

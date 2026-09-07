@@ -131,10 +131,8 @@ def embed_text(text: str, *, timeout: float | None = None) -> list[float]:
         raise RuntimeError("Embedding model is not configured")
 
     url = f"{embed_url}/embeddings"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
+    from core.services.desktop_model_credentials import prepare_request_headers
+    headers = prepare_request_headers(api_key, embed_url)
     vector = _embed_request(url, headers, [text], embed_model, timeout=timeout)[0]
     if vector:
         _DETECTED_DIM_CACHE[(embed_url, embed_model)] = len(vector)
@@ -156,10 +154,8 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
         raise RuntimeError("Embedding model is not configured")
 
     url = f"{embed_url}/embeddings"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
+    from core.services.desktop_model_credentials import prepare_request_headers
+    headers = prepare_request_headers(api_key, embed_url)
 
     results: list[list[float]] = []
     for start in range(0, len(texts), _EMBED_BATCH_SIZE):
@@ -231,10 +227,8 @@ def rerank(
         raise RuntimeError("Reranker is not configured")
 
     url = f"{reranker_url}/rerank"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {reranker_key}",
-    }
+    from core.services.desktop_model_credentials import prepare_request_headers
+    headers = prepare_request_headers(reranker_key, reranker_url)
     payload: dict = {
         "model": reranker_model,
         "query": query,

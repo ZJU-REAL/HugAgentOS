@@ -94,6 +94,21 @@ def build_effective_user_message(message: str, quoted_follow_up: Optional[Any]) 
 
 def resolve_user_facing_error(exc: Exception) -> str:
     """Map exceptions to user-friendly Chinese error strings."""
+    from core.capabilities.errors import CapabilityError
+
+    if isinstance(exc, CapabilityError):
+        # Use fixed messages: dependency metadata and upstream exception text
+        # may contain private paths or connection settings.
+        return {
+            "dependency_missing": "所选能力的必要依赖尚不可用，本轮已停止。请在能力中心查看依赖状态，准备或启用所需组件。",
+            "package_missing": "所选能力尚未准备完成，本轮已停止。请在能力中心准备后重试。",
+            "name_conflict": "所选能力存在同名冲突，本轮已停止。请在能力中心选择要使用的来源。",
+            "view_unavailable": "本机能力目录暂时无法更新，本轮已停止。请关闭占用该目录的程序后重试。",
+            "integrity_failed": "能力文件或返回内容未通过完整性检查，本轮已停止。请在能力中心检查并重新准备。",
+            "install_conflict": "能力安装目录存在冲突，本轮已停止。请在能力中心检查目录状态。",
+            "cloud_unavailable": "云端能力暂时无法连接，本轮已停止。恢复连接后请重试。",
+            "permission_denied": "所选云端能力的当前授权不可用，本轮已停止。请重新登录或联系管理员。",
+        }.get(exc.code, "所选能力当前不可用，本轮已停止。请在能力中心检查状态。")
     msg = str(exc).lower()
     if "rate limit" in msg or "429" in msg:
         return "请求过于频繁，请稍后重试"

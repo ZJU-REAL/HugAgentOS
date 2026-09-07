@@ -68,6 +68,24 @@ test("stages only tracked files from an already-derived CE repository", () => {
   }
 });
 
+test("never stages deployment credentials even when tracked", () => {
+  const root = createCeFixture();
+  const output = join(root, "desktop", "generated", "server-ce");
+  try {
+    writeFileSync(join(root, "cube-node-key"), "fixture-only credential");
+    git(root, ["add", "cube-node-key"]);
+    git(root, ["commit", "--quiet", "-m", "tracked deployment fixture"]);
+    stageTrackedCeRepository(root, output, {
+      requireClean: true,
+      skipEditionCheck: true,
+    });
+    assert.equal(existsSync(join(output, "cube-node-key")), false);
+    assert.equal(existsSync(join(root, "cube-node-key")), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects release staging from a dirty CE repository", () => {
   const root = createCeFixture();
   const output = join(root, "desktop", "generated", "server-ce");

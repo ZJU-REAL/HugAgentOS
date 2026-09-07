@@ -48,7 +48,9 @@ def test_sqlite_hook_ledgers_upgrade_downgrade_and_reupgrade(tmp_path):
             text("INSERT INTO alembic_version(version_num) VALUES ('compact01')")
         )
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     assert {
         "harness_usage_cursors",
         "harness_usage_attempts",
@@ -66,6 +68,8 @@ def test_sqlite_hook_ledgers_upgrade_downgrade_and_reupgrade(tmp_path):
     assert "harness_usage_attempts" not in inspect(engine).get_table_names()
     assert "harness_event_log" not in inspect(engine).get_table_names()
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     assert "harness_usage_attempts" in inspect(engine).get_table_names()
     engine.dispose()

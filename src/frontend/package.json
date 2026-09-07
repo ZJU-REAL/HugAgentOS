@@ -24,7 +24,9 @@
     "test:queued-invocation": "esbuild scripts/test-queued-invocation.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-queued-invocation.mjs && node node_modules/.tmp/test-queued-invocation.mjs",
     "test:knowledge-provider-config": "esbuild scripts/test-knowledge-provider-config.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-knowledge-provider-config.mjs && node node_modules/.tmp/test-knowledge-provider-config.mjs",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:desktop-capabilities": "esbuild scripts/test-desktop-capabilities.ts --bundle --platform=node --format=esm --jsx=automatic --external:react --external:react-dom/* --define:import.meta.env='{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}' --outfile=node_modules/.tmp/test-desktop-capabilities.mjs && node node_modules/.tmp/test-desktop-capabilities.mjs",
+    "test:project-instructions": "node scripts/run-project-instructions-test.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",

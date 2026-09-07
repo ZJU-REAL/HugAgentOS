@@ -230,6 +230,8 @@ def write_manifests(
         content = bundle[kind]
         old = path.read_text(encoding="utf-8") if path.exists() else None
         if old != content:
+            # The build context directory is part of what this service owns.
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
             changed.append(str(path.relative_to(root)))
 

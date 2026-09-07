@@ -126,6 +126,9 @@ export function stageTrackedCeRepository(repoRoot, outputRoot, options = {}) {
 
   let copied = 0;
   for (const relativePath of tracked) {
+    // This deployment SSH key is tracked in legacy full checkouts, but is
+    // never a runtime input. Keep it on the builder, outside every payload.
+    if (relativePath === "cube-node-key") continue;
     const sourcePath = assertSafeTrackedPath(repoRoot, relativePath);
     if (!existsSync(sourcePath)) continue;
 

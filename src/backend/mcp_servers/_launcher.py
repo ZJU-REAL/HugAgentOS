@@ -25,6 +25,14 @@ from typing import Dict, List, Optional
 from mcp_servers._ports import PORTS as _SERVER_PORTS, package_name
 
 
+def _no_window() -> Dict[str, int]:
+    """桌面本机模式下壳子没有控制台，子进程若不显式禁用会各自新开一个黑色
+    cmd 窗口。容器里 ``os.name`` 不是 nt，这里等价于空参数。"""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 def _package_available(pkg: str) -> bool:
     """CE 派生树会物理排除 EE 专属 MCP 包（如 security_ops_mcp）；缺包时跳过
     而不是反复 spawn-crash 触发 crash-loop 守卫拖垮整个容器。"""
@@ -88,6 +96,7 @@ class _Child:
             stderr=subprocess.STDOUT,
             bufsize=1,
             close_fds=True,
+            **_no_window(),
         )
         self.proc = proc
         self._pump_thread = threading.Thread(

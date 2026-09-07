@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.services.model_config import ModelConfigService
+from core.capabilities.errors import CapabilityError, CloudUnavailable
 from core.db.engine import SessionLocal
 from core.db.models import Artifact, BatchPlan
 from core.llm.message_compat import strip_thinking
@@ -81,7 +82,9 @@ def _check_internal_token(token: Optional[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _call_llm(prompt: str, *, system: str = "", max_tokens: int = 1500) -> str:
+async def _call_llm(
+    prompt: str, *, system: str = "", max_tokens: int = 1500, user_id: Optional[str] = None
+) -> str:
     """One-shot call to the configured main_agent model. Returns response text.
 
     For thinking-style models (DeepSeek R1, qwen3-thinking) we ask the
@@ -110,23 +113,55 @@ async def _call_llm(prompt: str, *, system: str = "", max_tokens: int = 1500) ->
     messages.append({"role": "user", "content": prompt})
 
     url = base_url.rstrip("/") + "/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+    from core.services import desktop_model_credentials as credentials
+
+    desktop_reference = credentials.is_reference(api_key)
+    hooks = {}
+    captured = None
+    if desktop_reference:
+        from core.capabilities.skills import account_authorized_for
+        from core.services.desktop_cloud_bridge import require_current_account
+
+        def require_owner():
+            if not account_authorized_for(user_id):
+                raise CloudUnavailable("batch model belongs to a different account; sign in again")
+
+        require_owner()
+        hook, captured = credentials.request_hook(api_key, base_url)
+
+        async def authorize(request):
+            require_owner()
+            await hook(request)
+
+        hooks = {"request": [authorize]}
+        headers = {"Content-Type": "application/json"}
+    else:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
     base_payload = {
         "model": model_name,
         "messages": messages,
         "temperature": 0.3,
         "max_tokens": max_tokens,
-        "stream": False,
+        "stream": desktop_reference,
     }
     payload_with_extra = {
         **base_payload,
         "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
     }
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, event_hooks=hooks) as client:
+        if desktop_reference:
+            # The desktop gateway uses SSE. Keep the internal helper's text
+            # contract while validating identity for every actual request.
+            raw = await _read_desktop_stream(
+                client, url, (payload_with_extra, base_payload), headers
+            )
+            require_owner()
+            require_current_account(captured)
+            return strip_thinking(raw).strip()
         # Try with extra_body first (vLLM / qwen3 / DeepSeek-compatible);
         # fall back to plain payload if endpoint rejects unknown fields.
         resp = await client.post(url, json=payload_with_extra, headers=headers)
@@ -141,12 +176,84 @@ async def _call_llm(prompt: str, *, system: str = "", max_tokens: int = 1500) ->
     return strip_thinking(raw).strip()
 
 
+def _is_security_rejection(response) -> bool:
+    """Safety failures must not be retried with a weaker request shape."""
+    try:
+        pending = [response.json()]
+    except ValueError:
+        return False
+    markers = (
+        "integrity", "permission", "auth", "forbidden", "token", "signature",
+        "credential", "account", "revok", "access_denied", "scope",
+    )
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in ("code", "type", "error_code", "reason", "error", "detail"):
+                    if isinstance(item, str):
+                        code = item.lower().replace("-", "_")
+                        if any(marker in code for marker in markers):
+                            return True
+                if isinstance(item, (dict, list)):
+                    pending.append(item)
+        elif isinstance(value, list):
+            pending.extend(value)
+    return False
+
+
+async def _read_desktop_stream(client, url, payloads, headers) -> str:
+    """Return only a complete OpenAI SSE answer; never accept a partial error body."""
+    try:
+        for index, payload in enumerate(payloads):
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    if (
+                        index == 0
+                        and response.status_code in (400, 422)
+                        and not _is_security_rejection(response)
+                    ):
+                        continue
+                    raise CloudUnavailable("cloud model request failed")
+                parts = []
+                data_lines = []
+                async for line in response.aiter_lines():
+                    if line.startswith("data:"):
+                        data_lines.append(line[5:].lstrip())
+                        continue
+                    if line or not data_lines:
+                        continue
+                    event = "\n".join(data_lines)
+                    data_lines = []
+                    if event.strip() == "[DONE]":
+                        return "".join(parts)
+                    try:
+                        chunk = json.loads(event)
+                        if not isinstance(chunk, dict) or "error" in chunk:
+                            raise ValueError("error event")
+                        for choice in chunk.get("choices") or []:
+                            text = (choice.get("delta") or {}).get("content")
+                            if text is not None:
+                                if not isinstance(text, str):
+                                    raise ValueError("invalid content delta")
+                                parts.append(text)
+                    except (ValueError, TypeError, AttributeError) as exc:
+                        raise CloudUnavailable("cloud model returned an invalid stream") from exc
+                raise CloudUnavailable("cloud model stream ended before completion")
+    except httpx.HTTPError as exc:
+        raise CloudUnavailable("cloud model stream is unavailable") from exc
+    raise CloudUnavailable("cloud model request failed")
+
+
 # ---------------------------------------------------------------------------
 # Source resolvers
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_text_items(instruction: str, text_items: List[str]) -> List[Dict[str, Any]]:
+async def _resolve_text_items(
+    instruction: str, text_items: List[str], *, user_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """Convert a list of strings → items list. If text_items empty, fall back
     to splitting ``instruction`` via LLM."""
     if text_items:
@@ -173,13 +280,15 @@ async def _resolve_text_items(instruction: str, text_items: List[str]) -> List[D
         "示例：用户说'请帮我分析阿里、腾讯、字节'，你输出 [\"阿里\",\"腾讯\",\"字节\"]。"
     )
     try:
-        raw = await _call_llm(instruction, system=sys_prompt, max_tokens=400)
+        raw = await _call_llm(instruction, system=sys_prompt, max_tokens=400, user_id=user_id)
         items = _extract_json_array(raw)
         return [
             {"index": idx + 1, "text": str(it).strip()}
             for idx, it in enumerate(items)
             if str(it).strip()
         ]
+    except CapabilityError:
+        raise
     except Exception as exc:
         logger.warning("[internal_batch] LLM split failed: %s", exc)
         return []
@@ -386,7 +495,8 @@ def _looks_like_valid_template(text: str, placeholder_keys: List[str]) -> bool:
 
 
 async def _infer_template(
-    instruction: str, source_type: str, placeholder_keys: List[str], preview: List[Dict[str, Any]]
+    instruction: str, source_type: str, placeholder_keys: List[str], preview: List[Dict[str, Any]],
+    *, user_id: Optional[str] = None,
 ) -> str:
     """Use the LLM to draft a default prompt template using available placeholders.
 
@@ -430,7 +540,7 @@ async def _infer_template(
         "请直接给出一段中文 prompt 模板，至少包含一个占位符。"
     )
     try:
-        raw = await _call_llm(user, system=sys, max_tokens=2000)
+        raw = await _call_llm(user, system=sys, max_tokens=2000, user_id=user_id)
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
@@ -447,6 +557,8 @@ async def _infer_template(
             )
             return fallback
         return cleaned
+    except CapabilityError:
+        raise
     except Exception as exc:
         logger.warning("[internal_batch] template inference failed: %s", exc)
         return fallback
@@ -469,13 +581,18 @@ async def resolve(
 
     db: Session = SessionLocal()
     try:
+        # Resolve the originating user before either helper can send private
+        # source text. MCP callers normally supply the owning chat_id.
+        owner_user_id = body.user_id or _resolve_user_from_chat(db, body.chat_id) or "anonymous"
         source_type = _detect_source_type(body.file_ids, body.text_items, db)
         items: List[Dict[str, Any]] = []
         placeholder_keys: List[str] = []
         warnings: List[str] = []
 
         if source_type == "text_list":
-            items = await _resolve_text_items(body.instruction, body.text_items)
+            items = await _resolve_text_items(
+                body.instruction, body.text_items, user_id=owner_user_id
+            )
             placeholder_keys = ["text", "index"]
             if len(items) > 100:
                 warnings.append(
@@ -499,12 +616,9 @@ async def resolve(
             raise HTTPException(status_code=400,
                                 detail="无法从输入解析出任何批量项；请检查文件或重新陈述需求。")
 
-        # Owner: prefer explicit user_id, else fall back from chat_id, else 'anonymous'
-        owner_user_id = body.user_id or _resolve_user_from_chat(db, body.chat_id) or "anonymous"
-
         # Default template via LLM
         default_template = await _infer_template(
-            body.instruction, source_type, placeholder_keys, items
+            body.instruction, source_type, placeholder_keys, items, user_id=owner_user_id
         )
 
         plan_id = f"bp_{uuid.uuid4().hex[:16]}"
@@ -547,6 +661,8 @@ async def resolve(
             "status": "pending",
             "warnings": warnings,
         }
+    except CapabilityError as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict()) from exc
     finally:
         db.close()
 

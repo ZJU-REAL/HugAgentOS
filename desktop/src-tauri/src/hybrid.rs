@@ -17,9 +17,18 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::auth::SessionEpoch;
 use tokio::sync::RwLock;
 
-use crate::local_server::{LocalServerManager, LOCAL_SERVER_BASE};
+use crate::local_server::{local_server_base, LocalServerManager};
+
+/// 云端身份 → 本机执行面的同步状态。反代据此决定本机路由能否放行：
+/// 身份还没推到本机时，本机后端只会回 401，前端会误判成云端会话过期。
+#[derive(Debug, Default, Clone)]
+pub struct BridgeSync {
+    pub synced: bool,
+    pub error: Option<String>,
+}
 
 /// 读取或生成桥接秘密（`<config_dir>/bridge.secret`，0600 语义、内容 64 hex）。
 pub fn load_or_create_bridge_secret(config_dir: &Path) -> String {
@@ -61,44 +70,162 @@ fn random_hex_64() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// 登录成功后调用：取云端用户信息 → 存 bridge_user → 触发模型配置下发。
-/// 幂等；网络失败只打日志（下次登录/启动会重试）。
+/// Stable non-secret installation identity, separate from the rotating capability.
+pub fn load_or_create_device_id(config_dir: &Path) -> Result<String, String> {
+    let path = config_dir.join("device-id");
+    if let Ok(value) = std::fs::read_to_string(&path) {
+        let value = value.trim();
+        if value.len() == 64 && value.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(value.to_string());
+        }
+        return Err("device-id 文件无效，请恢复原设备身份".into());
+    }
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).map_err(|_| "OS random source is unavailable")?;
+    let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    std::fs::create_dir_all(config_dir).map_err(|e| e.to_string())?;
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("无法保存设备身份: {e}"))?;
+    file.write_all(id.as_bytes())
+        .and_then(|_| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+async fn current_session(
+    epoch: &SessionEpoch,
+    expected: u64,
+    session: &RwLock<Option<String>>,
+    token: &str,
+) -> bool {
+    epoch.matches(expected)
+        && epoch.is_active()
+        && session.read().await.as_deref() == Some(token)
+        && epoch.matches(expected)
+}
+
+/// Each login owns one refresh loop. Epoch invalidation cancels old account work.
 pub fn on_cloud_login(
     http: reqwest::Client,
     cloud_base: String,
     cookie_name: String,
     session_token: Arc<RwLock<Option<String>>>,
     bridge_user: Arc<RwLock<Option<String>>>,
+    bridge_sync: Arc<RwLock<BridgeSync>>,
     bridge_secret: String,
     local_server: Arc<LocalServerManager>,
+    device_id: String,
+    session_epoch: Arc<SessionEpoch>,
+    expected: u64,
 ) {
     tauri::async_runtime::spawn(async move {
         let Some(token) = session_token.read().await.clone() else {
-            eprintln!("[hybrid] 云端会话已清除，暂不更新本机执行能力");
             return;
         };
-        let user_json = match fetch_cloud_user(&http, &cloud_base, &cookie_name, &token).await {
-            Some(u) => u,
-            None => {
-                eprintln!("[hybrid] 获取云端用户信息失败，暂不更新桥接身份");
+        if !current_session(&session_epoch, expected, &session_token, &token).await {
+            return;
+        }
+        let user_json = loop {
+            if !current_session(&session_epoch, expected, &session_token, &token).await {
                 return;
             }
+            if let Some(user) = fetch_cloud_user(&http, &cloud_base, &cookie_name, &token).await {
+                break user;
+            }
+            eprintln!("[hybrid] 获取云端用户信息失败，30 秒后重试");
+            *bridge_sync.write().await = BridgeSync {
+                synced: false,
+                error: Some("获取云端用户信息失败".to_string()),
+            };
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         };
-        let encoded = base64_encode(user_json.as_bytes());
-        *bridge_user.write().await = Some(encoded);
-        eprintln!("[hybrid] 桥接身份已更新（云端用户 → 本机执行面）");
-
-        sync_cloud_config_when_local_ready(
-            http,
-            cloud_base,
-            cookie_name,
-            token,
-            session_token,
-            bridge_secret,
-            local_server,
-        )
-        .await;
+        {
+            let _write = session_epoch.local_write.lock().await;
+            if !current_session(&session_epoch, expected, &session_token, &token).await {
+                return;
+            }
+            *bridge_user.write().await = Some(base64_encode(user_json.as_bytes()));
+        }
+        let mut ready = false;
+        for _ in 0..480 {
+            if !current_session(&session_epoch, expected, &session_token, &token).await {
+                return;
+            }
+            if local_server.is_ready().await {
+                ready = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+        if !ready {
+            eprintln!("[hybrid] 本机服务未就绪");
+            *bridge_sync.write().await = BridgeSync {
+                synced: false,
+                error: Some("本机服务未就绪".to_string()),
+            };
+            return;
+        }
+        loop {
+            if !current_session(&session_epoch, expected, &session_token, &token).await {
+                return;
+            }
+            let result = sync_desktop_runtime_once(
+                &http,
+                &cloud_base,
+                &cookie_name,
+                &token,
+                &bridge_secret,
+                &device_id,
+                &session_epoch,
+                expected,
+                &session_token,
+            )
+            .await;
+            if !current_session(&session_epoch, expected, &session_token, &token).await {
+                return;
+            }
+            let delay = match result {
+                Ok(_) => {
+                    eprintln!("[hybrid] 本机执行能力已刷新");
+                    *bridge_sync.write().await = BridgeSync {
+                        synced: true,
+                        error: None,
+                    };
+                    300
+                }
+                Err(error) => {
+                    eprintln!("[hybrid] 本机执行能力刷新失败: {error}");
+                    *bridge_sync.write().await = BridgeSync {
+                        synced: false,
+                        error: Some(error),
+                    };
+                    30
+                }
+            };
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        }
     });
+}
+
+pub async fn clear_cloud_bridge(http: &reqwest::Client, bridge_secret: &str) -> Result<(), String> {
+    let resp = http
+        .delete(format!(
+            "{}/api/v1/desktop/capability/cloud-bridge",
+            local_server_base()
+        ))
+        .bearer_auth(bridge_secret)
+        .send()
+        .await
+        .map_err(|e| format!("清除本机桥失败: {e}"))?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("清除本机桥 HTTP {}", resp.status()))
+    }
 }
 
 /// `/api/v1/me` → 桥接用户 JSON（含云端 host 前缀的 user_center_id，避免跨云端撞号）。
@@ -142,115 +269,18 @@ async fn fetch_cloud_user(
     Some(payload.to_string())
 }
 
-/// 等本机服务就绪后，下发统一的 desktop runtime capability：同一枚短时令牌既
-/// 驱动安全模型网关，也驱动 MCP cloud-bridge，避免两套配置的身份和有效期漂移。
-///
-/// 首次安装本机服务要校验并解压完整的离线 Python 运行时；在低速磁盘上仍可能
-/// 持续数分钟，因此等待窗口给到 ~40 分钟。就绪后的单次同步失败也不能永久
-/// 跳过（否则本机会话一直「所选模型不可用」直到下次登录），带退避重试几次。
-async fn sync_cloud_config_when_local_ready(
-    http: reqwest::Client,
-    cloud_base: String,
-    cookie_name: String,
-    token: String,
-    session_token: Arc<RwLock<Option<String>>>,
-    bridge_secret: String,
-    local_server: Arc<LocalServerManager>,
-) {
-    if !wait_local_ready(&local_server).await {
-        eprintln!("[hybrid] 本机服务迟迟未就绪，本次跳过云端配置下发");
-        return;
-    }
-    let ok = retry_sync("本机执行能力下发", || {
-        sync_desktop_runtime_once(&http, &cloud_base, &cookie_name, &token, &bridge_secret)
-    })
-    .await;
-    if ok {
-        run_capability_refresh_loop(
-            &http,
-            &cloud_base,
-            &cookie_name,
-            session_token,
-            &bridge_secret,
-        )
-        .await;
-    }
-}
-
-async fn wait_local_ready(local_server: &Arc<LocalServerManager>) -> bool {
-    for _ in 0..480 {
-        if local_server.is_ready().await {
-            return true;
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    }
-    false
-}
-
-/// 通用退避重试：最多 5 次，失败间隔 15s × 次数（比就绪轮询更长，避免打爆
-/// 刚起的本机服务）。成功返回 true。
-async fn retry_sync<F, Fut>(name: &str, mut op: F) -> bool
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<String, String>>,
-{
-    let mut failures = 0u32;
-    loop {
-        match op().await {
-            Ok(msg) => {
-                eprintln!("[hybrid] {name}成功: {msg}");
-                return true;
-            }
-            Err(error) => {
-                failures += 1;
-                eprintln!("[hybrid] {name}失败（第 {failures} 次）: {error}");
-                if failures >= 5 {
-                    return false;
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(15 * failures as u64)).await;
-            }
-        }
-    }
-}
-
-/// 能力桥令牌 24h 有效；每 4h 换新一次，桌面常开也不过期。全局只起一个
-/// 循环（后登录只做即时下发，不重复起循环）。
-async fn run_capability_refresh_loop(
-    http: &reqwest::Client,
-    cloud_base: &str,
-    cookie_name: &str,
-    session_token: Arc<RwLock<Option<String>>>,
-    bridge_secret: &str,
-) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static REFRESH_LOOP_STARTED: AtomicBool = AtomicBool::new(false);
-    if REFRESH_LOOP_STARTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(4 * 3600)).await;
-        let Some(token) = session_token.read().await.clone() else {
-            eprintln!("[hybrid] 云端会话已清除，跳过本机执行能力刷新");
-            continue;
-        };
-        match sync_desktop_runtime_once(http, cloud_base, cookie_name, &token, bridge_secret).await
-        {
-            Ok(_) => eprintln!("[hybrid] 本机执行能力已定期刷新"),
-            Err(error) => eprintln!("[hybrid] 本机执行能力定期刷新失败: {error}"),
-        }
-    }
-}
-
 async fn issue_capability_once(
     http: &reqwest::Client,
     cloud_base: &str,
     cookie_name: &str,
     token: &str,
+    device_id: &str,
 ) -> Result<(String, i64), String> {
     let base = cloud_base.trim_end_matches('/');
     let issue_url = format!("{base}/api/v1/desktop/capability/token");
     let resp = http
         .post(&issue_url)
+        .json(&serde_json::json!({ "device_id": device_id }))
         .header(reqwest::header::COOKIE, format!("{cookie_name}={token}"))
         .send()
         .await
@@ -271,7 +301,18 @@ async fn issue_capability_once(
     let expires_in = data
         .get("expires_in")
         .and_then(|v| v.as_i64())
-        .unwrap_or(86400);
+        .filter(|ttl| *ttl > 0 && *ttl <= 600)
+        .ok_or_else(|| "token 响应有效期无效".to_string())?;
+    if data.get("device_id").and_then(|v| v.as_str()) != Some(device_id) {
+        return Err("token 响应设备身份不匹配".into());
+    }
+    if data
+        .get("authorization_epoch")
+        .and_then(|v| v.as_i64())
+        .is_none()
+    {
+        return Err("token 响应缺授权版本".into());
+    }
     Ok((capability_token.to_string(), expires_in))
 }
 
@@ -333,16 +374,17 @@ fn model_import_payload(
     ))
 }
 
-async fn sync_models_once(
+async fn fetch_model_payload(
     http: &reqwest::Client,
     cloud_base: &str,
     capability_token: &str,
-    bridge_secret: &str,
-) -> Result<String, String> {
+    device_id: &str,
+) -> Result<(serde_json::Value, usize), String> {
     let base = cloud_base.trim_end_matches('/');
     let manifest_url = format!("{base}/api/v1/desktop/capability/models");
     let resp = http
         .get(&manifest_url)
+        .header("X-Desktop-Device-Id", device_id)
         .bearer_auth(capability_token)
         .send()
         .await
@@ -355,9 +397,16 @@ async fn sync_models_once(
         .await
         .map_err(|e| format!("模型能力清单解析失败: {e}"))?;
     let manifest = body.get("data").cloned().unwrap_or(serde_json::json!({}));
-    let (payload, providers) = model_import_payload(manifest, base, capability_token)?;
+    model_import_payload(manifest, base, capability_token)
+}
 
-    let import_url = format!("{LOCAL_SERVER_BASE}/api/v1/models/import");
+async fn import_models_once(
+    http: &reqwest::Client,
+    payload: serde_json::Value,
+    providers: usize,
+    bridge_secret: &str,
+) -> Result<String, String> {
+    let import_url = format!("{}/api/v1/models/import", local_server_base());
     let resp = http
         .post(&import_url)
         .header(
@@ -383,13 +432,18 @@ async fn push_capability_once(
     capability_token: &str,
     expires_in: i64,
     bridge_secret: &str,
+    device_id: &str,
 ) -> Result<String, String> {
     let base = cloud_base.trim_end_matches('/');
-    let push_url = format!("{LOCAL_SERVER_BASE}/api/v1/desktop/capability/cloud-bridge");
+    let push_url = format!(
+        "{}/api/v1/desktop/capability/cloud-bridge",
+        local_server_base()
+    );
     let payload = serde_json::json!({
         "cloud_base": base,
         "token": capability_token,
         "expires_in": expires_in,
+        "device_id": device_id,
     });
     let resp = http
         .post(&push_url)
@@ -413,20 +467,44 @@ async fn sync_desktop_runtime_once(
     cookie_name: &str,
     token: &str,
     bridge_secret: &str,
+    device_id: &str,
+    epoch: &SessionEpoch,
+    expected: u64,
+    session: &RwLock<Option<String>>,
 ) -> Result<String, String> {
+    if !current_session(epoch, expected, session, token).await {
+        return Err("会话已变更".into());
+    }
     let (capability_token, expires_in) =
-        issue_capability_once(http, cloud_base, cookie_name, token).await?;
-    let (models, capability) = tokio::join!(
-        sync_models_once(http, cloud_base, &capability_token, bridge_secret),
-        push_capability_once(
-            http,
-            cloud_base,
-            &capability_token,
-            expires_in,
-            bridge_secret,
-        )
-    );
-    Ok(format!("{}; {}", models?, capability?))
+        issue_capability_once(http, cloud_base, cookie_name, token, device_id).await?;
+    if !current_session(epoch, expected, session, token).await {
+        return Err("会话已变更".into());
+    }
+    let (payload, providers) =
+        fetch_model_payload(http, cloud_base, &capability_token, device_id).await?;
+    // Logout invalidates first, then waits for these writes before clearing. Thus a
+    // request already in flight cannot restore bridge state after logout cleanup.
+    let _write = epoch.local_write.lock().await;
+    if !current_session(epoch, expected, session, token).await {
+        return Err("会话已变更".into());
+    }
+    push_capability_once(
+        http,
+        cloud_base,
+        &capability_token,
+        expires_in,
+        bridge_secret,
+        device_id,
+    )
+    .await?;
+    if !current_session(epoch, expected, session, token).await {
+        return Err("会话已变更".into());
+    }
+    let result = import_models_once(http, payload, providers, bridge_secret).await?;
+    if !current_session(epoch, expected, session, token).await {
+        return Err("会话已变更".into());
+    }
+    Ok(result)
 }
 
 /// 标准 base64（无换行）。避免为一处编码引第三方 crate。
@@ -498,11 +576,11 @@ mod tests {
             "role_assignments": [{"role_key": "main_agent", "provider_id": "private/deepseek"}]
         });
         let (payload, count) =
-            model_import_payload(manifest, "https://cloud.example", "dcap1.short-lived")
+            model_import_payload(manifest, "https://cloud.example", "dcap2.short-lived")
                 .expect("manifest should be valid");
         assert_eq!(count, 1);
         let provider = &payload["providers"][0];
-        assert_eq!(provider["api_key"], "dcap1.short-lived");
+        assert_eq!(provider["api_key"], "dcap2.short-lived");
         assert_eq!(
             provider["base_url"],
             "https://cloud.example/api/v1/desktop/capability/gateway/models/private%2Fdeepseek"
@@ -514,11 +592,112 @@ mod tests {
     }
 
     #[test]
+    fn device_identity_is_stable_and_separate_from_bridge_secret() {
+        let dir = std::env::temp_dir().join(format!("hugagent-device-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = load_or_create_device_id(&dir).unwrap();
+        assert_eq!(first, load_or_create_device_id(&dir).unwrap());
+        assert_eq!(first.len(), 64);
+        assert_ne!(first, load_or_create_bridge_secret(&dir));
+        std::fs::write(dir.join("device-id"), "broken").unwrap();
+        assert!(load_or_create_device_id(&dir).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn old_login_response_cannot_match_a_new_session() {
+        let epoch = SessionEpoch::default();
+        let session = RwLock::new(Some("alice".into()));
+        let expected = epoch.current();
+        assert!(current_session(&epoch, expected, &session, "alice").await);
+        epoch.advance();
+        *session.write().await = Some("bob".into());
+        epoch.activate(epoch.current());
+        assert!(!current_session(&epoch, expected, &session, "alice").await);
+        assert!(!current_session(&epoch, expected, &session, "bob").await);
+        assert!(current_session(&epoch, epoch.current(), &session, "bob").await);
+    }
+
+    #[tokio::test]
+    async fn delayed_token_response_is_discarded_after_logout() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let epoch = Arc::new(SessionEpoch::default());
+        let session = Arc::new(RwLock::new(Some("alice-session".into())));
+        let epoch_at_issue = epoch.clone();
+        let issued = Arc::new(AtomicUsize::new(0));
+        let issued_at_server = issued.clone();
+        let app = Router::new().route(
+            "/api/v1/desktop/capability/token",
+            post(
+                move |headers: axum::http::HeaderMap, Json(body): Json<serde_json::Value>| {
+                    let epoch = epoch_at_issue.clone();
+                    let issued = issued_at_server.clone();
+                    async move {
+                        assert_eq!(body["device_id"], "test-device");
+                        assert_eq!(headers["cookie"], "session=alice-session");
+                        issued.fetch_add(1, Ordering::SeqCst);
+                        epoch.advance(); // User logs out while the cloud response is in flight.
+                        Json(serde_json::json!({"data": {
+                            "token": "dcap2.test", "expires_in": 600,
+                            "device_id": "test-device", "authorization_epoch": 42
+                        }}))
+                    }
+                },
+            ),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let result = sync_desktop_runtime_once(
+            &reqwest::Client::new(),
+            &base,
+            "session",
+            "alice-session",
+            "secret",
+            "test-device",
+            &epoch,
+            0,
+            &session,
+        )
+        .await;
+        server.abort();
+        assert_eq!(issued.load(Ordering::SeqCst), 1);
+        assert_eq!(result.unwrap_err(), "会话已变更");
+        // No model manifest or local bridge endpoint exists in this fixture:
+        // an unguarded continuation would fail with a different error.
+    }
+
+    #[tokio::test]
+    async fn model_manifest_request_binds_device_and_authorization() {
+        use axum::{routing::get, Json, Router};
+        let app = Router::new().route(
+            "/api/v1/desktop/capability/models",
+            get(|headers: axum::http::HeaderMap| async move {
+                assert_eq!(headers["x-desktop-device-id"], "test-device");
+                assert_eq!(headers["authorization"], "Bearer dcap2.test");
+                Json(serde_json::json!({"data": {"providers": [], "role_assignments": []}}))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let result =
+            fetch_model_payload(&reqwest::Client::new(), &base, "dcap2.test", "test-device").await;
+        server.abort();
+        assert_eq!(result.unwrap().1, 0);
+    }
+
+    #[test]
     fn model_manifest_requires_complete_topology() {
         let error = model_import_payload(
             serde_json::json!({"providers": []}),
             "https://cloud.example",
-            "dcap1.token",
+            "dcap2.token",
         )
         .expect_err("role assignments are required");
         assert!(error.contains("role_assignments"));

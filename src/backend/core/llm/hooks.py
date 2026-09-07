@@ -73,8 +73,9 @@ def _get_pin_hint_state() -> Dict[str, Any]:
 
 # ── DynamicModel helper (used by DynamicModelMiddleware) ─────────────────
 
-# Cache key: main/provider + mode → model instance. fast and the three thinking tiers each get one cached entry.
-_model_cache: dict[str, Any] = {}
+# Desktop models also capture a cloud session in their request hook. Cached
+# instances must never cross that identity boundary, even when DB config is unchanged.
+_model_cache: dict[str | tuple[str, str], Any] = {}
 _cached_version: int = -1
 
 
@@ -92,12 +93,28 @@ def _check_version():
         _cached_version = current
 
 
+def _model_cache_key(name: str) -> str | tuple[str, str]:
+    from core.auth.desktop_bridge import bridge_enabled
+
+    if not bridge_enabled():
+        return name
+    from core.services.desktop_cloud_bridge import _state_fingerprint, get_state
+
+    identity = _state_fingerprint(get_state())
+    # Eviction only releases this cache's reference. In-flight runs keep their
+    # captured model and its existing request hook, which rejects identity changes.
+    for key in list(_model_cache):
+        if isinstance(key, tuple) and key[0] == name and key[1] != identity:
+            _model_cache.pop(key, None)
+    return name, identity
+
+
 def _get_main_model(mode: str = "medium"):
     """Get the main agent model for the given chat mode (fast/medium/high/max)."""
     from core.llm.chat_models import get_default_model
 
     _check_version()
-    key = f"main:{mode}"
+    key = _model_cache_key(f"main:{mode}")
     cached = _model_cache.get(key)
     if cached is not None:
         return cached
@@ -123,7 +140,7 @@ def _get_provider_model(provider_id: str, mode: str = "medium"):
     if not pid:
         return _get_main_model(mode)
     _check_version()
-    key = f"provider:{pid}:{mode}"
+    key = _model_cache_key(f"provider:{pid}:{mode}")
     cached = _model_cache.get(key)
     if cached is not None:
         return cached

@@ -2,8 +2,8 @@
 
 import asyncio
 
-import core.infra.redis as redis_mod
 import pytest
+from core.infra.ephemeral import LocalEphemeralState
 from core.llm import subagent_sessions
 from core.llm.builtin_subagents import (
     BUILTIN_SUBAGENTS,
@@ -15,13 +15,13 @@ from core.llm.subagent_tool import build_subagent_prompt_section
 
 @pytest.fixture(autouse=True)
 def _no_redis(monkeypatch):
-    """Exercise the process-local fallback instead of a live Redis."""
+    """Run against the in-process backend, as a Redis-free deployment does.
 
-    def _boom(*_args, **_kwargs):
-        raise RuntimeError("redis unavailable")
-
-    monkeypatch.setattr(redis_mod, "get_redis", _boom)
-    subagent_sessions._fallback.clear()
+    One instance for the whole test, so a save and the load that follows it
+    see the same state.
+    """
+    state = LocalEphemeralState()
+    monkeypatch.setattr(subagent_sessions, "get_ephemeral_state", lambda: state)
 
 
 def _messages(n=3):

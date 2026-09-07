@@ -96,4 +96,12 @@ from sqlalchemy.dialects.postgresql import INET, JSONB
 JSONType = JSON().with_variant(JSONB(), "postgresql")
 INETType = String(45).with_variant(INET(), "postgresql")
 
+# These models use the shared JSONType defined above.
+from core.db.models.capability import (
+    DeviceCapabilityComponent,
+    DeviceCapabilityInstallation,
+    DeviceCapabilityNamePreference,
+    DeviceCapabilityTransaction,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

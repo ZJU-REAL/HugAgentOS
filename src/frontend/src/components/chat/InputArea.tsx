@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Dropdown } from 'antd';
+import { Dropdown, message } from 'antd';
 import { AnimatePresence, motion } from 'motion/react';
 import { DUR, EASE } from '../../utils/motionTokens';
 import {
@@ -20,8 +20,8 @@ import { AgentIcon } from '../agent/AgentIcon';
 import { SkillAvatar } from '../catalog/skillIcons';
 import { McpIcon } from '../catalog/McpIcon';
 import { PluginAvatar } from '../catalog/PluginIconPicker';
-import { getApiUrl, createLocalProject } from '../../api';
-import type { InstalledPluginItem } from '../../types';
+import { getApiUrl, createLocalProject, getProject } from '../../api';
+import type { InstalledPluginItem, ProjectDetail } from '../../types';
 import {
   AgentMentionPopup,
   useAgentMention,
@@ -46,6 +46,7 @@ import { extractClipboardImageFiles } from '../../utils/clipboardFiles';
 import { hasChatInvocation } from '../../utils/chatInvocation';
 import { exceedsPreviewLimit, getPreviewLimitBytes } from '../../utils/filePreviewSafety';
 import { t } from '../../i18n';
+import { canInitializeProject, isProjectInitCommand } from '../../utils/projectCommands';
 
 interface InputAreaProps {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -317,6 +318,7 @@ export function InputArea({
   // Project list (for the toolbar "Project" selector dropdown)
   const projects = useProjectStore((s) => s.list);
   const fetchProjects = useProjectStore((s) => s.fetchProjects);
+  const detailProject = useProjectStore((s) => s.currentProject);
   const setProjectCreateModalOpen = useProjectStore((s) => s.setCreateModalOpen);
   // Sub-agent list (for the "@sub-agent" submenu of the "+" menu)
   const agents = useAgentStore((s) => s.agents);
@@ -393,6 +395,30 @@ export function InputArea({
     return () => window.removeEventListener('hugagent:local-folder', onFolder as EventListener);
   }, [projectComposer, isDesktopShell, localCapable]);
 
+  const commandProjectId = projectComposer ? detailProject?.project_id : _currentChat?.projectId;
+  const [loadedCommandProject, setLoadedCommandProject] = useState<ProjectDetail | null>(null);
+  const listedCommandProject = detailProject?.project_id === commandProjectId
+    ? detailProject : projects.find((p) => p.project_id === commandProjectId);
+  // Existing chats can refer to projects outside the paginated selector list.
+  useEffect(() => {
+    if (!commandProjectId || listedCommandProject) return;
+    let cancelled = false;
+    void getProject(commandProjectId).then((project) => {
+      if (!cancelled) setLoadedCommandProject(project);
+    }).catch(() => { if (!cancelled) setLoadedCommandProject(null); });
+    return () => { cancelled = true; };
+  }, [commandProjectId, listedCommandProject]);
+  const commandProject = listedCommandProject
+    ?? (loadedCommandProject?.project_id === commandProjectId ? loadedCommandProject : null);
+  const canInitProject = canInitializeProject({
+    projectId: commandProjectId,
+    permission: commandProject?.permission,
+    busy: sending,
+    hasCapability: !!(activeSkill || activePlugin || activeConnector || activeMention
+      || (!projectComposer && _currentChat?.agentId)),
+    specialMode: !!(projectComposer ? activeMode : planMode || batchModeOn || workflowModeOn || loopMode),
+  });
+
   // `/` lists every installed/access-authorized plugin and skill. A personal
   // capability switch only controls default assembly. An off skill is attached
   // to this turn; an explicitly loaded plugin stays expanded for this chat.
@@ -427,9 +453,14 @@ export function InputArea({
             skill.desc.trim(),
           ].filter(Boolean).join(' · '),
         }));
-      return [...pluginEntries, ...skillEntries];
+      const commands: SlashEntry[] = canInitProject && ['init', '初始化指令', 'agents.md']
+        .some((alias) => alias.includes(query.trim()))
+        ? [{ kind: 'command', id: 'project-init', name: '/init',
+            description: t('初始化指令：检查项目并创建或完善 AGENTS.md') }]
+        : [];
+      return [...commands, ...pluginEntries, ...skillEntries];
     },
-    [input, installedPlugins, skills],
+    [input, installedPlugins, skills, canInitProject],
   );
 
   // Object URLs for uploaded image files — revoked when files change.
@@ -772,7 +803,24 @@ export function InputArea({
     applyConnector(connectorId, connectorName);
   }
 
+  function sendFromComposer() {
+    const value = useChatStore.getState().input.trim();
+    if (isProjectInitCommand(value) && !canInitProject) {
+      void message.warning(t('请在有编辑权限的具体项目中使用普通对话，并移除已选择的能力后初始化指令'));
+      return;
+    }
+    send();
+  }
+
   function onSlashEntrySelect(entry: SlashEntry) {
+    if (entry.kind === 'command') {
+      if (!canInitProject) return;
+      setInput('/init');
+      if (editorRef.current) editorRef.current.textContent = '/init';
+      setSlashVisible(false);
+      sendFromComposer();
+      return;
+    }
     if (entry.kind === 'plugin') {
       onSlashSelectPlugin(entry.plugin);
       return;
@@ -836,7 +884,7 @@ export function InputArea({
     if (composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
 
     // Slash popup: Enter/Tab → select skill
-    if (slashVisible && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+    if (slashVisible && slashEntries.length > 0 && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
       e.preventDefault();
       const sel = slashEntries[sIdx] || slashEntries[0];
       if (sel) onSlashEntrySelect(sel);
@@ -895,7 +943,7 @@ export function InputArea({
     // Enter → send, Shift+Enter → newline
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      send();
+      sendFromComposer();
       return;
     }
   }
@@ -1448,7 +1496,7 @@ export function InputArea({
               back to send so Enter/click can queue a follow-up without cancelling the run. */}
           <button
             className="jx-sendBtn"
-            onClick={() => { if (showStopButton) { abort?.(); } else { send(); } }}
+            onClick={() => { if (showStopButton) { abort?.(); } else { sendFromComposer(); } }}
             /* 空输入 / 纯空格时按钮置灰：send() 本来就会 `if (!msg) return` 静默吞掉，
                但按钮看着可点，用户以为发出去了。附件不能单独成一条消息（send 的守卫
                同样要求正文非空），所以判据就是正文 trim 后是否为空。

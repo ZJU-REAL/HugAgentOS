@@ -4,7 +4,7 @@
 
 面向**个人单机尝鲜**与**二次开发体验**的极简部署方式：一条命令装好，终端引导设管理员、配模型，随后单进程起服务并打开浏览器。全程**零 Docker、零 PostgreSQL、零 Redis**。
 
-技术形态：单进程 uvicorn（同时托管前端静态资源与 API）+ SQLite + 进程内 fakeredis + 子进程 MCP / 沙箱。数据全部落在 `~/.hugagent/`。
+技术形态：单进程 uvicorn（同时托管前端静态资源与 API）+ SQLite + 进程内事件流 / 短时状态 + 子进程 MCP / 沙箱。数据全部落在 `~/.hugagent/`。
 
 > ⚠️ **定位说明**：本方式是**单进程单用户**形态，为个人试用与开发体验而设，**不适合多人协作或生产**。团队 / 生产请用 [Docker Compose 部署](docker-compose.md)。两种形态并存，互不影响。
 
@@ -187,6 +187,6 @@ hugagent doctor     # 环境自检（Python 版本、端口占用、数据目录
 | 本地模式开关 | `src/backend/core/config/settings.py`（`DeploySettings`，`DEPLOY_PROFILE=local`） |
 | 前端静态托管 + `/api` 桥接 | `src/backend/api/local_hosting.py` |
 | MCP / 沙箱子进程督管 | `src/backend/orchestration/local_subprocess.py` |
-| 进程内 fakeredis | `src/backend/core/infra/redis.py`（`REDIS_URL=memory://`） |
+| 进程内事件流 / 短时状态 | `src/backend/orchestration/run_event_stream.py`、`src/backend/core/infra/ephemeral.py`（`REDIS_URL` 留空即启用） |
 | 内置 MCP 目录种子 | `src/backend/core/services/mcp_service.py`（`seed_builtin_mcp_servers_if_empty`） |
 | 环境变量参考 | [environment-variables.md](environment-variables.md)（「无 Docker 本地模式」段） |

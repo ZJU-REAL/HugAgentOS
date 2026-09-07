@@ -63,7 +63,7 @@ def _configure_database(state_dir: str, phase: str) -> Path:
     database = _phase_database(state_dir, phase)
     os.environ["DATABASE_URL"] = f"sqlite:///{database}"
     os.environ["SQLITE_FALLBACK_URL"] = f"sqlite:///{database}"
-    os.environ["REDIS_URL"] = "memory://"
+    os.environ["REDIS_URL"] = ""
     os.environ["MEMORY_OUTBOX_LEASE_SECONDS"] = "1"
     os.environ["MEMORY_OUTBOX_RETRY_BASE_SECONDS"] = "0"
     os.environ["MEMORY_AUDIT_ENABLED"] = "false"

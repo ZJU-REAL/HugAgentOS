@@ -1,6 +1,5 @@
 """Automation API routes — CRUD for scheduled tasks + notifications."""
 
-import json
 from typing import Any, Dict, List, Optional
 
 from croniter import croniter
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 from core.auth.backend import get_current_user, UserContext
 from core.db.engine import get_db
 from core.infra.responses import success_response, created_response
+from core.services import automation_notifications as notifications
 from core.services.automation_service import AutomationService, SUMMARY_LIMIT_LIST
 from core.infra.logging import get_logger
 
@@ -313,62 +313,15 @@ async def get_automation_runs(
     )
 
 
-# ── Notifications (Redis-backed) ──────────────────────────────
-
-_NOTIF_TTL = 7 * 24 * 3600
-
-
-async def _modify_notification_list(user_id: str, ids: set, transform):
-    """Read notification list from Redis, apply *transform* to each matched
-    item, and rewrite the list.  *transform(item)* returns the modified item
-    dict to keep, or ``None`` to drop it."""
-    from core.infra.redis import get_redis
-    redis = get_redis()
-    if not redis:
-        return
-    key = f"jx:notifications:{user_id}"
-    raw_items = await redis.lrange(key, 0, -1)
-    kept = []
-    for raw in raw_items:
-        try:
-            item = json.loads(raw)
-            if item.get("id") in ids:
-                item = transform(item)
-                if item is None:
-                    continue
-            kept.append(json.dumps(item, ensure_ascii=False))
-        except (json.JSONDecodeError, TypeError):
-            kept.append(raw if isinstance(raw, str) else raw.decode())
-    async with redis.pipeline(transaction=True) as pipe:
-        await pipe.delete(key)
-        if kept:
-            await pipe.rpush(key, *kept)
-        await pipe.expire(key, _NOTIF_TTL)
-        await pipe.execute()
+# ── Notifications ─────────────────────────────────────────────
 
 
 @router.get("/notifications/list", summary="获取自动化通知列表")
 async def get_notifications(
     user: UserContext = Depends(get_current_user),
 ):
-    """获取当前用户的自动化任务通知列表（基于 Redis，最多返回最近 50 条）。"""
-    try:
-        from core.infra.redis import get_redis
-        redis = get_redis()
-        if not redis:
-            return success_response(data=[])
-        key = f"jx:notifications:{user.user_id}"
-        raw_items = await redis.lrange(key, 0, 49)
-        notifications = []
-        for raw in raw_items:
-            try:
-                notifications.append(json.loads(raw))
-            except (json.JSONDecodeError, TypeError):
-                continue
-        return success_response(data=notifications)
-    except Exception as exc:
-        logger.warning("Failed to fetch notifications: %s", exc)
-        return success_response(data=[])
+    """获取当前用户的自动化任务通知列表（最多返回最近 50 条）。"""
+    return success_response(data=await notifications.list_recent(user.user_id))
 
 
 @router.post("/notifications/read", summary="标记通知为已读")
@@ -381,7 +334,7 @@ async def mark_notifications_read(
         def _mark_read(item):
             item["read"] = True
             return item
-        await _modify_notification_list(user.user_id, set(req.ids), _mark_read)
+        await notifications.modify(user.user_id, set(req.ids), _mark_read)
         return success_response(message="ok")
     except Exception as exc:
         logger.warning("Failed to mark notifications read: %s", exc)
@@ -395,7 +348,7 @@ async def delete_notifications(
 ):
     """按 ID 列表删除指定的自动化通知。"""
     try:
-        await _modify_notification_list(user.user_id, set(req.ids), lambda _: None)
+        await notifications.modify(user.user_id, set(req.ids), lambda _: None)
         return success_response(message="ok")
     except Exception as exc:
         logger.warning("Failed to delete notifications: %s", exc)

@@ -14,6 +14,7 @@ from core.content.office import find_libreoffice_binary
 from core.db.engine import get_db
 from core.db.repository import AuditLogRepository
 from core.infra.exceptions import StorageError
+from core.infra.proc import no_window_kwargs
 from core.services.artifact_edition import artifact_access_metadata, can_access_artifact_metadata
 from core.storage import get_storage
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -216,6 +217,7 @@ def _convert_office_to_pdf(source_path: str, file_id: str) -> tuple[str, str]:
             capture_output=True,
             text=True,
             timeout=120,
+            **no_window_kwargs(),
         )
     except FileNotFoundError as exc:
         _cleanup_path(temp_dir)

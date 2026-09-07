@@ -65,7 +65,9 @@ def test_sqlite_tool_effect_upgrade_downgrade_and_reupgrade(tmp_path):
         column["name"] for column in inspect(engine).get_columns("tool_call_logs")
     }
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     inspector = inspect(engine)
     assert {
         "tool_effect_ledger",
@@ -90,7 +92,9 @@ def test_sqlite_tool_effect_upgrade_downgrade_and_reupgrade(tmp_path):
     assert "tool_effect_receipts" not in inspector.get_table_names()
     assert "effect_id" not in {column["name"] for column in inspector.get_columns("tool_call_logs")}
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     inspector = inspect(engine)
     assert "tool_effect_ledger" in inspector.get_table_names()
     assert "tool_effect_receipts" in inspector.get_table_names()

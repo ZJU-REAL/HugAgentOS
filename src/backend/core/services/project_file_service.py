@@ -68,6 +68,22 @@ class ProjectFileService:
             stack.extend(row[0] for row in children)
         return out
 
+    def instruction_file_scope(self, project: Project, actor: str) -> tuple[dict, dict]:
+        """Return exact root artifact filters and creation fields for AGENTS.md."""
+        from fastapi import HTTPException
+
+        if project.kind != "personal" or not project.linked_folder_id:
+            raise HTTPException(409, "项目未绑定可用文件夹")
+        folder = self.db.query(UserFolder).filter(
+            UserFolder.folder_id == project.linked_folder_id,
+            UserFolder.user_id == project.owner_user_id,
+            UserFolder.deleted_at.is_(None),
+        ).first()
+        if folder is None:
+            raise HTTPException(409, "项目文件夹不存在或不可访问")
+        filters = {"user_id": project.owner_user_id, "user_folder_id": project.linked_folder_id}
+        return filters, dict(filters)
+
     def list_files(self, project: Project) -> List[Dict[str, Any]]:
         if project.kind != "personal" or not project.linked_folder_id:
             return []

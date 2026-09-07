@@ -141,6 +141,20 @@ impl AppConfig {
     }
 }
 
+/// 把配置切成「仅交付混合模式」构建的首启形态：本机 + 云端双模式，云端固定为构建期
+/// 烤进去的默认地址（`brand::DEFAULT_SERVER_BASE`）。
+///
+/// 只改内存、不落盘。壳在展示初始化页之前先用它把反代和本机执行面按双模式准备好，
+/// 用户确认后再由 [`provision`] 持久化——于是初始化完能在**同一个窗口**直接进安装
+/// 进度页，不必靠重启应用重新加载运行形态。
+pub fn apply_fixed_dual_mode(cfg: &mut AppConfig) {
+    let cloud = DEFAULT_SERVER_BASE.trim().trim_end_matches('/').to_string();
+    cfg.cloud_server_base = cloud.clone();
+    cfg.server_base = cloud;
+    cfg.deployment_mode = DeploymentMode::Remote;
+    cfg.provision_mode = Some(ProvisionMode::Dual);
+}
+
 /// 加载配置：server.json 优先，其次环境变量覆盖 server_base，最后默认值。
 pub fn load(config_dir: &Path) -> AppConfig {
     let mut cfg = AppConfig::default();
@@ -159,6 +173,13 @@ pub fn load(config_dir: &Path) -> AppConfig {
             cfg.server_base = v;
             cfg.deployment_mode = DeploymentMode::Remote;
         }
+    }
+
+    // 本机后端由壳自己拉起，端口取自构建期的品牌命名空间（`brand.rs`）。白标包换过
+    // 端口后，老 server.json 里记的还是旧端口——按当前端口纠正即可，既不改运行形态，
+    // 也不重写 server.json（升级用户无感，配置文件保持原样）。
+    if cfg.uses_local_server() {
+        cfg.server_base = crate::local_server::local_server_base();
     }
 
     // 混合架构（Dual）恒为云端为主：登录/会话必须指向云端身份。历史版本的双模式
@@ -327,6 +348,38 @@ mod tests {
         let remote = load(&dir);
         assert!(!remote.uses_local_server());
         assert_eq!(remote.server_base, "https://example.test");
+    }
+
+    #[test]
+    fn local_target_follows_the_branded_port_without_rewriting_config() {
+        let dir = temp_dir("legacy-local-port");
+        let original = r#"{"deployment_mode":"local","provision_mode":"local_only",
+            "server_base":"http://127.0.0.1:1","cookie_name":"custom_cookie"}"#;
+        std::fs::write(dir.join("server.json"), original).unwrap();
+
+        let cfg = load(&dir);
+
+        assert_eq!(cfg.server_base, crate::local_server::local_server_base());
+        assert_eq!(cfg.provision_mode(), ProvisionMode::LocalOnly);
+        assert_eq!(cfg.cookie_name, "custom_cookie");
+        assert!(is_provisioned(&dir));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("server.json")).unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn fixed_dual_mode_prepares_first_run_in_memory_only() {
+        let dir = temp_dir("fixed-dual-memory");
+        let mut cfg = load(&dir);
+
+        apply_fixed_dual_mode(&mut cfg);
+
+        assert_eq!(cfg.provision_mode(), ProvisionMode::Dual);
+        assert!(!cfg.uses_local_server());
+        assert_eq!(cfg.cloud_base(), DEFAULT_SERVER_BASE.trim_end_matches('/'));
+        assert!(!dir.join("server.json").exists());
     }
 
     #[test]

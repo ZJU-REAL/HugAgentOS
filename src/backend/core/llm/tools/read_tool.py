@@ -228,6 +228,30 @@ def register_read(
                 return resp_json({"error": str(exc), "blocked": True})
             except OSError as exc:
                 return resp_json({"error": f"读取文件失败: {exc}"})
+        # A project-root AGENTS.md is live configuration, not a sandbox
+        # snapshot. Resolve it by the authorized project ID, even when an old
+        # copy already exists in this conversation's sandbox.
+        if (
+            not _local_on() and scope and not scope.is_local and scope.folder_name
+            and _ms.myspace_rel(physical, user_id, scope) == f"{scope.folder_name}/AGENTS.md"
+        ):
+            from fastapi import HTTPException
+            from core.services.project_instructions import read_authorized_project_instructions
+
+            try:
+                snapshot = await asyncio.to_thread(
+                    read_authorized_project_instructions, scope.project_id, user_id or "",
+                )
+                if snapshot["instructions_source"] != "AGENTS.md":
+                    return resp_json({"error": "项目根 AGENTS.md 不存在，请使用项目指令读取工具检查现有规则"})
+                _local_read = snapshot["instructions"].encode("utf-8")
+            except HTTPException as exc:
+                return resp_json({"error": exc.detail, "status": exc.status_code})
+            # Refresh the disposable copy for subsequent file/shell operations.
+            try:
+                await provider.put_file(_sess, physical, _local_read, user_id=user_id)
+            except Exception as exc:  # noqa: BLE001 — canonical read remains usable
+                logger.warning("[read] AGENTS.md sandbox refresh failed: %s", exc)
         try:
             content_bytes = (
                 _local_read

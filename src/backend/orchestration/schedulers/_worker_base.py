@@ -27,7 +27,7 @@ from typing import Any, Awaitable, Callable, List, Optional, Sequence, Tuple
 import pytz
 
 from core.db.engine import SessionLocal
-from core.infra.redis import get_redis
+from core.infra.ephemeral import get_ephemeral_state
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,9 @@ async def acquire_day_lock(
     day = today or datetime.now(pytz.timezone(timezone)).strftime("%Y%m%d")
     lock_key = f"{prefix}{day}"
     try:
-        redis = get_redis()
-        acquired = await redis.set(lock_key, "1", ex=ttl_s, nx=True)
+        acquired = await get_ephemeral_state().claim(lock_key, ttl=ttl_s)
     except Exception as exc:
-        logger.warning("[%s] redis lock error, skipping fire (%s)", log_tag, exc)
+        logger.warning("[%s] lock error, skipping fire (%s)", log_tag, exc)
         return False
     if not acquired:
         logger.info("[%s] another instance already holding today's lock", log_tag)

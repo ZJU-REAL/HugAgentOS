@@ -298,8 +298,12 @@ export function onUnauthorized(handler: (loginUrl: string) => void) {
  * 403 is insufficient permission (e.g. backend 31001 Access Denied) — let the caller
  * surface the backend message instead of misreporting it as session expiry and
  * masking the real cause. */
-function throwIfSessionExpired(status: number, payload: unknown): void {
-  if (status !== 401 || !_on401) return;
+function throwIfSessionExpired(status: number, payload: unknown, localTarget = false): void {
+  if (status !== 401) return;
+  // 本机执行面的 401 只说明云端身份还没同步到本机，与云端登录会话无关；
+  // 不能触发"会话过期"弹框把用户踢出登录。
+  if (localTarget) throw new Error('本机执行面尚未接受云端身份，请稍候重试');
+  if (!_on401) return;
   const pickLoginUrl = (obj: unknown): string => {
     if (!obj || typeof obj !== 'object') return '';
     const data = (obj as Record<string, unknown>).data;
@@ -319,19 +323,21 @@ export async function apiRequest<T>(
   target?: 'local',
 ): Promise<T> {
   const url = `${getApiUrl()}${path}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    // 混合路由：显式声明本地目标时打头（web / 非双模式下反代忽略该头）。
+    ...(target === 'local' ? localHeader() : {}),
+    // 兜底：与 authFetch 同源推断——路径含本地项目/本地会话 id 时自动打头，
+    // 否则 file-confirm / pending-confirm 等会话作用域请求会被误发云端，
+    // 云端无此会话而报「会话不存在或无权访问」。
+    ...inferTargetHeadersFromUrl(path),
+    ...((options?.headers as Record<string, string> | undefined) ?? {}),
+  };
+  const localTarget = headers[LOCAL_TARGET_HEADER] === 'local';
   const response = await fetch(url, {
     ...options,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      // 混合路由：显式声明本地目标时打头（web / 非双模式下反代忽略该头）。
-      ...(target === 'local' ? localHeader() : {}),
-      // 兜底：与 authFetch 同源推断——路径含本地项目/本地会话 id 时自动打头，
-      // 否则 file-confirm / pending-confirm 等会话作用域请求会被误发云端，
-      // 云端无此会话而报「会话不存在或无权访问」。
-      ...inferTargetHeadersFromUrl(path),
-      ...(options?.headers ?? {}),
-    },
+    headers,
   });
 
   if (response.status === 204) {
@@ -341,7 +347,7 @@ export async function apiRequest<T>(
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     // 401 → session expired, show login; 403 → insufficient permission, fall through to the generic branch below to surface the backend message
-    throwIfSessionExpired(response.status, payload);
+    throwIfSessionExpired(response.status, payload, localTarget);
     const editionError = createEditionAccessError(response.status, payload, readErrorMessage);
     if (editionError) throw editionError;
     throw createApiResponseError(response.status, payload, `API Error: ${response.status}`);
@@ -1085,15 +1091,35 @@ export async function getPendingUserQuestions(chatId: string): Promise<UserQuest
 export async function listPendingUserQuestions(): Promise<
   Array<{ chatId: string; request: UserQuestionRequest }>
 > {
-  const wrapped = await apiRequest<{ items?: Record<string, unknown>[] }>(
-    '/v1/chats/pending-user-questions',
+  // 这个端点不带会话 id，路由头推断不出目标。双模式下本机面与云端各自持有一份挂起
+  // 问题（挂起状态是进程内的），所以两边都要问：只问云端会让本机会话的提问永远不出
+  // 现在恢复轮询里，对话就一直停在「已发起提问、界面没有卡片」。
+  const targets: Array<'local' | undefined> = isHybridDual() ? [undefined, 'local'] : [undefined];
+  const responses = await Promise.allSettled(
+    targets.map((target) =>
+      apiRequest<{ items?: Record<string, unknown>[] }>(
+        '/v1/chats/pending-user-questions',
+        undefined,
+        target,
+      ),
+    ),
   );
-  const { items } = unwrapData<{ items?: Record<string, unknown>[] }>(wrapped);
+  // 调用方把返回值当成服务端权威快照，缺席的问题会被清掉——所以任一面查询失败就整体
+  // 抛错，让调用方保留现有状态等下一轮，绝不能把没查到的一面当成「已经没有问题了」。
+  const failed = responses.find((response) => response.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
   const out: Array<{ chatId: string; request: UserQuestionRequest }> = [];
-  for (const item of Array.isArray(items) ? items : []) {
-    const chatId = String(item.chat_id ?? '');
-    const request = toUserQuestionRequest(item);
-    if (chatId && request.requestId && request.questions.length) {
+  const seen = new Set<string>();
+  for (const response of responses) {
+    if (response.status !== 'fulfilled') continue;
+    const { items } = unwrapData<{ items?: Record<string, unknown>[] }>(response.value);
+    for (const item of Array.isArray(items) ? items : []) {
+      const chatId = String(item.chat_id ?? '');
+      const request = toUserQuestionRequest(item);
+      if (!chatId || !request.requestId || !request.questions.length) continue;
+      const key = `${chatId}:${request.requestId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push({ chatId, request });
     }
   }
@@ -1935,6 +1961,226 @@ export async function getMarketplaceSkills(): Promise<MarketplaceListResult> {
 export async function getMarketplaceSkillDetail(slug: string): Promise<MarketplaceSkillDetail> {
   const wrapped = await apiRequest<unknown>(`/v1/marketplace/skills/${encodeURIComponent(slug)}`);
   return unwrapData<MarketplaceSkillDetail>(wrapped);
+}
+
+// ── Desktop capability store（桌面双模式：本机执行面的能力安装状态）────────────
+// 全部走本机后端（x-hugagent-target: local）。云端能力中心负责「账号里有什么」；
+// 这组接口负责「这台机器上准备到什么程度、同名时用哪一份」。
+
+export type DeviceCapabilityKind = 'skill' | 'mcp' | 'agent' | 'plugin';
+export type DeviceCapabilityOutcome = 'chosen' | 'shadowed' | 'conflict' | 'unusable' | 'absent';
+
+export interface DeviceCapabilityReadiness {
+  ready: boolean;
+  missing_required: string[];
+  components: Array<Record<string, unknown>>;
+  errors?: Array<Record<string, unknown>>;
+  warnings?: Array<Record<string, unknown>>;
+  nodes?: Array<Record<string, unknown>>;
+  dependency_report?: Record<string, unknown>;
+}
+
+export interface DeviceCapabilityItem {
+  install_id: string;
+  runtime_name: string;
+  kind: DeviceCapabilityKind;
+  profile: string;
+  /** 'cloud' | 'local' | 'builtin' | 'plugin' */
+  source: string;
+  path?: string | null;
+  content_hash?: string | null;
+  revision?: string | null;
+  usable: boolean;
+  enabled: boolean;
+  registered?: boolean;
+  server_id?: string;
+  derived_from?: string | null;
+  derived_resource_ref?: Record<string, string> | null;
+  derived_revision?: string | null;
+  account_level?: boolean;
+  /** pending | preparing | ready | failed | removed | disabled | files_missing */
+  state: string;
+  display_name?: string;
+  description?: string;
+  version?: string;
+  last_error?: string | null;
+  payload?: Record<string, unknown>;
+  files_ready?: boolean;
+  readiness?: DeviceCapabilityReadiness;
+  resolution: { outcome: DeviceCapabilityOutcome; reason: string | null };
+}
+
+export interface DeviceCapabilityListing {
+  kind: DeviceCapabilityKind;
+  profile_id: string | null;
+  items: DeviceCapabilityItem[];
+  conflicts: Record<string, string[]>;
+  preferences: Record<string, string>;
+}
+
+export async function getDeviceCapabilities(kind: DeviceCapabilityKind): Promise<DeviceCapabilityListing> {
+  const wrapped = await apiRequest<unknown>(`/v1/desktop/capabilities/installations?kind=${kind}`, undefined, 'local');
+  return unwrapData<DeviceCapabilityListing>(wrapped);
+}
+
+export async function syncDeviceCapabilities(): Promise<Record<string, unknown>> {
+  const wrapped = await apiRequest<unknown>('/v1/desktop/capabilities/sync', { method: 'POST' }, 'local');
+  return unwrapData<Record<string, unknown>>(wrapped);
+}
+
+export interface DevicePrepareResult {
+  install_id: string;
+  ok: boolean;
+  installation?: DeviceCapabilityItem;
+  files_ready?: boolean;
+  readiness?: DeviceCapabilityReadiness;
+  error?: { code: string; message: string; recovery_action?: string; details?: Record<string, unknown> };
+}
+
+export async function prepareDeviceCapabilities(body: {
+  install_ids?: string[];
+  resource_refs?: Array<{ issuer: string; namespace: string; kind: string; id: string }>;
+  sync_first?: boolean;
+}): Promise<DevicePrepareResult[]> {
+  const wrapped = await apiRequest<unknown>(
+    '/v1/desktop/capabilities/preparations',
+    { method: 'POST', body: JSON.stringify(body) },
+    'local',
+  );
+  return unwrapData<{ results: DevicePrepareResult[] }>(wrapped).results;
+}
+
+export async function removeDeviceCapabilityFiles(installId: string): Promise<void> {
+  await apiRequest<unknown>(
+    '/v1/desktop/capabilities/removals',
+    { method: 'POST', body: JSON.stringify({ install_id: installId, target: 'device' }) },
+    'local',
+  );
+}
+
+export interface DeviceLocalCopyResult {
+  install_id: string;
+  installation: DeviceCapabilityItem;
+}
+
+export async function createDeviceLocalCopy(installId: string, runtimeName?: string): Promise<DeviceLocalCopyResult> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/local-copy`,
+    { method: 'POST', body: JSON.stringify({ runtime_name: runtimeName }) },
+    'local',
+  );
+  return unwrapData<DeviceLocalCopyResult>(wrapped);
+}
+
+export interface DeviceSkillFile {
+  filename: string;
+  content: string;
+  revision: string;
+  is_binary: boolean;
+}
+export async function getDeviceSkillFile(installId: string): Promise<DeviceSkillFile> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/files/SKILL.md`, undefined, 'local',
+  );
+  return unwrapData<DeviceSkillFile>(wrapped);
+}
+export async function putDeviceSkillFile(installId: string, content: string, expectedRevision: string): Promise<DeviceSkillFile> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/files/SKILL.md`,
+    { method: 'PUT', body: JSON.stringify({ content, expected_revision: expectedRevision }) }, 'local',
+  );
+  return unwrapData<DeviceSkillFile>(wrapped);
+}
+
+export async function setDeviceCapabilityEnabled(installId: string, enabled: boolean): Promise<DeviceCapabilityListing> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/enabled`,
+    { method: 'PUT', body: JSON.stringify({ enabled }) }, 'local',
+  );
+  return unwrapData<DeviceCapabilityListing>(wrapped);
+}
+
+export async function setDeviceNamePreference(
+  kind: DeviceCapabilityKind,
+  runtimeName: string,
+  installId: string | null,
+): Promise<DeviceCapabilityListing> {
+  const wrapped = await apiRequest<unknown>(
+    '/v1/desktop/capabilities/name-preferences',
+    { method: 'PUT', body: JSON.stringify({ kind, runtime_name: runtimeName, install_id: installId }) },
+    'local',
+  );
+  return unwrapData<DeviceCapabilityListing>(wrapped);
+}
+
+export interface DeviceMcpVersion {
+  expected_generation?: number;
+  expected_digest?: string;
+}
+export interface DeviceLocalMcpSpec {
+  transport: 'stdio' | 'streamable_http' | 'sse';
+  enabled: boolean;
+  displayName?: string;
+  description?: string;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  url?: string;
+  executionTimeout?: number;
+  credentialRef?: string;
+  secret_headers?: Record<string, string>;
+}
+export interface DeviceMcpJson {
+  path: string;
+  generation: number;
+  digest: string;
+  local: Record<string, DeviceLocalMcpSpec>;
+  managedProfiles: Record<string, {
+    cloudInstanceId: string;
+    catalogRevision: string;
+    servers: Record<string, { displayName: string; enabled: boolean; executionScope: string; schemaHash: string }>;
+  }>;
+}
+
+export async function getDeviceMcpJson(): Promise<DeviceMcpJson> {
+  const wrapped = await apiRequest<unknown>('/v1/desktop/capabilities/mcp-json', undefined, 'local');
+  return unwrapData<DeviceMcpJson>(wrapped);
+}
+
+export async function putDeviceLocalMcp(
+  serverId: string,
+  spec: DeviceLocalMcpSpec & DeviceMcpVersion,
+): Promise<DeviceMcpJson> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/desktop/capabilities/mcp-json/local/${encodeURIComponent(serverId)}`,
+    { method: 'PUT', body: JSON.stringify(spec) },
+    'local',
+  );
+  return unwrapData<DeviceMcpJson>(wrapped);
+}
+
+export async function deleteDeviceLocalMcp(serverId: string, expected: DeviceMcpVersion = {}): Promise<DeviceMcpJson> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/desktop/capabilities/mcp-json/local/${encodeURIComponent(serverId)}${buildQuery({ ...expected })}`,
+    { method: 'DELETE' },
+    'local',
+  );
+  return unwrapData<DeviceMcpJson>(wrapped);
+}
+
+export async function setDeviceManagedMcpEnabled(profile: string, serverId: string, enabled: boolean): Promise<DeviceMcpJson> {
+  const wrapped = await apiRequest<unknown>(
+    `/v1/desktop/capabilities/mcp-json/managed/${encodeURIComponent(profile)}/${encodeURIComponent(serverId)}/enabled`,
+    { method: 'PUT', body: JSON.stringify({ enabled }) },
+    'local',
+  );
+  return unwrapData<DeviceMcpJson>(wrapped);
+}
+
+export async function repairDeviceMcpJson(): Promise<{ quarantined: string | null }> {
+  const wrapped = await apiRequest<unknown>('/v1/desktop/capabilities/mcp-json/repair', { method: 'POST' }, 'local');
+  return unwrapData<{ quarantined: string | null }>(wrapped);
 }
 
 export async function installMarketplaceSkill(
@@ -3255,10 +3501,10 @@ export async function toggleProjectFavorite(projectId: string, on: boolean): Pro
   );
 }
 
-export async function updateProjectInstructions(projectId: string, instructions: string): Promise<ProjectDetail> {
+export async function updateProjectInstructions(projectId: string, instructions: string, instructionsRevision?: string): Promise<ProjectDetail> {
   const wrapped = await apiRequest<unknown>(
     `/v1/projects/${encodeURIComponent(projectId)}/instructions`,
-    { method: 'PATCH', body: JSON.stringify({ instructions }) },
+    { method: 'PATCH', body: JSON.stringify({ instructions, instructions_revision: instructionsRevision }) },
     isLocalProject(projectId) ? 'local' : undefined,
   );
   return unwrapData<ProjectDetail>(wrapped);

@@ -1,3 +1,4 @@
+import { isProjectInitCommand } from '../utils/projectCommands';
 import { useEffect, useRef } from 'react';
 import { Modal, message } from 'antd';
 import { t } from '../i18n';
@@ -503,7 +504,7 @@ export function useStreaming(
     //     site in /workspace/site (otherwise publish would pack the project folder and the new code would be dropped);
     //   - site-building session → guide toward generating a complete static site in the sandbox and publishing via publish_site.
     const siteChatItem = useChatStore.getState().store.chats[currentChatId];
-    if (siteChatItem?.siteChat) {
+    if (siteChatItem?.siteChat && !isProjectInitCommand(msg)) {
       if (siteChatItem.projectId) {
         const folder = siteChatItem.projectName || '';
         const folderHint = folder ? `/myspace/${folder}/` : '/myspace/<项目文件夹>/';

@@ -3,11 +3,17 @@ from __future__ import annotations
 import asyncio
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.v1 import desktop_capability as routes
 from core.services import desktop_capability as service
+
+
+@pytest.fixture(autouse=True)
+def _fake_connection_secrets(monkeypatch):
+    monkeypatch.setattr(service, "_known_cloud_secrets", lambda uid: set())
 
 
 def test_model_gateway_replaces_model_and_credentials(monkeypatch):

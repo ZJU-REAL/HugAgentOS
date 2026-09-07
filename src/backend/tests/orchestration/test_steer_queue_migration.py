@@ -55,7 +55,9 @@ def test_sqlite_steer_queue_upgrade_downgrade_and_reupgrade(tmp_path):
         db.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
         db.execute(text("INSERT INTO alembic_version(version_num) VALUES ('tooleff01')"))
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     inspector = inspect(engine)
     assert "chat_steer_queue" in inspector.get_table_names()
     assert {
@@ -76,6 +78,8 @@ def test_sqlite_steer_queue_upgrade_downgrade_and_reupgrade(tmp_path):
     _alembic(repo_root, database_url, "downgrade", "tooleff01")
     assert "chat_steer_queue" not in inspect(engine).get_table_names()
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     assert "chat_steer_queue" in inspect(engine).get_table_names()
     engine.dispose()

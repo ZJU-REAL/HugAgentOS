@@ -1,7 +1,7 @@
 """HugAgentOS no-Docker local CLI (``hugagent`` console entry).
 
-hermes-agent-style quick install: one process, SQLite, in-process fakeredis,
-subprocess MCP + sandbox — zero Docker / Postgres / Redis.
+hermes-agent-style quick install: one process, SQLite, in-process event log
+and ephemeral state, subprocess MCP + sandbox — zero Docker / Postgres / Redis.
 
     hugagent            # not initialized → onboard; else serve + open browser
     hugagent onboard    # first-run wizard (admin account → model → serve); re-runnable
@@ -108,7 +108,10 @@ def apply_local_env(port: int) -> dict:
         "JX_EDITION": "ce",
         "BRAND_PRODUCT_NAME": "HugAgentOS",
         "DATABASE_URL": f"sqlite:///{dd / 'data.db'}",
-        "REDIS_URL": "memory://",
+        # No Redis on a single-machine install. Every capability that used one
+        # reaches an in-process backend through core.infra.ephemeral /
+        # orchestration.run_event_stream, selected by this being empty.
+        "REDIS_URL": "",
         "SESSION_STORE": "memory",
         "AUTH_MODE": "session",
         "SSO_LOGIN_MODE": "local",
@@ -120,7 +123,12 @@ def apply_local_env(port: int) -> dict:
         # Skills dir lives UNDER the workspace so the host script_runner (which
         # shares the host filesystem, no bind mount) sees built-in + installed
         # skill files at {workspace}/skills/<id> — the path the model is told.
+        # With a capability store it is a link view into that store.
         "SANDBOX_SKILLS_DIR": str(dd / "workspace" / "skills"),
+        # Capability file store root (skills/ plugins/ agents/ mcp.json). The
+        # desktop shell overrides this with its application data directory;
+        # the standalone local install keeps it with the rest of its data.
+        "HUGAGENT_CAPS_ROOT": str(dd),
         # Office Agent Skills use locally installed Node packages without
         # requiring a writable global npm prefix.
         "NODE_PATH": str(dd / "node" / "node_modules"),
@@ -868,13 +876,6 @@ def cmd_doctor(args) -> int:
 
     dist = _resolve_frontend_dist()
     check("前端已构建 (dist)", dist is not None, dist or "缺失：cd src/frontend && npm run build")
-
-    try:
-        import fakeredis  # noqa: F401
-
-        check("fakeredis 已安装", True)
-    except Exception:
-        check("fakeredis 已安装", False, "pip install fakeredis")
 
     _tools = _probe_host_tools()
     _sandbox_supported = sys.platform.startswith("linux") or sys.platform == "darwin"

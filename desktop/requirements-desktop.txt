@@ -37,7 +37,6 @@ beautifulsoup4>=4.12.0
 sqlalchemy>=2.0.25
 alembic>=1.13.0
 redis>=5.0.0
-fakeredis>=2.21.0
 werkzeug>=3.0.0
 python-multipart>=0.0.9
 structlog>=23.2.0

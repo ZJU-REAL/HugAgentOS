@@ -16,6 +16,14 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
+
+def _desktop_store() -> bool:
+    """Whether this process keeps a desktop capability file store (agents projected there)."""
+    from core.capabilities.paths import capabilities_enabled
+
+    return capabilities_enabled()
+
+
 MAX_USER_AGENTS = 20
 DEFAULT_AGENT_VERSION = "V1.0"
 MAX_CHANGE_HISTORY = 30
@@ -50,7 +58,14 @@ class UserAgentBaseService:
 
     def list_for_user(self, user_id: str) -> List[Dict[str, Any]]:
         agents = self.repo.list_for_user(user_id)
-        return [self._serialize(a) for a in agents]
+        rows = [self._serialize(a) for a in agents]
+        if _desktop_store():
+            # Desktop: the bridged account's stored agents join the device's own;
+            # a display-name clash is decided by the resolver, never by order.
+            from core.capabilities import agents as caps_agents
+
+            return caps_agents.merge_visible(user_id, rows)
+        return rows
 
     def list_admin(self) -> List[Dict[str, Any]]:
         agents = self.repo.list_admin()
@@ -59,19 +74,56 @@ class UserAgentBaseService:
     def get_by_id(self, agent_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         agent = self.repo.get_by_id(agent_id)
         if not agent:
+            stored = self._stored_account_agent(agent_id, user_id)
+            if stored is not None:
+                return stored.to_serialized()
             raise LookupError(f"Agent {agent_id} not found")
         if user_id and not self._is_accessible(agent, user_id):
             raise PermissionError("No access to this agent")
         return self._serialize(agent)
 
     def get_raw_by_id(self, agent_id: str, user_id: Optional[str] = None) -> UserAgent:
-        """Return the ORM object (for direct use by workflow/factory)."""
+        """Return the ORM object (for direct use by workflow/factory).
+
+        On a desktop the bridged account's stored agents are a second, equally
+        authoritative source: an ``AgentDefinition`` with the same attribute
+        surface is returned for them.
+        """
         agent = self.repo.get_by_id(agent_id)
         if not agent:
+            stored = self._stored_account_agent(agent_id, user_id)
+            if stored is not None:
+                return stored  # type: ignore[return-value]
             raise LookupError(f"Agent {agent_id} not found")
         if user_id and not self._is_accessible(agent, user_id):
             raise PermissionError("No access to this agent")
         return agent
+
+    @staticmethod
+    def _stored_account_agent(agent_id: str, user_id: Optional[str] = None):
+        if not _desktop_store():
+            return None
+        from core.capabilities import agents as caps_agents
+        from core.capabilities.skills import account_authorized_for
+
+        if not account_authorized_for(user_id):
+            return None
+        return caps_agents.account_definition(agent_id)
+
+    def _project_to_store(self, agent: UserAgent) -> None:
+        if not _desktop_store():
+            return
+        from core.capabilities import agents as caps_agents
+
+        caps_agents.publish_local_agent(self._serialize(agent))
+
+    @staticmethod
+    def _remove_from_store(agent_id: str) -> None:
+        if not _desktop_store():
+            return
+        from core.capabilities import agents as caps_agents
+
+        caps_agents.remove_local_agent(agent_id)
 
     # ── Mutations ────────────────────────────────────────────────────
 
@@ -130,6 +182,7 @@ class UserAgentBaseService:
             "extra_config": extra_config,
         }
         agent = self.repo.create(record)
+        self._project_to_store(agent)
         self._audit(
             user_id,
             "agent.create",
@@ -211,6 +264,7 @@ class UserAgentBaseService:
         )
 
         agent = self.repo.update(agent_id, payload)
+        self._project_to_store(agent)
         audit_details = {"fields": list(data.keys())}
         if changed_labels:
             audit_details["change_summary"] = change_summary
@@ -230,6 +284,8 @@ class UserAgentBaseService:
         self._check_ownership(agent, user_id, owner_type)
 
         ok = self.repo.delete(agent_id)
+        if ok:
+            self._remove_from_store(agent_id)
         self._audit(user_id, "agent.delete", agent_id)
         return ok
 
@@ -239,6 +295,7 @@ class UserAgentBaseService:
             raise LookupError(f"Agent {agent_id} not found")
         new_val = not agent.is_enabled
         agent = self.repo.update(agent_id, {"is_enabled": new_val})
+        self._project_to_store(agent)
         return self._serialize(agent)
 
     # ── Available resources ──────────────────────────────────────────

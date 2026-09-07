@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use crate::child_process::hide_console;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tar::EntryType;
@@ -408,7 +409,8 @@ fn resolve_release(root: &Path, active: ActiveRelease) -> Result<ResolvedRelease
 }
 
 fn run_smoke_test(release: &ResolvedRelease) -> Result<(), String> {
-    let output = Command::new(&release.executable)
+    let mut command = Command::new(&release.executable);
+    command
         .arg(&release.smoke_test)
         .arg("--source")
         .arg(&release.source_dir)
@@ -416,7 +418,9 @@ fn run_smoke_test(release: &ResolvedRelease) -> Result<(), String> {
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONDONTWRITEBYTECODE", "1")
-        .stdin(Stdio::null())
+        .stdin(Stdio::null());
+    hide_console(&mut command);
+    let output = command
         .output()
         .map_err(|error| format!("无法运行离线 Python 自检：{error}"))?;
     if !output.status.success() {
@@ -853,6 +857,7 @@ mod tests {
                 .stderr(stderr);
             #[cfg(unix)]
             command.process_group(0);
+            hide_console(&mut command);
             let mut child = command.spawn().map_err(|error| error.to_string())?;
             let ready = (0..90).any(|_| {
                 if health(port) {
