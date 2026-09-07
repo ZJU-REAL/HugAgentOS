@@ -1,15 +1,12 @@
-import {
-  getDeviceCapabilities, syncDeviceCapabilities, prepareDeviceCapabilities,
-  removeDeviceCapabilityFiles, setDeviceNamePreference, createDeviceLocalCopy, setDeviceCapabilityEnabled,
-} from '../api';
+import { getDeviceCapabilities, setCapabilitySyncListener } from '../api';
 import { useDeploymentModeStore } from './deploymentModeStore';
 import { useAuthStore } from './authStore';
 import { createDesktopCapabilityStore } from './desktopCapabilityState';
 
-export const useDesktopCapabilityStore = createDesktopCapabilityStore({
-  list: getDeviceCapabilities, sync: syncDeviceCapabilities, prepare: prepareDeviceCapabilities,
-  setEnabled: setDeviceCapabilityEnabled, copyLocal: createDeviceLocalCopy, remove: removeDeviceCapabilityFiles, choose: setDeviceNamePreference,
-}, () => useDeploymentModeStore.getState().provisionMode === 'dual');
+export const useDesktopCapabilityStore = createDesktopCapabilityStore(
+  { list: getDeviceCapabilities },
+  () => useDeploymentModeStore.getState().provisionMode === 'dual',
+);
 
 useAuthStore.subscribe((next, previous) => {
   if (next.authUser?.user_id !== previous.authUser?.user_id) useDesktopCapabilityStore.getState().reset();
@@ -19,3 +16,5 @@ useDeploymentModeStore.subscribe((next, previous) => {
     useDesktopCapabilityStore.getState().reset();
   }
 });
+// 云端能力被改动 → api.ts 同步完本机能力后刷新来源标记。
+setCapabilitySyncListener(() => useDesktopCapabilityStore.getState().reloadAll());

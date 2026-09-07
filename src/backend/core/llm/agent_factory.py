@@ -1064,6 +1064,21 @@ async def create_agent_executor(
             )
         )
 
+    if (
+        capabilities_enabled()
+        and not disable_tools
+        and not turbo_mode
+        and user_agent is None
+        and enabled_skill_ids is None
+    ):
+        from core.llm.plugin_loader import prepare_desktop_plugin_skill_defaults
+
+        enabled_skill_ids = await asyncio.to_thread(
+            prepare_desktop_plugin_skill_defaults,
+            current_user_id,
+            _effective_main_available_skills(),
+        )
+
     # A plugin explicitly selected for this turn is stronger than the default
     # catalog, a dedicated agent's saved bindings, and a restricted mode's
     # ordinary capability set. The API already enforced ownership/admin/deps;
@@ -1166,6 +1181,11 @@ async def create_agent_executor(
             if capabilities_enabled():
                 raise  # a saved source must not silently disappear or change account
             _log.warning("[factory] sticky capability restore failed: %s", exc)
+
+    if capabilities_enabled() and not disable_tools and enabled_skill_ids:
+        from core.capabilities.preparation import ensure_cloud_ready
+
+        await asyncio.to_thread(ensure_cloud_ready, current_user_id, skill_keys=enabled_skill_ids)
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
     if enabled_skill_ids:
@@ -1439,6 +1459,52 @@ async def create_agent_executor(
             raise  # a desktop binding failure must not fall back to another source
         bridge_mcp_servers = {}
 
+    # Determine which MCP servers to connect
+    enabled_mcp_keys = _effective_mcp_server_keys(
+        cfg,
+        agent_spec,
+        enabled_mcp_ids=enabled_mcp_ids,
+        enabled_kb_ids=enabled_kb_ids,
+        owned_servers=owned_mcp_servers,
+        bridge_servers=bridge_mcp_servers,
+    )
+
+    # Device capabilities keep the complete authorized closure frozen, but defer
+    # model exposure and MCP connections. This applies to main and child agents.
+    _desktop_progressive = None
+    if capabilities_enabled() and not disable_tools and not turbo_mode:
+        from core.llm import plugin_loader as _desktop_plugins
+
+        if _desktop_plugins.progressive_plugin_loading_enabled():
+            _desktop_progressive = await asyncio.to_thread(
+                _desktop_plugins.resolve_desktop_progressive_plugins,
+                user_id=str(current_user_id or ""),
+                enabled_skill_ids=(
+                    enabled_skill_ids
+                    if enabled_skill_ids is not None
+                    else _effective_main_available_skills()
+                ),
+                enabled_mcp_ids=[
+                    key
+                    for key in enabled_mcp_keys
+                    if enabled_mcp_ids is None or key in enabled_mcp_ids
+                ],
+                plugin_ids=list(user_agent.plugin_ids or []) if user_agent else None,
+                activated_ids=[*_sticky_plugin_ids, *_mode_plugin_ids, _required_plugin_id],
+                invoked_skill_ids=[
+                    *(invoked_skill_ids or []),
+                    *_sticky_direct_skill_ids,
+                    _required_skill_id,
+                ],
+                invoked_mcp_ids=[
+                    *(invoked_mcp_ids or []),
+                    *_sticky_direct_mcp_ids,
+                    *_required_connector_ids,
+                ],
+            )
+            if not _desktop_progressive.directory:
+                _desktop_progressive = None
+
     _prepared_capabilities = None
     if capabilities_enabled() and not disable_tools:
         from core.capabilities import runtime as capability_runtime
@@ -1468,15 +1534,6 @@ async def create_agent_executor(
             plugin_ids=list(dict.fromkeys(_dependency_plugins)),
         )
 
-    # Determine which MCP servers to connect
-    enabled_mcp_keys = _effective_mcp_server_keys(
-        cfg,
-        agent_spec,
-        enabled_mcp_ids=enabled_mcp_ids,
-        enabled_kb_ids=enabled_kb_ids,
-        owned_servers=owned_mcp_servers,
-        bridge_servers=bridge_mcp_servers,
-    )
     _required_connector_server_keys = _required_mcp_server_keys(
         _required_connector_ids,
         enabled_mcp_keys,
@@ -1528,7 +1585,30 @@ async def create_agent_executor(
             plugin_ids=list(dict.fromkeys(_dependency_plugins)),
             available_mcp=set(enabled_servers),
             available_kb=set(enabled_kb_ids or []),
+            plugin_nodes=(
+                [node for p in _desktop_progressive.directory for node in p.capability_nodes]
+                if _desktop_progressive is not None
+                else []
+            ),
         )
+
+    _desktop_prepared_servers = dict(enabled_servers)
+    if _desktop_progressive is not None:
+        enabled_skill_ids = [
+            sid
+            for sid in (_caps_skill_ids or [])
+            if sid not in _desktop_progressive.deferred_skill_ids
+        ]
+        enabled_servers = {
+            sid: config
+            for sid, config in enabled_servers.items()
+            if sid not in _desktop_progressive.deferred_mcp_ids
+        }
+        enabled_mcp_keys = list(enabled_servers)
+        if user_agent is not None:
+            _subagent_progressive = _desktop_progressive
+        else:
+            _progressive = _desktop_progressive
 
     enabled_servers = _inject_runtime_headers(
         enabled_servers,
@@ -3296,6 +3376,10 @@ async def create_agent_executor(
     # Complete the progressive-plugin runtime holder now that the real Toolkit
     # and the permission context exist (load_plugin mutates both mid-run).
     if _plugin_runtime is not None:
+        if _prepared_capabilities is not None:
+            _plugin_runtime["prepared_run"] = _prepared_capabilities
+            _plugin_runtime["prepared_servers"] = _desktop_prepared_servers
+            _plugin_runtime["plugin_directory"] = _desktop_progressive.directory
         _plugin_runtime["toolkit"] = toolkit
         _plugin_runtime["permission_context"] = _state.permission_context
 

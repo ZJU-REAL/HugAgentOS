@@ -19,27 +19,20 @@ trusts only the body (already behind the internal-token gate).
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import os
-import tarfile
-import uuid
 from typing import List, Optional, Tuple
 
 from core.infra.responses import success_response
 from core.services.artifact_edition import personal_artifact_predicates
 from core.services.site_access_policy import SitePublishScopeFields, site_scope_ref
+from core.services.site_packaging import pack_and_fetch_dir, resolve_project_context
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/internal/sites", tags=["internal-sites"])
-
-MAX_PACK_BYTES = (
-    40 * 1024 * 1024
-)  # tar archive cap (a separate 30MB total quota applies after unpacking)
-_UNPACK_MAX_FILES = 400  # unpack fuse (service layer caps at 300; slightly looser here)
 
 
 class PublishBody(SitePublishScopeFields):
@@ -81,49 +74,6 @@ def _check_internal_token(token: Optional[str]) -> None:
         return
     if token != expected:
         raise HTTPException(status_code=401, detail="invalid internal token")
-
-
-def _resolve_project_context(chat_id: str, user_id: str):
-    """Conversation → the bound personal-project context.
-
-    Returns ``(project_id, project_folder_sandbox_dir)``; returns ``(None, None)`` when the
-    conversation has no bound project, the bound project is a team project, or the project does
-    not belong to this user (the caller falls back to the legacy body.src_dir path).
-    """
-    if not chat_id:
-        return None, None
-    try:
-        from core.db.engine import SessionLocal
-        from core.db.models import ChatSession, Project, UserFolder
-
-        with SessionLocal() as db:
-            sess = db.query(ChatSession.project_id).filter(ChatSession.chat_id == chat_id).first()
-            project_id = sess[0] if sess else None
-            if not project_id:
-                return None, None
-            proj = (
-                db.query(Project)
-                .filter(Project.project_id == project_id, Project.deleted_at.is_(None))
-                .first()
-            )
-            if proj is None or proj.kind != "personal" or not proj.linked_folder_id:
-                return None, None
-            if proj.owner_user_id and proj.owner_user_id != user_id:
-                return None, None
-            row = (
-                db.query(UserFolder.name)
-                .filter(UserFolder.folder_id == proj.linked_folder_id)
-                .first()
-            )
-            folder_name = row[0] if row else None
-            if not folder_name:
-                return None, None
-            return project_id, f"/workspace/myspace/{user_id}/{folder_name}"
-    except (
-        Exception
-    ):  # noqa: BLE001 — on resolve failure, treat as no bound project and take the legacy path
-        logger.warning("[internal-sites] project context resolve failed", exc_info=True)
-        return None, None
 
 
 def _resolve_target_site_id(project_id: str, user_id: str) -> str:
@@ -332,97 +282,18 @@ def _project_root_has_package_json(project_id: str, user_id: str) -> bool:
         return False
 
 
-async def _pack_and_fetch_dir(
-    src: str,
-    _sess: Optional[str],
-    user_id: str,
-    *,
-    extra_excludes: Tuple[str, ...] = (),
-) -> Tuple[Optional[List[Tuple[str, bytes]]], Optional[str]]:
-    """tar the directory inside the sandbox → fetch it back → safely unpack. Returns exactly one of (files, error)."""
-    from core.llm.tools._common import sandbox_exec_bash, shell_quote
-    from core.sandbox import SandboxConnectError as _SandboxConnectError
-    from core.sandbox import SandboxError as _SandboxError
-    from core.sandbox import get_sandbox_provider as _get_provider
-
-    excludes = (".git", "node_modules", "__pycache__") + tuple(extra_excludes)
-    exclude_args = " ".join(f"--exclude={shell_quote(e)}" for e in excludes)
-    pack = f"/workspace/.__site_pack_{uuid.uuid4().hex[:8]}.tgz"
-    tar_cmd = (
-        f"cd {shell_quote(src)} && "
-        f"tar {exclude_args} -czf {shell_quote(pack)} . && "
-        # ``du -b`` is a GNU extension and is unavailable on macOS/BSD.  The
-        # local desktop profile runs this command on the host, so use POSIX
-        # ``wc -c`` and strip its padding when parsing below.
-        f"wc -c < {shell_quote(pack)}"
-    )
-    exit_code, stdout, stderr = await sandbox_exec_bash(tar_cmd, chat_id=_sess, timeout=60)
-    if exit_code != 0:
-        return None, f"打包目录失败（{src}）: {stderr or stdout}"
-    try:
-        pack_size = int((stdout or "0").strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        pack_size = 0
-    if pack_size > MAX_PACK_BYTES:
-        await sandbox_exec_bash(f"rm -f {shell_quote(pack)}", chat_id=_sess)
-        return None, (
-            f"目录打包后 {pack_size} bytes，超过 {MAX_PACK_BYTES} 上限，"
-            "请压缩图片/清理无关文件后重试"
-        )
-
-    provider = _get_provider()
-    try:
-        data = await provider.get_file(_sess, pack, user_id=user_id)
-    except (_SandboxError, _SandboxConnectError) as exc:
-        return None, f"取回打包文件失败: {exc}"
-    finally:
-        try:
-            await sandbox_exec_bash(f"rm -f {shell_quote(pack)}", chat_id=_sess)
-        except Exception:  # noqa: BLE001 — cleanup failure does not affect the publish
-            pass
-    if not data:
-        return None, f"打包内容为空（{src} 目录里没有文件？）"
-
-    try:
-        return _safe_extract_tar(data), None
-    except (tarfile.TarError, ValueError) as exc:
-        return None, f"解包失败: {exc}"
-
-
-def _safe_extract_tar(data: bytes) -> List[Tuple[str, bytes]]:
-    """Unpack a tar.gz in memory; returns a list of (relative path, content).
-
-    Only regular files are accepted; symlinks/hardlinks/device files are dropped outright
-    (guarding against symlink escape). Absolute paths and ``..`` traversal are re-checked by
-    the service layer's normalize_rel_path.
-    """
-    files: List[Tuple[str, bytes]] = []
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
-        for member in tf:
-            if not member.isreg():
-                continue
-            # Note: must not use lstrip("./") — that's a character-set strip and would peel ".npmrc" into "npmrc"
-            name = member.name
-            while name.startswith("./"):
-                name = name[2:]
-            name = name.lstrip("/")
-            if not name or name.startswith("/") or ".." in name.split("/"):
-                continue
-            if len(files) >= _UNPACK_MAX_FILES:
-                raise ValueError(f"站点文件数超过 {_UNPACK_MAX_FILES}，请精简目录")
-            fobj = tf.extractfile(member)
-            if fobj is None:
-                continue
-            files.append((name, fobj.read()))
-    return files
-
-
 @router.post("/publish", summary="发布沙箱站点目录为托管站点（内部接口）")
 async def publish(
     body: PublishBody,
     x_internal_token: Optional[str] = Header(None, alias="X-Internal-Token"),
 ):
     _check_internal_token(x_internal_token)
+    from core.services.desktop_cloud_bridge import bridge_enabled
+
+    if bridge_enabled():
+        from core.services.desktop_site_publish import forward_local_publish
+
+        return await forward_local_publish(body)
 
     from core.llm.tools._common import resolve_sandbox_session
     from core.llm.tools._paths import to_physical_path
@@ -440,7 +311,7 @@ async def publish(
     # code there; silently rerouting would drop the new content entirely and publish the project
     # folder's old code as the new version (page "changed but looks the same").
     # Either way, after publishing _ensure_project_for_site + _mirror land the files into the (new or existing) project.
-    project_id, project_dir = _resolve_project_context(body.chat_id or "", user_id)
+    project_id, project_dir = resolve_project_context(body.chat_id or "", user_id)
     # 逻辑路径 /myspace/... 先翻成物理路径：模型拿不到自己的 uid，只会写 /myspace/x，
     # 直接拿去校验会被判成"不在 /workspace/ 下"。
     src = (body.src_dir or "").strip().rstrip("/")
@@ -492,8 +363,8 @@ async def publish(
     #    (editing sessions need them to reproduce dependencies).
     if source_dir:
         (files, err), (src_files, src_err) = await asyncio.gather(
-            _pack_and_fetch_dir(src, _sess, user_id),
-            _pack_and_fetch_dir(
+            pack_and_fetch_dir(src, _sess, user_id),
+            pack_and_fetch_dir(
                 source_dir,
                 _sess,
                 user_id,
@@ -501,7 +372,7 @@ async def publish(
             ),
         )
     else:
-        files, err = await _pack_and_fetch_dir(src, _sess, user_id)
+        files, err = await pack_and_fetch_dir(src, _sess, user_id)
         src_files, src_err = None, None
     if err:
         return success_response(data={"error": f"站点{err}"})

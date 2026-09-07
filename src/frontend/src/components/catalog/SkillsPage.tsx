@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Switch, Tag, Input, Typography, Button, Popconfirm, message, Dropdown, Modal, Form, Select, Pagination, Tooltip } from 'antd';
 import { t } from '../../i18n';
-import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
-import { DeviceCapabilityPanel } from './DeviceCapabilityPanel';
 import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined, UploadOutlined, EditOutlined, DownOutlined, AppstoreAddOutlined, CloudUploadOutlined, DownloadOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
 import { useAgentStore, useCatalogStore, useAuthStore } from '../../stores';
 import type { PanelKey, MarketplaceFetchers, MarketplaceSubmission, OntologyTagOption } from '../../types';
@@ -622,7 +620,6 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {/* Section 1: Skills — card grid (the container key controls stagger replay: replay on entering the panel/paging, no replay on toggle optimistic updates) */}
-      <DeviceCapabilityPanel kind="skill" />
       <div
         className="jx-sk-grid jx-anim-stagger"
         style={{ '--stagger-step': '30ms' } as React.CSSProperties}
@@ -980,7 +977,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
         onClose={() => setMarketplaceOpen(false)}
         fetchers={marketplaceFetchers}
         scopeLabel={t('仅自己可见可用')}
-        onInstalled={() => { void fetchCatalog(); void useDesktopCapabilityStore.getState().refresh().catch((error) => message.error(error.message)); }}
+        onInstalled={() => { void fetchCatalog(); }}
       />
 
       {/* Apply-to-list-on-marketplace modal */}

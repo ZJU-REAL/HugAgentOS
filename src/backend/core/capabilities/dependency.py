@@ -14,9 +14,11 @@ import platform
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
+
 from . import registry, skills, store
 from .errors import CapabilityError
 from .paths import BUILTIN_PROFILE, LOCAL_PROFILE
@@ -143,8 +145,9 @@ def skill_definition(path: Path):
 def component_hash(comp):
     if comp.kind == "skill":
         return skills.skill_dir_hash(comp.path, fresh=True)
-    from .archive import iter_files
     from core.services.desktop_capability_protocol import entity_content_hash
+
+    from .archive import iter_files
 
     return entity_content_hash(
         {
@@ -168,9 +171,13 @@ class Context:
 
 
 class Inspector:
-    def __init__(self, context):
+    def __init__(self, context, on_visit=None):
         self.context = context
         self.errors, self.warnings, self.nodes = [], [], {}
+        # Called as ``on_visit(entry, required)`` before each entry is
+        # inspected; returning False skips it and its subtree. Lets a caller
+        # observe or narrow one traversal without subclassing the walker.
+        self._on_visit = on_visit
 
     def issue(self, reason, chain, required=True, **details):
         item = {
@@ -321,8 +328,26 @@ class Inspector:
         comp = store.get(kind, profile, key, revision) if inst and inst.ready else None
         return iid, inst, comp
 
+    def effective_version(self, kind, key, label, inst):
+        """The version a requirement is checked against.
+
+        A frozen node wins, then the caller's skill binding (the run may have
+        chosen a source the installation row does not describe), then whatever
+        the installation itself reports.
+        """
+        pinned = self.context.frozen_nodes.get(label) or {}
+        if "version" in pinned:
+            return pinned["version"]
+        if kind == "skill":
+            bound = (self.context.bindings or {}).get(key.split(":")[-1], {})
+            if "version" in bound:
+                return bound["version"]
+        return inst.version if inst else None
+
     def visit(self, entry, profile, chain=(), required=True):
         required = bool(required and entry.get("required", True))
+        if self._on_visit is not None and not self._on_visit(entry, required):
+            return
         kind, key = str(entry.get("kind") or "unknown"), _identifier(entry)
         if kind not in ("skill", "agent", "plugin"):
             self.external(entry, [*chain, kind + ":" + key], required)
@@ -350,10 +375,8 @@ class Inspector:
             self.issue("not_authorized_or_missing", path, required)
             return
         self.platform_ok(entry, path, required)
-        pinned = self.context.frozen_nodes.get(label) or {}
-        self.version_ok(
-            entry, pinned.get("version") or (inst.version if inst else None), path, required
-        )
+        version = self.effective_version(kind, key, label, inst)
+        self.version_ok(entry, version, path, required)
         try:
             definition = (
                 skill_definition(comp.path)
@@ -372,7 +395,11 @@ class Inspector:
             "kind": kind,
             "revision": comp.revision,
             "content_hash": component_hash(comp),
-            "version": str(definition.get("version") or (inst.version if inst else "") or ""),
+            "version": (
+                str(version or "")
+                if kind == "skill"
+                else str(definition.get("version") or (inst.version if inst else "") or "")
+            ),
             "platform_check": (
                 "declared"
                 if definition.get("platforms") or definition.get("platform")

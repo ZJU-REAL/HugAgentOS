@@ -52,6 +52,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     # ── startup ──
     await _startup_ensure_tables()
+    await _startup_watch_capability_changes()
     await _startup_seed_ce_admin()
     await _startup_local_sidecars()
     await _startup_recover_chat_runs()
@@ -434,6 +435,14 @@ async def _startup_ensure_tables():
     if DATABASE_URL.startswith("sqlite://"):
         logger.info("[startup] SQLite detected – ensuring tables via create_all()")
         init_db()
+
+
+async def _startup_watch_capability_changes():
+    """智能体 / 技能 / 连接器 / 插件被增删时递增能力变更号，桌面端据此同步一次。"""
+    from core.capabilities.change_signal import watch_capability_tables
+    from core.db.engine import engine
+
+    watch_capability_tables(engine)
 
 
 async def _startup_seed_ce_admin():

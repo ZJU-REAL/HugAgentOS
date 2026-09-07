@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: c897980e38a8b3eb0e1454b3606f8f13e27018da21284e109661dc8d3ced2020
+# input-sha256: b90c7898202ea1eb5a935919f8ad422e47cd6816d4908b1c172975b4974f797b
 # Target: CPython 3.11 on Linux x86_64
 agentscope==2.0.0
     # via -r desktop/requirements-desktop.txt

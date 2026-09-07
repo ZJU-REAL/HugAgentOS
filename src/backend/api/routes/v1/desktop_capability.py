@@ -64,31 +64,39 @@ def _client() -> httpx.AsyncClient:
 
 
 class CapabilityTokenBody(BaseModel):
-    device_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    device_id: str = Field(
+        ..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    )
 
 
 @router.post("/token", summary="签发桌面能力令牌")
 async def issue_token(body: CapabilityTokenBody, request: Request, response: Response):
     """Only an actual live cloud cookie session can mint a desktop credential."""
+    import hashlib
+
     from core.auth.session import validate_session
     from core.config.settings import settings
-    from core.services.desktop_capability import (
-        issue_capability_token, session_authorization_epoch,
-    )
-    import hashlib
+    from core.services.desktop_capability import issue_capability_token, session_authorization_epoch
 
     cookie = request.cookies.get(settings.session.cookie_name, "")
     try:
         current = await validate_session(cookie) if cookie else None
     except Exception:
         current = None
-    if (not current or not current.get("user_id") or not current.get("user_center_id")
-            or not session_authorization_epoch(current)):
+    if (
+        not current
+        or not current.get("user_id")
+        or not current.get("user_center_id")
+        or not session_authorization_epoch(current)
+    ):
         raise HTTPException(status_code=401, detail="valid cloud session required")
     data = issue_capability_token(
-        str(current["user_id"]), device_id=body.device_id,
-        issuer=str(request.base_url), session_hash=hashlib.sha256(cookie.encode()).hexdigest(),
-        authorization_epoch=session_authorization_epoch(current), user_center_id=str(current["user_center_id"]),
+        str(current["user_id"]),
+        device_id=body.device_id,
+        issuer=str(request.base_url),
+        session_hash=hashlib.sha256(cookie.encode()).hexdigest(),
+        authorization_epoch=session_authorization_epoch(current),
+        user_center_id=str(current["user_center_id"]),
     )
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
@@ -104,11 +112,12 @@ async def _require_capability_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> str:
-    from core.services.desktop_capability import verify_capability_token, CAPABILITY_DEVICE_HEADER
+    from core.services.desktop_capability import CAPABILITY_DEVICE_HEADER, verify_capability_token
 
     token = credentials.credentials if credentials else ""
     user_id = await verify_capability_token(
-        token, device_id=request.headers.get(CAPABILITY_DEVICE_HEADER, ""),
+        token,
+        device_id=request.headers.get(CAPABILITY_DEVICE_HEADER, ""),
         issuer=str(request.base_url),
     )
     if not user_id:
@@ -118,28 +127,44 @@ async def _require_capability_user(
 
 def _public_content(user_id: str, value, *, bundle: bool = False):
     from core.services.desktop_capability import (
-        CapabilityContentRejected, guard_capability_content, guard_capability_bundle,
+        CapabilityContentRejected,
+        guard_capability_bundle,
+        guard_capability_content,
     )
+
     try:
         if callable(value):
             value = value()
-        return guard_capability_bundle(user_id, value) if bundle else guard_capability_content(user_id, value)
+        return (
+            guard_capability_bundle(user_id, value)
+            if bundle
+            else guard_capability_content(user_id, value)
+        )
     except CapabilityContentRejected:
-        raise HTTPException(status_code=422, detail={
-            "code": "integrity_failed", "message": "capability content blocked by credential policy",
-        }) from None
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "integrity_failed",
+                "message": "capability content blocked by credential policy",
+            },
+        ) from None
 
 
 def _stream_secrets(user_id: str, target: dict) -> set[str]:
     from core.services.desktop_capability import CapabilityContentRejected, gateway_stream_secrets
+
     try:
         return gateway_stream_secrets(user_id, target)
     except CapabilityContentRejected:
-        raise HTTPException(status_code=422, detail={"code": "integrity_failed", "message": "credential policy unavailable"}) from None
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "integrity_failed", "message": "credential policy unavailable"},
+        ) from None
 
 
 async def _checked_upstream_bytes(upstream: httpx.Response, secrets: set[str]):
     from core.services.desktop_capability import CapabilityContentRejected, guard_capability_stream
+
     try:
         async for chunk in guard_capability_stream(upstream.aiter_raw(), secrets):
             yield chunk
@@ -176,7 +201,9 @@ async def get_manifest(
 async def get_model_manifest(user_id: str = Depends(_require_capability_user)):
     from core.services.desktop_capability import build_user_model_manifest
 
-    return success_response(data=_public_content(user_id, lambda: build_user_model_manifest(user_id)))
+    return success_response(
+        data=_public_content(user_id, lambda: build_user_model_manifest(user_id))
+    )
 
 
 @router.get("/skills/manifest", summary="当前用户的云端技能清单")
@@ -204,7 +231,9 @@ async def get_skill_bundle(
 ):
     from core.services.desktop_capability import resolve_skill_bundle
 
-    resolved = _public_content(user_id, lambda: resolve_skill_bundle(user_id, skill_id), bundle=True)
+    resolved = _public_content(
+        user_id, lambda: resolve_skill_bundle(user_id, skill_id), bundle=True
+    )
     if resolved is None:
         raise HTTPException(status_code=404, detail="skill not available")
     data, content_hash = resolved
@@ -241,14 +270,23 @@ async def get_agent_manifest(
 ):
     from core.services.desktop_capability import build_user_agent_manifest
 
-    return _entity_manifest_response(request, response, _public_content(user_id, lambda: build_user_agent_manifest(user_id)))
+    return _entity_manifest_response(
+        request, response, _public_content(user_id, lambda: build_user_agent_manifest(user_id))
+    )
 
 
-@router.get("/agents/{agent_id}/bundle", summary="下载一个智能体定义包（agent.json + instructions.md）")
-async def get_agent_bundle(agent_id: str, request: Request, user_id: str = Depends(_require_capability_user)):
+@router.get(
+    "/agents/{agent_id}/bundle", summary="下载一个智能体定义包（agent.json + instructions.md）"
+)
+async def get_agent_bundle(
+    agent_id: str, request: Request, user_id: str = Depends(_require_capability_user)
+):
     from core.services.desktop_capability import resolve_agent_bundle
 
-    return _bundle_response(request, _public_content(user_id, lambda: resolve_agent_bundle(user_id, agent_id), bundle=True))
+    return _bundle_response(
+        request,
+        _public_content(user_id, lambda: resolve_agent_bundle(user_id, agent_id), bundle=True),
+    )
 
 
 @router.get("/plugins/manifest", summary="当前用户已安装插件清单")
@@ -257,14 +295,21 @@ async def get_plugin_manifest(
 ):
     from core.services.desktop_capability import build_user_plugin_manifest
 
-    return _entity_manifest_response(request, response, _public_content(user_id, lambda: build_user_plugin_manifest(user_id)))
+    return _entity_manifest_response(
+        request, response, _public_content(user_id, lambda: build_user_plugin_manifest(user_id))
+    )
 
 
 @router.get("/plugins/{install_id}/bundle", summary="下载一个插件定义包（plugin.json）")
-async def get_plugin_bundle(install_id: str, request: Request, user_id: str = Depends(_require_capability_user)):
+async def get_plugin_bundle(
+    install_id: str, request: Request, user_id: str = Depends(_require_capability_user)
+):
     from core.services.desktop_capability import resolve_plugin_bundle
 
-    return _bundle_response(request, _public_content(user_id, lambda: resolve_plugin_bundle(user_id, install_id), bundle=True))
+    return _bundle_response(
+        request,
+        _public_content(user_id, lambda: resolve_plugin_bundle(user_id, install_id), bundle=True),
+    )
 
 
 # ── MCP 网关（云端，capability token 鉴权，透明反代） ──────────────────
@@ -313,6 +358,66 @@ class GatewayToolCallBody(BaseModel):
     schema_hash: str = Field(..., min_length=64, max_length=64)
 
 
+@router.post("/gateway/{server_id}/site-publish", summary="上传桌面构建产物并云端托管")
+async def gateway_site_publish(
+    server_id: str,
+    request: Request,
+    user_id: str = Depends(_require_capability_user),
+):
+    import tarfile
+
+    from core.infra.exceptions import AppException
+    from core.services.desktop_capability import component_base_name, resolve_gateway_tool
+    from core.services.desktop_capability_protocol import CapabilityManifestStaleError
+    from core.services.desktop_gateway_uploads import (
+        MAX_UPLOAD_OPTIONS_CHARS,
+        UPLOAD_OPTIONS_HEADER,
+        UPLOAD_SCHEMA_HEADER,
+        endpoint_component,
+    )
+    from core.services.desktop_site_publish import (
+        MAX_ARCHIVE_BYTES,
+        SiteUploadOptions,
+        publish_uploaded_site,
+    )
+    from pydantic import ValidationError
+
+    try:
+        resolved = resolve_gateway_tool(
+            user_id,
+            server_id,
+            "publish_site",
+            schema_hash=request.headers.get(UPLOAD_SCHEMA_HEADER, ""),
+        )
+    except CapabilityManifestStaleError:
+        raise HTTPException(status_code=409, detail="capability manifest changed") from None
+    if resolved is None or component_base_name(
+        server_id,
+        resolved["target"].get("source_plugin"),
+        resolved["target"].get("owner_user_id"),
+    ) != endpoint_component("site-publish"):
+        raise HTTPException(status_code=403, detail="site publishing is not authorized")
+    raw_options = request.headers.get(UPLOAD_OPTIONS_HEADER, "{}")
+    if len(raw_options) > MAX_UPLOAD_OPTIONS_CHARS:
+        raise HTTPException(status_code=400, detail="site options too large")
+    try:
+        options = SiteUploadOptions.model_validate_json(raw_options)
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="invalid site options") from None
+    archive = bytearray()
+    async for chunk in request.stream():
+        if len(archive) + len(chunk) > MAX_ARCHIVE_BYTES:
+            raise HTTPException(status_code=413, detail="site archive exceeds 40 MB")
+        archive.extend(chunk)
+    try:
+        result = await asyncio.to_thread(publish_uploaded_site, user_id, bytes(archive), options)
+    except (ValueError, tarfile.TarError):
+        raise HTTPException(status_code=400, detail="invalid site build archive") from None
+    except AppException as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from None
+    return success_response(data=_public_content(user_id, result))
+
+
 @router.post(
     "/gateway/{server_id}/call",
     summary="桌面云端工具调用网关（动态 manifest schema + JSON invocation）",
@@ -324,7 +429,11 @@ async def gateway_mcp_call(
     user_id: str = Depends(_require_capability_user),
 ):
     """Execute a currently-authorized MCP tool from the cloud network."""
-    from core.services.desktop_capability import invoke_gateway_tool, resolve_gateway_tool, CapabilityContentRejected
+    from core.services.desktop_capability import (
+        CapabilityContentRejected,
+        invoke_gateway_tool,
+        resolve_gateway_tool,
+    )
     from core.services.desktop_capability_protocol import CapabilityManifestStaleError
 
     try:
@@ -346,7 +455,10 @@ async def gateway_mcp_call(
     try:
         result = await invoke_gateway_tool(resolved, body.arguments, runtime_headers)
     except CapabilityContentRejected:
-        raise HTTPException(status_code=422, detail={"code": "integrity_failed", "message": "upstream content blocked"}) from None
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "integrity_failed", "message": "upstream content blocked"},
+        ) from None
     except asyncio.TimeoutError as exc:
         logger.warning(
             "[desktop-capability] tool call timeout user=%s server=%s tool=%s",
@@ -522,7 +634,9 @@ class CloudBridgeBody(BaseModel):
     cloud_base: str = Field(..., min_length=1, description="云端后端根地址（含协议）")
     token: str = Field(..., min_length=8, description="capability token")
     expires_in: int = Field(default=600, ge=60, le=600)
-    device_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    device_id: str = Field(
+        ..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    )
 
 
 def _require_desktop_bridge_process() -> None:
@@ -536,7 +650,9 @@ def _require_desktop_shell_control(request: Request) -> None:
     from core.services.desktop_capability import is_desktop_shell_control
 
     _require_desktop_bridge_process()
-    if not is_desktop_shell_control(request.headers.get("authorization", ""), request.headers.get("origin")):
+    if not is_desktop_shell_control(
+        request.headers.get("authorization", ""), request.headers.get("origin")
+    ):
         raise HTTPException(status_code=401, detail="desktop shell authorization required")
 
 
@@ -555,8 +671,14 @@ async def set_cloud_bridge(
         parsed = urlsplit(base)
     except ValueError:
         raise HTTPException(status_code=400, detail="cloud_base 地址无效")
-    if (parsed.scheme not in ("http", "https") or not parsed.hostname
-            or parsed.username or parsed.password or parsed.query or parsed.fragment):
+    if (
+        parsed.scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
         raise HTTPException(status_code=400, detail="cloud_base 必须是不含凭据的 http(s) 地址")
     set_state(base, body.token, body.expires_in, device_id=body.device_id)
     logger.info("[cloud-bridge] 桥配置已更新（cloud_base=%s）", base)

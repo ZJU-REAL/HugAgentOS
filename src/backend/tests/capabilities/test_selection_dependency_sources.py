@@ -9,7 +9,6 @@ from core.capabilities import registry, skills, readiness
 from core.services import desktop_cloud_bridge as bridge
 from core.services.desktop_capability_protocol import skill_content_hash
 from tests.capabilities.test_desktop_capabilities_api import client, USER, PROFILE, _Cloud
-from tests.capabilities.test_management_readiness import _prepare
 
 
 def _publish(key, metadata="", owner=USER):
@@ -80,9 +79,7 @@ def _cloud_dependencies(client, monkeypatch, b_metadata):
     cloud = _Cloud(files)
     monkeypatch.setattr("httpx.get", cloud.get)
     assert client.post("/v1/desktop/capabilities/sync").status_code == 200
-    ids = [f"skill:{PROFILE}:{key}" for key in definitions]
-    _prepare(client, ids)
-    return ids
+    return [f"skill:{PROFILE}:{key}" for key in definitions]
 
 
 def test_cloud_dependency_uses_explicit_compatible_local_source(client, monkeypatch):

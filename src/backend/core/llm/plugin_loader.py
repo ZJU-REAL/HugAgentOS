@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set
 
@@ -66,6 +67,7 @@ class DeferredPlugin:
     # NOT subtracted from the base assembly, since they may be shared with
     # non-plugin skills.
     bound_mcp_ids: List[str] = field(default_factory=list)
+    capability_nodes: List[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -170,8 +172,8 @@ class StickyPluginCapabilities:
 def _cloud_sticky_selection(tokens, *, user_id, allow_aliases=False):
     """Keep saved cloud selections tied to their exact account and installation."""
     from core.capabilities import registry, skills
-    from core.capabilities.paths import capabilities_enabled, LOCAL_PROFILE, BUILTIN_PROFILE
-    from core.capabilities.errors import PermissionDenied, NameConflict
+    from core.capabilities.errors import NameConflict, PermissionDenied
+    from core.capabilities.paths import BUILTIN_PROFILE, LOCAL_PROFILE, capabilities_enabled
 
     if not capabilities_enabled():
         return []
@@ -335,6 +337,67 @@ def _http_transport(cfg: Any) -> bool:
     return bool(cfg.get("url")) or cfg.get("transport") in ("streamable_http", "sse")
 
 
+def _server_configs(user_id: Optional[str] = None) -> Dict[str, Any]:
+    """Transport lookup: global servers, plus the user's private ones when given."""
+    try:
+        from core.services.mcp_service import McpServerConfigService
+
+        svc = McpServerConfigService.get_instance()
+        cfgs = dict(svc.get_all_servers(enabled_only=True))
+        if user_id:
+            try:
+                cfgs.update(svc.get_owned_servers(str(user_id), enabled_only=False))
+            except Exception:  # noqa: BLE001
+                pass
+        return cfgs
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[plugin-loader] server config lookup failed: %s", exc)
+        return {}
+
+
+def _skill_metadata() -> Dict[str, Any]:
+    try:
+        from core.agent_skills.loader import get_skill_loader
+
+        return get_skill_loader().load_all_metadata() or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _bound_mcp_ids(
+    skill_ids: Sequence[str], skill_meta: Dict[str, Any], in_play_mcps: Sequence[str]
+) -> List[str]:
+    """MCP servers a plugin's skills declare via SKILL.md frontmatter."""
+    bound: List[str] = []
+    for sid in skill_ids:
+        item = skill_meta.get(sid)
+        for server_id in getattr(item, "mcp_server_ids", None) or []:
+            if server_id and server_id not in bound and server_id not in in_play_mcps:
+                bound.append(server_id)
+    return bound
+
+
+def _finalize_resolution(
+    res: ProgressiveResolution, eligible: Sequence[DeferredPlugin]
+) -> ProgressiveResolution:
+    """Directory order plus the component ids actually withheld from assembly.
+
+    A component that a plugin staying eager also carries must NOT be withheld:
+    subtracting it would make the run require an activation to reach a
+    capability it was already entitled to use.
+    """
+    res.directory = sorted(eligible, key=lambda p: p.slug)
+    deferred_ids = {p.install_id for p in res.deferred}
+    eager = [p for p in eligible if p.install_id not in deferred_ids]
+    res.deferred_skill_ids = {s for p in res.deferred for s in p.skill_ids} - {
+        s for p in eager for s in p.skill_ids
+    }
+    res.deferred_mcp_ids = {m for p in res.deferred for m in p.mcp_ids} - {
+        m for p in eager for m in p.mcp_ids
+    }
+    return res
+
+
 def resolve_progressive_plugins(
     *,
     user_id: str,
@@ -362,28 +425,8 @@ def resolve_progressive_plugins(
     invoked = {x for x in (invoked_skill_ids or []) if isinstance(x, str) and x.strip()}
     invoked |= {x for x in (invoked_mcp_ids or []) if isinstance(x, str) and x.strip()}
 
-    # Server transport lookup (global + the user's private servers).
-    try:
-        from core.services.mcp_service import McpServerConfigService
-
-        svc = McpServerConfigService.get_instance()
-        server_cfgs = dict(svc.get_all_servers(enabled_only=True))
-        try:
-            server_cfgs.update(svc.get_owned_servers(str(user_id), enabled_only=False))
-        except Exception:  # noqa: BLE001
-            pass
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[plugin-loader] server config lookup failed: %s", exc)
-        server_cfgs = {}
-
-    # Skill → bound MCP metadata (SKILL.md frontmatter mcp_server_ids).
-    skill_meta: Dict[str, Any] = {}
-    try:
-        from core.agent_skills.loader import get_skill_loader
-
-        skill_meta = get_skill_loader().load_all_metadata() or {}
-    except Exception:  # noqa: BLE001
-        skill_meta = {}
+    server_cfgs = _server_configs(user_id)
+    skill_meta = _skill_metadata()
 
     activated = load_activated_plugin_slugs(chat_id)
     activated_set = set(activated)
@@ -417,12 +460,6 @@ def resolve_progressive_plugins(
         # per-request subprocesses mid-run has lifecycle costs this v1 skips.
         if any(not _http_transport(server_cfgs.get(m)) for m in in_play_mcps):
             continue
-        bound: List[str] = []
-        for sid in in_play_skills:
-            item = skill_meta.get(sid)
-            for server_id in getattr(item, "mcp_server_ids", None) or []:
-                if server_id and server_id not in bound and server_id not in in_play_mcps:
-                    bound.append(server_id)
         plugin = DeferredPlugin(
             install_id=str(r.install_id),
             slug=str(r.slug),
@@ -430,7 +467,7 @@ def resolve_progressive_plugins(
             description=str(r.description or ""),
             skill_ids=in_play_skills,
             mcp_ids=in_play_mcps,
-            bound_mcp_ids=bound,
+            bound_mcp_ids=_bound_mcp_ids(in_play_skills, skill_meta, in_play_mcps),
         )
         eligible.append(plugin)
 
@@ -447,14 +484,11 @@ def resolve_progressive_plugins(
                 res.activated_slugs.append(plugin.slug)
             continue
         res.deferred.append(plugin)
-        res.deferred_skill_ids.update(in_play_skills)
-        res.deferred_mcp_ids.update(in_play_mcps)
 
     if newly_pinned:
         record_plugin_activation(chat_id, newly_pinned)
 
-    res.directory = sorted(eligible, key=lambda p: p.slug)
-    return res
+    return _finalize_resolution(res, eligible)
 
 
 def resolve_bound_progressive_plugins(
@@ -482,22 +516,8 @@ def resolve_bound_progressive_plugins(
     if not ids:
         return res
 
-    try:
-        from core.services.mcp_service import McpServerConfigService
-
-        svc = McpServerConfigService.get_instance()
-        server_cfgs = dict(svc.get_all_servers(enabled_only=True))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[plugin-loader] server config lookup failed: %s", exc)
-        server_cfgs = {}
-
-    skill_meta: Dict[str, Any] = {}
-    try:
-        from core.agent_skills.loader import get_skill_loader
-
-        skill_meta = get_skill_loader().load_all_metadata() or {}
-    except Exception:  # noqa: BLE001
-        skill_meta = {}
+    server_cfgs = _server_configs()
+    skill_meta = _skill_metadata()
 
     try:
         with SessionLocal() as db:
@@ -520,12 +540,6 @@ def resolve_bound_progressive_plugins(
             continue
         if any(not _http_transport(server_cfgs.get(m)) for m in mcps):
             continue
-        bound: List[str] = []
-        for sid in skills:
-            item = skill_meta.get(sid)
-            for server_id in getattr(item, "mcp_server_ids", None) or []:
-                if server_id and server_id not in bound and server_id not in mcps:
-                    bound.append(server_id)
         plugin = DeferredPlugin(
             install_id=str(r.install_id),
             slug=str(r.slug),
@@ -533,15 +547,12 @@ def resolve_bound_progressive_plugins(
             description=str(r.description or ""),
             skill_ids=skills,
             mcp_ids=mcps,
-            bound_mcp_ids=bound,
+            bound_mcp_ids=_bound_mcp_ids(skills, skill_meta, mcps),
         )
         eligible.append(plugin)
         res.deferred.append(plugin)
-        res.deferred_skill_ids.update(skills)
-        res.deferred_mcp_ids.update(mcps)
 
-    res.directory = sorted(eligible, key=lambda p: p.slug)
-    return res
+    return _finalize_resolution(res, eligible)
 
 
 # ── Prompt section ───────────────────────────────────────────────────────────
@@ -573,6 +584,225 @@ def build_plugin_directory_section(directory: Sequence[DeferredPlugin]) -> str:
 
 
 # ── Runtime activation tool ──────────────────────────────────────────────────
+
+
+def prepare_desktop_plugin_skill_defaults(user_id, skill_ids):
+    """Include enabled cloud plugin intentions before ready-only skill filtering."""
+    from core.capabilities import skills
+    from core.capabilities.plugins import enabled_cloud_skill_intents
+    from core.capabilities.preparation import ensure_cloud_ready
+
+    selected = set(skill_ids) | enabled_cloud_skill_intents(user_id)
+    ensure_cloud_ready(user_id, skill_keys=sorted(selected))
+    return skills.filter_available_names(sorted(selected), user_id=user_id)
+
+
+def resolve_desktop_progressive_plugins(
+    *,
+    user_id,
+    enabled_skill_ids,
+    enabled_mcp_ids,
+    plugin_ids=None,
+    activated_ids=(),
+    invoked_skill_ids=(),
+    invoked_mcp_ids=(),
+):
+    """Defer an authorized device plugin without changing the run's source selection.
+
+    Preparation still freezes the complete selected closure before execution.
+    Only model-facing skills and MCP connections are delayed until load_plugin.
+    The device registry, not legacy cloud InstalledPlugin rows, owns identities.
+    """
+    from core.capabilities import registry, skills
+    from core.capabilities.dependency import Context, Inspector, _identifier
+    from core.capabilities.paths import LOCAL_PROFILE
+
+    profile = skills.current_account_profile() if skills.account_authorized_for(user_id) else None
+    result = ProgressiveResolution()
+    eligible: List[DeferredPlugin] = []
+    allowed_skills, allowed_mcp = set(enabled_skill_ids or []), set(enabled_mcp_ids or [])
+    active = set(activated_ids or [])
+    from core.capabilities.preparation import ensure_cloud_ready
+
+    ensure_cloud_ready(user_id, skill_keys=sorted(allowed_skills))
+    choices = skills.resolve_for_user(user_id)
+    bindings = {
+        name: {"install_id": candidate.install_id, "revision": candidate.revision}
+        for name, candidate in choices.chosen.items()
+    }
+    for row in registry.list_installations(kind="plugin"):
+        if row.profile_id not in (LOCAL_PROFILE, profile) or not row.enabled:
+            continue
+        if row.payload.get("owner_user_id") not in (None, "", user_id):
+            continue
+        aliases = {
+            row.install_id,
+            row.key,
+            row.payload.get("cloud_install_id"),
+            row.payload.get("db_install_id"),
+        }
+        if plugin_ids is not None and not aliases.intersection(plugin_ids):
+            continue
+        if not row.ready:
+            # A fresh manifest contains intentions, not definition files. Prepare
+            # only a definition whose components are selected in this run.
+            advertised = row.payload.get("components") or {}
+            advertised_skills = {
+                _identifier(x) if isinstance(x, dict) else str(x)
+                for x in advertised.get("skills", [])
+            }
+            advertised_mcp = {
+                _identifier(x) if isinstance(x, dict) else str(x) for x in advertised.get("mcp", [])
+            }
+            if plugin_ids is None and not (
+                advertised_skills & allowed_skills or advertised_mcp & allowed_mcp
+            ):
+                continue
+            from core.capabilities.errors import PackageMissing
+            from core.services import desktop_cloud_bridge, desktop_cloud_bundles
+
+            results = desktop_cloud_bundles.prepare(
+                desktop_cloud_bridge.get_state(), [row.install_id]
+            )
+            if not results or not results[0]["ok"]:
+                raise PackageMissing("selected plugin definition is not ready", ref=row.install_id)
+            row = registry.get(row.install_id)
+        mcp_ids, declared_skills = set(), set()
+
+        def record_component(entry, required):
+            if entry.get("kind") == "skill":
+                declared_skills.add(_identifier(entry))
+            if entry.get("kind") == "mcp" and required:
+                mcp_ids.add(_identifier(entry))
+            return True
+
+        inspector = Inspector(
+            Context(user_id=user_id, available_mcp=allowed_mcp, bindings=bindings),
+            on_visit=record_component,
+        )
+        inspector.visit({"kind": "plugin", "id": row.install_id}, row.profile_id)
+        report = inspector.report()
+        from core.capabilities.errors import IntegrityFailed, PackageMissing
+
+        nodes = [node for node in report["nodes"] if node["kind"] in ("plugin", "agent")]
+        for error in report["errors"]:
+            unselected = any(
+                (part.split(":", 1)[0] == "skill" and part.split(":")[-1] not in allowed_skills)
+                or (part.split(":", 1)[0] == "mcp" and part.split(":")[-1] not in allowed_mcp)
+                for part in error["dependency_chain"]
+            )
+            if not unselected:
+                raise PackageMissing(
+                    "plugin definition dependencies are not ready",
+                    ref=row.install_id,
+                    details={"dependency": error},
+                )
+        for node in nodes:
+            inst = registry.get(node["install_id"])
+            expected = inst.payload.get("resolved_content_hash") or inst.content_hash
+            if expected and expected != node["content_hash"]:
+                raise IntegrityFailed("plugin definition changed", ref=node["install_id"])
+        skill_ids = sorted(declared_skills & allowed_skills)
+        mcp_ids &= allowed_mcp
+        if not skill_ids and not mcp_ids:
+            continue
+        item = DeferredPlugin(
+            row.install_id,
+            row.key,
+            row.display_name or row.key,
+            row.description or "",
+            skill_ids,
+            sorted(mcp_ids),
+            capability_nodes=nodes,
+        )
+        # Explicit source-qualified selectors avoid silently choosing a namesake.
+        if any(p.slug == item.slug for p in eligible):
+            for previous in eligible:
+                if previous.slug == item.slug:
+                    previous.slug = previous.install_id
+            item.slug = item.install_id
+        eligible.append(item)
+        if (
+            aliases.intersection(active)
+            or set(skill_ids).intersection(invoked_skill_ids or ())
+            or mcp_ids.intersection(invoked_mcp_ids or ())
+        ):
+            result.activated_slugs.append(item.slug)
+        else:
+            result.deferred.append(item)
+    return _finalize_resolution(result, eligible)
+
+
+class _ActivationStage:
+    """Collect one activation's clients and loaders, then commit or drop them together.
+
+    A device capability run must never expose half a plugin: if the authorized
+    closure stops holding — or an MCP turns out to be unreachable — after some
+    clients already connected, the run has to end up exactly as it started, so
+    everything lands in a buffer that is published only on success. The legacy
+    cloud path has no such checkpoint and keeps appending straight to the live
+    group.
+    """
+
+    def __init__(self, live_group: Any, runtime: Dict[str, Any], prepared: Any) -> None:
+        from types import SimpleNamespace
+
+        self._live = live_group
+        self._runtime = runtime
+        self._prepared = prepared
+        self._staged_clients: List[Any] = []
+        self.staged = prepared is not None
+        self.group = SimpleNamespace(mcps=[], skills_or_loaders=[]) if self.staged else live_group
+        current = runtime.setdefault("connected_keys", set())
+        self.connected: Set[str] = set(current) if self.staged else current
+
+    async def checkpoint(self) -> None:
+        """Re-assert the authorized closure between steps of the activation."""
+        if self._prepared is None:
+            return
+        from core.capabilities.runtime import validate
+
+        await asyncio.to_thread(validate, self._prepared)
+
+    def add_client(self, key: str, client: Any) -> None:
+        self.group.mcps.append(client)
+        self.connected.add(key)
+        if self.staged:
+            self._staged_clients.append(client)
+            return
+        close_list = self._runtime.get("close_list")
+        if isinstance(close_list, list):
+            close_list.append(client)
+
+    async def discard(self) -> None:
+        for client in self._staged_clients:
+            try:
+                await client.close()
+            except Exception as exc:  # noqa: BLE001 — one bad close must not leak the rest
+                logger.warning("[plugin-loader] staged MCP close failed: %s", exc)
+        self._staged_clients.clear()
+
+    def commit(self) -> None:
+        if not self.staged:
+            return
+        self._live.mcps.extend(self.group.mcps)
+        self._live.skills_or_loaders.extend(self.group.skills_or_loaders)
+        self._runtime["connected_keys"] = self.connected
+        close_list = self._runtime.get("close_list")
+        if isinstance(close_list, list):
+            close_list.extend(self._staged_clients)
+        self._staged_clients.clear()
+
+
+@asynccontextmanager
+async def _activation_stage(live_group: Any, runtime: Dict[str, Any], prepared: Any):
+    stage = _ActivationStage(live_group, runtime, prepared)
+    try:
+        yield stage
+    except BaseException:
+        await stage.discard()
+        raise
+    stage.commit()
 
 
 def register_load_plugin(
@@ -617,11 +847,29 @@ def register_load_plugin(
             plugin: 插件目录里列出的插件标识（反引号内的 slug），也接受插件名称。
         """
         wanted = (plugin or "").strip().strip("`")
-        target: Optional[DeferredPlugin] = None
-        for slug, item in deferred_by_slug.items():
-            if wanted == slug or wanted == item.name or wanted.lower() == slug.lower():
-                target = item
-                break
+        matches = [
+            item
+            for slug, item in deferred_by_slug.items()
+            if wanted == slug or wanted == item.name or wanted.lower() == slug.lower()
+        ]
+        exact = [item for slug, item in deferred_by_slug.items() if wanted == slug]
+        if runtime.get("prepared_run") is not None and not exact:
+            directory_matches = [
+                item
+                for item in runtime.get("plugin_directory", deferred_by_slug.values())
+                if wanted == item.name or wanted.lower() == item.slug.lower()
+            ]
+            if len(directory_matches) > 1:
+                return _text(
+                    "插件名称有多个来源，请使用目录中的完整标识："
+                    + "、".join(item.slug for item in directory_matches)
+                )
+        if runtime.get("prepared_run") is not None and len(matches) > 1 and len(exact) != 1:
+            return _text(
+                "插件名称有多个来源，请使用目录中的完整标识："
+                + "、".join(item.slug for item in matches)
+            )
+        target = exact[0] if exact else (matches[0] if matches else None)
         activated: Set[str] = runtime.setdefault("activated_slugs", set())
         if target is None:
             known = "、".join(f"`{s}`" for s in sorted(deferred_by_slug)) or "（无）"
@@ -634,98 +882,132 @@ def register_load_plugin(
         tk = runtime.get("toolkit")
         if tk is None or not getattr(tk, "tool_groups", None):
             return _text("插件加载器尚未就绪，请稍后重试。")
-        basic = tk.tool_groups[0]
 
-        connected: Set[str] = runtime.setdefault("connected_keys", set())
-        new_tool_names: List[str] = []
-        failed_servers: List[str] = []
+        prepared = runtime.get("prepared_run")
+        if prepared is not None:
+            from core.capabilities.runtime import validate
 
-        # ── MCP servers: connect stateless HTTP clients and append in place ──
-        mcp_ids = [m for m in [*target.mcp_ids, *target.bound_mcp_ids] if m not in connected]
-        if mcp_ids:
-            from core.llm.agent_factory import _inject_runtime_headers
-            from core.llm.mcp_pool import make_client
-            from core.services.mcp_service import McpServerConfigService
-
-            svc = McpServerConfigService.get_instance()
-            cfgs = dict(svc.get_all_servers(enabled_only=True))
-            try:
-                cfgs.update(
-                    svc.get_owned_servers(str(runtime.get("user_id") or ""), enabled_only=False)
-                )
-            except Exception:  # noqa: BLE001
-                pass
-            wanted_cfgs = {k: v for k, v in cfgs.items() if k in set(mcp_ids)}
-            wanted_cfgs = _inject_runtime_headers(
-                wanted_cfgs,
-                current_user_id=runtime.get("user_id"),
-                chat_id=runtime.get("chat_id"),
-                enabled_kb_ids=runtime.get("enabled_kb_ids"),
-                channel_origin=runtime.get("channel_origin"),
-                reranker_enabled=bool(runtime.get("reranker_enabled")),
+            await asyncio.to_thread(
+                validate, prepared, user_id=runtime.get("user_id", prepared.user_id)
             )
 
-            async def _connect(key: str, cfg: dict) -> None:
-                if not _http_transport(cfg):
-                    failed_servers.append(key)
-                    return
-                try:
-                    client = make_client(key, cfg, is_stateful=False)
-                    tools = await client.list_tools()
-                except BaseException as exc:  # noqa: BLE001 — SSE cleanup may raise CancelledError
-                    if isinstance(exc, asyncio.CancelledError):
-                        current = asyncio.current_task()
-                        if current is not None and getattr(current, "cancelling", lambda: 0)() > 0:
-                            raise
-                    logger.warning("[plugin-loader] MCP '%s' connect failed: %s", key, exc)
-                    failed_servers.append(key)
-                    return
-                basic.mcps.append(client)
-                connected.add(key)
-                close_list = runtime.get("close_list")
-                if isinstance(close_list, list):
-                    close_list.append(client)
-                new_tool_names.extend(t.name for t in tools if getattr(t, "name", None))
-
-            for key, cfg in wanted_cfgs.items():
-                await _connect(key, cfg)
-            for key in mcp_ids:
-                if key not in wanted_cfgs and key not in failed_servers:
-                    failed_servers.append(key)
-
-        # ── Skills: materialize and append loaders in place ──
-        loader = runtime.get("loader")
+        new_tool_names: List[str] = []
+        failed_servers: List[str] = []
         skill_lines: List[str] = []
-        if loader is not None and target.skill_ids:
-            from agentscope.skill import LocalSkillLoader
 
-            try:
-                meta = loader.load_all_metadata() or {}
-            except Exception:  # noqa: BLE001
-                meta = {}
-            for sid in target.skill_ids:
-                try:
-                    d = loader.get_skill_dir(sid)
-                except Exception:  # noqa: BLE001
-                    d = None
-                if not d:
-                    continue
-                basic.skills_or_loaders.append(LocalSkillLoader(directory=d))
-                item = meta.get(sid)
-                desc = str(getattr(item, "description", "") or "")
-                skill_lines.append(f"- `{sid}`：{desc}" if desc else f"- `{sid}`")
-                # Ontology gate sees the activated skill's trusted tags too.
-                try:
-                    from core.ontology.validator import register_runtime_asset_tags
+        async with _activation_stage(tk.tool_groups[0], runtime, prepared) as stage:
+            # ── MCP servers: connect stateless HTTP clients and append in place ──
+            mcp_ids = [
+                m for m in [*target.mcp_ids, *target.bound_mcp_ids] if m not in stage.connected
+            ]
+            if mcp_ids:
+                from core.llm.agent_factory import _inject_runtime_headers
+                from core.llm.mcp_pool import make_client
+                from core.services.mcp_service import McpServerConfigService
 
-                    register_runtime_asset_tags(
-                        runtime.get("ontology_runtime") or {},
-                        kind="skill",
-                        asset_id=sid,
-                        tags=list(getattr(item, "tags", []) or []),
-                    )
+                if prepared is not None:
+                    cfgs = runtime["prepared_servers"]
+                else:
+                    svc = McpServerConfigService.get_instance()
+                    cfgs = dict(svc.get_all_servers(enabled_only=True))
+                    try:
+                        cfgs.update(
+                            svc.get_owned_servers(
+                                str(runtime.get("user_id") or ""), enabled_only=False
+                            )
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                wanted_cfgs = {k: v for k, v in cfgs.items() if k in set(mcp_ids)}
+                wanted_cfgs = _inject_runtime_headers(
+                    wanted_cfgs,
+                    current_user_id=runtime.get("user_id"),
+                    chat_id=runtime.get("chat_id"),
+                    enabled_kb_ids=runtime.get("enabled_kb_ids"),
+                    channel_origin=runtime.get("channel_origin"),
+                    reranker_enabled=bool(runtime.get("reranker_enabled")),
+                )
+
+                async def _connect(key: str, cfg: dict) -> None:
+                    if not stage.staged and not _http_transport(cfg):
+                        failed_servers.append(key)
+                        return
+                    client = None
+                    try:
+                        client = make_client(key, cfg, is_stateful=False)
+                        if stage.staged and not _http_transport(cfg):
+                            await client.connect()
+                        tools = await client.list_tools()
+                        await stage.checkpoint()
+                    except (
+                        BaseException
+                    ) as exc:  # noqa: BLE001 — SSE cleanup may raise CancelledError
+                        if client is not None:
+                            await client.close()
+                        if isinstance(exc, asyncio.CancelledError):
+                            current = asyncio.current_task()
+                            if (
+                                current is not None
+                                and getattr(current, "cancelling", lambda: 0)() > 0
+                            ):
+                                raise
+                        logger.warning("[plugin-loader] MCP '%s' connect failed: %s", key, exc)
+                        failed_servers.append(key)
+                        return
+                    stage.add_client(key, client)
+                    new_tool_names.extend(t.name for t in tools if getattr(t, "name", None))
+
+                for key, cfg in wanted_cfgs.items():
+                    await _connect(key, cfg)
+                for key in mcp_ids:
+                    if key not in wanted_cfgs and key not in failed_servers:
+                        failed_servers.append(key)
+
+            await stage.checkpoint()
+            if stage.staged and failed_servers:
+                raise RuntimeError("插件 MCP 服务不可用：" + "、".join(failed_servers))
+
+            # ── Skills: materialize and append loaders in place ──
+            loader = runtime.get("loader")
+            if loader is not None and target.skill_ids:
+                from agentscope.skill import LocalSkillLoader
+
+                try:
+                    meta = loader.load_all_metadata() or {}
                 except Exception:  # noqa: BLE001
-                    pass
+                    meta = {}
+                for sid in target.skill_ids:
+                    try:
+                        d = loader.get_skill_dir(sid)
+                    except Exception:  # noqa: BLE001
+                        d = None
+                    if not d:
+                        continue
+                    if prepared is not None:
+                        from core.llm.tool_collector import RuntimeNamedSkillLoader
+
+                        stage.group.skills_or_loaders.append(
+                            RuntimeNamedSkillLoader(d, sid, prepared)
+                        )
+                    else:
+                        stage.group.skills_or_loaders.append(LocalSkillLoader(directory=d))
+                    item = meta.get(sid)
+                    desc = str(getattr(item, "description", "") or "")
+                    skill_lines.append(f"- `{sid}`：{desc}" if desc else f"- `{sid}`")
+                    # Ontology gate sees the activated skill's trusted tags too.
+                    try:
+                        from core.ontology.validator import register_runtime_asset_tags
+
+                        register_runtime_asset_tags(
+                            runtime.get("ontology_runtime") or {},
+                            kind="skill",
+                            asset_id=sid,
+                            tags=list(getattr(item, "tags", []) or []),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            await stage.checkpoint()
 
         # ── Permissions: newly activated MCP tools must be pre-allowed ──
         pc = runtime.get("permission_context")

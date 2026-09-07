@@ -119,6 +119,16 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
     Ok(port)
 }
 
+/// 正式站点及其管理接口只认云端：本机既不再托管站点，也不接受旧客户端遗留的
+/// `local` 路由标记，否则同一个站点会在两个后端各存一半状态。
+/// 与 `desktop-uos/src/proxy.mjs` 的同名判定保持一致。
+fn is_cloud_site_path(path: &str) -> bool {
+    path == "/site"
+        || path.starts_with("/site/")
+        || path == "/api/v1/sites"
+        || path.starts_with("/api/v1/sites/")
+}
+
 /// 反代处理器：把 `/api/*` 透传到后端，注入 session cookie，流式回传。
 async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> Response {
     let (parts, body) = req.into_parts();
@@ -131,7 +141,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     // 混合架构（Dual）：前端给「本地项目」的请求打 x-hugagent-target: local，
     // 反代把它们转到当前品牌的本机执行面，其余一律云端。单一形态不路由。
     // <img>/<iframe> 等 src 场景无法带请求头，等价支持 query 参数 ?hg_target=local。
-    let to_local = state.hybrid_local
+    let to_local = state.hybrid_local && !is_cloud_site_path(uri.path())
         && (headers
             .get(TARGET_HEADER)
             .and_then(|v| v.to_str().ok())
@@ -212,23 +222,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
         rb
     };
 
-    let sent = match build_request(to_local).send().await {
-        Ok(upstream) => {
-            // 站点访问兜底：本机发布的站点只存在于本机库，而站点入口/子资源/表单
-            // （<a>/<img>/fetch 相对路径）都带不上路由标记——云端 404 时按同请求
-            // 重试本机，本机命中则用本机响应。云端命中/本机也 404 时行为不变。
-            let is_site = uri.path() == "/site" || uri.path().starts_with("/site/");
-            if state.hybrid_local && !to_local && is_site && upstream.status().as_u16() == 404 {
-                match build_request(true).send().await {
-                    Ok(local_resp) if local_resp.status().as_u16() != 404 => Ok(local_resp),
-                    _ => Ok(upstream),
-                }
-            } else {
-                Ok(upstream)
-            }
-        }
-        Err(e) => Err(e),
-    };
+    let sent = build_request(to_local).send().await;
 
     if !state.session_epoch.matches(expected_epoch) || !state.session_epoch.is_active() {
         return (StatusCode::CONFLICT, "Desktop session changed").into_response();
@@ -1812,5 +1806,32 @@ mod tests {
             output,
             "<!doctype html><html><body class=\"platform-macos\"><header>titlebar</header><main>content</main></body></html>"
         );
+    }
+
+    #[test]
+    fn site_paths_always_route_to_cloud() {
+        for path in [
+            "/site",
+            "/site/",
+            "/site/my-report/",
+            "/site/my-report/assets/app.js",
+            "/api/v1/sites",
+            "/api/v1/sites/abc/submissions",
+        ] {
+            assert!(is_cloud_site_path(path), "{path} 必须走云端");
+        }
+    }
+
+    #[test]
+    fn non_site_paths_stay_routable_to_local() {
+        for path in [
+            "/",
+            "/api/v1/chats",
+            "/api/v1/sitemap",
+            "/sites",
+            "/website/index.html",
+        ] {
+            assert!(!is_cloud_site_path(path), "{path} 不应被当作站点路径");
+        }
     }
 }

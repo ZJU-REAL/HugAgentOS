@@ -9,18 +9,16 @@
 
 from __future__ import annotations
 
-import time
 import asyncio
+import time
 
 import pytest
-
-from core.db.models import AdminMcpServer
 from core.db.model_repository import assign_role, create_provider
+from core.db.models import AdminMcpServer
 from core.services import desktop_capability as cap
 from core.services import desktop_cloud_bridge as bridge
 from core.services.desktop_capability_protocol import build_manifest, canonical_hash
 from sqlalchemy.orm import sessionmaker
-
 
 # ── capability token ────────────────────────────────────────────────────
 
@@ -37,15 +35,27 @@ def _issue_test_token(monkeypatch, ttl_s=600):
 
     monkeypatch.setattr(session, "_MEMORY_SESSIONS", {})
     monkeypatch.setattr(session, "_use_memory_store", lambda: True)
-    cookie = asyncio.run(session.create_session({"user_id": "user-1", "user_center_id": "center-1"}))
+    cookie = asyncio.run(
+        session.create_session({"user_id": "user-1", "user_center_id": "center-1"})
+    )
     digest = session._hash_token(cookie)
-    return cap.issue_capability_token("user-1", ttl_s=ttl_s, device_id="test-device",
-        issuer="https://test.example", session_hash=digest, user_center_id="center-1",
-        authorization_epoch=cap.session_authorization_epoch(session._MEMORY_SESSIONS[digest]["payload"]))
+    return cap.issue_capability_token(
+        "user-1",
+        ttl_s=ttl_s,
+        device_id="test-device",
+        issuer="https://test.example",
+        session_hash=digest,
+        user_center_id="center-1",
+        authorization_epoch=cap.session_authorization_epoch(
+            session._MEMORY_SESSIONS[digest]["payload"]
+        ),
+    )
 
 
 def _verify_test_token(token):
-    return asyncio.run(cap.verify_capability_token(token, device_id="test-device", issuer="https://test.example"))
+    return asyncio.run(
+        cap.verify_capability_token(token, device_id="test-device", issuer="https://test.example")
+    )
 
 
 def test_token_roundtrip(monkeypatch):
@@ -147,12 +157,16 @@ def test_credential_equal_to_a_public_model_identifier_is_not_a_secret(monkeypat
 
     assert [p["provider_id"] for p in manifest["providers"]] == [keyless.provider_id]
     assert "withheld" not in manifest
-    assert manifest["role_assignments"] == [{"role_key": "main_agent", "provider_id": keyless.provider_id}]
+    assert manifest["role_assignments"] == [
+        {"role_key": "main_agent", "provider_id": keyless.provider_id}
+    ]
     assert cap.guard_capability_content("user-1", manifest) is manifest
     assert "deepseekv4-flash" not in cap._known_cloud_secrets("user-1")
 
 
-def test_gateway_stream_secrets_exclude_the_target_model_name_but_keep_real_keys(monkeypatch, db_session):
+def test_gateway_stream_secrets_exclude_the_target_model_name_but_keep_real_keys(
+    monkeypatch, db_session
+):
     """网关转发这条模型的输出时，每个流式分片都带 model 字段；模型名不是机密，
     不能因此把整段回复拦成 upstream content blocked。真实密钥仍被屏蔽。"""
     _use_test_database(monkeypatch, db_session)
@@ -174,7 +188,11 @@ def test_gateway_stream_secrets_exclude_the_target_model_name_but_keep_real_keys
         api_key="sk-other-real-key-7d2c",
         model_name="other-model",
     )
-    target = {"url": "http://192.0.2.10:1029/v1/chat/completions", "api_key": keyless.api_key, "model_name": keyless.model_name}
+    target = {
+        "url": "http://192.0.2.10:1029/v1/chat/completions",
+        "api_key": keyless.api_key,
+        "model_name": keyless.model_name,
+    }
 
     secrets = cap.gateway_stream_secrets("user-1", target)
 
@@ -194,7 +212,9 @@ def test_gateway_stream_secrets_exclude_the_target_model_name_but_keep_real_keys
     assert b"".join(asyncio.run(collect())) == b"".join(chunks)
 
 
-def test_model_manifest_withholds_only_the_provider_that_would_leak_a_real_credential(monkeypatch, db_session):
+def test_model_manifest_withholds_only_the_provider_that_would_leak_a_real_credential(
+    monkeypatch, db_session
+):
     """另一条模型的真实密钥出现在某模型的展示名里：只扣留这一条并点名字段，其余照常下发。"""
     _use_test_database(monkeypatch, db_session)
     from core.services import user_model_selection
@@ -224,8 +244,12 @@ def test_model_manifest_withholds_only_the_provider_that_would_leak_a_real_crede
     manifest = cap.build_user_model_manifest("user-1")
 
     assert [p["provider_id"] for p in manifest["providers"]] == [healthy.provider_id]
-    assert manifest["withheld"] == [{"provider_id": leaking.provider_id, "fields": ["display_name"]}]
-    assert manifest["role_assignments"] == [{"role_key": "main_agent", "provider_id": healthy.provider_id}]
+    assert manifest["withheld"] == [
+        {"provider_id": leaking.provider_id, "fields": ["display_name"]}
+    ]
+    assert manifest["role_assignments"] == [
+        {"role_key": "main_agent", "provider_id": healthy.provider_id}
+    ]
     assert cap.guard_capability_content("user-1", manifest) is manifest
 
 
@@ -272,7 +296,10 @@ def test_model_gateway_target_is_role_or_user_switch_allowlisted(monkeypatch, db
     assert cap.resolve_model_gateway_target("user-1", embedding.provider_id) is None
 
     monkeypatch.setattr(user_model_selection, "user_can_switch_model", lambda _db, _uid: True)
-    assert cap.resolve_model_gateway_target("user-1", selectable.provider_id)["path"] == "chat/completions"
+    assert (
+        cap.resolve_model_gateway_target("user-1", selectable.provider_id)["path"]
+        == "chat/completions"
+    )
 
 
 # ── 组件基名（logical 去重键） ──────────────────────────────────────────
@@ -418,15 +445,22 @@ def test_cloud_gateway_configs_shape(monkeypatch):
     assert cfg["manifest_tools"][0]["name"] == "ai_chain_information"
     assert cfg["schema_hash"]
     # KEEP 基名不生成云端配置
-    assert "sites-site_publish" not in cfgs
     assert "batch_runner" not in cfgs
+    # 正式站点只能云端托管，因此必须生成网关配置并标出组件基名。
+    assert cfgs["sites-site_publish"]["gateway_component"] == "site_publish"
 
 
 def test_keep_local_bases_env_override(monkeypatch):
     monkeypatch.setenv("DESKTOP_LOCAL_MCP_KEEP", "batch_runner, foo_bar")
     assert bridge.keep_local_bases() == {"batch_runner", "foo_bar"}
     monkeypatch.delenv("DESKTOP_LOCAL_MCP_KEEP")
-    assert "site_publish" in bridge.keep_local_bases()
+    assert "site_publish" not in bridge.keep_local_bases()
+
+
+def test_site_publish_cannot_be_kept_local_by_config(monkeypatch):
+    """正式站点只能云端托管，显式配置也不放开，但要留下告警而不是静默忽略。"""
+    monkeypatch.setenv("DESKTOP_LOCAL_MCP_KEEP", "site_publish, batch_runner")
+    assert bridge.keep_local_bases() == {"batch_runner"}
 
 
 def test_bridge_account_switch_clears_previous_manifest(monkeypatch):
@@ -553,8 +587,7 @@ def test_resolve_gateway_tool_rejects_a_stale_schema(monkeypatch, db_session):
         "resolve_gateway_target",
         lambda uid, sid, **kwargs: (
             {"transport": "streamable_http", "url": "https://mcp.example/mcp"}
-            if (uid, sid, kwargs.get("fresh"))
-            == ("user-1", "allowed-server", True)
+            if (uid, sid, kwargs.get("fresh")) == ("user-1", "allowed-server", True)
             else None
         ),
     )

@@ -182,3 +182,36 @@ docker compose --profile mem0 up -d
 | ARM Windows | Not supported (amd64-only images and binaries) |
 | Repo/storage on `/mnt/c` | Not supported (performance and path-semantics issues); must live on the WSL2 filesystem |
 | Admin "rebuild sandbox dependencies" | Requires a correct `DOCKER_GID`; with a wrong GID the feature degrades gracefully without affecting anything else |
+
+## Plugins and site publishing in hybrid mode
+
+With desktop capabilities v2, both the main agent and subagents first see a plugin directory.
+Calling `load_plugin` exposes that plugin's selected skills and MCP tools. Preparation still
+pins selected components, sources, revisions and dependencies before execution; progressive
+loading delays model exposure and MCP connections. Newly synchronized cloud plugin definitions
+are verified and prepared when their components are selected for the run. Skill bodies remain
+on-demand. Explicit skill, connector or plugin selections take effect immediately. Subagent
+activation stays within that subagent's run. Activation rechecks account, authorization and file
+integrity; ambiguous plugin names require the qualified directory identifier.
+
+Hybrid mode hosts official sites in the cloud:
+
+1. Write and build the project locally. For build-based projects, publish the build output.
+2. Call `publish_site`. The local runtime packages that directory as tar.gz and uploads the
+   actual bytes using the current account's capability credential.
+3. The cloud rechecks the publishing grant and tool schema, writes files to its configured
+   storage (such as OSS), and creates or updates the hosted site version.
+4. The tool returns the official cloud URL. Site lists, versions, submissions and key-value
+   data belong to the cloud. Include the same `site_id` when publishing an update.
+
+Source files and local conversations stay on the computer. Publishing does not synchronize the
+entire local project into a cloud personal or team workspace. Static sites upload page files;
+build-based sites upload output only, not the `source_dir` source tree. Temporary local previews
+remain available. Archives are limited to 40 MB; extracted sites retain the 30 MB total, 10 MB
+per-file and 300-file quotas. Offline or unavailable cloud publishing produces an explicit error,
+with no fallback to local hosting. Hybrid lists no longer merge historical local sites, and cloud
+404 responses never retry a local site. Historical files are not automatically deleted.
+Standalone local deployments retain their existing behavior.
+
+Deployment requires the cloud backend, bundled local backend and Windows/UOS desktop client
+updates. Updating only the cloud backend does not replace an old client's routing or runtime.

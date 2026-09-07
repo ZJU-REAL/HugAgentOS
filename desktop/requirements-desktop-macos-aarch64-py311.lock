@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: c347f2165483cf84a6e8cde387ebf4bf54d6fcc1ea9754a356d1c0c3a49af635
+# input-sha256: a9f5a6331e5d6889855720380298f3209cd76faac039aaadb95bba04b868bc3f
 # Target: CPython 3.11 on macOS Apple Silicon
 agentscope==2.0.0
     # via -r desktop/requirements-desktop.txt

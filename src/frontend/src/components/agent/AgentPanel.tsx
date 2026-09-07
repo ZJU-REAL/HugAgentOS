@@ -36,8 +36,6 @@ import { usePanelHeader } from '../../hooks/usePageConfig';
 import { ABILITY_TAB_TITLE } from '../catalog/abilityTabs';
 import { t } from '../../i18n';
 import { DeviceCapabilityBadge } from '../catalog/DeviceCapabilityBadge';
-import { DeviceCapabilityPanel } from '../catalog/DeviceCapabilityPanel';
-import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import { AgentIcon } from './AgentIcon';
 
 const AGENT_DETAIL_ID_KEY = 'hugagent_agent_detail_id';
@@ -772,7 +770,6 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
         </div>
       </div>
 
-      <DeviceCapabilityPanel kind="agent" />
       {/* Card grid (container key=panelEntryNonce controls stagger replay; data updates like the enable toggle don't replay) */}
       {loading ? (
         <AgentListSkeleton />
@@ -851,7 +848,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
         open={marketOpen}
         onClose={() => setMarketOpen(false)}
         fetchers={USER_MARKET_FETCHERS}
-        onInstalled={() => { void fetchAgents(); void useDesktopCapabilityStore.getState().refresh().catch((error) => message.error(error.message)); }}
+        onInstalled={() => { void fetchAgents(); }}
       />
 
       <Modal
