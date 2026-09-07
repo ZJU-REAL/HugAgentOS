@@ -57,6 +57,7 @@ interface ProjectStoreState {
   createPersonal: (name: string, description?: string, linkedFolderId?: string) => Promise<string>;
   updateProject: (patch: { name?: string; description?: string; pinned?: boolean; icon_color?: string; memory_enabled?: boolean; memory_write_enabled?: boolean }) => Promise<void>;
   updateInstructions: (instructions: string) => Promise<void>;
+  refreshInstructions: () => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   toggleFavorite: (on: boolean) => Promise<void>;
   toggleFavoriteById: (projectId: string, on: boolean) => Promise<void>;
@@ -163,6 +164,15 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({ currentProject: await apiUpdateProjectInstructions(currentProjectId, instructions) });
   },
 
+  refreshInstructions: async () => {
+    const { currentProjectId } = get();
+    if (!currentProjectId) return;
+    const before = get().currentProject;
+    const updated = await apiGetProject(currentProjectId);
+    if (get().currentProjectId !== currentProjectId || get().currentProject !== before) return;
+    set({ currentProject: updated });
+  },
+
   deleteProject: async (projectId) => {
     await apiDeleteProject(projectId);
     if (get().currentProjectId === projectId) get().closeCurrentProject();
@@ -240,6 +250,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     if (!currentProjectId) return;
     await uploadProjectFile(currentProjectId, file);
     await get().refreshFiles();
+    await get().refreshInstructions();
   },
 
   uploadFiles: async (files) => {
@@ -271,6 +282,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     if (!currentProjectId) return;
     await removeProjectFile(currentProjectId, artifactId);
     await get().refreshFiles();
+    await get().refreshInstructions();
   },
 
   refreshChats: async (scope) => {
