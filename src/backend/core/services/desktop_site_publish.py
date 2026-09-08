@@ -21,6 +21,7 @@ class SiteUploadOptions(SitePublishScopeFields):
 
 async def package_local_site(arguments, headers):
     """Read the current local sandbox, never a path on the remote backend."""
+    from core.config.local_mode import local_mode_enabled
     from core.llm.tools._paths import to_physical_path
     from core.llm.tools._tool_helpers import _validate_workspace_path
     from core.services.site_packaging import pack_and_fetch_dir, resolve_project_context
@@ -39,7 +40,11 @@ async def package_local_site(arguments, headers):
     if not os.path.isabs(src):
         src = "/workspace/" + src
     src = to_physical_path(src, user_id, session_id=chat_id)
-    error = _validate_workspace_path(src + "/")
+    # A desktop project root is an explicitly bound host directory. It is not
+    # necessarily under the managed scratch workspace (e.g. Windows Desktop).
+    # Keep containment checks; authorize only the current owned project's root.
+    roots = (project_dir,) if local_mode_enabled() and project_dir else ()
+    error = _validate_workspace_path(src + "/", additional_roots=roots)
     if error:
         raise ValueError(error)
     source = str(arguments.get("source_dir") or "").strip().rstrip("/")

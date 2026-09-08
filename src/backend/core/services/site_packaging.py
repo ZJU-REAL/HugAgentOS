@@ -44,6 +44,23 @@ def resolve_project_context(chat_id: str, user_id: str):
             raise HTTPException(409, "站点源码项目不存在")
         if resolve_project_permission(db, user_id, project) not in ("edit", "admin"):
             raise HTTPException(403, "当前项目不允许编辑或发布站点")
+        if project.kind == "local":
+            # Local projects bind a host directory, never a My Space folder.
+            # Resolve this before cloud project context (which also reads files).
+            from pathlib import Path
+            import os
+            from core.config.local_mode import local_mode_enabled
+
+            if not local_mode_enabled():
+                raise HTTPException(403, "本地项目站点仅在本机模式下可发布")
+            raw = ((project.extra_data or {}).get("local") or {}).get("path")
+            if not isinstance(raw, str) or not raw or not os.path.isabs(raw):
+                raise HTTPException(409, "本地项目文件夹不存在或不可访问")
+            root = Path(raw).resolve()
+            if not root.is_dir():
+                raise HTTPException(409, "本地项目文件夹不存在或不可访问")
+            return project.project_id, str(root)
+
         ctx = build_project_ctx(db, project.project_id)
         folder = (ctx or {}).get("project_folder_name")
         if not folder:

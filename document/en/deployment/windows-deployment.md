@@ -215,3 +215,5 @@ Standalone local deployments retain their existing behavior.
 
 Deployment requires the cloud backend, bundled local backend and Windows/UOS desktop client
 updates. Updating only the cloud backend does not replace an old client's routing or runtime.
+
+Publishing a local folder project resolves its bound host directory without requiring a cloud space folder. Build output must remain inside that project directory or the local workspace. Missing directories, projects owned by other users, and escaping links are rejected.
