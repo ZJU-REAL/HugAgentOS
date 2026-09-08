@@ -317,6 +317,30 @@ function throwIfSessionExpired(status: number, payload: unknown, localTarget = f
   throw new Error('Session expired');
 }
 
+/** 云端每次让能力缓存失效都会换一个变更号，随响应头下发。桌面双模式下发现它变了
+ *  就同步一次本机能力——这是「不轮询」下发现云端改动的信号，不产生额外请求。 */
+const CAPABILITY_EPOCH_HEADER = 'x-hugagent-capability-epoch';
+let _capabilityEpoch: string | null = null;
+let _capabilitySyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function noteCloudCapabilityEpoch(epoch: string | null) {
+  if (!epoch) return;
+  const previous = _capabilityEpoch;
+  _capabilityEpoch = epoch;
+  if (previous === null || previous === epoch || !_hybridDual) return;
+  if (_capabilitySyncTimer) clearTimeout(_capabilitySyncTimer);
+  _capabilitySyncTimer = setTimeout(() => {
+    _capabilitySyncTimer = null;
+    void syncDeviceCapabilities().then(() => _onCapabilitiesSynced?.()).catch(() => {});
+  }, 500);
+}
+
+let _onCapabilitiesSynced: (() => void) | null = null;
+/** 同步完成后刷新界面上的本机/云端标记（由 desktopCapabilityStore 注册）。 */
+export function setCapabilitySyncListener(fn: (() => void) | null) {
+  _onCapabilitiesSynced = fn;
+}
+
 export async function apiRequest<T>(
   path: string,
   options?: RequestInit,
@@ -339,6 +363,7 @@ export async function apiRequest<T>(
     credentials: 'include',
     headers,
   });
+  if (!localTarget) noteCloudCapabilityEpoch(response.headers.get(CAPABILITY_EPOCH_HEADER));
 
   if (response.status === 204) {
     return undefined as T;
@@ -1963,59 +1988,26 @@ export async function getMarketplaceSkillDetail(slug: string): Promise<Marketpla
   return unwrapData<MarketplaceSkillDetail>(wrapped);
 }
 
-// ── Desktop capability store（桌面双模式：本机执行面的能力安装状态）────────────
+// ── Desktop capability store（桌面双模式：本机执行面的能力来源）────────────
 // 全部走本机后端（x-hugagent-target: local）。云端能力中心负责「账号里有什么」；
-// 这组接口负责「这台机器上准备到什么程度、同名时用哪一份」。
+// 这里只回答「这台机器上这条能力是本机的还是云端的」——没有任何手动管理动作：
+// 登录时同步一次就全部准备好，云端能力被改动时前端调一次 syncDeviceCapabilities。
 
 export type DeviceCapabilityKind = 'skill' | 'mcp' | 'agent' | 'plugin';
-export type DeviceCapabilityOutcome = 'chosen' | 'shadowed' | 'conflict' | 'unusable' | 'absent';
-
-export interface DeviceCapabilityReadiness {
-  ready: boolean;
-  missing_required: string[];
-  components: Array<Record<string, unknown>>;
-  errors?: Array<Record<string, unknown>>;
-  warnings?: Array<Record<string, unknown>>;
-  nodes?: Array<Record<string, unknown>>;
-  dependency_report?: Record<string, unknown>;
-}
 
 export interface DeviceCapabilityItem {
   install_id: string;
   runtime_name: string;
   kind: DeviceCapabilityKind;
-  profile: string;
   /** 'cloud' | 'local' | 'builtin' | 'plugin' */
   source: string;
-  path?: string | null;
-  content_hash?: string | null;
-  revision?: string | null;
-  usable: boolean;
-  enabled: boolean;
-  registered?: boolean;
   server_id?: string;
-  derived_from?: string | null;
-  derived_resource_ref?: Record<string, string> | null;
-  derived_revision?: string | null;
-  account_level?: boolean;
-  /** pending | preparing | ready | failed | removed | disabled | files_missing */
-  state: string;
-  display_name?: string;
-  description?: string;
-  version?: string;
-  last_error?: string | null;
-  payload?: Record<string, unknown>;
-  files_ready?: boolean;
-  readiness?: DeviceCapabilityReadiness;
-  resolution: { outcome: DeviceCapabilityOutcome; reason: string | null };
 }
 
 export interface DeviceCapabilityListing {
   kind: DeviceCapabilityKind;
   profile_id: string | null;
   items: DeviceCapabilityItem[];
-  conflicts: Record<string, string[]>;
-  preferences: Record<string, string>;
 }
 
 export async function getDeviceCapabilities(kind: DeviceCapabilityKind): Promise<DeviceCapabilityListing> {
@@ -2026,161 +2018,6 @@ export async function getDeviceCapabilities(kind: DeviceCapabilityKind): Promise
 export async function syncDeviceCapabilities(): Promise<Record<string, unknown>> {
   const wrapped = await apiRequest<unknown>('/v1/desktop/capabilities/sync', { method: 'POST' }, 'local');
   return unwrapData<Record<string, unknown>>(wrapped);
-}
-
-export interface DevicePrepareResult {
-  install_id: string;
-  ok: boolean;
-  installation?: DeviceCapabilityItem;
-  files_ready?: boolean;
-  readiness?: DeviceCapabilityReadiness;
-  error?: { code: string; message: string; recovery_action?: string; details?: Record<string, unknown> };
-}
-
-export async function prepareDeviceCapabilities(body: {
-  install_ids?: string[];
-  resource_refs?: Array<{ issuer: string; namespace: string; kind: string; id: string }>;
-  sync_first?: boolean;
-}): Promise<DevicePrepareResult[]> {
-  const wrapped = await apiRequest<unknown>(
-    '/v1/desktop/capabilities/preparations',
-    { method: 'POST', body: JSON.stringify(body) },
-    'local',
-  );
-  return unwrapData<{ results: DevicePrepareResult[] }>(wrapped).results;
-}
-
-export async function removeDeviceCapabilityFiles(installId: string): Promise<void> {
-  await apiRequest<unknown>(
-    '/v1/desktop/capabilities/removals',
-    { method: 'POST', body: JSON.stringify({ install_id: installId, target: 'device' }) },
-    'local',
-  );
-}
-
-export interface DeviceLocalCopyResult {
-  install_id: string;
-  installation: DeviceCapabilityItem;
-}
-
-export async function createDeviceLocalCopy(installId: string, runtimeName?: string): Promise<DeviceLocalCopyResult> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/local-copy`,
-    { method: 'POST', body: JSON.stringify({ runtime_name: runtimeName }) },
-    'local',
-  );
-  return unwrapData<DeviceLocalCopyResult>(wrapped);
-}
-
-export interface DeviceSkillFile {
-  filename: string;
-  content: string;
-  revision: string;
-  is_binary: boolean;
-}
-export async function getDeviceSkillFile(installId: string): Promise<DeviceSkillFile> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/files/SKILL.md`, undefined, 'local',
-  );
-  return unwrapData<DeviceSkillFile>(wrapped);
-}
-export async function putDeviceSkillFile(installId: string, content: string, expectedRevision: string): Promise<DeviceSkillFile> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/files/SKILL.md`,
-    { method: 'PUT', body: JSON.stringify({ content, expected_revision: expectedRevision }) }, 'local',
-  );
-  return unwrapData<DeviceSkillFile>(wrapped);
-}
-
-export async function setDeviceCapabilityEnabled(installId: string, enabled: boolean): Promise<DeviceCapabilityListing> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/desktop/capabilities/installations/${encodeURIComponent(installId)}/enabled`,
-    { method: 'PUT', body: JSON.stringify({ enabled }) }, 'local',
-  );
-  return unwrapData<DeviceCapabilityListing>(wrapped);
-}
-
-export async function setDeviceNamePreference(
-  kind: DeviceCapabilityKind,
-  runtimeName: string,
-  installId: string | null,
-): Promise<DeviceCapabilityListing> {
-  const wrapped = await apiRequest<unknown>(
-    '/v1/desktop/capabilities/name-preferences',
-    { method: 'PUT', body: JSON.stringify({ kind, runtime_name: runtimeName, install_id: installId }) },
-    'local',
-  );
-  return unwrapData<DeviceCapabilityListing>(wrapped);
-}
-
-export interface DeviceMcpVersion {
-  expected_generation?: number;
-  expected_digest?: string;
-}
-export interface DeviceLocalMcpSpec {
-  transport: 'stdio' | 'streamable_http' | 'sse';
-  enabled: boolean;
-  displayName?: string;
-  description?: string;
-  command?: string;
-  args?: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-  url?: string;
-  executionTimeout?: number;
-  credentialRef?: string;
-  secret_headers?: Record<string, string>;
-}
-export interface DeviceMcpJson {
-  path: string;
-  generation: number;
-  digest: string;
-  local: Record<string, DeviceLocalMcpSpec>;
-  managedProfiles: Record<string, {
-    cloudInstanceId: string;
-    catalogRevision: string;
-    servers: Record<string, { displayName: string; enabled: boolean; executionScope: string; schemaHash: string }>;
-  }>;
-}
-
-export async function getDeviceMcpJson(): Promise<DeviceMcpJson> {
-  const wrapped = await apiRequest<unknown>('/v1/desktop/capabilities/mcp-json', undefined, 'local');
-  return unwrapData<DeviceMcpJson>(wrapped);
-}
-
-export async function putDeviceLocalMcp(
-  serverId: string,
-  spec: DeviceLocalMcpSpec & DeviceMcpVersion,
-): Promise<DeviceMcpJson> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/desktop/capabilities/mcp-json/local/${encodeURIComponent(serverId)}`,
-    { method: 'PUT', body: JSON.stringify(spec) },
-    'local',
-  );
-  return unwrapData<DeviceMcpJson>(wrapped);
-}
-
-export async function deleteDeviceLocalMcp(serverId: string, expected: DeviceMcpVersion = {}): Promise<DeviceMcpJson> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/desktop/capabilities/mcp-json/local/${encodeURIComponent(serverId)}${buildQuery({ ...expected })}`,
-    { method: 'DELETE' },
-    'local',
-  );
-  return unwrapData<DeviceMcpJson>(wrapped);
-}
-
-export async function setDeviceManagedMcpEnabled(profile: string, serverId: string, enabled: boolean): Promise<DeviceMcpJson> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/desktop/capabilities/mcp-json/managed/${encodeURIComponent(profile)}/${encodeURIComponent(serverId)}/enabled`,
-    { method: 'PUT', body: JSON.stringify({ enabled }) },
-    'local',
-  );
-  return unwrapData<DeviceMcpJson>(wrapped);
-}
-
-export async function repairDeviceMcpJson(): Promise<{ quarantined: string | null }> {
-  const wrapped = await apiRequest<unknown>('/v1/desktop/capabilities/mcp-json/repair', { method: 'POST' }, 'local');
-  return unwrapData<{ quarantined: string | null }>(wrapped);
 }
 
 export async function installMarketplaceSkill(
@@ -4020,7 +3857,7 @@ export async function cancelLoop(loopId: string): Promise<boolean> {
 // ── Sites (site hosting) ────────────────────────────────────────────────
 
 export interface SiteItem extends SiteEditionFields {
-  /** 混合架构：站点发布在云端还是本机执行面（桌面双模式合并视图）。 */
+  /** 混合模式的正式站点统一托管在云端。 */
   origin?: 'cloud' | 'local';
   site_id: string;
   slug: string;
@@ -4065,36 +3902,19 @@ function toSiteItem(raw: JsonObject): SiteItem {
   };
 }
 
-/** 站点管理操作的路由目标：本机发布的站点 → 本机执行面。 */
+/** 混合模式忽略旧站点卡片的本机来源标记。 */
 function siteTarget(origin?: 'cloud' | 'local'): 'local' | undefined {
-  return origin === 'local' ? 'local' : undefined;
+  return !isHybridDual() && origin === 'local' ? 'local' : undefined;
 }
 
 export async function listSites(page = 1, pageSize = 50): Promise<{ items: SiteItem[]; total: number }> {
   const wrapped = await apiRequest<unknown>(`/v1/sites?page=${page}&page_size=${pageSize}`);
   const data = unwrapData<JsonObject>(wrapped);
-  let items: SiteItem[] = Array.isArray(data.items)
+  const items: SiteItem[] = Array.isArray(data.items)
     ? (data.items as JsonObject[]).map((r) => ({ ...toSiteItem(r), origin: 'cloud' as const }))
     : [];
   const pagination = (data.pagination ?? {}) as JsonObject;
-  let total = Number(pagination.total_items ?? items.length);
-  // 双模式：并入本机发布的站点（本机执行的建站会话把站点落在本机库），
-  // 按更新时间倒序混排；本机未就绪时静默仅展示云端。
-  if (isHybridDual()) {
-    try {
-      const lw = await apiRequest<unknown>(
-        `/v1/sites?page=${page}&page_size=${pageSize}`, undefined, 'local',
-      );
-      const ld = unwrapData<JsonObject>(lw);
-      const localItems = Array.isArray(ld.items)
-        ? (ld.items as JsonObject[]).map((r) => ({ ...toSiteItem(r), origin: 'local' as const }))
-        : [];
-      const lp = (ld.pagination ?? {}) as JsonObject;
-      total += Number(lp.total_items ?? localItems.length);
-      items = [...items, ...localItems].sort((a, b) =>
-        String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')));
-    } catch { /* local backend not ready */ }
-  }
+  const total = Number(pagination.total_items ?? items.length);
   return { items, total };
 }
 
@@ -4187,7 +4007,7 @@ export async function exportSiteSubmissions(
   );
   const res = unwrapData<{ artifact_id: string; filename: string; rows: number; download_url: string }>(wrapped);
   // 本机导出的产物在本机端，下载链接补路由标记（window.open 带不上请求头）。
-  if (origin === 'local' && res.download_url && !res.download_url.includes('hg_target=local')) {
+  if (siteTarget(origin) === 'local' && res.download_url && !res.download_url.includes('hg_target=local')) {
     res.download_url += res.download_url.includes('?') ? '&hg_target=local' : '?hg_target=local';
   }
   return res;

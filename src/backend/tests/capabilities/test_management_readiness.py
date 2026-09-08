@@ -11,18 +11,14 @@ from core.services.desktop_capability_protocol import entity_content_hash
 from tests.capabilities.test_desktop_capabilities_api import client, USER, PROFILE, _Cloud
 
 
-def _cloud_skill(client, monkeypatch, metadata, key="requires-runtime"):
+def _cloud_skill(client, monkeypatch, metadata, key="requires-runtime", sync=True):
+    """同步即准备：这一次 sync 之后技能字节就已经在本机，没有手动准备这一步。"""
     md = "---\nname: " + key + "\ndescription: test\n" + metadata + "\n---\nSynthetic skill\n"
     cloud = _Cloud({key: {"SKILL.md": md}})
     monkeypatch.setattr("httpx.get", cloud.get)
-    assert client.post("/v1/desktop/capabilities/sync").status_code == 200
+    if sync:
+        assert client.post("/v1/desktop/capabilities/sync").status_code == 200
     return registry.install_id("skill", PROFILE, key), cloud
-
-
-def _prepare(client, ids):
-    response = client.post("/v1/desktop/capabilities/preparations", json={"install_ids": ids})
-    assert response.status_code == 200
-    return response.json()["data"]["results"]
 
 
 def _item(client, kind, iid):
@@ -33,15 +29,11 @@ def _item(client, kind, iid):
 
 def test_incompatible_skill_is_downloaded_but_not_ready(client, monkeypatch):
     iid, _ = _cloud_skill(client, monkeypatch, "platforms: [not-a-real-platform]")
-    result = _prepare(client, [iid])[0]
-    assert result["ok"] is False
-    assert result["files_ready"] is True
-    assert result["error"]["code"] == "dependency_missing"
-    assert result["readiness"]["errors"][0]["reason"] == "platform_incompatible"
     assert registry.get(iid).ready
     item = _item(client, "skill", iid)
     assert item["state"] == "ready" and item["files_ready"] is True
     assert item["usable"] is False and item["readiness"]["ready"] is False
+    assert item["readiness"]["errors"][0]["reason"] == "platform_incompatible"
     assert item["readiness"]["missing_required"]
 
 
@@ -53,8 +45,7 @@ def test_missing_runtime_recovers_without_redownload(client, monkeypatch):
         monkeypatch,
         "dependencies:\n  - kind: pip\n    id: codex-test-package-never-installed-1943",
     )
-    result = _prepare(client, [iid])[0]
-    assert not result["ok"] and result["files_ready"]
+    assert not _item(client, "skill", iid)["usable"]
     revision = registry.get(iid).resolved_revision
     original = dependency.importlib.metadata.version
     monkeypatch.setattr(
@@ -67,10 +58,9 @@ def test_missing_runtime_recovers_without_redownload(client, monkeypatch):
         raise AssertionError("rechecking retained files must not download")
 
     monkeypatch.setattr("httpx.get", no_network)
-    recovered = _prepare(client, [iid])[0]
-    assert recovered["ok"] and recovered["readiness"]["ready"]
+    recovered = _item(client, "skill", iid)
+    assert recovered["usable"] and recovered["readiness"]["ready"]
     assert registry.get(iid).resolved_revision == revision
-    assert _item(client, "skill", iid)["usable"]
 
 
 def test_optional_missing_runtime_is_a_visible_warning(client, monkeypatch):
@@ -79,9 +69,9 @@ def test_optional_missing_runtime_is_a_visible_warning(client, monkeypatch):
         monkeypatch,
         "dependencies:\n  - kind: pip\n    id: codex-test-package-never-installed-1943\n    required: false",
     )
-    result = _prepare(client, [iid])[0]
-    assert result["ok"] and result["readiness"]["ready"]
-    assert result["readiness"]["warnings"][0]["reason"] == "runtime_dependency_missing"
+    item = _item(client, "skill", iid)
+    assert item["usable"] and item["readiness"]["ready"]
+    assert item["readiness"]["warnings"][0]["reason"] == "runtime_dependency_missing"
 
 
 def _entity(kind, key, definition):
@@ -122,7 +112,8 @@ def test_agent_list_reports_incompatible_platform(client, monkeypatch):
     assert item["readiness"]["errors"][0]["reason"] == "platform_incompatible"
 
 
-def test_plugin_is_checked_after_all_requested_components_are_prepared(client, monkeypatch):
+def test_plugin_readiness_follows_its_components(client, monkeypatch):
+    """插件的就绪由组件推导：同步把组件技能准备好了才算就绪，组件文件没了就立刻不就绪。"""
     sid, _ = _cloud_skill(client, monkeypatch, "")
     plugin = _entity(
         "plugin",
@@ -130,12 +121,12 @@ def test_plugin_is_checked_after_all_requested_components_are_prepared(client, m
         {"slug": "ordered-plugin", "components": {"skills": ["requires-runtime"]}},
     )
     registry.set_components(plugin, {sid: True})
-    before = _item(client, "plugin", plugin)
-    assert not before["usable"] and not before["readiness"]["ready"]
-    results = _prepare(client, [plugin, sid])
-    assert all(result["ok"] for result in results)
-    assert all(result["readiness"]["ready"] for result in results)
     assert _item(client, "plugin", plugin)["usable"]
+
+    store.remove_key("skill", PROFILE, "requires-runtime")
+    registry.set_state(sid, "pending", resolved_revision=None)
+    after = _item(client, "plugin", plugin)
+    assert not after["usable"] and not after["readiness"]["ready"]
 
 
 def test_local_mcp_missing_command_is_not_ready(client, monkeypatch):
@@ -170,7 +161,6 @@ def test_plugin_component_reports_its_runtime_blocker(client, monkeypatch):
         {"slug": "blocked-component", "components": {"skills": ["requires-runtime"]}},
     )
     registry.set_components(plugin, {sid: True})
-    _prepare(client, [sid, plugin])
     item = _item(client, "plugin", plugin)
     assert not item["usable"] and not item["readiness"]["ready"]
     assert item["readiness"]["components"][0]["ready"] is False

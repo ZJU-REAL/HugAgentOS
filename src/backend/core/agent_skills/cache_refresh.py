@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 def refresh_skill_caches() -> None:
     from core.agent_skills.loader import get_skill_loader
     from core.config.catalog_loader import invalidate_catalog_cache
-
     from core.capabilities.paths import capabilities_enabled
     if capabilities_enabled():
         from core.capabilities.local_projection import sync_local_skills

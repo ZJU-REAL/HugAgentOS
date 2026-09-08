@@ -150,7 +150,9 @@ class GatewayMCPTool(ToolBase):
         headers: Dict[str, str],
         timeout: float,
         transport: Any = None,
+        component: str = "",
     ) -> None:
+        self._component = component
         self.mcp_name = mcp_name
         self.name = tool.name
         self.description = tool.description or ""
@@ -210,17 +212,43 @@ class GatewayMCPTool(ToolBase):
         }
         if self._transport is not None:
             client_kwargs["transport"] = self._transport
+        channel = None
+        if captured is not None:
+            from core.services.desktop_gateway_uploads import (
+                UPLOAD_OPTIONS_HEADER,
+                UPLOAD_SCHEMA_HEADER,
+                upload_channel,
+            )
+
+            channel = upload_channel(self._component, self.name)
+        if channel is not None:
+            body, options = await channel.package(kwargs, headers)
+            bridge.require_current_account(captured)
         try:
             async with httpx.AsyncClient(**client_kwargs) as client:
-                response = await client.post(
-                    self._invoke_url,
-                    headers=headers,
-                    json={
-                        "tool_name": self.name,
-                        "arguments": kwargs,
-                        "schema_hash": self._schema_hash,
-                    },
-                )
+                if channel is not None:
+                    headers.update(
+                        {
+                            "content-type": channel.content_type,
+                            UPLOAD_OPTIONS_HEADER: options,
+                            UPLOAD_SCHEMA_HEADER: self._schema_hash,
+                        }
+                    )
+                    response = await client.post(
+                        f"{self._invoke_url.rsplit('/', 1)[0]}/{channel.endpoint}",
+                        headers=headers,
+                        content=body,
+                    )
+                else:
+                    response = await client.post(
+                        self._invoke_url,
+                        headers=headers,
+                        json={
+                            "tool_name": self.name,
+                            "arguments": kwargs,
+                            "schema_hash": self._schema_hash,
+                        },
+                    )
             if captured is not None:
                 bridge.require_current_account(captured)
             response.raise_for_status()
@@ -228,6 +256,8 @@ class GatewayMCPTool(ToolBase):
             data = payload.get("data") if isinstance(payload, dict) else None
             if not isinstance(data, dict):
                 raise ValueError("cloud gateway returned no tool result")
+            if channel is not None and channel.localize is not None:
+                channel.localize(data, captured["cloud_base"])
             chunk = ToolChunk.model_validate(data)
             chunk.metadata.setdefault("origin", "cloud")
             chunk.metadata.setdefault("mcp_server_id", self.mcp_name)
@@ -243,8 +273,12 @@ class GatewayMCPTool(ToolBase):
                 with bridge.account_scope(captured):
                     bridge.clear_state()
             if exc.response.status_code == 409:
+                # 云端在此明确告知能力已变——这是「不轮询」下发现云端改动的信号之一，
+                # 立刻后台同步一次清单，下一轮对话就是新的。
+                if captured is not None:
+                    bridge.notify_cloud_changed()
                 raise RuntimeError(
-                    f"云端工具 {self.name} 已更新，请刷新能力清单后重试"
+                    f"云端工具 {self.name} 已更新，正在同步最新能力，请重试"
                 ) from exc
             raise RuntimeError(
                 f"云端工具 {self.name} 暂时不可用（HTTP {exc.response.status_code}）"
@@ -262,6 +296,7 @@ class ManifestMCPClient(BareNameMCPClient):
     gateway_invoke_url: str = Field(exclude=True)
     schema_hash: str = Field(exclude=True)
     gateway_transport: Any = Field(default=None, exclude=True)
+    gateway_component: str = Field(default="", exclude=True)
 
     def _raw_manifest_tools(self) -> List[mcp.types.Tool]:
         tools: List[mcp.types.Tool] = []
@@ -292,6 +327,7 @@ class ManifestMCPClient(BareNameMCPClient):
                     headers=dict(self.mcp_config.headers or {}),
                     timeout=float(self.execution_timeout or 120.0),
                     transport=self.gateway_transport,
+                    component=self.gateway_component,
                 )
         raise ValueError(f"Tool '{name}' not found in cloud manifest MCP '{self.name}'")
 

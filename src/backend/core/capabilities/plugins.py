@@ -237,3 +237,23 @@ def readiness(
         "components": components,
         "dependency_report": report,
     }
+
+
+def enabled_cloud_skill_intents(user_id):
+    """Skill intentions of enabled plugins in the current authorized account."""
+    from . import skills
+    from .dependency import _identifier
+
+    if not skills.account_authorized_for(user_id):
+        return set()
+    profile = skills.current_account_profile()
+    selected = set()
+    for row in registry.list_installations(kind=KIND_PLUGIN, profile_id=profile):
+        if not row.enabled:
+            continue
+        for entry in (row.payload.get("components") or {}).get("skills", []):
+            sid = _identifier(entry) if isinstance(entry, dict) else str(entry)
+            inst = registry.get(registry.install_id(KIND_SKILL, profile, sid))
+            if inst and inst.enabled and inst.state != "removed":
+                selected.add(sid)
+    return selected

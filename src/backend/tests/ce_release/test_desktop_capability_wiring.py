@@ -40,8 +40,7 @@ def test_generated_ce_registers_cloud_bridge_and_device_management_routes():
         ("POST", "/v1/desktop/capability/token"),
         ("GET", "/v1/desktop/capability/skills/manifest"),
         ("GET", "/v1/desktop/capabilities/installations"),
-        ("POST", "/v1/desktop/capabilities/preparations"),
-        ("POST", "/v1/desktop/capabilities/removals"),
-        ("POST", "/v1/desktop/capabilities/installations/{install_id}/local-copy"),
-        ("PUT", "/v1/desktop/capabilities/name-preferences"),
+        ("POST", "/v1/desktop/capabilities/sync"),
+        ("POST", "/v1/desktop/capabilities/views/rebuild"),
+        ("GET", "/v1/desktop/capabilities/mcp-json"),
     } <= actual

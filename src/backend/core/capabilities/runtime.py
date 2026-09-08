@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from core.db.models import ContentBlock
+
 from . import archive, registry, skills, store, view
 from .errors import IntegrityFailed, NameConflict, PackageMissing, PermissionDenied, ViewUnavailable
 from .paths import BUILTIN_PROFILE, KIND_SKILL, LOCAL_PROFILE, require_root, revision_for_hash
@@ -108,8 +109,8 @@ def validate(
     if run.profile is not None:
         from core.services.desktop_cloud_bridge import (
             _state_fingerprint,
-            get_state,
             ensure_current_authorization,
+            get_state,
         )
 
         if (
@@ -205,6 +206,7 @@ def _freeze_candidate(name, candidate):
             store.write_from_files(KIND_SKILL, profile, name, revision, files)
     elif candidate.content_hash and actual != candidate.content_hash:
         raise IntegrityFailed("installed content changed", runtime_name=name)
+    installation = registry.get(candidate.install_id) if profile != BUILTIN_PROFILE else None
     return {
         "install_id": candidate.install_id,
         "profile": profile,
@@ -212,6 +214,7 @@ def _freeze_candidate(name, candidate):
         "revision": revision,
         "content_hash": actual,
         "resource_ref": candidate.ref.to_dict() if candidate.ref else None,
+        "version": installation.version if installation else "",
     }
 
 
@@ -270,8 +273,8 @@ def _selected_skill_closure(
 def _bind_cloud_identity(run):
     from core.services.desktop_cloud_bridge import (
         _state_fingerprint,
-        get_state,
         ensure_current_authorization,
+        get_state,
     )
 
     if not skills.account_authorized_for(run.user_id):
@@ -478,7 +481,7 @@ def bind_mcp(run: PreparedRun, configs, choices):
 
 def pin_agent_definition(run_id, user_id, definition, *, scope_id: str = ""):
     """Keep the selected agent's instructions and dependency IDs stable on replay."""
-    from .agents import AgentDefinition, _JSON_FIELDS
+    from .agents import _JSON_FIELDS, AgentDefinition
 
     ident = str(definition.agent_id)
     key = "desktop_capability_agent:" + _snapshot_key(str(run_id) + ":" + ident, scope_id)
@@ -489,8 +492,8 @@ def pin_agent_definition(run_id, user_id, definition, *, scope_id: str = ""):
     )
     from core.services.desktop_cloud_bridge import (
         _state_fingerprint,
-        get_state,
         ensure_current_authorization,
+        get_state,
     )
 
     fingerprint = _state_fingerprint(get_state()) if profile else None
@@ -630,6 +633,46 @@ def _persist_preflight_report(run, report):
         return updated
 
 
+def _merge_progressive_recheck(report, plugin_nodes, context, skill_ids, available_mcp):
+    """Recheck progressive plugin declarations against the frozen skill bindings.
+
+    Only components this run did not select are skipped; version, platform and
+    runtime constraints on the selected ones must survive the intersection, and
+    a definition that moved between preparation and now is an integrity failure.
+    """
+    from .dependency import Inspector, _identifier
+
+    selected_skills, selected_mcp = set(skill_ids or ()), set(available_mcp or ())
+    expected_nodes = {node["install_id"]: node for node in plugin_nodes}
+    progressive_context = replace(context, frozen_nodes={**context.frozen_nodes, **expected_nodes})
+
+    def is_selected(entry, _required):
+        key = _identifier(entry).split(":")[-1]
+        if entry.get("kind") == "skill":
+            return key in selected_skills
+        if entry.get("kind") == "mcp":
+            return key in selected_mcp
+        return True
+
+    progressive = Inspector(progressive_context, on_visit=is_selected)
+    for node in plugin_nodes:
+        kind, profile, _ = node["install_id"].split(":", 2)
+        progressive.visit({"kind": kind, "id": node["install_id"]}, profile)
+    checked = progressive.report()
+
+    for node in checked["nodes"]:
+        expected = expected_nodes.get(node["install_id"])
+        if expected and any(
+            node.get(field) != expected.get(field) for field in ("revision", "content_hash")
+        ):
+            raise IntegrityFailed("plugin definition changed during preparation")
+    known = {node["install_id"] for node in report["nodes"]}
+    report["nodes"].extend(node for node in checked["nodes"] if node["install_id"] not in known)
+    report["errors"].extend(checked["errors"])
+    report["warnings"].extend(checked["warnings"])
+    report["ready"] = report["ready"] and checked["ready"]
+
+
 def preflight(
     run,
     *,
@@ -639,6 +682,7 @@ def preflight(
     available_mcp=(),
     available_kb=(),
     available_models=None,
+    plugin_nodes=(),
 ):
     """Stop before connecting/executing tools if the authorized closure is incomplete."""
     from .dependency import Context, Inspector, allowed_model_ids, require_report
@@ -696,6 +740,8 @@ def preflight(
         if inst:
             inspector.visit({"kind": "agent", "id": inst.key}, inst.profile_id)
     report = inspector.report()
+    if plugin_nodes:
+        _merge_progressive_recheck(report, plugin_nodes, context, skill_ids, available_mcp)
     report["state"] = "ready" if report["ready"] else "blocked"
     if not report["ready"]:
         report["error"] = {"code": "dependency_missing", "recovery_action": "inspect_dependencies"}
@@ -708,6 +754,7 @@ def preflight(
         or getattr(agent_definition, "origin", "local") == "cloud"
     ):
         updated = _bind_cloud_identity(updated)
+    validate(updated)
     updated = _persist_preflight_report(updated, report)
     require_report(updated.dependency_report)
     return updated

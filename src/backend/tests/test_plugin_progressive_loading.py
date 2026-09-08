@@ -406,3 +406,27 @@ def test_pre_turn_compaction_inputs_match_the_service_signature():
     assert kwargs["model_name"] == "model-a"
     assert kwargs["context_window"] == 4096
     assert "model_provider_id" not in kwargs
+
+
+def test_components_shared_with_an_eager_plugin_are_not_withheld(ppl_env):
+    """A deferred plugin must not strip capabilities an eager plugin still carries."""
+    with ppl_env.Session() as db:
+        db.add(
+            InstalledPlugin(
+                install_id="reporter@global",
+                slug="reporter",
+                name="报告插件",
+                description="与爬虫插件共用同一技能与 MCP。",
+                component_ids={"skills": ["crawler-scrape-a1"], "mcp": ["crawler_mcp"]},
+            )
+        )
+        row = db.query(ChatSession).filter(ChatSession.chat_id == CHAT).first()
+        row.extra_data = {"activated_plugins": ["crawler"]}
+        db.commit()
+
+    res = _resolve(ppl_env)
+
+    assert [p.slug for p in res.deferred] == ["reporter"]
+    assert res.activated_slugs == ["crawler"]
+    assert res.deferred_skill_ids == set()
+    assert res.deferred_mcp_ids == set()

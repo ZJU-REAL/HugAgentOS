@@ -213,29 +213,6 @@ def _apply_intent(
     return candidates
 
 
-def reconcile_authorization(state: Dict[str, Any]) -> None:
-    """Refresh grants for installed definitions without preparing any package."""
-    import httpx
-    from core.services.desktop_cloud_bridge import account_scope, clear_state
-
-    profile = _profile(state)
-    for kind in (KIND_AGENT, KIND_PLUGIN):
-        if not registry.list_installations(kind=kind, profile_id=profile):
-            continue
-        try:
-            manifest = _fetch(kind, state)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (401, 403):
-                with account_scope(state):
-                    clear_state()
-            raise CloudUnavailable("cloud definition authorization check failed") from exc
-        except httpx.HTTPError as exc:
-            raise CloudUnavailable(
-                "cloud definition authorization cannot be checked while offline"
-            ) from exc
-        _reconcile(kind, manifest, state, prepare=False)
-
-
 def sync_kind(kind: str, state: Dict[str, Any]) -> bool:
     """Fetch + reconcile one kind; returns whether anything changed."""
     if not capabilities_enabled():

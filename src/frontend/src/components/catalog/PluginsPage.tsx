@@ -6,9 +6,7 @@ import {
   AppstoreAddOutlined, EditOutlined, UploadOutlined, ApiOutlined, BulbOutlined, CheckCircleOutlined, WarningOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
-import { DeviceCapabilityPanel } from './DeviceCapabilityPanel';
 import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore, usePluginUiStore } from '../../stores';
 import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
@@ -101,7 +99,6 @@ export function PluginsPage() {
   const afterChange = useCallback(async () => {
     await Promise.all([
       refresh(),
-      useDesktopCapabilityStore.getState().refresh().catch((error) => message.error(error.message)),
       fetchCatalog().catch(() => {}),
       usePluginStore.getState().fetchInstalled(true),
       // 插件的界面贡献随安装/卸载生效或消失，和插件列表一起强制重拉。
@@ -546,7 +543,6 @@ export function PluginsPage() {
 
       <Spin spinning={loading}>
         {/* Installed plugins (card grid consistent with the skill library / MCP library). The plugin marketplace is moved into a modal, opened per permission. */}
-        <DeviceCapabilityPanel kind="plugin" />
         {shownInstalled.length === 0 ? (
           <Empty
             description={canImportPlugin ? t('还没有安装插件，点击右上角「添加插件」从插件市场获取') : t('还没有可用插件')}

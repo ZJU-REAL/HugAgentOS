@@ -11,11 +11,11 @@
 场景（每一步落到 JSON 报告，不以聊天正文为准）：
   01 云端建技能 / 智能体（用户 A），签发 capability token
   02 壳侧动作：模型清单 → 本机导入；桥配置推送
-  03 本机同步清单：技能 pending、智能体 / 插件已落盘、mcp.json 投影
-  04 本机按需准备技能：存储层 revision、运行视图联接、执行面会话链接
+  03 登录后的这一次同步即全部就绪：技能/智能体/插件已落盘、存储层 revision、
+     运行视图联接、mcp.json 投影（没有「待下载」这一步，也没有手动准备入口）
   05 真实调用：本机对话经云端模型网关执行技能脚本，读回标记
-  06 同名冲突：本机私有同名技能 → conflict → 显式偏好 → 视图切换
-  07 历史运行引用版本拒绝移除；未引用包可以移除后重新准备
+  06 同名冲突：本机私有同名技能 → conflict → 视图自动隐藏（不需要用户选择）
+  07 只属于本机的技能与云端能力并存
   08 切换账号 B：A 的文件留在 A 的 profile，B 的视图不含 A 的私有技能
   09 云端不可达：sync 返回 cloud_unavailable，本机副本仍可用
 """
@@ -627,14 +627,14 @@ def main() -> int:
         report.step("02 shell: models + bridge", False, error=str(exc)[:500])
         return 1
 
-    # ── 03 同步清单 ─────────────────────────────────────────────────────
+    # ── 03 同步即就绪（登录后的这一次同步就把账号能力全部准备好）─────────
     try:
         st = device.json(user_a, "POST", "/v1/desktop/capabilities/sync")
         skills_list = device.json(
             user_a, "GET", "/v1/desktop/capabilities/installations?kind=skill"
         )
         by_name = {i["runtime_name"]: i for i in skills_list["items"] if i["source"] == "cloud"}
-        pending = by_name.get(cloud_skill_id)
+        cloud_skill = by_name.get(cloud_skill_id)
         agents_list = device.json(
             user_a, "GET", "/v1/desktop/capabilities/installations?kind=agent"
         )
@@ -649,74 +649,58 @@ def main() -> int:
             i["display_name"] == agent_name and i["state"] == "ready" for i in cloud_agents
         )
         agent_dir = device_root / "agents" / (profile or "?")
-        report.step(
-            "03 sync intent",
-            pending is not None
-            and pending["state"] == "pending"
-            and agent_ready
-            and bool(managed.get("servers")),
-            profile=profile,
-            skill_state=(pending or {}).get("state"),
-            pending_count=st.get("pending_count"),
-            cloud_agents=len(cloud_agents),
-            agent_ready=agent_ready,
-            agent_files=sorted(p.name for p in agent_dir.iterdir()) if agent_dir.is_dir() else [],
-            plugins=len(plugins_list["items"]),
-            managed_servers=len(managed.get("servers") or {}),
-            mcp_json_generation=mcp_json["generation"],
+        plugin_skills_ready = all(
+            any(
+                i["runtime_name"] == sid and i["state"] == "ready"
+                for i in skills_list["items"]
+            )
+            for sid in plugin_skills
         )
-    except Exception as exc:  # noqa: BLE001
-        report.step("03 sync intent", False, error=str(exc)[:500])
-        return 1
-
-    # ── 04 按需准备 ─────────────────────────────────────────────────────
-    try:
-        preparation = device.json(
-            user_a,
-            "POST",
-            "/v1/desktop/capabilities/preparations",
-            json={
-                "install_ids": [pending["install_id"]]
-                + [f"skill:{profile}:{sid}" for sid in plugin_skills]
-            },
-        )["results"]
-        if len(preparation) != 1 + len(plugin_skills) or not all(
-            item.get("ok") for item in preparation
-        ):
-            raise RuntimeError("one or more selected skill preparations failed")
-        res = preparation[0]
-        inst = res.get("installation") or {}
-        rev = inst.get("resolved_revision")
-        store_dir = device_root / "skills" / profile / cloud_skill_id / (rev or "?")
+        rev = (cloud_skill or {}).get("revision")
+        store_dir = device_root / "skills" / (profile or "?") / cloud_skill_id / (rev or "?")
         view_link = _find_user_view(device_home, cloud_skill_id, local_user_a)
         link_ok = bool(
             view_link
             and os.path.islink(view_link)
             and _read_view_marker(view_link, device_home) == marker
         )
-        listing = device.json(user_a, "GET", "/v1/desktop/capabilities/installations?kind=skill")
         chosen = [
             i
-            for i in listing["items"]
+            for i in skills_list["items"]
             if i["runtime_name"] == cloud_skill_id and i["resolution"]["outcome"] == "chosen"
         ]
         report.step(
-            "04 prepare + view",
-            res["ok"]
+            "03 sync leaves everything ready",
+            cloud_skill is not None
+            and cloud_skill["state"] == "ready"
+            and st.get("pending_count") == 0
+            and plugin_skills_ready
+            and agent_ready
+            and bool(managed.get("servers"))
             and store_dir.is_dir()
             and (store_dir / "marker.txt").read_text() == marker
             and link_ok
             and bool(chosen),
+            profile=profile,
+            skill_state=(cloud_skill or {}).get("state"),
+            pending_count=st.get("pending_count"),
+            installed_count=st.get("installed_count"),
+            cloud_agents=len(cloud_agents),
+            agent_ready=agent_ready,
+            agent_files=sorted(p.name for p in agent_dir.iterdir()) if agent_dir.is_dir() else [],
+            plugins=len(plugins_list["items"]),
+            plugin_skills_ready=plugin_skills_ready,
+            managed_servers=len(managed.get("servers") or {}),
+            mcp_json_generation=mcp_json["generation"],
             revision=rev,
             store_dir=str(store_dir),
             view_link=str(view_link),
-            link_target=os.readlink(view_link) if view_link and os.path.islink(view_link) else None,
             chosen_source=chosen[0]["source"] if chosen else None,
-            error=res.get("error"),
-            selected_skills_prepared=len(preparation),
         )
+        if cloud_skill is None or cloud_skill["state"] != "ready":
+            return 1
     except Exception as exc:  # noqa: BLE001
-        report.step("04 prepare + view", False, error=str(exc)[:500])
+        report.step("03 sync leaves everything ready", False, error=str(exc)[:500])
         return 1
 
     # ── 05 真实调用 ─────────────────────────────────────────────────────
@@ -866,84 +850,40 @@ def main() -> int:
         except Exception as exc:
             report.step("05d-f explicit and sticky selections", False, error=str(exc)[:500])
 
-    # ── 06 同名冲突与显式偏好 ────────────────────────────────────────────
+    # ── 06 同名冲突：自动隐藏，不需要用户做任何选择 ──────────────────────
     try:
         local_marker = f"LOCAL-{secrets.token_hex(4)}"
         device.upload_skill(user_a, _skill_zip(skill_id, local_marker, "local"))
         listing = device.json(user_a, "GET", "/v1/desktop/capabilities/installations?kind=skill")
         cands = [i for i in listing["items"] if i["runtime_name"] == cloud_skill_id]
-        local = next((i for i in cands if i["profile"] == "local"), None)
         conflict = cloud_skill_id in listing["conflicts"]
-        view_link = _find_user_view(device_home, cloud_skill_id, local_user_a)
-        hidden_during_conflict = view_link is None
-        after_local = device.json(
-            user_a,
-            "PUT",
-            "/v1/desktop/capabilities/name-preferences",
-            json=(
-                {"kind": "skill", "runtime_name": cloud_skill_id, "install_id": local["install_id"]}
-                if local
-                else {}
-            ),
-        )
-        view_link = _find_user_view(device_home, cloud_skill_id, local_user_a)
-        local_wins = bool(view_link and _read_view_marker(view_link, device_home) == local_marker)
-        device.json(
-            user_a,
-            "PUT",
-            "/v1/desktop/capabilities/name-preferences",
-            json={
-                "kind": "skill",
-                "runtime_name": cloud_skill_id,
-                "install_id": pending["install_id"],
-            },
-        )
-        view_link = _find_user_view(device_home, cloud_skill_id, local_user_a)
-        cloud_wins = bool(view_link and _read_view_marker(view_link, device_home) == marker)
+        hidden_during_conflict = _find_user_view(device_home, cloud_skill_id, local_user_a) is None
         report.step(
-            "06 name conflict + preference",
-            conflict and hidden_during_conflict and local_wins and cloud_wins,
+            "06 name conflict is hidden automatically",
+            conflict and hidden_during_conflict,
             candidates=[(c["profile"], c["resolution"]["outcome"]) for c in cands],
             conflict=conflict,
             hidden_during_conflict=hidden_during_conflict,
-            local_wins=local_wins,
-            cloud_wins=cloud_wins,
-            preferences=after_local.get("preferences"),
         )
     except Exception as exc:  # noqa: BLE001
-        report.step("06 name conflict + preference", False, error=str(exc)[:500])
+        report.step("06 name conflict is hidden automatically", False, error=str(exc)[:500])
 
-    # ── 07 历史运行引用必须保留；未引用包可以移除后重新准备 ───────────────
+    # ── 07 只属于本机的技能：与云端能力并存，离线时仍可执行 ────────────────
+    local_only_id = f"{skill_id}-local"
     try:
-        response = device.call(
-            user_a,
-            "POST",
-            "/v1/desktop/capabilities/removals",
-            json={"install_id": pending["install_id"], "target": "device"},
+        device.upload_skill(user_a, _skill_zip(local_only_id, local_marker, "local"))
+        listing = device.json(user_a, "GET", "/v1/desktop/capabilities/installations?kind=skill")
+        local_only = next(
+            (i for i in listing["items"] if i["runtime_name"] == local_only_id), None
         )
-        retained = (
-            response.status_code == 409
-            and response.json().get("detail", {}).get("code") == "revision_in_use"
+        report.step(
+            "07 local-only skill coexists",
+            bool(local_only) and local_only["source"] == "local" and local_only["usable"],
+            source=(local_only or {}).get("source"),
+            usable=(local_only or {}).get("usable"),
         )
-        if args.skip_model:
-            retained = response.status_code == 200
-            device.json(
-                user_a,
-                "POST",
-                "/v1/desktop/capabilities/preparations",
-                json={"install_ids": [pending["install_id"]]},
-            )
-        if response.status_code == 200 and not args.skip_model:
-            # Keep the following account-isolation test independent of an earlier run failure.
-            device.json(
-                user_a,
-                "POST",
-                "/v1/desktop/capabilities/preparations",
-                json={"install_ids": [pending["install_id"]]},
-            )
-        report.step("07 referenced revision retention", retained, status=response.status_code)
-    except Exception as exc:
-        report.step("07 referenced revision retention", False, error=str(exc)[:500])
+    except Exception as exc:  # noqa: BLE001
+        report.step("07 local-only skill coexists", False, error=str(exc)[:500])
 
     # ── 08 切换账号 ─────────────────────────────────────────────────────
     try:
@@ -975,26 +915,16 @@ def main() -> int:
 
     # ── 09 相同云实例断网：本机副本继续，云操作明确失败 ─────────────────
     try:
-        device.json(
-            user_a,
-            "PUT",
-            "/v1/desktop/capabilities/name-preferences",
-            json={
-                "kind": "skill",
-                "runtime_name": cloud_skill_id,
-                "install_id": local["install_id"],
-            },
-        )
         subprocess.run(
             ["docker", "stop", "-t", "2", args.cloud_container], check=True, capture_output=True
         )
         r = device.call(user_a, "POST", "/v1/desktop/capabilities/sync")
         listing = device.json(user_a, "GET", "/v1/desktop/capabilities/installations?kind=skill")
         local_ready = any(
-            i["runtime_name"] == cloud_skill_id and i["source"] == "local" and i["usable"]
+            i["runtime_name"] == local_only_id and i["source"] == "local" and i["usable"]
             for i in listing["items"]
         )
-        local_executed = _execute_local_marker(local_user_a, cloud_skill_id, local_marker)
+        local_executed = _execute_local_marker(local_user_a, local_only_id, local_marker)
         report.step(
             "09 cloud unreachable",
             r.status_code == 502 and local_ready and local_executed,

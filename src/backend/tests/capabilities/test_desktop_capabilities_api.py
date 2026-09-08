@@ -1,4 +1,4 @@
-"""本机能力接口：意图列表、准备、移除此设备文件、同名偏好、视图重建。"""
+"""本机能力接口：登录同步即全部就绪、只读的来源清单、视图重建。"""
 
 from __future__ import annotations
 
@@ -127,78 +127,58 @@ def _iid(sid: str) -> str:
     return registry.install_id(KIND_SKILL, PROFILE, sid)
 
 
-def test_sync_prepare_and_list(client):
+def test_sync_prepares_everything(client):
+    """登录后的这一次同步就把云端技能全部准备好——没有「待下载」这个中间态。"""
     r = client.post("/v1/desktop/capabilities/sync")
-    assert r.status_code == 200 and r.json()["data"]["pending_count"] == 2
+    assert r.status_code == 200
+    status = r.json()["data"]
+    assert status["pending_count"] == 0 and status["installed_count"] == 2
 
     r = client.get("/v1/desktop/capabilities/installations")
     items = {i["install_id"]: i for i in r.json()["data"]["items"]}
-    assert items[_iid("market-x")]["state"] == "pending"
-    assert items[_iid("market-x")]["resolution"]["outcome"] == "unusable"
-    assert items["skill:builtin:ppt-design"]["resolution"]["outcome"] == "chosen"
-
-    r = client.post(
-        "/v1/desktop/capabilities/preparations", json={"install_ids": [_iid("market-x")]}
-    )
-    assert r.status_code == 200 and r.json()["data"]["results"][0]["ok"]
-    r = client.post(
-        "/v1/desktop/capabilities/preparations",
-        json={
-            "resource_refs": [
-                cloud_ref(STATE["cloud_base"], "skill", "ppt-design", scope="shared").to_dict()
-            ]
-        },
-    )
-    assert r.json()["data"]["results"][0]["ok"]
-
-    view = skill_config.get_user_skills_dir(USER)
-    assert (
-        junction.is_directory_link(view / "market-x")
-        and "cloud" in (view / "ppt-design" / "SKILL.md").read_text()
-    )
-    r = client.get("/v1/desktop/capabilities/installations")
-    items = {i["install_id"]: i for i in r.json()["data"]["items"]}
+    assert items[_iid("market-x")]["state"] == "ready"
     assert items[_iid("ppt-design")]["resolution"] == {
         "outcome": "chosen",
         "reason": "account_unique",
     }
     assert items["skill:builtin:ppt-design"]["resolution"]["outcome"] == "shadowed"
 
-
-def test_name_preference_and_device_removal(client):
-    client.post("/v1/desktop/capabilities/sync")
-    client.post("/v1/desktop/capabilities/preparations", json={"install_ids": [_iid("ppt-design")]})
-
-    r = client.put(
-        "/v1/desktop/capabilities/name-preferences",
-        json={"runtime_name": "ppt-design", "install_id": "skill:builtin:ppt-design"},
-    )
-    assert r.status_code == 200
     view = skill_config.get_user_skills_dir(USER)
-    assert "old" in (view / "ppt-design" / "SKILL.md").read_text()
-    assert r.json()["data"]["preferences"] == {"ppt-design": "skill:builtin:ppt-design"}
+    assert junction.is_directory_link(view / "market-x")
+    assert "cloud" in (view / "ppt-design" / "SKILL.md").read_text()
 
-    r = client.put(
-        "/v1/desktop/capabilities/name-preferences",
-        json={"runtime_name": "ppt-design", "install_id": "skill:p_x:nope"},
-    )
-    assert r.status_code == 404
 
-    r = client.post(
-        "/v1/desktop/capabilities/removals",
-        json={"install_id": _iid("ppt-design"), "target": "account"},
-    )
-    assert r.status_code == 409
-    r = client.post(
-        "/v1/desktop/capabilities/removals",
-        json={"install_id": _iid("ppt-design"), "target": "device"},
-    )
-    assert r.status_code == 200
-    assert registry.get(_iid("ppt-design")).state == "pending"
-    assert store.revisions(KIND_SKILL, PROFILE, "ppt-design") == []
+def test_sync_is_idempotent(client):
+    """重复同步不重复下载，也不改变结果。"""
+    first = client.post("/v1/desktop/capabilities/sync").json()["data"]
+    revisions = store.revisions(KIND_SKILL, PROFILE, "ppt-design")
+    second = client.post("/v1/desktop/capabilities/sync").json()["data"]
+    assert second["installed_count"] == first["installed_count"] == 2
+    assert store.revisions(KIND_SKILL, PROFILE, "ppt-design") == revisions
 
+
+def test_rebuild_views(client):
+    client.post("/v1/desktop/capabilities/sync")
     r = client.post("/v1/desktop/capabilities/views/rebuild")
     assert r.status_code == 200 and "user" in r.json()["data"]
+
+
+def test_manual_management_endpoints_are_gone(client):
+    """手动准备 / 移除 / 同名选择 / 本机副本这些入口已经整体下线。"""
+    assert client.post(
+        "/v1/desktop/capabilities/preparations", json={"install_ids": [_iid("market-x")]}
+    ).status_code == 404
+    assert client.post(
+        "/v1/desktop/capabilities/removals",
+        json={"install_id": _iid("ppt-design"), "target": "device"},
+    ).status_code == 404
+    assert client.put(
+        "/v1/desktop/capabilities/name-preferences",
+        json={"runtime_name": "ppt-design", "install_id": "skill:builtin:ppt-design"},
+    ).status_code == 404
+    assert client.post(
+        f"/v1/desktop/capabilities/installations/{_iid('ppt-design')}/local-copy", json={}
+    ).status_code == 404
 
 
 def test_endpoints_refuse_outside_desktop_store(client, monkeypatch):

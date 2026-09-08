@@ -38,8 +38,8 @@ def test_site_publish_callback_uses_local_listener_port(monkeypatch):
 @pytest.mark.asyncio
 async def test_local_site_pack_uses_macos_portable_size_probe(monkeypatch):
     import core.sandbox as sandbox
-    from api.routes.v1 import internal_sites
     from core.llm.tools import _common
+    from core.services import site_packaging
 
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode="w:gz") as tf:
@@ -63,7 +63,7 @@ async def test_local_site_pack_uses_macos_portable_size_probe(monkeypatch):
     monkeypatch.setattr(_common, "sandbox_exec_bash", fake_exec)
     monkeypatch.setattr(sandbox, "get_sandbox_provider", lambda: FakeProvider())
 
-    files, error = await internal_sites._pack_and_fetch_dir(
+    files, error = await site_packaging.pack_and_fetch_dir(
         "/workspace/site with spaces", "chat-local", "user-local"
     )
 

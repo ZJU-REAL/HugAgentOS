@@ -78,6 +78,11 @@ class LoggingMiddleware:
                     # Inject trace_id header
                     headers = list(message.get("headers", []))
                     headers.append((b"x-trace-id", trace_id.encode()))
+                    # 能力变更号：桌面本机端据此发现云端能力改动并同步一次，
+                    # 免掉定时轮询（core/capabilities/change_signal.py）。
+                    from core.capabilities.change_signal import current
+
+                    headers.append((b"x-hugagent-capability-epoch", current().encode()))
                     message = {**message, "headers": headers}
                 await send(message)
 

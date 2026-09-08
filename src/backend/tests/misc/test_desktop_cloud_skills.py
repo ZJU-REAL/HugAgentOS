@@ -1,4 +1,4 @@
-"""桌面双端技能：清单 → 安装意图；按需准备 → 存储层 revision → 运行视图联接；无镜像拷贝。"""
+"""桌面双端技能：清单 → 安装意图；同一轮同步即下载发布 → 存储层 revision → 运行视图联接；无镜像拷贝。"""
 
 from __future__ import annotations
 
@@ -186,19 +186,25 @@ def _iid(sid: str) -> str:
     return registry.install_id(KIND_SKILL, _PROFILE, sid)
 
 
-def test_sync_records_intent_without_downloading(dirs, monkeypatch):
+def _downloaded_ids(fake) -> list:
+    return [url.rsplit("/skills/", 1)[1].split("/")[0] for url in fake.downloads()]
+
+
+def test_sync_downloads_everything_in_the_manifest(dirs, monkeypatch):
+    """登录时的这一次同步就把清单里的技能全部下载好，没有「待下载」这个中间态。"""
     fake = _cloud(monkeypatch, {"market-x": {"scripts/a.py": "print()"}, "ppt-design": {}})
     cloud_skills.sync_blocking(_STATE)
 
-    assert fake.downloads() == []
+    assert sorted(_downloaded_ids(fake)) == ["market-x", "ppt-design"]
     rows = {i.key: i for i in registry.list_installations(kind=KIND_SKILL, profile_id=_PROFILE)}
-    assert set(rows) == {"market-x", "ppt-design"} and all(r.state == "pending" for r in rows.values())
+    assert set(rows) == {"market-x", "ppt-design"} and all(r.state == "ready" for r in rows.values())
     st = cloud_skills.status()
-    assert st["pending_count"] == 2 and st["installed_count"] == 0 and st["profile_id"] == _PROFILE
-    # 第二轮：manifest 未变 → 304
+    assert st["pending_count"] == 0 and st["installed_count"] == 2 and st["profile_id"] == _PROFILE
+    # 第二轮：manifest 未变 → 304，且不重复下载
     before = len(fake.calls)
     cloud_skills.sync_blocking(_STATE)
     assert fake.calls[before:][0][1]["If-None-Match"] == f'"{fake.manifest["revision"]}"'
+    assert sorted(_downloaded_ids(fake)) == ["market-x", "ppt-design"]
 
 
 def test_prepare_publishes_revision_and_links_view(dirs, monkeypatch):
@@ -227,8 +233,6 @@ def test_prepare_rejects_tampered_bundle(dirs, monkeypatch):
     fake = _cloud(monkeypatch, {"market-x": {"SKILL.md": _skill_md("market-x", "real")}})
     fake.bundles["market-x"] = (_zip("market-x", {"SKILL.md": _skill_md("market-x", "evil")}), "x")
     cloud_skills.sync_blocking(_STATE)
-    res = cloud_skills.prepare(_STATE, [_iid("market-x")])
-    assert not res[0]["ok"] and res[0]["error"]["code"] == "integrity_failed"
     inst = registry.get(_iid("market-x"))
     assert inst.state == "failed" and store.revisions(KIND_SKILL, _PROFILE, "market-x") == []
 
@@ -236,9 +240,6 @@ def test_prepare_rejects_tampered_bundle(dirs, monkeypatch):
 def test_cloud_copy_wins_over_builtin_and_builtin_returns_when_removed(dirs, monkeypatch):
     _cloud(monkeypatch, {"ppt-design": {"SKILL.md": _skill_md("ppt-design", "cloud")}})
     cloud_skills.sync_blocking(_STATE)
-    view = skill_config.sync_user_skill_view("u")
-    assert "old" in (view / "ppt-design" / "SKILL.md").read_text()  # pending copy never shadows
-    cloud_skills.prepare(_STATE, [_iid("ppt-design")])
     view = skill_config.sync_user_skill_view("u")
     assert "cloud" in (view / "ppt-design" / "SKILL.md").read_text()
     res = skills.last_resolution("u")
@@ -257,7 +258,6 @@ def test_cloud_copy_wins_over_builtin_and_builtin_returns_when_removed(dirs, mon
 def test_ready_skill_auto_updates_on_new_cloud_content(dirs, monkeypatch):
     _cloud(monkeypatch, {"market-x": {"SKILL.md": _skill_md("market-x", "v1")}})
     cloud_skills.sync_blocking(_STATE)
-    cloud_skills.prepare(_STATE, [_iid("market-x")])
     r1 = registry.get(_iid("market-x")).resolved_revision
 
     fake = _cloud(monkeypatch, {"market-x": {"SKILL.md": _skill_md("market-x", "v2")}})
@@ -274,12 +274,7 @@ def test_ready_skill_auto_updates_on_new_cloud_content(dirs, monkeypatch):
 def test_apply_to_enabled_skill_ids_follows_cloud(dirs, monkeypatch):
     _cloud(monkeypatch, {"ppt-design": {}, "market-x": {}}, suppressed=["word-editing"])
     cloud_skills.sync_blocking(_STATE)
-    # 只同步了意图：待下载的技能不进本轮清单
-    assert bridge.apply_to_enabled_skill_ids(["word-editing", "ppt-design", "local-only"]) == [
-        "ppt-design",
-        "local-only",
-    ]
-    cloud_skills.prepare(_STATE, [_iid("market-x")])
+    # 同步即就绪：账号里的技能同一轮全部进清单，云端停用的仍被剔除
     out = bridge.apply_to_enabled_skill_ids(["word-editing", "ppt-design", "local-only"])
     assert out == ["ppt-design", "local-only", "market-x"]
     assert bridge.apply_to_enabled_skill_ids(list(out)) == out

@@ -19,23 +19,30 @@ def prepare_component(state, inst, *, download, content_hash, after_publish=None
         raise PackageMissing("installation belongs to another account", ref=inst.install_id)
     if not inst.content_hash:
         raise IntegrityFailed("cloud manifest published no content hash", ref=inst.install_id)
-    with _prepare_lock:
-        require_current_account(state)
-        revision = revision_for_hash(inst.content_hash)
-        old_revision = inst.resolved_revision
-        old_ready = bool(
-            inst.ready
-            and old_revision
-            and store.get(inst.kind, inst.profile_id, inst.key, old_revision)
-        )
-        tx = None
-        try:
+    revision = revision_for_hash(inst.content_hash)
+    old_revision = inst.resolved_revision
+    old_ready = False
+    tx = None
+    try:
+        with _prepare_lock:
+            require_current_account(state)
+            old_ready = bool(
+                inst.ready
+                and old_revision
+                and store.get(inst.kind, inst.profile_id, inst.key, old_revision)
+            )
             with account_scope(state):
                 comp = store.get(inst.kind, inst.profile_id, inst.key, revision)
                 if comp is None:
                     registry.set_state(inst.install_id, "preparing", resolved_revision=old_revision)
                     tx = registry.begin_transaction(inst.install_id, inst.generation + 1)
-            data = download() if comp is None else None
+        # Fetched outside _prepare_lock on purpose. A name lookup can block long
+        # past the HTTP timeout, and holding the lock across it stalls every other
+        # preparation — including the on-demand one the chat assembly waits on, so
+        # one unreachable cloud used to freeze the whole conversation. Releasing
+        # the lock is safe because the commit below re-validates the installation.
+        data = download() if comp is None else None
+        with _prepare_lock:
             # A login can proceed during HTTP IO. No stale bytes/intent may be
             # published after it; the short commit below shares its identity lock.
             with account_scope(state):
@@ -78,7 +85,8 @@ def prepare_component(state, inst, *, download, content_hash, after_publish=None
                     if open_tx["install_id"] == inst.install_id:
                         registry.advance_transaction(open_tx["tx_id"], "committed")
                 return done
-        except Exception as exc:
+    except Exception as exc:
+        with _prepare_lock:
             if tx:
                 registry.advance_transaction(tx, "failed", error=str(exc))
             # Preserve the prior version on transport/update failure. Its content
@@ -92,7 +100,7 @@ def prepare_component(state, inst, *, download, content_hash, after_publish=None
                     last_error=str(exc),
                     payload_update={"update_available": True} if old_ready else None,
                 )
-            raise
+        raise
 
 
 def ensure_cloud_ready(user_id, *, skill_keys=(), plugin_keys=(), install_ids=()):

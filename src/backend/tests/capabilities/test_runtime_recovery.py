@@ -632,71 +632,42 @@ def test_prepared_run_rejects_new_session_of_the_same_account(
         runtime.validate(run)
 
 
-def test_private_authorization_probe_is_bounded_and_revocation_clears_bridge(
-    index_db, caps_root, monkeypatch
-):
-    import httpx
-    from core.services.desktop_capability_protocol import build_manifest
-    from core.capabilities.errors import CloudUnavailable
-
+def test_authorization_check_makes_no_network_call(index_db, caps_root, monkeypatch):
+    """装配前的授权判定不发网络请求——同步只由登录和变更信号驱动，没有事前探测。"""
     current = [_state_v2("a")]
-    now = [100.0]
-    calls = []
     monkeypatch.setattr(bridge, "get_state", lambda: current[0])
-    monkeypatch.setattr(bridge.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(bridge, "_authorization_fingerprint", "")
-    monkeypatch.setattr(bridge, "clear_state", lambda: current.__setitem__(0, None))
-    monkeypatch.setattr(
-        cloud_skills,
-        "_fetch_manifest",
-        lambda captured: _ordered_skill_manifest(captured, build_skill_manifest([], [])),
-    )
 
-    def get(url, **kwargs):
-        calls.append(kwargs)
-        return httpx.Response(200 if len(calls) == 1 else 401, json={"data": build_manifest([])})
+    def forbidden(*args, **kwargs):
+        raise AssertionError("authorization must not probe the cloud")
 
-    monkeypatch.setattr("httpx.get", get)
-    # First check with no cached manifest → a bounded probe fetches and caches it.
-    bridge.ensure_current_authorization()
-    assert len(calls) == 1 and calls[0]["headers"]["X-Desktop-Device-Id"] == "device"
-    # While the cached manifest is fresh (the background poller keeps it current
-    # within the refresh interval), assembly-time authorization is confirmed in
-    # memory — no per-turn network probe.
-    now[0] += 5.1
-    bridge.ensure_current_authorization()
-    assert len(calls) == 1
-    # Once the cache is stale (offline long enough that the poller could not
-    # refresh), the fallback probe runs again; a revoked grant (401) clears state.
-    now[0] += bridge._manifest_refresh_interval() + bridge._MANIFEST_NEG_TTL_S + 1.0
-    with pytest.raises(CloudUnavailable):
+    monkeypatch.setattr("httpx.get", forbidden)
+    for _ in range(3):
         bridge.ensure_current_authorization()
-    assert current[0] is None
+    assert current[0] is not None
 
 
-def test_authorization_check_superseded_by_a_newer_sync_still_passes(index_db, caps_root, monkeypatch):
-    """对话时的授权校验与后台轮询同时拉技能清单：后台先登记了更新的请求，校验这次的
-    响应被顺序守卫判为已超越。授权本身已由工具清单 200 证实，校验应当通过而不是打断对话。"""
+@pytest.mark.asyncio
+async def test_revoked_grant_is_decided_by_the_gateway_call(index_db, caps_root, monkeypatch):
+    """撤权由云端在真实网关调用时裁决：401 立刻清掉本机的桥状态。"""
     import httpx
-    from core.capabilities import manifest_order
-    from core.services.desktop_capability_protocol import build_manifest
+    import mcp.types
+    from core.llm.mcp_manager import GatewayMCPTool
 
     current = [_state_v2("a")]
-    now = [100.0]
     monkeypatch.setattr(bridge, "get_state", lambda: current[0])
-    monkeypatch.setattr(bridge.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(bridge, "_authorization_fingerprint", "")
-
-    def fetch_then_superseded(captured):
-        stamped = _ordered_skill_manifest(captured, build_skill_manifest([], []))
-        # 后台轮询在本次响应落地前登记了更新的一次请求。
-        manifest_order.begin(cloud_skills.KIND_SKILL, cloud_skills._profile(captured))
-        return stamped
-
-    monkeypatch.setattr(cloud_skills, "_fetch_manifest", fetch_then_superseded)
-    monkeypatch.setattr("httpx.get", lambda url, **kwargs: httpx.Response(200, json={"data": build_manifest([])}))
-    bridge.ensure_current_authorization()
-    assert current[0] is not None
+    monkeypatch.setattr(bridge, "clear_state", lambda: current.__setitem__(0, None))
+    tool = GatewayMCPTool(
+        mcp_name="search",
+        tool=mcp.types.Tool(name="search", inputSchema={"type": "object"}),
+        invoke_url="https://cloud.example/api/v1/desktop/capability/gateway/search/call",
+        schema_hash="frozen",
+        headers=bridge.cloud_headers(current[0]),
+        timeout=5,
+        transport=httpx.MockTransport(lambda request: httpx.Response(401, json={})),
+    )
+    with pytest.raises(RuntimeError):
+        await tool()
+    assert current[0] is None
 
 
 @pytest.mark.asyncio
@@ -1142,85 +1113,3 @@ def test_local_agent_replay_does_not_depend_on_cloud_session(durable_index, caps
     assert runtime.pin_agent_definition("local-agent", "owner", updated).system_prompt == "offline"
 
 
-def test_checkpoint_revokes_definitions_without_preparing_new_bundles(
-    index_db, caps_root, monkeypatch
-):
-    import httpx
-    from core.capabilities import store
-    from core.capabilities.paths import revision_for_hash
-    from core.services.desktop_capability_protocol import build_manifest, entity_content_hash
-
-    st = state("a")
-    monkeypatch.setattr(bridge, "get_state", lambda: st)
-    monkeypatch.setattr(bridge, "_authorization_fingerprint", "")
-    profile = profile_id(st["cloud_base"], "a")
-    for kind in ("agent", "plugin"):
-        files = (
-            {"agent.json": "{}", "instructions.md": "private"}
-            if kind == "agent"
-            else {"plugin.json": "{}"}
-        )
-        digest = entity_content_hash(files)
-        inst = registry.upsert(
-            profile_id=profile,
-            ref=cloud_ref(st["cloud_base"], kind, "old", scope="private"),
-            content_hash=digest,
-        )
-        store.write_from_files(kind, profile, "old", revision_for_hash(digest), files)
-        registry.set_state(inst.install_id, "ready", resolved_revision=revision_for_hash(digest))
-    agents_manifest = build_entity_manifest(
-        "agent",
-        [
-            {
-                "agent_id": "new",
-                "name": "New",
-                "description": "",
-                "version": "1",
-                "content_hash": "a" * 64,
-                "is_enabled": True,
-            }
-        ],
-    )
-    plugin_entry = {
-        "install_id": "old@a",
-        "slug": "old",
-        "name": "Old",
-        "description": "",
-        "version": "1",
-        "category": "",
-        "content_hash": registry.get("plugin:" + profile + ":old").content_hash,
-        "enabled": False,
-        "skills": [],
-        "mcp": [],
-    }
-    plugins_manifest = build_entity_manifest(
-        "plugin",
-        [plugin_entry, {**plugin_entry, "install_id": "new@a", "slug": "new", "enabled": True}],
-    )
-
-    def get(url, **kwargs):
-        payload = (
-            agents_manifest
-            if url.endswith("/agents/manifest")
-            else plugins_manifest if url.endswith("/plugins/manifest") else build_manifest([])
-        )
-        return httpx.Response(200, request=httpx.Request("GET", url), json={"data": payload})
-
-    monkeypatch.setattr("httpx.get", get)
-    monkeypatch.setattr(
-        cloud_skills,
-        "_fetch_manifest",
-        lambda captured: _ordered_skill_manifest(captured, build_skill_manifest([], [])),
-    )
-    monkeypatch.setattr(
-        bundles,
-        "_prepare",
-        lambda *_: (_ for _ in ()).throw(AssertionError("checkpoint must not download")),
-    )
-    bridge.ensure_current_authorization()
-    assert registry.get("agent:" + profile + ":old").state == "removed"
-    assert not registry.get("plugin:" + profile + ":old").enabled
-    for kind in ("agent", "plugin"):
-        assert registry.get(kind + ":" + profile + ":new") is not None
-        assert store.revisions(kind, profile, "new") == []
-        assert len(store.revisions(kind, profile, "old")) == 1

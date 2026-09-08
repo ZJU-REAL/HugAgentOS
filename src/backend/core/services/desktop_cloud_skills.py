@@ -4,10 +4,10 @@
 云端技能清单（``/v1/desktop/capability/skills/manifest``），把它写成**账号
 安装意图**（``device_capability_installations``，profile = 当前云端账号）：
 
-- 清单里新出现的技能记为 ``pending``（待下载），**不自动下载**——用户在能力
-  中心点「在本机准备」，或安装时前端显式调用准备接口；
-- 本机已就绪（ready）而云端内容哈希变了的技能，属于「本设备已安装」，自动
-  拉新版本到新的 revision 目录并切换视图；
+- 清单里尚未就绪的技能在同一轮同步里直接下载准备好——登录完成时账号的技能
+  就已经可用，界面上没有任何「待下载 / 在本机准备」的手动步骤；
+- 本机已就绪（ready）而云端内容哈希变了的技能自动拉新版本到新的 revision
+  目录并切换视图；
 - 云端停用（``suppressed_ids``）的技能在本机置为停用，文件保留；
 - 从清单消失的技能撤销运行授权；历史 revision 留给运行记录与恢复。
 
@@ -95,7 +95,7 @@ def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
         inst.key: inst
         for inst in registry.list_installations(kind=KIND_SKILL, profile_id=profile, include_removed=True)
     }
-    needs_update: List[str] = []
+    needs_prepare: List[str] = []
     for sid, entry in wanted.items():
         before = existing.get(sid)
         inst = registry.upsert(
@@ -109,10 +109,12 @@ def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
             payload={"scope": entry["scope"], "mcp_server_ids": list(entry["mcp_server_ids"])},
             enabled=True,
         )
-        if before is not None and before.ready and before.content_hash != entry["content_hash"]:
-            needs_update.append(inst.install_id)
-        elif inst.ready and inst.payload.get("update_available"):
-            needs_update.append(inst.install_id)
+        if not inst.ready:
+            needs_prepare.append(inst.install_id)
+        elif before is not None and before.content_hash != entry["content_hash"]:
+            needs_prepare.append(inst.install_id)
+        elif inst.payload.get("update_available"):
+            needs_prepare.append(inst.install_id)
     for sid, inst in existing.items():
         if sid in wanted:
             continue
@@ -123,7 +125,7 @@ def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
             continue
         if inst.state != "removed":
             registry.mark_removed(inst.install_id)
-    return needs_update
+    return needs_prepare
 
 
 def sync_blocking(state: Dict[str, Any]) -> None:
@@ -142,7 +144,7 @@ def sync_blocking(state: Dict[str, Any]) -> None:
                 with manifest_order.apply(KIND_SKILL, _profile(state), manifest):
                     with _lock:
                         changed = _manifest is None or _manifest["revision"] != manifest["revision"]
-                    updates = _reconcile_intent(manifest, state)
+                    pending = _reconcile_intent(manifest, state)
         except manifest_order.StaleManifest:
             return
         except Exception as exc:  # noqa: BLE001
@@ -154,7 +156,7 @@ def sync_blocking(state: Dict[str, Any]) -> None:
                 _error = str(exc)
             logger.warning("[cloud-skills] sync failed: %s", exc)
             return
-        prepared = prepare(state, updates) if updates else []
+        prepared = prepare(state, pending) if pending else []
     if changed or prepared:
         skills.bump_view_generation()
         skills.rebuild_views(None)
@@ -162,7 +164,7 @@ def sync_blocking(state: Dict[str, Any]) -> None:
 
         refresh_skill_caches()
         logger.info(
-            "[cloud-skills] synced revision=%s skills=%d auto-updated=%d",
+            "[cloud-skills] synced revision=%s skills=%d prepared=%d",
             manifest["revision"][:12],
             len(manifest["skills"]),
             len(prepared),
@@ -227,11 +229,20 @@ def apply_to_enabled_skill_ids(skill_ids: List[str]) -> List[str]:
     if not manifest:
         return skill_ids
     resolution = skills.resolve_for_user(skills.current_local_user_id())
-    hidden = set(manifest["suppressed_ids"]) | set(resolution.conflicts) | set(resolution.unusable)
+    from core.capabilities.plugins import enabled_cloud_skill_intents
+
+    plugin_intents = enabled_cloud_skill_intents(skills.current_local_user_id())
+    hidden = (
+        set(manifest["suppressed_ids"])
+        | set(resolution.conflicts)
+        | (set(resolution.unusable) - plugin_intents)
+    )
     ready = [c.runtime_name for c in resolution.chosen.values() if c.source == "cloud"]
     kept = [sid for sid in skill_ids if sid not in hidden]
     seen = set(kept)
-    return kept + [sid for sid in ready if sid not in seen and sid not in hidden]
+    return kept + [
+        sid for sid in sorted(set(ready) | plugin_intents) if sid not in seen and sid not in hidden
+    ]
 
 
 def on_account_switch() -> None:

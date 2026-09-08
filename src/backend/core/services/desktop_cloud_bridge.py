@@ -4,7 +4,8 @@
 
   桌面壳登录云端 → 换取 capability token → 推送 {cloud_base, token} 到本机
   （POST /v1/desktop/capability/cloud-bridge，CONFIG_TOKEN=桥接秘密）
-  → 本模块后台拉取云端 manifest（当前用户最终可用的 MCP 清单）
+  → 本模块拉取云端 manifest（当前用户最终可用的 MCP 清单）——只在登录、
+    云端能力被改动、以及云端在网关调用里告知能力已变时拉取，没有定时轮询
   → catalog_resolver 解析 enabled_mcp_ids 时把云端 server 追加进清单并按
     组件基名抑制本机重复实现（logical 去重，云端为真源），agent 装配时
     直接使用 manifest 内完整 schema 注册虚拟 MCP 工具；模型真正调用后
@@ -15,8 +16,8 @@
 - 云端断线不会阻塞 Agent 装配；云端工具真正被调用时会返回明确错误，
   **不**静默回退本机同名旧实现；
 - ``DESKTOP_LOCAL_MCP_KEEP`` 声明保留在本机的组件基名（默认
-  batch_runner / site_publish / generate_chart_tool / automation_task ——
-  会话状态、站点、Artifact、定时任务在 P4/P5/P7 桥建成前留本机），
+  batch_runner / generate_chart_tool / automation_task ——
+  会话状态、Artifact、定时任务留本机；正式站点统一云端托管），
   ``DESKTOP_CLOUD_MCP_BRIDGE_ENABLED=0`` 一键回滚整个桥。
 
 纯本机模式（未配桥）与云端部署（无桥接秘密）零行为变化。
@@ -40,10 +41,15 @@ logger = logging.getLogger(__name__)
 BRIDGE_BLOCK_ID = "desktop_cloud_bridge"
 
 # 双端本机默认保留的组件基名（其余同基名能力以云端为准）。
-DEFAULT_LOCAL_KEEP = "batch_runner,site_publish,generate_chart_tool,automation_task"
+DEFAULT_LOCAL_KEEP = "batch_runner,generate_chart_tool,automation_task"
 
+# 只能由云端托管的组件基名：正式站点的存储、版本与动态数据必须只有一个家，
+# 本机保留会把同一站点的状态劈到两个后端上。运维配置不得放开这条，写了会被
+# 忽略并留下告警。
+CLOUD_ONLY_BASES = frozenset({"site_publish"})
+
+# 拿不到清单时的有界重试间隔（唯一的时间参数；正常情况下不会用到）。
 _MANIFEST_NEG_TTL_S = 30.0
-_MANIFEST_REFRESH_DEFAULT_S = 30.0
 
 _state_lock = threading.RLock()
 _state: Optional[Dict[str, Any]] = None  # {"cloud_base", "token", "expires_at"}
@@ -70,7 +76,6 @@ def _state_fingerprint(state: Optional[Dict[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-
 def require_current_account(state: Dict[str, Any]) -> None:
     """Reject work captured before logout/account switch, including late HTTP replies."""
     from core.capabilities.errors import CloudUnavailable
@@ -87,107 +92,25 @@ def account_scope(state: Dict[str, Any]):
         yield
 
 
-_authorization_fingerprint = ""
-_authorization_checked_at = 0.0
-_authorization_lock = threading.Lock()
-
-
 def ensure_current_authorization(state: Optional[Dict[str, Any]] = None) -> None:
-    """Private cached bytes need a live grant; successful probes last at most 5 s."""
-    import httpx
+    """账号仍然有效才允许使用私有字节；这条判定不发网络请求。
+
+    本机不做「事前探测」——云端清单只在登录、云端能力被改动（前端写操作后调
+    ``POST /v1/desktop/capabilities/sync``）以及云端在网关调用里明确告知能力已变
+    这三种事件下同步，没有任何定时轮询。真正的撤权由云端在网关调用时裁决：返回
+    401/403 会立刻清掉本机的桥状态，被撤权的能力下一次调用即失败。
+    """
     from core.capabilities.errors import CloudUnavailable
-    global _authorization_fingerprint, _authorization_checked_at, _manifest, _manifest_ts, _manifest_error
+
     st = state or get_state()
     if not st:
         raise CloudUnavailable("cloud authorization expired; sign in again")
     require_current_account(st)
-    fingerprint = _state_fingerprint(st)
-    # 关键路径快路径：定时后台轮询按刷新间隔已经拉过清单（发现变更/吊销并 reconcile），
-    # 缓存仍新鲜且账号未变时，本次授权在内存即可确认，装配无需再走网络。缓存过期或缺失
-    # （如刚登录、离线太久）才回落到下面的即时探测。
-    with _manifest_lock:
-        manifest_fresh = (
-            _manifest is not None
-            and _manifest_error is None
-            and _manifest_ts > 0.0
-            and (time.monotonic() - _manifest_ts) < (_manifest_refresh_interval() + _MANIFEST_NEG_TTL_S)
-        )
-    if manifest_fresh:
-        _refresh_manifest_async()  # 非阻塞，仅在 TTL 到点时才真正后台刷新
-        return
-    with _authorization_lock:
-        if _authorization_fingerprint == fingerprint and time.monotonic() - _authorization_checked_at < 5.0:
-            return
-        # 这条探测在对话期的每次工具列举/执行前都会走（5 秒缓存），必须是一次带 ETag
-        # 的轻量请求：云端未变化时回 304。技能/智能体/插件的授权刷新（多次拉取清单）
-        # 属于后台同步；工具清单版本变化时立刻触发一次后台同步。
-        headers = cloud_headers(st)
-        with _manifest_lock:
-            current_revision = str((_manifest or {}).get("revision") or "")
-        if current_revision:
-            headers["If-None-Match"] = f'"{current_revision}"'
-        try:
-            response = httpx.get(f"{st['cloud_base']}/api/v1/desktop/capability/manifest",
-                                 headers=headers, timeout=httpx.Timeout(5.0, connect=2.0))
-        except httpx.HTTPError as exc:
-            raise CloudUnavailable("cloud authorization cannot be checked while offline") from exc
-        require_current_account(st)
-        if response.status_code in (401, 403):
-            with account_scope(st):
-                clear_state()
-            raise CloudUnavailable("cloud authorization was revoked; sign in again")
-        if response.status_code >= 400:
-            raise CloudUnavailable("cloud authorization check failed")
-        if response.status_code == 304:
-            with account_scope(st), _manifest_lock:
-                _manifest_ts, _manifest_error = time.monotonic(), None
-        else:
-            # Validate the response contract; an HTML/login proxy is not a grant.
-            from core.services.desktop_capability_protocol import validate_manifest
-            payload = response.json()
-            verified_manifest = validate_manifest(payload.get("data") if isinstance(payload, dict) else None)
-            with account_scope(st):
-                with _manifest_lock:
-                    _manifest, _manifest_ts, _manifest_error = verified_manifest, time.monotonic(), None
-                _project_managed_profile(st, verified_manifest)
-        # The account grant is confirmed live by the probe above. Only when the tool
-        # manifest actually changed (not a 304) do we re-fetch and reconcile the
-        # skill / agent / plugin manifests — that reconcile is three WAN fetches plus
-        # per-item registry work, far too heavy to run on every tool listing. When
-        # nothing changed (304) the cached intent is already current and the periodic
-        # background poll keeps skills / agents / plugins reconciled on their own ETag
-        # schedule, so this per-call authorization check stays a single lightweight
-        # request. Removed/suppressed content still stops cached execution: a real
-        # change flips the manifest off 304, and a revoked grant returns 401/403 above.
-        if response.status_code != 304:
-            from core.capabilities.manifest_order import StaleManifest
-            from core.services import desktop_cloud_skills
-            try:
-                skill_manifest = desktop_cloud_skills._fetch_manifest(st)
-                with account_scope(st):
-                    desktop_cloud_skills._reconcile_intent(skill_manifest, st)
-            except StaleManifest:
-                logger.info("[cloud-bridge] skill grant check superseded by a newer sync")
-            from core.services import desktop_cloud_bundles
-            try:
-                desktop_cloud_bundles.reconcile_authorization(st)
-            except StaleManifest:
-                logger.info("[cloud-bridge] definition grant check superseded by a newer sync")
-        _authorization_fingerprint, _authorization_checked_at = fingerprint, time.monotonic()
 
 
-def _manifest_refresh_interval() -> float:
-    """Resolve the dynamic-manifest polling interval from deployment config."""
-    try:
-        value = float(
-            os.getenv(
-                "DESKTOP_CLOUD_MANIFEST_REFRESH_SECONDS",
-                str(_MANIFEST_REFRESH_DEFAULT_S),
-            )
-        )
-    except (TypeError, ValueError):
-        value = _MANIFEST_REFRESH_DEFAULT_S
-    return max(5.0, min(value, 300.0))
+def notify_cloud_changed() -> None:
+    """云端能力可能已变（前端写操作 / 网关告知）：后台同步一次清单与本机文件。"""
+    _refresh_manifest_async(force=True)
 
 
 def _bridge_switch_on() -> bool:
@@ -203,7 +126,14 @@ def keep_local_bases() -> Set[str]:
     raw = os.getenv("DESKTOP_LOCAL_MCP_KEEP")
     if raw is None or not raw.strip():
         raw = DEFAULT_LOCAL_KEEP
-    return {x.strip() for x in raw.split(",") if x.strip()}
+    requested = {x.strip() for x in raw.split(",") if x.strip()}
+    refused = requested & CLOUD_ONLY_BASES
+    if refused:
+        logger.warning(
+            "[bridge] DESKTOP_LOCAL_MCP_KEEP 忽略只能云端托管的组件基名: %s",
+            ", ".join(sorted(refused)),
+        )
+    return requested - CLOUD_ONLY_BASES
 
 
 # ── 桥状态（仅内存；壳启动后推送短时运行凭据） ────────────────────
@@ -352,7 +282,6 @@ def set_state(cloud_base: str, token: str, expires_in: int, *, device_id: Option
     if changed:
         _rebuild_identity_views()
     _refresh_manifest_async(force=True)
-    _start_background_poller()
 
 
 def bridge_active() -> bool:
@@ -445,36 +374,10 @@ def sync_capabilities_blocking(st: Dict[str, Any]) -> None:
     desktop_cloud_bundles.sync_blocking(st)
 
 
-_poller_started = False
-_poller_lock = threading.Lock()
-
-
-def _start_background_poller() -> None:
-    """登录后启动唯一的定时轮询线程：按刷新间隔在后台同步云端清单（技能/智能体/插件/工具），
-    使工具装配无需在关键路径上做任何网络同步——变更与吊销都由这个定时器发现。幂等。"""
-    global _poller_started
-    with _poller_lock:
-        if _poller_started:
-            return
-        _poller_started = True
-
-    def _loop() -> None:
-        while True:
-            try:
-                interval = _manifest_refresh_interval()
-            except Exception:  # noqa: BLE001
-                interval = _MANIFEST_REFRESH_DEFAULT_S
-            time.sleep(max(5.0, interval))
-            try:
-                if get_state() is not None:
-                    _refresh_manifest_async(force=True)
-            except Exception as exc:  # noqa: BLE001 — 轮询失败只记录，下一轮再试
-                logger.debug("[cloud-bridge] background poll tick failed: %s", exc)
-
-    threading.Thread(target=_loop, name="cloud-bridge-poller", daemon=True).start()
-
-
 def _refresh_manifest_async(force: bool = False) -> None:
+    """后台同步一次云端清单。没有定时器：``force`` 由登录 / 变更通知触发，非
+    ``force`` 只是「还没有可用清单」时的有界重试（离线登录后的自愈），一旦拿到
+    清单就不再有任何后台请求。"""
     global _manifest_fetching
     st = get_state()
     if not st:
@@ -482,14 +385,11 @@ def _refresh_manifest_async(force: bool = False) -> None:
     with _manifest_lock:
         if _manifest_fetching:
             return
-        age = time.monotonic() - _manifest_ts
-        ttl = (
-            _MANIFEST_NEG_TTL_S
-            if _manifest is None or _manifest_error
-            else _manifest_refresh_interval()
-        )
-        if not force and _manifest_ts and age < ttl:
-            return
+        if not force:
+            if _manifest is not None and not _manifest_error:
+                return
+            if _manifest_ts and time.monotonic() - _manifest_ts < _MANIFEST_NEG_TTL_S:
+                return
         _manifest_fetching = True
     threading.Thread(
         target=_fetch_manifest_blocking, args=(st,), name="cloud-bridge-manifest", daemon=True
@@ -497,9 +397,10 @@ def _refresh_manifest_async(force: bool = False) -> None:
 
 
 def get_cached_manifest() -> Optional[Dict[str, Any]]:
-    """返回缓存的 manifest（可能为 None），并按 TTL 触发后台刷新。
+    """返回缓存的 manifest（可能为 None）。
 
-    不做激活判定——守门统一在公共入口（``_bridge_context``）。
+    还没有清单时（离线登录等）触发一次有界重试；已有清单则不发任何请求，更新
+    靠登录与变更通知。不做激活判定——守门统一在公共入口（``_bridge_context``）。
     """
     _refresh_manifest_async()
     with _manifest_lock:
@@ -654,6 +555,7 @@ def cloud_gateway_mcp_configs(enabled_mcp_ids: Optional[List[str]] = None, *, re
             "manifest_tools": copy.deepcopy(s["tools"]),
             "schema_hash": str(s["schema_hash"]),
             "gateway_invoke_url": invoke_url,
+            "gateway_component": s["component"],
         }
     return configs
 
@@ -707,7 +609,6 @@ def apply_to_enabled_mcp_ids(mcp_ids: Optional[List[str]]) -> Optional[List[str]
             kept.append(sid)
             existing.add(sid)
     return kept
-
 
 
 def _resolve_mcp_bindings(mcp_ids: Optional[List[str]], ctx):
