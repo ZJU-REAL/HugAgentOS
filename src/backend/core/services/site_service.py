@@ -25,8 +25,11 @@ from core.db.repository import SiteRepository
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.services.site_access_policy import (
     can_view_site,
+    site_management_permission,
+    site_listing_predicate,
     resolve_site_scope,
     site_scope_write_fields,
+    site_scope_ref,
 )
 from core.storage import get_storage
 from sqlalchemy.orm import Session
@@ -183,7 +186,7 @@ class SiteService:
         title = (title or "").strip()
         if not title:
             raise BadRequestError("站点标题不能为空")
-        resolved_scope_id = resolve_site_scope(self.db, user_id, visibility, scope_id)
+        resolved_scope_id = resolve_site_scope(self.db, user_id, visibility, scope_id) if not site_id else None
 
         cleaned = self._validate_files(files)
         entry_file = self._pick_entry_file(cleaned)
@@ -202,11 +205,14 @@ class SiteService:
                 chat_id = None
 
         if site_id:
-            site = self.repo.get_by_id(site_id)
-            if not site:
-                raise ResourceNotFoundError("site", site_id)
-            if site.user_id != user_id:
-                raise BadRequestError("无权更新该站点（不属于当前用户）")
+            site = self.get_owned(site_id, user_id, required="edit")
+            if project_id and site.project_id != project_id:
+                raise BadRequestError("目标站点与当前源码项目不一致")
+            if site_management_permission(self.db, site, user_id) != "admin":
+                title, description = site.title, site.description
+            # Publication changes content; visitor access changes only in site settings.
+            visibility = site.visibility
+            resolved_scope_id = site_scope_ref(site)
             return self._publish_new_version(
                 site,
                 cleaned,
@@ -224,6 +230,13 @@ class SiteService:
                 f"站点数量已达上限（{MAX_SITES_PER_USER} 个），请先删除不用的站点"
             )
 
+        if project_id:
+            from core.auth.permissions_iface import resolve_project_permission
+            from core.db.models import Project
+            project = self.db.get(Project, project_id)
+            if project is None or resolve_project_permission(self.db, user_id, project) not in ("edit", "admin"):
+                from fastapi import HTTPException
+                raise HTTPException(403, "无权在该项目发布站点")
         final_slug = self._resolve_slug(slug)
         new_id = f"site_{uuid.uuid4().hex[:16]}"
         version = 1
@@ -440,12 +453,21 @@ class SiteService:
     def list_sites(
         self, user_id: str, page: int = 1, page_size: int = 50
     ) -> Tuple[List[Site], int]:
-        return self.repo.list_by_user(user_id, page, page_size)
+        query = self.db.query(Site).filter(Site.deleted_at.is_(None), site_listing_predicate(user_id))
+        total = query.count()
+        return query.order_by(Site.updated_at.desc()).offset((page - 1) * page_size).limit(page_size).all(), total
 
-    def get_owned(self, site_id: str, user_id: str) -> Site:
-        site = self.repo.get_by_id(site_id)
-        if not site or site.user_id != user_id:
+    def get_owned(self, site_id: str, user_id: str, *, required: str = "admin") -> Site:
+        from fastapi import HTTPException
+        site = (self.db.query(Site).filter(
+            Site.site_id == site_id, Site.deleted_at.is_(None),
+        ).populate_existing().with_for_update().first()
+                if required != "view" else self.repo.get_by_id(site_id))
+        level = site_management_permission(self.db, site, user_id) if site else "none"
+        if level == "none":
             raise ResourceNotFoundError("site", site_id)
+        if {"view": 1, "edit": 2, "admin": 3}[level] < {"view": 1, "edit": 2, "admin": 3}[required]:
+            raise HTTPException(403, "当前站点权限不足")
         return site
 
     def update_site(

@@ -121,8 +121,23 @@ def register_write(
             )
 
         # ── Logical path (/myspace/...) -> physical path (/workspace/myspace/<uid>/...) ──
-        physical = to_physical_path(file_path, user_id)
+        from .project_source_access import current_scope_error, write_team_text, is_team_source_path
+        scope_error = current_scope_error(scope, user_id, write=True)
+        if scope_error:
+            return resp_json(scope_error)
+        physical = to_physical_path(file_path, user_id, session_id=_sess)
         is_persistent = is_myspace_physical(physical, user_id)
+
+        if is_team_source_path(scope, user_id, file_path):
+            from fastapi import HTTPException
+            import asyncio
+            try:
+                return resp_json(await asyncio.to_thread(
+                    write_team_text, scope, user_id or "", file_path, physical, state,
+                    content=content,
+                ))
+            except HTTPException as exc:
+                return resp_json({"error": exc.detail, "status": exc.status_code})
 
         # 只读作用域（团队项目）必须在写字节之前就拒绝，否则文件已经落在用户的镜像
         # 目录里，而登记那一步才被拦下 —— 对模型是"成功"，对用户是哪儿都看不见。

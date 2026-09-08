@@ -597,7 +597,7 @@ def test_workspace_path_alias_in_local_mode(monkeypatch):
 
 
 def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
-    """The runner maps canonical and expanded paths into the chat workspace."""
+    """Logical aliases are mapped once; physical paths retain their identity."""
     import services.script_runner_service.server as srv
 
     local_root = str(tmp_path / "Application Support" / "HugAgentOS" / "workspace")
@@ -605,7 +605,7 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
     session_root = str(srv._session_workspace("chat-1", create=True))
     assert srv._canon_ws("/workspace", "chat-1") == session_root
     assert srv._canon_ws("/workspace/a.txt", "chat-1") == f"{session_root}/a.txt"
-    assert srv._canon_ws(f"{local_root}/a.txt", "chat-1") == f"{session_root}/a.txt"
+    assert srv._canon_ws(f"{local_root}/a.txt", "chat-1") == f"{local_root}/a.txt"
     assert srv._canon_ws("/workspaces/x", "chat-1") == "/workspaces/x"
 
     # Existing quotes remain intact, while an unquoted canonical path gains a

@@ -126,7 +126,7 @@ async def _read_path_bytes(
     scope: Optional[ProjectScope] = None,
 ) -> Optional[bytes]:
     """从沙箱 / 「我的空间」 / 本机（桌面本地模式）取回文件字节。"""
-    physical = to_physical_path(file_path, user_id)
+    physical = to_physical_path(file_path, user_id, session_id=session)
 
     from core.config.local_mode import local_mode_enabled
 

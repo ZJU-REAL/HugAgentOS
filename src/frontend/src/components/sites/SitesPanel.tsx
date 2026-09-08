@@ -592,11 +592,12 @@ export function SitesPanel() {
                       size="small"
                       icon={<EditOutlined />}
                       disabled
-                      title={t('该站点没有源码工程，无法在线编辑')}
+                      title={site.project_id ? t('当前项目只读') : t('该站点没有源码工程，无法在线编辑')}
                     >
                       {t('编辑')}
                     </Button>
                   )}
+                  {site.can_manage && <>
                   <Button size="small" icon={<SettingOutlined />} onClick={() => setManaging(site)}>
                     {t('管理')}
                   </Button>
@@ -610,6 +611,7 @@ export function SitesPanel() {
                   >
                     <Button size="small" danger icon={<DeleteOutlined />}>{t('删除')}</Button>
                   </Popconfirm>
+                  </>}
                 </div>
               </div>
             ))}

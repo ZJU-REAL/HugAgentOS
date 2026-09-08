@@ -706,7 +706,18 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
         {m.role === 'user' && m.attachments && m.attachments.length > 0 && (
           <div className="jx-userAttachments">
             {m.attachments.map((att, idx) => (
-              <FileAttachmentCard key={idx} name={att.name} downloadHref={(att.download_url || att.file_id) ? `${effectiveApiUrl}${att.download_url || `/files/${att.file_id}`}` : undefined} />
+              <FileAttachmentCard
+                key={idx}
+                name={att.name}
+                downloadHref={(att.download_url || att.file_id) ? `${effectiveApiUrl}${att.download_url || `/files/${att.file_id}`}` : undefined}
+                artifact={att.file_id ? {
+                  file_id: att.file_id,
+                  name: att.name,
+                  url: att.download_url || `/files/${att.file_id}`,
+                  mime_type: att.mime_type,
+                  chat_id: currentChatId,
+                } : undefined}
+              />
             ))}
           </div>
         )}

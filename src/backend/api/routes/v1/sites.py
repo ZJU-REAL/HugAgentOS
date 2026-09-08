@@ -13,6 +13,7 @@ from core.infra.responses import paginated_response, success_response
 from core.services.site_access_policy import (
     SiteUpdateScopeFields,
     serialize_site_scope,
+    site_management_permission,
     site_scope_ref,
 )
 from core.services.site_service import SiteService
@@ -33,7 +34,7 @@ class RollbackRequest(BaseModel):
     version: int = Field(..., description="要回滚到的历史版本号", ge=1)
 
 
-def _site_to_dict(site) -> dict:
+def _site_to_dict(site, permission: str = "admin") -> dict:
     return {
         "site_id": site.site_id,
         "slug": site.slug,
@@ -49,7 +50,9 @@ def _site_to_dict(site) -> dict:
         "chat_id": site.chat_id,
         # project_id set → the site has a source project and can keep being edited via the card's "Edit"; empty for old sites → not editable
         "project_id": getattr(site, "project_id", None),
-        "editable": bool(getattr(site, "project_id", None)),
+        "editable": bool(getattr(site, "project_id", None)) and permission in ("edit", "admin"),
+        "permission": permission,
+        "can_manage": permission == "admin",
         "created_at": site.created_at.isoformat() if site.created_at else None,
         "updated_at": site.updated_at.isoformat() if site.updated_at else None,
     }
@@ -65,7 +68,7 @@ async def list_sites(
     service = SiteService(db)
     items, total = service.list_sites(user.user_id, page, page_size)
     return paginated_response(
-        items=[_site_to_dict(s) for s in items],
+        items=[_site_to_dict(s, site_management_permission(db, s, user.user_id)) for s in items],
         page=page,
         page_size=page_size,
         total_items=total,
@@ -79,8 +82,8 @@ async def get_site(
     db: Session = Depends(get_db),
 ):
     service = SiteService(db)
-    site = service.get_owned(site_id, user.user_id)
-    data = _site_to_dict(site)
+    site = service.get_owned(site_id, user.user_id, required="view")
+    data = _site_to_dict(site, site_management_permission(db, site, user.user_id))
     data["versions"] = (site.extra_data or {}).get("versions") or []
     return success_response(data=data)
 

@@ -35,12 +35,17 @@ async def package_local_site(arguments, headers):
     src = str(arguments.get("src_dir") or "").strip().rstrip("/")
     if not src or src == ".":
         src = project_dir or "/workspace/site"
-    src = to_physical_path(src, user_id)
+    import os
+    if not os.path.isabs(src):
+        src = "/workspace/" + src
+    src = to_physical_path(src, user_id, session_id=chat_id)
     error = _validate_workspace_path(src + "/")
     if error:
         raise ValueError(error)
     source = str(arguments.get("source_dir") or "").strip().rstrip("/")
-    if source and to_physical_path(source, user_id) == src:
+    if source and not os.path.isabs(source):
+        source = "/workspace/" + source
+    if source and to_physical_path(source, user_id, session_id=chat_id) == src:
         raise ValueError("src_dir 必须指向构建产物，不能与 source_dir 相同")
     files, error = await pack_and_fetch_dir(src, chat_id, user_id)
     if error:

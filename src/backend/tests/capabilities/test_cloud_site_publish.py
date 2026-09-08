@@ -138,14 +138,15 @@ def test_gateway_transfers_local_build_bytes_and_returns_cloud_url(caps_root, mo
     monkeypatch.setattr(bridge, "get_state", lambda: st)
     archive = bundle()
 
-    async def shell(*args, **kwargs):
-        return 0, str(len(archive)), ""
-
     class Sandbox:
+        async def execute(self, request):
+            from core.sandbox import ExecuteResult
+            assert request.language == "python"
+            return ExecuteResult(stdout="", stderr="", exit_code=0, execution_time_ms=1)
+
         async def get_file(self, *args, **kwargs):
             return archive
 
-    monkeypatch.setattr("core.llm.tools._common.sandbox_exec_bash", shell)
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Sandbox())
     received = []
 

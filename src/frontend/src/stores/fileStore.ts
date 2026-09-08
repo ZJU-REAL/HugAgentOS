@@ -10,6 +10,8 @@ export interface ImportedSpaceFile {
 
 interface FileState {
   uploadedFiles: File[];
+  uploadedArtifacts: Map<File, { file_id: string; download_url: string }>;
+  setUploadedArtifact: (file: File, artifact: { file_id: string; download_url: string }) => void;
   uploadingFiles: Set<File>;
   importedSpaceFiles: ImportedSpaceFile[];
 
@@ -27,15 +29,27 @@ interface FileState {
 
 export const useFileStore = create<FileState>((set) => ({
   uploadedFiles: [],
+  uploadedArtifacts: new Map(),
+  setUploadedArtifact: (file, artifact) => set((s) => {
+    if (!s.uploadedFiles.includes(file)) return {};
+    const uploadedArtifacts = new Map(s.uploadedArtifacts);
+    uploadedArtifacts.set(file, artifact);
+    return { uploadedArtifacts };
+  }),
   uploadingFiles: new Set(),
   importedSpaceFiles: [],
 
-  setUploadedFiles: (files) => set({ uploadedFiles: files }),
-  addUploadedFile: (file) => set((s) => ({ uploadedFiles: [...s.uploadedFiles, file] })),
-  removeUploadedFile: (file) => set((s) => ({
-    uploadedFiles: s.uploadedFiles.filter((f) => f !== file),
+  setUploadedFiles: (files) => set((s) => ({
+    uploadedFiles: files,
+    uploadedArtifacts: new Map([...s.uploadedArtifacts].filter(([file]) => files.includes(file))),
   })),
-  clearUploadedFiles: () => set({ uploadedFiles: [] }),
+  addUploadedFile: (file) => set((s) => ({ uploadedFiles: [...s.uploadedFiles, file] })),
+  removeUploadedFile: (file) => set((s) => {
+    const uploadedArtifacts = new Map(s.uploadedArtifacts);
+    uploadedArtifacts.delete(file);
+    return { uploadedFiles: s.uploadedFiles.filter((f) => f !== file), uploadedArtifacts };
+  }),
+  clearUploadedFiles: () => set({ uploadedFiles: [], uploadedArtifacts: new Map() }),
   setUploadingFiles: (files) => set({ uploadingFiles: files }),
   addUploadingFile: (file) => set((s) => {
     const next = new Set(s.uploadingFiles);

@@ -159,6 +159,7 @@ def _hash_skill_package(path: Path, *, entries=None) -> str:
 
     from . import archive
     from .errors import IntegrityFailed
+    from .junction import _native
 
     raw_files = {}
     total = 0
@@ -173,7 +174,8 @@ def _hash_skill_package(path: Path, *, entries=None) -> str:
             or len(raw_files) >= archive.MAX_MEMBERS
         ):
             raise IntegrityFailed("skill package exceeds content verification limits")
-        raw = file.read_bytes()
+        # Scanning already supports extended Windows paths; byte reads must too.
+        raw = _native(file).read_bytes()
         if len(raw) != size:
             raise IntegrityFailed("skill package changed during verification")
         raw_files[rel] = raw

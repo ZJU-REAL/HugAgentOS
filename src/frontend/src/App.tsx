@@ -629,7 +629,7 @@ export default function App() {
       if (!target) return;
       // .jx-msgActionBtn / .jx-editMessage：点「编辑消息」展开编辑框、点「取消」收起
       // 都会播放高度动画，ResizeObserver 会误判为流式增高而滚到底部 —— 预置脱离跟随。
-      if (target.closest('.jx-plan-stepHeader, .jx-plan-stepsToggle, .jx-tcr-header, .jx-trs-head, .jx-msgActionBtn, .jx-editMessage')) {
+      if (target.closest('.jx-plan-stepHeader, .jx-plan-stepsToggle, .jx-tcr-header, .jx-trs-head, .jx-msgActionBtn, .jx-editMessage, .jx-conversationNav-button')) {
         userScrolledUpRef.current = true;
       }
     };

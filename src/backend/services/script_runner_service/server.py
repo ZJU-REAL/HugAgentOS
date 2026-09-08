@@ -36,6 +36,11 @@ except ImportError:  # Windows does not provide the POSIX resource module.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("script-runner")
 
+if __package__:
+    from .workspace_paths import session_root, resolve_path
+else:
+    from workspace_paths import session_root, resolve_path
+
 app = FastAPI(title="HugAgentOS Script Runner", docs_url=None, redoc_url=None)
 
 # ── Configuration ──
@@ -174,8 +179,10 @@ def _execution_workspace_root(
     platform: str = os.name,
 ) -> str:
     """Return the path syntax understood by the selected host interpreter."""
-    if language != "bash" or platform != "nt":
+    if platform != "nt":
         return workspace_root
+    if language != "bash":
+        return workspace_root.replace(chr(92), "/")
     match = re.match(r"^([A-Za-z]):[\\/](.*)$", workspace_root)
     if not match:
         return workspace_root.replace("\\", "/")
@@ -193,10 +200,6 @@ def _rewrite_execution_paths(
     # 先把 /myspace 展开成 /workspace/myspace/{uid}，后面的根目录映射与引号处理
     # 就全部复用既有逻辑，不必再写一套。
     value = _rewrite_myspace_refs(value, user_id)
-    if WORKSPACE_ROOT != "/workspace" and workspace_root != WORKSPACE_ROOT:
-        # Native file tools may return the host-expanded root. Normalize it back
-        # to the canonical spelling before routing it into the session workspace.
-        value = value.replace(WORKSPACE_ROOT.rstrip("/\\"), "/workspace")
     # Protect the frozen skill root from the mutable conversation-workspace
     # mapping. Another run in this chat may relink its compatibility skills dir.
     marker = "__HUGAGENT_PREPARED_SKILLS_ROOT__"
@@ -293,8 +296,7 @@ def _session_workspace(
 ) -> Path:
     """Return the durable filesystem root owned by one conversation session."""
     value = _validate_session_id(session_id)
-    key = hashlib.sha256(value.encode("utf-8")).hexdigest()
-    workspace = Path(WORKSPACE_ROOT) / SESSION_WORKSPACES_DIR / key
+    workspace = Path(session_root(WORKSPACE_ROOT, value))
     if create:
         workspace.mkdir(parents=True, exist_ok=True)
         if user_id:
@@ -602,19 +604,8 @@ def _canon_ws(path: str, session_id: str, user_id: Optional[str] = None) -> str:
     """
     if not isinstance(path, str):
         return path
-    # 文件类接口同样只认 /myspace 这一种写法，先展开成物理写法再往下走。
-    path = _rewrite_myspace_refs(path, user_id)
-    workspace = str(_session_workspace(session_id, create=True, user_id=user_id))
-    if path == "/workspace":
-        return workspace
-    if path.startswith("/workspace/"):
-        return workspace.rstrip("/\\") + path[len("/workspace") :]
-    physical_root = WORKSPACE_ROOT.rstrip("/\\")
-    if path == physical_root:
-        return workspace
-    if path.startswith(physical_root + "/") or path.startswith(physical_root + "\\"):
-        return workspace.rstrip("/\\") + path[len(physical_root) :]
-    return path
+    _session_workspace(session_id, create=True, user_id=user_id)
+    return resolve_path(path, WORKSPACE_ROOT, session_id, user_id)
 
 
 def _validate_workspace_path(

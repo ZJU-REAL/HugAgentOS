@@ -1,5 +1,9 @@
 /** 英文字典（chat 域）：key 为中文原文，value 为英文译文。 */
 export const CHAT_DICT: Record<string, string> = {
+  '当前会话导航': 'Current conversation navigation',
+  '第 {n} 轮对话': 'Conversation turn {n}',
+  '跳转到：{title}': 'Jump to: {title}',
+  '暂无回复': 'No reply yet',
   '请在有编辑权限的具体项目中使用普通对话，并移除已选择的能力后初始化指令': 'Initialize instructions in a specific project you can edit, using a standard conversation with no selected capabilities.',
   '项目命令': 'Project commands',
   '初始化指令：检查项目并创建或完善 AGENTS.md': 'Initialize instructions: inspect the project and create or improve AGENTS.md',

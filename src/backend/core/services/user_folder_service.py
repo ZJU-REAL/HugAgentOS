@@ -57,12 +57,13 @@ class UserFolderService:
         self.audit = AuditLogRepository(db)
 
     # ── Queries ──────────────────────────────────────────
-    def get(self, folder_id: str) -> Optional[UserFolder]:
-        return (
-            self.db.query(UserFolder)
-            .filter(UserFolder.folder_id == folder_id, UserFolder.deleted_at.is_(None))
-            .first()
+    def get(self, folder_id: str, *, lock: bool = False) -> Optional[UserFolder]:
+        query = self.db.query(UserFolder).filter(
+            UserFolder.folder_id == folder_id, UserFolder.deleted_at.is_(None),
         )
+        if lock:
+            query = query.populate_existing().with_for_update()
+        return query.first()
 
     def get_owned(self, folder_id: str, user_id: str) -> Optional[UserFolder]:
         """get with ownership check: must be the current user's folder, otherwise treated as non-existent (403/404 equivalent)."""
@@ -142,7 +143,7 @@ class UserFolderService:
             return FolderResult(False, cleaned)
 
         if parent_folder_id is not None:
-            parent = self.get(parent_folder_id)
+            parent = self.get(parent_folder_id, lock=True)
             if parent is None or parent.user_id != user_id:
                 return FolderResult(False, "父文件夹不存在或不属于该用户")
             if self._depth(parent_folder_id) >= MAX_FOLDER_DEPTH:
@@ -218,7 +219,7 @@ class UserFolderService:
         return "/".join(reversed(names))
 
     def rename_folder(self, folder_id: str, name: str, actor: str) -> FolderResult:
-        folder = self.get(folder_id)
+        folder = self.get(folder_id, lock=True)
         if folder is None or folder.user_id != actor:
             return FolderResult(False, "文件夹不存在")
 
@@ -270,14 +271,14 @@ class UserFolderService:
         new_parent_id: Optional[str],
         actor: str,
     ) -> FolderResult:
-        folder = self.get(folder_id)
+        folder = self.get(folder_id, lock=True)
         if folder is None or folder.user_id != actor:
             return FolderResult(False, "文件夹不存在")
         if new_parent_id == folder.parent_folder_id:
             return FolderResult(True, "未改动", folder_id=folder_id)
 
         if new_parent_id is not None:
-            parent = self.get(new_parent_id)
+            parent = self.get(new_parent_id, lock=True)
             if parent is None or parent.user_id != folder.user_id:
                 return FolderResult(False, "目标父文件夹不存在或跨用户")
             # Cycle detection: the target parent must not be a descendant of itself
@@ -350,7 +351,7 @@ class UserFolderService:
 
     def delete_folder(self, folder_id: str, actor: str) -> Tuple[FolderResult, int]:
         """Cascading soft delete of the folder plus all descendant folders and associated artifacts. Returns the number of affected files."""
-        folder = self.get(folder_id)
+        folder = self.get(folder_id, lock=True)
         if folder is None or folder.user_id != actor:
             return FolderResult(False, "文件夹不存在"), 0
 
@@ -420,6 +421,7 @@ class UserFolderService:
         artifact = (
             self.db.query(Artifact)
             .filter(Artifact.artifact_id == artifact_id, Artifact.deleted_at.is_(None))
+            .populate_existing().with_for_update()
             .first()
         )
         if artifact is None or artifact.user_id != actor:
@@ -428,7 +430,7 @@ class UserFolderService:
             return FolderResult(False, "非个人文件不能在个人空间中移动")
 
         if target_folder_id is not None:
-            target = self.get(target_folder_id)
+            target = self.get(target_folder_id, lock=True)
             if target is None or target.user_id != actor:
                 return FolderResult(False, "目标文件夹不存在")
 

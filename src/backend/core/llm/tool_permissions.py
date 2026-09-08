@@ -158,6 +158,7 @@ class PermissionRuntime:
     approval_available: bool
     default_allow: bool = False
     approval_mode: str = APPROVAL_ASK
+    sandbox_session_id: Optional[str] = None
 
 
 # What an intent does when no live UI can answer a confirmation (batch runs,
@@ -533,7 +534,8 @@ def local_path_tool(
                 logical = default_path
             if not logical:
                 continue
-            physical = to_physical_path(logical, runtime.user_id)
+            session = runtime.sandbox_session_id or runtime.chat_id
+            physical = to_physical_path(logical, runtime.user_id, session_id=session)
             if first is None:
                 first = (logical, physical)
             intents.append(

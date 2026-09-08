@@ -2072,6 +2072,9 @@ async def create_agent_executor(
             loaded_skill_ids=loaded_skill_ids,
         )
 
+        from core.services.project_scope import project_scope_from_context
+        _proj_scope = project_scope_from_context(project_ctx or {})
+
         # ── Phase 3.5: Register sandbox tools (bash + artifact in/out) ──
         # Skill files reach the sandbox via the unified /workspace/skills bind
         # mount (built-in synced at startup, DB skills materialized on demand —
@@ -2086,6 +2089,7 @@ async def create_agent_executor(
                 sandbox_session_id=_sbx_sess,
                 user_id=current_user_id,
                 interactive=_interactive,
+                scope=_proj_scope,
             )
         if not read_only:
             register_sandbox_put_artifact(
@@ -2141,7 +2145,6 @@ async def create_agent_executor(
         _proj_folder_name = (project_ctx or {}).get("project_folder_name") or None
         from core.services.project_scope import project_scope_from_context
 
-        _proj_scope = project_scope_from_context(project_ctx or {})
         if code_capability_enabled():
             _read_state = ReadStateTracker()
             register_read(
@@ -3250,6 +3253,7 @@ async def create_agent_executor(
     _permission_service = ToolPermissionService(
         _permission_registry,
         PermissionRuntime(
+            sandbox_session_id=_sbx_sess,
             chat_id=chat_id,
             user_id=current_user_id,
             interactive=_interactive,

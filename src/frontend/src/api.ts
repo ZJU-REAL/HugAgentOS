@@ -3357,6 +3357,13 @@ export async function getProject(projectId: string): Promise<ProjectDetail> {
   return unwrapData<ProjectDetail>(wrapped);
 }
 
+export async function transferProjectToTeam(projectId: string, teamId: string): Promise<ProjectDetail> {
+  return unwrapData<ProjectDetail>(await apiRequest(
+    `/v1/projects/${encodeURIComponent(projectId)}/transfer-to-team`,
+    { method: 'POST', body: JSON.stringify({ team_id: teamId }) },
+  ));
+}
+
 export async function updateProject(
   projectId: string,
   patch: Partial<Pick<ProjectItem, 'name' | 'description' | 'instructions' | 'pinned' | 'icon_color' | 'memory_enabled' | 'memory_write_enabled'>>,
@@ -3940,10 +3947,12 @@ export interface SiteItem extends SiteEditionFields {
   total_size_bytes: number;
   view_count: number;
   chat_id: string | null;
-  /** Site source project (personal project) id; when set → the "Edit" action on the card can continue editing; null for legacy sites */
+  /** Site source project id; when set → the "Edit" action on the card can continue editing; null for legacy sites */
   project_id: string | null;
-  /** Editable whenever project_id is set */
+  /** Current actor can edit this source project. */
   editable: boolean;
+  permission?: 'none' | 'view' | 'edit' | 'admin';
+  can_manage?: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -3965,6 +3974,8 @@ function toSiteItem(raw: JsonObject): SiteItem {
     chat_id: typeof raw.chat_id === 'string' ? raw.chat_id : null,
     project_id: typeof raw.project_id === 'string' ? raw.project_id : null,
     editable: Boolean(raw.editable),
+    permission: raw.permission as SiteItem['permission'],
+    can_manage: raw.can_manage === true,
     created_at: typeof raw.created_at === 'string' ? raw.created_at : null,
     updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : null,
   };

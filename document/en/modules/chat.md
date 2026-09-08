@@ -10,6 +10,16 @@ Chat is the core pipeline of HugAgentOS: a user message travels through the Fast
 
 The home page, conversation page, and project panel share the message composer. Long text expands the editor up to its maximum height, then scrolls inside it. Shift+Enter, typing, and pasting keep the current line visible above the bottom toolbar. Editing earlier text follows the caret; manually scrolling to read preserves the scroll position.
 
+## Uploaded attachment previews
+
+Once an upload completes, click its attachment card above the composer or in a sent message to preview it in the right-hand Canvas; images display directly. Canvas uses the existing document viewers and offers a download fallback for unsupported formats. Uploading or failed files do not open a preview. The download icon on message attachments and the Canvas download button remain available.
+
+## Navigation within a conversation
+
+The short marks on the right of the conversation represent loaded user turns. Hover or focus a mark to preview the question and answer; click to jump to that part of the same conversation. A longer, darker mark identifies the current turn. Arrow keys and Home / End move focus, Enter / Space jump, and Escape dismisses the preview. With reduced motion enabled, navigation jumps immediately.
+
+Scroll within the rail to browse long conversations. Loading earlier messages by scrolling upward adds their turns to the rail. Switching conversations rebuilds navigation; empty conversations have no rail. Navigation follows the chat area when a side panel opens and supports dark mode and touch input.
+
 ## End-to-end flow of one conversation
 
 ```

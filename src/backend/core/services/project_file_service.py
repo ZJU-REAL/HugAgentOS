@@ -43,6 +43,41 @@ def _artifact_to_dict(artifact: Artifact, folder_path: str) -> Dict[str, Any]:
 
 
 class ProjectFileService:
+
+    @staticmethod
+    def matches_scope(project, scope):
+        return scope.kind == project.kind and scope.root_folder_id == project.linked_folder_id
+
+    def source_file_scope(self, project: Project, actor: str, relative_path: str, *, create: bool = False):
+        """Resolve a project-relative path; newly created folders join the caller transaction."""
+        from fastapi import HTTPException
+        parts = relative_path.split("/")
+        if (not relative_path or relative_path.startswith("/") or "\\" in relative_path
+                or any(p in ("", ".", "..") or any(ord(c) < 32 for c in p) for p in parts)):
+            raise HTTPException(400, "源码路径必须是项目内相对路径")
+        filters, values = self.instruction_file_scope(project, actor)
+        model = UserFolder
+        folder_field = "user_folder_id"
+        owner_filter = {"user_id": project.owner_user_id}
+        folder_values = dict(owner_filter)
+
+        parent = filters[folder_field]
+        for name in parts[:-1]:
+            folder = self.db.query(model).filter_by(
+                **owner_filter, parent_folder_id=parent, name=name, deleted_at=None,
+            ).first()
+            if folder is None:
+                if not create:
+                    raise HTTPException(404, "源码文件不存在")
+                folder = model(folder_id="fld_" + uuid.uuid4().hex[:24],
+                               parent_folder_id=parent, name=name, **folder_values)
+                self.db.add(folder)
+                self.db.flush()
+            parent = folder.folder_id
+        filters = {**filters, folder_field: parent, "filename": parts[-1]}
+        values = {**values, folder_field: parent}
+        return filters, values
+
     def __init__(self, db: Session):
         self.db = db
 

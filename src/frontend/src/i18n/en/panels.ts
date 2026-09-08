@@ -1,5 +1,14 @@
 /** 英文字典（panels 域）：key 为中文原文，value 为英文译文。 */
 export const PANELS_DICT: Record<string, string> = {
+  '当前项目只读': "This project is read-only",
+  '暂无可管理的团队': "No teams you can manage",
+  '选择目标团队': "Select a team",
+  '已有站点链接和版本保留；编辑成员可更新源码和发布，管理员可管理站点。私人对话不会自动共享。转换后不支持直接转回个人项目。': "Existing site links and versions are preserved. Editors can update source code and publish; administrators can manage sites. Private conversations are not shared automatically. This transfer cannot be directly reversed.",
+  '项目整个文件夹及其子文件夹将移入团队空间，团队成员按权限访问。': "The entire project folder and its subfolders will move to team space. Team members will have access according to their permissions.",
+  '确认转换': "Confirm transfer",
+  '转换失败': "Transfer failed",
+  '转为团队项目': "Transfer to team",
+  '项目已转为团队项目': "Project transferred to the team",
   "浏览器后台仅展示当前服务器保存的调用记录。桌面本机任务请在桌面端的调用日志中查看；使用云端模型不代表任务在云端执行。": "The browser console only shows call records stored on the connected server. View desktop-local tasks in the desktop call logs; using a cloud model does not mean the task executes in the cloud.",
   '受控本体标签使用 ontology:ConceptId；未知概念会在保存时提示修改':
     'Use ontology:ConceptId for governed ontology tags; unknown concepts are reported when saving.',

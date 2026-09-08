@@ -37,7 +37,7 @@ function getFileCategory(artifact: CanvasArtifact): 'docx' | 'xlsx' | 'pdf' | 'p
   if (ext === 'xlsx' || ext === 'xls' || mime.includes('spreadsheetml')) return 'xlsx';
   if (ext === 'pdf' || mime === 'application/pdf') return 'pdf';
   if (ext === 'pptx' || ext === 'ppt' || mime.includes('presentationml') || mime.includes('powerpoint')) return 'ppt';
-  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif', 'ico'].includes(ext)) return 'image';
   if (ext === 'html' || ext === 'htm' || mime === 'text/html') return 'html';
   if (['md', 'markdown', 'mdx'].includes(ext) || mime === 'text/markdown') return 'markdown';
   if (['txt', 'csv', 'json', 'xml', 'yaml', 'yml', 'log', 'py', 'js', 'ts', 'tsx', 'jsx', 'css', 'sql', 'sh', 'bat', 'ini', 'conf', 'toml'].includes(ext) || mime.startsWith('text/')) return 'text';

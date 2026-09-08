@@ -248,9 +248,20 @@ def _validate_workspace_path(path: str) -> str | None:
 
     if not path or not isinstance(path, str):
         return "path 必须为非空字符串"
+    import ntpath
+    import posixpath
+
     path = canonicalize_ws_path(path)
-    if not path.startswith(_WS + "/"):
-        return f"path 必须在 {_WS}/ 下: {path}"
-    if "/../" in path or path.endswith("/..") or "//" in path:
-        return f"path 不允许包含 .. 或 //: {path}"
-    return None
+    windows = bool(ntpath.splitdrive(_WS)[0])
+    pathmod = ntpath if windows else posixpath
+    parts = path.replace(chr(92), "/").split("/")
+    if ".." in parts:
+        return f"path 不允许包含 ..: {path}"
+    root = pathmod.normcase(pathmod.normpath(_WS))
+    target = pathmod.normcase(pathmod.normpath(path))
+    try:
+        if pathmod.commonpath([root, target]) == root:
+            return None
+    except ValueError:
+        pass
+    return f"path 必须在 {_WS}/ 下: {path}"

@@ -122,6 +122,8 @@ export function useStreaming(
           // 附件就静静地停在输入框上、实际根本没传上去，发送时也不会带上。
           if (!res.file_id) {
             message.error(t('「{name}」上传失败，请重试', { name: file.name }));
+          } else {
+            useFileStore.getState().setUploadedArtifact(file, res);
           }
           return res;
         })

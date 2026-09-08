@@ -46,12 +46,24 @@ def register_glob(
         if not pattern or not isinstance(pattern, str):
             return resp_json({"error": "pattern 必须为非空字符串"})
 
+        from .project_source_access import current_scope_error
+        scope_error = current_scope_error(scope, user_id)
+        if scope_error:
+            return resp_json(scope_error)
         path_err = validate_workspace_path(path)
         if path_err:
             return resp_json({"error": path_err})
         scope_err = validate_project_scope_path(path, project_folder_name)
         if scope_err:
             return resp_json({"error": scope_err})
+
+        if scope and scope.kind == "team":
+            from .project_working_copy import directory
+            root = directory(scope.project_id)
+            if path == "/workspace" or path == root:
+                path = "/myspace/" + scope.folder_name
+            elif path.startswith(root + "/"):
+                path = "/myspace/" + scope.folder_name + path[len(root):]
 
         # "My Space" → query the DB folder tree directly (faithful, cheap, does not depend on
         # whether the sandbox has been materialized); same data source as list_myspace_files /
@@ -72,7 +84,7 @@ def register_glob(
                 })
 
         # /myspace → /workspace/myspace/<uid>
-        path = to_physical_path(path, user_id)
+        path = to_physical_path(path, user_id, session_id=_sess)
 
         # Distinguish ``**`` cross-directory matching vs plain glob:
         # - contains "**" → use find -path (needs prefix matching, strip the ``./`` prefix of **)

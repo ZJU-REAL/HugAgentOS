@@ -719,6 +719,31 @@ a.jx-fileCard--link:hover{
   border-color:var(--color-fill);
   transform:translateY(-1px);
 }
+/* Preview covers the card; download and remove remain sibling controls. */
+.jx-fileCard--preview{ cursor:pointer; }
+.jx-fileCard-preview{
+  position:absolute;
+  inset:0;
+  z-index:1;
+  border:0;
+  border-radius:inherit;
+  background:transparent;
+  cursor:pointer;
+}
+.jx-fileCard-preview:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:2px;
+}
+.jx-fileCard--preview:hover{ border-color:var(--color-primary); }
+.jx-fileCard-download{
+  position:relative;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  padding:6px;
+  color:var(--color-text-secondary);
+}
+.jx-fileCard--preview .jx-fileCard-close{ z-index:2; }
 /* Image thumbnail inside file card */
 .jx-fileCard-imgThumb{
   width:38px;

@@ -134,3 +134,18 @@ def test_fresh_hash_reads_bytes_even_with_unchanged_signature(tmp_path, monkeypa
     before = skills.skill_dir_hash(root, fresh=True)
     (root / "SKILL.md").write_text("new")
     assert skills.skill_dir_hash(root, fresh=True) != before
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows extended path regression")
+def test_skill_hash_reads_long_windows_paths(tmp_path):
+    from core.capabilities.skills import skill_dir_hash
+
+    root = tmp_path / "long-package"
+    while len(str(root)) < 275:
+        root /= "nested-package-directory"
+    native_root = junction._native(root)
+    native_root.mkdir(parents=True)
+    (native_root / "SKILL.md").write_text("old")
+    before = skill_dir_hash(root, fresh=True)
+    (native_root / "SKILL.md").write_text("new")
+    assert skill_dir_hash(root, fresh=True) != before

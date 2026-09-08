@@ -334,7 +334,7 @@ export function InputArea({
     void usePluginUiStore.getState().fetchContributions();
   }, []);
   const sending = forceSendMode ? false : storeSending;
-  const { uploadedFiles, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
+  const { uploadedFiles, uploadedArtifacts, uploadingFiles, importedSpaceFiles, removeImportedSpaceFile } = useFileStore();
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const _currentChat = currentChat();
@@ -1018,6 +1018,14 @@ export function InputArea({
                   loading={uploadingFiles.has(file)}
                   onClose={() => removeFile(idx)}
                   previewUrl={uploadedImageUrls[idx]}
+                  artifact={uploadedArtifacts.get(file) ? {
+                    file_id: uploadedArtifacts.get(file)!.file_id,
+                    url: uploadedArtifacts.get(file)!.download_url || `/files/${uploadedArtifacts.get(file)!.file_id}`,
+                    name: file.name,
+                    mime_type: file.type,
+                    size: file.size,
+                    chat_id: currentChatId,
+                  } : undefined}
                 />
               </motion.div>
             ))}
@@ -1038,6 +1046,13 @@ export function InputArea({
                       name={file.name}
                       onClose={() => removeImportedSpaceFile(idx)}
                       previewUrl={previewUrl}
+                      artifact={{
+                        file_id: file.file_id,
+                        url: file.download_url || `/files/${file.file_id}`,
+                        name: file.name,
+                        mime_type: file.mime_type,
+                        chat_id: currentChatId,
+                      }}
                     />
                   </motion.div>
                 );
