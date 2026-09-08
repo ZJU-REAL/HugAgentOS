@@ -7,6 +7,9 @@ data, is never deleted, and blocks that name until the migration step imports it
 
 from __future__ import annotations
 
+import os
+import ntpath
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List
@@ -48,6 +51,16 @@ def build_view(
     """Make ``view_dir`` contain exactly one link per name in ``targets``."""
     roots = list(allowed_roots)
     report = ViewReport(view_dir=view_dir)
+    if os.name == "nt":
+        names_by_path = {}
+        for name in targets:
+            names_by_path.setdefault(ntpath.normcase(name), []).append(name)
+        for names in names_by_path.values():
+            if len(names) > 1:
+                for name in names:
+                    report.blocked[name] = "case-insensitive runtime name collision"
+        if report.blocked:
+            return report
     try:
         view_dir.mkdir(parents=True, exist_ok=True)
         existing = {p.name: p for p in view_dir.iterdir()}
@@ -75,17 +88,30 @@ def build_view(
             # block cleanup of an unselected name, or a runtime could use it.
             report.blocked[name] = str(exc)
 
-    for name, target in sorted(targets.items()):
-        if name in report.blocked:
-            continue
+    def link_one(item):
+        name, target = item
         link = view_dir / name
         try:
             was_link = junction.is_directory_link(link)
             changed = junction.ensure_directory_link(link, target, allowed_roots=roots)
+            return name, was_link, changed, None
         except (junction.LinkError, OSError) as exc:
-            report.blocked[name] = str(exc)
-            continue
-        if changed:
+            return name, False, False, str(exc)
+
+    items = [
+        (name, target) for name, target in sorted(targets.items()) if name not in report.blocked
+    ]
+    if os.name == "nt" and len(items) >= 8:
+        # Each name owns a distinct junction. Keep cleanup and result ordering
+        # serial, and wait for all workers before a view can be published.
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cap-view") as pool:
+            results = list(pool.map(link_one, items))
+    else:
+        results = map(link_one, items)
+    for name, was_link, changed, error in results:
+        if error is not None:
+            report.blocked[name] = error
+        elif changed:
             (report.relinked if was_link else report.linked).append(name)
     return report
 

@@ -59,6 +59,9 @@
 .jx-sites-cardMeta {
   font-size: 12px;
   color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .jx-sites-cardActions {
@@ -66,6 +69,15 @@
   align-items: center;
   gap: var(--space-sm);
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.jx-sites-card:hover .jx-sites-cardActions,
+.jx-sites-card:focus-within .jx-sites-cardActions {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .jx-sites-cardActions { opacity: 1; }
 }
 
 .jx-sites-emptyHint {
@@ -82,7 +94,7 @@
 }
 
 .jx-sites-payload {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family:var(--font-family-mono);
   font-size: 12px;
   color: var(--color-text-secondary);
   word-break: break-all;

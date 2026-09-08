@@ -230,8 +230,11 @@ async def _reap_stale_sidecars() -> None:
     两轮扫描：孤儿 MCP launcher 被 SIGTERM 时可能正好重拉子进程，第二轮兜住。
     结束后等当前品牌的 runner 端口释放，保证随后的自拉 runner 能绑定成功。
     """
-    # 桌面壳只按记录的 PID 回收进程树；服务非正常退出后遗留的 runner / MCP
-    # 子进程壳不知道，所以 Windows 同样要在这里按安装根扫一遍。
+    # 壳孵化的执行面（混合模式）由壳按安装根回收整棵进程树，这里不再重复扫全表。
+    # 独立本机形态没有壳的回收，服务非正常退出后遗留的 runner / MCP 子进程只能
+    # 在这里按安装根扫一遍。
+    if _cloud_serves_tools():
+        return
     root = _packaged_install_root()
     if not root:
         return

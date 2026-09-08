@@ -1189,7 +1189,7 @@
   overflow-y:auto;
   max-height:400px;
   margin:0;
-  font-family:'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family:var(--font-family-mono);
   color:color-mix(in srgb, var(--color-text) 92%, transparent);
 }
 .jx-toolCode::-webkit-scrollbar{width:8px; height:8px}
@@ -1437,7 +1437,7 @@
 .jx-tr-filePath{
   font-size:11px;
   color:var(--color-text-tertiary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family:var(--font-family-mono);
   word-break:break-all;
   background:color-mix(in srgb, var(--color-text) 3%, transparent);
   border-radius:4px;
@@ -1452,7 +1452,7 @@
   font-size:12px;
   line-height:1.55;
   color:var(--color-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family:var(--font-family-mono);
   white-space:pre-wrap;
   word-break:break-all;
   max-height:200px;
@@ -1845,7 +1845,7 @@
 /* ── CSS Variables (scoped to card or inherited) ── */
 .jx-ce-card,
 .jx-cap{
-  --ce-mono:'Menlo','Consolas','Monaco','Liberation Mono','Courier New',monospace;
+  --ce-mono:var(--font-family-mono);
   --ce-code-bg:var(--color-bg-layout);
   --ce-code-border:color-mix(in srgb, var(--color-primary) 10%, transparent);
   --ce-line-num:var(--color-text-placeholder);

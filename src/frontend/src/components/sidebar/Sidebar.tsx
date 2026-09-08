@@ -148,10 +148,6 @@ export function Sidebar({
   // 隐藏；云端模式与双模式一律显示——双模式以云端身份为主，即便本地执行本地项目，
   // 我的空间仍属于云端账号（见 HYBRID_MODE_DESIGN.md）。
   const provisionMode = useDeploymentModeStore((s) => s.provisionMode);
-  const refreshDeploymentMode = useDeploymentModeStore((s) => s.refresh);
-  useEffect(() => {
-    refreshDeploymentMode();
-  }, [refreshDeploymentMode]);
   const hideMySpace = provisionMode === 'local_only';
   const itemVisible = (key: string, meta: typeof LAYOUT_ITEMS[string]) =>
     !!meta && (!meta.requiresLab || labEnabled) && !(hideMySpace && key === 'my_space');

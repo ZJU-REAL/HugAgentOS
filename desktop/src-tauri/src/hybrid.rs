@@ -22,11 +22,17 @@ use tokio::sync::RwLock;
 
 use crate::local_server::{local_server_base, LocalServerManager};
 
-/// 云端身份 → 本机执行面的同步状态。反代据此决定本机路由能否放行：
-/// 身份还没推到本机时，本机后端只会回 401，前端会误判成云端会话过期。
-#[derive(Debug, Default, Clone)]
+/// 云端身份 → 本机执行面的同步状态。
+///
+/// `identity_ready`：桥配置已推到本机后端，本机能认出当前云端用户——反代据此放行
+/// 本机路由（否则本机后端只会回 401，前端会误判成云端会话过期）。
+/// `capabilities_ready`：模型拓扑和首次能力包同步均已完成。
+/// 模型与组件的实际可用性仍由本机后端在调用时校验。
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct BridgeSync {
-    pub synced: bool,
+    pub identity_ready: bool,
+    pub capabilities_ready: bool,
+    pub models_ready: bool,
     pub error: Option<String>,
 }
 
@@ -138,9 +144,10 @@ pub fn on_cloud_login(
             }
             eprintln!("[hybrid] 获取云端用户信息失败，30 秒后重试");
             *bridge_sync.write().await = BridgeSync {
-                synced: false,
                 error: Some("获取云端用户信息失败".to_string()),
+                ..BridgeSync::default()
             };
+            local_server.notify_changed();
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         };
         {
@@ -164,11 +171,16 @@ pub fn on_cloud_login(
         if !ready {
             eprintln!("[hybrid] 本机服务未就绪");
             *bridge_sync.write().await = BridgeSync {
-                synced: false,
                 error: Some("本机服务未就绪".to_string()),
+                ..BridgeSync::default()
             };
+            local_server.notify_changed();
             return;
         }
+        // Renewal cadence follows the token lifetime; the model topology is only
+        // re-imported when the cloud says it changed (ETag), so a renewal never
+        // touches the local model configuration.
+        let mut model_revision: Option<String> = None;
         loop {
             if !current_session(&session_epoch, expected, &session_token, &token).await {
                 return;
@@ -183,32 +195,80 @@ pub fn on_cloud_login(
                 &session_epoch,
                 expected,
                 &session_token,
+                &bridge_sync,
+                &local_server,
+                &mut model_revision,
             )
             .await;
             if !current_session(&session_epoch, expected, &session_token, &token).await {
                 return;
             }
             let delay = match result {
-                Ok(_) => {
-                    eprintln!("[hybrid] 本机执行能力已刷新");
-                    *bridge_sync.write().await = BridgeSync {
-                        synced: true,
-                        error: None,
-                    };
-                    300
+                Ok(expires_in) => {
+                    renewal_delay_secs(expires_in)
                 }
                 Err(error) => {
                     eprintln!("[hybrid] 本机执行能力刷新失败: {error}");
-                    *bridge_sync.write().await = BridgeSync {
-                        synced: false,
-                        error: Some(error),
-                    };
+                    let mut sync = bridge_sync.write().await;
+                    sync.capabilities_ready = false;
+                    sync.models_ready = false;
+                    sync.error = Some(error);
+                    drop(sync);
+                    local_server.notify_changed();
                     30
                 }
             };
-            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+            // Capability readiness is observed independently of token renewal.
+            // A retry or explicit partial choice takes effect on the next poll,
+            // even when the user leaves the failure card open for several minutes.
+            let next_renewal = tokio::time::Instant::now()
+                + std::time::Duration::from_secs(delay);
+            while tokio::time::Instant::now() < next_renewal {
+                if !current_session(&session_epoch, expected, &session_token, &token).await {
+                    return;
+                }
+                if bridge_sync.read().await.models_ready {
+                    let readiness = read_capability_readiness(&http, &bridge_secret).await;
+                    if !current_session(&session_epoch, expected, &session_token, &token).await {
+                        return;
+                    }
+                    let (ready, error) = readiness.unwrap_or_else(|error| (false, Some(error)));
+                    let mut sync = bridge_sync.write().await;
+                    if sync.capabilities_ready != ready || sync.error != error {
+                        sync.capabilities_ready = ready;
+                        sync.error = error;
+                        drop(sync);
+                        local_server.notify_changed();
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
         }
     });
+}
+
+async fn read_capability_readiness(
+    http: &reqwest::Client,
+    bridge_secret: &str,
+) -> Result<(bool, Option<String>), String> {
+    let response = http
+        .get(format!("{}/api/v1/desktop/capability/cloud-bridge/readiness", local_server_base()))
+        .bearer_auth(bridge_secret)
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await
+        .map_err(|_| "读取本机能力同步进度失败".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("读取本机能力同步进度 HTTP {}", response.status()));
+    }
+    let body: serde_json::Value = response.json().await
+        .map_err(|_| "本机能力同步进度格式无效".to_string())?;
+    let data = &body["data"];
+    Ok((data["ready"].as_bool() == Some(true), data["error"].as_str().map(str::to_owned)))
+}
+
+/// Renew one minute before expiry; the cloud caps `expires_in` at 600 s.
+fn renewal_delay_secs(expires_in: i64) -> u64 {
+    (expires_in - 60).max(30) as u64
 }
 
 pub async fn clear_cloud_bridge(http: &reqwest::Client, bridge_secret: &str) -> Result<(), String> {
@@ -374,21 +434,31 @@ fn model_import_payload(
     ))
 }
 
+/// Model topology plus its cloud revision; `Ok(None)` means unchanged since
+/// `known_revision` (HTTP 304).
 async fn fetch_model_payload(
     http: &reqwest::Client,
     cloud_base: &str,
     capability_token: &str,
     device_id: &str,
-) -> Result<(serde_json::Value, usize), String> {
+    known_revision: Option<&str>,
+) -> Result<Option<(serde_json::Value, usize, String)>, String> {
     let base = cloud_base.trim_end_matches('/');
     let manifest_url = format!("{base}/api/v1/desktop/capability/models");
-    let resp = http
+    let mut request = http
         .get(&manifest_url)
         .header("X-Desktop-Device-Id", device_id)
-        .bearer_auth(capability_token)
+        .bearer_auth(capability_token);
+    if let Some(revision) = known_revision {
+        request = request.header(reqwest::header::IF_NONE_MATCH, format!("\"{revision}\""));
+    }
+    let resp = request
         .send()
         .await
         .map_err(|e| format!("模型能力清单请求失败: {e}"))?;
+    if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(None);
+    }
     if !resp.status().is_success() {
         return Err(format!("模型能力清单 HTTP {}", resp.status()));
     }
@@ -397,7 +467,14 @@ async fn fetch_model_payload(
         .await
         .map_err(|e| format!("模型能力清单解析失败: {e}"))?;
     let manifest = body.get("data").cloned().unwrap_or(serde_json::json!({}));
-    model_import_payload(manifest, base, capability_token)
+    let revision = manifest
+        .get("revision")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "模型能力清单缺少 revision".to_string())?
+        .to_string();
+    let (payload, count) = model_import_payload(manifest, base, capability_token)?;
+    Ok(Some((payload, count, revision)))
 }
 
 async fn import_models_once(
@@ -405,7 +482,7 @@ async fn import_models_once(
     payload: serde_json::Value,
     providers: usize,
     bridge_secret: &str,
-) -> Result<String, String> {
+) -> Result<(), String> {
     let import_url = format!("{}/api/v1/models/import", local_server_base());
     let resp = http
         .post(&import_url)
@@ -420,7 +497,8 @@ async fn import_models_once(
     if !resp.status().is_success() {
         return Err(format!("import HTTP {}", resp.status()));
     }
-    Ok(format!("providers={providers}"))
+    let _ = providers;
+    Ok(())
 }
 
 /// 能力桥下发（双端能力网关）：把已签发的短时 capability token 推送为
@@ -461,6 +539,7 @@ async fn push_capability_once(
     Ok(format!("expires_in={expires_in}s"))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn sync_desktop_runtime_once(
     http: &reqwest::Client,
     cloud_base: &str,
@@ -471,7 +550,10 @@ async fn sync_desktop_runtime_once(
     epoch: &SessionEpoch,
     expected: u64,
     session: &RwLock<Option<String>>,
-) -> Result<String, String> {
+    bridge_sync: &RwLock<BridgeSync>,
+    local_server: &LocalServerManager,
+    model_revision: &mut Option<String>,
+) -> Result<i64, String> {
     if !current_session(epoch, expected, session, token).await {
         return Err("会话已变更".into());
     }
@@ -480,8 +562,14 @@ async fn sync_desktop_runtime_once(
     if !current_session(epoch, expected, session, token).await {
         return Err("会话已变更".into());
     }
-    let (payload, providers) =
-        fetch_model_payload(http, cloud_base, &capability_token, device_id).await?;
+    let models = fetch_model_payload(
+        http,
+        cloud_base,
+        &capability_token,
+        device_id,
+        model_revision.as_deref(),
+    )
+    .await?;
     // Logout invalidates first, then waits for these writes before clearing. Thus a
     // request already in flight cannot restore bridge state after logout cleanup.
     let _write = epoch.local_write.lock().await;
@@ -500,11 +588,26 @@ async fn sync_desktop_runtime_once(
     if !current_session(epoch, expected, session, token).await {
         return Err("会话已变更".into());
     }
-    let result = import_models_once(http, payload, providers, bridge_secret).await?;
-    if !current_session(epoch, expected, session, token).await {
-        return Err("会话已变更".into());
+    {
+        let mut sync = bridge_sync.write().await;
+        sync.identity_ready = true;
+        sync.error = None;
     }
-    Ok(result)
+    local_server.notify_changed();
+    if let Some((payload, providers, revision)) = models {
+        import_models_once(http, payload, providers, bridge_secret).await?;
+        if !current_session(epoch, expected, session, token).await {
+            return Err("会话已变更".into());
+        }
+        eprintln!(
+            "[hybrid] 模型拓扑已导入 providers={providers} revision={}",
+            &revision[..12.min(revision.len())]
+        );
+        *model_revision = Some(revision);
+    }
+    bridge_sync.write().await.models_ready = true;
+    local_server.notify_changed();
+    Ok(expires_in)
 }
 
 /// 标准 base64（无换行）。避免为一处编码引第三方 crate。
@@ -651,6 +754,18 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
+        let scratch = std::env::temp_dir().join(format!("hybrid-sync-test-{}", std::process::id()));
+        let local_server = crate::local_server::LocalServerManager::new(
+            scratch.join("runtime"),
+            scratch.join("data"),
+            scratch.join("missing.zip"),
+            scratch.join("missing.json"),
+            scratch.join("missing.tar.gz"),
+            scratch.join("missing-runtime.json"),
+            reqwest::Client::new(),
+        );
+        let bridge_sync = RwLock::new(BridgeSync::default());
+        let mut revision = None;
         let result = sync_desktop_runtime_once(
             &reqwest::Client::new(),
             &base,
@@ -661,6 +776,9 @@ mod tests {
             &epoch,
             0,
             &session,
+            &bridge_sync,
+            &local_server,
+            &mut revision,
         )
         .await;
         server.abort();
@@ -672,13 +790,23 @@ mod tests {
 
     #[tokio::test]
     async fn model_manifest_request_binds_device_and_authorization() {
-        use axum::{routing::get, Json, Router};
+        use axum::{response::IntoResponse, routing::get, Json, Router};
         let app = Router::new().route(
             "/api/v1/desktop/capability/models",
             get(|headers: axum::http::HeaderMap| async move {
                 assert_eq!(headers["x-desktop-device-id"], "test-device");
                 assert_eq!(headers["authorization"], "Bearer dcap2.test");
-                Json(serde_json::json!({"data": {"providers": [], "role_assignments": []}}))
+                if headers
+                    .get("if-none-match")
+                    .map(|v| v == "\"rev-1\"")
+                    .unwrap_or(false)
+                {
+                    return axum::http::StatusCode::NOT_MODIFIED.into_response();
+                }
+                Json(serde_json::json!({"data": {
+                    "providers": [], "role_assignments": [], "revision": "rev-1"
+                }}))
+                .into_response()
             }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -686,10 +814,24 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let result =
-            fetch_model_payload(&reqwest::Client::new(), &base, "dcap2.test", "test-device").await;
+        let client = reqwest::Client::new();
+        let fresh = fetch_model_payload(&client, &base, "dcap2.test", "test-device", None).await;
+        let unchanged =
+            fetch_model_payload(&client, &base, "dcap2.test", "test-device", Some("rev-1")).await;
         server.abort();
-        assert_eq!(result.unwrap().1, 0);
+        let (_, count, revision) = fresh.unwrap().expect("first fetch returns the topology");
+        assert_eq!((count, revision.as_str()), (0, "rev-1"));
+        assert!(
+            unchanged.unwrap().is_none(),
+            "same revision must not re-import"
+        );
+    }
+
+    #[test]
+    fn renewal_is_derived_from_the_token_lifetime() {
+        assert_eq!(renewal_delay_secs(600), 540);
+        assert_eq!(renewal_delay_secs(90), 30);
+        assert_eq!(renewal_delay_secs(60), 30);
     }
 
     #[test]

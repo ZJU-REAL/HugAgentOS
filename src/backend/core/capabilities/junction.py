@@ -218,7 +218,8 @@ def create_directory_link(link: Path, target: Path, *, allowed_roots: Iterable[P
     assert_target_allowed(target, allowed_roots)
     if _lstat(link) is not None:
         raise LinkError(f"link path already exists: {link}")
-    _native(link.parent).mkdir(parents=True, exist_ok=True)
+    if not _native(link.parent).is_dir():
+        _native(link.parent).mkdir(parents=True, exist_ok=True)
     if _IS_WINDOWS:
         try:
             _create_windows_junction(link, _resolved(target))
@@ -240,6 +241,11 @@ def ensure_directory_link(link: Path, target: Path, *, allowed_roots: Iterable[P
     caller gets ``LinkError`` and reports the path.
     """
     allowed_roots = tuple(allowed_roots)
+    if _lstat(link) is None:
+        # New per-run views have no links yet. The public creation path already
+        # checks the target, allowed roots and destination before any mutation.
+        create_directory_link(link, target, allowed_roots=allowed_roots)
+        return True
     wanted = Path(os.path.normpath(_resolved(target)))
     assert_target_allowed(wanted, allowed_roots)
     if not _native(wanted).is_dir():

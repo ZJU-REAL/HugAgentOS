@@ -22,7 +22,6 @@ export default function ProjectsPanel({ onOpenProject }: { onOpenProject: (proje
   const toggleFavoriteById = useProjectStore((state) => state.toggleFavoriteById);
   const isDesktop = useDeploymentModeStore((state) => state.isDesktop);
   const provisionMode = useDeploymentModeStore((state) => state.provisionMode);
-  const refreshDeploymentMode = useDeploymentModeStore((state) => state.refresh);
   const {
     cloud: canCreateCloudProject,
     local: canCreateLocalProject,
@@ -33,7 +32,6 @@ export default function ProjectsPanel({ onOpenProject }: { onOpenProject: (proje
   });
 
   useEffect(() => { void fetchProjects(); }, [fetchProjects, sort]);
-  useEffect(() => { refreshDeploymentMode(); }, [refreshDeploymentMode]);
   useEffect(() => {
     const timer = setTimeout(() => void fetchProjects(), 300);
     return () => clearTimeout(timer);

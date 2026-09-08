@@ -364,7 +364,7 @@
   padding:1px 8px;
   border-radius:4px;
   line-height:1.7;
-  font-family:'Consolas','Monaco','Courier New',monospace;
+  font-family:var(--font-family-mono);
 }
 .jx-plan-tag--tool{
   background:rgba(18,109,255,.08);

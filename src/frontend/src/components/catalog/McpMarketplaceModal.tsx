@@ -22,6 +22,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
+import { formatDateTime } from '../../utils/date';
 import {
   getMcpMarketItem,
   getMcpMarketItems,
@@ -306,7 +307,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
             <Typography.Paragraph>{detail.description}</Typography.Paragraph>
             <div className="jx-mcp-marketFacts">
               <span><ApiOutlined /> {detail.transport === 'streamable_http' ? 'Streamable HTTP' : 'SSE'}</span>
-              <span><SafetyCertificateOutlined /> {t('最近验证：{time}', { time: detail.last_verified_at ? new Date(detail.last_verified_at).toLocaleString() : '-' })}</span>
+              <span><SafetyCertificateOutlined /> {t('最近验证：{time}', { time: formatDateTime(detail.last_verified_at) })}</span>
               {detail.credentials_managed_by_admin
                 ? <span><KeyOutlined /> {t('管理员已配置凭据，安装时无需填写')}</span>
                 : detail.requires_user_credentials && <span><KeyOutlined /> {t('安装时需配置凭据')}</span>}

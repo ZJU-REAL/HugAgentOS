@@ -116,16 +116,16 @@ def publish_uploaded_site(user_id, data, options):
 
 
 async def forward_local_publish(body):
-    """Compatibility for already-installed local site MCPs: never host locally."""
+    """Sites are cloud-hosted: a local site MCP's publish call goes to the gateway."""
     from core.infra.responses import success_response
     from core.llm.agent_factory import _inject_runtime_headers
     from core.llm.mcp_pool import make_client
     from core.services.desktop_cloud_bridge import cloud_gateway_mcp_configs
-    from core.services.desktop_gateway_uploads import endpoint_component
+    from core.services.desktop_gateway_uploads import endpoint_plugin
 
     configs = cloud_gateway_mcp_configs()
     for sid, config in configs.items():
-        if config.get("gateway_component") != endpoint_component("site-publish"):
+        if config.get("gateway_plugin") != endpoint_plugin("site-publish"):
             continue
         configs = _inject_runtime_headers(
             {sid: config},

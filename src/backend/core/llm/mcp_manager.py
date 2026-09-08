@@ -150,9 +150,9 @@ class GatewayMCPTool(ToolBase):
         headers: Dict[str, str],
         timeout: float,
         transport: Any = None,
-        component: str = "",
+        source_plugin: str = "",
     ) -> None:
-        self._component = component
+        self._source_plugin = source_plugin
         self.mcp_name = mcp_name
         self.name = tool.name
         self.description = tool.description or ""
@@ -220,7 +220,7 @@ class GatewayMCPTool(ToolBase):
                 upload_channel,
             )
 
-            channel = upload_channel(self._component, self.name)
+            channel = upload_channel(self._source_plugin, self.name)
         if channel is not None:
             body, options = await channel.package(kwargs, headers)
             bridge.require_current_account(captured)
@@ -296,7 +296,7 @@ class ManifestMCPClient(BareNameMCPClient):
     gateway_invoke_url: str = Field(exclude=True)
     schema_hash: str = Field(exclude=True)
     gateway_transport: Any = Field(default=None, exclude=True)
-    gateway_component: str = Field(default="", exclude=True)
+    gateway_plugin: str = Field(default="", exclude=True)
 
     def _raw_manifest_tools(self) -> List[mcp.types.Tool]:
         tools: List[mcp.types.Tool] = []
@@ -327,7 +327,7 @@ class ManifestMCPClient(BareNameMCPClient):
                     headers=dict(self.mcp_config.headers or {}),
                     timeout=float(self.execution_timeout or 120.0),
                     transport=self.gateway_transport,
-                    component=self.gateway_component,
+                    source_plugin=self.gateway_plugin,
                 )
         raise ValueError(f"Tool '{name}' not found in cloud manifest MCP '{self.name}'")
 

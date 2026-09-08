@@ -1,5 +1,6 @@
 /** 英文字典（panels 域）：key 为中文原文，value 为英文译文。 */
 export const PANELS_DICT: Record<string, string> = {
+  "浏览器后台仅展示当前服务器保存的调用记录。桌面本机任务请在桌面端的调用日志中查看；使用云端模型不代表任务在云端执行。": "The browser console only shows call records stored on the connected server. View desktop-local tasks in the desktop call logs; using a cloud model does not mean the task executes in the cloud.",
   '受控本体标签使用 ontology:ConceptId；未知概念会在保存时提示修改':
     'Use ontology:ConceptId for governed ontology tags; unknown concepts are reported when saving.',
   '正在进行领域本体评审…': 'Running domain ontology review…',

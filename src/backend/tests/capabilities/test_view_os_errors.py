@@ -113,3 +113,16 @@ def test_parent_creation_error_is_link_error_without_copy(tmp_path, monkeypatch)
         junction.create_directory_link(parent / "report", target, allowed_roots=[tmp_path])
     assert not parent.exists()
     assert (target / "SKILL.md").read_text() == "original"
+
+
+def test_windows_case_collisions_block_before_mutation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from core.capabilities import view
+
+    monkeypatch.setattr(view, "os", SimpleNamespace(name="nt"))
+    destination = tmp_path / "view"
+    report = view.build_view(
+        destination, {"Foo": tmp_path / "one", "foo": tmp_path / "two"}, allowed_roots=[tmp_path]
+    )
+    assert set(report.blocked) == {"Foo", "foo"}
+    assert not destination.exists()

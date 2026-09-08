@@ -1,12 +1,13 @@
-"""Connector (MCP) kind: candidates by component name, explicit binding choice.
+"""Connector (MCP) kind: candidates keyed by ``server_id``, explicit binding choice.
 
-A connector is called by ``server_id``; the resolver decides, per *component*
-name, which binding this device uses: the cloud gateway (the bridged account's
-manifest), a device catalog row, or a ``mcp.json`` local declaration. The cloud
-binding is the account-level candidate and wins a same-component clash unless
-the user chose otherwise (name preference) or the deployment keeps that
-component local (``DESKTOP_LOCAL_MCP_KEEP``). Nothing is silently replaced:
-the losing binding is reported as shadowed.
+A connector's identity is the namespaced ``server_id`` the platform registered
+for it (``{plugin-slug}-{server}`` for plugin-provided servers). That id is the
+only name in play here: the resolver decides, per ``server_id``, which binding
+this device uses — the cloud gateway (the bridged account's manifest), a device
+catalog row, or a ``mcp.json`` local declaration. The cloud binding is the
+account-level candidate and wins a same-id clash unless the user chose otherwise
+(name preference). Nothing is silently replaced: the losing binding
+is reported as shadowed.
 """
 
 from __future__ import annotations
@@ -26,14 +27,14 @@ _lock = threading.Lock()
 _last: Optional[Resolution] = None
 
 
-def db_candidates(base_map: Dict[str, str], enabled_ids: Set[str]) -> List[Candidate]:
-    """Device catalog rows: ``server_id → component base name``."""
+def db_candidates(server_ids: Iterable[str], enabled_ids: Set[str]) -> List[Candidate]:
+    """Device catalog rows, identified by their registered ``server_id``."""
     out: List[Candidate] = []
-    for sid, base in base_map.items():
+    for sid in server_ids:
         out.append(
             Candidate(
                 install_id=registry.install_id(KIND_MCP, LOCAL_PROFILE, sid),
-                runtime_name=base,
+                runtime_name=sid,
                 kind=KIND_MCP,
                 profile=LOCAL_PROFILE,
                 source=SOURCE_LOCAL,
@@ -58,7 +59,7 @@ def cloud_candidates(
         out.append(
             Candidate(
                 install_id=registry.install_id(KIND_MCP, profile, sid),
-                runtime_name=str(s.get("component") or sid),
+                runtime_name=sid,
                 kind=KIND_MCP,
                 profile=profile,
                 source=SOURCE_CLOUD,
@@ -100,18 +101,13 @@ def server_id_of(candidate: Candidate) -> str:
     return candidate.install_id.split(":", 2)[2]
 
 
-def resolve_bindings(
-    candidates: List[Candidate], *, keep_local: Set[str], user_id: Optional[str] = None
-) -> Resolution:
-    """Per component name: keep-local components never take the cloud binding."""
-    filtered = [
-        c for c in candidates if not (c.source == SOURCE_CLOUD and c.runtime_name in keep_local)
-    ]
+def resolve_bindings(candidates: List[Candidate], *, user_id: Optional[str] = None) -> Resolution:
+    """Resolve exact source bindings without deployment-specific tool filters."""
     from .skills import current_local_user_id
 
     selected_user_id = user_id if user_id is not None else current_local_user_id()
     res = resolve(
-        KIND_MCP, filtered, preferences=registry.preferences(KIND_MCP, user_id=selected_user_id)
+        KIND_MCP, candidates, preferences=registry.preferences(KIND_MCP, user_id=selected_user_id)
     )
     with _lock:
         global _last

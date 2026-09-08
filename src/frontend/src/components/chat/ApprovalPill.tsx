@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Dropdown } from 'antd';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Dropdown, message } from 'antd';
 import { SafetyOutlined, ThunderboltOutlined, UnlockOutlined } from '@ant-design/icons';
 import { getToolApprovalMode, setToolApprovalMode, type ToolApprovalMode } from '../../api';
 import { t } from '../../i18n';
@@ -34,6 +34,7 @@ const APPROVAL_ORDER: ToolApprovalMode[] = ['ask', 'auto', 'full'];
  */
 export default function ApprovalPill() {
   const isDesktop = useDeploymentModeStore((s) => s.isDesktop);
+  const localReady = useDeploymentModeStore((s) => s.localReady);
   const activeLocal = useDeploymentModeStore((s) => s.activeLocal);
   const provisionMode = useDeploymentModeStore((s) => s.provisionMode);
   // 只用来决定要不要露出「授权目录」入口：混合架构下本机执行面常驻，同样需要它。
@@ -42,24 +43,59 @@ export default function ApprovalPill() {
   const [permOpen, setPermOpen] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
 
+  const [saving, setSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const requestVersion = useRef(0);
+  const saveInFlight = useRef(false);
+
   useEffect(() => {
+    if (saveInFlight.current) return;
+    setApproval(null);
+    setLoadFailed(false);
     let cancelled = false;
+    const version = ++requestVersion.current;
     getToolApprovalMode()
       .then((mode) => {
-        if (!cancelled) setApproval(mode);
+        if (cancelled || version !== requestVersion.current) return;
+        setApproval(mode);
+        setLoadFailed(false);
       })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      .catch(() => {
+        if (cancelled || version !== requestVersion.current) return;
+        setApproval(null);
+        setLoadFailed(true);
+      });
+    return () => { cancelled = true; };
+  }, [localReady]);
 
-  if (!approval) return null;
-
-  const applyApproval = (mode: ToolApprovalMode) => {
-    setApproval(mode);
-    setToolApprovalMode(mode).catch(() => {});
+  const applyApproval = async (mode: ToolApprovalMode) => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    const version = ++requestVersion.current;
+    setSaving(true);
+    try {
+      await setToolApprovalMode(mode);
+      if (version !== requestVersion.current) return;
+      setApproval(mode);
+      setLoadFailed(false);
+    } catch (error) {
+      if (version !== requestVersion.current) return;
+      // Either backend may have saved already. Never show the old preset as if
+      // it described both backends; the user can retry any choice from the menu.
+      setApproval(null);
+      setLoadFailed(true);
+      message.error(t('权限设置未完成同步，请重新选择后重试：{msg}', {
+        msg: error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
+    }
   };
+
+  const label = saving ? t('正在保存权限…')
+    : approval ? APPROVAL_META[approval].label
+      : loadFailed ? t('权限未同步') : t('正在读取权限…');
 
   const items = [
     {
@@ -97,6 +133,7 @@ export default function ApprovalPill() {
   return (
     <>
       <Dropdown
+        disabled={saving}
         trigger={['click']}
         placement="topLeft"
         overlayClassName="jx-modeMenu jx-approvalMenu"
@@ -105,12 +142,14 @@ export default function ApprovalPill() {
       >
         <button
           type="button"
+          disabled={saving}
+          aria-busy={saving}
           className={`jx-composerChip jx-projectDropBtn jx-approvalPillBtn${approvalOpen ? ' open' : ''}`}
           title={t('工具执行权限档（工具调用要不要先问你一句）')}
-          aria-label={t('工具执行权限：{label}，点击切换', { label: APPROVAL_META[approval].label })}
+          aria-label={t('工具执行权限：{label}，点击切换', { label })}
         >
-          <span className="jx-approvalPillIcon">{APPROVAL_META[approval].icon}</span>
-          <span className="jx-projectDropName jx-composerChip-label">{APPROVAL_META[approval].label}</span>
+          <span className="jx-approvalPillIcon">{approval ? APPROVAL_META[approval].icon : <SafetyOutlined />}</span>
+          <span className="jx-projectDropName jx-composerChip-label">{label}</span>
           <ChipChevron />
         </button>
       </Dropdown>

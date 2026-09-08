@@ -49,6 +49,7 @@ import { usePluginStore } from '../../stores/pluginStore';
 import { copyToClipboard } from '../../utils/clipboard';
 import { pickSiteEditChat } from '../../utils/history';
 import { t } from '../../i18n';
+import { formatDate, formatDateTime } from '../../utils/date';
 import '../../styles/sites.css';
 
 /** Enter a "site" building session in the main chat: reuse the main chat input (with attachments/projects/+ menu),
@@ -120,14 +121,6 @@ function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${bytes} B`;
-}
-
-function formatTime(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function VisibilityTag({ site }: { site: SiteItem }) {
@@ -254,7 +247,7 @@ function SiteManageModal({
   };
 
   const submissionColumns = [
-    { title: t('时间'), dataIndex: 'created_at', width: 160, render: (v: string | null) => formatTime(v) },
+    { title: t('时间'), dataIndex: 'created_at', width: 160, render: (v: string | null) => formatDateTime(v, '') },
     { title: t('表单'), dataIndex: 'form_key', width: 110 },
     {
       title: t('内容'), dataIndex: 'payload',
@@ -270,7 +263,7 @@ function SiteManageModal({
       title: 'Value', dataIndex: 'value',
       render: (v: string) => <span className="jx-sites-payload">{v}</span>,
     },
-    { title: t('更新于'), dataIndex: 'updated_at', width: 160, render: (v: string | null) => formatTime(v) },
+    { title: t('更新于'), dataIndex: 'updated_at', width: 160, render: (v: string | null) => formatDateTime(v, '') },
     {
       title: '', key: 'op', width: 60,
       render: (_: unknown, row: SiteKvItem) => (
@@ -350,7 +343,7 @@ function SiteManageModal({
                       </span>
                     ),
                   },
-                  { title: t('发布时间'), dataIndex: 'created_at', render: (v: string) => formatTime(v) },
+                  { title: t('发布时间'), dataIndex: 'created_at', render: (v: string) => formatDateTime(v, '') },
                   { title: t('文件数'), dataIndex: 'file_count', width: 90 },
                   { title: t('大小'), dataIndex: 'total_size_bytes', width: 100, render: (v: number) => formatSize(v) },
                   {
@@ -575,7 +568,7 @@ export function SitesPanel() {
                   <div className="jx-sites-cardMeta">
                     {t('版本')} v{site.current_version} · {site.file_count} {t('个文件')} ·{' '}
                     {formatSize(site.total_size_bytes)} · <EyeOutlined /> {site.view_count} {t('次访问')}
-                    {site.updated_at ? ` · ${t('更新于')} ${formatTime(site.updated_at)}` : ''}
+                    {site.updated_at ? ` · ${t('更新于')} ${formatDate(site.updated_at, '')}` : ''}
                   </div>
                 </div>
                 <div className="jx-sites-cardActions">

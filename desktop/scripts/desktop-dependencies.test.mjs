@@ -82,7 +82,10 @@ test("Windows Python 3.11 lock is exact and matches its desktop input", () => {
   assert.equal(Number(mcpVersion.split(".")[0]), 1);
   assert.match(lock, /^pymilvus==2\.5\.18$/m);
   assert.match(lock, /^milvus-lite==3\.1\.0$/m);
-  for (const excluded of ["oss2", "boto3", "neo4j", "opensandbox"])
+  // Some platform locks pull boto3 through LiteLLM; it is not a storage backend.
+  if (names.has("boto3"))
+    assert.match(lock, /^boto3==[^\s]+\r?\n    # via litellm$/m);
+  for (const excluded of ["oss2", "neo4j", "opensandbox"])
     assert.equal(names.has(excluded), false);
 });
 

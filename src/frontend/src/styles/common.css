@@ -100,7 +100,7 @@
   padding:2px 6px;
   border-radius:6px;
   font-size:12.5px;
-  font-family:'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family:var(--font-family-mono);
   font-weight:500;
 }
 .jx-md pre code{
@@ -108,6 +108,69 @@
   color:var(--color-text);
   padding:0;
   font-weight:400;
+}
+
+/* Keep the copy control above the scrollable code, visible on touch screens too. */
+.jx-mdCode{
+  min-width:0;
+  margin:10px 0;
+  border:1px solid var(--color-border);
+  border-radius:12px;
+  background:var(--color-bg-layout);
+  overflow:hidden;
+}
+.jx-mdCode-toolbar{
+  display:flex;
+  justify-content:flex-end;
+  padding:4px 8px;
+  border-bottom:1px solid var(--color-border);
+}
+.jx-mdCode-copy{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  min-height:28px;
+  padding:3px 8px;
+  border:0;
+  border-radius:var(--radius-xs);
+  background:transparent;
+  color:var(--color-text-secondary);
+  font:inherit;
+  font-size:12px;
+  cursor:pointer;
+}
+.jx-mdCode-copy:hover{
+  background:var(--color-bg-elevated);
+  color:var(--color-primary);
+}
+.jx-mdCode-copy > span{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+}
+.jx-mdCode-copy .jx-mdCode-copy-done,
+.jx-mdCode-copy .jx-mdCode-copy-fail,
+.jx-mdCode-copy[data-copy-state] .jx-mdCode-copy-default{
+  display:none;
+}
+.jx-mdCode-copy[data-copy-state="done"] .jx-mdCode-copy-done{
+  display:inline-flex;
+}
+.jx-mdCode-copy[data-copy-state="fail"] .jx-mdCode-copy-fail{
+  display:inline-flex;
+  color:var(--color-error);
+}
+.jx-mdCode-copy:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:1px;
+}
+.jx-md .jx-mdCode > pre{
+  margin:0;
+  border:0;
+  border-radius:0;
+}
+@media print{
+  .jx-mdCode-toolbar{display:none}
 }
 
 /* Blockquotes with accent */

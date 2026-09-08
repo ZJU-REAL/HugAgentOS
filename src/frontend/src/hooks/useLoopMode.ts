@@ -151,7 +151,7 @@ export async function sendLoopMode(
       enable_thinking: enableThinking,
       chat_mode: chatMode,
       ...(selectedModelProviderId ? { model_provider_id: selectedModelProviderId } : {}),
-    }, ac.signal);
+    }, ac.signal, currentChatId);
     if (!resp.ok) throw new Error(t('循环启动失败: {status}', { status: resp.status }));
     const outcome = await processLoopStream(resp, currentChatId, enableThinking);
     // The unified stream processor digests AbortError into a normal wrap-up (the bubble is
@@ -208,7 +208,7 @@ export async function continueLoop(
       enable_thinking: enableThinking,
       chat_mode: chatMode,
       ...(selectedModelProviderId ? { model_provider_id: selectedModelProviderId } : {}),
-    }, ac.signal);
+    }, ac.signal, targetId);
     if (!resp.ok) throw new Error(t('循环启动失败: {status}', { status: resp.status }));
     const outcome = await processLoopStream(resp, targetId, enableThinking);
     if (outcome.aborted) useLoopStore.getState().finishLivePlan('cancelled');

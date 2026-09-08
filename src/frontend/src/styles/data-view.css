@@ -82,7 +82,7 @@
   mask-image:linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
 }
 .jx-dv-body--raw{
-  font-family:'Consolas','Monaco','Courier New',monospace;
+  font-family:var(--font-family-mono);
   font-size:11.5px;
 }
 .jx-dv-body::-webkit-scrollbar{width:6px;height:6px;}

@@ -140,7 +140,7 @@ def make_client(
                 gateway_invoke_url=str(cfg["gateway_invoke_url"]),
                 schema_hash=str(cfg["schema_hash"]),
                 gateway_transport=cfg.get("gateway_transport"),
-                gateway_component=str(cfg.get("gateway_component") or ""),
+                gateway_plugin=str(cfg.get("gateway_plugin") or ""),
             )
         return client_cls(
             **client_kwargs,

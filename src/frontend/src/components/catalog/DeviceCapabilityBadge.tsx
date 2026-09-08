@@ -14,8 +14,7 @@ export function DeviceCapabilityBadge({ kind, runtimeName }: {
   const state = useDesktopCapabilityStore((s) => s.kinds[kind]);
   useEffect(() => { if (enabled) void load(kind); }, [enabled, kind, load]);
   if (!enabled) return null;
-  const item = state.byName[runtimeName]
-    || state.items.find((candidate) => candidate.server_id === runtimeName);
+  const item = state.byName[runtimeName];
   if (!item) return null;
   return (
     <span className={`jx-devcap-chip jx-devcap-src-${item.source}`}>

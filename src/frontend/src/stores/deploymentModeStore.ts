@@ -3,15 +3,36 @@ import { create } from 'zustand';
 import { setHybridDual } from '../api';
 
 /**
- * Desktop deployment-mode signal (module B/C). Probes the shell-only sentinel
- * ``/__desktop/setup/status``; on the web the endpoint 404s and ``isDesktop``
- * stays false. Used to hide the cloud-only "我的空间" (My Space) entry when
- * running against the local backend — locally there is no My Space; it is a
- * server concept, shown only when connected to the cloud (module C).
+ * Desktop deployment-mode signal.
  *
- * Mode changes restart the app (activate-local / connect-server), so a one-shot
- * fetch per launch is enough — no live updates needed.
+ * The desktop shell injects ``window.__HG_DESKTOP__`` into the served
+ * ``index.html``, so the running shape (provision mode, backend bases) is known
+ * synchronously before any store or effect runs. On the web the global is
+ * absent and ``isDesktop`` stays false. Used to hide the cloud-only "我的空间"
+ * (My Space) entry when running against the local backend.
+ *
+ * In dual mode the shell also pushes readiness of the local execution plane
+ * over ``/__desktop/events`` (SSE): ``localReady`` flips once the cloud identity
+ * has been bridged to the local backend, i.e. once local-routed requests can
+ * be served.
  */
+interface DesktopBoot {
+  provision_mode?: string;
+  active_local?: boolean;
+  server_base?: string;
+  local_base?: string;
+}
+
+interface DesktopEvent {
+  bridge?: { identity_ready?: boolean; capabilities_ready?: boolean; models_ready?: boolean; error?: string | null };
+}
+
+declare global {
+  interface Window {
+    __HG_DESKTOP__?: DesktopBoot;
+  }
+}
+
 interface DeploymentModeState {
   isDesktop: boolean;
   activeLocal: boolean;
@@ -22,7 +43,13 @@ interface DeploymentModeState {
   /** 本机后端固定基址（http://127.0.0.1:32101；web 上为空串）。 */
   localBase: string;
   loaded: boolean;
-  refresh: () => void;
+  /** 双模式：本机执行面已认出当前云端身份，本机路由可用。 */
+  localReady: boolean;
+  capabilitiesReady: boolean;
+  modelsReady: boolean;
+  capabilityGateOpen: boolean;
+  partialCapabilities: boolean;
+  capabilitySyncError: string | null;
 }
 
 export interface ProjectCreationTargets {
@@ -45,46 +72,68 @@ export function projectCreationTargets(
   return { cloud: true, local: false };
 }
 
-export const useDeploymentModeStore = create<DeploymentModeState>((set, get) => ({
-  isDesktop: false,
-  activeLocal: false,
-  provisionMode: '',
-  serverBase: '',
-  localBase: '',
-  loaded: false,
-  refresh: () => {
-    if (get().loaded) return; // one-shot per launch
-    fetch('/__desktop/setup/status', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('not desktop'))))
-      .then((s: {
-        active_local?: boolean;
-        provision_mode?: string;
-        current_server_base?: string;
-        local_server_base?: string;
-      }) => {
-        // 混合路由开关：双模式下 api.ts 开始按项目/会话打 x-hugagent-target 头。
-        setHybridDual(s.provision_mode === 'dual');
-        set({
-          isDesktop: true,
-          activeLocal: !!s.active_local,
-          provisionMode: s.provision_mode || '',
-          serverBase: (s.current_server_base || '').replace(/\/+$/, ''),
-          localBase: (s.local_server_base || '').replace(/\/+$/, ''),
-          loaded: true,
+function bootState(): DeploymentModeState {
+  const boot = typeof window !== 'undefined' ? window.__HG_DESKTOP__ : undefined;
+  if (!boot) {
+    return {
+      isDesktop: false,
+      activeLocal: false,
+      provisionMode: '',
+      serverBase: '',
+      localBase: '',
+      loaded: true,
+      localReady: false,
+      capabilitiesReady: false,
+      modelsReady: false,
+      capabilityGateOpen: true,
+      partialCapabilities: false,
+      capabilitySyncError: null,
+    };
+  }
+  return {
+    isDesktop: true,
+    activeLocal: !!boot.active_local,
+    provisionMode: boot.provision_mode || '',
+    serverBase: (boot.server_base || '').replace(/\/+$/, ''),
+    localBase: (boot.local_base || '').replace(/\/+$/, ''),
+    loaded: true,
+    localReady: false,
+    capabilitiesReady: false,
+    modelsReady: false,
+    capabilityGateOpen: true,
+    partialCapabilities: false,
+    capabilitySyncError: null,
+  };
+}
+
+const initial = bootState();
+// 混合路由开关：双模式下 api.ts 按项目/会话打 x-hugagent-target 头。
+setHybridDual(initial.provisionMode === 'dual');
+
+export const useDeploymentModeStore = create<DeploymentModeState>(() => initial);
+
+if (initial.provisionMode === 'dual' && typeof EventSource !== 'undefined') {
+  // EventSource 自带断线重连；每帧都是完整状态，丢帧无害。
+  const events = new EventSource('/__desktop/events');
+  events.onmessage = (message) => {
+    try {
+      const status = JSON.parse(message.data) as DesktopEvent;
+      const localReady = !!status.bridge?.identity_ready;
+      const capabilitiesReady = !!status.bridge?.capabilities_ready;
+      const modelsReady = !!status.bridge?.models_ready;
+      const capabilitySyncError = status.bridge?.error || null;
+      const previous = useDeploymentModeStore.getState();
+      if (localReady !== previous.localReady || capabilitiesReady !== previous.capabilitiesReady
+          || modelsReady !== previous.modelsReady || capabilitySyncError !== previous.capabilitySyncError) {
+        useDeploymentModeStore.setState({ localReady, capabilitiesReady, modelsReady, capabilitySyncError,
+          ...(!localReady ? { capabilityGateOpen: true, partialCapabilities: false } : {}),
         });
-      })
-      .catch(() =>
-        set({
-          isDesktop: false,
-          activeLocal: false,
-          provisionMode: '',
-          serverBase: '',
-          localBase: '',
-          loaded: true,
-        }),
-      );
-  },
-}));
+      }
+    } catch {
+      /* 非 JSON 帧（心跳）忽略 */
+    }
+  };
+}
 
 /**
  * 站点等对外链接的稳定源（展示 / 复制用，站内打开仍走相对路径）。

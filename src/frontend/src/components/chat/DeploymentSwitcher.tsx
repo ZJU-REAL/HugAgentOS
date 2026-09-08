@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CloudOutlined, LaptopOutlined } from '@ant-design/icons';
 
-import { isLocalChat, isLocalProject } from '../../api';
+import { isLocalChat, isLocalProject, isRegisteredLocalChat } from '../../api';
 import { useChatStore } from '../../stores';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -18,17 +18,12 @@ import { useProjectStore } from '../../stores/projectStore';
  */
 export default function DeploymentSwitcher() {
   const provisionMode = useDeploymentModeStore((s) => s.provisionMode);
-  const refreshDeploymentMode = useDeploymentModeStore((s) => s.refresh);
   const currentChatId = useChatStore((s) => s.currentChatId);
   const chat = useChatStore((s) => s.store.chats[s.currentChatId]);
   const setChatRunTarget = useChatStore((s) => s.setChatRunTarget);
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    refreshDeploymentMode();
-  }, [refreshDeploymentMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,8 +38,8 @@ export default function DeploymentSwitcher() {
 
   const projectId = chat?.projectId ?? currentProjectId ?? undefined;
   const projectBound = !!projectId;
-  const started = !!chat && (chat.messages.length > 0 || isLocalChat(chat.id));
-  const local = projectBound ? isLocalProject(projectId) : chat?.runTarget === 'local';
+  const started = !!chat && (chat.messages.length > 0 || isRegisteredLocalChat(chat.id));
+  const local = projectBound ? isLocalProject(projectId) : isLocalChat(currentChatId);
   const locked = projectBound || started;
   const lockReason = projectBound ? '跟随项目归属' : started ? '对话已开始，运行位置不可更换' : '';
 

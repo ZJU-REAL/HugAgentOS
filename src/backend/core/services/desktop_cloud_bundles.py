@@ -155,18 +155,34 @@ def _reconcile(
             with _lock:
                 _manifests[kind], _errors[kind] = manifest, None
     prepared = 0
-    if prepare:
-        for inst in candidates:
-            # Never hold the account/ordering gate during download. Publication
-            # still verifies the current intention hash in prepare_component.
+    if prepare and candidates:
+        from concurrent.futures import ThreadPoolExecutor
+        from contextvars import copy_context
+        import time
+
+        started = time.perf_counter_ns()
+
+        def prepare_item(inst):
+            # Check both manifest order and identity before work; prepare_component
+            # repeats the account/content-hash checks before publishing any bytes.
             with account_scope(state):
                 with manifest_order.apply(kind, profile, manifest):
                     pass
             try:
                 _prepare(kind, state, inst)
-                prepared += 1
+                return True
             except Exception as exc:
                 logger.warning("[cloud-%s] prepare '%s' failed: %s", kind, inst.key, exc)
+                return False
+
+        if len(candidates) > 1:
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cloud-definitions") as pool:
+                pending = [pool.submit(copy_context().run, prepare_item, inst) for inst in candidates]
+                prepared = sum(future.result() for future in pending)
+        else:
+            prepared = int(prepare_item(candidates[0]))
+        logger.info("[cloud-%s] packages prepared count=%d elapsed_ms=%.3f", kind, prepared,
+                    (time.perf_counter_ns() - started) / 1_000_000)
     return prepared
 
 

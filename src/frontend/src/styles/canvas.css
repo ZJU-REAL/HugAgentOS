@@ -961,7 +961,7 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.7;
-  font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
+  font-family:var(--font-family-mono);
   color: var(--color-text);
   white-space: pre-wrap;
   word-break: break-word;

@@ -25,7 +25,7 @@ const OP_LABEL: Record<string, string> = {
 };
 
 /**
- * §13 My Space write-operation confirmation bar — floats above the input box (modeled on
+ * Shared operation confirmation bar — floats above the input box (modeled on
  * the desktop permission-confirmation float bar).
  *
  * Shape: the tool coroutine that triggered the write is right now **suspended** in the
@@ -90,25 +90,9 @@ export function FileConfirmBar() {
         for (const confirmId of res.cascaded ?? []) {
           resolvePendingConfirm(currentChatId, confirmId);
         }
-        message.success(
-          head.kind === 'automation'
-            ? t('已允许本次会话的全部定时任务操作，后续不再逐个确认。')
-            : head.kind === 'local_cmd'
-              ? t('已允许本次会话的全部本机操作，后续不再逐个确认。')
-              : isGenericTool
-                ? t('已允许本次会话中该类工具操作，后续不再逐个确认。')
-                : t('已允许本次会话的全部「我的空间」写操作，后续不再逐个确认。'),
-        );
+        message.success(t('已允许本会话内的同类操作，后续不再逐项确认。'));
       } else if (decision === 'deny') {
-        message.info(
-          head.kind === 'automation'
-            ? t('已拒绝该操作，定时任务未改动。')
-            : head.kind === 'local_cmd'
-              ? t('已拒绝该本机操作，未执行任何改动。')
-              : isGenericTool
-                ? t('已拒绝该工具操作，未执行任何改动。')
-                : t('已拒绝该操作，文件未改动。如需临时产物可让助手写到 /workspace。'),
-        );
+        message.info(t('已拒绝本次操作。'));
       }
     } catch (e: unknown) {
       // Real failure (network / invalid decision, etc.): re-append this item for the user to retry
@@ -132,15 +116,7 @@ export function FileConfirmBar() {
           <div
             className="jx-confirmBar"
             role="alertdialog"
-            aria-label={
-              isAuto
-                ? t('定时任务操作确认')
-                : isLocalCmd
-                  ? t('本机操作确认')
-                  : isGenericTool
-                    ? t('工具操作确认')
-                    : t('我的空间写操作确认')
-            }
+            aria-label={t('操作确认')}
           >
             <span className="jx-confirmBar-icon" aria-hidden="true">
               <SafetyCertificateFilled />
@@ -155,13 +131,7 @@ export function FileConfirmBar() {
                 transition={{ duration: 0.15, ease: EASE.standard }}
               >
                 <div className="jx-confirmBar-title">
-                  {isAuto
-                    ? t('需要你确认一项定时任务操作')
-                    : isLocalCmd
-                      ? t('需要你确认一项本机操作')
-                      : isGenericTool
-                        ? t('需要你确认一项工具操作')
-                        : t('需要你确认一项「我的空间」写操作')}
+                  {t('需要你确认一项操作')}
                   {remaining > 0 && (
                     <span className="jx-confirmBar-count">
                       {t('（还有 {n} 项排队，逐个确认）', { n: remaining })}
@@ -175,13 +145,7 @@ export function FileConfirmBar() {
                   </span>
                 </div>
                 <div className="jx-confirmBar-hint">
-                  {isAuto
-                    ? t('该操作会更改你的定时任务安排。确认后助手会在本对话里直接继续完成任务。')
-                    : isLocalCmd
-                      ? t('该操作会直接访问你的电脑文件或执行命令，可能读取、修改或删除本机内容。确认后助手会在本对话里直接继续完成任务。')
-                      : isGenericTool
-                        ? t('该操作可能调用外部服务或修改持久数据。确认后助手会在本对话里直接继续完成任务。')
-                        : t('该操作会修改你的个人网盘（跨会话永久保存）。确认后助手会在本对话里直接继续完成任务。')}
+                  {t('助手即将执行以下操作。请查看操作内容，允许后将继续当前任务。')}
                 </div>
               </motion.div>
             </AnimatePresence>
@@ -201,7 +165,7 @@ export function FileConfirmBar() {
                 disabled={busy}
                 onClick={() => decide('allow_session')}
               >
-                {t('本次会话都允许')}
+                {t('本会话内同类操作均允许')}
               </button>
               <button
                 type="button"

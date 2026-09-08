@@ -48,40 +48,90 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
+# Startup is one declarative table. ``gate`` steps must finish before uvicorn
+# opens the port (the health check promises a usable database and execution
+# plane); everything else runs afterwards, in the same relative order, without
+# holding the port. ``roles`` limits a step to the processes that own that
+# responsibility: the hybrid-desktop local backend is only a local execution
+# plane and never runs cloud-side workers.
+SERVICE = "service"
+EXECUTION_PLANE = "execution_plane"
+_ALL_ROLES = frozenset({SERVICE, EXECUTION_PLANE})
+_SERVICE_ONLY = frozenset({SERVICE})
+
+
+def _runtime_role() -> str:
+    from core.auth.desktop_bridge import bridge_enabled
+
+    return EXECUTION_PLANE if bridge_enabled() else SERVICE
+
+
+def _startup_steps():
+    return (
+        # (step, gate, roles)
+        (_startup_ensure_tables, True, _ALL_ROLES),
+        (_startup_watch_capability_changes, True, _ALL_ROLES),
+        (_startup_seed_ce_admin, True, _ALL_ROLES),
+        (_startup_seed_page_config, True, _ALL_ROLES),
+        (_startup_seed_prompt_versions, True, _ALL_ROLES),
+        (_startup_seed_roles, True, _ALL_ROLES),
+        (_startup_seed_mcp_servers, True, _ALL_ROLES),
+        (_startup_seed_default_plugins, True, _ALL_ROLES),
+        (_startup_local_sidecars, True, _ALL_ROLES),
+        (_startup_recover_chat_runs, True, _ALL_ROLES),
+        (_startup_resume_loops, False, _ALL_ROLES),
+        (_startup_recover_jobs, False, _ALL_ROLES),
+        (_startup_orphan_job_reaper, False, _ALL_ROLES),
+        (_startup_stale_run_reaper, False, _ALL_ROLES),
+        (_startup_warm_sandbox_pool, False, _ALL_ROLES),
+        (_startup_idle_session_reaper, False, _ALL_ROLES),
+        (_startup_mcp_market_monitor, False, _SERVICE_ONLY),
+        (_startup_recover_datasource_sidecars, False, _SERVICE_ONLY),
+        (_startup_preload, False, _ALL_ROLES),
+        (_startup_automation_scheduler, False, _ALL_ROLES),
+        (_startup_kb_wiki_worker, False, _SERVICE_ONLY),
+        (_startup_kb_index_worker, False, _SERVICE_ONLY),
+        (_startup_distillation_scheduler, False, _SERVICE_ONLY),
+        (_startup_evolution_scheduler, False, _SERVICE_ONLY),
+        (_startup_memory_ttl_scheduler, False, _ALL_ROLES),
+        (_startup_memory_outbox_worker, False, _ALL_ROLES),
+        (_startup_recover_persona_distill_jobs, False, _SERVICE_ONLY),
+        (_startup_warmup_memory, False, _ALL_ROLES),
+        (_startup_channel_manager, False, _SERVICE_ONLY),
+    )
+
+
+async def _run_startup_steps(steps) -> None:
+    for step in steps:
+        await step()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── startup ──
-    await _startup_ensure_tables()
-    await _startup_watch_capability_changes()
-    await _startup_seed_ce_admin()
-    await _startup_local_sidecars()
-    await _startup_recover_chat_runs()
-    await _startup_resume_loops()
-    await _startup_recover_jobs()
-    await _startup_orphan_job_reaper()
-    await _startup_stale_run_reaper()
-    await _startup_warm_sandbox_pool()
-    await _startup_idle_session_reaper()
-    await _startup_seed_page_config()
-    await _startup_seed_prompt_versions()
-    await _startup_seed_roles()
-    await _startup_seed_mcp_servers()
-    await _startup_mcp_market_monitor()
-    await _startup_seed_default_plugins()
-    await _startup_recover_datasource_sidecars()
-    await _startup_preload()
-    await _startup_automation_scheduler()
-    await _startup_kb_wiki_worker()
-    await _startup_kb_index_worker()
-    await _startup_distillation_scheduler()
-    await _startup_evolution_scheduler()
-    await _startup_memory_ttl_scheduler()
-    await _startup_memory_outbox_worker()
-    await _startup_recover_persona_distill_jobs()
-    await _startup_warmup_memory()
-    await _startup_channel_manager()
+    import asyncio
+    import contextlib
+    import time
+
+    role = _runtime_role()
+    selected = [(step, gate) for step, gate, roles in _startup_steps() if role in roles]
+    started = time.monotonic()
+    await _run_startup_steps(step for step, gate in selected if gate)
+    logger.info(
+        "[startup] role=%s gate ready in %.2fs; %d step(s) continue in background",
+        role,
+        time.monotonic() - started,
+        sum(1 for _, gate in selected if not gate),
+    )
+    app.state.deferred_startup = asyncio.create_task(
+        _run_startup_steps([step for step, gate in selected if not gate])
+    )
     yield
     # ── shutdown ──
+    deferred = getattr(app.state, "deferred_startup", None)
+    if deferred is not None and not deferred.done():
+        deferred.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await deferred
     await _shutdown_stale_run_reaper()
     await _shutdown_memory_outbox_worker()
     await _shutdown_orphan_job_reaper()

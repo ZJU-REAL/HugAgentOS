@@ -75,6 +75,19 @@ def ensure_loopback_proxy_bypass() -> None:
     instead of deleting the proxy vars — model/API calls may legitimately need
     the proxy to reach external endpoints.
     """
+    # urllib/httpx on Windows chooses environment proxies OR registry proxies.
+    # Adding NO_PROXY alone makes the environment dict nonempty and silently
+    # hides the system proxy. Preserve it in this process before adding bypasses.
+    # Any explicitly configured transport proxy (including an empty value) wins.
+    if sys.platform == "win32" and not any(
+        key.lower() in ("http_proxy", "https_proxy", "all_proxy") for key in os.environ
+    ):
+        from urllib import request as urllib_request
+
+        registry_proxies = urllib_request.getproxies_registry()
+        for scheme in ("http", "https", "all"):
+            if registry_proxies.get(scheme):
+                os.environ[scheme.upper() + "_PROXY"] = registry_proxies[scheme]
     loopback_hosts = ("127.0.0.1", "localhost", "::1")
     current = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
     entries = [entry.strip() for entry in current.split(",") if entry.strip()]

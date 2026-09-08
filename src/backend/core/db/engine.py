@@ -1,13 +1,15 @@
 """Database configuration and session management."""
 
 import logging
+import os
 from typing import Generator
 
 from core.config.settings import settings
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, QueuePool
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,17 @@ if DATABASE_URL.startswith("sqlite://"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
     # Streaming requests can hold connections for a long time. NullPool avoids
     # exhausting a small QueuePool in local SQLite dev mode.
-    engine_kwargs["poolclass"] = NullPool
+    if (
+        os.name == "nt"
+        and settings.deploy.is_local
+        and make_url(DATABASE_URL).database not in (None, "", ":memory:")
+    ):
+        # Retain a few SQLite page/schema caches instead of reopening the file
+        # for every capability lookup. Unlimited overflow keeps the old NullPool
+        # behavior for long streams: no request waits for a free connection.
+        engine_kwargs.update(poolclass=QueuePool, pool_size=8, max_overflow=-1, pool_use_lifo=True)
+    else:
+        engine_kwargs["poolclass"] = NullPool
 else:
     engine_kwargs["pool_size"] = settings.db.pool_size
     engine_kwargs["max_overflow"] = settings.db.pool_max_overflow

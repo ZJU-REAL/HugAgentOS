@@ -3,12 +3,36 @@
 from __future__ import annotations
 
 import threading
+import logging
+import time
 
 from . import registry, store
 from .errors import CloudUnavailable, IntegrityFailed, PackageMissing
 from .paths import revision_for_hash
 
 _prepare_lock = threading.RLock()
+# (registry generation, profile) → ids still awaiting preparation + ownership edges.
+# Rebuilt only when the registry changed, so the assembly path pays one set check.
+_pending_lock = threading.Lock()
+_pending_snapshot = None
+
+
+def _pending_closure(profile):
+    global _pending_snapshot
+    gen = registry.generation()
+    with _pending_lock:
+        snap = _pending_snapshot
+    if snap is None or snap[0] != gen or snap[1] != profile:
+        rows = registry.list_installations(profile_id=profile)
+        snap = (
+            gen,
+            profile,
+            frozenset(i.install_id for i in rows if i.enabled and not i.ready),
+            registry.component_edges(),
+        )
+        with _pending_lock:
+            _pending_snapshot = snap
+    return snap[2], snap[3]
 
 
 def prepare_component(state, inst, *, download, content_hash, after_publish=None):
@@ -20,6 +44,7 @@ def prepare_component(state, inst, *, download, content_hash, after_publish=None
     if not inst.content_hash:
         raise IntegrityFailed("cloud manifest published no content hash", ref=inst.install_id)
     revision = revision_for_hash(inst.content_hash)
+    started_ns = time.perf_counter_ns()
     old_revision = inst.resolved_revision
     old_ready = False
     tx = None
@@ -41,7 +66,9 @@ def prepare_component(state, inst, *, download, content_hash, after_publish=None
         # preparation — including the on-demand one the chat assembly waits on, so
         # one unreachable cloud used to freeze the whole conversation. Releasing
         # the lock is safe because the commit below re-validates the installation.
+        download_started_ns = time.perf_counter_ns()
         data = download() if comp is None else None
+        download_ms = (time.perf_counter_ns() - download_started_ns) / 1_000_000
         with _prepare_lock:
             # A login can proceed during HTTP IO. No stale bytes/intent may be
             # published after it; the short commit below shares its identity lock.
@@ -84,6 +111,11 @@ def prepare_component(state, inst, *, download, content_hash, after_publish=None
                 for open_tx in registry.open_transactions():
                     if open_tx["install_id"] == inst.install_id:
                         registry.advance_transaction(open_tx["tx_id"], "committed")
+                logging.getLogger(__name__).info(
+                    "[caps-prepare] kind=%s key=%s download_ms=%.3f total_ms=%.3f",
+                    inst.kind, inst.key, download_ms,
+                    (time.perf_counter_ns() - started_ns) / 1_000_000,
+                )
                 return done
     except Exception as exc:
         with _prepare_lock:
@@ -126,8 +158,15 @@ def ensure_cloud_ready(user_id, *, skill_keys=(), plugin_keys=(), install_ids=()
     for key in plugin_keys:
         wanted.add(registry.install_id("plugin", profile, str(key)))
     # 插件 / 智能体定义的组件也要一起准备（定义先就绪才知道组件）。
-    for owner in list(wanted):
-        wanted.update(registry.components_of(owner))
+    pending_ids, edges = _pending_closure(profile)
+    stack = list(wanted)
+    while stack:
+        for cid in edges.get(stack.pop(), ()):
+            if cid not in wanted:
+                wanted.add(cid)
+                stack.append(cid)
+    if not (wanted & pending_ids):
+        return []
 
     def pending(kind_filter):
         rows = []

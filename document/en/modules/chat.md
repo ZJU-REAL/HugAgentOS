@@ -2,9 +2,13 @@
 
 > Last updated: August 26, 2026
 
+Regular code blocks have an always-visible Copy button in the top right. It copies only the code text, preserving indentation and line breaks; during streaming it copies the content currently displayed. On success, the button shows a checkmark and Copied in the original button color for two seconds before resetting. Failures appear in the button as Copy failed, without a top-of-page notification.
+
 Chat is the core pipeline of HugAgentOS: a user message travels through the FastAPI route, runtime-context assembly, and the streaming orchestrator, then an AgentScope 2.0 ReActAgent drives multi-turn "think → call tool → observe" loops whose events are pushed to the frontend in real time over SSE. This page walks the end-to-end flow as it exists in the code, then covers the citation system, plan mode, sub-agents, conversation summarization, chat sharing, context compression, and oversized-tool-result offloading.
 
 > All orchestration code lives in `src/backend/orchestration/` (the legacy `routing/` package has been fully migrated there).
+
+The home page, conversation page, and project panel share the message composer. Long text expands the editor up to its maximum height, then scrolls inside it. Shift+Enter, typing, and pasting keep the current line visible above the bottom toolbar. Editing earlier text follows the caret; manually scrolling to read preserves the scroll position.
 
 ## End-to-end flow of one conversation
 
@@ -417,3 +421,32 @@ The same orchestration foundation also powers: response regeneration (`POST /v1/
 | Chat sharing | `src/backend/api/routes/v1/chat_shares.py` |
 | Follow-up generation | `src/backend/orchestration/followups.py` |
 | Frontend stream parsing / follow-up queue | `src/frontend/src/hooks/chatStream.ts`, `useStreaming.ts`, `components/chat/QueuedMessageCard.tsx` |
+
+### Desktop tool permissions and operation confirmation
+
+In hybrid mode, the cloud account owns the tool approval preset. Selecting a preset saves it
+to both the cloud and the local executor; the selected value is displayed only after both
+accept it. Opening the desktop interface or restoring local readiness checks and repairs the
+local preset. Read or save failures show “Permissions not synced”; select a preset to retry.
+Presets are read when a new run is assembled. Changing the preset does not automatically
+release an existing run or its pending confirmations.
+
+The confirmation bar uses a shared operation title and shows the operation and its path or
+command. “Allow similar operations in this session” grants only the permission domain of the
+current confirmation, leaving other domains unchanged.
+
+
+### Desktop plugin tool completeness
+
+In hybrid mode, locally installed instructions and cloud-authorized tools can belong to
+different installations. A plugin appears in the loadable directory only when its required
+MCP bindings are available for the run. An incomplete plugin cannot report a skill-only
+activation as success, and its exclusive skills are omitted from the available surface.
+Shared skills can still be provided by another complete plugin. Explicit invocation reports
+the unavailable tools instead of silently substituting another source.
+
+Hybrid mode does not start the local built-in MCP launcher. Scheduled-task, batch and chart tools
+use the current account's cloud bindings under the same rules as other MCPs, without
+tool-name exceptions. The legacy local-retention list and bridge-disable environment
+switch have been removed. Independently configured local MCPs remain available;
+same-name sources follow explicit user choices and normal resolution rules.

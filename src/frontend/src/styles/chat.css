@@ -1145,7 +1145,7 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 
 /* ── 模型 + 思考强度位（工具条右侧，两级菜单）── */
 .jx-modelEffort{ position:relative; min-width:0; flex-shrink:1; }
-.jx-modelEffortBtn{ max-width:230px; }
+.jx-modelEffortBtn{ max-width:320px; flex:0 1 auto; }
 /* 思考强度贴在模型名右侧，弱一档：一个 chip 报两件事，主次要分得开 */
 .jx-modelEffortAside{
   flex:0 0 auto;
@@ -3848,7 +3848,7 @@ textarea.jx-composer{
   margin: 0;
   padding: 16px 20px;
   background: var(--color-bg-layout);
-  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-family:var(--font-family-mono);
   font-size: 12.5px;
   line-height: 1.65;
   color: var(--color-text);
@@ -3886,7 +3886,7 @@ textarea.jx-composer{
   background: var(--color-bg-gray);
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-family:var(--font-family-mono);
   font-size: 12.5px;
 }
 .jx-spaceImportPreview-md pre {
@@ -4339,16 +4339,15 @@ textarea.jx-composer{
 .jx-deploySwitcherItem:disabled { opacity: .55; cursor: not-allowed; }
 .jx-deploySwitcher { display: flex; justify-content: center; position: relative; margin: 2px 0 8px; }
 .jx-deploySwitcherPill {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--color-border, #e5e6eb);
-  background: var(--color-bg-layout);
-  color: var(--color-text, #1d2129);
-  font-size: 13px; cursor: pointer; line-height: 1; transition: background .15s;
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 28px; padding: 0 8px; border-radius: 16px;
+  border: none; background: transparent;
+  color: color-mix(in srgb, var(--color-text) 75%, transparent);
+  font-size: 13px; cursor: pointer; line-height: 1; transition: background .15s, color .15s;
 }
-.jx-deploySwitcherPill:hover { background: var(--color-bg-gray, #eef0f3); }
-.jx-deploySwitcherIcon { font-size: 13px; display: inline-flex; color: var(--color-text-secondary, #4e5969); }
-.jx-deploySwitcherLabel { font-weight: 500; }
+.jx-deploySwitcherPill:hover { background: rgba(15,23,42,.055); color: color-mix(in srgb, var(--color-text) 92%, transparent); }
+.jx-deploySwitcherIcon { font-size: 13px; display: inline-flex; color: currentColor; }
+.jx-deploySwitcherLabel { font-weight: 400; }
 .jx-deploySwitcherMenu {
   position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
   min-width: 288px; z-index: 50; padding: 6px;

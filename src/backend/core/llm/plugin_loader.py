@@ -68,6 +68,7 @@ class DeferredPlugin:
     # non-plugin skills.
     bound_mcp_ids: List[str] = field(default_factory=list)
     capability_nodes: List[dict] = field(default_factory=list)
+    unavailable_mcp_ids: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -83,6 +84,7 @@ class ProgressiveResolution:
     activated_slugs: List[str] = field(default_factory=list)
     deferred_skill_ids: Set[str] = field(default_factory=set)
     deferred_mcp_ids: Set[str] = field(default_factory=set)
+    unavailable_skill_ids: Set[str] = field(default_factory=set)
 
     def deferred_by_slug(self) -> Dict[str, DeferredPlugin]:
         return {p.slug: p for p in self.deferred}
@@ -621,7 +623,7 @@ def resolve_desktop_progressive_plugins(
     result = ProgressiveResolution()
     eligible: List[DeferredPlugin] = []
     allowed_skills, allowed_mcp = set(enabled_skill_ids or []), set(enabled_mcp_ids or [])
-    active = set(activated_ids or [])
+    active = {item for item in (activated_ids or []) if item}
     from core.capabilities.preparation import ensure_cloud_ready
 
     ensure_cloud_ready(user_id, skill_keys=sorted(allowed_skills))
@@ -630,7 +632,13 @@ def resolve_desktop_progressive_plugins(
         name: {"install_id": candidate.install_id, "revision": candidate.revision}
         for name, candidate in choices.chosen.items()
     }
-    for row in registry.list_installations(kind="plugin"):
+    installations = {
+        row.install_id: row for row in registry.list_installations(include_removed=True)
+    }
+    prepared_rows = []
+    for row in list(installations.values()):
+        if row.kind != "plugin" or row.state == "removed":
+            continue
         if row.profile_id not in (LOCAL_PROFILE, profile) or not row.enabled:
             continue
         if row.payload.get("owner_user_id") not in (None, "", user_id):
@@ -666,7 +674,14 @@ def resolve_desktop_progressive_plugins(
             )
             if not results or not results[0]["ok"]:
                 raise PackageMissing("selected plugin definition is not ready", ref=row.install_id)
-            row = registry.get(row.install_id)
+            installations = {
+                item.install_id: item for item in registry.list_installations(include_removed=True)
+            }
+            row = installations.get(row.install_id)
+        prepared_rows.append((row, aliases))
+
+    def inspect_plugin(prepared):
+        row, aliases = prepared
         mcp_ids, declared_skills = set(), set()
 
         def record_component(entry, required):
@@ -677,7 +692,12 @@ def resolve_desktop_progressive_plugins(
             return True
 
         inspector = Inspector(
-            Context(user_id=user_id, available_mcp=allowed_mcp, bindings=bindings),
+            Context(
+                user_id=user_id,
+                available_mcp=allowed_mcp,
+                bindings=bindings,
+                installations=installations,
+            ),
             on_visit=record_component,
         )
         inspector.visit({"kind": "plugin", "id": row.install_id}, row.profile_id)
@@ -698,14 +718,15 @@ def resolve_desktop_progressive_plugins(
                     details={"dependency": error},
                 )
         for node in nodes:
-            inst = registry.get(node["install_id"])
+            inst = installations.get(node["install_id"])
             expected = inst.payload.get("resolved_content_hash") or inst.content_hash
             if expected and expected != node["content_hash"]:
                 raise IntegrityFailed("plugin definition changed", ref=node["install_id"])
         skill_ids = sorted(declared_skills & allowed_skills)
+        unavailable_mcp_ids = mcp_ids - allowed_mcp
         mcp_ids &= allowed_mcp
-        if not skill_ids and not mcp_ids:
-            continue
+        if not skill_ids and not mcp_ids and not unavailable_mcp_ids:
+            return None
         item = DeferredPlugin(
             row.install_id,
             row.key,
@@ -714,7 +735,46 @@ def resolve_desktop_progressive_plugins(
             skill_ids,
             sorted(mcp_ids),
             capability_nodes=nodes,
+            unavailable_mcp_ids=unavailable_mcp_ids,
         )
+        return item, aliases, skill_ids, mcp_ids
+
+    # Downloads above are serial. Workers share only the completed detached
+    # registry snapshot, and each owns its walker and component-name sets.
+    if os.name == "nt" and len(prepared_rows) >= 8:
+        from concurrent.futures import ThreadPoolExecutor
+        from contextvars import copy_context
+
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="cap-plugins") as pool:
+            pending = [
+                pool.submit(copy_context().run, inspect_plugin, row) for row in prepared_rows
+            ]
+            inspected = [future.result() for future in pending]
+    else:
+        inspected = map(inspect_plugin, prepared_rows)
+    for resolved in inspected:
+        if resolved is None:
+            continue
+        item, aliases, skill_ids, mcp_ids = resolved
+        if item.unavailable_mcp_ids:
+            # An installed instruction is not a working plugin. Never advertise
+            # a skill-only activation when its required tool binding is absent,
+            # nor substitute another account's similarly named connector.
+            if aliases.intersection(active):
+                from core.capabilities.errors import PackageMissing
+
+                raise PackageMissing(
+                    "selected plugin requires unavailable MCP servers: "
+                    + ", ".join(sorted(item.unavailable_mcp_ids)),
+                    ref=item.install_id,
+                )
+            result.unavailable_skill_ids.update(skill_ids)
+            logger.info(
+                "[plugin-loader] plugin %s unavailable: missing MCP %s",
+                item.install_id,
+                ", ".join(sorted(item.unavailable_mcp_ids)),
+            )
+            continue
         # Explicit source-qualified selectors avoid silently choosing a namesake.
         if any(p.slug == item.slug for p in eligible):
             for previous in eligible:
@@ -730,6 +790,18 @@ def resolve_desktop_progressive_plugins(
             result.activated_slugs.append(item.slug)
         else:
             result.deferred.append(item)
+    # A shared skill may still belong to another complete, authorized plugin.
+    result.unavailable_skill_ids.difference_update(
+        sid for item in eligible for sid in item.skill_ids
+    )
+    unavailable_invoked = result.unavailable_skill_ids.intersection(invoked_skill_ids or ())
+    if unavailable_invoked:
+        from core.capabilities.errors import PackageMissing
+
+        raise PackageMissing(
+            "selected skill belongs to a plugin with unavailable MCP servers",
+            runtime_name=", ".join(sorted(unavailable_invoked)),
+        )
     return _finalize_resolution(result, eligible)
 
 

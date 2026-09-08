@@ -11,14 +11,20 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use std::convert::Infallible;
+
 use axum::{
     body::Body,
     extract::State,
-    http::{HeaderMap, Method, Request, StatusCode, Uri},
-    response::{Html, IntoResponse, Response},
+    http::{header, HeaderMap, Method, Request, StatusCode, Uri},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        Html, IntoResponse, Response,
+    },
     routing::{any, get, post},
     Json, Router,
 };
+use futures_util::Stream;
 use tokio::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -68,7 +74,21 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
     // SPA 首页注入平台标题栏；macOS 保留原生菜单与交通灯，只叠加轻量工具栏。
     // Windows/Linux 继续使用一体化自绘标题栏。静态资源仍直接读取原 dist。
     let raw_index = std::fs::read_to_string(&index).unwrap_or_default();
-    let injected_index = inject_after_body(&raw_index, &platform_titlebar_block(true));
+    // The SPA learns the desktop shape from the document itself: no probe, no race
+    // between the first API calls and the routing switch.
+    let boot = format!(
+        "<script>window.__HG_DESKTOP__={};</script>",
+        serde_json::json!({
+            "provision_mode": state.provision_mode,
+            "active_local": state.active_local,
+            "server_base": state.server_base,
+            "local_base": state.local_base,
+        })
+    );
+    let injected_index = inject_after_body(
+        &raw_index,
+        &format!("{boot}{}", platform_titlebar_block(true)),
+    );
     let injected_path =
         std::env::temp_dir().join(format!("hugagent-shell-index-{}.html", std::process::id()));
     if let Err(error) = std::fs::write(&injected_path, injected_index.as_bytes()) {
@@ -90,6 +110,7 @@ pub async fn serve(state: ProxyState, web_dir: PathBuf) -> std::io::Result<u16> 
         .route("/__desktop/setup", get(setup_page))
         .route("/__desktop/setup/status", get(setup_status))
         .route("/__desktop/setup/install", post(start_local_install))
+        .route("/__desktop/events", get(desktop_events))
         .route("/api", any(proxy_handler))
         .route("/api/*rest", any(proxy_handler))
         // nginx-free desktop mode still needs the backend-owned public paths:
@@ -151,12 +172,6 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
                 .query()
                 .map(|q| q.split('&').any(|kv| kv == "hg_target=local"))
                 .unwrap_or(false));
-    // 收齐请求体（上传等）。下游用 reqwest 重发。
-    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
-        Ok(b) => b,
-        Err(e) => return (StatusCode::BAD_REQUEST, format!("读取请求体失败: {e}")).into_response(),
-    };
-
     let expected_epoch = state.session_epoch.current();
     let bridge_user = state.bridge_user.read().await.clone();
     let token = state.token.read().await.clone();
@@ -165,12 +180,13 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     }
     if to_local {
         // 本机后端只认已同步的云端身份；没同步好时转发过去只会得到 401，
-        // 前端会把它当成云端会话过期。这里直接说明真实原因。
+        // 前端会把它当成云端会话过期。这里直接说明真实原因。模型是否已下发
+        // 不在这里拦：由本机后端在真正调用模型时裁决。
         let sync = state.bridge_sync.read().await.clone();
-        if !sync.synced {
+        if !sync.identity_ready || (uri.path().ends_with("/chats/stream") && !sync.capabilities_ready) {
             let reason = sync
                 .error
-                .unwrap_or_else(|| "正在同步云端身份到本机执行面".to_string());
+                .unwrap_or_else(|| "正在同步本机身份、模型与技能，请同步完成后重试".to_string());
             let body = serde_json::json!({
                 "code": 503,
                 "message": format!("本机执行面尚未就绪：{reason}"),
@@ -180,9 +196,25 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
         }
     }
 
-    let build_request = |use_local: bool| {
-        let base = if use_local { &state.local_base } else { &state.server_base };
-        let mut rb = state.http.request(method.clone(), format!("{}{}", base, path_q));
+    // 请求体按帧透传：上传不再整体驻留内存。
+    let has_body = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|n| n > 0)
+        .unwrap_or(false)
+        || headers.contains_key(header::TRANSFER_ENCODING);
+
+    let sent = {
+        let use_local = to_local;
+        let base = if use_local {
+            &state.local_base
+        } else {
+            &state.server_base
+        };
+        let mut rb = state
+            .http
+            .request(method.clone(), format!("{}{}", base, path_q));
 
         // 透传请求头，但剔除 hop-by-hop / 由我们重写的头。
         // http 的 HeaderName 已规范化为小写，直接 match 即可，无需再 to_ascii_lowercase。
@@ -215,14 +247,11 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
             );
         }
 
-        if !body_bytes.is_empty() {
-            // body_bytes 是 Bytes，clone 仅增引用计数，不复制请求体。
-            rb = rb.body(body_bytes.clone());
+        if has_body {
+            rb = rb.body(reqwest::Body::wrap_stream(body.into_data_stream()));
         }
-        rb
+        rb.send().await
     };
-
-    let sent = build_request(to_local).send().await;
 
     if !state.session_epoch.matches(expected_epoch) || !state.session_epoch.is_active() {
         return (StatusCode::CONFLICT, "Desktop session changed").into_response();
@@ -424,16 +453,43 @@ struct SetupStatus {
     /// 避免把随启动变化的反代随机端口写进可分享的 URL。
     local_server_base: String,
     provision_mode: ProvisionMode,
+    /// 双模式：云端身份 / 模型拓扑是否已推到本机执行面。
+    bridge: crate::hybrid::BridgeSync,
 }
 
-async fn setup_status(State(state): State<ProxyState>) -> Json<SetupStatus> {
-    Json(SetupStatus {
+async fn setup_status_value(state: &ProxyState) -> SetupStatus {
+    SetupStatus {
         service: state.local_server.snapshot().await,
         active_local: state.active_local,
         current_server_base: state.server_base.clone(),
         local_server_base: state.local_base.clone(),
         provision_mode: state.provision_mode.clone(),
-    })
+        bridge: state.bridge_sync.read().await.clone(),
+    }
+}
+
+async fn setup_status(State(state): State<ProxyState>) -> Json<SetupStatus> {
+    Json(setup_status_value(&state).await)
+}
+
+/// 状态推送：本机服务安装/启动进度与桥接就绪一有变化就推一帧完整状态。
+/// 进度页与 SPA 订阅它，不再定时轮询。
+async fn desktop_events(
+    State(state): State<ProxyState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let receiver = state.local_server.subscribe();
+    let stream = futures_util::stream::unfold(
+        (state, receiver, true),
+        |(state, mut receiver, first)| async move {
+            if !first && receiver.changed().await.is_err() {
+                return None;
+            }
+            let status = setup_status_value(&state).await;
+            let event = Event::default().json_data(&status).ok()?;
+            Some((Ok::<_, Infallible>(event), (state, receiver, false)))
+        },
+    );
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 async fn start_local_install(State(state): State<ProxyState>) -> Json<SetupStatus> {
@@ -460,7 +516,7 @@ fn html_escape(s: &str) -> String {
 
 const TITLEBAR_HEIGHT: u8 = 34;
 const TB_OFFSET_SPA: &str =
-    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px;--hugagent-desktop-sidebar-chrome:color-mix(in srgb, var(--color-bg-gray) 72%, transparent)}:root[data-theme='dark']{--hugagent-desktop-sidebar-chrome:var(--color-bg-layout)}body{box-sizing:border-box!important;padding-top:0!important}.jx-appMainLayout{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}.jx-brandRow{padding-top:50px!important}.jx-miniRail{padding-top:48px!important}.jx-appLoading{height:100%!important}.jx-appLoading-main{box-sizing:border-box!important;padding-top:calc(40px + var(--hugagent-desktop-titlebar-height))!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
+    ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px;--hugagent-desktop-sidebar-chrome:color-mix(in srgb, var(--color-bg-gray) 72%, transparent)}:root[data-theme='dark']{--hugagent-desktop-sidebar-chrome:var(--color-bg-layout)}body{box-sizing:border-box!important;padding-top:0!important}.jx-appMainLayout{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}.jx-brandRow{padding-top:50px!important}.jx-miniRail{padding-top:48px!important}.jx-msRail{box-sizing:border-box!important;padding-top:var(--hugagent-desktop-titlebar-height)!important}.jx-appLoading{height:100%!important}.jx-appLoading-main{box-sizing:border-box!important;padding-top:calc(40px + var(--hugagent-desktop-titlebar-height))!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 const TB_OFFSET_PAGE: &str =
     ":root{--hugagent-desktop-titlebar-height:34px;--hugagent-desktop-sidebar-width:280px;--hugagent-desktop-sidebar-chrome:var(--color-bg-layout)}body{box-sizing:border-box!important;padding-top:34px!important}.ant-message{top:calc(var(--hugagent-desktop-titlebar-height) + 8px)!important}.ant-notification-top,.ant-notification-topLeft,.ant-notification-topRight{top:calc(var(--hugagent-desktop-titlebar-height) + 24px)!important}";
 
@@ -484,7 +540,7 @@ const MAC_OFFSET_PAGE: &str =
 // data-theme 对它同样生效，直接引用应用令牌即可两档自动跟随 —— 不需要再写一套深色覆盖，
 // 也不需要 prefers-color-scheme（那会和手动 light/dark/system 三档打架）。
 const TB_CSS: &str = r##"
-#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:34px;z-index:2147483647;display:flex;align-items:stretch;background:linear-gradient(var(--hugagent-desktop-sidebar-chrome),var(--hugagent-desktop-sidebar-chrome)),var(--color-bg-layout);border:0;box-shadow:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text);-webkit-user-select:none;user-select:none}
+#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:34px;z-index:2147483647;display:flex;align-items:stretch;background:linear-gradient(var(--hugagent-desktop-sidebar-chrome),var(--hugagent-desktop-sidebar-chrome)),var(--color-bg-layout);border:0;box-shadow:none;font-family:var(--font-family,-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif);color:var(--color-text);-webkit-user-select:none;user-select:none}
 #hugagent-titlebar *{box-sizing:border-box}
 #hugagent-titlebar .tb-sidebarZone{flex:0 0 var(--hugagent-desktop-sidebar-width);min-width:max-content;height:100%;padding:0 6px;display:flex;align-items:center;gap:2px;background:transparent;transition:flex-basis .16s ease;overflow:visible}
 #hugagent-titlebar .tb-mainChrome{flex:1;min-width:0;height:100%;display:flex;align-items:center;background:transparent;border:0}
@@ -852,7 +908,7 @@ const LOGIN_HTML: &str = r##"<!doctype html>
   /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源，
      浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
-    color-scheme:light;--primary:#0A66FF;--primary-hover:#005BE6;--primary-active:#0052CC;
+    color-scheme:light;--primary:#126DFF;--primary-hover:#3C87FF;--primary-active:#0862F3;
     --text:#1D1D1F;--text-2:#6E6E73;--text-3:#8E8E93;
     --page-top:#FBFBFA;--page-bottom:#F4F4F2;--ring:#E5E5EA;
   }
@@ -865,7 +921,7 @@ const LOGIN_HTML: &str = r##"<!doctype html>
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{
-    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text);
     background:linear-gradient(180deg,var(--page-top) 0%,var(--page-bottom) 100%);
     display:flex; align-items:center; justify-content:center;
@@ -881,7 +937,7 @@ const LOGIN_HTML: &str = r##"<!doctype html>
   h1{font-size:28px;line-height:1.2;font-weight:650;margin:0;letter-spacing:-.035em}
   .sub{font-size:14px;color:var(--text-2);margin:12px 0 28px;line-height:1.65}
   .btn{
-    width:100%;height:46px;margin-top:28px;border:none;border-radius:11px;cursor:pointer;
+    width:100%;height:44px;margin-top:28px;border:none;border-radius:10px;cursor:pointer;
     /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
     background:var(--primary);color:#fff;font-size:14px;font-weight:600;
   /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
@@ -950,7 +1006,7 @@ const INIT_HTML: &str = r##"<!doctype html>
      浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
     color-scheme:light;
-    --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;
+    --accent:#126DFF;--accent-hover:#3C87FF;--accent-active:#0862F3;
     --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
     --line:rgba(60,60,67,.16);--surface:rgba(255,255,255,.72);--danger:#D70015;
     --page:#F5F5F7;--field:#FFFFFF;
@@ -965,7 +1021,7 @@ const INIT_HTML: &str = r##"<!doctype html>
   /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
   .setup{width:min(540px,100%);text-align:center;padding:20px 34px 30px}
@@ -991,7 +1047,7 @@ const INIT_HTML: &str = r##"<!doctype html>
     font-size:14px;color:var(--text);background:var(--field);outline:none;transition:border-color .14s ease,box-shadow .14s ease}
   input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent)}
   .err{color:var(--danger);font-size:12px;margin:8px 2px 0;min-height:16px}
-  .button{width:100%;height:46px;margin-top:22px;border:0;border-radius:12px;padding:0 18px;font:600 15px/1 inherit;
+  .button{width:100%;height:44px;margin-top:22px;border:0;border-radius:10px;padding:0 18px;font:600 14px/1 inherit;
     /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
     cursor:pointer;background:var(--accent);color:#fff;box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px color-mix(in srgb, var(--accent) 16%, transparent);
     transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
@@ -1082,15 +1138,15 @@ const INIT_FIXED_HTML: &str = r##"<!doctype html>
 <title>初始化 · HugAgentOS</title>
 <style>
   /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源 */
-  :root{color-scheme:light;--accent:#007AFF;--accent2:#32ADE6;--text:#1D1D1F;
+  :root{color-scheme:light;--accent:#126DFF;--accent-hover:#3C87FF;--accent-active:#0862F3;--accent2:#32ADE6;--text:#1D1D1F;
     --secondary:#6E6E73;--line:rgba(60,60,67,.16);--surface:rgba(255,255,255,.72);
-    --page:#F5F5F7;--danger:#D70015;--glow:rgba(0,122,255,.20)}
-  :root[data-theme="dark"]{color-scheme:dark;--accent:#3E8BFF;--accent2:#42C8FF;
+    --page:#F5F5F7;--danger:#D70015;--glow:rgba(18,109,255,.20)}
+  :root[data-theme="dark"]{color-scheme:dark;--accent:#3E8BFF;--accent-hover:#5FA0FF;--accent-active:#2E7BF0;--accent2:#42C8FF;
     --text:#E8ECF4;--secondary:#B3BDCD;--line:#2B3442;--surface:rgba(28,35,48,.72);
     --page:#0F141B;--danger:#FF6B6B;--glow:rgba(62,139,255,.24)}
   /* dark-ok-end */
   *{box-sizing:border-box}html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Segoe UI",sans-serif;
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:hidden;-webkit-user-select:none;user-select:none}
   .setup{position:relative;width:min(600px,100%);text-align:center;padding:34px 30px 38px;z-index:1}
@@ -1109,11 +1165,11 @@ const INIT_FIXED_HTML: &str = r##"<!doctype html>
   .product{margin:0 0 10px;color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.09em}
   h1{margin:0;font-size:34px;line-height:1.16;font-weight:700;letter-spacing:-.035em}
   .lead{max-width:430px;margin:13px auto 0;color:var(--secondary);font-size:14px;line-height:1.7}
-  .button{width:min(340px,100%);height:52px;margin-top:30px;border:0;border-radius:15px;padding:0 22px;
-    font:650 15px/1 inherit;cursor:pointer;background:linear-gradient(110deg,var(--accent),var(--accent2));color:#fff; /* dark-ok: 品牌渐变按钮固定白色前景 */
-    box-shadow:0 13px 30px color-mix(in srgb,var(--accent) 27%,transparent);transition:transform .16s ease,filter .16s ease,opacity .16s ease}
-  @media(hover:hover){.button:hover{filter:brightness(1.06);transform:translateY(-1px)}}
-  .button:active{transform:scale(.98)}.button:disabled{opacity:.62;cursor:default;transform:none}
+  .button{width:min(340px,100%);height:44px;margin-top:30px;border:0;border-radius:10px;padding:0 22px;
+    font:600 14px/1 inherit;cursor:pointer;background:var(--accent);color:#fff; /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
+    box-shadow:0 1px 1px rgba(0,0,0,.08),0 7px 20px color-mix(in srgb,var(--accent) 16%,transparent);transition:background .12s ease,transform .1s ease,opacity .12s ease}
+  @media(hover:hover){.button:hover{background:var(--accent-hover)}}
+  .button:active{background:var(--accent-active);transform:scale(.98)}.button:disabled{opacity:.62;cursor:default;transform:none}
   .button:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 32%,transparent);outline-offset:4px}
   .err{min-height:20px;margin:12px auto -8px;color:var(--danger);font-size:12.5px}
   @keyframes spin{to{transform:rotate(360deg)}}
@@ -1163,9 +1219,9 @@ const SETUP_HTML: &str = r##"<!doctype html>
      浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
     color-scheme:light;
-    --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;--accent2:#32ADE6;
+    --accent:#126DFF;--accent-hover:#3C87FF;--accent-active:#0862F3;--accent2:#32ADE6;
     --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
-    --line:rgba(60,60,67,.14);--surface:rgba(255,255,255,.72);--glow:rgba(0,122,255,.20);
+    --line:rgba(60,60,67,.14);--surface:rgba(255,255,255,.72);--glow:rgba(18,109,255,.20);
     --ok:#248A3D;--danger:#D70015;
     --page:#F5F5F7;--solid:#FFFFFF;--danger-bg:#FFF1F0;--log-ink:#48484A;--contrast-ink:#3A3A3C;
   }
@@ -1180,7 +1236,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
   /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
   .setup{position:relative;width:min(560px,100%);text-align:center;padding:20px 30px 30px}
@@ -1205,7 +1261,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
   h1{margin:0;font-size:30px;line-height:1.16;font-weight:650;letter-spacing:-.028em;font-optical-sizing:auto}
   .lead{max-width:420px;margin:11px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
   .actions{width:min(350px,100%);margin:26px auto 0}
-  .button{width:100%;height:46px;border:0;border-radius:12px;padding:0 18px;font:600 14px/1 inherit;
+  .button{width:100%;height:44px;border:0;border-radius:10px;padding:0 18px;font:600 14px/1 inherit;
     cursor:pointer;transition:background 120ms ease-out,transform 100ms ease-out,opacity 120ms ease-out}
   /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
   .button.primary{background:var(--accent);color:#fff;
@@ -1238,7 +1294,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
   details{margin-top:13px;color:var(--secondary);font-size:12px}summary{width:max-content;cursor:pointer;outline:none}
   .log{height:116px;margin:9px 0 0;padding:11px 12px;overflow:auto;border:0;
     /* dark-ok: 半透明中性灰，压在任一档底色上都成立 */
-    border-radius:10px;background:rgba(118,118,128,.09);color:var(--log-ink);font:11px/1.55 "SFMono-Regular",Consolas,monospace;
+    border-radius:10px;background:rgba(118,118,128,.09);color:var(--log-ink);font:11px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,"PingFang SC","Microsoft YaHei",monospace;
     white-space:pre-wrap;word-break:break-all;-webkit-user-select:text;user-select:text}
   .ready-actions{display:none;margin-top:16px}
   .connection{margin-top:22px;color:var(--tertiary);font-size:11px;line-height:1.5;
@@ -1375,8 +1431,11 @@ const SETUP_HTML: &str = r##"<!doctype html>
         document.getElementById('install').textContent='启动本机服务';
       }
     }catch(e){ if(installing) showError('读取安装状态失败：'+e.message); }
-    pollTimer=setTimeout(poll,900);
   }
+  // 状态由壳推送；推送断开时才退回到间隔轮询。
+  var events=new EventSource('/__desktop/events');
+  events.onmessage=function(){ poll(); };
+  events.onerror=function(){ events.close(); (function fallback(){ poll().then(function(){ pollTimer=setTimeout(fallback,900); }); })(); };
   poll();
 </script>
 </body>
@@ -1407,7 +1466,7 @@ const CLOSE_CONFIRM_HTML: &str = r##"<!doctype html>
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
     color:var(--text); background:var(--surface);
     display:flex; flex-direction:column; justify-content:center;
     padding:22px 26px; -webkit-user-select:none; user-select:none;
@@ -1417,7 +1476,7 @@ const CLOSE_CONFIRM_HTML: &str = r##"<!doctype html>
   .remember{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer;margin-bottom:20px}
   .remember input{width:15px;height:15px;cursor:pointer;accent-color:var(--primary)}
   .btns{display:flex;gap:12px;justify-content:flex-end}
-  .btn{height:38px;padding:0 20px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);transition:all .14s ease}
+  .btn{height:38px;padding:0 20px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);transition:all .14s ease}
   .btn:hover{background:var(--surface-hover)}
   /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
   .btn.primary{border:none;background:var(--primary);color:#fff;box-shadow:0 4px 12px color-mix(in srgb, var(--primary) 26%, transparent)}
@@ -1456,24 +1515,25 @@ const SERVER_CONFIG_HTML: &str = r##"<!doctype html>
     color-scheme:light;
     --primary:#126DFF; --primary-hover:#3C87FF; --primary-active:#0862F3;
     --text:#262626; --text-2:#6B7280; --border:#E8EBF0;
-    --surface:#FFFFFF; --surface-hover:#F5F7FA; --danger:#D4380D;
+    --surface:#FFFFFF; --surface-hover:#F5F7FA; --danger:#D4380D; --page:#F5F6F7;
   }
   :root[data-theme="dark"]{
     color-scheme:dark;
     --primary:#3E8BFF; --primary-hover:#5FA0FF; --primary-active:#2E7BF0;
     --text:#E8ECF4; --text-2:#B3BDCD; --border:#2B3442;
-    --surface:#161C25; --surface-hover:#252D39; --danger:#FF6B6B;
+    --surface:#161C25; --surface-hover:#252D39; --danger:#FF6B6B; --page:#0F141B;
   }
   /* dark-ok-end */
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-    color:var(--text); background:var(--surface);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    color:var(--text); background:var(--page);
     display:flex; justify-content:center; align-items:center;
     padding:24px 28px; -webkit-user-select:none; user-select:none;
   }
-  .panel{width:min(520px,100%)}
+  .panel{width:min(480px,100%);padding:28px 28px 24px;background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    box-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px rgba(0,0,0,.06)} /* dark-ok: 投影两档都是黑 */
   h1{font-size:16px;font-weight:600;margin:0 0 8px}
   p{font-size:12.5px;color:var(--text-2);line-height:1.7;margin:0 0 16px}
   label{display:block;font-size:13px;margin:0 0 6px;color:var(--text)}
@@ -1481,7 +1541,7 @@ const SERVER_CONFIG_HTML: &str = r##"<!doctype html>
     font-size:14px;color:var(--text);background:var(--surface);outline:none;transition:border-color .14s ease}
   input:focus{border-color:var(--primary)}
   .btns{display:flex;gap:12px;justify-content:flex-end;margin-top:22px}
-  .btn{height:38px;padding:0 20px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);transition:all .14s ease}
+  .btn{height:38px;padding:0 20px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);transition:all .14s ease}
   .btn:hover{background:var(--surface-hover)}
   /* dark-ok: 白字压在品牌色实心按钮上，两档都是白；投影两档都是黑 */
   .btn.primary{border:none;background:var(--primary);color:#fff;box-shadow:0 4px 12px color-mix(in srgb, var(--primary) 26%, transparent)}

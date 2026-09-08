@@ -635,3 +635,23 @@ def test_runner_canon_ws_and_bash_rewrite(monkeypatch, tmp_path):
         )
         == f"ls '{local_root}/site'"
     )
+
+
+@pytest.mark.parametrize("explicit", [None, "", "http://configured:8080"])
+def test_windows_loopback_bypass_preserves_registry_proxy(monkeypatch, explicit):
+    import os
+    import cli
+    from urllib import request
+
+    for name in list(os.environ):
+        if name.lower() in ("http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+            monkeypatch.delenv(name)
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setattr(request, "getproxies_registry", lambda: {"http": "http://system:7897", "https": "http://system:7897"}, raising=False)
+    if explicit is not None:
+        monkeypatch.setenv("HTTPS_PROXY", explicit)
+    cli.ensure_loopback_proxy_bypass()
+    assert os.environ["HTTPS_PROXY"] == (explicit if explicit is not None else "http://system:7897")
+    assert "127.0.0.1" in os.environ["NO_PROXY"]
+    if explicit is not None:
+        assert "HTTP_PROXY" not in os.environ

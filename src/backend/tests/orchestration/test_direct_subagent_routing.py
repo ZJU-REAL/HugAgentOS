@@ -253,9 +253,7 @@ def test_disabled_agent_is_absent_by_default_and_added_only_when_explicit():
 
     assert "builtin.explorer" not in {item["agent_id"] for item in default_visible}
     assert "ua_off" not in {item["agent_id"] for item in default_visible}
-    assert {"builtin.explorer", "ua_off"}.issubset(
-        {item["agent_id"] for item in explicit_visible}
-    )
+    assert {"builtin.explorer", "ua_off"}.issubset({item["agent_id"] for item in explicit_visible})
 
 
 def test_parent_and_child_share_the_same_ontology_runtime_object():
@@ -393,3 +391,22 @@ async def test_subagent_log_scope_is_closed_before_outer_stream_yields():
     with pytest.raises(StopAsyncIteration):
         await workflow._anext_in_subagent_log_scope(iterator, "sublog_1")
     assert log_service.current_subagent_log_id() is None
+
+
+@pytest.mark.parametrize("message", ["你好", "分析这个问题", "讲解如何调用子智能体", "  hello  "])
+def test_ordinary_message_does_not_load_agent_catalog(monkeypatch, message):
+    import core.services.user_agent_service as service_module
+
+    class UnexpectedCatalog:
+        def __init__(self, _db):
+            raise AssertionError("ordinary messages must not load the delegate catalog")
+
+    monkeypatch.setattr(service_module, "UserAgentService", UnexpectedCatalog)
+    request = ChatRequest(chat_id="chat_1", message=message)
+    resolved, name, execution_message, command = _resolve_chat_agent_targets(
+        SimpleNamespace(), request, "user_1"
+    )
+    assert resolved is request
+    assert name is None
+    assert execution_message == request.message
+    assert command is None

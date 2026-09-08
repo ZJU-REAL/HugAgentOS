@@ -120,9 +120,7 @@ export default function AppCenterPanel() {
                 )}
                 <div className="jx-agentCard-nameRow">
                   <span className="jx-agentCard-name">{t(app.name)}</span>
-                  <span className={`jx-agentCard-badge${app.enabled ? ' jx-agentCard-badge--enabled' : ''}`}>
-                    {app.enabled ? t('可用') : t('即将上线')}
-                  </span>
+                  {!app.enabled && <span className="jx-agentCard-badge">{t('即将上线')}</span>}
                 </div>
               </div>
               <div className="jx-agentCard-desc">{t(app.description)}</div>

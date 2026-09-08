@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Switch, Tag, Input, Typography, Button, Popconfirm, message, Dropdown, Modal, Form, Select, Pagination, Tooltip } from 'antd';
 import { t } from '../../i18n';
+import { stripMarkdown } from '../../utils/markdown';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined, UploadOutlined, EditOutlined, DownOutlined, AppstoreAddOutlined, CloudUploadOutlined, DownloadOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
 import { useAgentStore, useCatalogStore, useAuthStore } from '../../stores';
@@ -536,7 +537,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
           {/* Metadata card */}
           <div className="jx-sk-metaCard">
             <h4 className="jx-sk-metaName">{selectedItem.name}</h4>
-            <p className="jx-sk-metaDesc">{selectedItem.desc}</p>
+            <p className="jx-sk-metaDesc">{stripMarkdown(selectedItem.desc)}</p>
             {tags.length > 0 && (
               <div className="jx-sk-metaTags">
                 {tags.map((tag: string, i: number) => (
@@ -732,7 +733,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
                 )}
               />
             </div>
-            <div className="jx-sk-cardDesc">{item.desc}</div>
+            <div className="jx-sk-cardDesc">{stripMarkdown(item.desc)}</div>
           </div>
         ))}
       </div>
@@ -782,7 +783,7 @@ export function SkillsPage({ embedded = false }: { embedded?: boolean }) {
                     onChange={(v) => toggleEnabled('agents', item.id, v)}
                   />
                 </div>
-                <div className="jx-sk-cardDesc">{item.desc}</div>
+                <div className="jx-sk-cardDesc">{stripMarkdown(item.desc)}</div>
               </div>
             ))}
           </div>

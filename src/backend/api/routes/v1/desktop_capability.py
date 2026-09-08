@@ -40,6 +40,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,9 @@ def _client() -> httpx.AsyncClient:
     if _gateway_client is None:
         _gateway_client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=None, write=60.0, pool=10.0),
+            # 桌面端两条消息之间常常隔着几十秒；默认 5s 的 keepalive 意味着几乎
+            # 每次模型调用都要重新 TCP + TLS 握手。
+            limits=httpx.Limits(max_keepalive_connections=64, keepalive_expiry=300.0),
         )
     return _gateway_client
 
@@ -198,12 +202,22 @@ async def get_manifest(
 
 
 @router.get("/models", summary="桌面本机执行面的无密钥模型清单")
-async def get_model_manifest(user_id: str = Depends(_require_capability_user)):
+async def get_model_manifest(
+    request: Request,
+    response: Response,
+    user_id: str = Depends(_require_capability_user),
+):
     from core.services.desktop_capability import build_user_model_manifest
 
-    return success_response(
-        data=_public_content(user_id, lambda: build_user_model_manifest(user_id))
+    manifest = await run_in_threadpool(
+        _public_content, user_id, lambda: build_user_model_manifest(user_id)
     )
+    etag = f'"{manifest["revision"]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return success_response(data=manifest)
 
 
 @router.get("/skills/manifest", summary="当前用户的云端技能清单")
@@ -367,13 +381,13 @@ async def gateway_site_publish(
     import tarfile
 
     from core.infra.exceptions import AppException
-    from core.services.desktop_capability import component_base_name, resolve_gateway_tool
+    from core.services.desktop_capability import resolve_gateway_tool
     from core.services.desktop_capability_protocol import CapabilityManifestStaleError
     from core.services.desktop_gateway_uploads import (
         MAX_UPLOAD_OPTIONS_CHARS,
         UPLOAD_OPTIONS_HEADER,
         UPLOAD_SCHEMA_HEADER,
-        endpoint_component,
+        endpoint_plugin,
     )
     from core.services.desktop_site_publish import (
         MAX_ARCHIVE_BYTES,
@@ -383,7 +397,8 @@ async def gateway_site_publish(
     from pydantic import ValidationError
 
     try:
-        resolved = resolve_gateway_tool(
+        resolved = await run_in_threadpool(
+            resolve_gateway_tool,
             user_id,
             server_id,
             "publish_site",
@@ -391,11 +406,9 @@ async def gateway_site_publish(
         )
     except CapabilityManifestStaleError:
         raise HTTPException(status_code=409, detail="capability manifest changed") from None
-    if resolved is None or component_base_name(
-        server_id,
-        resolved["target"].get("source_plugin"),
-        resolved["target"].get("owner_user_id"),
-    ) != endpoint_component("site-publish"):
+    if resolved is None or str(
+        resolved["target"].get("source_plugin") or ""
+    ) != endpoint_plugin("site-publish"):
         raise HTTPException(status_code=403, detail="site publishing is not authorized")
     raw_options = request.headers.get(UPLOAD_OPTIONS_HEADER, "{}")
     if len(raw_options) > MAX_UPLOAD_OPTIONS_CHARS:
@@ -437,7 +450,8 @@ async def gateway_mcp_call(
     from core.services.desktop_capability_protocol import CapabilityManifestStaleError
 
     try:
-        resolved = resolve_gateway_tool(
+        resolved = await run_in_threadpool(
+            resolve_gateway_tool,
             user_id,
             server_id,
             body.tool_name,
@@ -504,7 +518,7 @@ async def gateway_model(
     """
     from core.services.desktop_capability import resolve_model_gateway_target
 
-    target = resolve_model_gateway_target(user_id, provider_id)
+    target = await run_in_threadpool(resolve_model_gateway_target, user_id, provider_id)
     if target is None or model_path.strip("/") != target["path"]:
         raise HTTPException(status_code=404, detail="model not available")
 
@@ -524,7 +538,7 @@ async def gateway_model(
         # Content-Encoding 响应头的情况下把 gzip 字节直接送给 OpenAI SDK。
         "accept-encoding": "identity",
     }
-    response_secrets = _stream_secrets(user_id, target)
+    response_secrets = await run_in_threadpool(_stream_secrets, user_id, target)
     client = _client()
     upstream_req = client.build_request(
         "POST",
@@ -575,7 +589,7 @@ async def gateway_mcp(
     # 避免流式转发全程占住连接池里的一条 DB 连接。
     from core.services.desktop_capability import resolve_gateway_target
 
-    target = resolve_gateway_target(user_id, server_id)
+    target = await run_in_threadpool(resolve_gateway_target, user_id, server_id)
     if target is None:
         raise HTTPException(status_code=404, detail="server not available")
 
@@ -593,7 +607,7 @@ async def gateway_mcp(
     headers["accept-encoding"] = "identity"
 
     body = await request.body()
-    response_secrets = _stream_secrets(user_id, target)
+    response_secrets = await run_in_threadpool(_stream_secrets, user_id, target)
     client = _client()
     upstream_req = client.build_request(
         request.method, target["url"], headers=headers, content=body
@@ -699,3 +713,10 @@ async def cloud_bridge_status(_user: UserContext = Depends(get_current_user)):
     from core.services.desktop_cloud_bridge import bridge_status
 
     return success_response(data=bridge_status())
+
+
+@router.get("/cloud-bridge/readiness", summary="桌面壳首次能力同步进度")
+async def cloud_bridge_readiness(_: None = Depends(_require_desktop_shell_control)):
+    from core.services.desktop_cloud_bridge import initial_sync_status
+
+    return success_response(data=await asyncio.to_thread(initial_sync_status))

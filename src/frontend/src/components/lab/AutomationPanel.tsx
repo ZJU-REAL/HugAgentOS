@@ -371,7 +371,7 @@ function PresetCarousel({ onPick }: { onPick: (preset: AutomationPreset) => void
           </button>
         </div>
       </div>
-      <div className="jx-automation-presetsTrack" ref={trackRef} onScroll={syncEdges}>
+      <div className="jx-automation-presetsTrack" ref={trackRef} onScroll={syncEdges} data-at-end={edges.atEnd ? 'true' : 'false'}>
         {AUTOMATION_PRESETS.map((preset) => (
           <button
             type="button"

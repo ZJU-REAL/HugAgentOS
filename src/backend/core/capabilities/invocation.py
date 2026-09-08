@@ -54,15 +54,13 @@ def resolve_explicit_ids(user_id, allowed_skill_ids, allowed_mcp_ids):
     allowed_skills.update(skill_resolution.chosen)
 
     context = bridge._bridge_context() if skills.account_authorized_for(user_id) else None
-    local_bases = bridge._local_server_base_map()
+    local_ids = bridge._local_server_ids()
     local_json = bridge._mcp_json_local_declarations()
-    candidates = connectors.db_candidates(local_bases, set(allowed_mcp_ids))
+    candidates = connectors.db_candidates(local_ids, set(allowed_mcp_ids))
     candidates.extend(connectors.json_candidates(local_json))
     if context:
         candidates.extend(connectors.cloud_candidates(context["profile"], context["servers"], {}))
-    resolution = connectors.resolve_bindings(
-        candidates, keep_local=bridge.keep_local_bases(), user_id=user_id
-    )
+    resolution = connectors.resolve_bindings(candidates, user_id=user_id)
     known_mcp = {connectors.server_id_of(candidate) for candidate in candidates}
     allowed_mcps = set(allowed_mcp_ids) - known_mcp
     allowed_mcps.update(

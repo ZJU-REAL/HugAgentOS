@@ -818,6 +818,14 @@ _POOL_LIMITS = httpx.Limits(
 def _make_http_client(timeout: int, *, desktop_reference: str = "", base_url: str = "") -> httpx.AsyncClient:
     import asyncio
 
+    from core.config.local_mode import install_local_network_tuning
+
+    # The gateway culls idle connections well inside a person's typing pause, so
+    # the next message reconnects and re-resolves. Cheap everywhere except on a
+    # device whose resolver is slow, where it was the single largest cost in the
+    # turn. No-op unless this process is the desktop local backend.
+    install_local_network_tuning()
+
     base_t = float(timeout) if timeout else 120.0
     try:
         loop_key = id(asyncio.get_running_loop())

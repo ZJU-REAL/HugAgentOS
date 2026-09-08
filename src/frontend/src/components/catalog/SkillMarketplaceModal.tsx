@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Modal, Input, Tag, Button, Empty, Spin, Form, Typography, Pagination, Tooltip, Popconfirm, Switch, message } from 'antd';
 import { t } from '../../i18n';
+import { stripMarkdown } from '../../utils/markdown';
 import { SearchOutlined, FireOutlined, DownloadOutlined, KeyOutlined, CheckOutlined, LeftOutlined, FileTextOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import type { MarketplaceSkill, MarketplaceSkillDetail, MarketplaceFetchers, MarketVisibilityValue } from '../../types';
 import { mdToHtml } from '../../utils/markdown';
@@ -362,7 +363,7 @@ export function SkillMarketplaceModal({
               </div>
             </div>
 
-            {detail.summary && <p className="jx-mk-detailSummary">{detail.summary}</p>}
+            {detail.summary && <p className="jx-mk-detailSummary">{stripMarkdown(detail.summary)}</p>}
 
             {detail.tags?.length > 0 && (
               <div className="jx-mk-tags" style={{ marginBottom: 12 }}>
@@ -469,7 +470,7 @@ export function SkillMarketplaceModal({
                         </div>
                       </div>
                     </div>
-                    <div className="jx-mk-cardDesc" title={skill.summary}>{skill.summary || '—'}</div>
+                    <div className="jx-mk-cardDesc" title={stripMarkdown(skill.summary)}>{stripMarkdown(skill.summary) || '—'}</div>
                     <div className="jx-mk-cardFoot">
                       <div className="jx-mk-tags">
                         {(skill.tags || []).slice(0, 3).map((t, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{t}</Tag>)}

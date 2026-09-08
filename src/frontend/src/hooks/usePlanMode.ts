@@ -68,7 +68,7 @@ export async function processPlanExecuteStream(
   let planAgentNameMap: Record<string, string> | undefined;
 
   try {
-    const plan = await getPlanApi(planId);
+    const plan = await getPlanApi(planId, chatId);
     planTitle = plan.title;
     planDesc = plan.description || '';
     planStepDefs = plan.steps as any[];
@@ -492,7 +492,7 @@ export async function sendPlanMode(
     if (isConfirm && effectivePlanId) {
       // Phase 2: Execute confirmed plan
       markPlanDecision(currentChatId, effectivePlanId, 'confirmed');
-      await updatePlanApi(effectivePlanId, { status: 'approved' });
+      await updatePlanApi(effectivePlanId, { status: 'approved' }, currentChatId);
       const execResp = await executePlanStream(effectivePlanId, abortController.signal, enabledMcpIds, enabledSkillIds, enabledKbIds, currentChatId, historyMessages, undefined, projectId);
       if (!execResp.ok) throw new Error(t('计划执行请求失败: {status}', { status: execResp.status }));
       await processPlanExecuteStream(execResp, currentChatId, effectivePlanId, {

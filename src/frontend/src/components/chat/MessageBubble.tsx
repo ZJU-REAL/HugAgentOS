@@ -193,7 +193,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
     markPlanDecision(currentChatId, planId, 'cancelled');
     const { currentPlanId, setCurrentPlanId } = useChatStore.getState();
     if (currentPlanId === planId) setCurrentPlanId(null);
-    updatePlanApi(planId, { status: 'cancelled' }).catch(() => { /* best-effort; the card is already marked */ });
+    updatePlanApi(planId, { status: 'cancelled' }, currentChatId).catch(() => { /* best-effort; the card is already marked */ });
   }, [currentChatId]);
   // Enter-animation gating: only "newly appended" messages play the enter animation (decided once at mount time and fixed),
   // old messages loaded from history / flushed in on session switch don't play — Bug B2 fix.

@@ -149,6 +149,13 @@ export function isHybridDual(): boolean {
 
 const _localProjects = new Set<string>();
 const _localChats = new Set<string>();
+const _localLoops = new Set<string>();
+let _chatContext: (id: string) => { runTarget?: string; projectId?: string } | undefined = () => undefined;
+
+/** Read the current user's persisted chat choice without importing stores into the API layer. */
+export function setChatRoutingContext(reader: typeof _chatContext) {
+  _chatContext = reader;
+}
 
 export function registerLocalProject(projectId: string) {
   if (projectId) _localProjects.add(projectId);
@@ -159,8 +166,14 @@ export function registerLocalChat(chatId: string) {
 export function isLocalProject(projectId?: string | null): boolean {
   return !!projectId && _localProjects.has(projectId);
 }
+/** Unlike a draft choice, this means the session has been observed on the local backend. */
+export function isRegisteredLocalChat(chatId: string): boolean {
+  return _localChats.has(chatId);
+}
 export function isLocalChat(chatId?: string | null): boolean {
-  return !!chatId && _localChats.has(chatId);
+  if (!chatId) return false;
+  const chat = _chatContext(chatId);
+  return _localChats.has(chatId) || chat?.runTarget === 'local' || isLocalProject(chat?.projectId);
 }
 
 function localHeader(): Record<string, string> {
@@ -180,6 +193,8 @@ function inferTargetHeadersFromUrl(url: string): Record<string, string> {
   if (!_hybridDual) return {};
   const pm = url.match(/\/v1\/projects\/([^/?#]+)/);
   if (pm && isLocalProject(decodeURIComponent(pm[1]))) return localHeader();
+  const lm = url.match(/\/v1\/loops\/([^/?#]+)/);
+  if (lm && _localLoops.has(decodeURIComponent(lm[1]))) return localHeader();
   const cm = url.match(/\/v1\/chats\/([^/?#]+)/);
   if (cm && isLocalChat(decodeURIComponent(cm[1]))) return localHeader();
   return {};
@@ -558,7 +573,7 @@ export async function listLocalSessions(page: number = 1, pageSize: number = 50)
     );
     const data = unwrapData<PaginatedData<JsonObject>>(wrapped);
     const items = Array.isArray(data.items) ? data.items.map((item) => toChatItem(item)) : [];
-    items.forEach((it) => registerLocalChat(it.id));
+    items.forEach((it) => { it.runTarget = 'local'; registerLocalChat(it.id); });
     return items;
   } catch {
     return []; // 本机服务未就绪：不阻塞云端会话列表
@@ -2738,7 +2753,7 @@ export async function generatePlanStream(
   const url = `${getApiUrl()}/v1/plans/generate`;
   return authFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...projectTargetHeaders(projectId), ...chatTargetHeaders(chatId) },
     body: JSON.stringify({
       task_description: taskDescription,
       model_name: modelName,
@@ -2784,17 +2799,19 @@ export async function listPlans(): Promise<Plan[]> {
   return unwrapData<Plan[]>(res);
 }
 
-export async function getPlanApi(planId: string): Promise<Plan> {
-  const res = await apiRequest<unknown>(`/v1/plans/${planId}`);
+export async function getPlanApi(planId: string, chatId?: string): Promise<Plan> {
+  const res = await apiRequest<unknown>(`/v1/plans/${planId}`, { headers: chatTargetHeaders(chatId) });
   return unwrapData<Plan>(res);
 }
 
 export async function updatePlanApi(
   planId: string,
   updates: { status?: string; title?: string; steps?: Record<string, unknown>[] },
+  chatId?: string,
 ): Promise<Plan> {
   const res = await apiRequest<unknown>(`/v1/plans/${planId}`, {
     method: 'PATCH',
+    headers: chatTargetHeaders(chatId),
     body: JSON.stringify(updates),
   });
   return unwrapData<Plan>(res);
@@ -2818,7 +2835,7 @@ export async function executePlanStream(
   const url = `${getApiUrl()}/v1/plans/${planId}/execute`;
   return authFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...projectTargetHeaders(projectId), ...chatTargetHeaders(chatId) },
     body: JSON.stringify({
       ...(enabledMcpIds ? { enabled_mcp_ids: enabledMcpIds } : {}),
       ...(enabledSkillIds ? { enabled_skill_ids: enabledSkillIds } : {}),
@@ -2832,8 +2849,8 @@ export async function executePlanStream(
   });
 }
 
-export async function cancelPlanApi(planId: string): Promise<void> {
-  await apiRequest<unknown>(`/v1/plans/${planId}/cancel`, { method: 'POST' });
+export async function cancelPlanApi(planId: string, chatId?: string): Promise<void> {
+  await apiRequest<unknown>(`/v1/plans/${planId}/cancel`, { method: 'POST', headers: chatTargetHeaders(chatId) });
 }
 
 export const api = {
@@ -3189,25 +3206,25 @@ export async function listProjects(opts: { q?: string; sort?: string; page?: num
   if (opts.pageSize) params.set('page_size', String(opts.pageSize));
   const qs = params.toString();
   const path = `/v1/projects${qs ? `?${qs}` : ''}`;
-  const wrapped = await apiRequest<unknown>(path);
-  const cloud = unwrapData<ProjectListResponse>(wrapped);
-  if (!isHybridDual()) return cloud;
+  if (!isHybridDual()) return unwrapData<ProjectListResponse>(await apiRequest<unknown>(path));
   // 双模式：云端项目 + 本机的本地文件夹项目合并为一张列表（本地项目登记路由表）。
-  // 本机服务未就绪/无本地项目时静默退回云端列表。
-  try {
-    const localWrapped = await apiRequest<unknown>(path, undefined, 'local');
-    const local = unwrapData<ProjectListResponse>(localWrapped);
-    const localItems = (local?.items || []).filter((p) => (p.kind as string) === 'local');
-    localItems.forEach((p) => registerLocalProject(p.project_id));
-    if (!localItems.length) return cloud;
-    const seen = new Set((cloud.items || []).map((p) => p.project_id));
-    return {
-      ...cloud,
-      items: [...(cloud.items || []), ...localItems.filter((p) => !seen.has(p.project_id))],
-    };
-  } catch {
-    return cloud;
-  }
+  // 两端并行请求；本机执行面尚未就绪时只列云端项目。
+  const [cloudResult, localResult] = await Promise.allSettled([
+    apiRequest<unknown>(path),
+    apiRequest<unknown>(path, undefined, 'local'),
+  ]);
+  if (cloudResult.status === 'rejected') throw cloudResult.reason;
+  const cloud = unwrapData<ProjectListResponse>(cloudResult.value);
+  if (localResult.status === 'rejected') return cloud;
+  const local = unwrapData<ProjectListResponse>(localResult.value);
+  const localItems = (local?.items || []).filter((p) => (p.kind as string) === 'local');
+  localItems.forEach((p) => registerLocalProject(p.project_id));
+  if (!localItems.length) return cloud;
+  const seen = new Set((cloud.items || []).map((p) => p.project_id));
+  return {
+    ...cloud,
+    items: [...(cloud.items || []), ...localItems.filter((p) => !seen.has(p.project_id))],
+  };
 }
 
 export async function createProject(body: {
@@ -3285,12 +3302,42 @@ export interface LocalSnapshotFile {
 // 而来，不再另存一份「本机操作权限档」。上面的授权目录管的是"本机哪些目录能动"，
 // 与档位是两件事，只在桌面端有。
 export type ToolApprovalMode = 'ask' | 'auto' | 'full';
-export async function getToolApprovalMode(): Promise<ToolApprovalMode> {
-  const wrapped = await apiRequest<{ mode: ToolApprovalMode }>('/v1/tool-approval');
-  return unwrapData<{ mode: ToolApprovalMode }>(wrapped).mode || 'ask';
+async function writeToolApprovalMode(mode: ToolApprovalMode, target?: 'local'): Promise<void> {
+  await apiRequest('/v1/tool-approval', { method: 'PUT', body: JSON.stringify({ mode }) }, target);
 }
-export async function setToolApprovalMode(mode: ToolApprovalMode): Promise<void> {
-  await apiRequest('/v1/tool-approval', { method: 'PUT', body: JSON.stringify({ mode }) });
+
+async function readAndSyncToolApprovalMode(): Promise<ToolApprovalMode> {
+  const wrapped = await apiRequest<{ mode: ToolApprovalMode }>('/v1/tool-approval');
+  const mode = unwrapData<{ mode: ToolApprovalMode }>(wrapped).mode || 'ask';
+  if (isHybridDual()) {
+    // Cloud owns the account preference; repair older desktops that only saved it there.
+    // Do not report a preset until the executor has accepted the same value.
+    const local = await apiRequest<{ mode: ToolApprovalMode }>('/v1/tool-approval', undefined, 'local');
+    if (unwrapData<{ mode: ToolApprovalMode }>(local).mode !== mode) {
+      await writeToolApprovalMode(mode, 'local');
+    }
+  }
+  return mode;
+}
+
+// Serialize startup repair and user changes so a delayed read cannot overwrite
+// a newer choice. Failed attempts release the queue so the next retry can repair it.
+let approvalSync: Promise<unknown> = Promise.resolve();
+function queueApprovalSync<T>(operation: () => Promise<T>): Promise<T> {
+  const result = approvalSync.then(operation);
+  approvalSync = result.catch(() => undefined);
+  return result;
+}
+
+export function getToolApprovalMode(): Promise<ToolApprovalMode> {
+  return queueApprovalSync(readAndSyncToolApprovalMode);
+}
+
+export function setToolApprovalMode(mode: ToolApprovalMode): Promise<void> {
+  return queueApprovalSync(async () => {
+    await writeToolApprovalMode(mode);
+    if (isHybridDual()) await writeToolApprovalMode(mode, 'local');
+  });
 }
 
 export async function listLocalSnapshots(): Promise<LocalSnapshotFile[]> {
@@ -3788,18 +3835,35 @@ export async function createLoop(data: {
 }): Promise<LoopItem> {
   const wrapped = await apiRequest<unknown>('/v1/loops', {
     method: 'POST',
+    headers: { ...projectTargetHeaders(data.project_id), ...chatTargetHeaders(data.chat_id) },
     body: JSON.stringify(data),
   });
-  return unwrapData<LoopItem>(wrapped);
+  const loop = unwrapData<LoopItem>(wrapped);
+  if (isHybridDual() && (isLocalChat(data.chat_id) || isLocalProject(data.project_id))) {
+    _localLoops.add(loop.loop_id);
+  }
+  return loop;
 }
 
 export async function listLoops(): Promise<LoopItem[]> {
   const wrapped = await apiRequest<unknown>('/v1/loops');
-  return unwrapData<LoopItem[]>(wrapped) || [];
+  const cloud = unwrapData<LoopItem[]>(wrapped) || [];
+  if (!isHybridDual()) return cloud;
+  try {
+    const localWrapped = await apiRequest<unknown>('/v1/loops', undefined, 'local');
+    const local = unwrapData<LoopItem[]>(localWrapped) || [];
+    for (const loop of local) {
+      _localLoops.add(loop.loop_id);
+      if (loop.chat_id) registerLocalChat(loop.chat_id);
+    }
+    return [...cloud, ...local];
+  } catch {
+    return cloud; // Local service readiness must not hide available cloud tasks.
+  }
 }
 
-export async function getLoop(loopId: string): Promise<LoopItem> {
-  const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}`);
+export async function getLoop(loopId: string, chatId?: string): Promise<LoopItem> {
+  const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}`, { headers: chatTargetHeaders(chatId) });
   return unwrapData<LoopItem>(wrapped);
 }
 
@@ -3816,10 +3880,11 @@ export async function startLoop(
   loopId: string,
   body: { model_name?: string; model_provider_id?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
   signal?: AbortSignal,
+  chatId?: string,
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/loops/${encodeURIComponent(loopId)}/start`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
     body: JSON.stringify(body),
     signal,
   });
@@ -3829,27 +3894,30 @@ export async function resumeLoop(
   loopId: string,
   body: { model_name?: string; model_provider_id?: string; evaluator_model?: string; worker_max_iters?: number; hitl_enabled?: boolean; enable_thinking?: boolean; chat_mode?: string } = {},
   signal?: AbortSignal,
+  chatId?: string,
 ): Promise<Response> {
   return authFetch(`${getApiUrl()}/v1/loops/${encodeURIComponent(loopId)}/resume`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },
     body: JSON.stringify(body),
     signal,
   });
 }
 
 /** 运行中追加一条用户指令：driver 下一轮 worker 开工前取走并以最高优先级注入 prompt。 */
-export async function steerLoop(loopId: string, message: string): Promise<boolean> {
+export async function steerLoop(loopId: string, message: string, chatId?: string): Promise<boolean> {
   const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}/steer`, {
     method: 'POST',
+    headers: chatTargetHeaders(chatId),
     body: JSON.stringify({ message }),
   });
   return (unwrapData<{ queued: boolean }>(wrapped) || { queued: false }).queued;
 }
 
-export async function cancelLoop(loopId: string): Promise<boolean> {
+export async function cancelLoop(loopId: string, chatId?: string): Promise<boolean> {
   const wrapped = await apiRequest<unknown>(`/v1/loops/${encodeURIComponent(loopId)}/cancel`, {
     method: 'POST',
+    headers: chatTargetHeaders(chatId),
   });
   return (unwrapData<{ cancelled: boolean }>(wrapped) || { cancelled: false }).cancelled;
 }

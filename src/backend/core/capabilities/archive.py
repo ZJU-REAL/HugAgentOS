@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import io
+import os
 import stat
 import unicodedata
 import zipfile
@@ -159,13 +160,35 @@ def write_files(dest: Path, files: Dict[str, bytes | str]) -> List[str]:
     return [name for name, _ in prepared]
 
 
-def iter_files(root: Path) -> Iterable[Tuple[str, Path]]:
-    from .junction import is_directory_link
+def iter_file_stats(root: Path) -> Iterable[Tuple[str, Path, os.stat_result]]:
+    """Scan once, retaining directory-entry metadata (cached by Windows).
+
+    Never descend into links or reparse points. Returning each entry's lstat
+    avoids repeating filesystem calls for type checks, signatures and sizes.
+    """
+    from .junction import _native, is_directory_link
 
     if is_directory_link(root):
         raise IntegrityFailed("package root must be a real directory")
-    for path in sorted(root.rglob("*")):
-        if is_directory_link(path):
-            raise IntegrityFailed(f"package contains linked content: {path.name}")
-        if path.is_file():
-            yield path.relative_to(root).as_posix(), path
+    pending = [root]
+    files = []
+    while pending:
+        directory = pending.pop()
+        with os.scandir(_native(directory)) as entries:
+            for entry in entries:
+                path = directory / entry.name
+                metadata = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(metadata.st_mode) or (
+                    getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                ):
+                    raise IntegrityFailed(f"package contains linked content: {path.name}")
+                if stat.S_ISDIR(metadata.st_mode):
+                    pending.append(path)
+                elif stat.S_ISREG(metadata.st_mode):
+                    files.append((path.relative_to(root).as_posix(), path, metadata))
+    yield from sorted(files, key=lambda item: item[1])
+
+
+def iter_files(root: Path) -> Iterable[Tuple[str, Path]]:
+    for relative, path, _ in iter_file_stats(root):
+        yield relative, path

@@ -15,7 +15,73 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::RwLock;
+use tokio::sync::{watch, RwLock};
+
+#[cfg(target_os = "windows")]
+mod job {
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Child;
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    /// Every managed process joins this job. The kernel ends the whole tree when
+    /// the last handle closes, which includes the shell crashing: no orphaned
+    /// server or sidecar can survive the desktop process on Windows.
+    pub struct KillOnCloseJob(HANDLE);
+    unsafe impl Send for KillOnCloseJob {}
+    unsafe impl Sync for KillOnCloseJob {}
+
+    impl KillOnCloseJob {
+        pub fn new() -> Result<Self, String> {
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if handle.is_null() {
+                    return Err(format!(
+                        "创建进程作业对象失败：{}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let ok = SetInformationJobObject(
+                    handle,
+                    JobObjectExtendedLimitInformation,
+                    &info as *const _ as *const core::ffi::c_void,
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+                if ok == 0 {
+                    let error = std::io::Error::last_os_error();
+                    CloseHandle(handle);
+                    return Err(format!("配置进程作业对象失败：{error}"));
+                }
+                Ok(Self(handle))
+            }
+        }
+
+        pub fn assign(&self, child: &Child) -> Result<(), String> {
+            let ok = unsafe { AssignProcessToJobObject(self.0, child.as_raw_handle() as HANDLE) };
+            if ok == 0 {
+                return Err(format!(
+                    "本机服务进程加入作业对象失败：{}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for KillOnCloseJob {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
 
 pub const LOCAL_SERVER_PORT: u16 = crate::brand::LOCAL_SERVER_PORT;
 
@@ -144,9 +210,14 @@ pub struct LocalServerManager {
     runtime_manifest: PathBuf,
     http: reqwest::Client,
     status: RwLock<LocalServerStatus>,
+    /// Bumped on every status/log change; the shell pages and the SPA subscribe
+    /// instead of polling.
+    status_version: watch::Sender<u64>,
     child: Mutex<Option<Child>>,
     install_running: AtomicBool,
     shutting_down: AtomicBool,
+    #[cfg(target_os = "windows")]
+    job: Result<job::KillOnCloseJob, String>,
     /// 混合架构（P2 身份桥）：桌面壳生成的桥接秘密。设置后孵化本机后端时注入
     /// `HUGAGENT_DESKTOP_BRIDGE_SECRET`（身份桥）与 `CONFIG_TOKEN`（壳持有本机
     /// 实例的控制台令牌，用于安全模型清单 / capability gateway 下发）。
@@ -176,11 +247,24 @@ impl LocalServerManager {
             runtime_manifest,
             http,
             status: RwLock::new(initial_status),
+            status_version: watch::channel(0).0,
             child: Mutex::new(None),
             install_running: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
+            #[cfg(target_os = "windows")]
+            job: job::KillOnCloseJob::new(),
             bridge_secret: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Receiver that wakes whenever the status, logs or bridge readiness change.
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.status_version.subscribe()
+    }
+
+    /// Something observable changed (status, logs, bridge state): wake subscribers.
+    pub fn notify_changed(&self) {
+        self.status_version.send_modify(|version| *version += 1);
     }
 
     /// 设置桥接秘密（进程内只设一次；重复设置忽略）。须在首次 start 之前调用。
@@ -264,6 +348,8 @@ impl LocalServerManager {
         status.message = message.into();
         status.installed = self.is_installed();
         status.ready = phase == "ready";
+        drop(status);
+        self.notify_changed();
     }
 
     async fn append_log(&self, line: impl Into<String>) {
@@ -289,6 +375,8 @@ impl LocalServerManager {
             logs.pop_front();
         }
         status.logs = logs.into_iter().collect();
+        drop(status);
+        self.notify_changed();
     }
 
     pub async fn probe_base(http: &reqwest::Client, base: &str) -> bool {
@@ -351,33 +439,38 @@ impl LocalServerManager {
         let release = local_payload::resolved_active(&self.root)?
             .ok_or_else(|| "本机服务版本状态无效，请重新安装".to_string())?;
 
+        let own_child_alive = {
+            let mut guard = self.child.lock().map_err(|_| "服务进程锁异常")?;
+            match guard.as_mut() {
+                Some(child) => child
+                    .try_wait()
+                    .map_err(|e| format!("检查服务进程失败：{e}"))?
+                    .is_none(),
+                None => false,
+            }
+        };
         if self.is_ready().await {
+            if own_child_alive {
+                self.update("ready", 100, "本机服务已就绪").await;
+                return Ok(());
+            }
+            // A listener this process did not spawn is never adopted: it may run
+            // an older release, it would outlive us, and on macOS its TCC
+            // attribution is already broken. Reclaim it, then start our own.
+            // The recorded PID covers every normal case; the full process scan
+            // only runs when that record is missing or stale.
+            stop_recorded_server(&self.pid_path(), &release.executable, &self.root)?;
+            let _ = std::fs::remove_file(self.pid_path());
             #[cfg(target_os = "windows")]
-            {
-                // A forced desktop update can leave the previous Python server
-                // alive after active.json has switched to a newer source tree.
-                // The old /health response has the same service name, so do not
-                // accept it until its command line points at the active release.
-                if !windows_local_server_pids(&self.root, Some(&release.source_dir))?.is_empty() {
-                    self.update("ready", 100, "本机服务已就绪").await;
-                    return Ok(());
-                }
-
-                stop_recorded_server(&self.pid_path(), &release.executable, &self.root)?;
+            if self.is_ready().await {
                 for pid in windows_local_server_pids(&self.root, None)? {
                     stop_recorded_process_tree(pid, &self.root)?;
                 }
-                let _ = std::fs::remove_file(self.pid_path());
-                if self.is_ready().await {
-                    return Err(format!(
-                        "{LOCAL_SERVER_PORT} 端口被非当前版本的本机服务占用，请退出后重试"
-                    ));
-                }
             }
-            #[cfg(not(target_os = "windows"))]
-            {
-                self.update("ready", 100, "本机服务已就绪").await;
-                return Ok(());
+            if self.is_ready().await {
+                return Err(format!(
+                    "{LOCAL_SERVER_PORT} 端口被非本客户端管理的本机服务占用，请退出后重试"
+                ));
             }
         }
 
@@ -464,12 +557,19 @@ impl LocalServerManager {
                 }
                 configure_process_group(&mut command);
                 hide_console(&mut command);
-                let child = command
+                #[cfg(target_os = "windows")]
+                let job = self.job.as_ref().map_err(Clone::clone)?;
+                let mut child = command
                     .spawn()
                     .map_err(|e| format!("启动本机服务失败：{e}"))?;
+                #[cfg(target_os = "windows")]
+                if let Err(error) = job.assign(&child) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
                 let pid = child.id();
                 if let Err(error) = std::fs::write(self.pid_path(), pid.to_string()) {
-                    let mut child = child;
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err(format!("记录本机服务进程失败：{error}"));
