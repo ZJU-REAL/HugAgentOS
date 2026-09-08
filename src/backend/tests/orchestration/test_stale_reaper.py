@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool
 from core.db.engine import Base
 from core.db.models import ChatRun
 import orchestration.chat_run_executor as executor
+import orchestration.run_event_stream as run_event_stream
 
 # ─── fakes / fixtures ──────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ def reaper_env(monkeypatch):
     session_factory = sessionmaker(bind=engine)
     fake_redis = FakeRedis()
     monkeypatch.setattr(executor, "SessionLocal", session_factory)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: fake_redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: fake_redis)
     yield session_factory, fake_redis
     engine.dispose()
 
@@ -106,7 +107,9 @@ async def test_active_over_age_run_survives(reaper_env):
     """An over-age long task whose stream is still producing must not be reaped (production incident scenario)."""
     session_factory, fake_redis = reaper_env
     _insert_run(session_factory, "run_active", age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300)
-    fake_redis.seed(executor._stream_key("run_active"), _now_ms() - 5_000)  # just wrote 5s ago
+    fake_redis.seed(
+        run_event_stream.redis_stream_key("run_active"), _now_ms() - 5_000
+    )  # just wrote 5s ago
 
     assert await executor.reap_stale_runs() == 0
     assert _get_run(session_factory, "run_active").status == "running"
@@ -117,7 +120,7 @@ async def test_quiet_over_age_run_is_reaped(reaper_env):
     session_factory, fake_redis = reaper_env
     _insert_run(session_factory, "run_quiet", age_sec=executor._STALE_RUN_MAX_AGE_SEC + 300)
     fake_redis.seed(
-        executor._stream_key("run_quiet"),
+        run_event_stream.redis_stream_key("run_quiet"),
         _now_ms() - int(executor._STALE_QUIET_SEC * 1000) - 60_000,
     )
 
@@ -126,7 +129,7 @@ async def test_quiet_over_age_run_is_reaped(reaper_env):
     assert run.status == "failed"
     assert "stalled" in run.error_message
     # termination markers written to the stream (error + __terminal__, two entries)
-    assert len(fake_redis.streams[executor._stream_key("run_quiet")]) >= 3
+    assert len(fake_redis.streams[run_event_stream.redis_stream_key("run_quiet")]) >= 3
 
 
 async def test_over_age_run_without_stream_is_reaped(reaper_env):
@@ -142,7 +145,7 @@ async def test_hard_max_age_reaps_even_active_run(reaper_env):
     """Past the absolute lifetime cap, force-reap even if the stream is still active."""
     session_factory, fake_redis = reaper_env
     _insert_run(session_factory, "run_forever", age_sec=executor._HARD_MAX_AGE_SEC + 300)
-    fake_redis.seed(executor._stream_key("run_forever"), _now_ms() - 1_000)
+    fake_redis.seed(run_event_stream.redis_stream_key("run_forever"), _now_ms() - 1_000)
 
     assert await executor.reap_stale_runs() == 1
     run = _get_run(session_factory, "run_forever")
@@ -155,7 +158,7 @@ async def test_hard_max_age_preserves_bounded_human_wait(reaper_env, monkeypatch
 
     session_factory, fake_redis = reaper_env
     _insert_run(session_factory, "run_human_wait", age_sec=executor._HARD_MAX_AGE_SEC + 300)
-    fake_redis.seed(executor._stream_key("run_human_wait"), _now_ms() - 1_000)
+    fake_redis.seed(run_event_stream.redis_stream_key("run_human_wait"), _now_ms() - 1_000)
     monkeypatch.setattr(executor.human_interaction, "has_pending", lambda chat_id: bool(chat_id))
 
     assert await executor.reap_stale_runs() == 0
@@ -405,13 +408,13 @@ async def test_hard_expired_orphan_loop_reaped_by_quiet_rule_only(reaper_env):
         kind="autonomous_loop",
     )
     # 流最近还在写 → 不是僵尸，跳过
-    fake_redis.seed(executor._stream_key("run_loop_orphan"), _now_ms() - 5_000)
+    fake_redis.seed(run_event_stream.redis_stream_key("run_loop_orphan"), _now_ms() - 5_000)
     assert await executor.reap_stale_runs() == 0
     assert _get_run(session_factory, "run_loop_orphan").status == "running"
 
     # 流静默超阈值 → 按「无活动」清理（而非年龄硬顶），错误文案是 stalled
     fake_redis.seed(
-        executor._stream_key("run_loop_orphan"),
+        run_event_stream.redis_stream_key("run_loop_orphan"),
         _now_ms() - int(executor._STALE_QUIET_SEC * 1000) - 60_000,
     )
     assert await executor.reap_stale_runs() == 1

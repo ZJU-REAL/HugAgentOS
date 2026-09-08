@@ -117,10 +117,20 @@ def load_activated_plugin_slugs(chat_id: Optional[str]) -> List[str]:
         return []
 
 
-def record_plugin_activation(chat_id: Optional[str], install_ids: Sequence[str]) -> None:
+def record_plugin_activation(
+    chat_id: Optional[str], install_ids: Sequence[str], *, user_id: Optional[str] = None
+) -> None:
     """Append exact installation ids to the chat's sticky list (idempotent)."""
     if not chat_id or not install_ids:
         return
+    if user_id:
+        scoped = _cloud_sticky_selection(install_ids, user_id=user_id, allow_aliases=True)
+        aliases = {
+            alias: row.install_id
+            for row in scoped
+            for alias in (row.install_id, row.key, row.payload.get("cloud_install_id"))
+        }
+        install_ids = [aliases.get(item, item) for item in install_ids]
     try:
         from core.db.engine import SessionLocal
         from core.db.models import ChatSession
@@ -157,6 +167,54 @@ class StickyPluginCapabilities:
     mcp_ids: List[str] = field(default_factory=list)
 
 
+def _cloud_sticky_selection(tokens, *, user_id, allow_aliases=False):
+    """Keep saved cloud selections tied to their exact account and installation."""
+    from core.capabilities import registry, skills
+    from core.capabilities.paths import capabilities_enabled, LOCAL_PROFILE, BUILTIN_PROFILE
+    from core.capabilities.errors import PermissionDenied, NameConflict
+
+    if not capabilities_enabled():
+        return []
+    profile = skills.current_account_profile()
+    authorized = skills.account_authorized_for(user_id)
+    rows = (
+        registry.list_installations(kind="plugin", profile_id=profile)
+        if profile and authorized
+        else []
+    )
+    result = []
+    for token in tokens:
+        parts = str(token).split(":", 2)
+        scoped = (
+            len(parts) == 3
+            and parts[0] == "plugin"
+            and parts[1] not in (LOCAL_PROFILE, BUILTIN_PROFILE)
+        )
+        if scoped and (not authorized or parts[1] != profile):
+            raise PermissionDenied("saved plugin belongs to another cloud account")
+        matches = [
+            row
+            for row in rows
+            if token == row.install_id
+            or (allow_aliases and token in (row.key, row.payload.get("cloud_install_id")))
+        ]
+        if len(matches) > 1:
+            raise NameConflict("choose the saved plugin source")
+        if not matches:
+            if scoped:
+                raise PermissionDenied("saved plugin is no longer authorized")
+            continue
+        row = matches[0]
+        if (
+            not row.ready
+            or not row.enabled
+            or row.payload.get("owner_user_id") not in (None, user_id)
+        ):
+            raise PermissionDenied("saved plugin is disabled or unavailable")
+        result.append(row)
+    return result
+
+
 def resolve_sticky_plugin_capabilities(
     *,
     user_id: str,
@@ -175,6 +233,16 @@ def resolve_sticky_plugin_capabilities(
     result = StickyPluginCapabilities()
     if not tokens or not user_id:
         return result
+
+    # Legacy unscoped tokens remain local-only. New cloud activations are saved
+    # with their canonical profile so an account switch cannot retarget a slug.
+    cloud = _cloud_sticky_selection(tokens, user_id=user_id)
+    if cloud:
+        from core.capabilities.plugins import cloud_binding_ids
+
+        result.install_ids = [row.install_id for row in cloud]
+        result.slugs = [row.key for row in cloud]
+        result.skill_ids, result.mcp_ids = cloud_binding_ids(result.install_ids, user_id=user_id)
 
     try:
         from core.config.catalog_resolver import resolve_explicit_runtime_capabilities
@@ -219,18 +287,12 @@ def resolve_sticky_plugin_capabilities(
 
             requested_skills: List[str] = []
             requested_mcps: List[str] = []
+            from core.services.plugin_service import _component_keys
+
             for row in selected:
                 component_ids = row.component_ids or {}
-                requested_skills.extend(
-                    str(item).strip()
-                    for item in (component_ids.get("skills") or [])
-                    if isinstance(item, str) and item.strip()
-                )
-                requested_mcps.extend(
-                    str(item).strip()
-                    for item in (component_ids.get("mcp") or [])
-                    if isinstance(item, str) and item.strip()
-                )
+                requested_skills.extend(_component_keys(component_ids, "skills"))
+                requested_mcps.extend(_component_keys(component_ids, "mcp"))
             requested_skills = list(dict.fromkeys(requested_skills))
             requested_mcps = list(dict.fromkeys(requested_mcps))
             allowed_skills, allowed_mcps, unavailable_skills, unavailable_mcps = (
@@ -242,10 +304,14 @@ def resolve_sticky_plugin_capabilities(
                 )
             )
 
-            result.install_ids = [str(row.install_id) for row in selected]
-            result.slugs = [str(row.slug) for row in selected]
-            result.skill_ids = allowed_skills
-            result.mcp_ids = allowed_mcps
+            result.install_ids = list(
+                dict.fromkeys([*result.install_ids, *[str(row.install_id) for row in selected]])
+            )
+            result.slugs = list(
+                dict.fromkeys([*result.slugs, *[str(row.slug) for row in selected]])
+            )
+            result.skill_ids = list(dict.fromkeys([*result.skill_ids, *allowed_skills]))
+            result.mcp_ids = list(dict.fromkeys([*result.mcp_ids, *allowed_mcps]))
             if unavailable_skills or unavailable_mcps:
                 logger.info(
                     "[plugin-loader] sticky activation partially unavailable "

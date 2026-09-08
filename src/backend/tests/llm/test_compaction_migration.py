@@ -74,7 +74,9 @@ def test_sqlite_compaction_upgrade_backfills_sequences_and_reupgrades(tmp_path):
         )
         db.execute(text("INSERT INTO alembic_version(version_num) VALUES ('steerq01')"))
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     inspector = inspect(engine)
     assert "chat_compaction_states" in inspector.get_table_names()
     assert "chat_seq" in {
@@ -112,6 +114,8 @@ def test_sqlite_compaction_upgrade_backfills_sequences_and_reupgrades(tmp_path):
         column["name"] for column in inspect(engine).get_columns("chat_messages")
     }
 
-    _alembic(repo_root, database_url, "upgrade", "head")
+    # The fixture seeds only the tables the harness chain touches; revisions after
+    # harness69mem alter unrelated tables, so the target is the harness head.
+    _alembic(repo_root, database_url, "upgrade", "harness69mem")
     assert "chat_compaction_states" in inspect(engine).get_table_names()
     engine.dispose()

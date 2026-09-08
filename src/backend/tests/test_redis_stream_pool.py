@@ -52,23 +52,34 @@ def test_blocking_pool_is_separate_and_both_are_closed(monkeypatch):
 
 
 def test_follower_asks_for_the_blocking_pool():
+    """Only the tailing read may park on a connection from the stream pool."""
     import inspect
 
-    from orchestration import chat_run_executor
+    from orchestration import run_event_stream
 
-    source = inspect.getsource(chat_run_executor.follow_run)
-    assert "get_redis(blocking=True)" in source
+    backend = run_event_stream.RedisRunEventStream
+    assert "get_redis(blocking=True)" in inspect.getsource(backend.wait)
+    for method in (backend.append, backend.read, backend.last_write_ms):
+        assert "blocking=True" not in inspect.getsource(method), method.__name__
 
 
-def test_one_seam_redirects_both_pools(monkeypatch):
-    """Patching ``get_redis`` must redirect the follower too.
+def test_both_seams_use_redis_when_it_is_configured(monkeypatch):
+    """A configured deployment keeps the Redis backends — nothing regresses."""
+    import core.infra.ephemeral as ephemeral
+    import orchestration.run_event_stream as res
 
-    The follower and the XADD writer have to reach the same server; a second
-    accessor would let a redirect move only one of them.
-    """
-    import core.infra.redis as redis_module
+    monkeypatch.setattr(ephemeral, "redis_configured", lambda: True)
+    monkeypatch.setattr(res, "redis_configured", lambda: True)
 
-    sentinel = object()
-    monkeypatch.setattr(redis_module, "_get_pooled", lambda *args, **kwargs: sentinel)
-    assert redis_module.get_redis() is sentinel
-    assert redis_module.get_redis(blocking=True) is sentinel
+    assert isinstance(ephemeral.get_ephemeral_state(), ephemeral.RedisEphemeralState)
+    assert isinstance(res.get_run_event_stream(), res.RedisRunEventStream)
+
+
+def test_cursor_grammar_is_shared_by_both_backends():
+    """Callers parse the millisecond half, so both backends must mint it alike."""
+    import orchestration.run_event_stream as res
+
+    assert res.cursor_millis("1788745632008-0") == 1788745632008
+    assert res.cursor_millis("nonsense") is None
+    assert res.next_cursor("17-3") == "17-4"
+    assert res.next_cursor("no-dash-number") == "no-dash-number"

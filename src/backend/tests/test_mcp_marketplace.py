@@ -320,7 +320,7 @@ async def test_oauth_callback_and_status_are_shared_without_plaintext_code(monke
     import fakeredis.aioredis
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(oauth_service, "get_redis", lambda **_: fake_redis)
+    monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: fake_redis)
     flow = oauth_service.OAuthInstallFlow(
         flow_id="mcpoauth_test",
         slug="gitlab-official",
@@ -351,7 +351,7 @@ async def test_oauth_start_hands_back_before_discovery_finishes(db, monkeypatch)
     import fakeredis.aioredis
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(oauth_service, "get_redis", lambda **_: fake_redis)
+    monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: fake_redis)
     monkeypatch.setattr(oauth_service, "_DISCOVERY_GRACE_SECONDS", 0.05)
     market.ensure_curated_market_items(db)
 
@@ -390,7 +390,7 @@ async def test_oauth_cancel_marks_flow_failed_and_wakes_worker(monkeypatch):
     import fakeredis.aioredis
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(oauth_service, "get_redis", lambda **_: fake_redis)
+    monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: fake_redis)
     flow = oauth_service.OAuthInstallFlow(
         flow_id="mcpoauth_cancel",
         slug="gitlab-official",

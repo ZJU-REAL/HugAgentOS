@@ -3,7 +3,7 @@
 Covers the pieces that are new or SQLite-risky (see
 ``internal design docs`` §6):
 
-- fakeredis substitution for ``REDIS_URL=memory://`` — incl. blocking XREAD
+- the local profile reaches Redis-free backends and never opens a client
 - SQLite ``BigInteger`` autoincrement PK portability (the ``BigIntPK`` variant)
 - built-in MCP catalog seed: idempotent, empty-table-only, URL templating
 - super_admin bootstrap writes ``users_shadow.extra_data.role``
@@ -11,43 +11,84 @@ Covers the pieces that are new or SQLite-risky (see
 """
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-# ── fakeredis (REDIS_URL=memory://) ──────────────────────────────────────────
+# ── Redis-free local profile ─────────────────────────────────────────────────
+
+
+def _local_redis_settings(monkeypatch):
+    """Point core.infra.redis at an unconfigured (local-profile) deployment."""
+    import core.infra.redis as rmod
+
+    monkeypatch.setattr(
+        rmod, "settings", SimpleNamespace(redis=SimpleNamespace(url="", socket_timeout=30))
+    )
+    monkeypatch.setattr(rmod, "_redis_pools", type(rmod._redis_pools)())
+    monkeypatch.setattr(rmod, "_stream_pools", type(rmod._stream_pools)())
+    return rmod
+
+
+def test_local_profile_never_opens_a_redis_client(monkeypatch):
+    """No URL means no client and no imitation — the seams must not reach here.
+
+    The desktop used to run an in-process Redis imitation, which only had to
+    disagree with redis-py about one reply shape to stall a whole chat turn.
+    An unconfigured deployment now fails loudly instead of substituting one.
+    """
+    rmod = _local_redis_settings(monkeypatch)
+
+    assert rmod.redis_configured() is False
+    with pytest.raises(RuntimeError, match="REDIS_URL is not configured"):
+        asyncio.run(_open_client(rmod))
+
+
+async def _open_client(rmod):
+    return rmod.get_redis()
 
 
 @pytest.mark.asyncio
-async def test_memory_redis_uses_fakeredis_and_blocks_on_xread(monkeypatch):
-    import core.infra.redis as rmod
+async def test_local_profile_picks_in_process_backends(monkeypatch):
+    """Both store-agnostic seams follow the same predicate."""
+    import core.infra.ephemeral as ephemeral
+    import orchestration.run_event_stream as res
 
-    # Point the module's settings at memory:// and reset the singleton.
-    fake_settings = SimpleNamespace(redis=SimpleNamespace(url="memory://", socket_timeout=30))
-    monkeypatch.setattr(rmod, "settings", fake_settings)
-    monkeypatch.setattr(rmod, "_redis_pools", type(rmod._redis_pools)())
-    monkeypatch.setattr(rmod, "_fake_server", None)
+    _local_redis_settings(monkeypatch)
+    monkeypatch.setattr(ephemeral, "redis_configured", lambda: False)
+    monkeypatch.setattr(res, "redis_configured", lambda: False)
 
-    r = rmod.get_redis()
-    assert type(r).__module__.startswith("fakeredis")
+    assert isinstance(ephemeral.get_ephemeral_state(), ephemeral.LocalEphemeralState)
+    assert isinstance(res.get_run_event_stream(), res.LocalRunEventStream)
 
-    # The load-bearing risk: blocking XREAD must actually block then wake on a
-    # write (not busy-spin returning empty).
-    i1 = await r.xadd("k", {"e": "1"}, maxlen=5000, approximate=True)
+
+@pytest.mark.asyncio
+async def test_local_event_log_blocks_then_wakes_on_append(monkeypatch):
+    """The load-bearing risk: a follower must park, then wake on the next event.
+
+    Busy-returning empty would spin the CPU; never waking would leave the UI on
+    "starting task" for the whole run — the failure the imitation used to cause.
+    """
+    import orchestration.run_event_stream as res
+
+    stream = res.LocalRunEventStream()
+    await stream.append("run-1", {"type": "content", "_offset": 1})
+    cursor = (await stream.read("run-1"))[-1][0]
 
     async def writer():
         await asyncio.sleep(0.2)
-        await r.xadd("k", {"e": "2"}, maxlen=5000, approximate=True)
+        await stream.append("run-1", {"type": "content", "_offset": 2})
 
     task = asyncio.create_task(writer())
-    res = await r.xread({"k": i1}, count=100, block=3000)
+    started = time.monotonic()
+    batch = await stream.wait("run-1", after=cursor, limit=100, timeout_ms=3000)
+    waited = time.monotonic() - started
     await task
-    assert res and res[0][1][0][1]["e"] == "2"
 
-    # Other command families chat_run_executor / consumers rely on.
-    assert await r.getdel("missing") is None
-    await rmod.close_redis()
+    assert [event["_offset"] for _cursor, event in batch] == [2]
+    assert 0.15 < waited < 1.0, f"should wake on the append, waited {waited:.2f}s"
 
 
 # ── SQLite BigInteger autoincrement PK portability ───────────────────────────

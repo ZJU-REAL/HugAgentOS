@@ -5,19 +5,19 @@ follow-up task restarts from zero and re-reads the same files, re-runs the same
 commands and often repeats the same mistake. Persisting the child's context
 under a short handle lets the parent send the next task to the *same* child.
 
-The state is ephemeral and conversation-scoped, so it lives in Redis under the
-run's own stream TTL. When Redis is unavailable the process-local fallback
-keeps resume working within a single backend process.
+The state is ephemeral and conversation-scoped, so it lives in the
+deployment's ephemeral state under the run's own stream TTL — Redis where one
+is configured, an in-process map where none is.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
+from core.infra.ephemeral import get_ephemeral_state
 from core.llm.human_interaction import STREAM_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,6 @@ _TTL_SECONDS = STREAM_TTL_SECONDS
 # worth storing. Older turns are dropped until the payload fits.
 _MAX_PAYLOAD_BYTES = 512 * 1024
 
-_fallback: Dict[str, Tuple[float, str]] = {}
-
 
 def new_handle() -> str:
     return f"sub-{uuid.uuid4().hex[:10]}"
@@ -41,11 +39,6 @@ def new_handle() -> str:
 
 def _key(handle: str) -> str:
     return f"{_KEY_PREFIX}{handle}"
-
-
-def _prune_fallback(now: float) -> None:
-    for handle in [h for h, (expires, _) in _fallback.items() if expires <= now]:
-        _fallback.pop(handle, None)
 
 
 def _fit_payload(record: Dict[str, Any]) -> Optional[str]:
@@ -90,16 +83,10 @@ async def save(
         return False
 
     try:
-        from core.infra.redis import get_redis
-
-        await get_redis().set(_key(handle), payload, ex=_TTL_SECONDS)
-        return True
+        await get_ephemeral_state().put(_key(handle), payload, ttl=_TTL_SECONDS)
     except Exception as exc:  # noqa: BLE001 — resume is an optimization, never a hard dependency
-        logger.debug("[subagent_sessions] redis save failed, using fallback: %s", exc)
-
-    now = time.time()
-    _prune_fallback(now)
-    _fallback[handle] = (now + _TTL_SECONDS, payload)
+        logger.debug("[subagent_sessions] save failed, resume unavailable: %s", exc)
+        return False
     return True
 
 
@@ -117,24 +104,15 @@ async def load(
     if not handle:
         return None
 
-    payload: Optional[str] = None
     try:
-        from core.infra.redis import get_redis
-
-        raw = await get_redis().get(_key(handle))
-        if raw is not None:
-            payload = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+        raw = await get_ephemeral_state().get(_key(handle))
     except Exception as exc:  # noqa: BLE001
-        logger.debug("[subagent_sessions] redis load failed, using fallback: %s", exc)
-
-    if payload is None:
-        now = time.time()
-        _prune_fallback(now)
-        entry = _fallback.get(handle)
-        payload = entry[1] if entry else None
-
-    if payload is None:
+        logger.debug("[subagent_sessions] load failed: %s", exc)
         return None
+
+    if raw is None:
+        return None
+    payload = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
 
     try:
         record = json.loads(payload)

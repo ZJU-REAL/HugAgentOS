@@ -140,8 +140,21 @@ class ActingToolCallIdMiddleware(MiddlewareBase):
     """on_acting: expose the current tool_call.id to tool functions (see above). Pure pass-through, does not change tool behavior."""
 
     async def on_acting(self, agent: Agent, input_kwargs: dict, next_handler):  # noqa: ANN001
+        prepared = getattr(agent, "_jx_prepared_capabilities", None)
+        if prepared is not None:
+            from core.capabilities.runtime import validate
+
+            await asyncio.to_thread(
+                validate, prepared, user_id=str(getattr(agent.state, "user_id", "") or "")
+            )
         tc = input_kwargs.get("tool_call")
         tcid = getattr(tc, "id", "") or "" if tc is not None else ""
+        if prepared is not None:
+            from core.capabilities.runtime import record_tool_scope
+
+            await asyncio.to_thread(
+                record_tool_scope, prepared, tcid, str(getattr(tc, "name", "") or "")
+            )
         token = CURRENT_TOOL_CALL_ID.set(tcid) if tcid else None
         try:
             async for item in next_handler(**input_kwargs):
@@ -258,11 +271,21 @@ class ToolEffectMiddleware(MiddlewareBase):
                 )
                 invoke_kwargs = {**input_kwargs, "tool_call": adapter_call}
             try:
+                outcome_unknown = False
                 async for item in next_handler(**invoke_kwargs):
+                    # Toolkit normally converts adapter exceptions into ordinary
+                    # error responses. An ambiguous remote write must retain its
+                    # ledger meaning across that conversion and stop this run.
+                    ambiguous = bool(
+                        (getattr(item, "metadata", None) or {}).get("gateway_outcome_unknown")
+                    )
+                    outcome_unknown = outcome_unknown or ambiguous
                     if isinstance(item, ToolResponse):
                         final = item
-                    else:
+                    elif not ambiguous:
                         await live_chunks.put(item)
+                if outcome_unknown:
+                    raise RuntimeError("cloud write outcome unknown; reconciliation required")
                 usage_status = (
                     "success"
                     if final is not None and final.state == ToolResultState.SUCCESS
@@ -436,6 +459,7 @@ class AgentRuntimeState(AgentState):
     user_id: str | None = None
     chat_id: str | None = None
     run_id: str | None = None
+    capability_scope: str = ""
     journal_owner: str | None = None
     tool_effect_links: dict = Field(default_factory=dict)
     enable_thinking: bool = True

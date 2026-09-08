@@ -27,7 +27,17 @@ import socket
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Literal, Optional
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+)
 
 from core.chat import inflight
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
@@ -35,11 +45,16 @@ from core.db.engine import SessionLocal
 from core.db.models import ChatMessage, ChatRun
 from core.harness.hooks import HookPaused, find_hook_paused
 from core.infra.logging import get_logger
-from core.infra.redis import get_redis
 from core.llm import human_interaction
 from core.services import ChatService
 from core.services.run_journal import RecoveryDecision, RunJournal, RunLeaseLost
 from orchestration.message_parser import looks_markdown
+from orchestration.run_event_stream import (
+    START,
+    Entry,
+    RunEventStream,
+    get_run_event_stream,
+)
 from core.services.tool_effect_ledger import ToolOutcomeUnknown, find_tool_outcome_unknown
 from orchestration.workflow import astream_chat_workflow
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -63,8 +78,6 @@ _TERMINAL_STATUSES: tuple[RunStatus, ...] = (
 )
 _LIVE_STATUSES: tuple[RunStatus, ...] = ("pending", "running")
 
-_STREAM_KEY = "jx:chat:run:{run_id}:events"
-_STREAM_MAXLEN = 5000
 _STREAM_TTL_SECONDS = human_interaction.STREAM_TTL_SECONDS
 _TERMINAL_TYPE = "__terminal__"
 _XREAD_BLOCK_MS = 5000
@@ -158,8 +171,9 @@ def _is_chat_run_activity(item: Any, chat_id: str) -> bool:
     return item.get("type") != "heartbeat" or human_interaction.has_pending(chat_id)
 
 
-def _stream_key(run_id: str) -> str:
-    return _STREAM_KEY.format(run_id=run_id)
+def _events() -> RunEventStream:
+    """This deployment's run event log (Redis Streams, or in-process)."""
+    return get_run_event_stream()
 
 
 # run_id → asyncio.Task — for cancel_run to kill the underlying coroutine
@@ -775,33 +789,25 @@ async def wait_run(run_id: str) -> ChatRun:
 
 
 async def _xadd_event(run_id: str, offset: int, event: Dict[str, Any]) -> None:
-    """Serialize an SSE event and write it to the Redis Stream."""
+    """Stamp an SSE event with its offset and append it to the run's log."""
     payload = {**event, "_offset": offset}
-    redis = get_redis()
     try:
-        await redis.xadd(
-            _stream_key(run_id),
-            {"data": json.dumps(payload, ensure_ascii=False)},
-            maxlen=_STREAM_MAXLEN,
-            approximate=True,
-        )
+        await _events().append(run_id, payload)
     except Exception as exc:
         logger.warning("chat_run_xadd_failed", run_id=run_id, error=str(exc))
 
 
 async def _expire_stream(run_id: str) -> None:
-    redis = get_redis()
     try:
-        await redis.expire(_stream_key(run_id), _STREAM_TTL_SECONDS)
+        await _events().expire(run_id, _STREAM_TTL_SECONDS)
     except Exception as exc:
         logger.warning("chat_run_expire_failed", run_id=run_id, error=str(exc))
 
 
 async def _reset_stream_projection(run_id: str) -> None:
     """Drop a crashed worker's partial projection before replaying its run."""
-    redis = get_redis()
     try:
-        await redis.delete(_stream_key(run_id))
+        await _events().clear(run_id)
     except Exception as exc:
         logger.warning("chat_run_projection_reset_failed", run_id=run_id, error=str(exc))
 
@@ -2130,137 +2136,108 @@ def _spawn_followup_task(
     asyncio.create_task(_bg())
 
 
-# ─── Follower: read events from the Redis Stream ───────────────────────
+# ─── Follower: read events from the run's event log ────────────────────
+
+
+def _drain(
+    entries: Optional[List[Entry]], from_offset: int, cursor: str
+) -> Tuple[List[Dict[str, Any]], str, bool]:
+    """Split a batch into deliverable events, the new cursor, and "saw terminal".
+
+    Skips ``model_progress`` markers: nothing writes them anymore (the reaper
+    trusts in-process task liveness), but entries from older builds may survive
+    within the log's TTL and must never reach clients — the frontend treats an
+    unknown event type as "pending ended".
+
+    An empty batch may arrive as ``None`` rather than ``[]``; a read that
+    returns nothing must never surface to the client as "流式响应中断".
+    """
+    delivered: List[Dict[str, Any]] = []
+    for entry_cursor, event in entries or ():
+        cursor = entry_cursor
+        if not isinstance(event, dict) or event.get("type") == "model_progress":
+            continue
+        if event.get("type") == _TERMINAL_TYPE:
+            return delivered, cursor, True
+        if event.get("_offset", 0) > from_offset:
+            delivered.append(event)
+    return delivered, cursor, False
 
 
 async def follow_run(run_id: str, *, from_offset: int = 0) -> AsyncIterator[Dict[str, Any]]:
-    """Read events from the Redis Stream, delivering those after ``from_offset``.
+    """Read the run's event log, delivering events after ``from_offset``.
 
     Flow:
-    1. XRANGE - + fetches existing events in one shot; deliver the ones with ``_offset > from_offset``
-    2. XREAD STREAMS key {last_id} BLOCK 5000 blocks waiting for new events
-    3. Stop when a ``__terminal__``-typed event is received
-    4. Block timeout + run in a terminal state → exit gracefully (backstop so the follower never hangs forever)
+    1. Replay everything recorded so far; deliver those with ``_offset > from_offset``
+    2. Block on the log waiting for new events
+    3. Stop when a ``__terminal__``-typed event arrives
+    4. Wait timed out + run in a terminal state → drain once more, then exit
+       gracefully (backstop so the follower never hangs forever)
 
-    Uses the dedicated stream pool: the blocking read below holds its
-    connection for the whole BLOCK window, so followers must not draw from the
-    connections that ordinary API requests need.
+    Which log backs this — Redis Streams or the in-process one — is the
+    deployment's choice; see :mod:`orchestration.run_event_stream`.
     """
-    redis = get_redis(blocking=True)
-    key = _stream_key(run_id)
+    events = _events()
 
     run = get_run(run_id)
     if run is None:
         # The chats.py route layer should have validated this already; this is a second line of defense
         raise ChatRunNotFound(f"chat run {run_id} not found")
 
-    last_id = "0-0"
-    terminal_seen = False
+    cursor = START
 
     # ── Phase 1: replay historical events ──
     try:
-        history = await redis.xrange(key, min="-", max="+", count=None)
+        history = await events.read(run_id)
     except Exception as exc:
-        logger.warning("chat_run_xrange_failed", run_id=run_id, error=str(exc))
+        logger.warning("chat_run_xrange_failed", run_id=run_id, error=str(exc), exc_info=exc)
         history = []
 
-    for entry_id, fields in history:
-        last_id = entry_id
-        event = _decode_entry(fields)
-        if event is None:
-            continue
-        if event.get("type") == _TERMINAL_TYPE:
-            terminal_seen = True
-            break
-        if event.get("_offset", 0) > from_offset:
-            yield event
-
+    delivered, cursor, terminal_seen = _drain(history, from_offset, cursor)
+    for event in delivered:
+        yield event
     if terminal_seen:
         return
 
     # ── Phase 2: blocking tail ──
     while True:
         try:
-            result = await redis.xread({key: last_id}, count=100, block=_XREAD_BLOCK_MS)
+            batch = await events.wait(
+                run_id, after=cursor, limit=100, timeout_ms=_XREAD_BLOCK_MS
+            )
         except RedisTimeoutError:
-            # Benign: the BLOCK window elapsed with no new events — semantically
+            # Benign: the block window elapsed with no new events — semantically
             # identical to an empty result. (redis-py 8.0 defaults socket_timeout
             # to 5s; if it ever equals _XREAD_BLOCK_MS the read raises here on
             # every idle window instead of returning nil. We size socket_timeout
             # well above the block in core/infra/redis.py, but treat the timeout
             # as "no events" regardless so a long, quiet run never spams logs.)
-            result = None
+            batch = []
         except Exception as exc:
-            logger.warning("chat_run_xread_failed", run_id=run_id, error=str(exc))
+            logger.warning("chat_run_xread_failed", run_id=run_id, error=str(exc), exc_info=exc)
             await asyncio.sleep(0.5)
-            result = None
+            batch = []
 
-        if not result:
-            # Block timed out: check whether the run is terminal + whether the stream has new events
+        if not batch:
+            # Nothing arrived: check whether the run reached a terminal state
             current = get_run(run_id)
             if current is not None and current.status in _TERMINAL_STATUSES:
-                # After the terminal state, try reading the latest events once more (covers the race)
+                # After the terminal state, read the latest events once more (covers the race)
                 try:
-                    tail = await redis.xrange(key, min=_next_id(last_id), max="+", count=200)
+                    tail = await events.read(run_id, after=cursor, limit=200)
                 except Exception:
                     tail = []
-                for entry_id, fields in tail:
-                    last_id = entry_id
-                    event = _decode_entry(fields)
-                    if event is None:
-                        continue
-                    if event.get("type") == _TERMINAL_TYPE:
-                        return
-                    if event.get("_offset", 0) > from_offset:
-                        yield event
+                delivered, cursor, _terminal = _drain(tail, from_offset, cursor)
+                for event in delivered:
+                    yield event
                 return
             continue
 
-        for _stream_name, entries in result:
-            for entry_id, fields in entries:
-                last_id = entry_id
-                event = _decode_entry(fields)
-                if event is None:
-                    continue
-                if event.get("type") == _TERMINAL_TYPE:
-                    return
-                if event.get("_offset", 0) > from_offset:
-                    yield event
-
-
-def _decode_entry(fields: Any) -> Optional[Dict[str, Any]]:
-    """Decode the fields of a single Redis Stream entry into an SSE event dict.
-
-    Returns None for undecodable entries and for internal liveness markers
-    (``model_progress``) — nothing writes them to streams anymore (the reaper
-    now trusts in-process task liveness), but entries from older builds may
-    survive within the stream TTL and must never reach clients (the frontend
-    treats unknown event types as "pending ended").
-    Only used by follow_run_as_sse's replay/tail paths.
-    """
-    if not fields:
-        return None
-    raw = fields.get("data") if isinstance(fields, dict) else None
-    if raw is None:
-        return None
-    try:
-        event = json.loads(raw)
-    except Exception:
-        return None
-    if isinstance(event, dict) and event.get("type") == "model_progress":
-        return None
-    return event
-
-
-def _next_id(last_id: str) -> str:
-    """Given a Redis stream id (``ts-seq``), return the next minimal id usable for XRANGE."""
-    if "-" not in last_id:
-        return last_id
-    ts, seq = last_id.split("-", 1)
-    try:
-        return f"{ts}-{int(seq) + 1}"
-    except ValueError:
-        return last_id
+        delivered, cursor, terminal_seen = _drain(batch, from_offset, cursor)
+        for event in delivered:
+            yield event
+        if terminal_seen:
+            return
 
 
 def get_run(run_id: str) -> Optional[ChatRun]:
@@ -4066,27 +4043,16 @@ async def resume_running_loops() -> int:
 
 
 async def _stream_last_write_ms(run_id: str) -> Optional[int]:
-    """Write time of the last event on the Redis Stream (epoch ms).
+    """Write time of the last event on the run's log (epoch ms).
 
-    Stream entry ids are naturally ``<ms>-<seq>``, so we just take the
-    millisecond segment of the last entry — no extra bookkeeping. Returns None
-    when there is no stream / no events / the read fails (callers treat that as
-    "no activity").
+    Cursors are minted as ``<ms>-<seq>`` by every backend, so the millisecond
+    half is the write time — no extra bookkeeping. Returns None when there is
+    no log / no events / the read fails (callers treat that as "no activity").
     """
-    redis = get_redis()
     try:
-        entries = await redis.xrevrange(_stream_key(run_id), max="+", min="-", count=1)
+        return await _events().last_write_ms(run_id)
     except Exception as exc:
         logger.warning("chat_run_activity_check_failed", run_id=run_id, error=str(exc))
-        return None
-    if not entries:
-        return None
-    entry_id = entries[0][0]
-    if isinstance(entry_id, bytes):
-        entry_id = entry_id.decode()
-    try:
-        return int(str(entry_id).split("-", 1)[0])
-    except ValueError:
         return None
 
 
@@ -4383,7 +4349,7 @@ async def follow_run_as_sse(
                 yield f"data: {json.dumps(factory('run not found'), ensure_ascii=False)}\n\n"
                 break
             elif kind == "error":
-                logger.warning("follow_run_as_sse_failed", run_id=run_id, error=str(payload))
+                logger.warning("follow_run_as_sse_failed", run_id=run_id, error=str(payload), exc_info=payload)
                 yield f"data: {json.dumps(factory('流式响应中断'), ensure_ascii=False)}\n\n"
                 break
     finally:

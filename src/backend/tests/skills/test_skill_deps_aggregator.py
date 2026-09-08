@@ -138,10 +138,12 @@ def test_write_manifests_creates_and_tracks_changes(db, tmp_path):
     db.add(_mk("a", {"pip": [{"name": "pandas", "source": "manual"}]}))
     db.commit()
     info = write_manifests(db, repo_root=str(tmp_path))
-    assert (tmp_path / "requirements-skills.txt").exists()
-    assert (tmp_path / "package-skills.json").exists()
-    assert (tmp_path / "apt-skills.txt").exists()
-    assert "requirements-skills.txt" in info["changed"]
+    # Manifests belong to the Docker build context (``docker/``), which the
+    # writer creates when a fresh checkout does not have it yet.
+    assert (tmp_path / "docker" / "requirements-skills.txt").exists()
+    assert (tmp_path / "docker" / "package-skills.json").exists()
+    assert (tmp_path / "docker" / "apt-skills.txt").exists()
+    assert "docker/requirements-skills.txt" in info["changed"]
 
     # Second write with no DB change → no files changed
     info2 = write_manifests(db, repo_root=str(tmp_path))

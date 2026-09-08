@@ -27,7 +27,7 @@ from core.agent_skills.loader import get_skill_loader
 logger = logging.getLogger(__name__)
 
 
-def _resolve_skill_path(file_path: str) -> str | None:
+def _resolve_skill_path(file_path: str, loader: Any = None) -> str | None:
     """Try to resolve a non-existent skill file path to the materialized cache."""
     parts = file_path.replace("\\", "/").split("/")
     candidates: list[tuple[str, str]] = []
@@ -37,6 +37,15 @@ def _resolve_skill_path(file_path: str) -> str | None:
             rel_path = "/".join(parts[i + 2:])
             if skill_id and rel_path:
                 candidates.append((skill_id, rel_path))
+
+    if getattr(loader, "capability_run", None) is not None:
+        for skill_id, rel_path in reversed(candidates):
+            skill_dir = loader.get_skill_dir(skill_id)
+            if skill_dir:
+                candidate = os.path.join(skill_dir, rel_path)
+                if os.path.exists(candidate):
+                    return candidate
+        return None
 
     from core.agent_skills.config import get_sandbox_skills_dir
     cache_root = str(get_sandbox_skills_dir())
@@ -127,10 +136,18 @@ def register_sandboxed_view_text_file(
         ranges: list[int] | None = None,
     ) -> ToolResponse:
         """View file content within allowed skill directories."""
+        prepared = getattr(loader, "capability_run", None)
+        if prepared is not None:
+            from core.capabilities.runtime import validate
+            import asyncio
+            await asyncio.to_thread(validate, prepared)
+            mapped = _resolve_skill_path(file_path, loader)
+            if mapped:
+                file_path = mapped
         real = _os.path.realpath(_os.path.expanduser(file_path))
 
         if not _os.path.exists(real):
-            resolved = _resolve_skill_path(file_path)
+            resolved = _resolve_skill_path(file_path, loader)
             if resolved:
                 file_path = resolved
                 real = _os.path.realpath(resolved)
@@ -161,7 +178,10 @@ def register_sandboxed_view_text_file(
 
         if _os.path.basename(real) == "SKILL.md":
             skill_dir = _os.path.dirname(real)
-            skill_id = _extract_skill_id_from_skill_file(real)
+            skill_id = _extract_skill_id_from_skill_file(file_path)
+            if prepared is not None:
+                skill_id = next((name for name in prepared.bindings
+                                 if _os.path.realpath(loader.get_skill_dir(name)) == skill_dir), None)
             if loaded_skill_ids is not None and skill_id:
                 loaded_skill_ids.add(skill_id)
             for i, block in enumerate(resp.content):

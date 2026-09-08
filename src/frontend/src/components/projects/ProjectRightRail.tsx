@@ -178,40 +178,48 @@ function MemoryCard({ projectId }: { projectId: string }) {
 }
 
 function InstructionsEditModal({
-  initial,
-  open,
-  onClose,
-  onSave,
+  initial, revision, open, onClose, onSave,
 }: {
   initial: string;
+  revision?: string;
   open: boolean;
   onClose: () => void;
-  onSave: (v: string) => Promise<void>;
+  onSave: (v: string, revision?: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(initial);
+  const [initialRevision] = useState(revision);
+  const [saving, setSaving] = useState(false);
+  const bytes = new TextEncoder().encode(draft).length;
   return (
     <Modal
       title={t('编辑项目指令')}
       open={open}
       onCancel={onClose}
+      confirmLoading={saving}
+      okButtonProps={{ disabled: bytes > 32768 }}
       onOk={async () => {
+        if (saving) return;
+        setSaving(true);
         try {
-          await onSave(draft);
+          await onSave(draft, initialRevision);
           message.success(t('已保存'));
           onClose();
         } catch (err) {
           message.error((err as Error)?.message || t('保存失败'));
+        } finally {
+          setSaving(false);
         }
       }}
       okText={t('保存')}
       cancelText={t('取消')}
     >
+      <p>{t('保存后同步到项目根目录 AGENTS.md，后续对话自动读取。')}</p>
       <Input.TextArea
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         rows={10}
-        maxLength={8000}
-        showCount
+        showCount={{ formatter: () => `${bytes} / 32768 B` }}
+        status={bytes > 32768 ? 'error' : undefined}
         placeholder={t('为本项目的对话设定基调、目标、必须遵守的规则等…')}
       />
     </Modal>
@@ -223,6 +231,35 @@ function InstructionsCard() {
   const setOpen = useProjectStore((s) => s.setInstructionsEditOpen);
   const open = useProjectStore((s) => s.instructionsEditOpen);
   const updateInstructions = useProjectStore((s) => s.updateInstructions);
+  const refreshInstructions = useProjectStore((s) => s.refreshInstructions);
+  const [syncError, setSyncError] = useState('');
+  const projectId = project?.project_id;
+
+  useEffect(() => {
+    if (!projectId) return;
+    let disposed = false;
+    let refreshing = false;
+    const refresh = async () => {
+      if (document.hidden || refreshing) return;
+      refreshing = true;
+      try {
+        await refreshInstructions();
+        if (!disposed) setSyncError('');
+      } catch (err) {
+        if (!disposed) setSyncError((err as Error).message || t('加载失败'));
+      } finally {
+        refreshing = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 10000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [projectId, refreshInstructions]);
 
   const canEdit = project?.permission === 'admin' || project?.permission === 'edit';
 
@@ -235,10 +272,22 @@ function InstructionsCard() {
             type="text"
             icon={<EditOutlined />}
             size="small"
-            onClick={() => setOpen(true)}
+            onClick={async () => {
+              try {
+                await refreshInstructions();
+                setSyncError('');
+                setOpen(true);
+              } catch (err) {
+                message.error((err as Error).message || t('加载失败'));
+              }
+            }}
           />
         )}
       </div>
+      <div className="jx-projectRail-cardEmpty">
+        {t('与项目根目录 AGENTS.md 同步；输入 /init 可初始化指令。')}
+      </div>
+      {syncError && <div role="alert">{syncError}</div>}
       {project?.instructions ? (
         <div className="jx-projectRail-cardText">{project.instructions}</div>
       ) : (
@@ -251,6 +300,7 @@ function InstructionsCard() {
         <InstructionsEditModal
           key={`instr-${project?.project_id}-${open ? '1' : '0'}`}
           initial={project?.instructions || ''}
+          revision={project?.instructions_revision}
           open={open}
           onClose={() => setOpen(false)}
           onSave={updateInstructions}

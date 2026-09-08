@@ -8,6 +8,7 @@ Behavior:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import re
@@ -43,7 +44,7 @@ def _connect_error_message() -> str:
     """
     if settings.deploy.is_local:
         return (
-            "本机代码执行服务不可达（127.0.0.1:8900），已尝试自动恢复；"
+            f"本机代码执行服务不可达（{settings.sandbox.runner_url}），已尝试自动恢复；"
             "稍候重试，若持续失败请重启客户端"
         )
     return "无法连接脚本执行服务 (hugagent-script-runner)，请检查容器是否运行"
@@ -61,7 +62,24 @@ class ScriptRunnerProvider:
         return settings.sandbox.runner_url
 
     async def execute(self, req: ExecuteRequest) -> ExecuteResult:
-        _refresh_skill_view(req.user_id)
+        capability_view_key = None
+        from core.capabilities.paths import capabilities_enabled
+
+        if capabilities_enabled() and req.capability_run_id:
+            from core.capabilities import runtime
+            from core.capabilities.errors import IntegrityFailed
+
+            pinned_view = await asyncio.to_thread(
+                runtime.view_for_execution,
+                req.capability_run_id,
+                str(req.user_id or ""),
+                scope_id=req.capability_scope,
+            )
+            if pinned_view is None:
+                raise IntegrityFailed("prepared run is missing")
+            capability_view_key = pinned_view.parent.name
+        else:
+            _refresh_skill_view(req.user_id)
         # 30s margin covers the sidecar's own overhead (base64 encoding, transfer, etc.)
         http_timeout = req.timeout + 30
         body = {
@@ -75,6 +93,7 @@ class ScriptRunnerProvider:
             "input_files_b64": req.input_files_b64,
             "session_id": req.session_id,
             "user_id": req.user_id,
+            "capability_view_key": capability_view_key,
         }
 
         last_exc: Exception | None = None
@@ -84,6 +103,15 @@ class ScriptRunnerProvider:
                     resp = await client.post(f"{self._base_url}/execute", json=body)
                     resp.raise_for_status()
                     payload = resp.json()
+                    if capability_view_key is not None:
+                        prepared = await asyncio.to_thread(
+                            runtime.get, req.capability_run_id, scope_id=req.capability_scope
+                        )
+                        if prepared is None:
+                            raise IntegrityFailed("prepared run is missing")
+                        await asyncio.to_thread(
+                            runtime.validate, prepared, user_id=str(req.user_id or "")
+                        )
                     return _payload_to_result(payload)
                 except httpx.ReadTimeout as e:
                     last_exc = e
@@ -293,7 +321,7 @@ class ScriptRunnerProvider:
         raise SandboxAdminNotSupported("script_runner 无连接池")
 
 
-_SKILL_VIEW_SYNCED: dict[str, float] = {}
+_SKILL_VIEW_SYNCED: dict[str, tuple[float, int]] = {}
 _SKILL_VIEW_TTL_S = 60.0
 
 
@@ -302,16 +330,22 @@ def _refresh_skill_view(user_id: Optional[str]) -> None:
 
     Only shared skills need the refresh — a private skill is materialized straight
     into the user's own dir and is visible at once — so a TTL is enough, and it
-    keeps this off the hot path of every bash call. Costs one listdir; failure is
-    never worth failing an execution over.
+    keeps this off the hot path of every bash call. On a desktop with a capability
+    store the view generation changes whenever the store does, and that forces
+    an immediate refresh regardless of the TTL. Failure is never worth failing an
+    execution over.
     """
     uid = (user_id or "").strip()
     if not uid:
         return
+    from core.capabilities.skills import view_generation
+
     now = time.monotonic()
-    if now - _SKILL_VIEW_SYNCED.get(uid, 0.0) < _SKILL_VIEW_TTL_S:
+    gen = view_generation()
+    last_ts, last_gen = _SKILL_VIEW_SYNCED.get(uid, (0.0, -1))
+    if gen == last_gen and now - last_ts < _SKILL_VIEW_TTL_S:
         return
-    _SKILL_VIEW_SYNCED[uid] = now
+    _SKILL_VIEW_SYNCED[uid] = (now, gen)
     try:
         from core.agent_skills.config import sync_user_skill_view
 

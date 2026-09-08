@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from core.db.repository import LarkConnectionRepository
+from core.infra.proc import no_window_kwargs
 # QR rendering is identical to dingtalk's (segno SVG data-uri); reuse it directly to avoid duplicating the implementation.
 from core.services.dingtalk_service import make_qr_data_uri
 
@@ -254,6 +255,7 @@ async def _run_lark(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_lark_env(user_id),
+            **no_window_kwargs(),
         )
     except FileNotFoundError:
         return "", "lark-cli binary not found on backend", 127
@@ -513,6 +515,7 @@ async def _app_init_flow() -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env=_app_env(),
+            **no_window_kwargs(),
         )
     except FileNotFoundError:
         _app_init_state.update({"status": "error", "error": "后端未安装 lark-cli"})

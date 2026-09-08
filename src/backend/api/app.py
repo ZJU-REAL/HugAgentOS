@@ -30,7 +30,6 @@ from api.routes.v1 import (
 )
 from core.config.settings import settings
 from core.infra.logging import get_logger
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
@@ -38,7 +37,8 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 # Bootstrap
 # ---------------------------------------------------------------------------
 
-load_dotenv()
+# Env files are loaded by core.config.settings (repo root only). The bare
+# load_dotenv() that used to live here searched parent directories as well.
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -896,6 +896,16 @@ async def _startup_preload():
         #     dir on demand. Must run before sandboxes are created/used.
         def _sync_builtin_skills() -> None:
             from core.agent_skills.config import sync_builtin_skills_to_sandbox_dir
+            from core.capabilities.paths import capabilities_enabled
+
+            if capabilities_enabled():
+                # Desktop store: move the pre-store layout aside first (idempotent,
+                # quarantines instead of deleting), then the views are link-only.
+                from core.capabilities.migration import migrate_legacy_layout
+
+                report = migrate_legacy_layout()
+                if report is not None and (report.changed or report.skipped):
+                    logger.info("[startup] Capability layout migration: %s", report.to_dict())
 
             n = sync_builtin_skills_to_sandbox_dir()
             logger.info("[startup] Built-in skills synced to sandbox dir: %d", n)

@@ -196,7 +196,7 @@ def test_binding_never_raises_when_every_resolver_fails(monkeypatch):
 def test_partial_flag_set_when_any_resolver_degrades(monkeypatch):
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
-    monkeypatch.setattr(rb, "_skill_refs", lambda ids: (_ for _ in ()).throw(RuntimeError("nope")))
+    monkeypatch.setattr(rb, "_skill_refs", lambda ids, run_id=None, capability_scope="": (_ for _ in ()).throw(RuntimeError("nope")))
     bundle = rb.bind_runtime_assets(run_id="run-2", skill_ids=["s1"])
     assert bundle.partial is True
 
@@ -204,7 +204,7 @@ def test_partial_flag_set_when_any_resolver_degrades(monkeypatch):
 def test_bundle_is_retrievable_by_run_id(monkeypatch):
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
-    monkeypatch.setattr(rb, "_skill_refs", lambda ids: [_ref(C.ASSET_SKILL, "s1")])
+    monkeypatch.setattr(rb, "_skill_refs", lambda ids, run_id=None, capability_scope="": [_ref(C.ASSET_SKILL, "s1")])
 
     bundle = rb.bind_runtime_assets(run_id="run-3", skill_ids=["s1"])
     assert rb.resolve_bundle_for_run("run-3").bundle_id == bundle.bundle_id
@@ -216,7 +216,7 @@ def test_bundle_for_run_keeps_workspace_policy_and_sanitized_execution_manifest(
 
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
-    monkeypatch.setattr(rb, "_skill_refs", lambda ids: [])
+    monkeypatch.setattr(rb, "_skill_refs", lambda ids, run_id=None, capability_scope="": [])
     manifest_builder = PromptManifestBuilder(
         context={
             "workspace_id": "workspace-7",
@@ -253,7 +253,7 @@ def test_bundle_for_run_keeps_workspace_policy_and_sanitized_execution_manifest(
 def test_manifest_required_marks_missing_or_failed_manifest_partial(monkeypatch):
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
-    monkeypatch.setattr(rb, "_skill_refs", lambda ids: [])
+    monkeypatch.setattr(rb, "_skill_refs", lambda ids, run_id=None, capability_scope="": [])
 
     missing = rb.bind_runtime_assets(run_id="run-missing", manifest_required=True)
 
@@ -282,7 +282,7 @@ def test_binder_uses_rendered_prompt_versions_not_a_new_active_pointer(monkeypat
         lambda: (_ for _ in ()).throw(AssertionError("must not re-read active prompt")),
     )
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
-    monkeypatch.setattr(rb, "_skill_refs", lambda ids: [])
+    monkeypatch.setattr(rb, "_skill_refs", lambda ids, run_id=None, capability_scope="": [])
     builder = PromptManifestBuilder(context={"workspace_id": "ws-race"})
     builder.add_prompt_section(
         "system/base",
@@ -313,7 +313,7 @@ def test_no_drift_when_assets_republish_after_binding(monkeypatch):
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
     monkeypatch.setattr(
-        rb, "_skill_refs", lambda ids: [_ref(C.ASSET_SKILL, "s1", live_version["v"])]
+        rb, "_skill_refs", lambda ids, run_id=None, capability_scope="": [_ref(C.ASSET_SKILL, "s1", live_version["v"])]
     )
 
     bound = rb.bind_runtime_assets(run_id="run-4", skill_ids=["s1"])
@@ -333,7 +333,7 @@ def test_request_manifest_rebind_preserves_frozen_refs_and_updates_run_index(mon
     monkeypatch.setattr(
         rb,
         "_skill_refs",
-        lambda ids: [_ref(C.ASSET_SKILL, "s1", live_version["v"])],
+        lambda ids, run_id=None, capability_scope="": [_ref(C.ASSET_SKILL, "s1", live_version["v"])],
     )
     builder = PromptManifestBuilder(context={"workspace_id": "ws-context"})
     base_manifest = builder.build(final_prompt="system")
@@ -361,7 +361,7 @@ def test_request_manifest_rebind_preserves_frozen_refs_and_updates_run_index(mon
 def test_model_ref_captured_so_runs_across_providers_are_comparable(monkeypatch):
     monkeypatch.setattr(rb, "_prompt_refs", lambda: [])
     monkeypatch.setattr(rb, "_ontology_refs", lambda: [])
-    monkeypatch.setattr(rb, "_skill_refs", lambda ids: [])
+    monkeypatch.setattr(rb, "_skill_refs", lambda ids, run_id=None, capability_scope="": [])
 
     bundle = rb.bind_runtime_assets(
         run_id="run-5", model_name="some-model", model_provider_id="prov-1"

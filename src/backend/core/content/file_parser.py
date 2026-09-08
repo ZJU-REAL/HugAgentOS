@@ -29,6 +29,8 @@ from typing import Optional
 
 import requests
 
+from core.infra.proc import no_window_kwargs
+
 logger = logging.getLogger(__name__)
 
 
@@ -213,6 +215,7 @@ def _docx_bytes_to_markdown(docx_bytes: bytes) -> str:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                **no_window_kwargs(),
             )
         except FileNotFoundError:
             raise RuntimeError("pandoc 未安装，无法解析 Word 文档")
@@ -251,6 +254,7 @@ def _convert_to_docx_bytes(file_bytes: bytes, suffix: str) -> bytes:
                 capture_output=True,
                 text=True,
                 timeout=120,
+                **no_window_kwargs(),
             )
         except FileNotFoundError:
             raise RuntimeError("LibreOffice 未安装，无法解析 DOC/WPS 文件")
@@ -673,6 +677,7 @@ def _convert_xls_to_xlsx(file_bytes: bytes) -> bytes:
                 capture_output=True,
                 text=True,
                 timeout=120,
+                **no_window_kwargs(),
             )
         except FileNotFoundError:
             raise RuntimeError(

@@ -883,10 +883,10 @@ class DeploySettings:
 
     ``DEPLOY_PROFILE=local`` = Docker-free single-machine mode (hermes-style
     quick install): a single uvicorn process hosting frontend statics + SQLite
-    + in-process fakeredis + subprocess MCP/sandbox. Default empty string =
-    regular compose deployment; no local behavior activates, zero impact on
-    existing deployments. Decoupled from capability-specific envs
-    (``REDIS_URL=memory://`` / ``DATABASE_URL=sqlite://`` /
+    + in-process event log/ephemeral state + subprocess MCP/sandbox. Default
+    empty string = regular compose deployment; no local behavior activates,
+    zero impact on existing deployments. Decoupled from capability-specific envs
+    (an empty ``REDIS_URL`` / ``DATABASE_URL=sqlite://`` /
     ``SANDBOX_PROVIDER=script_runner``): this switch only toggles **profile**
     behaviors like "in-process hosted sub-services + frontend static mounting";
     each capability is still explicitly driven by its own env (written by the CLI).

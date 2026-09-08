@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Switch, Tag, Input, Typography, Button, Modal, Form, Select, Popconfirm, message, Pagination, Tooltip, Dropdown } from 'antd';
 import { t } from '../../i18n';
+import { DeviceMcpManager } from './DeviceMcpManager';
+import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
+import { DeviceCapabilityPanel } from './DeviceCapabilityPanel';
 import { SearchOutlined, LeftOutlined, PlusOutlined, DeleteOutlined, AppstoreOutlined, CloudUploadOutlined, DownOutlined } from '@ant-design/icons';
 import { useCatalogStore, useAuthStore } from '../../stores';
 import { mdToHtml } from '../../utils/markdown';
@@ -279,6 +282,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
           {mcpSubtitle ? <p className="jx-mcp-subtitle">{mcpSubtitle}</p> : null}
         </div>
         <div className="jx-mcp-headerRight">
+          <DeviceMcpManager />
           {searchVisible ? (
             <Input
               allowClear
@@ -314,6 +318,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {/* Card grid — 2 columns (container key controls stagger replay: replay on entering the panel / paging, no replay on optimistic toggle updates) */}
+      <DeviceCapabilityPanel kind="mcp" />
       <div
         className="jx-mcp-grid jx-anim-stagger"
         style={{ '--stagger-step': '30ms' } as React.CSSProperties}
@@ -330,6 +335,7 @@ export function McpPage({ embedded = false }: { embedded?: boolean }) {
               <McpIcon id={item.id} icon={item.icon} />
               <div className="jx-mcp-cardNameGroup">
                 <span className="jx-mcp-cardName">{item.name}</span>
+                <DeviceCapabilityBadge kind="mcp" runtimeName={item.id} />
                 {item.owner === 'self' && (
                   <Tag style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)', border: 'none' }}>{t('我的')}</Tag>
                 )}

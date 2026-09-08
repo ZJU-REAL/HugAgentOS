@@ -426,6 +426,8 @@ def register_bash(
         req = _ExecuteRequest(
             script_content=cmd,
             script_name="_bash.sh",
+            capability_run_id=getattr(getattr(loader, "capability_run", None), "run_id", None),
+            capability_scope=getattr(getattr(loader, "capability_run", None), "scope_id", ""),
             language="bash",
             timeout=effective_timeout,
             session_id=_sess,

@@ -233,6 +233,7 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
     registry = ToolRecoveryRegistry()
     for name in (
         "Read",
+        "read_project_instructions",
         "Glob",
         "Grep",
         "view_text_file",
@@ -249,6 +250,7 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
         registry.register(name, "replay_safe", replayer=_default_replayer)
     for name in (
         "Write",
+        "save_project_instructions",
         "Edit",
         "Delete",
         "Move",

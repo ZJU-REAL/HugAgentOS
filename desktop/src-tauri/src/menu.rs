@@ -36,9 +36,12 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             .quit()
             .build()?;
 
-        let file = SubmenuBuilder::new(app, "文件")
-            .text("new_chat", "新建对话")
-            .text("run_mode", "运行模式…")
+        let mut file = SubmenuBuilder::new(app, "文件").text("new_chat", "新建对话");
+        // 仅交付混合模式的包没有别的形态可切，不摆一个点了也没意义的入口。
+        if !crate::brand::HYBRID_ONLY {
+            file = file.text("run_mode", "运行模式…");
+        }
+        let file = file
             .text("local_server", "本机服务…")
             .separator()
             .close_window()
@@ -74,9 +77,12 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     #[cfg(not(target_os = "macos"))]
     {
-        let file = SubmenuBuilder::new(app, "文件")
-            .text("new_chat", "新建对话")
-            .text("run_mode", "运行模式…")
+        let mut file = SubmenuBuilder::new(app, "文件").text("new_chat", "新建对话");
+        // 仅交付混合模式的包没有别的形态可切，不摆一个点了也没意义的入口。
+        if !crate::brand::HYBRID_ONLY {
+            file = file.text("run_mode", "运行模式…");
+        }
+        let file = file
             .text("server_config", "设置服务器地址…")
             .text("local_server", "本机服务…")
             .separator()

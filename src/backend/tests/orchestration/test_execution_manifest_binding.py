@@ -231,7 +231,7 @@ asyncio.run(main())
     env.update(
         {
             "DATABASE_URL": database_url,
-            "REDIS_URL": "memory://",
+            "REDIS_URL": "",
             "SANDBOX_TOOLS_ENABLED": "false",
         }
     )
@@ -384,7 +384,7 @@ asyncio.run(main())
     env.update(
         {
             "DATABASE_URL": database_url,
-            "REDIS_URL": "memory://",
+            "REDIS_URL": "",
             "SANDBOX_TOOLS_ENABLED": "false",
         }
     )

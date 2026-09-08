@@ -383,13 +383,18 @@ class ProjectService:
             .scalar()
             or 0
         )
-        return _summary(
+        data = _summary(
             project,
             favorite=favorite,
             folder_name=folder[0] if folder else None,
             file_count=self._file_count(project),
             chat_count=chat_count,
         )
+
+        from core.services.project_instructions import ProjectInstructionsService
+
+        data.update(ProjectInstructionsService(self.db).read(project))
+        return data
 
     def update(
         self,
@@ -399,6 +404,8 @@ class ProjectService:
         *,
         level: ProjectPermissionLevel,
     ) -> Optional[Dict[str, Any]]:
+        patch = dict(patch)
+        expected_revision = patch.pop("instructions_revision", None)
         project = self.get_raw(project_id)
         if project is None:
             return None
@@ -429,11 +436,6 @@ class ProjectService:
             project.name = clean
         if "description" in patch:
             project.description = (patch["description"] or "").strip() or None
-        if "instructions" in patch:
-            value = patch["instructions"] or ""
-            if len(value) > 8000:
-                raise HTTPException(status_code=400, detail="项目指令过长（≤8000 字符）")
-            project.instructions = value.strip() or None
         if "pinned" in patch:
             project.pinned = bool(patch["pinned"])
         if "icon_color" in patch:
@@ -444,6 +446,14 @@ class ProjectService:
                 if key in patch:
                     extra[key] = bool(patch[key])
             project.extra_data = extra
+        if "instructions" in patch:
+            from core.services.project_instructions import ProjectInstructionsService
+
+            ProjectInstructionsService(self.db).write(
+                project, user_id, patch["instructions"] or "",
+                expected_revision=expected_revision,
+            )
+
         project.updated_at = datetime.utcnow()
         self.db.commit()
         return self.get(project_id, user_id)

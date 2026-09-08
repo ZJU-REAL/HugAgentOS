@@ -233,6 +233,13 @@ def resolve_explicit_runtime_capabilities(
         )
         allowed_mcp_ids.update(str(row[0]) for row in owned_rows if row[0])
 
+    from core.capabilities.paths import capabilities_enabled
+    if capabilities_enabled():
+        from core.capabilities.invocation import resolve_explicit_ids
+        allowed_skill_ids, allowed_mcp_ids = resolve_explicit_ids(
+            user_id, allowed_skill_ids, allowed_mcp_ids
+        )
+
     allowed_skills = [sid for sid in requested_skills if sid in allowed_skill_ids]
     allowed_mcps = [mid for mid in requested_mcps if mid in allowed_mcp_ids]
     unavailable_skills = [sid for sid in requested_skills if sid not in allowed_skill_ids]
@@ -240,7 +247,7 @@ def resolve_explicit_runtime_capabilities(
     return allowed_skills, allowed_mcps, unavailable_skills, unavailable_mcps
 
 
-def _apply_desktop_cloud_bridge(result):
+def _apply_desktop_cloud_bridge(result, *, user_id=None):
     """双端桌面本机后端：把云端授权 MCP / 技能合并进 enabled 清单（含本机同名抑制）。
 
     这里是 enabled 能力解析的单一真源——主对话、定时任务、批量子代理、作业
@@ -257,8 +264,12 @@ def _apply_desktop_cloud_bridge(result):
 
         bridged_mcps = apply_to_enabled_mcp_ids(list(mcps)) if mcps is not None else None
         bridged_skills = apply_to_enabled_skill_ids(list(skills)) if skills is not None else None
-    except Exception:  # noqa: BLE001 - 桥故障不能影响能力解析
-        return result
+    except Exception:  # noqa: BLE001 - 保留本机默认值，再独立检查本机可用性
+        bridged_skills, _, bridged_mcps = result
+    from core.capabilities.paths import capabilities_enabled
+    if capabilities_enabled() and bridged_skills is not None:
+        from core.capabilities.skills import filter_available_names
+        bridged_skills = filter_available_names(bridged_skills, user_id=user_id)
     return (bridged_skills, agents, bridged_mcps)
 
 
@@ -285,7 +296,7 @@ def resolve_all_runtime_enabled(
         if cached is not None:
             expires_at, result = cached
             if now < expires_at:
-                return _apply_desktop_cloud_bridge(result)
+                return _apply_desktop_cloud_bridge(result, user_id=user_id)
             else:
                 _capability_cache.pop(user_id, None)
 
@@ -337,7 +348,7 @@ def resolve_all_runtime_enabled(
         with _capability_cache_lock:
             _capability_cache[user_id] = (now + _CAPABILITY_CACHE_TTL, result)
 
-        return _apply_desktop_cloud_bridge(result)
+        return _apply_desktop_cloud_bridge(result, user_id=user_id)
     except Exception as exc:
         logger.warning("resolve_all_runtime_enabled failed: %s (user=%s)", exc, user_id)
         return None, None, None

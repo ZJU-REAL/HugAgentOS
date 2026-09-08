@@ -55,6 +55,9 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("evolution", "router"),
     ("sites", "router"),
     ("desktop", "router"),
+    # The desktop shell bridge and device capability management are CE runtime APIs.
+    ("desktop_capability", "router"),
+    ("desktop_capabilities", "router"),
     ("local", "router"),
     # 工具执行权限档（标准 / 只读 / 自动）——输入框工具栏那颗权限胶囊的数据源
     ("tool_approval", "router"),

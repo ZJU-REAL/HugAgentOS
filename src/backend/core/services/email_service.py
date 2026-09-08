@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from core.db.repository import EmailConnectionRepository
 from core.infra.crypto import decrypt_secret, encrypt_secret
+from core.infra.proc import no_window_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,7 @@ async def _run_himalaya(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_email_env(user_id),
+            **no_window_kwargs(),
         )
     except FileNotFoundError:
         return "", "himalaya binary not found on backend", 127

@@ -155,13 +155,14 @@ class FollowUpGenerator:
             if any(k in model_lower for k in ("deepseek", "r1", "qwen")):
                 req_body["chat_template_kwargs"] = {"enable_thinking": False}
 
+            # 桌面本机执行面的模型行存的是账号绑定的网关引用而不是密钥；凭据由
+            # 桌面模型凭据模块按当前桥接状态实时注入（与主对话同一来源）。
+            from core.services.desktop_model_credentials import prepare_request_headers
+
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
                     f"{model_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
+                    headers=prepare_request_headers(api_key, model_url),
                     json=req_body,
                 )
 

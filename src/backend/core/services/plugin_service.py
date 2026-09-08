@@ -547,8 +547,8 @@ def _apply_normalized(
     # A plugin update is a replacement of its declared component set. Remove
     # components that belonged to the previous version but no longer appear in
     # the new manifest; otherwise retired tools/skills remain visible forever.
-    stale_skill_ids = set(previous_component_ids.get("skills") or []) - set(skill_ids)
-    stale_server_ids = set(previous_component_ids.get("mcp") or []) - set(server_ids)
+    stale_skill_ids = set(_component_keys(previous_component_ids, "skills")) - set(skill_ids)
+    stale_server_ids = set(_component_keys(previous_component_ids, "mcp")) - set(server_ids)
     owner_skill_filter = (
         AdminSkill.owner_user_id == owner_user_id
         if owner_user_id is not None
@@ -615,6 +615,21 @@ def _apply_normalized(
 
     db.commit()
     _refresh_after_change(owner_user_id)
+    _project_plugin_to_store(
+        {
+            "install_id": install_id,
+            "slug": np.slug,
+            "name": fields["name"],
+            "version": np.version,
+            "description": np.description,
+            "category": fields["category"],
+            "icon": fields["icon"],
+            "components": component_ids,
+            "ui_contributions": np.ui,
+            "import_report": import_report,
+        },
+        owner_user_id=owner_user_id,
+    )
     logger.info(
         "plugin_%s: slug=%s kind=%s owner=%s skills=%d mcp=%d dropped=%d "
         "ontology_validation=%s forced=%s",
@@ -636,6 +651,27 @@ def _apply_normalized(
         "action": action,
         "import_report": import_report,
     }
+
+
+def _project_plugin_to_store(definition: Dict[str, Any], *, owner_user_id: Optional[str]) -> None:
+    """Desktop store: keep ``R/plugins/local/<slug>/`` and the component edges in step."""
+    from core.capabilities.paths import capabilities_enabled
+
+    if not capabilities_enabled():
+        return
+    from core.capabilities import plugins as caps_plugins
+
+    caps_plugins.publish_local_plugin(definition, owner_user_id=owner_user_id)
+
+
+def _remove_plugin_from_store(slug: str) -> None:
+    from core.capabilities.paths import capabilities_enabled
+
+    if not capabilities_enabled():
+        return
+    from core.capabilities import plugins as caps_plugins
+
+    caps_plugins.remove_local_plugin(slug)
 
 
 def _purge_sandbox_skill_files(skill_ids) -> None:
@@ -836,6 +872,24 @@ def set_plugin_market_enabled(
     return res
 
 
+def _component_keys(components: Dict[str, Any], kind: str) -> List[str]:
+    """Project declarative component entries to IDs for legacy catalog operations.
+
+    Keep InstalledPlugin.component_ids unchanged: version/required/platform
+    fields belong to the exported definition and runtime dependency closure.
+    """
+    values = components.get(kind) or []
+    if not isinstance(values, list):
+        values = [values]
+    keys = []
+    for value in values:
+        if isinstance(value, dict):
+            value = value.get("id") or value.get("key") or value.get("skill_id") or value.get("server_id") or value.get("agent_id")
+        if isinstance(value, str) and value and value not in keys:
+            keys.append(value)
+    return keys
+
+
 def list_installed(
     db: Session, owner_user_id: Optional[str], *, include_global: bool = False
 ) -> List[Dict[str, Any]]:
@@ -879,8 +933,8 @@ def list_installed(
     all_mcp_ids: set = set()
     for r in rows:
         cids = r.component_ids or {}
-        all_skill_ids.update(cids.get("skills") or [])
-        all_mcp_ids.update(cids.get("mcp") or [])
+        all_skill_ids.update(_component_keys(cids, "skills"))
+        all_mcp_ids.update(_component_keys(cids, "mcp"))
 
     callable_skills = (
         {
@@ -948,11 +1002,11 @@ def list_installed(
     out: List[Dict[str, Any]] = []
     for r in rows:
         cids = r.component_ids or {}
-        enabled = any(s in enabled_skills for s in (cids.get("skills") or [])) or any(
-            m in enabled_mcps for m in (cids.get("mcp") or [])
+        enabled = any(s in enabled_skills for s in (_component_keys(cids, "skills"))) or any(
+            m in enabled_mcps for m in (_component_keys(cids, "mcp"))
         )
-        callable_now = any(s in callable_skills for s in (cids.get("skills") or [])) or any(
-            m in callable_mcps for m in (cids.get("mcp") or [])
+        callable_now = any(s in callable_skills for s in (_component_keys(cids, "skills"))) or any(
+            m in callable_mcps for m in (_component_keys(cids, "mcp"))
         )
         out.append(_installed_to_dict(r, enabled=enabled, callable_now=callable_now))
     return out
@@ -979,8 +1033,8 @@ def _installed_to_dict(
         # Hard runtime availability, independent of the current user's
         # personal catalog switch. Explicit pickers hide false entries.
         "callable": callable_now,
-        "skills": cids.get("skills") or [],
-        "mcp": cids.get("mcp") or [],
+        "skills": _component_keys(cids, "skills"),
+        "mcp": _component_keys(cids, "mcp"),
         "import_report": r.import_report or {},
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "has_admin_config": _has_admin_config_for_slug(r.slug),
@@ -1122,8 +1176,8 @@ def resolve_installed_ui(
     cids = row.component_ids or {}
     enabled_skills = set(eff_skills or [])
     enabled_mcps = set(eff_mcps or [])
-    enabled = any(s in enabled_skills for s in (cids.get("skills") or [])) or any(
-        m in enabled_mcps for m in (cids.get("mcp") or [])
+    enabled = any(s in enabled_skills for s in (_component_keys(cids, "skills"))) or any(
+        m in enabled_mcps for m in (_component_keys(cids, "mcp"))
     )
     return row.ui_contributions if enabled else None
 
@@ -1144,8 +1198,8 @@ def get_installed_detail(
         raise BadRequestError(message="无权查看该插件")
 
     cids = row.component_ids or {}
-    skill_ids = cids.get("skills") or []
-    server_ids = cids.get("mcp") or []
+    skill_ids = _component_keys(cids, "skills")
+    server_ids = _component_keys(cids, "mcp")
 
     # Component enabled state: user view uses their "effectively enabled" set (including per-user overrides); admin view uses is_enabled.
     eff_skills: Optional[set] = None
@@ -1796,6 +1850,7 @@ def uninstall_plugin(
     db.commit()
     _purge_sandbox_skill_files(removed_skill_ids)
     _refresh_after_change(owner_user_id)
+    _remove_plugin_from_store(slug)
     logger.info("plugin_uninstalled: id=%s slug=%s skills=%d mcp=%d", install_id, slug, n_sk, n_mcp)
     return {"install_id": install_id, "slug": slug, "removed_skills": n_sk, "removed_mcp": n_mcp}
 
@@ -1815,8 +1870,8 @@ def set_plugin_enabled(
         raise BadRequestError(message="无权操作该插件")
 
     cids = row.component_ids or {}
-    skill_ids = cids.get("skills") or []
-    server_ids = cids.get("mcp") or []
+    skill_ids = _component_keys(cids, "skills")
+    server_ids = _component_keys(cids, "mcp")
     if skill_ids:
         db.query(AdminSkill).filter(AdminSkill.skill_id.in_(skill_ids)).update(
             {AdminSkill.is_enabled: enabled}, synchronize_session=False
@@ -1858,7 +1913,7 @@ def set_plugin_component_enabled(
 
     cids = row.component_ids or {}
     if kind == "skill":
-        if component_id not in (cids.get("skills") or []):
+        if component_id not in (_component_keys(cids, "skills")):
             raise BadRequestError(message="该技能不属于此插件")
         sk = db.query(AdminSkill).filter(AdminSkill.skill_id == component_id).first()
         if sk is None:
@@ -1866,7 +1921,7 @@ def set_plugin_component_enabled(
         sk.is_enabled = bool(enabled)
         effective = sk.is_enabled
     else:
-        if component_id not in (cids.get("mcp") or []):
+        if component_id not in (_component_keys(cids, "mcp")):
             raise BadRequestError(message="该 MCP 不属于此插件")
         srv = db.query(AdminMcpServer).filter(AdminMcpServer.server_id == component_id).first()
         if srv is None:
@@ -1907,9 +1962,9 @@ def set_plugin_enabled_for_user(
 
     svc = CatalogService(db)
     cids = row.component_ids or {}
-    for sid in cids.get("skills") or []:
+    for sid in _component_keys(cids, "skills"):
         svc.update_override(user_id, "skill", sid, enabled)
-    for sid in cids.get("mcp") or []:
+    for sid in _component_keys(cids, "mcp"):
         svc.update_override(user_id, "mcp", sid, enabled)
 
     _refresh_after_change(user_id)
@@ -1943,7 +1998,7 @@ def set_plugin_component_enabled_for_user(
         raise BadRequestError(message="无权操作该插件")
 
     cids = row.component_ids or {}
-    pool = cids.get("skills") if kind == "skill" else cids.get("mcp")
+    pool = _component_keys(cids, "skills" if kind == "skill" else "mcp")
     if component_id not in (pool or []):
         raise BadRequestError(message="该组件不属于此插件")
 

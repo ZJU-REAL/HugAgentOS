@@ -10,7 +10,9 @@
 
 mod auth;
 mod brand;
+mod child_process;
 mod config;
+mod credential_store;
 mod hybrid;
 mod local_payload;
 mod local_server;
@@ -135,6 +137,9 @@ pub(crate) struct Shared {
     pub(crate) hybrid_local: bool,
     pub(crate) bridge_secret: String,
     pub(crate) bridge_user: Arc<RwLock<Option<String>>>,
+    pub(crate) bridge_sync: Arc<RwLock<hybrid::BridgeSync>>,
+    pub(crate) session_epoch: Arc<auth::SessionEpoch>,
+    pub(crate) device_id: String,
 }
 
 impl Shared {
@@ -165,16 +170,58 @@ fn open_login(app: tauri::AppHandle) {
 /// 解决「退出后前端跳外部 SSO / 内部空路由 → 白屏」的问题。
 #[tauri::command]
 async fn logout_desktop(app: tauri::AppHandle) {
-    {
-        let shared = app.state::<Shared>();
-        *shared.token.write().await = None;
-        auth::save_token(&shared.config_dir, None);
+    let expected = clear_desktop_session(&app.state::<Shared>()).await;
+    if !app.state::<Shared>().session_epoch.matches(expected) {
+        return;
     }
     let idle = app.state::<Shared>().login_idle_url();
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.eval(format!("window.location.replace('{}')", idle));
         let _ = w.set_focus();
     }
+}
+
+/// Invalidate async tasks before waiting for writes; revoke the old cloud session.
+async fn clear_desktop_session(shared: &Shared) -> u64 {
+    let expected = shared.session_epoch.advance();
+    let old_token = {
+        let _write = shared.session_epoch.local_write.lock().await;
+        if !shared.session_epoch.matches(expected) {
+            return expected;
+        }
+        let old_token = shared.token.write().await.take();
+        *shared.bridge_user.write().await = None;
+        *shared.bridge_sync.write().await = hybrid::BridgeSync::default();
+        auth::save_token(&shared.config_dir, &shared.server_base, None);
+        if shared.hybrid_local {
+            if let Err(error) =
+                hybrid::clear_cloud_bridge(&shared.http, &shared.bridge_secret).await
+            {
+                eprintln!("[auth] {error}");
+            }
+        }
+        old_token
+    };
+    if let Some(token) = old_token {
+        let response = shared
+            .http
+            .post(format!(
+                "{}/api/v1/auth/logout",
+                shared.server_base.trim_end_matches('/')
+            ))
+            .header(
+                reqwest::header::COOKIE,
+                format!("{}={token}", shared.cookie_name),
+            )
+            .send()
+            .await;
+        match response {
+            Ok(response) if response.status().is_success() => {}
+            Ok(response) => eprintln!("[auth] 云端退出 HTTP {}", response.status()),
+            Err(_) => eprintln!("[auth] 云端退出暂不可达；本机身份已清除"),
+        }
+    }
+    expected
 }
 
 pub fn run() {
@@ -264,19 +311,23 @@ pub fn run() {
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
             std::fs::create_dir_all(&config_dir).ok();
 
+            let needs_initialization = !config::is_provisioned(&config_dir);
             let mut cfg = config::load(&config_dir);
 
             // NSIS 交互安装的「运行模式三选一」通过一次性 pending 文件交给应用消费；
             // 自动更新不写 pending，用户日后的菜单切换也不会被旧安装选择覆盖。
             // 仅本机不需要地址 → 直接完成初始化；云端 / 双模式还差服务器地址 →
             // 只预选形态（is_provisioned 仍为 false），首启初始化页按预选补地址。
-            if let Some(installer_mode) = config::pending_installer_mode(&config_dir) {
+            // 仅交付混合模式的包没有模式可选，安装器的遗留选择一律丢弃。
+            if brand::HYBRID_ONLY {
+                config::clear_pending_installer_mode(&config_dir).map_err(std::io::Error::other)?;
+            } else if let Some(installer_mode) = config::pending_installer_mode(&config_dir) {
                 match installer_mode {
                     config::ProvisionMode::LocalOnly => {
                         config::provision(
                             &config_dir,
                             config::ProvisionMode::LocalOnly,
-                            local_server::LOCAL_SERVER_BASE,
+                            &local_server::local_server_base(),
                             "",
                         )
                         .map_err(std::io::Error::other)?;
@@ -288,6 +339,13 @@ pub fn run() {
                 }
                 config::clear_pending_installer_mode(&config_dir).map_err(std::io::Error::other)?;
                 cfg = config::load(&config_dir);
+            }
+
+            // 仅交付混合模式的包：首启页与安装进度页共用同一个窗口和反代实例。这里先只在
+            // 内存里把运行形态固定成「本机 + 云端」，用户确认后无需重启就能直接进进度页；
+            // 真正落盘与安装仍由「开始初始化」触发。
+            if brand::HYBRID_ONLY && needs_initialization {
+                config::apply_fixed_dual_mode(&mut cfg);
             }
 
             let http = reqwest::Client::builder()
@@ -331,7 +389,8 @@ pub fn run() {
             // 本机模式下，安装包版本变化会自动升级服务资源；已安装且同版本则直接
             // 拉起服务。安装/启动任务在后台跑，但主窗口与本机模式一致地停在可观察、
             // 可重试的进度页（Dual 也一样：本机执行面装好才进云端，见下方 start 路由）。
-            if cfg.uses_local_server() || hybrid_local {
+            // 还没初始化完（首启停在初始化页）时不预装：装机要等用户按下「开始初始化」。
+            if !needs_initialization && (cfg.uses_local_server() || hybrid_local) {
                 if local_server.needs_install() {
                     local_server.install_in_background();
                 } else if !tauri::async_runtime::block_on(local_server.is_ready()) {
@@ -357,7 +416,7 @@ pub fn run() {
 
             // 后端可达时校验已存 token：已吊销/过期就清盘。后端暂时不可达时保留
             // token，避免一次断网把有效桌面会话永久注销。
-            let mut token0 = auth::load_token(&config_dir);
+            let mut token0 = auth::load_token(&config_dir, cfg.server_base_trimmed());
             if backend_ready {
                 if let Some(t) = token0.clone() {
                     let valid = tauri::async_runtime::block_on(auth::validate(
@@ -368,12 +427,16 @@ pub fn run() {
                     ));
                     if !valid {
                         token0 = None;
-                        auth::save_token(&config_dir, None);
+                        auth::save_token(&config_dir, cfg.server_base_trimmed(), None);
                     }
                 }
             }
             let token = Arc::new(RwLock::new(token0.clone()));
             let bridge_user: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+            let session_epoch = Arc::new(auth::SessionEpoch::default());
+            let bridge_sync = Arc::new(RwLock::new(hybrid::BridgeSync::default()));
+            let device_id =
+                hybrid::load_or_create_device_id(&config_dir).map_err(std::io::Error::other)?;
 
             // 启动即持有有效云端会话（Dual）：立刻建立桥接身份 + 下发模型配置。
             if hybrid_local {
@@ -384,8 +447,12 @@ pub fn run() {
                         cfg.cookie_name.clone(),
                         token.clone(),
                         bridge_user.clone(),
+                        bridge_sync.clone(),
                         bridge_secret.clone(),
                         local_server.clone(),
+                        device_id.clone(),
+                        session_epoch.clone(),
+                        session_epoch.current(),
                     );
                 }
             }
@@ -415,10 +482,12 @@ pub fn run() {
                 provision_mode: cfg.provision_mode(),
                 init_mode_prefill,
                 cloud_server_base: cfg.cloud_base(),
-                local_base: local_server::LOCAL_SERVER_BASE.to_string(),
+                local_base: local_server::local_server_base(),
                 hybrid_local,
                 bridge_secret: bridge_secret.clone(),
                 bridge_user: bridge_user.clone(),
+                bridge_sync: bridge_sync.clone(),
+                session_epoch: session_epoch.clone(),
             };
             let port = tauri::async_runtime::block_on(proxy::serve(pstate, web_dir))
                 .expect("启动本地反代失败");
@@ -435,6 +504,9 @@ pub fn run() {
                 hybrid_local,
                 bridge_secret,
                 bridge_user,
+                bridge_sync,
+                session_epoch,
+                device_id,
             });
 
             // 运行时 deep-link 回调（macOS / 已运行实例）。
@@ -454,8 +526,9 @@ pub fn run() {
 
             // 初始窗口：有 token 进首页，没有则进登录卡片「初始态」（不自动开浏览器，
             // 等用户点「开始使用」再拉起）。退出登录同样回到这张卡片，避免白屏。
-            let start = if !config::is_provisioned(&config_dir) {
-                // 首启：先让用户选运行模式（本机 / 云端 / 双模式），云端形态在此填地址。
+            let start = if needs_initialization {
+                // 首启：默认包让用户选运行模式（本机 / 云端 / 双模式），云端形态在此填地址；
+                // 仅交付混合模式的包只展示一个确认动作（见 proxy.rs 的 init_page）。
                 format!("http://127.0.0.1:{}/__desktop/init", port)
             } else if !backend_ready {
                 format!("http://127.0.0.1:{}/__desktop/setup", port)
@@ -874,7 +947,7 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                         if let Err(error) = config::provision(
                             &dir,
                             config::ProvisionMode::LocalOnly,
-                            local_server::LOCAL_SERVER_BASE,
+                            &local_server::local_server_base(),
                             "",
                         ) {
                             eprintln!("[config] 切换本机服务失败: {error}");
@@ -900,6 +973,40 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                             return;
                         }
                         app2.restart();
+                    });
+                    return false;
+                }
+                // 仅交付混合模式的包：忽略任何查询参数，固定写入「本机 + 云端」+ 构建期
+                // 烤进来的云端地址。反代此刻已按双模式准备好，所以保存后让**同一个窗口**
+                // 直接切到安装进度页——不重启桌面进程，窗口不会先消失再重开。
+                if brand::HYBRID_ONLY && path == "/__desktop/provision" {
+                    let app2 = app_for_nav.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let dir = app2.state::<Shared>().config_dir.clone();
+                        if let Err(error) = config::provision(
+                            &dir,
+                            config::ProvisionMode::Dual,
+                            &local_server::local_server_base(),
+                            brand::DEFAULT_SERVER_BASE,
+                        ) {
+                            eprintln!("[config] 保存双模式初始化配置失败: {error}");
+                            return;
+                        }
+                        let port = app2.state::<Shared>().port;
+                        let setup_url =
+                            match url::Url::parse(&format!("http://127.0.0.1:{port}/__desktop/setup"))
+                            {
+                                Ok(url) => url,
+                                Err(error) => {
+                                    eprintln!("[config] 生成初始化进度页地址失败: {error}");
+                                    return;
+                                }
+                            };
+                        if let Some(window) = app2.get_webview_window("main") {
+                            if let Err(error) = window.navigate(setup_url) {
+                                eprintln!("[config] 打开初始化进度页失败: {error}");
+                            }
+                        }
                     });
                     return false;
                 }
@@ -930,7 +1037,7 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
                         if let Err(error) = config::provision(
                             &dir,
                             provision,
-                            local_server::LOCAL_SERVER_BASE,
+                            &local_server::local_server_base(),
                             &base,
                         ) {
                             eprintln!("[config] 保存初始化选型失败: {error}");
@@ -1004,8 +1111,8 @@ fn build_window(app: &tauri::AppHandle, url: &str) -> tauri::Result<()> {
             let app2 = app_for_nav.clone();
             tauri::async_runtime::spawn(async move {
                 let shared = app2.state::<Shared>();
-                *shared.token.write().await = None;
-                auth::save_token(&shared.config_dir, None);
+                let expected = clear_desktop_session(&shared).await;
+                if !shared.session_epoch.matches(expected) { return; }
                 if let Some(w) = app2.get_webview_window("main") {
                     let _ = w.eval(format!(
                         "window.location.replace('{}')",
@@ -1039,13 +1146,43 @@ fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
     let Some(ticket) = parse_ticket(&raw_url) else {
         return;
     };
+    let expected = app.state::<Shared>().session_epoch.advance();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let shared = app.state::<Shared>();
+        {
+            let _write = shared.session_epoch.local_write.lock().await;
+            if !shared.session_epoch.matches(expected) {
+                return;
+            }
+            *shared.token.write().await = None;
+            *shared.bridge_user.write().await = None;
+            *shared.bridge_sync.write().await = hybrid::BridgeSync::default();
+            auth::save_token(&shared.config_dir, &shared.server_base, None);
+            if shared.hybrid_local {
+                if let Err(error) =
+                    hybrid::clear_cloud_bridge(&shared.http, &shared.bridge_secret).await
+                {
+                    eprintln!("[auth] {error}");
+                }
+            }
+        }
+        if !shared.session_epoch.matches(expected) {
+            return;
+        }
         match auth::redeem(&shared.http, &shared.server_base, &ticket).await {
             Ok(tok) => {
+                let _write = shared.session_epoch.local_write.lock().await;
+                if !shared.session_epoch.matches(expected) {
+                    return;
+                }
                 *shared.token.write().await = Some(tok.clone());
-                auth::save_token(&shared.config_dir, Some(&tok));
+                auth::save_token(&shared.config_dir, &shared.server_base, Some(&tok));
+                shared.session_epoch.activate(expected);
+                drop(_write);
+                if !shared.session_epoch.matches(expected) {
+                    return;
+                }
                 // 混合架构（Dual）：登录成功即更新桥接身份并下发安全的本机执行能力。
                 if shared.hybrid_local {
                     hybrid::on_cloud_login(
@@ -1054,8 +1191,12 @@ fn handle_deep_link(app: &tauri::AppHandle, raw_url: String) {
                         shared.cookie_name.clone(),
                         shared.token.clone(),
                         shared.bridge_user.clone(),
+                        shared.bridge_sync.clone(),
                         shared.bridge_secret.clone(),
                         shared.local_server.clone(),
+                        shared.device_id.clone(),
+                        shared.session_epoch.clone(),
+                        expected,
                     );
                 }
                 let home = shared.home_url();

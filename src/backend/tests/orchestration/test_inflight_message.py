@@ -32,7 +32,7 @@ def env(tmp_path, monkeypatch):
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(executor, "SessionLocal", sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
     executor._active_runs.clear()
     with sessions() as db:

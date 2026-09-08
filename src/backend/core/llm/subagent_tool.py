@@ -301,6 +301,7 @@ def _run_subagent_in_thread(
             chat_id=runtime.get("chat_id") if builtin_spec is not None else None,
             run_id=runtime.get("run_id"),
             journal_owner=runtime.get("journal_owner"),
+            capability_scope=str(runtime.get("capability_scope") or ""),
             project_ctx=runtime.get("project_ctx") if builtin_spec is not None else None,
             channel_origin=runtime.get("channel_origin") if builtin_spec is not None else None,
             automation_run=bool(runtime.get("automation_run")),
@@ -426,6 +427,25 @@ def _run_subagent_in_thread(
         return False, str(e)[:200], [], []
     finally:
         loop.close()
+
+
+def _child_capability_runtime(parent_runtime, agent_id):
+    runtime = dict(parent_runtime or {})
+    from core.capabilities.paths import capabilities_enabled
+
+    if runtime.get("run_id") and capabilities_enabled():
+        from core.capabilities.runtime import child_scope
+        from core.llm.middlewares import CURRENT_TOOL_CALL_ID
+
+        # The ledger's persisted tool-call identity is stable on replay. SSE's
+        # random sub_run_id is presentation-only and never defines authority.
+        runtime["capability_scope"] = child_scope(
+            str(runtime.get("capability_scope") or ""),
+            "subagent",
+            CURRENT_TOOL_CALL_ID.get(""),
+            agent_id,
+        )
+    return runtime
 
 
 def register_subagent_tool(
@@ -602,6 +622,20 @@ def register_subagent_tool(
             # copy here would let child activations update nested lists while
             # losing scalar changes such as an escalated review_level.
             ontology_runtime = _shared_ontology_runtime(agent_ref)
+            from core.capabilities.errors import IntegrityFailed
+
+            try:
+                child_runtime = _child_capability_runtime(parent_runtime, agent_id)
+            except IntegrityFailed:
+                await _finish("failed", error="missing durable capability scope")
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text", text="子智能体缺少可恢复的持久工具调用身份，已拒绝执行。"
+                        )
+                    ],
+                    state="error",
+                )
             ok, text, sub_pinned, final_messages = await loop.run_in_executor(
                 _subagent_pool,
                 _run_subagent_in_thread,
@@ -613,7 +647,7 @@ def register_subagent_tool(
                 shared_messages,
                 _emit,
                 ontology_runtime,
-                parent_runtime,
+                child_runtime,
                 resume_messages,
             )
 

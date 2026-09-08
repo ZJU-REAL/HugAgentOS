@@ -1,4 +1,4 @@
-"""桌面双端技能同步：协议、落盘/镜像、启用清单合并、账号切换清空。"""
+"""桌面双端技能：清单 → 安装意图；按需准备 → 存储层 revision → 运行视图联接；无镜像拷贝。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,13 @@ import io
 import json
 import time
 import zipfile
+from pathlib import Path
 
 import pytest
 from core.agent_skills import config as skill_config
+from core.capabilities import junction, registry, skills, store
+from core.capabilities.paths import KIND_SKILL
+from core.capabilities.ref import profile_id
 from core.services import desktop_cloud_bridge as bridge
 from core.services import desktop_cloud_skills as cloud_skills
 from core.services.desktop_capability_protocol import (
@@ -46,8 +50,8 @@ def _entry(skill_id: str, content_hash: str, scope: str = "shared") -> dict:
 
 
 def _token(user_id: str) -> str:
-    body = base64.urlsafe_b64encode(json.dumps({"u": user_id}).encode()).decode().rstrip("=")
-    return f"dcap1.{body}.sig"
+    body = base64.urlsafe_b64encode(json.dumps({"u": user_id, "c": "center-" + user_id, "a": 1, "h": "session-" + user_id, "d": "device"}).encode()).decode().rstrip("=")
+    return f"dcap2.{body}.sig"
 
 
 # ── 协议 ─────────────────────────────────────────────────────────────
@@ -108,7 +112,7 @@ class _FakeResponse:
 
 
 class _FakeCloud:
-    """按 URL 应答 manifest / bundle 的假云端；记录请求以断言 ETag 行为。"""
+    """按 URL 应答 manifest / bundle 的假云端；记录请求以断言 ETag 与下载行为。"""
 
     def __init__(self, manifest: dict, bundles: dict):
         self.manifest = manifest
@@ -127,24 +131,47 @@ class _FakeCloud:
         data, content_hash = self.bundles[sid]
         return _FakeResponse(200, content=data, etag=content_hash)
 
+    def downloads(self) -> list:
+        return [u for u, _ in self.calls if u.endswith("/bundle")]
+
+
+_STATE = {"cloud_base": "https://cloud.example", "token": _token("u-1"), "expires_at": 0}
+_PROFILE = profile_id(_STATE["cloud_base"], "u-1")
+
 
 @pytest.fixture
-def dirs(tmp_path, monkeypatch):
-    monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "sandbox_skills"))
+def dirs(tmp_path, monkeypatch, index_db):
+    workspace = tmp_path / "workspace"
+    monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(workspace / "skills"))
+    monkeypatch.setenv("HUGAGENT_CAPS_ROOT", str(tmp_path / "caps"))
     monkeypatch.setenv("HUGAGENT_DESKTOP_BRIDGE_SECRET", "test-secret")
-    monkeypatch.setattr(skill_config, "_builtin_skills_dir", lambda: tmp_path / "builtin")
-    (tmp_path / "builtin" / "ppt-design").mkdir(parents=True)
-    (tmp_path / "builtin" / "ppt-design" / "SKILL.md").write_text(_skill_md("ppt-design", "old"))
+    builtin = tmp_path / "builtin"
+    (builtin / "ppt-design").mkdir(parents=True)
+    (builtin / "ppt-design" / "SKILL.md").write_text(_skill_md("ppt-design", "old"))
+    monkeypatch.setattr(skill_config, "_builtin_skills_dir", lambda: builtin)
+    monkeypatch.setattr(skills, "builtin_dir", lambda: builtin)
     bridge.reset_for_tests()
+    monkeypatch.setattr(bridge, "bridge_enabled", lambda: True)
+    monkeypatch.setattr(bridge, "get_state", lambda: dict(_STATE, expires_at=time.time() + 60))
+    monkeypatch.setattr(skills, "current_local_user_id", lambda: "u")
     monkeypatch.setattr("core.agent_skills.cache_refresh.refresh_skill_caches", lambda: None)
     yield tmp_path
     bridge.reset_for_tests()
 
 
-def _cloud(monkeypatch, skills: dict, suppressed=()):
-    """skills: {skill_id: {rel: content}} → 假云端 + manifest。"""
+@pytest.fixture
+def index_db(tmp_path, monkeypatch):
+    from tests._capability_index import bind_capability_index
+
+    engine, factory = bind_capability_index(tmp_path, monkeypatch)
+    yield factory
+    engine.dispose()
+
+
+def _cloud(monkeypatch, skills_: dict, suppressed=()):
+    """skills_: {skill_id: {rel: content}} → 假云端 + manifest。"""
     entries, bundles = [], {}
-    for sid, files in skills.items():
+    for sid, files in skills_.items():
         md = files.get("SKILL.md") or _skill_md(sid)
         extra = {k: v for k, v in files.items() if k != "SKILL.md"}
         h = skill_content_hash(md, extra)
@@ -155,67 +182,106 @@ def _cloud(monkeypatch, skills: dict, suppressed=()):
     return fake
 
 
-_STATE = {"cloud_base": "https://cloud.example", "token": _token("u-1"), "expires_at": 0}
+def _iid(sid: str) -> str:
+    return registry.install_id(KIND_SKILL, _PROFILE, sid)
 
 
-def test_sync_installs_mirrors_and_uses_etag(dirs, monkeypatch):
-    fake = _cloud(
-        monkeypatch,
-        {
-            "ppt-design": {"SKILL.md": _skill_md("ppt-design", "cloud"), "scripts/a.py": "print()"},
-            "my-private": {"secrets.json": '{"k": "v"}'},
-        },
-        suppressed=["word-editing"],
-    )
+def test_sync_records_intent_without_downloading(dirs, monkeypatch):
+    fake = _cloud(monkeypatch, {"market-x": {"scripts/a.py": "print()"}, "ppt-design": {}})
     cloud_skills.sync_blocking(_STATE)
 
-    root = skill_config.get_cloud_skills_dir()
-    shared = skill_config.get_sandbox_skills_dir()
-    assert (root / "ppt-design" / "scripts" / "a.py").read_text() == "print()"
-    assert "cloud" in (shared / "ppt-design" / "SKILL.md").read_text()
-    assert (shared / "my-private" / "secrets.json").exists()
-    status = cloud_skills.status()
-    assert status["installed_count"] == 2 and status["last_error"] is None
-
-    # 第二轮：manifest 未变 → 304，不再下载任何 bundle
+    assert fake.downloads() == []
+    rows = {i.key: i for i in registry.list_installations(kind=KIND_SKILL, profile_id=_PROFILE)}
+    assert set(rows) == {"market-x", "ppt-design"} and all(r.state == "pending" for r in rows.values())
+    st = cloud_skills.status()
+    assert st["pending_count"] == 2 and st["installed_count"] == 0 and st["profile_id"] == _PROFILE
+    # 第二轮：manifest 未变 → 304
     before = len(fake.calls)
     cloud_skills.sync_blocking(_STATE)
-    new_calls = fake.calls[before:]
-    assert len(new_calls) == 1 and new_calls[0][0].endswith("/skills/manifest")
-    assert new_calls[0][1]["If-None-Match"] == f'"{fake.manifest["revision"]}"'
+    assert fake.calls[before:][0][1]["If-None-Match"] == f'"{fake.manifest["revision"]}"'
 
 
-def test_sync_reasserts_mirror_pruned_at_startup(dirs, monkeypatch):
-    _cloud(monkeypatch, {"my-private": {}})
+def test_prepare_publishes_revision_and_links_view(dirs, monkeypatch):
+    monkeypatch.setattr(skills, "current_local_user_id", lambda: "local-user")
+    fake = _cloud(monkeypatch, {"market-x": {"scripts/a.py": "print()"}})
     cloud_skills.sync_blocking(_STATE)
+    results = cloud_skills.prepare(_STATE, [_iid("market-x")])
+    assert results[0]["ok"] and results[0]["installation"]["state"] == "ready"
+    inst = registry.get(_iid("market-x"))
+    comp = store.get(KIND_SKILL, _PROFILE, "market-x", inst.resolved_revision)
+    assert (comp.path / "scripts" / "a.py").read_text() == "print()"
+
+    view = skill_config.sync_user_skill_view("local-user")
+    link = view / "market-x"
+    assert junction.is_directory_link(link)
+    assert junction.read_directory_link(link) == comp.path.resolve()
+    assert (link / "SKILL.md").read_text().startswith("---")
+    # 共享目录（设备视图）不含账号私有安装，且没有任何真实拷贝
     shared = skill_config.get_sandbox_skills_dir()
-    import shutil
-
-    shutil.rmtree(shared / "my-private")
-    cloud_skills.sync_blocking(_STATE)  # 304 路径也要把镜像补回来
-    assert (shared / "my-private" / "SKILL.md").exists()
+    assert not (shared / "market-x").exists()
+    assert junction.is_directory_link(shared / "ppt-design")
+    assert len(fake.downloads()) == 1
 
 
-def test_removed_cloud_skill_restores_builtin_copy(dirs, monkeypatch):
+def test_prepare_rejects_tampered_bundle(dirs, monkeypatch):
+    fake = _cloud(monkeypatch, {"market-x": {"SKILL.md": _skill_md("market-x", "real")}})
+    fake.bundles["market-x"] = (_zip("market-x", {"SKILL.md": _skill_md("market-x", "evil")}), "x")
+    cloud_skills.sync_blocking(_STATE)
+    res = cloud_skills.prepare(_STATE, [_iid("market-x")])
+    assert not res[0]["ok"] and res[0]["error"]["code"] == "integrity_failed"
+    inst = registry.get(_iid("market-x"))
+    assert inst.state == "failed" and store.revisions(KIND_SKILL, _PROFILE, "market-x") == []
+
+
+def test_cloud_copy_wins_over_builtin_and_builtin_returns_when_removed(dirs, monkeypatch):
     _cloud(monkeypatch, {"ppt-design": {"SKILL.md": _skill_md("ppt-design", "cloud")}})
     cloud_skills.sync_blocking(_STATE)
-    shared = skill_config.get_sandbox_skills_dir()
-    assert "cloud" in (shared / "ppt-design" / "SKILL.md").read_text()
+    view = skill_config.sync_user_skill_view("u")
+    assert "old" in (view / "ppt-design" / "SKILL.md").read_text()  # pending copy never shadows
+    cloud_skills.prepare(_STATE, [_iid("ppt-design")])
+    view = skill_config.sync_user_skill_view("u")
+    assert "cloud" in (view / "ppt-design" / "SKILL.md").read_text()
+    res = skills.last_resolution("u")
+    assert res.reasons["ppt-design"] == "account_unique"
+    assert [c.profile for c in res.shadowed["ppt-design"]] == ["builtin"]
 
     _cloud(monkeypatch, {})
     cloud_skills.sync_blocking(_STATE)
-    assert not (skill_config.get_cloud_skills_dir() / "ppt-design").exists()
-    assert "old" in (shared / "ppt-design" / "SKILL.md").read_text()
+    assert registry.list_installations(kind=KIND_SKILL, profile_id=_PROFILE) == []
+    assert len(store.revisions(KIND_SKILL, _PROFILE, "ppt-design")) == 1
+    assert "cloud" in store.revisions(KIND_SKILL, _PROFILE, "ppt-design")[0].entry_file.read_text()
+    view = skill_config.sync_user_skill_view("u")
+    assert "old" in (view / "ppt-design" / "SKILL.md").read_text()
+
+
+def test_ready_skill_auto_updates_on_new_cloud_content(dirs, monkeypatch):
+    _cloud(monkeypatch, {"market-x": {"SKILL.md": _skill_md("market-x", "v1")}})
+    cloud_skills.sync_blocking(_STATE)
+    cloud_skills.prepare(_STATE, [_iid("market-x")])
+    r1 = registry.get(_iid("market-x")).resolved_revision
+
+    fake = _cloud(monkeypatch, {"market-x": {"SKILL.md": _skill_md("market-x", "v2")}})
+    cloud_skills.sync_blocking(_STATE)
+    inst = registry.get(_iid("market-x"))
+    assert inst.state == "ready" and inst.resolved_revision != r1
+    assert len(fake.downloads()) == 1
+    assert {c.revision for c in store.revisions(KIND_SKILL, _PROFILE, "market-x")} == {r1, inst.resolved_revision}
+    assert "v1" in store.get(KIND_SKILL, _PROFILE, "market-x", r1).entry_file.read_text()
+    view = skill_config.sync_user_skill_view("u")
+    assert "v2" in (view / "market-x" / "SKILL.md").read_text()
 
 
 def test_apply_to_enabled_skill_ids_follows_cloud(dirs, monkeypatch):
     _cloud(monkeypatch, {"ppt-design": {}, "market-x": {}}, suppressed=["word-editing"])
     cloud_skills.sync_blocking(_STATE)
-    monkeypatch.setattr(bridge, "bridge_enabled", lambda: True)
-    monkeypatch.setattr(bridge, "get_state", lambda: dict(_STATE, expires_at=time.time() + 60))
-
+    # 只同步了意图：待下载的技能不进本轮清单
+    assert bridge.apply_to_enabled_skill_ids(["word-editing", "ppt-design", "local-only"]) == [
+        "ppt-design",
+        "local-only",
+    ]
+    cloud_skills.prepare(_STATE, [_iid("market-x")])
     out = bridge.apply_to_enabled_skill_ids(["word-editing", "ppt-design", "local-only"])
-    assert out == ["local-only", "ppt-design", "market-x"]
+    assert out == ["ppt-design", "local-only", "market-x"]
     assert bridge.apply_to_enabled_skill_ids(list(out)) == out
     assert bridge.apply_to_enabled_skill_ids(None) is None
 
@@ -225,35 +291,57 @@ def test_apply_noop_when_bridge_inactive_or_unsynced(dirs, monkeypatch):
     monkeypatch.setattr(bridge, "bridge_enabled", lambda: False)
     assert bridge.apply_to_enabled_skill_ids(list(ids)) == ids
     monkeypatch.setattr(bridge, "bridge_enabled", lambda: True)
-    monkeypatch.setattr(bridge, "get_state", lambda: dict(_STATE, expires_at=time.time() + 60))
     assert bridge.apply_to_enabled_skill_ids(list(ids)) == ids  # manifest 尚未同步
 
 
-def test_failed_bundle_download_is_not_enabled(dirs, monkeypatch):
-    fake = _cloud(monkeypatch, {"good": {}, "broken": {}})
-    del fake.bundles["broken"]
+def test_suppressed_cloud_skill_is_disabled_but_kept(dirs, monkeypatch):
+    _cloud(monkeypatch, {"market-x": {}})
     cloud_skills.sync_blocking(_STATE)
-    monkeypatch.setattr(bridge, "bridge_enabled", lambda: True)
-    monkeypatch.setattr(bridge, "get_state", lambda: dict(_STATE, expires_at=time.time() + 60))
-    assert bridge.apply_to_enabled_skill_ids(["broken"]) == ["broken", "good"]
-    assert cloud_skills.status()["installed_count"] == 1
+    cloud_skills.prepare(_STATE, [_iid("market-x")])
+    _cloud(monkeypatch, {}, suppressed=["market-x"])
+    cloud_skills.sync_blocking(_STATE)
+    inst = registry.get(_iid("market-x"))
+    assert inst.state == "ready" and inst.enabled is False
+    assert store.revisions(KIND_SKILL, _PROFILE, "market-x")
+    assert bridge.apply_to_enabled_skill_ids(["market-x", "other"]) == ["other"]
 
 
-def test_account_switch_purges_files(dirs, monkeypatch):
+def test_account_switch_keeps_files_isolated_per_profile(dirs, monkeypatch):
     _cloud(monkeypatch, {"my-private": {"secrets.json": "{}"}})
     cloud_skills.sync_blocking(_STATE)
-    assert (skill_config.get_cloud_skills_dir() / "my-private").exists()
-    cloud_skills.purge_all()
-    assert not (skill_config.get_cloud_skills_dir() / "my-private").exists()
-    assert not (skill_config.get_sandbox_skills_dir() / "my-private").exists()
+    cloud_skills.prepare(_STATE, [_iid("my-private")])
+    assert store.revisions(KIND_SKILL, _PROFILE, "my-private")
+
+    other = dict(_STATE, token=_token("u-2"))
+    monkeypatch.setattr(bridge, "get_state", lambda: dict(other, expires_at=time.time() + 60))
+    cloud_skills.on_account_switch()
+    _cloud(monkeypatch, {})
+    cloud_skills.sync_blocking(other)
+    view = skill_config.sync_user_skill_view("u2-local")
+    assert not (view / "my-private").exists()
+    assert store.revisions(KIND_SKILL, _PROFILE, "my-private")  # A 的文件留在 A 的 profile
     assert cloud_skills.status()["installed_count"] == 0
 
 
-def test_cloud_source_registered_only_for_bridge_process(dirs, monkeypatch):
+def test_cloud_source_registered_only_with_store(dirs, monkeypatch):
     names = [s.name for s in skill_config.get_default_skill_sources()]
-    assert names[-1] == "cloud"
-    assert skill_config.get_default_skill_sources()[-1].priority > max(
-        s.priority for s in skill_config.get_default_skill_sources()[:-1]
+    assert names[-1] == "cloud" and "user" not in names
+    monkeypatch.delenv("HUGAGENT_CAPS_ROOT")
+    names = [s.name for s in skill_config.get_default_skill_sources()]
+    assert "cloud" not in names and "user" in names
+
+
+def test_local_fork_takes_the_name_by_preference(dirs, monkeypatch):
+    _cloud(monkeypatch, {"ppt-design": {"SKILL.md": _skill_md("ppt-design", "cloud")}})
+    cloud_skills.sync_blocking(_STATE)
+    cloud_skills.prepare(_STATE, [_iid("ppt-design")])
+    md = _skill_md("ppt-design", "mine")
+    comp = skills.publish_local_skill(
+        "ppt-design", files={"SKILL.md": md}, content_hash=skill_content_hash(md, {}), owner_user_id="u"
     )
-    monkeypatch.delenv("HUGAGENT_DESKTOP_BRIDGE_SECRET")
-    assert "cloud" not in [s.name for s in skill_config.get_default_skill_sources()]
+    res = skills.resolve_for_user("u")
+    assert "ppt-design" in res.conflicts  # cloud + local, both account-level, different content
+    registry.set_preference(KIND_SKILL, "ppt-design", comp and registry.install_id(KIND_SKILL, "local", "ppt-design"), chosen_by="u")
+    view = skill_config.sync_user_skill_view("u")
+    assert "mine" in (view / "ppt-design" / "SKILL.md").read_text()
+    assert skills.last_resolution("u").reasons["ppt-design"] == "preference"

@@ -19,7 +19,7 @@ HugAgentOS 是一个企业级 AI Agent 平台：FastAPI 后端 + React 前端 + 
 | 文档 | 说明 |
 |------|------|
 | [部署指南 · 总览](deployment/README.md) | 各部署方式对比与选型、部署后验证 |
-| [无 Docker 一键安装](deployment/quick-install.md) | 个人单机零依赖：一条命令装好，SQLite + 进程内 fakeredis + 子进程 MCP/沙箱 |
+| [无 Docker 一键安装](deployment/quick-install.md) | 个人单机零依赖：一条命令装好，SQLite + 进程内事件流/短时状态 + 子进程 MCP/沙箱 |
 | [Docker Compose 部署](deployment/docker-compose.md) | 团队/生产标准形态：全部服务拓扑、profiles、rebuild 流程、数据库迁移 |
 | [离线生产部署](deployment/offline-production.md) | 隔离环境：镜像 tarball 打包 / 生产侧加载 / 提示词快照迁移（商业版 EE） |
 | [Windows 部署](deployment/windows-deployment.md) | Docker Desktop / WSL2 部署差异、换行符、路径与沙箱限制 |

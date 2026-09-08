@@ -18,6 +18,7 @@ class SkillFileInfo:
     content: Optional[str] = None  # Non-None when content comes from DB (skips file I/O)
     metadata: Optional[Dict[str, Any]] = None  # Lightweight metadata without instructions
     is_database: bool = False  # Full content must be fetched from the owning DB backend
+    origin: Optional[Dict[str, Any]] = None  # Store identity (install_id/profile/revision/hash)
 
 
 class SkillBackendProtocol(Protocol):

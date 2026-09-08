@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AbilityTabKey, Catalog, KbTabKey, PanelKey } from '../types';
 import { getCatalog, updateCatalogItem } from '../api';
 import { loadCatalog, saveCatalog, removeLocal } from '../storage';
+import { loadActiveProjectId } from './projectSession';
 
 const PANEL_STORAGE_KEY = 'hugagent_active_panel';
 // Keep in sync with authStore.LOGIN_LANDING_KEY (inlined to avoid a circular import).
@@ -45,6 +46,13 @@ function writeSession(key: string, value: string) {
   try { window.sessionStorage.setItem(key, value); } catch { /* sessionStorage 不可用 */ }
 }
 
+/** project_detail 依赖当前项目 id；id 已不在（关过项目或换了标签页）就退回项目列表，
+ *  否则主区域没有可渲染的内容。 */
+function normalizePanel(panel: PanelKey): PanelKey {
+  if (panel === 'project_detail' && !loadActiveProjectId()) return 'projects';
+  return panel;
+}
+
 function loadActivePanel(): PanelKey {
   if (typeof window === 'undefined') return 'chat';
   // On a fresh login (SSO ticket exchange), force the user to land on home.
@@ -52,7 +60,7 @@ function loadActivePanel(): PanelKey {
   if (readSession(LOGIN_LANDING_KEY) === '1') return 'chat';
   const saved = readSession(PANEL_STORAGE_KEY);
   if (saved && (VALID_PANELS as readonly string[]).includes(saved)) {
-    return saved as PanelKey;
+    return normalizePanel(saved as PanelKey);
   }
   // 迁移：老版本把它写在 localStorage 里，读一次让本次刷新不至于突然跳回首页，
   // 读完就清掉，之后一律走 sessionStorage。
@@ -61,7 +69,7 @@ function loadActivePanel(): PanelKey {
     removeLocal(PANEL_STORAGE_KEY);
     if (legacy && (VALID_PANELS as readonly string[]).includes(legacy)) {
       writeSession(PANEL_STORAGE_KEY, legacy);
-      return legacy as PanelKey;
+      return normalizePanel(legacy as PanelKey);
     }
   } catch { /* localStorage unavailable */ }
   return 'chat';

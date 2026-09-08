@@ -35,6 +35,9 @@ import { AgentCreatePage } from './AgentCreatePage';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { ABILITY_TAB_TITLE } from '../catalog/abilityTabs';
 import { t } from '../../i18n';
+import { DeviceCapabilityBadge } from '../catalog/DeviceCapabilityBadge';
+import { DeviceCapabilityPanel } from '../catalog/DeviceCapabilityPanel';
+import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import { AgentIcon } from './AgentIcon';
 
 const AGENT_DETAIL_ID_KEY = 'hugagent_agent_detail_id';
@@ -769,6 +772,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
         </div>
       </div>
 
+      <DeviceCapabilityPanel kind="agent" />
       {/* Card grid (container key=panelEntryNonce controls stagger replay; data updates like the enable toggle don't replay) */}
       {loading ? (
         <AgentListSkeleton />
@@ -797,6 +801,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
                     <div className="jx-agentCard-nameRow">
                       <span className="jx-agentCard-name">{agent.name}</span>
                       <EditionAgentBadge agent={agent} />
+                      <DeviceCapabilityBadge kind="agent" runtimeName={agent.name} />
                     </div>
                     {/* 启停开关常驻，编辑/删除悬浮才显形；无权启停的智能体整个尾部都不出现 */}
                     {canToggle && (
@@ -846,7 +851,7 @@ export function AgentPanel({ embedded = false }: AgentPanelProps = {}) {
         open={marketOpen}
         onClose={() => setMarketOpen(false)}
         fetchers={USER_MARKET_FETCHERS}
-        onInstalled={() => { void fetchAgents(); }}
+        onInstalled={() => { void fetchAgents(); void useDesktopCapabilityStore.getState().refresh().catch((error) => message.error(error.message)); }}
       />
 
       <Modal

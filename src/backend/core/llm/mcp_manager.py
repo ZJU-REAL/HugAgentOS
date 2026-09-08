@@ -179,8 +179,26 @@ class GatewayMCPTool(ToolBase):
             message="MCP tools must be explicitly allowed by the user.",
         )
 
+    def _unknown_outcome(self) -> ToolChunk:
+        from agentscope.message import TextBlock, ToolResultState
+
+        return ToolChunk(
+            content=[TextBlock(text="云端写操作的结果未知，已停止任务。请先核对云端结果，避免重复执行。")],
+            state=ToolResultState.ERROR,
+            metadata={"origin": "cloud", "mcp_server_id": self.mcp_name,
+                      "gateway_outcome_unknown": True},
+        )
+
     async def __call__(self, **kwargs: Any) -> ToolChunk:
         headers = dict(self._headers)
+        from core.capabilities.paths import capabilities_enabled
+        captured = None
+        if capabilities_enabled() and "/api/v1/desktop/capability/gateway/" in self._invoke_url:
+            from core.services import desktop_cloud_bridge as bridge
+            captured = {"cloud_base": self._invoke_url.split("/api/v1/desktop/capability/gateway/", 1)[0],
+                        "token": str(headers.get("Authorization") or "").removeprefix("Bearer ")}
+            bridge.require_current_account(captured)
+            headers.update(bridge.cloud_headers(bridge.get_state()))
         headers["accept-encoding"] = "identity"
         client_kwargs: Dict[str, Any] = {
             "timeout": httpx.Timeout(
@@ -203,6 +221,8 @@ class GatewayMCPTool(ToolBase):
                         "schema_hash": self._schema_hash,
                     },
                 )
+            if captured is not None:
+                bridge.require_current_account(captured)
             response.raise_for_status()
             payload = response.json()
             data = payload.get("data") if isinstance(payload, dict) else None
@@ -213,8 +233,15 @@ class GatewayMCPTool(ToolBase):
             chunk.metadata.setdefault("mcp_server_id", self.mcp_name)
             return chunk
         except httpx.TimeoutException as exc:
+            if not self.is_read_only:
+                return self._unknown_outcome()
             raise RuntimeError(f"云端工具 {self.name} 调用超时，请稍后重试") from exc
         except httpx.HTTPStatusError as exc:
+            if not self.is_read_only and (exc.response.status_code >= 500 or exc.response.status_code == 422):
+                return self._unknown_outcome()
+            if captured is not None and exc.response.status_code in (401, 403):
+                with bridge.account_scope(captured):
+                    bridge.clear_state()
             if exc.response.status_code == 409:
                 raise RuntimeError(
                     f"云端工具 {self.name} 已更新，请刷新能力清单后重试"
@@ -223,6 +250,8 @@ class GatewayMCPTool(ToolBase):
                 f"云端工具 {self.name} 暂时不可用（HTTP {exc.response.status_code}）"
             ) from exc
         except (httpx.HTTPError, ValueError) as exc:
+            if not self.is_read_only:
+                return self._unknown_outcome()
             raise RuntimeError(f"云端工具 {self.name} 返回异常，请稍后重试") from exc
 
 

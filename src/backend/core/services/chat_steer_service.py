@@ -1,8 +1,8 @@
 """Compatibility adapter over the durable Chat SteerQueue.
 
 The database owns acceptance, ordering, claim leases and acknowledgement.
-Redis only nudges a live worker to poll sooner; deleting or losing the Redis
-key never deletes an accepted instruction.
+The ephemeral note only nudges a live worker to poll sooner; dropping or
+losing it never deletes an accepted instruction.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun
-from core.infra.redis import get_redis
+from core.infra.ephemeral import get_ephemeral_state
 from core.services.steer_queue import SteerQueue, SteerQueueConflict
 
 _STEER_KEY = "jx:chat:run:{run_id}:steer"
@@ -40,10 +40,10 @@ def _run_identity(run_id: str) -> tuple[str, str]:
 
 async def _notify(run_id: str, payload: Dict[str, Any]) -> None:
     try:
-        await get_redis().set(
+        await get_ephemeral_state().put(
             _key(run_id),
             json.dumps(payload, ensure_ascii=False),
-            ex=_STEER_TTL_SECONDS,
+            ttl=_STEER_TTL_SECONDS,
         )
     except Exception:
         # Accepted is already durable. Notification loss is only latency.
@@ -93,15 +93,9 @@ async def take_pending_steer(
     if claimed is not None:
         return claimed.as_payload()
 
-    # Upgrade an old Redis-only payload if one survived a rolling deployment.
+    # Upgrade an old note-only payload if one survived a rolling deployment.
     try:
-        redis = get_redis()
-        try:
-            raw = await redis.getdel(_key(run_id))
-        except AttributeError:  # pragma: no cover - old redis clients
-            raw = await redis.get(_key(run_id))
-            if raw is not None:
-                await redis.delete(_key(run_id))
+        raw = await get_ephemeral_state().take(_key(run_id))
     except Exception:
         return None
     if not raw:
@@ -132,7 +126,7 @@ async def remove_pending_steer(run_id: str, steer_id: str) -> bool:
     removed = SteerQueue(SessionLocal).cancel(run_id, steer_id)
     if removed:
         try:
-            await get_redis().delete(_key(run_id))
+            await get_ephemeral_state().drop(_key(run_id))
         except Exception:
             pass
     return removed

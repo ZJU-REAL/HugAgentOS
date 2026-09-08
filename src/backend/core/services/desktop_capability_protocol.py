@@ -45,19 +45,22 @@ def canonical_hash(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def token_subject(token: str) -> str:
-    """Read the user id a capability token was issued for, without verifying it.
 
-    Only the cloud can verify a token. The local runtime uses this to tell a
-    routine token rotation (same account) apart from an account switch.
-    """
+def token_claims(token: str) -> Dict[str, Any]:
+    """Read routing labels only; server-side signature/session checks authorize use."""
     try:
-        _prefix, body, _sig = (token or "").strip().split(".", 2)
-        padded = body + "=" * (-len(body) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
-        return str(payload.get("u") or "").strip()
-    except Exception:  # noqa: BLE001 - opaque tokens fall back to raw comparison
-        return ""
+        import base64
+        raw = str(token).split(".")
+        if len(raw) != 3 or raw[0] not in ("dcap1", "dcap2"):
+            return {}
+        payload = json.loads(base64.urlsafe_b64decode(raw[1] + "=" * (-len(raw[1]) % 4)))
+        return payload if isinstance(payload, dict) else {}
+    except (ValueError, TypeError, UnicodeError):
+        return {}
+
+def token_subject(token: str) -> str:
+    """Unverified account routing label; never use this as an authorization check."""
+    return str(token_claims(token).get("u") or "")
 
 
 def public_tool_schema(raw: Any) -> Optional[Dict[str, Any]]:
@@ -223,4 +226,82 @@ def validate_skill_manifest(raw: Any) -> Dict[str, Any]:
         "revision": revision,
         "skills": normalized,
         "suppressed_ids": suppressed_ids,
+    }
+
+
+# ── Entity manifests (agents, plugins) ──────────────────────────────────
+
+ENTITY_MANIFEST_VERSION = 1
+
+_ENTITY_ENTRY_KEYS: Dict[str, frozenset] = {
+    "agent": frozenset({"agent_id", "name", "description", "version", "content_hash", "is_enabled"}),
+    "plugin": frozenset(
+        {
+            "install_id",
+            "slug",
+            "name",
+            "version",
+            "description",
+            "category",
+            "content_hash",
+            "enabled",
+            "skills",
+            "mcp",
+        }
+    ),
+}
+_ENTITY_ID_KEY = {"agent": "agent_id", "plugin": "install_id"}
+
+
+def entity_id_key(kind: str) -> str:
+    return _ENTITY_ID_KEY[kind]
+
+
+def entity_content_hash(files: Dict[str, str]) -> str:
+    """Hash of a definition bundle ({relative path: text}), order-independent."""
+    return canonical_hash({str(k): str(v) for k, v in files.items()})
+
+
+def build_entity_manifest(kind: str, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if kind not in _ENTITY_ENTRY_KEYS:
+        raise CapabilityManifestError(f"unknown entity kind {kind!r}")
+    snapshot = copy.deepcopy(entries)
+    return {
+        "version": ENTITY_MANIFEST_VERSION,
+        "kind": kind,
+        "revision": canonical_hash({"kind": kind, "entries": snapshot}),
+        "entries": snapshot,
+    }
+
+
+def validate_entity_manifest(raw: Any, kind: str) -> Dict[str, Any]:
+    if kind not in _ENTITY_ENTRY_KEYS:
+        raise CapabilityManifestError(f"unknown entity kind {kind!r}")
+    if not isinstance(raw, dict):
+        raise CapabilityManifestError(f"{kind} manifest must be an object")
+    if raw.get("version") != ENTITY_MANIFEST_VERSION or raw.get("kind") != kind:
+        raise CapabilityManifestError(f"unsupported {kind} manifest version or kind")
+    entries = raw.get("entries")
+    revision = str(raw.get("revision") or "")
+    if not isinstance(entries, list) or not revision:
+        raise CapabilityManifestError(f"{kind} manifest is missing entries or revision")
+    keys = _ENTITY_ENTRY_KEYS[kind]
+    id_key = _ENTITY_ID_KEY[kind]
+    normalized: List[Dict[str, Any]] = []
+    seen: set = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != keys:
+            raise CapabilityManifestError(f"{kind} manifest entry is incomplete")
+        ident = str(entry.get(id_key) or "").strip()
+        if not ident or ident in seen or len(str(entry.get("content_hash") or "")) != 64:
+            raise CapabilityManifestError(f"{kind} manifest entry has an invalid id or hash")
+        seen.add(ident)
+        normalized.append(copy.deepcopy(entry))
+    if canonical_hash({"kind": kind, "entries": normalized}) != revision:
+        raise CapabilityManifestError(f"{kind} manifest revision mismatch")
+    return {
+        "version": ENTITY_MANIFEST_VERSION,
+        "kind": kind,
+        "revision": revision,
+        "entries": normalized,
     }

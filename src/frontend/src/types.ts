@@ -34,6 +34,8 @@ export interface ProjectItem extends EditionProjectFields {
   /** Linked folder name (for frontend display) */
   folder_name: string | null;
   instructions: string;
+  instructions_source?: 'AGENTS.md' | 'legacy' | 'missing';
+  instructions_revision?: string;
   icon_color: string | null;
   pinned: boolean;
   favorite: boolean;

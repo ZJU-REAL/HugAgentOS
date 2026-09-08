@@ -30,6 +30,8 @@ from __future__ import annotations
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.capabilities.runtime import child_scope
+
 from core.infra.logging import get_logger
 from orchestration.loop_evaluator import (
     CONTINUE,
@@ -150,6 +152,7 @@ async def review_requirement(
     second_pass: bool = False,
     requirement_id: Optional[str] = None,
     emit: Optional[EmitFn] = None,
+    capability_scope: str = "",
 ) -> Dict[str, Any]:
     """Spawn a **read-only** review sub-agent that personally verifies whether the current requirement is truly delivered.
 
@@ -229,16 +232,17 @@ async def review_requirement(
             # 评审模型可在「模型管理 → 角色分配 → 自主循环评审与规划」独立配置；
             # 显式 model_name（evaluator_model）优先，角色未配置回落 main_agent。
             model_role="loop_reviewer",
-            sandbox_session_id=session_id,   # key: same sandbox as the worker → reads real output
-            project_ctx=project_ctx,          # key: scope to the project folder (where site source lives)
+            sandbox_session_id=session_id,  # key: same sandbox as the worker → reads real output
+            project_ctx=project_ctx,  # key: scope to the project folder (where site source lives)
             chat_id=chat_id,
-            enabled_skill_ids=[],             # pure verification, load no business skills
-            isolated=True,                    # independent MCP client, avoid cross-task cancel-scope
+            enabled_skill_ids=[],  # pure verification, load no business skills
+            isolated=True,  # independent MCP client, avoid cross-task cancel-scope
             read_only=_spec.read_only,
             allow_bash=_spec.allow_bash,
             # Same tight tool-result cap as the loop worker: the reviewer greps
             # the same huge draft files, and evidence only needs excerpts.
             tool_result_limit=_reviewer_tool_result_limit(),
+            capability_scope=capability_scope,
         )
     except Exception as exc:  # noqa: BLE001 - a reviewer agent that won't start must not drag down the loop
         logger.warning("[loop-review] spawn reviewer failed: %s", exc)
@@ -298,13 +302,14 @@ async def review_requirement(
 
             _reformatted = await _judge_once(
                 "把下面这段评审结论改写成严格 JSON（只输出 JSON，不要任何多余文字），"
-                "schema: {\"verdict\": \"done|continue|off_track|need_human\", "
-                "\"progress\": true|false, \"criteria_hit\": [\"...\"], "
-                "\"evidence\": \"...\", \"feedback\": \"...\"}。"
+                'schema: {"verdict": "done|continue|off_track|need_human", '
+                '"progress": true|false, "criteria_hit": ["..."], '
+                '"evidence": "...", "feedback": "..."}。'
                 "verdict/progress 必须忠实于原文的判断，不得自行改判；原文没有明确判断时 "
                 "verdict 用 continue、progress 用 false。\n\n---\n" + text[:6000],
                 model_name=model_name,
                 user_id=user_id,
+                capability_scope=child_scope(capability_scope, "loop-model", "review-format"),
             )
             obj = _parse_json_lenient(_reformatted)
         except Exception as exc:  # noqa: BLE001 — the rescue call must never break the review

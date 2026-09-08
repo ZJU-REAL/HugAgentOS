@@ -50,6 +50,7 @@ MEMORY_TYPE_PROCEDURAL = "procedural"
 
 # Thread-safe singleton; failures are not cached (retries allowed)
 _memory_instance = None
+_memory_epoch: Optional[str] = None
 _memory_lock = threading.Lock()
 _memory_init_failed = False
 _embedding_patched = False
@@ -173,10 +174,12 @@ def _apply_probed_embed_dims(cfg: dict) -> None:
     vs = cfg["vector_store"]["config"]
     try:
         from openai import OpenAI
+        from core.services.desktop_model_credentials import sync_client_kwargs
 
         client = OpenAI(
             api_key=emb["api_key"],
             base_url=emb["openai_base_url"],
+            **sync_client_kwargs(emb["api_key"], emb["openai_base_url"], timeout=8),
             timeout=8,
             max_retries=0,
         )
@@ -304,10 +307,12 @@ def _reembed_rows(client, name: str, cfg: dict) -> Optional[list]:
     emb = cfg["embedder"]["config"]
     try:
         from openai import OpenAI
+        from core.services.desktop_model_credentials import sync_client_kwargs
 
         oai = OpenAI(
             api_key=emb["api_key"],
             base_url=emb["openai_base_url"],
+            **sync_client_kwargs(emb["api_key"], emb["openai_base_url"], timeout=30),
             timeout=30,
             max_retries=1,
         )
@@ -353,21 +358,37 @@ def _replay_migrated_rows(instance, rows: list) -> None:
         logger.error("[MemoryService] migration replay failed (%d rows): %s", len(rows), exc)
 
 
+def _desktop_memory_epoch() -> str:
+    """Nonsecret identity for clients that hold desktop authorization hooks."""
+    from core.auth.desktop_bridge import bridge_enabled
+    from core.capabilities.paths import capabilities_enabled
+
+    if not bridge_enabled() or not capabilities_enabled():
+        return ""
+    from core.services.desktop_cloud_bridge import _state_fingerprint, get_state
+
+    return _state_fingerprint(get_state())
+
+
 def _get_memory() -> Optional[object]:
     """Thread-safe lazy initialization: cache the instance on success; on failure allow retry next time."""
-    global _memory_instance, _memory_init_failed
+    global _memory_instance, _memory_init_failed, _memory_epoch
 
     if not settings.memory.enabled:
         return None
 
-    # Fast path: already initialized
-    if _memory_instance is not None:
+    epoch = _desktop_memory_epoch()
+    # Existing callers retain their captured hooks; only new callers rebuild.
+    if _memory_instance is not None and _memory_epoch == epoch:
         return _memory_instance
 
     with _memory_lock:
         # Double-check after acquiring lock
-        if _memory_instance is not None:
+        epoch = _desktop_memory_epoch()
+        if _memory_instance is not None and _memory_epoch == epoch:
             return _memory_instance
+        _memory_instance = None
+        _memory_epoch = None
 
         try:
             _patch_mem0_embedding()
@@ -379,11 +400,28 @@ def _get_memory() -> Optional[object]:
             logger.info(
                 "[MemoryService] 初始化 mem0.Memory (graph=%s)", settings.memory.graph_enabled
             )
-            _memory_instance = Memory.from_config(cfg)
+            instance = Memory.from_config(cfg)
+            from core.services.desktop_model_credentials import is_reference, sync_client_kwargs
+            from openai import OpenAI
+            for component, section in ((instance.llm, "llm"), (instance.embedding_model, "embedder")):
+                entry = cfg[section]["config"]
+                if is_reference(entry["api_key"]):
+                    old_client = component.client
+                    component.client = OpenAI(api_key=entry["api_key"], base_url=entry["openai_base_url"],
+                        max_retries=0, **sync_client_kwargs(entry["api_key"], entry["openai_base_url"]))
+                    old_client.close()
+            if epoch != _desktop_memory_epoch():
+                from core.capabilities.errors import CloudUnavailable
+                raise CloudUnavailable("cloud account changed while preparing memory")
             if replay_rows:
                 # Embedding-model switch: refill the freshly created collection
                 # with the rows re-embedded during reconciliation.
-                _replay_migrated_rows(_memory_instance, replay_rows)
+                _replay_migrated_rows(instance, replay_rows)
+            if epoch != _desktop_memory_epoch():
+                from core.capabilities.errors import CloudUnavailable
+                raise CloudUnavailable("cloud account changed while preparing memory")
+            _memory_instance = instance
+            _memory_epoch = epoch
             _memory_init_failed = False
             return _memory_instance
         except Exception as exc:
@@ -397,9 +435,10 @@ def _reset_memory() -> None:
 
     Used when the Milvus connection is broken (e.g. closed channel).
     """
-    global _memory_instance, _memory_init_failed
+    global _memory_instance, _memory_init_failed, _memory_epoch
     with _memory_lock:
         _memory_instance = None
+        _memory_epoch = None
         _memory_init_failed = False
     logger.info("[MemoryService] 已重置 mem0 实例，下次调用将重新初始化")
 

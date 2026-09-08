@@ -30,6 +30,10 @@ import secrets
 import copy
 import threading
 import time
+import os
+import re
+from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit, unquote, unquote_plus
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -47,11 +51,16 @@ from core.services.desktop_capability_protocol import (
 
 logger = logging.getLogger(__name__)
 
-# capability token 有效期（秒）。桌面壳每 4 小时刷新一次，24h 给足冗余；
-# 令牌只授权 manifest 读取与网关工具调用，泄漏面远小于会话 cookie。
-CAPABILITY_TOKEN_TTL_S = 24 * 3600
+# Access tokens are memory-only credentials; only the shell renews them from
+# its still-valid session. Legacy dcap1 tokens are deliberately not accepted.
+CAPABILITY_TOKEN_TTL_S = 10 * 60
+CAPABILITY_AUDIENCE = "hugagent-desktop-runtime"
+CAPABILITY_SCOPE = "desktop_runtime"
+CAPABILITY_DEVICE_HEADER = "x-desktop-device-id"
 
-_TOKEN_PREFIX = "dcap1"
+_TOKEN_PREFIX = "dcap2"
+_DEVICE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_HASH_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _SECRET_BLOCK_ID = "desktop_capability_secret"
 
 _secret_cache: Optional[str] = None
@@ -103,43 +112,332 @@ def _sign(data: bytes) -> str:
 # ── token 签发 / 校验 ───────────────────────────────────────────────────
 
 
-def issue_capability_token(user_id: str, ttl_s: int = CAPABILITY_TOKEN_TTL_S) -> Dict[str, Any]:
-    """为当前登录用户签发桌面能力令牌。"""
-    ttl = max(60, int(ttl_s))
+def is_desktop_shell_control(authorization: str, origin: Optional[str]) -> bool:
+    """Only the shell process secret authorizes local capability management."""
+    from core.auth.desktop_bridge import BRIDGE_SECRET_ENV
+
+    secret = os.getenv(BRIDGE_SECRET_ENV, "").strip()
+    if not secret or origin is not None:
+        return False
+    return hmac.compare_digest((authorization or "").encode("utf-8"), f"Bearer {secret}".encode("utf-8"))
+
+
+def capability_issuer(request_base_url: str) -> str:
+    """Normalize the configured instance identity, preserving any tenant path.
+
+    Deployments reached through several proxy aliases should set one explicit
+    DESKTOP_CAPABILITY_ISSUER. Never consult untrusted forwarded-host headers.
+    """
+    raw = (os.getenv("DESKTOP_CAPABILITY_ISSUER") or request_base_url).strip()
+    parsed = urlsplit(raw)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+        raise ValueError("invalid desktop capability issuer")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("invalid desktop capability issuer")
+    host = parsed.hostname.lower()
+    if ":" in host:
+        host = f"[{host}]"
+    port = parsed.port
+    scheme = parsed.scheme.lower()
+    if port and port != {"http": 80, "https": 443}[scheme]:
+        host = f"{host}:{port}"
+    return urlunsplit((scheme, host, parsed.path.rstrip("/"), "", ""))
+
+
+def session_authorization_epoch(session_data: Dict[str, Any]) -> int:
+    """Use the existing session's immutable creation epoch, without a new DB."""
+    try:
+        created = datetime.fromisoformat(str(session_data.get("created_at") or ""))
+        if created.tzinfo is None:
+            return 0
+        delta = created.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        return max(0, (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def issue_capability_token(
+    user_id: str,
+    ttl_s: int = CAPABILITY_TOKEN_TTL_S,
+    *,
+    device_id: str,
+    issuer: str,
+    session_hash: str,
+    authorization_epoch: int,
+    user_center_id: str = "",
+) -> Dict[str, Any]:
+    """Sign a device-bound access token for an already-validated login session."""
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise ValueError("invalid capability subject")
+    if not isinstance(user_center_id, str) or not user_center_id.strip():
+        raise ValueError("invalid capability user center subject")
+    if not isinstance(device_id, str) or not _DEVICE_PATTERN.fullmatch(device_id):
+        raise ValueError("invalid desktop device id")
+    if not isinstance(session_hash, str) or not _HASH_PATTERN.fullmatch(session_hash):
+        raise ValueError("invalid capability session")
+    if type(authorization_epoch) is not int or authorization_epoch <= 0:
+        raise ValueError("invalid authorization epoch")
+    ttl = max(60, min(CAPABILITY_TOKEN_TTL_S, int(ttl_s)))
+    now = int(time.time())
     payload = json.dumps(
-        {
-            "u": str(user_id),
-            "e": int(time.time()) + ttl,
-            "n": secrets.token_hex(8),
-            "s": "desktop_runtime",
-        },
+        {"u": user_id, "c": user_center_id, "e": now + ttl, "iat": now, "n": secrets.token_hex(8),
+         "s": CAPABILITY_SCOPE, "aud": CAPABILITY_AUDIENCE,
+         "iss": capability_issuer(issuer), "d": device_id,
+         "h": session_hash, "a": authorization_epoch},
         separators=(",", ":"),
     ).encode("utf-8")
     body = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-    sig = _sign(body.encode("ascii"))
     return {
-        "token": f"{_TOKEN_PREFIX}.{body}.{sig}",
-        "expires_in": ttl,
-        "scope": "desktop_runtime",
+        "token": f"{_TOKEN_PREFIX}.{body}.{_sign(body.encode('ascii'))}",
+        "expires_in": ttl, "scope": CAPABILITY_SCOPE,
+        "device_id": device_id, "authorization_epoch": authorization_epoch,
     }
 
 
-def verify_capability_token(token: str) -> Optional[str]:
-    """校验令牌；通过返回 user_id，否则 None（不抛异常、不泄漏失败原因）。"""
+async def verify_capability_token(
+    token: str, *, device_id: str = "", issuer: str = "",
+) -> Optional[str]:
+    """Validate every claim and the live session; failures never expose details."""
     try:
-        prefix, body, sig = (token or "").strip().split(".", 2)
-        if prefix != _TOKEN_PREFIX:
+        if not isinstance(token, str) or len(token) > 4096:
+            return None
+        if not _DEVICE_PATTERN.fullmatch(device_id):
+            return None
+        prefix, body, sig = token.strip().split(".", 2)
+        if prefix != _TOKEN_PREFIX or not _HASH_PATTERN.fullmatch(sig):
             return None
         if not hmac.compare_digest(sig, _sign(body.encode("ascii"))):
             return None
-        padded = body + "=" * (-len(body) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
-        if int(payload.get("e") or 0) < time.time():
+        payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        if not isinstance(payload, dict):
             return None
-        user_id = str(payload.get("u") or "").strip()
-        return user_id or None
+        now = time.time()
+        issued, expires, epoch = payload.get("iat"), payload.get("e"), payload.get("a")
+        if any(type(v) is not int for v in (issued, expires, epoch)):
+            return None
+        if issued <= 0 or issued > now + 30 or expires <= now:
+            return None
+        if not 0 < expires - issued <= CAPABILITY_TOKEN_TTL_S or epoch <= 0:
+            return None
+        if (payload.get("s") != CAPABILITY_SCOPE or payload.get("aud") != CAPABILITY_AUDIENCE
+                or payload.get("iss") != capability_issuer(issuer) or payload.get("d") != device_id):
+            return None
+        digest, user_id = payload.get("h"), payload.get("u")
+        if not isinstance(digest, str) or not _HASH_PATTERN.fullmatch(digest):
+            return None
+        if not isinstance(user_id, str) or not user_id.strip():
+            return None
+        nonce = payload.get("n")
+        if not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{16}", nonce):
+            return None
+        from core.auth.session import find_session_by_hash
+
+        current = await find_session_by_hash(digest)
+        if not current or str(current.get("user_id") or "") != user_id:
+            return None
+        center_id = payload.get("c")
+        if not isinstance(center_id, str) or not center_id.strip() or current.get("user_center_id") != center_id:
+            return None
+        if session_authorization_epoch(current) != epoch:
+            return None
+        return user_id
     except Exception:
+        # Session-store failure is an authorization failure, never an offline
+        # bypass. Do not log the token, claims, session digest, or credentials.
         return None
+
+
+class CapabilityContentRejected(ValueError):
+    """A fixed diagnostic; never include the matching credential or content."""
+
+    def __init__(self):
+        super().__init__("capability content contains configured credentials or credential policy is unavailable")
+
+
+# Match credential-bearing field names by whole segment, not substring: a field
+# named ``MAX_OUTPUT_TOKENS`` (a numeric limit) must not be treated as a token
+# credential just because "TOKENS" contains "token" — otherwise its numeric value
+# is scanned as a secret and coincidentally matches bytes in unrelated skill/agent
+# bundles, blocking every download with a false "integrity_failed".
+_SECRET_FIELD = re.compile(
+    r"(?<![A-Za-z0-9])(?:secret|token|password|credential|api[_-]?key|access[_-]?key"
+    r"|private[_-]?key|authorization|cookie|key)(?![A-Za-z0-9])",
+    re.I,
+)
+_URL_FIELDS = frozenset({"url", "base_url", "baseurl", "endpoint", "server_url", "api_url", "uri"})
+
+
+def _secrets_from_config(config: Dict[str, Any]) -> set[str]:
+    found: set[str] = set()
+
+    def add(value):
+        if isinstance(value, str) and value.strip():
+            found.add(value)
+            if value.lower().startswith(("bearer ", "basic ")):
+                found.add(value.split(" ", 1)[1].strip())
+        elif isinstance(value, dict):
+            for nested in value.values():
+                add(nested)
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                add(nested)
+
+    def url_credentials(value):
+        if not isinstance(value, str):
+            return
+        try:
+            parsed = urlsplit(value)
+            if parsed.password is not None:
+                add(parsed.password)
+                add(unquote(parsed.password))
+                userinfo = parsed.netloc.rsplit("@", 1)[0]
+                add(userinfo)
+                add(unquote(userinfo))
+            elif parsed.username is not None:
+                add(parsed.username)
+                add(unquote(parsed.username))
+            for pair in parsed.query.split("&"):
+                raw_key, separator, raw_value = pair.partition("=")
+                key = unquote_plus(raw_key)
+                if separator and (_SECRET_FIELD.search(key) or key.lower() in ("sig", "signature")):
+                    add(raw_value)
+                    add(unquote_plus(raw_value))
+        except (ValueError, UnicodeError):
+            raise CapabilityContentRejected() from None
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if _SECRET_FIELD.search(str(key)):
+                    add(item)
+                elif str(key).lower() in _URL_FIELDS:
+                    url_credentials(item)
+                elif isinstance(item, (dict, list, tuple)):
+                    walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+
+    walk(config)
+    return {value for value in found if value}
+
+
+def _without_public_identifiers(secrets: set[str], public_identifiers: set[str]) -> set[str]:
+    """与模型的公开标识（provider_id / display_name / model_name，模型选择器里所有登录
+    用户都看得到）完全相同的值不是机密：把它当机密只会让清单和模型输出因为自己的
+    模型名被拒。"""
+    return {value for value in secrets if value.strip() not in public_identifiers}
+
+
+def _model_credentials_and_public_identifiers() -> Tuple[set[str], set[str]]:
+    found: set[str] = set()
+    public_identifiers: set[str] = set()
+    with SessionLocal() as db:
+        for provider_id, display_name, model_name, api_key, base_url, extra_config in db.query(
+            ModelProvider.provider_id, ModelProvider.display_name, ModelProvider.model_name,
+            ModelProvider.api_key, ModelProvider.base_url, ModelProvider.extra_config,
+        ).all():
+            public_identifiers.update(str(v).strip() for v in (provider_id, display_name, model_name) if v)
+            found.update(_secrets_from_config({"api_key": api_key, "base_url": base_url, "extra_config": extra_config}))
+    return found, public_identifiers
+
+
+def _known_cloud_secrets(user_id: str) -> set[str]:
+    """Read actual authorized connection credentials into this request only."""
+    try:
+        keys, configs = _user_effective_configs(user_id, use_cache=False)
+        found: set[str] = set()
+        for key in keys:
+            found.update(_secrets_from_config(configs.get(key) or {}))
+        model_secrets, public_identifiers = _model_credentials_and_public_identifiers()
+        return _without_public_identifiers(found | model_secrets, public_identifiers)
+    except Exception:
+        raise CapabilityContentRejected() from None
+
+
+def gateway_stream_secrets(user_id: str, target: Dict[str, Any]) -> set[str]:
+    """网关转发上游模型/MCP 输出时要屏蔽的凭据：已授权连接的凭据 + 本次目标自身的凭据，
+    同样排除与模型公开标识相同的值（否则每个流式分片里的 model 字段都会命中）。"""
+    try:
+        _, public_identifiers = _model_credentials_and_public_identifiers()
+        return _without_public_identifiers(
+            _known_cloud_secrets(user_id) | _secrets_from_config(target), public_identifiers,
+        )
+    except CapabilityContentRejected:
+        raise
+    except Exception:
+        raise CapabilityContentRejected() from None
+
+
+def _secret_bytes(secrets: set[str]) -> set[bytes]:
+    values = set()
+    for secret in secrets:
+        if secret:
+            values.add(secret.encode("utf-8"))
+            values.add(json.dumps(secret, ensure_ascii=True)[1:-1].encode("ascii"))
+    return values
+
+
+def _guard_value(value: Any, secrets: set[str]) -> None:
+    if isinstance(value, str):
+        if any(secret in value for secret in secrets):
+            raise CapabilityContentRejected()
+    elif isinstance(value, bytes):
+        if any(secret in value for secret in _secret_bytes(secrets)):
+            raise CapabilityContentRejected()
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _guard_value(key, secrets)
+            _guard_value(item, secrets)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _guard_value(item, secrets)
+
+
+def guard_capability_content(user_id: str, value: Any, *, extra_secrets: Optional[set[str]] = None):
+    _guard_value(value, _known_cloud_secrets(user_id) | (extra_secrets or set()))
+    return value
+
+
+def guard_capability_bundle(user_id: str, resolved):
+    """Inspect the final ZIP bytes, so a file changed during packing is caught."""
+    if resolved is None:
+        return None
+    import io
+    import zipfile
+
+    data, _revision = resolved
+    secrets = _known_cloud_secrets(user_id)
+    needles = _secret_bytes(secrets)
+    keep = max((len(value) for value in needles), default=1) - 1
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        for info in archive.infolist():
+            _guard_value(info.filename, secrets)
+            with archive.open(info) as file:
+                tail = b""
+                while chunk := file.read(64 * 1024):
+                    combined = tail + chunk
+                    if any(value in combined for value in needles):
+                        raise CapabilityContentRejected()
+                    tail = combined[-keep:] if keep else b""
+    return resolved
+
+
+async def guard_capability_stream(chunks, secrets: set[str]):
+    """Keep enough bytes to detect a credential split at any transport boundary."""
+    needles = _secret_bytes(secrets)
+    keep = max((len(value) for value in needles), default=1) - 1
+    tail = b""
+    async for chunk in chunks:
+        combined = tail + chunk
+        if any(value in combined for value in needles):
+            raise CapabilityContentRejected()
+        count = max(0, len(combined) - keep)
+        if count:
+            yield combined[:count]
+        tail = combined[count:]
+    if tail:
+        yield tail
 
 
 # ── 用户有效能力解析（manifest 与网关共用，30s per-user 缓存） ──────────
@@ -357,7 +655,8 @@ async def invoke_gateway_tool(
     chunk = await asyncio.wait_for(tool(**dict(arguments or {})), timeout=timeout)
     chunk.metadata.setdefault("origin", "cloud")
     chunk.metadata.setdefault("mcp_server_id", str(resolved["server_id"]))
-    return chunk.model_dump(mode="json")
+    return guard_capability_content(str(resolved["user_id"]), chunk.model_dump(mode="json"),
+        extra_secrets=_secrets_from_config(target))
 
 
 # ── 技能清单 / 技能包（云端为真源，本机只缓存文件快照） ───────────────────
@@ -454,6 +753,258 @@ def resolve_skill_bundle(user_id: str, skill_id: str) -> Optional[Tuple[bytes, s
     return data, skill_content_hash(content, files)
 
 
+# ── 智能体 / 插件清单与定义包（云端侧） ──────────────────────────────────
+#
+# 两类都是纯定义（没有脚本、没有二进制），定义体随清单哈希发布，正文按
+# bundle 下发；本机侧按同一哈希核对后落到 R/agents、R/plugins 的 profile 目录。
+# 模型服务密钥、企业上游地址永远不进这些文件。
+
+_AGENT_PUBLIC_KEYS = (
+    "agent_id",
+    "owner_type",
+    "name",
+    "avatar",
+    "description",
+    "welcome_message",
+    "suggested_questions",
+    "mcp_server_ids",
+    "skill_ids",
+    "plugin_ids",
+    "kb_ids",
+    "model_provider_id",
+    "temperature",
+    "max_tokens",
+    "max_iters",
+    "timeout",
+    "is_enabled",
+    "sort_order",
+    "source_market_slug",
+    "ontology_tags",
+    "version",
+)
+_entity_manifest_cache: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+
+
+def _zip_files(root: str, files: Dict[str, str]) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for rel, body in sorted(files.items()):
+            zf.writestr(f"{root}/{rel}", body)
+    return buf.getvalue()
+
+
+_DECLARATION_ENTRY_KEYS = frozenset({
+    "kind", "id", "key", "skill_id", "agent_id", "server_id", "required",
+    "version_constraint", "version", "platforms", "platform", "execution_plane",
+    "architecture", "python_version", "node_version",
+})
+_RUNTIME_CONSTRAINT_KEYS = ("platforms", "platform", "execution_plane", "architecture", "python_version", "node_version")
+
+
+def _declaration_atom(value: Any, depth: int = 0) -> Any:
+    """Declarations contain scalar metadata, never arbitrary connection objects."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, list) and depth < 4:
+        return [_declaration_atom(item, depth + 1) for item in value]
+    raise CapabilityContentRejected()
+
+
+def _declaration_entry(value: Any) -> Any:
+    if isinstance(value, str):
+        return value  # Legacy component ID / runtime package requirement.
+    if not isinstance(value, dict):
+        raise CapabilityContentRejected()
+    return {key: _declaration_atom(item) for key, item in value.items() if key in _DECLARATION_ENTRY_KEYS}
+
+
+def _declaration_entries(values: Any) -> List[Any]:
+    if values is None:
+        return []
+    return [_declaration_entry(value) for value in (values if isinstance(values, list) else [values])]
+
+
+def _declaration_groups(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise CapabilityContentRejected()
+    # Unknown groups retain their identities and required flags so the resolver
+    # reports unsupported required components instead of making them disappear.
+    return {str(group): _declaration_entries(entries) for group, entries in value.items() if group != "warnings"}
+
+
+def _public_declarations(value: Dict[str, Any]) -> Dict[str, Any]:
+    public: Dict[str, Any] = {}
+    for key in _RUNTIME_CONSTRAINT_KEYS:
+        if key in value:
+            public[key] = _declaration_atom(value[key])
+    if "dependencies" in value:
+        deps = value["dependencies"]
+        public["dependencies"] = _declaration_groups(deps) if isinstance(deps, dict) else _declaration_entries(deps)
+    if "components" in value:
+        public["components"] = _declaration_groups(value["components"])
+    if "extensions" in value:
+        extensions = value["extensions"]
+        if isinstance(extensions, dict):
+            public["extensions"] = {
+                key: _declaration_atom(item) if key in _RUNTIME_CONSTRAINT_KEYS else (
+                    _declaration_entry(item) if isinstance(item, dict) else {"required": True}
+                )
+                for key, item in extensions.items()
+            }
+        else:
+            public["extensions"] = _declaration_entries(extensions)
+    for key in ("hooks", "rules", "commands"):
+        if key in value:
+            public[key] = _declaration_entries(value[key])
+    return public
+
+
+def _public_agent_extra(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    public = {key: _declaration_atom(value[key]) for key in ("version", "ontology_tags") if key in value}
+    if "capability_requirements" in value:
+        requirements = value["capability_requirements"]
+        public["capability_requirements"] = (
+            _public_declarations(requirements) if isinstance(requirements, dict) else _declaration_entries(requirements)
+        )
+    return public
+
+
+def _agent_files(serialized: Dict[str, Any]) -> Dict[str, str]:
+    definition = {k: serialized.get(k) for k in _AGENT_PUBLIC_KEYS}
+    definition.update(_public_declarations(serialized))
+    definition["extra_config"] = _public_agent_extra(serialized.get("extra_config"))
+    return {
+        "agent.json": json.dumps(definition, ensure_ascii=False, sort_keys=True, indent=2),
+        "instructions.md": str(serialized.get("system_prompt") or ""),
+    }
+
+
+def _plugin_files(installed: Dict[str, Any]) -> Dict[str, str]:
+    definition = {
+        "install_id": installed["install_id"],
+        "slug": installed["slug"],
+        "name": installed["name"],
+        "version": installed.get("version") or "",
+        "description": installed.get("description") or "",
+        "category": installed.get("category") or "",
+        "icon": installed.get("icon"),
+        "components": _declaration_groups(installed.get("components") or {
+            key: installed.get(key) or [] for key in ("skills", "agents", "mcp", "plugins")
+        }),
+        "ui_contributions": installed.get("ui_contributions"),
+        "import_report": installed.get("import_report") or {},
+    }
+    definition.update(_public_declarations(installed))
+    return {"plugin.json": json.dumps(definition, ensure_ascii=False, sort_keys=True, indent=2)}
+
+
+def _user_agents(user_id: str) -> List[Dict[str, Any]]:
+    from core.services.user_agent_service import UserAgentService
+
+    with SessionLocal() as db:
+        return list(UserAgentService(db).list_for_user(user_id) or [])
+
+
+def _user_plugins(user_id: str) -> List[Dict[str, Any]]:
+    from core.db.models import InstalledPlugin
+    from core.services import plugin_service
+
+    with SessionLocal() as db:
+        rows = plugin_service.list_installed(db, user_id, include_global=True)
+        metadata = {
+            r.install_id: {"ui_contributions": r.ui_contributions, "components": r.component_ids or {}}
+            for r in db.query(InstalledPlugin).filter(
+                InstalledPlugin.install_id.in_([r["install_id"] for r in rows] or [""])
+            )
+        }
+    for r in rows:
+        r.update(metadata.get(r["install_id"], {}))
+    return rows
+
+
+def build_user_agent_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
+    from core.services.desktop_capability_protocol import build_entity_manifest, entity_content_hash
+
+    uid = str(user_id)
+    now = time.monotonic()
+    if use_cache:
+        with _effective_lock:
+            hit = _entity_manifest_cache.get(("agent", uid))
+            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
+                return copy.deepcopy(hit[1])
+    entries = [
+        {
+            "agent_id": a["agent_id"],
+            "name": a["name"],
+            "description": a.get("description") or "",
+            "version": str(a.get("version") or ""),
+            "content_hash": entity_content_hash(_agent_files(a)),
+            "is_enabled": bool(a.get("is_enabled", True)),
+        }
+        for a in _user_agents(uid)
+    ]
+    manifest = build_entity_manifest("agent", entries)
+    with _effective_lock:
+        _entity_manifest_cache[("agent", uid)] = (now, copy.deepcopy(manifest))
+    return manifest
+
+
+def resolve_agent_bundle(user_id: str, agent_id: str) -> Optional[Tuple[bytes, str]]:
+    from core.services.desktop_capability_protocol import entity_content_hash
+
+    for a in _user_agents(str(user_id)):
+        if a["agent_id"] == agent_id:
+            files = _agent_files(a)
+            return _zip_files(agent_id, files), entity_content_hash(files)
+    return None
+
+
+def build_user_plugin_manifest(user_id: str, *, use_cache: bool = True) -> Dict[str, Any]:
+    from core.services.desktop_capability_protocol import build_entity_manifest, entity_content_hash
+
+    uid = str(user_id)
+    now = time.monotonic()
+    if use_cache:
+        with _effective_lock:
+            hit = _entity_manifest_cache.get(("plugin", uid))
+            if hit and (now - hit[0]) < _EFFECTIVE_TTL_S:
+                return copy.deepcopy(hit[1])
+    entries = [
+        {
+            "install_id": p["install_id"],
+            "slug": p["slug"],
+            "name": p["name"],
+            "version": str(p.get("version") or ""),
+            "description": p.get("description") or "",
+            "category": p.get("category") or "",
+            "content_hash": entity_content_hash(_plugin_files(p)),
+            "enabled": bool(p.get("enabled", True)),
+            "skills": list(p.get("skills") or []),
+            "mcp": list(p.get("mcp") or []),
+        }
+        for p in _user_plugins(uid)
+    ]
+    manifest = build_entity_manifest("plugin", entries)
+    with _effective_lock:
+        _entity_manifest_cache[("plugin", uid)] = (now, copy.deepcopy(manifest))
+    return manifest
+
+
+def resolve_plugin_bundle(user_id: str, install_id: str) -> Optional[Tuple[bytes, str]]:
+    from core.services.desktop_capability_protocol import entity_content_hash
+
+    for p in _user_plugins(str(user_id)):
+        if p["install_id"] == install_id:
+            files = _plugin_files(p)
+            return _zip_files(p["slug"], files), entity_content_hash(files)
+    return None
+
+
 # ── 模型清单 / 网关目标（云端真实凭据永不离开本进程） ─────────────────────
 
 _MODEL_PATHS = {
@@ -508,13 +1059,16 @@ def build_user_model_manifest(user_id: str) -> Dict[str, Any]:
     网关占位值覆盖。当前网关不兼容的厂商会下发为 inactive，防止本机
     误调或回落到旧凭据。
     """
-    _ = user_id  # 用户身份已由 capability token 验证；模型拓扑是全局配置。
+    # 用户身份已由 capability token 验证；模型拓扑是全局配置。凭据集合按用户读取，
+    # 与出口守卫使用同一来源。
+    secrets = _known_cloud_secrets(user_id)
     with SessionLocal() as db:
         providers = db.query(ModelProvider).order_by(ModelProvider.created_at.desc()).all()
         assignments = db.query(ModelRoleAssignment).all()
-        provider_ids = {p.provider_id for p in providers}
-        rows = [
-            {
+        rows = []
+        withheld = []
+        for p in providers:
+            row = {
                 "provider_id": p.provider_id,
                 "display_name": p.display_name,
                 "provider_type": p.provider_type,
@@ -526,14 +1080,39 @@ def build_user_model_manifest(user_id: str) -> Dict[str, Any]:
                 "extra_config": _sanitize_model_extra(p.extra_config or {}),
                 "is_active": bool(p.is_active and _model_is_gateway_compatible(p)),
             }
-            for p in providers
-        ]
+            collisions = _credential_collisions(row, secrets)
+            if collisions:
+                # 某个公开字段（如 model_name）与一条已配置的凭据字面相同：下发它就等于
+                # 泄漏凭据。只扣留这一条并点名字段，其余模型照常下发；管理员据此改配置。
+                withheld.append({"provider_id": p.provider_id, "fields": collisions})
+                logger.warning(
+                    "[desktop-capability] model provider withheld from manifest: "
+                    "provider_id=%s fields=%s collide with a configured credential",
+                    p.provider_id, collisions,
+                )
+                continue
+            rows.append(row)
+        provider_ids = {row["provider_id"] for row in rows}
         role_rows = [
             {"role_key": a.role_key, "provider_id": a.provider_id}
             for a in assignments
             if a.provider_id in provider_ids
         ]
-    return {"version": 1, "providers": rows, "role_assignments": role_rows}
+    manifest = {"version": 1, "providers": rows, "role_assignments": role_rows}
+    if withheld:
+        manifest["withheld"] = withheld
+    return manifest
+
+
+def _credential_collisions(row: Dict[str, Any], secrets: set[str]) -> List[str]:
+    """返回模型行里与已配置凭据字面相撞的字段名（不含值）。"""
+    fields: List[str] = []
+    for field, value in row.items():
+        try:
+            _guard_value(value, secrets)
+        except CapabilityContentRejected:
+            fields.append(field)
+    return fields
 
 
 def _model_provider_allowed(db, user_id: str, provider: ModelProvider) -> bool:  # noqa: ANN001

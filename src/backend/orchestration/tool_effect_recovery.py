@@ -53,6 +53,19 @@ async def replay_tool_intent(intent: ToolIntent) -> dict[str, Any]:
         user_id = run.user_id
         chat_id = run.chat_id
 
+    from core.capabilities.paths import capabilities_enabled
+
+    if capabilities_enabled():
+        from core.capabilities.errors import IntegrityFailed
+        from core.capabilities.runtime import require_root_tool_scope
+
+        try:
+            require_root_tool_scope(intent.run_id, user_id, intent.tool_call_id, intent.tool_name)
+        except IntegrityFailed as exc:
+            raise ToolEffectError(
+                "tool recovery cannot reconstruct its original capability scope"
+            ) from exc
+
     enabled_skill_ids = context.get("skill_ids") or context.get("enabled_skill_ids")
     enabled_mcp_ids = context.get("mcp_ids") or context.get("enabled_mcp_ids")
     enabled_kb_ids = context.get("kb_ids") or context.get("enabled_kb_ids")

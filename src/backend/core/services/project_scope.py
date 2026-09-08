@@ -98,6 +98,7 @@ def build_project_ctx(db: "Session", project_id: Optional[str]) -> Optional[dict
         return None
     from core.db.models import Project, UserFolder
     from core.services.project_file_service import ProjectFileService
+    from core.services.project_instructions import ProjectInstructionsService
 
     project = (
         db.query(Project)
@@ -145,7 +146,7 @@ def build_project_ctx(db: "Session", project_id: Optional[str]) -> Optional[dict
     return {
         "project_id": project_id,
         "project_name": project.name,
-        "project_instructions": (project.instructions or "").strip() or None,
+        "project_instructions": ProjectInstructionsService(db).read(project)["instructions"],
         "project_folder_name": folder_name,
         "project_folder_kind": "personal" if project.linked_folder_id else None,
         "project_folder_id": project.linked_folder_id,

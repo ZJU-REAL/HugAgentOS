@@ -841,7 +841,11 @@ async def astream_execute_plan(
                     task=f"{plan.task_input}\n{step_instruction}",
                     db=db,
                 )
+                from core.capabilities.runtime import child_scope
+
                 agent, mcp_clients = await create_agent_executor(
+                    run_id=run_id,
+                    capability_scope=child_scope("", "plan", plan_id, step.step_id),
                     enabled_mcp_ids=step_mcp_ids,
                     enabled_skill_ids=step_skill_ids,
                     enabled_kb_ids=enabled_kb_ids,

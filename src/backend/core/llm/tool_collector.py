@@ -22,11 +22,14 @@ Also resolves two behavioral differences in 2.0:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from dataclasses import replace
 from typing import Any, Callable, List
 
 from agentscope.permission import PermissionBehavior, PermissionDecision
 from agentscope.tool import FunctionTool
+from agentscope.skill import LocalSkillLoader, SkillLoaderBase
 from core.llm.tool_permissions import (
     ToolPermissionSpec,
     builtin_tool_permission,
@@ -43,6 +46,30 @@ class AllowedFunctionTool(FunctionTool):
             behavior=PermissionBehavior.ALLOW,
             message="HugAgentOS self-developed tool (auto-allowed).",
         )
+
+
+class RuntimeNamedSkillLoader(SkillLoaderBase):
+    """Read frozen physical files while exposing their authorized sandbox alias."""
+
+    def __init__(self, directory: str, runtime_name: str, capability_run=None) -> None:
+        self.directory = directory
+        self.runtime_name = runtime_name
+        self.capability_run = capability_run
+        self._physical_loader = LocalSkillLoader(directory)
+
+    async def list_skills(self):
+        from core.capabilities.runtime import validate
+
+        if self.capability_run is not None:
+            await asyncio.to_thread(validate, self.capability_run)
+        physical = await self._physical_loader.list_skills()
+        if self.capability_run is not None:
+            # A session or file change during the read cannot publish stale metadata.
+            await asyncio.to_thread(validate, self.capability_run)
+        return [
+            replace(skill, name=self.runtime_name, dir=f"/workspace/skills/{self.runtime_name}")
+            for skill in physical
+        ]
 
 
 class ToolCollector:
@@ -94,14 +121,30 @@ class ToolCollector:
         else:
             self._permission_specs.pop(name, None)
 
-    def register_agent_skill(self, skill_dir: Any) -> None:
-        """Collect a skill directory (2.0 Toolkit(skills_or_loaders=) accepts str paths)."""
-        if skill_dir and skill_dir not in self._skill_loaders:
+    def register_agent_skill(
+        self, skill_dir: Any, *, runtime_name: str | None = None, capability_run=None
+    ) -> None:
+        """Keep physical reads separate from a desktop skill's runtime identity."""
+        if not skill_dir:
+            return
+        if runtime_name is not None:
+            if not any(
+                isinstance(item, RuntimeNamedSkillLoader)
+                and item.directory == skill_dir
+                and item.runtime_name == runtime_name
+                for item in self._skill_loaders
+            ):
+                self._skill_loaders.append(
+                    RuntimeNamedSkillLoader(skill_dir, runtime_name, capability_run)
+                )
+        elif skill_dir not in self._skill_loaders:
             self._skill_loaders.append(skill_dir)
 
     def register_mcp_client(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
         # 2.0 goes through Toolkit(mcps=); this should never be called — kept as an empty fallback against legacy call paths.
-        logger.warning("[tool_collector] register_mcp_client 被调用但已忽略（2.0 经 Toolkit(mcps=)）。")
+        logger.warning(
+            "[tool_collector] register_mcp_client 被调用但已忽略（2.0 经 Toolkit(mcps=)）。"
+        )
 
     # ── Result accessors for agent_factory ───────────────────────────────
     def get_tool(self, name: str) -> AllowedFunctionTool | None:

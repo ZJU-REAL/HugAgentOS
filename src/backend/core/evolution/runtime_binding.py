@@ -41,15 +41,15 @@ logger = logging.getLogger(__name__)
 # path free of database reads. The Episode assembler persists what it needs.
 _MAX_CACHED_BUNDLES = 512
 _bundles: Dict[str, AssetBundle] = {}
-_run_to_bundle: Dict[str, str] = {}
+_run_to_bundle: Dict[tuple[str, str], str] = {}
 _lock = threading.Lock()
 
 
-def _remember(bundle: AssetBundle, run_id: Optional[str]) -> None:
+def _remember(bundle: AssetBundle, run_id: Optional[str], capability_scope: str = "") -> None:
     with _lock:
         _bundles[bundle.bundle_id] = bundle
         if run_id:
-            _run_to_bundle[run_id] = bundle.bundle_id
+            _run_to_bundle[(str(run_id), str(capability_scope))] = bundle.bundle_id
         if len(_bundles) > _MAX_CACHED_BUNDLES:
             # Cheap eviction: drop the oldest insertion. Losing a cached bundle
             # is harmless — it is re-resolvable from the persisted Episode.
@@ -62,13 +62,13 @@ def get_bundle(bundle_id: str) -> Optional[AssetBundle]:
         return _bundles.get(bundle_id)
 
 
-def resolve_bundle_for_run(run_id: str) -> Optional[AssetBundle]:
+def resolve_bundle_for_run(run_id: str, *, capability_scope: str = "") -> Optional[AssetBundle]:
     with _lock:
-        bundle_id = _run_to_bundle.get(run_id)
+        bundle_id = _run_to_bundle.get((str(run_id), str(capability_scope)))
         return _bundles.get(bundle_id) if bundle_id else None
 
 
-def clear_run_binding(run_id: Optional[str]) -> None:
+def clear_run_binding(run_id: Optional[str], *, capability_scope: str = "") -> None:
     """Fail closed when final request evidence could not be rebound.
 
     The content-addressed bundle may still be referenced by another run, so we
@@ -78,7 +78,7 @@ def clear_run_binding(run_id: Optional[str]) -> None:
     if not run_id:
         return
     with _lock:
-        _run_to_bundle.pop(str(run_id), None)
+        _run_to_bundle.pop((str(run_id), str(capability_scope)), None)
 
 
 def _safe(resolver, label: str, degraded: List[str]) -> List[AssetRef]:
@@ -145,7 +145,9 @@ def _prompt_refs_from_manifest(manifest: Dict[str, Any]) -> List[AssetRef]:
     return refs
 
 
-def _skill_refs(skill_ids: Optional[List[str]]) -> List[AssetRef]:
+def _skill_refs(
+    skill_ids: Optional[List[str]], run_id: Optional[str] = None, *, capability_scope: str = ""
+) -> List[AssetRef]:
     if not skill_ids:
         return []
     from core.agent_skills.loader import get_skill_loader
@@ -155,6 +157,28 @@ def _skill_refs(skill_ids: Optional[List[str]]) -> List[AssetRef]:
         metadata = get_skill_loader().load_all_metadata() or {}
     except Exception:
         metadata = {}
+
+    # Desktop store: pin the exact store identity the resolver bound each
+    # runtime name to (profile + immutable revision), so a replay can rebuild
+    # the same view and a later re-resolution cannot silently swap versions.
+    bindings: Dict[str, Dict[str, Any]] = {}
+    try:
+        from core.capabilities.paths import capabilities_enabled
+        from core.capabilities.runtime import get as get_prepared_run
+
+        if capabilities_enabled() and run_id:
+            prepared = get_prepared_run(run_id, scope_id=capability_scope)
+            if prepared is not None:
+                bindings = {
+                    name: {
+                        **entry,
+                        "execution_plane": prepared.execution_plane,
+                        "capability_scope": capability_scope,
+                    }
+                    for name, entry in prepared.bindings.items()
+                }
+    except Exception:
+        bindings = {}
 
     refs: List[AssetRef] = []
     for skill_id in skill_ids:
@@ -167,6 +191,12 @@ def _skill_refs(skill_ids: Optional[List[str]]) -> List[AssetRef]:
         else:  # loader may hand back an object
             version = str(getattr(item, "version", "") or "")
             source = str(getattr(item, "source", "") or "")
+        detail: Dict[str, Any] = {"source": source} if source else {}
+        binding = bindings.get(skill_id)
+        if binding:
+            detail["binding"] = {k: v for k, v in binding.items() if v is not None}
+            if binding.get("revision"):
+                version = str(binding["revision"])
         refs.append(
             AssetRef(
                 kind=ASSET_SKILL,
@@ -174,7 +204,7 @@ def _skill_refs(skill_ids: Optional[List[str]]) -> List[AssetRef]:
                 # Filesystem skills have no version string; "fs" keeps the ref
                 # meaningful instead of pretending we know a version.
                 version=version or ("fs" if source == "filesystem" else "unversioned"),
-                detail={"source": source} if source else {},
+                detail=detail,
             )
         )
     return refs
@@ -275,6 +305,7 @@ def _workflow_refs(
 def bind_runtime_assets(
     *,
     run_id: Optional[str] = None,
+    capability_scope: str = "",
     skill_ids: Optional[List[str]] = None,
     kb_ids: Optional[List[str]] = None,
     model_name: Optional[str] = None,
@@ -316,7 +347,9 @@ def bind_runtime_assets(
         refs += _safe(lambda: _prompt_refs(), "prompt", degraded)
         if manifest_required and "execution_manifest" not in degraded:
             degraded.append("execution_manifest")
-    refs += _safe(lambda: _skill_refs(skill_ids), "skill", degraded)
+    refs += _safe(
+        lambda: _skill_refs(skill_ids, run_id, capability_scope=capability_scope), "skill", degraded
+    )
     refs += _safe(lambda: _ontology_refs(), "ontology", degraded)
     refs += _safe(lambda: _memory_refs(memory_enabled, workspace_id), "memory", degraded)
     refs += _safe(lambda: _model_refs(model_name, model_provider_id), "model", degraded)
@@ -335,13 +368,14 @@ def bind_runtime_assets(
     )
     if degraded:
         logger.info("[binder] partial bundle %s (degraded: %s)", bundle.bundle_id, degraded)
-    _remember(bundle, run_id)
+    _remember(bundle, run_id, capability_scope)
     return bundle
 
 
 def rebind_execution_manifest(
     *,
     run_id: Optional[str],
+    capability_scope: str = "",
     base_bundle: AssetBundle,
     execution_manifest: Any,
 ) -> AssetBundle:
@@ -366,7 +400,7 @@ def rebind_execution_manifest(
         captured_at=base_bundle.captured_at,
         execution_manifest=manifest_payload,
     )
-    _remember(bundle, run_id)
+    _remember(bundle, run_id, capability_scope)
     return bundle
 
 

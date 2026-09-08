@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 
 import httpx
-from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     from tavily import TavilyClient
@@ -26,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from _common import safe_stream_writer
 from core.config.runtime_env import get_runtime_value
 
-load_dotenv()
+# Repo-level env files are loaded once by core.config.settings (repo root only,
+# process env wins). A bare load_dotenv() here searched parent directories too.
 
 _tavily_client: TavilyClient | None = None
 _tavily_client_key: str | None = None  # detect admin-panel rotations

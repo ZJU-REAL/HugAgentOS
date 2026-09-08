@@ -188,6 +188,7 @@ def _rewrite_execution_paths(
     language: str,
     workspace_root: str = WORKSPACE_ROOT,
     user_id: Optional[str] = None,
+    skills_root: Optional[str] = None,
 ) -> str:
     # 先把 /myspace 展开成 /workspace/myspace/{uid}，后面的根目录映射与引号处理
     # 就全部复用既有逻辑，不必再写一套。
@@ -196,13 +197,24 @@ def _rewrite_execution_paths(
         # Native file tools may return the host-expanded root. Normalize it back
         # to the canonical spelling before routing it into the session workspace.
         value = value.replace(WORKSPACE_ROOT.rstrip("/\\"), "/workspace")
+    # Protect the frozen skill root from the mutable conversation-workspace
+    # mapping. Another run in this chat may relink its compatibility skills dir.
+    marker = "__HUGAGENT_PREPARED_SKILLS_ROOT__"
+    if skills_root:
+        skill_pattern = re.compile(_WS_PATH_RE.pattern.replace("/workspace", "/workspace/skills"))
+        value = skill_pattern.sub(marker, value)
     target_root = _execution_workspace_root(language, workspace_root)
     if target_root != workspace_root:
         # File tools may already have expanded /workspace to the native root.
         value = value.replace(workspace_root, target_root)
     if language == "bash":
-        return _rewrite_bash_workspace_refs(value, target_root)
-    return _rewrite_workspace_refs(value, target_root)
+        value = _rewrite_bash_workspace_refs(value, target_root)
+        if skills_root:
+            frozen = _execution_workspace_root(language, skills_root)
+            value = _quote_bash_path_refs(value, re.compile(marker), frozen)
+        return value
+    value = _rewrite_workspace_refs(value, target_root)
+    return value.replace(marker, skills_root.replace(chr(92), "/")) if skills_root else value
 
 
 def _validate_session_id(session_id: str) -> str:
@@ -218,34 +230,57 @@ def _validate_session_id(session_id: str) -> str:
 def _ensure_shared_dir_link(link: Path, target: Path) -> None:
     """Expose a shared read-mostly directory inside one session workspace.
 
-    Linux/Docker uses a symlink, preserving the existing live skills/MySpace view.
-    Windows local mode may not permit symlink creation, so it degrades to a copy.
+    Always a directory link (symlink on POSIX, NTFS junction on Windows) that is
+    re-pointed when the target changes — never a copy, which would go stale the
+    moment a skill is installed and would leave one copy per session on disk. A
+    link that cannot be created is a hard error: the session has no usable skill
+    tree and must say so instead of pretending.
     """
-    if link.exists() or link.is_symlink() or not target.exists():
+    if not target.exists():
         return
-    link.parent.mkdir(parents=True, exist_ok=True)
+    from core.capabilities.junction import LinkError, ensure_directory_link
+
     try:
-        link.symlink_to(target.resolve(), target_is_directory=True)
-    except OSError:
-        shutil.copytree(target, link, dirs_exist_ok=True)
+        ensure_directory_link(link, target, allowed_roots=[target])
+    except LinkError as exc:
+        raise HTTPException(500, f"会话工作区无法建立技能视图链接：{exc}") from exc
+
+
+def _user_skill_views_root() -> Path:
+    """Root holding one skill view per user.
+
+    In the compose deployment the backend's per-user views are mounted at a fixed
+    container path (``.skills_u``). In the no-Docker local profile the runner
+    shares the host filesystem with the backend, which builds the views next to
+    ``SANDBOX_SKILLS_DIR`` under ``<name>_u`` — derive the same path from the same
+    variable rather than keeping two conventions.
+    """
+    skills_root = os.getenv("SANDBOX_SKILLS_DIR", "").strip()
+    if skills_root:
+        root = Path(skills_root)
+        return root.parent / f"{root.name}_u"
+    return Path(WORKSPACE_ROOT) / USER_SKILLS_DIR
 
 
 def _skills_dir_for(user_id: Optional[str]) -> Path:
     """The skill tree one session may see: the user's own view, else shared-only.
 
-    The user view holds that user's private skills plus a relative symlink per
-    shared skill, so another user's private skill files (a market skill's
-    secrets.json among them) are never reachable from this session. Falls back to
-    the shared tree when the user has no view yet, and to the legacy single mount
-    when a deployment has not picked up the two skill mounts yet.
+    The user view holds that user's private skills plus a link per shared skill,
+    so another user's private skill files (a market skill's secrets.json among
+    them) are never reachable from this session. Falls back to the shared tree
+    when the user has no view yet, and to the legacy single mount when a
+    deployment has not picked up the two skill mounts yet.
     """
     shared = Path(WORKSPACE_ROOT) / SHARED_SKILLS_DIR
     if user_id:
-        view = Path(WORKSPACE_ROOT) / USER_SKILLS_DIR / user_id
+        view = _user_skill_views_root() / user_id
         if view.is_dir():
             return view
     if shared.is_dir():
         return shared
+    skills_root = os.getenv("SANDBOX_SKILLS_DIR", "").strip()
+    if skills_root and Path(skills_root).is_dir():
+        return Path(skills_root)
     return Path(WORKSPACE_ROOT) / "skills"
 
 
@@ -254,6 +289,7 @@ def _session_workspace(
     *,
     create: bool = False,
     user_id: Optional[str] = None,
+    capability_view_key: Optional[str] = None,
 ) -> Path:
     """Return the durable filesystem root owned by one conversation session."""
     value = _validate_session_id(session_id)
@@ -263,7 +299,18 @@ def _session_workspace(
         workspace.mkdir(parents=True, exist_ok=True)
         if user_id:
             _validate_user_id(user_id)
-        _ensure_shared_dir_link(workspace / "skills", _skills_dir_for(user_id))
+        skills_target = _skills_dir_for(user_id)
+        if capability_view_key is not None:
+            if not re.fullmatch(r"[a-f0-9]{64}", capability_view_key):
+                raise HTTPException(400, "invalid prepared capability view")
+            caps = os.getenv("HUGAGENT_CAPS_ROOT", "").strip()
+            if not caps:
+                raise HTTPException(409, "prepared capability view requires local execution")
+            root = Path(caps).resolve()
+            skills_target = root / ".capabilities" / "views" / capability_view_key / "skills"
+            if not skills_target.is_dir() or not skills_target.resolve().is_relative_to(root):
+                raise HTTPException(409, "prepared capability view is missing or invalid")
+        _ensure_shared_dir_link(workspace / "skills", skills_target)
         if user_id:
             shared_myspace = Path(WORKSPACE_ROOT) / "myspace" / user_id
             shared_myspace.mkdir(parents=True, exist_ok=True)
@@ -342,6 +389,7 @@ SAFE_ENV = {
     "XDG_CACHE_HOME": str(Path(_TEMP_ROOT) / ".cache"),
     "LANG": "en_US.UTF-8",
     "PYTHONIOENCODING": "utf-8",
+    "PYTHONDONTWRITEBYTECODE": "1",  # package revisions stay immutable during Python imports
     "MPLBACKEND": "Agg",  # matplotlib non-interactive backend
     "OPENBLAS_NUM_THREADS": "1",  # prevent OpenBLAS from allocating lots of thread memory
     "OMP_NUM_THREADS": "1",
@@ -456,6 +504,7 @@ class ExecuteRequest(BaseModel):
     input_files_b64: Optional[Dict[str, str]] = None
     session_id: str
     user_id: Optional[str] = None
+    capability_view_key: Optional[str] = None
 
 
 class FileOutput(BaseModel):
@@ -697,12 +746,15 @@ async def execute(req: ExecuteRequest):
         req.session_id,
         create=True,
         user_id=req.user_id,
+        capability_view_key=req.capability_view_key,
     )
+    frozen_skills_root = str((session_workspace / "skills").resolve()) if req.capability_view_key else None
     req.script_content = _rewrite_execution_paths(
         req.script_content,
         req.language,
         str(session_workspace),
         user_id=req.user_id,
+        skills_root=frozen_skills_root,
     )
     if isinstance(req.params, dict) and req.params:
         _args = req.params.get("_args")
@@ -710,7 +762,7 @@ async def execute(req: ExecuteRequest):
             req.params["_args"] = [
                 (
                     _rewrite_execution_paths(
-                        a, req.language, str(session_workspace), user_id=req.user_id
+                        a, req.language, str(session_workspace), user_id=req.user_id, skills_root=frozen_skills_root
                     )
                     if isinstance(a, str)
                     else a
@@ -878,8 +930,11 @@ async def _execute_subprocess(cmd: list, stdin_data: str, timeout: int, cwd: str
             resource.setrlimit(resource.RLIMIT_NPROC, (nproc_limit, nproc_limit))
 
     if os.name == "nt":
+        # 桌面本机模式：服务自身没有控制台，被执行的命令若不显式禁用，会为每次
+        # 执行新开一个黑色 cmd 窗口。
         spawn_options: Dict[str, Any] = {
-            "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP,
+            "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP
+            | subprocess.CREATE_NO_WINDOW,
         }
     else:
         spawn_options = {

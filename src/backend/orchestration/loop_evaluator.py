@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from core.capabilities.runtime import child_scope
+
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
@@ -50,7 +52,11 @@ NEED_HUMAN = "need_human"
 
 # ── Initializer: split the goal into the driver's exclusive requirement ledger (feature_list) ──
 async def decompose_requirements(
-    *, goal_spec: "GoalSpec", model_name: Optional[str], user_id: str
+    *,
+    goal_spec: "GoalSpec",
+    model_name: Optional[str],
+    user_id: str,
+    capability_scope: str = "",
 ) -> List[Dict[str, Any]]:
     """Split a natural-language goal into a set of **discrete, independently verifiable** requirements.
 
@@ -75,7 +81,12 @@ async def decompose_requirements(
     )
     items: Optional[List[Any]] = None
     try:
-        text = await _judge_once(prompt, model_name=model_name, user_id=user_id)
+        text = await _judge_once(
+            prompt,
+            model_name=model_name,
+            user_id=user_id,
+            capability_scope=child_scope(capability_scope, "loop-model", "decompose"),
+        )
         items = _parse_json_array_lenient(text)
     except Exception as exc:  # noqa: BLE001 - decomposition must never drag down the loop
         logger.warning("[loop-eval] decompose failed: %s", exc)
@@ -95,7 +106,11 @@ async def decompose_requirements(
 
 
 async def extract_acceptance_criteria(
-    *, objective: str, model_name: Optional[str], user_id: str
+    *,
+    objective: str,
+    model_name: Optional[str],
+    user_id: str,
+    capability_scope: str = "",
 ) -> List[str]:
     """Before the run, use one LLM call to split the natural-language goal into 3-5 checkable acceptance criteria.
 
@@ -110,7 +125,12 @@ async def extract_acceptance_criteria(
         '严格只输出 JSON 数组，形如 ["标准1", "标准2", "标准3"]，不要任何多余文字。'
     )
     try:
-        text = await _judge_once(prompt, model_name=model_name, user_id=user_id)
+        text = await _judge_once(
+            prompt,
+            model_name=model_name,
+            user_id=user_id,
+            capability_scope=child_scope(capability_scope, "loop-model", "criteria"),
+        )
         obj = _parse_json_array_lenient(text)
         if obj:
             return [str(x).strip() for x in obj if str(x).strip()][:5]
@@ -165,7 +185,7 @@ def _json_candidates(text: str):
 
 
 # ── LLM side: standalone fast agent, disable_tools, pure-text decomposition only (no verdicts, no sandbox) ──
-async def _make_judge_agent(model_name: Optional[str], user_id: str):
+async def _make_judge_agent(model_name: Optional[str], user_id: str, capability_scope: str = ""):
     """One-shot pure-text agent (following the disable_tools mode of astream_generate_plan)."""
     from core.llm.agent_factory import create_agent_executor
 
@@ -178,15 +198,18 @@ async def _make_judge_agent(model_name: Optional[str], user_id: str):
         # 未配置时回落 main_agent。
         model_role="loop_reviewer",
         current_user_id=user_id,
+        capability_scope=child_scope(capability_scope, "loop-model", "judge"),
     )
     return agent, clients
 
 
-async def _judge_once(prompt: str, *, model_name: Optional[str], user_id: str) -> str:
+async def _judge_once(
+    prompt: str, *, model_name: Optional[str], user_id: str, capability_scope: str = ""
+) -> str:
     from core.llm.mcp_manager import close_clients
     from orchestration.streaming import StreamingAgent
 
-    agent, clients = await _make_judge_agent(model_name, user_id)
+    agent, clients = await _make_judge_agent(model_name, user_id, capability_scope=capability_scope)
     sa = StreamingAgent(agent, clients)
     text = ""
     try:

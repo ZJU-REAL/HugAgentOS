@@ -43,7 +43,7 @@ pub struct ProxyState {
     pub init_mode_prefill: ProvisionMode,
     /// 记住的云端服务器地址，供初始化选择页预填。
     pub cloud_server_base: String,
-    /// 混合架构（Dual）：本机执行面地址（http://127.0.0.1:32101）。
+    /// 混合架构（Dual）：本机执行面地址（端口由构建期品牌配置决定）。
     pub local_base: String,
     /// 仅 Dual 为 true：启用按请求路由（x-hugagent-target: local → 本机）。
     pub hybrid_local: bool,
@@ -51,6 +51,9 @@ pub struct ProxyState {
     pub bridge_secret: String,
     /// base64 编码的云端用户信息（登录后由 hybrid::on_cloud_login 填充）。
     pub bridge_user: Arc<RwLock<Option<String>>>,
+    /// 云端身份是否已推到本机执行面（hybrid::on_cloud_login 维护）。
+    pub bridge_sync: Arc<RwLock<crate::hybrid::BridgeSync>>,
+    pub session_epoch: Arc<crate::auth::SessionEpoch>,
 }
 
 /// 前端标记「该请求属于本地项目」的头；反代读取后剥离，不透传给任何后端。
@@ -126,7 +129,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
     let path_q = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
 
     // 混合架构（Dual）：前端给「本地项目」的请求打 x-hugagent-target: local，
-    // 反代把它们转到本机执行面（127.0.0.1:32101），其余一律云端。单一形态不路由。
+    // 反代把它们转到当前品牌的本机执行面，其余一律云端。单一形态不路由。
     // <img>/<iframe> 等 src 场景无法带请求头，等价支持 query 参数 ?hg_target=local。
     let to_local = state.hybrid_local
         && (headers
@@ -138,17 +141,34 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
                 .query()
                 .map(|q| q.split('&').any(|kv| kv == "hg_target=local"))
                 .unwrap_or(false));
-    let base = if to_local { &state.local_base } else { &state.server_base };
-    let target = format!("{}{}", base, path_q);
-
     // 收齐请求体（上传等）。下游用 reqwest 重发。
     let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(b) => b,
         Err(e) => return (StatusCode::BAD_REQUEST, format!("读取请求体失败: {e}")).into_response(),
     };
 
+    let expected_epoch = state.session_epoch.current();
     let bridge_user = state.bridge_user.read().await.clone();
     let token = state.token.read().await.clone();
+    if !state.session_epoch.matches(expected_epoch) || !state.session_epoch.is_active() {
+        return (StatusCode::CONFLICT, "Desktop session changed").into_response();
+    }
+    if to_local {
+        // 本机后端只认已同步的云端身份；没同步好时转发过去只会得到 401，
+        // 前端会把它当成云端会话过期。这里直接说明真实原因。
+        let sync = state.bridge_sync.read().await.clone();
+        if !sync.synced {
+            let reason = sync
+                .error
+                .unwrap_or_else(|| "正在同步云端身份到本机执行面".to_string());
+            let body = serde_json::json!({
+                "code": 503,
+                "message": format!("本机执行面尚未就绪：{reason}"),
+                "data": serde_json::Value::Null,
+            });
+            return (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body)).into_response();
+        }
+    }
 
     let build_request = |use_local: bool| {
         let base = if use_local { &state.local_base } else { &state.server_base };
@@ -210,6 +230,9 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request<Body>) -> R
         Err(e) => Err(e),
     };
 
+    if !state.session_epoch.matches(expected_epoch) || !state.session_epoch.is_active() {
+        return (StatusCode::CONFLICT, "Desktop session changed").into_response();
+    }
     match sent {
         Ok(upstream) => {
             let status = upstream.status();
@@ -314,10 +337,18 @@ async fn setup_page(State(state): State<ProxyState>) -> Html<String> {
     ))
 }
 
-/// 初始化「运行模式选择」页（首启时展示）：下拉选本机 / 云端 / 双模式；选到含云端的
-/// 形态时展开服务器地址输入。提交整页导航到哨兵 `/__desktop/provision?mode=..&base=..`，
-/// 由主窗口的 Rust 导航守卫落盘并重启。`manage=1` 时是「稍后更改运行模式」入口。
+/// 初始化页（首启时展示）。
+///
+/// 构建开关 `brand::HYBRID_ONLY` 决定展示哪一张：
+/// - 关（默认）：「运行模式选择」页，下拉选本机 / 云端 / 双模式，含云端的形态展开地址输入。
+/// - 开：仅交付混合模式，不问模式也不问地址，只留一个「开始初始化」的确认动作。
+///
+/// 两张页面都整页导航到哨兵 `/__desktop/provision`，由主窗口的 Rust 导航守卫落盘。
+/// `manage=1` 时是「稍后更改运行模式」入口（仅混合模式的包没有这个入口）。
 async fn init_page(State(state): State<ProxyState>) -> Html<String> {
+    if brand::HYBRID_ONLY {
+        return fixed_init_page();
+    }
     let current_mode = match state.init_mode_prefill {
         ProvisionMode::LocalOnly => "local",
         ProvisionMode::CloudOnly => "cloud",
@@ -360,13 +391,42 @@ async fn init_page(State(state): State<ProxyState>) -> Html<String> {
     ))
 }
 
+/// 仅交付混合模式的构建用的初始化页：固定「本机 + 云端」，只有一个确认动作。
+/// 运行形态已由壳在内存里备好，确认后同一窗口直接进安装进度页，不重启应用。
+fn fixed_init_page() -> Html<String> {
+    let html = INIT_FIXED_HTML
+        .replace(
+            "__LOCAL_SUPPORTED__",
+            if crate::local_payload::current_target() != "unsupported" {
+                "true"
+            } else {
+                "false"
+            },
+        )
+        .replace(
+            "__PLATFORM__",
+            if cfg!(target_os = "macos") {
+                "macos"
+            } else if cfg!(target_os = "windows") {
+                "windows"
+            } else {
+                "linux"
+            },
+        )
+        .replace("HugAgentOS", brand::NAME);
+    Html(inject_after_body(
+        &with_theme_boot(&html),
+        &platform_titlebar_block(false),
+    ))
+}
+
 #[derive(serde::Serialize)]
 struct SetupStatus {
     #[serde(flatten)]
     service: LocalServerStatus,
     active_local: bool,
     current_server_base: String,
-    /// 本机后端基址（固定 127.0.0.1:32101）。前端为「本机站点」生成对外链接时用，
+    /// 本机后端基址（端口由构建期品牌配置决定）。前端为「本机站点」生成对外链接时用，
     /// 避免把随启动变化的反代随机端口写进可分享的 URL。
     local_server_base: String,
     provision_mode: ProvisionMode,
@@ -399,9 +459,9 @@ fn html_escape(s: &str) -> String {
 // ── 一体化桌面标题栏 ───────────────────────────────────────────────────────
 //
 // 主窗口关闭系统 decorations，避免「系统标题栏 + 原生菜单栏」占两行。Windows/Linux
-// 保留一行紧凑菜单、页面前进后退和窗口控制。参考现代桌面应用的层级，最上面是一条全宽、
-// 轻量的菜单 / 标签栏：左段延续侧边栏底色但不重复品牌 Logo，右段显示当前页面/对话名称；
-// 侧边栏自己的品牌区从标题栏下方开始。中间空白仍承担窗口拖动。壳动作走导航哨兵，由
+// 保留一行紧凑菜单和窗口控制，整条背景延续侧边栏底色，不重复品牌 Logo。
+// 菜单靠左排列，侧边栏自己的品牌区从标题栏下方开始。
+// 中间空白仍承担窗口拖动。壳动作走导航哨兵，由
 // lib.rs 拦截执行，不依赖远程源下不稳定的 Tauri IPC。
 
 const TITLEBAR_HEIGHT: u8 = 34;
@@ -430,20 +490,16 @@ const MAC_OFFSET_PAGE: &str =
 // data-theme 对它同样生效，直接引用应用令牌即可两档自动跟随 —— 不需要再写一套深色覆盖，
 // 也不需要 prefers-color-scheme（那会和手动 light/dark/system 三档打架）。
 const TB_CSS: &str = r##"
-#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:34px;z-index:2147483647;display:flex;align-items:stretch;background:var(--color-bg-layout);border:0;box-shadow:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text);-webkit-user-select:none;user-select:none}
+#hugagent-titlebar{position:fixed;inset:0 0 auto 0;height:34px;z-index:2147483647;display:flex;align-items:stretch;background:linear-gradient(var(--hugagent-desktop-sidebar-chrome),var(--hugagent-desktop-sidebar-chrome)),var(--color-bg-layout);border:0;box-shadow:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--color-text);-webkit-user-select:none;user-select:none}
 #hugagent-titlebar *{box-sizing:border-box}
-#hugagent-titlebar .tb-sidebarZone{flex:0 0 var(--hugagent-desktop-sidebar-width);min-width:0;height:100%;padding:0 6px 0 10px;display:flex;align-items:center;gap:2px;background:var(--hugagent-desktop-sidebar-chrome,color-mix(in srgb, var(--color-bg-gray) 72%, transparent));transition:flex-basis .16s ease;overflow:visible}
-#hugagent-titlebar .tb-mainChrome{flex:1;min-width:0;height:100%;display:flex;align-items:center;background:var(--hugagent-desktop-main-chrome,var(--color-bg-base));border:0}
-#hugagent-titlebar .tb-historyNav{display:flex;align-items:center;gap:1px;height:100%;flex:0 0 auto}
-#hugagent-titlebar .tb-navButton{width:30px;height:26px;margin:4px 0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;cursor:default}
-#hugagent-titlebar .tb-navButton:hover{background:var(--color-fill-hover);color:var(--color-text)}
-#hugagent-titlebar .tb-navButton:disabled{opacity:.42;background:transparent}
+#hugagent-titlebar .tb-sidebarZone{flex:0 0 var(--hugagent-desktop-sidebar-width);min-width:max-content;height:100%;padding:0 6px;display:flex;align-items:center;gap:2px;background:transparent;transition:flex-basis .16s ease;overflow:visible}
+#hugagent-titlebar .tb-mainChrome{flex:1;min-width:0;height:100%;display:flex;align-items:center;background:transparent;border:0}
 #hugagent-titlebar .tb-spacer{flex:1;height:100%;min-width:48px}
 #hugagent-titlebar .tb-menu{display:flex;align-items:stretch;height:100%;flex:0 0 auto}
 #hugagent-titlebar .tb-menuGroup{position:relative;height:100%;display:flex;align-items:stretch}
-#hugagent-titlebar .tb-menuLabel{height:26px;margin:4px 0;padding:0 7px;border:0;border-radius:6px;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;font:12.5px/1 inherit;cursor:default}
+#hugagent-titlebar .tb-menuLabel{height:26px;margin:4px 0;padding:0 7px;border:0;border-radius:6px;background:transparent;color:var(--color-text-secondary);display:flex;align-items:center;justify-content:center;font-family:inherit;font-size:12px;line-height:1;cursor:default}
 #hugagent-titlebar .tb-menuLabel:hover,#hugagent-titlebar .tb-menuGroup.open>.tb-menuLabel{background:var(--color-fill-hover)}
-#hugagent-titlebar .tb-navButton:focus-visible,#hugagent-titlebar .tb-menuLabel:focus-visible,#hugagent-titlebar .tb-windowButton:focus-visible{outline:2px solid var(--color-primary);outline-offset:-3px}
+#hugagent-titlebar .tb-menuLabel:focus-visible,#hugagent-titlebar .tb-windowButton:focus-visible{outline:2px solid var(--color-primary);outline-offset:-3px}
 #hugagent-titlebar .tb-drop{display:none;position:absolute;top:32px;left:0;min-width:218px;padding:6px;background:var(--color-bg-elevated);border:1px solid var(--color-border);border-radius:8px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-text) 16%, transparent)}
 #hugagent-titlebar .tb-menuGroup.open>.tb-drop{display:block}
 #hugagent-titlebar .tb-item{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;min-height:34px;padding:7px 11px;border:0;border-radius:6px;background:transparent;color:var(--color-text);font:13px/1.3 inherit;text-align:left;white-space:nowrap;cursor:default}
@@ -456,11 +512,6 @@ const TB_CSS: &str = r##"
 /* dark-ok: #E81123 是 Windows 关闭键的平台约定红，两档都得是这个红，不跟主题翻转 */
 #hugagent-titlebar .tb-windowButton.close:hover{background:#E81123;color:#fff}
 "##;
-
-const TB_NAV: &str = r##"<div class="tb-historyNav" aria-label="页面导航" data-i18n-aria="page_navigation">
-<button class="tb-navButton" type="button" data-nav="back" aria-label="后退" title="后退" data-i18n-aria="back"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.75 3.5 5.25 8l4.5 4.5M5.5 8h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-<button class="tb-navButton" type="button" data-nav="forward" aria-label="前进" title="前进" data-i18n-aria="forward"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="m6.25 3.5 4.5 4.5-4.5 4.5M10.5 8h-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-</div>"##;
 
 const TB_MENU: &str = r##"<nav class="tb-menu" aria-label="应用菜单" data-i18n-aria="app_menu">
 <div class="tb-menuGroup" data-menu="file"><button class="tb-menuLabel" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="hugagent-file-menu" data-i18n="file">文件</button><div class="tb-drop" id="hugagent-file-menu" role="menu" aria-label="文件" data-i18n-aria="file">
@@ -508,7 +559,7 @@ if(new URLSearchParams(location.search).get('quickask')==='1'){
 }
 var desktopCopy={
   'zh-CN':{
-    chrome:'桌面菜单栏',page_navigation:'页面导航',back:'后退',forward:'前进',app_menu:'应用菜单',
+    chrome:'桌面菜单栏',app_menu:'应用菜单',
     file:'文件',edit:'编辑',view:'视图',help:'帮助',new_chat:'新建对话',run_mode:'运行模式…',
     server_config:'设置服务器地址…',local_server:'本机服务…',quit:'退出',undo:'撤销',redo:'重做',
     cut:'剪切',copy:'复制',paste:'粘贴',select_all:'全选',reload:'重新加载',fullscreen:'全屏',
@@ -516,7 +567,7 @@ var desktopCopy={
     maximize_restore:'最大化 / 还原',close:'关闭'
   },
   en:{
-    chrome:'Desktop menu bar',page_navigation:'Page navigation',back:'Back',forward:'Forward',app_menu:'Application menu',
+    chrome:'Desktop menu bar',app_menu:'Application menu',
     file:'File',edit:'Edit',view:'View',help:'Help',new_chat:'New Chat',run_mode:'Run Mode…',
     server_config:'Server Address…',local_server:'Local Service…',quit:'Exit',undo:'Undo',redo:'Redo',
     cut:'Cut',copy:'Copy',paste:'Paste',select_all:'Select All',reload:'Reload',fullscreen:'Full Screen',
@@ -574,10 +625,6 @@ document.addEventListener('keydown',function(event){
     event.preventDefault();sentinel('/__desktop/win?action=fullscreen');
   }
 });
-bar.querySelectorAll('[data-nav]').forEach(function(button){button.addEventListener('click',function(event){
-  event.stopPropagation();closeMenus(false);
-  if(button.dataset.nav==='back')history.back();else history.forward();
-});});
 groups.forEach(function(group){
   var label=group.querySelector('.tb-menuLabel');var drop=group.querySelector('.tb-drop');
   label.addEventListener('click',function(event){
@@ -620,9 +667,7 @@ bar.querySelectorAll('[data-edit]').forEach(function(item){item.addEventListener
 document.addEventListener('click',function(event){if(!bar.contains(event.target))closeMenus(false);});
 var observedSidebar=null;
 var sidebarResizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(syncSidebarWidth):null;
-// 标题栏左右两段必须和它正下方的侧边栏 / 主面板同色。两侧底色都是应用令牌算出来的
-// （主面板还会随页面在 --color-bg-chat / --color-bg-container 之间切），所以这里不复刻
-// 配方，直接取下方元素的计算底色写回令牌——换主题、换页面都自动跟随。
+// The full title bar follows the sidebar tint over a shared layout background.
 var lastRootVar={};
 function sampleBg(selector){
   var node=document.querySelector(selector);if(!node)return '';
@@ -635,8 +680,6 @@ function setRootVar(name,value){
   lastRootVar[name]=value;document.documentElement.style.setProperty(name,value);
 }
 function syncSurfaceTint(){
-  setRootVar('--hugagent-desktop-main-chrome',
-    sampleBg('.jx-primaryPane')||sampleBg('.jx-appLoading-main')||sampleBg('.jx-content')||sampleBg('.jx-appMainLayout')||sampleBg('body'));
   setRootVar('--hugagent-desktop-sidebar-chrome',
     sampleBg('.jx-sider')||sampleBg('.jx-appLoading-sidebar'));
 }
@@ -700,17 +743,28 @@ bar.addEventListener('dblclick',function(event){
 });
 })();"##;
 
+/// 仅交付混合模式的包没有别的运行形态可切，菜单里不摆一个点了也没意义的入口。
+fn titlebar_menu_for(hybrid_only: bool) -> String {
+    if !hybrid_only {
+        return TB_MENU.to_string();
+    }
+    TB_MENU
+        .lines()
+        .filter(|line| !line.contains("data-act=\"run_mode\""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn titlebar_block(offset_css: &str) -> String {
     format!(
         "<style id=\"hugagent-titlebar-style\">{css}{offset}</style>\
 <header id=\"hugagent-titlebar\" data-height=\"{height}\">\
-<div class=\"tb-sidebarZone\">{navigation}{menu}</div><div class=\"tb-mainChrome\">\
+<div class=\"tb-sidebarZone\">{menu}</div><div class=\"tb-mainChrome\">\
 <div class=\"tb-spacer\"></div>{controls}</div></header><script>{script}</script>",
         css = TB_CSS,
         offset = offset_css,
         height = TITLEBAR_HEIGHT,
-        navigation = TB_NAV,
-        menu = TB_MENU,
+        menu = titlebar_menu_for(brand::HYBRID_ONLY),
         controls = TB_CONTROLS,
         script = TB_JS,
     )
@@ -748,26 +802,32 @@ fn platform_titlebar_block(spa: bool) -> String {
    index.html / ce overlay 的 index.html 改了解析规则，这里要一起改。 */
 const THEME_BOOT_JS: &str = r##"<script>
 ;(function(){try{
-var mode=localStorage.getItem('hugagent_theme_mode');
+var mode=localStorage.getItem('__THEME_STORAGE_KEY__');
 var dark=mode==='dark'||(mode!=='light'&&typeof matchMedia==='function'&&matchMedia('(prefers-color-scheme: dark)').matches);
 if(dark){document.documentElement.setAttribute('data-theme','dark');document.documentElement.style.colorScheme='dark';}
 }catch(e){}})()
 </script>"##;
 
+/// 把品牌的主题 key 落进引导脚本模板。
+fn theme_boot_js() -> String {
+    THEME_BOOT_JS.replace("__THEME_STORAGE_KEY__", brand::THEME_STORAGE_KEY)
+}
+
 /// 把主题引导脚本插进 `<head>` 最前面——必须**早于任何样式**执行，否则深色用户会先看到
 /// 一帧白底再翻黑。
 fn with_theme_boot(html: &str) -> String {
     const HEAD: &str = "<head>";
+    let boot = theme_boot_js();
     match html.find(HEAD) {
         Some(index) => {
             let at = index + HEAD.len();
-            let mut output = String::with_capacity(html.len() + THEME_BOOT_JS.len());
+            let mut output = String::with_capacity(html.len() + boot.len());
             output.push_str(&html[..at]);
-            output.push_str(THEME_BOOT_JS);
+            output.push_str(&boot);
             output.push_str(&html[at..]);
             output
         }
-        None => format!("{THEME_BOOT_JS}{html}"),
+        None => format!("{boot}{html}"),
     }
 }
 
@@ -1018,6 +1078,86 @@ const INIT_HTML: &str = r##"<!doctype html>
 </body>
 </html>"##;
 
+/// 仅交付混合模式的构建用的初始化页。与安装进度页共用同一套动画视觉（光晕 + 轨道 +
+/// 浮动核心），确认后两页之间只是内容切换，观感上是同一个初始化流程。
+const INIT_FIXED_HTML: &str = r##"<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>初始化 · HugAgentOS</title>
+<style>
+  /* dark-ok-begin: 壳页面是独立文档，取不到 SPA 的令牌，这里就是它自己的调色板真源 */
+  :root{color-scheme:light;--accent:#007AFF;--accent2:#32ADE6;--text:#1D1D1F;
+    --secondary:#6E6E73;--line:rgba(60,60,67,.16);--surface:rgba(255,255,255,.72);
+    --page:#F5F5F7;--danger:#D70015;--glow:rgba(0,122,255,.20)}
+  :root[data-theme="dark"]{color-scheme:dark;--accent:#3E8BFF;--accent2:#42C8FF;
+    --text:#E8ECF4;--secondary:#B3BDCD;--line:#2B3442;--surface:rgba(28,35,48,.72);
+    --page:#0F141B;--danger:#FF6B6B;--glow:rgba(62,139,255,.24)}
+  /* dark-ok-end */
+  *{box-sizing:border-box}html,body{height:100%;margin:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Segoe UI",sans-serif;
+    color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
+    min-height:100%;padding:24px;overflow:hidden;-webkit-user-select:none;user-select:none}
+  .setup{position:relative;width:min(600px,100%);text-align:center;padding:34px 30px 38px;z-index:1}
+  .visual{position:relative;width:174px;height:174px;margin:0 auto 26px;display:grid;place-items:center}
+  .halo{position:absolute;inset:25px;border-radius:50%;background:var(--glow);filter:blur(22px);animation:halo 3.2s ease-in-out infinite}
+  .orbit{position:absolute;inset:7px;border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);border-radius:50%;animation:spin 8s linear infinite}
+  .orbit.two{inset:22px;border-style:dashed;animation-duration:11s;animation-direction:reverse;opacity:.7}
+  .orbit::before,.orbit::after{content:"";position:absolute;width:9px;height:9px;border-radius:50%;background:var(--accent2);
+    box-shadow:0 0 0 6px color-mix(in srgb,var(--accent2) 12%,transparent),0 0 18px var(--glow)}
+  .orbit::before{left:14px;top:15px}.orbit::after{right:5px;bottom:34px;width:6px;height:6px}
+  .core{position:relative;width:108px;height:108px;border-radius:31px;display:grid;place-items:center;
+    background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 18%,transparent);
+    box-shadow:0 22px 60px var(--glow),0 2px 10px rgba(0,0,0,.08);backdrop-filter:blur(18px); /* dark-ok: 中性投影两档都是黑 */
+    -webkit-backdrop-filter:blur(18px);animation:float 3.4s ease-in-out infinite}
+  .logo{display:block;width:88px;height:88px;border-radius:24px;object-fit:cover}
+  .product{margin:0 0 10px;color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.09em}
+  h1{margin:0;font-size:34px;line-height:1.16;font-weight:700;letter-spacing:-.035em}
+  .lead{max-width:430px;margin:13px auto 0;color:var(--secondary);font-size:14px;line-height:1.7}
+  .button{width:min(340px,100%);height:52px;margin-top:30px;border:0;border-radius:15px;padding:0 22px;
+    font:650 15px/1 inherit;cursor:pointer;background:linear-gradient(110deg,var(--accent),var(--accent2));color:#fff; /* dark-ok: 品牌渐变按钮固定白色前景 */
+    box-shadow:0 13px 30px color-mix(in srgb,var(--accent) 27%,transparent);transition:transform .16s ease,filter .16s ease,opacity .16s ease}
+  @media(hover:hover){.button:hover{filter:brightness(1.06);transform:translateY(-1px)}}
+  .button:active{transform:scale(.98)}.button:disabled{opacity:.62;cursor:default;transform:none}
+  .button:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 32%,transparent);outline-offset:4px}
+  .err{min-height:20px;margin:12px auto -8px;color:var(--danger);font-size:12.5px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-7px) scale(1.015)}}
+  @keyframes halo{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.12)}}
+  body.platform-macos .setup{margin-top:-8px}
+  @media(max-width:620px){body{padding:16px}.setup{padding:22px 8px}.visual{transform:scale(.9);margin-bottom:15px}h1{font-size:29px}}
+  @media(prefers-reduced-motion:reduce){.halo,.orbit,.core{animation:none}.button{transition:none}}
+  @media(prefers-reduced-transparency:reduce){.core{background:var(--page);backdrop-filter:none;-webkit-backdrop-filter:none}}
+</style>
+</head>
+<body class="platform-__PLATFORM__">
+  <main class="setup">
+    <div class="visual" aria-hidden="true">
+      <span class="halo"></span><span class="orbit"></span><span class="orbit two"></span>
+      <div class="core"><img class="logo" src="/icon.png" alt="" onerror="this.style.visibility='hidden'" /></div>
+    </div>
+    <p class="product">HugAgentOS</p>
+    <h1>初始化 HugAgentOS</h1>
+    <p class="lead">配置本机运行环境，并连接云端服务。</p>
+    <div class="err" id="err" role="alert"></div>
+    <button class="button" id="go" type="button" onclick="start()">开始初始化</button>
+  </main>
+<script>
+  var localSupported = __LOCAL_SUPPORTED__;
+  var button = document.getElementById('go');
+  var err = document.getElementById('err');
+  if(!localSupported){button.disabled=true;err.textContent='当前安装包缺少本机运行资源，请重新下载安装包。';}
+  function start(){
+    if(!localSupported)return;
+    button.disabled=true;button.textContent='正在启动…';
+    // 整页导航到哨兵路径，由 Rust 导航守卫落盘并在同一窗口切到进度页（不重启应用）。
+    window.location.href='/__desktop/provision';
+  }
+</script>
+</body>
+</html>"##;
+
 const SETUP_HTML: &str = r##"<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1029,17 +1169,17 @@ const SETUP_HTML: &str = r##"<!doctype html>
      浅深两套成对定义——取值与 src/frontend/src/styles/variables.css 的同名令牌一致 */
   :root{
     color-scheme:light;
-    --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;
+    --accent:#007AFF;--accent-hover:#0071E3;--accent-active:#0068D0;--accent2:#32ADE6;
     --text:#1D1D1F;--secondary:#6E6E73;--tertiary:#8E8E93;
-    --line:rgba(60,60,67,.14);--surface:rgba(255,255,255,.72);
+    --line:rgba(60,60,67,.14);--surface:rgba(255,255,255,.72);--glow:rgba(0,122,255,.20);
     --ok:#248A3D;--danger:#D70015;
     --page:#F5F5F7;--solid:#FFFFFF;--danger-bg:#FFF1F0;--log-ink:#48484A;--contrast-ink:#3A3A3C;
   }
   :root[data-theme="dark"]{
     color-scheme:dark;
-    --accent:#3E8BFF;--accent-hover:#5FA0FF;--accent-active:#2E7BF0;
+    --accent:#3E8BFF;--accent-hover:#5FA0FF;--accent-active:#2E7BF0;--accent2:#42C8FF;
     --text:#E8ECF4;--secondary:#B3BDCD;--tertiary:#8792A4;
-    --line:#2B3442;--surface:rgba(28,35,48,.72);
+    --line:#2B3442;--surface:rgba(28,35,48,.72);--glow:rgba(62,139,255,.24);
     --ok:#22C79D;--danger:#FF6B6B;
     --page:#0F141B;--solid:#161C25;--danger-bg:rgba(255,107,107,.16);--log-ink:#B3BDCD;--contrast-ink:#E8ECF4;
   }
@@ -1049,9 +1189,24 @@ const SETUP_HTML: &str = r##"<!doctype html>
   body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",sans-serif;
     color:var(--text);background:var(--page);display:flex;align-items:center;justify-content:center;
     min-height:100%;padding:24px;overflow:auto;-webkit-user-select:none;user-select:none}
-  .setup{width:min(540px,100%);text-align:center;padding:20px 34px 30px}
-  .logo{display:block;width:68px;height:68px;margin:0 auto 17px;border-radius:17px;
-    box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(0,0,0,.09)} /* dark-ok: 投影两档都是黑 */
+  .setup{position:relative;width:min(560px,100%);text-align:center;padding:20px 30px 30px}
+  /* 初始化动画：光晕 + 双层轨道 + 浮动核心。与首启初始化页同一套视觉，让「确认 → 安装」
+     在观感上是同一个流程的两个阶段。 */
+  .visual{position:relative;width:176px;height:176px;margin:0 auto 18px;display:grid;place-items:center}
+  .halo{position:absolute;inset:24px;border-radius:50%;background:var(--glow);filter:blur(24px);animation:halo 3s ease-in-out infinite}
+  .orbit{position:absolute;inset:5px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:50%;animation:spin 7s linear infinite}
+  .orbit.two{inset:22px;border-style:dashed;animation-duration:10s;animation-direction:reverse;opacity:.72}
+  .orbit::before,.orbit::after{content:"";position:absolute;border-radius:50%;background:var(--accent2);
+    box-shadow:0 0 0 6px color-mix(in srgb,var(--accent2) 12%,transparent),0 0 20px var(--glow)}
+  .orbit::before{width:10px;height:10px;left:13px;top:18px}.orbit::after{width:7px;height:7px;right:5px;bottom:37px}
+  .core{position:relative;width:112px;height:112px;border-radius:32px;display:grid;place-items:center;
+    background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 19%,transparent);
+    box-shadow:0 22px 60px var(--glow),0 2px 10px rgba(0,0,0,.08);backdrop-filter:blur(18px); /* dark-ok: 中性投影两档都是黑 */
+    -webkit-backdrop-filter:blur(18px);animation:float 3.2s ease-in-out infinite}
+  .logo{display:block;width:92px;height:92px;border-radius:25px;object-fit:cover}
+  .visual.ready .orbit{border-color:color-mix(in srgb,var(--ok) 46%,transparent)}
+  .visual.ready .orbit::before,.visual.ready .orbit::after{background:var(--ok)}
+  .visual.error .orbit{animation-play-state:paused;border-color:color-mix(in srgb,var(--danger) 44%,transparent)}
   .product{margin:0 0 11px;color:var(--secondary);font-size:12px;font-weight:600;letter-spacing:.012em}
   h1{margin:0;font-size:30px;line-height:1.16;font-weight:650;letter-spacing:-.028em;font-optical-sizing:auto}
   .lead{max-width:420px;margin:11px auto 0;color:var(--secondary);font-size:14px;line-height:1.6}
@@ -1079,9 +1234,11 @@ const SETUP_HTML: &str = r##"<!doctype html>
   @keyframes materialize{from{opacity:0;transform:scale(.985) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
   .progress-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;font-size:13px}
   .message{color:var(--secondary)}.percent{color:var(--accent);font-variant-numeric:tabular-nums}
-  /* dark-ok: 半透明中性灰，压在任一档底色上都成立 */
-  .progress{height:5px;border-radius:999px;background:rgba(118,118,128,.16);overflow:hidden}
-  .bar{height:100%;width:0;border-radius:inherit;background:var(--accent);transition:width 280ms ease-out}
+  .progress{position:relative;height:8px;border-radius:999px;background:color-mix(in srgb,var(--accent) 11%,transparent);overflow:hidden}
+  .bar{position:relative;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    box-shadow:0 0 18px var(--glow);transition:width .36s cubic-bezier(.2,.8,.2,1)}
+  .bar::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 28%,rgba(255,255,255,.55) 48%,transparent 68%); /* dark-ok: 进度高光固定为半透明白 */
+    transform:translateX(-120%);animation:sweep 1.7s ease-in-out infinite}
   .error{display:none;margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--danger-bg);color:var(--danger);
     font-size:12.5px;line-height:1.5}.ready{color:var(--ok);font-weight:600}
   details{margin-top:13px;color:var(--secondary);font-size:12px}summary{width:max-content;cursor:pointer;outline:none}
@@ -1093,10 +1250,15 @@ const SETUP_HTML: &str = r##"<!doctype html>
   .connection{margin-top:22px;color:var(--tertiary);font-size:11px;line-height:1.5;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .connection button{padding:3px 5px;border:0;border-radius:6px;background:transparent;color:var(--secondary);font:inherit;cursor:pointer}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-7px) scale(1.015)}}
+  @keyframes halo{0%,100%{opacity:.55;transform:scale(.88)}50%{opacity:1;transform:scale(1.12)}}
+  @keyframes sweep{55%,100%{transform:translateX(160%)}}
   body.platform-macos .setup{margin-top:-10px}
-  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:27px}}
-  @media(max-height:650px){body{align-items:flex-start}.setup{padding-top:20px}}
-  @media(prefers-reduced-motion:reduce){.button,.link-button,.bar{transition:none}.progress-wrap{animation:none}}
+  @media(max-width:620px){body{padding:16px}.setup{padding:16px 10px 24px}h1{font-size:27px}.visual{transform:scale(.88);margin-bottom:6px}}
+  @media(max-height:700px){body{align-items:flex-start;overflow:auto}.setup{padding-top:14px}.visual{transform:scale(.82);margin-top:-12px;margin-bottom:-4px}}
+  @media(prefers-reduced-motion:reduce){.button,.link-button,.bar{transition:none}
+    .progress-wrap,.halo,.orbit,.core,.bar::after{animation:none}}
   @media(prefers-reduced-transparency:reduce){.progress-wrap{background:var(--solid);backdrop-filter:none;-webkit-backdrop-filter:none}}
   /* dark-ok: 高对比度描边固定用黑，深色档底色已由 --solid 翻过去 */
   @media(prefers-contrast:more){.progress-wrap{background:var(--solid);box-shadow:0 0 0 1px rgba(0,0,0,.55)}.lead,.privacy-note,.connection,.message{color:var(--contrast-ink)}}
@@ -1104,7 +1266,10 @@ const SETUP_HTML: &str = r##"<!doctype html>
 </head>
 <body class="platform-__PLATFORM__">
   <main class="setup">
-    <img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" />
+    <div class="visual" id="visual" aria-hidden="true">
+      <span class="halo"></span><span class="orbit"></span><span class="orbit two"></span>
+      <div class="core"><img class="logo" src="/icon.png" alt="HugAgentOS" onerror="this.style.visibility='hidden'" /></div>
+    </div>
     <p class="product">HugAgentOS</p>
     <h1 id="title">在这台电脑上开始使用</h1>
     <section class="actions" aria-label="初始化操作">
@@ -1126,6 +1291,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
   var dual = __HYBRID_DUAL__;
   var localSupported = __LOCAL_SUPPORTED__;
   var installing = false;
+  var autoStartAttempted = false;
   var pollTimer = null;
   if(document.body.classList.contains('platform-macos')){
     document.getElementById('title').textContent='在这台 Mac 上开始使用';
@@ -1146,6 +1312,7 @@ const SETUP_HTML: &str = r##"<!doctype html>
     document.getElementById('progressWrap').style.display = 'block';
     document.getElementById('message').textContent='正在准备本机服务…';
     document.getElementById('error').style.display='none';
+    document.getElementById('visual').className='visual';
     try{
       var response=await fetch('/__desktop/setup/install',{method:'POST'});
       if(!response.ok)throw new Error('HTTP '+response.status);
@@ -1156,7 +1323,9 @@ const SETUP_HTML: &str = r##"<!doctype html>
   function showError(text){
     var el=document.getElementById('error');el.textContent=text;el.style.display='block';
     document.getElementById('details').open=true;
-    var button=document.getElementById('install');button.disabled=false;button.textContent='重新安装';
+    document.getElementById('visual').classList.add('error');
+    var button=document.getElementById('install');
+    button.style.display='';button.disabled=false;button.textContent='重新安装';
   }
   async function poll(){
     if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
@@ -1181,6 +1350,9 @@ const SETUP_HTML: &str = r##"<!doctype html>
       if(s.phase==='error'){showError(s.message||'安装失败，请重试。');installing=false;return;}
       if(s.ready){
         installing=false;
+        document.getElementById('bar').style.width='100%';
+        document.getElementById('percent').textContent='100%';
+        document.getElementById('visual').classList.add('ready');
         document.getElementById('message').innerHTML='<span class="ready">本机服务已就绪</span>';
         document.getElementById('install').style.display='none';
         if(s.active_local && !manage){ setTimeout(function(){location.replace('/__desktop/login')},450);return; }
@@ -1199,6 +1371,12 @@ const SETUP_HTML: &str = r##"<!doctype html>
       if(s.phase==='installing'||s.phase==='starting'){
         installing=true;var button=document.getElementById('install');button.disabled=true;
         button.textContent=s.phase==='starting'?'正在启动…':'正在安装…';
+      }else if(!manage&&!active&&!autoStartAttempted&&(activeLocal||dual)){
+        // 本机 / 双模式首启确认过初始化就直接开装，不再让用户在进度页上多点一次按钮。
+        // 纯云端形态落到本页是「云端不可达」，那种情况绝不能顺手装本机服务。
+        autoStartAttempted=true;
+        document.getElementById('title').textContent='正在初始化';
+        await installLocal();return;
       }else if(s.installed&&!manage){
         document.getElementById('install').textContent='启动本机服务';
       }
@@ -1380,11 +1558,10 @@ mod tests {
             assert!(block.contains(&format!("data-edit=\"{edit_action}\"")));
         }
         assert_eq!(TB_MENU.matches("class=\"tb-menuGroup\"").count(), 4);
-        assert!(block.contains("data-nav=\"back\""));
-        assert!(block.contains("data-nav=\"forward\""));
-        assert!(block.contains("<svg width=\"16\" height=\"16\""));
-        assert!(block.contains("history.back()"));
-        assert!(block.contains("history.forward()"));
+        assert!(!block.contains("data-nav=\"back\""));
+        assert!(!block.contains("data-nav=\"forward\""));
+        assert!(!block.contains("history.back()"));
+        assert!(!block.contains("history.forward()"));
         assert!(block.contains("aria-haspopup=\"menu\""));
         assert!(block.contains("aria-expanded=\"false\""));
         assert!(block.contains("role=\"menuitem\""));
@@ -1393,7 +1570,7 @@ mod tests {
         assert!(block.contains("event.key==='F11'"));
         assert!(block.contains("event.key==='ArrowDown'"));
         assert!(block.contains("inset:0 0 auto 0"));
-        assert!(block.contains("background:var(--color-bg-layout)"));
+        assert!(block.contains("var(--hugagent-desktop-sidebar-chrome)),var(--color-bg-layout)"));
         assert!(block.contains("class=\"tb-sidebarZone\""));
         assert!(block.contains("class=\"tb-mainChrome\""));
         assert!(!block.contains("class=\"tb-currentTab\""));
@@ -1407,7 +1584,8 @@ mod tests {
         assert!(block.contains(".jx-brandRow{padding-top:50px!important}"));
         assert!(block.contains(".jx-miniRail{padding-top:48px!important}"));
         assert!(block.contains("sampleBg('.jx-sider')"));
-        assert!(block.contains("sampleBg('.jx-primaryPane')"));
+        assert!(!block.contains("--hugagent-desktop-main-chrome"));
+        assert!(block.contains("font-family:inherit;font-size:12px;line-height:1;"));
         assert!(!block.contains("border-bottom:1px"));
         assert!(block.find("tb-sidebarZone") < block.find("<nav class=\"tb-menu\""));
         assert!(block.contains("data-win=\"minimize\""));
@@ -1445,6 +1623,7 @@ mod tests {
         for (name, html) in [
             ("login", LOGIN_HTML),
             ("init", INIT_HTML),
+            ("init-fixed", INIT_FIXED_HTML),
             ("setup", SETUP_HTML),
             ("close-confirm", CLOSE_CONFIRM_HTML),
             ("server-config", SERVER_CONFIG_HTML),
@@ -1454,10 +1633,13 @@ mod tests {
                 "{name} 页缺少深色覆盖块"
             );
             let booted = with_theme_boot(html);
-            assert!(booted.contains("hugagent_theme_mode"), "{name} 页没注入主题引导");
+            assert!(
+                booted.contains(brand::THEME_STORAGE_KEY),
+                "{name} 页没注入主题引导"
+            );
             // 引导必须早于 <style>，否则深色用户会先闪一帧白底
             assert!(
-                booted.find("hugagent_theme_mode") < booted.find("<style>"),
+                booted.find(brand::THEME_STORAGE_KEY) < booted.find("<style>"),
                 "{name} 页的主题引导排在样式之后，会闪白"
             );
             // 壳页面不许用媒体查询判深浅：那只认系统外观，会和手动三档打架
@@ -1554,6 +1736,62 @@ mod tests {
         assert!(INIT_HTML.contains("__CURRENT_MODE__"));
         assert!(INIT_HTML.contains("__CLOUD_BASE__"));
         assert!(INIT_HTML.contains("__LOCAL_SUPPORTED__"));
+    }
+
+    /// 仅交付混合模式的包没有别的形态可切，标题栏菜单里不该再留「运行模式…」；
+    /// 其余菜单项一个不少。默认包照旧。
+    #[test]
+    fn hybrid_only_titlebar_drops_the_run_mode_entry() {
+        let normal = titlebar_menu_for(false);
+        let hybrid_only = titlebar_menu_for(true);
+        assert!(normal.contains("data-act=\"run_mode\""));
+        assert!(!hybrid_only.contains("data-act=\"run_mode\""));
+        for act in ["new_chat", "server_config", "local_server"] {
+            assert!(
+                hybrid_only.contains(&format!("data-act=\"{act}\"")),
+                "仅混合模式菜单丢了 {act}"
+            );
+        }
+    }
+
+    /// 仅交付混合模式的构建：初始化页不问模式也不问地址，只有一个确认动作。
+    #[test]
+    fn fixed_init_page_asks_nothing_and_only_confirms() {
+        assert!(!INIT_FIXED_HTML.contains("<select"));
+        assert!(!INIT_FIXED_HTML.contains("id=\"base\""));
+        assert!(!INIT_FIXED_HTML.contains("value=\"cloud\""));
+        // 提交的哨兵不带任何模式 / 地址参数——形态由 Rust 端固定。
+        assert!(INIT_FIXED_HTML.contains("'/__desktop/provision'"));
+        assert!(!INIT_FIXED_HTML.contains("/__desktop/provision?"));
+        assert!(INIT_FIXED_HTML.contains("__LOCAL_SUPPORTED__"));
+    }
+
+    /// 初始化的动画视觉：首启页与安装进度页共用同一套（光晕 + 轨道 + 浮动核心），
+    /// 并且都尊重「减少动态效果」的系统偏好。
+    #[test]
+    fn initialization_pages_share_the_same_animated_visual() {
+        for (name, html) in [("init-fixed", INIT_FIXED_HTML), ("setup", SETUP_HTML)] {
+            assert!(html.contains("class=\"orbit\""), "{name} 页缺少轨道动画");
+            assert!(html.contains("class=\"halo\""), "{name} 页缺少光晕");
+            assert!(html.contains("@keyframes spin"), "{name} 页缺少旋转关键帧");
+            assert!(html.contains("@keyframes float"), "{name} 页缺少浮动关键帧");
+            assert!(html.contains("@keyframes halo"), "{name} 页缺少光晕关键帧");
+            assert!(
+                html.contains("prefers-reduced-motion"),
+                "{name} 页没有为减少动态效果的用户关掉动画"
+            );
+        }
+        // 进度条的流光只在进度页上。
+        assert!(SETUP_HTML.contains("@keyframes sweep"));
+    }
+
+    /// 首启确认后进度页自己开装，用户不用在两张页面上各点一次；但纯云端形态落到
+    /// 本页是「云端不可达」，那种情况绝不能顺手装本机服务。
+    #[test]
+    fn setup_page_auto_starts_only_for_local_or_dual() {
+        assert!(SETUP_HTML.contains("autoStartAttempted"));
+        assert!(SETUP_HTML.contains("!autoStartAttempted&&(activeLocal||dual)"));
+        assert!(SETUP_HTML.contains("await installLocal();return;"));
     }
 
     #[test]

@@ -2,49 +2,69 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .protocol import SkillBackendProtocol, SkillFileInfo
 
+MergeHook = Callable[
+    [Dict[str, List[SkillFileInfo]], Callable[[SkillFileInfo], str]], Dict[str, SkillFileInfo]
+]
+
 
 class CompositeBackend:
-    """Combines multiple backends with priority-based conflict resolution.
+    """Combines multiple backends into one id → skill map.
 
-    When multiple backends provide the same skill_id, the one with higher
-    priority wins (last one wins if priorities are equal).
+    Without a ``merge`` hook the highest-priority backend wins a same-id clash
+    (last one wins on equal priority). The desktop runtime installs a hook that
+    hands every multi-candidate id to the capability resolver instead, so the
+    decision is explicit, user-visible and never a silent override.
     """
 
-    def __init__(self, backends: List[SkillBackendProtocol]):
-        """Initialize composite backend.
-
-        Args:
-            backends: List of backends to combine (order matters for equal priority).
-        """
+    def __init__(self, backends: List[SkillBackendProtocol], merge: Optional[MergeHook] = None):
         self._backends = backends
+        self._merge = merge
         # Pre-compute merged skill map for efficient lookups.
         self._skill_map: Dict[str, SkillFileInfo] = self._merge_skill_files()
 
     def _merge_skill_files(self) -> Dict[str, SkillFileInfo]:
-        """Merge skill files from all backends, respecting priority.
+        if self._merge is not None:
+            groups: Dict[str, List[SkillFileInfo]] = {}
+            for backend in self._backends:
+                for skill_info in backend.list_skill_files():
+                    groups.setdefault(skill_info.skill_id, []).append(skill_info)
+            # The hook hashes only colliding ids and needs this backend's readers
+            # for that; it is handed the bound method rather than the instance
+            # because the merge runs inside __init__.
+            return self._merge(groups, self.content_hash)
 
-        Returns:
-            Dictionary mapping skill_id to SkillFileInfo (highest priority wins).
-        """
         merged: Dict[str, SkillFileInfo] = {}
-
-        # Sort backends by priority (ascending), so higher priority overwrites
         sorted_backends = sorted(self._backends, key=lambda b: b.priority)
-
         for backend in sorted_backends:
             for skill_info in backend.list_skill_files():
-                # Higher priority (or later in list) overwrites
                 if (
                     skill_info.skill_id not in merged
                     or skill_info.priority >= merged[skill_info.skill_id].priority
                 ):
                     merged[skill_info.skill_id] = skill_info
-
         return merged
+
+    def content_hash(self, info: SkillFileInfo) -> str:
+        """Content hash of one backend entry (used only for colliding ids)."""
+        from core.services.desktop_capability_protocol import skill_content_hash
+
+        if info.origin and info.origin.get("content_hash"):
+            return str(info.origin["content_hash"])
+        owner = next((b for b in self._backends if b.source_name == info.source_name), None)
+        if info.is_database:
+            content = owner.read_skill_file(info.skill_id) if owner else ""
+        elif info.content is not None:
+            content = info.content
+        else:
+            content = info.file_path.read_text(encoding="utf-8")
+        extra: Dict[str, str] = {}
+        if owner is not None and hasattr(owner, "get_extra_files"):
+            extra = owner.get_extra_files(info.skill_id)
+        return skill_content_hash(content, extra)
 
     def change_token(self) -> Tuple[Tuple[str, Any], ...]:
         """Return change tokens from backends that can detect external updates."""
@@ -123,6 +143,12 @@ class CompositeBackend:
         info = self._skill_map.get(skill_id)
         if info is None:
             return {}
+        # A single store backend can contain same-named installations. Read the
+        # selected concrete revision, not that backend's first runtime-name hit.
+        if info.source_name in ("cloud", "device-store") and not info.is_database:
+            from .filesystem import FilesystemBackend
+            path = info.file_path.parent
+            return FilesystemBackend(path.parent, info.source_name).get_extra_files(path.name)
         # Find the owning backend and delegate
         for backend in self._backends:
             if backend.source_name == info.source_name:

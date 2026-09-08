@@ -3,19 +3,26 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { validateDesktopBuildTarget } from "./desktop-build-target.mjs";
+import { resolveHybridOnly } from "./desktop-hybrid-only.mjs";
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const flavor = process.argv[2] || "full";
 if (!["full", "thin"].includes(flavor)) {
   throw new Error(`Unknown desktop bundle flavor: ${flavor}`);
 }
-const tauriArgs = process.argv.slice(3);
+const rawArgs = process.argv.slice(3);
+const hybridOnly = resolveHybridOnly(rawArgs, process.env);
+const tauriArgs = rawArgs.filter((arg) => arg !== "--hybrid-only");
 validateDesktopBuildTarget(tauriArgs);
 
 const cli = join(desktopDir, "node_modules", "@tauri-apps", "cli", "tauri.js");
 const result = spawnSync(process.execPath, [cli, "build", ...tauriArgs], {
   cwd: desktopDir,
-  env: { ...process.env, HUGAGENT_DESKTOP_BUNDLE: flavor },
+  env: {
+    ...process.env,
+    HUGAGENT_DESKTOP_BUNDLE: flavor,
+    ...(hybridOnly ? { JX_DESKTOP_HYBRID_ONLY: "1" } : {}),
+  },
   stdio: "inherit",
   shell: false,
 });

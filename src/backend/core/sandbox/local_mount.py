@@ -87,10 +87,13 @@ def remove_local_project_link(slug: str, *, workspace_root: Optional[str] = None
 def _windows_junction(link: str, real: str) -> None:  # pragma: no cover - Windows only
     import subprocess
 
+    from core.infra.proc import no_window_kwargs
+
     subprocess.run(
         ["cmd", "/c", "mklink", "/J", link, real],
         check=True,
         capture_output=True,
+        **no_window_kwargs(),
     )
 
 

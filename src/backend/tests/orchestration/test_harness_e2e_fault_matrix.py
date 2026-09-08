@@ -19,6 +19,7 @@ from core.services.chat_sequencer import ChatBusyError, ChatSequencer
 from core.services.run_journal import RunJournal, RunLeaseLost
 from core.services.steer_queue import SteerQueue
 from orchestration import chat_run_executor as executor
+from orchestration import run_event_stream
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -241,11 +242,11 @@ async def test_redis_projection_loss_keeps_db_recovery_and_fences_old_owner(
 
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     await redis.xadd(
-        executor._stream_key(accepted.run.run_id),
+        run_event_stream.redis_stream_key(accepted.run.run_id),
         {"data": '{"type":"partial"}'},
     )
     await redis.flushall()
-    assert await redis.exists(executor._stream_key(accepted.run.run_id)) == 0
+    assert await redis.exists(run_event_stream.redis_stream_key(accepted.run.run_id)) == 0
 
     with sessions() as db:
         row = db.get(ChatRun, accepted.run.run_id)

@@ -78,9 +78,16 @@ def test_custom_subagent_reuses_parent_session(monkeypatch):
         parent_runtime={
             "sandbox_session_id": "chat-sandbox-1",
             "chat_id": "chat-1",
+            "run_id": "root-run",
+            "journal_owner": "ledger-owner",
+            "capability_scope": "child-scope",
         },
     )
 
     assert ok is True
     assert text == "done"
     assert captured["sandbox_session_id"] == "chat-sandbox-1"
+
+    assert captured["run_id"] == "root-run"
+    assert captured["journal_owner"] == "ledger-owner"
+    assert captured["capability_scope"] == "child-scope"

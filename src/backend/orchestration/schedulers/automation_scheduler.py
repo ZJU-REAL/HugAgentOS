@@ -10,7 +10,6 @@ Inspired by claude-code's CronScheduler:
 
 import asyncio
 import contextlib
-import json
 import os
 import random
 import time
@@ -966,22 +965,19 @@ class AutomationScheduler:
 
     async def _acquire_lock(self, task_id: str) -> bool:
         try:
-            from core.infra.redis import get_redis
+            from core.infra.ephemeral import get_ephemeral_state
 
-            redis = get_redis()
             key = f"{REDIS_LOCK_PREFIX}{task_id}"
-            result = await redis.set(key, "1", ex=REDIS_LOCK_TTL, nx=True)
-            return bool(result)
+            return await get_ephemeral_state().claim(key, ttl=REDIS_LOCK_TTL)
         except Exception as e:
             logger.warning("[scheduler] lock acquire failed for %s: %s", task_id, e)
             return False
 
     async def _release_lock(self, task_id: str):
         try:
-            from core.infra.redis import get_redis
+            from core.infra.ephemeral import get_ephemeral_state
 
-            redis = get_redis()
-            await redis.delete(f"{REDIS_LOCK_PREFIX}{task_id}")
+            await get_ephemeral_state().drop(f"{REDIS_LOCK_PREFIX}{task_id}")
         except Exception as e:
             logger.warning("[scheduler] lock release failed for %s: %s", task_id, e)
 
@@ -997,10 +993,9 @@ class AutomationScheduler:
         chat_id: Optional[str] = None,
     ):
         try:
-            from core.infra.redis import get_redis
+            from core.services import automation_notifications as notifications
             from core.services.automation_service import SUMMARY_LIMIT_BRIEF, truncate_summary
 
-            redis = get_redis()
             notification = {
                 "id": f"notif_{uuid.uuid4().hex[:12]}",
                 "task_id": task_id,
@@ -1013,9 +1008,6 @@ class AutomationScheduler:
                 "timestamp": int(datetime.utcnow().timestamp() * 1000),
                 "read": False,
             }
-            key = f"jx:notifications:{user_id}"
-            await redis.lpush(key, json.dumps(notification, ensure_ascii=False))
-            await redis.ltrim(key, 0, 49)  # Keep latest 50
-            await redis.expire(key, 7 * 24 * 3600)  # 7 day TTL
+            await notifications.push(user_id, notification)
         except Exception as e:
             logger.warning("[scheduler] notification failed: %s", e)

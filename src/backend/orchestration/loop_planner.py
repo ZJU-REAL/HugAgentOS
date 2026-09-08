@@ -23,6 +23,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from core.capabilities.runtime import child_scope
+
 from core.infra.logging import get_logger
 from orchestration.loop_evaluator import GoalSpec, _parse_json_array_lenient
 
@@ -63,6 +65,7 @@ async def scout_workspace(
     project_ctx: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
     model_name: Optional[str] = None,
+    capability_scope: str = "",
 ) -> str:
     """只读侦察：绑定 worker 同款沙箱/项目，摸清现状后输出结构化纪要（失败返回 ""）。"""
     if not project_ctx and await _workspace_is_empty(session_id, user_id):
@@ -104,6 +107,7 @@ async def scout_workspace(
             allow_bash=True,
             max_iters=10,
             tool_result_limit=6000,
+            capability_scope=capability_scope,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("[loop-plan] scout spawn failed: %s", exc)
@@ -138,7 +142,9 @@ _CHECK_CMD_RULES = (
 )
 
 
-async def _plan_llm_once(prompt: str, *, model_name: Optional[str], user_id: str) -> str:
+async def _plan_llm_once(
+    prompt: str, *, model_name: Optional[str], user_id: str, capability_scope: str = ""
+) -> str:
     """规划专用的一次性纯文本调用：loop_reviewer 角色 + medium 档（规划值得比 fast 更强的模型）。"""
     from core.llm.agent_factory import create_agent_executor
     from core.llm.mcp_manager import close_clients
@@ -151,6 +157,7 @@ async def _plan_llm_once(prompt: str, *, model_name: Optional[str], user_id: str
         model_name=model_name,
         model_role=_MODEL_ROLE,
         current_user_id=user_id,
+        capability_scope=child_scope(capability_scope, "loop-model", "planner"),
     )
     sa = StreamingAgent(agent, clients)
     text = ""
@@ -191,6 +198,7 @@ async def plan_requirements(
     survey: str,
     model_name: Optional[str],
     user_id: str,
+    capability_scope: str = "",
 ) -> List[Dict[str, Any]]:
     """侦察纪要 + 目标 → 需求账本。失败返回 []（driver 退回旧 decompose 链路）。"""
     criteria_block = (
@@ -219,7 +227,9 @@ async def plan_requirements(
         "不要任何多余文字。"
     )
     try:
-        text = await _plan_llm_once(prompt, model_name=model_name, user_id=user_id)
+        text = await _plan_llm_once(
+            prompt, model_name=model_name, user_id=user_id, capability_scope=capability_scope
+        )
         reqs = _sanitize_requirements(_parse_json_array_lenient(text))
         if reqs:
             return reqs[:8]
@@ -236,6 +246,7 @@ async def replan_remaining(
     survey: str,
     model_name: Optional[str],
     user_id: str,
+    capability_scope: str = "",
 ) -> Optional[List[Dict[str, Any]]]:
     """对未通过的剩余需求重拆。返回**完整的新账本需求列表**（已通过项原样保留在前），
     失败/无法改进时返回 None（driver 维持原账本）。"""
@@ -271,7 +282,9 @@ async def replan_remaining(
         '{"id":"N1","description":"...","check_cmd":"..."}。不要任何多余文字。'
     )
     try:
-        text = await _plan_llm_once(prompt, model_name=model_name, user_id=user_id)
+        text = await _plan_llm_once(
+            prompt, model_name=model_name, user_id=user_id, capability_scope=capability_scope
+        )
         fresh = _sanitize_requirements(_parse_json_array_lenient(text), id_prefix="N")
         if not fresh:
             return None

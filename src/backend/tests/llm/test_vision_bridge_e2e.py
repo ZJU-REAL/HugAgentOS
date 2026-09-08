@@ -112,16 +112,28 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 @pytest.fixture(autouse=True)
-def _reset_redis_pool():
+def _reset_redis_pool(monkeypatch):
     """别把绑在一次性事件循环上的 Redis 连接池留给后面的测试。
 
     ``get_redis()`` 缓存一个全局池，池绑定创建它的事件循环。本文件用 ``asyncio.run``
     起临时循环写证据缓存，循环一关，池就废了——后续任何用 Redis 的测试都会撞上
     "attached to a different loop"。用完清掉全局引用，下一个用例自己重建。
-    """
-    yield
-    import core.infra.redis as redis_module
 
+    证据缓存本身是被测对象的一部分，所以这里把 ``REDIS_URL`` 留空，用与本机安装档位
+    相同的进程内后端，而不是依赖测试机恰好能连到 compose 里的 redis 主机。
+    """
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    import core.infra.redis as redis_module
+    from core.config.settings import settings
+
+    # Settings sections are frozen dataclasses: swap the module's view of them.
+    monkeypatch.setattr(
+        redis_module, "settings", SimpleNamespace(redis=replace(settings.redis, url=""))
+    )
+    redis_module._redis_pool = None
+    yield
     redis_module._redis_pool = None
 
 

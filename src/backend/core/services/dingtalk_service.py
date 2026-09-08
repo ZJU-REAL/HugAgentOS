@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from core.db.repository import DingTalkConnectionRepository
+from core.infra.proc import no_window_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,7 @@ async def _run_dws(user_id: str, args: List[str], timeout: int = 40) -> Tuple[st
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_dws_env(user_id),
+            **no_window_kwargs(),
         )
     except FileNotFoundError:
         return "", "dws binary not found on backend", 127
@@ -312,6 +314,7 @@ async def _device_login_flow(user_id: str) -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env=_dws_env(user_id),
+            **no_window_kwargs(),
         )
     except FileNotFoundError:
         _update_connection(user_id, {"status": "error", "last_error": "后端未安装 dws"})

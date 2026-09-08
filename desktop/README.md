@@ -120,9 +120,51 @@ npm run build
 # 可选云端精简包：不提供本机模式，不携带约 350 MiB 的压缩运行时
 npm run build:thin
 
+# 可选「仅混合模式」包：只交付「本机 + 云端」双模式，首启不再让用户选运行模式
+JX_DEFAULT_SERVER_BASE=https://你的后端 npm run build:hybrid-only
+
 # 开发调试：先确保 src/frontend 已 npm run build（反代直接 serve dist），再
 HUGAGENT_SERVER_BASE=https://你的后端 npm run dev
 ```
+
+### 构建选项：仅交付混合模式
+
+默认打出的包在首次启动时让用户三选一（仅本机 / 仅云端 / 本机 + 云端）。如果这批包本来就
+只打算按混合模式交付，可以在构建时关掉这道选择：
+
+```bash
+JX_DEFAULT_SERVER_BASE=https://你的后端 npm run build:hybrid-only
+# 等价写法（也适用于 build:thin 等其它入口）
+JX_DESKTOP_HYBRID_ONLY=1 JX_DEFAULT_SERVER_BASE=https://你的后端 npm run build
+```
+
+打开后客户端行为的差别：
+
+- 首启**不问运行模式、也不问服务器地址**，直接展示带动画的初始化页，只有一个「开始初始化」；
+- 确认后**不重启应用**——运行形态在内存里已备好，同一个窗口直接切到安装进度页并自动开装；
+- 云端地址固定为构建时的 `JX_DEFAULT_SERVER_BASE`。因为不再向用户询问地址，缺这个变量时
+  构建脚本会**直接失败**，不会打出一个指向开发默认地址的包；
+- 安装器遗留的运行模式选择一律丢弃，菜单里也不再有「更改运行模式」。
+
+默认（不设 `JX_DESKTOP_HYBRID_ONLY`）行为完全不变，三选一初始化页照旧。
+
+### 构建选项：本机端口命名空间
+
+本机后端、脚本执行服务和内置 MCP 的端口默认是 `32101`、`8900`、`9100–9116`。同一台机器上要
+装两个不同品牌的包时，用构建变量把其中一个整体挪走，两边就不会互相抢端口：
+
+| 变量 | 作用 | 默认值 |
+|---|---|---|
+| `JX_LOCAL_SERVER_PORT` | 本机后端端口 | `32101` |
+| `JX_LOCAL_SCRIPT_RUNNER_PORT` | 脚本执行服务端口 | `8900` |
+| `JX_LOCAL_MCP_PORT_OFFSET` | 内置 MCP 端口整体偏移 | `0` |
+
+壳把后两者以 `SANDBOX_RUNNER_URL` 和 `HUGAGENT_LOCAL_MCP_PORT_OFFSET` 注入本机后端进程，
+后端不再写死端口。升级换过端口后，旧端口上的本机服务按记录的 PID 与安装根回收，不会误伤
+同机其它产品。老 `server.json` 里记的旧端口在启动时按当前端口纠正，**不重写配置文件**。
+
+> `brand.rs` 里的每个构建变量都登记进了 `build.rs` 的 `rerun-if-env-changed`，改了变量值重新
+> 打包一定会重编译，不会复用上一次的产物。
 
 > 平台打包目标由 `src-tauri/tauri.linux.conf.json`（Linux：AppImage + deb）、
 > `src-tauri/tauri.windows.conf.json`（Windows：NSIS + CE 本机服务）和
@@ -186,7 +228,8 @@ Tauri updater 的 `TAURI_SIGNING_PRIVATE_KEY` 是独立的更新包验签机制�
 |---|---|
 | `src-tauri/src/lib.rs` | 入口：起反代、建窗口（挂菜单栏）、deep-link、导航守卫、托盘、全局快捷键、悬浮问答窗、服务器配置窗 |
 | `src-tauri/src/proxy.rs` | 本地反代：静态 serve + `/api` 转发 + cookie 注入 + SSE 透传；`/__desktop/*` 原生页（登录/关闭确认/服务器配置） |
-| `src-tauri/src/auth.rs` | token 落盘 + handoff 票据 redeem |
+| `src-tauri/src/auth.rs` | 系统凭据库存取、旧会话迁移、handoff 票据 redeem、会话版本隔离 |
+| `src-tauri/src/credential_store.rs` | Windows Credential Manager / macOS Keychain / Linux Secret Service |
 | `src-tauri/src/config.rs` | server.json / 环境变量 / 默认值；`save_server_base` 写回 |
 | `src-tauri/src/local_server.rs` | 本机服务安装、版本检测、进程托管、健康检查、进度与日志状态 |
 | `src-tauri/src/local_payload.rs` | 三平台离线归档校验、安全解压、内容寻址、原子激活与自动回滚 |
@@ -329,3 +372,31 @@ npm run build
   环境而异。
 - 依赖版本号（tauri 插件、axum/reqwest 等）以实际 `cargo build` 为准；个别 capability
   permission 标识符若构建报错，按报错提示微调 `capabilities/default.json`。
+
+
+### 桌面会话与短期能力授权
+
+会话 token 保存到系统凭据库，以安装目录和云端地址共同隔离。Windows 使用
+Credential Manager，macOS 使用 Keychain，Linux 使用系统的 `secret-tool`
+连接 Secret Service。系统凭据库不可用或被锁定时，本次会话仅存在于内存，
+不会写入明文文件；下次启动需要重新登录。旧 `auth.json` 在读取后迁移并删除。
+退出会留下不含凭据的 `auth-cleared` 标记，防止凭据库不可用时恢复旧账号。
+
+双模式在配置目录中保存不含凭据的稳定 `device-id`，每 5 分钟续签有效期
+10 分钟的设备能力令牌，并将设备身份带到能力请求。启动断网或同步失败时自动重试。
+退出会清除本机身份、能力桥并注销云端会话；旧登录和同步请求的迟到响应按会话版本丢弃。
+
+开发环境运行 Rust 单测可暂时覆盖发布资源清单（无需生成离线运行时包）：
+
+```bash
+cd desktop/src-tauri
+TAURI_CONFIG='{"bundle":{"resources":[]}}' cargo test --lib --offline
+```
+
+此检查不覆盖 Windows/macOS 系统凭据库的实机访问，也不执行标记为 ignored 的完整运行时解包测试。
+
+### Windows 卸载文件安全回归
+
+NSIS 默认保留业务数据和顶层 `skills`、`plugins`、`agents`、`mcp.json`、`.capabilities`；仅用户明确选择删除时清理这些目录。卸载前拒绝重定向的应用根和运行目录，清理助手只枚举普通目录，对 junction/reparse point 仅删除链接本身。运行目录仍先原子移走，再由隐藏后台助手清理。
+
+可在 Windows 的独立 TEMP 夹具中运行 `scripts/windows-uninstall-fixture.ps1`，传入新建且名称以 `codex-cap-uninstall-` 开头的 TEMP 直属目录和 `src-tauri/uninstall-cleanup.ps1` 的绝对路径。夹具仅操作其指定目录，覆盖保留/显式删除、联接目标保护、长路径及恢复失败。该检查不运行产品安装器，也不能替代完整的新装、升级、静默更新和交互卸载验收。

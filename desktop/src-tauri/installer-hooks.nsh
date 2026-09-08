@@ -1,4 +1,5 @@
 !include "FileFunc.nsh"
+!define HUGAGENT_UNINSTALL_CLEANUP_SOURCE "${__FILEDIR__}\uninstall-cleanup.ps1"
 
 !macro NSIS_HOOK_POSTINSTALL
   ; SSH / 企业软件分发可显式指定首装模式；普通交互安装不弹任何窗口——
@@ -37,7 +38,17 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; 默认保留 data；交互卸载只有在用户明确确认时才随运行环境一起删除。
+  ; 清理助手嵌入卸载器，先验证根路径；不访问 junction 重定向的运行目录。
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\hugagent-uninstall-cleanup.ps1 "${HUGAGENT_UNINSTALL_CLEANUP_SOURCE}"
+  nsExec::ExecToStack `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\hugagent-uninstall-cleanup.ps1" -AppRoot "$LOCALAPPDATA\com.hugagent.desktop" -ValidateOnly`
+  Pop $R4
+  Pop $R3
+  StrCmp $R4 "0" hugagent_uninstall_root_valid
+  MessageBox MB_OK|MB_ICONEXCLAMATION "本机数据路径已重定向或无法验证，已跳过清理以保护数据。"
+  Goto hugagent_uninstall_cleanup_done
+  hugagent_uninstall_root_valid:
+  ; 默认保留业务数据与四类能力；只有明确确认时才删除。
   ; 静默更新不弹窗，也不会删除用户数据。软件分发系统可显式传入
   ; /HUGAGENT_DELETE_DATA 请求清理全部本机数据。
   StrCpy $R5 "0"
@@ -60,17 +71,19 @@
   IfErrors hugagent_uninstall_ask_delete_data hugagent_uninstall_choice_done
 
   hugagent_uninstall_ask_delete_data:
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "是否同时删除本机服务数据？选择“否”会保留账号、对话、上传文件和工作区，重新安装后可继续使用。" IDNO hugagent_uninstall_choice_done
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "是否同时删除本机能力和服务数据？选择“否”会保留技能、插件、智能体、MCP 配置、账号、对话、上传文件和工作区，重新安装后可继续使用。" IDNO hugagent_uninstall_choice_done
   StrCpy $R5 "1"
 
   hugagent_uninstall_choice_done:
-  ; 只结束 local-server 下、且 PID 与记录匹配的进程，避免陈旧 PID
-  ; 误杀其它 Python。进程退出后再原子移走运行目录。
-  nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$root=[IO.Path]::GetFullPath('$LOCALAPPDATA\com.hugagent.desktop\local-server').TrimEnd('\'); $$pidFile=Join-Path $$root 'server.pid'; if(Test-Path -LiteralPath $$pidFile){ $$pidText=(Get-Content -LiteralPath $$pidFile -Raw).Trim(); if($$pidText -match '^\d+$$'){ $$p=Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $$pidText) -ErrorAction SilentlyContinue; if($$p -and $$p.ExecutablePath -and [IO.Path]::GetFullPath($$p.ExecutablePath).StartsWith($$root + '\',[StringComparison]::OrdinalIgnoreCase)){ & taskkill.exe /PID $$pidText /T /F | Out-Null } } }"`
+  ; 结束所有从 local-server 运行目录里启动的进程：服务本体、脚本执行、内置 MCP，
+  ; 以及上次异常退出留下的孤儿。只看可执行文件所在位置，不会碰其它产品或系统 Python。
+  ; 进程退出后再原子移走运行目录。
+  nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$root=[IO.Path]::GetFullPath('$LOCALAPPDATA\com.hugagent.desktop\local-server').TrimEnd('\') + '\'; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$_.ExecutablePath -and [IO.Path]::GetFullPath($$_.ExecutablePath).StartsWith($$root,[StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { & taskkill.exe /PID $$_.ProcessId /T /F | Out-Null }"`
   Sleep 500
 
   StrCpy $R6 "$LOCALAPPDATA\com.hugagent.desktop\local-server"
-  IfFileExists "$R6" 0 hugagent_uninstall_cleanup_done
+  ; 仅有新版顶层能力而运行目录缺失时，仍允许用户明确清理。
+  CreateDirectory "$R6"
   StrCpy $R7 ""
 
   ; 保留数据时先把 data 原子挪到同卷临时名，再把剩余 local-server
@@ -86,6 +99,8 @@
   hugagent_uninstall_detach_runtime:
   GetTempFileName $R8 "$LOCALAPPDATA\com.hugagent.desktop"
   Delete "$R8"
+  ${GetFileName} $R8 $R9
+  StrCpy $R8 "$LOCALAPPDATA\com.hugagent.desktop\remove-$R9"
   ClearErrors
   Rename "$R6" "$R8"
   IfErrors hugagent_uninstall_detach_failed
@@ -97,9 +112,15 @@
   IfErrors hugagent_uninstall_restore_failed
 
   hugagent_uninstall_start_cleanup:
-  ; ExecShell 不等待子进程；原生 rd 在隐藏后台清理已改名目录。
-  ; 用户立即完成卸载，实际磁盘回收继续进行。
-  ExecShell "" "$SYSDIR\cmd.exe" `/D /Q /C RD /S /Q "$R8"` SW_HIDE
+  ; 后台助手只枚举普通目录，遇到联接只删除链接本身。
+  ; 助手先复制到已脱离的目录，避免卸载器退出后 PLUGINSDIR 消失。
+  ClearErrors
+  CopyFiles /SILENT "$PLUGINSDIR\hugagent-uninstall-cleanup.ps1" "$R8\hugagent-uninstall-cleanup.ps1"
+  IfErrors hugagent_uninstall_cleanup_copy_failed
+  ExecShell "" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" `-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$R8\hugagent-uninstall-cleanup.ps1" -AppRoot "$LOCALAPPDATA\com.hugagent.desktop" -DetachedRuntime "$R8" -DeleteData $R5` SW_HIDE
+  Goto hugagent_uninstall_cleanup_done
+  hugagent_uninstall_cleanup_copy_failed:
+  MessageBox MB_OK|MB_ICONEXCLAMATION "无法启动安全清理，文件已保留在：$R8"
   Goto hugagent_uninstall_cleanup_done
 
   hugagent_uninstall_preserve_failed:

@@ -867,13 +867,30 @@ async def export_endpoint(
     return success_response(data=export_all(db))
 
 
+async def _require_import_control(request: Request, db: Session = Depends(get_db)):
+    from core.services.desktop_capability import is_desktop_shell_control
+    if is_desktop_shell_control(request.headers.get("authorization", ""), request.headers.get("origin")):
+        return
+    await require_config(request=request, authorization=request.headers.get("authorization"), db=db)
+
+
 @router.post("/import", summary="导入模型配置")
 async def import_endpoint(
     body: ImportRequest,
-    _: None = Depends(require_config),
+    request: Request,
+    _: None = Depends(_require_import_control),
     db: Session = Depends(get_db),
 ):
     """导入模型配置（供应商 + 角色分配）。仅限管理员（CONFIG_TOKEN / can_system_config，同 export）；overwrite=True 时覆盖同名条目，导入后刷新模型配置缓存。"""
-    result = import_all(db, body.model_dump(), overwrite=body.overwrite)
+    from core.services.desktop_model_credentials import sanitize_import
+    if any(str(p.get("api_key") or "").startswith(("dcap1.", "dcap2.", "desktop-capability:")) for p in body.providers):
+        from core.services.desktop_capability import is_desktop_shell_control
+        if not is_desktop_shell_control(request.headers.get("authorization", ""), request.headers.get("origin")):
+            raise HTTPException(status_code=403, detail="desktop shell control required")
+    try:
+        payload = sanitize_import(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result = import_all(db, payload, overwrite=body.overwrite)
     _invalidate_model_caches()
     return success_response(data=result)

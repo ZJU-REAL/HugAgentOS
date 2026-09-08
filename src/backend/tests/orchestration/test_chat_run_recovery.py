@@ -35,6 +35,7 @@ from core.services.tool_effect_ledger import (
     recover_incomplete_tool_effects,
 )
 from orchestration import chat_run_executor as executor
+from orchestration import run_event_stream
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -131,7 +132,7 @@ def test_active_run_probe_hides_internal_agent_rows(recovery_env):
 async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-agent-timeout",
@@ -249,7 +250,7 @@ async def test_legacy_regenerate_stream_injects_a_durable_tool_binding(recovery_
 async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-tool-unknown",
@@ -290,7 +291,7 @@ async def test_plan_worker_pauses_nested_unknown_tool_outcome(recovery_env, monk
 async def test_plan_generate_fences_late_message_after_lease_takeover(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-generate-fenced",
@@ -353,7 +354,7 @@ async def test_plan_generate_commits_message_and_terminal_state_atomically(
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-plan-generate-complete",
@@ -419,7 +420,7 @@ async def test_autonomous_worker_pauses_nested_unknown_without_partial_stale_wri
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-loop-tool-unknown",
@@ -459,7 +460,7 @@ async def test_autonomous_project_binding_is_rejected_after_lease_takeover(
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-loop-project-fenced",
@@ -961,7 +962,7 @@ async def test_public_start_follow_and_history_complete_on_durable_offsets(
             "usage": {"input_tokens": 2, "output_tokens": 2},
         }
 
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
     monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
     monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
@@ -1003,7 +1004,7 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
 ):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-partial-stream",
@@ -1065,7 +1066,9 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
     assert all(event["_offset"] > 2 for event in events)
     assert any(event.get("reason") == "run_recovered" for event in events)
     assert events[-1]["type"] == "meta"
-    raw_entries = await redis.xrange(executor._stream_key(row.run_id), min="-", max="+")
+    raw_entries = await redis.xrange(
+        run_event_stream.redis_stream_key(row.run_id), min="-", max="+"
+    )
     decoded = [json.loads(fields["data"]) for _entry_id, fields in raw_entries]
     assert all("old partial" not in str(event) for event in decoded)
     assert decoded[-1]["type"] == executor._TERMINAL_TYPE
@@ -1075,7 +1078,7 @@ async def test_public_follow_after_recovery_resets_partial_stream_and_keeps_offs
 async def test_active_run_probe_replays_the_complete_existing_prefix(recovery_env, monkeypatch):
     sessions = recovery_env
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     journal = RunJournal(sessions)
     row = journal.accept(
         run_id="run-refresh-replay",
@@ -1202,7 +1205,7 @@ async def test_reaper_terminal_cancels_worker_without_late_user_cancel_projectio
         yield {"type": "model_progress"}
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(executor, "get_redis", lambda **_: redis)
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: redis)
     monkeypatch.setattr(executor, "astream_chat_workflow", blocked_workflow)
     run = await executor.start_run(
         chat_id="chat-1",
@@ -1227,10 +1230,131 @@ async def test_reaper_terminal_cancels_worker_without_late_user_cancel_projectio
 
     assert await executor.reap_stale_runs() == 1
     await asyncio.wait_for(worker, timeout=1)
-    entries = await redis.xrange(executor._stream_key(run.run_id), min="-", max="+")
+    entries = await redis.xrange(run_event_stream.redis_stream_key(run.run_id), min="-", max="+")
     events = [json.loads(fields["data"]) for _entry_id, fields in entries]
     assert sum(event.get("type") == executor._TERMINAL_TYPE for event in events) == 1
     assert not any(event.get("_cancelled") for event in events)
     assert any("长时间无响应" in str(event.get("error") or "") for event in events)
     with sessions() as db:
         assert db.get(ChatRun, run.run_id).status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_follow_run_survives_none_stream_reads(recovery_env, monkeypatch):
+    """A backend read that yields nothing may answer None rather than [].
+
+    follow_run must treat both as "no events yet" instead of failing the SSE
+    stream with "流式响应中断". The Redis client now sits behind
+    orchestration.run_event_stream, so that is where the empty read enters.
+    """
+
+    class _NoneStreamRedis:
+        async def xrange(self, *a, **k):
+            return None
+
+        async def xread(self, *a, **k):
+            return None
+
+    monkeypatch.setattr(
+        "orchestration.run_event_stream.get_redis", lambda **_: _NoneStreamRedis()
+    )
+    journal = RunJournal(recovery_env)
+    journal.accept(
+        run_id="run-none-stream",
+        message_id="msg-none-stream",
+        chat_id="chat-1",
+        user_id="user-1",
+        request_payload={"kind": "chat"},
+        recovery_snapshot={"kind": "chat", "worker_args": {}},
+    )
+    assert journal.claim("run-none-stream", owner="w", lease_seconds=60)
+    assert journal.complete("run-none-stream", owner="w", status="failed")
+
+    events = []
+    async for event in executor.follow_run("run-none-stream", from_offset=0):
+        events.append(event)
+    assert events == []
+async def test_follower_drops_the_poisoned_connection_when_xread_fails(recovery_env, monkeypatch):
+    """A failed XREAD must not blind the follower for the rest of the run.
+
+    The parse error leaves that pooled connection desynchronised, so every
+    later read on it fails too. Retrying without dropping it means the follower
+    yields nothing until the run goes terminal — the desktop client then sits
+    on "starting task" for minutes while the agent is already answering.
+    """
+    inner = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
+    dropped = asyncio.Event()
+    disconnects = []
+
+    class _Pool:
+        def __init__(self, owner) -> None:
+            self.owner = owner
+
+        async def disconnect(self, inuse_connections=True):
+            disconnects.append(inuse_connections)
+            self.owner.poisoned = False
+            dropped.set()
+
+        def __getattr__(self, name):
+            return getattr(inner.connection_pool, name)
+
+    class _Poisoned:
+        """Keeps failing XREAD until the pool hands out a fresh connection."""
+
+        def __init__(self) -> None:
+            self.poisoned = True
+            self.connection_pool = _Pool(self)
+
+        async def xread(self, *args, **kwargs):
+            if self.poisoned:
+                raise AttributeError("'list' object has no attribute 'items'")
+            return await inner.xread(*args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(inner, name)
+
+    client = _Poisoned()
+    gate = asyncio.Event()
+
+    async def workflow(**_kwargs):
+        yield {"type": "content", "delta": "first"}
+        await gate.wait()
+        yield {"type": "content", "delta": "second"}
+        yield {
+            "type": "meta",
+            "route": "main",
+            "is_markdown": False,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+
+    monkeypatch.setattr("orchestration.run_event_stream.get_redis", lambda **_: client)
+    monkeypatch.setattr(executor, "astream_chat_workflow", workflow)
+    monkeypatch.setattr(executor, "_spawn_followup_task", lambda **_kwargs: None)
+    monkeypatch.setattr(executor, "_spawn_compaction_task", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "core.services.artifact_service.persist_artifacts",
+        lambda *_args, **_kwargs: None,
+    )
+
+    run = await executor.start_run(
+        chat_id="chat-1",
+        user_id="user-1",
+        session_messages=[{"role": "user", "content": "hello"}],
+        effective_user_message="hello",
+        raw_user_message="hello",
+        context={"user_id": "user-1"},
+        request_payload={"message": "hello"},
+        model_name="test-model",
+    )
+
+    async def collect():
+        return [event async for event in executor.follow_run(run.run_id)]
+
+    follower = asyncio.create_task(collect())
+    await asyncio.wait_for(dropped.wait(), timeout=5)
+    gate.set()
+    events = await asyncio.wait_for(follower, timeout=10)
+
+    assert disconnects == [False]
+    assert "second" in [event.get("delta") for event in events if event["type"] == "content"]
+    assert events[-1]["type"] == "meta"

@@ -19,7 +19,7 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 | Document | Description |
 |------|------|
 | [Deployment Guide · Overview](deployment/README.md) | Comparison and selection of deployment methods, post-deployment verification |
-| [No-Docker Quick Install](deployment/quick-install.md) | Zero-dependency single machine: one command, SQLite + in-process fakeredis + subprocess MCP/sandbox |
+| [No-Docker Quick Install](deployment/quick-install.md) | Zero-dependency single machine: one command, SQLite + in-process event log/ephemeral state + subprocess MCP/sandbox |
 | [Docker Compose Deployment](deployment/docker-compose.md) | Team/production standard: full service topology, profiles, rebuild workflows, database migrations |
 | [Offline Production Deployment](deployment/offline-production.md) | Isolated environments: image tarball packaging / production-side loading / prompt snapshot migration (Enterprise Edition) |
 | [Windows Deployment](deployment/windows-deployment.md) | Docker Desktop / WSL2 deltas, line endings, paths and sandbox limitations |

@@ -1,287 +1,279 @@
-"""桌面双端：云端技能同步到本机（云端为真源，本机只保存文件快照）。
+"""桌面双端：云端技能清单同步 + 按需准备（存储层 / 安装索引 / 运行视图）。
 
 桥激活后，本模块随 MCP manifest 的同一轮询、同一枚 capability token 拉取
-云端技能清单（``/v1/desktop/capability/skills/manifest``），把清单里每个技能
-的完整 zip 包落到 ``get_cloud_skills_dir()/<skill_id>/``，并镜像一份到共享
-沙箱技能目录，使其在沙箱里同样出现在 ``/workspace/skills/<skill_id>``。
+云端技能清单（``/v1/desktop/capability/skills/manifest``），把它写成**账号
+安装意图**（``device_capability_installations``，profile = 当前云端账号）：
 
-- 云端技能目录以最高优先级注册为技能来源（见 ``agent_skills.config``），
-  同 id 的本机内置 / 本机库技能被云端版本覆盖；
-- 启用清单以云端为准：云端可见但当前停用的 id（``suppressed_ids``）在本机
-  一并停掉，云端启用的 id 追加到清单尾部；本机独有的技能原样保留；
-- 云端断线时保留上一份快照继续可用；切换账号时整目录清空。
+- 清单里新出现的技能记为 ``pending``（待下载），**不自动下载**——用户在能力
+  中心点「在本机准备」，或安装时前端显式调用准备接口；
+- 本机已就绪（ready）而云端内容哈希变了的技能，属于「本设备已安装」，自动
+  拉新版本到新的 revision 目录并切换视图；
+- 云端停用（``suppressed_ids``）的技能在本机置为停用，文件保留；
+- 从清单消失的技能撤销运行授权；历史 revision 留给运行记录与恢复。
+
+下载的包先落 staging，解压后按同一哈希算法核对内容，再以 ``os.replace`` 发布
+成不可变 revision；视图联接在索引提交后重建。切换账号不删文件——另一个账号
+的 profile 目录本就隔离，只重建当前用户的视图。
 """
 
 from __future__ import annotations
 
 import copy
-import json
 import logging
-import os
-import shutil
 import threading
-from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from core.capabilities import registry, skills, store, manifest_order
+from core.capabilities.errors import CloudUnavailable, IntegrityFailed, PackageMissing
+from core.capabilities.paths import KIND_SKILL, capabilities_enabled, revision_for_hash
+from core.capabilities.ref import cloud_ref, profile_id
 
 logger = logging.getLogger(__name__)
 
-INDEX_NAME = ".cloud_index.json"
-
 _lock = threading.Lock()
-_sync_lock = threading.Lock()  # one reconcile at a time: staging dirs and index writes
+_sync_lock = threading.Lock()  # one reconcile at a time
 _manifest: Optional[Dict[str, Any]] = None
-_index: Optional[Dict[str, str]] = None  # skill_id → content_hash of the files on disk
 _error: Optional[str] = None
 
 
-def _root() -> Path:
-    from core.agent_skills.config import get_cloud_skills_dir
+def _profile(state: Dict[str, Any]) -> str:
+    from core.services.desktop_capability_protocol import token_subject
 
-    return get_cloud_skills_dir()
-
-
-def _load_index(root: Path) -> Dict[str, str]:
-    try:
-        raw = json.loads((root / INDEX_NAME).read_text(encoding="utf-8"))
-        return {
-            str(k): str(v)
-            for k, v in (raw or {}).items()
-            if isinstance(k, str) and isinstance(v, str) and (root / k / "SKILL.md").is_file()
-        }
-    except Exception:  # noqa: BLE001 - a missing/corrupt index means "nothing installed"
-        return {}
+    subject = token_subject(str(state.get("token") or ""))
+    if not subject:
+        raise CloudUnavailable("capability token carries no subject; cannot map an account profile")
+    return profile_id(str(state["cloud_base"]), subject)
 
 
-def _save_index(root: Path, index: Dict[str, str]) -> None:
-    (root / INDEX_NAME).write_text(
-        json.dumps(index, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8"
-    )
+def _headers(state: Dict[str, Any]) -> Dict[str, str]:
+    from core.services.desktop_cloud_bridge import cloud_headers
+    return cloud_headers(state)
 
 
-def _current_index() -> Dict[str, str]:
-    global _index
-    with _lock:
-        if _index is None:
-            _index = _load_index(_root())
-        return dict(_index)
-
-
-def _safe_skill_dir(root: Path, skill_id: str) -> Optional[Path]:
-    name = (skill_id or "").strip()
-    if not name or name.startswith(".") or "/" in name or "\\" in name or name in (".", ".."):
-        return None
-    return root / name
-
-
-def _write_bundle(root: Path, skill_id: str, data: bytes) -> None:
-    from core.agent_skills.binary_files import decode_binary, is_binary_value
-    from core.services.marketplace_service import parse_skill_zip
-
-    target = _safe_skill_dir(root, skill_id)
-    if target is None:
-        raise ValueError(f"unsafe skill id: {skill_id!r}")
-    parsed = parse_skill_zip(data)
-    staging = root / f".{skill_id}.staging"
-    shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir(parents=True)
-    (staging / "SKILL.md").write_text(str(parsed.get("skill_content") or ""), encoding="utf-8")
-    for rel, body in (parsed.get("extra_files") or {}).items():
-        parts = Path(str(rel)).parts
-        if not parts or ".." in parts or Path(str(rel)).is_absolute():
-            continue
-        path = staging.joinpath(*parts)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if is_binary_value(body):
-            path.write_bytes(decode_binary(body))
-        else:
-            path.write_text(str(body), encoding="utf-8")
-    shutil.rmtree(target, ignore_errors=True)
-    os.replace(staging, target)
-
-
-def _mirror(root: Path, skill_id: str) -> None:
-    """Copy the cloud snapshot into the shared sandbox dir (what sandboxes mount)."""
-    from core.agent_skills.config import get_sandbox_skills_dir
-
-    src = _safe_skill_dir(root, skill_id)
-    if src is None or not src.is_dir():
-        return
-    dest = get_sandbox_skills_dir() / skill_id
-    shutil.rmtree(dest, ignore_errors=True)
-    shutil.copytree(src, dest)
-
-
-def _unmirror(skill_id: str) -> None:
-    """Drop the shared copy; a same-id built-in bundle takes the slot back."""
-    from core.agent_skills.config import _builtin_skills_dir, get_sandbox_skills_dir
-
-    dest = get_sandbox_skills_dir() / skill_id
-    shutil.rmtree(dest, ignore_errors=True)
-    builtin = _builtin_skills_dir() / skill_id
-    if builtin.is_dir():
-        shutil.copytree(
-            builtin, dest, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc")
-        )
-
-
-def _remove(root: Path, skill_id: str) -> None:
-    target = _safe_skill_dir(root, skill_id)
-    if target is not None:
-        shutil.rmtree(target, ignore_errors=True)
-    _unmirror(skill_id)
-
-
-def _reconcile(
-    manifest: Dict[str, Any], cloud_base: str, headers: Dict[str, str], *, full_mirror: bool
-) -> bool:
-    """Bring local files in line with ``manifest``; returns whether anything changed."""
-    global _index
-    import httpx
-    from core.agent_skills.config import get_sandbox_skills_dir
-
-    root = _root()
-    shared = get_sandbox_skills_dir()
-    index = _current_index()
-    wanted = {s["skill_id"]: s["content_hash"] for s in manifest["skills"]}
-    changed = False
-
-    for sid in [sid for sid in index if sid not in wanted]:
-        _remove(root, sid)
-        index.pop(sid, None)
-        changed = True
-
-    for sid, content_hash in wanted.items():
-        if index.get(sid) == content_hash and (root / sid / "SKILL.md").is_file():
-            # Startup re-syncs built-ins over the shared dir and prunes unknown
-            # dirs there, so the mirror is re-asserted on every full pass.
-            if full_mirror or not (shared / sid / "SKILL.md").is_file():
-                _mirror(root, sid)
-            continue
-        try:
-            resp = httpx.get(
-                f"{cloud_base}/api/v1/desktop/capability/skills/{sid}/bundle",
-                headers=headers,
-                timeout=httpx.Timeout(60.0, connect=5.0),
-            )
-            resp.raise_for_status()
-            _write_bundle(root, sid, resp.content)
-            index[sid] = resp.headers.get("etag", "").strip().strip('"') or content_hash
-            _mirror(root, sid)
-            changed = True
-            logger.info("[cloud-skills] installed '%s' (%d bytes)", sid, len(resp.content))
-        except Exception as exc:  # noqa: BLE001 - one bad skill must not block the rest
-            logger.warning("[cloud-skills] install '%s' failed: %s", sid, exc)
-            if index.pop(sid, None) is not None:
-                changed = True
-
-    _save_index(root, index)
-    with _lock:
-        _index = dict(index)
-    return changed
-
-
-def sync_blocking(state: Dict[str, Any]) -> None:
-    """Fetch the cloud skill manifest and reconcile local files (background thread only)."""
-    global _manifest, _error
+def _fetch_manifest(state: Dict[str, Any]) -> Dict[str, Any]:
     import httpx
     from core.services.desktop_capability_protocol import validate_skill_manifest
 
-    cloud_base = str(state["cloud_base"])
-    headers = {"Authorization": f"Bearer {state['token']}"}
-    with _sync_lock:
-        with _lock:
-            current = copy.deepcopy(_manifest)
-        request_headers = dict(headers)
-        if current:
-            request_headers["If-None-Match"] = f'"{current["revision"]}"'
-        try:
-            resp = httpx.get(
-                f"{cloud_base}/api/v1/desktop/capability/skills/manifest",
-                headers=request_headers,
-                timeout=httpx.Timeout(10.0, connect=5.0),
-            )
-            if resp.status_code == 304 and current:
-                manifest = current
-                full_mirror = False
-            else:
-                resp.raise_for_status()
-                body = resp.json()
-                manifest = validate_skill_manifest(
-                    body.get("data") if isinstance(body, dict) else None
-                )
-                full_mirror = True
-            changed = _reconcile(manifest, cloud_base, headers, full_mirror=full_mirror)
+    ticket = manifest_order.begin(KIND_SKILL, _profile(state))
+    with _lock:
+        current = copy.deepcopy(_manifest)
+    headers = _headers(state)
+    if current:
+        headers["If-None-Match"] = f'"{current["revision"]}"'
+    resp = httpx.get(
+        f"{state['cloud_base']}/api/v1/desktop/capability/skills/manifest",
+        headers=headers,
+        timeout=httpx.Timeout(10.0, connect=5.0),
+    )
+    if resp.status_code == 304 and current:
+        return manifest_order.stamp(current, ticket)
+    resp.raise_for_status()
+    body = resp.json()
+    return manifest_order.stamp(validate_skill_manifest(body.get("data") if isinstance(body, dict) else None), ticket)
+
+
+def _reconcile_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
+    """Atomically gate intent/cache publication against newer in-flight requests."""
+    global _manifest, _error
+    from core.services.desktop_cloud_bridge import account_scope
+
+    with account_scope(state):
+        with manifest_order.apply(KIND_SKILL, _profile(state), manifest):
+            updates = _apply_intent(manifest, state)
             with _lock:
-                _manifest = manifest
-                _error = None
+                _manifest, _error = manifest, None
+            return updates
+
+
+def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
+    """Write current intent while the account and manifest publication locks are held."""
+    profile = _profile(state)
+    cloud_base = str(state["cloud_base"])
+    wanted = {s["skill_id"]: s for s in manifest["skills"]}
+    suppressed = set(manifest["suppressed_ids"])
+    existing = {
+        inst.key: inst
+        for inst in registry.list_installations(kind=KIND_SKILL, profile_id=profile, include_removed=True)
+    }
+    needs_update: List[str] = []
+    for sid, entry in wanted.items():
+        before = existing.get(sid)
+        inst = registry.upsert(
+            profile_id=profile,
+            ref=cloud_ref(cloud_base, KIND_SKILL, sid, scope=entry["scope"]),
+            display_name=entry["display_name"],
+            description=entry["description"],
+            version=entry["version"],
+            content_hash=entry["content_hash"],
+            source="cloud",
+            payload={"scope": entry["scope"], "mcp_server_ids": list(entry["mcp_server_ids"])},
+            enabled=True,
+        )
+        if before is not None and before.ready and before.content_hash != entry["content_hash"]:
+            needs_update.append(inst.install_id)
+        elif inst.ready and inst.payload.get("update_available"):
+            needs_update.append(inst.install_id)
+    for sid, inst in existing.items():
+        if sid in wanted:
+            continue
+        if sid in suppressed:
+            if inst.state != "removed":
+                registry.set_state(inst.install_id, inst.state, payload_update={"source_enabled": False})
+                registry.set_enabled(inst.install_id, False)
+            continue
+        if inst.state != "removed":
+            registry.mark_removed(inst.install_id)
+    return needs_update
+
+
+def sync_blocking(state: Dict[str, Any]) -> None:
+    """Fetch the cloud skill manifest and reconcile intent + views (background thread only)."""
+    global _manifest, _error
+    if not capabilities_enabled():
+        with _lock:
+            _error = "capability store disabled (HUGAGENT_CAPS_ROOT unset)"
+        return
+    with _sync_lock:
+        try:
+            from core.services.desktop_cloud_bridge import account_scope
+
+            manifest = _fetch_manifest(state)
+            with account_scope(state):
+                with manifest_order.apply(KIND_SKILL, _profile(state), manifest):
+                    with _lock:
+                        changed = _manifest is None or _manifest["revision"] != manifest["revision"]
+                    updates = _reconcile_intent(manifest, state)
+        except manifest_order.StaleManifest:
+            return
         except Exception as exc:  # noqa: BLE001
+            from core.services.desktop_cloud_bridge import _state_fingerprint, get_state
+
+            if _state_fingerprint(get_state()) != _state_fingerprint(state):
+                return
             with _lock:
                 _error = str(exc)
             logger.warning("[cloud-skills] sync failed: %s", exc)
             return
-    if changed:
+        prepared = prepare(state, updates) if updates else []
+    if changed or prepared:
+        skills.bump_view_generation()
+        skills.rebuild_views(None)
         from core.agent_skills.cache_refresh import refresh_skill_caches
 
         refresh_skill_caches()
         logger.info(
-            "[cloud-skills] synced revision=%s skills=%d",
+            "[cloud-skills] synced revision=%s skills=%d auto-updated=%d",
             manifest["revision"][:12],
             len(manifest["skills"]),
+            len(prepared),
         )
 
 
+def _download(state: Dict[str, Any], skill_id: str) -> bytes:
+    import httpx
+
+    try:
+        resp = httpx.get(
+            f"{state['cloud_base']}/api/v1/desktop/capability/skills/{skill_id}/bundle",
+            headers=_headers(state),
+            timeout=httpx.Timeout(60.0, connect=5.0),
+        )
+    except httpx.HTTPError as exc:
+        raise CloudUnavailable(f"bundle download failed: {exc}", ref=skill_id) from exc
+    if resp.status_code == 404:
+        raise PackageMissing("cloud no longer offers this skill", ref=skill_id)
+    if resp.status_code >= 400:
+        raise CloudUnavailable(f"bundle download HTTP {resp.status_code}", ref=skill_id)
+    return resp.content
+
+
+def prepare_one(state: Dict[str, Any], install_id: str) -> Dict[str, Any]:
+    """Publish verified bytes for this account; failed updates keep the old revision."""
+    from core.capabilities.preparation import prepare_component
+
+    inst = registry.get(install_id)
+    if inst is None or inst.kind != KIND_SKILL:
+        raise PackageMissing("unknown skill installation", ref=install_id)
+    return prepare_component(
+        state, inst,
+        download=lambda: _download(state, inst.key),
+        content_hash=lambda comp: skills.skill_dir_hash(comp.path, fresh=True),
+    ).to_dict()
+
+
+def prepare(state: Dict[str, Any], install_ids: List[str]) -> List[Dict[str, Any]]:
+    """Prepare several installations; one failure never blocks the others."""
+    results: List[Dict[str, Any]] = []
+    for iid in install_ids:
+        try:
+            results.append({"install_id": iid, "ok": True, "installation": prepare_one(state, iid)})
+        except Exception as exc:  # noqa: BLE001
+            error = exc.to_dict() if hasattr(exc, "to_dict") else {"code": "prepare_failed", "message": str(exc)}
+            results.append({"install_id": iid, "ok": False, "error": error})
+            logger.warning("[cloud-skills] prepare '%s' failed: %s", iid, exc)
+    if any(r["ok"] for r in results):
+        skills.bump_view_generation()
+        skills.rebuild_views(None)
+        from core.agent_skills.cache_refresh import refresh_skill_caches
+
+        refresh_skill_caches()
+    return results
+
+
 def apply_to_enabled_skill_ids(skill_ids: List[str]) -> List[str]:
-    """Cloud-enabled skills replace the local view; cloud-disabled ids are removed too."""
+    """Merge this account's ready skills into the run's list; drop suppressed and conflicted names."""
     with _lock:
         manifest = _manifest
     if not manifest:
         return skill_ids
-    installed = _current_index()
-    cloud_ids = [s["skill_id"] for s in manifest["skills"] if s["skill_id"] in installed]
-    hidden = set(manifest["suppressed_ids"]) | set(cloud_ids)
+    resolution = skills.resolve_for_user(skills.current_local_user_id())
+    hidden = set(manifest["suppressed_ids"]) | set(resolution.conflicts) | set(resolution.unusable)
+    ready = [c.runtime_name for c in resolution.chosen.values() if c.source == "cloud"]
     kept = [sid for sid in skill_ids if sid not in hidden]
-    return kept + cloud_ids
+    seen = set(kept)
+    return kept + [sid for sid in ready if sid not in seen and sid not in hidden]
 
 
-def purge_all() -> None:
-    """Remove every synced skill (account switch); the next sync repopulates."""
-    global _manifest, _index, _error
-    root = _root()
-    for sid in _current_index():
-        _remove(root, sid)
-    _save_index(root, {})
+def on_account_switch() -> None:
+    """A different cloud account is now bridged: forget the old manifest, keep its files."""
+    global _manifest, _error
     with _lock:
         _manifest = None
-        _index = {}
         _error = None
+    skills.bump_view_generation()
 
 
 def status() -> Dict[str, Any]:
     with _lock:
         manifest = _manifest
         err = _error
-    installed = _current_index()
+    from core.services.desktop_cloud_bridge import get_state
+
+    st = get_state()
+    profile = None
+    installations: List[Dict[str, Any]] = []
+    if st and capabilities_enabled():
+        try:
+            profile = _profile(st)
+            installations = [
+                inst.to_dict() for inst in registry.list_installations(kind=KIND_SKILL, profile_id=profile)
+            ]
+        except CloudUnavailable as exc:
+            err = err or str(exc)
     return {
         "revision": str((manifest or {}).get("revision") or ""),
+        "profile_id": profile,
         "cloud_skill_count": len((manifest or {}).get("skills") or []),
-        "installed_count": len(installed),
+        "installed_count": sum(1 for i in installations if i["state"] == "ready"),
+        "pending_count": sum(1 for i in installations if i["state"] == "pending"),
         "suppressed_count": len((manifest or {}).get("suppressed_ids") or []),
-        "skills": [
-            {
-                "skill_id": s["skill_id"],
-                "display_name": s["display_name"],
-                "scope": s["scope"],
-                "installed": s["skill_id"] in installed,
-            }
-            for s in ((manifest or {}).get("skills") or [])
-        ],
+        "installations": installations,
         "last_error": err,
     }
 
 
 def reset_for_tests() -> None:  # pragma: no cover - 仅测试用
-    global _manifest, _index, _error
+    global _manifest, _error
     with _lock:
         _manifest = None
-        _index = None
         _error = None

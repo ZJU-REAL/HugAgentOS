@@ -14,7 +14,6 @@ from pathlib import Path
 REQUIRED_MODULES = (
     "agentscope",
     "fastapi",
-    "fakeredis",
     "httpx",
     "mcp",
     "numpy",

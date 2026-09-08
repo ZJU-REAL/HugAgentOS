@@ -84,6 +84,30 @@ def _provider_context_metadata(
     }
 
 
+
+def _safe_exception_chain(exc: BaseException) -> list[dict[str, str]]:
+    """Identify wrapped SDK failures without serializing messages or requests."""
+    from core.capabilities.errors import CapabilityError
+
+    known_codes = {
+        "capability_error", "package_missing", "name_conflict", "view_unavailable",
+        "integrity_failed", "install_conflict", "cloud_unavailable",
+        "permission_denied", "dependency_missing",
+    }
+    chain: list[dict[str, str]] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and len(chain) < 8 and id(current) not in seen:
+        seen.add(id(current))
+        kind = type(current)
+        entry = {"type": f"{kind.__module__}.{kind.__qualname__}"}
+        if isinstance(current, CapabilityError) and kind.code in known_codes:
+            entry["code"] = kind.code
+        chain.append(entry)
+        current = current.__cause__ or current.__context__
+    return chain
+
+
 def _is_multimodal_unsupported_error(exc: Exception) -> bool:
     """Whether an OpenAI-compatible endpoint explicitly rejected media input."""
     message = str(exc).lower()
@@ -606,6 +630,7 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
         except Exception as exc:
             from core.llm.model_usage import record_provider_failure
 
+            logger.warning("Model request failed: exception_chain=%s", _safe_exception_chain(exc))
             await record_provider_failure(
                 self,
                 model_name,
@@ -672,8 +697,100 @@ class OpenAICompatChatModel(StructuredFallbackMixin, OpenAIChatModel):
             audio_cfg.get("format", "wav") if isinstance(audio_cfg, dict) else "wav"
         )
         if self.stream:
-            return self._parse_stream_response(start_datetime, response, audio_fmt)
+            return _stream_with_bounded_retry(
+                self,
+                client=client,
+                kwargs=kwargs,
+                model_name=model_name,
+                start_datetime=start_datetime,
+                response=response,
+                audio_fmt=audio_fmt,
+                request_started=_usage_started,
+            )
         return self._parse_completion_response(start_datetime, response, audio_fmt)
+
+
+def _is_retryable_stream_start_error(exc: BaseException) -> bool:
+    """Whether a failure *before the first stream event* may be answered by one more attempt.
+
+    Classified by exception type, never by message text: transport drops,
+    timeouts, 429 and 5xx are transient by definition, and a bare ``APIError``
+    is how the OpenAI client surfaces an error event the provider put inside the
+    SSE stream. Every other status error describes the request itself (auth,
+    bad request, not found) and repeating it would only repeat the answer.
+    """
+    import openai
+
+    if isinstance(exc, (openai.APIConnectionError, openai.RateLimitError, openai.InternalServerError)):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        return False
+    return type(exc) is openai.APIError
+
+
+async def _stream_with_bounded_retry(
+    model,
+    *,
+    client,
+    kwargs: dict,
+    model_name: str,
+    start_datetime: datetime,
+    response,
+    audio_fmt: str,
+    request_started: float,
+):
+    """Yield the parsed stream; re-issue the request once if it fails before its first event.
+
+    A streaming completion is a read-only call and stays idempotent until the
+    first chunk has been consumed, so exactly one more attempt is made at that
+    point (bounded retry, see the capability plan's call rules). A failure after
+    the first chunk, or one that is not transient, propagates unchanged — the
+    run then ends with a structured error rather than a fabricated reply.
+    """
+    gen = model._parse_stream_response(start_datetime, response, audio_fmt)
+    try:
+        first = await gen.__anext__()
+    except StopAsyncIteration:
+        return
+    except Exception as exc:  # noqa: BLE001 - classified below
+        if not _is_retryable_stream_start_error(exc):
+            raise
+        from core.llm.model_usage import note_provider_retry_started, record_provider_failure
+
+        await record_provider_failure(
+            model,
+            model_name,
+            exc,
+            started=request_started,
+            provider=model.provider_id,
+            metadata={"fallback": "stream_start_retry"},
+        )
+        logger.warning(
+            "Model %s stream failed before its first event (%s); retrying once",
+            model_name,
+            type(exc).__name__,
+        )
+        retry_started = _monotonic()
+        note_provider_retry_started(model, model_name, retry_started)
+        try:
+            response = await client.chat.completions.create(**kwargs)
+            gen = model._parse_stream_response(datetime.now(), response, audio_fmt)
+            first = await gen.__anext__()
+        except StopAsyncIteration:
+            return
+        except Exception as retry_exc:  # noqa: BLE001 - recorded, then surfaced
+            await record_provider_failure(
+                model,
+                model_name,
+                retry_exc,
+                started=retry_started,
+                provider=model.provider_id,
+                metadata={"fallback": "stream_start_retry_failed"},
+            )
+            raise
+    yield first
+    async for item in gen:
+        yield item
 
 
 # Shared per-event-loop, per-timeout httpx clients. A model instance is built
@@ -698,7 +815,7 @@ _POOL_LIMITS = httpx.Limits(
 )
 
 
-def _make_http_client(timeout: int) -> httpx.AsyncClient:
+def _make_http_client(timeout: int, *, desktop_reference: str = "", base_url: str = "") -> httpx.AsyncClient:
     import asyncio
 
     base_t = float(timeout) if timeout else 120.0
@@ -709,7 +826,15 @@ def _make_http_client(timeout: int) -> httpx.AsyncClient:
         # since we can't tell which loop will end up driving this client.
         loop_key = 0
 
-    key = (loop_key, base_t)
+    hooks = {}
+    identity = ""
+    if desktop_reference:
+        from core.services.desktop_model_credentials import request_hook
+        from core.services.desktop_cloud_bridge import _state_fingerprint
+        hook, captured = request_hook(desktop_reference, base_url)
+        identity = (desktop_reference, base_url, _state_fingerprint(captured))
+        hooks = {"request": [hook]}
+    key = (loop_key, base_t, identity)
     client = _HTTP_CLIENTS.get(key)
     if client is not None and not client.is_closed:
         return client
@@ -722,6 +847,7 @@ def _make_http_client(timeout: int) -> httpx.AsyncClient:
             pool=base_t,
         ),
         limits=_POOL_LIMITS,
+        event_hooks=hooks,
     )
     if loop_key:
         _HTTP_CLIENTS[key] = client
@@ -773,7 +899,7 @@ def _make_openai_compatible(
         model=actual_model or "dummy-model",
         parameters=parameters,
         stream=stream,
-        http_client=_make_http_client(timeout),
+        http_client=_make_http_client(timeout, desktop_reference=api_key if api_key.startswith("desktop-capability:") else "", base_url=base_url),
         context_size=context_size,
         provider_id=spec.id,
         extra_body=extra_body,

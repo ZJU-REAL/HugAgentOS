@@ -20,9 +20,9 @@
   第三方密钥不出云端；
 - 网关按「该用户当前有效能力集」授权 server_id，未命中一律 404（不区分
   不存在/无权）；身份头由网关覆写，客户端伪造的 X-Current-User-Id 不生效；
-- cloud-bridge 接收端复用 require_config（桌面壳持有本机实例的 CONFIG_TOKEN
-  即桥接秘密），且仅在桌面桥进程（HUGAGENT_DESKTOP_BRIDGE_SECRET 已注入）
-  下开放，云端部署恒 403。
+- cloud-bridge 接收端只认桌面壳 Bearer 进程秘密，不以用户管理权限替代；
+  仅在桌面桥进程（HUGAGENT_DESKTOP_BRIDGE_SECRET 已注入）下开放，
+  浏览器 Origin 请求拒绝，云端部署恒 403。
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ import time
 from typing import Optional
 
 import httpx
-from api.deps import require_config
 from core.auth.backend import UserContext, get_current_user
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -64,13 +63,35 @@ def _client() -> httpx.AsyncClient:
 # ── token 签发（云端，会话鉴权） ────────────────────────────────────────
 
 
-@router.post("/token", summary="签发桌面能力令牌")
-async def issue_token(user: UserContext = Depends(get_current_user)):
-    """桌面壳用云端登录会话换取短时 capability token，再下发给本机后端。"""
-    from core.services.desktop_capability import issue_capability_token
+class CapabilityTokenBody(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
-    data = issue_capability_token(str(user.user_id))
-    logger.info("[desktop-capability] token issued for user=%s", user.user_id)
+
+@router.post("/token", summary="签发桌面能力令牌")
+async def issue_token(body: CapabilityTokenBody, request: Request, response: Response):
+    """Only an actual live cloud cookie session can mint a desktop credential."""
+    from core.auth.session import validate_session
+    from core.config.settings import settings
+    from core.services.desktop_capability import (
+        issue_capability_token, session_authorization_epoch,
+    )
+    import hashlib
+
+    cookie = request.cookies.get(settings.session.cookie_name, "")
+    try:
+        current = await validate_session(cookie) if cookie else None
+    except Exception:
+        current = None
+    if (not current or not current.get("user_id") or not current.get("user_center_id")
+            or not session_authorization_epoch(current)):
+        raise HTTPException(status_code=401, detail="valid cloud session required")
+    data = issue_capability_token(
+        str(current["user_id"]), device_id=body.device_id,
+        issuer=str(request.base_url), session_hash=hashlib.sha256(cookie.encode()).hexdigest(),
+        authorization_epoch=session_authorization_epoch(current), user_center_id=str(current["user_center_id"]),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     return success_response(data=data)
 
 
@@ -79,16 +100,56 @@ async def issue_token(user: UserContext = Depends(get_current_user)):
 _bearer = HTTPBearer(auto_error=False)
 
 
-def _require_capability_user(
+async def _require_capability_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> str:
-    from core.services.desktop_capability import verify_capability_token
+    from core.services.desktop_capability import verify_capability_token, CAPABILITY_DEVICE_HEADER
 
     token = credentials.credentials if credentials else ""
-    user_id = verify_capability_token(token)
+    user_id = await verify_capability_token(
+        token, device_id=request.headers.get(CAPABILITY_DEVICE_HEADER, ""),
+        issuer=str(request.base_url),
+    )
     if not user_id:
         raise HTTPException(status_code=401, detail="invalid capability token")
     return user_id
+
+
+def _public_content(user_id: str, value, *, bundle: bool = False):
+    from core.services.desktop_capability import (
+        CapabilityContentRejected, guard_capability_content, guard_capability_bundle,
+    )
+    try:
+        if callable(value):
+            value = value()
+        return guard_capability_bundle(user_id, value) if bundle else guard_capability_content(user_id, value)
+    except CapabilityContentRejected:
+        raise HTTPException(status_code=422, detail={
+            "code": "integrity_failed", "message": "capability content blocked by credential policy",
+        }) from None
+
+
+def _stream_secrets(user_id: str, target: dict) -> set[str]:
+    from core.services.desktop_capability import CapabilityContentRejected, gateway_stream_secrets
+    try:
+        return gateway_stream_secrets(user_id, target)
+    except CapabilityContentRejected:
+        raise HTTPException(status_code=422, detail={"code": "integrity_failed", "message": "credential policy unavailable"}) from None
+
+
+async def _checked_upstream_bytes(upstream: httpx.Response, secrets: set[str]):
+    from core.services.desktop_capability import CapabilityContentRejected, guard_capability_stream
+    try:
+        async for chunk in guard_capability_stream(upstream.aiter_raw(), secrets):
+            yield chunk
+    except CapabilityContentRejected:
+        logger.warning("[desktop-capability] upstream content blocked code=integrity_failed")
+        # Streaming headers may already be sent. Return only a fixed diagnostic;
+        # the buffered bytes containing the credential are never released.
+        yield b'data: {"error":{"code":"integrity_failed","message":"upstream content blocked"}}\n\n'
+    finally:
+        await upstream.aclose()
 
 
 # ── manifest（云端，capability token 鉴权） ─────────────────────────────
@@ -102,7 +163,7 @@ async def get_manifest(
 ):
     from core.services.desktop_capability import build_user_capability_manifest
 
-    manifest = build_user_capability_manifest(user_id)
+    manifest = _public_content(user_id, lambda: build_user_capability_manifest(user_id))
     etag = f'"{manifest["revision"]}"'
     headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
     if request.headers.get("if-none-match") == etag:
@@ -115,7 +176,7 @@ async def get_manifest(
 async def get_model_manifest(user_id: str = Depends(_require_capability_user)):
     from core.services.desktop_capability import build_user_model_manifest
 
-    return success_response(data=build_user_model_manifest(user_id))
+    return success_response(data=_public_content(user_id, lambda: build_user_model_manifest(user_id)))
 
 
 @router.get("/skills/manifest", summary="当前用户的云端技能清单")
@@ -126,7 +187,7 @@ async def get_skill_manifest(
 ):
     from core.services.desktop_capability import build_user_skill_manifest
 
-    manifest = build_user_skill_manifest(user_id)
+    manifest = _public_content(user_id, lambda: build_user_skill_manifest(user_id))
     etag = f'"{manifest["revision"]}"'
     headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
     if request.headers.get("if-none-match") == etag:
@@ -143,7 +204,7 @@ async def get_skill_bundle(
 ):
     from core.services.desktop_capability import resolve_skill_bundle
 
-    resolved = resolve_skill_bundle(user_id, skill_id)
+    resolved = _public_content(user_id, lambda: resolve_skill_bundle(user_id, skill_id), bundle=True)
     if resolved is None:
         raise HTTPException(status_code=404, detail="skill not available")
     data, content_hash = resolved
@@ -152,6 +213,58 @@ async def get_skill_bundle(
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return Response(content=data, media_type="application/zip", headers=headers)
+
+
+def _entity_manifest_response(request: Request, response: Response, manifest: dict):
+    etag = f'"{manifest["revision"]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return success_response(data=manifest)
+
+
+def _bundle_response(request: Request, resolved):
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="not available")
+    data, content_hash = resolved
+    etag = f'"{content_hash}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type="application/zip", headers=headers)
+
+
+@router.get("/agents/manifest", summary="当前用户可见的智能体定义清单")
+async def get_agent_manifest(
+    request: Request, response: Response, user_id: str = Depends(_require_capability_user)
+):
+    from core.services.desktop_capability import build_user_agent_manifest
+
+    return _entity_manifest_response(request, response, _public_content(user_id, lambda: build_user_agent_manifest(user_id)))
+
+
+@router.get("/agents/{agent_id}/bundle", summary="下载一个智能体定义包（agent.json + instructions.md）")
+async def get_agent_bundle(agent_id: str, request: Request, user_id: str = Depends(_require_capability_user)):
+    from core.services.desktop_capability import resolve_agent_bundle
+
+    return _bundle_response(request, _public_content(user_id, lambda: resolve_agent_bundle(user_id, agent_id), bundle=True))
+
+
+@router.get("/plugins/manifest", summary="当前用户已安装插件清单")
+async def get_plugin_manifest(
+    request: Request, response: Response, user_id: str = Depends(_require_capability_user)
+):
+    from core.services.desktop_capability import build_user_plugin_manifest
+
+    return _entity_manifest_response(request, response, _public_content(user_id, lambda: build_user_plugin_manifest(user_id)))
+
+
+@router.get("/plugins/{install_id}/bundle", summary="下载一个插件定义包（plugin.json）")
+async def get_plugin_bundle(install_id: str, request: Request, user_id: str = Depends(_require_capability_user)):
+    from core.services.desktop_capability import resolve_plugin_bundle
+
+    return _bundle_response(request, _public_content(user_id, lambda: resolve_plugin_bundle(user_id, install_id), bundle=True))
 
 
 # ── MCP 网关（云端，capability token 鉴权，透明反代） ──────────────────
@@ -170,6 +283,7 @@ _DROP_REQUEST_HEADERS = {
     # 桌面桥内部头
     "x-desktop-bridge",
     "x-desktop-bridge-user",
+    "x-desktop-device-id",
     "x-hugagent-target",
     # 逐跳 / 传输层头，由 httpx 按新连接重建
     "host",
@@ -210,7 +324,7 @@ async def gateway_mcp_call(
     user_id: str = Depends(_require_capability_user),
 ):
     """Execute a currently-authorized MCP tool from the cloud network."""
-    from core.services.desktop_capability import invoke_gateway_tool, resolve_gateway_tool
+    from core.services.desktop_capability import invoke_gateway_tool, resolve_gateway_tool, CapabilityContentRejected
     from core.services.desktop_capability_protocol import CapabilityManifestStaleError
 
     try:
@@ -231,6 +345,8 @@ async def gateway_mcp_call(
     started = time.monotonic()
     try:
         result = await invoke_gateway_tool(resolved, body.arguments, runtime_headers)
+    except CapabilityContentRejected:
+        raise HTTPException(status_code=422, detail={"code": "integrity_failed", "message": "upstream content blocked"}) from None
     except asyncio.TimeoutError as exc:
         logger.warning(
             "[desktop-capability] tool call timeout user=%s server=%s tool=%s",
@@ -256,7 +372,7 @@ async def gateway_mcp_call(
         body.tool_name,
         (time.monotonic() - started) * 1000,
     )
-    return success_response(data=result)
+    return success_response(data=_public_content(user_id, result))
 
 
 @router.post(
@@ -296,6 +412,7 @@ async def gateway_model(
         # Content-Encoding 响应头的情况下把 gzip 字节直接送给 OpenAI SDK。
         "accept-encoding": "identity",
     }
+    response_secrets = _stream_secrets(user_id, target)
     client = _client()
     upstream_req = client.build_request(
         "POST",
@@ -307,10 +424,10 @@ async def gateway_model(
         upstream = await client.send(upstream_req, stream=True)
     except httpx.HTTPError as exc:
         logger.warning(
-            "[desktop-capability] model gateway upstream error user=%s provider=%s: %s",
+            "[desktop-capability] model gateway upstream error user=%s provider=%s error_type=%s",
             user_id,
             provider_id,
-            exc,
+            type(exc).__name__,
         )
         raise HTTPException(status_code=502, detail="upstream model unreachable")
 
@@ -325,7 +442,7 @@ async def gateway_model(
     if "content-type" in upstream.headers:
         response_headers["content-type"] = upstream.headers["content-type"]
     return StreamingResponse(
-        upstream.aiter_raw(),
+        _checked_upstream_bytes(upstream, response_secrets),
         status_code=upstream.status_code,
         headers=response_headers,
         background=BackgroundTask(upstream.aclose),
@@ -364,6 +481,7 @@ async def gateway_mcp(
     headers["accept-encoding"] = "identity"
 
     body = await request.body()
+    response_secrets = _stream_secrets(user_id, target)
     client = _client()
     upstream_req = client.build_request(
         request.method, target["url"], headers=headers, content=body
@@ -372,10 +490,10 @@ async def gateway_mcp(
         upstream = await client.send(upstream_req, stream=True)
     except httpx.HTTPError as exc:
         logger.warning(
-            "[desktop-capability] gateway upstream error user=%s server=%s: %s",
+            "[desktop-capability] gateway upstream error user=%s server=%s error_type=%s",
             user_id,
             server_id,
-            exc,
+            type(exc).__name__,
         )
         raise HTTPException(status_code=502, detail="upstream mcp unreachable")
 
@@ -390,7 +508,7 @@ async def gateway_mcp(
         name: upstream.headers[name] for name in _FWD_RESPONSE_HEADERS if name in upstream.headers
     }
     return StreamingResponse(
-        upstream.aiter_raw(),
+        _checked_upstream_bytes(upstream, response_secrets),
         status_code=upstream.status_code,
         headers=resp_headers,
         background=BackgroundTask(upstream.aclose),
@@ -403,7 +521,8 @@ async def gateway_mcp(
 class CloudBridgeBody(BaseModel):
     cloud_base: str = Field(..., min_length=1, description="云端后端根地址（含协议）")
     token: str = Field(..., min_length=8, description="capability token")
-    expires_in: int = Field(default=86400, ge=60, le=7 * 86400)
+    expires_in: int = Field(default=600, ge=60, le=600)
+    device_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _require_desktop_bridge_process() -> None:
@@ -413,19 +532,43 @@ def _require_desktop_bridge_process() -> None:
         raise HTTPException(status_code=403, detail="仅桌面双端本机后端可用")
 
 
+def _require_desktop_shell_control(request: Request) -> None:
+    from core.services.desktop_capability import is_desktop_shell_control
+
+    _require_desktop_bridge_process()
+    if not is_desktop_shell_control(request.headers.get("authorization", ""), request.headers.get("origin")):
+        raise HTTPException(status_code=401, detail="desktop shell authorization required")
+
+
 @router.post("/cloud-bridge", summary="推送云端能力桥配置（桌面壳 → 本机后端）")
 async def set_cloud_bridge(
     body: CloudBridgeBody,
-    _: None = Depends(require_config),
+    _: None = Depends(_require_desktop_shell_control),
 ):
     _require_desktop_bridge_process()
     from core.services.desktop_cloud_bridge import set_state
 
     base = body.cloud_base.strip().rstrip("/")
-    if not base.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="cloud_base 必须是 http(s) 地址")
-    set_state(base, body.token, body.expires_in)
+    from urllib.parse import urlsplit
+
+    try:
+        parsed = urlsplit(base)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="cloud_base 地址无效")
+    if (parsed.scheme not in ("http", "https") or not parsed.hostname
+            or parsed.username or parsed.password or parsed.query or parsed.fragment):
+        raise HTTPException(status_code=400, detail="cloud_base 必须是不含凭据的 http(s) 地址")
+    set_state(base, body.token, body.expires_in, device_id=body.device_id)
     logger.info("[cloud-bridge] 桥配置已更新（cloud_base=%s）", base)
+    return success_response(data={"ok": True})
+
+
+@router.delete("/cloud-bridge", summary="清除云端能力桥（桌面退出登录）")
+async def clear_cloud_bridge(_: None = Depends(_require_desktop_shell_control)):
+    _require_desktop_bridge_process()
+    from core.services.desktop_cloud_bridge import clear_state
+
+    clear_state()
     return success_response(data={"ok": True})
 
 
