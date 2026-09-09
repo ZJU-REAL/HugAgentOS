@@ -80,6 +80,11 @@ export const AGENT_MARKETPLACE_CATEGORIES = [
 ] as const;
 
 /** folder_id sentinel for GET /v1/artifacts: root directory only (user_folder_id IS NULL). See the backend constant of the same name in core/db/repository.py. */
+/** 从侧边栏把一段会话拖进输入框时携带的自定义拖拽类型。
+ *  侧边栏内部排序用的是 `text/plain`，两者分开：只有带这个类型的拖拽才被输入框接住，
+ *  排序拖拽经过输入框上方也不会被误认成"引用会话"。 */
+export const CHAT_REFERENCE_MIME = 'application/x-hugagent-chat';
+
 export const ROOT_FOLDER_SENTINEL = '__root__';
 
 /** OAuth 安装流程中"仍在等用户操作"的状态。回调一到后端就把状态前移，此后关闭授权窗口属于正常收尾，不能当成放弃。见 core/services/mcp_oauth_service.py。 */

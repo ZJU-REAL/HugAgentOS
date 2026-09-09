@@ -181,23 +181,19 @@ def get_sandbox_skills_dir() -> Path:
         candidate.mkdir(parents=True, exist_ok=True)
         return candidate.resolve()
     except Exception:  # noqa: BLE001 — non-Docker/local fallback
+        if explicit or os.getenv("STORAGE_PATH", "").strip():
+            raise
         fallback = Path.home() / ".cache" / "hugagent" / "skills"
         fallback.mkdir(parents=True, exist_ok=True)
         return fallback.resolve()
 
 
 def sync_builtin_skills_to_sandbox_dir() -> int:
-    """Copy built-in skill folders into the unified sandbox skills dir.
+    """Publish current shared skills at startup, honoring source priorities.
 
-    Built-in skills live in the read-only, git-tracked source tree, which we no
-    longer bind-mount into the sandbox directly (that mount couldn't also hold
-    DB skills). Instead we copy them once per startup into the unified dir so a
-    single mount exposes built-in + DB skills at the same
-    ``/workspace/skills/<id>`` path. Cheap (~3 MB); idempotent — overlays each
-    skill dir so edits propagate on restart. Returns the number copied.
+    Reconcile complete file trees rather than overlaying bundled files on DB
+    overrides. Returns the number of configured built-in source entries.
     """
-    import shutil
-
     from core.capabilities.paths import capabilities_enabled
 
     if capabilities_enabled():
@@ -209,28 +205,15 @@ def sync_builtin_skills_to_sandbox_dir() -> int:
         logger.info("[skills-sync] device view rebuilt → %s", report.view_dir)
         return len(report.linked) + len(report.relinked)
 
-    dest_root = get_sandbox_skills_dir()  # guaranteed to exist
+    from .publication import prepare_skill_view
 
-    count = 0
-    for src in get_default_skill_sources():
-        if src.name != "built-in" or not src.root_dir.is_dir():
-            continue
-        for skill_dir in sorted(src.root_dir.iterdir()):
-            if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
-                continue
-            dest = dest_root / skill_dir.name
-            try:
-                shutil.copytree(
-                    skill_dir,
-                    dest,
-                    dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
-                )
-                count += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[skills-sync] copy '%s' failed: %s", skill_dir.name, exc)
-    logger.info("[skills-sync] synced %d built-in skills → %s", count, dest_root)
-    return count
+    # Startup is a publisher too: resolve DB overrides and retired bundles
+    # under the same lock as every other writer.
+    prepare_skill_view()
+    return sum(
+        1 for src in get_default_skill_sources() if src.name == "built-in"
+        for path in src.root_dir.glob("*/SKILL.md")
+    )
 
 
 # ── 技能文件在沙箱里的两层布局 ────────────────────────────────────────────
@@ -256,15 +239,17 @@ def get_user_skills_root() -> Path:
         # Desktop store: user views link straight into the store, no shared hop.
         return root
     link = root / SHARED_LINK_NAME
-    # Relative so the same link works from the host, from inside a sandbox and
-    # from the script-runner container — see the layout note above.
+    expected = Path("..") / shared.name
+    if link.is_symlink() and link.readlink() != expected:
+        link.unlink()
     if not link.is_symlink():
+        if link.exists():
+            raise ValueError("Shared skill view link is occupied by an unmanaged directory")
         try:
-            link.symlink_to(Path("..") / shared.name, target_is_directory=True)
+            link.symlink_to(expected, target_is_directory=True)
         except FileExistsError:
-            pass
-        except OSError as exc:  # noqa: BLE001
-            logger.warning("[skills-view] shared link creation failed: %s", exc)
+            if not link.is_symlink() or link.readlink() != expected:
+                raise
     return root
 
 
@@ -283,12 +268,20 @@ def get_user_skills_dir(user_id: Optional[str]) -> Optional[Path]:
     name = _safe_dir_name(user_id)
     if not name:
         return None
-    return get_user_skills_root() / name
+    path = get_user_skills_root() / name
+    if path.is_symlink():
+        raise ValueError("User skill directory must not redirect to another directory")
+    return path
 
 
 def skill_files_dir(skill_id: str, owner_user_id: Optional[str] = None) -> Path:
     """Where a skill's files are materialized: the owner's dir for private skills, the shared dir otherwise."""
+    from .publication import safe_skill_id
+
+    safe_skill_id(skill_id)
     owner_dir = get_user_skills_dir(owner_user_id)
+    if owner_user_id and owner_dir is None:
+        raise ValueError("Private skill owner cannot be mapped to a safe directory")
     return (owner_dir if owner_dir is not None else get_sandbox_skills_dir()) / skill_id
 
 
@@ -321,13 +314,8 @@ def sync_user_skill_view(user_id: Optional[str]) -> Optional[Path]:
             (view / name).symlink_to(Path("..") / SHARED_LINK_NAME / name, target_is_directory=True)
         except FileExistsError:  # a real dir of the same name wins (private skill)
             pass
-        except OSError as exc:  # noqa: BLE001
-            logger.warning("[skills-view] link '%s' failed: %s", name, exc)
     for name in have - wanted:
-        try:
-            (view / name).unlink()
-        except OSError as exc:  # noqa: BLE001
-            logger.warning("[skills-view] unlink stale '%s' failed: %s", name, exc)
+        (view / name).unlink()
     return view
 
 
@@ -344,8 +332,6 @@ def purge_skill_sandbox_files(skill_id: str) -> bool:
     owner is not needed — a skill id is unique, so we clear it from the shared
     dir and from every user dir.
     """
-    import shutil
-
     skill_id = (skill_id or "").strip()
     if not skill_id or "/" in skill_id or "\\" in skill_id or skill_id.startswith("."):
         return False
@@ -360,24 +346,19 @@ def purge_skill_sandbox_files(skill_id: str) -> bool:
         rebuild_views(None)
         return removed
 
-    removed = False
-    roots = [get_sandbox_skills_dir()] + [
-        d for d in get_user_skills_root().iterdir() if d.is_dir() and not d.is_symlink()
-    ]
-    for root in roots:
-        target = root / skill_id
-        try:
-            if target.is_symlink():  # a view link to a shared skill, not this skill's files
-                continue
-            if not target.is_dir() or target.resolve().parent != root.resolve():
-                continue
-            shutil.rmtree(target)
-            removed = True
-        except OSError as exc:  # noqa: BLE001 — cleanup must never fail a deletion
-            logger.warning("[skills-purge] remove '%s' from %s failed: %s", skill_id, root, exc)
-    if removed:
-        logger.info("[skills-purge] removed sandbox files for skill '%s'", skill_id)
-    return removed
+    from .publication import publication_lock, remove_entry
+
+    with publication_lock():
+        removed = False
+        roots = [get_sandbox_skills_dir()] + [
+            d for d in get_user_skills_root().iterdir() if d.is_dir() and not d.is_symlink()
+        ]
+        for root in roots:
+            target = root / skill_id
+            if target.exists() or target.is_symlink():
+                remove_entry(target)
+                removed = True
+        return removed
 
 
 def _builtin_skills_dir() -> Path:
@@ -385,6 +366,13 @@ def _builtin_skills_dir() -> Path:
 
 
 def prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:
+    from .publication import publication_lock
+
+    with publication_lock():
+        return _prune_orphan_sandbox_skill_dirs(live_skill_owners)
+
+
+def _prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:
     """Drop materialized dirs that no longer match a live skill, returning the number removed.
 
     Sweeps three kinds of leftovers: skills deleted before the purge-on-delete
@@ -412,7 +400,7 @@ def prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:
         # Only skills with no owner belong in the shared dir.
         if entry.name in live_skill_owners and not live_skill_owners[entry.name]:
             continue
-        shutil.rmtree(entry, ignore_errors=True)
+        shutil.rmtree(entry)
         removed += 1
 
     for user_dir in get_user_skills_root().iterdir():
@@ -423,7 +411,7 @@ def prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:
                 continue
             if live_skill_owners.get(entry.name) == user_dir.name:
                 continue
-            shutil.rmtree(entry, ignore_errors=True)
+            shutil.rmtree(entry)
             removed += 1
 
     if removed:

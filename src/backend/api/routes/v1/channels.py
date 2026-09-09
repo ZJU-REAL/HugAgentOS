@@ -10,7 +10,7 @@ See internal design docs.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -34,6 +34,8 @@ class _ResourceScope(BaseModel):
 
 
 class CreateBotRequest(BaseModel):
+    execution_location: Literal["cloud", "local"] = "cloud"
+    local_binding_id: Optional[str] = Field(None, max_length=64)
     channel_type: str = Field("lark", description="渠道类型")
     app_id: str = Field(..., description="应用 App ID", max_length=128)
     app_secret: str = Field(..., description="应用 App Secret")
@@ -101,7 +103,17 @@ async def list_my_bots(
     bot（设置「我的机器人」用）；都不传 → 全部。"""
     svc = ChannelService(db)
     bots = svc.list_bots(str(user.user_id), agent_id=agent_id, main_only=main_only)
-    return success_response(data={"bots": [bot_to_dict(b) for b in bots]})
+    from core.services.channel_relay import ChannelRelayService, execution
+    relay = ChannelRelayService(db)
+    return success_response(data={"bots": [
+        {
+            **bot_to_dict(bot),
+            "device_online": (
+                relay.online(execution(bot).get("binding_id")) if execution(bot) else None
+            ),
+        }
+        for bot in bots
+    ]})
 
 
 @router.get("/conversations", summary="我的渠道会话（供定时投递选择目标）")
@@ -120,6 +132,9 @@ async def create_bot(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from core.infra.exceptions import BadRequestError
+    if (body.execution_location == "local") != bool(body.local_binding_id):
+        raise BadRequestError("选择本机需要当前桌面设备授权")
     svc = ChannelService(db)
     conn = await svc.create_bot(
         str(user.user_id),
@@ -134,6 +149,7 @@ async def create_bot(
         resource_scope=body.resource_scope.model_dump() if body.resource_scope else None,
         agent_id=body.agent_id,
         group_listen_mode=body.group_listen_mode,
+        local_binding_id=body.local_binding_id,
     )
     data = bot_to_dict(conn)
     # In webhook mode, echo back the callback address for the user to fill into the channel backend.
@@ -190,11 +206,16 @@ async def test_bot(
 @router.post("/weixin/bind/start", summary="微信扫码绑定：取二维码")
 async def weixin_bind_start(
     agent_id: Optional[str] = None,
+    execution_location: Literal["cloud", "local"] = "cloud",
+    local_binding_id: Optional[str] = None,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     svc = ChannelService(db)
-    data = await svc.start_weixin_bind(str(user.user_id), agent_id=agent_id)
+    from core.infra.exceptions import BadRequestError
+    if (execution_location == "local") != bool(local_binding_id):
+        raise BadRequestError("选择本机需要当前桌面设备授权")
+    data = await svc.start_weixin_bind(str(user.user_id), agent_id=agent_id, local_binding_id=local_binding_id)
     return success_response(data=data)
 
 

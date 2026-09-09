@@ -3701,6 +3701,19 @@ async def recover_orphan_runs() -> int:
     """Recover claimable runs from their last committed database safe point."""
     from core.services.tool_effect_ledger import ToolEffectJournal, recover_incomplete_tool_effects
 
+    # Desktop channel runs require a live device lease and a scoped I/O adapter.
+    # Neither survives process restart. Fail closed before any tool-effect recovery.
+    with SessionLocal() as db:
+        local_channel_runs = [
+            (run.run_id, run.chat_id)
+            for run in db.query(ChatRun).filter(ChatRun.status.in_(_LIVE_STATUSES)).all()
+            if (run.request_payload or {}).get("source") == "desktop_channel"
+            and run.run_id not in _active_runs
+        ]
+    for run_id, chat_id in local_channel_runs:
+        if _journal().cancel(run_id, reason="desktop channel lease cannot survive process restart"):
+            await _write_terminal_to_stream(run_id, chat_id=chat_id,
+                error_text="本机机器人执行已中断，请检查结果后从渠道重新发起", cancelled=True)
     effect_decisions = await recover_incomplete_tool_effects(
         journal=ToolEffectJournal(SessionLocal)
     )
@@ -3757,7 +3770,8 @@ async def recover_orphan_runs() -> int:
                 chat_id=decision.chat_id or "",
                 error_text="服务重启发生在任务准备完成前，请重新发起",
             )
-    recovered_count = len({item.run_id for item in decisions} | effect_attention_runs)
+    recovered_count = len({item.run_id for item in decisions} | effect_attention_runs
+        | {run_id for run_id, _ in local_channel_runs})
     if recovered_count:
         logger.info("chat_run_orphan_recovered", count=recovered_count)
     return recovered_count
@@ -3780,6 +3794,8 @@ def _register_recovered_chat(decision: RecoveryDecision) -> bool:
         return False
     owner = _new_worker_owner(decision.run_id)
     recovered_run = get_run(decision.run_id)
+    if recovered_run and (recovered_run.request_payload or {}).get("source") == "desktop_channel":
+        return False
     _register_run_task(
         decision.run_id,
         _run_workflow(

@@ -8,6 +8,7 @@ import { useLoopStore } from '../stores/loopStore';
 import type { LoopPlanReq } from '../stores/loopStore';
 import { processChatStream } from './chatStream';
 import type { ChatItem, ChatMessage } from '../types';
+import { newMessageUid } from '../utils/messageIdentity';
 
 /**
  * SSE stream processing for the autonomous loop: the worker's body/thinking/tools
@@ -107,7 +108,7 @@ export async function sendLoopMode(
   if (!directMessage) setInput('');
 
   // 1) Optimistically render the user objective (the assistant placeholder bubble is created by the unified stream processor)
-  const userMsg: ChatMessage = { role: 'user', content: msg, isMarkdown: false, ts: Date.now() };
+  const userMsg: ChatMessage = { role: 'user', content: msg, isMarkdown: false, uid: newMessageUid(), ts: Date.now() };
   updateStore((prev) => {
     const c = prev.chats[currentChatId];
     const nextChat: ChatItem = {

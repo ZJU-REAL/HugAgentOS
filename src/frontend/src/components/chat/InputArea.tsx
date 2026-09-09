@@ -6,7 +6,7 @@ import {
   FileImageOutlined, FileTextOutlined, CloudDownloadOutlined,
   AppstoreOutlined, FolderOutlined, FolderOpenOutlined, FolderAddOutlined, RobotOutlined,
   OrderedListOutlined, ThunderboltOutlined, ApiOutlined, SyncOutlined, PartitionOutlined,
-  LaptopOutlined, CloseOutlined, LinkOutlined,
+  LaptopOutlined, CloseOutlined, LinkOutlined, MessageOutlined,
 } from '@ant-design/icons';
 import { useChatStore, useFileStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
@@ -20,8 +20,8 @@ import { AgentIcon } from '../agent/AgentIcon';
 import { SkillAvatar } from '../catalog/skillIcons';
 import { McpIcon } from '../catalog/McpIcon';
 import { PluginAvatar } from '../catalog/PluginIconPicker';
-import { getApiUrl, createLocalProject, getProject } from '../../api';
-import type { InstalledPluginItem, ProjectDetail } from '../../types';
+import { getApiUrl, createLocalProject, getProject, listReferencableChats } from '../../api';
+import type { InstalledPluginItem, ProjectDetail, ReferencableChat } from '../../types';
 import {
   AgentMentionPopup,
   useAgentMention,
@@ -33,6 +33,7 @@ import LoopPlanBar from '../loop/LoopPlanBar';
 import { resolveBatchModeActive, resolveWorkflowModeActive } from '../../utils/chatMode';
 import { useComposerCaretScroll } from '../../hooks/useComposerCaretScroll';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
+import { CHAT_REFERENCE_MIME } from '../../utils/constants';
 import { DropOverlay } from '../common/DropOverlay';
 import { ContentErrorBoundary } from '../common';
 import { ChipChevron } from '../common/ChipChevron';
@@ -302,6 +303,7 @@ export function InputArea({
     planMode, loopMode, setLoopMode, currentChat, enterChatMode, exitChatMode,
     currentChatId, bindChatProject, unbindChatProject,
     queuedMessages, updateQueuedMessage, activeRuns,
+    referencedChats, addReferencedChat, removeReferencedChat,
   } = useChatStore();
   // Autonomous-loop capability bit (enabled by default): without permission the "autonomous loop" toggle is hidden
   const loopCapEnabled = useAuthStore((s) => s.authUser?.can_run_autonomous_loop);
@@ -415,6 +417,9 @@ export function InputArea({
     specialMode: !!(projectComposer ? activeMode : planMode || batchModeOn || workflowModeOn || loopMode),
   });
 
+  // `/` 面板里的「引用会话」候选。按当前项目范围从后端取，只含标题级信息。
+  const [referencableChats, setReferencableChats] = useState<ReferencableChat[]>([]);
+
   // `/` lists every installed/access-authorized plugin and skill. A personal
   // capability switch only controls default assembly. An off skill is attached
   // to this turn; an explicitly loaded plugin stays expanded for this chat.
@@ -454,9 +459,21 @@ export function InputArea({
         ? [{ kind: 'command', id: 'project-init', name: '/init',
             description: t('初始化指令：检查项目并创建或完善 AGENTS.md') }]
         : [];
-      return [...commands, ...pluginEntries, ...skillEntries];
+      // 已经引用过的不再出现在候选里，避免选两次只生效一次看着像没反应。
+      const referenced = new Set(referencedChats.map((c) => c.chat_id));
+      const chatEntries: SlashEntry[] = referencableChats
+        .filter((chat) => !referenced.has(chat.chat_id))
+        .map((chat) => ({
+          kind: 'chat', id: chat.chat_id, name: chat.title,
+          description: t('{count} 条 · {time}', {
+            count: String(chat.message_count ?? 0),
+            time: chat.last_active_display,
+          }),
+          chat,
+        }));
+      return [...commands, ...pluginEntries, ...skillEntries, ...chatEntries];
     },
-    [input, installedPlugins, skills, canInitProject],
+    [input, installedPlugins, skills, canInitProject, referencableChats, referencedChats],
   );
 
   // Object URLs for uploaded image files — revoked when files change.
@@ -546,6 +563,23 @@ export function InputArea({
     selectedIndex: sIdx, setSelectedIndex: setSIdx,
     handleSlashInputChange: slashInputChange, handleSlashKeyDown: slashKeyDown,
   } = useSkillSlash();
+
+  // 只在 `/` 面板打开时去取可引用会话，并跟着关键词走：不打开面板就一次请求都不发。
+  useEffect(() => {
+    if (!slashVisible) return;
+    const query = input.startsWith('/') ? input.slice(1).trim() : '';
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void listReferencableChats({
+        q: query,
+        projectId: _currentChat?.projectId,
+        excludeChatId: currentChatId,
+      })
+        .then((items) => { if (!cancelled) setReferencableChats(items); })
+        .catch(() => { if (!cancelled) setReferencableChats([]); });
+    }, query ? 200 : 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [slashVisible, input, _currentChat?.projectId, currentChatId]);
 
   // ── Sync editor text → store ──
   const syncTextRef = useRef<() => void>(() => {});
@@ -809,7 +843,21 @@ export function InputArea({
     send();
   }
 
+  /** 引用一段历史会话：只把 `/` 查询从编辑器里抹掉，引用本身以输入框上方的胶囊呈现，
+   *  不做成编辑器里的内联 chip —— 引用是"这条消息的背景"，不是正文的一部分。 */
+  function onSlashSelectChat(chat: ReferencableChat) {
+    const ed = editorRef.current;
+    if (ed) removeQueryAtCursor(ed, '/');
+    addReferencedChat(chat);
+    setSlashVisible(false);
+    syncText();
+  }
+
   function onSlashEntrySelect(entry: SlashEntry) {
+    if (entry.kind === 'chat') {
+      onSlashSelectChat(entry.chat);
+      return;
+    }
     if (entry.kind === 'command') {
       if (!canInitProject) return;
       setInput('/init');
@@ -979,9 +1027,52 @@ export function InputArea({
     );
   });
 
+  // 从侧边栏把会话拖进输入框 = 引用它。与文件拖放共用同一个落区：按拖拽携带的类型
+  // 分流，会话走引用、文件走附件，侧边栏内部的排序拖拽两者都不认。
+  const [chatDragActive, setChatDragActive] = useState(false);
+  const chatDragDepth = useRef(0);
+  const hasChatPayload = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types ?? []).includes(CHAT_REFERENCE_MIME);
+
+  const dropProps = {
+    onDragEnter: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDragEnter(e); return; }
+      e.preventDefault();
+      chatDragDepth.current += 1;
+      setChatDragActive(true);
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDragOver(e); return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDragLeave(e); return; }
+      chatDragDepth.current = Math.max(0, chatDragDepth.current - 1);
+      if (chatDragDepth.current === 0) setChatDragActive(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!hasChatPayload(e)) { dropZoneProps.onDrop(e); return; }
+      e.preventDefault();
+      chatDragDepth.current = 0;
+      setChatDragActive(false);
+      let dropped: ReferencableChat | null = null;
+      try {
+        dropped = JSON.parse(e.dataTransfer.getData(CHAT_REFERENCE_MIME)) as ReferencableChat;
+      } catch { dropped = null; }
+      if (!dropped?.chat_id) return;
+      if (dropped.chat_id === currentChatId) {
+        void message.info(t('当前会话的内容已经在上下文里，无需引用'));
+        return;
+      }
+      addReferencedChat(dropped);
+    },
+  };
+
   return (
-    <div className="jx-inputArea" {...dropZoneProps}>
+    <div className="jx-inputArea" {...dropProps}>
       <DropOverlay active={dragActive} hint={t('松开即可添加为附件')} className="jx-inputArea-dropOverlay" iconSize={20} />
+      <DropOverlay active={chatDragActive} hint={t('松开即可引用这段会话')} className="jx-inputArea-dropOverlay" iconSize={20} />
       {/* 项目页 composer 不显示云端/本机切换：会话在哪执行由项目本身决定（云端项目在云端、
           本地项目在本机），不在项目内提供切换入口 */}
       {!projectComposer && <LoopPlanBar onContinue={continueLoop} />}
@@ -1059,6 +1150,29 @@ export function InputArea({
               });
             })()}
           </AnimatePresence>
+        </div>
+      )}
+      {referencedChats.length > 0 && (
+        <div className="jx-inputQuote">
+          <div className="jx-inputQuoteBadge">{t('引用会话')}</div>
+          <div className="jx-inputRefs-list">
+            {referencedChats.map((chat) => (
+              <span
+                key={chat.chat_id}
+                className="jx-inputRefChip"
+                title={`${chat.title} · ${chat.last_active_display}`}
+              >
+                <MessageOutlined className="jx-inputRefChip-icon" />
+                <span className="jx-inputRefChip-name">{chat.title}</span>
+                <button
+                  type="button"
+                  className="jx-inputQuoteRemove jx-inputRefChip-remove"
+                  onClick={() => removeReferencedChat(chat.chat_id)}
+                  aria-label={t('移除引用')}
+                >×</button>
+              </span>
+            ))}
+          </div>
         </div>
       )}
       {quotedFollowUp && (

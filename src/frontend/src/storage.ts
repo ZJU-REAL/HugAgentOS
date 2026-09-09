@@ -1,4 +1,5 @@
 import type { Catalog, ChatMessage, ChatStore } from './types';
+import { newMessageUid } from './utils/messageIdentity';
 
 export const STORAGE_KEY = 'hugagent_ui_chat_history_v2';
 export const ENABLE_KEY = 'hugagent_ui_enabled_catalog_v1';
@@ -56,13 +57,33 @@ export function loadChatStore(userId: string | null | undefined): ChatStore {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return { chats: {}, order: [] };
     loadUnboundProjectIds(userId);
-    return stripUnboundProjects({
+    return adoptMessageIdentity(stripUnboundProjects({
       chats: parsed.chats || {},
       order: parsed.order || [],
-    });
+    }));
   } catch {
     return { chats: {}, order: [] };
   }
+}
+
+/** 旧版本写进 localStorage 的消息没有 uid（那时拿时间戳当身份）。读盘时补齐，
+ *  之后内存里的每条消息都必然带身份。已落库的按后端主键补，未落库的现发一个。 */
+function adoptMessageIdentity(store: ChatStore): ChatStore {
+  let mutated = false;
+  const chats: ChatStore['chats'] = {};
+  for (const [chatId, chat] of Object.entries(store.chats || {})) {
+    const messages: ChatMessage[] = chat?.messages || [];
+    if (messages.every((m) => !!m.uid)) {
+      chats[chatId] = chat;
+      continue;
+    }
+    mutated = true;
+    chats[chatId] = {
+      ...chat,
+      messages: messages.map((m) => (m.uid ? m : { ...m, uid: m.messageId || newMessageUid() })),
+    };
+  }
+  return mutated ? { ...store, chats } : store;
 }
 
 /** Strip `toolCall.output` from every message before persisting to

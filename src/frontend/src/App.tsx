@@ -290,7 +290,7 @@ export default function App() {
       return;
     }
     if (latestOntologyMessage) {
-      openOntologySidebar({ chatId: currentChatId, messageTs: latestOntologyMessage.ts });
+      openOntologySidebar({ chatId: currentChatId, messageUid: latestOntologyMessage.uid });
       return;
     }
     openRightSidebar();

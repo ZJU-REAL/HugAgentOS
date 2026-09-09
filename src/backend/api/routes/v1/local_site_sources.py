@@ -29,3 +29,4 @@ def list_sources(user: UserContext = Depends(get_current_user)):
 @router.post("/{site_id}/edit")
 def edit(site_id: str, user: UserContext = Depends(get_current_user)):
     return success_response(data=sources.open_editor(str(user.user_id), site_id))
+

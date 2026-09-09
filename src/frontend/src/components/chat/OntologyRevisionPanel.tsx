@@ -188,7 +188,7 @@ export function OntologyRevisionPanel({
         const chat = prev.chats[chatId];
         if (!chat) return prev;
         const messages = chat.messages.map((item) => {
-          if (item.ts !== chatMessage.ts) return item;
+          if (item.uid !== chatMessage.uid) return item;
           const preservedSegments = (item.segments || []).filter((segment) => segment.type !== 'text');
           const segments: MessageSegment[] = candidate
             ? [...preservedSegments, { type: 'text', content: candidate }]

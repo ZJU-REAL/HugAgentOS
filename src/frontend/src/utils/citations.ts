@@ -185,8 +185,8 @@ export function getCitationOutputSlice(
 export function resolveConversationCitations(
   text: string,
   messageCitations: CitationItem[],
-  allMessages: Array<{ ts: number; citations?: CitationItem[] }>,
-  currentTs: number,
+  allMessages: Array<{ uid: string; citations?: CitationItem[] }>,
+  currentUid: string,
 ): CitationItem[] {
   if (!text) return messageCitations;
 
@@ -216,7 +216,7 @@ export function resolveConversationCitations(
 
   for (let i = allMessages.length - 1; i >= 0; i--) {
     const msg = allMessages[i];
-    if (msg.ts === currentTs || !msg.citations) continue;
+    if (msg.uid === currentUid || !msg.citations) continue;
 
     for (const cit of msg.citations) {
       if (missingIds.has(cit.id) && !foundIds.has(cit.id)) {

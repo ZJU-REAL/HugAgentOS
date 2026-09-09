@@ -386,6 +386,26 @@
   background:color-mix(in srgb, var(--color-bg-container) 46%, transparent);
   border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
 }
+.jx-userRefs{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:6px;
+  margin-bottom:10px;
+}
+.jx-userRefChip{
+  max-width:200px;
+  padding:3px 9px;
+  border-radius:999px;
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  background:color-mix(in srgb, var(--color-bg-container) 46%, transparent);
+  color:color-mix(in srgb, var(--color-text-secondary) 92%, transparent);
+  font-size:12px;
+  line-height:1.5;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
 .jx-userQuoteLabel{
   font-size:11px;
   font-weight:600;
@@ -907,6 +927,43 @@ a.jx-fileCard--link:hover{
   .jx-queuedMessage-steer{
     padding:0 8px;
   }
+}
+.jx-inputRefs-list{
+  min-width:0;
+  flex:1;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+.jx-inputRefChip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  max-width:220px;
+  padding:3px 4px 3px 8px;
+  border-radius:999px;
+  border:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  background:var(--color-bg-container);
+  color:var(--color-text);
+  font-size:12px;
+  line-height:1.4;
+}
+.jx-inputRefChip-icon{
+  flex-shrink:0;
+  color:var(--color-primary-hover);
+  font-size:12px;
+}
+.jx-inputRefChip-name{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+/* 尺寸收小一档，配色沿用 .jx-inputQuoteRemove */
+.jx-inputRefChip-remove{
+  width:18px;
+  height:18px;
+  font-size:14px;
 }
 .jx-inputQuote{
   display:flex;

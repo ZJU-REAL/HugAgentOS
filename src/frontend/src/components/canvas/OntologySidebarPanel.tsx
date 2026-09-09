@@ -13,7 +13,7 @@ export function OntologySidebarPanel() {
   const dispatchProcessVisible = useUIStore((state) => state.dispatchProcessVisible);
   const message = useChatStore((state) => {
     if (!target) return undefined;
-    return state.store.chats[target.chatId]?.messages.find((item) => item.ts === target.messageTs);
+    return state.store.chats[target.chatId]?.messages.find((item) => item.uid === target.messageUid);
   });
   const bodyRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
@@ -34,7 +34,7 @@ export function OntologySidebarPanel() {
 
   useEffect(() => {
     userScrolledUpRef.current = false;
-  }, [target?.chatId, target?.messageTs]);
+  }, [target?.chatId, target?.messageUid]);
 
   useEffect(() => {
     const body = bodyRef.current;

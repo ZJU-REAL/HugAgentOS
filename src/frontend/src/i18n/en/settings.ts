@@ -414,6 +414,13 @@ export const SETTINGS_DICT: Record<string, string> = {
   // ── shared ──────────────────────────────────────────────────────────────────
   '正在退出…': 'Signing out…',
 
+  '设备在线': 'Device online',
+  '设备离线': 'Device offline',
+  '在这台电脑的默认项目中运行，无需绑定目录。机器人沿用桌面端的本地文件权限，使用者可通过机器人访问已授权的本地内容。':
+    'Runs in the default project on this computer, with no folder binding. The bot uses your desktop file permissions; people who can use it can access authorized local content.',
+  '电脑需保持在线且桌面端已登录；最小化到托盘可继续运行，离线不会自动改用云端。':
+    'Keep this computer online and the desktop signed in. It continues in the tray and never falls back to the cloud when offline.',
+  '本机服务尚未就绪，暂不可选择本机。': 'The local service is not ready yet.',
   // ── 渠道机器人（我的机器人）─────────────────────────────────────────────────
   '我的机器人': 'My Bots',
   '渠道机器人': 'Channel Bot',

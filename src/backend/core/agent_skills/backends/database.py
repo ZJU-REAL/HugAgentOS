@@ -148,6 +148,19 @@ class DatabaseBackend:
         finally:
             db.close()
 
+    def read_snapshot(self, skill_id: str) -> tuple[str, dict, str | None]:
+        """Read one current, enabled DB revision in one statement."""
+        SessionLocal, AdminSkill = self._get_session_and_model()
+        with SessionLocal() as db:
+            row = (
+                db.query(AdminSkill.skill_content, AdminSkill.extra_files, AdminSkill.owner_user_id)
+                .filter(AdminSkill.skill_id == skill_id, AdminSkill.is_enabled.is_(True))
+                .first()
+            )
+            if row is None:
+                raise FileNotFoundError(f"Active skill not found: {skill_id}")
+            return str(row.skill_content or ""), dict(row.extra_files or {}), row.owner_user_id or None
+
     def read_skill_file(self, skill_id: str) -> str:
         """Read raw SKILL.md content from DB."""
         SessionLocal, AdminSkill = self._get_session_and_model()

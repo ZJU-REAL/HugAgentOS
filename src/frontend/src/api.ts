@@ -4,7 +4,7 @@
  * Uses v1 unified response envelope.
  */
 
-import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption } from './types';
+import type { Catalog, ChatItem, ChatMessage, ChunkPreviewResult, PlanProgressState, EvolutionSummary, JobBrief, KBChunk, KBIndexMode, KBWikiStatus, WikiConfig, MemoryItem, MemoryProfile, MemoryGraphRelation, ResourceItem, AutomationTask, AutomationRun, AutomationNotification, FileConfirmInfo, FileConfirmDecision, DesignPickInfo, UserQuestionAnswer, UserQuestionRequest, OntologyAssetKind, OntologyTagOption, ReferencableChat } from './types';
 import type { EditionAuthUserFields } from './editionApiTypes';
 import type { EditionChatDetailFields, EditionCreateProjectFields } from './editionModelTypes';
 import { createEditionAccessError } from './editionAccessError';
@@ -604,6 +604,24 @@ export async function searchSessions(
   };
 }
 
+/** 可引用的历史会话（输入框 `/` 面板与拖拽落点共用）。
+ *  在项目里只返回同项目的会话；只给标题级信息，正文由智能体按需调 read_chat 读取。 */
+export async function listReferencableChats(params: {
+  q?: string;
+  projectId?: string;
+  excludeChatId?: string;
+  limit?: number;
+} = {}): Promise<ReferencableChat[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.projectId) qs.set('project_id', params.projectId);
+  if (params.excludeChatId) qs.set('exclude_chat_id', params.excludeChatId);
+  qs.set('limit', String(params.limit ?? 20));
+  const wrapped = await apiRequest<unknown>(`/v1/chats/referencable?${qs.toString()}`);
+  const data = unwrapData<{ items: ReferencableChat[] }>(wrapped);
+  return Array.isArray(data.items) ? data.items : [];
+}
+
 export async function getSession(chatId: string): Promise<ChatItem> {
   const wrapped = await apiRequest<unknown>(
     `/v1/chats/${chatId}`,
@@ -711,6 +729,7 @@ export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {
     role: String(item.role) === 'assistant' ? 'assistant' : 'user',
     content: String(item.content ?? ''),
     isMarkdown: Boolean((item.metadata as JsonObject | undefined)?.is_markdown),
+    uid: String(item.message_id),
     ts: toTimestamp(item.created_at),
     messageId: typeof item.message_id === 'string' ? item.message_id : undefined,
     citations: Array.isArray((item.metadata as JsonObject | undefined)?.citations)
@@ -3618,6 +3637,10 @@ export async function disconnectLark(): Promise<LarkStatus> {
 // ── Inbound channel bots (owner service-account model): user-created external IM bots that run under the owner's identity ──
 // Orthogonal to the "Feishu account connection" above: that is outbound (the agent operates Feishu as me), this is inbound (Feishu pushes messages to my agent).
 export interface ChannelBot {
+  execution_location?: 'local' | 'cloud';
+  device_id?: string | null;
+  device_name?: string | null;
+  device_online?: boolean | null;
   channel_id: string;
   channel_type: string;
   display_name: string;
@@ -3652,6 +3675,8 @@ export interface ChannelAdapterInfo {
 }
 
 export interface CreateChannelBotPayload {
+  execution_location?: 'local' | 'cloud';
+  local_binding_id?: string;
   channel_type: string;
   app_id: string;
   app_secret: string;
@@ -3731,8 +3756,22 @@ export interface WeixinBindStatus {
   channel_id?: string;
 }
 
-export async function startWeixinBind(agentId?: string): Promise<WeixinBindStart> {
-  const suffix = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+export async function prepareChannelLocalBinding(): Promise<{ binding_id: string; device_name: string }> {
+  if (!_hybridDual) throw new Error('本机机器人需要混合模式桌面端');
+  const result = await apiRequest<unknown>('/v1/channels/desktop/local-binding', { method: 'POST' }, 'local');
+  return unwrapData<{ binding_id: string; device_name: string }>(result);
+}
+
+export async function startWeixinBind(
+  agentId?: string, localBindingId?: string,
+): Promise<WeixinBindStart> {
+  const params = new URLSearchParams();
+  if (agentId) params.set('agent_id', agentId);
+  if (localBindingId) {
+    params.set('execution_location', 'local');
+    params.set('local_binding_id', localBindingId);
+  }
+  const suffix = params.size ? `?${params}` : '';
   const wrapped = await apiRequest<unknown>(`/v1/channels/weixin/bind/start${suffix}`, { method: 'POST' });
   return unwrapData<WeixinBindStart>(wrapped);
 }

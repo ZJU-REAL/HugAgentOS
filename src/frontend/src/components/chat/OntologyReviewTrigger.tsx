@@ -13,13 +13,13 @@ import type { OntologyGovernanceSummary } from '../../types';
 interface OntologyReviewTriggerProps {
   governance: OntologyGovernanceSummary;
   chatId: string;
-  messageTs: number;
+  messageUid: string;
 }
 
 export function OntologyReviewTrigger({
   governance,
   chatId,
-  messageTs,
+  messageUid,
 }: OntologyReviewTriggerProps) {
   const openOntology = useCanvasStore((state) => state.openOntology);
   const review = governance.review && typeof governance.review === 'object'
@@ -69,7 +69,7 @@ export function OntologyReviewTrigger({
     <button
       type="button"
       className={`jx-ontologyReviewTrigger${isStreaming ? ' is-streaming' : ''}${needsManualReview ? ' is-warning' : ''}`}
-      onClick={() => openOntology({ chatId, messageTs })}
+      onClick={() => openOntology({ chatId, messageUid })}
       aria-label={title}
     >
       <span className="jx-ontologyReviewTrigger-icon">{icon}</span>

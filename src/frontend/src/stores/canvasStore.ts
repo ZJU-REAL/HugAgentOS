@@ -13,7 +13,7 @@ export interface CanvasArtifact {
 
 export interface OntologyPanelTarget {
   chatId: string;
-  messageTs: number;
+  messageUid: string;
 }
 
 /**
